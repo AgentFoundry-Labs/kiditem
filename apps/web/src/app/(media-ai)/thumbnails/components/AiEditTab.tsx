@@ -27,7 +27,7 @@ import { ProductCard } from './ProductCard';
 import { RecomposeVariantPicker } from '@/components/thumbnails/RecomposeVariantPicker';
 import { ThumbnailStatusBadge } from './ThumbnailStatusBadge';
 import { resolveImageUrl } from '../lib/resolve-url';
-import { buildEditHref } from '@/app/thumbnail-editor/edit/lib/build-edit-href';
+import { buildEditHref } from '@/app/(media-ai)/thumbnail-editor/edit/lib/build-edit-href';
 
 type EditFilter = 'pending' | 'generating' | 'ready' | 'applied';
 

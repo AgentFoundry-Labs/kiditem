@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { ImageIcon, Zap, Loader2, CheckCircle, Wand2, Sparkles, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { QUALITY_GRADE_BG, COMPLIANCE_GRADE_COLORS } from '@/app/thumbnails/lib/grade-constants';
+import { QUALITY_GRADE_BG, COMPLIANCE_GRADE_COLORS } from '@/app/(media-ai)/thumbnails/lib/grade-constants';
 import { resolveImageUrl } from '@/lib/resolve-url';
 
 interface ProductCardProps {

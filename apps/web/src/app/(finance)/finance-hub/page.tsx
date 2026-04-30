@@ -4,11 +4,11 @@ import dynamic from 'next/dynamic';
 import { Wallet, BookOpen, Factory, Calculator, CalendarClock, HandCoins } from 'lucide-react';
 import TabLayout from '@/components/ui/TabLayout';
 
-const ManualLedgerPage = dynamic(() => import('@/app/finance-hub/components/ManualLedger'), { ssr: false });
-const ProcessingCostsPage = dynamic(() => import('@/app/finance-hub/components/ProcessingCosts'), { ssr: false });
-const ManualSettlementPage = dynamic(() => import('@/app/finance-hub/components/ManualSettlement'), { ssr: false });
-const PaymentSchedulePage = dynamic(() => import('@/app/finance-hub/components/PaymentSchedule'), { ssr: false });
-const ReceivableSchedulePage = dynamic(() => import('@/app/finance-hub/components/ReceivableSchedule'), { ssr: false });
+const ManualLedgerPage = dynamic(() => import('@/app/(finance)/finance-hub/components/ManualLedger'), { ssr: false });
+const ProcessingCostsPage = dynamic(() => import('@/app/(finance)/finance-hub/components/ProcessingCosts'), { ssr: false });
+const ManualSettlementPage = dynamic(() => import('@/app/(finance)/finance-hub/components/ManualSettlement'), { ssr: false });
+const PaymentSchedulePage = dynamic(() => import('@/app/(finance)/finance-hub/components/PaymentSchedule'), { ssr: false });
+const ReceivableSchedulePage = dynamic(() => import('@/app/(finance)/finance-hub/components/ReceivableSchedule'), { ssr: false });
 
 export default function FinanceHubPage() {
   return (

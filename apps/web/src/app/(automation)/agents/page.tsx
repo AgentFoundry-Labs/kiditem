@@ -6,13 +6,13 @@ import dynamic from 'next/dynamic';
 import { Bot, Activity, Coins, Puzzle, GitBranch, Store, ListTree } from 'lucide-react';
 import TabLayout from '@/components/ui/TabLayout';
 
-const AgentOverview = dynamic(() => import('@/app/agents/components/AgentOverview'), { ssr: false });
-const ActivityPage = dynamic(() => import('@/app/agents/activity/page'), { ssr: false });
-const TasksPage = dynamic(() => import('@/app/agents/tasks/page'), { ssr: false });
-const CostsPage = dynamic(() => import('@/app/agents/costs/page'), { ssr: false });
-const SkillsPage = dynamic(() => import('@/app/agents/skills/page'), { ssr: false });
-const WorkflowsPage = dynamic(() => import('@/app/workflows/page'), { ssr: false });
-const MarketplacePage = dynamic(() => import('@/app/marketplace/page'), { ssr: false });
+const AgentOverview = dynamic(() => import('@/app/(automation)/agents/components/AgentOverview'), { ssr: false });
+const ActivityPage = dynamic(() => import('@/app/(automation)/agents/activity/page'), { ssr: false });
+const TasksPage = dynamic(() => import('@/app/(automation)/agents/tasks/page'), { ssr: false });
+const CostsPage = dynamic(() => import('@/app/(automation)/agents/costs/page'), { ssr: false });
+const SkillsPage = dynamic(() => import('@/app/(automation)/agents/skills/page'), { ssr: false });
+const WorkflowsPage = dynamic(() => import('@/app/(automation)/workflows/page'), { ssr: false });
+const MarketplacePage = dynamic(() => import('@/app/(automation)/marketplace/page'), { ssr: false });
 
 const VALID_TABS = ['agents', 'activity', 'tasks', 'costs', 'skills', 'workflows', 'marketplace'];
 

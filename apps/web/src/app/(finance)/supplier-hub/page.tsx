@@ -4,12 +4,12 @@ import dynamic from 'next/dynamic';
 import { Handshake, History, TrendingUp, ShoppingBag, Receipt, CreditCard, FileText } from 'lucide-react';
 import TabLayout from '@/components/ui/TabLayout';
 
-const SupplierHistoryPage = dynamic(() => import('@/app/supplier-hub/components/SupplierHistory'), { ssr: false });
-const SupplierSalesPage = dynamic(() => import('@/app/supplier-hub/components/SupplierSales'), { ssr: false });
-const SupplierProductSalesPage = dynamic(() => import('@/app/supplier-hub/components/SupplierProductSales'), { ssr: false });
-const SupplierSettlementPage = dynamic(() => import('@/app/supplier-hub/components/SupplierSettlement'), { ssr: false });
-const SupplierPaymentsPage = dynamic(() => import('@/app/supplier-hub/components/SupplierPayments'), { ssr: false });
-const SupplierPurchasesPage = dynamic(() => import('@/app/supplier-hub/components/SupplierPurchases'), { ssr: false });
+const SupplierHistoryPage = dynamic(() => import('@/app/(finance)/supplier-hub/components/SupplierHistory'), { ssr: false });
+const SupplierSalesPage = dynamic(() => import('@/app/(finance)/supplier-hub/components/SupplierSales'), { ssr: false });
+const SupplierProductSalesPage = dynamic(() => import('@/app/(finance)/supplier-hub/components/SupplierProductSales'), { ssr: false });
+const SupplierSettlementPage = dynamic(() => import('@/app/(finance)/supplier-hub/components/SupplierSettlement'), { ssr: false });
+const SupplierPaymentsPage = dynamic(() => import('@/app/(finance)/supplier-hub/components/SupplierPayments'), { ssr: false });
+const SupplierPurchasesPage = dynamic(() => import('@/app/(finance)/supplier-hub/components/SupplierPurchases'), { ssr: false });
 
 export default function SupplierHubPage() {
   return (

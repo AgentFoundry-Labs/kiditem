@@ -10,7 +10,7 @@ import { isApiError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { useMarketplaceAgents, useInstallAgent } from '@/hooks/useMarketplace';
-import type { AgentCatalogItem } from '@/app/marketplace/lib/marketplace-types';
+import type { AgentCatalogItem } from '@/app/(automation)/marketplace/lib/marketplace-types';
 import { useAgents, useAgentOrg, useDeleteAgent, useInvokeAgent } from '../hooks/useAgents';
 
 const AgentDetailModal = dynamic(() => import('@/components/marketplace/AgentDetailModal').then(m => ({ default: m.AgentDetailModal })));

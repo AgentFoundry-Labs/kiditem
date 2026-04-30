@@ -6,7 +6,7 @@ import { isReady } from '@/lib/thumbnail-status';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ProductCard } from './ProductCard';
 import { PaginationBar } from './PaginationBar';
-import { buildEditHref } from '@/app/thumbnail-editor/edit/lib/build-edit-href';
+import { buildEditHref } from '@/app/(media-ai)/thumbnail-editor/edit/lib/build-edit-href';
 import {
   getEffectiveComplianceGrade,
   getPrimaryViolationSummary,

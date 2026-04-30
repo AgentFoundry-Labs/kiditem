@@ -4,12 +4,12 @@ import dynamic from 'next/dynamic';
 import { LineChart, Receipt, BarChart3, FileSpreadsheet, Target, TrendingUp } from 'lucide-react';
 import TabLayout from '@/components/ui/TabLayout';
 
-const SalesOverviewPage = dynamic(() => import('@/app/sales-analysis/components/SalesOverview'), { ssr: false });
-const SettlementsPage = dynamic(() => import('@/app/sales-analysis/components/Settlements'), { ssr: false });
-const StatisticsPage = dynamic(() => import('@/app/sales-analysis/components/Statistics'), { ssr: false });
+const SalesOverviewPage = dynamic(() => import('@/app/(finance)/sales-analysis/components/SalesOverview'), { ssr: false });
+const SettlementsPage = dynamic(() => import('@/app/(finance)/sales-analysis/components/Settlements'), { ssr: false });
+const StatisticsPage = dynamic(() => import('@/app/(finance)/sales-analysis/components/Statistics'), { ssr: false });
 const ReportsPage = dynamic(() => import('@/app/reports/page'), { ssr: false });
-const SalesPlansPage = dynamic(() => import('@/app/sales-analysis/components/SalesPlans'), { ssr: false });
-const WingDailySalesPage = dynamic(() => import('@/app/sales-analysis/components/WingDailySales'), { ssr: false });
+const SalesPlansPage = dynamic(() => import('@/app/(finance)/sales-analysis/components/SalesPlans'), { ssr: false });
+const WingDailySalesPage = dynamic(() => import('@/app/(finance)/sales-analysis/components/WingDailySales'), { ssr: false });
 
 export default function SalesAnalysisPage() {
   return (
