@@ -92,9 +92,9 @@ ADR-0013 3-layer schema 로 Product 계층이 drop 되면서 `CSRecord.listingId
 
 | 수정 시 | 같이 봐야 할 파일 |
 |---|---|
-| Order/OrderLineItem schema 변경 | `prisma/models/orders.prisma` + `apps/server/src/channels/services/channel-sync.service.ts` (upsert) + `packages/shared/src/schemas/orders.ts` |
-| Status enum 변경 | `services/orders.service.ts` + `channels/services/channel-sync.service.ts` 의 Coupang status normalizer |
+| Order/OrderLineItem schema 변경 | `prisma/models/orders.prisma` + `apps/server/src/channels/application/service/channel-sync.service.ts` (upsert) + `packages/shared/src/schemas/orders.ts` |
+| Status enum 변경 | `services/orders.service.ts` + `channels/application/service/channel-sync.service.ts` 의 Coupang status normalizer |
 | Action 종류 추가 | `dto/order-action.dto.ts` + `services/orders.service.ts` action handler + channels adapter 신규 메서드 |
 | Returns 워크플로 변경 | `services/returns.service.ts` + `channels/adapters/coupang/orders.ts:approveReturn` |
 | CS 페이지네이션 변경 | `services/cs.service.ts` + `common/pagination.ts` (paginationParams) |
-| 신규 platform 추가 (e.g., Naver) | `channels/services/channel-sync.service.ts` 신 sync method + `platform: 'naver'` 사용 (테이블 추가 금지) |
+| 신규 platform 추가 (e.g., Naver) | `channels/application/service/channel-sync.service.ts` 신 sync method + `platform: 'naver'` 사용 (테이블 추가 금지) |

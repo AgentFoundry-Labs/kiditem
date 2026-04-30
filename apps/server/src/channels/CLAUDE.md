@@ -1,47 +1,67 @@
 # channels — Coupang 통합 + Sync + Dashboard 도메인
 
-**외부 마켓플레이스(Coupang) 어댑터 + 데이터 동기화 + 분석 대시보드** 가 결합된 도메인. `adapters/coupang/` 하위가 외부 API 격리 레이어.
+**외부 마켓플레이스(Coupang) 어댑터 + 데이터 동기화 + 분석 대시보드** 가 결합된 도메인. `adapter/out/coupang/` 하위가 외부 API 격리 레이어.
 
 > **Plan A.5 완료 (2026-04-18)**: `syncSingleOrder` / `syncSingleReturn` 은 channel-agnostic `Order` / `OrderLineItem` / `OrderReturn` / `OrderReturnLineItem` 으로 재작성됨. 채널 구분은 `platform String` (현재 `'coupang'`), 채널-특수 raw 데이터는 `metadata Json`. `CoupangOrder` / `CoupangOrderItem` / `CoupangReturn` 는 drop. 신규 채널 추가 시 별도 channel-specific 테이블 만들지 말고 `platform` 값만 추가 ([apps/server/src/orders/CLAUDE.md](../orders/CLAUDE.md) 참고).
 >
 > **Wave C1 완료 (2026-04-27)**: `syncProducts` 를 `ChannelListing` / `ChannelListingOption` 기반으로 재작성. `syncInventory` 는 stub — 별도 wave 가 ADR-0014 단일 writer (`InventoryService`) 와의 경계를 정한 후 작성.
 >
 > **Market-data hard rewrite 완료 (2026-04-27)**: `ChannelScrapeRun` / `ChannelScrapeSnapshot` / `ChannelListingDailySnapshot` / `ChannelListingOptionDailySnapshot` / `ChannelAdTargetDailySnapshot` / `ChannelAccountDailyKpiSnapshot` 은 channels namespace 의 모델이지만 scrape ingestion writer 는 각 ingest 진입 도메인이 담당한다. `/api/ads/extension/sync` 는 advertising 도메인의 `ChannelScrapePersistenceService` 가 raw + daily facts 를 write 하고, `/api/traffic/upload` 는 traffic 도메인이 raw CSV/XLSX row 를 먼저 보존한 뒤 listing daily traffic fact 를 normalize 한다. channels 도메인은 Coupang product/order sync 와 dashboard read consumer 로만 접근한다.
+>
+> **Wave H2 Lane C 완료 (2026-04-30)**: Hexagonal 레이아웃 도입. HTTP 레이어를 `adapter/in/http/` 로, Coupang 어댑터를 `adapter/out/coupang/` 으로, 서비스를 `application/service/` 로 이동. Coupang 외부 API 는 `application/port/out/coupang-provider.port.ts` 의 `CoupangProviderPort` 인터페이스 뒤에 격리되었고, `CoupangProviderAdapter` 가 이를 구현한다. `adapters/coupang/orders.ts` 는 orders 모듈의 기존 import 경로를 유지하기 위한 compat shim 으로만 남는다 (Wave H2 Lane C).
 
 ## Directory
 
 ```
 channels/
-├── adapters/coupang/    # 3 files — 외부 API 격리 (HMAC auth, fetch client, products/orders endpoints)
-│   ├── coupang-client.ts
-│   ├── products.ts
-│   └── orders.ts
-├── controllers/         # 2 files — channel-sync, channel-dashboard
-├── services/            # 3 files — channel-sync, channel-dashboard, types
-├── dto/                 # 3 files
-└── channels.module.ts
+├── channels.module.ts                                      ← port↔adapter binding (CoupangProviderPort → CoupangProviderAdapter)
+├── CLAUDE.md
+├── adapter/
+│   ├── in/
+│   │   └── http/
+│   │       ├── channel-sync.controller.ts                  (@Controller('coupang-sync'))
+│   │       ├── channel-dashboard.controller.ts             (@Controller('coupang-dashboard'))
+│   │       └── dto/
+│   │           ├── coupang-date-range.dto.ts
+│   │           ├── sync-orders.dto.ts
+│   │           └── index.ts
+│   └── out/
+│       └── coupang/
+│           ├── coupang-client.ts                           (HMAC auth, fetch wrapper, getVendorId)
+│           ├── products.ts                                 (getSellerProducts, getSellerProduct)
+│           ├── orders.ts                                   (getOrderSheets, confirmOrderSheets, uploadInvoice, approveReturn, DELIVERY_COMPANIES)
+│           └── coupang-provider.adapter.ts                 (@Injectable class implementing CoupangProviderPort)
+├── application/
+│   ├── port/
+│   │   └── out/
+│   │       └── coupang-provider.port.ts                    (COUPANG_PROVIDER_PORT token + CoupangProviderPort interface + Coupang external response types)
+│   └── service/
+│       ├── channel-sync.service.ts                         (syncProducts/syncOrders/syncInventory; uses @Inject(COUPANG_PROVIDER_PORT))
+│       ├── channel-dashboard.service.ts                    (6 dashboard aggregation methods; PrismaService direct — transitional)
+│       └── types.ts                                        (SyncResult, HealthResult, CoupangSyncOrderPayload, CoupangSyncReturnPayload)
+└── adapters/coupang/
+    └── orders.ts                                            ← COMPAT SHIM ONLY — re-exports from adapter/out/coupang/orders.ts
 ```
+
+서비스 테스트는 `application/service/__tests__/` 하위, 채널 수준 통합 테스트는 `__tests__/` 하위에 유지.
 
 ## 핵심 패턴
 
 ### 1. Coupang Adapter (외부 API 격리)
 
-**모든 Coupang API 호출은 `adapters/coupang/` 만 거침**. 서비스 레이어가 직접 fetch 안 함.
+**모든 Coupang API 호출은 `adapter/out/coupang/` 만 거침**. 서비스 레이어가 직접 fetch 안 함.
+서비스는 `CoupangProviderPort` 인터페이스에만 의존한다 (`@Inject(COUPANG_PROVIDER_PORT)`).
 
 `coupang-client.ts`:
-- 인증: HmacSHA256 signature (`generateAuthorization()`, line 44)
+- 인증: HmacSHA256 signature (`generateAuthorization()`)
   - ENV: `COUPANG_ACCESS_KEY`, `COUPANG_SECRET_KEY`, `COUPANG_VENDOR_ID`
-  - 누락 시 즉시 throw (line 17) — fail fast
-- HTTP: native `fetch` + AbortController 30s timeout (line 67)
-- 응답 검증: `response.ok` + content-type JSON 체크 (line 84-95)
+  - 누락 시 즉시 throw — fail fast
+- HTTP: native `fetch` + AbortController 30s timeout
+- 응답 검증: `response.ok` + content-type JSON 체크
 - **재시도 로직 없음** — 단일 시도. caller 가 책임.
 
-상태 매핑은 별도 constants 모듈을 두지 않고 `services/channel-sync.service.ts` 의
+상태 매핑은 별도 constants 모듈을 두지 않고 `application/service/channel-sync.service.ts` 의
 `normalizeCoupangProductStatus` / `normalizeCoupangOrderStatus` 가 소유한다.
-
-`products.ts` / `orders.ts`:
-- API 메서드 wrappers (`getSellerProducts`, `confirmOrderSheets`, `uploadInvoice` 등)
-- 페이지네이션: `nextToken` + `maxPerPage`
 
 ### 2. Status Mapping (Coupang → 내부 enum)
 
@@ -60,9 +80,9 @@ UNDER_EXAMINATION|REJECTED   → 'draft'
 
 ### 3. Sync 3종 (Products / Orders / Inventory)
 
-`channel-sync.service.ts`:
+`application/service/channel-sync.service.ts`:
 - `syncProducts(companyId)` — Coupang seller-products → `ChannelListing` / `ChannelListingOption` 동기화 (Wave C1).
-  - `getSellerProducts({nextToken, maxPerPage})` 로 페이지 순회 (`MAX_PAGES=200` 안전 한도).
+  - `this.coupang.getSellerProducts({nextToken, maxPerPage})` 로 페이지 순회 (`MAX_PAGES=200` 안전 한도).
   - 각 listing 은 별도 `prisma.$transaction({timeout: 15_000})` — batch 중 실패가 다른 listing 동기화를 막지 않음 (continue-on-error, `result.errors` 카운트).
   - **Refresh-only**: `ChannelListing.masterId` 가 required 이므로, 기존 listing 이 없는 `sellerProductId` 는 skip + report. master 자동 생성 금지 (제품 import / admin UI 가 담당). 같은 `(companyId, channel='coupang', externalId=sellerProductId)` 는 매번 update — 재실행 idempotent.
   - **Option upsert**: `ChannelListingOption` 은 `(listingId, externalOptionId=String(vendorItemId))` 로 upsert. `vendorItemId` 누락 시 `BadRequestException` (전체 listing transaction rollback). 내부 `optionId` 매칭은 별도 단계 (nullable 유지).
@@ -98,13 +118,15 @@ await this.prisma.$transaction(async (tx) => {
 
 **vendorItemId 계약**: Coupang 은 항상 채워서 보냄. 누락 시 upsert key 충돌 + 라인 동일성 식별 불가 → `BadRequestException` fail-fast (ADR-0015).
 
-**타입**: `services/types.ts` 의 `CoupangSyncOrderPayload` (= `OrderSheetResponse['data'][number]`) + `CoupangSyncReturnPayload` (interface) — `any` 사용 금지.
+**타입**: `application/service/types.ts` 의 `CoupangSyncOrderPayload` (= `OrderSheetResponse['data'][number]`) + `CoupangSyncReturnPayload` (interface) — `any` 사용 금지.
 
 **Batch continue-on-error**: orchestrator (`syncOrders` 등) 가 개별 syncSingle* 실패를 catch + `result.errors` 카운트.
 
 ### 4. $queryRaw — Dashboard 분석 전용
 
-`channel-dashboard.service.ts` — 트렌드 / 랭킹 / 반품 집계용 `$queryRaw` 쿼리 다수.
+`application/service/channel-dashboard.service.ts` — 트렌드 / 랭킹 / 반품 집계용 `$queryRaw` 쿼리 다수.
+
+**PrismaService 직접 주입 (transitional 결정)**: `channel-dashboard.service.ts` 는 `PrismaService` 를 직접 inject 한다. 대시보드 쿼리 메서드들은 read-only 집계이며 포트 추상화 비용 대비 이득이 작다. 이 결정은 Wave H2 Lane C 에서 의도적으로 내린 selective hex 선택이다 (전용 dashboard repository port 를 추가하지 않음).
 
 **규칙**:
 - Parameterized binding 만 사용: `${companyId}::uuid`. **String concat 절대 금지** (SQL injection 위험).
@@ -130,33 +152,35 @@ await this.prisma.$transaction(async (tx) => {
 
 ### 6. Health Check (Non-fatal)
 
-`checkHealth()` (line 32-58):
-- `getSellerProducts(maxPerPage: 1)` 호출로 자격증명 검증
+`checkHealth()`:
+- `this.coupang.getSellerProducts(maxPerPage: 1)` 호출로 자격증명 검증
 - 에러 catch → `{ connected: false, error }` 반환 (throw 안 함)
 - 외부 API 다운 시 시스템 전체 fall-through 방지
 
 ## 외부 의존
 
-- **Coupang Open API** (v2/v4) — adapter 로만
+- **Coupang Open API** (v2/v4) — `adapter/out/coupang/` 으로만
 - **Prisma** — 내부 DB (ChannelListing, Order/OrderLineItem, Inventory 등). Plan A.5 후 channel-agnostic schema (ADR-0015).
 - **auth/** — `@CurrentCompany()` 데코레이터
 
 ## 금지 (Hard bans)
 
 - ❌ 서비스에서 `coupangRequest`/`fetch` 직접 호출 (adapter 경유 필수)
+- ❌ 서비스에서 `adapter/out/coupang/` 함수 직접 import — `CoupangProviderPort` 경유만
 - ❌ Status mapping 우회 (raw status 그대로 DB 저장 금지)
 - ❌ $queryRaw 에 string concat (parameterized 만)
 - ❌ Cross-company raw 쿼리 (companyId WHERE 빠뜨리지 말 것)
 - ❌ Adapter 내 retry 로직 추가 — 의도적으로 caller 책임으로 둠 (변경 시 ADR)
 - ❌ 환경 변수 fallback 추가 (현재는 throw — 운영 환경 자격증명 누락 즉시 발견 의도)
+- ❌ `adapters/coupang/` 하위에 shim 이외의 파일 추가 (compat shim 은 `orders.ts` 1개뿐)
 
 ## 함께 수정할 파일 맵
 
 | 수정 시 | 같이 봐야 할 파일 |
 |---|---|
-| Coupang API endpoint 추가 | `adapters/coupang/{products,orders}.ts` + `services/channel-sync.service.ts` (호출자) + DTO 추가 |
-| Status map 변경 | `normalizeCoupangProductStatus` / `normalizeCoupangOrderStatus` in `services/channel-sync.service.ts` + 본 문서 §2 표 업데이트 |
-| 새 sync 종류 (예: 카테고리) | `adapters/coupang/` 신규 모듈 + `channel-sync.controller.ts` + `services/channel-sync.service.ts` 메서드 추가 |
-| Dashboard 쿼리 추가 | `channel-dashboard.service.ts` ($queryRaw + companyId) + `channel-dashboard.controller.ts` + 응답 타입 |
+| Coupang API endpoint 추가 | `adapter/out/coupang/{products,orders}.ts` + `application/port/out/coupang-provider.port.ts` (인터페이스 확장) + `adapter/out/coupang/coupang-provider.adapter.ts` + `application/service/channel-sync.service.ts` (호출자) + DTO 추가 |
+| Status map 변경 | `normalizeCoupangProductStatus` / `normalizeCoupangOrderStatus` in `application/service/channel-sync.service.ts` + 본 문서 §2 표 업데이트 |
+| 새 sync 종류 (예: 카테고리) | `adapter/out/coupang/` 신규 모듈 + `adapter/in/http/channel-sync.controller.ts` + `application/service/channel-sync.service.ts` 메서드 추가 |
+| Dashboard 쿼리 추가 | `application/service/channel-dashboard.service.ts` ($queryRaw + companyId) + `adapter/in/http/channel-dashboard.controller.ts` + 응답 타입 |
 | 재시도/큐 도입 | adapter 설계 결정 ADR 필요 (현재 비재시도가 의도) |
 | Multi-vendor 지원 | adapter 의 ENV 의존 → 멀티-credential 테이블로 리팩토링. 큰 변경 → ADR 필수 |

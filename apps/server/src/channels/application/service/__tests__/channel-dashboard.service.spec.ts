@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ChannelDashboardService } from '../channel-dashboard.service';
-import type { PrismaService } from '../../../prisma/prisma.service';
+import type { PrismaService } from '../../../../prisma/prisma.service';
 
 /**
  * Plan B2c.dashboard T15 — unit tests for the 6 dashboard methods.

@@ -1,8 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
-import { ChannelSyncService } from '../services/channel-sync.service';
+import { ChannelSyncService } from '../application/service/channel-sync.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  COUPANG_PROVIDER_PORT,
+  type CoupangProviderPort,
+} from '../application/port/out/coupang-provider.port';
 import {
   makeTestPrisma,
   resetDb,
@@ -18,10 +22,17 @@ describe('Order sync (PG integration)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
+    const coupangPortStub: CoupangProviderPort = {
+      getVendorId: () => 'TEST_VENDOR',
+      getSellerProducts: async () => ({ code: 'SUCCESS', message: 'OK' }),
+      getSellerProduct: async () => ({ code: 'SUCCESS', message: 'OK' }),
+      getOrderSheets: async () => ({ code: 'SUCCESS', message: 'OK' }),
+    };
     const m = await Test.createTestingModule({
       providers: [
         ChannelSyncService,
         { provide: PrismaService, useValue: prisma },
+        { provide: COUPANG_PROVIDER_PORT, useValue: coupangPortStub },
       ],
     }).compile();
     service = m.get(ChannelSyncService);

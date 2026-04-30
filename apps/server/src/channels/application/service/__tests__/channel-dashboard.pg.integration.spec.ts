@@ -2,14 +2,14 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
 import { ChannelDashboardService } from '../channel-dashboard.service';
-import { PrismaService } from '../../../prisma/prisma.service';
+import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   makeTestPrisma,
   resetDb,
   seedBaseFixture,
   TEST_COMPANY_ID,
   OTHER_COMPANY_ID,
-} from '../../../test-helpers/real-prisma';
+} from '../../../../test-helpers/real-prisma';
 
 /**
  * Plan B2c.dashboard T15 — channel-dashboard.pg integration spec.
