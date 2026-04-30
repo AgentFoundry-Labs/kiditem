@@ -27,7 +27,6 @@ import { AutomationModule } from './automation/automation.module';
 import { AdvertisingModule } from './advertising/advertising.module';
 import { ProcurementModule } from './procurement/procurement.module';
 import { FeatureGateModule } from './feature-gate/feature-gate.module';
-import { ReturnTransfersModule } from './return-transfers/return-transfers.module';
 import { SuppliersModule } from './suppliers/suppliers.module';
 import { SupplierStatsModule } from './supplier-stats/supplier-stats.module';
 import { StatisticsModule } from './statistics/statistics.module';
@@ -67,7 +66,6 @@ import { TrafficModule } from './traffic/traffic.module';
     AutomationModule,
     AdvertisingModule,
     ProcurementModule,
-    ReturnTransfersModule,
     SuppliersModule,
     SupplierStatsModule,
     StatisticsModule,

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { SettlementsService } from '../../../settlements/settlements.service';
+import { SettlementsService } from '../../settlements/settlements.service';
 import { BadRequestException } from '@nestjs/common';
 
 // ── Prisma mocks ──

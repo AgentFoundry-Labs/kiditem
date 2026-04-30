@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Patch, Param, Query, Body } from '@nestjs/common';
 import { ReturnTransfersService } from './return-transfers.service';
 import { ListReturnTransfersQueryDto, CreateReturnTransferDto, UpdateReturnTransferDto } from './dto';
-import { CurrentCompany } from '../auth/decorators/current-company.decorator';
+import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
 
 @Controller('return-transfers')
 export class ReturnTransfersController {
