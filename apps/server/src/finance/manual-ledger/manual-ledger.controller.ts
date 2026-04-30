@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Delete, Param, Query, Body } from '@nestjs/common';
 import { ManualLedgerService } from './manual-ledger.service';
 import { ListManualLedgerQueryDto, CreateManualLedgerDto } from './dto';
-import { CurrentCompany } from '../auth/decorators/current-company.decorator';
+import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
 
 @Controller('manual-ledger')
 export class ManualLedgerController {

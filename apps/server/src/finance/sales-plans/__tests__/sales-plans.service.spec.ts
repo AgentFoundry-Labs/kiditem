@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
-import { buildPerListingMetrics } from '../../common/per-listing-profit';
+import { buildPerListingMetrics } from '../../../common/per-listing-profit';
 import { SalesPlansService } from '../sales-plans.service';
 
-vi.mock('../../common/per-listing-profit', () => ({
+vi.mock('../../../common/per-listing-profit', () => ({
   buildPerListingMetrics: vi.fn(),
 }));
 
