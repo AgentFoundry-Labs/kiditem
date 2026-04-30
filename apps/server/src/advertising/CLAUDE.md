@@ -9,11 +9,11 @@ Advertising domain은 **backend architecture contract topology**를 따른다 (`
 
 - `adapter/in/http/` — HTTP entrypoints (controller)
 - `adapter/out/prisma/` — Prisma persistence adapters (`*.persistence.ts`) + query adapters (`*.query.ts`)
-- `application/service/` — use-case orchestration (ingest handlers, listing-ad-metric accumulator)
+- `application/service/` — NestJS @Injectable application services + ingest handlers + listing-ad-metric accumulator (Wave H2 Lane AD: 13 orchestration services 흡수 완료, 2026-04-30)
 - `domain/` — pure business rules (no NestJS/Prisma imports)
 - `dto/` — HTTP DTOs (class-validator)
 - `mapper/` — boundary row/DTO/domain mapping
-- `services/` — transitional legacy NestJS providers (advertising/ad-campaigns/ad-strategy/ad-benchmark/ad-collect/ad-sync/ad-action/ad-execution/ad-config + `channel-scrape-persistence` facade). 추가 PR에서 `application/service/`로 흡수할 후보. 신규 use case는 `application/service/`에 둔다.
+- `services/` — transitional. 단 한 개 `channel-scrape-persistence.service.ts` (compatibility facade for two integration tests; 실제 로직은 `adapter/out/prisma/*.persistence.ts`에 있다). 신규 NestJS application service 는 `application/service/`에 둔다.
 - `util/` — pure helpers (`ad-target-key.ts`, `ratio-recompute.ts`). Domain-level이지만 contract folder 가 아닌 transitional location. 새 도메인은 이 패턴을 답습하지 않는다.
 
 ## Hard rewrite (2026-04-27) — post-rewrite contract
@@ -63,10 +63,12 @@ Channel market-data pipeline was rewritten in 4 phases (H1 schema → H2 ingest 
 - **Controller**: `adapter/in/http/advertising.controller.ts` — all `/api/ads/*` routes (14+ endpoints), `@CurrentCompany()` 주입
 - **Persistence adapters**: `adapter/out/prisma/*.persistence.ts` — `ad-action` / `ad-execution` / `channel-scrape-run` / `channel-daily-fact` / `channel-account-kpi` / `scrape-target`
 - **Query adapters**: `adapter/out/prisma/*.query.ts` — `ad-action` / `ad-benchmark` / `ad-campaign` / `ad-listing` / `ad-strategy-context` / `ad-sync-listing-map`
-- **Application services (ingest)**: `application/service/*-ingest.handler.ts` (4 sources: ad-campaign / raw-scrape / traffic / coupang-ads-daily) + `listing-ad-metric-accumulator.ts`
+- **Application services**: `application/service/`
+  - Orchestration / use-case (NestJS @Injectable, controller가 직접 주입): `advertising`, `ad-campaigns`, `ad-strategy`, `ad-grade-rules`, `ad-budget-allocator`, `ad-exposure`, `ad-recommend`, `ad-benchmark`, `ad-collect`, `ad-sync`, `ad-action`, `ad-execution`, `ad-config` (13 services)
+  - Source-specific ingest handlers (function-style, AdSyncService 가 dispatch): `ad-campaign-ingest.handler`, `raw-scrape-ingest.handler`, `traffic-ingest.handler`, `coupang-ads-daily-ingest.handler` + `listing-ad-metric-accumulator`
 - **Domain**: `domain/` — pure ad rules + helpers (`ad-action-rules`, `ad-execution-error-scrubber`, `ad-metrics`, `business-date`, `listing-match`, `scrape-row-normalizers`, `strategy-context`)
 - **Mappers**: `mapper/` — `ad-campaign.mapper.ts`, `ad-listing.mapper.ts`, `ad-strategy.mapper.ts`
-- **Legacy NestJS services (transitional)**: `services/` — advertising / ad-campaigns / ad-strategy / ad-benchmark / ad-collect / ad-sync / ad-action / ad-execution / ad-config + `channel-scrape-persistence` facade
+- **Transitional facade (services/)**: `services/channel-scrape-persistence.service.ts` only — thin @Injectable wrapper over `adapter/out/prisma/channel-scrape-run.persistence.ts` / `channel-daily-fact.persistence.ts` / `channel-account-kpi.persistence.ts`. Kept because two integration tests inject the class directly. New callers should import the persistence functions from `adapter/out/prisma/` instead.
 - **Frontend**: `apps/web/src/app/ad-ops/` — 4 탭 (status / strategy / campaign / exposure)
 - **DB**: AdAction (listingId nullable, targetType ∈ {'campaign','keyword'}, `adTargetDailyId` → ChannelAdTargetDailySnapshot), ScrapeTarget, ExecutionTask, ExecutionLog, ExecutionWorker
 - **Shared**: `@kiditem/shared/schemas/ads` — listingId-primary, nested masterProduct{code,name} + option{sku,optionName}
