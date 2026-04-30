@@ -42,8 +42,10 @@ fast without re-litigating boundaries.
 - `apps/server/AGENTS.md` — Backend Architecture Contract section, Domain
   Topology Target table (lists `automation` / `agent-os` owner domain mapping),
   Reconstruction Guardrails.
-- `apps/server/src/workflows/CLAUDE.md` — slim-core executor surface and
-  removed-executor list.
+- `apps/server/src/automation/adapter/out/workflow-runner/CLAUDE.md` —
+  slim-core executor surface, removed-executor list, and (post-Wave H3 AO-1)
+  folded HTTP-route guidance for `/api/workflows/*` and
+  `/api/workflow-runs/:runId`.
 - `apps/server/src/agent-registry/CLAUDE.md` — Agent OS pattern catalog, tenant
   policy, AgentTask trace contract.
 - `apps/server/src/rules/CLAUDE.md` — event-driven evaluation flow and tagged
@@ -113,10 +115,10 @@ rewrite them.
    `workflows/executors/types.ts` declares
    `StandardOrder` / `StandardProduct` / `StandardInventory` /
    `StandardAd` / `StandardProfitLoss` / `StandardReview` /
-   `StandardThumbnail`. They are referenced **only** in
-   `workflows/CLAUDE.md` prose. No executor produces them, no shared package
-   re-exports them, no web consumer imports them. Forward-looking typing for
-   future domain-specific executors that have not been written. Classified as
+   `StandardThumbnail`. They are referenced **only** in workflow-runner scoped
+   guidance prose. No executor produces them, no shared package re-exports
+   them, no web consumer imports them. Forward-looking typing for future
+   domain-specific executors that have not been written. Classified as
    **delete-candidate**: keep until a domain-specific executor lands or until
    Phase 3C executor-rewrite PR confirms the contract is restated elsewhere.
 4. **Workflow executor registry helpers without consumers** —
@@ -153,10 +155,12 @@ rewrite them.
 
 ### Workflow runner surface — slim DAG runner
 
-Files:
-- `workflows/workflows.module.ts`, `workflows/workflows.controller.ts` (controllers
+Files (post-Wave H3 AO-1, all under `apps/server/src/automation/`):
+- `automation/adapter/in/http/workflows.controller.ts` (controllers
   `WorkflowsController` for `/api/workflows/*`, `WorkflowRunsController` for
-  `/api/workflow-runs/*`). DTOs remain in `workflows/dto/`.
+  `/api/workflow-runs/*`). DTOs live under
+  `automation/adapter/in/http/dto/workflows/`. The former top-level
+  `apps/server/src/workflows/` folder is deleted.
 - `automation/application/service/workflow-orchestration.service.ts` — template
   CRUD + tenant-scoped run trigger. Owns: `triggerRun`, `batchRun`,
   `findRunDetail`.
@@ -171,10 +175,11 @@ Files:
   slim-core executors:
   `trigger.manual`, `trigger.schedule`, `condition.evaluate`,
   `notification.alert`, `agent_task.create`.
-- `executors/types.ts` — `Standard*` interfaces (delete-candidate above) +
-  `NodeDefinition`.
-- `dto/*` — 5 DTOs (`create`, `update`, `list`, `run`, `batch-run`).
-- `__tests__/workflow-flow.spec.ts`.
+- `automation/adapter/out/workflow-runner/executors/types.ts` — `Standard*`
+  interfaces (delete-candidate above) + `NodeDefinition`.
+- `automation/adapter/in/http/dto/workflows/*` — 5 DTOs (`create`, `update`,
+  `list`, `run`, `batch-run`).
+- `automation/application/service/__tests__/workflow-flow.spec.ts`.
 
 Inbound entrypoints:
 - HTTP — `WorkflowsController`, `WorkflowRunsController`. All routes use
@@ -473,7 +478,7 @@ criteria hold. Anything else is a rewrite, not a delete.
    `npm run check:idor` and `npm run check:tenant-scope` if the surface
    touches a tenant-scoped Prisma path.
 4. **Contract alignment** — the surface matches a "delete-candidate" or
-   "already deleted" row above, OR a row in the `workflows/CLAUDE.md`
+   "already deleted" row above, OR a row in the workflow-runner scoped
    removed-executor list, OR a "Hard-banned" row.
 
 If even one criterion is missing, classify the surface in this plan rather
