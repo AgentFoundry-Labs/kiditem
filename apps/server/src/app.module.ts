@@ -15,7 +15,6 @@ import { ProductsModule } from './products/products.module';
 import { CompaniesModule } from './companies/companies.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { SourcingModule } from './sourcing/sourcing.module';
-import { WorkflowsModule } from './workflows/workflows.module';
 import { ActivityEventsModule } from './activity-events/activity-events.module';
 import { ChannelsModule } from './channels/channels.module';
 import { AiModule } from './ai/ai.module';
@@ -50,7 +49,6 @@ import { UploadsModule } from './uploads/uploads.module';
     CompaniesModule,
     AnalyticsModule,
     SourcingModule,
-    WorkflowsModule,
     ActivityEventsModule,
     ChannelsModule,
     AiModule,

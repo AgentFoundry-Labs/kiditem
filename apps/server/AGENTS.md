@@ -262,10 +262,9 @@ async getProduct(id: string, companyId: string) {
 | [`src/orders/CLAUDE.md`](src/orders/CLAUDE.md) | 60줄 | Order/Return/CS 통합 — multi-controller 모듈, 외부 채널 어댑터 위임, status 필터링 |
 | [`src/automation/adapter/out/panel-event/CLAUDE.md`](src/automation/adapter/out/panel-event/CLAUDE.md) | ~80줄 | Live Ops SSE projection adapter — `/api/panel/*` HTTP adapter + EventEmitter2 ring buffer + 4-source read-only projection |
 | [`src/automation/adapter/out/agent-runtime/CLAUDE.md`](src/automation/adapter/out/agent-runtime/CLAUDE.md) | ~35줄 | Agent OS runtime adapter — Claude CLI / Python HTTP execution adapters, immutable ExecutionContext, observable adapter fallback |
-| [`src/automation/adapter/out/workflow-runner/CLAUDE.md`](src/automation/adapter/out/workflow-runner/CLAUDE.md) | ~45줄 | Workflow runner outgoing adapter — slim-core executor registry, trusted tenant injection, no generic DB/HTTP/LLM executors |
+| [`src/automation/adapter/out/workflow-runner/CLAUDE.md`](src/automation/adapter/out/workflow-runner/CLAUDE.md) | ~155줄 | Workflow runner outgoing adapter + folded HTTP surface guidance — slim-core executor registry, trusted tenant injection, execution flow, output/error contracts, no generic DB/HTTP/LLM executors. Public route owner = `automation/adapter/in/http/workflows.controller.ts` |
 | [`src/products/CLAUDE.md`](src/products/CLAUDE.md) | ~60줄 | 3-layer Master/Option/Bundle + categories compatibility capability — `MasterProduct` family (code via `master_code_seq`), `ProductOption` SKU (race-free sku via `optionCounter` increment), `BundleComponent` (cross-master 허용, 3-way invariant, nested 금지 B1), `availableStock` = `BundleStockService.recompute` sole writer + `SELECT FOR UPDATE` row-lock. `src/products/categories/` owns `/api/categories` route compatibility under products/catalog |
 | [`src/rules/CLAUDE.md`](src/rules/CLAUDE.md) | 83줄 | Event-Driven — 룰 평가는 agent 비동기 spawn → `@OnEvent` 콜백. CRUD 패턴 아님 |
-| [`src/workflows/CLAUDE.md`](src/workflows/CLAUDE.md) | ~170줄 | Workflow HTTP compatibility surface — `/api/workflows/*` + `/api/workflow-runs/*` routes, DTOs; implementation lives in automation |
 
 ### Panel — Live Ops SSE
 

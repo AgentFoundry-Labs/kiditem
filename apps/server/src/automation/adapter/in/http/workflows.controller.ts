@@ -1,15 +1,15 @@
 import { Controller, Get, Post, Put, Delete, Body, Query, Param } from '@nestjs/common';
-import { WorkflowOrchestrationService } from '../automation/application/service/workflow-orchestration.service';
+import { WorkflowOrchestrationService } from '../../../application/service/workflow-orchestration.service';
 import {
   CreateWorkflowBodyDto,
   ListWorkflowsQueryDto,
   UpdateWorkflowBodyDto,
   RunWorkflowBodyDto,
   BatchRunWorkflowBodyDto,
-} from './dto';
-import { CurrentCompany } from '../auth/decorators/current-company.decorator';
-import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import type { AuthUser } from '../auth/auth.types';
+} from './dto/workflows';
+import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
+import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
+import type { AuthUser } from '../../../../auth/auth.types';
 
 function resolveTriggeredByUserId(triggeredBy: string | undefined, user: AuthUser): string | undefined {
   return triggeredBy === 'manual' ? user.id : undefined;

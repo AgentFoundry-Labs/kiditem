@@ -5,6 +5,7 @@ import { MarketplaceInstallService } from './application/service/marketplace-ins
 import { ActionTaskController } from './adapter/in/http/action-task.controller';
 import { MarketplaceController } from './adapter/in/http/marketplace.controller';
 import { PanelController } from './adapter/in/http/panel.controller';
+import { WorkflowsController, WorkflowRunsController } from './adapter/in/http/workflows.controller';
 import { MarketplaceModule } from '../marketplace/marketplace.module';
 import { PrismaMarketplaceInstallStoreAdapter } from './adapter/out/prisma/marketplace-install-store.adapter';
 import { MARKETPLACE_INSTALL_STORE_PORT } from './application/port/out/marketplace-install-store.port';
@@ -46,10 +47,20 @@ import { WorkflowRunnerService } from './application/service/workflow-runner.ser
  *   own `/api/action-tasks/*`. Daily action seed thresholds live in pure
  *   `domain/policy/action-seeds.ts`; the legacy `action-task/` top-level
  *   module is deleted.
+ * - Wave H3 AO-1: `WorkflowsController` + `WorkflowRunsController` HTTP
+ *   adapters fold the former top-level `workflows/` compatibility surface
+ *   into automation. Public routes (`/api/workflows/*`,
+ *   `/api/workflow-runs/:runId`) are preserved unchanged.
  */
 @Module({
   imports: [MarketplaceModule],
-  controllers: [MarketplaceController, PanelController, ActionTaskController],
+  controllers: [
+    MarketplaceController,
+    PanelController,
+    ActionTaskController,
+    WorkflowsController,
+    WorkflowRunsController,
+  ],
   providers: [
     {
       provide: AGENT_SCHEDULE_CONTROL_PORT,
