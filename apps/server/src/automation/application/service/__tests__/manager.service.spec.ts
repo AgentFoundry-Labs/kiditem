@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { ManagerService } from '../manager.service';
-import { AgentResultReadyEvent } from '../../../events/agent-events';
+import { ManagerService } from '../agent/manager.service';
+import { AgentResultReadyEvent } from '../../../../agent-registry/events/agent-events';
 
 function makePrisma() {
   return {
@@ -9,38 +9,34 @@ function makePrisma() {
   };
 }
 
-function makeAgentRegistry() {
+function makeAgentRunner() {
   return {
-    findByType: vi.fn(),
-    run: vi.fn(),
     runByType: vi.fn().mockResolvedValue({ ok: true }),
   };
 }
 
 function makeService() {
   const prisma = makePrisma();
-  const registry = makeAgentRegistry();
+  const agentRunner = makeAgentRunner();
   return {
-    service: new ManagerService(prisma as any, registry as any),
+    service: new ManagerService(prisma as any, agentRunner as any),
     prisma,
-    registry,
+    agentRunner,
   };
 }
 
 describe('ManagerService', () => {
   describe('ask', () => {
-    it('resolves manager definition and delegates to registry', async () => {
-      const { service, registry } = makeService();
-      registry.findByType.mockResolvedValue({ id: 'def-mgr', type: 'manager' });
-      registry.run.mockResolvedValue({ ok: true, taskId: 'task-1', agentType: 'manager' });
+    it('delegates to agent runner port', async () => {
+      const { service, agentRunner } = makeService();
+      agentRunner.runByType.mockResolvedValue({ ok: true, taskId: 'task-1', agentType: 'manager' });
 
       const result = await service.ask({
         companyId: 'c-1',
         request: '이 상품 왜 안 팔려?',
       });
 
-      expect(registry.findByType).toHaveBeenCalledWith('manager');
-      expect(registry.run).toHaveBeenCalledWith('def-mgr', expect.objectContaining({
+      expect(agentRunner.runByType).toHaveBeenCalledWith('manager', expect.objectContaining({
         companyId: 'c-1',
         dryRun: false,
         extra: expect.objectContaining({
@@ -52,9 +48,8 @@ describe('ManagerService', () => {
     });
 
     it('includes productId in user_request when provided', async () => {
-      const { service, registry } = makeService();
-      registry.findByType.mockResolvedValue({ id: 'def-mgr' });
-      registry.run.mockResolvedValue({ ok: true, taskId: 'task-2' });
+      const { service, agentRunner } = makeService();
+      agentRunner.runByType.mockResolvedValue({ ok: true, taskId: 'task-2' });
 
       await service.ask({
         companyId: 'c-1',
@@ -62,7 +57,7 @@ describe('ManagerService', () => {
         productId: 'p-123',
       });
 
-      expect(registry.run).toHaveBeenCalledWith('def-mgr', expect.objectContaining({
+      expect(agentRunner.runByType).toHaveBeenCalledWith('manager', expect.objectContaining({
         extra: expect.objectContaining({
           product_id: 'p-123',
           user_request: expect.stringContaining('p-123'),
@@ -73,7 +68,7 @@ describe('ManagerService', () => {
 
   describe('onResultReady', () => {
     it('dispatches recommended agents and creates activity event', async () => {
-      const { service, registry, prisma } = makeService();
+      const { service, agentRunner, prisma } = makeService();
       prisma.activityEvent.create.mockResolvedValue({});
 
       const event = new AgentResultReadyEvent(
@@ -87,9 +82,9 @@ describe('ManagerService', () => {
 
       await service.onResultReady(event);
 
-      expect(registry.runByType).toHaveBeenCalledTimes(2);
-      expect(registry.runByType).toHaveBeenCalledWith('ad_strategy', { companyId: 'c-1' });
-      expect(registry.runByType).toHaveBeenCalledWith('rules_evaluation', { companyId: 'c-1' });
+      expect(agentRunner.runByType).toHaveBeenCalledTimes(2);
+      expect(agentRunner.runByType).toHaveBeenCalledWith('ad_strategy', { companyId: 'c-1' });
+      expect(agentRunner.runByType).toHaveBeenCalledWith('rules_evaluation', { companyId: 'c-1' });
       expect(prisma.activityEvent.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
           title: '운영 매니저: 2건 에이전트 실행',
@@ -99,7 +94,7 @@ describe('ManagerService', () => {
     });
 
     it('handles no recommended agents', async () => {
-      const { service, registry, prisma } = makeService();
+      const { service, agentRunner, prisma } = makeService();
       prisma.activityEvent.create.mockResolvedValue({});
 
       const event = new AgentResultReadyEvent(
@@ -110,7 +105,7 @@ describe('ManagerService', () => {
 
       await service.onResultReady(event);
 
-      expect(registry.runByType).not.toHaveBeenCalled();
+      expect(agentRunner.runByType).not.toHaveBeenCalled();
       expect(prisma.activityEvent.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
           title: '운영 매니저: 분석 완료',

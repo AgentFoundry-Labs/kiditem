@@ -1,10 +1,10 @@
 import { Controller, Post, Get, Body, Query } from '@nestjs/common';
-import { ManagerService } from './manager.service';
+import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
+import { ManagerService } from '../../../application/service/agent/manager.service';
 import {
-  ManagerAskBodyDto,
   ListConversationsQueryDto,
-} from './dto';
-import { CurrentCompany } from '../../../auth/decorators/current-company.decorator';
+  ManagerAskBodyDto,
+} from './dto/manager';
 
 @Controller('manager')
 export class ManagerController {

@@ -1,8 +1,14 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
-import { PrismaService } from '../../../prisma/prisma.service';
-import { AgentRegistryService } from '../../agent-registry.service';
-import { AGENT_EVENTS, AgentResultReadyEvent } from '../../events/agent-events';
+import { PrismaService } from '../../../../prisma/prisma.service';
+import {
+  AGENT_RUNNER_PORT,
+  type AgentRunnerPort,
+} from '../../port/in/agent-runner.port';
+import {
+  AGENT_EVENTS,
+  AgentResultReadyEvent,
+} from '../../../../agent-registry/events/agent-events';
 
 @Injectable()
 export class ManagerService {
@@ -10,7 +16,8 @@ export class ManagerService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly agentRegistry: AgentRegistryService,
+    @Inject(AGENT_RUNNER_PORT)
+    private readonly agentRunner: AgentRunnerPort,
   ) {}
 
   async ask(input: {
@@ -19,8 +26,6 @@ export class ManagerService {
     productId?: string;
     context?: Record<string, unknown>;
   }) {
-    const def = await this.agentRegistry.findByType('manager');
-
     const extra: Record<string, unknown> = {
       company_id: input.companyId,
       user_request: input.request,
@@ -32,7 +37,7 @@ export class ManagerService {
       extra.user_request = `${input.request}\n\n(대상 상품 ID: ${input.productId})`;
     }
 
-    return this.agentRegistry.run(def.id, {
+    return this.agentRunner.runByType('manager', {
       companyId: input.companyId,
       dryRun: false,
       extra,
@@ -44,12 +49,11 @@ export class ManagerService {
     if (event.agentType !== 'manager') return;
 
     try {
-      // 추천 에이전트 실행
       const recommended = event.resultJson.recommended_agents as string[] | undefined;
       if (recommended?.length) {
         for (const agentType of recommended) {
           try {
-            await this.agentRegistry.runByType(agentType, { companyId: event.companyId });
+            await this.agentRunner.runByType(agentType, { companyId: event.companyId });
             this.logger.log(`Manager dispatched agent: ${agentType}`);
           } catch (err) {
             this.logger.error(`Manager failed to dispatch agent ${agentType}: ${err}`);
@@ -57,7 +61,6 @@ export class ManagerService {
         }
       }
 
-      // Activity event
       const recCount = recommended?.length ?? 0;
       const title = recCount > 0
         ? `운영 매니저: ${recCount}건 에이전트 실행`

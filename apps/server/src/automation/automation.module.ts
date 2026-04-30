@@ -7,12 +7,14 @@ import { MarketplaceCatalogService } from './application/service/marketplace-cat
 import { MarketplaceInstallService } from './application/service/marketplace-install.service';
 import { ActionTaskController } from './adapter/in/http/action-task.controller';
 import { AlertsController } from './adapter/in/http/alerts.controller';
+import { ManagerController } from './adapter/in/http/manager.controller';
 import { MarketplaceController } from './adapter/in/http/marketplace.controller';
 import { PanelController } from './adapter/in/http/panel.controller';
 import { WorkflowsController, WorkflowRunsController } from './adapter/in/http/workflows.controller';
 import { PrismaMarketplaceInstallStoreAdapter } from './adapter/out/prisma/marketplace-install-store.adapter';
 import { MARKETPLACE_INSTALL_STORE_PORT } from './application/port/out/marketplace-install-store.port';
 import { ActionBoardService } from './application/service/action-board.service';
+import { ManagerService } from './application/service/agent/manager.service';
 import { AlertsService } from './application/service/alerts.service';
 import { PanelService } from './adapter/out/panel-event/panel.service';
 import { PanelSseService } from './adapter/out/panel-event/panel-sse.service';
@@ -77,6 +79,7 @@ import { WorkflowRunnerService } from './application/service/workflow-runner.ser
     PanelController,
     ActionTaskController,
     AlertsController,
+    ManagerController,
     WorkflowsController,
     WorkflowRunsController,
   ],
@@ -95,6 +98,7 @@ import { WorkflowRunnerService } from './application/service/workflow-runner.ser
     },
     ActionBoardService,
     AlertsService,
+    ManagerService,
     MarketplaceCatalogService,
     MarketplaceInstallService,
     PanelService,
