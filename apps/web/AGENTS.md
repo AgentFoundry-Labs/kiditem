@@ -15,7 +15,7 @@ Env: `.env.local` → `NEXT_PUBLIC_API_URL=http://localhost:4000`
 ## Scoped Instructions
 
 - Shared frontend rules live in this `AGENTS.md`.
-- Nested route guidance is still maintained in `src/app/{group}/{domain}/CLAUDE.md`. Read the matching file before editing that route until nested `AGENTS.md` files are added.
+- Nested route guidance is still maintained in `src/app/(group-name)/{domain}/CLAUDE.md`. Read the matching file before editing that route until nested `AGENTS.md` files are added.
 
 ### Route Groups
 
@@ -92,14 +92,15 @@ Routes outside any group (`ad-ops`, `cs-management`, `outbound`, `purchase-order
 
 ### Directory Structure
 
-Each route can have co-located directories:
+Each grouped route can have co-located directories:
 ```
-app/{domain}/
+app/(group-name)/{domain}/
   page.tsx           # Composition layer (hooks + state + component imports)
   components/        # Domain-specific UI components
   hooks/             # Domain-specific custom hooks
   lib/               # Domain-specific utilities, constants, types
 ```
+Ungrouped routes use the same shape at `app/{domain}/`.
 
 Shared directories (`src/components/`, `src/hooks/`, `src/lib/`) contain ONLY cross-domain code (2+ domains):
 - `src/components/ui/` — PageSkeleton, Pagination, DateRangePicker, StatusBadge
@@ -139,7 +140,7 @@ Shared directories (`src/components/`, `src/hooks/`, `src/lib/`) contain ONLY cr
 
 ## Domain Guides — 서브 페이지 작업 전 scoped instruction 먼저 Read
 
-**규칙**: `src/app/{group}/{domain}/` 하위 파일을 Edit 하기 전, 아래 표의 해당 행이 가리키는 scoped document 를 먼저 Read 한다. 현재 전용 서브 페이지 문서는 `CLAUDE.md` 로 유지 중이다.
+**규칙**: `src/app/(group-name)/{domain}/` 하위 파일을 Edit 하기 전, 아래 표의 해당 행이 가리키는 scoped document 를 먼저 Read 한다. 현재 전용 서브 페이지 문서는 `CLAUDE.md` 로 유지 중이다.
 
 ### 전용 CLAUDE.md 가 있는 서브 페이지 (6)
 
