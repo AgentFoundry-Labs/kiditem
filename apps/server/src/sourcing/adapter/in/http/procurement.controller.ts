@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Query, Body, BadRequestException } from '@nestjs/common';
-import { ProcurementService } from './procurement.service';
+import { ProcurementService } from '../../../application/service/procurement.service';
 import { ListPurchaseOrdersQueryDto, PurchaseOrderActionBodyDto } from './dto';
-import { CurrentCompany } from '../auth/decorators/current-company.decorator';
+import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
 
 @Controller('purchase-orders')
 export class ProcurementController {

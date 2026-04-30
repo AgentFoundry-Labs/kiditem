@@ -25,9 +25,7 @@ import { AgentRegistryModule } from './agent-registry/agent-registry.module';
 import { MarketplaceModule } from './marketplace/marketplace.module';
 import { AutomationModule } from './automation/automation.module';
 import { AdvertisingModule } from './advertising/advertising.module';
-import { ProcurementModule } from './procurement/procurement.module';
 import { FeatureGateModule } from './feature-gate/feature-gate.module';
-import { SuppliersModule } from './suppliers/suppliers.module';
 import { SupplierStatsModule } from './supplier-stats/supplier-stats.module';
 import { StatisticsModule } from './statistics/statistics.module';
 import { ChatModule } from './chat/chat.module';
@@ -65,8 +63,6 @@ import { TrafficModule } from './traffic/traffic.module';
     MarketplaceModule,
     AutomationModule,
     AdvertisingModule,
-    ProcurementModule,
-    SuppliersModule,
     SupplierStatsModule,
     StatisticsModule,
     ChatModule,

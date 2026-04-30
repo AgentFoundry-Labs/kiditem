@@ -1,11 +1,11 @@
 import { Controller, Get, Post, Body, Query } from '@nestjs/common';
-import { SourcingService } from './sourcing.service';
+import { SourcingService } from '../../../application/service/sourcing.service';
 import {
   type ReceiveExtensionDataBody,
   ScrapeUrlBodyDto,
   ListExtensionProductsQueryDto,
 } from './dto';
-import { CurrentCompany } from '../auth/decorators/current-company.decorator';
+import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
 
 @Controller('sourcing')
 export class SourcingController {
