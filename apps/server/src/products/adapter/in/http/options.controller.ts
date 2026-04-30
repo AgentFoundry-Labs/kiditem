@@ -11,11 +11,11 @@ import { CreateOptionDto } from '../../../dto/create-option.dto';
 import { UpdateOptionDto } from '../../../dto/update-option.dto';
 import { ListOptionsQuery } from '../../../dto/list-options.query';
 
-// NOTE (auth/CLAUDE.md Hard bans): no `@UseGuards` / `@UsePipes` here — rely on
+// NOTE (auth/AGENTS.md Hard bans): no `@UseGuards` / `@UsePipes` here — rely on
 // global APP_GUARD (CompanyScopeGuard + RolesGuard) and global ValidationPipe
 // registered in main.ts / app.module.ts.
 //
-// Controllers MUST NOT touch Prisma directly (apps/server/CLAUDE.md:96-103 —
+// Controllers MUST NOT touch Prisma directly (apps/server/AGENTS.md —
 // controller/service boundary). For bundle components we delegate to
 // `BundleComponentsService.list` which already applies the companyId scope.
 @Controller('products/options')

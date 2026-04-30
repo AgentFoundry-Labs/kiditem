@@ -2,7 +2,9 @@
 
 **영향**: `/api/sales-analysis` 응답 구조 변경. SalesOverview 탭이 처음으로 실제 채널별 breakdown 표시.
 
-**관련 ADR**: [ADR-0016](../../.claude/docs/decisions/0016-profit-loss-live-aggregation.md) (ProfitLoss bypass), [ADR-0017](../../.claude/docs/decisions/0017-returnrate-semantic-unification.md) (returnRate semantic)
+**관련 정책**: ProfitLoss bypass, returnRate semantic. Historical ADR scratch
+docs were pruned during instruction cleanup; durable contracts now live in
+`AGENTS.md`, scoped `AGENTS.md` files, and this release note.
 
 ## 무엇이 바뀌었나
 
@@ -51,10 +53,9 @@
 - Test: `apps/server/src/finance/services/__tests__/sales-analysis.pg.integration.spec.ts` — 8 cases including KST boundary + 1000-order perf
 - Schema: `@kiditem/shared/schemas/sales-analysis` — `SalesAnalysisDataSchema` + `ChannelAnalysisSchema`
 - Frontend: `apps/web/src/app/sales-analysis/components/SalesOverview.tsx` — apiClient.getParsed + URL period + 3-state
-- Follow-up: Plan D.3b — statistics/settlements/sales-plans 도 같은 패턴으로 migration (stub: `docs/superpowers/plans/2026-04-20-plan-d3b-statistics-settlements-sales-plans.md`)
+- Follow-up: statistics/settlements/sales-plans 도 같은 패턴으로 migration.
 
 ## 문의
 
-- ADR-0017 본문: `.claude/docs/decisions/0017-returnrate-semantic-unification.md`
-- Plan D.3 구현: `docs/superpowers/plans/2026-04-20-plan-d3-sales-analysis-live.md`
+- Historical plan/ADR scratch docs were pruned during instruction cleanup.
 - 개발팀 Slack / GitHub issue

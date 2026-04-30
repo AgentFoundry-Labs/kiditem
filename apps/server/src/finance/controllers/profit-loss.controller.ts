@@ -18,7 +18,7 @@ export class ProfitLossController {
 
   /**
    * `YYYY-MM` → `{ year, month }`. DTO `@Matches` 가 포맷을 보장하므로 여기서는 split 안전.
-   * 미입력 시 현재 시점 연/월 fallback (finance/CLAUDE.md §2).
+   * 미입력 시 현재 시점 연/월 fallback (finance/AGENTS.md).
    *
    * Note: JS `new Date()` 는 로컬 TZ 이지만, Plan B2c 에서 프로세스가 KST 로 운영된다는 전제.
    * (ProfitLoss 는 집계 결과이므로 초 단위 TZ 민감도 낮음 — 월 경계 다음 요청 시 다른 월 반환.)

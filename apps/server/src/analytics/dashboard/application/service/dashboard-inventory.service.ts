@@ -57,7 +57,7 @@ export class DashboardInventoryService {
         // ADR-0016 (no profitLoss reads), ADR-0018 (companyId scoped via helper signature).
         buildPerListingMetrics(this.prisma, companyId, ctx.monthStart, ctx.monthEnd),
 
-        // inventoryRows for needReorder — JS-side filter per CLAUDE.md
+        // inventoryRows for needReorder — JS-side filter per AGENTS.md
         // Fetch rows with currentStock > 0, then filter currentStock <= reorderPoint in JS
         // (legacy: fetch + JS filter, not DB count)
         this.prisma.inventory.findMany({

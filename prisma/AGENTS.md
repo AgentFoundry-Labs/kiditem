@@ -17,8 +17,8 @@ prisma/
     ├── finance.prisma          (ProfitLoss, GradeHistory, ManualLedger, ProcessingCost, SalesPlan)
     ├── inventory.prisma        (Inventory, Stock*, Warehouse, Picking*, ReturnTransfer)
     │                            ↳ StockTransaction 은 InventoryService 의 내부 ledger.
-    │                              외부 모듈의 직접 read/write 금지 (ADR-0014).
-    ├── orders.prisma           (Order + OrderLineItem + OrderReturn + OrderReturnLineItem (ADR-0015 channel-agnostic), Shipment, UnshippedItem, Settlement, CSRecord, Review)
+    │                              외부 모듈의 직접 read/write 금지.
+    ├── orders.prisma           (Order + OrderLineItem + OrderReturn + OrderReturnLineItem channel-agnostic spine, Shipment, UnshippedItem, Settlement, CSRecord, Review)
     ├── supply.prisma           (Supplier*, PurchaseOrder*)
     └── system.prisma           (Marketplace, BusinessRule, ActionTask, FeatureGate, ActivityEvent, Alert, SystemSetting, MigrationCheckpoint)
 ```
@@ -33,7 +33,7 @@ prisma/
 npm run db:generate   # Generate Prisma client
 npm run db:push       # Dev — apply directly to DB
 npm run db:3layer-setup # Reapply partial indexes / RLS / CHECK constraints after db:push
-npm run db:erd        # Regenerate docs/ERD.md after Prisma model changes
+npm run db:erd        # Regenerate docs/ERD.md + docs/erd/*.md after Prisma model changes
 npm run graphify:schema # Regenerate ERD + graphify-out schema navigation artifacts
 npm run db:migrate    # Production — create migration files
 npm run db:studio     # DB browser (localhost:5555)
@@ -51,7 +51,7 @@ npm run db:studio     # DB browser (localhost:5555)
 |---|---|---|
 | **스키마 (DDL)** | `schema.prisma` + `db:push` | 매 pull 후 실행. 안전 |
 | **공유 개발 데이터** | Google Drive dev data profile + bundle replay (`npm run data:dev:*`) | 팀원이 같은 화면 상태를 재현하는 표준 경로 |
-| **운영 중 데이터 이전** | 명시적 SQL/seed 스크립트 (`prisma/backfill-*.sql`, 필요한 `scripts/*`) | 스키마 변경/마이그레이션 보조. 화면 데이터 공유 용도 아님 |
+| **운영 중 데이터 이전** | PR 본문 / release runbook 의 임시 명령 | 스키마 변경/마이그레이션 보조. 화면 데이터 공유 용도 아님. 완료 후 one-off 스크립트는 repo 에 남기지 않음 |
 | **초기 스냅샷 예외** | `prisma/init.sql.gz` (`--data-only` pg_dump) | Fresh volume 전용 예외. 기본 개발 데이터 경로 아님 |
 
 ### Google Drive dev data profile
@@ -88,7 +88,7 @@ npm install --legacy-peer-deps
 npm run db:push -- --accept-data-loss   # drop 이 포함됐으면 플래그 필요
 npx prisma generate
 npm run db:3layer-setup                 # partial unique indexes + company-id RLS policies + 3 CHECK constraints 재적용
-npm run db:erd                          # docs/ERD.md 재생성
+npm run db:erd                          # docs/ERD.md + docs/erd/*.md 재생성
 npm run graphify:schema                 # graphify-out/schema/** + schema-consumers/** 재생성
 ```
 
@@ -112,11 +112,14 @@ docker exec kiditem-postgres pg_dump -U kiditem --data-only --column-inserts \
 
 ### 팀원 간 incremental 데이터 공유
 
-기존 로컬 데이터를 **유지하면서** 새 공유 화면 데이터(예: 쿠팡 스크래퍼 결과)를 추가해야 하면 Google Drive bundle 의 `upsert` replay 를 사용한다. 스키마/운영 데이터 이전이 필요한 경우에만:
+기존 로컬 데이터를 **유지하면서** 새 공유 화면 데이터(예: 쿠팡 스크래퍼 결과)를 추가해야 하면 Google Drive bundle 의 `upsert` replay 를 사용한다.
 
-- `prisma/backfill-*.sql` — idempotent SQL 스크립트 (ON CONFLICT, IF NOT EXISTS 활용)
-- `scripts/*` — 명시적 마이그레이션/운영 보조 스크립트
-- PR 에 post-pull 수동 실행 명령과 되돌림/재실행 안전성을 명시
+스키마/운영 데이터 이전이 필요한 경우에도 one-off backfill / migration / seed 스크립트를 장기 보관하지 않는다:
+
+- Durable DB objects that Prisma cannot express (partial indexes, CHECK constraints, RLS, expression indexes) go into `prisma/3layer-setup.sql`.
+- One-off data movement belongs in the PR body / release runbook and is deleted after rollout.
+- Reusable developer data flows belong in `scripts/dev-data*.ts` + `docs/DEV_DATA_BUNDLES.md`.
+- Keep `scripts/*` only for current package commands, tests, generated docs, or actively maintained import/dev-data workflows.
 
 ## Prisma v7 Config
 
@@ -133,7 +136,7 @@ docker exec kiditem-postgres pg_dump -U kiditem --data-only --column-inserts \
 - Python accesses snake_case DB column names directly (asyncpg raw SQL)
 - After schema changes: always run the schema-change checklist above (`db:push` + `prisma generate` + `db:3layer-setup` + generated ERD/Graphify artifacts)
 - Keep Zod schemas in sync: use `satisfies z.infer<typeof Schema>` pattern in services
-- Json 흡수 패턴: 부모의 `items Json @default("[]")` 사용 (CoupangReturn 등 — 자식이 별도 테이블을 가질 이유가 없을 때). 서비스에서 `as unknown as T[]` 캐스트.
+- Json 흡수 패턴은 일회성 raw payload 보존용으로만 사용한다. 운영 쿼리·집계·IDOR guard 가 필요한 child row 는 `OrderReturnLineItem` 처럼 정규화한다.
 - **FK 컬럼에 `@@index` 명시 필수** — Prisma 는 FK 에 자동 인덱스를 만들지 **않는다**. JOIN/역방향 조회가 있는 FK (대부분) 는 명시적 `@@index([foreignKey])` 추가. 복합이 자주 쓰이면 `@@index([companyId, foreignKey])` 등 조합 인덱스도 함께.
 - **Optional FK (`Foo?`) 에도 `onDelete` 명시** — default 동작에 의존하지 말 것. 부모 삭제 시 동작(`SetNull` / `Restrict` / `Cascade`)을 의도에 맞게 기입해 리뷰어가 정책을 바로 읽을 수 있게.
 
@@ -143,7 +146,7 @@ docker exec kiditem-postgres pg_dump -U kiditem --data-only --column-inserts \
 - `AgentEvent`: eventType(`permission_denied`|`action_snapshot`)으로 구분. snapshot 필드는 해당 타입만 사용.
 - `Marketplace`: type(`agent`|`workflow`)으로 구분.
 
-## Partial unique index 패턴 (Plan A/B1 — ADR-0013)
+## Partial unique index 패턴
 
 `prisma/models/` 의 `@@unique([...])` 은 Prisma accessor 생성용으로 유지하되, 실제 DB constraint 는 [`prisma/3layer-setup.sql`](3layer-setup.sql) 의 **partial unique index** (`WHERE is_deleted = false`) 가 enforce. 이 조합이 보장하는 것:
 
@@ -155,7 +158,7 @@ docker exec kiditem-postgres pg_dump -U kiditem --data-only --column-inserts \
 - `product_options(master_id, option_name)` → `product_options_master_option_name_active` + `product_options_master_null_option` (`option_name IS NULL` 케이스)
 - `product_options(company_id, barcode)` → `product_options_company_barcode_active`
 - `product_options(company_id, legacy_code)` → `product_options_company_legacy_active`
-- `channel_listings(company_id, channel, external_id)` → `channel_listings_company_channel_external_active` (ADR-0020, active-row uniqueness)
+- `channel_listings(company_id, channel, external_id)` → `channel_listings_company_channel_external_active` (active-row uniqueness)
 
 서비스 코드는 `findUnique({ companyId_xxx })` 대신 **`findFirst({ where: { ..., isDeleted: false } })`** 사용.
 
@@ -177,7 +180,7 @@ npm run db:erd
 npm run graphify:schema
 ```
 
-산출물 (`docs/ERD.md`, `graphify-out/schema/**`, `graphify-out/schema-consumers/**`) 는 navigation aid 일 뿐 source of truth 가 아님 — Graphify `INFERRED`/`AMBIGUOUS` edge 는 review 힌트로만 사용하고 중요한 주장은 source 파일로 검증한다.
+산출물 (`docs/ERD.md`, `docs/erd/**`, `graphify-out/schema/**`, `graphify-out/schema-consumers/**`) 는 navigation aid 일 뿐 source of truth 가 아님 — Graphify `INFERRED`/`AMBIGUOUS` edge 는 review 힌트로만 사용하고 중요한 주장은 source 파일로 검증한다.
 
 ## Phase 3+4 스키마 필드 (2026-04-13)
 

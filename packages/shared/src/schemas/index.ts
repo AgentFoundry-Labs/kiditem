@@ -4,8 +4,8 @@
 // imports (e.g. `@kiditem/shared/product`, `@kiditem/shared/order`,
 // `@kiditem/shared/inventory`). This `schemas` barrel exists to keep
 // pre-Phase 2 archived recipes resolvable. Do NOT add new exports here —
-// register a new subpath in `packages/shared/package.json` instead. See
-// `docs/superpowers/plans/2026-04-29-shared-root-barrel-shrink.md`.
+// register a new subpath in `packages/shared/package.json` instead. See the
+// Reconstruction Export Policy in packages/shared/AGENTS.md.
 
 // Common
 export { PaginatedResponseSchema, ApiErrorResponseSchema, SyncInfoSchema, zIsoDate } from './common.js';

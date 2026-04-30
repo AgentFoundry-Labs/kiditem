@@ -120,7 +120,7 @@ export async function loadStrategyContext(
  *
  * Cross-domain note: `ChannelListing*DailySnapshot` are channels-namespace
  * Prisma models, but advertising owns the dual-write helper today (see
- * `apps/server/src/advertising/CLAUDE.md` "Cross-domain coupling
+ * `apps/server/src/advertising/AGENTS.md` "Cross-domain coupling
  * exception"). Reading them here via `PrismaService` keeps that boundary
  * intact — no `ChannelSyncService` inject.
  */

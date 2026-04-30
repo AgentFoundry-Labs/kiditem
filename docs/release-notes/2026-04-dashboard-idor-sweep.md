@@ -17,7 +17,7 @@ Pre-fix 환경에서 아래 엔드포인트 응답 수치가 **실제 값보다 
 
 1. `dashboard.controller.ts` — `@Get('trend')` + `@Get('inventory')` + `@Get('sales')` (preemptive) 에 `@CurrentCompany()` 추가
 2. `dashboard-trend.service.ts` — 3 개 쿼리 (profitLoss.aggregate + orders $queryRaw + ads $queryRaw) 에 `companyId` 바인딩
-3. `dashboard/helpers/wing-ad-summary.ts` — 헬퍼 signature 에 `companyId` 2 nd positional 추가 + 2 쿼리 (ad_snapshots $queryRaw + adSnapshot.findFirst) 에 적용
+3. Historical `dashboard/helpers/wing-ad-summary.ts` path — helper signature 에 `companyId` 2 nd positional 추가 + Wing summary queries 에 적용
 4. `dashboard-ad.service.ts` — dailyAdRows `$queryRaw` 에 `company_id = ${companyId}::uuid` 바인딩
 5. `dashboard-inventory.service.ts` — 8 개 Prisma 쿼리 (masterProduct.groupBy/count/findMany, alert.findMany, profitLoss.findMany, inventory.findMany, gradeHistory.findMany, thumbnail.count) 에 `where: { companyId }` 추가, `masterProduct.findMany` 의 `include: { listings }` 에 2-hop `where: { companyId }` 추가
 
@@ -30,9 +30,9 @@ Pre-fix 환경에서 아래 엔드포인트 응답 수치가 **실제 값보다 
 
 ## 관련 문서
 
-- [ADR-0018](.claude/docs/decisions/0018-dashboard-idor-sweep-raw-sql-tenancy.md) — Dashboard IDOR Sweep + $queryRaw Tenancy Guarantee
-- [ADR-0006](.claude/docs/decisions/0006-authenticated-company-scope.md) — Authenticated company scope (controller layer)
-- Plan: `docs/superpowers/plans/2026-04-21-plan-idor-sweep.md`
+- Historical plan/ADR scratch docs were pruned during the instruction cleanup.
+  Durable tenancy and raw SQL contracts now live in `AGENTS.md`, scoped
+  `AGENTS.md` files, and this release note.
 
 ## 배포 order
 

@@ -15,7 +15,7 @@ export class PanelService {
    * 현재 Panel에 표시되어야 할 아이템 전체.
    * - 진행 중 run (pending/running)
    * - 최근 24h terminal run
-   * PR1: workflow source만. PR2에서 agent, image_edit, alert 추가.
+   * Sources: workflow run, agent heartbeat run, thumbnail generation, alert.
    */
   async snapshot(companyId: string, currentUserId: string): Promise<Array<Omit<PanelItem, 'seq' | 'updatedAt'>>> {
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 3600 * 1000);
@@ -149,7 +149,7 @@ export class PanelService {
    *   (a) SSE 초기 연결
    *   (b) SSE 재접속 실패 후 polling fallback
    *   (c) Server 재시작 감지 후 리셋
-   * PR1에선 snapshot과 동일 구현. seq는 클라가 서버 stream seq로 override.
+   * Snapshot과 동일 구현. seq는 클라가 서버 stream seq로 override.
    */
   async backfill(companyId: string, _afterSeq: number, currentUserId: string) {
     return this.snapshot(companyId, currentUserId);

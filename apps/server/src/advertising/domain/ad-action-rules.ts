@@ -6,7 +6,7 @@ import type { LatestTargetRow } from '../adapter/out/prisma/ad-action.query';
  * Pure 5-rule selector for `AdAction` candidates.
  *
  * The 5 rules over `ChannelAdTargetDailySnapshot` are documented in
- * `apps/server/src/advertising/CLAUDE.md` ("AdAction 규칙"). This module
+ * `apps/server/src/advertising/AGENTS.md` ("AdAction 규칙"). This module
  * holds the pure decision logic only — it does not touch Prisma or any
  * tenant-scoped service. `AdActionService` orchestrates the read of latest
  * target-daily rows + option-daily stock map and feeds rows in here.

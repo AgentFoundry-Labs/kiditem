@@ -1554,7 +1554,7 @@
       "field": "marketplaceId",
       "field_type": "String?",
       "id": "field_agentdefinition_marketplaceid",
-      "community": 12,
+      "community": 11,
       "norm_label": "agentdefinition.marketplaceid"
     },
     {
@@ -2148,7 +2148,7 @@
       "table": "agent_wakeup_requests",
       "description": "",
       "id": "model_agentwakeuprequest",
-      "community": 4,
+      "community": 13,
       "norm_label": "agentwakeuprequest"
     },
     {
@@ -2158,7 +2158,7 @@
       "node_type": "db_table",
       "model": "AgentWakeupRequest",
       "id": "table_agent_wakeup_requests",
-      "community": 4,
+      "community": 13,
       "norm_label": "agent_wakeup_requests"
     },
     {
@@ -2170,7 +2170,7 @@
       "field": "id",
       "field_type": "String",
       "id": "field_agentwakeuprequest_id",
-      "community": 4,
+      "community": 13,
       "norm_label": "agentwakeuprequest.id"
     },
     {
@@ -2182,7 +2182,7 @@
       "field": "companyId",
       "field_type": "String",
       "id": "field_agentwakeuprequest_companyid",
-      "community": 4,
+      "community": 13,
       "norm_label": "agentwakeuprequest.companyid"
     },
     {
@@ -2194,7 +2194,7 @@
       "field": "agentId",
       "field_type": "String",
       "id": "field_agentwakeuprequest_agentid",
-      "community": 4,
+      "community": 13,
       "norm_label": "agentwakeuprequest.agentid"
     },
     {
@@ -2206,7 +2206,7 @@
       "field": "source",
       "field_type": "String",
       "id": "field_agentwakeuprequest_source",
-      "community": 4,
+      "community": 13,
       "norm_label": "agentwakeuprequest.source"
     },
     {
@@ -2218,7 +2218,7 @@
       "field": "triggerDetail",
       "field_type": "String?",
       "id": "field_agentwakeuprequest_triggerdetail",
-      "community": 4,
+      "community": 13,
       "norm_label": "agentwakeuprequest.triggerdetail"
     },
     {
@@ -2230,7 +2230,7 @@
       "field": "reason",
       "field_type": "String?",
       "id": "field_agentwakeuprequest_reason",
-      "community": 4,
+      "community": 13,
       "norm_label": "agentwakeuprequest.reason"
     },
     {
@@ -2242,7 +2242,7 @@
       "field": "payload",
       "field_type": "Json?",
       "id": "field_agentwakeuprequest_payload",
-      "community": 4,
+      "community": 13,
       "norm_label": "agentwakeuprequest.payload"
     },
     {
@@ -2254,7 +2254,7 @@
       "field": "status",
       "field_type": "String",
       "id": "field_agentwakeuprequest_status",
-      "community": 4,
+      "community": 13,
       "norm_label": "agentwakeuprequest.status"
     },
     {
@@ -2266,7 +2266,7 @@
       "field": "coalescedCount",
       "field_type": "Int",
       "id": "field_agentwakeuprequest_coalescedcount",
-      "community": 4,
+      "community": 13,
       "norm_label": "agentwakeuprequest.coalescedcount"
     },
     {
@@ -2278,7 +2278,7 @@
       "field": "requestedByType",
       "field_type": "String?",
       "id": "field_agentwakeuprequest_requestedbytype",
-      "community": 4,
+      "community": 13,
       "norm_label": "agentwakeuprequest.requestedbytype"
     },
     {
@@ -2290,7 +2290,7 @@
       "field": "requestedById",
       "field_type": "String?",
       "id": "field_agentwakeuprequest_requestedbyid",
-      "community": 4,
+      "community": 13,
       "norm_label": "agentwakeuprequest.requestedbyid"
     },
     {
@@ -2302,7 +2302,7 @@
       "field": "runId",
       "field_type": "String?",
       "id": "field_agentwakeuprequest_runid",
-      "community": 4,
+      "community": 13,
       "norm_label": "agentwakeuprequest.runid"
     },
     {
@@ -2314,7 +2314,7 @@
       "field": "requestedAt",
       "field_type": "DateTime",
       "id": "field_agentwakeuprequest_requestedat",
-      "community": 4,
+      "community": 13,
       "norm_label": "agentwakeuprequest.requestedat"
     },
     {
@@ -2326,7 +2326,7 @@
       "field": "claimedAt",
       "field_type": "DateTime?",
       "id": "field_agentwakeuprequest_claimedat",
-      "community": 4,
+      "community": 13,
       "norm_label": "agentwakeuprequest.claimedat"
     },
     {
@@ -2338,7 +2338,7 @@
       "field": "finishedAt",
       "field_type": "DateTime?",
       "id": "field_agentwakeuprequest_finishedat",
-      "community": 4,
+      "community": 13,
       "norm_label": "agentwakeuprequest.finishedat"
     },
     {
@@ -2350,7 +2350,7 @@
       "field": "error",
       "field_type": "String?",
       "id": "field_agentwakeuprequest_error",
-      "community": 4,
+      "community": 13,
       "norm_label": "agentwakeuprequest.error"
     },
     {
@@ -2362,7 +2362,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_agentwakeuprequest_createdat",
-      "community": 4,
+      "community": 13,
       "norm_label": "agentwakeuprequest.createdat"
     },
     {
@@ -2374,7 +2374,7 @@
       "field": "updatedAt",
       "field_type": "DateTime",
       "id": "field_agentwakeuprequest_updatedat",
-      "community": 4,
+      "community": 13,
       "norm_label": "agentwakeuprequest.updatedat"
     },
     {
@@ -2386,7 +2386,7 @@
       "field": "agent",
       "field_type": "AgentDefinition",
       "id": "field_agentwakeuprequest_agent",
-      "community": 4,
+      "community": 13,
       "norm_label": "agentwakeuprequest.agent"
     },
     {
@@ -2398,7 +2398,7 @@
       "field": "company",
       "field_type": "Company",
       "id": "field_agentwakeuprequest_company",
-      "community": 4,
+      "community": 13,
       "norm_label": "agentwakeuprequest.company"
     },
     {
@@ -2410,7 +2410,7 @@
       "table": "heartbeat_runs",
       "description": "\uc5d0\uc774\uc804\ud2b8 \uc548\uc804 \ud30c\uc774\ud504\ub77c\uc778 (Budget/Cap/DryRun). AgentDefinition \uacfc \ud568\uaed8 agent runtime state \uad6c\uc131.",
       "id": "model_heartbeatrun",
-      "community": 4,
+      "community": 13,
       "norm_label": "heartbeatrun"
     },
     {
@@ -2420,7 +2420,7 @@
       "node_type": "db_table",
       "model": "HeartbeatRun",
       "id": "table_heartbeat_runs",
-      "community": 4,
+      "community": 13,
       "norm_label": "heartbeat_runs"
     },
     {
@@ -2432,7 +2432,7 @@
       "field": "id",
       "field_type": "String",
       "id": "field_heartbeatrun_id",
-      "community": 4,
+      "community": 13,
       "norm_label": "heartbeatrun.id"
     },
     {
@@ -2444,7 +2444,7 @@
       "field": "companyId",
       "field_type": "String",
       "id": "field_heartbeatrun_companyid",
-      "community": 4,
+      "community": 13,
       "norm_label": "heartbeatrun.companyid"
     },
     {
@@ -2456,7 +2456,7 @@
       "field": "agentId",
       "field_type": "String",
       "id": "field_heartbeatrun_agentid",
-      "community": 4,
+      "community": 13,
       "norm_label": "heartbeatrun.agentid"
     },
     {
@@ -2468,7 +2468,7 @@
       "field": "invocationSource",
       "field_type": "String",
       "id": "field_heartbeatrun_invocationsource",
-      "community": 4,
+      "community": 13,
       "norm_label": "heartbeatrun.invocationsource"
     },
     {
@@ -2480,7 +2480,7 @@
       "field": "triggerDetail",
       "field_type": "String?",
       "id": "field_heartbeatrun_triggerdetail",
-      "community": 4,
+      "community": 13,
       "norm_label": "heartbeatrun.triggerdetail"
     },
     {
@@ -2492,7 +2492,7 @@
       "field": "status",
       "field_type": "String",
       "id": "field_heartbeatrun_status",
-      "community": 4,
+      "community": 13,
       "norm_label": "heartbeatrun.status"
     },
     {
@@ -2504,7 +2504,7 @@
       "field": "failureType",
       "field_type": "String?",
       "id": "field_heartbeatrun_failuretype",
-      "community": 4,
+      "community": 13,
       "norm_label": "heartbeatrun.failuretype"
     },
     {
@@ -2516,7 +2516,7 @@
       "field": "startedAt",
       "field_type": "DateTime?",
       "id": "field_heartbeatrun_startedat",
-      "community": 4,
+      "community": 13,
       "norm_label": "heartbeatrun.startedat"
     },
     {
@@ -2528,7 +2528,7 @@
       "field": "finishedAt",
       "field_type": "DateTime?",
       "id": "field_heartbeatrun_finishedat",
-      "community": 4,
+      "community": 13,
       "norm_label": "heartbeatrun.finishedat"
     },
     {
@@ -2540,7 +2540,7 @@
       "field": "error",
       "field_type": "String?",
       "id": "field_heartbeatrun_error",
-      "community": 4,
+      "community": 13,
       "norm_label": "heartbeatrun.error"
     },
     {
@@ -2552,7 +2552,7 @@
       "field": "exitCode",
       "field_type": "Int?",
       "id": "field_heartbeatrun_exitcode",
-      "community": 4,
+      "community": 13,
       "norm_label": "heartbeatrun.exitcode"
     },
     {
@@ -2564,7 +2564,7 @@
       "field": "signal",
       "field_type": "String?",
       "id": "field_heartbeatrun_signal",
-      "community": 4,
+      "community": 13,
       "norm_label": "heartbeatrun.signal"
     },
     {
@@ -2576,7 +2576,7 @@
       "field": "usageJson",
       "field_type": "Json?",
       "id": "field_heartbeatrun_usagejson",
-      "community": 4,
+      "community": 13,
       "norm_label": "heartbeatrun.usagejson"
     },
     {
@@ -2588,7 +2588,7 @@
       "field": "resultJson",
       "field_type": "Json?",
       "id": "field_heartbeatrun_resultjson",
-      "community": 4,
+      "community": 13,
       "norm_label": "heartbeatrun.resultjson"
     },
     {
@@ -2600,7 +2600,7 @@
       "field": "sessionIdBefore",
       "field_type": "String?",
       "id": "field_heartbeatrun_sessionidbefore",
-      "community": 4,
+      "community": 13,
       "norm_label": "heartbeatrun.sessionidbefore"
     },
     {
@@ -2612,7 +2612,7 @@
       "field": "sessionIdAfter",
       "field_type": "String?",
       "id": "field_heartbeatrun_sessionidafter",
-      "community": 4,
+      "community": 13,
       "norm_label": "heartbeatrun.sessionidafter"
     },
     {
@@ -2624,7 +2624,7 @@
       "field": "stdoutExcerpt",
       "field_type": "String?",
       "id": "field_heartbeatrun_stdoutexcerpt",
-      "community": 4,
+      "community": 13,
       "norm_label": "heartbeatrun.stdoutexcerpt"
     },
     {
@@ -2636,7 +2636,7 @@
       "field": "stderrExcerpt",
       "field_type": "String?",
       "id": "field_heartbeatrun_stderrexcerpt",
-      "community": 4,
+      "community": 13,
       "norm_label": "heartbeatrun.stderrexcerpt"
     },
     {
@@ -2648,7 +2648,7 @@
       "field": "errorCode",
       "field_type": "String?",
       "id": "field_heartbeatrun_errorcode",
-      "community": 4,
+      "community": 13,
       "norm_label": "heartbeatrun.errorcode"
     },
     {
@@ -2660,7 +2660,7 @@
       "field": "processPid",
       "field_type": "Int?",
       "id": "field_heartbeatrun_processpid",
-      "community": 4,
+      "community": 13,
       "norm_label": "heartbeatrun.processpid"
     },
     {
@@ -2672,7 +2672,7 @@
       "field": "wakeupRequestId",
       "field_type": "String?",
       "id": "field_heartbeatrun_wakeuprequestid",
-      "community": 4,
+      "community": 13,
       "norm_label": "heartbeatrun.wakeuprequestid"
     },
     {
@@ -2684,7 +2684,7 @@
       "field": "nextSchedule",
       "field_type": "String?",
       "id": "field_heartbeatrun_nextschedule",
-      "community": 4,
+      "community": 13,
       "norm_label": "heartbeatrun.nextschedule"
     },
     {
@@ -2696,7 +2696,7 @@
       "field": "isSummarized",
       "field_type": "Boolean",
       "id": "field_heartbeatrun_issummarized",
-      "community": 4,
+      "community": 13,
       "norm_label": "heartbeatrun.issummarized"
     },
     {
@@ -2708,7 +2708,7 @@
       "field": "summary",
       "field_type": "String?",
       "id": "field_heartbeatrun_summary",
-      "community": 4,
+      "community": 13,
       "norm_label": "heartbeatrun.summary"
     },
     {
@@ -2732,7 +2732,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_heartbeatrun_createdat",
-      "community": 4,
+      "community": 13,
       "norm_label": "heartbeatrun.createdat"
     },
     {
@@ -2744,7 +2744,7 @@
       "field": "updatedAt",
       "field_type": "DateTime",
       "id": "field_heartbeatrun_updatedat",
-      "community": 4,
+      "community": 13,
       "norm_label": "heartbeatrun.updatedat"
     },
     {
@@ -2756,7 +2756,7 @@
       "field": "agent",
       "field_type": "AgentDefinition",
       "id": "field_heartbeatrun_agent",
-      "community": 4,
+      "community": 13,
       "norm_label": "heartbeatrun.agent"
     },
     {
@@ -2768,7 +2768,7 @@
       "field": "company",
       "field_type": "Company",
       "id": "field_heartbeatrun_company",
-      "community": 4,
+      "community": 13,
       "norm_label": "heartbeatrun.company"
     },
     {
@@ -2780,7 +2780,7 @@
       "field": "wakeupRequest",
       "field_type": "AgentWakeupRequest?",
       "id": "field_heartbeatrun_wakeuprequest",
-      "community": 4,
+      "community": 13,
       "norm_label": "heartbeatrun.wakeuprequest"
     },
     {
@@ -2792,7 +2792,7 @@
       "field": "triggeredByUser",
       "field_type": "User?",
       "id": "field_heartbeatrun_triggeredbyuser",
-      "community": 4,
+      "community": 13,
       "norm_label": "heartbeatrun.triggeredbyuser"
     },
     {
@@ -2804,7 +2804,7 @@
       "table": "workflow_runs",
       "description": "steps Json \uc73c\ub85c \ub2e8\uacc4\ubcc4 \uacb0\uacfc \ud761\uc218 (\ubcc4\ub3c4 StepRun \uc5c6\uc74c).",
       "id": "model_workflowrun",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflowrun"
     },
     {
@@ -2814,7 +2814,7 @@
       "node_type": "db_table",
       "model": "WorkflowRun",
       "id": "table_workflow_runs",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflow_runs"
     },
     {
@@ -2826,7 +2826,7 @@
       "field": "id",
       "field_type": "String",
       "id": "field_workflowrun_id",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflowrun.id"
     },
     {
@@ -2838,7 +2838,7 @@
       "field": "companyId",
       "field_type": "String?",
       "id": "field_workflowrun_companyid",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflowrun.companyid"
     },
     {
@@ -2850,7 +2850,7 @@
       "field": "templateId",
       "field_type": "String",
       "id": "field_workflowrun_templateid",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflowrun.templateid"
     },
     {
@@ -2862,7 +2862,7 @@
       "field": "status",
       "field_type": "String",
       "id": "field_workflowrun_status",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflowrun.status"
     },
     {
@@ -2874,7 +2874,7 @@
       "field": "triggeredBy",
       "field_type": "String",
       "id": "field_workflowrun_triggeredby",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflowrun.triggeredby"
     },
     {
@@ -2886,7 +2886,7 @@
       "field": "triggeredByUserId",
       "field_type": "String?",
       "id": "field_workflowrun_triggeredbyuserid",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflowrun.triggeredbyuserid"
     },
     {
@@ -2898,7 +2898,7 @@
       "field": "contextData",
       "field_type": "Json?",
       "id": "field_workflowrun_contextdata",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflowrun.contextdata"
     },
     {
@@ -2910,7 +2910,7 @@
       "field": "steps",
       "field_type": "Json",
       "id": "field_workflowrun_steps",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflowrun.steps"
     },
     {
@@ -2922,7 +2922,7 @@
       "field": "error",
       "field_type": "String?",
       "id": "field_workflowrun_error",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflowrun.error"
     },
     {
@@ -2934,7 +2934,7 @@
       "field": "startedAt",
       "field_type": "DateTime?",
       "id": "field_workflowrun_startedat",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflowrun.startedat"
     },
     {
@@ -2946,7 +2946,7 @@
       "field": "completedAt",
       "field_type": "DateTime?",
       "id": "field_workflowrun_completedat",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflowrun.completedat"
     },
     {
@@ -2958,7 +2958,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_workflowrun_createdat",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflowrun.createdat"
     },
     {
@@ -2970,7 +2970,7 @@
       "field": "updatedAt",
       "field_type": "DateTime",
       "id": "field_workflowrun_updatedat",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflowrun.updatedat"
     },
     {
@@ -2982,7 +2982,7 @@
       "field": "template",
       "field_type": "WorkflowTemplate",
       "id": "field_workflowrun_template",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflowrun.template"
     },
     {
@@ -2994,7 +2994,7 @@
       "field": "triggeredByUser",
       "field_type": "User?",
       "id": "field_workflowrun_triggeredbyuser",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflowrun.triggeredbyuser"
     },
     {
@@ -3006,7 +3006,7 @@
       "table": "workflow_templates",
       "description": "",
       "id": "model_workflowtemplate",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflowtemplate"
     },
     {
@@ -3016,7 +3016,7 @@
       "node_type": "db_table",
       "model": "WorkflowTemplate",
       "id": "table_workflow_templates",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflow_templates"
     },
     {
@@ -3028,7 +3028,7 @@
       "field": "id",
       "field_type": "String",
       "id": "field_workflowtemplate_id",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflowtemplate.id"
     },
     {
@@ -3040,7 +3040,7 @@
       "field": "companyId",
       "field_type": "String",
       "id": "field_workflowtemplate_companyid",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflowtemplate.companyid"
     },
     {
@@ -3052,7 +3052,7 @@
       "field": "name",
       "field_type": "String",
       "id": "field_workflowtemplate_name",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflowtemplate.name"
     },
     {
@@ -3064,7 +3064,7 @@
       "field": "description",
       "field_type": "String",
       "id": "field_workflowtemplate_description",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflowtemplate.description"
     },
     {
@@ -3076,7 +3076,7 @@
       "field": "module",
       "field_type": "String",
       "id": "field_workflowtemplate_module",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflowtemplate.module"
     },
     {
@@ -3088,7 +3088,7 @@
       "field": "isActive",
       "field_type": "Boolean",
       "id": "field_workflowtemplate_isactive",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflowtemplate.isactive"
     },
     {
@@ -3100,7 +3100,7 @@
       "field": "triggerType",
       "field_type": "String",
       "id": "field_workflowtemplate_triggertype",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflowtemplate.triggertype"
     },
     {
@@ -3112,7 +3112,7 @@
       "field": "schedule",
       "field_type": "String?",
       "id": "field_workflowtemplate_schedule",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflowtemplate.schedule"
     },
     {
@@ -3124,7 +3124,7 @@
       "field": "nodesJson",
       "field_type": "Json",
       "id": "field_workflowtemplate_nodesjson",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflowtemplate.nodesjson"
     },
     {
@@ -3136,7 +3136,7 @@
       "field": "edgesJson",
       "field_type": "Json",
       "id": "field_workflowtemplate_edgesjson",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflowtemplate.edgesjson"
     },
     {
@@ -3148,7 +3148,7 @@
       "field": "version",
       "field_type": "Int",
       "id": "field_workflowtemplate_version",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflowtemplate.version"
     },
     {
@@ -3160,7 +3160,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_workflowtemplate_createdat",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflowtemplate.createdat"
     },
     {
@@ -3172,7 +3172,7 @@
       "field": "updatedAt",
       "field_type": "DateTime",
       "id": "field_workflowtemplate_updatedat",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflowtemplate.updatedat"
     },
     {
@@ -3184,7 +3184,7 @@
       "field": "marketplaceId",
       "field_type": "String?",
       "id": "field_workflowtemplate_marketplaceid",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflowtemplate.marketplaceid"
     },
     {
@@ -3196,7 +3196,7 @@
       "field": "company",
       "field_type": "Company",
       "id": "field_workflowtemplate_company",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflowtemplate.company"
     },
     {
@@ -3208,7 +3208,7 @@
       "field": "marketplace",
       "field_type": "Marketplace?",
       "id": "field_workflowtemplate_marketplace",
-      "community": 12,
+      "community": 11,
       "norm_label": "workflowtemplate.marketplace"
     },
     {
@@ -7861,7 +7861,7 @@
       "table": "category_mappings",
       "description": "",
       "id": "model_categorymapping",
-      "community": 10,
+      "community": 26,
       "norm_label": "categorymapping"
     },
     {
@@ -7871,7 +7871,7 @@
       "node_type": "db_table",
       "model": "CategoryMapping",
       "id": "table_category_mappings",
-      "community": 10,
+      "community": 26,
       "norm_label": "category_mappings"
     },
     {
@@ -7883,7 +7883,7 @@
       "field": "id",
       "field_type": "String",
       "id": "field_categorymapping_id",
-      "community": 10,
+      "community": 26,
       "norm_label": "categorymapping.id"
     },
     {
@@ -7895,7 +7895,7 @@
       "field": "companyId",
       "field_type": "String",
       "id": "field_categorymapping_companyid",
-      "community": 10,
+      "community": 26,
       "norm_label": "categorymapping.companyid"
     },
     {
@@ -7907,7 +7907,7 @@
       "field": "internalCategory",
       "field_type": "String",
       "id": "field_categorymapping_internalcategory",
-      "community": 10,
+      "community": 26,
       "norm_label": "categorymapping.internalcategory"
     },
     {
@@ -7919,7 +7919,7 @@
       "field": "coupangCategoryId",
       "field_type": "String?",
       "id": "field_categorymapping_coupangcategoryid",
-      "community": 10,
+      "community": 26,
       "norm_label": "categorymapping.coupangcategoryid"
     },
     {
@@ -7931,7 +7931,7 @@
       "field": "coupangCategoryName",
       "field_type": "String?",
       "id": "field_categorymapping_coupangcategoryname",
-      "community": 10,
+      "community": 26,
       "norm_label": "categorymapping.coupangcategoryname"
     },
     {
@@ -7943,7 +7943,7 @@
       "field": "keywords",
       "field_type": "String?",
       "id": "field_categorymapping_keywords",
-      "community": 10,
+      "community": 26,
       "norm_label": "categorymapping.keywords"
     },
     {
@@ -7955,7 +7955,7 @@
       "field": "isActive",
       "field_type": "Boolean",
       "id": "field_categorymapping_isactive",
-      "community": 10,
+      "community": 26,
       "norm_label": "categorymapping.isactive"
     },
     {
@@ -7967,7 +7967,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_categorymapping_createdat",
-      "community": 10,
+      "community": 26,
       "norm_label": "categorymapping.createdat"
     },
     {
@@ -7979,7 +7979,7 @@
       "field": "updatedAt",
       "field_type": "DateTime",
       "id": "field_categorymapping_updatedat",
-      "community": 10,
+      "community": 26,
       "norm_label": "categorymapping.updatedat"
     },
     {
@@ -7991,7 +7991,7 @@
       "field": "company",
       "field_type": "Company",
       "id": "field_categorymapping_company",
-      "community": 10,
+      "community": 26,
       "norm_label": "categorymapping.company"
     },
     {
@@ -8001,7 +8001,7 @@
       "node_type": "unique_constraint",
       "model": "CategoryMapping",
       "id": "unique_categorymapping_companyid_internalcategory",
-      "community": 10,
+      "community": 26,
       "norm_label": "categorymapping unique(companyid, internalcategory)"
     },
     {
@@ -13018,7 +13018,7 @@
       "node_type": "prisma_model",
       "namespace": "Orders",
       "table": "order_returns",
-      "description": "\ucc44\ub110-agnostic \ubc18\ud488 aggregate. CoupangReturn \uc758 items JSON \u2192 OrderReturnLineItem \uc815\uaddc\ud654. type=RETURN/EXCHANGE \uad6c\ubd84 first-class.",
+      "description": "\ucc44\ub110-agnostic \ubc18\ud488 aggregate. \ubc18\ud488 item \uc740 OrderReturnLineItem \uc73c\ub85c \uc815\uaddc\ud654. type=RETURN/EXCHANGE \uad6c\ubd84 first-class.",
       "id": "model_orderreturn",
       "community": 4,
       "norm_label": "orderreturn"
@@ -15668,7 +15668,7 @@
       "table": "marketplace",
       "description": "type \uc73c\ub85c agent/workflow \uce74\ud0c8\ub85c\uadf8 \ud1b5\ud569.",
       "id": "model_marketplace",
-      "community": 12,
+      "community": 11,
       "norm_label": "marketplace"
     },
     {
@@ -15678,7 +15678,7 @@
       "node_type": "db_table",
       "model": "Marketplace",
       "id": "table_marketplace",
-      "community": 12,
+      "community": 11,
       "norm_label": "marketplace"
     },
     {
@@ -15690,7 +15690,7 @@
       "field": "id",
       "field_type": "String",
       "id": "field_marketplace_id",
-      "community": 12,
+      "community": 11,
       "norm_label": "marketplace.id"
     },
     {
@@ -15702,7 +15702,7 @@
       "field": "type",
       "field_type": "String",
       "id": "field_marketplace_type",
-      "community": 12,
+      "community": 11,
       "norm_label": "marketplace.type"
     },
     {
@@ -15714,7 +15714,7 @@
       "field": "name",
       "field_type": "String",
       "id": "field_marketplace_name",
-      "community": 12,
+      "community": 11,
       "norm_label": "marketplace.name"
     },
     {
@@ -15726,7 +15726,7 @@
       "field": "description",
       "field_type": "String",
       "id": "field_marketplace_description",
-      "community": 12,
+      "community": 11,
       "norm_label": "marketplace.description"
     },
     {
@@ -15738,7 +15738,7 @@
       "field": "category",
       "field_type": "String",
       "id": "field_marketplace_category",
-      "community": 12,
+      "community": 11,
       "norm_label": "marketplace.category"
     },
     {
@@ -15750,7 +15750,7 @@
       "field": "icon",
       "field_type": "String?",
       "id": "field_marketplace_icon",
-      "community": 12,
+      "community": 11,
       "norm_label": "marketplace.icon"
     },
     {
@@ -15762,7 +15762,7 @@
       "field": "module",
       "field_type": "String?",
       "id": "field_marketplace_module",
-      "community": 12,
+      "community": 11,
       "norm_label": "marketplace.module"
     },
     {
@@ -15774,7 +15774,7 @@
       "field": "nodesJson",
       "field_type": "Json?",
       "id": "field_marketplace_nodesjson",
-      "community": 12,
+      "community": 11,
       "norm_label": "marketplace.nodesjson"
     },
     {
@@ -15786,7 +15786,7 @@
       "field": "edgesJson",
       "field_type": "Json?",
       "id": "field_marketplace_edgesjson",
-      "community": 12,
+      "community": 11,
       "norm_label": "marketplace.edgesjson"
     },
     {
@@ -15798,7 +15798,7 @@
       "field": "role",
       "field_type": "String?",
       "id": "field_marketplace_role",
-      "community": 12,
+      "community": 11,
       "norm_label": "marketplace.role"
     },
     {
@@ -15810,7 +15810,7 @@
       "field": "adapterType",
       "field_type": "String?",
       "id": "field_marketplace_adaptertype",
-      "community": 12,
+      "community": 11,
       "norm_label": "marketplace.adaptertype"
     },
     {
@@ -15822,7 +15822,7 @@
       "field": "promptTemplate",
       "field_type": "String?",
       "id": "field_marketplace_prompttemplate",
-      "community": 12,
+      "community": 11,
       "norm_label": "marketplace.prompttemplate"
     },
     {
@@ -15834,7 +15834,7 @@
       "field": "skills",
       "field_type": "String[]",
       "id": "field_marketplace_skills",
-      "community": 12,
+      "community": 11,
       "norm_label": "marketplace.skills"
     },
     {
@@ -15846,7 +15846,7 @@
       "field": "permissions",
       "field_type": "Json?",
       "id": "field_marketplace_permissions",
-      "community": 12,
+      "community": 11,
       "norm_label": "marketplace.permissions"
     },
     {
@@ -15858,7 +15858,7 @@
       "field": "configurableParams",
       "field_type": "Json",
       "id": "field_marketplace_configurableparams",
-      "community": 12,
+      "community": 11,
       "norm_label": "marketplace.configurableparams"
     },
     {
@@ -15870,7 +15870,7 @@
       "field": "version",
       "field_type": "Int",
       "id": "field_marketplace_version",
-      "community": 12,
+      "community": 11,
       "norm_label": "marketplace.version"
     },
     {
@@ -15882,7 +15882,7 @@
       "field": "installCount",
       "field_type": "Int",
       "id": "field_marketplace_installcount",
-      "community": 12,
+      "community": 11,
       "norm_label": "marketplace.installcount"
     },
     {
@@ -15894,7 +15894,7 @@
       "field": "isPublished",
       "field_type": "Boolean",
       "id": "field_marketplace_ispublished",
-      "community": 12,
+      "community": 11,
       "norm_label": "marketplace.ispublished"
     },
     {
@@ -15906,7 +15906,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_marketplace_createdat",
-      "community": 12,
+      "community": 11,
       "norm_label": "marketplace.createdat"
     },
     {
@@ -15918,7 +15918,7 @@
       "field": "updatedAt",
       "field_type": "DateTime",
       "id": "field_marketplace_updatedat",
-      "community": 12,
+      "community": 11,
       "norm_label": "marketplace.updatedat"
     },
     {
@@ -17186,7 +17186,7 @@
     {
       "label": "vendorItemId provider term",
       "file_type": "rationale",
-      "source_file": "apps/server/src/channels/CLAUDE.md",
+      "source_file": "apps/server/src/channels/AGENTS.md",
       "node_type": "provider_term",
       "id": "concept_vendor_item_id",
       "community": 1,
@@ -42029,7 +42029,7 @@
     {
       "relation": "mapped_to_canonical_name",
       "confidence": "EXTRACTED",
-      "source_file": "apps/server/src/channels/CLAUDE.md",
+      "source_file": "apps/server/src/channels/AGENTS.md",
       "weight": 1.0,
       "_src": "concept_vendor_item_id",
       "_tgt": "concept_external_option_id",

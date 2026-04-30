@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -30,6 +30,8 @@ describe('legacy market-data migration entrypoints', () => {
     expect(packageJson.scripts).not.toHaveProperty('seed:channel-market-data');
     expect(existsSync(join(repoRoot, 'scripts/seed-channel-market-data.ts'))).toBe(false);
     expect(existsSync(join(repoRoot, 'scripts/coupang-dev-data.ts'))).toBe(false);
+    expect(existsSync(join(repoRoot, 'scripts/wing-product-scrape.sh'))).toBe(false);
+    expect(existsSync(join(repoRoot, 'scripts/import-returns.ts'))).toBe(false);
     expect(packageJson.scripts).toMatchObject({
       'data:dev:pull': 'tsx scripts/dev-data.ts pull',
       'data:dev:pack': 'tsx scripts/dev-data.ts pack',
@@ -50,6 +52,24 @@ describe('legacy market-data migration entrypoints', () => {
       for (const table of deletedLegacyTables) {
         expect(contents).not.toContain(table);
       }
+    }
+  });
+
+  it('does not retain one-off backfill or legacy migration helpers', () => {
+    const prismaFiles = readdirSync(join(repoRoot, 'prisma'));
+    expect(prismaFiles.filter((name) => name.startsWith('backfill-'))).toEqual([]);
+    expect(prismaFiles.filter((name) => name.startsWith('rollback-status-canonical'))).toEqual([]);
+
+    for (const relativePath of [
+      'scripts/init-agent-reader.sql',
+      'scripts/migrate-agent-prompts.sql',
+      'scripts/migrate-files-to-minio.ts',
+      'scripts/seed-manager-agent.sql',
+      'scripts/sidebar-route-audit.mjs',
+      'scripts/split-prisma-schema.py',
+      'scripts/sync-agent-definitions.sql',
+    ]) {
+      expect(existsSync(join(repoRoot, relativePath))).toBe(false);
     }
   });
 });

@@ -2,7 +2,7 @@
 //
 // DI wiring spec — Nest `TestingModule` 이 ProductsModule 을 실제로 compile/init 할 수 있는지
 // 검증. tsc + unit vitest 는 provider 빠짐 / circular DI / 잘못된 토큰 등을 잡지 못한다.
-// 프로젝트 CLAUDE.md (root §3, apps/server §NestJS) 가 "NestJS 모듈/서비스 추가 시 dev:server 부팅
+// 프로젝트 AGENTS.md (root §3, apps/server §NestJS) 가 "NestJS 모듈/서비스 추가 시 dev:server 부팅
 // 확인" 을 요구하는데, 이 스펙은 그 중 DI 그래프 부분을 테스트 차원에서 재현한다.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Global, Module } from '@nestjs/common';

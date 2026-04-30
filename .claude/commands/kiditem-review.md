@@ -4,10 +4,10 @@ PR을 컨벤션 + 설계 수준까지 리뷰하고 GitHub에 체크리스트 형
 
 1. `gh pr view <번호> --json title,body,changedFiles,additions,deletions`로 PR 개요 파악
 2. `gh pr diff <번호>`로 변경 내용 확인
-3. 변경된 파일 경로를 기준으로 해당 디렉토리와 상위 디렉토리에서 CLAUDE.md를 찾아 읽기 (`find . -name CLAUDE.md`)
+3. 변경된 파일 경로를 기준으로 해당 디렉토리와 상위 디렉토리에서 AGENTS.md를 찾아 읽기 (`find . -name AGENTS.md`)
 4. 컨벤션 체크 + 설계 리뷰를 수행:
 
-   **컨벤션**: 해당 CLAUDE.md 규칙 위반 여부를 체크리스트로 정리
+   **컨벤션**: 해당 AGENTS.md 규칙 위반 여부를 체크리스트로 정리
 
    **설계 리뷰**:
    - DB 스키마: 인덱스 적절성, 관계 설계, nullable 의도, 데이터 타입 선택

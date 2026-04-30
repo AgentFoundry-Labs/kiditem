@@ -4,7 +4,7 @@
 // (e.g. `@kiditem/shared/product`, `@kiditem/shared/errors`,
 // `@kiditem/shared/security`, `@kiditem/shared/panel`). The root barrel is
 // frozen by `scripts/check-shared-root-imports.sh` and is being shrunk in
-// batches per `docs/superpowers/plans/2026-04-29-shared-root-barrel-shrink.md`.
+// batches per the Reconstruction Export Policy in packages/shared/AGENTS.md.
 // Do NOT add new exports here — register a new subpath in
 // `packages/shared/package.json` instead.
 

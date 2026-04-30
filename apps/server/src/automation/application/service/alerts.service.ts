@@ -132,7 +132,7 @@ export class AlertsService {
     currentUserId: string,
   ): Promise<{ task: ActionTask; updatedAlert: Alert }> {
     const result = await this.prisma.$transaction(async (tx) => {
-      // companyId scope enforced — IDOR prevention (apps/server CLAUDE.md)
+      // companyId scope enforced — IDOR prevention (apps/server/AGENTS.md)
       const alert = await tx.alert.findFirst({ where: { id: alertId, companyId } });
       if (!alert) throw new NotFoundException('Alert not found');
       if (alert.actionTaskId) throw new ConflictException('Already promoted');

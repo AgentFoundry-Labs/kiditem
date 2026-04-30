@@ -55,6 +55,12 @@ CREATE UNIQUE INDEX channel_listings_company_channel_external_active
   ON channel_listings(company_id, channel, external_id)
   WHERE is_deleted = false;
 
+-- 2e. Agent trace lookup — AgentTask → AgentWakeupRequest legacy marker.
+-- Prisma cannot express this JSONB expression index. Keep it here rather than
+-- as a parked backfill so fresh/test DBs get the same lookup behavior.
+CREATE INDEX IF NOT EXISTS idx_agent_wakeup_requests_task_marker
+  ON agent_wakeup_requests ((payload ->> '_legacy_task_id'));
+
 -- 3. ActionTask target_type CHECK
 ALTER TABLE action_tasks
   DROP CONSTRAINT IF EXISTS action_task_target_type;

@@ -19,6 +19,21 @@ This ERD is a development-time navigation aid. The source of truth is still the 
 - `prisma/models/supply.prisma`
 - `prisma/models/system.prisma`
 
+## Domain ERDs
+
+| Domain | Models |
+|---|---:|
+| [Advertising](erd/advertising.md) | 5 |
+| [Agents](erd/agents.md) | 8 |
+| [AI](erd/ai.md) | 8 |
+| [Channels](erd/channels.md) | 6 |
+| [Core](erd/core.md) | 9 |
+| [Finance](erd/finance.md) | 5 |
+| [Inventory](erd/inventory.md) | 8 |
+| [Orders](erd/orders.md) | 9 |
+| [Supply](erd/supply.md) | 6 |
+| [System](erd/system.md) | 8 |
+
 ## Model Index
 
 | Model | Domain | Table | Description |
@@ -75,7 +90,7 @@ This ERD is a development-time navigation aid. The source of truth is still the 
 | CSRecord | Orders | `cs_records` | - |
 | Order | Orders | `orders` | 채널-agnostic 주문 aggregate. Coupang 등 채널별 raw payload 는 metadata Json. 라인 아이템은 OrderLineItem. |
 | OrderLineItem | Orders | `order_line_items` | 주문 라인 아이템 — 1 SKU 단위. listingOption → option 으로 SKU 해상도. companyId 는 IDOR 방어용 denormalize (B2a 패턴). |
-| OrderReturn | Orders | `order_returns` | 채널-agnostic 반품 aggregate. CoupangReturn 의 items JSON → OrderReturnLineItem 정규화. type=RETURN/EXCHANGE 구분 first-class. |
+| OrderReturn | Orders | `order_returns` | 채널-agnostic 반품 aggregate. 반품 item 은 OrderReturnLineItem 으로 정규화. type=RETURN/EXCHANGE 구분 first-class. |
 | OrderReturnLineItem | Orders | `order_return_line_items` | 반품 라인 아이템 — 반품 건 내 SKU 단위 상세. companyId 는 IDOR 방어용 denormalize. |
 | Review | Orders | `reviews` | - |
 | Settlement | Orders | `settlements` | 월별 정산 (예상 vs 실제 비교). |

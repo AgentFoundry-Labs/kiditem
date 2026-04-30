@@ -6,22 +6,20 @@
 psql "$AGENT_DATABASE_URL"로 읽기전용 쿼리. 쓰기 절대 불가.
 
 ## 주요 테이블 (PostgreSQL, snake_case)
-- orders: 주문 (total_price, quantity, ordered_at, status, product_id)
-- products: 상품 (name, abc_grade, ad_tier, cost_price, sell_price, commission_rate, shipping_cost, status)
-- ads: 광고 일별 (spend, impressions, clicks, conversions, revenue, date, product_id)
-- profit_loss: 월별 손익 (revenue, cogs, commission, shipping_cost, ad_cost, other_cost, net_profit, profit_rate, year, month, product_id)
-- traffic_stats: 트래픽 (visitors, views, cart_adds, orders, sales_qty, revenue, date, product_id)
-- inventory: 재고 (current_stock, reorder_point, avg_daily_sales, safety_stock, lead_time_days, product_id)
-- ad_snapshots: 광고 스냅샷 (source, page_type, spend, revenue, roas, captured_at)
-- ad_campaign_snapshots: 캠페인별 성과 (campaign_name, ad_spend, ad_revenue, impressions, clicks, roas)
-- item_winners: 아이템위너 (is_winner, my_price, winner_price, product_id)
+- orders / order_line_items / order_returns / order_return_line_items: 주문·주문라인·반품
+- master_products / product_options / channel_listings / channel_listing_options: 상품 family, SKU, 채널 listing
+- channel_listing_daily_snapshots / channel_listing_option_daily_snapshots: 일별 트래픽·광고·매출 fact
+- channel_ad_target_daily_snapshots / channel_account_daily_kpi_snapshots: 광고 target/account KPI fact
+- profit_loss / manual_ledgers / processing_costs / sales_plans: 손익·수기원장·처리비·목표
+- inventory / stock_transactions / warehouses / stock_transfers / stock_audits / picking_lists: 재고 운영
 - alerts: 알림 (type, title, message, is_read, severity)
 - action_tasks: 액션 태스크 (task_key, label, status, priority, notes, activity_log)
 - companies: 회사 (name — 현재 "거영" 1개)
 
 ## 쿼리 팁
 - 이번달: WHERE ordered_at >= date_trunc('month', now())
-- 상품 조인: JOIN products p ON xx.product_id = p.id
+- 상품 조인: order_line_items.option_id → product_options.id → product_options.master_id → master_products.id
+- 채널 fact 조인: channel_listing_daily_snapshots.listing_id → channel_listings.id
 - 금액 포맷: 원 단위 정수
 - 비율: 소수 1자리 (예: 이익률 12.3%)
 - company_id 조건은 RLS가 자동 적용하므로 쿼리에 넣지 않아도 됨

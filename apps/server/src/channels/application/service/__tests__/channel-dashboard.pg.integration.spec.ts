@@ -778,8 +778,7 @@ describe('Channel dashboard (PG integration)', () => {
   //    `OrderLineItem.companyId == Order.companyId`) is violated, the raw-SQL
   //    aggregations bind ${companyId}::uuid on every joined tenant-owned table
   //    and refuse to surface the foreign rows. Schema does not enforce the
-  //    cross-FK companyId match — see plan
-  //    docs/superpowers/plans/2026-04-29-channels-channel-listing-boundary.md.
+  //    cross-FK companyId match — see channels/AGENTS.md.
   // ---------------------------------------------------------------------------
   describe('2-hop defense-in-depth (R1/R2)', () => {
     it('getProductRanking: cross-tenant Order.listingId does not surface foreign master.name', async () => {

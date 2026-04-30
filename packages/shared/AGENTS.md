@@ -13,9 +13,9 @@ npm run build    # tsup → dist/ (ESM + CJS dual format)
 ## Subpath Exports
 
 ```typescript
-import { ProductListItem } from '@kiditem/shared';          // types (re-exported)
-import { ProductListItemSchema } from '@kiditem/shared/schemas';  // Zod schemas
-import { ErrorCodes } from '@kiditem/shared/errors';         // error codes
+import { ProductCatalogListItem } from '@kiditem/shared/product';         // domain type
+import { ProductCatalogListItemSchema } from '@kiditem/shared/product';   // domain schema
+import { ErrorCodes } from '@kiditem/shared/errors';                      // error codes
 ```
 
 `@kiditem/shared/internal/*` → null (내부 모듈 직접 import 차단)
@@ -50,36 +50,34 @@ import { ErrorCodes } from '@kiditem/shared/errors';         // error codes
 
 ```typescript
 // ✅ 올바름
-async findAll(): Promise<ProductListItem[]> {
-  const items = await this.prisma.product.findMany({ ... });
+async findAll(): Promise<ProductCatalogListItem[]> {
+  const items = await this.prisma.masterProduct.findMany({ ... });
   return items.map(p => ({
     id: p.id,
     name: p.name,
     // ...
-  } satisfies ProductListItem));
+  } satisfies ProductCatalogListItem));
 }
 
 // ❌ 금지 — drift 감지 불가
-async findAll(): Promise<ProductListItem[]> {
-  const items = await this.prisma.product.findMany({ ... });
+async findAll(): Promise<ProductCatalogListItem[]> {
+  const items = await this.prisma.masterProduct.findMany({ ... });
   return items.map(p => ({ id: p.id, name: p.name }));  // 타입 불일치해도 TypeScript 침묵
 }
 ```
 
 **Prisma `JsonValue` 필드는 map 단계에서 좁혀야 통과**: `permissions: item.permissions as Record<string, unknown> | null`
 
-### 신규 service 작성 시 self-check
+### 신규/수정 service 작성 시 self-check
 
 ```bash
-# 누락된 service 찾기 (utility 함수만 import 하는 false positive 제외)
+# 현재 PR 에서 수정한 service 중 누락 찾기 (utility 함수만 import 하는 false positive 제외)
 # 핵심: shared import 라인에 PascalCase 식별자가 있어야 type/schema 사용으로 간주
-for f in $(grep -rlE "from '@kiditem/shared'" apps/server/src --include="*.service.ts"); do
-  if grep -E "from '@kiditem/shared'" "$f" | grep -qE '\b[A-Z][a-zA-Z]+\b'; then
+for f in $(git diff --name-only --diff-filter=ACM -- 'apps/server/src/**/*.service.ts'); do
+  if rg "from '@kiditem/shared(/[^']*)?'" "$f" | rg -q '\b[A-Z][a-zA-Z]+\b'; then
     grep -qE 'satisfies ' "$f" || echo "MISSING: $f"
   fi
 done
 ```
 
-결과가 비어있어야 정상. PascalCase 필터로 `scrubSecrets` 같은 camelCase 유틸 import 만 하는 service 는 제외 (drift 위험 0).
-
-> **Note**: 이전 버전 (단순 `from '@kiditem/shared'` grep) 은 utility 함수 import 도 false positive 로 잡았음. 2026-04-17 정정 후 [#21](https://github.com/AgentFoundry-Labs/kiditem/issues/21) closed (실제 4 services 모두 cover).
+현재 PR 에서 shared 타입/schema 를 반환하는 service 를 추가/수정했다면 결과가 비어있어야 정상. PascalCase 필터로 `scrubSecrets` 같은 camelCase 유틸 import 만 하는 service 는 제외 (drift 위험 0).

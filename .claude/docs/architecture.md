@@ -1,7 +1,7 @@
 # Architecture
 
 Canonical current-state architecture lives in [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md).
-This file exists as Claude's short pointer so scoped `CLAUDE.md` references do
+This file exists as Claude's short pointer so scoped architecture references do
 not drift into a second architecture contract.
 
 ## High-Level Flow

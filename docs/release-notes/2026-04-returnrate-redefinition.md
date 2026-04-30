@@ -1,7 +1,9 @@
 # Return Rate 계산 방식 변경 — 2026-04-20
 
 **영향**: 대시보드 "반품률" 수치가 기존과 달라집니다.
-**관련 ADR**: [ADR-0017](../../.claude/docs/decisions/0017-returnrate-semantic-unification.md)
+**관련 정책**: returnRate semantic. Historical ADR scratch docs were pruned
+during instruction cleanup; durable contracts now live in `AGENTS.md`, scoped
+`AGENTS.md` files, and this release note.
 
 ## 무엇이 바뀌었나
 
@@ -90,6 +92,6 @@ FROM candidate c;
 
 ## 문의
 
-- ADR 전문: `.claude/docs/decisions/0017-returnrate-semantic-unification.md`
+- Historical ADR scratch doc was pruned during instruction cleanup.
 - 구현 PR: (Plan D.2 merge 시 PR 링크 추가)
 - 개발팀 Slack / GitHub issue

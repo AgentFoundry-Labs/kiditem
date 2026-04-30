@@ -19,7 +19,7 @@ export class OrdersController {
 
   @Get(':id')
   async findOne(@Param('id') id: string, @CurrentCompany() companyId: string) {
-    // 서비스가 NotFoundException 을 throw 한다 (null 반환 금지 — apps/server/CLAUDE.md 규칙)
+    // 서비스가 NotFoundException 을 throw 한다 (null 반환 금지 — apps/server/AGENTS.md 규칙)
     return this.ordersService.findOne(id, companyId);
   }
 

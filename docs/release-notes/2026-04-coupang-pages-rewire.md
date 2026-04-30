@@ -50,4 +50,4 @@
 ## 관련 문서
 
 - ADR-0017 returnRate semantic unification
-- `docs/superpowers/plans/2026-04-21-plan-e1-coupang-pages-boost.md`
+- Historical implementation scratch plan was pruned during instruction cleanup.

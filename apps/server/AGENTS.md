@@ -1,6 +1,6 @@
 # apps/server — NestJS Backend
 
-Backend API. Runs in Docker. Port 4000.
+Backend API. Runs locally or in Docker. Port 4000.
 
 ## Run
 
@@ -15,7 +15,11 @@ Env: `.env` → `DATABASE_URL`, `CHATBOT_DATABASE_URL`, `COUPANG_*`, `GEMINI_API
 ## Scoped Instructions
 
 - Shared server rules live in this `AGENTS.md`.
-- Nested domain guidance is still maintained in `src/{domain}/CLAUDE.md`. Read the matching file before editing that domain until nested `AGENTS.md` files are added.
+- Nested domain guidance is maintained in `src/{domain}/AGENTS.md` or the
+  nearest scoped `AGENTS.md` under that domain. Read the matching file before
+  editing that domain.
+- `CLAUDE.md` files are Claude compatibility shims only. Keep shared contracts
+  in `AGENTS.md`.
 
 ## Backend Architecture Contract
 
@@ -104,7 +108,7 @@ explicitly retires the compatibility surface.
 - New endpoints → class-validator DTO required (no manual if + BadRequestException)
 - DTO → Application: 컨트롤러에서 `as any` 캐스트 금지. Application service 시그니처를 DTO 모양 또는 application command type 에 맞춘다. 서비스 파라미터 타입으로 `Record<string, unknown>` 쓰지 말 것.
 - Errors → throw HttpException (no `ok: false` in 200 responses)
-- Types → import from `@kiditem/shared`, use `satisfies` pattern in services
+- Types → import from focused `@kiditem/shared/*` subpaths where available, use `satisfies` pattern in services
 - Application-internal command/result types → 해당 `application/service/*` 또는 `application/port/*` 근처에 둔다 (interface/type, not class). API DTOs(`adapter/in/http/dto/`)와 분리. `@kiditem/shared`에 넣지 않음.
 - Agent trigger boundary: reconstructed domains inject automation ports such as
   `AGENT_RUNNER_PORT`; the compatibility implementation delegates to
@@ -112,7 +116,7 @@ explicitly retires the compatibility surface.
   (Claude CLI or Python HTTP).
 - Agent data access: `AGENT_DATABASE_URL` (read-only PostgreSQL). Agents query DB directly via psql.
 - Agent prompts: stored in `agent-config/prompts/`, NOT in DB. DB `prompt_template` field holds file path.
-- No data injection in prompts — agents fetch what they need via db-query skill.
+- No data injection in prompts — agents fetch what they need through the read-only `AGENT_DATABASE_URL` path.
 
 ## Reconstruction Guardrails
 
@@ -208,7 +212,7 @@ domain instead of growing as standalone bounded contexts:
 | `channels` | channel listings, channel sync, external marketplace spine |
 | `ai` / `media-ai` | thumbnail/image AI, generation, provider adapters |
 | `rules` | business policy definitions, thresholds, rule evaluation result handling; delegates Agent OS work through automation ports |
-| `automation` / `agent-os` | `agent-registry`, `workflows`, `action-task`, `marketplace`, `panel`, Agent OS runtime entrypoints/adapters; `rules` is a business policy domain that depends on automation ports — keep/delete/rewrite contract: [`docs/superpowers/plans/2026-04-29-automation-agent-os-hard-delete.md`](../../docs/superpowers/plans/2026-04-29-automation-agent-os-hard-delete.md) |
+| `automation` / `agent-os` | `agent-registry`, `workflows`, `action-task`, `marketplace`, `panel`, Agent OS runtime entrypoints/adapters; `rules` is a business policy domain that depends on automation ports. Keep/delete/rewrite contracts live in this table and the scoped `automation`, `agent-registry`, `rules`, and `marketplace` `AGENTS.md` files. |
 | `analytics` | `dashboard`, `statistics`, `traffic`, `supplier-stats` |
 | `platform` | `auth`, `companies`, `feature-gate`, `common`, `prisma`, uploads/platform infra |
 
@@ -247,28 +251,28 @@ async getProduct(id: string, companyId: string) {
 
 ## Domain Guides — 서브도메인 작업 전 scoped instruction 먼저 Read
 
-**규칙**: `src/{domain}/` 하위 파일을 Edit 하기 전, 아래 표의 해당 행이 가리키는 scoped document 를 먼저 Read 한다. 현재 전용 도메인 문서는 `CLAUDE.md` 로 유지 중이다. Index 에 없으면 부모 NestJS 패턴(이 문서)으로 충분하다.
+**규칙**: `src/{domain}/` 하위 파일을 Edit 하기 전, 아래 표의 해당 행이 가리키는 scoped `AGENTS.md` 를 먼저 Read 한다. Index 에 없으면 부모 NestJS 패턴(이 문서)으로 충분하다.
 
-### 전용 CLAUDE.md 가 있는 도메인 (16)
+### 전용 AGENTS.md 가 있는 도메인 (16)
 
-| 경로 | 크기 | 핵심 포인트 |
-|---|---|---|
-| [`src/advertising/CLAUDE.md`](src/advertising/CLAUDE.md) | ~90줄 | Ad Operations — 14+ endpoints `/api/ads/*`, 3-layer schema (listingId required + optionId nullable), AdAction 5 snapshot-level 규칙 (campaign/keyword target), 익스텐션 sync (vendorItemId > externalId 우선순위). Multi-tenant scope rule compliant |
-| [`src/agent-registry/CLAUDE.md`](src/agent-registry/CLAUDE.md) | **260줄** | Agent OS compatibility module — controller/facade, heartbeat, safety, delegation, trace, wakeup; AgentRegistry implementation lives in automation application services |
-| [`src/ai/CLAUDE.md`](src/ai/CLAUDE.md) | 69줄 | Dual-Path — Image=Agent 위임 / Text=Gemini Direct. Preset → hardcoded prompt 매핑 |
-| [`src/analytics/CLAUDE.md`](src/analytics/CLAUDE.md) | ~120줄 | Reporting / read-model owner — folds `dashboard`, `statistics`, `traffic`, `supplier-stats`. Dashboard sub-domain follows full `adapter/in/http` + `adapter/out/repository` + `application/service` shape; the others stay flat until a fat-service driver appears. Routes preserved: `/api/dashboard/*`, `/api/statistics`, `/api/traffic/*`, `/api/supplier-stats`. Only mutation lane = `POST /api/traffic/upload`. |
-| [`src/auth/CLAUDE.md`](src/auth/CLAUDE.md) | 158줄 | 인증/권한 인프라. `@CurrentUser`/`@CurrentCompany`/`@Roles`/`@SkipAuth`, CompanyScopeGuard, DevAuthMiddleware |
-| [`src/channels/CLAUDE.md`](src/channels/CLAUDE.md) | ~160줄 | Coupang 통합 — `adapters/coupang/` 외부 API 격리, Sync 3종 (Products/Orders/Inventory), $queryRaw 분석. Products/Orders/Returns 는 channel-agnostic spine 사용, Inventory sync 는 InventoryService 단일 writer 경계 결정 전까지 stub |
-| [`src/chat/CLAUDE.md`](src/chat/CLAUDE.md) | 155줄 | CopilotKit Runtime + ClaudeCliAdapter. Express pre-registration (NestJS 우회), SSE 토큰 스트리밍 |
-| [`src/finance/CLAUDE.md`](src/finance/CLAUDE.md) | 70줄 | P&L + Sales Analysis — $queryRaw cross-table 집계, period parsing, pricing resolver |
-| [`src/inventory/CLAUDE.md`](src/inventory/CLAUDE.md) | ~190줄 | Inventory owner domain — `adapter/application/domain/mapper` 분해. capabilities = inventory + unshipped + warehouses + stock-transfers + stock-audits + picking. `InventoryApplicationService` 단독 writer (ADR-0014). `PrismaService` import 는 `adapter/out/prisma/**` 에 한정 (architecture guard spec 동결). domain layer 는 NestJS/Prisma free. Transfer = record-only. capability state machine + bound check 는 `domain/policy/*` |
-| [`src/orders/CLAUDE.md`](src/orders/CLAUDE.md) | 60줄 | Order/Return/CS 통합 — multi-controller 모듈, 외부 채널 어댑터 위임, status 필터링 |
-| [`src/automation/adapter/out/panel-event/CLAUDE.md`](src/automation/adapter/out/panel-event/CLAUDE.md) | ~80줄 | Live Ops SSE projection adapter — `/api/panel/*` HTTP adapter + EventEmitter2 ring buffer + 4-source read-only projection |
-| [`src/automation/adapter/out/agent-runtime/CLAUDE.md`](src/automation/adapter/out/agent-runtime/CLAUDE.md) | ~35줄 | Agent OS runtime adapter — Claude CLI / Python HTTP execution adapters, immutable ExecutionContext, observable adapter fallback |
-| [`src/automation/adapter/out/workflow-runner/CLAUDE.md`](src/automation/adapter/out/workflow-runner/CLAUDE.md) | ~155줄 | Workflow runner outgoing adapter + folded HTTP surface guidance — slim-core executor registry, trusted tenant injection, execution flow, output/error contracts, no generic DB/HTTP/LLM executors. Public route owner = `automation/adapter/in/http/workflows.controller.ts` |
-| [`src/products/CLAUDE.md`](src/products/CLAUDE.md) | ~60줄 | 3-layer Master/Option/Bundle + categories compatibility capability — `MasterProduct` family (code via `master_code_seq`), `ProductOption` SKU (race-free sku via `optionCounter` increment), `BundleComponent` (cross-master 허용, 3-way invariant, nested 금지 B1), `availableStock` = `BundleStockService.recompute` sole writer + `SELECT FOR UPDATE` row-lock. `src/products/categories/` owns `/api/categories` route compatibility under products/catalog |
-| [`src/rules/CLAUDE.md`](src/rules/CLAUDE.md) | 83줄 | Event-Driven — 룰 평가는 automation `AgentRunnerPort` 경유로 Agent OS 에 위임하고 결과 콜백을 처리. CRUD 패턴 아님 |
-| [`src/sourcing/CLAUDE.md`](src/sourcing/CLAUDE.md) | ~130줄 | Sourcing owner domain — folds supplier CRUD and purchase-order/procurement state machine while preserving `/api/sourcing/*`, `/api/suppliers/*`, `/api/purchase-orders/*`. Sourcing agent delegation goes through `SOURCING_AGENT_GATEWAY_PORT`. |
+| 경로 | 핵심 포인트 |
+|---|---|
+| [`src/advertising/AGENTS.md`](src/advertising/AGENTS.md) | Ad Operations — `/api/ads/*`, daily-fact ingest, AdAction 5 target-daily rules, extension sync matching (`vendorItemId` > `externalId`), multi-tenant scope. |
+| [`src/agent-registry/AGENTS.md`](src/agent-registry/AGENTS.md) | Agent OS compatibility/capability surface — facade, heartbeat, safety, delegation, trace, wakeup. New AgentRegistry implementation work lives in automation application services. |
+| [`src/ai/AGENTS.md`](src/ai/AGENTS.md) | Dual-path AI — image work delegates to Agent OS, text transform calls Gemini directly, thumbnail/Wing automation uses explicit application ports where already reconstructed. |
+| [`src/analytics/AGENTS.md`](src/analytics/AGENTS.md) | Reporting/read-model owner — `dashboard`, `statistics`, `traffic`, `supplier-stats`; dashboard is reconstructed, the rest stay flat until a concrete driver appears. |
+| [`src/auth/AGENTS.md`](src/auth/AGENTS.md) | 인증/권한 인프라 — `@CurrentUser`, `@CurrentCompany`, `@Roles`, `@SkipAuth`, CompanyScopeGuard, DevAuthMiddleware. |
+| [`src/channels/AGENTS.md`](src/channels/AGENTS.md) | Coupang integration — `adapter/out/coupang/` provider boundary, product/order/return sync on channel-agnostic spine, inventory sync still stubbed behind InventoryService single-writer boundary. |
+| [`src/chat/AGENTS.md`](src/chat/AGENTS.md) | CopilotKit Runtime + ClaudeCliAdapter — Express pre-registration, Claude CLI spawn, SSE token streaming. |
+| [`src/finance/AGENTS.md`](src/finance/AGENTS.md) | Finance owner — P&L, sales analysis, manual ledger, processing costs, supplier payments, sales plans, settlements; live aggregation and KST month windows. |
+| [`src/inventory/AGENTS.md`](src/inventory/AGENTS.md) | Inventory owner — capabilities = inventory + unshipped + warehouses + stock-transfers + stock-audits + picking; repository adapters are the only Prisma lane; `InventoryService` is the single writer. |
+| [`src/orders/AGENTS.md`](src/orders/AGENTS.md) | Orders owner — order/return/CS/review/return-transfer surfaces, channel-agnostic schema, external channel adapter delegation, IDOR-safe single-resource access. |
+| [`src/automation/adapter/out/panel-event/AGENTS.md`](src/automation/adapter/out/panel-event/AGENTS.md) | Live Ops SSE projection adapter — `/api/panel/*` HTTP adapter, EventEmitter2 ring buffer, workflow/agent/image/alert read-only projection. |
+| [`src/automation/adapter/out/agent-runtime/AGENTS.md`](src/automation/adapter/out/agent-runtime/AGENTS.md) | Agent OS runtime adapter — Claude CLI / Python HTTP execution adapters, immutable ExecutionContext, observable adapter fallback. |
+| [`src/automation/adapter/out/workflow-runner/AGENTS.md`](src/automation/adapter/out/workflow-runner/AGENTS.md) | Workflow runner adapter — slim-core executor registry, trusted tenant injection, output/error contracts, no generic DB/HTTP/LLM executors. Public route owner = `automation/adapter/in/http/workflows.controller.ts`. |
+| [`src/products/AGENTS.md`](src/products/AGENTS.md) | Products/catalog owner — MasterProduct, ProductOption, BundleComponent, categories compatibility, bundle stock recompute as sole availableStock writer. |
+| [`src/rules/AGENTS.md`](src/rules/AGENTS.md) | Business rules owner — rules evaluation delegates to automation `AgentRunnerPort`; rules handles result callback and alert creation, while alerts HTTP surface lives in automation. |
+| [`src/sourcing/AGENTS.md`](src/sourcing/AGENTS.md) | Sourcing owner — sourcing ingest/scrape, supplier CRUD, purchase-order/procurement state machine; Agent OS delegation goes through `SOURCING_AGENT_GATEWAY_PORT`. |
 
 ### Panel — Live Ops SSE
 

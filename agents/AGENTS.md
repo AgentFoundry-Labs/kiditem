@@ -1,6 +1,6 @@
 # agents — Python Agent Server
 
-FastAPI HTTP 서버. NestJS python_http adapter가 호출. content, image_edit 에이전트 실행.
+FastAPI HTTP 서버. NestJS python_http adapter가 호출. content, image_edit, sourcing 에이전트 실행.
 
 ## Run
 
@@ -36,8 +36,17 @@ NestJS HeartbeatService → python_http adapter
 asyncpg raw SQL only (no ORM):
 
 ```python
-row = await pool.fetchrow("SELECT * FROM products WHERE id = $1", product_id)
-await pool.execute("UPDATE products SET status = $1 WHERE id = $2", 'listed', product_id)
+row = await pool.fetchrow(
+    "SELECT id, name FROM master_products WHERE id = $1 AND company_id = $2",
+    master_id,
+    company_id,
+)
+await pool.execute(
+    "UPDATE master_products SET pipeline_step = $1 WHERE id = $2 AND company_id = $3",
+    "listed",
+    master_id,
+    company_id,
+)
 ```
 
 Table/column names: snake_case (Prisma `@@map` mapped DB names).
