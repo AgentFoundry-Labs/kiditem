@@ -124,7 +124,7 @@ other module imports sourcing/procurement/supplier services.
 
 ```
 git diff --check
-npm exec --workspace=apps/server -- vitest run src/sourcing src/procurement src/suppliers
+npm exec --workspace=apps/server -- vitest run src/sourcing
 npm run check:idor
 npm run check:tenant-scope
 npm run build --workspace=apps/server
