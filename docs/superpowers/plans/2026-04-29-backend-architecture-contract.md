@@ -17,7 +17,7 @@ KidItem backend uses:
 
 This is not full Clean Architecture everywhere. It is a practical target for
 large domains, Agent OS/runtime boundaries, workflow/cron/agent entrypoints,
-external providers, complex DB/DAO work, raw SQL, and core aggregate mutation
+external providers, complex DB work, raw SQL, and core aggregate mutation
 paths.
 
 ## Non-goals for the Contract PR
@@ -53,7 +53,7 @@ src/{owner-domain}/
 │   │   ├── cron/
 │   │   └── agent/
 │   └── out/
-│       ├── prisma/
+│       ├── repository/
 │       └── {provider}/
 ├── application/
 │   ├── port/
@@ -107,7 +107,7 @@ Application services own:
 - Tenant context propagation.
 - Idempotency and side-effect ordering.
 - Calls to domain services and out ports.
-- Composition across DAO, repository, provider clients, panel events, and
+- Composition across repository/query adapters, provider clients, panel events, and
   Agent OS.
 - Business-rule validation that needs current domain state before mutation.
 
@@ -117,7 +117,7 @@ implementations, or another owner domain's service once the use case is
 reconstructed. A reconstructed use case that needs DB, cross-domain, provider,
 workflow, Agent OS, filesystem, or panel/event access defines an
 `application/port/out/*` contract and lets the Nest module bind that contract to
-the DAO/gateway/client adapter.
+the outgoing repository/gateway/client adapter.
 
 Application services should make use cases visible by name. Prefer
 `ApproveAdActionService`, `SyncChannelMarketDataService`, or
@@ -143,8 +143,9 @@ requires domain state belongs in application/domain code.
 
 Outgoing adapters implement external or infrastructure access:
 
-- `adapter/out/prisma` — Prisma DAO implementations, query projections, raw
-  SQL, tenant predicates, transactions, row locks, and hydration.
+- `adapter/out/repository` — DB-backed repository/query adapter
+  implementations, raw SQL, tenant predicates, transactions, row locks, and
+  hydration. Prisma is an implementation detail inside this lane.
 - `adapter/out/{provider}` — external APIs, LLM/model providers, browser or
   extension providers, filesystem/storage, panel/event bus, and runtime clients.
 
@@ -174,42 +175,42 @@ Ports are mandatory for:
 Ports are optional/deferred for tiny legacy CRUD and low-risk read-only endpoints
 that are not being reconstructed.
 
-## DAO, Repository, Query Adapter
+## Ports, Repository Adapters, and Naming
 
-`DAO` is the target name for Prisma/DB access in reconstructed NestJS owner
-domains. Use DAO classes for table/projection reads, DB writes, row mapping,
-tenant predicates, raw SQL, row locks, and transaction helpers. DAO
-implementations live under `adapter/out/prisma/*dao.ts`:
+Ports are application-owned contracts. Incoming ports describe use cases exposed
+to controllers, workflow runners, cron jobs, or agent entrypoints. Outgoing ports
+describe what those use cases need from DB access, cross-owner-domain
+collaboration, providers, runtimes, filesystem, or panel/event infrastructure.
 
-- `inventory.dao.ts`
-- `inventory-query.dao.ts`
-- `warehouses.dao.ts`
-- `confirmed-orders-for-picking.dao.ts`
+Application services do not import outgoing adapter implementations directly.
+They depend on `application/port/out/*` contracts, and the owner module binds
+those contracts to repository/gateway/client adapters. This keeps orchestration
+testable with fakes and keeps DB/provider details out of application code.
 
-Application services do not import DAO implementations directly. They depend on
-`application/port/out/*` contracts, and the owner module binds those contracts to
-DAO providers. This keeps the orchestration layer testable with mock adapters and
-keeps DB details out of application use-case code.
+For DB-backed outgoing adapters, use the lane and name chosen by the scoped plan.
+Inventory uses:
 
-Use `Repository` only when it represents a domain collection abstraction:
-preparing aggregates, enforcing repeated invariants, or hiding collection-level
-complexity from the application layer. Repository names are not for 1:1 Prisma
-wrappers. Put repository interfaces under `domain/repository/` when they are
-pure domain collection contracts, or expose them as application out ports when
-they need a Nest adapter binding.
+- `application/port/out/inventory.repository.port.ts`
+- `application/port/out/inventory-query.repository.port.ts`
+- `adapter/out/repository/inventory.repository.adapter.ts`
+- `adapter/out/repository/inventory-query.repository.adapter.ts`
+- `adapter/out/repository/confirmed-orders.repository.adapter.ts`
 
-If the object is mostly query or storage plumbing, prefer explicit DAO/gateway
-adapter names:
+This contract does not globally require `DAO`, `Repository`, or `Prisma` in file
+names. Let folders carry architecture roles and keep file names short:
 
-- `*dao.ts`
-- `*query-dao.ts`
-- `*store.ts`
-- `*gateway.ts`
-- `*client.ts`
+- `application/port/in/inventory.port.ts`
+- `application/service/inventory.service.ts`
+- `adapter/out/products/bundle-stock.adapter.ts`
 
-`persistence` is no longer the target naming convention. Existing
-`persistence/` directories or `*persistence.ts` files are migration waypoints
-only; do not copy that naming into new or materially rewritten code.
+Use qualifiers such as `prisma`, `memory`, or a provider name only when multiple
+implementations of the same port coexist. Use `Gateway` or `Client` names for
+external APIs, provider SDKs, filesystems, Agent OS runtime, workflow runner,
+panel/event bus, and other non-DB infrastructure.
+
+`persistence` is no longer the final naming convention. Existing `persistence/`
+directories or `*persistence.ts` files are migration waypoints only; do not copy
+that naming into new or materially rewritten code.
 
 ## Conscious Shortcuts
 

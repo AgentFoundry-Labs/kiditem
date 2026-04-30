@@ -38,12 +38,12 @@ src/{owner-domain}/
 │   │   ├── cron/             # scheduled entrypoints, when used
 │   │   └── agent/            # Agent OS entrypoints, when used
 │   └── out/
-│       ├── prisma/           # Prisma DAO/query adapters
+│       ├── repository/       # DB-backed repository/query adapters
 │       └── {provider}/       # external APIs, LLMs, storage, panel/event bus
 ├── application/
 │   ├── port/
 │   │   ├── in/               # use-case interfaces, when useful
-│   │   └── out/              # DAO, cross-domain, provider, runtime ports
+│   │   └── out/              # DB, cross-domain, provider, runtime ports
 │   └── service/              # use-case orchestration, transactions, tenant context
 ├── domain/
 │   ├── model/                # pure domain types/entities/value objects
@@ -135,7 +135,7 @@ Do not use it as the target architecture for reconstructed domains.
 - Application services own use-case orchestration, transaction boundaries,
   tenant context, and calls to out ports.
 - Application services in reconstructed domains depend on `application/port/out/*`
-  contracts for DAO, cross-domain, provider, Agent OS, workflow, filesystem,
+  contracts for DB access, cross-domain, provider, Agent OS, workflow, filesystem,
   and panel/event boundaries. Nest modules bind those ports to concrete
   adapters. Do not import concrete `adapter/out/**` implementations or another
   owner domain's service from `application/service/**`.
@@ -144,8 +144,9 @@ Do not use it as the target architecture for reconstructed domains.
   and no environment lookups.
 - Incoming adapters translate HTTP/workflow/cron/agent input into application
   use cases. Controllers do not contain business rules.
-- Outgoing adapters implement DAO, provider, LLM, filesystem, event, and panel
-  ports. Prisma belongs in `adapter/out/prisma/*dao.ts`.
+- Outgoing adapters implement repository/query, provider, LLM, filesystem,
+  event, and panel ports. Prisma belongs in DB-backed outgoing adapters, not in
+  application or domain code.
 - Mappers sit at boundaries. Keep Prisma rows, HTTP DTOs, and domain objects
   from bleeding into each other.
 
@@ -161,26 +162,31 @@ Do not use it as the target architecture for reconstructed domains.
 Ports are optional/deferred for tiny legacy CRUD and low-risk read-only endpoints
 that are not being reconstructed in the current PR.
 
-### DAO vs Repository vs Prisma adapter
+### Ports, Repository Adapters, and Naming
 
-Use `DAO` for Prisma/DB access, tenant predicates, raw SQL, row locks, storage
-mapping, and table/projection reads. Reconstructed Prisma adapters are named
-`adapter/out/prisma/*dao.ts` (for example `inventory.dao.ts`,
-`inventory-query.dao.ts`, `warehouses.dao.ts`).
+Ports belong to the application layer because they describe what a use case
+offers (`application/port/in/*`) or needs from the outside world
+(`application/port/out/*`). Do not create a second adapter-local interface for
+the same contract. The adapter implements the application-owned port.
 
-Use a `Repository` name only when it represents a domain collection abstraction
-that prepares aggregates, enforces repeated invariants, or hides collection-level
-complexity from application services. Repositories live under
-`domain/repository/` or are expressed as an application out port when an adapter
-implementation is required. Do not create 1:1 Prisma wrappers and call them
-repositories.
+For DB-backed outgoing adapters, use the lane and name chosen by the scoped
+plan. Inventory uses `adapter/out/repository/*.repository.adapter.ts` for
+Prisma-backed repository/query implementations. Other domains may use a clearer
+provider or gateway lane when the dependency is not DB-shaped. Do not make
+`DAO`, `Repository`, or `Prisma` a global naming dogma.
 
-Use `Gateway` or `Client` for external APIs, provider SDKs, filesystems, Agent OS
-runtime, workflow runner, panel/event bus, and other non-DB infrastructure.
+Keep names concise and let folders carry the architecture role:
 
-`persistence` is not the target naming convention for new or materially
-rewritten backend code. Existing files with that name are migration waypoints
-until their owner domain is reconstructed.
+- `application/port/in/inventory.port.ts`
+- `application/port/out/inventory.repository.port.ts`
+- `application/service/inventory.service.ts`
+- `adapter/out/repository/inventory.repository.adapter.ts`
+- `adapter/out/products/bundle-stock.adapter.ts`
+
+Use qualifiers such as `prisma`, `memory`, or a provider name only when multiple
+implementations of the same port coexist. `persistence` is not the final naming
+convention for new or materially rewritten backend code; existing files with
+that name are migration waypoints until their owner domain is reconstructed.
 
 ### Domain topology target
 
