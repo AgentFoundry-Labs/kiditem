@@ -218,7 +218,7 @@ Add domain-specific Vitest or integration commands in each child plan.
 
 **Purpose:** Improve the actual code structure of large bounded contexts after
 tenant safety is in place. This phase should reduce fat services, separate
-query/persistence/mapping/business-rule responsibilities, and make future
+DB/query/mapping/business-rule responsibilities, and make future
 changes smaller. It is not successful if it only adds tests or documentation.
 
 **Architecture posture:** Phase 3B follows
@@ -231,25 +231,36 @@ platforms, not DB tables or frontend pages.
 Target reconstructed domains converge toward:
 
 - `adapter/in/*` — HTTP, workflow, cron, or agent entrypoints.
-- `adapter/out/prisma/*` — Prisma persistence/query adapters, raw SQL builders,
-  tenant predicates, row locks, transactions, and hydration.
+- `adapter/out/repository/*.repository.adapter.ts` or another scoped outgoing
+  adapter lane — DB-backed repository/query adapters, raw SQL builders, tenant
+  predicates, row locks, transactions, and hydration.
 - `adapter/out/{provider}/*` — external APIs, LLM/model providers, filesystem,
   panel events, and other runtime infrastructure.
 - `application/service/*` — use-case orchestration, transactions, tenant
   context, and calls to out ports.
 - `application/port/in|out/*` — ports only where they remove boundary coupling:
   Agent OS/runtime, workflow/cron/agent entrypoints, external providers, panel
-  events, raw SQL/complex persistence, core aggregate mutations, or
+  events, raw SQL/complex DB work, core aggregate mutations, or
   cross-entrypoint use cases.
-- `domain/*` — pure business rules, calculators, policies, thresholds, state
-  transitions, and domain models with no NestJS/Prisma/runtime dependency.
+- `domain/model|policy|service/*` — pure business rules, calculators,
+  policies, thresholds, state transitions, and domain models with no
+  NestJS/Prisma/runtime dependency.
+- `domain/repository/*` — domain aggregate collection abstractions only when
+  they are more than 1:1 Prisma wrappers.
 - `mapper/*` — Prisma row/query row/API DTO/domain mapping.
 
 Existing `services/`, `persistence`, `read-models`, `queries`, and `ingest`
 files may be used as migration waypoints. Do not copy those names as the new
-standard when creating or materially rewriting a domain. Repository naming is
-reserved for true domain collection abstractions; do not create 1:1 Prisma
-wrappers.
+standard when creating or materially rewriting a domain. Do not create 1:1
+domain repositories around Prisma; DB-backed repository adapters should
+implement application-owned ports and carry tenant/transaction/query
+responsibility. `persistence` is not the target naming convention; reconstructed
+DB access uses scoped outgoing adapters such as
+`adapter/out/repository/*.repository.adapter.ts`, and application services
+depend on `application/port/out/*` contracts rather than concrete
+adapter/gateway classes. Keep file names concise; do not repeat architecture
+roles already expressed by the folder path unless multiple implementations need
+a qualifier.
 
 **Priority order:**
 
@@ -259,7 +270,7 @@ wrappers.
    ad-rule/domain helpers.
 2. `ai` / thumbnails — split generation, analysis, recomposition, Wing
    registration, image resolution, and AI adapter orchestration.
-3. `products` — selectively extract tenant-safe product persistence and shared
+3. `products` — selectively extract tenant-safe product repository/query access and shared
    hydrated read shapes where product/master/option access repeats. Do not wrap
    Prisma CRUD 1:1.
 4. `workflows` — clarify application service / runner / executor /
@@ -274,9 +285,10 @@ wrappers.
 - Each child plan must name the target fat service(s), new internal files, and
   which responsibility moves where.
 - Prefer moving production code into focused modules over creating generic
-  wrappers. A repository/persistence module is justified only when it enforces
-  tenant scope, row-lock/transaction semantics, soft-delete, standard includes,
-  or repeated hydrated shapes.
+  wrappers. A DB-backed outgoing adapter is justified when it owns tenant scope,
+  raw SQL, row-lock/transaction semantics, soft-delete, standard includes, or
+  repeated hydrated shapes. A pure domain repository abstraction is justified
+  only when it represents a domain aggregate collection.
 - Preserve controller routes and shared API contracts unless the child plan
   explicitly includes a contract migration.
 - Keep tests risk-based and sparse. Add tests for operating-critical behavior:
@@ -484,7 +496,7 @@ rg -n "from '@kiditem/shared'" apps/server/src apps/web/src packages/shared/src 
 
 - [ ] `ontology` is **hard-deleted from the server surface** (2026-04-28). No rewrite plan is owed; future reintroduction requires a product contract + tenant isolation test.
 - [x] Write the advertising architecture refactor child plan first:
-  [`2026-04-29-advertising-phase3b-architecture-refactor.md`](2026-04-29-advertising-phase3b-architecture-refactor.md). Before execution, align its file layout with [`2026-04-29-backend-architecture-contract.md`](2026-04-29-backend-architecture-contract.md): `services`/`read-models`/`persistence`/`ingest` are transitional labels, while the target is `adapter/application/domain`.
+  [`2026-04-29-advertising-phase3b-architecture-refactor.md`](2026-04-29-advertising-phase3b-architecture-refactor.md). Before execution, align its file layout with [`2026-04-29-backend-architecture-contract.md`](2026-04-29-backend-architecture-contract.md): `services`/`read-models`/`persistence`/`ingest` are transitional labels, while the target is `adapter/application/domain` with application-owned ports, outgoing adapters, and concise scoped naming.
 - [ ] Write separate child plans for AI thumbnails, products, workflows, and dashboard/statistics read models.
 - [ ] Do not write Phase 3B child plans for small CRUD domains unless a concrete fat-service or repeated-invariant problem is identified.
 - [ ] Each child plan must primarily move/simplify production code. Tests and docs are required evidence, not the main deliverable.
