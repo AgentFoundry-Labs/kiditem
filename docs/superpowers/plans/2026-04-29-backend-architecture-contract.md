@@ -17,7 +17,7 @@ KidItem backend uses:
 
 This is not full Clean Architecture everywhere. It is a practical target for
 large domains, Agent OS/runtime boundaries, workflow/cron/agent entrypoints,
-external providers, complex persistence, raw SQL, and core aggregate mutation
+external providers, complex DB work, raw SQL, and core aggregate mutation
 paths.
 
 ## Non-goals for the Contract PR
@@ -48,11 +48,12 @@ src/{owner-domain}/
 ├── adapter/
 │   ├── in/
 │   │   ├── http/
+│   │   │   └── dto/
 │   │   ├── workflow/
 │   │   ├── cron/
 │   │   └── agent/
 │   └── out/
-│       ├── prisma/
+│       ├── repository/
 │       └── {provider}/
 ├── application/
 │   ├── port/
@@ -62,12 +63,13 @@ src/{owner-domain}/
 ├── domain/
 │   ├── model/
 │   ├── policy/
+│   ├── repository/
 │   └── service/
-├── dto/
 └── mapper/
 ```
 
-Folders are created when needed. A simple domain should not get empty layers.
+HTTP DTOs live under `adapter/in/http/dto/`. Folders are created when needed. A
+simple domain should not get empty layers.
 
 Legacy flat CRUD may remain temporarily:
 
@@ -105,12 +107,17 @@ Application services own:
 - Tenant context propagation.
 - Idempotency and side-effect ordering.
 - Calls to domain services and out ports.
-- Composition across persistence, provider clients, panel events, and Agent OS.
+- Composition across repository/query adapters, provider clients, panel events, and
+  Agent OS.
 - Business-rule validation that needs current domain state before mutation.
 
 Application services may depend on domain code and port interfaces. They should
-not depend directly on Prisma or provider SDKs once the use case is
-reconstructed.
+not depend directly on Prisma, provider SDKs, concrete `adapter/out/**`
+implementations, or another owner domain's service once the use case is
+reconstructed. A reconstructed use case that needs DB, cross-domain, provider,
+workflow, Agent OS, filesystem, or panel/event access defines an
+`application/port/out/*` contract and lets the Nest module bind that contract to
+the outgoing repository/gateway/client adapter.
 
 Application services should make use cases visible by name. Prefer
 `ApproveAdActionService`, `SyncChannelMarketDataService`, or
@@ -136,14 +143,16 @@ requires domain state belongs in application/domain code.
 
 Outgoing adapters implement external or infrastructure access:
 
-- `adapter/out/prisma` — Prisma queries, persistence, raw SQL, tenant
-  predicates, transactions, row locks, and hydration.
+- `adapter/out/repository` — DB-backed repository/query adapter
+  implementations, raw SQL, tenant predicates, transactions, row locks, and
+  hydration. Prisma is an implementation detail inside this lane.
 - `adapter/out/{provider}` — external APIs, LLM/model providers, browser or
   extension providers, filesystem/storage, panel/event bus, and runtime clients.
 
 ### DTO and Mapper
 
-- `dto/` is for HTTP request/response DTOs and class-validator decorators.
+- `adapter/in/http/dto/` is for HTTP request/response DTOs and
+  class-validator decorators.
 - `mapper/` converts between Prisma/query rows, domain objects, and API/shared
   contracts.
 - Do not let Prisma rows become the domain model by accident.
@@ -160,28 +169,48 @@ Ports are mandatory for:
    aggregate mutations.
 5. Use cases exposed by more than one incoming adapter.
 6. Cross-runtime behavior that must be testable without the runtime present.
+7. Cross-owner-domain collaboration that would otherwise import another
+   domain's service or adapter directly.
 
 Ports are optional/deferred for tiny legacy CRUD and low-risk read-only endpoints
 that are not being reconstructed.
 
-## Repository, DAO, Query Adapter
+## Ports, Repository Adapters, and Naming
 
-Use `Repository` only when it represents a domain collection abstraction:
-preparing aggregates, enforcing repeated invariants, or hiding collection-level
-complexity from the application layer.
+Ports are application-owned contracts. Incoming ports describe use cases exposed
+to controllers, workflow runners, cron jobs, or agent entrypoints. Outgoing ports
+describe what those use cases need from DB access, cross-owner-domain
+collaboration, providers, runtimes, filesystem, or panel/event infrastructure.
 
-Do not create 1:1 Prisma wrappers. If the object is mostly query or storage
-plumbing, prefer explicit adapter names:
+Application services do not import outgoing adapter implementations directly.
+They depend on `application/port/out/*` contracts, and the owner module binds
+those contracts to repository/gateway/client adapters. This keeps orchestration
+testable with fakes and keeps DB/provider details out of application code.
 
-- `*query.ts`
-- `*persistence.ts`
-- `*store.ts`
-- `*gateway.ts`
-- `*client.ts`
+For DB-backed outgoing adapters, use the lane and name chosen by the scoped plan.
+Inventory uses:
 
-`DAO` is not the target naming convention for this NestJS codebase. The same
-idea is represented by `adapter/out/prisma/*query.ts` or
-`adapter/out/prisma/*persistence.ts`.
+- `application/port/out/inventory.repository.port.ts`
+- `application/port/out/inventory-query.repository.port.ts`
+- `adapter/out/repository/inventory.repository.adapter.ts`
+- `adapter/out/repository/inventory-query.repository.adapter.ts`
+- `adapter/out/repository/confirmed-orders.repository.adapter.ts`
+
+This contract does not globally require `DAO`, `Repository`, or `Prisma` in file
+names. Let folders carry architecture roles and keep file names short:
+
+- `application/port/in/inventory.port.ts`
+- `application/service/inventory.service.ts`
+- `adapter/out/products/bundle-stock.adapter.ts`
+
+Use qualifiers such as `prisma`, `memory`, or a provider name only when multiple
+implementations of the same port coexist. Use `Gateway` or `Client` names for
+external APIs, provider SDKs, filesystems, Agent OS runtime, workflow runner,
+panel/event bus, and other non-DB infrastructure.
+
+`persistence` is no longer the final naming convention. Existing `persistence/`
+directories or `*persistence.ts` files are migration waypoints only; do not copy
+that naming into new or materially rewritten code.
 
 ## Conscious Shortcuts
 
@@ -192,6 +221,8 @@ only when the shortcut is explicit:
 - The shortcut does not cross Agent OS, workflow, provider, filesystem, raw SQL,
   transaction, or core aggregate boundaries.
 - The shortcut does not add new coupling to pure domain code.
+- The shortcut does not make reconstructed application services import concrete
+  `adapter/out/**` implementations or other owner-domain services directly.
 - The follow-up reconstruction target is clear enough that future agents do not
   copy the shortcut as the standard.
 
