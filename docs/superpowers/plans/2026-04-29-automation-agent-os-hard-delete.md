@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-29
 **Scope:** `apps/server/src/{workflows,agent-registry,rules,action-task,marketplace,panel}` and their direct shared/web consumers.
-**Status:** Contract + inventory PR. No code deletion is performed in this PR. Future PRs delete or rewrite legacy surface against the rules below. Amended 2026-04-30 by [`2026-04-30-agent-os-directory-structure.md`](2026-04-30-agent-os-directory-structure.md): `rules/` remains a business policy domain and reaches Agent OS through automation ports.
+**Status:** Contract + inventory PR. No code deletion is performed in this PR. Future PRs delete or rewrite legacy surface against the rules below. Amended 2026-04-30 by [`2026-04-30-agent-os-directory-structure.md`](2026-04-30-agent-os-directory-structure.md): `rules/` remains a business policy domain and reaches Agent OS through automation ports. Amended again 2026-04-30 after AO-3B/AO-3C landed: the former `agent-registry/domains/manager` and `agent-registry/domains/ad-strategy` post-processing surfaces moved out to `automation/` and `advertising/` respectively, both reaching Agent OS through `AGENT_RUNNER_PORT`.
 **Parent track:** [`2026-04-28-codebase-reconstruction.md`](2026-04-28-codebase-reconstruction.md) Phase 3B/3C — backend architecture refactor for the `automation` / `agent-os` owner domain.
 **Architecture contract:** [`2026-04-29-backend-architecture-contract.md`](2026-04-29-backend-architecture-contract.md).
 
@@ -245,9 +245,10 @@ Files (~50 production files across these subfolders):
 
 Inbound entrypoints:
 - HTTP — `AgentRegistryController` (`/api/agent-registry/*`),
-  `AgentTraceController` (`/api/agent-trace/*`),
-  `domains/ad-strategy/AdStrategyController` (`/api/ad-agent/*`),
-  `domains/manager/ManagerController` (`/api/manager/*`).
+  `AgentTraceController` (`/api/agent-trace/*`).
+  Post-AO-3B/AO-3C the `/api/ad-agent/*` and `/api/manager/*` surfaces moved
+  out: `/api/ad-agent/*` is now `advertising/adapter/in/http/ad-strategy-agent.controller.ts`
+  and `/api/manager/*` is now `automation/adapter/in/http/manager.controller.ts`.
 - Workflow — `agent_task.create` executor calls `runByType`.
 - Cron — `heartbeat.service.ts` schedules per-agent timers via `cron`.
   `lifecycle/result-cleanup.service.ts` daily cron via `runDailyCleanup`.
@@ -279,8 +280,11 @@ Server consumers of `AgentRegistryService`:
 - `sourcing/sourcing.service.ts`.
 - `rules/services/rules.service.ts`.
 - `rules/controllers/rules.controller.ts` (also injects `HeartbeatService`).
-- `agent-registry/domains/manager/manager.service.ts`.
-- `agent-registry/domains/ad-strategy/ad-strategy.service.ts`.
+- `automation/application/service/agent/manager.service.ts` (post-AO-3B; the
+  former `agent-registry/domains/manager/manager.service.ts` was moved here).
+- `advertising/application/service/ad-strategy-agent.service.ts` (post-AO-3C;
+  the former `agent-registry/domains/ad-strategy/ad-strategy.service.ts` was
+  moved here).
 
 Web consumers: `/api/agent-registry/*`, `/api/agent-trace/*`,
 `/api/manager/*`, `/api/ad-agent/*` from `apps/web/src/app/agents/**`.
@@ -457,7 +461,7 @@ Web consumers: `/api/panel/stream` SSE consumed by the panel UI store.
 | `automation/adapter/out/agent-runtime/{claude-local,python-http,registry,fallback-chain,types}.ts` | **Keep** | Phase 3C-6 runtime adapter home. No silent model fallback; adapter fallback remains observable. |
 | `agent-registry/{heartbeat,permissions,safety,business-safety,delegation,events,trace,wakeup,lifecycle,context-manager,schemas}` | **Keep** | Live Agent OS internals. Remaining folders stay under compatibility module until a narrower follow-up moves each role. |
 | `agent-registry/skills/skills.service.ts` (filesystem symlink) | **Keep** | Pure filesystem adapter for skill mount. Will move to `automation/adapter/out/skills-fs/`. |
-| `agent-registry/domains/{ad-strategy,manager}/*` | **Keep** | Domain post-processing live behind their own controllers. Manager has the human-in-the-loop async-generator workflow. Will move under `automation/application/service/{manager,ad-strategy}` after rewrite. |
+| `agent-registry/domains/{ad-strategy,manager}/*` | **Moved (AO-3B / AO-3C)** | `manager` moved to `automation/adapter/in/http/manager.controller.ts` + `automation/application/service/agent/manager.service.ts` (AO-3B). `ad-strategy` moved to `advertising/adapter/in/http/ad-strategy-agent.controller.ts` + `advertising/application/service/ad-strategy-agent.service.ts` (AO-3C). Both reach Agent OS through `AGENT_RUNNER_PORT`. The `agent-registry/domains/` folder no longer exists; new custom post-processing must live under the owner business domain or `automation/`. |
 | `rules/controllers/rules.controller.ts` direct injection of `AgentRegistryService` + `HeartbeatService` (schedule PATCH) | **Rewritten (Phase 3C-2)** | Schedule control now flows through `AgentScheduleControlPort` (`automation/application/port/in/`) with `AgentRuntimeScheduleControlAdapter` (`automation/adapter/out/agent-runtime/`). `RulesController` injects only the port. Heartbeat timer reload + tenant-ownership rejection live inside the adapter. |
 | `rules/services/rules.service.ts` agent-spawn + `@OnEvent` | **Keep** | Sole correct evaluation pattern. Synchronous evaluation is hard-banned. |
 | `rules/services/alerts.service.ts` promote $transaction + dismiss panel emit | **Keep** | Race-guard contract. Move to `automation/application/service/alert-promotion` post-rewrite. |
@@ -687,10 +691,11 @@ If a PR moves Prisma usage but no schema changes, schema gates do not run
   must remain `workflowRun + heartbeatRun + thumbnailGeneration + alert`.
   Adding a fifth source from a different owner domain reintroduces panel as
   a business owner — explicitly disallowed.
-- `RulesController` schedule PATCH and `agent-registry/domains/manager`
-  human-in-the-loop are the two trickiest paths. Their tests live in
-  `__tests__/rules-flow.spec.ts` and `__tests__/manager.service.spec.ts`
-  respectively; do not delete or weaken those specs during the rewrite.
+- `RulesController` schedule PATCH and the manager human-in-the-loop are the
+  two trickiest paths. Manager moved to `automation/` in AO-3B, so its spec
+  now lives at `automation/application/service/__tests__/manager.service.spec.ts`
+  alongside `rules-flow.spec.ts`. Do not delete or weaken those specs during
+  any further rewrite.
 - The slim-core executor allowlist in `marketplace.service.ts` and the
   registration list in `executors/builtin.ts` must stay in lockstep. The
   marketplace `CLAUDE.md` already states this; the workflow executor

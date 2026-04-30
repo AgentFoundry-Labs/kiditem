@@ -39,7 +39,7 @@
 - Move eventually: `apps/server/src/agent-registry/agent-registry.controller.ts` -> `apps/server/src/automation/adapter/in/http/agent-registry.controller.ts`
 - Move eventually: `apps/server/src/agent-registry/trace/agent-trace.controller.ts` -> `apps/server/src/automation/adapter/in/http/agent-trace.controller.ts`
 - Move eventually: `apps/server/src/agent-registry/agent-registry.service.ts` -> `apps/server/src/automation/application/service/agent/agent-registry.service.ts`
-- Move eventually: `apps/server/src/agent-registry/domains/manager/*` -> `apps/server/src/automation/adapter/in/http/*` and `apps/server/src/automation/application/service/agent/manager.service.ts`
+- Moved (AO-3B): `apps/server/src/agent-registry/domains/manager/*` -> `apps/server/src/automation/adapter/in/http/manager.controller.ts` + `apps/server/src/automation/application/service/agent/manager.service.ts` + `apps/server/src/automation/adapter/in/http/dto/manager/*` + `apps/server/src/automation/application/service/__tests__/manager.service.spec.ts`
 
 ### Rules-Owned Business Policy
 
@@ -50,13 +50,15 @@
 
 ### Advertising-Owned Ad Agent Route
 
-- Move eventually: `apps/server/src/agent-registry/domains/ad-strategy/ad-strategy.controller.ts` -> `apps/server/src/advertising/adapter/in/http/ad-strategy-agent.controller.ts`
-- Move eventually: `apps/server/src/agent-registry/domains/ad-strategy/ad-strategy.service.ts` -> `apps/server/src/advertising/application/service/ad-strategy-agent.service.ts`
-- Move eventually: `apps/server/src/agent-registry/domains/ad-strategy/dto/*` -> `apps/server/src/advertising/adapter/in/http/dto/ad-strategy-agent/*`
-- Keep route: `/api/ad-agent/*`
-- Do not rename existing `apps/server/src/advertising/application/service/ad-strategy.service.ts`; avoid name collision by using `AdStrategyAgentService`.
+- Moved (AO-3C): `apps/server/src/agent-registry/domains/ad-strategy/ad-strategy.controller.ts` -> `apps/server/src/advertising/adapter/in/http/ad-strategy-agent.controller.ts`
+- Moved (AO-3C): `apps/server/src/agent-registry/domains/ad-strategy/ad-strategy.service.ts` -> `apps/server/src/advertising/application/service/ad-strategy-agent.service.ts`
+- Moved (AO-3C): `apps/server/src/agent-registry/domains/ad-strategy/dto/*` -> `apps/server/src/advertising/adapter/in/http/dto/ad-strategy-agent/*`
+- Route preserved: `/api/ad-agent/*`
+- `AdStrategyAgentService` coexists with the unchanged `apps/server/src/advertising/application/service/ad-strategy.service.ts` (the original endpoint orchestration service kept its class name).
 
 ## Task 1: AO-3A Agent Runner Port + Rules Decoupling
+
+**Status:** Landed. `AGENT_RUNNER_PORT` is exported from `AutomationModule` and `RulesService` injects the port instead of `AgentRegistryService`.
 
 **Files:**
 - Create: `apps/server/src/automation/application/port/in/agent-runner.port.ts`
@@ -280,6 +282,8 @@ Open GitHub PR against `main`.
 
 ## Task 2: AO-3B Move Manager Agent Surface into Automation
 
+**Status:** Landed. Manager controller, service, DTOs, and the manager.service spec all live under `apps/server/src/automation/`. `/api/manager/*` route shape preserved and the implementation reaches Agent OS through `AGENT_RUNNER_PORT`. The follow-up `Reconcile manager move with ad-agent ownership merge` commit reconciled this with the AO-3C ad-agent merge.
+
 **Files:**
 - Move: `apps/server/src/agent-registry/domains/manager/manager.controller.ts` -> `apps/server/src/automation/adapter/in/http/manager.controller.ts`
 - Move: `apps/server/src/agent-registry/domains/manager/manager.service.ts` -> `apps/server/src/automation/application/service/agent/manager.service.ts`
@@ -430,6 +434,8 @@ Not-tested: Manual browser workflow
 Open GitHub PR against `main`.
 
 ## Task 3: AO-3C Move Ad Agent Surface into Advertising
+
+**Status:** Landed. Ad-strategy controller, service, DTOs, and the ad-strategy-agent spec live under `apps/server/src/advertising/`. `/api/ad-agent/*` route shape preserved, `AdStrategyAgentService` reaches Agent OS through `AGENT_RUNNER_PORT`, and the follow-up `Enforce tenant scope on ad-agent task status` commit hardened the ad-agent task status path.
 
 **Files:**
 - Move: `apps/server/src/agent-registry/domains/ad-strategy/ad-strategy.controller.ts` -> `apps/server/src/advertising/adapter/in/http/ad-strategy-agent.controller.ts`
