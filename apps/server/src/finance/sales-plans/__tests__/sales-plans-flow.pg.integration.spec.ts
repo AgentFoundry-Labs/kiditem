@@ -3,21 +3,21 @@ import { Test } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import { SalesPlansService } from '../sales-plans.service';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '../../../prisma/prisma.service';
 import {
   makeTestPrisma,
   resetDb,
   seedBaseFixture,
   TEST_COMPANY_ID,
   OTHER_COMPANY_ID,
-} from '../../test-helpers/real-prisma';
+} from '../../../test-helpers/real-prisma';
 import {
   setupMaster,
   setupProductOption,
   setupChannelListing,
   seedOrderWithLineItems,
   seedAd,
-} from '../../test-helpers/finance-seeds';
+} from '../../../test-helpers/finance-seeds';
 
 describe('Sales-plans flow (PG integration)', () => {
   let prisma: PrismaClient;

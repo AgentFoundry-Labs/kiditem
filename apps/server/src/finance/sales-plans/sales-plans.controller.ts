@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Patch, Delete, Param, Body } from '@nestjs/common';
 import { SalesPlansService } from './sales-plans.service';
 import { CreateSalesPlanDto, UpdateSalesPlanDto } from './dto';
-import { CurrentCompany } from '../auth/decorators/current-company.decorator';
+import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
 
 @Controller('sales-plans')
 export class SalesPlansController {

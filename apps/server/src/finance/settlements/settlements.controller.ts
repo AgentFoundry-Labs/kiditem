@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Patch, Param, Query, Body } from '@nestjs/common';
 import { SettlementsService } from './settlements.service';
 import { ListSettlementsQueryDto, CreateSettlementDto, UpdateSettlementDto, ReconcileSettlementDto } from './dto';
-import { CurrentCompany } from '../auth/decorators/current-company.decorator';
+import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
 
 @Controller('settlements')
 export class SettlementsController {
