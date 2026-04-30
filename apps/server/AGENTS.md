@@ -257,7 +257,7 @@ async getProduct(id: string, companyId: string) {
 | [`src/chat/CLAUDE.md`](src/chat/CLAUDE.md) | 155줄 | CopilotKit Runtime + ClaudeCliAdapter. Express pre-registration (NestJS 우회), SSE 토큰 스트리밍 |
 | [`src/dashboard/CLAUDE.md`](src/dashboard/CLAUDE.md) | 73줄 | Massive Parallel (Promise.all 11+ queries) + KST 경계 + MoM snapshot + $queryRaw ad metrics |
 | [`src/finance/CLAUDE.md`](src/finance/CLAUDE.md) | 70줄 | P&L + Sales Analysis — $queryRaw cross-table 집계, period parsing, pricing resolver |
-| [`src/inventory/CLAUDE.md`](src/inventory/CLAUDE.md) | ~75줄 | Inventory + StockTransaction — 단일 InventoryService (read + metadata + mutation + ledger). **단독 writer rule**. BundleStockService restricted export. Transfer = record-only |
+| [`src/inventory/CLAUDE.md`](src/inventory/CLAUDE.md) | ~190줄 | Inventory owner domain — `adapter/application/domain/mapper` 분해. capabilities = inventory + unshipped + warehouses + stock-transfers + stock-audits + picking. `InventoryApplicationService` 단독 writer (ADR-0014). `PrismaService` import 는 `adapter/out/prisma/**` 에 한정 (architecture guard spec 동결). domain layer 는 NestJS/Prisma free. Transfer = record-only. capability state machine + bound check 는 `domain/policy/*` |
 | [`src/marketplace/CLAUDE.md`](src/marketplace/CLAUDE.md) | 75줄 | Workflow/Agent 카탈로그 — read-only 카탈로그 + per-company 설치 추적 + param override |
 | [`src/orders/CLAUDE.md`](src/orders/CLAUDE.md) | 60줄 | Order/Return/CS 통합 — multi-controller 모듈, 외부 채널 어댑터 위임, status 필터링 |
 | [`src/automation/adapter/out/panel-event/CLAUDE.md`](src/automation/adapter/out/panel-event/CLAUDE.md) | ~80줄 | Live Ops SSE projection adapter — `/api/panel/*` HTTP adapter + EventEmitter2 ring buffer + 4-source read-only projection |
@@ -293,7 +293,6 @@ Observable<MessageEvent> 내보냄. Automation workflow application services 가
   seed 임계값은 pure `automation/domain/policy/action-seeds.ts` 가 소유한다.
   룰 임계 변경은 여전히 hardcode 정책 변경이며 DB 설정이 아니다.
 - **`src/procurement/`** — Purchase Order **state machine** (`draft → pending → ordered → shipped → received`). 상태 전이 검증 + status groupBy 카운트. `__tests__/procurement.spec.ts` 로 흐름 보호.
-- **`src/picking/`** — 확정 주문에서 PickingList 생성 + 아이템 단위 verification (`isPicked`, `isVerified`). 출고 단계와 연결 (orders → picking → shipment).
 - **`src/ontology/`** — **DELETED (2026-04-28)**. `master_products` 를 `companyId` 없이 읽던 IDOR 후보였고 UI 소비처도 없어 제품 표면에서 hard-delete 했다. Do not reintroduce without product contract + tenant isolation test.
 - **`src/feature-gate/`** — Feature flag 도메인. `allowedCompanies: string[]` array 로 회사별 enable. 멀티-레벨 enable 로직 (global / per-company). agent-registry 의 FeatureGateService 와 별개 (이건 endpoint, 그건 runtime 평가).
 

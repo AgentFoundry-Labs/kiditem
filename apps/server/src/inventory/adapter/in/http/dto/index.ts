@@ -1,0 +1,32 @@
+// Inventory + capability HTTP DTOs.
+// companyId is injected from `@CurrentCompany()` — never accept it from
+// `@Body()`/`@Query()`/`@Param()` and never declare a `companyId` field on a
+// request DTO.
+
+// Inventory
+export * from './list-inventory-query.dto';
+export * from './update-inventory-metadata.dto';
+export * from './receive-stock.dto';
+export * from './issue-stock.dto';
+export * from './adjust-stock.dto';
+export * from './list-transactions-query.dto';
+export * from './transaction-summary-query.dto';
+
+// Unshipped
+export * from './list-unshipped.dto';
+
+// Warehouses
+export { CreateWarehouseDto } from './create-warehouse.dto';
+export { UpdateWarehouseDto } from './update-warehouse.dto';
+
+// Stock transfers
+export { ListStockTransfersQueryDto } from './list-stock-transfers.dto';
+export { CreateStockTransferDto } from './create-stock-transfer.dto';
+export { UpdateStockTransferDto } from './update-stock-transfer.dto';
+
+// Stock audits
+export { CreateStockAuditDto } from './create-stock-audit.dto';
+export { UpdateStockAuditDto } from './update-stock-audit.dto';
+
+// Picking
+export { UpdatePickingItemDto } from './update-picking-item.dto';
