@@ -13,8 +13,8 @@ export class AdStrategyAgentController {
   }
 
   @Get('status/:taskId')
-  getStatus(@Param('taskId') taskId: string) {
-    return this.adStrategyAgentService.getStatus(taskId);
+  getStatus(@Param('taskId') taskId: string, @CurrentCompany() companyId: string) {
+    return this.adStrategyAgentService.getStatus(taskId, companyId);
   }
 
   @Get('latest')

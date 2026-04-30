@@ -4,7 +4,7 @@ import { AgentResultReadyEvent } from '../../../../agent-registry/events/agent-e
 
 function makePrisma() {
   return {
-    agentTask: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
+    agentTask: { findFirst: vi.fn(), findMany: vi.fn() },
     activityEvent: { create: vi.fn() },
   };
 }
@@ -38,6 +38,20 @@ describe('AdStrategyAgentService', () => {
         dryRun: true,
       });
       expect(result.ok).toBe(true);
+    });
+  });
+
+  describe('getStatus', () => {
+    it('scopes task lookup to the current company', async () => {
+      const { service, prisma } = makeService();
+      prisma.agentTask.findFirst.mockResolvedValue({ id: 'task-1', companyId: 'c-1' });
+
+      await service.getStatus('task-1', 'c-1');
+
+      expect(prisma.agentTask.findFirst).toHaveBeenCalledWith({
+        where: { id: 'task-1', companyId: 'c-1' },
+        include: { logs: { orderBy: { createdAt: 'desc' }, take: 10 } },
+      });
     });
   });
 

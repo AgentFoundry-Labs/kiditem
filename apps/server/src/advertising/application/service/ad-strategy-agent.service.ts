@@ -54,9 +54,9 @@ export class AdStrategyAgentService {
     }
   }
 
-  async getStatus(taskId: string) {
-    return this.prisma.agentTask.findUnique({
-      where: { id: taskId },
+  async getStatus(taskId: string, companyId: string) {
+    return this.prisma.agentTask.findFirst({
+      where: { id: taskId, companyId },
       include: { logs: { orderBy: { createdAt: 'desc' }, take: 10 } },
     });
   }
