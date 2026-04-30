@@ -16,7 +16,7 @@ import {
   fetchInventoryList,
   inventoryListKeyParams,
   type InventoryListParams,
-} from '@/app/(inventory)/inventory/lib/inventory-api';
+} from '@/app/(inventory)/_shared/inventory-api';
 import { fetchOrderStats } from '../lib/orders-api';
 import {
   ORDER_INVENTORY_FILTERS,

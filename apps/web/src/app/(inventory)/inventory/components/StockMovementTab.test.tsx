@@ -3,15 +3,15 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TransactionListItem } from '@kiditem/shared/inventory';
 
-vi.mock('../lib/inventory-api', async () => {
-  const actual = await vi.importActual<typeof import('../lib/inventory-api')>('../lib/inventory-api');
+vi.mock('../../_shared/inventory-api', async () => {
+  const actual = await vi.importActual<typeof import('../../_shared/inventory-api')>('../../_shared/inventory-api');
   return {
     ...actual,
     fetchAllTransactionsInWindow: vi.fn(),
   };
 });
 
-import { fetchAllTransactionsInWindow } from '../lib/inventory-api';
+import { fetchAllTransactionsInWindow } from '../../_shared/inventory-api';
 import { StockMovementTab } from './StockMovementTab';
 
 const fetchAllMock = vi.mocked(fetchAllTransactionsInWindow);

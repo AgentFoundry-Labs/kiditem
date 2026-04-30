@@ -18,7 +18,7 @@ import { useInventoryList } from './hooks/useInventory';
 import { fetchAllInventoryForExport, toInventoryExportRows } from './lib/inventory-export';
 import type { StockOperationMode } from './components/StockOperationDialog';
 import type { SyncInfo } from '@kiditem/shared/common';
-import type { InventoryFilterKey } from './lib/inventory-api';
+import type { InventoryFilterKey } from '../_shared/inventory-api';
 import type { InventoryListItem, InventorySummary } from '@kiditem/shared/inventory';
 
 const DEFAULT_SUMMARY: InventorySummary = { total: 0, healthy: 0, low: 0, out: 0 };

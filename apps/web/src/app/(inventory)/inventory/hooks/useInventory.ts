@@ -7,14 +7,14 @@ import {
   issueStock,
   receiveStock,
   updateInventoryMetadata,
-} from '../lib/inventory-api';
+} from '../../_shared/inventory-api';
 import type {
   AdjustStockInput,
   IssueStockInput,
   ReceiveStockInput,
   UpdateInventoryMetadataInput,
 } from '@kiditem/shared/inventory';
-import type { InventoryListParams } from '../lib/inventory-api';
+import type { InventoryListParams } from '../../_shared/inventory-api';
 
 export function useInventoryList(params: InventoryListParams) {
   return useQuery({

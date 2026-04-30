@@ -8,7 +8,7 @@ import {
   fetchInventoryList,
   inventoryListKeyParams,
   type InventoryListParams,
-} from '../../inventory/lib/inventory-api';
+} from '../../_shared/inventory-api';
 import { stockOpsInventoryName } from '../lib/inventory-projection';
 
 const OUT_OF_STOCK_PARAMS: InventoryListParams = { status: 'out', limit: 200 };

@@ -11,7 +11,7 @@ import { StockMovementTable, type GroupedRow } from './StockMovementTable';
 import {
   fetchAllTransactionsInWindow,
   transactionKeyParams,
-} from '../lib/inventory-api';
+} from '../../_shared/inventory-api';
 import type { TransactionListItem } from '@kiditem/shared/inventory';
 
 const GROUP_TABS = [

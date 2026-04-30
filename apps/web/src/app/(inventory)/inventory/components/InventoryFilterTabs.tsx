@@ -2,7 +2,7 @@
 
 import { cn, formatNumber } from '@/lib/utils';
 import type { InventorySummary } from '@kiditem/shared/inventory';
-import type { InventoryFilterKey } from '../lib/inventory-api';
+import type { InventoryFilterKey } from '../../_shared/inventory-api';
 
 interface InventoryFilterTabsProps {
   filter: InventoryFilterKey;
