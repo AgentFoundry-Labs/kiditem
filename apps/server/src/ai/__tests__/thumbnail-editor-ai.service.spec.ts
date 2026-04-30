@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ThumbnailEditorAiService } from '../services/thumbnail-editor-ai.service';
+import { ThumbnailEditorAiService } from '../application/service/thumbnail-editor-ai.service';
 import type { ThumbnailEditorInputImage } from '../domain/model/thumbnail-editor';
 
 const COMPANY_ID = 'company-1';

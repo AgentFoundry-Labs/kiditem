@@ -1,16 +1,14 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { RecomposeVariantClassification } from '@kiditem/shared/ai';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '../../../prisma/prisma.service';
 import {
   parseRecomposeClassification,
   singleProductFallback,
   SINGLE_PRODUCT_FALLBACK,
-} from '../domain/recompose-classification';
-import { RECOMPOSE_CLASSIFY_PROMPT } from './thumbnail-prompts';
-import {
-  resolveMasterThumbnailImage,
-  thumbnailMasterImageSelect,
-} from './thumbnail-master-image-resolver';
+} from '../../domain/recompose-classification';
+import { RECOMPOSE_CLASSIFY_PROMPT } from '../../domain/prompts/thumbnail-prompts';
+import { resolveMasterThumbnailImage } from '../../domain/thumbnail-master-image';
+import { thumbnailMasterImageSelect } from '../../adapter/out/prisma/master-image-select.preset';
 import { ThumbnailVisionAiService } from './thumbnail-vision-ai.service';
 
 /**

@@ -1,14 +1,14 @@
 import { BadRequestException, Body, Controller, Post } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
-import { ThumbnailEditorDto } from '../dto/thumbnail-editor.dto';
-import { ThumbnailEditorAiService } from '../services/thumbnail-editor-ai.service';
+import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
+import { ThumbnailEditorDto } from './dto/thumbnail-editor.dto';
+import { ThumbnailEditorAiService } from '../../../application/service/thumbnail-editor-ai.service';
 import type {
   ThumbnailEditorEditCase,
   ThumbnailEditorInputImage,
   ThumbnailInputRole,
-} from '../domain/model/thumbnail-editor';
-import { ThumbnailGenerationService } from '../services/thumbnail-generation.service';
+} from '../../../domain/model/thumbnail-editor';
+import { ThumbnailGenerationService } from '../../../application/service/thumbnail-generation.service';
 
 @Controller('thumbnail-editor')
 export class ThumbnailEditorController {

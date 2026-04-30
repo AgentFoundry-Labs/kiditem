@@ -2,8 +2,8 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import type { AgentDefinition } from '@prisma/client';
 import { Prisma } from '@prisma/client';
-import { AGENT_EVENTS, AgentStatusChangedEvent } from '../../agent-registry/events/agent-events';
-import { PrismaService } from '../../prisma/prisma.service';
+import { AGENT_EVENTS, AgentStatusChangedEvent } from '../../../agent-registry/events/agent-events';
+import { PrismaService } from '../../../prisma/prisma.service';
 import { ThumbnailGenerationService } from './thumbnail-generation.service';
 
 const AGENT_TYPE = 'thumbnail_auto_edit';

@@ -6,7 +6,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { GoogleGenAI, Modality } from '@google/genai';
-import { StorageService } from '../../common/storage/storage.service';
+import { StorageService } from '../../../common/storage/storage.service';
 import {
   COMPLIANCE_SUGGESTIONS_HEADER,
   CREATIVE_PROMPT,
@@ -17,25 +17,25 @@ import {
   QUALITY_EDIT_PROMPT,
   USER_PROMPT_PREFIX,
   buildProductContextHeader,
-} from './thumbnail-prompts';
+} from '../../domain/prompts/thumbnail-prompts';
 import {
   buildCreativeScenarioBlock,
   buildGenerateScenarioBlock,
   classifyCategory,
-} from './thumbnail-prompt-scenarios';
-import { buildLayoutBlock } from './thumbnail-layout-presets';
+} from '../../domain/prompts/thumbnail-prompt-scenarios';
+import { buildLayoutBlock } from '../../domain/prompts/thumbnail-layout-presets';
 import {
   ThumbnailImageFetcherService,
   MAX_FETCH_BYTES,
-} from './thumbnail-image-fetcher.service';
-import { ThumbnailReferenceImagesService } from './thumbnail-reference-images.service';
-import { requireGeminiImageModel } from './thumbnail-gemini-config';
+} from '../../adapter/out/image-fetch/thumbnail-image-fetcher.adapter';
+import { ThumbnailReferenceImagesService } from '../../adapter/out/gemini/thumbnail-reference-images.adapter';
+import { requireGeminiImageModel } from '../../adapter/out/gemini/thumbnail-gemini-config';
 import type {
   ThumbnailEditorCandidate,
   ThumbnailEditorEditCase,
   ThumbnailEditorInputImage,
   ThumbnailInputRole,
-} from '../domain/model/thumbnail-editor';
+} from '../../domain/model/thumbnail-editor';
 
 type ThumbnailEditorPurpose = 'compliance' | 'quality';
 type ThumbnailEditorMode = 'edit' | 'creative';

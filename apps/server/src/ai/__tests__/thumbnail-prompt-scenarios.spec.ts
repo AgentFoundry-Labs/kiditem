@@ -4,7 +4,7 @@ import {
   inferEditCase,
   buildGenerateScenarioBlock,
   buildCreativeScenarioBlock,
-} from '../services/thumbnail-prompt-scenarios';
+} from '../domain/prompts/thumbnail-prompt-scenarios';
 
 describe('classifyCategory', () => {
   it('toy — 완구/취미 대분류 경로', () => {

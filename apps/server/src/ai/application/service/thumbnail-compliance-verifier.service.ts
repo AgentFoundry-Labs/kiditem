@@ -1,15 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { GeminiThumbnailVisionAdapter } from '../adapter/out/gemini/gemini-thumbnail-vision.adapter';
+import { GeminiThumbnailVisionAdapter } from '../../adapter/out/gemini/gemini-thumbnail-vision.adapter';
 import {
   type RawComplianceEntry,
   TEXT_RELATED_KEYS,
   hasDigitalOverlayEvidence,
   parseAiBoolean,
-} from '../domain/thumbnail-compliance-normalizer';
+} from '../../domain/thumbnail-compliance-normalizer';
 import {
   analyzeWhiteBackgroundByPixels,
   type ImageBytes,
-} from '../domain/thumbnail-image-spec';
+} from '../../domain/thumbnail-image-spec';
 
 interface ImageContext {
   imageData: ImageBytes;

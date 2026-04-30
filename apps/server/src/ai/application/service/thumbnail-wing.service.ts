@@ -1,6 +1,9 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import * as fs from 'node:fs';
-import { WingAutomationRunner } from '../../adapter/out/wing/wing-automation-runner';
+import {
+  WING_AUTOMATION_PORT,
+  type WingAutomationPort,
+} from '../port/out/wing-automation.port';
 import { parseDataImageUrl } from '../../domain/thumbnail-image-source';
 import {
   pickRegistrationImageUrl,
@@ -11,7 +14,7 @@ import {
   type WingVerificationResult,
 } from '../../mapper/thumbnail-wing.mapper';
 import { ThumbnailWingPersistence } from '../../adapter/out/prisma/thumbnail-wing.persistence';
-import { ThumbnailImageFetcherService } from '../../services/thumbnail-image-fetcher.service';
+import { ThumbnailImageFetcherService } from '../../adapter/out/image-fetch/thumbnail-image-fetcher.adapter';
 
 @Injectable()
 export class ThumbnailWingService {
@@ -20,7 +23,8 @@ export class ThumbnailWingService {
   constructor(
     private readonly persistence: ThumbnailWingPersistence,
     private readonly imageFetcher: ThumbnailImageFetcherService,
-    private readonly automationRunner: WingAutomationRunner,
+    @Inject(WING_AUTOMATION_PORT)
+    private readonly automationRunner: WingAutomationPort,
   ) {}
 
   async registerToWing(generationId: string, companyId: string): Promise<WingRegistrationResult> {

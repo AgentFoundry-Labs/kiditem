@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import type { ComplianceScores, RecomposeVariantClassification, ThumbnailScores } from '@kiditem/shared/ai';
-import { ThumbnailAnalysisService } from '../services/thumbnail-analysis.service';
+import { ThumbnailAnalysisService } from '../application/service/thumbnail-analysis.service';
 
 type MasterRow = {
   id: string;

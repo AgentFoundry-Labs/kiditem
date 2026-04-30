@@ -1,9 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { NotFoundException } from '@nestjs/common';
 import type { PrismaService } from '../../../../prisma/prisma.service';
-import {
-  thumbnailMasterImageSelect,
-} from '../../../services/thumbnail-master-image-resolver';
+import { thumbnailMasterImageSelect } from './master-image-select.preset';
 import type { GenerationMasterSummary, GenerationRow } from '../../../mapper/thumbnail-generation.mapper';
 
 /**

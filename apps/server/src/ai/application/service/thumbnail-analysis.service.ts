@@ -15,12 +15,10 @@ import type {
   ThumbnailScores,
   RecomposeVariantClassification,
 } from '@kiditem/shared/ai';
-import { PrismaService } from '../../prisma/prisma.service';
-import type { AnalysisScope } from '../dto/thumbnail-analyze.dto';
-import {
-  resolveMasterThumbnailImage,
-  thumbnailMasterImageSelect,
-} from './thumbnail-master-image-resolver';
+import { PrismaService } from '../../../prisma/prisma.service';
+import type { AnalysisScope } from '../../adapter/in/http/dto/thumbnail-analyze.dto';
+import { resolveMasterThumbnailImage } from '../../domain/thumbnail-master-image';
+import { thumbnailMasterImageSelect } from '../../adapter/out/prisma/master-image-select.preset';
 import {
   ThumbnailVisionAiService,
   type ThumbnailAiItem,
@@ -31,8 +29,8 @@ import {
   type MasterRow,
   buildAnalysisListResponse,
   buildAnalysisSummary,
-} from '../adapter/out/prisma/thumbnail-analysis.query';
-import { toAnalysisResult } from '../mapper/thumbnail-analysis.mapper';
+} from '../../adapter/out/prisma/thumbnail-analysis.query';
+import { toAnalysisResult } from '../../mapper/thumbnail-analysis.mapper';
 
 @Injectable()
 export class ThumbnailAnalysisService {

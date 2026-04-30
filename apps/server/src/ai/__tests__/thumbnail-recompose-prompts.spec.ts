@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   getRecomposePromptOverride,
   isHeadWearableCategory,
-} from '../services/thumbnail-recompose-prompts';
+} from '../domain/prompts/thumbnail-recompose-prompts';
 
 describe('getRecomposePromptOverride', () => {
   it('uses explicit with-box / no-box variants before inferred kind', () => {

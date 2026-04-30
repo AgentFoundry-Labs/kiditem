@@ -1,31 +1,18 @@
-import { Prisma } from '@prisma/client';
-
 /**
- * Shared current-schema master-image select preset and resolver helpers.
- *
- * Multiple thumbnail-ai services (analysis, recompose, generation) used to
- * re-implement slightly different image precedence rules. This helper unifies
- * them so changes to the master-image fallback chain happen in exactly one
- * place.
+ * Pure URL precedence rules for resolving the displayable master thumbnail
+ * image. Used by analysis/recompose/generation flows so that changes to the
+ * fallback chain happen in exactly one place.
  *
  * Precedence:
  *   master.imageUrl > primary MasterProductImage > first MasterProductImage > master.thumbnailUrl
  *
  * URLs are only considered displayable if they are absolute http(s) URLs or
  * relative `/generated-thumbnails/...` paths produced by StorageService.
+ *
+ * No Prisma/Nest dependency. The Prisma include preset that produces the
+ * `images` row shape consumed here lives in
+ * `adapter/out/prisma/master-image-select.preset.ts`.
  */
-export const THUMBNAIL_MASTER_IMAGE_SELECT: Prisma.MasterProduct$imagesArgs = {
-  where: { isDeleted: false },
-  select: { url: true, role: true, sortOrder: true, isPrimary: true },
-  orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
-};
-
-export function thumbnailMasterImageSelect(companyId: string): Prisma.MasterProduct$imagesArgs {
-  return {
-    ...THUMBNAIL_MASTER_IMAGE_SELECT,
-    where: { companyId, isDeleted: false },
-  };
-}
 
 export type ThumbnailMasterImageRow = {
   url: string;
