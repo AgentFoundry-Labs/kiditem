@@ -115,10 +115,10 @@ rewrite them.
    `workflows/executors/types.ts` declares
    `StandardOrder` / `StandardProduct` / `StandardInventory` /
    `StandardAd` / `StandardProfitLoss` / `StandardReview` /
-   `StandardThumbnail`. They are referenced **only** in
-   `workflows/CLAUDE.md` prose. No executor produces them, no shared package
-   re-exports them, no web consumer imports them. Forward-looking typing for
-   future domain-specific executors that have not been written. Classified as
+   `StandardThumbnail`. They are referenced **only** in workflow-runner scoped
+   guidance prose. No executor produces them, no shared package re-exports
+   them, no web consumer imports them. Forward-looking typing for future
+   domain-specific executors that have not been written. Classified as
    **delete-candidate**: keep until a domain-specific executor lands or until
    Phase 3C executor-rewrite PR confirms the contract is restated elsewhere.
 4. **Workflow executor registry helpers without consumers** —
@@ -478,7 +478,7 @@ criteria hold. Anything else is a rewrite, not a delete.
    `npm run check:idor` and `npm run check:tenant-scope` if the surface
    touches a tenant-scoped Prisma path.
 4. **Contract alignment** — the surface matches a "delete-candidate" or
-   "already deleted" row above, OR a row in the `workflows/CLAUDE.md`
+   "already deleted" row above, OR a row in the workflow-runner scoped
    removed-executor list, OR a "Hard-banned" row.
 
 If even one criterion is missing, classify the surface in this plan rather

@@ -36,8 +36,8 @@ import { WorkflowRunnerService } from './application/service/workflow-runner.ser
  *   read-only projection over workflow / agent / image / alert sources.
  * - Phase 3C-5: `WorkflowOrchestrationService` + `WorkflowRunnerService`
  *   own template CRUD, run creation, trusted tenant binding, DAG execution,
- *   panel emission, and Agent OS delegation. `workflows/` keeps only the
- *   compatibility HTTP route surface and DTOs.
+ *   panel emission, and Agent OS delegation. Workflow HTTP routes and DTOs
+ *   now live under automation inbound HTTP adapters.
  * - Phase 3C-6: AgentRegistry implementation split lives under
  *   `application/service/agent-*.service.ts`; Claude/Python execution
  *   adapters live under `adapter/out/agent-runtime/`. They are registered by
