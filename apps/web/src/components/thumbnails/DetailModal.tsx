@@ -6,7 +6,7 @@ import {
   Download, AlertTriangle, XCircle,
   Loader2, ChevronLeft, ChevronRight, Maximize2,
 } from 'lucide-react';
-import { ScoreBreakdown } from '@/app/thumbnails/components/ScoreBreakdown';
+import { ScoreBreakdown } from '@/app/(media-ai)/thumbnails/components/ScoreBreakdown';
 import type {
   ImageSpec,
   RecomposeVariantKey,
@@ -15,15 +15,15 @@ import type {
 } from '@kiditem/shared/ai';
 import { cn } from '@/lib/utils';
 import { RecomposeVariantPicker } from './RecomposeVariantPicker';
-import { COMPLIANCE_GRADE_BG, COMPLIANCE_GRADE_LABELS, VIOLATION_LABELS } from '@/app/thumbnails/lib/grade-constants';
+import { COMPLIANCE_GRADE_BG, COMPLIANCE_GRADE_LABELS, VIOLATION_LABELS } from '@/app/(media-ai)/thumbnails/lib/grade-constants';
 import {
   getEffectiveComplianceGrade,
   getViolationEvidence,
-} from '@/app/thumbnails/lib/thumbnail-classification';
+} from '@/app/(media-ai)/thumbnails/lib/thumbnail-classification';
 import { resolveImageUrl } from '@/lib/resolve-url';
 import { isApplied } from '@/lib/thumbnail-status';
 import { CoupangSearchCardPreview } from '@/components/coupang/CoupangPreview';
-import { buildEditHref } from '@/app/thumbnail-editor/edit/lib/build-edit-href';
+import { buildEditHref } from '@/app/(media-ai)/thumbnail-editor/edit/lib/build-edit-href';
 
 const GRADE_CONFIG: Record<string, { bg: string; text: string }> = {
   S: { bg: '#10b981', text: '#fff' },

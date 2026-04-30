@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { ConfigurableParam } from '@/app/marketplace/lib/marketplace-types';
+import type { ConfigurableParam } from '@/app/(automation)/marketplace/lib/marketplace-types';
 
 const CATEGORY_LABELS: Record<string, string> = {
   automation: '자동화',

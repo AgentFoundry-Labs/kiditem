@@ -15,7 +15,23 @@ Env: `.env.local` → `NEXT_PUBLIC_API_URL=http://localhost:4000`
 ## Scoped Instructions
 
 - Shared frontend rules live in this `AGENTS.md`.
-- Nested route guidance is still maintained in `src/app/{domain}/CLAUDE.md`. Read the matching file before editing that route until nested `AGENTS.md` files are added.
+- Nested route guidance is still maintained in `src/app/{group}/{domain}/CLAUDE.md`. Read the matching file before editing that route until nested `AGENTS.md` files are added.
+
+### Route Groups
+
+Top-level routes are organized into Next.js App Router route groups (`(name)`). Route groups do **not** affect URLs — `/agents` still resolves to `src/app/(automation)/agents/page.tsx`. Group folders only exist to colocate related domains for navigation and ownership.
+
+| Group | Routes |
+|---|---|
+| `(automation)` | agents, workflows, marketplace, action-board |
+| `(catalog)` | products, product-hub |
+| `(sourcing)` | sourcing, suppliers |
+| `(inventory)` | inventory, inventory-hub, stock-ops, warehouses, unshipped-items |
+| `(orders)` | orders, order-hub, order-status-hub, returns, reviews, return-scan |
+| `(finance)` | finance-hub, profit-loss, sales-analysis, supplier-hub |
+| `(media-ai)` | thumbnails, thumbnail-editor, image-hub, generate |
+
+Routes outside any group (`ad-ops`, `cs-management`, `outbound`, `purchase-orders`, `reports`, `settings`, `__tests__`, `components`) remain at `src/app/{name}/`.
 
 ## Rules
 
@@ -28,7 +44,7 @@ Env: `.env.local` → `NEXT_PUBLIC_API_URL=http://localhost:4000`
 
 ### Data Fetching
 - Use **`useQuery` / `useMutation`** from `@tanstack/react-query` (no useState+useEffect+fetch)
-- Domain hooks are co-located: `app/agents/hooks/useAgents.ts`, `app/workflows/hooks/useWorkflows.ts`
+- Domain hooks are co-located: `app/(automation)/agents/hooks/useAgents.ts`, `app/(automation)/workflows/hooks/useWorkflows.ts`
 - Cross-domain hooks stay in `src/hooks/`: `useMarketplace.ts`
 - For domains without custom hooks: inline `useQuery` + `queryKeys.*` from `lib/query-keys.ts`
 - Polling: `refetchInterval` option (no setInterval)
@@ -123,27 +139,27 @@ Shared directories (`src/components/`, `src/hooks/`, `src/lib/`) contain ONLY cr
 
 ## Domain Guides — 서브 페이지 작업 전 scoped instruction 먼저 Read
 
-**규칙**: `src/app/{domain}/` 하위 파일을 Edit 하기 전, 아래 표의 해당 행이 가리키는 scoped document 를 먼저 Read 한다. 현재 전용 서브 페이지 문서는 `CLAUDE.md` 로 유지 중이다.
+**규칙**: `src/app/{group}/{domain}/` 하위 파일을 Edit 하기 전, 아래 표의 해당 행이 가리키는 scoped document 를 먼저 Read 한다. 현재 전용 서브 페이지 문서는 `CLAUDE.md` 로 유지 중이다.
 
 ### 전용 CLAUDE.md 가 있는 서브 페이지 (6)
 
 | 경로 | 크기 | 핵심 포인트 |
 |---|---|---|
-| [`src/app/agents/CLAUDE.md`](src/app/agents/CLAUDE.md) | 129줄 | Agent Lifecycle/Trace/Org/Cost UI — 조건부 Polling, Thin Compositor, Trace Timeline, queryKeys hierarchy |
-| [`src/app/return-scan/CLAUDE.md`](src/app/return-scan/CLAUDE.md) | 73줄 | Barcode Input + Local-Only Logging — stateless 플로우, local sync 예외 |
-| [`src/app/sourcing/CLAUDE.md`](src/app/sourcing/CLAUDE.md) | 151줄 | Product Sourcing + GrapesJS WYSIWYG Editor + AI Edit Panels — custom blocks 7종, iframe 주입, UndoManager pause |
-| [`src/app/thumbnail-editor/CLAUDE.md`](src/app/thumbnail-editor/CLAUDE.md) | 120줄 | Use-Case-Driven Generation — 용도 카드 분기, mutation workflow, 이미지 허브 임포트 |
-| [`src/app/thumbnails/CLAUDE.md`](src/app/thumbnails/CLAUDE.md) | 73줄 | Smart Polling + Batch + Optimistic UI — dynamic refetchInterval, rollback, AbortController |
-| [`src/app/workflows/CLAUDE.md`](src/app/workflows/CLAUDE.md) | 88줄 | Wildcard Invalidation + UseQueryOptions Forwarding — thin page composition |
+| [`src/app/(automation)/agents/CLAUDE.md`](src/app/(automation)/agents/CLAUDE.md) | 129줄 | Agent Lifecycle/Trace/Org/Cost UI — 조건부 Polling, Thin Compositor, Trace Timeline, queryKeys hierarchy |
+| [`src/app/(orders)/return-scan/CLAUDE.md`](src/app/(orders)/return-scan/CLAUDE.md) | 73줄 | Barcode Input + Local-Only Logging — stateless 플로우, local sync 예외 |
+| [`src/app/(sourcing)/sourcing/CLAUDE.md`](src/app/(sourcing)/sourcing/CLAUDE.md) | 151줄 | Product Sourcing + GrapesJS WYSIWYG Editor + AI Edit Panels — custom blocks 7종, iframe 주입, UndoManager pause |
+| [`src/app/(media-ai)/thumbnail-editor/CLAUDE.md`](src/app/(media-ai)/thumbnail-editor/CLAUDE.md) | 120줄 | Use-Case-Driven Generation — 용도 카드 분기, mutation workflow, 이미지 허브 임포트 |
+| [`src/app/(media-ai)/thumbnails/CLAUDE.md`](src/app/(media-ai)/thumbnails/CLAUDE.md) | 73줄 | Smart Polling + Batch + Optimistic UI — dynamic refetchInterval, rollback, AbortController |
+| [`src/app/(automation)/workflows/CLAUDE.md`](src/app/(automation)/workflows/CLAUDE.md) | 88줄 | Wildcard Invalidation + UseQueryOptions Forwarding — thin page composition |
 
 ### Notable Sub-Domains (LOW signal — 별도 scoped doc 없음)
 
 부모 Next.js 패턴(이 문서)으로 거의 커버되지만, 아래 도메인은 한 가지 특이점이 있다.
 
-- **`app/inventory/`** — `lib/barcode-print.ts` 의 `printBarcodeWindow()` (window.open + `<style>` 인쇄) + xlsx import/export. 브라우저 print API 직접 사용 케이스.
+- **`app/(inventory)/inventory/`** — `lib/barcode-print.ts` 의 `printBarcodeWindow()` (window.open + `<style>` 인쇄) + xlsx import/export. 브라우저 print API 직접 사용 케이스.
 - **`app/settings/`** — 다양한 file upload (CSV/Image), printer 연결 (`PrinterSettings` 컴포넌트), health check + sync 운영 액션. system-level operations 가 한 페이지에 모임.
-- **`app/sales-analysis/`** — `Settlements` 탭이 streaming 패턴 (스트림 chunked download). xlsx export 도 함.
-- **`app/orders/`** — Pipeline state UI (ACCEPT → INSTRUCT → DEPARTURE → DELIVERING 시각화) + scheduled sync polling (`SYNC_HOURS` 상수로 정해진 시각마다 자동 sync invoke).
+- **`app/(finance)/sales-analysis/`** — `Settlements` 탭이 streaming 패턴 (스트림 chunked download). xlsx export 도 함.
+- **`app/(orders)/orders/`** — Pipeline state UI (ACCEPT → INSTRUCT → DEPARTURE → DELIVERING 시각화) + scheduled sync polling (`SYNC_HOURS` 상수로 정해진 시각마다 자동 sync invoke).
 - **`components/panel/`** — Live slide-out 패널 (ADR-0010 SSE 예외). `AppLayout`에 상시 mount. PanelSseClient → Zustand store → Radix Sheet. Sidebar Bell 한 곳에서만 토글 (P3). PR1: workflow run only; PR2에서 agent/image/alert 확장.
 
 각 도메인 작업 시 위 특이점만 의식하면 부모 Next.js 패턴으로 충분.
