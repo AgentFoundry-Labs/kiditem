@@ -1,7 +1,7 @@
 'use client';
 
 import { AlertCircle } from 'lucide-react';
-import ProductEditHeader from '../../components/detail/ProductEditHeader';
+import ProductEditHeader from './ProductEditHeader';
 
 interface Props {
   productId: string;
