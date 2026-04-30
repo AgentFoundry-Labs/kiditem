@@ -8,8 +8,6 @@ import { SkillsService } from './skills/skills.service';
 import { AgentSseService } from './events/agent-sse.service';
 import { AdStrategyController } from './domains/ad-strategy/ad-strategy.controller';
 import { AdStrategyService } from './domains/ad-strategy/ad-strategy.service';
-import { ManagerController } from './domains/manager/manager.controller';
-import { ManagerService } from './domains/manager/manager.service';
 // Agent OS modules
 import { SafetyModule } from './safety/safety.module';
 import { LifecycleModule } from './lifecycle/lifecycle.module';
@@ -39,7 +37,7 @@ import { AgentRunService } from '../automation/application/service/agent-run.ser
     ContextManagerModule,
     AgentTraceModule,
   ],
-  controllers: [AgentRegistryController, AdStrategyController, ManagerController],
+  controllers: [AgentRegistryController, AdStrategyController],
   providers: [
     AgentRegistryService,
     AgentCrudService,
@@ -51,7 +49,6 @@ import { AgentRunService } from '../automation/application/service/agent-run.ser
     SkillsService,
     AgentSseService,
     AdStrategyService,
-    ManagerService,
   ],
   exports: [AgentRegistryService, HeartbeatService],
 })
