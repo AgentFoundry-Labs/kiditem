@@ -15,7 +15,7 @@ import {
   fetchAllTransactionsInWindow,
   monthPeriodWindow,
   transactionKeyParams,
-} from '@/app/(inventory)/inventory/lib/inventory-api';
+} from '@/app/(inventory)/_shared/inventory-api';
 import type { TransactionListItem } from '@kiditem/shared/inventory';
 
 const typeLabels: Record<string, { text: string; color: string }> = {

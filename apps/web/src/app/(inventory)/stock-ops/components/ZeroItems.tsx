@@ -10,7 +10,7 @@ import {
   fetchInventoryList,
   inventoryListKeyParams,
   type InventoryListParams,
-} from '../../inventory/lib/inventory-api';
+} from '../../_shared/inventory-api';
 import { stockOpsInventoryName } from '../lib/inventory-projection';
 
 interface ProductItem {
