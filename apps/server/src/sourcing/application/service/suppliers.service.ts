@@ -1,7 +1,14 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
-import { CreateSupplierDto, UpdateSupplierDto } from './dto';
+import { PrismaService } from '../../../prisma/prisma.service';
+import { CreateSupplierDto, UpdateSupplierDto } from '../../adapter/in/http/dto';
 
+/**
+ * Suppliers stay as transitional legacy CRUD inside the sourcing owner domain.
+ * Per the backend architecture contract, ports are deferred for tiny CRUD that
+ * is not being reconstructed in this PR. Future supplier-side reconstruction
+ * may add ports/adapters; the controller and route are already housed under
+ * sourcing.
+ */
 @Injectable()
 export class SuppliersService {
   constructor(private readonly prisma: PrismaService) {}

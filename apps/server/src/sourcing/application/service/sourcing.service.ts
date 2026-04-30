@@ -1,7 +1,10 @@
-import { Injectable, NotImplementedException } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
-import { AgentRegistryService } from '../agent-registry/agent-registry.service';
-import { paginationParams } from '../common/pagination';
+import { Inject, Injectable, NotImplementedException } from '@nestjs/common';
+import { PrismaService } from '../../../prisma/prisma.service';
+import { paginationParams } from '../../../common/pagination';
+import {
+  SOURCING_AGENT_GATEWAY_PORT,
+  type SourcingAgentGatewayPort,
+} from '../port/out/sourcing-agent.gateway.port';
 
 const PLATFORM_MAP: Record<string, string> = {
   '1688': 'ALIBABA_1688',
@@ -14,33 +17,29 @@ const PLATFORM_MAP: Record<string, string> = {
 export class SourcingService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly agentRegistry: AgentRegistryService,
+    @Inject(SOURCING_AGENT_GATEWAY_PORT)
+    private readonly agentGateway: SourcingAgentGatewayPort,
   ) {}
 
   private extractCostCny(data: any): number | null {
-    // Direct price field
     if (data.price != null) {
       const p = typeof data.price === 'number' ? data.price : parseFloat(String(data.price));
       if (!isNaN(p) && p > 0) return p;
     }
-    // Price range (e.g., "12.5-18.0" → take minimum)
     if (typeof data.priceRange === 'string' && data.priceRange.includes('-')) {
       const min = parseFloat(data.priceRange.split('-')[0]);
       if (!isNaN(min) && min > 0) return min;
     }
-    // Nested offer price
     if (data.offer?.price != null) {
       const p = parseFloat(String(data.offer.price));
       if (!isNaN(p) && p > 0) return p;
     }
-    // SKU prices (take minimum)
     if (Array.isArray(data.skuProps)) {
       const prices = data.skuProps
         .map((s: any) => parseFloat(String(s.price)))
         .filter((p: number) => !isNaN(p) && p > 0);
       if (prices.length > 0) return Math.min(...prices);
     }
-    // Price tiers (take first tier price)
     if (Array.isArray(data.priceRanges) && data.priceRanges.length > 0) {
       const p = parseFloat(String(data.priceRanges[0].price));
       if (!isNaN(p) && p > 0) return p;
@@ -54,7 +53,6 @@ export class SourcingService {
     product_count: number;
   }> {
     const pageType = data.page_type || 'detail';
-    const platform = PLATFORM_MAP[data.source_platform?.toLowerCase()] || 'OTHER';
     const productCount = pageType === 'search' ? (data.total_found || 0) : (data.title ? 1 : 0);
 
     if (pageType === 'detail' && data.title) {
@@ -96,14 +94,11 @@ export class SourcingService {
   }
 
   async scrapeUrl(url: string, companyId: string): Promise<{ ok: boolean; message: string; taskId: string }> {
-    const result = await this.agentRegistry.runByType('sourcing', {
-      companyId,
-      extra: { action: 'scrape_url', url, company_id: companyId },
-    });
+    const result = await this.agentGateway.scrapeUrl({ companyId, url });
 
     return {
       ok: true,
-      message: `스크래핑 작업이 대기열에 등록되었습니다.`,
+      message: '스크래핑 작업이 대기열에 등록되었습니다.',
       taskId: result.taskId,
     };
   }

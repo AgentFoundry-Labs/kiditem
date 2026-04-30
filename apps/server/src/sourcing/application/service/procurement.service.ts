@@ -1,13 +1,10 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { PrismaService } from '../prisma/prisma.service';
-
-const VALID_TRANSITIONS: Record<string, string> = {
-  draft: 'pending',
-  pending: 'ordered',
-  ordered: 'shipped',
-  shipped: 'received',
-};
+import { PrismaService } from '../../../prisma/prisma.service';
+import {
+  isDeletablePurchaseOrderStatus,
+  isValidPurchaseOrderTransition,
+} from '../../domain/policy/purchase-order-status';
 
 @Injectable()
 export class ProcurementService {
@@ -118,8 +115,7 @@ export class ProcurementService {
       throw new BadRequestException('발주를 찾을 수 없습니다');
     }
 
-    const expectedNext = VALID_TRANSITIONS[order.status];
-    if (!expectedNext || expectedNext !== newStatus) {
+    if (!isValidPurchaseOrderTransition(order.status, newStatus)) {
       throw new BadRequestException(
         `상태 전환 불가: ${order.status} → ${newStatus}`,
       );
@@ -157,7 +153,7 @@ export class ProcurementService {
       throw new BadRequestException('발주를 찾을 수 없습니다');
     }
 
-    if (order.status !== 'draft' && order.status !== 'pending') {
+    if (!isDeletablePurchaseOrderStatus(order.status)) {
       throw new BadRequestException(
         '임시저장 또는 대기 상태의 발주만 삭제할 수 있습니다',
       );
