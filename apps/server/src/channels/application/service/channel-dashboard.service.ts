@@ -21,9 +21,8 @@ import { kstDayStart } from '../../../common/kst';
  *   on every joined tenant-owned table (`orders`, `order_line_items`,
  *   `channel_listings`, `master_products`) — never rely on a single
  *   `o.company_id` filter to gate downstream JOINs (defense-in-depth against
- *   stray FK invariants between tenants). See
- *   docs/superpowers/plans/2026-04-29-channels-channel-listing-boundary.md
- *   risks R1/R2/R3.
+ *   stray FK invariants between tenants). See channels/AGENTS.md R1/R2/R3
+ *   risk rule.
  * - Time windows are half-open: `gte` / `lt` only, never `lte`.
  * - `ChannelListing.updatedAt` ("lastModifiedAt") is bumped on any edit, not
  *   only sync ops — do not present it as "last synced at".
@@ -39,7 +38,7 @@ import { kstDayStart } from '../../../common/kst';
  * A dashboard repository port is deliberately NOT introduced — the query
  * methods here are simple read aggregations that don't justify a port
  * abstraction at this stage. This is a selective hex decision documented in
- * the channels CLAUDE.md (Wave H2 Lane C).
+ * channels/AGENTS.md (Wave H2 Lane C).
  */
 
 @Injectable()
@@ -87,8 +86,7 @@ export class ChannelDashboardService {
     type Row = { day: Date; revenue: bigint | null; orderCount: bigint };
     // 2-hop tenant predicate (R2): bind ${companyId}::uuid on both `orders`
     // and `order_line_items` so a stray cross-tenant `OrderLineItem.companyId`
-    // cannot leak into the SUM. See plan
-    // docs/superpowers/plans/2026-04-29-channels-channel-listing-boundary.md.
+    // cannot leak into the SUM. See channels/AGENTS.md.
     const rows = await this.prisma.$queryRaw<Row[]>`
       SELECT DATE_TRUNC('day', o.ordered_at AT TIME ZONE 'Asia/Seoul')::date AS day,
              SUM(oli.total_price)::bigint AS revenue,
@@ -123,8 +121,7 @@ export class ChannelDashboardService {
     // tenant-owned table (orders, order_line_items, channel_listings,
     // master_products) — without this, a stray Order.listing_id pointing at
     // another tenant's ChannelListing (or that listing's MasterProduct) would
-    // surface foreign sellerProductId / sellerProductName. See plan
-    // docs/superpowers/plans/2026-04-29-channels-channel-listing-boundary.md.
+    // surface foreign sellerProductId / sellerProductName. See channels/AGENTS.md.
     const rows = await this.prisma.$queryRaw<Row[]>`
       SELECT cl.external_id AS "sellerProductId",
              mp.name AS "sellerProductName",

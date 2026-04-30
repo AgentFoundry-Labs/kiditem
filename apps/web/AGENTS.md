@@ -15,7 +15,11 @@ Env: `.env.local` → `NEXT_PUBLIC_API_URL=http://localhost:4000`
 ## Scoped Instructions
 
 - Shared frontend rules live in this `AGENTS.md`.
-- Nested route guidance is still maintained in `src/app/(group-name)/{domain}/CLAUDE.md`. Read the matching file before editing that route until nested `AGENTS.md` files are added.
+- Nested route guidance is maintained in
+  `src/app/(group-name)/{domain}/AGENTS.md`. Read the matching file before
+  editing that route.
+- `CLAUDE.md` files are Claude compatibility shims only. Keep shared contracts
+  in `AGENTS.md`.
 
 ### Route Groups
 
@@ -136,23 +140,23 @@ Route-group private shared directories contain ONLY code shared by 2+ routes ins
 - **Zustand selector 주의**: `(s) => s.method()` 가 배열/객체를 반환하면 매 렌더 새 레퍼런스 → `useSyncExternalStore` infinite loop. byId 같은 stable ref를 구독하고 `useMemo`로 파생. primitive 반환 메서드는 안전.
 
 ### SSE (Server-Sent Events)
-- **기본 금지** — `EventSource`는 헤더 전송 불가 → DevAuthMiddleware(ADR-0006) 호환 안 됨. agents/thumbnails 도메인은 polling 유지.
-- **Panel 도메인 예외** — ADR-0010 하에 `@microsoft/fetch-event-source` 사용. 격리된 `PanelSseClient` (`src/components/panel/lib/panel-sse-client.ts`) 래퍼 경유만 허용. 다른 도메인이 SSE 원하면 별도 ADR.
+- **기본 금지** — `EventSource`는 헤더 전송 불가 → DevAuthMiddleware 의 header/query auth contract 와 맞지 않음. agents/thumbnails 도메인은 polling 유지.
+- **Panel 도메인 예외** — `@microsoft/fetch-event-source` 사용. 격리된 `PanelSseClient` (`src/components/panel/lib/panel-sse-client.ts`) 래퍼 경유만 허용. 다른 도메인이 SSE 원하면 scoped plan + 해당 instruction update 가 필요하다.
 
 ## Domain Guides — 서브 페이지 작업 전 scoped instruction 먼저 Read
 
-**규칙**: `src/app/(group-name)/{domain}/` 하위 파일을 Edit 하기 전, 아래 표의 해당 행이 가리키는 scoped document 를 먼저 Read 한다. 현재 전용 서브 페이지 문서는 `CLAUDE.md` 로 유지 중이다.
+**규칙**: `src/app/(group-name)/{domain}/` 하위 파일을 Edit 하기 전, 아래 표의 해당 행이 가리키는 scoped `AGENTS.md` 를 먼저 Read 한다.
 
-### 전용 CLAUDE.md 가 있는 서브 페이지 (6)
+### 전용 AGENTS.md 가 있는 서브 페이지 (6)
 
-| 경로 | 크기 | 핵심 포인트 |
-|---|---|---|
-| [`src/app/(automation)/agents/CLAUDE.md`](src/app/(automation)/agents/CLAUDE.md) | 129줄 | Agent Lifecycle/Trace/Org/Cost UI — 조건부 Polling, Thin Compositor, Trace Timeline, queryKeys hierarchy |
-| [`src/app/(orders)/return-scan/CLAUDE.md`](src/app/(orders)/return-scan/CLAUDE.md) | 73줄 | Barcode Input + Local-Only Logging — stateless 플로우, local sync 예외 |
-| [`src/app/(sourcing)/sourcing/CLAUDE.md`](src/app/(sourcing)/sourcing/CLAUDE.md) | 151줄 | Product Sourcing + GrapesJS WYSIWYG Editor + AI Edit Panels — custom blocks 7종, iframe 주입, UndoManager pause |
-| [`src/app/(media-ai)/thumbnail-editor/CLAUDE.md`](src/app/(media-ai)/thumbnail-editor/CLAUDE.md) | 120줄 | Use-Case-Driven Generation — 용도 카드 분기, mutation workflow, 이미지 허브 임포트 |
-| [`src/app/(media-ai)/thumbnails/CLAUDE.md`](src/app/(media-ai)/thumbnails/CLAUDE.md) | 73줄 | Smart Polling + Batch + Optimistic UI — dynamic refetchInterval, rollback, AbortController |
-| [`src/app/(automation)/workflows/CLAUDE.md`](src/app/(automation)/workflows/CLAUDE.md) | 88줄 | Wildcard Invalidation + UseQueryOptions Forwarding — thin page composition |
+| 경로 | 핵심 포인트 |
+|---|---|
+| [`src/app/(automation)/agents/AGENTS.md`](<src/app/(automation)/agents/AGENTS.md>) | Agent Lifecycle/Trace/Org/Cost UI — conditional polling, thin compositor pages, trace timeline, queryKeys hierarchy. |
+| [`src/app/(orders)/return-scan/AGENTS.md`](<src/app/(orders)/return-scan/AGENTS.md>) | Barcode Input + Local-Only Logging — stateless scan flow, local sync exception, no server mutation. |
+| [`src/app/(sourcing)/sourcing/AGENTS.md`](<src/app/(sourcing)/sourcing/AGENTS.md>) | Product Sourcing + GrapesJS WYSIWYG Editor + AI Edit Panels — custom blocks, iframe injection, UndoManager pause. |
+| [`src/app/(media-ai)/thumbnail-editor/AGENTS.md`](<src/app/(media-ai)/thumbnail-editor/AGENTS.md>) | Use-Case-Driven Generation — use-case card branching, mutation workflow, image hub import. |
+| [`src/app/(media-ai)/thumbnails/AGENTS.md`](<src/app/(media-ai)/thumbnails/AGENTS.md>) | Smart Polling + Batch + Optimistic UI — dynamic refetchInterval, rollback, AbortController. |
+| [`src/app/(automation)/workflows/AGENTS.md`](<src/app/(automation)/workflows/AGENTS.md>) | Wildcard Invalidation + UseQueryOptions Forwarding — tenant scope stays backend-owned, page stays thin. |
 
 ### Notable Sub-Domains (LOW signal — 별도 scoped doc 없음)
 
@@ -162,7 +166,7 @@ Route-group private shared directories contain ONLY code shared by 2+ routes ins
 - **`app/settings/`** — 다양한 file upload (CSV/Image), printer 연결 (`PrinterSettings` 컴포넌트), health check + sync 운영 액션. system-level operations 가 한 페이지에 모임.
 - **`app/(finance)/sales-analysis/`** — `Settlements` 탭이 streaming 패턴 (스트림 chunked download). xlsx export 도 함.
 - **`app/(orders)/orders/`** — Pipeline state UI (ACCEPT → INSTRUCT → DEPARTURE → DELIVERING 시각화) + scheduled sync polling (`SYNC_HOURS` 상수로 정해진 시각마다 자동 sync invoke).
-- **`components/panel/`** — Live slide-out 패널 (ADR-0010 SSE 예외). `AppLayout`에 상시 mount. PanelSseClient → Zustand store → Radix Sheet. Sidebar Bell 한 곳에서만 토글 (P3). PR1: workflow run only; PR2에서 agent/image/alert 확장.
+- **`components/panel/`** — Live slide-out panel (SSE 예외). `AppLayout`에 상시 mount. PanelSseClient → Zustand store → Radix Sheet. Sidebar Bell 한 곳에서만 토글. Current sources: workflow run, agent run, image generation, alert.
 
 각 도메인 작업 시 위 특이점만 의식하면 부모 Next.js 패턴으로 충분.
 

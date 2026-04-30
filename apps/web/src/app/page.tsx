@@ -209,7 +209,7 @@ export default function Dashboard() {
   const rangeLabel = kpiRange !== 'month' ? (rangeLabelMap[kpiRange] ?? '월') : '월';
 
   const trafficKpi = effectiveSales?.trafficKpi;
-  // trafficKpi(Wing traffic_stats 기반) 우선 사용 — rangeKpi(Order 기반)는 주문 확정분만
+  // trafficKpi(Wing daily fact 기반) 우선 사용 — rangeKpi(Order 기반)는 주문 확정분만
   // 포함해 Wing 매출 대비 적게 잡힘. 월/주/일 전부 동일 규칙, trafficKpi 없으면 rangeKpi 폴백.
   const useTrafficSource = !!trafficKpi && (trafficKpi.revenue ?? 0) > 0;
 

@@ -30,7 +30,7 @@ import { UpdateMasterImagesDto } from '../../../dto/update-master-images.dto';
 import { ListMastersQuery } from '../../../dto/list-masters.query';
 import { ListOptionsQuery } from '../../../dto/list-options.query';
 
-// Controllers MUST NOT touch Prisma directly (apps/server/CLAUDE.md:96-103 —
+// Controllers MUST NOT touch Prisma directly (apps/server/AGENTS.md —
 // controller/service boundary). For child options we delegate to
 // `OptionsService.list` which applies companyId scope + soft-delete filter +
 // the standard `createdAt desc` ordering used across the products domain.

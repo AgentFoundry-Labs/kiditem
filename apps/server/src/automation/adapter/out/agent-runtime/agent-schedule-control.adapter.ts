@@ -22,7 +22,7 @@ import {
  *   `agent.companyId === companyId`. A non-tenant-owned row is treated
  *   as "no schedule for this tenant" on read, and as a hard rejection
  *   on write. This mirrors the rule documented in
- *   `apps/server/src/rules/CLAUDE.md`: tenants must not mutate the
+ *   `apps/server/src/rules/AGENTS.md`: tenants must not mutate the
  *   global catalog row from the schedule UI.
  */
 @Injectable()

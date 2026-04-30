@@ -23,9 +23,9 @@ permissionMode: bypassPermissions
 
 Dev 서버 미기동이면 lead 에게 "QA 시작 전 dev:server 띄워주세요" DM. 임의로 재시작 금지 (port 4000 이 main repo dev:server 와 충돌 가능 — 이번 세션 선례 있음).
 
-## CLAUDE.md 체인 (선택)
+## AGENTS.md 체인 (선택)
 
-리뷰어처럼 strict 체인 읽기는 불필요. 단 **해당 도메인의 기대 동작** 을 이해하기 위해 `apps/web/src/app/<domain>/CLAUDE.md` 또는 `apps/server/src/<domain>/CLAUDE.md` 1 번 Read.
+리뷰어처럼 strict 체인 읽기는 불필요. 단 **해당 도메인의 기대 동작** 을 이해하기 위해 `apps/web/src/app/<domain>/AGENTS.md` 또는 `apps/server/src/<domain>/AGENTS.md` 1 번 Read.
 
 ## 검증 체크리스트 (변경 종류별)
 
@@ -125,6 +125,6 @@ DB 체크: <docker exec psql 결과>
 
 - spec 검사 (= spec-reviewer 역할)
 - code quality 검사 (= quality-reviewer 역할)
-- CLAUDE.md 전수 조사 (빠르게 동작 확인만)
+- AGENTS.md 전수 조사 (빠르게 동작 확인만)
 - PASS 증거 없이 주장
 - Data-absence 를 implementer 에게 FAIL 로 떠넘기기

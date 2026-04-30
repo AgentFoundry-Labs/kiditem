@@ -2,7 +2,7 @@
  * PanelSseClient — SSE wrapper for /api/panel/stream.
  *
  * ADR-0010: fetch-event-source is authorized for Panel domain only.
- * Raw fetch() is otherwise prohibited in apps/web (see apps/web/CLAUDE.md).
+ * Raw fetch() is otherwise prohibited in apps/web (see apps/web/AGENTS.md).
  */
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { PanelEvent } from '@kiditem/shared/panel';

@@ -10,7 +10,7 @@ import { CreateBundleComponentDto } from '../../../dto/create-bundle-component.d
 import { UpdateBundleComponentDto } from '../../../dto/update-bundle-component.dto';
 import { ListBundleComponentsQuery } from '../../../dto/list-bundle-components.query';
 
-// NOTE (auth/CLAUDE.md Hard bans): no `@UseGuards` / `@UsePipes` — rely on the
+// NOTE (auth/AGENTS.md Hard bans): no `@UseGuards` / `@UsePipes` — rely on the
 // global APP_GUARD (CompanyScopeGuard + RolesGuard) and the global
 // ValidationPipe registered in main.ts / app.module.ts.
 @Controller('products/bundle-components')

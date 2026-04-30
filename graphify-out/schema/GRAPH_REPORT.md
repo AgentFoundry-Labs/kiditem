@@ -1,7 +1,7 @@
-# Graph Report - schema  (2026-04-28)
+# Graph Report - schema  (2026-05-01)
 
 ## Corpus Check
-- 12 files · ~13,896 words
+- 12 files · ~13,999 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -25,13 +25,6 @@
 - [[_COMMUNITY_Channels schema|Channels schema]]
 - [[_COMMUNITY_Agents schema|Agents schema]]
 - [[_COMMUNITY_Finance schema|Finance schema]]
-- [[_COMMUNITY_Core schema|Core schema]]
-- [[_COMMUNITY_Core schema|Core schema]]
-- [[_COMMUNITY_Agents schema|Agents schema]]
-- [[_COMMUNITY_Channels schema|Channels schema]]
-- [[_COMMUNITY_Channels schema|Channels schema]]
-- [[_COMMUNITY_System schema|System schema]]
-- [[_COMMUNITY_System schema|System schema]]
 - [[_COMMUNITY_Channels schema|Channels schema]]
 - [[_COMMUNITY_System schema|System schema]]
 - [[_COMMUNITY_Channels schema|Channels schema]]
@@ -103,14 +96,6 @@ Nodes (88): Order.company, Order.companyId, Order.createdAt, Order.customerName,
 ### Community 5 - "Finance schema"
 Cohesion: 0.03
 Nodes (78): GradeHistory.calculatedAt, GradeHistory.company, GradeHistory.companyId, GradeHistory.id, GradeHistory.marginScore, GradeHistory.master, GradeHistory.masterId, GradeHistory.newGrade (+70 more)
-
-### Community 6 - "Agents schema"
-Cohesion: 0.03
-Nodes (83): Agents, AgentLog.createdAt, AgentLog.data, AgentLog.id, AgentLog.level, AgentLog.message, AgentLog.task, AgentLog.taskId (+75 more)
-
-### Community 5 - "Core schema"
-Cohesion: 0.03
-Nodes (82): ContentGeneration.company, ContentGeneration.companyId, ContentGeneration.createdAt, ContentGeneration.detailPageHtml, ContentGeneration.errorMessage, ContentGeneration.generatedCopy, ContentGeneration.generatedDescription, ContentGeneration.generatedTitle (+74 more)
 
 ### Community 6 - "Agents schema"
 Cohesion: 0.03

@@ -17,7 +17,6 @@ from graphify.report import generate as generate_report
 
 ROOT = Path(__file__).resolve().parents[1]
 PRISMA_MODELS = ROOT / 'prisma' / 'models'
-ADR_DIR = ROOT / '.claude' / 'docs' / 'decisions'
 
 IMPORTANT_FIELD_NAMES = {
     'companyId', 'masterId', 'optionId', 'listingId', 'listingOptionId',
@@ -245,12 +244,12 @@ def add_schema_graph(builder: GraphBuilder, models: dict[str, dict]) -> None:
                     builder.edge(fid, target_model_id, 'foreign_key_to', model['file'])
 
     # Explicit ontology aliases around the current channel option identity refactor.
-    concept_vendor = builder.node('concept_vendor_item_id', 'vendorItemId provider term', 'rationale', 'apps/server/src/channels/CLAUDE.md', node_type='provider_term')
+    concept_vendor = builder.node('concept_vendor_item_id', 'vendorItemId provider term', 'rationale', 'apps/server/src/channels/AGENTS.md', node_type='provider_term')
     concept_external = builder.node('concept_external_option_id', 'externalOptionId canonical option identity', 'rationale', 'prisma/models/core.prisma', node_type='canonical_concept')
     field_external = 'field_channellistingoption_externaloptionid'
     if field_external in builder.nodes:
         builder.edge(concept_external, field_external, 'implemented_by_field', 'prisma/models/core.prisma')
-        builder.edge(concept_vendor, concept_external, 'mapped_to_canonical_name', 'apps/server/src/channels/CLAUDE.md', confidence='EXTRACTED')
+        builder.edge(concept_vendor, concept_external, 'mapped_to_canonical_name', 'apps/server/src/channels/AGENTS.md', confidence='EXTRACTED')
 
 
 def markdown_title(path: Path, text: str) -> str:
@@ -402,7 +401,7 @@ def write_outputs(name: str, extraction: dict, source_paths: list[Path]) -> dict
 def make_schema_graph(models: dict[str, dict]) -> tuple[dict, list[Path]]:
     b = GraphBuilder()
     add_schema_graph(b, models)
-    docs = [ROOT / 'docs' / 'ERD.md', ROOT / 'prisma' / 'AGENTS.md'] + sorted(ADR_DIR.glob('*.md'))
+    docs = [ROOT / 'docs' / 'ERD.md', ROOT / 'prisma' / 'AGENTS.md']
     add_document_mentions(b, docs, models)
     return b.extraction(), docs + sorted(PRISMA_MODELS.glob('*.prisma'))
 
@@ -423,7 +422,7 @@ def make_schema_consumers_graph(models: dict[str, dict]) -> tuple[dict, list[Pat
     add_code_reference_edges(b, code_files, models)
     combined = merge_extractions(b.extraction(), [ast])
     docs = []
-    for p in [ROOT / 'packages/shared/AGENTS.md', ROOT / 'apps/server/src/channels/CLAUDE.md']:
+    for p in [ROOT / 'packages/shared/AGENTS.md', ROOT / 'apps/server/src/channels/AGENTS.md']:
         if p.exists():
             docs.append(p)
     add_document_mentions(b, docs, models)

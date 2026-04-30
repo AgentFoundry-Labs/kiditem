@@ -70,7 +70,7 @@ function ensureBundleAndComponentInvariantsForHttp(
 /**
  * Bundle composition CRUD orchestration.
  *
- * Ownership / isolation invariants (products/CLAUDE.md) are enforced by the
+ * Ownership / isolation invariants (products/AGENTS.md) are enforced by the
  * pure helpers in `domain/bundle-component-rules.ts`. The row-lock + scoped
  * write/delete + recompute chain runs through `persistence/`. This service
  * stitches them together inside one transaction so the bundle option lock

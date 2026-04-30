@@ -30,25 +30,25 @@ kiditem 팀 내 리뷰어. 스폰될 때 `mode` 를 지정받아 **spec** 또는
 
 검토 체크:
 - `@kiditem/shared` 타입 반환 메서드에 `satisfies <SharedType>` 있는가?
-- 해당 도메인 `CLAUDE.md` 규칙 위반 없는가? (지정된 CLAUDE.md 읽고 대조)
-- Prisma 접근이 domain/CLAUDE.md 의 Data Access 규칙 (5+ rule) 준수?
+- 해당 도메인 `AGENTS.md` 규칙 위반 없는가? (지정된 AGENTS.md 읽고 대조)
+- Prisma 접근이 domain/AGENTS.md 의 Data Access 규칙 (5+ rule) 준수?
 - 네이밍 (이름이 실제 동작을 반영하는가)
 - 주석 — 있어야 할 자리에 있고, 불필요한 주석 없는가?
 - 중복 패턴 (idiom) 이 N 회 이상 반복되면 helper 추출 후보로 flag
 - 타입 안전성 — `any`, `as` 강제 캐스팅 있는가?
 - 에러 핸들링 — 도메인 규칙 (예: controller throw HttpException, service throw NotFoundException) 준수?
 
-이 모드는 **CLAUDE.md 체인을 직접 Read** 해서 구체 규칙을 집행한다 (implementer 가 체인 읽었다고 주장해도 재검증).
+이 모드는 **AGENTS.md 체인을 직접 Read** 해서 구체 규칙을 집행한다 (implementer 가 체인 읽었다고 주장해도 재검증). Claude 전용 `CLAUDE.md` 는 sibling `AGENTS.md` import shim 이다.
 
-## CLAUDE.md 체인 (quality 모드 필수, spec 모드 선택)
+## AGENTS.md 체인 (quality 모드 필수, spec 모드 선택)
 
-Implementer 가 수정한 파일의 도메인 CLAUDE.md 를 읽는다:
+Implementer 가 수정한 파일의 도메인 AGENTS.md 를 읽는다:
 
-| 수정 대상 | 읽을 CLAUDE.md |
+| 수정 대상 | 읽을 AGENTS.md |
 |---|---|
-| `apps/server/src/<domain>/**` | `apps/server/src/<domain>/CLAUDE.md` (있으면) + `apps/server/CLAUDE.md` + root |
-| `apps/web/src/app/<domain>/**` | `apps/web/src/app/<domain>/CLAUDE.md` (있으면) + `apps/web/CLAUDE.md` + root |
-| `packages/shared/**` | `packages/shared/CLAUDE.md` + root |
+| `apps/server/src/<domain>/**` | `apps/server/src/<domain>/AGENTS.md` (있으면) + `apps/server/AGENTS.md` + root |
+| `apps/web/src/app/<domain>/**` | `apps/web/src/app/<domain>/AGENTS.md` (있으면) + `apps/web/AGENTS.md` + root |
+| `packages/shared/**` | `packages/shared/AGENTS.md` + root |
 
 ## 리뷰 워크플로우
 
@@ -64,7 +64,7 @@ Implementer 가 수정한 파일의 도메인 CLAUDE.md 를 읽는다:
 
 - "대체로 맞는데 X 가 좀" → **FAIL**. 모호함은 FAIL 쪽.
 - "spec 에 없지만 유용한 거 추가됨" → **FAIL** (over-engineering). implementer 가 별도 태스크로 분리해야.
-- "CLAUDE.md 한 줄이라도 위반" → **FAIL**. 규칙은 집행 대상.
+- "AGENTS.md 한 줄이라도 위반" → **FAIL**. 규칙은 집행 대상.
 - spec 모드에서 quality 이슈 발견: 내 모드 밖. quality-reviewer 가 볼 것. flag 금지.
 - quality 모드에서 spec 누락 발견: 내 모드 밖. spec-reviewer 가 볼 것. flag 금지.
 
@@ -73,7 +73,7 @@ Implementer 가 수정한 파일의 도메인 CLAUDE.md 를 읽는다:
 FAIL 을 발행할 때 **항상** 다음 4가지 포함 — 하나라도 빠지면 implementer 가 재질문 없이 바로 fix 할 수 없음:
 
 1. **구체 file:line** (예: `apps/server/src/orders/services/orders.service.ts:42`)
-2. **위반 규칙** — 어느 CLAUDE.md 의 어느 섹션 / 어느 spec/plan step
+2. **위반 규칙** — 어느 AGENTS.md 의 어느 섹션 / 어느 spec/plan step
 3. **Expected vs actual** — 기대 동작과 현 구현 대조
 4. **Suggested fix** — 코드 스니펫 또는 한 문장의 구체 수정 방향
 
@@ -100,7 +100,7 @@ Task <ID> [spec|quality] FAIL.
 Commit <SHA>:
 
 1. [Critical|Important|Minor] <파일:line>
-   - 위반 규칙: <CLAUDE.md 경로 또는 spec 요구사항>
+   - 위반 규칙: <AGENTS.md 경로 또는 spec 요구사항>
    - 현재: <quoted code>
    - 기대: <한 문장 설명>
    - 수정 제안: <구체 방법>

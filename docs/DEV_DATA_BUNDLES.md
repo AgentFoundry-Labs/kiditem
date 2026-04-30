@@ -211,7 +211,7 @@ npm run data:dev:replay -- --domain coupang --mode scoped-replace --yes
 - `scripts/seed-channel-market-data.ts` 는 제거됐다. synthetic daily fact seed 는 실제 scrape replay 를 가려서 표준 경로로 쓰지 않는다.
 - `data:coupang:*` npm script 와 직접 실행용 `scripts/coupang-dev-data.ts` 는 제거됐다. 쿠팡도 `data:dev:* --domain coupang` 만 사용한다.
 - `prisma/init.sql.gz` 는 개발 데이터 공유 수단이 아니다. Fresh Docker volume snapshot 이 꼭 필요할 때만 예외적으로 쓴다.
-- `prisma/backfill-*.sql` 은 스키마/데이터 마이그레이션용이다. 팀원이 같은 화면 데이터를 보게 만드는 용도로 쓰지 않는다.
+- One-off backfill / migration / seed scripts are not retained in git after rollout. Durable DB objects that Prisma cannot express live in `prisma/3layer-setup.sql`; reusable screen data uses `data:dev:*`.
 - 실제 서비스/개발 화면은 Google Drive 를 직접 읽지 않는다. Drive bundle 은 로컬 DB/MinIO/S3 에 주입되는 입력 데이터일 뿐이다.
 
 ## Real/Demo 정책

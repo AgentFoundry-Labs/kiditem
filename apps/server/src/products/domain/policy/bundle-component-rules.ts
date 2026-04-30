@@ -21,7 +21,7 @@ export class BundleComponentRuleError extends Error {
 /**
  * Pure validation helpers for `BundleComponent` writes.
  *
- * These encode the products/CLAUDE.md "3-way invariant" without touching
+ * These encode the products/AGENTS.md "3-way invariant" without touching
  * Prisma so they can be reused in the orchestration layer and unit-tested
  * in isolation.
  */

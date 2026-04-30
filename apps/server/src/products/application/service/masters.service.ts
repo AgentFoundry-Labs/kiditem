@@ -381,7 +381,7 @@ export class MastersService {
    * Remove SYSTEM_FIELDS from a DTO before forwarding to Prisma. The return
    * type preserves the caller's input type minus the stripped keys so call
    * sites don't need a loose `Record<string, unknown>` intermediate cast
-   * (apps/server/CLAUDE.md:60 forbids that pattern). The remaining cast to
+   * (apps/server/AGENTS.md forbids that pattern). The remaining cast to
    * `Prisma.MasterProductUnchecked{Create,Update}Input` at the call site is
    * inherent to the DTO↔Prisma-input shape gap and unavoidable.
    */

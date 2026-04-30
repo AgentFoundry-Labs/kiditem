@@ -31,7 +31,7 @@ const EXPORTS_KEY = 'exports';
 const PATH_KEY = 'path';
 
 // Architecture-guard companion to inventory.architecture.spec.ts and the
-// dev:server boot check listed in the inventory CLAUDE.md verification gate.
+// dev:server boot check listed in the inventory AGENTS.md verification gate.
 // This spec freezes only the @Module()/@Controller() metadata so a missing
 // provider, a stray legacy controller, or an accidental route rename fails
 // here at vitest time before reaching dev:server boot.

@@ -3,7 +3,7 @@
 Graphify is for codebase/ontology navigation, not for DB schema truth.
 
 - **DB truth:** `prisma/models/*.prisma` plus PostgreSQL-only constraints in `prisma/3layer-setup.sql`.
-- **ERD view:** `docs/ERD.md`, regenerated with `npm run db:erd`.
+- **ERD view:** `docs/ERD.md` plus domain diagrams under `docs/erd/`, regenerated with `npm run db:erd`.
 - **Schema ontology view:** `graphify-out/schema/GRAPH_REPORT.md`, `graphify-out/schema/graph.html`, and `graphify-out/schema/graph.json`.
 - **Schema consumer view:** `graphify-out/schema-consumers/GRAPH_REPORT.md`, `graphify-out/schema-consumers/graph.html`, and `graphify-out/schema-consumers/graph.json`.
 
@@ -17,7 +17,7 @@ npm run graphify:schema
 
 It writes two graphs:
 
-- `graphify-out/schema/` — Prisma models + `docs/ERD.md` + schema ADRs.
+- `graphify-out/schema/` — Prisma models + `docs/ERD.md` + schema guidance.
 - `graphify-out/schema-consumers/` — schema graph + `apps/server/src/channels` + `packages/shared` + `scripts`.
 
 Use these before a full repository graph because Graphify v0.5 does not directly classify `.prisma` model files as code input. The generator parses Prisma models directly, then uses Graphify's AST extractor/exporter for TypeScript/JavaScript/Python/shell consumers.
@@ -61,6 +61,8 @@ graphify explain "ChannelListingOption" --graph graphify-out/schema/graph.json
 
 Commit these when the graph is intentionally refreshed for the team:
 
+- `docs/ERD.md`
+- `docs/erd/*.md`
 - `graphify-out/schema/GRAPH_REPORT.md`
 - `graphify-out/schema/graph.html`
 - `graphify-out/schema/graph.json`
@@ -76,6 +78,7 @@ Do not commit local/transient graphify files such as cache, manifest, or token c
 Use both views together:
 
 1. Open `docs/ERD.md` for exact FK/table structure.
-2. Open `graphify-out/schema/graph.html` for schema/domain/ADR ontology.
-3. Open `graphify-out/schema-consumers/graph.html` for schema-to-code consumer links.
-4. Treat Graphify `INFERRED` or `AMBIGUOUS` relationships as review hints, not facts.
+2. Open `docs/erd/{domain}.md` for readable domain-scoped ERD diagrams.
+3. Open `graphify-out/schema/graph.html` for schema/domain ontology.
+4. Open `graphify-out/schema-consumers/graph.html` for schema-to-code consumer links.
+5. Treat Graphify `INFERRED` or `AMBIGUOUS` relationships as review hints, not facts.

@@ -73,7 +73,6 @@ ADR-0016 본문은 **수정하지 않음** (ADR immutable). 본 release note 가
 
 ## 관련 문서
 
-- Spec: `docs/superpowers/specs/2026-04-21-plan-f1-root-dashboard-design.md`
-- Plan: `docs/superpowers/plans/2026-04-22-plan-f1-root-dashboard.md`
-- ADR-0016: `.claude/docs/decisions/0016-profit-loss-live-aggregation.md`
-- ADR-0018: `.claude/docs/decisions/0018-dashboard-idor-sweep-raw-sql-tenancy.md`
+- Historical spec/plan/ADR scratch docs were pruned during the instruction
+  cleanup. Durable contracts now live in `AGENTS.md`, scoped `AGENTS.md` files,
+  and this release note.

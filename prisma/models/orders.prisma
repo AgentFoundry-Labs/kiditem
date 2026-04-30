@@ -92,7 +92,7 @@ model OrderLineItem {
 }
 
 /// @namespace Orders
-/// @describe 채널-agnostic 반품 aggregate. CoupangReturn 의 items JSON → OrderReturnLineItem 정규화. type=RETURN/EXCHANGE 구분 first-class.
+/// @describe 채널-agnostic 반품 aggregate. 반품 item 은 OrderReturnLineItem 으로 정규화. type=RETURN/EXCHANGE 구분 first-class.
 model OrderReturn {
   id              String    @id @default(uuid()) @db.Uuid
   companyId       String    @map("company_id") @db.Uuid

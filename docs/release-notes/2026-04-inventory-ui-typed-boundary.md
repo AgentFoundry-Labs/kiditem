@@ -1,6 +1,6 @@
 # Inventory UI — Typed Boundary Migration (W2)
 
-**Plan:** `docs/superpowers/plans/2026-04-25-plan-w2-inventory-ui.md`
+**Plan:** historical scratch plan pruned during instruction cleanup.
 **Branch:** `feat/w2-inventory-ui`
 **Owner domain:** `inventory`
 **Predecessors:** W1 product-data UI (shipped).

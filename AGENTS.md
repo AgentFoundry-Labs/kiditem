@@ -1,5 +1,3 @@
-@/Users/yhc125/.codex/RTK.md
-
 # KidItem
 
 E-commerce operations automation for kids' products. Sourcing → AI processing → Listing → Operations.
@@ -13,9 +11,26 @@ E-commerce operations automation for kids' products. Sourcing → AI processing 
 
 ## Instruction Files
 
-- Shared multi-agent rules live in `AGENTS.md`.
-- `CLAUDE.md` files import the sibling `AGENTS.md` and only carry Claude-specific addenda.
-- Nested subdomain guidance under `apps/server/src/*` and `apps/web/src/app/*` is still stored in `CLAUDE.md`. Read those scoped docs before editing those areas until dedicated nested `AGENTS.md` files are added.
+`AGENTS.md` is the shared instruction authority at every scope. `CLAUDE.md` is
+a Claude compatibility shim and should normally contain only:
+
+```text
+@AGENTS.md
+```
+
+Do not put repo rules, architecture policy, domain contracts, or workflow
+decisions in `CLAUDE.md`. If a truly Claude-only local tool workaround is ever
+needed, prefer user/global Claude config; add it to repo `CLAUDE.md` only when
+it is impossible to express in user config and it must not affect other agents.
+
+Precedence: the most-specific `AGENTS.md` wins, then parent `AGENTS.md` files.
+`CLAUDE.md` is not a second source of truth.
+
+## Documentation Artifacts
+
+- Keep durable documentation in `docs/`, scoped `AGENTS.md`, or source-code comments when the rule is inseparable from the implementation.
+- Do not commit session plans, scratch specs, agent logs, or temporary coordination notes. Use local `.omx/` / `.omc/` scratch space for those artifacts; both directories are gitignored and may be deleted between sessions.
+- Promote only enduring rules or release evidence into git. If a scratch plan produced a permanent convention, copy the final rule into the nearest scoped `AGENTS.md` instead of keeping the plan.
 
 ## Codex Skills
 
@@ -57,10 +72,10 @@ E-commerce operations automation for kids' products. Sourcing → AI processing 
 
 ### 1. 시작 전 — scope-local instruction 필독
 
-**파일을 Edit 하기 전 반드시** 해당 경로의 가장 구체적인 instruction file 을 먼저 Read. `AGENTS.md`가 있으면 우선하고, 아직 없는 scope 는 기존 `CLAUDE.md`를 읽는다.
+**파일을 Edit 하기 전 반드시** 해당 경로의 가장 구체적인 `AGENTS.md` 를 먼저 Read.
 
-- `apps/server/src/{domain}/` 수정 → [`apps/server/AGENTS.md`](apps/server/AGENTS.md) Domain Guides 표에서 해당 서브도메인 `CLAUDE.md` 확인 후 Read.
-- `apps/web/src/app/{domain}/` 수정 → [`apps/web/AGENTS.md`](apps/web/AGENTS.md) Domain Guides 표에서 해당 서브 페이지 `CLAUDE.md` 확인 후 Read.
+- `apps/server/src/{domain}/` 수정 → [`apps/server/AGENTS.md`](apps/server/AGENTS.md) Domain Guides 표에서 해당 서브도메인 `AGENTS.md` 확인 후 Read.
+- `apps/web/src/app/{domain}/` 수정 → [`apps/web/AGENTS.md`](apps/web/AGENTS.md) Domain Guides 표에서 해당 서브 페이지 `AGENTS.md` 확인 후 Read.
 - 기타 루트 도메인 (`agents/`, `prisma/`, `packages/shared/`, `packages/templates/`) → 해당 루트의 `AGENTS.md` 직접 Read.
 
 ### 2. Autonomy Spectrum — 어느 모드로 일할지
@@ -102,11 +117,14 @@ E-commerce operations automation for kids' products. Sourcing → AI processing 
 - **No `$queryRawUnsafe`** — Prisma raw SQL 은 항상 tagged template (`$queryRaw\`...\``). 동적 식별자가 필요하면 whitelist + tagged interpolation.
 - **Multi-tenant scope** — 모든 mutating service 는 `@CurrentCompany()` 로 받은 `companyId` 를 WHERE/INSERT 에 포함. 단일 리소스 GET/PATCH/DELETE 는 `findFirst({ where: { id, companyId } })`. `findUnique({ where: { id } })` 금지 (IDOR).
 - **DB 동기화** — `git pull` 은 DB 를 자동 갱신하지 않는다. 스키마는 `db:push`, 공유 개발 데이터는 Google Drive dev data profile sync 로 맞춘다: [prisma/AGENTS.md — DB 동기화](prisma/AGENTS.md#db-동기화--schema-vs-data-중요), [docs/DEV_DATA_BUNDLES.md](docs/DEV_DATA_BUNDLES.md).
-- **신규 영구 규칙** — incident-driven 또는 cross-domain 새 규칙은 해당 scope 의 `AGENTS.md` 또는 `CLAUDE.md` 본문에 직접 등록. 별도 결정 이력 폴더는 두지 않는다 (ADR 체계 폐지, 2026-04-26).
+- **신규 영구 규칙** — incident-driven 또는 cross-domain 새 규칙은 해당 scope 의 `AGENTS.md` 본문에 직접 등록. 별도 결정 이력 폴더는 두지 않는다 (별도 결정 문서 체계 폐지, 2026-04-26).
 
 ## Codebase Reconstruction Rules
 
-Reconstruction work starts from [`docs/superpowers/plans/2026-04-28-codebase-reconstruction.md`](docs/superpowers/plans/2026-04-28-codebase-reconstruction.md). This is a platform-boundary cleanup track, not permission to mix unrelated business rewrites. Per-phase merge gates (Phase 0–5), the schema-change trigger rule, and the `init.sql.gz` handling rule live in that plan's [**Verification Gates** section](docs/superpowers/plans/2026-04-28-codebase-reconstruction.md#verification-gates).
+Reconstruction is a platform-boundary cleanup track, not permission to mix
+unrelated business rewrites. Durable reconstruction contracts live in this
+file and the nearest scoped `AGENTS.md`; session plans and temporary scratch
+notes stay out of git.
 
 - **Rules before deletion** — record contract, scanner, or regression-test gates before deleting legacy implementation.
 - **Boundary exception is narrow** — tenant guards, raw SQL policy, scanner scripts, shared export topology, and dependency tooling may cross domains. Business logic rewrites still use one owner domain per PR.
@@ -116,7 +134,10 @@ Reconstruction work starts from [`docs/superpowers/plans/2026-04-28-codebase-rec
 - **Large-file contract** — do not add substantial behavior to 700+ line services/components. Write a split/replacement plan first.
 - **Frontend DB boundary** — frontend packages must not depend on Prisma, `pg`, or direct database access. Data flows through NestJS APIs.
 - **Verification contract** — every reconstruction PR reports the exact gate it made green. If a gate itself is broken, fix the gate before using it as evidence.
-- **Backend architecture contract** — backend reconstruction follows [`docs/superpowers/plans/2026-04-29-backend-architecture-contract.md`](docs/superpowers/plans/2026-04-29-backend-architecture-contract.md): Domain-first modular architecture with Application orchestration and selective Hexagonal Ports.
+- **Backend architecture contract** — backend reconstruction follows the
+  backend contract in [`apps/server/AGENTS.md`](apps/server/AGENTS.md):
+  Domain-first modular architecture with Application orchestration and
+  selective Hexagonal Ports.
 - **Owner domain boundary** — backend top-level folders represent owner domains/platforms, not DB tables or frontend pages. Boundaries are chosen by data ownership, mutation authority, transaction boundary, and invariants.
 - **Pure domain rule** — reconstructed `domain/` code must not depend on NestJS, Prisma, HTTP/provider SDKs, workflow runtime, AgentRegistry, filesystem, or panel/event infrastructure.
 - **Application port rule** — reconstructed application services depend on `application/port/out/*` contracts for DB, cross-domain, provider, Agent OS, workflow, filesystem, and panel/event boundaries. Nest modules bind those ports to outgoing adapters. Do not import concrete `adapter/out/**` implementations or other owner-domain services directly from `application/service/**`.
@@ -134,7 +155,7 @@ packages/shared/     — @kiditem/shared            → packages/shared/AGENTS.m
 packages/templates/  — React detail templates     → packages/templates/AGENTS.md
 prisma/              — DB schema source of truth  → prisma/AGENTS.md
   ├─ schema.prisma   — generator + datasource
-  └─ models/         — 9개 도메인 파일 (/// @namespace + /// @describe 주석). Prisma multi-file schema (v7 best-practice)
+  └─ models/         — 10 domain files (/// @namespace + /// @describe comments). Prisma multi-file schema (v7 best-practice)
 extensions/          — Chrome extensions (product-scraper: 1688/Alibaba, coupang-ads-scraper: 쿠팡 광고센터+Wing)
 ```
 
@@ -143,8 +164,8 @@ extensions/          — Chrome extensions (product-scraper: 1688/Alibaba, coupa
 ## Reference (read when relevant)
 
 - [Design System](DESIGN.md) — 색상, 타이포, 스페이싱, 컴포넌트 패턴 (Tailwind + Lucide)
-- **DB schema + 도메인 분류**: [`prisma/models/`](prisma/models/) — 9개 도메인 파일로 분리. 각 모델 위의 `/// @namespace` + `/// @describe` 주석이 도메인 경계 + 의미를 담는다. `prisma generate` 로 자동 동기화 (drift 불가능).
-- **Graphify navigation**: [`docs/GRAPHIFY.md`](docs/GRAPHIFY.md), [`docs/ERD.md`](docs/ERD.md), [`graphify-out/schema/`](graphify-out/schema/), [`graphify-out/schema-consumers/`](graphify-out/schema-consumers/) — generated navigation aids only. Source of truth remains Prisma + source code. Regenerate with `npm run graphify:schema` after Prisma/schema-consumer/import-script changes.
-- [Architecture](.claude/docs/architecture.md) — data flow, agent runtimes, @kiditem/shared, workflow vs agent boundary
+- **DB schema + 도메인 분류**: [`prisma/models/`](prisma/models/) — 10 domain files. 각 모델 위의 `/// @namespace` + `/// @describe` 주석이 도메인 경계 + 의미를 담는다. `prisma generate` 로 자동 동기화 (drift 불가능).
+- **Graphify navigation**: [`docs/GRAPHIFY.md`](docs/GRAPHIFY.md), [`docs/ERD.md`](docs/ERD.md), [`docs/erd/`](docs/erd/), [`graphify-out/schema/`](graphify-out/schema/), [`graphify-out/schema-consumers/`](graphify-out/schema-consumers/) — generated navigation aids only. Source of truth remains Prisma + source code. Regenerate with `npm run graphify:schema` after Prisma/schema-consumer/import-script changes.
+- [Architecture](.claude/docs/architecture.md) — architecture index that points to the current backend/frontend/reconstruction sources of truth
 - [Testing Strategy](docs/TESTING.md) — 3-tier (unit mock / e2e HTTP mock / **integration real Postgres**). Race guard·IDOR 검증은 integration tier 로. `npm run db:test:up && npm run db:test:prepare && npm run test:integration`
 - [Commands & Environment](.claude/docs/commands.md) — quick start, dev commands, ports, env vars, tests

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -8,6 +8,7 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '..');
 const DEFAULT_MODELS_DIR = path.join(REPO_ROOT, 'prisma', 'models');
 const DEFAULT_OUTPUT_PATH = path.join(REPO_ROOT, 'docs', 'ERD.md');
+const DEFAULT_DOMAIN_OUTPUT_DIR = path.join(REPO_ROOT, 'docs', 'erd');
 
 export async function readPrismaModelFiles(modelsDir = DEFAULT_MODELS_DIR) {
   const entries = await readdir(modelsDir, { withFileTypes: true });
@@ -94,8 +95,25 @@ export function generateMermaidErDiagram(schema) {
   return `${lines.join('\n')}\n`;
 }
 
+export function getDomainErdEntries(schema) {
+  const domainCounts = new Map();
+
+  for (const model of schema.models) {
+    domainCounts.set(model.namespace, (domainCounts.get(model.namespace) ?? 0) + 1);
+  }
+
+  return [...domainCounts.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([domain, modelCount]) => ({
+      domain,
+      modelCount,
+      fileName: `${slugifyDomain(domain)}.md`,
+    }));
+}
+
 export function generateErdMarkdown(schema, options = {}) {
   const sourceFiles = [...(options.sourceFiles ?? [])].sort((a, b) => a.localeCompare(b));
+  const domainErds = options.domainErds ?? getDomainErdEntries(schema);
   const models = [...schema.models].sort((a, b) =>
     [a.namespace, a.name].join(':').localeCompare([b.namespace, b.name].join(':')),
   );
@@ -113,6 +131,14 @@ export function generateErdMarkdown(schema, options = {}) {
     '## Sources',
     '',
     ...sourceFiles.map((fileName) => `- \`prisma/models/${fileName}\``),
+    '',
+    '## Domain ERDs',
+    '',
+    '| Domain | Models |',
+    '|---|---:|',
+    ...domainErds.map(
+      (entry) => `| [${entry.domain}](erd/${entry.fileName}) | ${entry.modelCount} |`,
+    ),
     '',
     '## Model Index',
     '',
@@ -134,23 +160,109 @@ export function generateErdMarkdown(schema, options = {}) {
   ].join('\n');
 }
 
+export function generateDomainErdMarkdown(schema, domain) {
+  const modelByName = new Map(schema.models.map((model) => [model.name, model]));
+  const models = schema.models
+    .filter((model) => model.namespace === domain)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const localModelNames = new Set(models.map((model) => model.name));
+  const localRelations = schema.relations.filter(
+    (relation) => localModelNames.has(relation.fromModel) && localModelNames.has(relation.toModel),
+  );
+  const externalReferences = schema.relations
+    .filter((relation) => localModelNames.has(relation.fromModel) !== localModelNames.has(relation.toModel))
+    .map((relation) => {
+      const localModel = localModelNames.has(relation.fromModel) ? relation.fromModel : relation.toModel;
+      const externalModel = localModelNames.has(relation.fromModel) ? relation.toModel : relation.fromModel;
+      const external = modelByName.get(externalModel);
+      const direction = localModel === relation.toModel ? 'references external' : 'referenced by external';
+
+      return {
+        localModel,
+        relationName: relation.relationName,
+        externalDomain: external?.namespace ?? '-',
+        externalModel,
+        direction,
+      };
+    })
+    .sort((a, b) =>
+      [a.localModel, a.relationName, a.externalDomain, a.externalModel].join(':').localeCompare(
+        [b.localModel, b.relationName, b.externalDomain, b.externalModel].join(':'),
+      ),
+    );
+  const mermaid = generateMermaidErDiagram({ models, relations: localRelations });
+
+  return [
+    `# ${domain} ERD`,
+    '',
+    '> Generated from `prisma/models/*.prisma`. Do not edit by hand.',
+    '> Regenerate with `npm run db:erd` or `npm run graphify:schema`.',
+    '',
+    '[Back to full ERD](../ERD.md)',
+    '',
+    '## Models',
+    '',
+    '| Model | Table | Description |',
+    '|---|---|---|',
+    ...models.map(
+      (model) =>
+        `| ${model.name} | \`${model.tableName}\` | ${escapeMarkdownTableCell(
+          model.description || '-',
+        )} |`,
+    ),
+    '',
+    '## Mermaid ER Diagram',
+    '',
+    '```mermaid',
+    mermaid.trimEnd(),
+    '```',
+    '',
+    '## External References',
+    '',
+    externalReferences.length > 0
+      ? [
+          '| Local model | Relation | Direction | External domain | External model |',
+          '|---|---|---|---|---|',
+          ...externalReferences.map(
+            (reference) =>
+              `| ${reference.localModel} | ${reference.relationName} | ${reference.direction} | ${reference.externalDomain} | ${reference.externalModel} |`,
+          ),
+        ].join('\n')
+      : 'No external references.',
+    '',
+  ].join('\n');
+}
+
 export async function writeErd({
   modelsDir = DEFAULT_MODELS_DIR,
   outputPath = DEFAULT_OUTPUT_PATH,
+  domainOutputDir = DEFAULT_DOMAIN_OUTPUT_DIR,
 } = {}) {
   const files = await readPrismaModelFiles(modelsDir);
   const schema = parsePrismaSchemaFiles(files);
+  const domainErds = getDomainErdEntries(schema);
   const markdown = generateErdMarkdown(schema, {
     sourceFiles: files.map((file) => file.fileName),
+    domainErds,
   });
 
   await mkdir(path.dirname(outputPath), { recursive: true });
   await writeFile(outputPath, markdown, 'utf8');
+  await rm(domainOutputDir, { recursive: true, force: true });
+  await mkdir(domainOutputDir, { recursive: true });
+
+  await Promise.all(
+    domainErds.map((entry) =>
+      writeFile(path.join(domainOutputDir, entry.fileName), generateDomainErdMarkdown(schema, entry.domain), 'utf8'),
+    ),
+  );
 
   return {
     outputPath,
+    domainOutputDir,
     modelCount: schema.models.length,
     relationCount: schema.relations.length,
+    domainCount: domainErds.length,
   };
 }
 
@@ -308,6 +420,14 @@ function sanitizeMermaidType(type) {
   return type.replace('[]', 'Array').replace('?', '').replace(/[^\w]/g, '');
 }
 
+function slugifyDomain(value) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
 function escapeMarkdownTableCell(value) {
   return value.replaceAll('|', '\\|').replace(/\r?\n/g, '<br>');
 }
@@ -319,7 +439,8 @@ function countChar(value, char) {
 if (import.meta.url === `file://${process.argv[1]}`) {
   const result = await writeErd();
   const relativePath = path.relative(REPO_ROOT, result.outputPath);
+  const relativeDomainPath = path.relative(REPO_ROOT, result.domainOutputDir);
   console.log(
-    `Generated ${relativePath} from ${result.modelCount} models and ${result.relationCount} relations.`,
+    `Generated ${relativePath} and ${result.domainCount} domain ERDs under ${relativeDomainPath} from ${result.modelCount} models and ${result.relationCount} relations.`,
   );
 }

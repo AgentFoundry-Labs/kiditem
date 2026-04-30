@@ -99,7 +99,7 @@ export const HeartbeatRunSchema = z.object({
   errorCode: z.string().nullable(),
   processPid: z.number().nullable(),
   wakeupRequestId: z.string().nullable(),
-  // Phase 3/4 (ADR / prisma/CLAUDE.md):
+  // Phase 3/4 (ADR / prisma/AGENTS.md):
   //  - nextSchedule: Dynamic Cron (#30) — 에이전트가 반환한 다음 cron 문자열
   //  - isSummarized / summary: Selective Clearing (#10) — 오래된 결과 요약 여부 + 본문
   nextSchedule: z.string().nullable().optional(),

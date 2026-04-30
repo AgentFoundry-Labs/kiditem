@@ -223,8 +223,8 @@ if [ "$FAIL" -gt 0 ]; then
 
       Commit the updated baseline alongside the migration.
 
-  See packages/shared/AGENTS.md "Reconstruction Export Policy" and
-  docs/superpowers/plans/2026-04-28-codebase-reconstruction.md "Phase 2".
+  See packages/shared/AGENTS.md "Reconstruction Export Policy" and the
+  root AGENTS.md "Shared contract".
 GUIDE
   exit 1
 fi

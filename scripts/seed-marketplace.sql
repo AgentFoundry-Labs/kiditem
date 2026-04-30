@@ -2,7 +2,7 @@
 -- Run: npx prisma db execute --stdin < scripts/seed-marketplace.sql
 --
 -- Workflow catalog 는 slim-core executor 만 참조한다
--- (apps/server/src/workflows/CLAUDE.md 의 "살아남은 executor" 참고).
+-- (apps/server/src/automation/adapter/out/workflow-runner/AGENTS.md 의 survival core 참고).
 --   허용: trigger.manual, trigger.schedule, condition.evaluate,
 --         notification.alert, agent_task.create
 -- generic DB/HTTP/transform 노드 (internal.db_query, api_call, data.filter,
