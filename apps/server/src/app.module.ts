@@ -13,7 +13,7 @@ import { OrdersModule } from './orders/orders.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { ProductsModule } from './products/products.module';
 import { CompaniesModule } from './companies/companies.module';
-import { DashboardModule } from './dashboard/dashboard.module';
+import { AnalyticsModule } from './analytics/analytics.module';
 import { SourcingModule } from './sourcing/sourcing.module';
 import { WorkflowsModule } from './workflows/workflows.module';
 import { ActivityEventsModule } from './activity-events/activity-events.module';
@@ -30,15 +30,12 @@ import { FeatureGateModule } from './feature-gate/feature-gate.module';
 import { ManualLedgerModule } from './manual-ledger/manual-ledger.module';
 import { ReturnTransfersModule } from './return-transfers/return-transfers.module';
 import { SuppliersModule } from './suppliers/suppliers.module';
-import { SupplierStatsModule } from './supplier-stats/supplier-stats.module';
 import { SupplierPaymentsModule } from './supplier-payments/supplier-payments.module';
 import { SettlementsModule } from './settlements/settlements.module';
 import { ProcessingCostsModule } from './processing-costs/processing-costs.module';
 import { SalesPlansModule } from './sales-plans/sales-plans.module';
-import { StatisticsModule } from './statistics/statistics.module';
 import { ChatModule } from './chat/chat.module';
 import { UploadsModule } from './uploads/uploads.module';
-import { TrafficModule } from './traffic/traffic.module';
 
 @Module({
   imports: [
@@ -59,7 +56,7 @@ import { TrafficModule } from './traffic/traffic.module';
     InventoryModule,
     ProductsModule,
     CompaniesModule,
-    DashboardModule,
+    AnalyticsModule,
     SourcingModule,
     WorkflowsModule,
     ActivityEventsModule,
@@ -75,15 +72,12 @@ import { TrafficModule } from './traffic/traffic.module';
     ManualLedgerModule,
     ReturnTransfersModule,
     SuppliersModule,
-    SupplierStatsModule,
     SupplierPaymentsModule,
     SettlementsModule,
     ProcessingCostsModule,
     SalesPlansModule,
-    StatisticsModule,
     ChatModule,
     UploadsModule,
-    TrafficModule,
   ],
   providers: [
     // 가드 실행 순서 (providers 선언 순서 = 평가 순서):
