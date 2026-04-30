@@ -1,9 +1,13 @@
-import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
-import { AgentRegistryService } from '../../agent-registry/agent-registry.service';
 import { AGENT_EVENTS, AgentResultReadyEvent } from '../../agent-registry/events/agent-events';
+import {
+  AGENT_RUNNER_PORT,
+  type AgentRunnerPort,
+} from '../../automation/application/port/in/agent-runner.port';
 import { PANEL_EVENTS } from '../../automation/adapter/out/panel-event/panel-events';
 import { alertPanelMapper } from '../../automation/mapper/panel-event/alert.mapper';
 import type { RuleItem } from '@kiditem/shared/rules';
@@ -17,7 +21,8 @@ export class RulesService implements OnModuleInit {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly agentRegistry: AgentRegistryService,
+    @Inject(AGENT_RUNNER_PORT)
+    private readonly agentRunner: AgentRunnerPort,
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
@@ -26,9 +31,7 @@ export class RulesService implements OnModuleInit {
   }
 
   async evaluateAll(companyId: string): Promise<EvaluationResult> {
-    const def = await this.agentRegistry.findByType('rules_evaluation');
-
-    const result = await this.agentRegistry.run(def.id, {
+    const result = await this.agentRunner.runByType('rules_evaluation', {
       companyId,
       extra: { company_id: companyId },
     });
@@ -102,10 +105,9 @@ export class RulesService implements OnModuleInit {
         try {
           if (inserted.length > RulesService.PANEL_EMIT_BATCH_CAP) {
             // Single summary item instead of N individual emits
-            const { v4: uuidv4 } = await import('uuid');
             this.eventEmitter.emit(PANEL_EVENTS.UPSERT, {
               item: alertPanelMapper.mapToItem({
-                id: uuidv4(),
+                id: randomUUID(),
                 companyId,
                 targetType: null,
                 targetId: null,
@@ -251,9 +253,7 @@ export class RulesService implements OnModuleInit {
   }
 
   async suggestThresholds(companyId: string): Promise<{ taskId: string | undefined; status: string }> {
-    const def = await this.agentRegistry.findByType('rules_suggest');
-
-    const result = await this.agentRegistry.run(def.id, {
+    const result = await this.agentRunner.runByType('rules_suggest', {
       companyId,
       extra: { company_id: companyId },
     });

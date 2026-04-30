@@ -261,7 +261,8 @@ authority, transaction boundary, and invariants.
 | `advertising` | advertising operations, ad-action execution, ad metrics |
 | `channels` | channel listings, channel sync, external marketplace spine |
 | `ai` / `media-ai` | thumbnails, image analysis/generation, provider adapters |
-| `automation` / `agent-os` | `agent-registry`, `workflows`, `rules`, `action-task`, `marketplace`, `panel` |
+| `rules` | business policy definitions, thresholds, rule evaluation result handling; delegates Agent OS work through automation ports |
+| `automation` / `agent-os` | `agent-registry`, `workflows`, `action-task`, `marketplace`, `panel`, Agent OS runtime entrypoints/adapters; `rules` remains a business policy domain that depends on automation ports |
 | `analytics` | `dashboard`, `statistics`, `traffic`, `supplier-stats` |
 | `platform` | `auth`, `companies`, `feature-gate`, `common`, `prisma`, uploads/platform infra |
 

@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
+import { AGENT_RUNNER_PORT } from './application/port/in/agent-runner.port';
 import { AGENT_SCHEDULE_CONTROL_PORT } from './application/port/in/agent-schedule-control.port';
+import { AgentRuntimeRunnerAdapter } from './adapter/out/agent-runtime/agent-runner.adapter';
 import { AgentRuntimeScheduleControlAdapter } from './adapter/out/agent-runtime/agent-schedule-control.adapter';
 import { MarketplaceCatalogService } from './application/service/marketplace-catalog.service';
 import { MarketplaceInstallService } from './application/service/marketplace-install.service';
@@ -28,6 +30,9 @@ import { WorkflowRunnerService } from './application/service/workflow-runner.ser
  * Registered surfaces (in chronological landing order):
  * - Phase 3C-2: `AgentScheduleControlPort` + `AgentRuntimeScheduleControlAdapter`
  *   — used by `RulesController` for `rules_evaluation` schedule control.
+ * - AO-3A: `AgentRunnerPort` + `AgentRuntimeRunnerAdapter` — used by
+ *   business domains such as `rules/` to request Agent OS work without
+ *   injecting the compatibility `AgentRegistryService` directly.
  * - Phase 3C-3: `MarketplaceInstallService` (install/uninstall
  *   orchestration) + `PrismaMarketplaceInstallStoreAdapter` (tenant-scoped
  *   persistence) + `MarketplaceController` HTTP adapter. Catalog read
@@ -77,6 +82,10 @@ import { WorkflowRunnerService } from './application/service/workflow-runner.ser
   ],
   providers: [
     {
+      provide: AGENT_RUNNER_PORT,
+      useClass: AgentRuntimeRunnerAdapter,
+    },
+    {
       provide: AGENT_SCHEDULE_CONTROL_PORT,
       useClass: AgentRuntimeScheduleControlAdapter,
     },
@@ -94,6 +103,7 @@ import { WorkflowRunnerService } from './application/service/workflow-runner.ser
     WorkflowRunnerService,
   ],
   exports: [
+    AGENT_RUNNER_PORT,
     AGENT_SCHEDULE_CONTROL_PORT,
     ActionBoardService,
     PanelSseService,
