@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { AgentRegistryService } from '../../agent-registry/agent-registry.service';
+import { AgentRegistryService } from '../../../agent-registry/agent-registry.service';
 
 @Injectable()
 export class ImageAiService {

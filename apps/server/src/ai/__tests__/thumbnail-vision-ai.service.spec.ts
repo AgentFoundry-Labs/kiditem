@@ -3,9 +3,9 @@ import { ServiceUnavailableException } from '@nestjs/common';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const sharp: typeof import('sharp') = require('sharp');
 import type { ComplianceScores } from '@kiditem/shared/ai';
-import { ThumbnailVisionAiService } from '../services/thumbnail-vision-ai.service';
+import { ThumbnailVisionAiService } from '../application/service/thumbnail-vision-ai.service';
 import { GeminiThumbnailVisionAdapter } from '../adapter/out/gemini/gemini-thumbnail-vision.adapter';
-import { ThumbnailComplianceVerifierService } from '../services/thumbnail-compliance-verifier.service';
+import { ThumbnailComplianceVerifierService } from '../application/service/thumbnail-compliance-verifier.service';
 import {
   hasDigitalOverlayEvidence,
   normalizeTextRelatedViolations,

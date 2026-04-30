@@ -8,7 +8,7 @@ import {
   isDisplayableThumbnailUrl,
   resolveMasterThumbnailImage,
   type ThumbnailMasterImageRow,
-} from '../services/thumbnail-master-image-resolver';
+} from '../domain/thumbnail-master-image';
 import type {
   AnalysisRow,
   MasterRow,

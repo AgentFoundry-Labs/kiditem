@@ -4,9 +4,9 @@ import {
   COMPLIANCE_PROMPT,
   COMPLIANCE_REFERENCE_HEADER,
   QUALITY_PROMPT,
-} from './thumbnail-prompts';
-import { ThumbnailReferenceImagesService } from './thumbnail-reference-images.service';
-import { GeminiThumbnailVisionAdapter } from '../adapter/out/gemini/gemini-thumbnail-vision.adapter';
+} from '../../domain/prompts/thumbnail-prompts';
+import { ThumbnailReferenceImagesService } from '../../adapter/out/gemini/thumbnail-reference-images.adapter';
+import { GeminiThumbnailVisionAdapter } from '../../adapter/out/gemini/gemini-thumbnail-vision.adapter';
 import { ThumbnailComplianceVerifierService } from './thumbnail-compliance-verifier.service';
 import {
   type AiAnalysisResult,
@@ -16,12 +16,12 @@ import {
   normalizeTextRelatedViolations,
   parseComplianceResponse,
   scoreToGrade,
-} from '../domain/thumbnail-compliance-normalizer';
+} from '../../domain/thumbnail-compliance-normalizer';
 import {
   deriveImageSpec,
   type ImageBytes,
   parseImageDimensions,
-} from '../domain/thumbnail-image-spec';
+} from '../../domain/thumbnail-image-spec';
 
 export interface ThumbnailAiItem {
   productId: string;

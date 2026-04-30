@@ -3,7 +3,7 @@ import type {
   ThumbnailAnalysisListResponse,
   ThumbnailAnalysisSummary,
 } from '@kiditem/shared/ai';
-import type { ThumbnailMasterImageRow } from '../../../services/thumbnail-master-image-resolver';
+import type { ThumbnailMasterImageRow } from '../../../domain/thumbnail-master-image';
 import {
   hasActualAnalysis,
   toAnalysisResult,

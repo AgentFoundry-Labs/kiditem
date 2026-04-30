@@ -3,7 +3,7 @@ import { Response } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
 import puppeteer from 'puppeteer';
-import { RenderImageBodyDto } from '../dto';
+import { RenderImageBodyDto } from './dto';
 
 const STATIC_ROOT = '/data/products';
 const PROCESSED_PREFIX = '/processed/';

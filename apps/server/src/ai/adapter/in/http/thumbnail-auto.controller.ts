@@ -1,6 +1,6 @@
 import { Controller, DefaultValuePipe, ParseIntPipe, Post, Query } from '@nestjs/common';
-import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
-import { ThumbnailAutoService } from '../services/thumbnail-auto.service';
+import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
+import { ThumbnailAutoService } from '../../../application/service/thumbnail-auto.service';
 
 @Controller('thumbnail-auto')
 export class ThumbnailAutoController {

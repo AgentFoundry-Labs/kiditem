@@ -4,7 +4,7 @@ import {
   ThumbnailImageFetcherService,
   MAX_FETCH_BYTES,
   MAX_REDIRECTS,
-} from '../services/thumbnail-image-fetcher.service';
+} from '../adapter/out/image-fetch/thumbnail-image-fetcher.adapter';
 
 class StorageStub {
   publicUrl = 'http://storage.local/kiditem';

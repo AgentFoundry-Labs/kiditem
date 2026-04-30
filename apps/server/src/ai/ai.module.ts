@@ -1,55 +1,73 @@
 import { Module } from '@nestjs/common';
-import { TextAiController } from './controllers/text-ai.controller';
-import { TextAiService } from './services/text-ai.service';
-import { ImageAiController } from './controllers/image-ai.controller';
-import { ImageAiService } from './services/image-ai.service';
-import { RenderImageController } from './controllers/render-image.controller';
-import { ThumbnailAnalysisController } from './controllers/thumbnail-analysis.controller';
-import { ThumbnailAutoController } from './controllers/thumbnail-auto.controller';
-import { ThumbnailEditorController } from './controllers/thumbnail-editor.controller';
-import { ThumbnailTrackingController } from './controllers/thumbnail-tracking.controller';
-import { ThumbnailAnalysisService } from './services/thumbnail-analysis.service';
-import { ThumbnailAutoService } from './services/thumbnail-auto.service';
-import { ThumbnailEditorAiService } from './services/thumbnail-editor-ai.service';
-import { ThumbnailGenerationService } from './services/thumbnail-generation.service';
-import { ThumbnailImageFetcherService } from './services/thumbnail-image-fetcher.service';
-import { ThumbnailRecomposeService } from './services/thumbnail-recompose.service';
-import { ThumbnailReferenceImagesService } from './services/thumbnail-reference-images.service';
-import { ThumbnailTrackingService } from './services/thumbnail-tracking.service';
-import { ThumbnailVisionAiService } from './services/thumbnail-vision-ai.service';
-import { ThumbnailWingService } from './application/service/thumbnail-wing.service';
+
+// adapter/in/http
+import { ImageAiController } from './adapter/in/http/image-ai.controller';
+import { RenderImageController } from './adapter/in/http/render-image.controller';
+import { TextAiController } from './adapter/in/http/text-ai.controller';
+import { ThumbnailAnalysisController } from './adapter/in/http/thumbnail-analysis.controller';
+import { ThumbnailAutoController } from './adapter/in/http/thumbnail-auto.controller';
+import { ThumbnailEditorController } from './adapter/in/http/thumbnail-editor.controller';
+import { ThumbnailTrackingController } from './adapter/in/http/thumbnail-tracking.controller';
+
+// adapter/out
+import { GeminiThumbnailVisionAdapter } from './adapter/out/gemini/gemini-thumbnail-vision.adapter';
+import { ThumbnailReferenceImagesService } from './adapter/out/gemini/thumbnail-reference-images.adapter';
+import { ThumbnailImageFetcherService } from './adapter/out/image-fetch/thumbnail-image-fetcher.adapter';
 import { ThumbnailWingPersistence } from './adapter/out/prisma/thumbnail-wing.persistence';
 import { WingAutomationRunner } from './adapter/out/wing/wing-automation-runner';
-import { GeminiThumbnailVisionAdapter } from './adapter/out/gemini/gemini-thumbnail-vision.adapter';
-import { ThumbnailComplianceVerifierService } from './services/thumbnail-compliance-verifier.service';
+
+// application/service
+import { ImageAiService } from './application/service/image-ai.service';
+import { TextAiService } from './application/service/text-ai.service';
+import { ThumbnailAnalysisService } from './application/service/thumbnail-analysis.service';
+import { ThumbnailAutoService } from './application/service/thumbnail-auto.service';
+import { ThumbnailComplianceVerifierService } from './application/service/thumbnail-compliance-verifier.service';
+import { ThumbnailEditorAiService } from './application/service/thumbnail-editor-ai.service';
+import { ThumbnailGenerationService } from './application/service/thumbnail-generation.service';
+import { ThumbnailRecomposeService } from './application/service/thumbnail-recompose.service';
+import { ThumbnailTrackingService } from './application/service/thumbnail-tracking.service';
+import { ThumbnailVisionAiService } from './application/service/thumbnail-vision-ai.service';
+import { ThumbnailWingService } from './application/service/thumbnail-wing.service';
+
+// application/port — out
+import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.port';
 
 @Module({
   controllers: [
-    TextAiController,
     ImageAiController,
     RenderImageController,
+    TextAiController,
     ThumbnailAnalysisController,
     ThumbnailAutoController,
     ThumbnailEditorController,
     ThumbnailTrackingController,
   ],
   providers: [
-    TextAiService,
+    // application services
     ImageAiService,
+    TextAiService,
     ThumbnailAnalysisService,
     ThumbnailAutoService,
+    ThumbnailComplianceVerifierService,
     ThumbnailEditorAiService,
     ThumbnailGenerationService,
-    ThumbnailImageFetcherService,
     ThumbnailRecomposeService,
-    ThumbnailReferenceImagesService,
     ThumbnailTrackingService,
     ThumbnailVisionAiService,
     ThumbnailWingService,
+
+    // outgoing adapters
+    GeminiThumbnailVisionAdapter,
+    ThumbnailImageFetcherService,
+    ThumbnailReferenceImagesService,
     ThumbnailWingPersistence,
     WingAutomationRunner,
-    GeminiThumbnailVisionAdapter,
-    ThumbnailComplianceVerifierService,
+
+    // port bindings — Wing automation port → Playwriter runner adapter
+    {
+      provide: WING_AUTOMATION_PORT,
+      useExisting: WingAutomationRunner,
+    },
   ],
 })
 export class AiModule {}

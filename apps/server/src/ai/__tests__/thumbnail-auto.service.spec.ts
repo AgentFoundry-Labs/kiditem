@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ThumbnailAutoService } from '../services/thumbnail-auto.service';
+import { ThumbnailAutoService } from '../application/service/thumbnail-auto.service';
 
 const COMPANY_ID = 'company-1';
 

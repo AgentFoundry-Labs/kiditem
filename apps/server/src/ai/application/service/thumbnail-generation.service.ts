@@ -9,16 +9,16 @@ import type {
   ThumbnailGenerationItem,
   ThumbnailGenerationListResponse,
 } from '@kiditem/shared/ai';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '../../../prisma/prisma.service';
 import {
   ThumbnailEditorAiService,
 } from './thumbnail-editor-ai.service';
 import type {
   ThumbnailEditorCandidate,
   ThumbnailEditorInputImage,
-} from '../domain/model/thumbnail-editor';
-import { resolveMasterThumbnailImage } from './thumbnail-master-image-resolver';
-import { getRecomposePromptOverride } from './thumbnail-recompose-prompts';
+} from '../../domain/model/thumbnail-editor';
+import { resolveMasterThumbnailImage } from '../../domain/thumbnail-master-image';
+import { getRecomposePromptOverride } from '../../domain/prompts/thumbnail-recompose-prompts';
 import { ThumbnailTrackingService } from './thumbnail-tracking.service';
 import {
   type ThumbnailAnalysisContext,
@@ -30,11 +30,11 @@ import {
   toEditAnalysis,
   toInputRole,
   variantInstruction,
-} from '../domain/thumbnail-generation-inputs';
+} from '../../domain/thumbnail-generation-inputs';
 import {
   toThumbnailGenerationItem,
   type GenerationRow,
-} from '../mapper/thumbnail-generation.mapper';
+} from '../../mapper/thumbnail-generation.mapper';
 import {
   findActiveJobForProduct,
   findAutoBatchCandidates,
@@ -50,7 +50,7 @@ import {
   findRecentAutoJob,
   findThumbnailAnalysisGrade,
   type EditorProductRow,
-} from '../adapter/out/prisma/thumbnail-generation.query';
+} from '../../adapter/out/prisma/thumbnail-generation.query';
 import {
   applyGenerationToMaster,
   createPendingEditJob,
@@ -64,7 +64,7 @@ import {
   saveEditorResult as saveEditorResultPersistence,
   setSelectedCandidate,
   type SaveEditorResultInput,
-} from '../adapter/out/prisma/thumbnail-generation.persistence';
+} from '../../adapter/out/prisma/thumbnail-generation.persistence';
 
 @Injectable()
 export class ThumbnailGenerationService {

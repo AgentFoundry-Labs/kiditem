@@ -50,7 +50,7 @@ automation/
 - EventEmitter2 — `PANEL_EVENTS.UPSERT` / `PANEL_EVENTS.DISMISS` 를
   `WorkflowOrchestrationService`, `WorkflowRunnerService`,
   `HeartbeatService`, `RulesService`, `AlertsService`,
-  `ai/services/thumbnail-auto.service.ts` 체인이 emit. Panel 은 구독자.
+  `ai/application/service/thumbnail-auto.service.ts` 체인이 emit. Panel 은 구독자.
 
 ## Outbound dependencies
 

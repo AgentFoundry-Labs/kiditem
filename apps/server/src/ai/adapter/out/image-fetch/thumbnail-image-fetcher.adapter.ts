@@ -8,10 +8,10 @@ import {
   MAX_FETCH_BYTES,
   MAX_REDIRECTS,
   ThumbnailImageSourceError,
-} from '../domain/thumbnail-image-source';
-import { StorageService } from '../../common/storage/storage.service';
+} from '../../../domain/thumbnail-image-source';
+import { StorageService } from '../../../../common/storage/storage.service';
 
-export { MAX_FETCH_BYTES, MAX_REDIRECTS } from '../domain/thumbnail-image-source';
+export { MAX_FETCH_BYTES, MAX_REDIRECTS } from '../../../domain/thumbnail-image-source';
 
 function asBadRequest(error: unknown): never {
   if (error instanceof ThumbnailImageSourceError) {

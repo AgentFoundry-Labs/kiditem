@@ -1,6 +1,6 @@
 import { Body, Controller, Post } from '@nestjs/common';
-import { TextAiService } from '../services/text-ai.service';
-import { TextTransformBodyDto } from '../dto';
+import { TextAiService } from '../../../application/service/text-ai.service';
+import { TextTransformBodyDto } from './dto';
 
 @Controller('text-ai')
 export class TextAiController {

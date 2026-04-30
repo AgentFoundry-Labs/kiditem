@@ -9,24 +9,24 @@ import {
   Put,
   Query,
 } from '@nestjs/common';
-import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
+import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
 import {
   AnalyzeBatchDto,
   AnalyzeThumbnailDto,
   CheckImageSpecDto,
   PreInspectDto,
-} from '../dto/thumbnail-analyze.dto';
+} from './dto/thumbnail-analyze.dto';
 import {
   DeleteCandidateDto,
   EditJobsDto,
   ReEditDto,
   SelectCandidateDto,
   WingRegisterBatchDto,
-} from '../dto/thumbnail-edit.dto';
-import { ThumbnailAnalysisService } from '../services/thumbnail-analysis.service';
-import { ThumbnailGenerationService } from '../services/thumbnail-generation.service';
-import { ThumbnailRecomposeService } from '../services/thumbnail-recompose.service';
-import { ThumbnailWingService } from '../application/service/thumbnail-wing.service';
+} from './dto/thumbnail-edit.dto';
+import { ThumbnailAnalysisService } from '../../../application/service/thumbnail-analysis.service';
+import { ThumbnailGenerationService } from '../../../application/service/thumbnail-generation.service';
+import { ThumbnailRecomposeService } from '../../../application/service/thumbnail-recompose.service';
+import { ThumbnailWingService } from '../../../application/service/thumbnail-wing.service';
 
 @Controller('thumbnail-analysis')
 export class ThumbnailAnalysisController {
