@@ -4,18 +4,17 @@
 기존 규칙의 임계값을 상품 실적 데이터 분포에 기반하여 최적값으로 추천한다.
 
 ## 도구
-- DB 조회: `psql "$AGENT_DATABASE_URL" -t -A -F '|' -c "SQL"` (읽기 전용)
-- 테이블 가이드: `Read agent-config/skills/db-query/SKILL.md`
+- DB 직접 조회 금지. 필요한 데이터는 서버가 제공한 실행 컨텍스트와 payload 안에서만 사용한다.
 - 현행 규칙: `Read agent-config/rules/health-rules.md`
 
 ## 태스크
 
-1. `business_rules` 테이블에서 현재 활성 규칙 목록을 조회한다.
-   - `organization_id = '{{organization_id}}'` 조건 적용
+1. 서버가 제공한 현재 활성 규칙 목록을 확인한다.
+   - 컨텍스트는 이미 `organization_id = '{{organization_id}}'` 범위로 제한되어 있어야 한다.
    - 각 규칙의 field, operator, threshold 값 확인
 
-2. 규칙이 참조하는 필드별 실제 데이터 분포를 조회한다:
-   - `products`, `profit_loss`, `inventory`, `reviews`, `thumbnails` 테이블
+2. 규칙이 참조하는 필드별 실제 데이터 분포 컨텍스트를 확인한다:
+   - products, profit/loss, inventory, reviews, thumbnails 데이터
    - 필드별 min, max, avg, median, percentile(25/75) 계산
    - 활성 상품(`is_deleted = false`) 기준
 

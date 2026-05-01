@@ -5,7 +5,9 @@ import { MasterCodeService } from '../adapter/out/prisma/master-code.service';
 
 function makePrismaMock(seqReturn: bigint) {
   return {
-    $queryRaw: vi.fn().mockResolvedValue([{ nextval: seqReturn }]),
+    masterCodeCounter: {
+      upsert: vi.fn().mockResolvedValue({ value: Number(seqReturn) }),
+    },
   } as any;
 }
 

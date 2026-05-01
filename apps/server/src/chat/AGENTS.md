@@ -47,7 +47,7 @@ this.copilotHandler = copilotRuntimeNestEndpoint({
 ```typescript
 spawn('claude', args, {
   cwd: process.cwd(),
-  env: { ...process.env, AGENT_DATABASE_URL: '...' },
+  env: buildClaudeCliEnv(),
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 ```
@@ -63,21 +63,17 @@ spawn('claude', args, {
   '--output-format', 'stream-json',                  // 라인당 JSON
   '--print',                                         // 토큰 스트림 print
   '--permission-mode', 'bypassPermissions',
-  '--allowedTools', 'Bash(psql:*) Read Grep',        // Read-only DB only
+  '--allowedTools', 'Read Grep',
   ...(sessionId ? ['--session-id', sessionId] : []), // multi-turn 옵션
 ]
 ```
 
-### ENV — AGENT_DATABASE_URL 우선순위
+### ENV — child process whitelist
 
-```typescript
-process.env.CHATBOT_DATABASE_URL ||
-process.env.AGENT_DATABASE_URL ||
-process.env.DATABASE_URL ||
-'';
-```
-
-Read-only PostgreSQL (Bash(psql:*) tool 로만 접근). 데이터 prompt 주입 없음.
+`buildClaudeCliEnv()` 는 Claude 실행에 필요한 최소 환경만 전달한다. `DATABASE_URL`,
+`CHATBOT_DATABASE_URL`, `AGENT_DATABASE_URL` 같은 DB credential 은 child process 에
+전달하지 않는다. Chat/agent 데이터 접근은 backend application service 가 제공한
+organization-scoped context 로만 한다.
 
 ### Stream 파싱
 
@@ -121,22 +117,21 @@ Observable → `MessageEvent` per token → `res.write('data: ' + JSON + '\n\n')
 2. **Token buffering** — newline-bounded, partial JSON 누적
 3. **Silent JSON failure** — corruption 회복 가능
 4. **SIGTERM → SIGKILL grace** — 좀비 방지
-5. **Tool allowlist for safety** — `--permission-mode` + `--allowedTools` 로 read-only 강제
-6. **No data injection in prompts** — agent 가 동적으로 DB 조회 (agent-registry 도메인과 동일 원칙)
+5. **Tool allowlist for safety** — `--permission-mode` + `--allowedTools` 로 파일 읽기/검색만 허용
+6. **No direct DB access** — agent 에 DB URL 을 전달하지 않음
 
 ## 외부 의존
 
 - **Claude CLI** (`claude` 명령어가 PATH에 있어야 함)
-- **PostgreSQL** (read-only, AGENT_DATABASE_URL)
 - **agent-config/prompts/agents/chat.md** (런타임 prompt 로드)
 - **CopilotKit runtime** (`@copilotkit/runtime`)
 
-**agent-registry/ 와 독립** — 둘 다 same DB read pattern 쓰지만 별개 도메인. chat 은 self-contained.
+**agent-registry/ 와 독립** — 둘 다 DB 직접 조회를 금지하고 backend-provided context 를 사용한다. chat 은 self-contained.
 
 ## 금지 (Hard bans)
 
-- ❌ Tool allowlist 변경 (현재 `Bash(psql:*) Read Grep`) — write 권한 부여 시 보안 audit 필요
-- ❌ Data 변수를 prompt 에 주입 (agent 가 동적으로 DB 조회 원칙)
+- ❌ Tool allowlist 에 `Bash(psql:*)`, `Bash(*)`, DB client 실행 권한 추가
+- ❌ DB credential 을 child process env 에 전달
 - ❌ Timeout 로직 제거 (resource exhaustion 방지)
 - ❌ Child process 공유 (request isolation 깨짐 → multi-tenant 위험)
 - ❌ shell interpolation 사용 (spawn args 명시적 array 만)

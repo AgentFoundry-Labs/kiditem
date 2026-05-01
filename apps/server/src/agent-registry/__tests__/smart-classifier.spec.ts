@@ -57,13 +57,13 @@ describe('classifyToolRequest', () => {
 
   it('wildcard allowedTools (e.g. Bash(*)) matches any Bash invocation', () => {
     const resolved = makeResolved({ allowedTools: ['Bash*'] });
-    expect(classifyToolRequest('Bash(psql:*)', resolved)).toBe('allow');
+    expect(classifyToolRequest('Bash(curl:*)', resolved)).toBe('allow');
     expect(classifyToolRequest('Bash', resolved)).toBe('allow');
   });
 
   it('tool matching by prefix with parenthesis (Bash → Bash(...))', () => {
     const resolved = makeResolved({ allowedTools: ['Bash', 'Read'] });
-    expect(classifyToolRequest('Bash(psql:some/path)', resolved)).toBe('allow');
+    expect(classifyToolRequest('Bash(curl:some/path)', resolved)).toBe('allow');
     expect(classifyToolRequest('Read', resolved)).toBe('allow');
   });
 

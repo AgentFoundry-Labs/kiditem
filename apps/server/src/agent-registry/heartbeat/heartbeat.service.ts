@@ -285,7 +285,6 @@ export class HeartbeatService {
         KIDITEM_AGENT_ID: agent.id,
         KIDITEM_ORGANIZATION_ID: organizationId,
         KIDITEM_RUN_ID: run.id,
-        AGENT_DATABASE_URL: process.env.AGENT_DATABASE_URL || process.env.DATABASE_URL || '',
       }),
       cwd: (adapterConfig.cwd as string) || process.cwd(),
       allowedTools: resolved.allowedTools.join(' '),
@@ -565,8 +564,7 @@ export class HeartbeatService {
     );
 
     // Legacy AgentTask 동기화 — run() 경유로 생성된 task가 있으면 업데이트
-    const payload = wakeup.payload as Record<string, unknown> | null;
-    const legacyTaskId = payload?._legacy_task_id as string | undefined;
+    const legacyTaskId = wakeup.legacyTaskId ?? undefined;
     if (legacyTaskId) {
       try {
         await this.prisma.agentTask.update({
@@ -722,7 +720,6 @@ export class HeartbeatService {
     runId: string,
     payload?: Record<string, unknown>,
   ): Promise<string> {
-    const dbUrl = process.env.AGENT_DATABASE_URL || process.env.DATABASE_URL || '';
     const dryRun = payload?.dry_run !== undefined ? String(payload.dry_run) : 'true';
 
     let template = agent.promptTemplate;
@@ -736,7 +733,7 @@ export class HeartbeatService {
     prompt = prompt
       .replace(/\{\{task_id\}\}/g, runId)
       .replace(/\{\{dry_run\}\}/g, dryRun)
-      .replace(/\{\{db_url\}\}/g, dbUrl);
+      .replace(/\{\{db_url\}\}/g, '');
 
     // payload 변수 치환
     if (payload) {

@@ -2,7 +2,7 @@
 
 ## 3-layer 책임 분리
 
-- **MasterProduct** (family, 기획상품) — 운영/광고/전략 단위. `code = 'M-' + nextval('master_code_seq').padStart(8)`.
+- **MasterProduct** (family, 기획상품) — 운영/광고/전략 단위. `code = MasterCodeCounter('master_product')` 기반 `M-00000001` 형식.
 - **ProductOption** (물리 SKU, 바코드 단위) — 재고/매입/창고 단위. `sku = {master.code}-{optionCounter.padStart(2)}`.
 - **BundleComponent** — 세트 구성 관계 (cross-master 허용, cross-organization 금지, Plan B1 에선 nested bundle 금지).
 
@@ -23,7 +23,7 @@ products/
 ├── adapter/
 │   ├── in/http/                          ← controllers (HTTP DTO binding only)
 │   └── out/prisma/                       ← Prisma persistence + raw SQL + queries
-│       ├── master-code.service.ts        (nextval('master_code_seq'))
+│       ├── master-code.service.ts        (Prisma MasterCodeCounter upsert)
 │       ├── master-product.query.ts       (MASTER_WITH_IMAGES, find/list)
 │       ├── product-option.query.ts       (cursor-paginated tenant reads)
 │       ├── product-option.persistence.ts (counter+sku, applyOptionPatch, soft-delete)
@@ -59,7 +59,7 @@ products/
 
 ## 핵심 규칙
 
-- **code 생성**: `MasterCodeService.generate()` — `nextval('master_code_seq')`. race-free + gap-tolerant. `adapter/out/prisma/master-code.service.ts` 에 위치 (Prisma raw SQL adapter).
+- **code 생성**: `MasterCodeService.generate(tx)` — `MasterCodeCounter` upsert increment. `adapter/out/prisma/master-code.service.ts` 에 위치하며 raw SQL/standalone sequence 를 사용하지 않는다.
 - **sku 생성**: `OptionsService.create` 의 `$transaction` 안에서 `incrementMasterOptionCounter` (`masterProduct.updateMany + findFirst` 2-step). WHERE 에 `isDeleted:false` 포함 (TOCTOU 차단). 모든 raw write 는 `adapter/out/prisma/product-option.persistence.ts` 가 보유.
 - **availableStock materialize**: `BundleStockService.recompute` **만** write. `OptionsService.update` 는 payload 에서 명시적 strip (`stripProductOptionSystemFields` in `domain/policy/product-option-mutation-rules.ts`).
 - **BundleComponent.organizationId**: auth organizationId 아닌 `bundleOption.organizationId` 에서 파생 (3-way invariant — `domain/policy/bundle-component-rules.ts`).
@@ -85,7 +85,7 @@ products/
 - **Non-export**: `MasterCodeService` (`adapter/out/prisma/`). 외부 모듈은 직접 호출 금지.
 - **Export (restricted)**: `BundleStockService` — InventoryService 가 `recomputeForComponent` 호출 전용 (single-writer invariant). 다른 모듈은 직접 호출 금지.
 
-## RLS
+## Organization Scope
 
-- `chatbot_readonly` — session `SET app.organization_id` 필수. 7 RLS policies (Plan A Task 11).
-- NestJS (`kiditem`) — table owner → RLS 우회. App-level `where.organizationId` 필수.
+- Products 는 DB RLS 에 의존하지 않는다. App-level `where.organizationId` 가 IDOR 방어의 source of truth 다.
+- Chatbot/agent 는 products 테이블에 직접 DB 접속하지 않는다. 필요한 데이터는 products application service/query adapter 를 거친 organization-scoped context 로 제공한다.

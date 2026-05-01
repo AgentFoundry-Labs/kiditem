@@ -2,7 +2,7 @@
 
 Graphify is for codebase/ontology navigation, not for DB schema truth.
 
-- **DB truth:** `prisma/models/*.prisma` plus PostgreSQL-only constraints in `prisma/3layer-setup.sql`.
+- **DB truth:** `prisma/models/*.prisma`.
 - **ERD view:** `docs/ERD.md` plus domain diagrams under `docs/erd/`, regenerated with `npm run db:erd`.
 - **Schema ontology view:** `graphify-out/schema/GRAPH_REPORT.md`, `graphify-out/schema/graph.html`, and `graphify-out/schema/graph.json`.
 - **Schema consumer view:** `graphify-out/schema-consumers/GRAPH_REPORT.md`, `graphify-out/schema-consumers/graph.html`, and `graphify-out/schema-consumers/graph.json`.

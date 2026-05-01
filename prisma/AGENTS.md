@@ -32,7 +32,6 @@ prisma/
 ```bash
 npm run db:generate   # Generate Prisma client
 npm run db:push       # Dev — apply directly to DB
-npm run db:3layer-setup # Reapply partial indexes / RLS / CHECK constraints after db:push
 npm run db:erd        # Regenerate docs/ERD.md + docs/erd/*.md after Prisma model changes
 npm run graphify:schema # Regenerate ERD + graphify-out schema navigation artifacts
 npm run db:migrate    # Production — create migration files
@@ -87,14 +86,13 @@ git pull
 npm install --legacy-peer-deps
 npm run db:push -- --accept-data-loss   # drop 이 포함됐으면 플래그 필요
 npx prisma generate
-npm run db:3layer-setup                 # partial unique indexes + organization-id RLS policies + 3 CHECK constraints 재적용
 npm run db:erd                          # docs/ERD.md + docs/erd/*.md 재생성
 npm run graphify:schema                 # graphify-out/schema/** + schema-consumers/** 재생성
 ```
 
 `--accept-data-loss` 는 **삭제(drop)** 가 있을 때만 필수. PR 설명에 drop 포함 여부 명시한다.
 
-`db:3layer-setup` 은 `prisma/3layer-setup.sql` 을 재실행한다. `prisma db push` 는 schema.prisma 에 표현되지 않는 partial unique index / RLS policy / CHECK constraint 를 **덮어쓰거나 누락** 시키므로, push 후에는 **반드시** 재실행해야 3계층 모델(master/option/bundle) 의 제약이 유지된다. 스크립트는 idempotent (`DROP ... IF EXISTS` → `CREATE`) 라 반복 실행 안전.
+DB schema 는 Prisma schema 하나가 source of truth 다. `prisma db push` 후 별도 SQL overlay 를 재실행하지 않는다.
 
 ### init.sql.gz 재생성 시점
 
@@ -116,7 +114,7 @@ docker exec kiditem-postgres pg_dump -U kiditem --data-only --column-inserts \
 
 스키마/운영 데이터 이전이 필요한 경우에도 one-off backfill / migration / seed 스크립트를 장기 보관하지 않는다:
 
-- Durable DB objects that Prisma cannot express (partial indexes, CHECK constraints, RLS, expression indexes) go into `prisma/3layer-setup.sql`.
+- Durable schema objects must be representable in Prisma schema. If a desired PostgreSQL feature is not representable, redesign toward an app-level invariant, a normal column/index, or a backend application port instead of adding SQL overlays.
 - One-off data movement belongs in the PR body / release runbook and is deleted after rollout.
 - Reusable developer data flows belong in `scripts/dev-data*.ts` + `docs/DEV_DATA_BUNDLES.md`.
 - Keep `scripts/*` only for current package commands, tests, generated docs, or actively maintained import/dev-data workflows.
@@ -134,7 +132,7 @@ docker exec kiditem-postgres pg_dump -U kiditem --data-only --column-inserts \
 - Timestamps: `@db.Timestamptz`
 - Currency: `Int` (KRW) or `Decimal(12,2)` (CNY)
 - Python accesses snake_case DB column names directly (asyncpg raw SQL)
-- After schema changes: always run the schema-change checklist above (`db:push` + `prisma generate` + `db:3layer-setup` + generated ERD/Graphify artifacts)
+- After schema changes: always run the schema-change checklist above (`db:push` + `prisma generate` + generated ERD/Graphify artifacts)
 - Keep Zod schemas in sync: use `satisfies z.infer<typeof Schema>` pattern in services
 - Json 흡수 패턴은 일회성 raw payload 보존용으로만 사용한다. 운영 쿼리·집계·IDOR guard 가 필요한 child row 는 `OrderReturnLineItem` 처럼 정규화한다.
 - **FK 컬럼에 `@@index` 명시 필수** — Prisma 는 FK 에 자동 인덱스를 만들지 **않는다**. JOIN/역방향 조회가 있는 FK (대부분) 는 명시적 `@@index([foreignKey])` 추가. 복합이 자주 쓰이면 `@@index([organizationId, foreignKey])` 등 조합 인덱스도 함께.
@@ -148,7 +146,7 @@ docker exec kiditem-postgres pg_dump -U kiditem --data-only --column-inserts \
 
 ## Partial unique index 패턴
 
-`prisma/models/` 의 `@@unique([...])` 은 Prisma accessor 생성용으로 유지하되, 실제 DB constraint 는 [`prisma/3layer-setup.sql`](3layer-setup.sql) 의 **partial unique index** (`WHERE is_deleted = false`) 가 enforce. 이 조합이 보장하는 것:
+`prisma/models/` 의 `@@unique([...], where: raw(...))` 는 Prisma v7 `partialIndexes` preview 로 관리되는 **partial unique index** 다. 이 조합이 보장하는 것:
 
 - 소프트삭제된 row 의 unique 값을 새 row 가 재사용 가능 (운영상 `legacyCode`/`barcode` 재할당 필요).
 - Restore 시 활성 row 와 충돌 → P2002 → `ConflictException`.
@@ -162,7 +160,7 @@ docker exec kiditem-postgres pg_dump -U kiditem --data-only --column-inserts \
 
 서비스 코드는 `findUnique({ organizationId_xxx })` 대신 **`findFirst({ where: { ..., isDeleted: false } })`** 사용.
 
-Prisma `db:push` 재실행 시 full unique constraint 가 다시 생성 → 반드시 `npm run db:3layer-setup` 재실행 (스크립트는 idempotent: `DROP ... IF EXISTS` → `CREATE`).
+Prisma `db:push` 가 partial unique index 를 직접 생성/동기화한다. 같은 컬럼에 full unique 를 추가하지 않는다.
 
 ## Barcode 의미 분리 (R0)
 
@@ -204,14 +202,15 @@ HeartbeatRun 추가 필드:
 
 ## Organization Boundary
 
-- `Organization` 은 SaaS/customer workspace boundary 다. RLS, IDOR 방어, chatbot/read-only scope 의 기준 컬럼은 `organization_id`.
+- `Organization` 은 SaaS/customer workspace boundary 다. IDOR 방어와 backend application scope 의 기준 컬럼은 `organization_id`.
 - `OrganizationMembership` 이 사용자 소속과 조직 내 role 의 source of truth. `User.organizationId` 재도입 금지.
 - `LegalEntity` 는 세금계산서/정산/사업자등록 identity 를 나타내며 SaaS boundary 가 아니다.
 - `ChannelAccount` 는 쿠팡 Wing, 네이버 스마트스토어 같은 marketplace/store 계정을 나타내며 SaaS boundary 가 아니다.
 
-## RLS (Row Level Security)
+## Prisma-only boundary
 
-`chatbot_readonly` DB 유저에 `organization_id` 기반 행 필터 적용. 정책은 [`prisma/3layer-setup.sql`](3layer-setup.sql) 의 RLS 섹션이 source of truth — 새 organization-scoped 테이블 추가 시 해당 파일에 같은 패턴(`ENABLE ROW LEVEL SECURITY` + `CREATE POLICY ... USING (organization_id = current_setting('app.organization_id', true)::uuid)`) 으로 등록한다.
-- NestJS 서버 (`kiditem` 유저): 테이블 오너 → RLS 미적용 (코드에서 `where.organizationId` 명시 필터, `apps/server/AGENTS.md` 참고)
-- 챗봇/에이전트 (`chatbot_readonly`): RLS 적용 → 세션변수 `app.organization_id`로 자동 필터
-- 검증: `SELECT tablename FROM pg_policies WHERE schemaname='public' ORDER BY tablename;` 으로 정책 등록 테이블 확인 가능.
+DB schema 는 Prisma-only 다. RLS, CHECK constraint, expression index, standalone sequence 를 장기 SQL overlay 로 유지하지 않는다.
+- Tenant isolation: NestJS controller/guard 가 `@CurrentOrganization()` 을 해석하고 application service / repository adapter 가 `where.organizationId` 로 강제한다.
+- Chatbot/agent: DB role 로 직접 접속하지 않는다. 서버가 제공한 organization-scoped context 또는 application port 를 통해서만 데이터에 접근한다.
+- Value constraints: native enum/CHECK 대신 DTO validation, Zod/shared schemas, domain policy 로 검증한다.
+- Computed lookup needs: JSONB expression index 대신 정규 컬럼 + Prisma `@@index` 로 승격한다.

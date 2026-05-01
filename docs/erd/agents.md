@@ -123,6 +123,7 @@ erDiagram
     String source
     String triggerDetail
     String reason
+    String legacyTaskId
     Json payload
     String status
     Int coalescedCount

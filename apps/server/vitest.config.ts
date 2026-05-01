@@ -9,6 +9,7 @@ export default defineConfig({
       // Resolve @kiditem/shared from the worktree's local source (not root node_modules)
       // Required for git-worktree setups where node_modules symlink points to main branch
       { find: /^@kiditem\/shared$/, replacement: path.resolve(sharedSrc, 'index.ts') },
+      { find: /^@kiditem\/shared\/errors$/, replacement: path.resolve(sharedSrc, 'errors/index.ts') },
       { find: /^@kiditem\/shared\/security$/, replacement: path.resolve(sharedSrc, 'security/index.ts') },
       { find: /^@kiditem\/shared\/panel$/, replacement: path.resolve(sharedSrc, 'panel/index.ts') },
       { find: /^@kiditem\/shared\/([^/]+)$/, replacement: path.resolve(sharedSrc, '$1.ts') },

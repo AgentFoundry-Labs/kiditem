@@ -66,7 +66,7 @@ const MOCK_DEF = {
   type: 'ad_strategy',
   name: '광고 전략 에이전트',
   promptTemplate: 'Task: {{task_id}}',
-  allowedTools: 'Bash(psql:*) Read',
+  allowedTools: 'Read',
   permissionMode: 'bypassPermissions',
   adapterType: 'claude_local',
   adapterConfig: {},

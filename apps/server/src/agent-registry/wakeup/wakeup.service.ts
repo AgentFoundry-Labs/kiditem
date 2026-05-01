@@ -28,6 +28,10 @@ export class WakeupService {
     requestedByType?: string;
     requestedById?: string;
   }) {
+    const legacyTaskId = typeof input.payload?._legacy_task_id === 'string'
+      ? input.payload._legacy_task_id
+      : undefined;
+
     // Coalescing: 같은 에이전트의 queued 요청이 있으면 카운트만 증가
     const existing = await this.prisma.agentWakeupRequest.findFirst({
       where: {
@@ -44,6 +48,7 @@ export class WakeupService {
         data: {
           coalescedCount: { increment: 1 },
           reason: input.reason ?? existing.reason,
+          legacyTaskId: legacyTaskId ?? existing.legacyTaskId,
           payload: input.payload ?? (existing.payload as any),
         },
       });
@@ -57,6 +62,7 @@ export class WakeupService {
         organization: { connect: { id: input.organizationId } },
         source: input.source,
         reason: input.reason,
+        legacyTaskId,
         payload: input.payload as any,
         triggerDetail: input.triggerDetail,
         requestedByType: input.requestedByType,

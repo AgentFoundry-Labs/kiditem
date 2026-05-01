@@ -15,6 +15,7 @@
 | ChannelListing | `channel_listings` | 채널에 올라간 판매 등록상품. 쿠팡 등록상품ID, 네이버 상품번호 등. |
 | ChannelListingOption | `channel_listing_options` | 채널 listing 내 옵션 externalOptionId 와 내부 ProductOption 매핑. |
 | LegalEntity | `legal_entities` | Legal/business entity under an organization. This stores tax, invoice, and settlement identity separately from the SaaS organization boundary. |
+| MasterCodeCounter | `master_code_counters` | MasterProduct.code allocator. Prisma-owned replacement for the former PostgreSQL sequence. |
 | MasterProduct | `master_products` | 기획상품 family. 같은 컨셉의 옵션들을 묶는 entity. 운영/광고/전략 단위. |
 | MasterProductImage | `master_product_images` | MasterProduct 이미지 갤러리. Source of truth 이며 MasterProduct.imageUrl 은 대표 이미지 캐시로만 동기화된다. |
 | Organization | `organizations` | - |
@@ -105,6 +106,11 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  MasterCodeCounter {
+    String key PK
+    Int value
+    DateTime updatedAt
+  }
   MasterProduct {
     String id PK
     String organizationId FK
@@ -185,7 +191,7 @@ erDiagram
   }
   ProductOption {
     String id PK
-    String masterId FK
+    String masterId FK,UK
     String organizationId FK
     String sku UK
     String barcode
@@ -225,7 +231,7 @@ erDiagram
   ChannelListing ||--o{ ChannelListingOption : "listing"
   MasterProduct ||--o{ ChannelListing : "master"
   MasterProduct ||--o{ MasterProductImage : "master"
-  MasterProduct ||--o{ ProductOption : "master"
+  MasterProduct ||--|| ProductOption : "master"
   Organization ||--o{ BundleComponent : "organization"
   Organization ||--o{ CategoryMapping : "organization"
   Organization ||--o{ ChannelAccount : "organization"
