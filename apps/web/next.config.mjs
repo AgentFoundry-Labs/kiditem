@@ -3,6 +3,7 @@ const nextConfig = {
   transpilePackages: ['@kiditem/templates'],
   experimental: {
     optimizePackageImports: ['lucide-react', 'recharts'],
+    turbopackFileSystemCacheForDev: false,
   },
 };
 

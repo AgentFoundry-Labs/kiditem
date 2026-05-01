@@ -1,15 +1,19 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import * as Icons from 'lucide-react';
-import type { LucideProps } from 'lucide-react';
-import type { ForwardRefExoticComponent, RefAttributes } from 'react';
+import { Bot, Box, Image, Workflow } from 'lucide-react';
 import { PANEL_RUN_SOURCES } from '@kiditem/shared/panel';
-import type { PanelItem, PanelRunItem } from '@kiditem/shared/panel';
 import { cn } from '@/lib/utils';
 import { PanelAlertRow } from './PanelAlertRow';
+import type { LucideIcon } from 'lucide-react';
+import type { PanelItem, PanelRunItem } from '@kiditem/shared/panel';
 
-type LucideIcon = ForwardRefExoticComponent<Omit<LucideProps, 'ref'> & RefAttributes<SVGSVGElement>>;
+const PANEL_ICONS: Record<string, LucideIcon> = {
+  Bot,
+  Box,
+  Image,
+  Workflow,
+};
 
 export function PanelItemRow({ item }: { item: PanelItem }) {
   if (item.kind === 'run') return <RunRow item={item} />;
@@ -20,8 +24,7 @@ export function PanelItemRow({ item }: { item: PanelItem }) {
 function RunRow({ item }: { item: PanelRunItem }) {
   const router = useRouter();
   const meta = PANEL_RUN_SOURCES[item.source];
-  // Icon lookup: cast via unknown to avoid LucideProps vs IconComponentProps mismatch
-  const IconComponent = ((Icons as unknown as Record<string, LucideIcon>)[meta.iconName] ?? Icons.Box) as LucideIcon;
+  const IconComponent = PANEL_ICONS[meta.iconName] ?? Box;
 
   return (
     <button
