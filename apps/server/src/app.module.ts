@@ -26,6 +26,7 @@ import { AdvertisingModule } from './advertising/advertising.module';
 import { FeatureGateModule } from './feature-gate/feature-gate.module';
 import { ChatModule } from './chat/chat.module';
 import { UploadsModule } from './uploads/uploads.module';
+import { ReadinessModule } from './readiness/readiness.module';
 
 @Module({
   imports: [
@@ -58,6 +59,7 @@ import { UploadsModule } from './uploads/uploads.module';
     AdvertisingModule,
     ChatModule,
     UploadsModule,
+    ReadinessModule,
   ],
   providers: [
     // 가드 실행 순서 (providers 선언 순서 = 평가 순서):

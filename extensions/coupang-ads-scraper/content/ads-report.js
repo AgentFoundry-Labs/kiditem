@@ -39,6 +39,20 @@
   function guessPageType(headers = []) {
     const lowerHeaders = headers.map((header) => normalizeKey(header));
     const url = window.location.href.toLowerCase();
+    if (url.includes("/marketing/campaign/type") || url.includes("/marketing/campaign/registration")) {
+      return "campaign_registration";
+    }
+    if (url.includes("product")) return "product";
+    if (
+      lowerHeaders.some((header) =>
+        header.includes("광고상품") ||
+        header.includes("상품명") ||
+        header === "상품" ||
+        header.includes("product")
+      )
+    ) {
+      return "product";
+    }
     if (url.includes("keyword")) return "keyword";
     if (lowerHeaders.some((header) => header.includes("키워드") || header.includes("입찰가"))) return "keyword";
     return "campaign";
@@ -64,6 +78,7 @@
     // 1) React-Table v6 (쿠팡 광고 상세 product 테이블 + 대시보드 캠페인 테이블).
     //    DOM: .pagination-bottom input[aria-label="jump to page"] (현재 페이지 number input)
     //         + .pagination-bottom .-totalPages (총 페이지 수 span).
+    //    Playwriter 로 확인: 5/26 시점 기준 두 선택자 모두 명확히 존재.
     //    이전: input[aria-label*='페이지'] 한국어 폴백 + (\d+)/(\d+) 정규식 — 쿠팡 페이지는
     //    aria-label="jump to page" (영문) + 텍스트가 "페이지  / 2" (왼쪽 숫자 없이 input 안에 있음)
     //    → 정규식 미스 → totalPages=1 로 기본값 → product 페이지 2 누락.
@@ -434,15 +449,15 @@
     return { period, periodLabel, dateFrom, dateTo };
   }
 
-  // URL hash/query에서 targetDate=YYYY-MM-DD 읽기 — 일별 백필 배치 모드 트리거.
-  function getTargetDateFromUrl() {
-    const locationFlags = `${window.location.search || ""}&${(window.location.hash || "").replace(/^#/, "")}`;
-    const match = locationFlags.match(/targetDate=(\d{4}-\d{2}-\d{2})/);
+  // URL hash에서 #targetDate=YYYY-MM-DD 읽기
+  function getTargetDateFromHash() {
+    const hash = window.location.hash || "";
+    const match = hash.match(/targetDate=(\d{4}-\d{2}-\d{2})/);
     return match ? match[1] : null;
   }
 
-  // "최근 7일" 기간 프리셋 버튼 클릭 — 캠페인 상세 진입 시 기본 기간 보정.
-  // TODO: Playwright 로 실제 셀렉터 확인 후 교체 — 현재는 텍스트 매칭 휴리스틱.
+  // "최근 7일" 기간 프리셋 버튼 클릭
+  // TODO: Playwriter로 실제 셀렉터 확인 후 교체 — 현재는 텍스트 매칭 휴리스틱
   async function ensureLast7Days() {
     const { dateFrom, dateTo, periodLabel } = detectPeriod();
     if (periodLabel && periodLabel.includes("7일")) return true;
@@ -461,7 +476,8 @@
     return true;
   }
 
-  // 페이지네이션: 다음 페이지 버튼 클릭 후 테이블 재로딩 대기.
+  // 페이지네이션: 다음 페이지 버튼 클릭 후 테이블 재로딩 대기
+  // TODO: Playwriter로 실제 "다음" 버튼 셀렉터 확인 후 교체
   async function goToNextPage() {
     // 1) React-Table v6 — 쿠팡 광고센터의 product/캠페인 테이블 다음 버튼은
     //    button.-btn (innerText="Next") inside div.-next inside .pagination-bottom.
@@ -506,7 +522,7 @@
     return true;
   }
 
-  // 날짜 피커를 특정 날짜로 설정 — 단일일자 백필용.
+  // 날짜 피커를 특정 날짜로 설정.
   // 쿠팡 광고 대시보드는 AntD range calendar. 트리거 → popup → 좌측 패널 월 네비 → 날짜 셀 두 번 클릭 → 적용.
   async function setDateRange(ymd) {
     const [targetY, targetM, targetD] = ymd.split("-").map((v) => parseInt(v, 10));
@@ -544,7 +560,7 @@
       return false;
     }
 
-    // 3) 좌측 패널 year/month 를 타겟으로 네비게이션
+    // 3) 좌측 패널 year/month를 타겟으로 네비게이션
     const readHeader = () => {
       const y = parseInt(left.querySelector(".ant-calendar-year-select")?.textContent?.replace(/[^\d]/g, "") || "0", 10);
       const m = parseInt(left.querySelector(".ant-calendar-month-select")?.textContent?.replace(/[^\d]/g, "") || "0", 10);
@@ -615,20 +631,16 @@
     return true;
   }
 
-  // 안전 상한 — 한 번에 50 페이지까지만 순회. 캠페인 detail 페이지 평균이 1~10p 라
-  // 50 은 충분한 여유 + 폭주 방지.
-  const MAX_PAGES_PER_SYNC = 50;
-
   async function doSync() {
-    // hash 에 targetDate 가 있으면 먼저 날짜 피커 설정 (일별 백필 배치 모드)
-    const targetDate = getTargetDateFromUrl();
+    // hash에 targetDate가 있으면 먼저 날짜 피커 설정
+    const targetDate = getTargetDateFromHash();
     if (targetDate) {
       showBadge(`📅 ${targetDate} 날짜 설정 중...`, "#6366f1");
       const ok = await setDateRange(targetDate);
       if (!ok) {
         // 날짜 설정 실패 시 7일 기본값으로 저장하면 일별 집계와 섞여 중복 계산됨. 차라리 중단.
         showBadge(`❌ ${targetDate} 날짜 피커 설정 실패 — 수집 중단 (7일치 오염 방지)`, "#ef4444");
-        return { success: false, reason: "date_picker_failed", targetDate };
+        return { success: false, reason: 'date_picker_failed', targetDate };
       }
       await sleep(1500);
     } else {
@@ -641,29 +653,29 @@
     const campaignName = detectCampaignName();
     let { period, periodLabel, dateFrom, dateTo } = detectPeriod();
 
-    // targetDate 해시가 있으면 "그 하루치"를 수집하는 배치 모드 — period 를 '1d'로 강제.
+    // targetDate 해시가 있으면 "그 하루치"를 수집하는 배치 모드 — period를 '1d'로 강제.
     // 서버는 일별 스냅샷(period='1d')만 합산해 월간 KPI를 만들기 때문에, 7d/30d 누적값이 섞이면 중복 집계됨.
     if (targetDate) {
-      period = "1d";
+      period = '1d';
       dateFrom = targetDate;
       dateTo = targetDate;
     }
 
     // 1페이지 파싱
-    const firstPage = parseCampaignTable();
+    let firstPage = parseCampaignTable();
     const aggregatedRaw = [...firstPage.rawRows];
     const aggregatedNormalized = [...firstPage.normalizedRows];
     const headers = firstPage.headers;
     const pageType = firstPage.pageType;
     const pagination = parsePaginationInfo();
-    const totalPages = Math.min(pagination.totalPages || 1, MAX_PAGES_PER_SYNC);
+    const totalPages = Math.min(pagination.totalPages || 1, 50); // 안전 상한 50
 
-    // 페이지 순회 — dedupe 는 externalId 기준 (동일 row 중복 적재 방지)
+    // 페이지 순회 — dedupe는 externalId 기준
     const seenIds = new Set(aggregatedNormalized.map((r) => r.externalId));
     let currentPage = pagination.currentPage || 1;
     let safetyBreak = 0;
 
-    while (currentPage < totalPages && safetyBreak < MAX_PAGES_PER_SYNC) {
+    while (currentPage < totalPages && safetyBreak < 50) {
       safetyBreak++;
       showBadge(`📄 페이지 ${currentPage + 1}/${totalPages} 수집 중...`, "#6366f1");
       const moved = await goToNextPage();
@@ -696,7 +708,7 @@
         campaignName,
         period,
         periodLabel,
-        // 서버 DTO 가 startDate/endDate 를 기대 (whitelist 로 dateFrom/dateTo 만으로는 일부 경로 drop).
+        // 서버 DTO 가 startDate/endDate 를 기대 (whitelist 로 dateFrom/dateTo 는 drop).
         // 일별 적재의 핵심 필드 — 누락 시 모든 데이터가 today 로 저장되어 readiness 일별 카운트가 깨진다.
         startDate: dateFrom,
         endDate: dateTo,
@@ -792,11 +804,201 @@
   }
 
   async function reportAction(apiUrl, action, type, payload) {
+    const token = await new Promise((resolve) => {
+      try {
+        chrome.storage.local.get(["kiditem_auth_token"], (r) => resolve(r.kiditem_auth_token || null));
+      } catch {
+        resolve(null);
+      }
+    });
+    const headers = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
     await fetch(apiUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({ action: type, id: action.id, ...payload }),
     });
+  }
+
+  async function fetchApprovedQueuedActions(limit = 20) {
+    const token = await new Promise((resolve) => {
+      try {
+        chrome.storage.local.get(["kiditem_auth_token"], (r) => resolve(r.kiditem_auth_token || null));
+      } catch {
+        resolve(null);
+      }
+    });
+    const headers = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const res = await fetch(`${SERVER}/api/ads/actions?approvalStatus=approved&executeStatus=queued&limit=${limit}`, { headers });
+    if (!res.ok) throw new Error(`승인 액션 조회 실패: ${res.status}`);
+    const json = await res.json();
+    return Array.isArray(json.items) ? json.items : [];
+  }
+
+  function findClickableByText(patterns, root = document) {
+    const nodes = Array.from(root.querySelectorAll("button, a, [role='button'], [role='tab']"));
+    return nodes.find((node) => {
+      const text = normalizeText(node.innerText || node.textContent).toLowerCase();
+      return patterns.some((pattern) => text.includes(pattern));
+    }) || null;
+  }
+
+  function setRadioValue(value) {
+    const input = document.querySelector(`input[type="radio"][value="${value}"]`);
+    if (!input) return false;
+    input.click();
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    return true;
+  }
+
+  async function waitForUrlIncludes(part, timeoutMs = 8000) {
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      if (window.location.href.includes(part)) return true;
+      await sleep(250);
+    }
+    return false;
+  }
+
+  async function waitForSelector(selector, timeoutMs = 8000) {
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      const el = document.querySelector(selector);
+      if (el) return el;
+      await sleep(250);
+    }
+    return null;
+  }
+
+  async function ensureCampaignRegistrationPage() {
+    if (window.location.href.includes("/marketing/campaign/registration")) return;
+
+    if (!window.location.href.includes("/marketing/campaign/type")) {
+      showBadge("🟦 광고 만들기 버튼 찾는 중...", "#60a5fa");
+      const addButton = findClickableByText(["캠페인 추가", "광고 만들기"]);
+      if (!addButton) throw new Error("광고 만들기/캠페인 추가 버튼을 찾지 못했습니다.");
+      addButton.click();
+      await sleep(800);
+      await waitForUrlIncludes("/marketing/campaign/type", 8000);
+    }
+
+    if (window.location.href.includes("/marketing/campaign/type")) {
+      showBadge("🟦 광고 목표 선택 후 다음 단계 이동...", "#60a5fa");
+      const nextButton = findClickableByText(["다음"]);
+      if (!nextButton) throw new Error("광고 목표 선택 화면의 다음 버튼을 찾지 못했습니다.");
+      nextButton.click();
+      const ok = await waitForUrlIncludes("/marketing/campaign/registration", 10000);
+      if (!ok) throw new Error("광고 등록 화면으로 이동하지 못했습니다.");
+    }
+  }
+
+  function findCampaignInput(placeholder) {
+    return Array.from(document.querySelectorAll("input")).find((input) =>
+      normalizeText(input.getAttribute("placeholder")).includes(placeholder),
+    ) || null;
+  }
+
+  async function searchAndSelectProduct(listing) {
+    const label = normalizeText(listing.label || listing.productName || listing.externalId || listing.listingId);
+    if (!label) return false;
+
+    const searchInput = findCampaignInput("판매 상품을 검색");
+    if (!searchInput) throw new Error("광고 상품 검색 입력창을 찾지 못했습니다.");
+
+    setNativeValue(searchInput, label);
+    searchInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    searchInput.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", bubbles: true }));
+
+    const searchButton = searchInput.closest("div")?.querySelector("button, [role='button']");
+    if (searchButton) searchButton.click();
+
+    await sleep(1500);
+
+    const needle = label.toLowerCase();
+    const rows = Array.from(document.querySelectorAll('li[data-bigfoot-component="vendor_item"]'));
+    const row = rows.find((item) => normalizeText(item.innerText).toLowerCase().includes(needle)) || rows[0];
+    if (!row) return false;
+
+    const selectButton = findClickableByText(["상품 선택"], row);
+    if (!selectButton) return false;
+    selectButton.click();
+    await sleep(700);
+    return true;
+  }
+
+  async function executeCreateCampaign(action) {
+    const payload = action.payload || {};
+    const listings = Array.isArray(payload.listings) ? payload.listings : [];
+    if (listings.length === 0) {
+      return { success: false, errorMessage: "등록할 광고 상품이 없습니다. 전략 탭에서 상품이 포함된 캠페인을 다시 생성해주세요." };
+    }
+
+    await ensureCampaignRegistrationPage();
+
+    const campaignNameInput = findCampaignInput("캠페인 이름");
+    if (!campaignNameInput) throw new Error("캠페인 이름 입력창을 찾지 못했습니다.");
+    setNativeValue(campaignNameInput, payload.campaignName || action.targetLabel || "");
+
+    const adGroupInput = document.querySelector("#reg_ad_group_name") || findCampaignInput("그룹 이름");
+    if (!adGroupInput) throw new Error("광고 그룹 이름 입력창을 찾지 못했습니다.");
+    setNativeValue(adGroupInput, payload.adGroupName || `${payload.grade || "A"}등급_그룹`);
+
+    let selectedCount = 0;
+    for (const listing of listings.slice(0, 20)) {
+      if (await searchAndSelectProduct(listing)) selectedCount++;
+    }
+    if (selectedCount === 0) throw new Error("쿠팡 광고 상품을 선택하지 못했습니다.");
+
+    const operationMode = normalizeText(payload.operationMode);
+    if (operationMode.includes("직접")) {
+      setRadioValue("MANUAL");
+    } else {
+      setRadioValue("AUTO");
+      setRadioValue(operationMode.includes("매출스타트") ? "PRODUCT_TARGET_BUDGET" : "PRODUCT_TARGET_ROAS");
+    }
+    await sleep(500);
+
+    const budgetInput = document.querySelector('[data-testid="budget-input"]') || findCampaignInput("예)30,000");
+    if (!budgetInput) throw new Error("일예산 입력창을 찾지 못했습니다.");
+    setNativeValue(budgetInput, String(payload.dailyBudget || 30000));
+
+    const targetRoasInput = document.querySelector('[data-bigfoot-component="target_roas"] input[data-bigfoot-component="entry"]');
+    if (targetRoasInput && payload.targetRoas) setNativeValue(targetRoasInput, String(payload.targetRoas));
+
+    await sleep(500);
+    const completeButton = findClickableByText(["완료"]);
+    if (!completeButton) throw new Error("완료 버튼을 찾지 못했습니다.");
+    completeButton.click();
+    await sleep(1500);
+
+    const dialog = findDialog();
+    if (dialog) {
+      const confirmButton = findClickableByText(["등록", "확인", "완료"], dialog);
+      if (confirmButton) {
+        confirmButton.click();
+        await sleep(1500);
+      }
+    }
+
+    const bodyText = normalizeText(document.body.innerText);
+    if (/필수|선택해주세요|입력해주세요|오류|실패/.test(bodyText)) {
+      return {
+        success: false,
+        errorMessage: "쿠팡 광고 등록 폼 검증 메시지가 남아 있습니다.",
+        afterJson: { url: window.location.href, selectedCount },
+      };
+    }
+
+    return {
+      success: true,
+      afterJson: {
+        status: "submitted",
+        url: window.location.href,
+        selectedCount,
+        campaignName: payload.campaignName || action.targetLabel,
+      },
+    };
   }
 
   async function executePauseKeyword(action, row) {
@@ -836,6 +1038,13 @@
   }
 
   async function executeSingleAction(action, apiUrl) {
+    if (action.actionType === "create_campaign") {
+      await reportAction(apiUrl, action, "markRunning", {
+        beforeJson: { url: window.location.href, payload: action.payload || {} },
+      });
+      return executeCreateCampaign(action);
+    }
+
     const row = findTargetRow(action);
     if (!row) {
       return { success: false, errorMessage: `대상 행을 찾지 못했습니다: ${action.targetLabel}` };
@@ -861,6 +1070,7 @@
   async function executeApprovedActions(actions, apiUrl) {
     const pageType = guessPageType(parseCampaignTable().headers);
     const runnable = actions.filter((action) => {
+      if (action.actionType === "create_campaign") return true;
       const actionPageType = normalizeText(action?.payload?.pageType || action.targetType || "").toLowerCase();
       return !actionPageType || actionPageType.includes(pageType);
     });
@@ -898,38 +1108,522 @@
     return { success: true, executed, skipped };
   }
 
-  // auto-trigger + popup/manualSync can overlap on the same tab. Share one in-flight sync so
-  // targetDate backfills do not click the date picker twice or post duplicate payloads.
+  // ════════════════════════════════════════════════════════════════════
+  // Dashboard sweep — `#kiditemAdSync=1` 진입 시 운영중 캠페인 자동 순회
+  //
+  // 흐름:
+  //   1) 대시보드 진입 → 그리드 렌더 대기 (기본 7일 view 유지, 날짜 변경 금지)
+  //      ⚠ 대시보드 자체 날짜를 어제로 바꾸면 운영중 캠페인 행이 사라져서 sweep 큐가 비어버림
+  //   2) `.rt-tbody .rt-tr-group` 행 스캔 → cells[1]==='ON' 이고 cells[2] 가 "운영" 포함하는 캠페인 추출
+  //   3) 캠페인명 큐 보존 (DOM 떠나도 잃지 않게)
+  //   4) 큐 순회: 캠페인명 anchor 클릭 → 상세 페이지 (`/campaign/.../product`)
+  //      → 상세 페이지에서 setDateRange("어제") 적용 → parseCampaignTable
+  //      → syncToServer(period:'1d', campaignName, startDate=어제, endDate=어제)
+  //      → history.back() → 대시보드는 default 7d 유지 → 다음 캠페인
+  //
+  // SPA 라우팅이라 content script 인스턴스가 한 탭 내내 살아있는 점을 활용 (manifest match `*://*/*` 한 도메인).
+  // ════════════════════════════════════════════════════════════════════
+
+  function getYesterdayYmd() {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+
+  function isDashboardListPage() {
+    return /\/marketing\/dashboard\/sales(?:\/?$|\/?\?|\/?#)/.test(window.location.pathname + window.location.search + window.location.hash);
+  }
+
+  // 대시보드 그리드의 캠페인을 모두 뽑는다.
+  // - 이전: cells[1]==='ON' && /운영/.test(cells[2]) 로 strict 필터 → 컬럼 순서가
+  //   유저별로 다르거나 toggle 텍스트가 "켜짐" 같은 변형이면 누락. 한국 셀러가
+  //   "두 개만 들어온다" 고 한 케이스의 주 원인.
+  // - 변경: 캠페인명이 있는 모든 row 를 수집하고, 토글/상태 텍스트는 셀 전체에서
+  //   휴리스틱 검색. ON/OFF 판정은 toggle aria-checked / class / 텍스트 모두 시도.
+  // - 캠페인 상태(운영중/일시정지)는 보존만 하고 sweep 큐 진입 필터로 쓰지 않음
+  //   → 사용자가 "캠페인 모두 다" 요구. paused 도 광고 전략 분석용.
+  function listAllCampaignsFromDashboard() {
+    const grid = document.querySelector(".rt-table, [class*='rt-table'], [role='grid']");
+    if (!grid) return [];
+    const rowGroups = Array.from(grid.querySelectorAll(".rt-tbody .rt-tr-group"));
+    const out = [];
+    for (const rg of rowGroups) {
+      const cells = Array.from(rg.querySelectorAll("[role='gridcell']"));
+      if (cells.length === 0) continue;
+
+      // 캠페인명 — .dashboard-title (anchor 내부) 우선
+      const titleEl = rg.querySelector(".dashboard-title");
+      const name = normalizeText(titleEl?.innerText || cells[0]?.innerText || "");
+      if (!name) continue;
+
+      // ON/OFF 토글 — 어떤 셀이든 "ON"/"OFF" 텍스트 또는 ant-switch checked 속성으로 판정
+      let onOff = "";
+      for (const c of cells) {
+        const t = normalizeText(c.innerText || "").toUpperCase();
+        if (t === "ON" || t === "OFF") {
+          onOff = t;
+          break;
+        }
+        const sw = c.querySelector(".ant-switch, [role='switch']");
+        if (sw) {
+          const checked =
+            sw.getAttribute("aria-checked") === "true" ||
+            String(sw.className || "").includes("ant-switch-checked");
+          onOff = checked ? "ON" : "OFF";
+          break;
+        }
+      }
+
+      // 상태 — "운영", "중지", "일시 정지" 같은 키워드 포함 셀
+      let status = "";
+      for (const c of cells) {
+        const t = normalizeText(c.innerText || "");
+        if (/운영|중지|정지|준비|승인|대기/.test(t)) {
+          status = t;
+          break;
+        }
+      }
+
+      out.push({ name, onOff, status });
+    }
+    return out;
+  }
+
+  // 캠페인 상세 페이지 안의 product table 페이지네이션 — 페이지 1, 2, 3... 모든 상품 수집.
+  // 각 페이지마다 parseCampaignTable() 호출해 rawRows / normalizedRows 누적.
+  // dedupe key: 정규화된 row 의 productId 또는 첫 셀 텍스트.
+  async function parseAcrossProductPages() {
+    const allRaw = [];
+    const allNorm = [];
+    let chosenHeaders = [];
+    let chosenPageType = "";
+    const seenKeys = new Set();
+
+    const dedupKey = (raw) => {
+      // raw 는 원본 cell 텍스트들의 객체 — 가장 안정적인 ID 컬럼을 키로
+      if (!raw || typeof raw !== "object") return JSON.stringify(raw);
+      const candidates = ["상품ID", "옵션ID", "ID", "광고ID", "키워드", "상품명"];
+      for (const k of Object.keys(raw)) {
+        const lower = String(k).toLowerCase();
+        if (candidates.some((c) => k.includes(c) || lower.includes(c.toLowerCase()))) {
+          const v = String(raw[k] || "").trim();
+          if (v) return v;
+        }
+      }
+      return JSON.stringify(raw).slice(0, 200);
+    };
+
+    // safetyBreak: 캠페인 하나당 최대 8 페이지 (= 80 상품) 까지 순회.
+    //   이전 30 은 너무 관대해 — 실제 데이터는 4~5 페이지 max. 초과 시 sweep 흐름이
+    //   한 캠페인에서 5분 이상 멈춰 사용자가 "함수가 멈췄다" 인식.
+    let safetyBreak = 0;
+    while (safetyBreak++ < 8) {
+      const parsed = parseCampaignTable();
+      let pageNew = 0;
+      for (let i = 0; i < parsed.rawRows.length; i++) {
+        const raw = parsed.rawRows[i];
+        const norm = parsed.normalizedRows[i];
+        const key = dedupKey(raw);
+        if (seenKeys.has(key)) continue;
+        seenKeys.add(key);
+        allRaw.push(raw);
+        if (norm) allNorm.push(norm);
+        pageNew++;
+      }
+      if (parsed.headers.length > chosenHeaders.length) chosenHeaders = parsed.headers;
+      if (parsed.pageType && !chosenPageType) chosenPageType = parsed.pageType;
+      console.log("[KIDITEM page]", { iter: safetyBreak, rowsThisPage: parsed.rawRows.length, newAfterDedupe: pageNew, totalCollected: allRaw.length });
+
+      const pag = parsePaginationInfo();
+      if (!pag.totalPages || pag.totalPages <= 1) break;
+      if (pag.currentPage >= pag.totalPages) break;
+      if (pageNew === 0) break; // 페이지가 안 바뀌었거나 dedupe 100% — 무한 루프 방지
+
+      const moved = await goToNextPage();
+      if (!moved) break;
+      // product table re-render 대기 — 5초로 단축 (이전 10초). 5초 안에 안 채워지면 break.
+      // 이전: 10초 기다리고 newPag 검사로 break → 페이지 응답 느릴 때 매 페이지 11초 hang.
+      const start = Date.now();
+      while (Date.now() - start < 5000) {
+        const newPagInner = parsePaginationInfo();
+        if (newPagInner.currentPage > pag.currentPage) break; // 페이지 번호가 바뀌면 즉시 진행
+        await sleep(250);
+      }
+      await sleep(500);
+      const newPag = parsePaginationInfo();
+      if (newPag.currentPage <= pag.currentPage) break; // 진행 못 한 경우
+    }
+
+    return {
+      rawRows: allRaw,
+      normalizedRows: allNorm,
+      headers: chosenHeaders,
+      pageType: chosenPageType,
+    };
+  }
+
+  // 대시보드 그리드 렌더 대기 (rows + .dashboard-title 둘 다 채워질 때까지)
+  // 이전: rows.length > 0 만 보고 바로 통과 → row 가 mount 됐지만 .dashboard-title
+  // 이 아직 비어있는 짧은 시점에 listAllCampaignsFromDashboard 가 빈 배열 반환 → 외부
+  // 루프가 "더 처리할 캠페인 없음" 으로 판단하고 break 해버리는 race. .dashboard-title
+  // 셀에 텍스트가 들어올 때까지 추가 대기.
+  async function waitForDashboardGrid(timeoutMs = 15000) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const grid = document.querySelector(".rt-table, [class*='rt-table'], [role='grid']");
+      const rows = grid?.querySelectorAll(".rt-tbody .rt-tr-group") || [];
+      if (rows.length > 0) {
+        const titled = Array.from(rows).filter((r) => {
+          const t = r.querySelector(".dashboard-title");
+          return t && normalizeText(t.innerText || "").length > 0;
+        });
+        if (titled.length > 0) return true;
+      }
+      await sleep(300);
+    }
+    return false;
+  }
+
+  // 캠페인 상세 페이지 진입 대기 — "대시보드 list 가 아니다 + grid 가 채워졌다" 만 확인.
+  // 이전: URL 패턴 /campaign/X/group/Y/product 강제 + page-name 정확 일치 → AI스마트광고
+  // 등 다른 URL 패턴이거나 page-name 이 다르게 표기되면 timeout. 더 관대한 매칭으로 변경.
+  async function waitForCampaignDetailPage(expectedName, timeoutMs = 20000) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const onDashboardList = isDashboardListPage();
+      const grid = document.querySelector(".rt-table, [class*='rt-table'], [role='grid'], table");
+      const rtRows = grid?.querySelectorAll(".rt-tbody .rt-tr-group").length || 0;
+      const tableRows = grid?.querySelectorAll("tbody tr").length || 0;
+      const hasGrid = rtRows > 0 || tableRows > 0;
+      if (!onDashboardList && hasGrid) return true;
+      await sleep(300);
+    }
+    console.warn("[KIDITEM] waitForCampaignDetailPage timeout for", expectedName, "url:", window.location.href);
+    return false;
+  }
+
+  // 캠페인명으로 anchor 찾아 클릭 (DOM rebuild 가능성 → 매번 fresh lookup)
+  function clickCampaignAnchorByName(name) {
+    const grid = document.querySelector(".rt-table, [class*='rt-table'], [role='grid']");
+    if (!grid) return false;
+    const rowGroups = Array.from(grid.querySelectorAll(".rt-tbody .rt-tr-group"));
+    for (const rg of rowGroups) {
+      const titleEl = rg.querySelector(".dashboard-title");
+      if (!titleEl) continue;
+      if (normalizeText(titleEl.innerText) === name) {
+        const anchor = titleEl.closest("a");
+        if (anchor) {
+          anchor.click();
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  // sessionStorage-backed seen — content script 가 reload 돼도 sweep 이어서 진행.
+  // 이전: 매 reload 마다 seen=[] 으로 시작 → 같은 첫 N 개만 처리되는 무한 루프 위험.
+  const SEEN_KEY = "kiditem_ad_sweep_seen_v1";
+  const PROGRESS_KEY = "kiditem_ad_sweep_progress_v1";
+  function loadSeen() {
+    try {
+      const raw = sessionStorage.getItem(SEEN_KEY);
+      return new Set(raw ? JSON.parse(raw) : []);
+    } catch {
+      return new Set();
+    }
+  }
+  function saveSeen(seen) {
+    try {
+      sessionStorage.setItem(SEEN_KEY, JSON.stringify([...seen]));
+    } catch {}
+  }
+  function clearSweepState() {
+    try {
+      sessionStorage.removeItem(SEEN_KEY);
+      sessionStorage.removeItem(PROGRESS_KEY);
+    } catch {}
+  }
+  function loadProgress() {
+    try {
+      const raw = sessionStorage.getItem(PROGRESS_KEY);
+      return raw ? JSON.parse(raw) : { synced: 0, failed: 0, totalRows: 0, errors: [] };
+    } catch {
+      return { synced: 0, failed: 0, totalRows: 0, errors: [] };
+    }
+  }
+  function saveProgress(p) {
+    try {
+      sessionStorage.setItem(PROGRESS_KEY, JSON.stringify(p));
+    } catch {}
+  }
+
+  async function runDashboardSweep() {
+    if (!isDashboardListPage()) {
+      return { success: false, error: "대시보드 페이지가 아닙니다", url: window.location.href };
+    }
+
+    const yesterday = getYesterdayYmd();
+    const resumeSeen = loadSeen();
+    const resumeProgress = loadProgress();
+    if (resumeSeen.size > 0) {
+      showBadge(`▶️ 이어서 동기화 — ${yesterday} (${resumeSeen.size}개 완료, 이어서 진행)`, "#6366f1");
+    } else {
+      showBadge(`🔄 광고 동기화 시작 — ${yesterday}`, "#6366f1");
+    }
+
+    // 1) 대시보드 그리드 렌더 대기 (기본 7일 상태 유지 — 날짜 변경 금지)
+    //    이유: 대시보드에서 setDateRange(어제) 하면 운영중 캠페인 행이 사라져서 sweep 자체가 빈 큐로 끝남.
+    //    날짜 변경은 각 캠페인 상세 페이지에 진입한 뒤에 수행한다.
+    if (!(await waitForDashboardGrid(15000))) {
+      showBadge("❌ 캠페인 목록 로드 실패", "#ef4444");
+      return { success: false, error: "dashboard grid not loaded" };
+    }
+    // 그리드 첫 행 mount 직후 onOff/status 셀이 늦게 채워지는 케이스 대응
+    await sleep(1200);
+
+    // 2) 모든 캠페인 sweep — 페이지별 interleaved 처리.
+    //    이유: pre-collection 후 per-campaign 처리하면 history.back() 이 어느 페이지로
+    //    돌려놓을지 보장 못 함 (Coupang dashboard SPA 가 페이지 state 를 항상 보존하지
+    //    않음). page-by-page 처리 + seen 셋으로 dedupe → 어떤 페이지로 떨어져도 중복
+    //    수집 없이 진행.
+    let synced = resumeProgress.synced || 0;
+    let failed = resumeProgress.failed || 0;
+    let totalRows = resumeProgress.totalRows || 0;
+    const errors = Array.isArray(resumeProgress.errors) ? [...resumeProgress.errors] : [];
+    const seen = resumeSeen; // 처리 완료된 캠페인명 (sessionStorage 영속)
+    let totalDiscovered = seen.size; // 진행률 표시용 — resume 시 이어서 카운트
+
+    let pageGuard = 0;
+    while (pageGuard++ < 100) {
+      // 현재 페이지 캠페인 중 아직 처리 안 한 것
+      // 첫 진입 후 history.back 으로 돌아왔을 때 행은 mount 됐지만 .dashboard-title
+      // 이 비어있는 짧은 race 가 있어 retry 로 보강.
+      let pageCamps = listAllCampaignsFromDashboard().filter((c) => !seen.has(c.name));
+      let allCampsOnPage = listAllCampaignsFromDashboard();
+      if (pageCamps.length === 0 && allCampsOnPage.length === 0) {
+        // grid 자체가 늦게 채워지는 케이스 — 최대 6초 추가 대기
+        for (let r = 0; r < 12 && allCampsOnPage.length === 0; r++) {
+          await sleep(500);
+          allCampsOnPage = listAllCampaignsFromDashboard();
+        }
+        pageCamps = allCampsOnPage.filter((c) => !seen.has(c.name));
+      }
+      const pag = parsePaginationInfo();
+      console.log("[KIDITEM sweep]", { iter: pageGuard, currentPage: pag.currentPage, totalPages: pag.totalPages, pageCamps: pageCamps.length, totalOnPage: allCampsOnPage.length, seen: seen.size });
+
+      if (pageCamps.length === 0) {
+        // 현재 페이지에서 더 처리할게 없음 → 다음 페이지로
+        if (!pag.totalPages || pag.totalPages <= 1) break;
+        if (pag.currentPage >= pag.totalPages) break;
+        const moved = await goToNextPage();
+        if (!moved) break;
+        await waitForDashboardGrid(15000);
+        await sleep(800);
+        continue;
+      }
+
+      // 첫 미처리 캠페인 1개 처리 (한 번에 한 개씩 — anchor 클릭 후 SPA 네비)
+      const camp = pageCamps[0];
+      seen.add(camp.name);
+      saveSeen(seen); // 클릭 직전 영속 — reload 돼도 이 캠페인은 skip
+      totalDiscovered++;
+      const i = totalDiscovered;
+      showBadge(`📥 [${i}] ${camp.name} 진입 중... (page ${pag.currentPage}/${pag.totalPages || 1})`, "#f59e0b");
+
+      // 2a) anchor 클릭 — 동일 인스턴스 SPA 라우팅
+      const clicked = clickCampaignAnchorByName(camp.name);
+      if (!clicked) {
+        failed++;
+        errors.push({ name: camp.name, error: "anchor not found" });
+        saveProgress({ synced, failed, totalRows, errors });
+        continue;
+      }
+
+      // 2b) 상세 페이지 + 그리드 렌더 대기
+      const detailOk = await waitForCampaignDetailPage(camp.name, 20000);
+      if (!detailOk) {
+        failed++;
+        errors.push({ name: camp.name, error: "detail page load timeout" });
+        saveProgress({ synced, failed, totalRows, errors });
+        try { history.back(); } catch {}
+        await waitForDashboardGrid(15000);
+        await sleep(800);
+        continue;
+      }
+
+      // 2c) 상세 페이지에서 날짜 picker 를 "어제" 단일일자로 설정 — OFF 캠페인은 skip
+      //   OFF 인 캠페인은 어제 데이터가 0 인 게 자명 + 날짜 picker rendering 이 느림
+      //   → setDateRange 가 실패하거나 5초+a 잡아먹어 sweep 전체 hang 인식. 그냥 7d 기본
+      //   그대로 두고 KPI 0 으로 sync (서버는 OFF 캠페인 등록 자체가 목적).
+      const isOffCampaign = (camp.onOff || "").toUpperCase() === "OFF";
+      let dateOk = true;
+      if (!isOffCampaign) {
+        showBadge(`📅 [${i}] ${camp.name} — ${yesterday} 적용 중...`, "#6366f1");
+        dateOk = await setDateRange(yesterday);
+      } else {
+        console.log("[KIDITEM sweep] skip setDateRange (OFF campaign)", camp.name);
+      }
+      if (!dateOk) {
+        failed++;
+        errors.push({ name: camp.name, error: "date_picker_failed" });
+        saveProgress({ synced, failed, totalRows, errors });
+        try { history.back(); } catch {}
+        await waitForDashboardGrid(15000);
+        await sleep(800);
+        continue;
+      }
+      if (!isOffCampaign) await sleep(2000);
+
+      // 2d) parseAcrossProductPages — 캠페인 상세 페이지의 모든 product page (1, 2, 3...) 순회
+      //     이전: parseCampaignTable() 1회 호출 → 첫 10개만 수집. "페이지 1/2" 인 경우
+      //     2번째 페이지의 상품 누락. 광고 전략 분석에 치명적.
+      showBadge(`📊 [${i}] ${camp.name} 수집 중...`, "#f59e0b");
+      const parsed = await parseAcrossProductPages();
+      const kpis = parseAdKpis();
+      const rowCount = parsed.normalizedRows.length;
+      console.log("[KIDITEM sweep] parsed campaign", camp.name, { rows: parsed.rawRows.length, normalizedRows: rowCount });
+
+      // 사용자 요구: 데이터(rows/kpis) 가 0 이라도 캠페인 자체는 등록되어야 함.
+      //   "쿠팡이랑 똑같이 동기화하라고 했잖아 데이터가 없어도 만들고"
+      // 이전: rowCount===0 && kpis 비면 skip → OFF 캠페인 + 광고센터 KPI widget 못 읽은 케이스
+      //   완전히 누락. 항상 syncToServer 호출하고 서버가 level='campaign' 빈 row 만들도록 위임.
+      const json = await syncToServer({
+        type: "ad_campaign",
+        source: "advertising",
+        campaignName: camp.name,
+        period: "1d",
+        periodLabel: "어제",
+        startDate: yesterday,
+        endDate: yesterday,
+        dateFrom: yesterday,
+        dateTo: yesterday,
+        data: parsed.rawRows.length > 0 ? parsed.rawRows : [{ _kpiOnly: true }],
+        normalizedRows: parsed.normalizedRows,
+        headers: parsed.headers,
+        pageType: parsed.pageType,
+        kpis,
+        dashboardOnOff: camp.onOff,
+        dashboardStatus: camp.status,
+        url: window.location.href,
+        title: document.title,
+        timestamp: new Date().toISOString(),
+      });
+      if (json?.success) {
+        synced++;
+        totalRows += rowCount;
+        showBadge(`✓ [${i}] ${camp.name} — ${rowCount}행 동기화 (총 ${synced} 캠페인)`, "#22c55e");
+      } else {
+        failed++;
+        errors.push({ name: camp.name, error: json?.error || "sync 실패" });
+      }
+      saveProgress({ synced, failed, totalRows, errors });
+
+      // 2e) 대시보드로 복귀 — 어느 페이지로 떨어지든 OK (seen 셋이 dedupe)
+      try { history.back(); } catch {}
+      const backOk = await waitForDashboardGrid(15000);
+      if (!backOk) {
+        // sessionStorage 에 seen + progress 남아있으니 reload 후 이어서 진행
+        showBadge(`🔁 dashboard 복귀 실패 — 새로고침 후 이어서 진행 (${synced}/${totalDiscovered})`, "#f59e0b");
+        window.location.href = "https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1";
+        return { success: false, error: "dashboard 복귀 실패 — 페이지 새로고침", synced, failed, totalRows };
+      }
+      await sleep(1000);
+    }
+
+    if (totalDiscovered === 0) {
+      clearSweepState();
+      showBadge("ℹ️ 캠페인 없음 — 동기화 종료", "#94a3b8");
+      return { success: true, type: "ad_sync", campaigns: 0, totalRows: 0 };
+    }
+
+    // sweep 정상 완료 — sessionStorage 비워서 다음 sync 가 처음부터 시작.
+    clearSweepState();
+
+    const summary = `✅ 동기화 완료 — ${synced}/${totalDiscovered} 캠페인 (총 ${totalRows}행)`;
+    showBadge(summary, failed > 0 ? "#f59e0b" : "#22c55e");
+
+    return {
+      success: failed === 0,
+      type: "ad_sync",
+      campaigns: synced,
+      failed,
+      totalRows,
+      errors: errors.length > 0 ? errors : undefined,
+    };
+  }
+
+  // doSync / runDashboardSweep 중복 실행 방지 — auto-trigger + manualSync 동시 시 같은 Promise 공유
   let currentSync = null;
   function runSyncOnce() {
     if (!currentSync) {
-      currentSync = doSync().finally(() => {
+      // hash 기반 모드 분기. #kiditemAdSync=1 이면 sweep, 아니면 단일 페이지 doSync.
+      const isAdSync = /#kiditemAdSync=1/.test(window.location.hash || "");
+      const job = isAdSync ? runDashboardSweep() : doSync();
+      currentSync = job.finally(() => {
         currentSync = null;
       });
     }
     return currentSync;
   }
 
-  // Normal ad pages are synced from the popup/service-worker manualSync path. Hash/query targetDate
-  // is the batch backfill mode and should run automatically, then let the service worker close the tab.
-  const isBatchBackfillMode = /targetDate=\d{4}-\d{2}-\d{2}/.test(
-    `${window.location.search || ""}&${(window.location.hash || "").replace(/^#/, "")}`,
-  );
-  if (isBatchBackfillMode) {
-    setTimeout(() => {
-      runSyncOnce().then((result) => {
+  let currentActionExecution = null;
+  function runApprovedActionsOnce() {
+    if (!currentActionExecution) {
+      currentActionExecution = fetchApprovedQueuedActions(20)
+        .then((actions) => {
+          if (actions.length === 0) {
+            showBadge("ℹ️ 실행할 승인 액션이 없습니다.", "#94a3b8");
+            return { success: true, executed: 0, skipped: 0 };
+          }
+          return executeApprovedActions(actions, `${SERVER}/api/ads/actions`);
+        })
+        .finally(() => {
+          currentActionExecution = null;
+        });
+    }
+    return currentActionExecution;
+  }
+
+  // URL flag 기반 자동 모드.
+  // 주의: 플래그가 없으면 자동 수집을 돌리지 않는다. 광고 등록 OAuth/login redirect 중
+  // hash 가 사라진 뒤 dashboard 로 돌아왔을 때 공지사항/대시보드 수집이 잘못 시작되는 문제 방지.
+  // - #targetDate=YYYY-MM-DD : 단일 페이지 단일 날짜 수집 (legacy)
+  // - #kiditemAdSync=1       : 대시보드 sweep (운영중 캠페인 일괄)
+  // - kiditemExecuteActions=1: 승인된 광고 액션 자동 실행
+  const hrefForMode = `${window.location.search || ""}${window.location.hash || ""}`;
+  const isBatchMode =
+    /targetDate=\d{4}-\d{2}-\d{2}/.test(hrefForMode) ||
+    /kiditemAdSync=1/.test(hrefForMode);
+  const isActionMode = /kiditemExecuteActions=1/.test(hrefForMode) ||
+    sessionStorage.getItem("kiditemExecuteActions") === "1";
+  if (isActionMode) {
+    sessionStorage.setItem("kiditemExecuteActions", "1");
+  }
+
+  setTimeout(() => {
+    if (!isActionMode && !isBatchMode) {
+      return;
+    }
+    const runner = isActionMode ? runApprovedActionsOnce() : runSyncOnce();
+    runner.then((result) => {
+      if (isActionMode) {
+        sessionStorage.removeItem("kiditemExecuteActions");
+      }
+      if (isBatchMode) {
         try {
           chrome.runtime.sendMessage({
             action: "reportBatchScrapeDone",
             success: !!result?.success,
             url: window.location.href,
           });
-        } catch {
-          /* service-worker idle 종료 etc. — 신호만 fire-and-forget */
-        }
-      });
-    }, 3000);
-  }
+        } catch {}
+      }
+    });
+  }, 3000);
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.action === "manualSync") {
@@ -940,6 +1634,13 @@
     if (msg.action === "executeApprovedAdActions") {
       const payload = msg.payload || {};
       executeApprovedActions(payload.actions || [], payload.apiUrl || `${SERVER}/api/ads/actions`)
+        .then(sendResponse)
+        .catch((error) => sendResponse({ success: false, error: error.message || "실행 실패" }));
+      return true;
+    }
+
+    if (msg.action === "runApprovedQueuedAdActions") {
+      runApprovedActionsOnce()
         .then(sendResponse)
         .catch((error) => sendResponse({ success: false, error: error.message || "실행 실패" }));
       return true;

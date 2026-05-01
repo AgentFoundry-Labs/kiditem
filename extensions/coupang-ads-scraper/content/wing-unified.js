@@ -512,8 +512,6 @@
   }
 
   function syncTrafficToServer(products, kpis, adSummary) {
-    if (products.length === 0) return Promise.resolve({ success: false, error: "no data" });
-
     const { startDate, endDate } = getDateRangeFromUrl();
 
     let periodDays = 7;
@@ -576,7 +574,7 @@
   // showBadge is loaded from utils/dom.js via manifest
 
   // ===== 메인 동기화 =====
-  // paginate: true 면 전체 페이지 순회, false 면 현재 페이지만 (sales-analysis 자동 트리거 폴백).
+  // paginate: true면 전체 페이지 순회, false면 현재 페이지만 (sales-analysis)
   async function doSync({ paginate = false } = {}) {
     const pageType = detectPageType();
     console.log("[KIDITEM] 페이지 타입:", pageType, "URL:", location.href, "paginate:", paginate);
@@ -587,17 +585,19 @@
       const adSummary = parseAdSummary();
       console.log("[KIDITEM] 광고 요약:", JSON.stringify(adSummary));
 
-      // 팝업/배치에서 수동 트리거 시만 전체 페이지 순회, 자동 부트는 현재 페이지만 빠르게.
+      // 팝업에서 수동 트리거 시만 전체 페이지 순회, 자동은 현재 페이지만
       const products = paginate
         ? await parseAllProductsWithPagination()
         : parseProductGrid();
 
       console.log("[KIDITEM] 파싱 결과:", products.length, "상품, KPI:", Object.keys(kpis).length);
 
-      if (products.length > 0) {
+      const hasSummarySignal = Object.keys(kpis).length > 0 || adSummary !== null;
+
+      if (products.length > 0 || hasSummarySignal) {
         const { startDate, endDate } = getDateRangeFromUrl();
         const periodInfo = startDate && endDate ? `${startDate} ~ ${endDate}` : "";
-        showBadge(`📊 매출분석 ${products.length}개 상품 감지 — 동기화 중... ${periodInfo}`, "#60a5fa");
+        showBadge(`📊 매출분석 ${products.length}개 상품 + 요약 감지 — 동기화 중... ${periodInfo}`, "#60a5fa");
 
         const json = await syncTrafficToServer(products, kpis, adSummary);
         if (json?.success) {
@@ -651,28 +651,32 @@
     }
   }
 
-  // URL 해시에 #kiditemBatch=1 이 있으면 batch 모드 — paginate:true + 완료 후 service-worker 에 신호.
-  // 일별 백필 URL 에 이 마커를 부여해 주면 service-worker 가 탭을 자동으로 닫는다.
+  // URL 해시에 #kiditemBatch=1 이 있으면 batch 모드 — paginate:true + 완료 후 탭 자가 종료.
+  // ReadinessModal "지금 받기" 가 누락 일자별 URL 에 이 마커 부여.
   const isBatchMode = /#kiditemBatch=1/.test(window.location.hash || "");
 
-  async function batchSyncWithRetry() {
+  async function syncSalesAnalysisWithRetry(options) {
+    const syncOptions = options || { paginate: true };
     let result = null;
     for (let attempt = 1; attempt <= 3; attempt++) {
-      result = await doSync({ paginate: true });
+      result = await doSync(syncOptions);
       if (result?.success) break;
       if (detectPageType() !== "sales-analysis") break;
-      console.log(`[KIDITEM] batch 재시도 ${attempt}/3 (3초 후)...`);
+      console.log(`[KIDITEM] 매출분석 재시도 ${attempt}/3 (3초 후)...`);
       await new Promise((r) => setTimeout(r, 3000));
     }
+    return result;
+  }
+
+  async function batchSyncWithRetry() {
+    const result = await syncSalesAnalysisWithRetry({ paginate: true });
     try {
       chrome.runtime.sendMessage({
         action: "reportBatchScrapeDone",
         success: !!result?.success,
         url: window.location.href,
       });
-    } catch {
-      /* service-worker idle 종료 etc. — 신호만 fire-and-forget */
-    }
+    } catch {}
   }
 
   setTimeout(() => {
@@ -683,10 +687,10 @@
     }
   }, 4000);
 
-  // 수동 동기화 — 서버 응답까지 대기 후 결과 반환 (sales-analysis 는 전체 페이지 순회)
+  // 수동 동기화 — 서버 응답까지 대기 후 결과 반환 (sales-analysis는 전체 페이지 순회)
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.action === "manualSync") {
-      doSync({ paginate: true }).then((result) => sendResponse(result));
+      syncSalesAnalysisWithRetry({ paginate: true }).then((result) => sendResponse(result));
       return true;
     }
   });

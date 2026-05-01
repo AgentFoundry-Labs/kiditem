@@ -1,6 +1,21 @@
 // KIDITEM OS — Background Service Worker
 
 const API_URL = "http://localhost:4000";
+const AUTH_TOKEN_KEY = "kiditem_auth_token";
+const AD_ACTION_URL = "https://advertising.coupang.com/dashboard?kiditemExecuteActions=1#kiditemExecuteActions=1";
+
+function getAuthToken() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get([AUTH_TOKEN_KEY], (r) => resolve(r[AUTH_TOKEN_KEY] || null));
+  });
+}
+
+async function authedFetch(path, init = {}) {
+  const token = await getAuthToken();
+  const headers = new Headers(init.headers || {});
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return fetch(`${API_URL}${path}`, { ...init, headers });
+}
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log("[KIDITEM] Extension installed");
@@ -36,7 +51,7 @@ function cleanupStorage() {
 
 // 동기화 완료 후 대시보드 탭 자동 새로고침
 function notifyDashboard() {
-  chrome.tabs.query({ url: "http://localhost:4000/*" }, (tabs) => {
+  chrome.tabs.query({ url: "http://localhost:3000/*" }, (tabs) => {
     for (const tab of tabs) {
       if (!tab.id) continue;
       chrome.scripting.executeScript({
@@ -52,6 +67,18 @@ chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
 
 // ═══ content script에서 메시지 수신 ═══
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.action === "setAuthToken") {
+    const token = typeof msg.token === "string" ? msg.token : null;
+    if (!token) {
+      sendResponse({ success: false, error: "token required" });
+      return;
+    }
+    chrome.storage.local.set({ [AUTH_TOKEN_KEY]: token }, () => {
+      sendResponse({ success: true });
+    });
+    return true;
+  }
+
   if (msg.action === "triggerAutoScrape") {
     autoScrape()
       .then(() => {
@@ -82,9 +109,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return; // sync response, no need for return true
   }
 
+  // 배치 스크랩 진행률은 handleScrapeTargets 의 sequential 루프가 소유.
+  // content script 의 auto-trigger 경로는 이 메시지를 보내지만, 카운트/상태는 오너(서비스워커)가 담당.
+  // 여기서는 탭 자가 종료만 처리.
+  if (msg.action === "reportBatchScrapeDone") {
+    const tabId = sender?.tab?.id;
+    if (tabId) {
+      setTimeout(() => {
+        try { chrome.tabs.remove(tabId); } catch {}
+      }, 2000);
+    }
+    sendResponse({ ok: true });
+    return;
+  }
+
   if (msg.action === "syncToServer") {
     const payload = msg.payload || {};
-    fetch(`${API_URL}/api/ads/extension/sync`, {
+    authedFetch(`/api/ads/extension/sync`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -103,38 +144,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .catch((e) => sendResponse({ success: false, error: e.message }));
     return true; // async response
   }
-
-  // 배치 스크랩 진행률은 handleScrapeTargets 의 sequential 루프가 소유.
-  // content script (#kiditemBatch=1) 에서 sync 완료 후 보내는 신호 — 탭 자가 종료만 처리.
-  if (msg.action === "reportBatchScrapeDone") {
-    const tabId = sender?.tab?.id;
-    if (tabId) {
-      setTimeout(() => {
-        try { chrome.tabs.remove(tabId); } catch {}
-      }, 2000);
-    }
-    sendResponse({ ok: true });
-    return;
-  }
-
-  // 배치 진행률 조회 — 팝업/대시보드가 polling 으로 읽어가는 상태
-  if (msg.action === "getBatchScrapeStatus") {
-    chrome.storage.local.get("kiditem_batch_scrape", (data) => {
-      sendResponse(data.kiditem_batch_scrape || { status: "idle" });
-    });
-    return true;
-  }
 });
 
 // ═══ 대시보드(외부 웹페이지)에서 메시지 수신 ═══
 chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   if (msg.action === "scrapeTargets") {
-    // MV3 service worker 가 긴 async chain 중 idle 종료되면 port 가 닫혀 loop 중단됨.
+    // MV3 service worker가 긴 async chain 중 idle 종료되면 port가 닫혀 loop 중단됨.
     // 즉시 응답 + fire-and-forget. 진행률은 chrome.storage.local.kiditem_batch_scrape 에 기록.
     const urls = msg.urls || [];
-    const runId = typeof msg.runId === "string"
-      ? msg.runId
-      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const runId = typeof msg.runId === "string" ? msg.runId : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const startedAt = Date.now();
     chrome.storage.local.set({
       kiditem_batch_scrape: {
@@ -166,6 +184,30 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   if (msg.action === "ping") {
     sendResponse({ success: true, version: chrome.runtime.getManifest().version });
     return;
+  }
+
+  if (msg.action === "setAuthToken") {
+    const token = typeof msg.token === "string" ? msg.token : null;
+    if (!token) {
+      sendResponse({ success: false, error: "token required" });
+      return;
+    }
+    chrome.storage.local.set({ [AUTH_TOKEN_KEY]: token }, () => {
+      sendResponse({ success: true });
+    });
+    return true;
+  }
+
+  if (msg.action === "clearAuthToken") {
+    chrome.storage.local.remove(AUTH_TOKEN_KEY, () => sendResponse({ success: true }));
+    return true;
+  }
+
+  if (msg.action === "openAndExecuteAdActions") {
+    openAndExecuteAdActions(msg.url || AD_ACTION_URL)
+      .then((result) => sendResponse(result))
+      .catch((e) => sendResponse({ success: false, error: e?.message || "광고 액션 실행 탭 생성 실패" }));
+    return true;
   }
 
   // ── 상품 수정 자동화: Wing 탭 열고 content script에 작업 위임 ──
@@ -214,75 +256,124 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   }
 });
 
+function openAndExecuteAdActions(url = AD_ACTION_URL) {
+  return new Promise((resolve) => {
+    chrome.tabs.create({ url, active: true }, (tab) => {
+      if (chrome.runtime.lastError || !tab?.id) {
+        resolve({ success: false, error: "쿠팡 광고센터 탭 생성 실패" });
+        return;
+      }
+
+      const tabId = tab.id;
+      let sent = false;
+      const cleanup = () => chrome.tabs.onUpdated.removeListener(onUpdated);
+      const timeout = setTimeout(() => {
+        cleanup();
+        if (!sent) resolve({ success: true, opened: true, tabId, pendingLogin: true });
+      }, 180000);
+
+      const sendRunMessage = () => {
+        if (sent) return;
+        sent = true;
+        clearTimeout(timeout);
+        cleanup();
+        setTimeout(() => {
+          chrome.tabs.sendMessage(tabId, { action: "runApprovedQueuedAdActions" }, (response) => {
+            if (chrome.runtime.lastError) {
+              resolve({ success: true, opened: true, tabId, warning: chrome.runtime.lastError.message });
+              return;
+            }
+            resolve({ success: true, opened: true, tabId, response });
+          });
+        }, 3000);
+      };
+
+      function onUpdated(updatedTabId, changeInfo, updatedTab) {
+        if (updatedTabId !== tabId || changeInfo.status !== "complete") return;
+        const currentUrl = updatedTab?.url || "";
+        if (!currentUrl.startsWith("https://advertising.coupang.com/")) return;
+        sendRunMessage();
+      }
+
+      chrome.tabs.onUpdated.addListener(onUpdated);
+    });
+  });
+}
+
 /**
- * 등록된 URL들을 순차적으로 탭에서 열고 스크래핑.
- * content script(ads-report.js, wing-unified.js)가 자동으로 데이터 수집.
- * MV3 service worker idle 종료 대비: 진행률은 chrome.storage.local.kiditem_batch_scrape 에 기록.
+ * 등록된 URL 을 **순차적으로** 처리. 각 URL 에 대해:
+ *  1) 탭 오픈 (active) → 2) 로드 대기 → 3) manualSync 전송 → 4) 결과 수신 → 5) 탭 닫기 → 6) 다음 URL
+ *
+ * 과거 병렬(3초 간격) 구현은 이전 탭이 백그라운드화되면서 Chrome throttle 로
+ * 달력 setDateRange 타임아웃 → 첫 탭만 성공 버그가 있었다. 순차로 바꿔 이를 제거.
  */
-async function handleScrapeTargets(urls, runId, startedAt) {
+async function handleScrapeTargets(urls, runId = `${Date.now()}-${Math.random().toString(36).slice(2)}`, startedAt = Date.now()) {
   if (!urls || urls.length === 0) {
-    if (runId) {
-      chrome.storage.local.set({
-        kiditem_batch_scrape: {
-          runId,
-          status: "error",
-          error: "수집 대상 URL이 없습니다",
-          startedAt: startedAt || Date.now(),
-          endedAt: Date.now(),
-        },
-      });
-    }
     return { success: false, error: "수집 대상 URL이 없습니다" };
   }
 
-  const results = [];
+  const total = urls.length;
+  console.log(`[KIDITEM] 순차 배치 스크랩 시작 — ${total}개 URL`);
+
   let completed = 0;
   let failed = 0;
-  const total = urls.length;
-  const start = startedAt || Date.now();
 
-  if (runId) {
-    chrome.storage.local.set({
+  await chrome.storage.local.set({
+    kiditem_batch_scrape: {
+      runId,
+      total,
+      completed,
+      failed,
+      current: 0,
+      status: "running",
+      startedAt,
+    },
+  });
+
+  for (let i = 0; i < urls.length; i++) {
+    const item = urls[i];
+    console.log(`[KIDITEM] 순차 스크랩 ${i + 1}/${total}: ${item.url}`);
+
+    await chrome.storage.local.set({
       kiditem_batch_scrape: {
         runId,
         total,
         completed,
         failed,
-        current: 0,
+        current: i + 1,
+        currentUrl: item.url,
+        currentLabel: item.label,
         status: "running",
-        startedAt: start,
+        startedAt,
       },
     });
-  }
 
-  for (let i = 0; i < urls.length; i++) {
-    const item = urls[i];
     try {
-      const result = await scrapeUrl(item.url, item.id, item.label);
-      results.push(result);
-      if (result.success) completed++;
+      const result = await scrapeUrl(item.url, item.id || null, item.label);
+      if (result?.success) completed++;
       else failed++;
     } catch (e) {
-      results.push({ url: item.url, success: false, error: e.message });
       failed++;
-    }
-    if (runId) {
-      chrome.storage.local.set({
-        kiditem_batch_scrape: {
-          runId,
-          total,
-          completed,
-          failed,
-          current: i + 1,
-          status: i + 1 < total ? "running" : "done",
-          startedAt: start,
-          ...(i + 1 === total ? { endedAt: Date.now() } : {}),
-        },
-      });
+      console.error(`[KIDITEM] 스크랩 실패 (${item.url}):`, e?.message || e);
     }
   }
 
-  return { success: true, completed, failed, total, results };
+  await chrome.storage.local.set({
+    kiditem_batch_scrape: {
+      runId,
+      total,
+      completed,
+      failed,
+      current: total,
+      status: "done",
+      startedAt,
+      endedAt: Date.now(),
+    },
+  });
+  notifyDashboard();
+
+  console.log(`[KIDITEM] 순차 배치 완료: ${completed}/${total} 성공, ${failed} 실패`);
+  return { success: true, completed, failed, total };
 }
 
 /**
@@ -299,7 +390,7 @@ async function autoScrape() {
   console.log("[KIDITEM] 자동 수집 시작");
 
   try {
-    const res = await fetch(`${API_URL}/api/ads/scrape-targets`);
+    const res = await authedFetch(`/api/ads/scrape-targets`);
     const json = await res.json();
     const targets = json.targets || [];
 
@@ -384,11 +475,14 @@ async function doMonthlyScrape(year, month) {
 
 function scrapeUrl(url, targetId, label) {
   return new Promise((resolve) => {
-    // 탭 활성화 — 백그라운드 탭은 Chrome이 setTimeout을 throttle해서
-    // ads-report.js setDateRange (AntD calendar 조작) 가 타임아웃 넘김.
-    // 사용자 시야에 잠깐 보이지만, sequential 루프(handleScrapeTargets)가
-    // 끝나면 탭을 닫으므로 UX 영향은 제한적.
-    chrome.tabs.create({ url, active: true }, (tab) => {
+    // The #kiditemBatch marker is for fallback window.open flows where the
+    // content script has to self-start. In service-worker driven scraping we
+    // send manualSync ourselves; leaving the marker on creates two competing
+    // orchestrators for the same tab.
+    const openUrl = url.replace(/#kiditemBatch=1$/, "");
+
+    // 탭 활성화 — 백그라운드 탭은 Chrome이 setTimeout을 throttle해서 setDateRange가 타임아웃 넘김
+    chrome.tabs.create({ url: openUrl, active: true }, (tab) => {
       if (chrome.runtime.lastError || !tab?.id) {
         resolve({ url, success: false, error: "탭 생성 실패" });
         return;
@@ -397,9 +491,7 @@ function scrapeUrl(url, targetId, label) {
       const tabId = tab.id;
       let resolved = false;
 
-      // 타임아웃 180초 — 달력 UI 조작(~5s) + 테이블 리로드(~3.5s) +
-      // 페이지네이션(다수 페이지 × 2s) 누적 + 버퍼.
-      // 30s 였을 땐 페이지가 많은 광고 테이블 / Wing 매출분석에서 컷오프.
+      // 타임아웃 180초 — 달력 UI 조작(~5s) + 테이블 리로드(~3.5s) + 페이지네이션(다수 페이지 × 2s)
       const timeout = setTimeout(() => {
         if (!resolved) {
           resolved = true;
@@ -423,7 +515,7 @@ function scrapeUrl(url, targetId, label) {
 
             // 수집 완료 알림을 서버로 전송
             if (targetId) {
-              fetch(`${API_URL}/api/ads/scrape-targets`, {
+              authedFetch(`/api/ads/scrape-targets`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ action: "markScraped", id: targetId }),

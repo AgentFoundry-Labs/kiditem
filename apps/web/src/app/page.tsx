@@ -40,6 +40,8 @@ import {
 } from '@kiditem/shared/action-task';
 import { z } from 'zod';
 import { friendlyError } from '@/lib/api-error';
+import ReadinessModal from '@/components/ReadinessModal';
+import { Database } from 'lucide-react';
 
 
 function SectionError({ msg, onRetry }: { msg?: string; onRetry: () => void }) {
@@ -71,6 +73,7 @@ export default function Dashboard() {
   const [kpiRange, setKpiRange] = useState<'month' | 'week' | 'day' | 'custom'>('month');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [showReadiness, setShowReadiness] = useState(false);
 
   // Baseline (month) — always fetched
   const {
@@ -264,6 +267,13 @@ export default function Dashboard() {
           </div>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowReadiness(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-colors"
+            title="쿠팡 Wing/광고 데이터 수집 상태 확인 + 누락분 수집 트리거"
+          >
+            <Database size={14} /> 데이터 수집
+          </button>
           <div className="flex rounded-lg p-0.5 bg-slate-100">
             {([['month', '월'], ['week', '주'], ['day', '일']] as const).map(([val, label]) => (
               <button
@@ -647,6 +657,7 @@ export default function Dashboard() {
           </div>
         );
       })()}
+      <ReadinessModal open={showReadiness} onClose={() => setShowReadiness(false)} />
     </div>
   );
 }

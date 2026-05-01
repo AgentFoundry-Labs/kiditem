@@ -1,6 +1,6 @@
 // KIDITEM OS — Wing 상품목록 크롤러
-// /tenants/seller-web/vendor-inventory/list 페이지에서 전체 상품 스크래핑 → 엑셀 다운로드.
-// 팝업 버튼(scrapeInventoryList)으로만 실행 — 서버 API 는 건드리지 않는다.
+// /tenants/seller-web/vendor-inventory/list 페이지에서 전체 상품 스크래핑 → 엑셀 다운로드
+// 팝업 버튼(scrapeInventoryList)으로만 실행
 
 (function () {
   "use strict";
@@ -166,7 +166,7 @@
 
     html += '</table></body></html>';
 
-    const blob = new Blob(['﻿' + html], { type: 'application/vnd.ms-excel;charset=utf-8' });
+    const blob = new Blob(['\uFEFF' + html], { type: 'application/vnd.ms-excel;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;

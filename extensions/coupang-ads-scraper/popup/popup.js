@@ -1,4 +1,22 @@
 const API_URL = "http://localhost:4000";
+const POPUP_AUTH_TOKEN_KEY = "kiditem_auth_token";
+
+function popupGetAuthToken() {
+  return new Promise((resolve) => {
+    try {
+      chrome.storage.local.get([POPUP_AUTH_TOKEN_KEY], (r) => resolve(r[POPUP_AUTH_TOKEN_KEY] || null));
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+async function popupFetch(path, init = {}) {
+  const token = await popupGetAuthToken();
+  const headers = new Headers(init.headers || {});
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return fetch(`${API_URL}${path}`, { ...init, headers });
+}
 
 function timeAgo(ts) {
   if (!ts) return "-";
@@ -20,7 +38,7 @@ function setCardValue(id, text, hasDot, dotColor) {
 async function init() {
   // 서버 연결 확인
   try {
-    await fetch(`${API_URL}/api/ads/extension/sync`);
+    await popupFetch(`/api/ads/extension/sync`);
     setCardValue("serverStatus", "연결됨 ✅", false);
     document.getElementById("connBadge").textContent = "연결됨";
     document.getElementById("connBadge").className = "badge";
@@ -56,7 +74,7 @@ async function init() {
   });
 
   try {
-    const res = await fetch(`${API_URL}/api/ads/actions?approvalStatus=approved&executeStatus=queued&limit=50`);
+    const res = await popupFetch(`/api/ads/actions?approvalStatus=approved&executeStatus=queued&limit=50`);
     const json = await res.json();
     const count = Array.isArray(json.items) ? json.items.length : 0;
     if (count > 0) {
@@ -104,7 +122,7 @@ document.getElementById("btnRunApproved").addEventListener("click", async () => 
   resultEl.className = "sync-result success";
 
   try {
-    const res = await fetch(`${API_URL}/api/ads/actions?approvalStatus=approved&executeStatus=queued&limit=20`);
+    const res = await popupFetch(`/api/ads/actions?approvalStatus=approved&executeStatus=queued&limit=20`);
     const json = await res.json();
     const actions = Array.isArray(json.items) ? json.items : [];
 
@@ -190,7 +208,7 @@ document.getElementById("btnMonthlySync").addEventListener("click", () => {
   });
 });
 
-// 상품목록 스크래핑 (Wing vendor-inventory/list) — 클라이언트 사이드 엑셀 다운로드만, 서버 호출 없음.
+// 상품목록 스크래핑 (Wing vendor-inventory/list)
 document.getElementById("btnInventoryScrape").addEventListener("click", async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) return;
