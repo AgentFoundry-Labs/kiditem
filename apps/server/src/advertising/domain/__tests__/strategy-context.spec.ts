@@ -188,10 +188,9 @@ describe('domain/strategy-context — pure transforms', () => {
     ).toBe(60);
   });
 
-  it('computeListingProfitRate treats null costPrice as 0', () => {
-    // Master metadata sometimes ships without costPrice; the resulting "100% margin"
-    // is intentional — the rule layer flags the row as data-incomplete elsewhere
-    // (see domain/ad-action-rules.ts), it does NOT silently drop to 0% here.
+  it('computeListingProfitRate treats null costPrice as neutral', () => {
+    // Missing cost is unknown, not free inventory. Exposure scoring treats
+    // profitRate > 10 as a strong positive signal, so keep missing cost neutral.
     expect(
       computeListingProfitRate({
         optionId: 'opt-no-cost',
@@ -201,7 +200,7 @@ describe('domain/strategy-context — pure transforms', () => {
         sellPrice: 10_000,
         commissionRate: 0,
       } as InventoryRow),
-    ).toBe(100);
+    ).toBe(0);
   });
 
   it('computeListingProfitRate handles 100% commission cleanly (zero margin)', () => {
