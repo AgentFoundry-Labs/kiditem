@@ -14,8 +14,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS product_options_master_null_option
 -- Replaces Prisma full unique @@unique([organizationId, legacyCode]) so that soft-deleted
 -- masters do not block re-use of the same legacyCode (restore → 409 if conflict).
 DROP INDEX IF EXISTS master_products_organization_id_legacy_code_key;
-DROP INDEX IF EXISTS master_products_company_legacy_active;
-CREATE UNIQUE INDEX IF NOT EXISTS master_products_organization_legacy_active
+CREATE UNIQUE INDEX IF NOT EXISTS master_products_organization_id_legacy_code_key
   ON master_products (organization_id, legacy_code)
   WHERE is_deleted = false AND legacy_code IS NOT NULL;
 
@@ -23,22 +22,20 @@ CREATE UNIQUE INDEX IF NOT EXISTS master_products_organization_legacy_active
 -- Active rows 에서만 unique 보장. 소프트삭제된 row 의 값은 새 row 가 재사용 가능;
 -- restore 시 활성 row 와 충돌하면 P2002 → ConflictException.
 -- NOTE: Plan A Task 11 이 만든 `product_options_master_null_option` (optionName IS NULL)
--- partial index 는 유지. 아래 `*_master_option_name_active` 는 optionName IS NOT NULL case 커버.
+-- partial index 는 유지. 아래 `product_options_master_id_option_name_key` 는 optionName IS NOT NULL case 커버.
 
 DROP INDEX IF EXISTS product_options_master_id_option_name_key;
-CREATE UNIQUE INDEX IF NOT EXISTS product_options_master_option_name_active
+CREATE UNIQUE INDEX IF NOT EXISTS product_options_master_id_option_name_key
   ON product_options (master_id, option_name)
   WHERE is_deleted = false AND option_name IS NOT NULL;
 
 DROP INDEX IF EXISTS product_options_organization_id_barcode_key;
-DROP INDEX IF EXISTS product_options_company_barcode_active;
-CREATE UNIQUE INDEX IF NOT EXISTS product_options_organization_barcode_active
+CREATE UNIQUE INDEX IF NOT EXISTS product_options_organization_id_barcode_key
   ON product_options (organization_id, barcode)
   WHERE is_deleted = false AND barcode IS NOT NULL;
 
 DROP INDEX IF EXISTS product_options_organization_id_legacy_code_key;
-DROP INDEX IF EXISTS product_options_company_legacy_active;
-CREATE UNIQUE INDEX IF NOT EXISTS product_options_organization_legacy_active
+CREATE UNIQUE INDEX IF NOT EXISTS product_options_organization_id_legacy_code_key
   ON product_options (organization_id, legacy_code)
   WHERE is_deleted = false AND legacy_code IS NOT NULL;
 
@@ -52,10 +49,8 @@ ALTER TABLE channel_listings
   DROP CONSTRAINT IF EXISTS channel_listings_organization_id_channel_external_id_key;
 DROP INDEX IF EXISTS channel_listings_channel_external_id_key;
 DROP INDEX IF EXISTS channel_listings_organization_id_channel_external_id_key;
-DROP INDEX IF EXISTS channel_listings_company_channel_external_active;
-DROP INDEX IF EXISTS channel_listings_organization_channel_external_active;
 
-CREATE UNIQUE INDEX channel_listings_organization_channel_external_active
+CREATE UNIQUE INDEX channel_listings_organization_id_channel_external_id_key
   ON channel_listings(organization_id, channel, external_id)
   WHERE is_deleted = false;
 
