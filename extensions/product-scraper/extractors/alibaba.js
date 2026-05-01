@@ -49,9 +49,9 @@ ProductScraper.alibaba = (() => {
   const SEARCH_SUPPLIER = [
     "[class*='searchx-supplier']",
     "[class*='supplier-content']",
-    "[class*='search-card-e-organization']",
+    "[class*='search-card-e-company']",
     "[class*='supplier-name']",
-    "[class*='organization-name']",
+    "[class*='company-name']",
   ];
 
   // ── Detail page DOM selectors (FY26 module_* redesign fallback) ──
@@ -73,13 +73,13 @@ ProductScraper.alibaba = (() => {
       "[class*='moq']",
     ],
     supplierName: [
-      ".module_company .organization-name",
-      ".organization-name",
+      ".module_company .company-name",
+      ".company-name",
       "[class*='supplier-name']",
     ],
     supplierYears: [
-      ".module_company .organization-life",
-      ".organization-life",
+      ".module_company .company-life",
+      ".company-life",
     ],
     verifiedBadges: [
       "[class*='verified']",
