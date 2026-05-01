@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
+import { ChannelDashboardSummarySchema } from '@kiditem/shared/channel-dashboard';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { apiClient } from '@/lib/api-client';
@@ -17,17 +18,12 @@ import { printBarcodeWindow } from './lib/barcode-print';
 import { useInventoryList } from './hooks/useInventory';
 import { fetchAllInventoryForExport, toInventoryExportRows } from './lib/inventory-export';
 import type { StockOperationMode } from './components/StockOperationDialog';
-import type { SyncInfo } from '@kiditem/shared/common';
 import type { InventoryFilterKey } from '../_shared/inventory-api';
 import type { InventoryListItem, InventorySummary } from '@kiditem/shared/inventory';
 
 const DEFAULT_SUMMARY: InventorySummary = { total: 0, healthy: 0, low: 0, out: 0 };
 
 const SyncResponseSchema = z.object({ synced: z.number().int().optional() });
-const CoupangDashboardSyncSchema = z.object({
-  lastSyncedAt: z.string().nullable().optional(),
-  lastModifiedAt: z.string().nullable().optional(),
-}).passthrough();
 
 export default function InventoryPage() {
   const queryClient = useQueryClient();
@@ -61,17 +57,19 @@ export default function InventoryPage() {
     ? isApiError(inventoryError) ? inventoryError.detail : '재고 데이터를 불러오지 못했습니다.'
     : null;
 
-  const { data: syncInfo } = useQuery({
-    queryKey: queryKeys.syncInfo(),
+  const { data: channelLastModifiedAt } = useQuery({
+    queryKey: queryKeys.coupangDashboard.kpis(),
     queryFn: async () => {
       try {
+        // Use the canonical `ChannelDashboardSummarySchema` (Plan B2c.dashboard R-07).
+        // Server only sends `lastModifiedAt`; the previous local schema also
+        // accepted a legacy `lastSyncedAt` field that the server never emits.
         const raw = await apiClient.get<unknown>('/api/coupang-dashboard');
-        const data = CoupangDashboardSyncSchema.parse(raw);
-        return {
-          lastSyncedAt: data.lastSyncedAt ?? data.lastModifiedAt ?? null,
-        } satisfies SyncInfo;
+        const data = ChannelDashboardSummarySchema.parse(raw);
+        const last = data.lastModifiedAt;
+        return last ? (typeof last === 'string' ? last : last.toISOString()) : null;
       } catch {
-        return { lastSyncedAt: null } satisfies SyncInfo;
+        return null;
       }
     },
   });
@@ -124,6 +122,7 @@ export default function InventoryPage() {
     onSuccess: (data) => {
       toast.success(`쿠팡 동기화 완료: ${data.synced ?? 0}건 동기화됨`);
       queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.coupangDashboard.all });
     },
     onError: (err) => {
       toast.error(isApiError(err) ? err.detail : '쿠팡 동기화에 실패했습니다. 설정을 확인하세요.');
@@ -142,7 +141,7 @@ export default function InventoryPage() {
     <div className="space-y-6">
       <InventoryToolbar
         syncing={syncing}
-        syncInfo={syncInfo}
+        channelLastModifiedAt={channelLastModifiedAt}
         onReceiveStock={handleReceiveStock}
         onBarcodePrint={handleBarcodePrint}
         onStockCheck={handleStockCheck}

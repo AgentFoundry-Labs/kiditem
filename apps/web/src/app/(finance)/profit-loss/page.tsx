@@ -6,6 +6,7 @@ import { Download } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { z } from 'zod';
 import { PLDataSchema } from '@kiditem/shared/finance';
+import { ChannelDashboardSummarySchema } from '@kiditem/shared/channel-dashboard';
 import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import PeriodSelector from '@/components/ui/PeriodSelector';
 import { cn, timeAgo } from "@/lib/utils";
@@ -17,7 +18,6 @@ import { ErrorState } from "@/components/ui/EmptyState";
 import { Pagination } from "@/components/ui/Pagination";
 import ProfitLossSummaryCards from "./components/ProfitLossSummaryCards";
 import ProfitLossTable from "./components/ProfitLossTable";
-import type { SyncInfo } from '@kiditem/shared/common';
 import type { SortField } from "./components/ProfitLossTable";
 
 export default function ProfitLossPage() {
@@ -41,14 +41,20 @@ export default function ProfitLossPage() {
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc' | null>(null);
 
-  const { data: syncInfo } = useQuery({
-    queryKey: queryKeys.syncInfo(),
+  const { data: channelLastModifiedAt } = useQuery({
+    queryKey: queryKeys.coupangDashboard.kpis(),
     queryFn: async () => {
       try {
-        const data = await apiClient.get<{ lastSyncedAt: string | null }>('/api/coupang-dashboard');
-        return { lastSyncedAt: data.lastSyncedAt } as SyncInfo;
+        // Server returns the canonical `lastModifiedAt` (Plan B2c.dashboard R-07
+        // rename: ChannelListing.updatedAt is bumped on any edit, not only sync).
+        // The previous inline `lastSyncedAt` shape silently always evaluated to
+        // null because the server never sends that key.
+        const raw = await apiClient.get<unknown>('/api/coupang-dashboard');
+        const data = ChannelDashboardSummarySchema.parse(raw);
+        const last = data.lastModifiedAt;
+        return last ? (typeof last === 'string' ? last : last.toISOString()) : null;
       } catch {
-        return { lastSyncedAt: null } as SyncInfo;
+        return null;
       }
     },
   });
@@ -134,12 +140,12 @@ export default function ProfitLossPage() {
             </button>
           </div>
         </div>
-        {syncInfo && (
+        {channelLastModifiedAt !== undefined && (
           <div className="flex items-center gap-2 text-xs text-slate-400 mt-2">
-            <div className={cn('w-1.5 h-1.5 rounded-full', syncInfo.lastSyncedAt ? 'bg-green-400' : 'bg-amber-400')} />
-            {syncInfo.lastSyncedAt
-              ? `최근 동기화: ${timeAgo(syncInfo.lastSyncedAt)}`
-              : '동기화 기록 없음 — 설정에서 동기화를 실행하세요'}
+            <div className={cn('w-1.5 h-1.5 rounded-full', channelLastModifiedAt ? 'bg-green-400' : 'bg-amber-400')} />
+            {channelLastModifiedAt
+              ? `최근 채널 변경: ${timeAgo(channelLastModifiedAt)}`
+              : '채널 변경 기록 없음 — 쿠팡 동기화 후 확인하세요'}
           </div>
         )}
       </div>
