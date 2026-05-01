@@ -6,6 +6,7 @@ import { Download } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { z } from 'zod';
 import { PLDataSchema } from '@kiditem/shared/finance';
+import { ChannelDashboardSummarySchema } from '@kiditem/shared/channel-dashboard';
 import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import PeriodSelector from '@/components/ui/PeriodSelector';
 import { cn, timeAgo } from "@/lib/utils";
@@ -45,10 +46,18 @@ export default function ProfitLossPage() {
     queryKey: queryKeys.syncInfo(),
     queryFn: async () => {
       try {
-        const data = await apiClient.get<{ lastSyncedAt: string | null }>('/api/coupang-dashboard');
-        return { lastSyncedAt: data.lastSyncedAt } as SyncInfo;
+        // Server returns the canonical `lastModifiedAt` (Plan B2c.dashboard R-07
+        // rename: ChannelListing.updatedAt is bumped on any edit, not only sync).
+        // The previous inline `lastSyncedAt` shape silently always evaluated to
+        // null because the server never sends that key.
+        const raw = await apiClient.get<unknown>('/api/coupang-dashboard');
+        const data = ChannelDashboardSummarySchema.parse(raw);
+        const last = data.lastModifiedAt;
+        return {
+          lastSyncedAt: last ? (typeof last === 'string' ? last : last.toISOString()) : null,
+        } satisfies SyncInfo;
       } catch {
-        return { lastSyncedAt: null } as SyncInfo;
+        return { lastSyncedAt: null } satisfies SyncInfo;
       }
     },
   });

@@ -20,14 +20,11 @@ import type { StockOperationMode } from './components/StockOperationDialog';
 import type { SyncInfo } from '@kiditem/shared/common';
 import type { InventoryFilterKey } from '../_shared/inventory-api';
 import type { InventoryListItem, InventorySummary } from '@kiditem/shared/inventory';
+import { ChannelDashboardSummarySchema } from '@kiditem/shared/channel-dashboard';
 
 const DEFAULT_SUMMARY: InventorySummary = { total: 0, healthy: 0, low: 0, out: 0 };
 
 const SyncResponseSchema = z.object({ synced: z.number().int().optional() });
-const CoupangDashboardSyncSchema = z.object({
-  lastSyncedAt: z.string().nullable().optional(),
-  lastModifiedAt: z.string().nullable().optional(),
-}).passthrough();
 
 export default function InventoryPage() {
   const queryClient = useQueryClient();
@@ -65,10 +62,14 @@ export default function InventoryPage() {
     queryKey: queryKeys.syncInfo(),
     queryFn: async () => {
       try {
+        // Use the canonical `ChannelDashboardSummarySchema` (Plan B2c.dashboard R-07).
+        // Server only sends `lastModifiedAt`; the previous local schema also
+        // accepted a legacy `lastSyncedAt` field that the server never emits.
         const raw = await apiClient.get<unknown>('/api/coupang-dashboard');
-        const data = CoupangDashboardSyncSchema.parse(raw);
+        const data = ChannelDashboardSummarySchema.parse(raw);
+        const last = data.lastModifiedAt;
         return {
-          lastSyncedAt: data.lastSyncedAt ?? data.lastModifiedAt ?? null,
+          lastSyncedAt: last ? (typeof last === 'string' ? last : last.toISOString()) : null,
         } satisfies SyncInfo;
       } catch {
         return { lastSyncedAt: null } satisfies SyncInfo;
