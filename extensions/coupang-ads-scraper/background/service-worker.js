@@ -384,8 +384,11 @@ async function doMonthlyScrape(year, month) {
 
 function scrapeUrl(url, targetId, label) {
   return new Promise((resolve) => {
-    // 탭 생성
-    chrome.tabs.create({ url, active: false }, (tab) => {
+    // 탭 활성화 — 백그라운드 탭은 Chrome이 setTimeout을 throttle해서
+    // ads-report.js setDateRange (AntD calendar 조작) 가 타임아웃 넘김.
+    // 사용자 시야에 잠깐 보이지만, sequential 루프(handleScrapeTargets)가
+    // 끝나면 탭을 닫으므로 UX 영향은 제한적.
+    chrome.tabs.create({ url, active: true }, (tab) => {
       if (chrome.runtime.lastError || !tab?.id) {
         resolve({ url, success: false, error: "탭 생성 실패" });
         return;
@@ -394,14 +397,16 @@ function scrapeUrl(url, targetId, label) {
       const tabId = tab.id;
       let resolved = false;
 
-      // 타임아웃 (30초)
+      // 타임아웃 180초 — 달력 UI 조작(~5s) + 테이블 리로드(~3.5s) +
+      // 페이지네이션(다수 페이지 × 2s) 누적 + 버퍼.
+      // 30s 였을 땐 페이지가 많은 광고 테이블 / Wing 매출분석에서 컷오프.
       const timeout = setTimeout(() => {
         if (!resolved) {
           resolved = true;
           try { chrome.tabs.remove(tabId); } catch {}
-          resolve({ url, success: false, error: "타임아웃 (30초)" });
+          resolve({ url, success: false, error: "타임아웃 (180초)" });
         }
-      }, 30000);
+      }, 180000);
 
       // 탭 로딩 완료 감지
       const onUpdated = (updatedTabId, changeInfo) => {
