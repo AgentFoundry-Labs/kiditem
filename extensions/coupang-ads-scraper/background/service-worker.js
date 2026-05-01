@@ -103,15 +103,64 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .catch((e) => sendResponse({ success: false, error: e.message }));
     return true; // async response
   }
+
+  // 배치 스크랩 진행률은 handleScrapeTargets 의 sequential 루프가 소유.
+  // content script (#kiditemBatch=1) 에서 sync 완료 후 보내는 신호 — 탭 자가 종료만 처리.
+  if (msg.action === "reportBatchScrapeDone") {
+    const tabId = sender?.tab?.id;
+    if (tabId) {
+      setTimeout(() => {
+        try { chrome.tabs.remove(tabId); } catch {}
+      }, 2000);
+    }
+    sendResponse({ ok: true });
+    return;
+  }
+
+  // 배치 진행률 조회 — 팝업/대시보드가 polling 으로 읽어가는 상태
+  if (msg.action === "getBatchScrapeStatus") {
+    chrome.storage.local.get("kiditem_batch_scrape", (data) => {
+      sendResponse(data.kiditem_batch_scrape || { status: "idle" });
+    });
+    return true;
+  }
 });
 
 // ═══ 대시보드(외부 웹페이지)에서 메시지 수신 ═══
 chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   if (msg.action === "scrapeTargets") {
-    handleScrapeTargets(msg.urls || [])
-      .then((result) => sendResponse(result))
-      .catch((e) => sendResponse({ success: false, error: e.message }));
-    return true; // async
+    // MV3 service worker 가 긴 async chain 중 idle 종료되면 port 가 닫혀 loop 중단됨.
+    // 즉시 응답 + fire-and-forget. 진행률은 chrome.storage.local.kiditem_batch_scrape 에 기록.
+    const urls = msg.urls || [];
+    const runId = typeof msg.runId === "string"
+      ? msg.runId
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const startedAt = Date.now();
+    chrome.storage.local.set({
+      kiditem_batch_scrape: {
+        runId,
+        total: urls.length,
+        completed: 0,
+        failed: 0,
+        current: 0,
+        status: "starting",
+        startedAt,
+      },
+    });
+    handleScrapeTargets(urls, runId, startedAt).catch((e) => {
+      chrome.storage.local.set({
+        kiditem_batch_scrape: { runId, status: "error", error: e.message, startedAt, endedAt: Date.now() },
+      });
+    });
+    sendResponse({ success: true, started: true, total: urls.length, runId, startedAt });
+    return false;
+  }
+
+  if (msg.action === "getBatchScrapeStatus") {
+    chrome.storage.local.get("kiditem_batch_scrape", (data) => {
+      sendResponse(data.kiditem_batch_scrape || { status: "idle" });
+    });
+    return true;
   }
 
   if (msg.action === "ping") {
@@ -166,19 +215,48 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
 });
 
 /**
- * 등록된 URL들을 순차적으로 탭에서 열고 스크래핑
- * content script(ads-report.js, wing-unified.js)가 자동으로 데이터 수집
+ * 등록된 URL들을 순차적으로 탭에서 열고 스크래핑.
+ * content script(ads-report.js, wing-unified.js)가 자동으로 데이터 수집.
+ * MV3 service worker idle 종료 대비: 진행률은 chrome.storage.local.kiditem_batch_scrape 에 기록.
  */
-async function handleScrapeTargets(urls) {
+async function handleScrapeTargets(urls, runId, startedAt) {
   if (!urls || urls.length === 0) {
+    if (runId) {
+      chrome.storage.local.set({
+        kiditem_batch_scrape: {
+          runId,
+          status: "error",
+          error: "수집 대상 URL이 없습니다",
+          startedAt: startedAt || Date.now(),
+          endedAt: Date.now(),
+        },
+      });
+    }
     return { success: false, error: "수집 대상 URL이 없습니다" };
   }
 
   const results = [];
   let completed = 0;
   let failed = 0;
+  const total = urls.length;
+  const start = startedAt || Date.now();
 
-  for (const item of urls) {
+  if (runId) {
+    chrome.storage.local.set({
+      kiditem_batch_scrape: {
+        runId,
+        total,
+        completed,
+        failed,
+        current: 0,
+        status: "running",
+        startedAt: start,
+      },
+    });
+  }
+
+  for (let i = 0; i < urls.length; i++) {
+    const item = urls[i];
     try {
       const result = await scrapeUrl(item.url, item.id, item.label);
       results.push(result);
@@ -188,9 +266,23 @@ async function handleScrapeTargets(urls) {
       results.push({ url: item.url, success: false, error: e.message });
       failed++;
     }
+    if (runId) {
+      chrome.storage.local.set({
+        kiditem_batch_scrape: {
+          runId,
+          total,
+          completed,
+          failed,
+          current: i + 1,
+          status: i + 1 < total ? "running" : "done",
+          startedAt: start,
+          ...(i + 1 === total ? { endedAt: Date.now() } : {}),
+        },
+      });
+    }
   }
 
-  return { success: true, completed, failed, total: urls.length, results };
+  return { success: true, completed, failed, total, results };
 }
 
 /**

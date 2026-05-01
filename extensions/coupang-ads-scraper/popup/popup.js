@@ -190,6 +190,38 @@ document.getElementById("btnMonthlySync").addEventListener("click", () => {
   });
 });
 
+// 상품목록 스크래핑 (Wing vendor-inventory/list) — 클라이언트 사이드 엑셀 다운로드만, 서버 호출 없음.
+document.getElementById("btnInventoryScrape").addEventListener("click", async () => {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id) return;
+
+  const resultEl = document.getElementById("syncResult");
+
+  if (!tab.url || !tab.url.includes("vendor-inventory/list")) {
+    resultEl.textContent = "Wing 상품목록 페이지(vendor-inventory/list)를 먼저 열어주세요.";
+    resultEl.className = "sync-result error";
+    return;
+  }
+
+  resultEl.textContent = "상품목록 스크래핑 중... (페이지 순회, 완료까지 기다려주세요)";
+  resultEl.className = "sync-result success";
+
+  chrome.tabs.sendMessage(tab.id, { action: "scrapeInventoryList" }, (response) => {
+    if (chrome.runtime.lastError) {
+      resultEl.textContent = "스크래핑 실패: " + chrome.runtime.lastError.message;
+      resultEl.className = "sync-result error";
+      return;
+    }
+    if (response?.success) {
+      resultEl.textContent = `✅ ${response.total}개 상품 스크래핑 완료 — 엑셀 다운로드됨`;
+      resultEl.className = "sync-result success";
+    } else {
+      resultEl.textContent = `❌ ${response?.error || "스크래핑 실패"}`;
+      resultEl.className = "sync-result error";
+    }
+  });
+});
+
 // 대시보드 열기
 document.getElementById("btnOpen").addEventListener("click", () => {
   chrome.tabs.create({ url: API_URL });
