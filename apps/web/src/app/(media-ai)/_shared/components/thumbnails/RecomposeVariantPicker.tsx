@@ -6,8 +6,10 @@ import {
   Camera,
   Grid3x3,
   Layers,
+  Lightbulb,
   Package,
   PackageOpen,
+  Shapes,
   Sparkles,
   Type,
 } from 'lucide-react';
@@ -40,6 +42,8 @@ const KIND_LABELS: Record<RecomposeKind, string> = {
   'single-with-accessories': '상품+부속품',
   'multi-pack-loose': '멀티팩',
   'multi-variant-loose': '세트/번들',
+  'mixed-item-set': '믹스 세트',
+  'lighting-lifestyle': '조명 무드',
   'box-with-loose-same': '박스+상품(중복)',
   'box-with-loose-diff': '박스+상품',
   'box-only-window': '박스만 (투명창)',
@@ -68,6 +72,16 @@ const KIND_TONE: Record<RecomposeKind, { bg: string; text: string; iconBg: strin
     bg: 'bg-teal-50',
     text: 'text-teal-700',
     iconBg: 'bg-teal-100',
+  },
+  'mixed-item-set': {
+    bg: 'bg-cyan-50',
+    text: 'text-cyan-700',
+    iconBg: 'bg-cyan-100',
+  },
+  'lighting-lifestyle': {
+    bg: 'bg-yellow-50',
+    text: 'text-yellow-700',
+    iconBg: 'bg-yellow-100',
   },
   'box-with-loose-same': {
     bg: 'bg-purple-50',
@@ -106,6 +120,8 @@ const KIND_ICON: Record<RecomposeKind, typeof Package> = {
   'single-with-accessories': PackageOpen,
   'multi-pack-loose': Layers,
   'multi-variant-loose': Grid3x3,
+  'mixed-item-set': Shapes,
+  'lighting-lifestyle': Lightbulb,
   'box-with-loose-same': Boxes,
   'box-with-loose-diff': Box,
   'box-only-window': Box,
@@ -114,7 +130,7 @@ const KIND_ICON: Record<RecomposeKind, typeof Package> = {
   'text-heavy': Type,
 };
 
-// 옛날 (legacy 4-kind) DB 에 저장된 kind 값 fallback — 새 10-kind 매핑에 없을 때 안전한 default.
+// 옛날 (legacy 4-kind) DB 에 저장된 kind 값 fallback — 새 12-kind 매핑에 없을 때 안전한 default.
 const FALLBACK_TONE = { bg: 'bg-slate-100', text: 'text-slate-700', iconBg: 'bg-slate-200' };
 
 export function RecomposeVariantPicker({

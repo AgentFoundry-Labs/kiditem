@@ -200,6 +200,10 @@ describe('ThumbnailAnalysisService AI flow', () => {
     await service.analyzeProduct(PRODUCT_ID, ORGANIZATION_ID, 'quality');
     expect(vision.checkCompliance).not.toHaveBeenCalled();
     expect(recompose.classifyByImage).toHaveBeenCalledTimes(1);
+    expect(recompose.classifyByImage).toHaveBeenCalledWith('https://example.com/master.jpg', {
+      productName: 'Test product',
+      category: 'toys',
+    });
     const upsertArgs = prisma.thumbnailAnalysis.upsert.mock.calls[0][0];
     expect(upsertArgs.update.complianceGrade).toBeUndefined();
     expect(upsertArgs.update.complianceScores).toBeUndefined();

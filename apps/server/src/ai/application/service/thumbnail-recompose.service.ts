@@ -6,7 +6,10 @@ import {
   singleProductFallback,
   SINGLE_PRODUCT_FALLBACK,
 } from '../../domain/recompose-classification';
-import { RECOMPOSE_CLASSIFY_PROMPT } from '../../domain/prompts/thumbnail-prompts';
+import {
+  buildProductContextHeader,
+  RECOMPOSE_CLASSIFY_PROMPT,
+} from '../../domain/prompts/thumbnail-prompts';
 import { resolveMasterThumbnailImage } from '../../domain/thumbnail-master-image';
 import { thumbnailMasterImageSelect } from '../../adapter/out/prisma/master-image-select.preset';
 import { ThumbnailVisionAiService } from './thumbnail-vision-ai.service';
@@ -31,6 +34,8 @@ export class ThumbnailRecomposeService {
     const master = await this.prisma.masterProduct.findFirst({
       where: { id: productId, organizationId, isDeleted: false },
       select: {
+        name: true,
+        category: true,
         imageUrl: true,
         thumbnailUrl: true,
         images: thumbnailMasterImageSelect(organizationId),
@@ -41,12 +46,20 @@ export class ThumbnailRecomposeService {
     if (!imageUrl) {
       return singleProductFallback('원본 이미지가 없습니다');
     }
-    return this.classifyByImage(imageUrl);
+    return this.classifyByImage(imageUrl, {
+      productName: master.name,
+      category: master.category,
+    });
   }
 
-  async classifyByImage(imageUrl: string): Promise<RecomposeVariantClassification> {
+  async classifyByImage(
+    imageUrl: string,
+    context?: { productName?: string | null; category?: string | null },
+  ): Promise<RecomposeVariantClassification> {
     try {
-      const text = await this.vision.classifyImageJson(imageUrl, RECOMPOSE_CLASSIFY_PROMPT);
+      const contextHeader = buildProductContextHeader(context?.productName, context?.category).trim();
+      const prompt = [contextHeader, RECOMPOSE_CLASSIFY_PROMPT].filter(Boolean).join('\n\n');
+      const text = await this.vision.classifyImageJson(imageUrl, prompt);
       return parseRecomposeClassification(text);
     } catch (err) {
       this.logger.warn(

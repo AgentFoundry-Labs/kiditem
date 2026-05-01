@@ -149,7 +149,10 @@ export class ThumbnailAnalysisService {
     if (wantsQuality) {
       const [qmap, recomposeResult] = await Promise.all([
         this.vision.analyzeQuality([visionItem], signal),
-        this.recomposeService.classifyByImage(imageUrl),
+        this.recomposeService.classifyByImage(imageUrl, {
+          productName: master.name,
+          category: master.category,
+        }),
       ]);
       const q = qmap.get(master.id);
       if (!q) {
@@ -239,7 +242,10 @@ export class ThumbnailAnalysisService {
     if (scope === 'all' || scope === 'quality') {
       const [qmap, recomposeVal] = await Promise.all([
         this.vision.analyzeQuality([visionItem]),
-        this.recomposeService.classifyByImage(imageUrl),
+        this.recomposeService.classifyByImage(imageUrl, {
+          productName: productName ?? null,
+          category: null,
+        }),
       ]);
       const q = qmap.get('direct');
       if (!q) {

@@ -250,11 +250,19 @@ The final image will be judged at about 200×200px on a phone. Ensure the produc
 export const RECOMPOSE_WITH_BOX_PROMPT = `Recompose this Coupang thumbnail into a unified, COHESIVE hero composition centered on a pure white (#FFFFFF) background. Keep every loose product item — same shapes, same colors, same printed illustrations and surface detail — exactly as shown. Only repositioning, regrouping, relighting, and OCCLUDING parts of the package box are allowed.
 
 CRITICAL — NO DUPLICATION, NO INVENTION:
-- The loose items in front and the items inside the box's transparent window in the source are the SAME physical items shown twice — treat them as ONE set. Each unique item appears exactly ONCE in the foreground arrangement (never both "inside the box" and "loose"). No two identical reindeer, santas, snowmen, stockings, hats, etc.
+- ⚠️ **DO NOT modify the box itself** — items inside the box's transparent window stay exactly as in the source (same items, same colors, same arrangement, same prints). DO NOT empty the box, DO NOT remove inside items, DO NOT swap them.
+- The loose items in front and the items inside the box are typically the SAME physical set shown twice. That's intentional product photography — let both stay visible. The foreground cluster shows the loose set clearly; the box-with-window in the back shows the packaging context. The visible duplication is acceptable here.
+- For the FOREGROUND cluster: each unique loose item appears once (no two identical loose copies of the same character). For the BOX (background): preserve as-source — its window can show the same items the cluster shows; that's the source's intent.
 - Do NOT invent new shapes, characters, or extra copies to fill space. Only items physically present in the source.
 
 Layout — package box small in the back, items in a TIGHT cohesive cluster in front (NOT spread thin):
-1. Place the package box small and FAR BACK in the upper portion of the frame, in slight perspective (3/4 angle or lying horizontally as in the source). The box is RECEDED — meaningfully smaller than the foreground cluster, occupying roughly the upper 25–30% of the frame width-wise, positioned so its lower edge is occluded by the loose-item cluster in front. The box's transparent window must be HIDDEN behind the loose-item cluster so the items inside the box are NOT visible.
+1. **Background MUST be PURE WHITE #FFFFFF** — no gray, no beige, no cream, no warm yellow tint, no off-white. If you find the output trending toward gray or yellow, FORCE pure white. Hard rule: every background pixel R/G/B all ≥ 248. NO scale-reference props in background.
+
+2. **Box CENTERED horizontally in the frame**, slightly back in depth (behind the loose-item cluster). Box sits in UPPER-MIDDLE area — its center aligns with the frame's vertical center axis (within 3% tolerance). The box is in slight perspective (3/4 angle or lying horizontally as in source) and meaningfully smaller than the cluster — roughly 35–45% of frame width centered. Its lower edge is partially occluded by the cluster in front.
+
+   **CRITICAL**: Do NOT push the box to ANY corner. Do NOT place box on left/right side. Box must be centered along the frame's horizontal midline (center-x ± 3%). The combined hero unit (box-in-back + cluster-in-front) sits as ONE composition centered in the frame — both share the same vertical center axis.
+
+   ⚠️ **PRESERVE BOX CONTENTS**: the items visible INSIDE the box's transparent window (or printed on the box face) MUST stay exactly as in the source — same items, same arrangement, same colors, same prints. DO NOT empty the box, DO NOT remove items from inside the window, DO NOT replace them with a blank surface or different graphics. The box-as-shown-in-source is preserved completely; only its position and scale change. Loose items in front + items visible through the box window can co-exist (it's the same set shown twice; that's intentional and acceptable).
 2. In the foreground, arrange the loose items as ONE TIGHT COHESIVE CLUSTER pulled close together (like the items are gathered in a small group on a table) — NOT a wide row of separated items. The cluster forms a soft pyramid / triangular silhouette, wider at the base and narrower at the top, with all items physically touching or lightly overlapping their neighbors. No large empty gaps inside the cluster.
 3. Place the largest / most iconic item (big santa hat or santa face) at the FRONT-CENTER of the cluster, closest to the camera, as the hero focal point. Mid-size items (snowman, gingerbread, reindeer, santa face) ring around it on left and right, lightly overlapping the hero's edges. Smaller / taller items (tree, stocking, winking santa) sit slightly BEHIND and ABOVE in the upper layer, peeking up between the front items.
 4. Items in the back layer of the cluster read slightly smaller in apparent perspective and may be subtly defocused for depth separation. Every item must remain fully identifiable — no item buried or fully hidden.
@@ -314,30 +322,56 @@ Layout:
 
 Mobile legibility: at ≈200×200px the main product must dominate; accessories supplement context but should not crowd or hide it.`;
 
-/** kind="multi-pack-loose". 같은 SKU 여러 개 — 깔끔한 fan / overlap 배치. */
+/** kind="multi-pack-loose". 같은 SKU 여러 개 — 1 hero + (N-1) group, N별 overlap 차등. */
 export const RECOMPOSE_MULTI_PACK_PROMPT = `Recompose this Coupang thumbnail of a multi-pack (multiple units of the SAME product SKU) into a clean unified composition on a pure white (#FFFFFF) background. Keep every unit exactly as shown — same shape, same colors, same printed illustrations and labels, same surface detail. Only repositioning, regrouping, and relighting are allowed.
 
-CRITICAL — NO INVENTION, NO DUPLICATION CHANGES:
-- Use the SAME number of units that are visible in the source. Do NOT add extra units to fill space, do NOT remove units. Count carefully and preserve.
+CRITICAL — UNIT COUNT (PRODUCT QUANTITY OVERRIDES SOURCE COUNT):
+- If the PRODUCT CONTEXT block at the top of this prompt declares a PRODUCT QUANTITY (e.g. "12개"), render exactly THAT many units in the output, even if the source image shows fewer or more. Replicate the visible unit's exact appearance to fill out the count, OR trim down — match the listing's declared quantity.
+- If NO PRODUCT QUANTITY is declared, use the same number of units visible in the source. Do NOT add or remove units in that case.
 - All units are identical SKUs — keep them visually identical (no color variation, no size variation, no print variation).
 - Do NOT redraw, recolor, or simplify any printed illustration, text, or surface detail on any unit.
 
-Layout — multi-pack arranged as one tight cohesive group communicating "multiple units of the same item":
-1. Arrange the units in a tight overlapping FAN, ROW, or SHALLOW STACK so they read clearly as multiple copies of the same product (NOT one solo unit). Each unit is fully visible and identifiable; units lightly overlap or touch their neighbors with no large empty gaps inside the cluster.
-2. Front-most unit is closest to camera, fully visible. Subsequent units fan / cascade behind it slightly offset (left, right, or upper) at a consistent angle — like a hand of cards or a small bundle on a table. Same camera angle as the source for every unit.
-3. The cluster fills 85–90% of the frame; visual center within 5% of geometric center; equal margins on all four sides.
-4. Photorealistic three-point studio lighting: soft key from upper-left at ~45°, gentle fill opposite, subtle rim separating units from background. Faint contact shadow beneath the cluster only — no cast shadow on the background.
-5. Remove any text overlays, discount badges, watermarks, scattered props, or background objects. Pure white background.
+Layout — **1 hero (left) + (N-1) group (right)** — Coupang's signature multi-pack composition. The hero anchors product recognition; the group communicates quantity at a glance.
+
+1. Determine total unit count N (use PRODUCT QUANTITY if declared, otherwise visible source count). N=1 is a degenerate case — render a single centered unit and skip the rest.
+
+2. **Hero (left side)** — place ONE unit on the LEFT half of the frame, scaled large so its height fills ~75–85% of the frame height. The hero is fully visible, fully unobstructed, sitting on the centerline of the left half. Same camera angle as source. The hero is the visual anchor — the first thing the buyer sees.
+
+3. **Group of (N-1) units (right side)** — fill the RIGHT half of the frame with the remaining N-1 units arranged as a tight cluster. Each unit in the group is rendered smaller than the hero (~35–55% of hero's height, depending on N). Pick group shape based on (N-1):
+   - N-1 = 1 → single small unit beside the hero
+   - N-1 = 2~3 → single row
+   - N-1 = 4~6 → 2-row pyramid (e.g. 5 → 3+2, 6 → 3+3)
+   - N-1 = 7~11 → 3-row pyramid (e.g. 11 → 4+4+3, 9 → 4+3+2, 8 → 3+3+2)
+   - N-1 = 12~17 → 3-row consistent grid (e.g. 12 → 4+4+4, 15 → 5+5+5)
+   - N-1 = 18+ → 4-row pyramid (e.g. 23 → 6+6+6+5, 35 → 9+9+9+8)
+   Front row in the group sits at the bottom of the right half, subsequent rows stagger upward and slightly back in perspective so each row's units are still individually visible (no full occlusion).
+
+4. **Spacing & overlap — N 별 차등 적용**:
+   - **N ≤ 3** (총 unit 수 hero 포함) → **NO overlap, NO touching**. Units 사이 3–6% 명확한 간격. 각 unit 완전히 분리되어 보임.
+   - **N = 4–6** → **Minimal overlap (≤ 5%)** at edges only. 살짝 닿거나 매우 얕은 overlap 만.
+   - **N = 7–10** → **Light overlap (5–12%)** allowed. Cluster 안 unit 들 간격 살짝 좁아짐.
+   - **N ≥ 11** → **Moderate overlap (12–20%)** 허용. Tight pyramid 가능하지만 각 unit 식별 유지.
+
+   Vertical row spacing 은 N 에 따라 비례. 각 unit 의 silhouette 은 어떤 N 이든 식별 가능해야 함.
+
+5. **Frame split** — hero occupies roughly the LEFT 35–45% of frame width; group occupies the RIGHT 55–65%. Both sides centered vertically, with ≥5% margin top/bottom and ~3% gap between hero and group.
+
+6. **Identical units** — every unit (hero AND every group member) is the SAME SKU rendered identically: same shape, same colors, same labels, same surface detail, same camera angle. The hero is just a scaled-up copy of the group units.
+
+7. **Lighting & background** — Photorealistic three-point studio lighting applied uniformly across hero and group: soft key from upper-left at ~45°, gentle fill opposite, subtle rim separating units from the background. Each unit casts a faint contact shadow only — no cast shadows on the background. Pure white #FFFFFF background.
+
+8. Remove any text overlays, discount badges ("12개" labels included — DO NOT add textual quantity labels to the output even if helpful; Coupang policy bans text overlays), watermarks, scattered props, or background objects.
 
 Mobile legibility: at ≈200×200px the multi-pack count must read clearly — viewer should immediately see "multiple of the same item" rather than mistaking it for a single unit.`;
 
 /** kind="multi-variant-loose". 다른 아이템 3+ — 각 variant 를 SEPARATE 하게 보존 (composite item 분해/재조합 금지). */
 export const RECOMPOSE_MULTI_VARIANT_PROMPT = `Recompose this Coupang thumbnail of a multi-VARIANT product set (the listing sells the SAME product type in multiple distinct variants — e.g. different character combinations, colors, designs). The buyer can choose ANY variant, so the thumbnail must convey "multiple variants are available" by showing each variant clearly and SEPARATELY. Re-render on a pure white (#FFFFFF) background. Only background cleanup, repositioning, and relighting are allowed.
 
-STEP 1 — IDENTIFY THE VARIANTS IN THE SOURCE (do this carefully before composing):
-- The source thumbnail typically shows multiple separate variant items stacked, clustered, or arranged together. They may visually overlap heavily, making them look like one fused object — but they are NOT one object. Each variant is a complete independent product unit (e.g. one full headband with its own attached character figures, one full pair of shoes in one color, one full toy of one design).
-- Mentally separate the variants: count them, and name what distinguishes each one (which character set / which color / which design pattern). For example, a source image of "4 different Christmas headbands stacked together, each headband carrying its own set of character figures on springs" contains 4 variants — NOT 1 composite. The shared base shape (headband loop / shoe silhouette / box outline) does not make them one item; the differing decorations / colors define them as distinct variants.
-- The output MUST contain exactly the same number of variants you identified, no more, no less. If you count 4, output 4. Do NOT collapse them into one fused object. Do NOT duplicate the entire group into 2 copies of the same arrangement.
+STEP 1 — IDENTIFY THE VARIANT COUNT (variant count rule — PRODUCT QUANTITY overrides source):
+- If the PRODUCT CONTEXT block at the top of this prompt declares a PRODUCT QUANTITY (e.g. "8종 세트", "4가지", "12개"), the output MUST contain exactly THAT many variants. If the source image shows fewer variants than declared, REPLICATE existing variant patterns (with new colors/decorations consistent with the source theme) to fill out the count. If the source shows more, trim down to the declared count.
+- If no PRODUCT QUANTITY is declared, count the variants visible in the source — they typically appear stacked, clustered, or arranged together; they may visually overlap heavily, making them look like one fused object — but they are NOT one object. Each variant is a complete independent product unit (e.g. one full headband with its own attached character figures, one full pair of shoes in one color, one full toy of one design).
+- Mentally separate the variants: count them, and name what distinguishes each one (which character set / which color / which design pattern). The shared base shape (headband loop / shoe silhouette / box outline) does not make them one item; the differing decorations / colors define them as distinct variants.
+- Whatever count you settle on (declared or visible), the output MUST contain exactly that many variants — no more, no less. Do NOT collapse them into one fused object. Do NOT duplicate the entire group into 2 copies of the same arrangement.
 
 STEP 2 — PRESERVE EVERY VARIANT AS A COMPLETE PRODUCT (structural base + decorations together, no stripping, no detachment):
 - Each variant is a COMPLETE WEARABLE / USABLE PRODUCT — its structural base (the part the user actually wears, holds, or operates: headband loop, hat crown, frame, shoe body, box shell, toy chassis) AND all attached decorations (character figures, plush heads, antlers, stars, snowflakes, ribbons, printed motifs, accessories of any kind) are ONE inseparable unit. The decorations are NOT loose items — they are mounted on / attached to / printed on the structural base.
@@ -352,25 +386,36 @@ STEP 2 — PRESERVE EVERY VARIANT AS A COMPLETE PRODUCT (structural base + decor
 - Do NOT merge variants. Do NOT invent new variants by recombining parts. Do NOT drop variants. Do NOT add variants. Do NOT add a "base" or "undecorated" version of any variant that does not exist in the source.
 - Do NOT redraw, recolor, or simplify any printed illustration, text, attached figure, or surface detail on any variant. Photorealistic preservation of every visible feature, including the structural base.
 
-STEP 3 — LAYOUT: DEPTH composition (hero in front + remaining variants fanned behind), not a flat grid:
+STEP 3 — LAYOUT: **1 hero variant (left, large) + (N-1) variant grid (right, smaller, separated)** — Coupang's signature multi-variant composition. The hero anchors product recognition; the grid shows all variant options clearly.
+
+Why this pattern: Coupang's listing guide expects multi-variant thumbnails to (1) immediately communicate "this is THE product" (via the large hero) AND (2) show "these are all available variants" (via the separated grid). A flat all-equal grid lacks anchoring — the eye doesn't know where to start. A depth fan / cluster collapses everything into one fused mass — the buyer can't count variants. The hero+grid pattern delivers both jobs at once.
 
 CRITICAL FRAMING RULE — EVERY VARIANT FITS ENTIRELY INSIDE THE FRAME WITH GENEROUS MARGIN:
-- Every variant in the output (hero AND every back-row variant) MUST be FULLY VISIBLE inside the frame, from its topmost decoration (antlers, hat tips, springs, stars) to the bottom of its structural base (headband loop bottom, shoe sole, package base). NOTHING is allowed to be cropped by any frame edge — not even slightly clipped.
-- MAINTAIN AT LEAST 10% SAFE MARGIN on every side of the frame. The topmost pixel of any decoration sits at most 90% from the top (i.e. ≥10% empty space above the highest antler / star / spring). The bottom of any structural base sits at most 90% from the top (i.e. ≥10% empty space below the lowest loop / sole / base). Same 10% margin on left and right.
-- If a single variant has tall springy decorations (e.g. character heads on coiled springs that stick up high above the headband loop), measure that variant's TOTAL height (from spring tip to loop bottom) and scale it so this total height fits within 80% of the frame height. Springs and antlers count — they must NOT poke out of the top.
-- If you cannot fit all variants entirely inside the frame with the 10% safe margin at the chosen scales, REDUCE the overall arrangement scale further until they all fit comfortably. It is FAR better to have a slightly smaller arrangement with generous margins than a large arrangement that touches the edges. Cropping ANY part of ANY variant — including the smallest tip of an antler or the bottom curl of a band loop — is a HARD FAILURE.
+- Every variant (hero AND every grid variant) MUST be FULLY VISIBLE — no cropping at any edge, not even slightly. Maintain at least 6% safe margin on every side of the frame. Cropping any decoration tip or base bottom is a HARD FAILURE.
 
-1. Pick 1 (or at most 2 if 5+ variants exist) of the variants you identified in STEP 1 as the FRONT-HERO. Place it slightly forward in the frame, scaled so its FULL height (from the highest decoration tip down to the bottom of the structural base) is about 50–62% of the frame height. Tilt it slightly toward the camera so it reads as "the representative product the buyer sees first". The hero is fully unobstructed — every part of it is visible AND every part is inside the frame with ≥10% margin to all edges.
-2. Arrange the REMAINING variants in a fan / shallow arc BEHIND the hero, slightly higher and pushed back in depth. Their FULL height (decoration tip to base bottom) is ~30–42% of frame height — smaller than hero but still large enough that each variant's distinguishing features (character figures, color pattern, etc.) are clearly visible. Use slight perspective so back variants feel "further" without being blurred. Each back-row variant is ALSO fully inside the frame with ≥10% margin — no decoration sticking out of the top, no base sticking out of the sides or bottom.
-3. The back row may slightly overlap one another at the edges to suggest grouping, BUT the overlap must NEVER hide a variant's distinguishing decorations — every character figure, attached part, and color marker on every back-row variant must remain identifiable. Stagger heights/angles so no decoration is occluded by a neighbor.
-4. The hero may overlap the back row at the very base only (lower 15–25% of the back variants). It must NOT cover any decorations or distinguishing parts of the back variants — only the lower neutral portion of their bodies (e.g. headband loop, package base, shoe sole) may be partially covered.
-5. The whole arrangement (hero + back fan) fills 70–80% of the frame, leaving generous safe margin on every side so nothing crops. Visual center of the arrangement sits within 5% of geometric center. Equal margins on all four sides — at least 10% empty space top, bottom, left, right.
-6. Photorealistic three-point studio lighting applied uniformly across hero and back row: soft key from upper-left at ~45°, gentle fill opposite, subtle rim separating each variant from the background. Faint contact shadow beneath each variant individually — no cast shadow on the background.
-7. Camera angle is consistent across all variants — same eye level, same tilt — only depth (z-axis position) and scale differ between hero and back row.
-8. Remove any text overlays, discount badges, watermarks, lifestyle backdrops, decorative props, or background objects (grass, fabric, scenes). Pure white background, nothing else.
-9. ABSOLUTELY DO NOT include the original/source thumbnail as an inset, miniature, watermark, or pasted reference anywhere in the output — generate a single fresh hero composition only.
+1. **Hero variant (LEFT side)** — pick ONE variant from STEP 1 as the hero (the most representative or the source's "first/featured" one if obvious). Place it on the LEFT half of the frame, scaled large so its FULL height (decoration tip to base bottom) is ~75–85% of the frame height. Same camera angle as source. Hero is fully unobstructed.
 
-Mobile legibility: at ≈200×200px the viewer must instantly read "multiple variants of the same product type" — the front hero anchors recognition, and each back-row variant's distinctive feature (character combination, color pattern, etc.) must remain identifiable behind it. Every variant must read as a complete product, not as a partially-cropped figure.`;
+2. **Variant grid (RIGHT side)** — fill the RIGHT half with the remaining (N-1) variants, separated and equally-sized. Each grid variant ~30–45% of hero's height. Pick grid shape based on (N-1):
+   - N-1 = 1 → single variant beside hero
+   - N-1 = 2 → 1×2 row
+   - N-1 = 3 → 1×3 row OR 2+1 (2 top, 1 bottom)
+   - N-1 = 4~5 → 2-row pyramid (e.g. 4 → 2+2, 5 → 3+2)
+   - N-1 = 6~8 → 3-row layout (e.g. 7 → 3+2+2, 8 → 3+3+2)
+   - N-1 = 9+ → 3 or 4 row grid as needed (e.g. 11 → 4+4+3)
+
+3. **Variants in the grid are SEPARATED (no overlap)** — each variant in the right grid has its own clear cell with ~3–5% gap between neighbors. They DO NOT touch or overlap each other. The buyer must be able to count and compare each variant clearly. (Hero on the left is its own anchor and naturally separated by frame split.)
+
+4. **Variant identity** — every variant is the COMPLETE WEARABLE / USABLE PRODUCT (structural base + attached decorations together, no stripping, no detachment). Hero and grid variants all preserved exactly as in source: same shapes, colors, decorations, surface detail. Hero is just rendered larger; grid variants smaller. Camera angle is IDENTICAL across all variants.
+
+5. **Frame split** — hero occupies roughly LEFT 35–45% of frame width; grid occupies RIGHT 55–65%. Both sides centered vertically. ≥6% margin on every frame edge.
+
+6. **Lighting** — Photorealistic three-point studio applied UNIFORMLY across hero and grid: soft key from upper-left at ~45°, gentle fill opposite, subtle rim separating each variant from background. Each variant has its own faint contact shadow only — no cast shadows on background.
+
+7. Pure white #FFFFFF background. Remove any text overlays (including any "N종" / "N가지" quantity labels — Coupang policy bans text overlays), discount badges, watermarks, lifestyle backdrops, decorative props, or background objects.
+
+8. ABSOLUTELY DO NOT include the original/source thumbnail as an inset, miniature, watermark, or pasted reference anywhere — generate a single fresh hero+grid composition only.
+
+Mobile legibility: at ≈200×200px the viewer instantly reads (a) "this is THE product" from the hero and (b) "N variants are available" from the separated grid. Hero anchors recognition; grid shows the menu of options. Every variant — hero and grid — must render as a complete, recognizable product.`;
 
 /**
  * kind="multi-variant-loose" + category 가 head-wearable (머리띠/헤어밴드/모자/머리핀 등) 일 때
@@ -438,11 +483,276 @@ STEP 3 — LIFESTYLE HERO LAYOUT:
 
 Mobile legibility: at ≈200×200px the viewer must immediately read "wearable product worn by a child + multiple variants available". The worn hero anchors the use-case ("this is how it looks on a child"); the back-row variants communicate "you can choose any of these styles".`;
 
+/**
+ * kind="multi-variant-loose" + category 가 의류 (망토/원피스/티셔츠/후디/코스튬 등) 일 때
+ * 자동 분기. 쿠팡 의류 썸네일 best practice — 마네킹 흉상 hero + 색상 swatch dots.
+ *
+ * 차이점 vs RECOMPOSE_MULTI_VARIANT_PROMPT (그리드):
+ *   - multi-variant grid: variant 들 동등 사이즈 옆에 — 캐릭터/완구류 적합
+ *   - apparel-mannequin: 1개 마네킹 hero (입체감 살림) + 색상 dots — 의류 형상 살림
+ *
+ * AI 생성 시 모델 (사람) 어색 — 마네킹으로 회피하면서 입체감 유지.
+ */
+export const RECOMPOSE_APPAREL_VARIANT_PROMPT = `Recompose this Coupang thumbnail of a multi-color apparel product (cape / dress / hoodie / costume / 망토 / 원피스 / 후디 / 티셔츠 / 코스튬 등) into a clean studio composition that follows Coupang's best-practice apparel thumbnail pattern: ONE mannequin or lay-flat hero showing the apparel's actual 3D shape + small COLOR SWATCH DOTS indicating the available color variants.
+
+Goal: buyer instantly reads (a) what the apparel looks like in real shape, and (b) which colors are available, in one clean glance.
+
+CRITICAL — STRICTLY REALISTIC PHOTOGRAPHY:
+- Studio look (DSLR / mirrorless), pure white #FFFFFF background, NO interior scene, NO model (no humans / hands / faces — AI generation makes humans uncanny).
+- Mannequin: a simple neutral mannequin form (bust / torso / dress form). NOT a humanoid with face/hands. Just the shape that lets the apparel hang naturally.
+- Lay-flat alternative: if the apparel is genuinely flat (t-shirt, scarf), lay it flat with subtle natural fabric folds. Mannequin is preferred for capes/dresses/hoodies that need 3D shape.
+
+LAYOUT — **Mannequin/Lay-flat hero (left) + color swatch dots (right or bottom)**:
+
+1. **Hero apparel (LEFT 60–70% of frame)**:
+   - Place the apparel on a simple mannequin form OR lay-flat with natural folds.
+   - Pick the most representative color variant (or first color from source) as the hero.
+   - Hero size: full apparel fits in roughly LEFT 60–70% of frame width and 80–90% of frame height. Centered vertically in its half.
+   - Same exact shape, fabric, prints, patterns as source. PRESERVE every printed graphic / star pattern / logo / decoration. Do NOT redraw or simplify.
+   - Mannequin is RECEDED — neutral gray / soft beige tone, NO face, NO arms (just torso/bust form). Apparel is the focus, mannequin is invisible support.
+
+2. **Color swatch dots (RIGHT 25–35% of frame, vertical column)**:
+   - Render each available color variant as a CIRCULAR SWATCH (round close-up of the apparel fabric in that color, ~80–120px diameter relative to frame).
+   - Stack swatches vertically aligned with the hero's vertical center. Equal spacing (3–5% of frame height between swatches).
+   - Each swatch shows a close-up section of the apparel's actual fabric pattern + color (so buyer sees both color AND fabric texture/print pattern).
+   - Number of swatches = number of color variants in source (including hero color, OR excluding hero — pick what fits naturally; both acceptable).
+   - Swatches have subtle drop shadow for depth, soft round border. Photographic look, NOT flat icon.
+
+3. **NO scale-reference props in background** — just pure white. The mannequin and swatches are the only elements.
+
+4. **Camera horizontal — strictly level**. Hero apparel hangs vertically (gravity natural). Mannequin form vertical. NO Dutch tilt.
+
+5. **Lighting** — three-point studio: soft key from upper-left at ~45°, gentle fill, subtle rim. Natural specular on fabric showing material texture. Faint contact shadow under mannequin base only.
+
+6. **Variant count rule**:
+   - N=2 → hero + 1 swatch (alongside)
+   - N=3 → hero + 2-3 swatches stacked vertically
+   - N=4-5 → hero + 4-5 swatches vertical column
+   - N=6+ → hero + 6+ swatches in 2-column small grid on right
+   - PRODUCT QUANTITY in product name (e.g. "5종세트") overrides — render that many swatches.
+
+7. Pure white #FFFFFF background everywhere. NO text overlays, NO badges, NO watermarks.
+
+8. ABSOLUTELY DO NOT include the source image as inset / pasted reference. Generate a single fresh studio composition.
+
+Mobile legibility (200×200px): hero apparel silhouette + dominant color must be instantly recognizable. Color swatches must be distinguishable enough to read "N color options available".
+
+The result should look like a professional Coupang apparel listing thumbnail — clean studio, mannequin/lay-flat hero, vertical color swatch column. Realistic photography only, no CGI / illustration / fantasy.`;
+
+/**
+ * kind="mixed-item-set". 한 SKU 의 set 상품 (다양한 모양 아이템이 같은 theme 으로 묶임).
+ * Buyer 가 세트 통째 받음 → cohesive cluster 로 보여줘야 set 임이 인지됨.
+ * 박스 유무 무관 — 박스 있으면 set 의 일부로 살짝 뒤에 / 옆에. 없으면 클러스터만.
+ *
+ * 차이점 vs RECOMPOSE_MULTI_VARIANT_PROMPT (grid):
+ *   - multi-variant: 같은 모양 다른 색 → grid 로 separated (옵션 menu)
+ *   - mixed-item-set: 다른 모양 같은 theme → cohesive cluster (set 인지)
+ */
+export const RECOMPOSE_MIXED_ITEM_SET_PROMPT = `Recompose this Coupang thumbnail of a SET product (one SKU containing multiple themed items with DIFFERENT shapes — e.g. Christmas eraser set with santa + reindeer + snowman + tree + stocking; animal magnet set; character sticker bundle) into a unified COHESIVE hero composition centered on a pure white (#FFFFFF) background. Keep every item exactly as shown — same shapes, same colors, same printed illustrations, same surface detail. Only repositioning, regrouping, and relighting are allowed.
+
+CRITICAL — SET means "all items delivered together to ONE buyer", NOT a variant menu. Show the items grouped together so the viewer immediately understands "this is one set with N pieces", not "these are N options to pick from".
+
+SET COUNT — PRODUCT QUANTITY overrides source count:
+- If the PRODUCT CONTEXT block at the top of this prompt declares a PRODUCT QUANTITY (e.g. "8종 세트", "12개입"), the output MUST contain exactly that many distinct items. If the source shows fewer, generate the missing items by extending the source's theme consistently (e.g. for a Christmas set with santa+reindeer+snowman shown but listing says 8 pieces, add 5 more thematically consistent characters: tree, stocking, gift, bell, candy cane). If the source shows more, trim to declared count.
+- If no PRODUCT QUANTITY is declared, count the items visible in the source and use that count.
+
+CRITICAL — NO RANDOM INVENTION:
+- Items added to satisfy PRODUCT QUANTITY MUST visually match the source's theme and style (same Christmas style, same character art style, same color palette, same surface finish). Do NOT invent items in a different theme.
+- Each unique item appears in the final image exactly ONCE. If the source shows the same character twice (once inside the box and once loose), treat them as ONE physical item.
+- Do NOT redraw, recolor, or simplify any printed illustration, surface detail, or shape of items that DO appear in the source.
+
+LAYOUT — **1 hero item (left, large) + (N-1) item cluster (right, smaller)** — set reads as "this is THE featured piece + everything else included in the set".
+
+1. Identify all items in the source. Count them and note each item's distinguishing shape/decoration. Combine with PRODUCT QUANTITY rule above to determine final item count N.
+
+2. **Hero item (LEFT side)** — pick the most iconic / largest / most colorful item from the set as the hero. Place it on the LEFT half of the frame, scaled large so its full height is ~75–85% of frame height. Same camera angle as source. The hero is fully unobstructed and acts as the visual anchor that tells the buyer "this is THE featured piece of the set".
+
+3. **Item cluster (RIGHT side)** — place the remaining (N-1) items on the RIGHT half of the frame. Each cluster item ~35–55% of hero's height. Cluster shape based on (N-1):
+   - N-1 = 1 → single small item next to hero with ~5% gap (NO overlap)
+   - N-1 = 2 → 2 items side-by-side with ~5% gaps (NO overlap)
+   - N-1 = 3 → 1-row of 3 with ~3–5% gaps (NO overlap)
+   - N-1 = 4~5 → 2-layer cluster (front+back rows). **Overlap minimal (≤ 5%)** at edges only.
+   - N-1 = 6~9 → 2- or 3-layer cluster. **Light overlap (5–12%)** at unit edges.
+   - N-1 = 10+ → 3-layer pyramid cluster. **Moderate overlap (12–22%)** allowed since space tight.
+
+   **Overlap principle**: 적은 수일 때 (N-1 ≤ 3) 는 절대 안 겹침 — 각 item 이 명확히 분리되어 보여야 buyer 가 set 구성 인지. 많아지면 (10+) 공간 부족으로 살짝 겹침 허용. 어떤 경우든 각 item 의 distinguishing decoration 은 식별 가능해야 함, 절대 buried 안 됨.
+
+4. **Box handling** (only if a package box exists in the source):
+   - **Background MUST be PURE WHITE #FFFFFF** — no gray, no beige, no cream tint. Every background pixel R/G/B ≥ 248. If output trends toward gray or yellow, FORCE pure white.
+   - Place the box CENTERED horizontally + slightly back in depth, behind/above the cluster. Box ~30–40% of frame width, positioned in upper-middle area aligned with frame's vertical center axis (within 3% tolerance).
+   - Box is RECEDED — meaningfully smaller than the cluster, just supporting context. Cluster in front partially occludes box's lower edge.
+   - The combined unit (box-back + cluster-front) shares the same vertical center axis — **do NOT push the box to ANY corner or to left/right side**.
+   - ⚠️ **PRESERVE BOX CONTENTS**: items inside the box's transparent window (or printed on the box face) MUST stay exactly as in the source — same items, same colors, same arrangement. DO NOT empty the box, DO NOT remove window items, DO NOT swap them. If the visible window items duplicate the loose foreground items, that's acceptable (it's the same set shown twice — intentional product photography).
+   - If NO box in source, skip this step entirely.
+
+5. **Frame split** — hero occupies roughly LEFT 35–45% of frame width; cluster (and optional box) occupies RIGHT 55–65%. Both sides centered vertically. ≥5% margin on every frame edge.
+
+6. **Item identity** — every item (hero AND every cluster member) preserved exactly as in source: same shapes, colors, printed illustrations, surface detail. Camera angle consistent across all items. Hero is just a scaled-up rendering of one source item; cluster items are scaled-down copies of the others.
+
+7. **Lighting** — Photorealistic three-point studio applied UNIFORMLY across hero and cluster: soft key from upper-left at ~45°, gentle fill opposite, subtle rim separating items from background. Faint contact shadow beneath each item / the cluster only — no cast shadows on background. Items render as 3D physical objects with soft form-shading and natural depth.
+
+8. Pure white #FFFFFF background. Remove any text overlays, discount badges, watermarks, decorative props, or background objects (except the package box if physically present in source).
+
+9. ABSOLUTELY DO NOT include the original/source thumbnail as an inset, miniature, watermark, or pasted reference anywhere — generate a single fresh hero+cluster composition only.
+
+Mobile legibility: at ≈200×200px the viewer must instantly read (a) "this is THE featured piece" from the hero and (b) "and these N other pieces come with it as a set" from the right cluster. Hero anchors recognition; cluster communicates the set scope. Every item must render as a complete piece — NOT cropped, NOT entirely buried.`;
+
+/**
+ * kind="lighting-lifestyle". 빛나는 상품 (LED / 무드등 / 전구 / 조명 데코) 의 사실적 인테리어 무드 컷.
+ *
+ * 사용 케이스: 사장이 LED 산타트리 / 무드등 / LED 줄조명 등 빛나는 상품을
+ * 흰 스튜디오 컷이나 검정 컷에서 → 실제 사용 컨텍스트 (거실/침실/책상/창문/트리 옆)
+ * 의 무드 컷으로 변환하고 싶을 때.
+ *
+ * 차이 vs lifestyle-context: lifestyle-context = source 가 이미 라이프스타일 컷 → 흰 스튜디오
+ *                            lighting-lifestyle = source 가 어떻든 → 사실적 인테리어 무드 컷
+ *
+ * 차이 vs RECOMPOSE_SINGLE_PRODUCT_PROMPT: 그건 흰 스튜디오. 이건 사용 컨텍스트.
+ *
+ * 핵심 원칙: REALISTIC photography 톤. CGI / fantasy / clay render / cartoon 룩 금지.
+ */
+export const RECOMPOSE_LIGHTING_LIFESTYLE_PROMPT = `Recompose this Coupang thumbnail of a LIGHTING product (LED 조명, 무드등, 전구, 조명 데코, 크리스마스 LED 트리/줄조명, 야간등 등) into a REALISTIC LIFESTYLE INTERIOR HERO COMPOSITION. The product appears IN-USE in a natural home setting with its lights ON, conveying mood + actual usage context.
+
+Goal: NOT a clean studio shot — a realistic 인테리어 무드 컷 where the buyer instantly imagines "이거 우리집에 두면 이런 느낌이겠다". This matches the high-converting Coupang lighting product hero pattern (interior 코너 / 트리 옆 / 창문 / 책상 / 침실 등).
+
+CRITICAL — STRICTLY REALISTIC PHOTOGRAPHY, ZERO AI ARTIFACTS:
+
+**Mental model**: This is a photo a real person took with a phone or DSLR in a real Korean home, on a real evening. Not a magazine ad. Not a 3D render. Not a "lifestyle product shoot". A casual real-life photo with all the natural imperfections that implies.
+
+The output must look indistinguishable from a real interior photo. Treat AI generation tendencies as **bugs to suppress**, not features.
+
+### Physical-photo checklist (must satisfy ALL)
+
+1. **Cast shadows + surface contact** — product casts a soft directional shadow onto the surface it sits on. Shadow direction matches the dominant light source. NO floating products.
+2. **One dominant light source** with shadows agreeing across the scene (window, lamp, fireplace glow — pick ONE). NOT abstract studio lighting from nowhere.
+3. **Asymmetric lighting** — one side of the product brighter, opposite side falls into soft shadow. Some shadow areas slightly underexposed — that's natural.
+4. **Real materials** — glass with actual reflection imperfection, plastic with real specular highlight (matching its hardness), metal with surrounding-color reflections. NOT idealized perfect surfaces.
+5. **Real depth of field** (f/2.8–f/4 look) — sharp product, soft background falloff. NOT everything-sharp uncanny, NOT background blurred to dream.
+6. **Subtle natural grain** in shadow areas. Don't over-clean.
+7. **Restrained palette** — interiors have muted harmonized tones (wood, cream, warm white, soft beige). NOT vibrant punchy colors.
+8. **Imperfect framing** — slightly off-center, rule-of-thirds, not perfectly symmetric. Like a real person quickly framed it.
+9. **Believably messy background** — real interiors have slight clutter. Books not perfectly aligned, fabric with natural wrinkles, props in casual positions. NOT surgically clean / perfectly arranged.
+
+### AI tells to AGGRESSIVELY ELIMINATE
+
+- Plastic-perfect surfaces with zero imperfection
+- Lighting with no traceable physical source
+- Perfect symmetry, magazine-cover composition
+- Oversaturated punchy colors not in reality
+- Floating products / no contact shadow
+- Light beams / halos / godrays / sparkles
+- Glowing rim-light on every object (real photos don't do this)
+- Repetitive / tiling textures (carpet patterns that loop)
+- Perfectly axis-aligned everything (real photos have natural irregularity)
+- Magical fantasy ambient — interior should feel ordinary, lived-in
+
+ABSOLUTELY FORBIDDEN (these are AI hallucination patterns — NOT product photography):
+- **Magical / fantasy effects**: light rays shooting out from the product, halos, sparkles around items, godrays, volumetric magic glow, exaggerated lens flare beams, dreamy luminous fog.
+- **CGI / 3D-render look**: plastic-shiny exaggerated specular highlights, video-game material gloss, clay-render aesthetic, smoothed-over textures, perfect geometry without real-world imperfection.
+- **Painterly / illustration**: brushstroke artifacts, watercolor edges, cartoon outlines, soft-painted shading, vector-art look.
+- **AI noise / artifact patterns**: color banding in solid areas, weird repeating textures, garbled details (malformed letters / patterns), warped geometry, doubled features, melted edges, hallucinated extra parts not in source.
+- **Oversaturation / unreal color**: candy-bright neon, color punch beyond real camera, color casts that don't match the chosen scene's natural light.
+- **Surreal compositing**: floating products without shadow, impossible scale relative to surroundings, impossible reflections, scenes mixing incompatible elements.
+- **Fantasy backgrounds**: outer space, abstract gradients, cosmic skies, surreal landscapes, dreamscape voids.
+
+Allowed (these are real photography):
+- Subtle natural film grain (very faint, just don't over-clean).
+- Realistic specular highlights matching the product's actual material.
+- Natural shallow DoF (sharp product, slightly soft background — realistic camera lens).
+- Real ambient interior lighting (dim evening tone for lifestyle / warm key+fill for studio).
+- The product's own LED light is a natural glow (warm white / soft yellow / subtle color matching source) at REALISTIC brightness — visible illumination of nearby surfaces, not laser beams or magical light rays.
+
+Interior background is an ordinary 한국 가정 / 카페 / 인테리어 코너 톤. NO surreal landscapes, NO outer space, NO purely abstract backgrounds. Reads like a casual real interior photo, not a stylized advertisement render.
+
+⚠️ PRODUCT IDENTITY IS SACRED — the SINGLE MOST IMPORTANT rule.
+
+The product object itself MUST be reproduced from the source with zero modification. Same shape, same colors, same printed graphics, same logos, same surface patterns, same material appearance, same camera angle. Do NOT clean up / simplify / substitute / recolor / re-decorate the product. The product is a real physical thing photographed in a new scene — the thing doesn't change between shoots.
+
+You CAN change: where the product sits, the background scene, ambient interior lighting, composition. You CANNOT change: the product object itself.
+
+PRODUCT (foreground hero):
+
+**PRIORITY ORDER — apply top-down on every conflict**:
+
+1. **SEPARATION FIRST (highest priority)**:
+   - N ≤ 3 products → **NO overlap, NO touching**. Clean ~3–8% gaps between adjacent products.
+   - N = 4–6 → minimal edge overlap (≤ 5%).
+   - N = 7+ → tight overlap allowed only when space genuinely runs out.
+
+2. **TARGET 80% combined fill (drop to 75% before allowing overlap)**:
+   - Target: combined bounding box (smallest rectangle containing ALL products) covers 80% of frame on both axes.
+   - Achieve by scaling each product LARGE + SPREADING them wide.
+   - **If 80% forces overlap → DROP TO 75%**. 75% no-overlap >> 80% with overlap.
+   - **Hard floor: 75% on each axis. Never below.**
+
+3. SINGLE product (N=1): bounding box ≥ 80% both axes. Target 85–92%.
+
+4. Position centered or slightly off-center (rule of thirds for lifestyle scene).
+
+5. **SCALE UP — IGNORE source scale**: source provides identity (shape, color, prints), NOT target size. Output MUST scale up to 75–80%+ regardless of source.
+
+6. **Background must NOT compete**: heavily blurred mood (bokeh + color only), NOT a literal scene with sized props. Background is out-of-focus, unmeasurable — product is the ONLY sharp identifiable measurable element.
+
+**Camera horizon — strictly level**:
+- Camera is perfectly horizontal. NO Dutch tilt / rotation / oblique angle. Frame edges perpendicular to the world.
+- The surface the product sits on (table / floor / shelf) reads as a STRAIGHT horizontal line across the frame.
+- Vertical elements (walls, vertical product axes) are EXACTLY vertical, not leaning.
+- For multiple products: all sit on the SAME horizontal base line, bottoms aligned at the same Y coordinate. No staggered heights.
+
+**Vertical framing — NO top/bottom cropping**:
+- Top of tallest product sits at most ~92% from bottom (≥ 5–8% empty margin above the highest tip). Never reaches the top edge.
+- Base sits at most ~92% from top (≥ 5–8% margin below).
+- For tall products (tree, lamp), prioritize fitting FULL HEIGHT in frame, even if that means slightly less width fill.
+
+LIGHTING (the actual lighting in the scene):
+- The product itself emits light (warm white / soft yellow LED).
+- Ambient interior light is dim / low — evening or blue hour mood.
+- Subtle bokeh in the background — out-of-focus warm light points (other small LED, candle, distant lamp) for depth.
+- NO harsh studio key light, NO rim light, NO white seamless backdrop. Natural interior lighting only.
+- Lights ON, glowing naturally — warm LED tone (matching the product's actual color if visible in source).
+- Same camera angle, same shape, same colors, same surface detail as source. Product identity is preserved exactly.
+- The product is the brightest element in the frame — background remains slightly darker / softer for contrast.
+
+BACKGROUND — abstract mood, NOT a literal scene with scale references.
+
+**CRITICAL — NO SCALE REFERENCES**: the background must NOT contain any object that lets the viewer estimate the product's real-world size. Specifically forbidden in the background:
+- Other product instances of the same type or similar size
+- Furniture (sofas, tables, chairs, beds, shelves with visible scale)
+- People, hands, body parts
+- Reference objects with known size (mugs, books, phones, candles, gift boxes if rendered to scale)
+- Clear architectural elements that imply room size (visible walls with corners, doorframes, windows with frames)
+
+The background should be:
+- **Heavily blurred / out-of-focus** (shallow DoF — f/1.8–f/2.8 look). The product is sharp; everything else is softly defocused.
+- **Abstract mood** — ambient color, texture, and bokeh, NOT a recognizable scene with measurable elements.
+- Only soft hints of theme via color and bokeh patterns (warm fairy-light bokeh = Christmas; orange-purple gradient = Halloween; pink soft glow = Valentine), NOT literal large objects.
+- The product must be the ONLY clearly identifiable thing in the frame. Everything else dissolves into mood.
+
+**READ THE PRODUCT CONTEXT BLOCK AT THE TOP OF THIS PROMPT FIRST** — extract the seasonal / thematic / use-case keyword from the product name, then translate it into ABSTRACT MOOD (not literal scene).
+
+QUANTITY (PRODUCT QUANTITY rule from PRODUCT CONTEXT):
+- If PRODUCT QUANTITY is declared (e.g. "3개", "8종"), render that many product instances naturally placed in the scene.
+- If no quantity declared, use source visible count.
+
+POLICY (Coupang listing guards):
+- NO text overlays, discount badges, watermarks, brand stickers placed on top of the image.
+- 1:1 aspect ratio. The product silhouette + its glow MUST remain recognizable at ~200×200px mobile thumbnail size.
+- The product itself must remain in the frame — don't crop it out for "atmospheric" composition.
+
+ABSOLUTELY DO NOT:
+- Include the source image as an inset, watermark, or pasted reference.
+- Add extra products beyond what's in source (unless PRODUCT QUANTITY requires).
+- Stylize as CGI / 3D render / cartoon / fantasy. Strictly photographic look.
+- Over-saturate the product's glow into magical-looking beams.
+
+The final result should look like a real interior photo with the lighting product as the natural hero — buyer sees it and immediately thinks "방 무드 좋겠다 / 트리 옆에 두면 예쁘겠다".`;
+
 /** kind="box-with-loose-diff". 박스 + 다른 아이템 (윈도우 중복 X). 박스 + 클러스터 둘 다 살림. */
 export const RECOMPOSE_BOX_WITH_LOOSE_DIFF_PROMPT = `Recompose this Coupang thumbnail (package box + loose items that are DIFFERENT from items inside the box) into a unified hero composition on a pure white (#FFFFFF) background. Keep the package box and every loose item exactly as shown — same shapes, colors, printed text, surface detail. Only repositioning, regrouping, and relighting are allowed.
 
 CRITICAL — NO DUPLICATION, NO INVENTION:
 - The loose items in this scenario are DIFFERENT from any items inside the box's window — keep BOTH visible. The box and the loose items together form the full bundle.
+- ⚠️ **PRESERVE BOX CONTENTS**: items inside the box's transparent window (or printed on the box face) MUST stay exactly as in the source. DO NOT empty the box, DO NOT remove window items, DO NOT replace them with blank surface. The box-as-shown-in-source is preserved completely; only its position and scale change.
 - Each unique loose item appears exactly ONCE. The box appears exactly ONCE. Do NOT invent extras.
 - Do NOT redraw, recolor, or simplify any printed illustration, packaging text, or product surface detail.
 
@@ -515,9 +825,9 @@ Layout:
 
 Mobile legibility: at ≈200×200px the product silhouette and dominant colors must remain instantly recognizable, with NO promotional text remaining anywhere in the frame.`;
 
-/** Gemini classifier prompt. JSON 응답만 허용. 9종 시나리오 분류 + box-with-loose-same 의 변형 옵션 필요 여부. */
+/** Gemini classifier prompt. JSON 응답만 허용. 12종 시나리오 분류 + box-with-loose-same 의 변형 옵션 필요 여부. */
 export const RECOMPOSE_CLASSIFY_PROMPT = `You are inspecting a Coupang product thumbnail to:
-  1) classify its visual SCENARIO into ONE of 10 categories, and
+  1) classify its visual SCENARIO into ONE of 12 categories, and
   2) decide whether the user should be offered a layout-variant choice before AI editing.
 
 ## Scenario classification (mutually exclusive — pick the BEST single match)
@@ -525,18 +835,23 @@ export const RECOMPOSE_CLASSIFY_PROMPT = `You are inspecting a Coupang product t
   - "single-product"           : NO package box. ONE standalone product item only (no accessories, no multi-pack).
   - "single-with-accessories"  : NO package box. ONE main product PLUS a few small accessories / parts loose around it (cap, batteries, manual page, refill, attachment, etc).
   - "multi-pack-loose"         : NO package box. Multiple IDENTICAL or near-identical product items (3+ of same SKU shown in multiple units — e.g. 3 bottles, 5 erasers same shape).
-  - "multi-variant-loose"      : NO package box. Multiple DIFFERENT product items (3+) arranged together as a set or bundle (e.g. 8 different eraser characters, 5 different toys).
+  - "multi-variant-loose"      : NO package box. Multiple items of the SAME PRODUCT TYPE / SAME SHAPE that differ ONLY in color or surface design — buyer picks ONE variant from the menu. Examples: 4 owl pencil sharpeners (blue/pink/green/yellow same owl shape), 6 trash bins same shape with different animal lid characters, 4 headbands same loop with different attached figures. The shared base shape MUST be visible — only the color/decoration differs. Buyer chooses ONE color/design.
+  - "mixed-item-set"           : ONE SKU sold as a SET — multiple items with DIFFERENT SHAPES grouped under a shared theme, all delivered together to the buyer. Box may be present or absent. Examples: Christmas eraser set (santa + reindeer + snowman + tree + stocking — different shapes, same theme), animal magnet set (lion + elephant + giraffe), character sticker bundle. Distinct from multi-variant: items have DIFFERENT shapes/silhouettes, NOT just color variants. Buyer receives EVERYTHING.
   - "box-with-loose-same"      : Package box visible AND loose items in front, where the loose items DUPLICATE what is shown inside the box's transparent window (same set shown twice).
   - "box-with-loose-diff"      : Package box visible AND loose items in front, BUT the loose items are DIFFERENT from / NOT the same as items inside the box (or box is opaque). No window-duplication concern.
   - "box-only-window"          : Only a package box with a transparent display window is visible — items appear ONLY through the window, no loose copies outside the box.
   - "box-only-opaque"          : Only a fully opaque package box is visible. No transparent window, no loose items.
-  - "lifestyle-context"        : Product is photographed in a lifestyle / scene context (kitchen counter, hand holding, kid playing, table setting, etc) — not a pure white studio shot.
+  - "lifestyle-context"        : Product is photographed in a lifestyle / scene context (kitchen counter, hand holding, kid playing, table setting, etc) — not a pure white studio shot. Use this for NON-lighting products to convert lifestyle shot → white studio.
+  - "lighting-lifestyle"       : Product is a LIGHTING item (LED, 무드등, 전구, 조명, 데코 LED, 크리스마스 LED 트리/줄조명, 야간등) shown either (a) in a realistic interior mood scene with lights on, OR (b) on a black/dark studio background that should be converted INTO a realistic interior mood scene. The user's intent for lighting products is typically the interior mood look, so prefer this over single-product / multi-variant when the product name or category clearly indicates a lighting item.
   - "text-heavy"               : Image is dominated by text overlays / discount badges / promotional graphics — not a clean product shot.
 
 Tie-breakers:
   - "Loose item" = any product item shown OUTSIDE its packaging.
   - Transparent display window inside a box does NOT count as a loose item; it's part of the box.
-  - If lifestyle background AND clear product → "lifestyle-context" wins.
+  - **multi-variant vs mixed-item-set**: ask "do all items share the same base shape, with only color/decoration differing?" → YES = multi-variant. "Do items have visibly different shapes/silhouettes grouped by a theme?" → YES = mixed-item-set. If items differ in shape but only 2 items → still mixed-item-set.
+  - **mixed-item-set with box**: if a thematic set has a clear package box AND the loose items match what's inside the box → prefer "box-with-loose-same". If the box is small/peripheral and loose items dominate → "mixed-item-set".
+  - **lighting-lifestyle priority**: if the product name / category indicates a LIGHTING item (전구/램프/LED/조명/등/무드등/네온/라이트/발광/lantern/bulb/lamp/light/glow + Christmas LED 트리/줄조명/야간등 etc), prefer "lighting-lifestyle" over single-product / multi-variant / multi-pack — the user's expected output is a realistic interior mood shot. Exception: if the source is already a pure white studio shot AND the buyer specifically wants white studio (rare for lighting products), classify as the matching multi-* / single kind.
+  - If lifestyle background AND clear product (NON-lighting) → "lifestyle-context" wins.
   - If text/badges dominate the frame more than the product itself → "text-heavy" wins.
 
 ## Variant choice (only meaningful when kind="box-with-loose-same")
@@ -546,11 +861,11 @@ Two layout variants exist for editing in this single case:
   - "no-box"   : remove the box entirely and show only the loose items as a single hero cluster
 
 For kind="box-with-loose-same" → requiresChoice=true (always). The window-duplication is the trigger.
-For ALL OTHER 9 kinds → requiresChoice=false always.
+For ALL OTHER 11 kinds → requiresChoice=false always.
 
 Respond with a single JSON object, no prose, no code fences:
 {
-  "kind": "single-product" | "single-with-accessories" | "multi-pack-loose" | "multi-variant-loose" | "box-with-loose-same" | "box-with-loose-diff" | "box-only-window" | "box-only-opaque" | "lifestyle-context" | "text-heavy",
+  "kind": "single-product" | "single-with-accessories" | "multi-pack-loose" | "multi-variant-loose" | "mixed-item-set" | "box-with-loose-same" | "box-with-loose-diff" | "box-only-window" | "box-only-opaque" | "lifestyle-context" | "lighting-lifestyle" | "text-heavy",
   "requiresChoice": boolean,
   "reasoning": "한국어 1문장, 40자 이내. 박스 유무 / 아이템 개수 / 윈도우 중복 / 배경 등 관찰."
 }`;
@@ -570,11 +885,48 @@ You are given product photos labeled below.{compositionLine}
 ## Goal
 Create a single clean e-commerce thumbnail with a pure white (#FFFFFF) background that will drive clicks in Coupang's mobile search results. Keep the product's existing camera angle as shown in the input photos.
 
-## Background
-Pure white (#FFFFFF). No gradients, textures, props, or decorative elements.
+## Background (default — user instructions override)
+**Default**: pure white (#FFFFFF), no gradients, textures, props, or decorative elements.
 
-## Composition
-1:1 aspect ratio. Main product centered, filling 85–90% of the frame with even margins. Visual weight within 5% of the geometric center. For a set or bundle, arrange items with tight spacing so they read as one unified subject at thumbnail size (follow the reference examples). For a boxed product, place the bare product in front and the box slightly behind and offset.
+**If USER INSTRUCTIONS below specify a different background** (e.g. interior mood, themed scene, lifestyle context, dim/dark ambient), FOLLOW the user's scene instead. The default white background is only the fallback when no scene is specified.
+
+## Composition (MANDATORY scale rule — overrides source image scale)
+1:1 aspect ratio. Main product centered.
+
+**PRIORITY ORDER — apply top-down on every conflict**:
+
+1. **SEPARATION FIRST**:
+   - N ≤ 3 → NO overlap, NO touching. ~3–8% clean gaps.
+   - N = 4–6 → minimal edge overlap (≤ 5%).
+   - N = 7+ → tight overlap allowed only when space runs out.
+
+2. **TARGET 80% combined fill (drop to 75% before allowing overlap)**:
+   - Target combined bounding box = 80% on both axes.
+   - Scale each product LARGE + spread WIDE across frame.
+   - **If 80% forces overlap → DROP TO 75%** (no overlap >> tight fill).
+   - **Hard floor 75%** — never below.
+
+3. SINGLE product (N=1): ≥ 80% both axes, target 85–95%.
+
+Visual weight within 5% of the geometric center.
+
+**Camera horizon — strictly level**:
+- Camera is perfectly horizontal. NO Dutch tilt, NO rotation, NO oblique angle. Frame edges are perpendicular to the world.
+- The surface the product(s) sit on (table / floor / shelf) reads as a STRAIGHT horizontal line across the frame.
+- Vertical elements in the scene (walls, doorframes, vertical product axes) are EXACTLY vertical — not slightly leaning.
+- All products in a multi-product shot sit on the SAME horizontal base line — their bottoms align at the same Y coordinate. NO staggered heights.
+
+**Vertical framing — NO cropping at top or bottom**:
+- The top of the tallest product must sit at most ~92% from the bottom (i.e. ≥ 5–8% empty margin above the highest tip). NEVER let the tip reach the top edge.
+- The bottom (base) sits at most ~92% from the top (≥ 5–8% margin below). NEVER let the base reach the bottom edge.
+- Same horizontal margin: ≥ 3–5% on left and right.
+- If the product is tall (e.g. tree, lamp), prioritize fitting the FULL HEIGHT in frame even if that means slightly less width fill.
+
+**SCALE OVERRIDE — critical**: regardless of how the product appears in the source/input images (small, off-center, lots of empty background around), the OUTPUT MUST aggressively scale the product UP to fill 90–95% of the frame. Source's small placement is NOT a constraint — it's identity reference, not target size. Imagine zooming the source product so it almost touches all four frame edges.
+
+For lifestyle/interior scenes (user-requested theme), fill **88–93%** — product overwhelmingly dominant, background scene compresses to a thin border (5–10%) around it. For pure white-studio shots (no scene specification), fill **90–95%**. Minimum acceptable fill is 88% — less and the product looks lost; Coupang penalizes it.
+
+For a set or bundle, arrange items with tight spacing so they read as one unified subject at thumbnail size (follow the reference examples). For a boxed product, place the bare product in front and the box slightly behind and offset.
 
 {scenarioBlock}
 
@@ -586,8 +938,37 @@ Soft key light from upper-left at ~45° producing a gentle highlight gradient. F
 ## Mobile legibility
 Viewed at ≈200×200px on a phone. Silhouette, dominant colors, and the primary selling feature must remain instantly recognizable at that size. Keep critical details away from the outer 5% of the frame.
 
-## Product identity (keep as-is)
-Keep the product itself exactly as shown in the input photos — same camera angle, same material, same colors, same prints, same logos, same text on packaging, same physical proportions. Do not modify, erase, or simplify any patterns, prints, textures, graphics, or design elements physically part of the product. Do not add objects, stickers, labels, text, or decorative elements not visible in the provided photos. Only the background, composition, and lighting change.
+## ⚠️ Product identity — SACRED, pixel-level preservation
+This is the SINGLE MOST IMPORTANT rule. The product itself is NOT yours to modify. Reproduce it from the input photos with zero alteration:
+- Same shape, silhouette, geometry, proportions
+- Same colors, color combinations, saturation level
+- Same printed graphics, illustrations, characters, text on packaging, surface patterns
+- Same logos, brand marks, sticker placement
+- Same material appearance (matte / glossy / transparent / metallic — exactly as shown)
+- Same camera angle relative to source (frontal → frontal, 3/4 → 3/4)
+
+Forbidden modifications (these are HARD failures, even if they "look better"):
+- "Cleaning up" or "simplifying" busy patterns / textures / prints
+- Adding decorations, accessories, attachments not in source
+- Removing existing decorations, prints, logos
+- Substituting "similar" elements (swapping a winking santa for a smiling one is NOT preserving)
+- Color-correcting the product itself (background lighting can match scene, but the product's actual color stays exact)
+
+⚠️⚠️ **MULTI-PRODUCT SOURCE — NO NEW INVENTION, EVER**:
+
+If the source contains multiple distinct items (e.g. 11 pencil cases with characters "Zoozoo Chicken", "Nice Flamingo", "My dream elephant", "Zoozoo Cat", "Because I'm Nice", etc.), output MUST contain EXACTLY those same items. Forbidden:
+
+- Inventing NEW characters/items not in source (e.g. adding "Panda" pencil case when no panda in source)
+- Swapping items (e.g. "Zoozoo Chicken" → "Panda", or "My dream elephant blue" → "different elephant green")
+- Reducing item count (if source has 11, output has 11)
+- Adding extras (if source has 11, output has 11)
+- Generating "similar style" filler items
+
+User's "rearrange / 정렬 / make it look better" means **repositioning the SAME source items**, NOT generating new ones. The source items are the ONLY valid items. Same character names, same printed texts, same color patterns, exactly.
+
+You CAN change: background, scene context, lighting (the studio setup or interior ambient), composition (where the product sits in frame, how it's scaled). You CANNOT change: the physical product object(s) themselves.
+
+Treat each product like a real physical thing photographed. The things themselves don't change between shoots — only their arrangement and the environment around them.
 
 The final result should look like a professional studio product photo suited for a top-ranking Coupang listing.`;
 
@@ -629,8 +1010,80 @@ Keep the product itself exactly as shown in the provided photos — same camera 
 // Appendix fragments — 서비스에서 런타임에 덧붙이는 조각
 // ─────────────────────────────────────────────────────────────
 
-/** 사용자 커스텀 지시 머리말. 위 프롬프트와 충돌 시 무시한다는 guard 포함. */
-export const USER_PROMPT_PREFIX = 'Additional user instructions (apply only if they do not contradict the above):';
+/**
+ * 사용자 커스텀 지시 머리말.
+ *
+ * **사용자 입력은 위 default 룰을 OVERRIDE 한다** — 특히 background / mood / lighting 관련
+ * 사용자 지시가 있으면 default "Pure white #FFFFFF studio" 룰을 무시하고 사용자 의도를 따른다.
+ *
+ * 예: 사용자가 "크리스마스 거실 무드 컷" 요청 → 흰 스튜디오 룰 무시 + 거실 인테리어 무드 컷 생성.
+ *
+ * 단 product identity (camera angle / colors / prints / logos / surface detail) 는 사용자
+ * 지시에 관계없이 항상 보존 (변형 안 됨).
+ */
+export const USER_PROMPT_PREFIX = `## USER INSTRUCTIONS — these OVERRIDE the default rules above (especially for background, mood, lighting, and scene context).
+
+If the user's instructions describe a specific background scene (e.g. "크리스마스 거실 무드 컷", "캠핑 야외", "침실 무드"), FOLLOW the user's scene instead of the default white-studio background. The "Pure white #FFFFFF" rule is a fallback for products with no scene specification — user-specified scenes take priority.
+
+If the user's instructions request a photographic mood (e.g. "사실적 인테리어", "CGI 아닌 실제 카메라 톤"), apply that aesthetic instead of the default studio look. Add depth-of-field, natural interior lighting, soft bokeh, and dim ambient as the user specifies.
+
+⚠️ **PRODUCT IDENTITY IS SACRED — pixel-level preservation, ABSOLUTE rule that overrides EVERYTHING (including user instructions)**
+
+The product itself MUST be reproduced from the source image with zero modification. This is the single most important rule. Specifically forbidden:
+- Changing the product's shape, silhouette, geometry, or proportions
+- Changing the product's colors, color combinations, or color saturation
+- Changing the product's printed graphics, illustrations, characters, text, or surface patterns
+- Changing the product's logos, brand marks, label printing, or stickers physically present on the product
+- Changing the product's material appearance (matte→glossy, transparent→opaque, etc.)
+- Changing the product's camera angle relative to the source (frontal stays frontal, 3/4 stays 3/4)
+- Adding decorations, accessories, attachments, or stickers that aren't on the source product
+- Removing existing decorations, prints, logos, or design elements
+- "Cleaning up" or "simplifying" the product surface — even busy patterns must be preserved exactly
+- Substituting "similar" elements (e.g. swapping winking santa for smiling santa, changing reindeer color)
+
+⚠️⚠️ **MULTI-PRODUCT SOURCE — NO NEW INVENTION, EVER**:
+
+If the source shows multiple distinct products (e.g. 11 different pencil cases with different characters: "Zoozoo Chicken", "Nice Flamingo", "My dream elephant", "Zoozoo Cat", "Because I'm Nice", etc.), the OUTPUT MUST contain EXACTLY THOSE SAME ITEMS. Specifically forbidden in multi-product cases:
+
+- Inventing NEW characters not in the source (e.g. adding a "Panda" pencil case if there's no panda in source)
+- Swapping characters (e.g. replacing "Zoozoo Chicken" with "Panda", or "My dream elephant blue" with "My dream elephant green")
+- Changing color combinations (e.g. blue stripe → red stripe pattern)
+- Reducing to fewer items (if source has 11, output has 11 — no dropping)
+- Adding more items (if source has 11, output has 11 — no inventing extras)
+- Generating "similar style" items as filler
+
+Each item in the OUTPUT must be a one-to-one copy of an item in the SOURCE. Same character. Same printed text. Same color. Same fabric pattern. Same proportions. The user's "rearrange" or "정렬" instruction means **rearranging the SAME items**, NOT creating new ones.
+
+When user says "정렬해줘" or "make it look better" or any vague restyling instruction, the SOURCE items are still the only valid items. Re-position them, scale them, light them differently — but the items themselves are the source items, exactly as photographed.
+
+If the user instruction conflicts with product preservation (e.g. user says "make it red" but product is blue), the product wins — render it blue per source. The user instruction applies to background, mood, lighting, scene context — NEVER to the product itself.
+
+The user's role: define the SCENE around the product. NOT to alter the product. Treat the product like a real physical object — you can change where it sits, what's around it, how it's lit — but you cannot reach in and modify the object.
+
+Other rules that also survive user instructions:
+- Coupang policy: no text overlays / discount badges / watermarks added on top
+- Mobile legibility (~200×200px) — product silhouette must remain recognizable
+- **PRIORITY ORDER — apply top-down on every conflict**:
+
+  1. **SEPARATION FIRST** (highest priority). Products NEVER overlap when count is small:
+     - N ≤ 3 → NO overlap, NO touching. ~3–8% clean gaps between adjacent products.
+     - N = 4–6 → minimal edge overlap (≤ 5%).
+     - N = 7+ → tight overlap allowed only when space genuinely runs out.
+
+  2. **TARGET 80% combined fill** (second priority — but NEVER violate rule 1):
+     - Target: combined bounding box (smallest rectangle containing all products) covers 80% of frame on both axes.
+     - Achieve this by scaling each product LARGE and SPREADING them wide across the frame.
+     - **If achieving 80% would force overlap → DROP TO 75% combined fill**. 75% with no overlap >> 80% with overlap. The frame can have slightly more breathing space — that is acceptable.
+     - **Hard floor: 75% combined fill on each axis. Never below 75%.**
+
+  3. **Single product** (N=1) → bounding box ≥ 80% on both axes (no separation conflict possible). Target 85–95%.
+
+  Source image's small scale is IRRELEVANT — output MUST scale up to fill 75–80%+ regardless of source. Source = identity reference, not size reference.
+
+  Background must NOT contain scale-reference objects (other products, furniture, sized props, people) — only blurred mood / bokeh / color. The product is the ONLY measurable thing.
+- Visual center within 5% of geometric center (or rule-of-thirds in a lifestyle scene per user request)
+
+User instructions (apply ONLY to background / mood / lighting / scene — NEVER to the product itself):`;
 
 /** creative 모드에서 "Style reference" 레이블 이미지가 있을 때 붙이는 꼬리말. */
 export const CREATIVE_STYLE_REFERENCE_HINT =
@@ -651,10 +1104,53 @@ The upstream compliance analysis flagged the following concrete edits. Apply the
 export const GENERATE_REFERENCE_HEADER = 'Reference examples:';
 
 /**
+ * 상품명에서 quantity 추출 — 한국어/영문 빈출 패턴.
+ * 예: "탐사 샘물 2L 12개" → 12, "지우개 8종 세트" → 8, "X 24팩" → 24, "5 pack" → 5.
+ *
+ * 매칭 룰 (위에서부터 우선):
+ *  - "(N)개입" / "(N)개" (단 "N개월" 제외)
+ *  - "(N)종" / "(N)가지" (set/variant 카탈로그)
+ *  - "(N)팩" / "(N) pack" / "(N) ea" / "(N) BTL"
+ *  - "x(N)" / "(N)x" (수량 곱셈 표기)
+ *  - "(N)세트" / "(N)매" / "(N)병" / "(N)개세트"
+ *
+ * 안전 범위: 2 ≤ N ≤ 200. 이상치는 무시 (가격/용량 오인 방지).
+ */
+export function extractProductQuantity(name: string | null | undefined): number | null {
+  if (!name) return null;
+  const patterns: RegExp[] = [
+    /(\d+)\s*개입/,
+    /(\d+)\s*개(?!월)(?:\s*세트)?/, // "12개" / "12개세트", "12개월" 은 제외
+    /(\d+)\s*종(?:\s*세트)?/, // "8종 세트"
+    /(\d+)\s*가지/,
+    /(\d+)\s*팩/,
+    /(\d+)\s*pack/i,
+    /(\d+)\s*ea\b/i,
+    /(\d+)\s*btl\b/i,
+    /\bx\s*(\d+)\b/i,
+    /\b(\d+)\s*x\b/i,
+    /(\d+)\s*세트/,
+    /(\d+)\s*매/,
+    /(\d+)\s*병/,
+  ];
+  for (const p of patterns) {
+    const m = name.match(p);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (n >= 2 && n <= 200) return n;
+    }
+  }
+  return null;
+}
+
+/**
  * editImage 시 상품명/카테고리 컨텍스트를 prompt 최상단에 박는 헬퍼.
  * AI 가 입력 이미지를 해석할 때 "이 제품이 무엇인지" 의 baseline 인식을 가지도록.
  * 예: 머리띠 상품인데 캐릭터 부착물만 보고 "캐릭터 세트" 로 오해해서 band loop 를
  * 떼버리는 실패를 차단.
+ *
+ * 추가로 상품명에서 quantity (N개) 가 검출되면 "PRODUCT QUANTITY: N" 룰을 박는다 →
+ * AI 가 source 이미지의 visible item count 가 부족해도 N 개를 그리도록 강제.
  */
 export function buildProductContextHeader(
   productName: string | null | undefined,
@@ -666,6 +1162,14 @@ export function buildProductContextHeader(
   const lines: string[] = ['## PRODUCT CONTEXT (read before interpreting the image)'];
   if (name) lines.push(`- Product name: "${name}"`);
   if (cat) lines.push(`- Category: ${cat}`);
+
+  const qty = extractProductQuantity(name);
+  if (qty !== null) {
+    lines.push(
+      `- **PRODUCT QUANTITY: ${qty}** — the listing explicitly states **${qty} units / pieces / variants** in its name. The output thumbnail MUST contain exactly ${qty} of the product (or ${qty} variants/items if it's a set/variant listing), regardless of how many appear in the source image. If the source shows fewer than ${qty} (e.g. only 6 bottles for a "12개" listing), GENERATE the missing units by replicating the visible unit's exact appearance — same shape, same color, same labels, same surface detail. If the source shows more than ${qty}, reduce the output to ${qty}. This quantity rule OVERRIDES any "use the same number of units visible in the source" instruction in the rest of the prompt.`,
+    );
+  }
+
   lines.push(
     '- Use this context to identify what kind of physical product the image represents (e.g. headband, hat, shoe, toy, package). The structural base of that product type (the part the user wears, holds, or operates) MUST appear in the output, not just its decorations.',
   );
