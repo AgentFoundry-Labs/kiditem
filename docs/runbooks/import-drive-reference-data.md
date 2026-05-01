@@ -13,8 +13,10 @@ listing mapping tables.
 - Google Drive Desktop is installed and logged in.
 - The shared `KidItem Dev Data` folder is visible locally.
 - Local PostgreSQL is running and the Prisma schema has been applied.
-- The target organization id is known. If unavailable, inspect the local DB
-  and choose the correct development organization.
+- This runbook is for a local development database. If the DB has no
+  organization, the agent is authorized to create the standard local dev
+  organization described below. Do not run this bootstrap against production or
+  shared staging.
 
 ## Inputs
 
@@ -64,7 +66,7 @@ Legacy aliases `--kiditem` and `--wing` also work.
    npm run db:push
    ```
 
-4. Resolve the organization id.
+4. Resolve or create the local development organization.
 
    Prefer a provided `KIDITEM_DEV_ORGANIZATION_ID`. If it is missing, inspect
    local organizations:
@@ -73,10 +75,25 @@ Legacy aliases `--kiditem` and `--wing` also work.
    docker exec kiditem-postgres psql -U kiditem -d kiditem -c "select id, name, created_at from organizations order by created_at desc;"
    ```
 
-   Then set:
+   If the result is empty, create the standard fresh-DB organization. This is
+   an expected local-dev mutation and does not need another human approval when
+   this runbook is the assigned task.
 
    ```bash
-   export KIDITEM_DEV_ORGANIZATION_ID="<organization uuid>"
+   export KIDITEM_DEV_ORGANIZATION_ID="00000000-0000-4000-8000-000000000001"
+
+   docker exec kiditem-postgres psql -U kiditem -d kiditem -v ON_ERROR_STOP=1 -c "
+   insert into organizations (id, name, slug)
+   values ('$KIDITEM_DEV_ORGANIZATION_ID', 'KidItem Dev', 'kiditem-dev')
+   on conflict (slug) do update set name = excluded.name
+   returning id, name, slug;
+   "
+   ```
+
+   If an organization already exists, use its id instead:
+
+   ```bash
+   export KIDITEM_DEV_ORGANIZATION_ID="<existing organization uuid>"
    ```
 
 5. Run dry-run first.
