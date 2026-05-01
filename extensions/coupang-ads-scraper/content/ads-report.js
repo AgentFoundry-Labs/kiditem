@@ -434,10 +434,10 @@
     return { period, periodLabel, dateFrom, dateTo };
   }
 
-  // URL hash에서 #targetDate=YYYY-MM-DD 읽기 — 일별 백필 배치 모드 트리거.
-  function getTargetDateFromHash() {
-    const hash = window.location.hash || "";
-    const match = hash.match(/targetDate=(\d{4}-\d{2}-\d{2})/);
+  // URL hash/query에서 targetDate=YYYY-MM-DD 읽기 — 일별 백필 배치 모드 트리거.
+  function getTargetDateFromUrl() {
+    const locationFlags = `${window.location.search || ""}&${(window.location.hash || "").replace(/^#/, "")}`;
+    const match = locationFlags.match(/targetDate=(\d{4}-\d{2}-\d{2})/);
     return match ? match[1] : null;
   }
 
@@ -621,7 +621,7 @@
 
   async function doSync() {
     // hash 에 targetDate 가 있으면 먼저 날짜 피커 설정 (일별 백필 배치 모드)
-    const targetDate = getTargetDateFromHash();
+    const targetDate = getTargetDateFromUrl();
     if (targetDate) {
       showBadge(`📅 ${targetDate} 날짜 설정 중...`, "#6366f1");
       const ok = await setDateRange(targetDate);
@@ -898,11 +898,42 @@
     return { success: true, executed, skipped };
   }
 
-  setTimeout(doSync, 3000);
+  // auto-trigger + popup/manualSync can overlap on the same tab. Share one in-flight sync so
+  // targetDate backfills do not click the date picker twice or post duplicate payloads.
+  let currentSync = null;
+  function runSyncOnce() {
+    if (!currentSync) {
+      currentSync = doSync().finally(() => {
+        currentSync = null;
+      });
+    }
+    return currentSync;
+  }
+
+  // Normal ad pages are synced from the popup/service-worker manualSync path. Hash/query targetDate
+  // is the batch backfill mode and should run automatically, then let the service worker close the tab.
+  const isBatchBackfillMode = /targetDate=\d{4}-\d{2}-\d{2}/.test(
+    `${window.location.search || ""}&${(window.location.hash || "").replace(/^#/, "")}`,
+  );
+  if (isBatchBackfillMode) {
+    setTimeout(() => {
+      runSyncOnce().then((result) => {
+        try {
+          chrome.runtime.sendMessage({
+            action: "reportBatchScrapeDone",
+            success: !!result?.success,
+            url: window.location.href,
+          });
+        } catch {
+          /* service-worker idle 종료 etc. — 신호만 fire-and-forget */
+        }
+      });
+    }, 3000);
+  }
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.action === "manualSync") {
-      doSync().then((result) => sendResponse(result));
+      runSyncOnce().then((result) => sendResponse(result));
       return true;
     }
 
