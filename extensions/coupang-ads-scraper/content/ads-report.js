@@ -74,6 +74,73 @@
     return kpis;
   }
 
+  function kpiRawValue(entry) {
+    if (entry == null) return "";
+    if (typeof entry === "string" || typeof entry === "number") return String(entry);
+    if (typeof entry === "object" && "value" in entry) return String(entry.value || "");
+    return "";
+  }
+
+  function getKpiNumber(kpis, matchers) {
+    for (const [label, entry] of Object.entries(kpis || {})) {
+      const key = normalizeKey(label);
+      if (!matchers.some((matcher) => key.includes(matcher))) continue;
+      const parsed = parseNumber(kpiRawValue(entry));
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    return 0;
+  }
+
+  function buildCoupangAdsDailyRow(date, normalizedRows, kpis) {
+    const rows = Array.isArray(normalizedRows) ? normalizedRows : [];
+    const totals = rows.reduce(
+      (acc, row) => {
+        acc.adSpend += parseNumber(row.runningAdSpend || row.spend);
+        acc.adRevenue += parseNumber(row.revenue);
+        acc.impressions += parseNumber(row.impressions);
+        acc.clicks += parseNumber(row.clicks);
+        acc.conversions += parseNumber(row.conversions);
+        acc.orders += parseNumber(row.orders);
+        return acc;
+      },
+      {
+        adSpend: 0,
+        adRevenue: 0,
+        impressions: 0,
+        clicks: 0,
+        conversions: 0,
+        orders: 0,
+      },
+    );
+
+    const adSpend = totals.adSpend || getKpiNumber(kpis, ["집행 광고비", "광고비", "ad spend"]);
+    const adRevenue = totals.adRevenue || getKpiNumber(kpis, ["광고 전환 매출", "광고 매출", "ad gmv", "매출"]);
+    const impressions = totals.impressions || getKpiNumber(kpis, ["노출", "impression"]);
+    const clicks = totals.clicks || getKpiNumber(kpis, ["클릭수", "clicks", "click count"]);
+    const conversions = totals.conversions || getKpiNumber(kpis, ["전환 판매수", "전환수", "conversions", "conversion sales"]);
+    const orders = totals.orders || getKpiNumber(kpis, ["전환 주문수", "주문수", "order"]);
+    const roas = getKpiNumber(kpis, ["광고 수익률", "광고수익률", "roas"]) ||
+      (adSpend > 0 ? Math.round((adRevenue / adSpend) * 10000) / 100 : 0);
+    const ctr = getKpiNumber(kpis, ["클릭률", "ctr"]) ||
+      (impressions > 0 ? Math.round((clicks / impressions) * 10000) / 100 : 0);
+    const conversionRate = getKpiNumber(kpis, ["전환율", "conversion rate"]) ||
+      (clicks > 0 ? Math.round((conversions / clicks) * 10000) / 100 : 0);
+
+    return {
+      date,
+      adSpend,
+      adRevenue,
+      impressions,
+      clicks,
+      conversions,
+      orders,
+      roas,
+      ctr,
+      conversionRate,
+      rowCount: rows.length,
+    };
+  }
+
   function parsePaginationInfo() {
     // 1) React-Table v6 (쿠팡 광고 상세 product 테이블 + 대시보드 캠페인 테이블).
     //    DOM: .pagination-bottom input[aria-label="jump to page"] (현재 페이지 number input)
@@ -724,6 +791,27 @@
         timestamp: new Date().toISOString(),
       });
       if (json?.success) {
+        if (targetDate) {
+          const dailyRow = buildCoupangAdsDailyRow(targetDate, aggregatedNormalized, kpis);
+          const dailyJson = await syncToServer({
+            type: "coupang_ads_daily",
+            source: "coupang_ads",
+            period: "1d",
+            startDate: targetDate,
+            endDate: targetDate,
+            dateFrom: targetDate,
+            dateTo: targetDate,
+            data: [dailyRow],
+            kpis,
+            url: window.location.href,
+            title: document.title,
+            timestamp: new Date().toISOString(),
+          });
+          if (!dailyJson?.success) {
+            showBadge(`❌ 일별 광고 KPI 저장 실패: ${dailyJson?.error || "실패"}`, "#ef4444");
+            return { success: false, error: dailyJson?.error || "일별 광고 KPI 저장 실패" };
+          }
+        }
         chrome.storage.local.set({ kiditem_last_sync_ads: { time: Date.now(), count: total } });
         showBadge(`✅ 광고 데이터 ${total}건 (${totalPages}p) 동기화 완료`, "#22c55e");
         return { success: true, type: "ads", count: total, pages: totalPages };
