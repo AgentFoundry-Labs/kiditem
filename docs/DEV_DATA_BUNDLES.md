@@ -8,7 +8,7 @@ Canonical Google Drive folder:
 
 ## 목적
 
-- Google Drive 에는 쿠팡 스크래퍼 payload bundle 과 profile JSON 만 올린다.
+- Google Drive 에는 쿠팡 스크래퍼 payload bundle, profile JSON, 프로젝트 reference Excel 만 올린다.
 - 각 개발자는 profile 을 sync 해서 bundle 을 내려받고 로컬 DB 에 replay 한다.
 - 앱은 계속 로컬 PostgreSQL + MinIO/S3 를 기준으로 동작한다.
 - Google Drive 는 런타임 저장소나 DB 전체 백업이 아니라 개발 데이터 입력 artifact 저장소다.
@@ -98,7 +98,7 @@ Profile 은 어떤 bundle 을 어떤 mode 로 replay 할지 정의하는 recipe 
 - `kiditem_list.xlsx`: KidItem 내부 상품/옵션/재고 기준 snapshot.
 - `wing-inventory-matched.xlsx`: Coupang Wing 재고를 KidItem 상품/옵션과 매칭한 결과. 쿠팡 표시 재고와 로컬 DB 재고가 어디서 어긋나는지 확인하는 기준 파일이다.
 
-이 두 파일은 현재 DB 에 자동 replay 되지 않는다. 재고 엑셀까지 DB 에 ingest 가능한 기준 데이터로 만들려면 별도 JSON 변환/ingest adapter 를 추가한 뒤 이 문서를 갱신한다.
+이 두 파일은 `data:dev:replay` 의 scraper payload replay 대상은 아니다. 대신 로컬 DB baseline 이 필요할 때는 [Import Drive Reference Data Runbook](runbooks/import-drive-reference-data.md)에 따라 `npm run import:product-baseline` 으로 별도 import 한다. 이 import 는 `MasterProduct`, `ProductOption`, `Inventory`, `Supplier`, `SupplierProduct`, `ChannelListing` 기준 데이터를 만든다.
 
 ## 공유/검증 한 사이클
 
@@ -265,7 +265,7 @@ Publisher 체크리스트:
 1. `npm run dev:server` 가 떠 있고 익스텐션 팝업에서 서버 연결이 `연결됨` 인지 확인한다.
 2. Wing/광고센터에서 필요한 페이지를 열고 익스텐션의 동기화 버튼을 실행한다.
 3. 월별/일별 수집을 했다면 완료 메시지의 완료 일수와 row count 를 기록한다.
-4. Drive 루트 `references/kiditem_list.xlsx`, `references/wing-inventory-matched.xlsx` 의 row count 를 기록한다. 이 파일들은 현재 서버 저장 대상이 아니라 프로젝트 reference 다.
+4. Drive 루트 `references/kiditem_list.xlsx`, `references/wing-inventory-matched.xlsx` 의 row count 를 기록한다. 이 파일들은 scraper replay payload 는 아니며, 필요하면 별도 baseline import 로 DB 에 넣는다.
 5. scraper output JSON 을 준비한 뒤 아래 `export`/`publish` 를 실행한다. `KIDITEM_DEV_DATA_DRIVE_DIR` 이 설정되어 있으면 export 가 Drive 루트 `references/` 의 두 엑셀을 자동으로 bundle snapshot 에 포함한다.
 6. publish 후 `coupang/latest.json` 이 새 dataset 을 가리키는지 확인한다.
 
@@ -295,7 +295,7 @@ coupang/bundles/kiditem-coupang-2026-05-01-v1.zip.sha256
 
 `zip`/`unzip` CLI 가 로컬에 필요하다. macOS 기본 환경에는 포함되어 있다.
 
-Drive 루트 reference 와 다른 파일을 명시해야 하는 예외 상황에서는 `--kiditem-list`, `--wing-inventory-matched` 로 직접 지정할 수 있다. 추가 비교 파일을 한 번에 넣으려면 `--reference-dir ./somewhere/references` 를 사용한다. reference 파일은 replay 되지 않지만 zip checksum 검증 대상이며, consumer 의 `.data/dev/coupang/<datasetId>/references/` 에 풀린다.
+Drive 루트 reference 와 다른 파일을 명시해야 하는 예외 상황에서는 `--kiditem-list`, `--wing-inventory-matched` 로 직접 지정할 수 있다. 추가 비교 파일을 한 번에 넣으려면 `--reference-dir ./somewhere/references` 를 사용한다. reference 파일은 scraper replay 에서 직접 저장되지 않지만 zip checksum 검증 대상이며, consumer 의 `.data/dev/coupang/<datasetId>/references/` 에 풀린다.
 
 ## Consumer 플로우
 
@@ -306,8 +306,11 @@ Consumer 는 스크래퍼를 직접 실행하지 않아도 된다. Drive 의 최
 ```bash
 export KIDITEM_DEV_DATA_DRIVE_DIR="$HOME/Library/CloudStorage/GoogleDrive-.../My Drive/KidItem Dev Data"
 export DEV_DEFAULT_USER_ID="<local dev user uuid>"
+export KIDITEM_DEV_ORGANIZATION_ID="<local organization uuid>"
 
 npm run data:dev:status
+npm run import:product-baseline -- --organization-id "$KIDITEM_DEV_ORGANIZATION_ID"
+npm run import:product-baseline -- --organization-id "$KIDITEM_DEV_ORGANIZATION_ID" --write
 npm run data:dev:sync -- --profile workspace --yes
 ```
 
@@ -412,7 +415,7 @@ limit 100;
 - `.data/dev/coupang/<datasetId>/references/kiditem_list.xlsx` 로 KidItem 내부 상품코드 / 옵션명 / 재고 / 안전재고 기준을 확인한다.
 - 쿠팡에는 있는데 DB 에 `vendor_item_id` 매칭이 없으면 `ChannelListingOption.externalOptionId` 매칭 문제다.
 - DB 에 option 은 있는데 `inventory.current_stock` 이 쿠팡 재고와 다르면 재고 운영 데이터와 쿠팡 표시 재고가 분리된 것이다. 이 경우 자동 수정하지 말고 mismatch 로 기록한다.
-- 재고 mismatch 는 scraper replay 실패와 구분한다. replay 는 광고/트래픽/아이템위너 daily fact 를 저장하는 경로이고, 두 reference 엑셀은 비교 기준이다.
+- 재고 mismatch 는 scraper replay 실패와 구분한다. replay 는 광고/트래픽/아이템위너 daily fact 를 저장하는 경로이고, 두 reference 엑셀은 baseline import 및 비교 기준이다.
 
 보고 형식:
 

@@ -32,10 +32,13 @@ npm run dev:all                                # Next.js + NestJS + Python Agent
 # 공유 개발 데이터 (선택, 서버 실행 후 다른 터미널에서 주요 화면 상태 맞추기)
 # Canonical Drive: https://drive.google.com/drive/folders/1sIuAiZAX6wAFOoEmmJGe6p0b5xwey1AO?usp=drive_link
 export KIDITEM_DEV_DATA_DRIVE_DIR="$HOME/.../KidItem Dev Data" # Google Drive Desktop 로컬 동기화 경로
+export KIDITEM_DEV_ORGANIZATION_ID="<local organization uuid>"
 # 기준 파일: profiles/workspace.json -> coupang/latest.json -> bundles/kiditem-coupang-{datasetId}.zip
 # 프로젝트 reference: references/kiditem_list.xlsx, references/wing-inventory-matched.xlsx
 # 셋업 runbook: docs/runbooks/google-drive-dev-data.md
+# reference DB import runbook: docs/runbooks/import-drive-reference-data.md
 npm run data:dev:setup -- --drive-root "$KIDITEM_DEV_DATA_DRIVE_DIR"
+npm run import:product-baseline -- --organization-id "$KIDITEM_DEV_ORGANIZATION_ID" --write
 npm run data:dev:sync -- --profile workspace --yes
 ```
 

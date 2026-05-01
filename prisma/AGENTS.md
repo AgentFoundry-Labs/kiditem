@@ -69,7 +69,7 @@ npm run data:dev:sync -- --profile workspace --yes
 - Drive 의 `profiles/*.json` 이 기준 상태를, `coupang/latest.json` 이 현재 기준 dataset 과 archive checksum 을 가리킨다. 같은 날 다시 만들면 기존 zip 을 덮어쓰지 말고 `datasetId` 의 `vN` 을 올린다.
 - 표준 replay 모드는 `scoped-replace` 다. manifest 의 organization/channel/date range scope 만 교체한다.
 - Coupang bundle 은 실제 쿠팡 스크래퍼 payload 를 `POST /api/ads/extension/sync` 경로로 replay 한다. 앱이 실제 ingest 하는 코드와 다른 DB writer 를 만들지 않는다.
-- 재고 비교 기준 파일은 Drive 루트 `references/kiditem_list.xlsx`, `references/wing-inventory-matched.xlsx` 로 관리한다. Bundle 내부 `references/` 에는 publish 시점의 snapshot 이 들어가며, 이 파일들은 DB replay 대상이 아니라 mismatch 검증 기준이다.
+- 재고 비교 기준 파일은 Drive 루트 `references/kiditem_list.xlsx`, `references/wing-inventory-matched.xlsx` 로 관리한다. Bundle 내부 `references/` 에는 publish 시점의 snapshot 이 들어간다. 이 파일들은 scraper payload replay 대상은 아니지만, 로컬 DB baseline 이 필요하면 `scripts/import-product-baseline.ts` 로 별도 import 한다.
 - `scripts/seed-channel-market-data.ts` 같은 synthetic market-data seed 는 금지. 실제 scrape payload replay 로 대체한다.
 - 자세한 포맷/운영 절차는 [`docs/DEV_DATA_BUNDLES.md`](../docs/DEV_DATA_BUNDLES.md) 를 따른다. 새 머신 셋업은 [`docs/runbooks/google-drive-dev-data.md`](../docs/runbooks/google-drive-dev-data.md) 를 따른다.
 

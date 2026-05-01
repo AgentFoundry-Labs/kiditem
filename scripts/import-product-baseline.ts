@@ -12,6 +12,9 @@
 //   (option-legacy unique, or single-master barcode fallback). Ambiguous /
 //   unmatched rows are reported but never silently linked.
 import 'dotenv/config';
+import { existsSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { PrismaClient, type Prisma } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import * as XLSX from 'xlsx';
@@ -27,12 +30,34 @@ import {
   type WorkbookRow,
 } from './import-baseline-planner';
 
+const DRIVE_REFERENCE_DIR = 'references';
+const KIDITEM_LIST_FILE = 'kiditem_list.xlsx';
+const WING_INVENTORY_MATCHED_FILE = 'wing-inventory-matched.xlsx';
+
 type CliArgs = {
   kiditemPath: string;
   wingPath: string;
   organizationId: string;
   write: boolean;
 };
+
+function expandHome(input: string): string {
+  if (input === '~') return os.homedir();
+  if (input.startsWith('~/')) return path.join(os.homedir(), input.slice(2));
+  return input;
+}
+
+function resolveInputPath(input: string): string {
+  return path.resolve(expandHome(input));
+}
+
+function requireExistingFile(filePath: string, label: string): string {
+  const resolved = resolveInputPath(filePath);
+  if (!existsSync(resolved)) {
+    throw new Error(`${label} file not found: ${resolved}`);
+  }
+  return resolved;
+}
 
 function parseArgs(argv: string[]): CliArgs {
   const args = new Map<string, string | true>();
@@ -50,16 +75,41 @@ function parseArgs(argv: string[]): CliArgs {
     }
   }
 
-  const kiditemPath = args.get('kiditem') as string | undefined;
-  const wingPath = args.get('wing') as string | undefined;
-  const organizationId = args.get('organization') as string | undefined;
-  if (!kiditemPath) throw new Error('Missing --kiditem <xlsx-path>');
-  if (!wingPath) throw new Error('Missing --wing <xlsx-path>');
-  if (!organizationId) throw new Error('Missing --organization <uuid>');
+  const driveRoot = (args.get('drive-root') as string | undefined) ?? process.env.KIDITEM_DEV_DATA_DRIVE_DIR;
+  const referenceDir =
+    (args.get('reference-dir') as string | undefined) ??
+    (args.get('references-dir') as string | undefined) ??
+    (driveRoot ? path.join(resolveInputPath(driveRoot), DRIVE_REFERENCE_DIR) : undefined);
+  const kiditemPath =
+    (args.get('kiditem') as string | undefined) ??
+    (args.get('kiditem-list') as string | undefined) ??
+    (referenceDir ? path.join(resolveInputPath(referenceDir), KIDITEM_LIST_FILE) : undefined);
+  const wingPath =
+    (args.get('wing') as string | undefined) ??
+    (args.get('wing-inventory-matched') as string | undefined) ??
+    (referenceDir ? path.join(resolveInputPath(referenceDir), WING_INVENTORY_MATCHED_FILE) : undefined);
+  const organizationId =
+    (args.get('organization') as string | undefined) ??
+    (args.get('organization-id') as string | undefined) ??
+    process.env.KIDITEM_DEV_ORGANIZATION_ID;
+
+  if (!kiditemPath) {
+    throw new Error(
+      `Missing KidItem baseline workbook. Set KIDITEM_DEV_DATA_DRIVE_DIR, pass --drive-root, or pass --kiditem-list/--kiditem.`,
+    );
+  }
+  if (!wingPath) {
+    throw new Error(
+      `Missing Wing inventory matched workbook. Set KIDITEM_DEV_DATA_DRIVE_DIR, pass --drive-root, or pass --wing-inventory-matched/--wing.`,
+    );
+  }
+  if (!organizationId) {
+    throw new Error('Missing organization scope. Pass --organization-id/--organization or set KIDITEM_DEV_ORGANIZATION_ID.');
+  }
 
   return {
-    kiditemPath,
-    wingPath,
+    kiditemPath: requireExistingFile(kiditemPath, 'KidItem baseline workbook'),
+    wingPath: requireExistingFile(wingPath, 'Wing inventory matched workbook'),
     organizationId,
     write: args.get('write') === true,
   };
@@ -584,6 +634,11 @@ async function main(): Promise<void> {
 
     const report = {
       mode: args.write ? 'write' : 'dry-run',
+      inputs: {
+        kiditemPath: args.kiditemPath,
+        wingPath: args.wingPath,
+        organizationId: args.organizationId,
+      },
       kiditem: {
         rows: kiditemPlan.expectedOptions,
         expectedMastersByBarcodeName: kiditemPlan.expectedMastersByBarcodeName,
