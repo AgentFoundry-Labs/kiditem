@@ -6,28 +6,51 @@ import {
   isValidPurchaseOrderTransition,
 } from '../../domain/policy/purchase-order-status';
 
+type PurchaseOrderSummarySource = {
+  totalAmountCny: Prisma.Decimal | number | string;
+  items: { quantity: number }[];
+};
+
+function toNumber(value: Prisma.Decimal | number | string | null | undefined): number {
+  return Number(value ?? 0);
+}
+
+function summarizePurchaseOrders(orders: PurchaseOrderSummarySource[]) {
+  return orders.reduce(
+    (summary, order) => ({
+      orderCount: summary.orderCount + 1,
+      totalQuantity: summary.totalQuantity + order.items.reduce((sum, item) => sum + item.quantity, 0),
+      totalAmountCny: summary.totalAmountCny + toNumber(order.totalAmountCny),
+    }),
+    { orderCount: 0, totalQuantity: 0, totalAmountCny: 0 },
+  );
+}
+
 @Injectable()
 export class ProcurementService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(organizationId: string, query: { page?: number; limit?: number; status?: string }): Promise<{
+  async findAll(organizationId: string, query: { page?: number; limit?: number; status?: string; supplier?: string; supplierId?: string }): Promise<{
     items: unknown[];
     total: number;
     page: number;
     limit: number;
     counts: { all: number; draft: number; pending: number; ordered: number; shipped: number; received: number; cancelled: number };
+    summary: { orderCount: number; totalQuantity: number; totalAmountCny: number };
   }> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 50;
     const { status } = query;
+    const supplierId = query.supplierId ?? query.supplier;
     const skip = (page - 1) * limit;
 
     const where: Prisma.PurchaseOrderWhereInput = {
       organizationId,
       ...(status ? { status } : {}),
+      ...(supplierId ? { supplierId } : {}),
     };
 
-    const [items, total, grouped] = await Promise.all([
+    const [items, total, grouped, summaryOrders] = await Promise.all([
       this.prisma.purchaseOrder.findMany({
         where,
         include: {
@@ -43,6 +66,13 @@ export class ProcurementService {
         by: ['status'],
         where,
         _count: { id: true },
+      }),
+      this.prisma.purchaseOrder.findMany({
+        where,
+        select: {
+          totalAmountCny: true,
+          items: { select: { quantity: true } },
+        },
       }),
     ]);
 
@@ -63,7 +93,7 @@ export class ProcurementService {
       cancelled: countMap['cancelled'] || 0,
     };
 
-    return { items, total, page, limit, counts };
+    return { items, total, page, limit, counts, summary: summarizePurchaseOrders(summaryOrders) };
   }
 
   async create(organizationId: string, data: {

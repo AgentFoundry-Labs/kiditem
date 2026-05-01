@@ -10,6 +10,8 @@ const item: InventoryListItem = {
   masterName: '상품 <img src=x onerror=alert(1)>',
   optionName: null,
   kind: 'SIMPLE',
+  costPrice: 100,
+  abcGrade: 'A',
   currentStock: 7,
   availableStock: 7,
   safetyStock: 2,

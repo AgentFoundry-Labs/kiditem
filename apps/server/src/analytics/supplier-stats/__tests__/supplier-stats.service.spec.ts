@@ -78,7 +78,14 @@ describe('SupplierStatsService', () => {
         'opt-4',
       ]);
 
-      expect(result).toEqual([
+      expect(result.summary).toEqual({
+        supplierCount: 1,
+        productCount: 3,
+        totalOrders: 9,
+        totalQuantity: 27,
+        totalRevenue: 170_000,
+      });
+      expect(result.items).toEqual([
         {
           supplierId: 'sup-1',
           supplierName: 'Supplier One',
@@ -112,7 +119,14 @@ describe('SupplierStatsService', () => {
       const result = await service.getSalesBySupplier('organization-1');
 
       // opt-1 은 SupplierProduct 로 먼저 카운트 → MasterSupplierProduct 경로에서 skip
-      expect(result).toEqual([
+      expect(result.summary).toEqual({
+        supplierCount: 1,
+        productCount: 2,
+        totalOrders: 6,
+        totalQuantity: 16,
+        totalRevenue: 160_000,
+      });
+      expect(result.items).toEqual([
         {
           supplierId: 'sup-1',
           supplierName: 'Supplier One',
@@ -129,7 +143,16 @@ describe('SupplierStatsService', () => {
 
       const result = await service.getSalesBySupplier('organization-1');
 
-      expect(result).toEqual([]);
+      expect(result).toEqual({
+        summary: {
+          supplierCount: 0,
+          productCount: 0,
+          totalOrders: 0,
+          totalQuantity: 0,
+          totalRevenue: 0,
+        },
+        items: [],
+      });
       expect(prisma.productOption.findMany).not.toHaveBeenCalled();
       expect(prisma.orderLineItem.groupBy).not.toHaveBeenCalled();
     });
@@ -150,7 +173,14 @@ describe('SupplierStatsService', () => {
       const result = await service.getSalesBySupplier('organization-1');
 
       expect(prisma.productOption.findMany).not.toHaveBeenCalled();
-      expect(result[0]).toMatchObject({
+      expect(result.summary).toMatchObject({
+        supplierCount: 1,
+        productCount: 1,
+        totalOrders: 1,
+        totalQuantity: 3,
+        totalRevenue: 30_000,
+      });
+      expect(result.items[0]).toMatchObject({
         supplierId: 'sup-1',
         productCount: 1,
         totalOrders: 1,
@@ -172,7 +202,14 @@ describe('SupplierStatsService', () => {
 
       const result = await service.getSalesBySupplier('organization-1');
 
-      expect(result).toEqual([
+      expect(result.summary).toEqual({
+        supplierCount: 1,
+        productCount: 1,
+        totalOrders: 0,
+        totalQuantity: 0,
+        totalRevenue: 0,
+      });
+      expect(result.items).toEqual([
         {
           supplierId: 'sup-1',
           supplierName: 'Supplier One',
@@ -224,15 +261,29 @@ describe('SupplierStatsService', () => {
       const result = await service.getProductSales('organization-1', 'sup-1');
 
       expect(prisma.supplierProduct.findMany).toHaveBeenCalledWith({
-        where: { supplierId: 'sup-1' },
+        where: {
+          supplierId: 'sup-1',
+          supplier: { organizationId: 'organization-1' },
+          option: { master: { organizationId: 'organization-1' } },
+        },
         include: expect.any(Object),
       });
       expect(prisma.masterSupplierProduct.findMany).toHaveBeenCalledWith({
-        where: { supplierId: 'sup-1' },
+        where: {
+          supplierId: 'sup-1',
+          supplier: { organizationId: 'organization-1' },
+          master: { organizationId: 'organization-1' },
+        },
         include: expect.any(Object),
       });
 
-      expect(result).toEqual([
+      expect(result.summary).toEqual({
+        productCount: 3,
+        totalOrders: 3,
+        totalQuantity: 8,
+        totalRevenue: 40_000,
+      });
+      expect(result.items).toEqual([
         // SupplierProduct 경로 — supplyPrice 실값
         {
           optionId: 'opt-1',
@@ -316,12 +367,18 @@ describe('SupplierStatsService', () => {
 
       // opt-1 은 SupplierProduct 경로에서만 나와야 함 (supplyPrice: 2_000)
       // opt-2 는 MasterSupplierProduct 경로에서 나오고 supplyPrice: null
-      expect(result).toHaveLength(2);
-      const opt1Row = result.find((r) => r.optionId === 'opt-1');
+      expect(result.summary).toEqual({
+        productCount: 2,
+        totalOrders: 4,
+        totalQuantity: 13,
+        totalRevenue: 65_000,
+      });
+      expect(result.items).toHaveLength(2);
+      const opt1Row = result.items.find((r) => r.optionId === 'opt-1');
       expect(opt1Row?.supplyPrice).toBe(2_000);
       expect(opt1Row?.minOrderQty).toBe(5);
 
-      const opt2Row = result.find((r) => r.optionId === 'opt-2');
+      const opt2Row = result.items.find((r) => r.optionId === 'opt-2');
       expect(opt2Row?.supplyPrice).toBeNull();
       expect(opt2Row?.minOrderQty).toBe(30);
     });
@@ -332,7 +389,15 @@ describe('SupplierStatsService', () => {
 
       const result = await service.getProductSales('organization-1', 'sup-1');
 
-      expect(result).toEqual([]);
+      expect(result).toEqual({
+        summary: {
+          productCount: 0,
+          totalOrders: 0,
+          totalQuantity: 0,
+          totalRevenue: 0,
+        },
+        items: [],
+      });
       expect(prisma.orderLineItem.groupBy).not.toHaveBeenCalled();
     });
   });
@@ -358,9 +423,17 @@ describe('SupplierStatsService', () => {
         },
       ]);
 
-      const timeline = await service.getHistory('organization-1', 'sup-1');
+      const report = await service.getHistory('organization-1', 'sup-1');
+      const timeline = report.items;
 
       // 최신이 먼저 — 2026-04-15 > 2026-04-10
+      expect(report.summary).toEqual({
+        totalOrdered: 1000,
+        totalPaid: 500_000,
+        unpaid: 0,
+        orderCount: 1,
+        paymentCount: 1,
+      });
       expect(timeline[0].type).toBe('payment');
       expect(timeline[0].amount).toBe(500_000);
       expect(timeline[1].type).toBe('purchaseOrder');

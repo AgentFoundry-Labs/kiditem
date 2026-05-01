@@ -1,6 +1,6 @@
-import { apiClient } from '@/lib/api-client';
 import {
   AdjustStockInputSchema,
+  InventoryAssetReportSchema,
   InventoryListResponseSchema,
   InventorySchema,
   IssueStockInputSchema,
@@ -9,9 +9,12 @@ import {
   TransactionListResponseSchema,
   UpdateInventoryMetadataInputSchema,
 } from '@kiditem/shared/inventory';
+import { apiClient } from '@/lib/api-client';
 import type {
   AdjustStockInput,
   Inventory,
+  InventoryAssetReport,
+  InventoryListItem,
   InventoryListResponse,
   InventoryStatus,
   IssueStockInput,
@@ -73,6 +76,35 @@ export function transactionKeyParams(params: TransactionListParams): Record<stri
 
 export async function fetchInventoryList(params: InventoryListParams): Promise<InventoryListResponse> {
   return apiClient.getParsed(`/api/inventory${searchParams(params)}`, InventoryListResponseSchema);
+}
+
+export async function fetchInventoryAssetReport(): Promise<InventoryAssetReport> {
+  return apiClient.getParsed('/api/inventory/assets', InventoryAssetReportSchema);
+}
+
+const INVENTORY_PAGE_SIZE = 200;
+
+export async function fetchAllInventoryItems(
+  params: Omit<InventoryListParams, 'page' | 'limit'> = {},
+): Promise<InventoryListItem[]> {
+  const first = await fetchInventoryList({
+    ...params,
+    page: 1,
+    limit: INVENTORY_PAGE_SIZE,
+  });
+  const totalPages = Math.max(1, Math.ceil(first.total / INVENTORY_PAGE_SIZE));
+  const rest: InventoryListItem[] = [];
+
+  for (let page = 2; page <= totalPages; page += 1) {
+    const data = await fetchInventoryList({
+      ...params,
+      page,
+      limit: INVENTORY_PAGE_SIZE,
+    });
+    rest.push(...data.items);
+  }
+
+  return [...first.items, ...rest];
 }
 
 export async function updateInventoryMetadata(

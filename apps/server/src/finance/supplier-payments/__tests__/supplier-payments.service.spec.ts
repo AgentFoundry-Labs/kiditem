@@ -73,6 +73,63 @@ describe('SupplierPaymentsService', () => {
     });
   });
 
+  describe('getReport', () => {
+    it('returns official payment summary, status counts, and supplier settlement rows', async () => {
+      prisma.supplierPayment.findMany.mockResolvedValue([
+        {
+          id: 'pay-1',
+          supplierId: SUPPLIER_ID,
+          supplierName: null,
+          amount: 100_000,
+          paidAmount: 40_000,
+          status: 'partial',
+          dueDate: null,
+          paidDate: null,
+          purchaseOrderId: null,
+          notes: null,
+          createdAt: new Date('2026-04-01T00:00:00.000Z'),
+          supplier: { id: SUPPLIER_ID, name: 'Supplier A' },
+        },
+        {
+          id: 'pay-2',
+          supplierId: SUPPLIER_ID,
+          supplierName: null,
+          amount: 50_000,
+          paidAmount: 50_000,
+          status: 'paid',
+          dueDate: null,
+          paidDate: null,
+          purchaseOrderId: null,
+          notes: null,
+          createdAt: new Date('2026-04-02T00:00:00.000Z'),
+          supplier: { id: SUPPLIER_ID, name: 'Supplier A' },
+        },
+      ]);
+
+      const report = await service.getReport(COMPANY_A);
+
+      expect(report.summary).toEqual({
+        totalAmount: 150_000,
+        totalPaid: 90_000,
+        totalUnpaid: 60_000,
+      });
+      expect(report.counts).toEqual({ all: 2, unpaid: 0, partial: 1, paid: 1 });
+      expect(report.settlements).toEqual([
+        {
+          supplierId: SUPPLIER_ID,
+          supplierName: 'Supplier A',
+          totalOrdered: 150_000,
+          totalPaid: 90_000,
+          unpaid: 60_000,
+          orderCount: 2,
+          receivedCount: 1,
+          status: 'partial',
+        },
+      ]);
+      expect(report.items[0].supplierName).toBe('Supplier A');
+    });
+  });
+
   describe('create', () => {
     it('writes organizationId from argument; supplierId comes from DTO', async () => {
       prisma.supplier.findFirst.mockResolvedValue({ id: SUPPLIER_ID });

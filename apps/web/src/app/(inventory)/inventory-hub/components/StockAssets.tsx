@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   Package,
@@ -8,43 +8,9 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
-import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber, getGradeColor } from '@/lib/utils';
-
-interface InventoryItem {
-  id: string;
-  productId: string;
-  productName: string;
-  sku: string | null;
-  grade: string;
-  currentStock: number;
-}
-
-interface ProductItem {
-  id: string;
-  costPrice: number;
-  sellPrice: number;
-}
-
-interface StockAssetItem {
-  id: string;
-  productId: string;
-  productName: string;
-  sku: string | null;
-  grade: string;
-  currentStock: number;
-  costPrice: number;
-  stockValue: number;
-}
-
-interface GradeSummary {
-  grade: string;
-  count: number;
-  totalStock: number;
-  totalValue: number;
-}
-
+import { fetchInventoryAssetReport } from '@/app/(inventory)/_shared/inventory-api';
 
 export default function StockAssets() {
   const [gradeFilter, setGradeFilter] = useState('');
@@ -53,67 +19,23 @@ export default function StockAssets() {
   >('stockValue');
   const [sortAsc, setSortAsc] = useState(false);
 
-  const { data: invData, isLoading: invLoading } = useQuery({
-    queryKey: queryKeys.inventory.list({ limit: '200' }),
-    queryFn: () =>
-      apiClient.get<{ items: InventoryItem[]; total: number }>('/api/inventory?limit=200'),
+  const { data: report, isLoading } = useQuery({
+    queryKey: queryKeys.inventory.list({ scope: 'stock-assets-report' }),
+    queryFn: fetchInventoryAssetReport,
   });
 
-  const { data: prodData, isLoading: prodLoading } = useQuery({
-    queryKey: queryKeys.products.list({ limit: '200' }),
-    queryFn: () =>
-      apiClient.get<{ items: ProductItem[]; total: number }>('/api/products?limit=200'),
-  });
+  const summary = report?.summary ?? {
+    totalValue: 0,
+    totalStock: 0,
+    totalProducts: 0,
+    averageUnitCost: 0,
+    byGrade: [],
+  };
+  const items = report?.items ?? [];
+  const { byGrade, totalValue, totalStock, totalProducts, averageUnitCost } = summary;
 
-  const isLoading = invLoading || prodLoading;
-
-  const items: StockAssetItem[] = useMemo(() => {
-    const invItems = invData?.items ?? [];
-    const prodItems = prodData?.items ?? [];
-    const costMap = new Map<string, number>();
-    for (const p of prodItems) {
-      costMap.set(p.id, Number(p.costPrice) || 0);
-    }
-    return invItems.map((inv) => {
-      const costPrice = costMap.get(inv.productId) ?? 0;
-      const currentStock = Number(inv.currentStock) || 0;
-      return {
-        ...inv,
-        productId: inv.productId,
-        costPrice,
-        currentStock,
-        stockValue: currentStock * costPrice,
-      };
-    });
-  }, [invData, prodData]);
-
-  // useMemo로 자산 계산
-  const { byGrade, totalValue, totalStock, totalProducts } = useMemo(() => {
-    const gradeMap = new Map<string, GradeSummary>();
-    let tValue = 0;
-    let tStock = 0;
-
-    for (const item of items) {
-      tValue += item.stockValue;
-      tStock += item.currentStock;
-
-      const gradeKey = item.grade || '-';
-      const g = gradeMap.get(gradeKey) || { grade: gradeKey, count: 0, totalStock: 0, totalValue: 0 };
-      g.count++;
-      g.totalStock += item.currentStock;
-      g.totalValue += item.stockValue;
-      gradeMap.set(gradeKey, g);
-    }
-
-    return {
-      byGrade: Array.from(gradeMap.values()),
-      totalValue: tValue,
-      totalStock: tStock,
-      totalProducts: items.length,
-    };
-  }, [items]);
-
-  const sorted = [...items].sort((a, b) => {
+  const filtered = gradeFilter ? items.filter((item) => item.grade === gradeFilter) : items;
+  const sorted = [...filtered].sort((a, b) => {
     const diff = (a[sortField] || 0) - (b[sortField] || 0);
     return sortAsc ? diff : -diff;
   });
@@ -166,7 +88,7 @@ export default function StockAssets() {
           <p className="card-value text-slate-800">
             {isLoading
               ? '-'
-              : `${totalStock > 0 ? formatNumber(Math.round(totalValue / totalStock)) : 0}원`}
+              : `${formatNumber(averageUnitCost)}원`}
           </p>
         </div>
       </div>
@@ -255,7 +177,7 @@ export default function StockAssets() {
               ) : (
                 sorted.slice(0, 100).map((item) => (
                   <tr
-                    key={item.id}
+                    key={item.inventoryId}
                     className="border-b border-slate-100 hover:bg-slate-50"
                   >
                     <td className="py-2 px-3 font-medium max-w-[200px] truncate">
@@ -266,9 +188,9 @@ export default function StockAssets() {
                     </td>
                     <td className="py-2 px-3 text-center">
                       <span
-                        className={cn('px-2 py-0.5 rounded text-xs font-bold', getGradeColor(item.grade))}
+                        className={cn('px-2 py-0.5 rounded text-xs font-bold', getGradeColor(item.grade ?? '-'))}
                       >
-                        {item.grade}
+                        {item.grade ?? '미분류'}
                       </span>
                     </td>
                     <td className="py-2 px-3 text-right">

@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { cn, formatKRW, formatNumber } from '@/lib/utils';
+import { cn, formatNumber } from '@/lib/utils';
 
 interface Supplier {
   id: string;
@@ -21,21 +21,32 @@ interface Supplier {
   status: string;
 }
 
+interface PurchaseOrderItem {
+  id: string;
+  productName: string;
+  quantity: number;
+  unitPriceCny: string | number;
+}
+
 interface PurchaseOrder {
   id: string;
-  productId: string;
-  productName: string;
-  sku: string;
-  organization: string;
-  quantity: number;
-  unitCost: number;
-  totalCost: number;
-  supplier: string | null;
+  supplierName: string;
+  totalAmountCny: string | number;
   status: string;
-  orderedAt: string;
-  expectedAt: string | null;
+  orderDate: string;
+  expectedDeliveryDate: string | null;
   receivedAt: string | null;
-  currentStock: number;
+  items: PurchaseOrderItem[];
+}
+
+interface PurchaseOrderResponse {
+  items: PurchaseOrder[];
+  total: number;
+  summary: {
+    orderCount: number;
+    totalQuantity: number;
+    totalAmountCny: number;
+  };
 }
 
 const STATUS_LABELS: Record<string, { label: string; color: string; bg: string }> = {
@@ -57,19 +68,35 @@ export default function SupplierPurchases() {
 
   const { data: ordersData, isLoading: loadingOrders } = useQuery({
     queryKey: queryKeys.purchaseOrders.list({ supplier: selectedSupplier }),
-    queryFn: () =>
-      apiClient.get<{ items: PurchaseOrder[]; total: number }>(
-        `/api/purchase-orders?supplier=${selectedSupplier}`
-      ),
+    queryFn: () => {
+      const query = new URLSearchParams({ supplierId: selectedSupplier });
+      return apiClient.get<PurchaseOrderResponse>(`/api/purchase-orders?${query}`);
+    },
     enabled: !!selectedSupplier,
   });
 
   const suppliers = suppliersData ?? [];
   const orders = ordersData?.items ?? [];
+  const summary = ordersData?.summary ?? { orderCount: 0, totalQuantity: 0, totalAmountCny: 0 };
+  const rows = orders.flatMap((order) =>
+    order.items.map((item) => {
+      const unitPriceCny = Number(item.unitPriceCny ?? 0);
+      return {
+        id: `${order.id}-${item.id}`,
+        orderDate: order.orderDate,
+        productName: item.productName,
+        sku: '-',
+        quantity: item.quantity,
+        unitCost: unitPriceCny,
+        totalCost: unitPriceCny * item.quantity,
+        status: order.status,
+        expectedAt: order.expectedDeliveryDate,
+        receivedAt: order.receivedAt,
+      };
+    }),
+  );
 
   const selectedName = suppliers.find((s) => s.id === selectedSupplier)?.name;
-  const totalAmount = orders.reduce((s, o) => s + o.totalCost, 0);
-  const totalQty = orders.reduce((s, o) => s + o.quantity, 0);
 
   return (
     <div className="space-y-6">
@@ -111,14 +138,14 @@ export default function SupplierPurchases() {
               <Package size={12} className="text-blue-500" />
               <span className="card-label">발주 수량 합계</span>
             </div>
-            <div className="card-value text-purple-600 tabular-nums">{loadingOrders ? '-' : `${formatNumber(totalQty)}개`}</div>
+            <div className="card-value text-purple-600 tabular-nums">{loadingOrders ? '-' : `${formatNumber(summary.totalQuantity)}개`}</div>
           </div>
           <div className="card">
             <div className="flex items-center gap-1.5 mb-1">
               <DollarSign size={12} className="text-green-500" />
-              <span className="card-label">발주 금액 합계</span>
+              <span className="card-label">발주 금액 합계 (CNY)</span>
             </div>
-            <div className="card-value text-green-600 tabular-nums">{loadingOrders ? '-' : `${formatKRW(totalAmount)}원`}</div>
+            <div className="card-value text-green-600 tabular-nums">{loadingOrders ? '-' : `${formatNumber(summary.totalAmountCny)} CNY`}</div>
           </div>
         </div>
       )}
@@ -140,7 +167,7 @@ export default function SupplierPurchases() {
         <div className="table-card">
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
             <h3 className="text-sm font-semibold text-slate-900">{selectedName} - 발주 목록</h3>
-            <span className="text-xs text-slate-400">{orders.length}건</span>
+            <span className="text-xs text-slate-400">{summary.orderCount}건</span>
           </div>
           <div className="overflow-x-auto">
             <table>
@@ -158,16 +185,16 @@ export default function SupplierPurchases() {
                 </tr>
               </thead>
               <tbody>
-                {orders.map((o) => {
+                {rows.map((o) => {
                   const st = STATUS_LABELS[o.status] || STATUS_LABELS.pending;
                   return (
                     <tr key={o.id}>
-                      <td className="text-xs text-slate-500 tabular-nums">{new Date(o.orderedAt).toLocaleDateString('ko-KR')}</td>
+                      <td className="text-xs text-slate-500 tabular-nums">{new Date(o.orderDate).toLocaleDateString('ko-KR')}</td>
                       <td className="font-medium text-slate-900">{o.productName}</td>
                       <td className="text-xs text-slate-400 font-mono">{o.sku}</td>
                       <td className="text-right tabular-nums">{o.quantity}</td>
-                      <td className="text-right tabular-nums">{formatKRW(o.unitCost)}</td>
-                      <td className="text-right tabular-nums font-semibold">{formatKRW(o.totalCost)}원</td>
+                      <td className="text-right tabular-nums">{formatNumber(o.unitCost)}</td>
+                      <td className="text-right tabular-nums font-semibold">{formatNumber(o.totalCost)} CNY</td>
                       <td className="text-center">
                         <span className={cn('inline-flex px-2 py-0.5 rounded text-xs', st.bg, st.color)}>
                           {st.label}
@@ -178,17 +205,17 @@ export default function SupplierPurchases() {
                     </tr>
                   );
                 })}
-                {orders.length === 0 && (
+                {rows.length === 0 && (
                   <tr><td colSpan={9} className="text-center py-8 text-slate-400 text-sm">해당 매입처의 발주 데이터가 없습니다.</td></tr>
                 )}
               </tbody>
-              {orders.length > 0 && (
+              {rows.length > 0 && (
                 <tfoot>
                   <tr className="bg-slate-50 font-semibold">
                     <td colSpan={3}>합계</td>
-                    <td className="text-right tabular-nums">{formatNumber(totalQty)}</td>
+                    <td className="text-right tabular-nums">{formatNumber(summary.totalQuantity)}</td>
                     <td></td>
-                    <td className="text-right tabular-nums">{formatKRW(totalAmount)}원</td>
+                    <td className="text-right tabular-nums">{formatNumber(summary.totalAmountCny)} CNY</td>
                     <td colSpan={3}></td>
                   </tr>
                 </tfoot>

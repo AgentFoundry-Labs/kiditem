@@ -7,6 +7,14 @@ import { CurrentOrganization } from '../../auth/decorators/current-organization.
 export class SupplierPaymentsController {
   constructor(private readonly supplierPaymentsService: SupplierPaymentsService) {}
 
+  @Get('report')
+  async getReport(
+    @CurrentOrganization() organizationId: string,
+    @Query() query: ListSupplierPaymentsQueryDto,
+  ) {
+    return this.supplierPaymentsService.getReport(organizationId, query.status);
+  }
+
   @Get()
   async findAll(
     @CurrentOrganization() organizationId: string,

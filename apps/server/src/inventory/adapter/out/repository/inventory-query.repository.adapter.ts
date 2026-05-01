@@ -29,7 +29,7 @@ export class InventoryQueryRepositoryAdapter implements InventoryQueryRepository
         orderBy: { createdAt: 'desc' },
         include: {
           option: {
-            include: { master: { select: { name: true } } },
+            include: { master: { select: { name: true, abcGrade: true } } },
           },
         },
       }),

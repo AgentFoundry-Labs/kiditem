@@ -14,20 +14,8 @@ import {
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatKRW } from '@/lib/utils';
-import type { SupplierPayment } from '@/app/(finance)/_shared/types';
-
-interface Summary {
-  totalAmount: number;
-  totalPaid: number;
-  totalUnpaid: number;
-}
-
-interface Counts {
-  all: number;
-  unpaid: number;
-  partial: number;
-  paid: number;
-}
+import { fetchSupplierPaymentReport } from '../lib/supplier-payments-api';
+import type { SupplierPaymentReportItem } from '../lib/supplier-payments-api';
 
 const TAB_CONFIG: Record<string, { label: string; color: string; icon: typeof Clock }> = {
   unpaid: { label: '미지급', color: 'text-red-600', icon: AlertTriangle },
@@ -38,28 +26,29 @@ const TAB_CONFIG: Record<string, { label: string; color: string; icon: typeof Cl
 export default function SupplierPayments() {
   const queryClient = useQueryClient();
 
-  const { data: paymentsData } = useQuery({
+  const { data: report } = useQuery({
     queryKey: queryKeys.supplierPayments.all,
-    queryFn: () => apiClient.get<SupplierPayment[]>('/api/supplier-payments'),
+    queryFn: fetchSupplierPaymentReport,
   });
 
-  const payments = paymentsData ?? [];
-  const summary = {
-    totalAmount: payments.reduce((s, p) => s + (p.amount ?? 0), 0),
-    totalPaid: payments.reduce((s, p) => s + (p.paidAmount ?? 0), 0),
-    totalUnpaid: payments.reduce((s, p) => s + ((p.amount ?? 0) - (p.paidAmount ?? 0)), 0),
+  const payments = report?.items ?? [];
+  const summary = report?.summary ?? {
+    totalAmount: 0,
+    totalPaid: 0,
+    totalUnpaid: 0,
   };
-  const counts = {
-    all: payments.length,
-    unpaid: payments.filter(p => p.status === 'unpaid').length,
-    partial: payments.filter(p => p.status === 'partial').length,
-    paid: payments.filter(p => p.status === 'paid').length,
+  const counts = report?.counts ?? {
+    all: 0,
+    unpaid: 0,
+    partial: 0,
+    paid: 0,
   };
 
   const [tab, setTab] = useState('unpaid');
   const [showPayModal, setShowPayModal] = useState(false);
-  const [selectedPayment, setSelectedPayment] = useState<SupplierPayment | null>(null);
+  const [selectedPayment, setSelectedPayment] = useState<SupplierPaymentReportItem | null>(null);
   const [payAmount, setPayAmount] = useState('');
+  const visiblePayments = payments.filter((payment) => payment.status === tab);
 
   const payMutation = useMutation({
     mutationFn: ({ id, amount }: { id: string; amount: number }) =>
@@ -71,9 +60,9 @@ export default function SupplierPayments() {
     },
   });
 
-  const openPayModal = (payment: SupplierPayment) => {
+  const openPayModal = (payment: SupplierPaymentReportItem) => {
     setSelectedPayment(payment);
-    setPayAmount(String(payment.amount - payment.paidAmount));
+    setPayAmount(String(Math.max(payment.amount - payment.paidAmount, 0)));
     setShowPayModal(true);
   };
 
@@ -133,7 +122,7 @@ export default function SupplierPayments() {
       <div className="table-card">
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
           <h3 className="text-sm font-semibold text-slate-900">지불 내역</h3>
-          <span className="text-xs text-slate-400">{payments.length}건</span>
+          <span className="text-xs text-slate-400">{visiblePayments.length}건</span>
         </div>
         <div className="overflow-x-auto">
           <table>
@@ -149,7 +138,7 @@ export default function SupplierPayments() {
               </tr>
             </thead>
             <tbody>
-              {payments.map((p) => {
+              {visiblePayments.map((p) => {
                 const remaining = p.amount - p.paidAmount;
                 const cfg = TAB_CONFIG[p.status] || TAB_CONFIG.unpaid;
                 const StatusIcon = cfg.icon;
@@ -179,7 +168,7 @@ export default function SupplierPayments() {
                   </tr>
                 );
               })}
-              {payments.length === 0 && (
+              {visiblePayments.length === 0 && (
                 <tr><td colSpan={7} className="text-center py-8 text-slate-400 text-sm">데이터가 없습니다.</td></tr>
               )}
             </tbody>

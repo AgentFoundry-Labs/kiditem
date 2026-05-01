@@ -40,7 +40,9 @@ import {
 import {
   toInventory,
   toInventoryListItem,
+  toInventoryAssetItem,
   summarizeInventory,
+  summarizeInventoryAssets,
 } from '../../mapper/inventory.mapper';
 import { toTransactionListItem } from '../../mapper/stock-transaction.mapper';
 
@@ -83,6 +85,21 @@ export class InventoryService implements InventoryPort {
       page,
       limit,
       summary: summarizeInventory(mapped),
+    };
+  }
+
+  async getAssetReport(organizationId: string) {
+    const { rows } = await this.query.listInventoryWithOption(organizationId, {
+      optionId: undefined,
+      masterId: undefined,
+    });
+    const items = rows
+      .map(toInventoryAssetItem)
+      .sort((a, b) => b.stockValue - a.stockValue);
+
+    return {
+      summary: summarizeInventoryAssets(items),
+      items,
     };
   }
 

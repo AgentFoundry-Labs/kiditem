@@ -1,7 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { TransactionListItem, TransactionListResponse } from '@kiditem/shared/inventory';
 import { apiClient } from '@/lib/api-client';
-import { fetchAllTransactionsInWindow } from './inventory-api';
+import {
+  fetchAllInventoryItems,
+  fetchAllTransactionsInWindow,
+  fetchInventoryAssetReport,
+} from './inventory-api';
+import type {
+  InventoryAssetReport,
+  InventoryListItem,
+  InventoryListResponse,
+  TransactionListItem,
+  TransactionListResponse,
+} from '@kiditem/shared/inventory';
 
 function makeTx(suffix: string): TransactionListItem {
   return {
@@ -24,6 +34,73 @@ function makeTx(suffix: string): TransactionListItem {
 
 function makeResponse(items: TransactionListItem[], total: number, page: number): TransactionListResponse {
   return { items, total, page, limit: 200 };
+}
+
+function makeInventoryItem(suffix: string): InventoryListItem {
+  return {
+    id: `00000000-0000-4000-8000-${suffix.padStart(12, '0')}`,
+    optionId: `00000000-0000-4000-8001-${suffix.padStart(12, '0')}`,
+    masterId: '00000000-0000-4000-8000-000000000001',
+    sku: `SKU-${suffix}`,
+    masterName: 'Test',
+    optionName: null,
+    kind: 'SIMPLE',
+    costPrice: 100,
+    abcGrade: 'A',
+    currentStock: 1,
+    availableStock: 1,
+    safetyStock: 0,
+    reorderPoint: 0,
+    leadTimeDays: null,
+    warehouseLocation: null,
+    status: 'healthy',
+  };
+}
+
+function makeInventoryResponse(
+  items: InventoryListItem[],
+  total: number,
+  page: number,
+): InventoryListResponse {
+  return {
+    items,
+    total,
+    page,
+    limit: 200,
+    summary: { total, healthy: total, low: 0, out: 0 },
+  };
+}
+
+function makeInventoryAssetReport(): InventoryAssetReport {
+  return {
+    summary: {
+      totalValue: 1000,
+      totalStock: 10,
+      totalProducts: 1,
+      averageUnitCost: 100,
+      byGrade: [
+        {
+          grade: 'A',
+          count: 1,
+          totalStock: 10,
+          totalValue: 1000,
+        },
+      ],
+    },
+    items: [
+      {
+        inventoryId: '00000000-0000-4000-8000-000000000001',
+        optionId: '00000000-0000-4000-8000-000000000002',
+        masterId: '00000000-0000-4000-8000-000000000003',
+        productName: 'Test / Red',
+        sku: 'SKU-1',
+        grade: 'A',
+        currentStock: 10,
+        costPrice: 100,
+        stockValue: 1000,
+      },
+    ],
+  };
 }
 
 afterEach(() => {
@@ -73,5 +150,40 @@ describe('fetchAllTransactionsInWindow', () => {
 
     expect(getParsed).toHaveBeenCalledTimes(1);
     expect(result).toHaveLength(17);
+  });
+});
+
+describe('fetchAllInventoryItems', () => {
+  it('pages through total > 200 and preserves status filter on every call', async () => {
+    const page1 = Array.from({ length: 200 }, (_, i) => makeInventoryItem(`p1-${i}`));
+    const page2 = Array.from({ length: 1 }, (_, i) => makeInventoryItem(`p2-${i}`));
+    const getParsed = vi.spyOn(apiClient, 'getParsed')
+      .mockResolvedValueOnce(makeInventoryResponse(page1, 201, 1) as never)
+      .mockResolvedValueOnce(makeInventoryResponse(page2, 201, 2) as never);
+
+    const result = await fetchAllInventoryItems({ status: 'out' });
+
+    expect(getParsed).toHaveBeenCalledTimes(2);
+    const urls = getParsed.mock.calls.map((c) => c[0] as string);
+    expect(urls[0]).toContain('page=1');
+    expect(urls[0]).toContain('limit=200');
+    expect(urls[0]).toContain('status=out');
+    expect(urls[1]).toContain('page=2');
+    expect(urls[1]).toContain('limit=200');
+    expect(urls[1]).toContain('status=out');
+    expect(result).toHaveLength(201);
+    expect(result[0]).toEqual(page1[0]);
+    expect(result[200]).toEqual(page2[0]);
+  });
+});
+
+describe('fetchInventoryAssetReport', () => {
+  it('loads the official inventory asset report from the server', async () => {
+    const report = makeInventoryAssetReport();
+    const getParsed = vi.spyOn(apiClient, 'getParsed').mockResolvedValueOnce(report as never);
+
+    await expect(fetchInventoryAssetReport()).resolves.toEqual(report);
+    expect(getParsed).toHaveBeenCalledTimes(1);
+    expect(getParsed.mock.calls[0][0]).toBe('/api/inventory/assets');
   });
 });

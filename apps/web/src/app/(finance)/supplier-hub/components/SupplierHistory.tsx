@@ -2,31 +2,14 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { History, Package, Truck, CreditCard, ArrowDownCircle } from 'lucide-react';
+import { History, Package, Truck, CreditCard } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { cn, formatKRW } from '@/lib/utils';
+import { fetchSupplierHistoryReport } from '../lib/supplier-stats-api';
 
 interface Supplier {
   id: string;
   name: string;
-}
-
-interface TimelineItem {
-  id: string;
-  type: string;
-  date: string;
-  description: string;
-  amount: number;
-  status: string;
-}
-
-interface Summary {
-  totalOrdered: number;
-  totalReceived: number;
-  totalPaid: number;
-  unpaid: number;
-  orderCount: number;
-  paymentCount: number;
 }
 
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
@@ -45,21 +28,14 @@ export default function SupplierHistory() {
 
   const [selectedId, setSelectedId] = useState('');
 
-  const { data: historyData } = useQuery({
+  const { data: historyReport } = useQuery({
     queryKey: ['supplier-stats', 'history', selectedId],
-    queryFn: () => apiClient.get<TimelineItem[]>(`/api/supplier-stats?type=history&supplierId=${selectedId}`),
+    queryFn: () => fetchSupplierHistoryReport(selectedId),
     enabled: !!selectedId,
   });
 
-  const timeline = historyData ?? [];
-  const summary: Summary | null = timeline.length > 0 ? {
-    totalOrdered: timeline.filter(t => t.type === 'purchaseOrder').reduce((s, t) => s + t.amount, 0),
-    totalReceived: 0,
-    totalPaid: timeline.filter(t => t.type === 'payment').reduce((s, t) => s + t.amount, 0),
-    unpaid: 0,
-    orderCount: timeline.filter(t => t.type === 'purchaseOrder').length,
-    paymentCount: timeline.filter(t => t.type === 'payment').length,
-  } : null;
+  const timeline = historyReport?.items ?? [];
+  const summary = historyReport?.summary ?? null;
 
   return (
     <div className="space-y-6">
@@ -119,8 +95,8 @@ export default function SupplierHistory() {
           <div >
             {timeline.map((item, idx) => {
               const st = STATUS_MAP[item.status] || { label: item.status, color: 'bg-slate-100 text-slate-600' };
-              const dotColor = item.type === 'payment' ? 'bg-blue-500' : item.type === 'received' ? 'bg-green-500' : 'bg-yellow-500';
-              const Icon = item.type === 'payment' ? CreditCard : item.type === 'received' ? ArrowDownCircle : Package;
+              const dotColor = item.type === 'payment' ? 'bg-blue-500' : 'bg-yellow-500';
+              const Icon = item.type === 'payment' ? CreditCard : Package;
               return (
                 <div key={`${item.id}-${item.type}-${idx}`} className="px-4 py-3">
                   <div className="flex items-start gap-4">

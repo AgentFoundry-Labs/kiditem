@@ -1,5 +1,12 @@
 import { Injectable } from '@nestjs/common';
-import type { SupplierSalesRow, SupplierProductSalesRow } from '@kiditem/shared/supplier-stats';
+import type {
+  SupplierHistoryItem,
+  SupplierHistoryReport,
+  SupplierProductSalesReport,
+  SupplierProductSalesRow,
+  SupplierSalesReport,
+  SupplierSalesRow,
+} from '@kiditem/shared/supplier-stats';
 import { PrismaService } from '../../prisma/prisma.service';
 
 /**
@@ -25,12 +32,68 @@ type OptionOrderStats = {
   totalRevenue: number;
 };
 
+function summarizeSupplierSales(items: SupplierSalesRow[]): SupplierSalesReport['summary'] {
+  return items.reduce<SupplierSalesReport['summary']>(
+    (summary, item) => ({
+      supplierCount: summary.supplierCount + 1,
+      productCount: summary.productCount + item.productCount,
+      totalOrders: summary.totalOrders + item.totalOrders,
+      totalQuantity: summary.totalQuantity + item.totalQuantity,
+      totalRevenue: summary.totalRevenue + item.totalRevenue,
+    }),
+    {
+      supplierCount: 0,
+      productCount: 0,
+      totalOrders: 0,
+      totalQuantity: 0,
+      totalRevenue: 0,
+    },
+  );
+}
+
+function summarizeProductSales(items: SupplierProductSalesRow[]): SupplierProductSalesReport['summary'] {
+  return items.reduce<SupplierProductSalesReport['summary']>(
+    (summary, item) => ({
+      productCount: summary.productCount + 1,
+      totalOrders: summary.totalOrders + item.totalOrders,
+      totalQuantity: summary.totalQuantity + item.totalQuantity,
+      totalRevenue: summary.totalRevenue + item.totalRevenue,
+    }),
+    {
+      productCount: 0,
+      totalOrders: 0,
+      totalQuantity: 0,
+      totalRevenue: 0,
+    },
+  );
+}
+
+function summarizeSupplierHistory(items: SupplierHistoryItem[]): SupplierHistoryReport['summary'] {
+  let totalOrdered = 0;
+  let totalPaid = 0;
+  let unpaid = 0;
+  let orderCount = 0;
+  let paymentCount = 0;
+
+  for (const item of items) {
+    if (item.type === 'purchaseOrder') {
+      orderCount += 1;
+      totalOrdered += item.amount;
+    } else {
+      paymentCount += 1;
+      totalPaid += item.amount;
+    }
+  }
+
+  return { totalOrdered, totalPaid, unpaid, orderCount, paymentCount };
+}
+
 @Injectable()
 export class SupplierStatsService {
   constructor(private readonly prisma: PrismaService) {}
 
   /** 거래처별 매출 집계: supplier 의 SupplierProduct(optionId) + MasterSupplierProduct(masterId→options) 합산. */
-  async getSalesBySupplier(organizationId: string) {
+  async getSalesBySupplier(organizationId: string): Promise<SupplierSalesReport> {
     // 1) Supplier 와 양쪽 매핑을 얇게 조회 (orders include 없이 Cartesian 폭발 회피)
     const suppliers = await this.prisma.supplier.findMany({
       where: { organizationId },
@@ -71,7 +134,7 @@ export class SupplierStatsService {
     const orderStatsByOptionId = await this.aggregateOrdersByOptionIds(organizationId, allOptionIds);
 
     // 4) supplier 별 집계 — 중복 optionId 방지
-    return suppliers.map((supplier) => {
+    const items = suppliers.map((supplier) => {
       const counted = new Set<string>();
       let totalOrders = 0;
       let totalRevenue = 0;
@@ -101,6 +164,11 @@ export class SupplierStatsService {
         totalRevenue,
       } satisfies SupplierSalesRow;
     });
+
+    return {
+      summary: summarizeSupplierSales(items),
+      items,
+    };
   }
 
   /**
@@ -109,10 +177,14 @@ export class SupplierStatsService {
    * - SupplierProduct 경로: `supplyPrice` 는 schema 실값
    * - MasterSupplierProduct 경로: `supplyPrice` 는 schema 에 없으므로 `null` (spec §5.5)
    */
-  async getProductSales(organizationId: string, supplierId: string) {
+  async getProductSales(organizationId: string, supplierId: string): Promise<SupplierProductSalesReport> {
     const [supplierProducts, masterSupplierProducts] = await Promise.all([
       this.prisma.supplierProduct.findMany({
-        where: { supplierId },
+        where: {
+          supplierId,
+          supplier: { organizationId },
+          option: { master: { organizationId } },
+        },
         include: {
           option: {
             select: {
@@ -126,7 +198,11 @@ export class SupplierStatsService {
         },
       }),
       this.prisma.masterSupplierProduct.findMany({
-        where: { supplierId },
+        where: {
+          supplierId,
+          supplier: { organizationId },
+          master: { organizationId },
+        },
         include: {
           master: {
             select: {
@@ -200,11 +276,14 @@ export class SupplierStatsService {
       }
     }
 
-    return results;
+    return {
+      summary: summarizeProductSales(results),
+      items: results,
+    };
   }
 
   /** 거래처 거래 이력: purchaseOrder + supplierPayment 를 시간순 타임라인으로. */
-  async getHistory(organizationId: string, supplierId: string) {
+  async getHistory(organizationId: string, supplierId: string): Promise<SupplierHistoryReport> {
     const [purchaseOrders, payments] = await Promise.all([
       this.prisma.purchaseOrder.findMany({
         where: { organizationId, supplierId },
@@ -216,7 +295,7 @@ export class SupplierStatsService {
       }),
     ]);
 
-    const timeline = [
+    const items = [
       ...purchaseOrders.map((po) => ({
         type: 'purchaseOrder' as const,
         id: po.id,
@@ -229,13 +308,16 @@ export class SupplierStatsService {
         type: 'payment' as const,
         id: p.id,
         date: p.createdAt,
-        amount: p.amount,
+        amount: p.paidAmount ?? p.amount,
         status: p.status,
-        description: p.notes ?? `결제 ${p.amount.toLocaleString()}원`,
+        description: p.notes ?? `결제 ${(p.paidAmount ?? p.amount).toLocaleString()}원`,
       })),
     ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-    return timeline;
+    return {
+      summary: summarizeSupplierHistory(items),
+      items,
+    };
   }
 
   /**

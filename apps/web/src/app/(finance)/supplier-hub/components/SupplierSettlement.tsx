@@ -2,50 +2,26 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { Scale, CheckCircle, AlertTriangle, ArrowDown, ArrowUp, Minus } from 'lucide-react';
-import { apiClient } from '@/lib/api-client';
 import { cn, formatKRW } from '@/lib/utils';
-
-interface SupplierPayment {
-  id: string;
-  supplierId: string;
-  amount: number;
-  paidAmount: number;
-  status: string;
-  dueDate: string;
-  supplier: { id: string; name: string };
-}
-
-interface PaymentSummary {
-  totalAmount: number;
-  totalPaid: number;
-  totalUnpaid: number;
-}
+import { fetchSupplierPaymentReport } from '../lib/supplier-payments-api';
 
 export default function SupplierSettlement() {
-  const { data: settlementData } = useQuery({
+  const { data: report } = useQuery({
     queryKey: ['supplier-payments', 'settlement'],
-    queryFn: () => apiClient.get<SupplierPayment[]>('/api/supplier-payments'),
+    queryFn: fetchSupplierPaymentReport,
   });
 
-  const summaries = (settlementData ?? []).map((p: SupplierPayment) => ({
-    supplierId: p.supplierId,
-    supplierName: p.supplier?.name ?? '-',
-    totalOrdered: p.amount ?? 0,
-    totalPaid: p.paidAmount ?? 0,
-    unpaid: (p.amount ?? 0) - (p.paidAmount ?? 0),
-    orderCount: 1,
-    receivedCount: p.status === 'paid' ? 1 : 0,
-    status: p.status,
-  }));
-  const paymentSummary: PaymentSummary = {
-    totalAmount: summaries.reduce((s, sm) => s + sm.totalOrdered, 0),
-    totalPaid: summaries.reduce((s, sm) => s + sm.totalPaid, 0),
-    totalUnpaid: summaries.reduce((s, sm) => s + sm.unpaid, 0),
+  const summaries = report?.settlements ?? [];
+  const paymentSummary = report?.summary ?? {
+    totalAmount: 0,
+    totalPaid: 0,
+    totalUnpaid: 0,
   };
+  const counts = report?.counts ?? { all: 0, unpaid: 0, partial: 0, paid: 0 };
 
-  const totalReceived = summaries.reduce((s, sm) => s + sm.totalOrdered, 0);
+  const totalReceived = paymentSummary.totalAmount;
   const totalPaid = paymentSummary.totalPaid;
-  const difference = totalReceived - totalPaid;
+  const difference = paymentSummary.totalUnpaid;
 
   return (
     <div className="space-y-6">
@@ -62,7 +38,7 @@ export default function SupplierSettlement() {
         <div className="card">
           <div className="flex items-center gap-1.5 mb-1">
             <ArrowDown size={12} className="text-blue-500" />
-            <span className="card-label">총 입고금액 (발주 합)</span>
+            <span className="card-label">총 청구금액</span>
           </div>
           <div className="card-value tabular-nums">{formatKRW(totalReceived)}원</div>
         </div>
@@ -95,9 +71,9 @@ export default function SupplierSettlement() {
             <thead>
               <tr>
                 <th>매입처</th>
-                <th className="text-right">발주 건수</th>
-                <th className="text-right">입고 건수</th>
-                <th className="text-right">입고금액 (발주 합)</th>
+                <th className="text-right">청구 건수</th>
+                <th className="text-right">지급완료 건수</th>
+                <th className="text-right">청구 금액</th>
                 <th className="text-right">지불금액</th>
                 <th className="text-right">미결제</th>
                 <th className="text-center">상태</th>
@@ -110,7 +86,7 @@ export default function SupplierSettlement() {
                   <tr key={sm.supplierId}>
                     <td className="font-medium text-slate-900">{sm.supplierName}</td>
                     <td className="text-right tabular-nums">{sm.orderCount}</td>
-                    <td className="text-right tabular-nums">{formatKRW(sm.totalOrdered)}원</td>
+                    <td className="text-right tabular-nums">{sm.receivedCount}</td>
                     <td className="text-right tabular-nums font-semibold">{formatKRW(sm.totalOrdered)}원</td>
                     <td className="text-right tabular-nums text-green-600">{formatKRW(sm.totalPaid)}원</td>
                     <td className={cn('text-right tabular-nums font-semibold', sm.unpaid > 0 ? 'text-red-600' : 'text-slate-400')}>
@@ -144,8 +120,8 @@ export default function SupplierSettlement() {
               <tfoot>
                 <tr className="bg-slate-50 font-semibold">
                   <td>합계</td>
-                  <td className="text-right tabular-nums">{summaries.reduce((s, sm) => s + sm.orderCount, 0)}</td>
-                  <td className="text-right tabular-nums">{formatKRW(summaries.reduce((s, sm) => s + sm.totalOrdered, 0))}원</td>
+                  <td className="text-right tabular-nums">{counts.all}</td>
+                  <td className="text-right tabular-nums">{counts.paid}</td>
                   <td className="text-right tabular-nums">{formatKRW(totalReceived)}원</td>
                   <td className="text-right tabular-nums text-green-600">{formatKRW(totalPaid)}원</td>
                   <td className={cn('text-right tabular-nums', paymentSummary.totalUnpaid > 0 ? 'text-red-600' : 'text-slate-400')}>

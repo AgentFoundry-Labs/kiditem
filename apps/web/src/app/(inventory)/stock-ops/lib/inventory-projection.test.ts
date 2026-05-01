@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { InventoryListItem } from '@kiditem/shared/inventory';
 import { stockOpsInventoryName } from './inventory-projection';
+import type { InventoryListItem } from '@kiditem/shared/inventory';
 
 const base: InventoryListItem = {
   id: '00000000-0000-4000-8000-000000000001',
@@ -10,6 +10,8 @@ const base: InventoryListItem = {
   masterName: 'Sample Master',
   optionName: null,
   kind: 'SIMPLE',
+  costPrice: 100,
+  abcGrade: 'A',
   currentStock: 0,
   availableStock: 0,
   safetyStock: 5,

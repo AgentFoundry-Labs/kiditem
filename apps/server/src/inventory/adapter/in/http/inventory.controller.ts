@@ -43,6 +43,11 @@ export class InventoryController {
     return this.inventory.getTransactionSummary(query, organizationId);
   }
 
+  @Get('assets')
+  getAssetReport(@CurrentOrganization() organizationId: string) {
+    return this.inventory.getAssetReport(organizationId);
+  }
+
   @Get('option/:optionId')
   findByOptionId(
     @CurrentOrganization() organizationId: string,

@@ -4,23 +4,12 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Store, Package, ChevronDown } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
-import { cn, formatKRW } from '@/lib/utils';
+import { formatKRW } from '@/lib/utils';
+import { fetchSupplierProductSalesReport } from '../lib/supplier-stats-api';
 
 interface Supplier {
   id: string;
   name: string;
-}
-
-interface ProductSale {
-  productId: string;
-  productName: string;
-  supplyPrice: number;
-  totalOrders: number;
-  totalQuantity: number;
-  totalRevenue: number;
-  revenue?: number;
-  profit?: number;
-  orderCount?: number;
 }
 
 export default function SupplierProductSales() {
@@ -31,15 +20,19 @@ export default function SupplierProductSales() {
 
   const [selectedId, setSelectedId] = useState<string>('');
 
-  const { data: products = [] } = useQuery({
+  const { data: productReport } = useQuery({
     queryKey: ['supplier-stats', 'productSales', selectedId],
-    queryFn: () => apiClient.get<ProductSale[]>(`/api/supplier-stats?type=productSales&supplierId=${selectedId}`),
+    queryFn: () => fetchSupplierProductSalesReport(selectedId),
     enabled: !!selectedId,
   });
 
-  const totalRevenue = products.reduce((s, p) => s + (p.totalRevenue ?? p.revenue ?? 0), 0);
-  const totalProfit = products.reduce((s, p) => s + (p.profit ?? 0), 0);
-  const totalOrders = products.reduce((s, p) => s + (p.totalOrders ?? p.orderCount ?? 0), 0);
+  const products = productReport?.items ?? [];
+  const summary = productReport?.summary ?? {
+    productCount: 0,
+    totalOrders: 0,
+    totalQuantity: 0,
+    totalRevenue: 0,
+  };
 
   return (
     <div className="space-y-6">
@@ -67,19 +60,19 @@ export default function SupplierProductSales() {
         <div className="grid grid-cols-4 gap-4">
           <div className="card">
             <div className="flex items-center gap-2 text-xs text-slate-500 mb-1"><Package size={14} />상품 수</div>
-            <div className="card-value">{products.length}개</div>
+            <div className="card-value">{summary.productCount}개</div>
           </div>
           <div className="card">
             <div className="card-label mb-1">총 매출</div>
-            <div className="card-value text-purple-600">{formatKRW(totalRevenue)}원</div>
+            <div className="card-value text-purple-600">{formatKRW(summary.totalRevenue)}원</div>
           </div>
           <div className="card">
-            <div className="card-label mb-1">총 이익</div>
-            <div className={cn('card-value', totalProfit >= 0 ? 'text-green-600' : 'text-red-600')}>{formatKRW(totalProfit)}원</div>
+            <div className="card-label mb-1">총 판매수량</div>
+            <div className="card-value text-slate-800">{summary.totalQuantity}개</div>
           </div>
           <div className="card">
             <div className="card-label mb-1">총 주문수</div>
-            <div className="card-value">{totalOrders}건</div>
+            <div className="card-value">{summary.totalOrders}건</div>
           </div>
         </div>
       )}
@@ -107,9 +100,9 @@ export default function SupplierProductSales() {
             </thead>
             <tbody >
               {products.map((p) => (
-                  <tr key={p.productId} className="hover:bg-slate-50">
-                    <td className="px-4 py-3 font-medium text-slate-900 max-w-[200px] truncate">{p.productName}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">{formatKRW(p.supplyPrice)}</td>
+                  <tr key={p.optionId} className="hover:bg-slate-50">
+                    <td className="px-4 py-3 font-medium text-slate-900 max-w-[200px] truncate">{p.masterName}{p.optionName ? ` / ${p.optionName}` : ''}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">{p.supplyPrice == null ? '-' : formatKRW(p.supplyPrice)}</td>
                     <td className="px-4 py-3 text-right tabular-nums font-semibold">{formatKRW(p.totalRevenue)}</td>
                     <td className="px-4 py-3 text-right tabular-nums">{p.totalOrders}건</td>
                     <td className="px-4 py-3 text-right tabular-nums">{p.totalQuantity}개</td>
@@ -118,9 +111,9 @@ export default function SupplierProductSales() {
               {/* 합계 */}
               <tr className="bg-slate-50 font-semibold border-t-2 border-slate-300">
                 <td className="px-4 py-3 text-slate-900" colSpan={2}>합계</td>
-                <td className="px-4 py-3 text-right tabular-nums">{formatKRW(totalRevenue)}</td>
-                <td className="px-4 py-3 text-right tabular-nums">{totalOrders}건</td>
-                <td className="px-4 py-3 text-right tabular-nums">{products.reduce((s, p) => s + p.totalQuantity, 0)}개</td>
+                <td className="px-4 py-3 text-right tabular-nums">{formatKRW(summary.totalRevenue)}</td>
+                <td className="px-4 py-3 text-right tabular-nums">{summary.totalOrders}건</td>
+                <td className="px-4 py-3 text-right tabular-nums">{summary.totalQuantity}개</td>
               </tr>
             </tbody>
           </table>

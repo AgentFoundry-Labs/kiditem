@@ -237,8 +237,15 @@ describe('Supplier-stats flow (PG integration)', () => {
 
       const result = await service.getSalesBySupplier(TEST_ORGANIZATION_ID);
 
-      expect(result).toHaveLength(2);
-      const byName = new Map(result.map((r) => [r.supplierName, r]));
+      expect(result.summary).toEqual({
+        supplierCount: 2,
+        productCount: 3,
+        totalOrders: 4,
+        totalQuantity: 12,
+        totalRevenue: 122_000,
+      });
+      expect(result.items).toHaveLength(2);
+      const byName = new Map(result.items.map((r) => [r.supplierName, r]));
 
       expect(byName.get('Supplier 1')).toEqual({
         supplierId: s1.id,
@@ -309,8 +316,15 @@ describe('Supplier-stats flow (PG integration)', () => {
 
       const result = await service.getSalesBySupplier(TEST_ORGANIZATION_ID);
 
-      expect(result).toHaveLength(1);
-      expect(result[0]).toEqual({
+      expect(result.summary).toEqual({
+        supplierCount: 1,
+        productCount: 2,
+        totalOrders: 2,
+        totalQuantity: 6,
+        totalRevenue: 80_000,
+      });
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0]).toEqual({
         supplierId: supplier.id,
         supplierName: 'Dual Supplier',
         productCount: 2, // 1 SupplierProduct + 1 MasterSupplierProduct row (정책 상 mapping count)
@@ -372,7 +386,7 @@ describe('Supplier-stats flow (PG integration)', () => {
 
       const result = await service.getSalesBySupplier(TEST_ORGANIZATION_ID);
 
-      expect(result[0]).toMatchObject({
+      expect(result.items[0]).toMatchObject({
         totalOrders: 1,
         totalQuantity: 1,
         totalRevenue: 5_000,
@@ -421,7 +435,7 @@ describe('Supplier-stats flow (PG integration)', () => {
       const result = await service.getSalesBySupplier(TEST_ORGANIZATION_ID);
 
       // null-optionId lineItem must not leak into supplier aggregate
-      expect(result[0]).toMatchObject({
+      expect(result.items[0]).toMatchObject({
         totalOrders: 1,
         totalQuantity: 2,
         totalRevenue: 14_000,
@@ -431,7 +445,16 @@ describe('Supplier-stats flow (PG integration)', () => {
     it('empty supplier list → empty result', async () => {
       // No suppliers for TEST_ORGANIZATION_ID
       const result = await service.getSalesBySupplier(TEST_ORGANIZATION_ID);
-      expect(result).toEqual([]);
+      expect(result).toEqual({
+        summary: {
+          supplierCount: 0,
+          productCount: 0,
+          totalOrders: 0,
+          totalQuantity: 0,
+          totalRevenue: 0,
+        },
+        items: [],
+      });
     });
 
     // CHUNK 경계 테스트 — 실용 범위 내 검증 (service OPTION_CHUNK_SIZE = 1000 상수)
@@ -475,8 +498,17 @@ describe('Supplier-stats flow (PG integration)', () => {
 
       const result = await service.getSalesBySupplier(TEST_ORGANIZATION_ID);
 
-      expect(result).toHaveLength(1);
-      expect(result[0]).toMatchObject({
+      expect(result).toMatchObject({
+        summary: {
+          supplierCount: 1,
+          productCount: OPTION_COUNT,
+          totalOrders: OPTION_COUNT,
+          totalQuantity: OPTION_COUNT * 2,
+          totalRevenue: OPTION_COUNT * 200,
+        },
+      });
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0]).toMatchObject({
         supplierId: supplier.id,
         productCount: OPTION_COUNT,
         totalOrders: OPTION_COUNT,
@@ -541,10 +573,10 @@ describe('Supplier-stats flow (PG integration)', () => {
       // TEST_ORGANIZATION_ID 조회 → OWN 만 보여야
       const result = await service.getSalesBySupplier(TEST_ORGANIZATION_ID);
 
-      expect(result).toHaveLength(1);
-      expect(result[0].supplierId).toBe(ownSupplier.id);
-      expect(result[0].totalRevenue).toBe(5_000);
-      expect(result.map((r) => r.supplierId)).not.toContain(foreignSupplier.id);
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].supplierId).toBe(ownSupplier.id);
+      expect(result.items[0].totalRevenue).toBe(5_000);
+      expect(result.items.map((r) => r.supplierId)).not.toContain(foreignSupplier.id);
     });
   });
 
@@ -604,8 +636,14 @@ describe('Supplier-stats flow (PG integration)', () => {
 
       const result = await service.getProductSales(TEST_ORGANIZATION_ID, supplier.id);
 
-      expect(result).toHaveLength(3);
-      const byOptionId = new Map(result.map((r) => [r.optionId, r]));
+      expect(result.summary).toEqual({
+        productCount: 3,
+        totalOrders: 2,
+        totalQuantity: 4,
+        totalRevenue: 38_000,
+      });
+      expect(result.items).toHaveLength(3);
+      const byOptionId = new Map(result.items.map((r) => [r.optionId, r]));
 
       // SupplierProduct 경로
       const spRow = byOptionId.get(m1Options[0].id);
@@ -688,8 +726,8 @@ describe('Supplier-stats flow (PG integration)', () => {
       const result = await service.getProductSales(TEST_ORGANIZATION_ID, supplier.id);
 
       // 딱 1 row — SupplierProduct 경로 우선
-      expect(result).toHaveLength(1);
-      expect(result[0]).toMatchObject({
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0]).toMatchObject({
         optionId: options[0].id,
         supplyPrice: 7_777, // master path 의 null 로 덮이지 않음
         minOrderQty: 3, // master 의 99 로 덮이지 않음
@@ -701,7 +739,15 @@ describe('Supplier-stats flow (PG integration)', () => {
         data: { organizationId: TEST_ORGANIZATION_ID, name: 'Empty Supplier' },
       });
       const result = await service.getProductSales(TEST_ORGANIZATION_ID, supplier.id);
-      expect(result).toEqual([]);
+      expect(result).toEqual({
+        summary: {
+          productCount: 0,
+          totalOrders: 0,
+          totalQuantity: 0,
+          totalRevenue: 0,
+        },
+        items: [],
+      });
     });
 
     it('organizationId scope on order.groupBy — OTHER_ORGANIZATION_ID orders do not count', async () => {
@@ -748,11 +794,11 @@ describe('Supplier-stats flow (PG integration)', () => {
 
       const result = await service.getProductSales(TEST_ORGANIZATION_ID, supplier.id);
 
-      expect(result).toHaveLength(1);
+      expect(result.items).toHaveLength(1);
       // OTHER_ORGANIZATION_ID order (999,999 × 99) 는 섞이지 않음
-      expect(result[0].totalRevenue).toBe(5_000);
-      expect(result[0].totalQuantity).toBe(1);
-      expect(result[0].totalOrders).toBe(1);
+      expect(result.items[0].totalRevenue).toBe(5_000);
+      expect(result.items[0].totalQuantity).toBe(1);
+      expect(result.items[0].totalOrders).toBe(1);
     });
   });
 
@@ -785,8 +831,16 @@ describe('Supplier-stats flow (PG integration)', () => {
         },
       });
 
-      const timeline = await service.getHistory(TEST_ORGANIZATION_ID, supplier.id);
+      const report = await service.getHistory(TEST_ORGANIZATION_ID, supplier.id);
+      const timeline = report.items;
 
+      expect(report.summary).toEqual({
+        totalOrdered: 1_000,
+        totalPaid: 500_000,
+        unpaid: 0,
+        orderCount: 1,
+        paymentCount: 1,
+      });
       expect(timeline).toHaveLength(2);
       // 2026-04-10 PO vs today's payment (createdAt) → payment newer
       expect(timeline[0].type).toBe('payment');
@@ -820,7 +874,9 @@ describe('Supplier-stats flow (PG integration)', () => {
         },
       });
 
-      const timeline = await service.getHistory(TEST_ORGANIZATION_ID, ownSupplier.id);
+      const report = await service.getHistory(TEST_ORGANIZATION_ID, ownSupplier.id);
+      const timeline = report.items;
+      expect(report.summary).toMatchObject({ paymentCount: 1, totalPaid: 100 });
       expect(timeline).toHaveLength(1);
       expect(timeline[0].amount).toBe(100);
     });

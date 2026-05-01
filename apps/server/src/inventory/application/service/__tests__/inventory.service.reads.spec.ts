@@ -84,6 +84,73 @@ describe('InventoryService — reads', () => {
     });
   });
 
+  describe('getAssetReport', () => {
+    it('computes official asset totals and row values from inventory option cost on the backend', async () => {
+      query.listInventoryWithOption.mockResolvedValue({
+        rows: [
+          {
+            id: 'inv-a', optionId: 'opt-a', currentStock: 12, reservedStock: 0,
+            safetyStock: 0, reorderPoint: 0, reorderQuantity: 0, leadTimeDays: null,
+            dailySalesAvg: 0, warehouseLocation: null, lastRestockedAt: null,
+            createdAt: new Date(), updatedAt: new Date(), organizationId: 'c1',
+            option: {
+              masterId: 'm1', sku: 'SKU-A', optionName: 'Blue', isBundle: false,
+              costPrice: 750, availableStock: null,
+              master: { name: 'Magic Pen', abcGrade: 'A' },
+            },
+          },
+          {
+            id: 'inv-b', optionId: 'opt-b', currentStock: 5, reservedStock: 0,
+            safetyStock: 0, reorderPoint: 0, reorderQuantity: 0, leadTimeDays: null,
+            dailySalesAvg: 0, warehouseLocation: null, lastRestockedAt: null,
+            createdAt: new Date(), updatedAt: new Date(), organizationId: 'c1',
+            option: {
+              masterId: 'm2', sku: 'SKU-B', optionName: null, isBundle: false,
+              costPrice: null, availableStock: null,
+              master: { name: 'Puzzle', abcGrade: null },
+            },
+          },
+        ],
+        dbCount: 2,
+      });
+
+      const result = await service.getAssetReport('c1');
+
+      expect(query.listInventoryWithOption).toHaveBeenCalledWith('c1', {
+        optionId: undefined,
+        masterId: undefined,
+      });
+      expect(result.summary).toEqual({
+        totalValue: 9_000,
+        totalStock: 17,
+        totalProducts: 2,
+        averageUnitCost: 529,
+        byGrade: [
+          { grade: 'A', count: 1, totalStock: 12, totalValue: 9_000 },
+          { grade: null, count: 1, totalStock: 5, totalValue: 0 },
+        ],
+      });
+      expect(result.items).toEqual([
+        expect.objectContaining({
+          inventoryId: 'inv-a',
+          productName: 'Magic Pen / Blue',
+          grade: 'A',
+          currentStock: 12,
+          costPrice: 750,
+          stockValue: 9_000,
+        }),
+        expect.objectContaining({
+          inventoryId: 'inv-b',
+          productName: 'Puzzle',
+          grade: null,
+          currentStock: 5,
+          costPrice: 0,
+          stockValue: 0,
+        }),
+      ]);
+    });
+  });
+
   describe('findById / findByOptionId', () => {
     it('returns inventory when owned by organization', async () => {
       query.findInventoryById.mockResolvedValue({

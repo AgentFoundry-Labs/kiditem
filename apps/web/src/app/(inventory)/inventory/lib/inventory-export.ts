@@ -1,19 +1,8 @@
-import { fetchInventoryList } from '../../_shared/inventory-api';
+import { fetchAllInventoryItems } from '../../_shared/inventory-api';
 import type { InventoryListItem, InventoryStatus } from '@kiditem/shared/inventory';
 
-const EXPORT_PAGE_SIZE = 200;
-
 export async function fetchAllInventoryForExport(status?: InventoryStatus): Promise<InventoryListItem[]> {
-  const first = await fetchInventoryList({ page: 1, limit: EXPORT_PAGE_SIZE, status });
-  const pages = Math.ceil(first.total / EXPORT_PAGE_SIZE);
-  const rest: InventoryListItem[] = [];
-
-  for (let page = 2; page <= pages; page += 1) {
-    const data = await fetchInventoryList({ page, limit: EXPORT_PAGE_SIZE, status });
-    rest.push(...data.items);
-  }
-
-  return [...first.items, ...rest];
+  return fetchAllInventoryItems({ status });
 }
 
 export function toInventoryExportRows(items: InventoryListItem[]) {

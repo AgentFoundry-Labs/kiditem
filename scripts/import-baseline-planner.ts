@@ -36,6 +36,11 @@ export function toInt(value: unknown): number {
   return Number.isFinite(parsed) ? Math.trunc(parsed) : 0;
 }
 
+export function toPositiveInt(value: unknown, fallback = 1): number {
+  const parsed = toInt(value);
+  return parsed > 0 ? parsed : fallback;
+}
+
 /**
  * Canonical normalization for grouping comparisons. Trims, collapses every
  * internal whitespace run to nothing, and lowercases. Korean / numeric content
@@ -96,10 +101,18 @@ export interface PlannedOption {
   optionDisplayName: string | null;
   rowNumber: number;
   costPrice: number;
+  supplyPrice: number;
   sellPrice: number;
   currentStock: number;
   safetyStock: number;
   warehouseLocation: string | null;
+  supplierCode: string | null;
+  supplierName: string | null;
+  supplierAddress: string | null;
+  supplierPhone: string | null;
+  supplierMarketName: string | null;
+  supplierProductName: string | null;
+  minOrderQty: number;
   rawRow: WorkbookRow;
 }
 
@@ -189,10 +202,18 @@ export function planKiditemImport(rows: ReadonlyArray<WorkbookRow>): KiditemPlan
       optionDisplayName,
       rowNumber,
       costPrice: toInt(row['매입가']),
+      supplyPrice: toInt(row['매입가']),
       sellPrice: toInt(row['판매가']),
       currentStock: toInt(row['재고']),
       safetyStock: toInt(row['안전재고']),
       warehouseLocation: clean(row['상품위치']),
+      supplierCode: clean(row['매입처코드']),
+      supplierName: clean(row['매입처']),
+      supplierAddress: clean(row['매입처 주소']),
+      supplierPhone: clean(row['매입처 전화번호']),
+      supplierMarketName: clean(row['매입처 상가명']),
+      supplierProductName: clean(row['매입상품명']),
+      minOrderQty: toPositiveInt(row['최소발주수량']),
       rawRow: row,
     });
   });

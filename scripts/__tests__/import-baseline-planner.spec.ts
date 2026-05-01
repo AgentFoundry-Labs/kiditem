@@ -23,6 +23,13 @@ function row(overrides: Record<string, unknown>): WorkbookRow {
     재고: 0,
     안전재고: 0,
     상품위치: '',
+    매입처코드: '',
+    매입처: '',
+    '매입처 주소': '',
+    '매입처 전화번호': '',
+    '매입처 상가명': '',
+    매입상품명: '',
+    최소발주수량: 0,
     ...overrides,
   };
 }
@@ -166,6 +173,38 @@ describe('planKiditemImport — option barcode is never the source EAN', () => {
 
     expect(plan.masters[0].sourceBarcode).toBe('8806384808919');
     expect(plan.options[0].optionDisplayName).toBeNull();
+  });
+});
+
+describe('planKiditemImport — supplier fields', () => {
+  it('preserves supplier metadata from the kiditem workbook row for supplier import', () => {
+    const plan = planKiditemImport([
+      row({
+        상품코드: 'OPT-1',
+        자사상품코드: '8806384808919',
+        상품명: 'Toy Supplier',
+        옵션명: '핑크',
+        매입가: '3,200',
+        매입처코드: 'SUP-001',
+        매입처: '해피프랜즈',
+        '매입처 주소': '서울시 중구',
+        '매입처 전화번호': '02-1234-5678',
+        '매입처 상가명': '동대문 A동',
+        매입상품명: '매입 Toy Supplier 핑크',
+        최소발주수량: '12',
+      }),
+    ]);
+
+    expect(plan.options[0]).toMatchObject({
+      supplierCode: 'SUP-001',
+      supplierName: '해피프랜즈',
+      supplierAddress: '서울시 중구',
+      supplierPhone: '02-1234-5678',
+      supplierMarketName: '동대문 A동',
+      supplierProductName: '매입 Toy Supplier 핑크',
+      supplyPrice: 3200,
+      minOrderQty: 12,
+    });
   });
 });
 

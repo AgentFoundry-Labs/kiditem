@@ -11,15 +11,18 @@
 // - Wing rows are attached only when the planner reports an exact match
 //   (option-legacy unique, or single-master barcode fallback). Ambiguous /
 //   unmatched rows are reported but never silently linked.
+import 'dotenv/config';
 import { PrismaClient, type Prisma } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import * as XLSX from 'xlsx';
 import {
+  normalizeForGroup,
   planKiditemImport,
   planWingMatches,
   projectWingRow,
   type KiditemPlan,
   type PlannedMaster,
+  type PlannedOption,
   type WingPlan,
   type WorkbookRow,
 } from './import-baseline-planner';
@@ -103,6 +106,16 @@ interface MasterRawDataPayload {
   representativeRow: WorkbookRow;
 }
 
+interface SupplierSeed {
+  key: string;
+  name: string;
+  code: string | null;
+  address: string | null;
+  phone: string | null;
+  marketName: string | null;
+  rowNumbers: number[];
+}
+
 interface KiditemWriteStats {
   rows: number;
   hardConflicts: number;
@@ -111,6 +124,12 @@ interface KiditemWriteStats {
   optionsCreated: number;
   optionsFound: number;
   inventoryUpserted: number;
+  suppliersCreated: number;
+  suppliersFound: number;
+  supplierProductsCreated: number;
+  supplierProductsUpdated: number;
+  supplierProductsSkippedMissingSupplier: number;
+  supplierProductsSkippedMissingOption: number;
 }
 
 async function applyKiditemPlan(
@@ -127,6 +146,12 @@ async function applyKiditemPlan(
     optionsCreated: 0,
     optionsFound: 0,
     inventoryUpserted: 0,
+    suppliersCreated: 0,
+    suppliersFound: 0,
+    supplierProductsCreated: 0,
+    supplierProductsUpdated: 0,
+    supplierProductsSkippedMissingSupplier: 0,
+    supplierProductsSkippedMissingOption: 0,
   };
 
   if (write && plan.hardConflicts.length > 0) {
@@ -143,9 +168,15 @@ async function applyKiditemPlan(
 
   if (!write) {
     // Dry-run still counts what a write pass would perform.
+    const suppliers = collectSupplierSeeds(plan);
+    const supplierProductPlans = plan.options.filter((opt) => opt.supplierName);
     stats.mastersCreated = plan.masters.length;
     stats.optionsCreated = plan.options.length;
     stats.inventoryUpserted = plan.options.length;
+    stats.suppliersCreated = suppliers.size;
+    stats.supplierProductsCreated = supplierProductPlans.length;
+    stats.supplierProductsSkippedMissingSupplier =
+      plan.options.length - supplierProductPlans.length;
     return stats;
   }
 
@@ -259,6 +290,8 @@ async function applyKiditemPlan(
     });
   }
 
+  await applySupplierMappings(prisma, organizationId, plan, stats);
+
   return stats;
 }
 
@@ -271,6 +304,178 @@ function buildRawData(masterPlan: PlannedMaster): MasterRawDataPayload {
     optionLegacyCodes: masterPlan.optionLegacyCodes,
     representativeRow: masterPlan.representativeRow,
   };
+}
+
+function supplierKey(name: string): string {
+  return normalizeForGroup(name) || name;
+}
+
+function collectSupplierSeeds(plan: KiditemPlan): Map<string, SupplierSeed> {
+  const seeds = new Map<string, SupplierSeed>();
+
+  for (const optionPlan of plan.options) {
+    if (!optionPlan.supplierName) continue;
+    const key = supplierKey(optionPlan.supplierName);
+    const existing = seeds.get(key);
+    if (existing) {
+      existing.code ??= optionPlan.supplierCode;
+      existing.address ??= optionPlan.supplierAddress;
+      existing.phone ??= optionPlan.supplierPhone;
+      existing.marketName ??= optionPlan.supplierMarketName;
+      existing.rowNumbers.push(optionPlan.rowNumber);
+      continue;
+    }
+
+    seeds.set(key, {
+      key,
+      name: optionPlan.supplierName,
+      code: optionPlan.supplierCode,
+      address: optionPlan.supplierAddress,
+      phone: optionPlan.supplierPhone,
+      marketName: optionPlan.supplierMarketName,
+      rowNumbers: [optionPlan.rowNumber],
+    });
+  }
+
+  return seeds;
+}
+
+function buildSupplierNotes(seed: SupplierSeed): string {
+  const rows = seed.rowNumbers.slice(0, 10).join(',');
+  const rowSuffix = seed.rowNumbers.length > 10 ? `,...(+${seed.rowNumbers.length - 10})` : '';
+  return [
+    'source: kiditem-baseline',
+    seed.code ? `매입처코드: ${seed.code}` : null,
+    seed.marketName ? `상가명: ${seed.marketName}` : null,
+    `원본행: ${rows}${rowSuffix}`,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n');
+}
+
+async function findImportedOption(
+  tx: Tx,
+  organizationId: string,
+  optionPlan: PlannedOption,
+): Promise<{ id: string } | null> {
+  if (optionPlan.optionLegacyCode) {
+    const option = await tx.productOption.findFirst({
+      where: { organizationId, legacyCode: optionPlan.optionLegacyCode, isDeleted: false },
+      select: { id: true },
+    });
+    if (option) return option;
+  }
+
+  const master = await tx.masterProduct.findFirst({
+    where: { organizationId, legacyCode: optionPlan.masterImportKey, isDeleted: false },
+    select: { id: true },
+  });
+  if (!master) return null;
+
+  return tx.productOption.findFirst({
+    where: {
+      organizationId,
+      masterId: master.id,
+      optionName: optionPlan.optionDisplayName,
+      isDeleted: false,
+    },
+    select: { id: true },
+  });
+}
+
+async function applySupplierMappings(
+  prisma: PrismaClient,
+  organizationId: string,
+  plan: KiditemPlan,
+  stats: KiditemWriteStats,
+): Promise<void> {
+  const supplierSeeds = collectSupplierSeeds(plan);
+
+  await prisma.$transaction(async (tx) => {
+    const supplierIdsByKey = new Map<string, string>();
+
+    for (const seed of supplierSeeds.values()) {
+      const existing = await tx.supplier.findFirst({
+        where: { organizationId, name: seed.name },
+        select: { id: true },
+      });
+
+      if (existing) {
+        await tx.supplier.update({
+          where: { id: existing.id },
+          data: {
+            address: seed.address ?? undefined,
+            phone: seed.phone ?? undefined,
+            notes: buildSupplierNotes(seed),
+            status: 'active',
+          },
+        });
+        supplierIdsByKey.set(seed.key, existing.id);
+        stats.suppliersFound += 1;
+        continue;
+      }
+
+      const created = await tx.supplier.create({
+        data: {
+          organizationId,
+          name: seed.name,
+          address: seed.address,
+          phone: seed.phone,
+          notes: buildSupplierNotes(seed),
+          status: 'active',
+        },
+        select: { id: true },
+      });
+      supplierIdsByKey.set(seed.key, created.id);
+      stats.suppliersCreated += 1;
+    }
+
+    for (const optionPlan of plan.options) {
+      if (!optionPlan.supplierName) {
+        stats.supplierProductsSkippedMissingSupplier += 1;
+        continue;
+      }
+
+      const supplierId = supplierIdsByKey.get(supplierKey(optionPlan.supplierName));
+      if (!supplierId) {
+        stats.supplierProductsSkippedMissingSupplier += 1;
+        continue;
+      }
+
+      const option = await findImportedOption(tx, organizationId, optionPlan);
+      if (!option) {
+        stats.supplierProductsSkippedMissingOption += 1;
+        continue;
+      }
+
+      const existing = await tx.supplierProduct.findFirst({
+        where: { supplierId, optionId: option.id },
+        select: { id: true },
+      });
+
+      if (existing) {
+        await tx.supplierProduct.update({
+          where: { id: existing.id },
+          data: {
+            supplyPrice: optionPlan.supplyPrice,
+            minOrderQty: optionPlan.minOrderQty,
+          },
+        });
+        stats.supplierProductsUpdated += 1;
+        continue;
+      }
+
+      await tx.supplierProduct.create({
+        data: {
+          supplierId,
+          optionId: option.id,
+          supplyPrice: optionPlan.supplyPrice,
+          minOrderQty: optionPlan.minOrderQty,
+        },
+      });
+      stats.supplierProductsCreated += 1;
+    }
+  });
 }
 
 interface WingWriteStats {

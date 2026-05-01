@@ -1,6 +1,7 @@
 import type {
   AdjustStockInput,
   Inventory,
+  InventoryAssetReport,
   InventoryListResponse,
   IssueStockInput,
   ReceiveStockInput,
@@ -36,6 +37,7 @@ export type TransactionSummaryInput = {
 
 export interface InventoryPort {
   list(input: ListInventoryInput, organizationId: string): Promise<InventoryListResponse>;
+  getAssetReport(organizationId: string): Promise<InventoryAssetReport>;
   findById(id: string, organizationId: string): Promise<Inventory>;
   findByOptionId(optionId: string, organizationId: string): Promise<Inventory>;
 

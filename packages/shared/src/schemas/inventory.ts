@@ -32,6 +32,8 @@ export const InventoryListItemSchema = z.object({
   masterName: z.string(),
   optionName: z.string().nullable(),
   kind: z.enum(['SIMPLE', 'BUNDLE']),
+  costPrice: z.number().int().nullable(),
+  abcGrade: z.enum(['A', 'B', 'C']).nullable(),
   currentStock: z.number().int(),
   availableStock: z.number().int(),
   safetyStock: z.number().int(),
@@ -60,6 +62,43 @@ export const InventoryListResponseSchema = z.object({
   summary: InventorySummarySchema,
 });
 export type InventoryListResponse = z.infer<typeof InventoryListResponseSchema>;
+
+// ===== Asset report =====
+export const InventoryAssetGradeSummarySchema = z.object({
+  grade: z.enum(['A', 'B', 'C']).nullable(),
+  count: z.number().int(),
+  totalStock: z.number().int(),
+  totalValue: z.number().int(),
+});
+export type InventoryAssetGradeSummary = z.infer<typeof InventoryAssetGradeSummarySchema>;
+
+export const InventoryAssetSummarySchema = z.object({
+  totalValue: z.number().int(),
+  totalStock: z.number().int(),
+  totalProducts: z.number().int(),
+  averageUnitCost: z.number().int(),
+  byGrade: z.array(InventoryAssetGradeSummarySchema),
+});
+export type InventoryAssetSummary = z.infer<typeof InventoryAssetSummarySchema>;
+
+export const InventoryAssetItemSchema = z.object({
+  inventoryId: z.string().uuid(),
+  optionId: z.string().uuid(),
+  masterId: z.string().uuid(),
+  productName: z.string(),
+  sku: z.string(),
+  grade: z.enum(['A', 'B', 'C']).nullable(),
+  currentStock: z.number().int(),
+  costPrice: z.number().int(),
+  stockValue: z.number().int(),
+});
+export type InventoryAssetItem = z.infer<typeof InventoryAssetItemSchema>;
+
+export const InventoryAssetReportSchema = z.object({
+  summary: InventoryAssetSummarySchema,
+  items: z.array(InventoryAssetItemSchema),
+});
+export type InventoryAssetReport = z.infer<typeof InventoryAssetReportSchema>;
 
 // ===== Stock transaction (ledger row) =====
 export const StockTransactionTypeSchema = z.enum(['RECEIVE', 'ISSUE', 'ADJUST']);

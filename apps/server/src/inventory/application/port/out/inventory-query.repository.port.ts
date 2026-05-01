@@ -24,8 +24,9 @@ export type InventoryWithOption = InventoryRow & {
     sku: string;
     optionName: string | null;
     isBundle: boolean;
+    costPrice: number | null;
     availableStock: number | null;
-    master: { name: string };
+    master: { name: string; abcGrade: string | null };
   };
 };
 
