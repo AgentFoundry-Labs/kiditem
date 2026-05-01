@@ -31,6 +31,9 @@ Precedence: the most-specific `AGENTS.md` wins, then parent `AGENTS.md` files.
 - Keep durable documentation in `docs/`, scoped `AGENTS.md`, or source-code comments when the rule is inseparable from the implementation.
 - Do not commit session plans, scratch specs, agent logs, or temporary coordination notes. Use local `.omx/` / `.omc/` scratch space for those artifacts; both directories are gitignored and may be deleted between sessions.
 - Promote only enduring rules or release evidence into git. If a scratch plan produced a permanent convention, copy the final rule into the nearest scoped `AGENTS.md` instead of keeping the plan.
+- Environment setup, external tool setup, shared-data setup, browser extension setup, deployment/sync setup, and other collaboration procedures must have an AI-executable Markdown runbook under `docs/runbooks/` or the nearest scoped documentation. Do not rely on chat history as the source of truth.
+- AI-executable runbooks must separate human prerequisites from agent actions, avoid recording secrets, list exact env vars/paths/files, include expected directory shape, verification commands, success criteria, blocker criteria, and a final report format.
+- When a setup task has a runbook, agents should read it and execute the safe local steps directly. Ask the user only for credentials, account permissions, missing source files, or destructive/external-account actions.
 
 ## Codex Skills
 
@@ -118,7 +121,7 @@ Precedence: the most-specific `AGENTS.md` wins, then parent `AGENTS.md` files.
 - **Organization boundary** — 코드와 DB 의 SaaS/customer boundary 이름은 `Organization` / `organizationId` 다. `tenant` 는 아키텍처 설명 용어로만 쓰고 변수명·컬럼명·API 계약에는 쓰지 않는다. 회사 법인 정보는 `LegalEntity`, 마켓플레이스/스토어 계정은 `ChannelAccount` 로 분리한다.
 - **Multi-tenant scope** — 모든 mutating service 는 `@CurrentOrganization()` 로 받은 `organizationId` 를 WHERE/INSERT 에 포함. 단일 리소스 GET/PATCH/DELETE 는 `findFirst({ where: { id, organizationId } })`. `findUnique({ where: { id } })` 금지 (IDOR).
 - **Membership source of truth** — 사용자의 현재 조직과 조직 내 role 은 `OrganizationMembership` 이 source of truth. `User` 에 직접 `organizationId` 를 두지 않는다. 시스템/챗봇 사용자는 활성 membership 이 없을 수 있고, 도메인 HTTP 라우트는 `OrganizationScopeGuard` 가 이를 차단한다.
-- **DB 동기화** — `git pull` 은 DB 를 자동 갱신하지 않는다. 스키마는 `db:push`, 공유 개발 데이터는 Google Drive dev data profile sync 로 맞춘다: [prisma/AGENTS.md — DB 동기화](prisma/AGENTS.md#db-동기화--schema-vs-data-중요), [docs/DEV_DATA_BUNDLES.md](docs/DEV_DATA_BUNDLES.md).
+- **DB 동기화** — `git pull` 은 DB 를 자동 갱신하지 않는다. 스키마는 `db:push`, 공유 개발 데이터는 Google Drive dev data profile sync 로 맞춘다: [prisma/AGENTS.md — DB 동기화](prisma/AGENTS.md#db-동기화--schema-vs-data-중요), [docs/DEV_DATA_BUNDLES.md](docs/DEV_DATA_BUNDLES.md), [docs/runbooks/google-drive-dev-data.md](docs/runbooks/google-drive-dev-data.md).
 - **신규 영구 규칙** — incident-driven 또는 cross-domain 새 규칙은 해당 scope 의 `AGENTS.md` 본문에 직접 등록. 별도 결정 이력 폴더는 두지 않는다 (별도 결정 문서 체계 폐지, 2026-04-26).
 
 ## Codebase Reconstruction Rules
@@ -168,6 +171,7 @@ extensions/          — Chrome extensions (product-scraper: 1688/Alibaba, coupa
 - [Design System](DESIGN.md) — 색상, 타이포, 스페이싱, 컴포넌트 패턴 (Tailwind + Lucide)
 - **DB schema + 도메인 분류**: [`prisma/models/`](prisma/models/) — 10 domain files. 각 모델 위의 `/// @namespace` + `/// @describe` 주석이 도메인 경계 + 의미를 담는다. `prisma generate` 로 자동 동기화 (drift 불가능).
 - **Graphify navigation**: [`docs/GRAPHIFY.md`](docs/GRAPHIFY.md), [`docs/ERD.md`](docs/ERD.md), [`docs/erd/`](docs/erd/), [`graphify-out/schema/`](graphify-out/schema/), [`graphify-out/schema-consumers/`](graphify-out/schema-consumers/) — generated navigation aids only. Source of truth remains Prisma + source code. Regenerate with `npm run graphify:schema` after Prisma/schema-consumer/import-script changes.
+- **Runbooks**: [`docs/runbooks/`](docs/runbooks/) — AI-executable setup and operations procedures. Prefer these over chat memory for environment or collaboration setup.
 - [Architecture](.claude/docs/architecture.md) — architecture index that points to the current backend/frontend/reconstruction sources of truth
 - [Testing Strategy](docs/TESTING.md) — 3-tier (unit mock / e2e HTTP mock / **integration real Postgres**). Race guard·IDOR 검증은 integration tier 로. `npm run db:test:up && npm run db:test:prepare && npm run test:integration`
 - [Commands & Environment](.claude/docs/commands.md) — quick start, dev commands, ports, env vars, tests

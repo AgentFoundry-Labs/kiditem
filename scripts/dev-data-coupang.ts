@@ -39,6 +39,14 @@ type BundlePayload = {
   rowCount?: number;
 };
 
+type BundleReference = {
+  path: string;
+  type: string;
+  description?: string;
+  sha256?: string;
+  bytes?: number;
+};
+
 type BundleManifest = {
   schemaVersion: string;
   datasetId: string;
@@ -54,6 +62,7 @@ type BundleManifest = {
     sources?: string[];
   };
   payloads: BundlePayload[];
+  references?: BundleReference[];
   checksums?: Record<string, string>;
 };
 
@@ -185,6 +194,16 @@ function assertSafeRelativePath(relativePath: string): void {
   }
 }
 
+function referenceTypeFor(file: string): string {
+  const baseName = path.basename(file).toLowerCase();
+  if (/^kiditem[_-]list\b/.test(baseName)) return 'kiditem_list';
+  if (/^wing-inventory-matched\b/.test(baseName)) return 'wing_inventory_matched';
+
+  const ext = path.extname(file).toLowerCase();
+  if (['.xls', '.xlsx', '.csv', '.tsv'].includes(ext)) return 'inventory_reference';
+  return 'reference';
+}
+
 async function loadManifest(bundleDir: string): Promise<BundleManifest> {
   const manifest = await readJson<BundleManifest>(path.join(bundleDir, 'manifest.json'));
   if (manifest.schemaVersion !== SCHEMA_VERSION) {
@@ -204,15 +223,15 @@ async function loadManifest(bundleDir: string): Promise<BundleManifest> {
 }
 
 async function verifyBundle(bundleDir: string, manifest: BundleManifest): Promise<void> {
-  for (const payload of manifest.payloads) {
-    assertSafeRelativePath(payload.path);
-    const file = path.join(bundleDir, payload.path);
-    const expected = payload.sha256 ?? manifest.checksums?.[payload.path];
-    if (!existsSync(file)) throw new Error(`Missing payload: ${payload.path}`);
+  for (const artifact of [...manifest.payloads, ...(manifest.references ?? [])]) {
+    assertSafeRelativePath(artifact.path);
+    const file = path.join(bundleDir, artifact.path);
+    const expected = artifact.sha256 ?? manifest.checksums?.[artifact.path];
+    if (!existsSync(file)) throw new Error(`Missing bundle artifact: ${artifact.path}`);
     if (!expected) continue;
     const actual = await sha256(file);
     if (actual !== expected) {
-      throw new Error(`Checksum mismatch for ${payload.path}: ${actual} != ${expected}`);
+      throw new Error(`Checksum mismatch for ${artifact.path}: ${actual} != ${expected}`);
     }
   }
 }
@@ -519,6 +538,7 @@ async function commandSanitize(args: Args): Promise<unknown> {
     createdAt: new Date().toISOString(),
     description: `Sanitized demo copy of ${sourceManifest.datasetId}`,
     payloads,
+    references: [],
     checksums,
   };
   await writeJson(path.join(targetDir, 'manifest.json'), manifest);
@@ -538,6 +558,22 @@ async function commandExport(args: Args): Promise<unknown> {
       if (entry.endsWith('.json')) payloadFiles.push(path.join(expandHome(payloadDir), entry));
     }
   }
+  const referenceFiles = [
+    ...values(args, 'reference'),
+    ...values(args, 'references'),
+  ];
+  for (const namedReference of ['kiditem-list', 'wing-inventory-matched']) {
+    const inputFile = value(args, namedReference);
+    if (inputFile) referenceFiles.push(inputFile);
+  }
+  for (const referenceDir of [...values(args, 'reference-dir'), ...values(args, 'references-dir')]) {
+    const expandedReferenceDir = expandHome(referenceDir);
+    const entries = await readdir(expandedReferenceDir);
+    for (const entry of entries) {
+      if (entry.startsWith('.')) continue;
+      referenceFiles.push(path.join(expandedReferenceDir, entry));
+    }
+  }
   if (payloadFiles.length === 0) {
     throw new Error('export requires --payload or --payload-dir with JSON files.');
   }
@@ -547,7 +583,9 @@ async function commandExport(args: Args): Promise<unknown> {
   await mkdir(path.join(targetDir, 'payloads'), { recursive: true });
 
   const payloads: BundlePayload[] = [];
+  const references: BundleReference[] = [];
   const checksums: Record<string, string> = {};
+  const artifactPaths = new Set<string>();
   for (const inputFile of payloadFiles) {
     const absoluteInput = path.resolve(expandHome(inputFile));
     const fileStat = await stat(absoluteInput);
@@ -556,6 +594,8 @@ async function commandExport(args: Args): Promise<unknown> {
     const type = Array.isArray(body) ? value(args, 'type') : String((body as Record<string, unknown>).type ?? value(args, 'type') ?? '');
     if (!type) throw new Error(`Cannot infer payload type for ${absoluteInput}; pass --type.`);
     const targetPayload = path.join('payloads', path.basename(absoluteInput));
+    if (artifactPaths.has(targetPayload)) throw new Error(`Duplicate bundle path: ${targetPayload}`);
+    artifactPaths.add(targetPayload);
     await cp(absoluteInput, path.join(targetDir, targetPayload));
     const digest = await sha256(path.join(targetDir, targetPayload));
     const rowCount = Array.isArray(body)
@@ -565,6 +605,27 @@ async function commandExport(args: Args): Promise<unknown> {
         : undefined;
     payloads.push({ path: targetPayload, type, sha256: digest, rowCount });
     checksums[targetPayload] = digest;
+  }
+  if (referenceFiles.length > 0) {
+    await mkdir(path.join(targetDir, 'references'), { recursive: true });
+  }
+  for (const inputFile of referenceFiles) {
+    const absoluteInput = path.resolve(expandHome(inputFile));
+    const fileStat = await stat(absoluteInput);
+    if (!fileStat.isFile()) throw new Error(`Not a file: ${absoluteInput}`);
+    const targetReference = path.join('references', path.basename(absoluteInput));
+    if (artifactPaths.has(targetReference)) throw new Error(`Duplicate bundle path: ${targetReference}`);
+    artifactPaths.add(targetReference);
+    await cp(absoluteInput, path.join(targetDir, targetReference));
+    const digest = await sha256(path.join(targetDir, targetReference));
+    references.push({
+      path: targetReference,
+      type: referenceTypeFor(absoluteInput),
+      description: path.basename(absoluteInput),
+      sha256: digest,
+      bytes: fileStat.size,
+    });
+    checksums[targetReference] = digest;
   }
 
   const from = value(args, 'from');
@@ -584,10 +645,11 @@ async function commandExport(args: Args): Promise<unknown> {
       businessDateTo: to,
     },
     payloads,
+    references: references.length > 0 ? references : undefined,
     checksums,
   };
   await writeJson(path.join(targetDir, 'manifest.json'), manifest);
-  return { exported: datasetId, targetDir, payloadCount: payloads.length };
+  return { exported: datasetId, targetDir, payloadCount: payloads.length, referenceCount: references.length };
 }
 
 export async function runCoupangDevData(rawArgs: string[]): Promise<unknown> {

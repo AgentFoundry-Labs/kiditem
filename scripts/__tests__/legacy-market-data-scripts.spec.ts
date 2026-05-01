@@ -33,6 +33,7 @@ describe('legacy market-data migration entrypoints', () => {
     expect(existsSync(join(repoRoot, 'scripts/wing-product-scrape.sh'))).toBe(false);
     expect(existsSync(join(repoRoot, 'scripts/import-returns.ts'))).toBe(false);
     expect(packageJson.scripts).toMatchObject({
+      'data:dev:setup': 'tsx scripts/dev-data.ts setup',
       'data:dev:pull': 'tsx scripts/dev-data.ts pull',
       'data:dev:pack': 'tsx scripts/dev-data.ts pack',
       'data:dev:publish': 'tsx scripts/dev-data.ts publish',
@@ -78,16 +79,22 @@ describe('dev data coupang domain adapter', () => {
   it('exports scraper payloads and replays them in dry-run mode', () => {
     const tempRoot = mkdtempSync(join(tmpdir(), 'kiditem-coupang-adapter-'));
     const payloadDir = join(tempRoot, 'payloads');
+    const referenceDir = join(tempRoot, 'references');
     const dataRoot = join(tempRoot, 'data');
     const payloadFile = join(payloadDir, 'wing-traffic.json');
+    const kiditemListFile = join(referenceDir, 'kiditem_list.xlsx');
+    const wingInventoryMatchedFile = join(referenceDir, 'wing-inventory-matched.xlsx');
     const datasetId = '2026-04-28-real-v1';
 
     mkdirSync(payloadDir, { recursive: true });
+    mkdirSync(referenceDir, { recursive: true });
     writeFileSync(payloadFile, JSON.stringify({
       type: 'traffic',
       source: 'wing',
       data: [{ businessDate: '2026-04-28', visitors: 7 }],
     }));
+    writeFileSync(kiditemListFile, 'kiditem inventory reference');
+    writeFileSync(wingInventoryMatchedFile, 'matched wing inventory reference');
 
     const exportOutput = JSON.parse(runDevData([
       'export',
@@ -95,12 +102,16 @@ describe('dev data coupang domain adapter', () => {
       '--dataset', datasetId,
       '--lane', 'real',
       '--payload', payloadFile,
+      '--kiditem-list', kiditemListFile,
+      '--wing-inventory-matched', wingInventoryMatchedFile,
       '--from', '2026-04-28',
       '--to', '2026-04-28',
       '--data-root', dataRoot,
-    ])) as { exported: string; payloadCount: number };
+    ])) as { exported: string; payloadCount: number; referenceCount: number };
 
-    expect(exportOutput).toMatchObject({ exported: datasetId, payloadCount: 1 });
+    expect(exportOutput).toMatchObject({ exported: datasetId, payloadCount: 1, referenceCount: 2 });
+    expect(existsSync(join(dataRoot, 'coupang', datasetId, 'references', 'kiditem_list.xlsx'))).toBe(true);
+    expect(existsSync(join(dataRoot, 'coupang', datasetId, 'references', 'wing-inventory-matched.xlsx'))).toBe(true);
 
     const dryRun = JSON.parse(runDevData([
       'replay',

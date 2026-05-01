@@ -23,12 +23,13 @@ const LOCAL_DATA_ROOT = path.join('.data', 'dev');
 const LOCAL_PACKAGE_DIR = 'packages';
 const DRIVE_PACKAGE_DIR = 'bundles';
 const DRIVE_PROFILE_DIR = 'profiles';
+const DRIVE_REFERENCE_DIR = 'references';
 const CANONICAL_DRIVE_FOLDER_URL =
   'https://drive.google.com/drive/folders/1sIuAiZAX6wAFOoEmmJGe6p0b5xwey1AO?usp=drive_link';
 
 const execFileAsync = promisify(execFile);
 
-type Command = 'status' | 'pull' | 'sync' | 'pack' | 'publish' | 'export' | 'sanitize' | 'replay';
+type Command = 'status' | 'setup' | 'pull' | 'sync' | 'pack' | 'publish' | 'export' | 'sanitize' | 'replay';
 type AdapterCommand = 'export' | 'sanitize' | 'replay';
 type Lane = 'real' | 'demo';
 type ReplayMode = 'upsert' | 'scoped-replace' | 'full-reset' | 'replace' | 'pull-only';
@@ -48,6 +49,14 @@ type BundlePayload = {
   rowCount?: number;
 };
 
+type BundleReference = {
+  path: string;
+  type: string;
+  description?: string;
+  sha256?: string;
+  bytes?: number;
+};
+
 type BundleManifest = {
   schemaVersion: string;
   datasetId: string;
@@ -55,6 +64,7 @@ type BundleManifest = {
   createdAt: string;
   defaultImportMode?: ReplayMode;
   payloads?: BundlePayload[];
+  references?: BundleReference[];
   checksums?: Record<string, string>;
 };
 
@@ -82,7 +92,7 @@ type DevDataProfile = {
 
 type DevDataProfileStep = {
   domain: string;
-  lane: Lane;
+  lane?: Lane;
   dataset?: string;
   mode?: ReplayMode;
   replay?: boolean;
@@ -98,10 +108,34 @@ type PullResult = {
   manifest: BundleManifest;
 };
 
+const DEFAULT_PROFILES: Record<string, DevDataProfile> = {
+  workspace: {
+    schemaVersion: PROFILE_SCHEMA_VERSION,
+    profileId: 'workspace',
+    description: 'Default local workspace data from real Coupang scraper payloads',
+    steps: [
+      { domain: 'coupang', dataset: 'latest', mode: 'scoped-replace' },
+    ],
+  },
+  coupang: {
+    schemaVersion: PROFILE_SCHEMA_VERSION,
+    profileId: 'coupang',
+    description: 'Real Coupang scraper payload replay profile',
+    steps: [
+      { domain: 'coupang', dataset: 'latest', mode: 'scoped-replace' },
+    ],
+  },
+};
+
+const PROJECT_REFERENCE_FILES = [
+  'kiditem_list.xlsx',
+  'wing-inventory-matched.xlsx',
+] as const;
+
 function parseArgs(): Args {
   const raw = process.argv.slice(2);
   const command = (raw.shift() ?? 'status') as Command;
-  if (!['status', 'pull', 'sync', 'pack', 'publish', 'export', 'sanitize', 'replay'].includes(command)) {
+  if (!['status', 'setup', 'pull', 'sync', 'pack', 'publish', 'export', 'sanitize', 'replay'].includes(command)) {
     throw new Error(`Unknown command: ${command}`);
   }
 
@@ -158,13 +192,13 @@ function localDataRoot(args: Args): string {
 }
 
 function driveRoot(args: Args): string {
-  const root = value(args, 'drive-root') ?? process.env.KIDITEM_DEV_DATA_DRIVE_DIR;
+  const root = configuredDriveRoot(args);
   if (!root) {
     throw new Error(
       `Google Drive root is required. Open ${CANONICAL_DRIVE_FOLDER_URL}, sync it locally, then set KIDITEM_DEV_DATA_DRIVE_DIR or pass --drive-root.`,
     );
   }
-  return path.resolve(expandHome(root));
+  return root;
 }
 
 function requiredValue(args: Args, key: string): string {
@@ -188,7 +222,7 @@ function safeDomain(input: string): string {
 }
 
 function laneFrom(raw: string | undefined): Lane {
-  const lane = raw ?? 'demo';
+  const lane = raw ?? 'real';
   if (lane !== 'real' && lane !== 'demo') throw new Error(`Invalid lane: ${lane}`);
   return lane;
 }
@@ -207,8 +241,8 @@ function assertSafeRelativePath(relativePath: string): void {
   }
 }
 
-function archiveFileName(domain: string, lane: Lane, datasetId: string): string {
-  return `kiditem-${safeDomain(domain)}-${lane}-${safeId(datasetId, 'dataset id')}.zip`;
+function archiveFileName(domain: string, _lane: Lane, datasetId: string): string {
+  return `kiditem-${safeDomain(domain)}-${safeId(datasetId, 'dataset id')}.zip`;
 }
 
 function archiveShaFileName(fileName: string): string {
@@ -216,7 +250,8 @@ function archiveShaFileName(fileName: string): string {
 }
 
 function driveLaneDir(root: string, domain: string, lane: Lane): string {
-  return path.join(root, `${safeDomain(domain)}-${lane}`);
+  void lane;
+  return path.join(root, safeDomain(domain));
 }
 
 function driveBundleDir(root: string, domain: string, lane: Lane, datasetId: string): string {
@@ -274,15 +309,15 @@ async function loadManifest(bundleDir: string): Promise<BundleManifest> {
 }
 
 async function verifyBundle(bundleDir: string, manifest: BundleManifest): Promise<void> {
-  for (const payload of manifest.payloads ?? []) {
-    assertSafeRelativePath(payload.path);
-    const file = path.join(bundleDir, payload.path);
-    const expected = payload.sha256 ?? manifest.checksums?.[payload.path];
-    if (!existsSync(file)) throw new Error(`Missing payload: ${payload.path}`);
+  for (const artifact of [...(manifest.payloads ?? []), ...(manifest.references ?? [])]) {
+    assertSafeRelativePath(artifact.path);
+    const file = path.join(bundleDir, artifact.path);
+    const expected = artifact.sha256 ?? manifest.checksums?.[artifact.path];
+    if (!existsSync(file)) throw new Error(`Missing bundle artifact: ${artifact.path}`);
     if (!expected) continue;
     const actual = await sha256(file);
     if (actual !== expected) {
-      throw new Error(`Checksum mismatch for ${payload.path}: ${actual} != ${expected}`);
+      throw new Error(`Checksum mismatch for ${artifact.path}: ${actual} != ${expected}`);
     }
   }
 }
@@ -401,7 +436,7 @@ async function pullBundle(
     requestedDataset && requestedDataset !== 'latest'
       ? safeId(requestedDataset, 'dataset id')
       : latestPackage?.datasetId ?? (latestTxt ? safeId(latestTxt, 'dataset id') : '');
-  if (!datasetId) throw new Error(`No dataset provided and no latest bundle for ${domain}-${lane}`);
+  if (!datasetId) throw new Error(`No dataset provided and no latest bundle for ${domain}`);
 
   const archivePath =
     latestPackage?.datasetId === datasetId
@@ -439,11 +474,17 @@ async function loadProfile(args: Args): Promise<DevDataProfile> {
   const profileId = safeId(requiredValue(args, 'profile'), 'profile id');
   const profilePath = path.join(driveRoot(args), DRIVE_PROFILE_DIR, `${profileId}.json`);
   const profile = await readJson<DevDataProfile>(profilePath);
+  validateProfile(profile, profileId);
+  return profile;
+}
+
+function validateProfile(profile: DevDataProfile, expectedProfileId?: string): void {
   if (profile.schemaVersion !== PROFILE_SCHEMA_VERSION) {
     throw new Error(`Unsupported profile schemaVersion ${profile.schemaVersion}`);
   }
-  if (safeId(profile.profileId, 'profile id') !== profileId) {
-    throw new Error(`profileId mismatch: ${profile.profileId} != ${profileId}`);
+  const profileId = safeId(profile.profileId, 'profile id');
+  if (expectedProfileId && profileId !== expectedProfileId) {
+    throw new Error(`profileId mismatch: ${profile.profileId} != ${expectedProfileId}`);
   }
   if (!Array.isArray(profile.steps) || profile.steps.length === 0) {
     throw new Error('profile.steps must contain at least one step');
@@ -454,7 +495,6 @@ async function loadProfile(args: Args): Promise<DevDataProfile> {
     replayModeFrom(step.mode);
     if (step.dataset && step.dataset !== 'latest') safeId(step.dataset, 'dataset id');
   }
-  return profile;
 }
 
 function requireCoupangDomain(args: Args, command: AdapterCommand): void {
@@ -475,6 +515,106 @@ function appendValues(target: string[], args: Args, key: string): void {
 
 function appendFlag(target: string[], args: Args, key: string): void {
   if (bool(args, key)) target.push(`--${key}`);
+}
+
+function configuredDriveRoot(args: Args): string | null {
+  const root = value(args, 'drive-root') ?? process.env.KIDITEM_DEV_DATA_DRIVE_DIR;
+  return root ? path.resolve(expandHome(root)) : null;
+}
+
+async function findDriveRootCandidates(): Promise<string[]> {
+  const cloudStorage = path.join(os.homedir(), 'Library', 'CloudStorage');
+  if (!existsSync(cloudStorage)) return [];
+
+  const candidates: string[] = [];
+  async function walk(dir: string, depth: number): Promise<void> {
+    if (depth < 0) return;
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const child = path.join(dir, entry.name);
+      if (entry.name === 'KidItem Dev Data') {
+        candidates.push(child);
+        continue;
+      }
+      await walk(child, depth - 1);
+    }
+  }
+
+  await walk(cloudStorage, 6);
+  return candidates.sort();
+}
+
+async function setupDriveRoot(args: Args): Promise<string> {
+  const configured = configuredDriveRoot(args);
+  if (configured) return configured;
+
+  const candidates = await findDriveRootCandidates();
+  if (candidates.length === 1) return candidates[0]!;
+  if (candidates.length > 1) {
+    throw new Error(
+      `Multiple KidItem Dev Data folders found. Pass --drive-root explicitly:\n${candidates.join('\n')}`,
+    );
+  }
+  throw new Error(
+    `KidItem Dev Data folder not found. Open ${CANONICAL_DRIVE_FOLDER_URL}, sync it with Google Drive Desktop, then pass --drive-root or set KIDITEM_DEV_DATA_DRIVE_DIR.`,
+  );
+}
+
+async function ensureDirectory(dir: string): Promise<'created' | 'existing'> {
+  const status = existsSync(dir) ? 'existing' : 'created';
+  await mkdir(dir, { recursive: true });
+  return status;
+}
+
+async function ensureProfile(root: string, profileId: string): Promise<{ profileId: string; path: string; status: 'created' | 'existing' }> {
+  const template = DEFAULT_PROFILES[profileId];
+  if (!template) throw new Error(`Unknown default profile: ${profileId}`);
+
+  const profilePath = path.join(root, DRIVE_PROFILE_DIR, `${profileId}.json`);
+  if (existsSync(profilePath)) {
+    validateProfile(await readJson<DevDataProfile>(profilePath), profileId);
+    return { profileId, path: profilePath, status: 'existing' };
+  }
+
+  await writeJson(profilePath, template);
+  return { profileId, path: profilePath, status: 'created' };
+}
+
+async function ensureProjectReference(
+  root: string,
+  sourceRoot: string,
+  fileName: string,
+): Promise<{ fileName: string; path: string; status: 'existing' | 'copied' | 'missing-source' }> {
+  const target = path.join(root, DRIVE_REFERENCE_DIR, fileName);
+  if (existsSync(target)) return { fileName, path: target, status: 'existing' };
+
+  const source = path.join(sourceRoot, fileName);
+  if (!existsSync(source)) return { fileName, path: target, status: 'missing-source' };
+
+  await cp(source, target);
+  return { fileName, path: target, status: 'copied' };
+}
+
+function appendProjectReferenceDefaults(target: string[], args: Args): void {
+  const root = configuredDriveRoot(args);
+  if (!root) return;
+
+  const referenceRoot = path.join(root, DRIVE_REFERENCE_DIR);
+  for (const [option, fileName] of [
+    ['kiditem-list', PROJECT_REFERENCE_FILES[0]],
+    ['wing-inventory-matched', PROJECT_REFERENCE_FILES[1]],
+  ] as const) {
+    if (value(args, option)) continue;
+    const file = path.join(referenceRoot, fileName);
+    if (existsSync(file)) target.push(`--${option}`, file);
+  }
 }
 
 async function runCoupangAdapter(
@@ -529,19 +669,86 @@ async function commandStatus(args: Args): Promise<void> {
     .map((entry) => entry.name)
     .filter((name) => name !== LOCAL_PACKAGE_DIR)
     .sort();
-  const configuredDriveRoot = value(args, 'drive-root') ?? process.env.KIDITEM_DEV_DATA_DRIVE_DIR ?? null;
+  const driveRootValue = configuredDriveRoot(args);
   const profiles =
-    configuredDriveRoot && existsSync(path.join(expandHome(configuredDriveRoot), DRIVE_PROFILE_DIR))
-      ? (await readdir(path.join(expandHome(configuredDriveRoot), DRIVE_PROFILE_DIR)))
+    driveRootValue && existsSync(path.join(driveRootValue, DRIVE_PROFILE_DIR))
+      ? (await readdir(path.join(driveRootValue, DRIVE_PROFILE_DIR)))
         .filter((entry) => entry.endsWith('.json'))
+        .sort()
+      : [];
+  const references =
+    driveRootValue && existsSync(path.join(driveRootValue, DRIVE_REFERENCE_DIR))
+      ? (await readdir(path.join(driveRootValue, DRIVE_REFERENCE_DIR)))
+        .filter((entry) => PROJECT_REFERENCE_FILES.includes(entry as typeof PROJECT_REFERENCE_FILES[number]))
         .sort()
       : [];
   console.log(JSON.stringify({
     root,
     domains: entries,
     profiles,
+    references,
     canonicalDriveFolderUrl: CANONICAL_DRIVE_FOLDER_URL,
-    configuredDriveRoot,
+    configuredDriveRoot: driveRootValue,
+  }, null, 2));
+}
+
+async function commandSetup(args: Args): Promise<void> {
+  const root = await setupDriveRoot(args);
+  const sourceRoot = path.resolve(expandHome(value(args, 'reference-source-root') ?? process.cwd()));
+
+  const directories = [
+    {
+      name: 'profiles',
+      path: path.join(root, DRIVE_PROFILE_DIR),
+      status: await ensureDirectory(path.join(root, DRIVE_PROFILE_DIR)),
+    },
+    {
+      name: 'references',
+      path: path.join(root, DRIVE_REFERENCE_DIR),
+      status: await ensureDirectory(path.join(root, DRIVE_REFERENCE_DIR)),
+    },
+    {
+      name: 'coupang/bundles',
+      path: path.join(root, 'coupang', DRIVE_PACKAGE_DIR),
+      status: await ensureDirectory(path.join(root, 'coupang', DRIVE_PACKAGE_DIR)),
+    },
+  ];
+
+  const profiles = [
+    await ensureProfile(root, 'workspace'),
+    await ensureProfile(root, 'coupang'),
+  ];
+
+  const references = [];
+  for (const fileName of PROJECT_REFERENCE_FILES) {
+    references.push(await ensureProjectReference(root, sourceRoot, fileName));
+  }
+
+  const latestJsonPath = path.join(root, 'coupang', 'latest.json');
+  const latestBundle = existsSync(latestJsonPath)
+    ? await readJson<BundlePackageIndex>(latestJsonPath)
+    : null;
+  const blockers = references
+    .filter((reference) => reference.status === 'missing-source')
+    .map((reference) => `Missing project reference: ${reference.fileName}`);
+
+  console.log(JSON.stringify({
+    driveRoot: root,
+    directories,
+    profiles,
+    references,
+    coupangBundlesDir: path.join(root, 'coupang', DRIVE_PACKAGE_DIR),
+    latestBundle: latestBundle
+      ? {
+        datasetId: latestBundle.datasetId,
+        archiveFileName: latestBundle.archiveFileName,
+      }
+      : null,
+    env: {
+      KIDITEM_DEV_DATA_DRIVE_DIR: root,
+    },
+    ok: blockers.length === 0,
+    blockers,
   }, null, 2));
 }
 
@@ -654,10 +861,24 @@ async function commandSync(args: Args): Promise<void> {
 async function commandExport(args: Args): Promise<void> {
   requireCoupangDomain(args, 'export');
   const forwardedArgs: string[] = [];
-  for (const option of ['dataset', 'lane', 'payload-dir', 'type', 'from', 'to']) {
+  for (const option of [
+    'dataset',
+    'lane',
+    'payload-dir',
+    'type',
+    'from',
+    'to',
+    'reference-dir',
+    'references-dir',
+    'kiditem-list',
+    'wing-inventory-matched',
+  ]) {
     appendOption(forwardedArgs, args, option);
   }
   appendValues(forwardedArgs, args, 'payload');
+  appendValues(forwardedArgs, args, 'reference');
+  appendValues(forwardedArgs, args, 'references');
+  appendProjectReferenceDefaults(forwardedArgs, args);
   console.log(JSON.stringify(await runCoupangAdapter(args, 'export', forwardedArgs), null, 2));
 }
 
@@ -684,6 +905,9 @@ async function main(): Promise<void> {
   switch (args.command) {
     case 'status':
       await commandStatus(args);
+      break;
+    case 'setup':
+      await commandSetup(args);
       break;
     case 'pull':
       await commandPull(args);

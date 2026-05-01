@@ -49,28 +49,29 @@ npm run db:studio     # DB browser (localhost:5555)
 | 계층 | 전달 수단 | 특성 |
 |---|---|---|
 | **스키마 (DDL)** | `schema.prisma` + `db:push` | 매 pull 후 실행. 안전 |
-| **공유 개발 데이터** | Google Drive dev data profile + bundle replay (`npm run data:dev:*`) | 팀원이 같은 화면 상태를 재현하는 표준 경로 |
+| **공유 개발 데이터** | Google Drive dev data profile + Coupang bundle replay (`npm run data:dev:*`) | 팀원이 같은 쿠팡 스크래퍼 결과를 재현하는 표준 경로 |
 | **운영 중 데이터 이전** | PR 본문 / release runbook 의 임시 명령 | 스키마 변경/마이그레이션 보조. 화면 데이터 공유 용도 아님. 완료 후 one-off 스크립트는 repo 에 남기지 않음 |
 | **초기 스냅샷 예외** | `prisma/init.sql.gz` (`--data-only` pg_dump) | Fresh volume 전용 예외. 기본 개발 데이터 경로 아님 |
 
 ### Google Drive dev data profile
 
-팀원 간 같은 로컬 화면 데이터를 맞출 때는 `init.sql.gz` 나 synthetic seed 를 쓰지 않는다. Google Drive 의 profile 이 `kiditem-{domain}-{lane}-{datasetId}.zip` bundle 목록과 순서를 정하고, 각 bundle 을 `.data/dev/<domain>/<datasetId>/` 로 pull 한 뒤 replay 한다.
+팀원 간 같은 쿠팡 스크래퍼 결과를 맞출 때는 `init.sql.gz` 나 synthetic seed 를 쓰지 않는다. Google Drive 의 profile 이 `kiditem-coupang-{datasetId}.zip` bundle 을 정하고, bundle 을 `.data/dev/coupang/<datasetId>/` 로 pull 한 뒤 replay 한다.
 
 ```bash
 export KIDITEM_DEV_DATA_DRIVE_DIR="$HOME/.../KidItem Dev Data"
 export DEV_DEFAULT_USER_ID="<local dev user uuid>"
-npm run data:dev:sync -- --profile workspace-demo --yes
+npm run data:dev:sync -- --profile workspace --yes
 ```
 
 규칙:
 
-- Bundle 원본은 Google Drive 의 `{domain}-{lane}/bundles/` zip archive, 로컬 사본은 `.data/` 아래에 둔다. 둘 다 Git 커밋 금지.
-- Drive 의 `profiles/*.json` 이 화면 기준 상태를, `{domain}-{lane}/latest.json` 이 현재 기준 dataset 과 archive checksum 을 가리킨다. 같은 날 다시 만들면 기존 zip 을 덮어쓰지 말고 `datasetId` 의 `vN` 을 올린다.
+- Bundle 원본은 Google Drive 의 `coupang/bundles/` zip archive, 로컬 사본은 `.data/` 아래에 둔다. 둘 다 Git 커밋 금지.
+- Drive 의 `profiles/*.json` 이 기준 상태를, `coupang/latest.json` 이 현재 기준 dataset 과 archive checksum 을 가리킨다. 같은 날 다시 만들면 기존 zip 을 덮어쓰지 말고 `datasetId` 의 `vN` 을 올린다.
 - 표준 replay 모드는 `scoped-replace` 다. manifest 의 organization/channel/date range scope 만 교체한다.
-- Coupang bundle 은 `POST /api/ads/extension/sync` 경로로 replay 한다. 앱이 실제 ingest 하는 코드와 다른 DB writer 를 만들지 않는다.
+- Coupang bundle 은 실제 쿠팡 스크래퍼 payload 를 `POST /api/ads/extension/sync` 경로로 replay 한다. 앱이 실제 ingest 하는 코드와 다른 DB writer 를 만들지 않는다.
+- 재고 비교 기준 파일은 Drive 루트 `references/kiditem_list.xlsx`, `references/wing-inventory-matched.xlsx` 로 관리한다. Bundle 내부 `references/` 에는 publish 시점의 snapshot 이 들어가며, 이 파일들은 DB replay 대상이 아니라 mismatch 검증 기준이다.
 - `scripts/seed-channel-market-data.ts` 같은 synthetic market-data seed 는 금지. 실제 scrape payload replay 로 대체한다.
-- 자세한 포맷/운영 절차는 [`docs/DEV_DATA_BUNDLES.md`](../docs/DEV_DATA_BUNDLES.md) 를 따른다.
+- 자세한 포맷/운영 절차는 [`docs/DEV_DATA_BUNDLES.md`](../docs/DEV_DATA_BUNDLES.md) 를 따른다. 새 머신 셋업은 [`docs/runbooks/google-drive-dev-data.md`](../docs/runbooks/google-drive-dev-data.md) 를 따른다.
 
 ### init.sql.gz 의 정확한 의미
 
@@ -116,7 +117,7 @@ docker exec kiditem-postgres pg_dump -U kiditem --data-only --column-inserts \
 
 - Durable schema objects must be representable in Prisma schema. If a desired PostgreSQL feature is not representable, redesign toward an app-level invariant, a normal column/index, or a backend application port instead of adding SQL overlays.
 - One-off data movement belongs in the PR body / release runbook and is deleted after rollout.
-- Reusable developer data flows belong in `scripts/dev-data*.ts` + `docs/DEV_DATA_BUNDLES.md`.
+- Reusable developer data flows belong in `scripts/dev-data*.ts` + `docs/DEV_DATA_BUNDLES.md`; machine setup steps belong in `docs/runbooks/`.
 - Keep `scripts/*` only for current package commands, tests, generated docs, or actively maintained import/dev-data workflows.
 
 ## Prisma v7 Config

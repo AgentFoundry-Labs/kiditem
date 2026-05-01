@@ -26,6 +26,7 @@
     "db:studio": "prisma studio",
     "import:product-baseline": "tsx scripts/import-product-baseline.ts",
     "data:dev:status": "tsx scripts/dev-data.ts status",
+    "data:dev:setup": "tsx scripts/dev-data.ts setup",
     "data:dev:pull": "tsx scripts/dev-data.ts pull",
     "data:dev:sync": "tsx scripts/dev-data.ts sync",
     "data:dev:export": "tsx scripts/dev-data.ts export",

@@ -22,6 +22,7 @@ describe('profile-based dev data workflow', () => {
     };
 
     expect(packageJson.scripts).toHaveProperty('data:dev:status');
+    expect(packageJson.scripts).toHaveProperty('data:dev:setup');
     expect(packageJson.scripts).toHaveProperty('data:dev:pull');
     expect(packageJson.scripts).toHaveProperty('data:dev:sync');
     expect(packageJson.scripts).toHaveProperty('data:dev:pack');
@@ -37,14 +38,19 @@ describe('profile-based dev data workflow', () => {
     const datasetId = '2026-04-28-real-v1';
     const bundleDir = join(domainRoot, datasetId);
     const payloadPath = join(bundleDir, 'payloads', 'wing-traffic.json');
-    const archiveFileName = 'kiditem-coupang-real-2026-04-28-real-v1.zip';
+    const kiditemListPath = join(bundleDir, 'references', 'kiditem_list.xlsx');
+    const wingInventoryMatchedPath = join(bundleDir, 'references', 'wing-inventory-matched.xlsx');
+    const archiveFileName = 'kiditem-coupang-2026-04-28-real-v1.zip';
 
     mkdirSync(join(bundleDir, 'payloads'), { recursive: true });
+    mkdirSync(join(bundleDir, 'references'), { recursive: true });
     writeFileSync(payloadPath, JSON.stringify({
       type: 'traffic',
       source: 'wing',
       data: [{ businessDate: '2026-04-28', visitors: 11 }],
     }));
+    writeFileSync(kiditemListPath, 'kiditem inventory reference');
+    writeFileSync(wingInventoryMatchedPath, 'matched wing inventory reference');
     writeFileSync(join(bundleDir, 'manifest.json'), JSON.stringify({
       schemaVersion: 'kiditem.dev-data.coupang.v1',
       datasetId,
@@ -63,6 +69,16 @@ describe('profile-based dev data workflow', () => {
           source: 'wing',
         },
       ],
+      references: [
+        {
+          path: 'references/kiditem_list.xlsx',
+          type: 'kiditem_list',
+        },
+        {
+          path: 'references/wing-inventory-matched.xlsx',
+          type: 'wing_inventory_matched',
+        },
+      ],
     }));
 
     const publishOutput = JSON.parse(runDevData([
@@ -74,7 +90,7 @@ describe('profile-based dev data workflow', () => {
     ])) as { archiveFileName: string; latestJsonPath: string; sha256: string };
 
     expect(publishOutput.archiveFileName).toBe(archiveFileName);
-    expect(existsSync(join(driveRoot, 'coupang-real', 'bundles', archiveFileName))).toBe(true);
+    expect(existsSync(join(driveRoot, 'coupang', 'bundles', archiveFileName))).toBe(true);
 
     const latestJson = JSON.parse(await readFile(publishOutput.latestJsonPath, 'utf8')) as {
       schemaVersion: string;
@@ -94,13 +110,12 @@ describe('profile-based dev data workflow', () => {
     });
 
     mkdirSync(join(driveRoot, 'profiles'), { recursive: true });
-    writeFileSync(join(driveRoot, 'profiles', 'workspace-demo.json'), JSON.stringify({
+    writeFileSync(join(driveRoot, 'profiles', 'workspace.json'), JSON.stringify({
       schemaVersion: 'kiditem.dev-data.profile.v1',
-      profileId: 'workspace-demo',
+      profileId: 'workspace',
       steps: [
         {
           domain: 'coupang',
-          lane: 'real',
           dataset: 'latest',
           mode: 'scoped-replace',
         },
@@ -109,7 +124,7 @@ describe('profile-based dev data workflow', () => {
 
     const syncOutput = JSON.parse(runDevData([
       'sync',
-      '--profile', 'workspace-demo',
+      '--profile', 'workspace',
       '--data-root', consumerRoot,
       '--drive-root', driveRoot,
       '--dry-run',
@@ -126,7 +141,7 @@ describe('profile-based dev data workflow', () => {
     };
 
     expect(syncOutput).toMatchObject({
-      profileId: 'workspace-demo',
+      profileId: 'workspace',
       dryRun: true,
       steps: [
         {
@@ -140,5 +155,89 @@ describe('profile-based dev data workflow', () => {
     expect(syncOutput.steps[0]?.replay).toMatchObject({ payloads: 1 });
     expect(syncOutput.steps[0]?.replay?.sources).toContain('wing');
     expect(existsSync(join(consumerRoot, 'coupang', datasetId, 'manifest.json'))).toBe(true);
+    expect(existsSync(join(consumerRoot, 'coupang', datasetId, 'references', 'kiditem_list.xlsx'))).toBe(true);
+    expect(existsSync(join(consumerRoot, 'coupang', datasetId, 'references', 'wing-inventory-matched.xlsx'))).toBe(true);
+  }, 30000);
+
+  it('uses project reference files from the Drive root when exporting Coupang payloads', async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), 'kiditem-project-reference-'));
+    const dataRoot = join(tempRoot, 'data');
+    const driveRoot = join(tempRoot, 'drive');
+    const payloadDir = join(tempRoot, 'payloads');
+    const datasetId = '2026-05-01-v1';
+
+    mkdirSync(join(driveRoot, 'references'), { recursive: true });
+    mkdirSync(payloadDir, { recursive: true });
+    writeFileSync(join(driveRoot, 'references', 'kiditem_list.xlsx'), 'kiditem project inventory reference');
+    writeFileSync(
+      join(driveRoot, 'references', 'wing-inventory-matched.xlsx'),
+      'matched project inventory reference',
+    );
+    writeFileSync(join(payloadDir, 'wing-traffic.json'), JSON.stringify({
+      type: 'traffic',
+      source: 'wing',
+      data: [{ businessDate: '2026-05-01', visitors: 13 }],
+    }));
+
+    const exportOutput = JSON.parse(runDevData([
+      'export',
+      '--domain', 'coupang',
+      '--dataset', datasetId,
+      '--payload-dir', payloadDir,
+      '--from', '2026-05-01',
+      '--to', '2026-05-01',
+      '--data-root', dataRoot,
+      '--drive-root', driveRoot,
+    ])) as { exported: string; payloadCount: number; referenceCount: number };
+
+    expect(exportOutput).toMatchObject({ exported: datasetId, payloadCount: 1, referenceCount: 2 });
+    expect(existsSync(join(dataRoot, 'coupang', datasetId, 'references', 'kiditem_list.xlsx'))).toBe(true);
+    expect(existsSync(join(dataRoot, 'coupang', datasetId, 'references', 'wing-inventory-matched.xlsx'))).toBe(true);
+
+    const manifest = JSON.parse(
+      await readFile(join(dataRoot, 'coupang', datasetId, 'manifest.json'), 'utf8'),
+    ) as { references?: Array<{ type: string }> };
+    expect(manifest.references?.map((item) => item.type)).toEqual([
+      'kiditem_list',
+      'wing_inventory_matched',
+    ]);
+  }, 30000);
+
+  it('sets up Drive profiles and project references', async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), 'kiditem-drive-setup-'));
+    const driveRoot = join(tempRoot, 'drive', 'KidItem Dev Data');
+    const sourceRoot = join(tempRoot, 'source');
+
+    mkdirSync(sourceRoot, { recursive: true });
+    writeFileSync(join(sourceRoot, 'kiditem_list.xlsx'), 'kiditem project inventory reference');
+    writeFileSync(join(sourceRoot, 'wing-inventory-matched.xlsx'), 'matched project inventory reference');
+
+    const setupOutput = JSON.parse(runDevData([
+      'setup',
+      '--drive-root', driveRoot,
+      '--reference-source-root', sourceRoot,
+    ])) as {
+      driveRoot: string;
+      ok: boolean;
+      profiles: Array<{ profileId: string; status: string }>;
+      references: Array<{ fileName: string; status: string }>;
+      blockers: string[];
+    };
+
+    expect(setupOutput).toMatchObject({
+      driveRoot,
+      ok: true,
+      blockers: [],
+    });
+    expect(setupOutput.profiles.map((profile) => profile.profileId).sort()).toEqual(['coupang', 'workspace']);
+    expect(setupOutput.references.map((reference) => reference.fileName).sort()).toEqual([
+      'kiditem_list.xlsx',
+      'wing-inventory-matched.xlsx',
+    ]);
+    expect(existsSync(join(driveRoot, 'profiles', 'workspace.json'))).toBe(true);
+    expect(existsSync(join(driveRoot, 'profiles', 'coupang.json'))).toBe(true);
+    expect(existsSync(join(driveRoot, 'references', 'kiditem_list.xlsx'))).toBe(true);
+    expect(existsSync(join(driveRoot, 'references', 'wing-inventory-matched.xlsx'))).toBe(true);
+    expect(existsSync(join(driveRoot, 'coupang', 'bundles'))).toBe(true);
   }, 30000);
 });
