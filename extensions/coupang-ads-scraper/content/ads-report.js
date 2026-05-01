@@ -61,6 +61,24 @@
   }
 
   function parsePaginationInfo() {
+    // 1) React-Table v6 (쿠팡 광고 상세 product 테이블 + 대시보드 캠페인 테이블).
+    //    DOM: .pagination-bottom input[aria-label="jump to page"] (현재 페이지 number input)
+    //         + .pagination-bottom .-totalPages (총 페이지 수 span).
+    //    이전: input[aria-label*='페이지'] 한국어 폴백 + (\d+)/(\d+) 정규식 — 쿠팡 페이지는
+    //    aria-label="jump to page" (영문) + 텍스트가 "페이지  / 2" (왼쪽 숫자 없이 input 안에 있음)
+    //    → 정규식 미스 → totalPages=1 로 기본값 → product 페이지 2 누락.
+    const rtPag = document.querySelector(".pagination-bottom, .-pagination");
+    if (rtPag) {
+      const input = rtPag.querySelector('input[aria-label="jump to page"], input[type="number"]');
+      const totalEl = rtPag.querySelector(".-totalPages");
+      const cur = parseNumber(input?.value || "0");
+      const tot = parseNumber(totalEl?.textContent || "0");
+      if (cur >= 1 && tot >= 1) {
+        return { currentPage: cur, totalPages: tot };
+      }
+    }
+
+    // 2) 레거시 fallback — 한국어 페이지네이션 + 텍스트 정규식
     const currentPageInput =
       document.querySelector("input[aria-label*='페이지']") ||
       document.querySelector("input[class*='page']");
@@ -87,21 +105,30 @@
     return normalizeText(cell?.innerText || "");
   }
 
+  // 매처 우선순위 — 첫 번째 매처가 매칭되는 헤더를 우선 반환.
+  // 종전 버그: headers 를 먼저 순회하면서 matchers.some 으로 검사 → 헤더 순서가 우선되어
+  //   "광고 전환 매출" 헤더가 "전환" 매처에 먼저 잡혀 conversions=revenue 로 들어감 (캠페인 분석 UI 에 노출됨).
+  //   "클릭률" 헤더가 "클릭" 매처에 먼저 잡혀 clicks=CTR% 으로 들어가 0 으로 노출됨.
+  // 수정: 매처 (specific → generic 순) 를 먼저 순회 — 첫 매처가 잡히면 즉시 반환.
   function extractValueByHeader(headers, cells, matchers) {
-    for (let i = 0; i < headers.length; i++) {
-      const key = normalizeKey(headers[i]);
-      if (matchers.some((matcher) => key.includes(matcher))) {
-        return getCellText(cells[i]);
+    for (const matcher of matchers) {
+      for (let i = 0; i < headers.length; i++) {
+        const key = normalizeKey(headers[i]);
+        if (key.includes(matcher)) {
+          return getCellText(cells[i]);
+        }
       }
     }
     return "";
   }
 
   function findHeaderIndex(headers, matchers) {
-    for (let i = 0; i < headers.length; i++) {
-      const key = normalizeKey(headers[i]);
-      if (matchers.some((matcher) => key.includes(matcher))) {
-        return i;
+    for (const matcher of matchers) {
+      for (let i = 0; i < headers.length; i++) {
+        const key = normalizeKey(headers[i]);
+        if (key.includes(matcher)) {
+          return i;
+        }
       }
     }
     return -1;
@@ -130,12 +157,34 @@
       imageEl?.getAttribute("src") ||
       imageEl?.getAttribute("data-src") ||
       "";
-    const idMatch = text.match(/ID\s*[:：]?\s*([A-Za-z0-9-]+)/i);
+    const productUrl = linkEl?.href || "";
+
+    // vendorItemId 추출 — 쿠팡 광고센터 캠페인 상세에서 product link 는 항상
+    //   https://www.coupang.com/vp/products/<productId>?vendorItemId=<vendorItemId>
+    // 형태. 종전엔 cell text 에서 "ID: ..." 텍스트를 정규식으로 찾으려 했는데
+    // 광고센터에는 그런 텍스트 라벨이 없어서 itemId 가 항상 "" 였고,
+    // 결과적으로 ad-sync.matchListingFromRow 가 listingId 매칭 실패 → level='product' row 가 0개 저장됨.
+    let itemId = "";
+    if (productUrl) {
+      try {
+        const u = new URL(productUrl);
+        itemId = u.searchParams.get("vendorItemId") || "";
+      } catch {
+        // URL 생성 실패 fallback — querystring 직접 파싱
+        const m = productUrl.match(/[?&]vendorItemId=(\d+)/);
+        if (m) itemId = m[1];
+      }
+    }
+    if (!itemId) {
+      // legacy "ID: ..." fallback (다른 페이지에서 텍스트 라벨 있을 수도)
+      const idMatch = text.match(/ID\s*[:：]?\s*([A-Za-z0-9-]+)/i);
+      if (idMatch) itemId = idMatch[1];
+    }
 
     return {
       imageUrl,
-      productUrl: linkEl?.href || "",
-      itemId: idMatch?.[1] || "",
+      productUrl,
+      itemId,
       productDisplayName: text,
     };
   }
@@ -371,32 +420,290 @@
       else if (diffDays >= 12) period = "14d";
       else if (diffDays <= 1) period = "1d";
       else period = "7d";
+    } else {
+      // 단일 날짜 패턴: "2026.04.01" — range picker에서 같은 날짜를 두 번 눌렀을 때 indicator 표기
+      const singleMatch = combined.match(/(\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2})/);
+      if (singleMatch) {
+        const d = singleMatch[1].replace(/\./g, "-").replace(/\//g, "-");
+        dateFrom = d;
+        dateTo = d;
+        period = "1d";
+      }
     }
 
     return { period, periodLabel, dateFrom, dateTo };
   }
 
-  async function doSync() {
-    const kpis = parseAdKpis();
-    const { rawRows, normalizedRows, headers, pageType } = parseCampaignTable();
-    const kpiCount = Object.keys(kpis).length;
-    const total = kpiCount + rawRows.length;
-    const campaignName = detectCampaignName();
-    const { period, periodLabel, dateFrom, dateTo } = detectPeriod();
+  // URL hash/query에서 targetDate=YYYY-MM-DD 읽기 — 일별 백필 배치 모드 트리거.
+  function getTargetDateFromUrl() {
+    const locationFlags = `${window.location.search || ""}&${(window.location.hash || "").replace(/^#/, "")}`;
+    const match = locationFlags.match(/targetDate=(\d{4}-\d{2}-\d{2})/);
+    return match ? match[1] : null;
+  }
 
-    if (kpiCount > 0 || rawRows.length > 0) {
+  // "최근 7일" 기간 프리셋 버튼 클릭 — 캠페인 상세 진입 시 기본 기간 보정.
+  // TODO: Playwright 로 실제 셀렉터 확인 후 교체 — 현재는 텍스트 매칭 휴리스틱.
+  async function ensureLast7Days() {
+    const { dateFrom, dateTo, periodLabel } = detectPeriod();
+    if (periodLabel && periodLabel.includes("7일")) return true;
+    if (dateFrom && dateTo) {
+      const diff = Math.round((new Date(dateTo) - new Date(dateFrom)) / 86400000) + 1;
+      if (diff === 7) return true;
+    }
+
+    const btn = Array.from(document.querySelectorAll("button, [role='button'], [role='tab']")).find((el) => {
+      const t = normalizeText(el.innerText || "");
+      return t === "최근 7일" || t === "7일" || t === "지난 7일";
+    });
+    if (!btn) return false;
+    btn.click();
+    await sleep(2500);
+    return true;
+  }
+
+  // 페이지네이션: 다음 페이지 버튼 클릭 후 테이블 재로딩 대기.
+  async function goToNextPage() {
+    // 1) React-Table v6 — 쿠팡 광고센터의 product/캠페인 테이블 다음 버튼은
+    //    button.-btn (innerText="Next") inside div.-next inside .pagination-bottom.
+    //    버튼 자체에는 next/aria-label 가 없고 부모 div 에만 .-next 가 붙어있어
+    //    레거시 휴리스틱 필터로는 잡히지 않는다. 직접 셀렉터로 우선 시도.
+    const rtNextBtn = document.querySelector(
+      ".pagination-bottom .-next .-btn, .pagination-bottom .-next button, .-pagination .-next .-btn, .-pagination .-next button"
+    );
+    if (rtNextBtn && !rtNextBtn.disabled && rtNextBtn.getAttribute("aria-disabled") !== "true") {
+      rtNextBtn.click();
+      await sleep(2000);
+      return true;
+    }
+
+    // 2) 레거시 fallback — 텍스트/aria/class 휴리스틱 (한국어 다음 버튼 + 일반 antd pagination)
+    const nextBtnCandidates = Array.from(
+      document.querySelectorAll("button, [role='button'], a")
+    ).filter((el) => {
+      const t = normalizeText(el.innerText || "");
+      const aria = normalizeText(el.getAttribute("aria-label") || "");
+      const cls = String(el.className || "").toLowerCase();
+      return (
+        t === "다음" ||
+        t === ">" ||
+        t === "Next" ||
+        aria.includes("다음") ||
+        aria.toLowerCase().includes("next") ||
+        /next|pagination.*next/.test(cls)
+      );
+    });
+    const btn = nextBtnCandidates.find((el) => {
+      const disabled =
+        el.disabled ||
+        el.getAttribute("aria-disabled") === "true" ||
+        String(el.className || "").toLowerCase().includes("disabled");
+      return !disabled;
+    });
+    if (!btn) return false;
+
+    btn.click();
+    await sleep(2000);
+    return true;
+  }
+
+  // 날짜 피커를 특정 날짜로 설정 — 단일일자 백필용.
+  // 쿠팡 광고 대시보드는 AntD range calendar. 트리거 → popup → 좌측 패널 월 네비 → 날짜 셀 두 번 클릭 → 적용.
+  async function setDateRange(ymd) {
+    const [targetY, targetM, targetD] = ymd.split("-").map((v) => parseInt(v, 10));
+
+    // 1) 트리거 버튼 클릭 — SPA mount 가 늦으면 즉시 못 잡으므로 최대 15초 폴링
+    const triggerSelector = "button.dashboard-metric-widget-date-indicator-revamp.ant-dropdown-trigger";
+    let trigger = null;
+    for (let i = 0; i < 30; i++) {
+      trigger = document.querySelector(triggerSelector);
+      if (trigger) break;
+      await sleep(500);
+    }
+    if (!trigger) {
+      console.warn("[KIDITEM] setDateRange: trigger not found after 15s polling");
+      return false;
+    }
+    trigger.click();
+    await sleep(600);
+
+    // 2) popup 찾기 — antd dropdown mount 도 한 박자 늦을 수 있어 폴링
+    let popup = null;
+    for (let i = 0; i < 15; i++) {
+      popup = document.querySelector(".ant-dropdown.dashboard-metric-widget-calendar-dropdown");
+      if (popup && !popup.classList.contains("ant-dropdown-hidden")) break;
+      await sleep(200);
+    }
+    if (!popup) {
+      console.warn("[KIDITEM] setDateRange: popup not found");
+      return false;
+    }
+    const left = popup.querySelector(".ant-calendar-range-left");
+    const right = popup.querySelector(".ant-calendar-range-right");
+    if (!left) {
+      console.warn("[KIDITEM] setDateRange: left panel not found");
+      return false;
+    }
+
+    // 3) 좌측 패널 year/month 를 타겟으로 네비게이션
+    const readHeader = () => {
+      const y = parseInt(left.querySelector(".ant-calendar-year-select")?.textContent?.replace(/[^\d]/g, "") || "0", 10);
+      const m = parseInt(left.querySelector(".ant-calendar-month-select")?.textContent?.replace(/[^\d]/g, "") || "0", 10);
+      return { y, m };
+    };
+
+    let guard = 0;
+    while (guard++ < 60) {
+      const { y, m } = readHeader();
+      if (y === targetY && m === targetM) break;
+      // diff = (targetY*12+targetM) - (y*12+m). 음수면 과거로 이동 (prev-month), 양수면 미래 (next-month).
+      // AntD range calendar 는 좌측=prev-only, 우측=next-only 라 미래로 갈 때 우측의 next 버튼을 클릭해야 함.
+      const diff = (targetY * 12 + targetM) - (y * 12 + m);
+      if (diff === 0) break;
+      let btn = null;
+      if (diff < 0) {
+        btn = left.querySelector(".ant-calendar-prev-month-btn");
+      } else {
+        btn = (right && right.querySelector(".ant-calendar-next-month-btn"))
+          || left.querySelector(".ant-calendar-next-month-btn");
+      }
+      if (!btn) {
+        console.warn(`[KIDITEM] setDateRange: month nav btn not found (diff=${diff})`);
+        return false;
+      }
+      btn.click();
+      await sleep(180);
+    }
+
+    // 4) 날짜 셀 찾기 (이전/다음 달 셀 제외)
+    const cells = left.querySelectorAll("td.ant-calendar-cell:not(.ant-calendar-last-month-cell):not(.ant-calendar-next-month-cell)");
+    let targetCell = null;
+    for (const c of cells) {
+      const txt = c.querySelector(".ant-calendar-date")?.textContent?.trim();
+      if (txt === String(targetD)) {
+        targetCell = c.querySelector(".ant-calendar-date");
+        break;
+      }
+    }
+    if (!targetCell) {
+      console.warn(`[KIDITEM] setDateRange: target cell ${targetD} not found in left panel`);
+      return false;
+    }
+
+    // 5) 같은 날짜 두 번 클릭 → range start=end=ymd
+    targetCell.click();
+    await sleep(200);
+    targetCell.click();
+    await sleep(300);
+
+    // 6) 적용 버튼 — "적용" 텍스트 우선, 없으면 popup 내 primary 버튼 fallback
+    const primaryBtns = Array.from(popup.querySelectorAll("button.ant-btn.ant-btn-primary"));
+    let applyBtn = primaryBtns.find((b) => normalizeText(b.textContent || "") === "적용");
+    if (!applyBtn) {
+      applyBtn = primaryBtns.find((b) => /적용|확인|apply|ok/i.test(normalizeText(b.textContent || "")));
+    }
+    if (!applyBtn && primaryBtns.length === 1) {
+      applyBtn = primaryBtns[0];
+    }
+    if (!applyBtn) {
+      console.warn("[KIDITEM] setDateRange: apply button not found", primaryBtns.map((b) => b.textContent));
+      return false;
+    }
+    applyBtn.click();
+
+    // 테이블 재로딩 대기
+    await sleep(3500);
+    return true;
+  }
+
+  // 안전 상한 — 한 번에 50 페이지까지만 순회. 캠페인 detail 페이지 평균이 1~10p 라
+  // 50 은 충분한 여유 + 폭주 방지.
+  const MAX_PAGES_PER_SYNC = 50;
+
+  async function doSync() {
+    // hash 에 targetDate 가 있으면 먼저 날짜 피커 설정 (일별 백필 배치 모드)
+    const targetDate = getTargetDateFromUrl();
+    if (targetDate) {
+      showBadge(`📅 ${targetDate} 날짜 설정 중...`, "#6366f1");
+      const ok = await setDateRange(targetDate);
+      if (!ok) {
+        // 날짜 설정 실패 시 7일 기본값으로 저장하면 일별 집계와 섞여 중복 계산됨. 차라리 중단.
+        showBadge(`❌ ${targetDate} 날짜 피커 설정 실패 — 수집 중단 (7일치 오염 방지)`, "#ef4444");
+        return { success: false, reason: "date_picker_failed", targetDate };
+      }
+      await sleep(1500);
+    } else {
+      // 캠페인 상세 페이지 진입 시 기본을 7일로 맞춤
+      showBadge(`📅 최근 7일 기간 설정 중...`, "#6366f1");
+      await ensureLast7Days();
+    }
+
+    const kpis = parseAdKpis();
+    const campaignName = detectCampaignName();
+    let { period, periodLabel, dateFrom, dateTo } = detectPeriod();
+
+    // targetDate 해시가 있으면 "그 하루치"를 수집하는 배치 모드 — period 를 '1d'로 강제.
+    // 서버는 일별 스냅샷(period='1d')만 합산해 월간 KPI를 만들기 때문에, 7d/30d 누적값이 섞이면 중복 집계됨.
+    if (targetDate) {
+      period = "1d";
+      dateFrom = targetDate;
+      dateTo = targetDate;
+    }
+
+    // 1페이지 파싱
+    const firstPage = parseCampaignTable();
+    const aggregatedRaw = [...firstPage.rawRows];
+    const aggregatedNormalized = [...firstPage.normalizedRows];
+    const headers = firstPage.headers;
+    const pageType = firstPage.pageType;
+    const pagination = parsePaginationInfo();
+    const totalPages = Math.min(pagination.totalPages || 1, MAX_PAGES_PER_SYNC);
+
+    // 페이지 순회 — dedupe 는 externalId 기준 (동일 row 중복 적재 방지)
+    const seenIds = new Set(aggregatedNormalized.map((r) => r.externalId));
+    let currentPage = pagination.currentPage || 1;
+    let safetyBreak = 0;
+
+    while (currentPage < totalPages && safetyBreak < MAX_PAGES_PER_SYNC) {
+      safetyBreak++;
+      showBadge(`📄 페이지 ${currentPage + 1}/${totalPages} 수집 중...`, "#6366f1");
+      const moved = await goToNextPage();
+      if (!moved) break;
+      const next = parseCampaignTable();
+      for (let i = 0; i < next.normalizedRows.length; i++) {
+        const row = next.normalizedRows[i];
+        if (seenIds.has(row.externalId)) continue;
+        seenIds.add(row.externalId);
+        aggregatedNormalized.push(row);
+        aggregatedRaw.push(next.rawRows[i]);
+      }
+      const newPag = parsePaginationInfo();
+      if (newPag.currentPage <= currentPage) break; // 페이지 증가 안 하면 중단
+      currentPage = newPag.currentPage;
+    }
+
+    const kpiCount = Object.keys(kpis).length;
+    const total = kpiCount + aggregatedRaw.length;
+
+    if (kpiCount > 0 || aggregatedRaw.length > 0) {
       const periodDisplay = periodLabel || period;
-      showBadge(`📊 [${campaignName}] ${periodDisplay} — KPI ${kpiCount}개 + ${rawRows.length}행 동기화 중...`, "#f59e0b");
+      showBadge(
+        `📊 [${campaignName}] ${periodDisplay} — KPI ${kpiCount}개 + ${aggregatedRaw.length}행 (${totalPages}p) 동기화 중...`,
+        "#f59e0b",
+      );
       const json = await syncToServer({
         type: "ad_campaign",
         source: "advertising",
         campaignName,
         period,
         periodLabel,
-        dateFrom,
+        // 서버 DTO 가 startDate/endDate 를 기대 (whitelist 로 dateFrom/dateTo 만으로는 일부 경로 drop).
+        // 일별 적재의 핵심 필드 — 누락 시 모든 데이터가 today 로 저장되어 readiness 일별 카운트가 깨진다.
+        startDate: dateFrom,
+        endDate: dateTo,
+        dateFrom, // 구버전 서버/로깅 호환
         dateTo,
-        data: rawRows.length > 0 ? rawRows : [{ _kpiOnly: true }],
-        normalizedRows,
+        data: aggregatedRaw.length > 0 ? aggregatedRaw : [{ _kpiOnly: true }],
+        normalizedRows: aggregatedNormalized,
         headers,
         pageType,
         kpis,
@@ -406,8 +713,8 @@
       });
       if (json?.success) {
         chrome.storage.local.set({ kiditem_last_sync_ads: { time: Date.now(), count: total } });
-        showBadge(`✅ 광고 데이터 ${total}건 동기화 완료`, "#22c55e");
-        return { success: true, type: "ads", count: total };
+        showBadge(`✅ 광고 데이터 ${total}건 (${totalPages}p) 동기화 완료`, "#22c55e");
+        return { success: true, type: "ads", count: total, pages: totalPages };
       } else {
         showBadge(`❌ ${json?.error || "실패"}`, "#ef4444");
         return { success: false, error: json?.error || "실패" };
@@ -591,11 +898,42 @@
     return { success: true, executed, skipped };
   }
 
-  setTimeout(doSync, 3000);
+  // auto-trigger + popup/manualSync can overlap on the same tab. Share one in-flight sync so
+  // targetDate backfills do not click the date picker twice or post duplicate payloads.
+  let currentSync = null;
+  function runSyncOnce() {
+    if (!currentSync) {
+      currentSync = doSync().finally(() => {
+        currentSync = null;
+      });
+    }
+    return currentSync;
+  }
+
+  // Normal ad pages are synced from the popup/service-worker manualSync path. Hash/query targetDate
+  // is the batch backfill mode and should run automatically, then let the service worker close the tab.
+  const isBatchBackfillMode = /targetDate=\d{4}-\d{2}-\d{2}/.test(
+    `${window.location.search || ""}&${(window.location.hash || "").replace(/^#/, "")}`,
+  );
+  if (isBatchBackfillMode) {
+    setTimeout(() => {
+      runSyncOnce().then((result) => {
+        try {
+          chrome.runtime.sendMessage({
+            action: "reportBatchScrapeDone",
+            success: !!result?.success,
+            url: window.location.href,
+          });
+        } catch {
+          /* service-worker idle 종료 etc. — 신호만 fire-and-forget */
+        }
+      });
+    }, 3000);
+  }
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.action === "manualSync") {
-      doSync().then((result) => sendResponse(result));
+      runSyncOnce().then((result) => sendResponse(result));
       return true;
     }
 

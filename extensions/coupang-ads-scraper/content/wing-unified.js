@@ -536,6 +536,9 @@
     return sendViaServiceWorker({
       type: "traffic",
       data: products.map(p => ({
+        // vendorItemId 가 자연 key — 서버 handleTraffic 가 이게 없으면 skip 함.
+        // parseProductGrid 에서 vendorItemId 추출 못한 경우 optionId 또는 inventoryId 폴백.
+        vendorItemId: p.vendorItemId || p.optionId || p.inventoryId,
         productId: p.inventoryId || p.vendorItemId,
         productName: p.productName,
         visitors: p.visitors,
@@ -573,9 +576,10 @@
   // showBadge is loaded from utils/dom.js via manifest
 
   // ===== 메인 동기화 =====
-  async function doSync() {
+  // paginate: true 면 전체 페이지 순회, false 면 현재 페이지만 (sales-analysis 자동 트리거 폴백).
+  async function doSync({ paginate = false } = {}) {
     const pageType = detectPageType();
-    console.log("[KIDITEM] 페이지 타입:", pageType, "URL:", location.href);
+    console.log("[KIDITEM] 페이지 타입:", pageType, "URL:", location.href, "paginate:", paginate);
 
     if (pageType === "sales-analysis") {
       // KPI + 광고 요약은 1페이지에서 한 번만 파싱
@@ -583,8 +587,10 @@
       const adSummary = parseAdSummary();
       console.log("[KIDITEM] 광고 요약:", JSON.stringify(adSummary));
 
-      // 전체 페이지 순회하며 상품 수집
-      const products = await parseAllProductsWithPagination();
+      // 팝업/배치에서 수동 트리거 시만 전체 페이지 순회, 자동 부트는 현재 페이지만 빠르게.
+      const products = paginate
+        ? await parseAllProductsWithPagination()
+        : parseProductGrid();
 
       console.log("[KIDITEM] 파싱 결과:", products.length, "상품, KPI:", Object.keys(kpis).length);
 
@@ -645,12 +651,42 @@
     }
   }
 
-  setTimeout(() => waitAndSync(1), 4000);
+  // URL 해시에 #kiditemBatch=1 이 있으면 batch 모드 — paginate:true + 완료 후 service-worker 에 신호.
+  // 일별 백필 URL 에 이 마커를 부여해 주면 service-worker 가 탭을 자동으로 닫는다.
+  const isBatchMode = /#kiditemBatch=1/.test(window.location.hash || "");
 
-  // 수동 동기화 — 서버 응답까지 대기 후 결과 반환
+  async function batchSyncWithRetry() {
+    let result = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      result = await doSync({ paginate: true });
+      if (result?.success) break;
+      if (detectPageType() !== "sales-analysis") break;
+      console.log(`[KIDITEM] batch 재시도 ${attempt}/3 (3초 후)...`);
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+    try {
+      chrome.runtime.sendMessage({
+        action: "reportBatchScrapeDone",
+        success: !!result?.success,
+        url: window.location.href,
+      });
+    } catch {
+      /* service-worker idle 종료 etc. — 신호만 fire-and-forget */
+    }
+  }
+
+  setTimeout(() => {
+    if (isBatchMode) {
+      batchSyncWithRetry();
+    } else {
+      waitAndSync(1);
+    }
+  }, 4000);
+
+  // 수동 동기화 — 서버 응답까지 대기 후 결과 반환 (sales-analysis 는 전체 페이지 순회)
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.action === "manualSync") {
-      doSync().then((result) => sendResponse(result));
+      doSync({ paginate: true }).then((result) => sendResponse(result));
       return true;
     }
   });
