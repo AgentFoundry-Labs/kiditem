@@ -18,6 +18,13 @@ import type { ReadinessCheck, ReadinessResponse } from '@kiditem/shared/readines
 export class ReadinessService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * 데이터 수집 범위: 어제로부터 N 일 전까지 (KST).
+   * 5월 초 같은 경우 직전달 마지막 주 backfill 까지 자연스럽게 포함되도록 14 일 lookback.
+   * 필요 시 readiness 응답을 보고 짧게 줄여도 무방.
+   */
+  private static readonly LOOKBACK_DAYS = 14;
+
   async getStatus(organizationId: string): Promise<ReadinessResponse> {
     const now = new Date();
     // Wing/광고는 당일 데이터가 없고 전일이 최신 → 어제를 기준일로 잡음
@@ -25,11 +32,13 @@ export class ReadinessService {
     const yesterdayKstStart = new Date(todayKstStart.getTime() - 86400000);
     const yesterdayKstStr = toKstDateStr(yesterdayKstStart);
 
-    // 이번달 1일 (KST) ~ 어제까지의 기대 일자
-    const yKst = new Date(yesterdayKstStart.getTime() + 9 * 3600 * 1000);
-    const monthStartKstStr = `${yKst.getUTCFullYear()}-${String(yKst.getUTCMonth() + 1).padStart(2, '0')}-01`;
-    const monthStartDate = parseKstDate(monthStartKstStr);
-    const expectedDates = enumerateDates(monthStartKstStr, yesterdayKstStr);
+    // lookback N 일 전 ~ 어제까지의 기대 일자
+    const lookbackStart = new Date(
+      yesterdayKstStart.getTime() - (ReadinessService.LOOKBACK_DAYS - 1) * 86400000,
+    );
+    const rangeStartKstStr = toKstDateStr(lookbackStart);
+    const rangeStartDate = parseKstDate(rangeStartKstStr);
+    const expectedDates = enumerateDates(rangeStartKstStr, yesterdayKstStr);
 
     const [
       wingDailyKpiRows,
@@ -45,7 +54,7 @@ export class ReadinessService {
           channel: 'coupang',
           source: 'wing',
           kpiType: 'wing_dashboard',
-          businessDate: { gte: monthStartDate, lte: yesterdayKstStart },
+          businessDate: { gte: rangeStartDate, lte: yesterdayKstStart },
         },
         select: { businessDate: true, lastObservedAt: true },
         orderBy: { businessDate: 'desc' },
@@ -57,7 +66,7 @@ export class ReadinessService {
           channel: 'coupang',
           source: 'coupang_ads',
           kpiType: 'coupang_ads_daily',
-          businessDate: { gte: monthStartDate, lte: yesterdayKstStart },
+          businessDate: { gte: rangeStartDate, lte: yesterdayKstStart },
         },
         select: { businessDate: true, lastObservedAt: true },
         orderBy: { businessDate: 'desc' },
@@ -104,10 +113,10 @@ export class ReadinessService {
         status: wingMissing.length === 0 ? 'ok' : wingYesterdayOk ? 'stale' : 'missing',
         detail:
           wingMissing.length === 0
-            ? `이번달 ${expectedDates.length}일치 모두 수집됨`
+            ? `최근 ${expectedDates.length}일치 (${rangeStartKstStr}~${yesterdayKstStr}) 모두 수집됨`
             : !wingYesterdayOk
               ? `최신(${yesterdayKstStr}) 미수집 — 누락 ${wingMissing.length}/${expectedDates.length}일`
-              : `누락 ${wingMissing.length}/${expectedDates.length}일`,
+              : `누락 ${wingMissing.length}/${expectedDates.length}일 (${rangeStartKstStr}~${yesterdayKstStr})`,
         lastSyncedAt: wingLastDate ? wingLastDate.toISOString() : null,
         count: wingPresent.size,
         collector: 'extension',
@@ -132,10 +141,10 @@ export class ReadinessService {
         status: adsMissing.length === 0 ? 'ok' : adsYesterdayOk ? 'stale' : 'missing',
         detail:
           adsMissing.length === 0
-            ? `이번달 ${expectedDates.length}일치 모두 수집됨`
+            ? `최근 ${expectedDates.length}일치 (${rangeStartKstStr}~${yesterdayKstStr}) 모두 수집됨`
             : !adsYesterdayOk
               ? `최신(${yesterdayKstStr}) 미수집 — 누락 ${adsMissing.length}/${expectedDates.length}일`
-              : `누락 ${adsMissing.length}/${expectedDates.length}일`,
+              : `누락 ${adsMissing.length}/${expectedDates.length}일 (${rangeStartKstStr}~${yesterdayKstStr})`,
         lastSyncedAt: adsLastDate ? adsLastDate.toISOString() : null,
         count: adsPresent.size,
         collector: 'extension',
