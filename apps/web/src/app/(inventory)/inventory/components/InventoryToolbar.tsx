@@ -2,11 +2,10 @@
 
 import { ClipboardCheck, Barcode, AlertTriangle, RefreshCw, Download } from 'lucide-react';
 import { cn, timeAgo } from '@/lib/utils';
-import type { SyncInfo } from '@kiditem/shared/common';
 
 interface InventoryToolbarProps {
   syncing: boolean;
-  syncInfo: SyncInfo | undefined;
+  channelLastModifiedAt: string | null | undefined;
   onReceiveStock: () => void;
   onBarcodePrint: () => void;
   onStockCheck: () => void;
@@ -14,7 +13,15 @@ interface InventoryToolbarProps {
   onExcel: () => void;
 }
 
-export function InventoryToolbar({ syncing, syncInfo, onReceiveStock, onBarcodePrint, onStockCheck, onCoupangSync, onExcel }: InventoryToolbarProps) {
+export function InventoryToolbar({
+  syncing,
+  channelLastModifiedAt,
+  onReceiveStock,
+  onBarcodePrint,
+  onStockCheck,
+  onCoupangSync,
+  onExcel,
+}: InventoryToolbarProps) {
   return (
     <div>
       <div className="flex items-center justify-between">
@@ -37,12 +44,12 @@ export function InventoryToolbar({ syncing, syncInfo, onReceiveStock, onBarcodeP
           </button>
         </div>
       </div>
-      {syncInfo && (
+      {channelLastModifiedAt !== undefined && (
         <div className="flex items-center gap-2 text-xs text-muted-foreground mt-2">
-          <div className={cn('w-1.5 h-1.5 rounded-full', syncInfo.lastSyncedAt ? 'bg-green-400' : 'bg-amber-400')} />
-          {syncInfo.lastSyncedAt
-            ? `최근 동기화: ${timeAgo(syncInfo.lastSyncedAt)}`
-            : '동기화 기록 없음 — 설정에서 동기화를 실행하세요'}
+          <div className={cn('w-1.5 h-1.5 rounded-full', channelLastModifiedAt ? 'bg-green-400' : 'bg-amber-400')} />
+          {channelLastModifiedAt
+            ? `최근 채널 변경: ${timeAgo(channelLastModifiedAt)}`
+            : '채널 변경 기록 없음 — 쿠팡 동기화 후 확인하세요'}
         </div>
       )}
     </div>
