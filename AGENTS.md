@@ -29,47 +29,11 @@ Precedence: the most-specific `AGENTS.md` wins, then parent `AGENTS.md` files.
 ## Documentation Artifacts
 
 - Keep durable documentation in `docs/`, scoped `AGENTS.md`, or source-code comments when the rule is inseparable from the implementation.
-- Do not commit session plans, scratch specs, agent logs, or temporary coordination notes. Use local `.omx/` / `.omc/` scratch space for those artifacts; both directories are gitignored and may be deleted between sessions.
+- Do not commit session plans, scratch specs, agent logs, or temporary coordination notes. Use local scratch space outside git for those artifacts.
 - Promote only enduring rules or release evidence into git. If a scratch plan produced a permanent convention, copy the final rule into the nearest scoped `AGENTS.md` instead of keeping the plan.
 - Environment setup, external tool setup, shared-data setup, browser extension setup, deployment/sync setup, and other collaboration procedures must have an AI-executable Markdown runbook under `docs/runbooks/` or the nearest scoped documentation. Do not rely on chat history as the source of truth.
 - AI-executable runbooks must separate human prerequisites from agent actions, avoid recording secrets, list exact env vars/paths/files, include expected directory shape, verification commands, success criteria, blocker criteria, and a final report format.
 - When a setup task has a runbook, agents should read it and execute the safe local steps directly. Ask the user only for credentials, account permissions, missing source files, or destructive/external-account actions.
-
-## Codex Skills
-
-- Codex skill packs are installed with their source repos under `~/workspace/`.
-- `oh-my-codex` source repo: `~/workspace/oh-my-codex`
-- Codex uses OMX in **user scope**. Runtime config lives under `~/.codex/`, matching the global Claude-style setup.
-- `superpowers` source repo: `~/workspace/superpowers` → discovered via `~/.agents/skills/superpowers`
-- `gstack` source repo: `~/workspace/gstack` → discovered via `~/.codex/skills` runtime links
-- Codex must be restarted after install or update for newly discovered skills to appear.
-- Prefer `gstack-browse` for web browsing workflows when that skill is available.
-
-## OMX Workflow
-
-- Prefer OMX workflow keywords for larger Codex sessions: `$deep-interview` → clarify, `$ralplan` → approve plan, `$team` → parallel execution, `$ralph` → persistent completion loop.
-- Run `node ~/workspace/oh-my-codex/dist/cli/omx.js doctor` from the repo root when OMX wiring looks broken.
-- Keep the existing project `AGENTS.md` as the source of truth. Do **not** overwrite repo docs with OMX templates unless explicitly requested.
-
-### Claude → Codex skill name mapping
-
-| Claude workflow name | Codex skill name |
-|---|---|
-| `review` | `gstack-review` |
-| `qa` | `gstack-qa` |
-| `qa-only` | `gstack-qa-only` |
-| `ship` | `gstack-ship` |
-| `canary` | `gstack-canary` |
-| `benchmark` | `gstack-benchmark` |
-| `investigate` | `gstack-investigate` |
-| `office-hours` | `gstack-office-hours` |
-| `plan-eng-review` | `gstack-plan-eng-review` |
-| `plan-ceo-review` | `gstack-plan-ceo-review` |
-| `plan-design-review` | `gstack-plan-design-review` |
-| `plan-devex-review` | `gstack-plan-devex-review` |
-| `autoplan` | `gstack-autoplan` |
-
-`superpowers:*` references remain `superpowers` skill pack names as installed by that project.
 
 ## Core Workflow (작업 시작 ~ 완료)
 

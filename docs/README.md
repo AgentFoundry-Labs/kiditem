@@ -5,7 +5,7 @@ policy, AI-executable runbooks, generated navigation, shared development data
 operations, and release notes that explain shipped behavior.
 
 Do not put session plans, scratch specs, agent logs, or temporary coordination
-notes here. Keep those in local `.omx/` / `.omc/` scratch space and promote only
+notes here. Keep those in local scratch space outside git and promote only
 enduring rules into the nearest scoped `AGENTS.md`.
 
 ## Start Here
