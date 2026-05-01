@@ -19,6 +19,21 @@ export interface PanelSseClientOptions {
 
 const MAX_RETRIES = 5;
 
+function isAbortError(err: unknown): boolean {
+  if (err instanceof Error && err.name === 'AbortError') return true;
+  if (typeof DOMException !== 'undefined' && err instanceof DOMException && err.name === 'AbortError') {
+    return true;
+  }
+
+  if (typeof err !== 'object' || err === null) return false;
+
+  const maybeError = err as { message?: unknown; name?: unknown };
+  return (
+    maybeError.name === 'AbortError' ||
+    (typeof maybeError.message === 'string' && maybeError.message.toLowerCase().includes('aborted'))
+  );
+}
+
 export class PanelSseClient {
   private controller = new AbortController();
   private lastEventId?: string;
@@ -28,7 +43,8 @@ export class PanelSseClient {
 
   connect() {
     if (!this.controller.signal.aborted) this.controller.abort(); // reap prior connection if still active
-    this.controller = new AbortController();
+    const controller = new AbortController();
+    this.controller = controller;
     this.retryCount = 0;
 
     // Read env at connect time so tests can stub env before connecting (Option A).
@@ -38,39 +54,44 @@ export class PanelSseClient {
     if (devUserId) headers['x-dev-user-id'] = devUserId;
     if (this.lastEventId) headers['last-event-id'] = this.lastEventId;
 
-    fetchEventSource(`${API_BASE}/api/panel/stream`, {
-      signal: this.controller.signal,
-      headers,
-      // visibility 변경 시 재연결 유도 (IMPORTANT #7)
-      openWhenHidden: false,
-      onmessage: (msg) => {
-        if (msg.id) this.lastEventId = msg.id;
-        if (!msg.data || msg.data === '') return; // ping
-        try {
-          const parsed = PanelEvent.parse(JSON.parse(msg.data));
-          this.options.onMessage(parsed);
-        } catch (err) {
+    void Promise.resolve(
+      fetchEventSource(`${API_BASE}/api/panel/stream`, {
+        signal: controller.signal,
+        headers,
+        // visibility 변경 시 재연결 유도 (IMPORTANT #7)
+        openWhenHidden: false,
+        onmessage: (msg) => {
+          if (msg.id) this.lastEventId = msg.id;
+          if (!msg.data || msg.data === '') return; // ping
+          try {
+            const parsed = PanelEvent.parse(JSON.parse(msg.data));
+            this.options.onMessage(parsed);
+          } catch (err) {
+            this.options.onError?.(err);
+          }
+        },
+        onopen: async () => {
+          this.retryCount = 0;
+          this.options.onOpen?.();
+        },
+        onerror: (err) => {
+          this.retryCount++;
           this.options.onError?.(err);
-        }
-      },
-      onopen: async () => {
-        this.retryCount = 0;
-        this.options.onOpen?.();
-      },
-      onerror: (err) => {
-        this.retryCount++;
-        this.options.onError?.(err);
-        if (this.retryCount > MAX_RETRIES) {
-          this.options.onGiveUp?.();
-          throw err; // fetch-event-source stops retrying when error is thrown
-        }
-        return Math.min(1000 * 2 ** this.retryCount, 30_000);
-      },
-      onclose: () => this.options.onClose?.(),
+          if (this.retryCount > MAX_RETRIES) {
+            this.options.onGiveUp?.();
+            throw err; // fetch-event-source stops retrying when error is thrown
+          }
+          return Math.min(1000 * 2 ** this.retryCount, 30_000);
+        },
+        onclose: () => this.options.onClose?.(),
+      }),
+    ).catch((err) => {
+      if (controller.signal.aborted && isAbortError(err)) return;
+      this.options.onError?.(err);
     });
   }
 
   disconnect() {
-    this.controller.abort();
+    if (!this.controller.signal.aborted) this.controller.abort();
   }
 }

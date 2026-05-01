@@ -74,4 +74,31 @@ describe('PanelSseClient', () => {
     client.disconnect();
     expect((client as any).controller.signal.aborted).toBe(true);
   });
+
+  it('suppresses expected abort rejection after disconnect', async () => {
+    const onError = vi.fn();
+    const abortError = Object.assign(new Error('signal is aborted without reason'), {
+      name: 'AbortError',
+    });
+    fetchEventSource.mockImplementation(() => Promise.reject(abortError));
+
+    const client = new PanelSseClient({ onMessage: vi.fn(), onError });
+    client.connect();
+    client.disconnect();
+    await new Promise((r) => setTimeout(r, 5));
+
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('reports unexpected stream rejection', async () => {
+    const onError = vi.fn();
+    const streamError = new Error('stream failed');
+    fetchEventSource.mockImplementation(() => Promise.reject(streamError));
+
+    const client = new PanelSseClient({ onMessage: vi.fn(), onError });
+    client.connect();
+    await new Promise((r) => setTimeout(r, 5));
+
+    expect(onError).toHaveBeenCalledWith(streamError);
+  });
 });
