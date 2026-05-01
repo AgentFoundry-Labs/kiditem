@@ -334,6 +334,7 @@ export class ThumbnailGenerationService {
         recomposeKind,
         variantKey,
         master.category,
+        master.name,
       );
       const candidates: ThumbnailEditorCandidate[] = await this.editorAiService.generateEdit(
         inputImages,
