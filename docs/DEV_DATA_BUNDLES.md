@@ -255,7 +255,10 @@ Drive 의 `coupang/latest.json` 이 현재 기준 bundle 을 가리킨다.
 
 ## Producer 플로우
 
-스크래핑을 수행한 사람이 payload JSON 을 bundle 로 만들고 Drive 동기화 폴더에 publish 한다. 이 payload 는 내부 개발 검증용 실제 쿠팡 스크래퍼 결과여야 하며, synthetic seed 나 마스킹 샘플을 기준 데이터로 쓰지 않는다.
+스크래핑을 수행한 사람이 payload JSON 을 bundle 로 만들고 Drive 동기화 폴더에 publish 한다. AI 에게 publish 를 맡길 때는
+[Coupang Scraper Publish Runbook](runbooks/coupang-scraper-publish.md) 을
+따른다. 이 payload 는 내부 개발 검증용 실제 쿠팡 스크래퍼 결과여야 하며,
+synthetic seed 나 마스킹 샘플을 기준 데이터로 쓰지 않는다.
 
 Publisher 체크리스트:
 
