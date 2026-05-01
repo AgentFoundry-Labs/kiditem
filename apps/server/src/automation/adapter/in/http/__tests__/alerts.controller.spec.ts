@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { AlertsController } from '../alerts.controller';
 
-const COMPANY_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+const ORGANIZATION_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const ALERT_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 const USER_ID = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
 
@@ -21,41 +21,41 @@ function makeController(service = makeService()) {
 }
 
 describe('AlertsController', () => {
-  it('findAll forwards @CurrentCompany companyId to the service', () => {
+  it('findAll forwards @CurrentOrganization organizationId to the service', () => {
     const { controller, service } = makeController();
 
-    controller.findAll({ limit: 10 }, COMPANY_ID);
+    controller.findAll({ limit: 10 }, ORGANIZATION_ID);
 
-    expect(service.findAll).toHaveBeenCalledWith(COMPANY_ID, 10);
+    expect(service.findAll).toHaveBeenCalledWith(ORGANIZATION_ID, 10);
   });
 
-  it('markAllAsRead forwards @CurrentCompany companyId to the service', () => {
+  it('markAllAsRead forwards @CurrentOrganization organizationId to the service', () => {
     const { controller, service } = makeController();
 
-    controller.markAllAsRead(COMPANY_ID);
+    controller.markAllAsRead(ORGANIZATION_ID);
 
-    expect(service.markAllAsRead).toHaveBeenCalledWith(COMPANY_ID);
+    expect(service.markAllAsRead).toHaveBeenCalledWith(ORGANIZATION_ID);
   });
 
-  it('markAsRead forwards id and @CurrentCompany companyId to the service', () => {
+  it('markAsRead forwards id and @CurrentOrganization organizationId to the service', () => {
     const { controller, service } = makeController();
 
-    controller.markAsRead(ALERT_ID, COMPANY_ID);
+    controller.markAsRead(ALERT_ID, ORGANIZATION_ID);
 
-    expect(service.markAsRead).toHaveBeenCalledWith(ALERT_ID, COMPANY_ID);
+    expect(service.markAsRead).toHaveBeenCalledWith(ALERT_ID, ORGANIZATION_ID);
   });
 
-  it('promote forwards id, companyId, mapped application input, and current user id', () => {
+  it('promote forwards id, organizationId, mapped application input, and current user id', () => {
     const { controller, service } = makeController();
     // class-validator HTTP DTO has the same shape as the application input.
     const dto = { priorityOverride: 'high' as const, roleOverride: 'ad', note: 'urgent' };
 
-    controller.promote(ALERT_ID, COMPANY_ID, { id: USER_ID } as any, dto);
+    controller.promote(ALERT_ID, ORGANIZATION_ID, { id: USER_ID } as any, dto);
 
     // Controller maps DTO fields explicitly into the PromoteAlertInput shape.
     expect(service.promote).toHaveBeenCalledWith(
       ALERT_ID,
-      COMPANY_ID,
+      ORGANIZATION_ID,
       {
         priorityOverride: 'high',
         roleOverride: 'ad',
@@ -68,11 +68,11 @@ describe('AlertsController', () => {
   it('promote forwards undefined fields as-is when dto omits them', () => {
     const { controller, service } = makeController();
 
-    controller.promote(ALERT_ID, COMPANY_ID, { id: USER_ID } as any, {});
+    controller.promote(ALERT_ID, ORGANIZATION_ID, { id: USER_ID } as any, {});
 
     expect(service.promote).toHaveBeenCalledWith(
       ALERT_ID,
-      COMPANY_ID,
+      ORGANIZATION_ID,
       {
         priorityOverride: undefined,
         roleOverride: undefined,
@@ -82,11 +82,11 @@ describe('AlertsController', () => {
     );
   });
 
-  it('dismiss forwards id and @CurrentCompany companyId to the service', async () => {
+  it('dismiss forwards id and @CurrentOrganization organizationId to the service', async () => {
     const { controller, service } = makeController();
     service.dismiss.mockResolvedValue(undefined);
 
-    await expect(controller.dismiss(ALERT_ID, COMPANY_ID)).resolves.toEqual({ ok: true });
-    expect(service.dismiss).toHaveBeenCalledWith(ALERT_ID, COMPANY_ID);
+    await expect(controller.dismiss(ALERT_ID, ORGANIZATION_ID)).resolves.toEqual({ ok: true });
+    expect(service.dismiss).toHaveBeenCalledWith(ALERT_ID, ORGANIZATION_ID);
   });
 });

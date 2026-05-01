@@ -27,7 +27,7 @@ export class SafetyPipelineService {
     trustLevel: number;
     actionCap: Record<string, unknown>;
     runId: string;
-    companyId: string;
+    organizationId: string;
     body: { actions?: any[]; dry_run?: boolean; [key: string]: unknown };
   }): Promise<SafetyResult> {
     const result: SafetyResult = {
@@ -69,7 +69,7 @@ export class SafetyPipelineService {
       result.snapshotCount = await this.snapshot.capture({
         agentId: context.agentId,
         runId: context.runId,
-        companyId: context.companyId,
+        organizationId: context.organizationId,
         actions: context.body.actions,
       });
     }
@@ -80,7 +80,7 @@ export class SafetyPipelineService {
   async scheduleVerification(context: {
     agentId: string;
     runId: string;
-    companyId: string;
+    organizationId: string;
     trustLevel: number;
   }): Promise<void> {
     if (context.trustLevel >= 1) {

@@ -25,7 +25,7 @@ export const WorkflowStepRunSchema = z.object({
 // satisfies 미적용: Prisma 모델 직접 반환 (Date ≠ string 불일치)
 export const WorkflowTemplateSchema = z.object({
   id: z.string(),
-  companyId: z.string().nullable(),
+  organizationId: z.string().nullable(),
   name: z.string(),
   description: z.string(),
   module: z.string(),
@@ -46,7 +46,7 @@ export const WorkflowTemplateSchema = z.object({
 // satisfies 미적용: Prisma 모델 직접 반환 (Date ≠ string 불일치)
 export const WorkflowRunSchema = z.object({
   id: z.string(),
-  companyId: z.string().nullable(),
+  organizationId: z.string().nullable(),
   templateId: z.string(),
   status: z.enum(['pending', 'running', 'succeeded', 'failed', 'cancelled']),
   triggeredBy: z.string(),

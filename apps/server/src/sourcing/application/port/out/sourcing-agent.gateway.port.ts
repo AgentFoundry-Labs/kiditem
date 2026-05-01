@@ -9,7 +9,7 @@
 export const SOURCING_AGENT_GATEWAY_PORT = Symbol('SOURCING_AGENT_GATEWAY_PORT');
 
 export interface SourcingScrapeRequest {
-  companyId: string;
+  organizationId: string;
   url: string;
 }
 

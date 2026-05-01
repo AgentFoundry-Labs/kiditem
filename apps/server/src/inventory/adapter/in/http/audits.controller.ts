@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Inject, Param, Patch, Post } from '@nestjs/common';
-import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
+import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import {
   AUDITS_PORT,
   type AuditsPort,
@@ -15,21 +15,21 @@ export class AuditsController {
   ) {}
 
   @Get()
-  findAll(@CurrentCompany() companyId: string) {
-    return this.audits.findAll(companyId);
+  findAll(@CurrentOrganization() organizationId: string) {
+    return this.audits.findAll(organizationId);
   }
 
   @Post()
-  create(@Body() dto: CreateStockAuditDto, @CurrentCompany() companyId: string) {
-    return this.audits.create(companyId, dto);
+  create(@Body() dto: CreateStockAuditDto, @CurrentOrganization() organizationId: string) {
+    return this.audits.create(organizationId, dto);
   }
 
   @Patch(':id')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateStockAuditDto,
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
   ) {
-    return this.audits.update(id, companyId, dto);
+    return this.audits.update(id, organizationId, dto);
   }
 }

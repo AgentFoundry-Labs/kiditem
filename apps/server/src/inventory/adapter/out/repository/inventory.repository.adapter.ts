@@ -21,10 +21,10 @@ export class InventoryRepositoryAdapter implements InventoryRepositoryPort {
 
   async updateInventoryMetadata(
     id: string,
-    companyId: string,
+    organizationId: string,
     data: InventoryMetadataUpdateData,
   ): Promise<InventoryRow> {
-    const existing = await this.prisma.inventory.findFirst({ where: { id, companyId } });
+    const existing = await this.prisma.inventory.findFirst({ where: { id, organizationId } });
     if (!existing) throw new NotFoundException('Inventory not found');
     return this.prisma.inventory.update({ where: { id }, data });
   }
@@ -34,7 +34,7 @@ export class InventoryRepositoryAdapter implements InventoryRepositoryPort {
   // the locked row to the caller. Caller does the policy check + writes.
   async runInventoryStockMutation<T>(
     inventoryId: string,
-    companyId: string,
+    organizationId: string,
     op: (tx: RepositoryTransaction, lockedRow: InventoryRow) => Promise<T>,
   ): Promise<T> {
     return this.prisma.$transaction(
@@ -42,12 +42,12 @@ export class InventoryRepositoryAdapter implements InventoryRepositoryPort {
         await tx.$queryRaw`
           SELECT id FROM inventory
           WHERE id = ${inventoryId}::uuid
-            AND company_id = ${companyId}::uuid
+            AND organization_id = ${organizationId}::uuid
           FOR UPDATE
         `;
 
         const inv = await tx.inventory.findFirst({
-          where: { id: inventoryId, companyId },
+          where: { id: inventoryId, organizationId },
         });
         if (!inv) throw new NotFoundException('Inventory not found');
 
@@ -77,11 +77,11 @@ export class InventoryRepositoryAdapter implements InventoryRepositoryPort {
   async findOptionNameForLedger(
     tx: RepositoryTransaction,
     optionId: string,
-    companyId: string,
+    organizationId: string,
   ): Promise<string | null> {
     const prismaTx = tx as Prisma.TransactionClient;
     const opt = await prismaTx.productOption.findFirst({
-      where: { id: optionId, companyId },
+      where: { id: optionId, organizationId },
       select: { optionName: true },
     });
     return opt?.optionName ?? null;

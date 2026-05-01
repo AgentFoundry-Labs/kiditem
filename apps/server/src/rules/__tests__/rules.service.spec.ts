@@ -4,10 +4,10 @@ import { RulesService } from '../services/rules.service';
 import { AgentResultReadyEvent } from '../../agent-registry/events/agent-events';
 import { PANEL_EVENTS } from '../../automation/adapter/out/panel-event/panel-events';
 
-const COMPANY_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+const ORGANIZATION_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const PRODUCT_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 const RULE_ID = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
-const OTHER_COMPANY_ID = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee';
+const OTHER_ORGANIZATION_ID = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee';
 
 function makePrisma() {
   return {
@@ -16,7 +16,7 @@ function makePrisma() {
     alert: { createManyAndReturn: vi.fn() },
     masterProduct: { count: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     businessRule: { findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn(), count: vi.fn() },
-    company: { findFirst: vi.fn() },
+    organization: { findFirst: vi.fn() },
     $transaction: vi.fn().mockResolvedValue([]),
   };
 }
@@ -49,11 +49,11 @@ describe('RulesService', () => {
       const { service, agentRunner } = makeService();
       agentRunner.runByType.mockResolvedValue({ ok: true, taskId: 'task-1', agentType: 'rules_evaluation' });
 
-      const result = await service.evaluateAll('company-1');
+      const result = await service.evaluateAll('organization-1');
 
       expect(agentRunner.runByType).toHaveBeenCalledWith('rules_evaluation', {
-        companyId: 'company-1',
-        extra: { company_id: 'company-1' },
+        organizationId: 'organization-1',
+        extra: { organization_id: 'organization-1' },
       });
       expect(result).toEqual({ taskId: 'task-1', status: 'running' });
     });
@@ -66,7 +66,7 @@ describe('RulesService', () => {
       prisma.activityEvent.createMany.mockResolvedValue({ count: 2 });
       const insertedAlerts = [{
         id: '11111111-1111-1111-1111-111111111111',
-        companyId: COMPANY_ID,
+        organizationId: ORGANIZATION_ID,
         targetType: 'master',
         targetId: PRODUCT_ID,
         type: 'rule_violation',
@@ -116,19 +116,19 @@ describe('RulesService', () => {
           ],
           summary: { total: 2 },
         },
-        COMPANY_ID,
+        ORGANIZATION_ID,
       );
 
       await service.onResultReady(event);
 
-      // healthScore bulk update — Prisma updateMany scoped by (id, companyId), wrapped in $transaction.
+      // healthScore bulk update — Prisma updateMany scoped by (id, organizationId), wrapped in $transaction.
       expect(prisma.$transaction).toHaveBeenCalledTimes(1);
       expect(prisma.masterProduct.updateMany).toHaveBeenCalledWith({
-        where: { id: 'p1', companyId: COMPANY_ID },
+        where: { id: 'p1', organizationId: ORGANIZATION_ID },
         data: expect.objectContaining({ healthScore: 85 }),
       });
       expect(prisma.masterProduct.updateMany).toHaveBeenCalledWith({
-        where: { id: PRODUCT_ID, companyId: COMPANY_ID },
+        where: { id: PRODUCT_ID, organizationId: ORGANIZATION_ID },
         data: expect.objectContaining({ healthScore: 25 }),
       });
 
@@ -154,7 +154,7 @@ describe('RulesService', () => {
       expect(eventEmitter.emit).toHaveBeenCalledWith(
         PANEL_EVENTS.UPSERT,
         expect.objectContaining({
-          companyId: COMPANY_ID,
+          organizationId: ORGANIZATION_ID,
           item: expect.objectContaining({
             kind: 'alert',
             id: insertedAlerts[0].id,
@@ -170,7 +170,7 @@ describe('RulesService', () => {
       const event = new AgentResultReadyEvent(
         'rules_evaluation', 'agent-rules', 'run-2',
         { products: [], summary: { total: 0 } },
-        COMPANY_ID,
+        ORGANIZATION_ID,
       );
 
       await service.onResultReady(event);
@@ -206,7 +206,7 @@ describe('RulesService', () => {
             violations: [],
           }],
         },
-        COMPANY_ID,
+        ORGANIZATION_ID,
       );
 
       // Should not throw
@@ -235,7 +235,7 @@ describe('RulesService', () => {
 
       const insertedAlerts = Array.from({ length: 51 }, (_, i) => ({
         id: `11111111-1111-1111-1111-${String(i).padStart(12, '0')}`,
-        companyId: COMPANY_ID,
+        organizationId: ORGANIZATION_ID,
         targetType: 'master',
         targetId: `prod-${i}`,
         type: 'rule_violation',
@@ -251,7 +251,7 @@ describe('RulesService', () => {
       const event = new AgentResultReadyEvent(
         'rules_evaluation', 'agent-rules', 'run-batch',
         { products: violations, summary: { total: 51 } },
-        COMPANY_ID,
+        ORGANIZATION_ID,
       );
 
       await service.onResultReady(event);
@@ -263,7 +263,7 @@ describe('RulesService', () => {
       expect(payload.item.kind).toBe('alert');
       expect(payload.item.type).toBe('batch_summary');
       expect(payload.item.title).toBe('51건의 새 알림');
-      expect(payload.companyId).toBe(COMPANY_ID);
+      expect(payload.organizationId).toBe(ORGANIZATION_ID);
     });
 
     it('error isolation: emit throw does not break alert creation', async () => {
@@ -272,7 +272,7 @@ describe('RulesService', () => {
       prisma.activityEvent.createMany.mockResolvedValue({ count: 1 });
       const insertedAlert = {
         id: '11111111-1111-1111-1111-111111111111',
-        companyId: COMPANY_ID,
+        organizationId: ORGANIZATION_ID,
         targetType: 'master',
         targetId: PRODUCT_ID,
         type: 'rule_violation',
@@ -303,7 +303,7 @@ describe('RulesService', () => {
             }],
           }],
         },
-        COMPANY_ID,
+        ORGANIZATION_ID,
       );
 
       // Should not throw even when emit throws
@@ -318,11 +318,11 @@ describe('RulesService', () => {
       const { service, agentRunner } = makeService();
       agentRunner.runByType.mockResolvedValue({ ok: true, taskId: 'task-s1' });
 
-      const result = await service.suggestThresholds('company-1');
+      const result = await service.suggestThresholds('organization-1');
 
       expect(agentRunner.runByType).toHaveBeenCalledWith('rules_suggest', {
-        companyId: 'company-1',
-        extra: { company_id: 'company-1' },
+        organizationId: 'organization-1',
+        extra: { organization_id: 'organization-1' },
       });
       expect(result).toEqual({ taskId: 'task-s1', status: 'running' });
     });
@@ -331,15 +331,15 @@ describe('RulesService', () => {
   describe('updateRule — tenant scope (IDOR prevention)', () => {
     it('reads tenant-scoped row first, then updates by id once authorised', async () => {
       const { service, prisma } = makeService();
-      prisma.businessRule.findFirst.mockResolvedValue({ id: RULE_ID, companyId: COMPANY_ID });
+      prisma.businessRule.findFirst.mockResolvedValue({ id: RULE_ID, organizationId: ORGANIZATION_ID });
       prisma.businessRule.update.mockResolvedValue({ id: RULE_ID, active: false });
 
-      const result = await service.updateRule(RULE_ID, COMPANY_ID, { active: false });
+      const result = await service.updateRule(RULE_ID, ORGANIZATION_ID, { active: false });
 
       // Tenant-scoped read happens BEFORE the write (apps/server/AGENTS.md
       // 멀티테넌트 격리 — 회사 스코프).
       expect(prisma.businessRule.findFirst).toHaveBeenCalledWith({
-        where: { id: RULE_ID, companyId: COMPANY_ID },
+        where: { id: RULE_ID, organizationId: ORGANIZATION_ID },
       });
       expect(prisma.businessRule.update).toHaveBeenCalledWith({
         where: { id: RULE_ID },
@@ -348,27 +348,27 @@ describe('RulesService', () => {
       expect(result).toEqual({ id: RULE_ID, active: false });
     });
 
-    it('throws NotFoundException when the rule belongs to another company (no write)', async () => {
+    it('throws NotFoundException when the rule belongs to another organization (no write)', async () => {
       const { service, prisma } = makeService();
       // Cross-tenant read returns null — service must NOT proceed to update.
       prisma.businessRule.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.updateRule(RULE_ID, OTHER_COMPANY_ID, { active: false }),
+        service.updateRule(RULE_ID, OTHER_ORGANIZATION_ID, { active: false }),
       ).rejects.toThrow(NotFoundException);
 
       expect(prisma.businessRule.findFirst).toHaveBeenCalledWith({
-        where: { id: RULE_ID, companyId: OTHER_COMPANY_ID },
+        where: { id: RULE_ID, organizationId: OTHER_ORGANIZATION_ID },
       });
       expect(prisma.businessRule.update).not.toHaveBeenCalled();
     });
 
     it('forwards threshold/active/autoExecute fields on the data payload', async () => {
       const { service, prisma } = makeService();
-      prisma.businessRule.findFirst.mockResolvedValue({ id: RULE_ID, companyId: COMPANY_ID });
+      prisma.businessRule.findFirst.mockResolvedValue({ id: RULE_ID, organizationId: ORGANIZATION_ID });
       prisma.businessRule.update.mockResolvedValue({ id: RULE_ID });
 
-      await service.updateRule(RULE_ID, COMPANY_ID, {
+      await service.updateRule(RULE_ID, ORGANIZATION_ID, {
         threshold: { min: 10 },
         active: true,
         autoExecute: false,

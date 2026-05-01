@@ -10,7 +10,7 @@ docs were pruned during instruction cleanup; durable contracts now live in
 
 ### 이전 (stub)
 
-- `sales-analysis.service.getAnalysis` 가 `profitLoss.groupBy({ by: ['companyId'] })` 로 1-row 반환 (ProfitLoss 테이블 writer 없음 → 모든 수치 0)
+- `sales-analysis.service.getAnalysis` 가 `profitLoss.groupBy({ by: ['organizationId'] })` 로 1-row 반환 (ProfitLoss 테이블 writer 없음 → 모든 수치 0)
 - SalesOverview 탭 = 비어있는 UI
 
 ### 이후 (Plan D.3, live aggregation)
@@ -49,7 +49,7 @@ docs were pruned during instruction cleanup; durable contracts now live in
 
 ## 기술 배경
 
-- Service: `apps/server/src/finance/services/sales-analysis.service.ts` — live aggregation with 3-hop IDOR (`OrderReturnLineItem.companyId` + `return.companyId` + `return.order.companyId`)
+- Service: `apps/server/src/finance/services/sales-analysis.service.ts` — live aggregation with 3-hop IDOR (`OrderReturnLineItem.organizationId` + `return.organizationId` + `return.order.organizationId`)
 - Test: `apps/server/src/finance/services/__tests__/sales-analysis.pg.integration.spec.ts` — 8 cases including KST boundary + 1000-order perf
 - Schema: `@kiditem/shared/schemas/sales-analysis` — `SalesAnalysisDataSchema` + `ChannelAnalysisSchema`
 - Frontend: `apps/web/src/app/sales-analysis/components/SalesOverview.tsx` — apiClient.getParsed + URL period + 3-state

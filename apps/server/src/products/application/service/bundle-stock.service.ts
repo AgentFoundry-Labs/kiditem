@@ -39,25 +39,25 @@ export class BundleStockService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * @param companyId      - tenant that owns the bundle option.
+   * @param organizationId      - tenant that owns the bundle option.
    * @param bundleOptionId - bundle option row whose `availableStock` to materialize.
    * @param outerTx        - optional outer transaction (Plan B2 compose). Caller
    *                         must supply `{ timeout: >= 15000 }` on the outer
    *                         `$transaction` so cold-cache writes don't time out.
    */
   async recompute(
-    companyId: string,
+    organizationId: string,
     bundleOptionId: string,
     outerTx?: Prisma.TransactionClient,
   ): Promise<number> {
     const exec = async (tx: Prisma.TransactionClient): Promise<number> => {
-      await lockBundleOptionRow(tx, bundleOptionId, companyId);
-      const bundle = await findBundleOptionId(tx, bundleOptionId, companyId);
+      await lockBundleOptionRow(tx, bundleOptionId, organizationId);
+      const bundle = await findBundleOptionId(tx, bundleOptionId, organizationId);
       if (!bundle) throw new NotFoundException('bundle option not found');
       const components = await listActiveBundleComponentsWithStock(
         tx,
         bundleOptionId,
-        companyId,
+        organizationId,
       );
       const capacity = computeBundleCapacity(
         components.map((c) => ({
@@ -68,7 +68,7 @@ export class BundleStockService {
       const count = await writeBundleAvailableStock(
         tx,
         bundleOptionId,
-        companyId,
+        organizationId,
         capacity,
       );
       if (count === 0) throw new NotFoundException('bundle option not found');
@@ -92,17 +92,17 @@ export class BundleStockService {
    * module is allowed to invoke this method.
    */
   async recomputeForComponent(
-    companyId: string,
+    organizationId: string,
     componentOptionId: string,
     tx: Prisma.TransactionClient,
   ): Promise<string[]> {
     const components = await listBundlesUsingComponent(
       tx,
       componentOptionId,
-      companyId,
+      organizationId,
     );
     for (const { bundleOptionId } of components) {
-      await this.recompute(companyId, bundleOptionId, tx);
+      await this.recompute(organizationId, bundleOptionId, tx);
     }
     return components.map((c) => c.bundleOptionId);
   }

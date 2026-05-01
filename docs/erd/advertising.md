@@ -21,7 +21,7 @@
 erDiagram
   AdAction {
     String id PK
-    String companyId FK
+    String organizationId FK
     String listingId FK
     String adTargetDailyId FK
     String actionType
@@ -68,7 +68,7 @@ erDiagram
   }
   ExecutionWorker {
     String id PK
-    String companyId FK
+    String organizationId FK
     String workerKey UK
     String label
     String status
@@ -81,7 +81,7 @@ erDiagram
   }
   ScrapeTarget {
     String id PK
-    String companyId FK
+    String organizationId FK
     String url
     String label
     String category
@@ -99,7 +99,7 @@ erDiagram
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
 | AdAction | adTargetDaily | references external | Channels | ChannelAdTargetDailySnapshot |
-| AdAction | company | references external | Core | Company |
 | AdAction | listing | references external | Core | ChannelListing |
-| ExecutionWorker | company | references external | Core | Company |
-| ScrapeTarget | company | references external | Core | Company |
+| AdAction | organization | references external | Core | Organization |
+| ExecutionWorker | organization | references external | Core | Organization |
+| ScrapeTarget | organization | references external | Core | Organization |

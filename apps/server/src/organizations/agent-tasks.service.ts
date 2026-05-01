@@ -10,22 +10,22 @@ export class AgentTasksService {
     private readonly agentRegistry: AgentRegistryService,
   ) {}
 
-  async create(agentType: string, input: Record<string, unknown> | undefined, companyId: string) {
+  async create(agentType: string, input: Record<string, unknown> | undefined, organizationId: string) {
     const result = await this.agentRegistry.runByType(agentType, {
-      companyId,
+      organizationId,
       extra: input,
     });
     const task = await this.prisma.agentTask.findFirst({
-      where: { id: result.taskId, companyId },
+      where: { id: result.taskId, organizationId },
     });
     if (!task) throw new InternalServerErrorException('Failed to retrieve created task');
     return task;
   }
 
-  async findAll(query: ListAgentTasksQueryDto, companyId: string) {
+  async findAll(query: ListAgentTasksQueryDto, organizationId: string) {
     return this.prisma.agentTask.findMany({
       where: {
-        companyId,
+        organizationId,
         ...(query.status && { status: query.status }),
         ...(query.agentType && { agentType: query.agentType }),
       },
@@ -35,18 +35,18 @@ export class AgentTasksService {
     });
   }
 
-  async findOne(id: string, companyId: string) {
+  async findOne(id: string, organizationId: string) {
     const task = await this.prisma.agentTask.findFirst({
-      where: { id, companyId },
+      where: { id, organizationId },
       include: { logs: { orderBy: { createdAt: 'asc' } } },
     });
     if (!task) throw new NotFoundException('Agent task not found');
     return task;
   }
 
-  async cancel(id: string, companyId: string): Promise<{ ok: true }> {
+  async cancel(id: string, organizationId: string): Promise<{ ok: true }> {
     const result = await this.prisma.agentTask.updateMany({
-      where: { id, companyId },
+      where: { id, organizationId },
       data: {
         status: 'failed',
         error: 'Cancelled by user',

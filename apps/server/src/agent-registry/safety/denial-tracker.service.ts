@@ -6,7 +6,7 @@ export class DenialTrackerService {
   constructor(private readonly prisma: PrismaService) {}
 
   async recordDenial(input: {
-    companyId: string;
+    organizationId: string;
     agentId: string;
     runId?: string;
     category: string;
@@ -16,7 +16,7 @@ export class DenialTrackerService {
     await this.prisma.agentEvent.create({
       data: {
         eventType: 'permission_denied',
-        company: { connect: { id: input.companyId } },
+        organization: { connect: { id: input.organizationId } },
         agent: { connect: { id: input.agentId } },
         runId: input.runId,
         category: input.category,
@@ -26,18 +26,18 @@ export class DenialTrackerService {
     });
   }
 
-  async listDenials(agentId: string, companyId: string, options?: { limit?: number }) {
+  async listDenials(agentId: string, organizationId: string, options?: { limit?: number }) {
     return this.prisma.agentEvent.findMany({
-      where: { agentId, companyId, eventType: 'permission_denied' },
+      where: { agentId, organizationId, eventType: 'permission_denied' },
       orderBy: { createdAt: 'desc' },
       take: options?.limit ?? 50,
     });
   }
 
-  async getSummary(companyId: string) {
+  async getSummary(organizationId: string) {
     const denials = await this.prisma.agentEvent.groupBy({
       by: ['category'],
-      where: { companyId, eventType: 'permission_denied' },
+      where: { organizationId, eventType: 'permission_denied' },
       _count: { id: true },
     });
     const total = denials.reduce((sum, d) => sum + d._count.id, 0);

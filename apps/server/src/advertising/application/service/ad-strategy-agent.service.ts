@@ -18,11 +18,11 @@ export class AdStrategyAgentService {
   ) {}
 
   async run(input: {
-    companyId: string;
+    organizationId: string;
     dryRun?: boolean;
   }) {
     return this.agentRunner.runByType('ad_strategy', {
-      companyId: input.companyId,
+      organizationId: input.organizationId,
       dryRun: input.dryRun,
     });
   }
@@ -40,9 +40,9 @@ export class AdStrategyAgentService {
 
       await this.prisma.activityEvent.create({
         data: {
-          companyId: event.companyId,
-          objectType: 'company',
-          objectId: event.companyId,
+          organizationId: event.organizationId,
+          objectType: 'organization',
+          objectId: event.organizationId,
           eventType: 'ad_strategy',
           source: 'agent:claude_cli',
           title,
@@ -54,29 +54,29 @@ export class AdStrategyAgentService {
     }
   }
 
-  async getStatus(taskId: string, companyId: string) {
+  async getStatus(taskId: string, organizationId: string) {
     return this.prisma.agentTask.findFirst({
-      where: { id: taskId, companyId },
+      where: { id: taskId, organizationId },
       include: { logs: { orderBy: { createdAt: 'desc' }, take: 10 } },
     });
   }
 
-  async getLatestRun(companyId?: string) {
+  async getLatestRun(organizationId?: string) {
     return this.prisma.agentTask.findFirst({
       where: {
         agentType: 'ad_strategy',
-        ...(companyId && { companyId }),
+        ...(organizationId && { organizationId }),
       },
       include: { logs: { orderBy: { createdAt: 'asc' } } },
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  async getRuns(query: { companyId: string; limit?: number | string }) {
+  async getRuns(query: { organizationId: string; limit?: number | string }) {
     return this.prisma.agentTask.findMany({
       where: {
         agentType: 'ad_strategy',
-        companyId: query.companyId,
+        organizationId: query.organizationId,
       },
       include: { logs: { orderBy: { createdAt: 'desc' }, take: 3 } },
       orderBy: { createdAt: 'desc' },

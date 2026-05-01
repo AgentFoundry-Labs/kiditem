@@ -6,12 +6,12 @@ import { scrubSecrets, scrubDeep } from '@kiditem/shared/security';
 interface TranscriptData {
   runId: string;
   /**
-   * companyId of the HeartbeatRun being amended. Required so the asynchronous
+   * organizationId of the HeartbeatRun being amended. Required so the asynchronous
    * write path can bind tenant scope on the underlying updateMany — heartbeat
-   * emits this from `wakeup.companyId`, which is the trusted source for the
+   * emits this from `wakeup.organizationId`, which is the trusted source for the
    * run's tenant.
    */
-  companyId: string;
+  organizationId: string;
   stdoutExcerpt: string;
   stderrExcerpt: string;
   usageJson: Record<string, unknown> | null;
@@ -40,9 +40,9 @@ export class TranscriptService implements OnModuleInit {
   private async recordAsync(data: TranscriptData): Promise<void> {
     // 방어심층 scrub: heartbeat 에서 이미 1차 scrub 됐지만 새 저장 지점 추가 시 누락 대비.
     // usageJson 은 heartbeat 에서 scrub 하지 않으므로 여기서만 scrubDeep.
-    // updateMany 에 companyId 바인딩 — runId 가 cross-tenant 라도 0 row 만 변경.
+    // updateMany 에 organizationId 바인딩 — runId 가 cross-tenant 라도 0 row 만 변경.
     await this.prisma.heartbeatRun.updateMany({
-      where: { id: data.runId, companyId: data.companyId },
+      where: { id: data.runId, organizationId: data.organizationId },
       data: {
         stdoutExcerpt: scrubSecrets(data.stdoutExcerpt),
         stderrExcerpt: scrubSecrets(data.stderrExcerpt),

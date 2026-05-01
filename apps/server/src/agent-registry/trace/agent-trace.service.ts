@@ -15,7 +15,7 @@ import type { TraceQueryDto, TraceListQueryDto } from './dto';
  *     → HeartbeatRun + AgentEvent (runId IN) 조회
  *
  * 규약:
- *   - 모든 where 절에 companyId 포함 (ADR-0006)
+ *   - 모든 where 절에 organizationId 포함 (ADR-0006)
  *   - `$queryRaw` tagged template 만 사용 — `$queryRawUnsafe` 금지 (ADR-0009)
  *   - 응답 직렬화 직전 scrubDeep 방어 (ADR-0007 read-time)
  *   - task marker 미검출 시 traceability.warning 으로 legacy 상태 고지
@@ -30,12 +30,12 @@ export class AgentTraceService {
   constructor(private readonly prisma: PrismaService) {}
 
   // ── Task 목록 ──
-  async listTasks(companyId: string, q: TraceListQueryDto): Promise<AgentTaskListResponse> {
+  async listTasks(organizationId: string, q: TraceListQueryDto): Promise<AgentTaskListResponse> {
     const page = q.page ?? 1;
     const limit = Math.min(q.limit ?? 20, 100);
     const skip = (page - 1) * limit;
 
-    const where: Prisma.AgentTaskWhereInput = { companyId };
+    const where: Prisma.AgentTaskWhereInput = { organizationId };
     if (q.status) where.status = q.status;
     if (q.agentType) where.agentType = q.agentType;
     if (q.from || q.to) {
@@ -60,21 +60,21 @@ export class AgentTraceService {
   }
 
   // ── Trace 상세 ──
-  async getTrace(taskId: string, companyId: string, q: TraceQueryDto): Promise<AgentTrace> {
-    // 1. task (companyId 격리 — findFirst 로 cross-tenant 차단)
+  async getTrace(taskId: string, organizationId: string, q: TraceQueryDto): Promise<AgentTrace> {
+    // 1. task (organizationId 격리 — findFirst 로 cross-tenant 차단)
     const task = await this.prisma.agentTask.findFirst({
-      where: { id: taskId, companyId },
+      where: { id: taskId, organizationId },
     });
     if (!task) throw new NotFoundException('task_not_found');
 
     // 2. wakeupRequests — JSONB marker 매칭. tagged template + cast 로 binding 안전.
     const rawRows = await this.prisma.$queryRaw<AgentWakeupRequestRow[]>`
       SELECT
-        id, company_id, agent_id, source, trigger_detail, reason, payload,
+        id, organization_id, agent_id, source, trigger_detail, reason, payload,
         status, coalesced_count, requested_by_type, requested_by_id, run_id,
         requested_at, claimed_at, finished_at, error, created_at, updated_at
       FROM agent_wakeup_requests
-      WHERE company_id = ${companyId}::uuid
+      WHERE organization_id = ${organizationId}::uuid
         AND payload->>'_legacy_task_id' = ${taskId}
       ORDER BY requested_at ASC
     `;
@@ -90,34 +90,34 @@ export class AgentTraceService {
     const slicedRunIds = runIds.slice(safeCursor, safeCursor + AgentTraceService.PAGE_LIMIT);
     const hasMore = runIds.length > safeCursor + AgentTraceService.PAGE_LIMIT;
 
-    // 4. heartbeatRuns — runId IN + companyId 이중 방어
+    // 4. heartbeatRuns — runId IN + organizationId 이중 방어
     const heartbeatRuns = slicedRunIds.length
       ? await this.prisma.heartbeatRun.findMany({
-          where: { id: { in: slicedRunIds }, companyId },
+          where: { id: { in: slicedRunIds }, organizationId },
           orderBy: { startedAt: 'asc' },
         })
       : [];
 
-    // 5. events — runId IN + companyId. take 2000 상한
+    // 5. events — runId IN + organizationId. take 2000 상한
     const events = slicedRunIds.length
       ? await this.prisma.agentEvent.findMany({
-          where: { runId: { in: slicedRunIds }, companyId },
+          where: { runId: { in: slicedRunIds }, organizationId },
           orderBy: [{ runId: 'asc' }, { createdAt: 'asc' }],
           take: AgentTraceService.EVENT_TAKE,
         })
       : [];
 
-    // 6. workflowRun — task 에 연결된 것만. companyId 이중 방어: AgentTask 소유권은
+    // 6. workflowRun — task 에 연결된 것만. organizationId 이중 방어: AgentTask 소유권은
     //    위에서 verify 했지만 task.workflowRunId 는 외부 trigger 가 박았을 수 있는
     //    값이므로 WorkflowRun 자체도 같은 tenant scope 로 조회한다 (bare findUnique
     //    은 cross-tenant data 를 끌어올 수 있어 금지).
     const workflowRun = task.workflowRunId
       ? await this.prisma.workflowRun.findFirst({
-          where: { id: task.workflowRunId, companyId },
+          where: { id: task.workflowRunId, organizationId },
         })
       : null;
 
-    // 7. logs — taskId 기준 (companyId 이중 조건 없음: AgentLog 는 taskId 전용 FK)
+    // 7. logs — taskId 기준 (organizationId 이중 조건 없음: AgentLog 는 taskId 전용 FK)
     const logs = await this.prisma.agentLog.findMany({
       where: { taskId },
       orderBy: { createdAt: 'asc' },
@@ -160,7 +160,7 @@ export class AgentTraceService {
 
 interface AgentWakeupRequestRow {
   id: string;
-  company_id: string;
+  organization_id: string;
   agent_id: string;
   source: string;
   trigger_detail: string | null;
@@ -182,7 +182,7 @@ interface AgentWakeupRequestRow {
 function mapWakeupRow(r: AgentWakeupRequestRow): AgentWakeupRequest {
   return {
     id: r.id,
-    companyId: r.company_id,
+    organizationId: r.organization_id,
     agentId: r.agent_id,
     source: r.source,
     triggerDetail: r.trigger_detail,

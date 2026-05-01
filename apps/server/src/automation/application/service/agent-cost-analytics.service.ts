@@ -17,7 +17,7 @@ export class AgentCostAnalyticsService {
     this.logger.log('Monthly token budgets reset');
   }
 
-  async getCostAnalytics(companyId: string, query: { from?: string; to?: string; agentId?: string }) {
+  async getCostAnalytics(organizationId: string, query: { from?: string; to?: string; agentId?: string }) {
     const from = query.from ? new Date(query.from) : new Date('2020-01-01');
     const to = query.to ? new Date(query.to) : new Date();
 
@@ -38,7 +38,7 @@ export class AgentCostAnalyticsService {
         COALESCE(SUM((usage_json->>'outputTokens')::int), 0) as total_output_tokens,
         COUNT(*)::int as run_count
       FROM heartbeat_runs
-      WHERE company_id = ${companyId}::uuid
+      WHERE organization_id = ${organizationId}::uuid
         AND started_at >= ${from} AND started_at <= ${to}
         AND status IN ('succeeded', 'failed')
         AND usage_json IS NOT NULL
@@ -66,8 +66,8 @@ export class AgentCostAnalyticsService {
       FROM heartbeat_runs h
       LEFT JOIN agent_definitions d
         ON h.agent_id = d.id
-        AND (d.company_id IS NULL OR d.company_id = h.company_id)
-      WHERE h.company_id = ${companyId}::uuid
+        AND (d.organization_id IS NULL OR d.organization_id = h.organization_id)
+      WHERE h.organization_id = ${organizationId}::uuid
         AND h.started_at >= ${from} AND h.started_at <= ${to}
         AND h.status IN ('succeeded', 'failed')
         AND h.usage_json IS NOT NULL

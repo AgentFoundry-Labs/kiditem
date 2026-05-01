@@ -24,7 +24,7 @@ export class AdRecommendService {
    */
   async enhanceActionsWithAi(
     actions: RecommendInput,
-    _companyId: string,
+    _organizationId: string,
   ): Promise<AdStrategyAction[]> {
     return actions;
   }

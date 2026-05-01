@@ -18,19 +18,19 @@ import { Prisma } from '@prisma/client';
  * auto-commits and releases the lock immediately, defeating the
  * serialization guarantee.
  *
- * Tenant predicate `company_id = ${companyId}::uuid` is bound, satisfying
+ * Tenant predicate `organization_id = ${organizationId}::uuid` is bound, satisfying
  * the raw-SQL tenant predicate rule (apps/server/AGENTS.md "Reconstruction
  * Guardrails").
  */
 export async function lockBundleOptionRow(
   tx: Prisma.TransactionClient,
   bundleOptionId: string,
-  companyId: string,
+  organizationId: string,
 ): Promise<void> {
   await tx.$queryRaw`
     SELECT id FROM product_options
     WHERE id = ${bundleOptionId}::uuid
-      AND company_id = ${companyId}::uuid
+      AND organization_id = ${organizationId}::uuid
     FOR UPDATE
   `;
 }
@@ -38,10 +38,10 @@ export async function lockBundleOptionRow(
 export async function findBundleOptionId(
   tx: Prisma.TransactionClient,
   bundleOptionId: string,
-  companyId: string,
+  organizationId: string,
 ): Promise<{ id: string } | null> {
   return tx.productOption.findFirst({
-    where: { id: bundleOptionId, companyId, isDeleted: false },
+    where: { id: bundleOptionId, organizationId, isDeleted: false },
     select: { id: true },
   });
 }
@@ -58,11 +58,11 @@ export interface ActiveBundleComponentRow {
 export async function listActiveBundleComponentsWithStock(
   tx: Prisma.TransactionClient,
   bundleOptionId: string,
-  companyId: string,
+  organizationId: string,
 ): Promise<ActiveBundleComponentRow[]> {
   return tx.bundleComponent.findMany({
     where: {
-      companyId,
+      organizationId,
       bundleOptionId,
       componentOption: { isDeleted: false },
     },
@@ -77,11 +77,11 @@ export async function listActiveBundleComponentsWithStock(
 export async function writeBundleAvailableStock(
   tx: Prisma.TransactionClient,
   bundleOptionId: string,
-  companyId: string,
+  organizationId: string,
   capacity: number,
 ): Promise<number> {
   const { count } = await tx.productOption.updateMany({
-    where: { id: bundleOptionId, companyId },
+    where: { id: bundleOptionId, organizationId },
     data: { availableStock: capacity },
   });
   return count;
@@ -94,11 +94,11 @@ export async function writeBundleAvailableStock(
 export async function listBundlesUsingComponent(
   tx: Prisma.TransactionClient,
   componentOptionId: string,
-  companyId: string,
+  organizationId: string,
 ): Promise<{ bundleOptionId: string }[]> {
   return tx.bundleComponent.findMany({
     where: {
-      companyId,
+      organizationId,
       componentOptionId,
       componentOption: { isDeleted: false },
     },

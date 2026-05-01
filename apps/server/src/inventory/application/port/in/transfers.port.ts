@@ -15,11 +15,11 @@ export type UpdateStockTransferInput = {
 };
 
 export interface TransfersPort {
-  findAll(companyId: string, query: { status?: string }): Promise<StockTransferRow[]>;
-  create(companyId: string, dto: CreateStockTransferInput): Promise<StockTransferRow>;
+  findAll(organizationId: string, query: { status?: string }): Promise<StockTransferRow[]>;
+  create(organizationId: string, dto: CreateStockTransferInput): Promise<StockTransferRow>;
   update(
     id: string,
     dto: UpdateStockTransferInput,
-    companyId: string,
+    organizationId: string,
   ): Promise<StockTransferRow>;
 }

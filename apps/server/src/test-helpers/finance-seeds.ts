@@ -15,12 +15,12 @@ import type { PrismaClient } from '@prisma/client';
 // ---------------------------------------------------------------------------
 
 /**
- * Create a minimal MasterProduct for a company.
+ * Create a minimal MasterProduct for a organization.
  */
 export async function setupMaster(
   prisma: PrismaClient,
   opts: {
-    companyId: string;
+    organizationId: string;
     code: string;
     name: string;
     legacyCode?: string | null;
@@ -31,7 +31,7 @@ export async function setupMaster(
 ): Promise<{ id: string }> {
   const master = await prisma.masterProduct.create({
     data: {
-      companyId: opts.companyId,
+      organizationId: opts.organizationId,
       code: opts.code,
       name: opts.name,
       ...(opts.legacyCode !== undefined && { legacyCode: opts.legacyCode }),
@@ -54,7 +54,7 @@ export async function setupMaster(
 export async function setupProductOption(
   prisma: PrismaClient,
   opts: {
-    companyId: string;
+    organizationId: string;
     masterId: string;
     sku: string;
     costPrice?: number;
@@ -64,7 +64,7 @@ export async function setupProductOption(
 ): Promise<{ id: string }> {
   const option = await prisma.productOption.create({
     data: {
-      companyId: opts.companyId,
+      organizationId: opts.organizationId,
       masterId: opts.masterId,
       sku: opts.sku,
       optionName: opts.sku,
@@ -88,7 +88,7 @@ export async function setupProductOption(
 export async function setupChannelListing(
   prisma: PrismaClient,
   opts: {
-    companyId: string;
+    organizationId: string;
     masterId: string;
     channel: string;
     externalId: string;
@@ -99,7 +99,7 @@ export async function setupChannelListing(
 ): Promise<{ listingId: string; listingOptionId: string }> {
   const listing = await prisma.channelListing.create({
     data: {
-      companyId: opts.companyId,
+      organizationId: opts.organizationId,
       masterId: opts.masterId,
       channel: opts.channel,
       externalId: opts.externalId,
@@ -110,7 +110,7 @@ export async function setupChannelListing(
 
   const listingOption = await prisma.channelListingOption.create({
     data: {
-      companyId: opts.companyId,
+      organizationId: opts.organizationId,
       listingId: listing.id,
       optionId: opts.optionId,
       externalOptionId: opts.externalOptionId,
@@ -132,7 +132,7 @@ export async function setupChannelListing(
 export async function seedOrderWithLineItems(
   prisma: PrismaClient,
   opts: {
-    companyId: string;
+    organizationId: string;
     externalOrderId: string;
     platform?: string;
     orderedAt: string;         // ISO date string
@@ -153,7 +153,7 @@ export async function seedOrderWithLineItems(
 
   const order = await prisma.order.create({
     data: {
-      companyId: opts.companyId,
+      organizationId: opts.organizationId,
       platform,
       externalOrderId: opts.externalOrderId,
       orderedAt: new Date(opts.orderedAt),
@@ -168,7 +168,7 @@ export async function seedOrderWithLineItems(
   for (const li of opts.lineItems) {
     await prisma.orderLineItem.create({
       data: {
-        companyId: opts.companyId,
+        organizationId: opts.organizationId,
         orderId: order.id,
         listingOptionId: li.listingOptionId,
         optionId: li.optionId,
@@ -195,7 +195,7 @@ export async function seedOrderWithLineItems(
 export async function seedReturn(
   prisma: PrismaClient,
   opts: {
-    companyId: string;
+    organizationId: string;
     orderId: string | null;
     requestedAt: string;       // ISO date string
     lineItems?: Array<{ orderLineItemId: string | null }>;
@@ -203,7 +203,7 @@ export async function seedReturn(
 ): Promise<string> {
   const orderReturn = await prisma.orderReturn.create({
     data: {
-      companyId: opts.companyId,
+      organizationId: opts.organizationId,
       orderId: opts.orderId,
       platform: 'coupang',
       externalReturnId: `RET-${Date.now()}-${Math.random()}`,
@@ -220,7 +220,7 @@ export async function seedReturn(
     for (const li of opts.lineItems) {
       await prisma.orderReturnLineItem.create({
         data: {
-          companyId: opts.companyId,
+          organizationId: opts.organizationId,
           returnId: orderReturn.id,
           orderLineItemId: li.orderLineItemId,
           quantity: 1,
@@ -248,27 +248,27 @@ export async function seedReturn(
 export async function seedAd(
   prisma: PrismaClient,
   opts: {
-    companyId: string;
+    organizationId: string;
     listingId: string;
     date: string;              // ISO date string (e.g. '2026-04-15')
     spend: number;
   },
 ): Promise<string> {
   const listing = await prisma.channelListing.findFirstOrThrow({
-    where: { id: opts.listingId, companyId: opts.companyId },
+    where: { id: opts.listingId, organizationId: opts.organizationId },
     select: { channel: true, externalId: true },
   });
   const businessDate = new Date(opts.date);
   const row = await prisma.channelListingDailySnapshot.upsert({
     where: {
-      companyId_listingId_businessDate: {
-        companyId: opts.companyId,
+      organizationId_listingId_businessDate: {
+        organizationId: opts.organizationId,
         listingId: opts.listingId,
         businessDate,
       },
     },
     create: {
-      companyId: opts.companyId,
+      organizationId: opts.organizationId,
       listingId: opts.listingId,
       channel: listing.channel,
       externalId: listing.externalId,

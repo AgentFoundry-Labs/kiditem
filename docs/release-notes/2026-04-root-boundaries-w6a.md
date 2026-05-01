@@ -4,7 +4,7 @@
 
 - Root dashboard `/api/action-tasks` consumer migrated from `apiClient.get<ActionTask[]>` shadow cast to `apiClient.getParsed('/api/action-tasks', ActionTaskListSchema)`. Server drift on the list response now surfaces at the boundary instead of silently rendering stale data.
 - Root execute mutation switched from `apiClient.post<{ ok: boolean }>('/api/action-tasks/:id/execute', ...)` to `apiClient.post<unknown>(...)` followed by `ActionTaskExecuteResponseSchema.parse(raw)`. The server has always returned the updated `ActionTask`; the previous `{ok: boolean}` cast was wrong, so any field drift on the execute response now fails fast at the parse boundary instead of writing a stale-shaped row into the React Query cache.
-- `ActionTaskService.executeTask`, `updateTask`, and `addNote` now require `@CurrentCompany() companyId` and gate the row read with `findFirst({ where: { id, companyId } })` before mutating. Cross-tenant access throws `NotFoundException`. ADR-0006 single-tenant rule is now enforced on every action-task mutation path.
+- `ActionTaskService.executeTask`, `updateTask`, and `addNote` now require `@CurrentOrganization() organizationId` and gate the row read with `findFirst({ where: { id, organizationId } })` before mutating. Cross-tenant access throws `NotFoundException`. ADR-0006 single-tenant rule is now enforced on every action-task mutation path.
 - Shared package gains `ActionTaskListSchema`, `ActionTaskExecuteResponseSchema`, plus parity export of `ActionTaskSourceAlertSchema` from both `@kiditem/shared` and `@kiditem/shared/schemas` entrypoints (closing the prior asymmetry).
 - Root RTL spec asserts both that `/api/action-tasks` flows through `getParsed` AND that the legacy `apiClient.get` route is **never** called for it. The test fails if the boundary regresses.
 
@@ -16,7 +16,7 @@
 
 ## DB impact
 
-None. No Prisma schema migration. The `findUnique` → `findFirst({ id, companyId })` swap is a runtime guard tightening on already-existing columns.
+None. No Prisma schema migration. The `findUnique` → `findFirst({ id, organizationId })` swap is a runtime guard tightening on already-existing columns.
 
 ## Verification
 
@@ -64,7 +64,7 @@ rg -n "apiClient\.get<ActionTask\[\]>\('/api/action-tasks'" apps/web/src/app/pag
 rg -n "apiClient\.post<\{ ok: boolean \}>"               apps/web/src/app/page.tsx → 0 matches
 rg -n "findUnique\(\{ where: \{ id"  apps/server/src/action-task/action-task.service.ts → 0 matches inside
                                                                                           executeTask / updateTask / addNote
-rg -n "@CurrentCompany\(\) companyId" apps/server/src/action-task/action-task.controller.ts → 6 matches
+rg -n "@CurrentOrganization\(\) organizationId" apps/server/src/action-task/action-task.controller.ts → 6 matches
                                                                                               (3 are the new
                                                                                               T2-hardened mutation
                                                                                               parameters)
@@ -78,6 +78,6 @@ rg -n "@CurrentCompany\(\) companyId" apps/server/src/action-task/action-task.co
 
 ## Security notes
 
-- IDOR closure for `executeTask` / `updateTask` / `addNote` — these were previously findUnique-by-id-only and would mutate a foreign-company row if the request supplied a foreign id. The new `findFirst({ id, companyId })` guard rejects with `NotFoundException` so the existence of cross-tenant rows is not leaked either.
-- Browser code never sends a `companyId` query parameter to `/api/action-tasks` or `/api/action-tasks/:id/execute`; companyId comes from `@CurrentCompany()` decoded from the request principal.
+- IDOR closure for `executeTask` / `updateTask` / `addNote` — these were previously findUnique-by-id-only and would mutate a foreign-organization row if the request supplied a foreign id. The new `findFirst({ id, organizationId })` guard rejects with `NotFoundException` so the existence of cross-tenant rows is not leaked either.
+- Browser code never sends a `organizationId` query parameter to `/api/action-tasks` or `/api/action-tasks/:id/execute`; organizationId comes from `@CurrentOrganization()` decoded from the request principal.
 - Codex challenge + security-reviewer post-ralph passes will exercise the new guard for additional adversarial cases before PR ships.

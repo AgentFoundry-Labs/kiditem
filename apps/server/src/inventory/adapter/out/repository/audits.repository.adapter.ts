@@ -12,21 +12,21 @@ import type {
 export class AuditsRepositoryAdapter implements AuditsRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
-  listStockAudits(companyId: string): Promise<StockAuditRow[]> {
+  listStockAudits(organizationId: string): Promise<StockAuditRow[]> {
     return this.prisma.stockAudit.findMany({
-      where: { companyId },
+      where: { organizationId },
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  findStockAuditById(id: string, companyId: string): Promise<StockAuditRow | null> {
-    return this.prisma.stockAudit.findFirst({ where: { id, companyId } });
+  findStockAuditById(id: string, organizationId: string): Promise<StockAuditRow | null> {
+    return this.prisma.stockAudit.findFirst({ where: { id, organizationId } });
   }
 
-  createStockAudit(companyId: string, data: CreateStockAuditData): Promise<StockAuditRow> {
+  createStockAudit(organizationId: string, data: CreateStockAuditData): Promise<StockAuditRow> {
     return this.prisma.stockAudit.create({
       data: {
-        companyId,
+        organizationId,
         auditNumber: data.auditNumber,
         items: data.items === undefined ? undefined : (data.items as Prisma.InputJsonValue),
         totalProducts: data.totalProducts,

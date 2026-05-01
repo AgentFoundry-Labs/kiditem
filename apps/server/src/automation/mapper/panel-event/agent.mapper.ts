@@ -8,10 +8,10 @@ import type { PanelRunMapper } from './types';
  *
  * service 호출 예 (panel.service.ts):
  *   const run = await prisma.heartbeatRun.findFirst({
- *     where: { id, companyId }, include: { agent: { select: { id: true, name: true } } }
+ *     where: { id, organizationId }, include: { agent: { select: { id: true, name: true } } }
  *   });
  *   const input: AgentAdapterInput = { run, agent: { id: run.agent.id, name: run.agent.name } };
- *   const item = agentPanelMapper.mapToItem(input, companyId);
+ *   const item = agentPanelMapper.mapToItem(input, organizationId);
  */
 export interface AgentAdapterInput {
   run: HeartbeatRun;
@@ -23,7 +23,7 @@ const VALID_STATUS = new Set<PanelRunItemType['status']>(PanelRunItem.shape.stat
 
 export const agentPanelMapper: PanelRunMapper<AgentAdapterInput> = {
   source: 'agent',
-  mapToItem(input, _companyId) {
+  mapToItem(input, _organizationId) {
     const { run, agent } = input;
 
     // ADR-0011 Rule 4: NO mapping table — pass-through only.
@@ -52,6 +52,6 @@ export const agentPanelMapper: PanelRunMapper<AgentAdapterInput> = {
     };
   },
   defaultVisibility(input) {
-    return input.run.triggeredByUserId == null ? 'company' : 'user';
+    return input.run.triggeredByUserId == null ? 'organization' : 'user';
   },
 };

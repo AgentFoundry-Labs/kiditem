@@ -15,7 +15,7 @@
   - `latest.json` 갱신 여부:
   - Sync/Replay 명령:
   - Import mode: `upsert` / `scoped-replace` / `pull-only` / `full-reset`
-  - 영향 scope(company/channel/date):
+  - 영향 scope(organization/channel/date):
 - [ ] `prisma/init.sql.gz` 변경 있음 (예외적인 fresh-volume snapshot 용도만)
 
 > 개발 데이터 표준 경로:

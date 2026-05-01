@@ -3,7 +3,7 @@ export const INVENTORY_QUERY_REPOSITORY_PORT = Symbol('InventoryQueryRepositoryP
 export type InventoryRow = {
   id: string;
   optionId: string;
-  companyId: string;
+  organizationId: string;
   currentStock: number;
   reservedStock: number;
   safetyStock: number;
@@ -31,7 +31,7 @@ export type InventoryWithOption = InventoryRow & {
 
 export type StockTransactionRow = {
   id: string;
-  companyId: string;
+  organizationId: string;
   optionId: string;
   optionName: string | null;
   type: string;
@@ -48,7 +48,7 @@ export type StockTransactionRow = {
 
 export type UnshippedItemRow = {
   id: string;
-  companyId: string;
+  organizationId: string;
   orderId: string;
   listingId: string | null;
   optionId: string | null;
@@ -76,30 +76,30 @@ export type ListTransactionsFilters = {
 
 export interface InventoryQueryRepositoryPort {
   listInventoryWithOption(
-    companyId: string,
+    organizationId: string,
     filters: InventoryListFilters,
   ): Promise<{ rows: InventoryWithOption[]; dbCount: number }>;
 
-  findInventoryById(id: string, companyId: string): Promise<InventoryRow | null>;
+  findInventoryById(id: string, organizationId: string): Promise<InventoryRow | null>;
 
-  findInventoryByOptionId(optionId: string, companyId: string): Promise<InventoryRow | null>;
+  findInventoryByOptionId(optionId: string, organizationId: string): Promise<InventoryRow | null>;
 
   listStockTransactions(
-    companyId: string,
+    organizationId: string,
     filters: ListTransactionsFilters,
     skip: number,
     take: number,
   ): Promise<{ rows: StockTransactionRow[]; total: number }>;
 
   groupTransactionsByType(
-    companyId: string,
+    organizationId: string,
     fromDate: Date,
   ): Promise<
     Array<{ type: string; _sum: { quantity: number | null; totalCost: number | null } }>
   >;
 
   listUnshipped(
-    companyId: string,
+    organizationId: string,
     minDays: number,
     skip: number,
     take: number,

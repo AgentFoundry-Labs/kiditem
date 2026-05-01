@@ -11,7 +11,7 @@
 ## 태스크
 
 1. `business_rules` 테이블에서 현재 활성 규칙 목록을 조회한다.
-   - `company_id = '{{company_id}}'` 조건 적용
+   - `organization_id = '{{organization_id}}'` 조건 적용
    - 각 규칙의 field, operator, threshold 값 확인
 
 2. 규칙이 참조하는 필드별 실제 데이터 분포를 조회한다:

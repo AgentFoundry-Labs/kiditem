@@ -17,24 +17,24 @@ const fixture = [
     content: `
 /// @namespace Core
 /// @describe 회사/테넌트 루트.
-model Company {
+model Organization {
   id    String @id @default(uuid()) @db.Uuid
   name  String
   users User[]
 
-  @@map("companies")
+  @@map("organizations")
 }
 
 /// @namespace Core
 /// @describe 사용자 계정.
 model User {
   id        String  @id @default(uuid()) @db.Uuid
-  companyId String  @map("company_id") @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
   email     String  @unique
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  @@index([companyId])
+  @@index([organizationId])
   @@map("users")
 }
 `,
@@ -47,23 +47,23 @@ test('parsePrismaSchemaFiles extracts models, domain docs, table maps, fields, a
   assert.equal(schema.models.length, 2);
   assert.equal(schema.relations.length, 1);
 
-  const company = schema.models.find((model) => model.name === 'Company');
-  assert.equal(company.namespace, 'Core');
-  assert.equal(company.description, '회사/테넌트 루트.');
-  assert.equal(company.tableName, 'companies');
-  assert.equal(company.fields.find((field) => field.name === 'id').isPrimaryKey, true);
+  const organization = schema.models.find((model) => model.name === 'Organization');
+  assert.equal(organization.namespace, 'Core');
+  assert.equal(organization.description, '회사/테넌트 루트.');
+  assert.equal(organization.tableName, 'organizations');
+  assert.equal(organization.fields.find((field) => field.name === 'id').isPrimaryKey, true);
 
   const user = schema.models.find((model) => model.name === 'User');
   assert.equal(user.tableName, 'users');
   assert.equal(user.fields.find((field) => field.name === 'email').isUnique, true);
 
   assert.deepEqual(schema.relations[0], {
-    fromModel: 'Company',
+    fromModel: 'Organization',
     toModel: 'User',
-    relationName: 'company',
+    relationName: 'organization',
     leftCardinality: '||',
     rightCardinality: 'o{',
-    fields: ['companyId'],
+    fields: ['organizationId'],
   });
 });
 
@@ -72,10 +72,10 @@ test('generateMermaidErDiagram renders a usable Mermaid ER diagram', () => {
   const mermaid = generateMermaidErDiagram(schema);
 
   assert.match(mermaid, /^erDiagram/m);
-  assert.match(mermaid, /Company \{/);
+  assert.match(mermaid, /Organization \{/);
   assert.match(mermaid, /String id PK/);
   assert.match(mermaid, /String email UK/);
-  assert.match(mermaid, /Company \|\|--o\{ User : "company"/);
+  assert.match(mermaid, /Organization \|\|--o\{ User : "organization"/);
 });
 
 test('generateErdMarkdown documents regeneration command and embeds the diagram', () => {
@@ -88,7 +88,7 @@ test('generateErdMarkdown documents regeneration command and embeds the diagram'
   assert.match(markdown, /## Domain ERDs/);
   assert.match(markdown, /\[Core\]\(erd\/core\.md\)/);
   assert.match(markdown, /```mermaid\n/);
-  assert.match(markdown, /\| Company \| Core \| `companies` \| 회사\/테넌트 루트\. \|/);
+  assert.match(markdown, /\| Organization \| Core \| `organizations` \| 회사\/테넌트 루트\. \|/);
 });
 
 test('writeErd writes readable domain ERDs and keeps external references outside the diagram', async () => {
@@ -105,11 +105,11 @@ test('writeErd writes readable domain ERDs and keeps external references outside
       `
 /// @namespace Core
 /// @describe Tenant root.
-model Company {
+model Organization {
   id          String          @id @db.Uuid
   inventory  Inventory[]
 
-  @@map("companies")
+  @@map("organizations")
 }
 
 /// @namespace Core
@@ -131,10 +131,10 @@ model ProductOption {
 /// @describe Stock position.
 model Inventory {
   id          String        @id @db.Uuid
-  companyId   String        @db.Uuid
+  organizationId   String        @db.Uuid
   optionId    String        @unique @db.Uuid
   warehouseId String?       @db.Uuid
-  company     Company       @relation(fields: [companyId], references: [id])
+  organization     Organization       @relation(fields: [organizationId], references: [id])
   option      ProductOption @relation(fields: [optionId], references: [id])
   warehouse   Warehouse?    @relation(fields: [warehouseId], references: [id])
 
@@ -145,8 +145,8 @@ model Inventory {
 /// @describe Storage location.
 model Warehouse {
   id         String      @id @db.Uuid
-  companyId  String      @db.Uuid
-  company    Company     @relation(fields: [companyId], references: [id])
+  organizationId  String      @db.Uuid
+  organization    Organization     @relation(fields: [organizationId], references: [id])
   inventory  Inventory[]
 
   @@map("warehouses")
@@ -172,10 +172,10 @@ model Warehouse {
     assert.match(inventory, /## Mermaid ER Diagram/);
     assert.match(inventory, /Inventory \{/);
     assert.match(inventory, /Warehouse \{/);
-    assert.doesNotMatch(inventory, /Company \{/);
-    assert.match(inventory, /Inventory \| company \| references external \| Core \| Company/);
+    assert.doesNotMatch(inventory, /Organization \{/);
+    assert.match(inventory, /Inventory \| organization \| references external \| Core \| Organization/);
     assert.match(inventory, /Inventory \| option \| references external \| Core \| ProductOption/);
-    assert.match(inventory, /Warehouse \| company \| references external \| Core \| Company/);
+    assert.match(inventory, /Warehouse \| organization \| references external \| Core \| Organization/);
   } finally {
     await rm(workspace, { recursive: true, force: true });
   }

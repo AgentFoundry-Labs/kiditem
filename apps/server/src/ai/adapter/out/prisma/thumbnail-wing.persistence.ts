@@ -5,7 +5,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 /**
  * Tenant-scoped persistence helpers for the Wing registration flow.
  *
- * Every method takes `companyId` explicitly and applies it to the WHERE/INSERT
+ * Every method takes `organizationId` explicitly and applies it to the WHERE/INSERT
  * path. `updateRegistrationAttemptOrThrow` uses `updateMany` + count guard so
  * the write itself is tenant-scoped (not a bare-id `update` that the
  * `check:tenant-scope` scanner would flag).
@@ -18,25 +18,25 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 export class ThumbnailWingPersistence {
   constructor(private readonly prisma: PrismaService) {}
 
-  findGenerationWithCandidates(generationId: string, companyId: string) {
+  findGenerationWithCandidates(generationId: string, organizationId: string) {
     return this.prisma.thumbnailGeneration.findFirst({
-      where: { id: generationId, companyId },
+      where: { id: generationId, organizationId },
       include: {
         candidates: {
-          where: { companyId },
+          where: { organizationId },
           orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
         },
       },
     });
   }
 
-  findRegistrableMaster(masterId: string, companyId: string) {
+  findRegistrableMaster(masterId: string, organizationId: string) {
     return this.prisma.masterProduct.findFirst({
-      where: { id: masterId, companyId, isDeleted: false },
+      where: { id: masterId, organizationId, isDeleted: false },
       select: {
         name: true,
         listings: {
-          where: { companyId, channel: 'coupang', isDeleted: false },
+          where: { organizationId, channel: 'coupang', isDeleted: false },
           select: { channelName: true, createdAt: true },
           orderBy: { createdAt: 'asc' },
           take: 1,
@@ -45,12 +45,12 @@ export class ThumbnailWingPersistence {
     });
   }
 
-  findGenerationWithLatestAttempt(id: string, companyId: string) {
+  findGenerationWithLatestAttempt(id: string, organizationId: string) {
     return this.prisma.thumbnailGeneration.findFirst({
-      where: { id, companyId },
+      where: { id, organizationId },
       include: {
         registrationAttempts: {
-          where: { companyId },
+          where: { organizationId },
           orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
           take: 1,
         },
@@ -58,18 +58,18 @@ export class ThumbnailWingPersistence {
     });
   }
 
-  async ensureGenerationExists(id: string, companyId: string): Promise<void> {
+  async ensureGenerationExists(id: string, organizationId: string): Promise<void> {
     const existing = await this.prisma.thumbnailGeneration.findFirst({
-      where: { id, companyId },
+      where: { id, organizationId },
       select: { id: true },
     });
     if (!existing) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
   }
 
-  async createRegistrationAttempt(generationId: string, companyId: string): Promise<{ id: string }> {
+  async createRegistrationAttempt(generationId: string, organizationId: string): Promise<{ id: string }> {
     return this.prisma.thumbnailRegistrationAttempt.create({
       data: {
-        companyId,
+        organizationId,
         generationId,
         status: 'uploaded',
         startedAt: new Date(),
@@ -80,11 +80,11 @@ export class ThumbnailWingPersistence {
 
   async updateRegistrationAttemptOrThrow(
     id: string,
-    companyId: string,
+    organizationId: string,
     data: Prisma.ThumbnailRegistrationAttemptUpdateManyMutationInput,
   ): Promise<void> {
     const result = await this.prisma.thumbnailRegistrationAttempt.updateMany({
-      where: { id, companyId },
+      where: { id, organizationId },
       data,
     });
     if (result.count === 0) {
@@ -92,9 +92,9 @@ export class ThumbnailWingPersistence {
     }
   }
 
-  async deleteFailedRegistrationAttempts(generationId: string, companyId: string): Promise<void> {
+  async deleteFailedRegistrationAttempts(generationId: string, organizationId: string): Promise<void> {
     await this.prisma.thumbnailRegistrationAttempt.deleteMany({
-      where: { generationId, companyId, status: 'failed' },
+      where: { generationId, organizationId, status: 'failed' },
     });
   }
 }

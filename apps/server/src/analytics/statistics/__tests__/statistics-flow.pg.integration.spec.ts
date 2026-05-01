@@ -5,8 +5,8 @@ import { StatisticsService } from '../statistics.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   IDOR_SENTINEL,
-  OTHER_COMPANY_ID,
-  TEST_COMPANY_ID,
+  OTHER_ORGANIZATION_ID,
+  TEST_ORGANIZATION_ID,
   makeTestPrisma,
   resetDb,
   seedBaseFixture,
@@ -50,11 +50,11 @@ describe('Statistics flow (PG integration)', () => {
     vi.useRealTimers();
   });
 
-  async function seedStatisticsFixture(companyId = TEST_COMPANY_ID) {
-    const prefix = companyId === TEST_COMPANY_ID ? 'TEST' : 'OTHER';
+  async function seedStatisticsFixture(organizationId = TEST_ORGANIZATION_ID) {
+    const prefix = organizationId === TEST_ORGANIZATION_ID ? 'TEST' : 'OTHER';
 
     const { id: masterM1 } = await setupMaster(prisma, {
-      companyId,
+      organizationId,
       code: `${prefix}-M-001`,
       name: `${prefix} Master M1`,
       category: '유아용품',
@@ -62,7 +62,7 @@ describe('Statistics flow (PG integration)', () => {
       thumbnailUrl: 'https://cdn/m1.jpg',
     });
     const { id: masterM2 } = await setupMaster(prisma, {
-      companyId,
+      organizationId,
       code: `${prefix}-M-002`,
       name: `${prefix} Master M2`,
       category: '완구',
@@ -70,21 +70,21 @@ describe('Statistics flow (PG integration)', () => {
     });
 
     const { id: optM1a } = await setupProductOption(prisma, {
-      companyId,
+      organizationId,
       masterId: masterM1,
       sku: `${prefix}-SKU-M1A`,
       costPrice: 5_000,
       commissionRate: 0.1,
     });
     const { id: optM1b } = await setupProductOption(prisma, {
-      companyId,
+      organizationId,
       masterId: masterM1,
       sku: `${prefix}-SKU-M1B`,
       costPrice: 4_000,
       commissionRate: 0.1,
     });
     const { id: optM2a } = await setupProductOption(prisma, {
-      companyId,
+      organizationId,
       masterId: masterM2,
       sku: `${prefix}-SKU-M2A`,
       costPrice: 2_000,
@@ -92,7 +92,7 @@ describe('Statistics flow (PG integration)', () => {
     });
 
     const listingL1 = await setupChannelListing(prisma, {
-      companyId,
+      organizationId,
       masterId: masterM1,
       channel: 'coupang',
       externalId: `${prefix}-EXT-L1`,
@@ -102,7 +102,7 @@ describe('Statistics flow (PG integration)', () => {
     });
     const listingL1b = await prisma.channelListingOption.create({
       data: {
-        companyId,
+        organizationId,
         listingId: listingL1.listingId,
         optionId: optM1b,
         externalOptionId: `${prefix}-VI-L1B`,
@@ -110,7 +110,7 @@ describe('Statistics flow (PG integration)', () => {
       select: { id: true },
     });
     const listingL2 = await setupChannelListing(prisma, {
-      companyId,
+      organizationId,
       masterId: masterM2,
       channel: 'coupang',
       externalId: `${prefix}-EXT-L2`,
@@ -120,7 +120,7 @@ describe('Statistics flow (PG integration)', () => {
     });
 
     const o1 = await seedOrderWithLineItems(prisma, {
-      companyId,
+      organizationId,
       externalOrderId: `${prefix}-ORD-1`,
       orderedAt: '2026-04-10T03:00:00Z',
       shippingPrice: 0,
@@ -132,7 +132,7 @@ describe('Statistics flow (PG integration)', () => {
     await prisma.order.update({ where: { id: o1 }, data: { receiverName: 'A' } });
 
     const o2 = await seedOrderWithLineItems(prisma, {
-      companyId,
+      organizationId,
       externalOrderId: `${prefix}-ORD-2`,
       orderedAt: '2026-04-12T03:00:00Z',
       shippingPrice: 0,
@@ -143,7 +143,7 @@ describe('Statistics flow (PG integration)', () => {
     await prisma.order.update({ where: { id: o2 }, data: { receiverName: 'B' } });
 
     const o3 = await seedOrderWithLineItems(prisma, {
-      companyId,
+      organizationId,
       externalOrderId: `${prefix}-ORD-3`,
       orderedAt: '2026-04-15T03:00:00Z',
       shippingPrice: 0,
@@ -154,7 +154,7 @@ describe('Statistics flow (PG integration)', () => {
     await prisma.order.update({ where: { id: o3 }, data: { receiverName: 'A' } });
 
     const o4 = await seedOrderWithLineItems(prisma, {
-      companyId,
+      organizationId,
       externalOrderId: `${prefix}-ORD-4`,
       orderedAt: '2026-04-18T03:00:00Z',
       shippingPrice: 0,
@@ -166,7 +166,7 @@ describe('Statistics flow (PG integration)', () => {
     await prisma.order.update({ where: { id: o4 }, data: { receiverName: 'C' } });
 
     const o5 = await seedOrderWithLineItems(prisma, {
-      companyId,
+      organizationId,
       externalOrderId: `${prefix}-ORD-5`,
       orderedAt: '2026-04-30T15:30:00Z',
       shippingPrice: 0,
@@ -177,13 +177,13 @@ describe('Statistics flow (PG integration)', () => {
     await prisma.order.update({ where: { id: o5 }, data: { receiverName: 'D' } });
 
     await seedAd(prisma, {
-      companyId,
+      organizationId,
       listingId: listingL1.listingId,
       date: '2026-04-15',
       spend: 3_000,
     });
     await seedAd(prisma, {
-      companyId,
+      organizationId,
       listingId: listingL2.listingId,
       date: '2026-04-15',
       spend: 1_000,
@@ -200,7 +200,7 @@ describe('Statistics flow (PG integration)', () => {
   it('overview uses live listing metrics plus distinct accepted-order count', async () => {
     await seedStatisticsFixture();
 
-    const result = await service.overview(TEST_COMPANY_ID, '2026-04');
+    const result = await service.overview(TEST_ORGANIZATION_ID, '2026-04');
 
     expect(result).toEqual({
       totalRevenue: 52_000,
@@ -214,7 +214,7 @@ describe('Statistics flow (PG integration)', () => {
   it('products hydrates master metadata and keeps ratio-based profitRate semantics', async () => {
     const { listingL1, listingL2 } = await seedStatisticsFixture();
 
-    const result = await service.products(TEST_COMPANY_ID, '2026-04');
+    const result = await service.products(TEST_ORGANIZATION_ID, '2026-04');
 
     expect(result).toEqual([
       {
@@ -256,8 +256,8 @@ describe('Statistics flow (PG integration)', () => {
     await seedStatisticsFixture();
 
     const [categories, grades] = await Promise.all([
-      service.categories(TEST_COMPANY_ID, '2026-04'),
-      service.grades(TEST_COMPANY_ID, '2026-04'),
+      service.categories(TEST_ORGANIZATION_ID, '2026-04'),
+      service.grades(TEST_ORGANIZATION_ID, '2026-04'),
     ]);
 
     expect(categories).toEqual([
@@ -301,7 +301,7 @@ describe('Statistics flow (PG integration)', () => {
   it('pareto sorts by live revenue and keeps grade distribution semantics', async () => {
     const { listingL1, listingL2 } = await seedStatisticsFixture();
 
-    const result = await service.pareto(TEST_COMPANY_ID, '2026-04');
+    const result = await service.pareto(TEST_ORGANIZATION_ID, '2026-04');
 
     expect(result.totalRevenue).toBe(52_000);
     expect(result.gradeDistribution).toEqual({ A: 1, B: 1, C: 0 });
@@ -337,7 +337,7 @@ describe('Statistics flow (PG integration)', () => {
     vi.setSystemTime(new Date('2026-04-19T00:00:00.000Z'));
     await seedStatisticsFixture();
 
-    const result = await service.delivery(TEST_COMPANY_ID, '2026-04');
+    const result = await service.delivery(TEST_ORGANIZATION_ID, '2026-04');
 
     expect(result.totalShipments).toBe(0);
     expect(result.avgDeliveryDays).toBe(0);
@@ -370,7 +370,7 @@ describe('Statistics flow (PG integration)', () => {
   it('repurchase keeps receiver-level and master-level behavior on current schema', async () => {
     const { masterM1, masterM2 } = await seedStatisticsFixture();
 
-    const result = await service.repurchase(TEST_COMPANY_ID, '2026-04');
+    const result = await service.repurchase(TEST_ORGANIZATION_ID, '2026-04');
 
     expect(result).toEqual({
       totalCustomers: 2,
@@ -397,17 +397,17 @@ describe('Statistics flow (PG integration)', () => {
     expect(result.repeatProducts.map((item) => item.masterId)).not.toContain(masterM1);
   });
 
-  it('never leaks other-company live metrics into the requested tenant', async () => {
-    await seedStatisticsFixture(TEST_COMPANY_ID);
-    const other = await seedStatisticsFixture(OTHER_COMPANY_ID);
+  it('never leaks other-organization live metrics into the requested tenant', async () => {
+    await seedStatisticsFixture(TEST_ORGANIZATION_ID);
+    const other = await seedStatisticsFixture(OTHER_ORGANIZATION_ID);
     await seedAd(prisma, {
-      companyId: OTHER_COMPANY_ID,
+      organizationId: OTHER_ORGANIZATION_ID,
       listingId: other.listingL1,
       date: '2026-04-16',
       spend: IDOR_SENTINEL,
     });
     await seedOrderWithLineItems(prisma, {
-      companyId: OTHER_COMPANY_ID,
+      organizationId: OTHER_ORGANIZATION_ID,
       externalOrderId: 'OTHER-SENTINEL',
       orderedAt: '2026-04-16T03:00:00Z',
       shippingPrice: 0,
@@ -416,18 +416,18 @@ describe('Statistics flow (PG integration)', () => {
           quantity: 1,
           totalPrice: IDOR_SENTINEL,
           optionId: await prisma.channelListingOption.findFirstOrThrow({
-            where: { companyId: OTHER_COMPANY_ID, listingId: other.listingL1 },
+            where: { organizationId: OTHER_ORGANIZATION_ID, listingId: other.listingL1 },
             select: { optionId: true },
           }).then((row) => row.optionId),
           listingOptionId: await prisma.channelListingOption.findFirstOrThrow({
-            where: { companyId: OTHER_COMPANY_ID, listingId: other.listingL1 },
+            where: { organizationId: OTHER_ORGANIZATION_ID, listingId: other.listingL1 },
             select: { id: true },
           }).then((row) => row.id),
         },
       ],
     });
 
-    const result = await service.products(TEST_COMPANY_ID, '2026-04');
+    const result = await service.products(TEST_ORGANIZATION_ID, '2026-04');
 
     expect(result).toHaveLength(2);
     for (const row of result) {

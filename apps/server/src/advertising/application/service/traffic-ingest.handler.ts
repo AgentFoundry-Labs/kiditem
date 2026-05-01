@@ -41,7 +41,7 @@ export interface TrafficIngestDeps {
 
 export async function ingestTraffic(
   payload: ExtensionSyncDto,
-  companyId: string,
+  organizationId: string,
   map: ListingMap,
   deps: TrafficIngestDeps,
 ) {
@@ -57,7 +57,7 @@ export async function ingestTraffic(
   const data = payload.data ?? [];
 
   const scrapeRun = await createScrapeRun(prisma, {
-    companyId,
+    organizationId,
     channel: 'coupang',
     source: 'wing',
     pageType: 'traffic',
@@ -98,7 +98,7 @@ export async function ingestTraffic(
       ]);
       const snapshot = await appendScrapeSnapshot(prisma, {
         scrapeRunId: scrapeRun.id,
-        companyId,
+        organizationId,
         channel: 'coupang',
         source: 'wing',
         pageType: 'traffic',
@@ -133,7 +133,7 @@ export async function ingestTraffic(
           ? Math.round((item.orders / item.visitors) * 10000) / 100
           : 0;
       await upsertChannelListingDaily(prisma, {
-        companyId,
+        organizationId,
         listingId: match.listingId,
         channel: 'coupang',
         externalId: match.externalId ?? externalIdRaw ?? '',
@@ -169,7 +169,7 @@ export async function ingestTraffic(
         timestamp: payload.timestamp,
       };
       await upsertChannelAccountKpi(prisma, {
-        companyId,
+        organizationId,
         channel: 'coupang',
         source: 'wing',
         kpiType: 'wing_dashboard',
@@ -188,7 +188,7 @@ export async function ingestTraffic(
 
     await finalizeScrapeRun(prisma, {
       scrapeRunId: scrapeRun.id,
-      companyId,
+      organizationId,
       status: 'complete',
       rowCount: scrapeSnapshotCount,
       matchedCount: scrapeMatched,
@@ -209,7 +209,7 @@ export async function ingestTraffic(
   } catch (err) {
     await finalizeScrapeRunOnError(prisma, {
       scrapeRunId: scrapeRun.id,
-      companyId,
+      organizationId,
       rowCount: scrapeSnapshotCount,
       matchedCount: scrapeMatched,
       unmatchedCount: scrapeUnmatched,

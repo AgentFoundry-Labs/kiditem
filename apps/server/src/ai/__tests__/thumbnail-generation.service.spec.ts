@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { ThumbnailGenerationService } from '../application/service/thumbnail-generation.service';
 import type { ThumbnailEditorInputImage } from '../domain/model/thumbnail-editor';
 
-const COMPANY_ID = 'company-1';
+const ORGANIZATION_ID = 'organization-1';
 const PRODUCT_ID = '7d000000-0000-4000-8000-000000000001';
 const GENERATION_ID = '7d000000-0000-4000-8000-000000000010';
 
@@ -133,7 +133,7 @@ describe('ThumbnailGenerationService normalized persistence', () => {
           name: 'Master',
           imageUrl: 'https://example.com/p.jpg',
           category: 'toys',
-          companyId: COMPANY_ID,
+          organizationId: ORGANIZATION_ID,
         })),
       },
       thumbnailGeneration: {
@@ -150,7 +150,7 @@ describe('ThumbnailGenerationService normalized persistence', () => {
     );
     const id = await service.saveEditorResult({
       productId: PRODUCT_ID,
-      companyId: COMPANY_ID,
+      organizationId: ORGANIZATION_ID,
       originalUrl: 'https://example.com/p.jpg',
       candidates: [
         { url: 'u1', storageKey: 'k1', filename: 'a.png', mimeType: 'image/png', fileSize: 100 },
@@ -178,7 +178,7 @@ describe('ThumbnailGenerationService normalized persistence', () => {
     });
   });
 
-  it('saveEditorResult refuses to create a generation for a product outside the caller company', async () => {
+  it('saveEditorResult refuses to create a generation for a product outside the caller organization', async () => {
     const prisma = {
       masterProduct: {
         findFirst: vi.fn(async () => null),
@@ -196,7 +196,7 @@ describe('ThumbnailGenerationService normalized persistence', () => {
     await expect(
       service.saveEditorResult({
         productId: PRODUCT_ID,
-        companyId: COMPANY_ID,
+        organizationId: ORGANIZATION_ID,
         originalUrl: 'https://example.com/p.jpg',
         candidates: [
           { url: 'u1', storageKey: 'k1', filename: 'a.png', mimeType: 'image/png', fileSize: 100 },
@@ -206,8 +206,8 @@ describe('ThumbnailGenerationService normalized persistence', () => {
     ).rejects.toThrow(`MasterProduct ${PRODUCT_ID} not found`);
 
     expect(prisma.masterProduct.findFirst).toHaveBeenCalledWith({
-      where: { id: PRODUCT_ID, companyId: COMPANY_ID, isDeleted: false },
-      select: { id: true, name: true, imageUrl: true, category: true, companyId: true },
+      where: { id: PRODUCT_ID, organizationId: ORGANIZATION_ID, isDeleted: false },
+      select: { id: true, name: true, imageUrl: true, category: true, organizationId: true },
     });
     expect(prisma.thumbnailGeneration.create).not.toHaveBeenCalled();
   });
@@ -243,10 +243,10 @@ describe('ThumbnailGenerationService normalized persistence', () => {
       { create: vi.fn() } as never,
     );
 
-    const result = await service.findAll(COMPANY_ID);
+    const result = await service.findAll(ORGANIZATION_ID);
 
     expect(prisma.masterProduct.findMany).toHaveBeenCalledWith({
-      where: { id: { in: [PRODUCT_ID] }, companyId: COMPANY_ID, isDeleted: false },
+      where: { id: { in: [PRODUCT_ID] }, organizationId: ORGANIZATION_ID, isDeleted: false },
       select: { id: true, name: true, imageUrl: true, category: true },
     });
     expect(result.items[0].product).toMatchObject({
@@ -285,7 +285,7 @@ describe('ThumbnailGenerationService normalized persistence', () => {
     const schedule = vi
       .spyOn(service as unknown as { scheduleEditJob: () => void }, 'scheduleEditJob')
       .mockImplementation(() => {});
-    const [created] = await service.createEditJobs([PRODUCT_ID], COMPANY_ID, 'compliance', 'auto', 'generate');
+    const [created] = await service.createEditJobs([PRODUCT_ID], ORGANIZATION_ID, 'compliance', 'auto', 'generate');
 
     expect(created.status).toBe('pending');
     expect(editorAi.generateEdit).not.toHaveBeenCalled();
@@ -294,7 +294,7 @@ describe('ThumbnailGenerationService normalized persistence', () => {
       status: 'pending',
       phase: null,
     });
-    expect(schedule).toHaveBeenCalledWith(GENERATION_ID, COMPANY_ID, 'compliance', 'auto');
+    expect(schedule).toHaveBeenCalledWith(GENERATION_ID, ORGANIZATION_ID, 'compliance', 'auto');
   });
 
   it('processEditJob feeds stored recompose kind and edit suggestions into prompt', async () => {
@@ -342,11 +342,11 @@ describe('ThumbnailGenerationService normalized persistence', () => {
     await (service as unknown as {
       processEditJob: (
         id: string,
-        companyId: string,
+        organizationId: string,
         purpose: 'compliance',
         variantKey: 'auto',
       ) => Promise<void>;
-    }).processEditJob(GENERATION_ID, COMPANY_ID, 'compliance', 'auto');
+    }).processEditJob(GENERATION_ID, ORGANIZATION_ID, 'compliance', 'auto');
 
     const editArgs = editorAi.generateEdit.mock.calls[0][2];
     expect(typeof editArgs.promptOverride).toBe('string');
@@ -399,7 +399,7 @@ describe('ThumbnailGenerationService normalized persistence', () => {
     vi
       .spyOn(service as unknown as { scheduleEditJob: () => void }, 'scheduleEditJob')
       .mockImplementation(() => {});
-    const result = await service.createAutoBatch(COMPANY_ID, 1);
+    const result = await service.createAutoBatch(ORGANIZATION_ID, 1);
     expect(result.attempted).toBe(1);
     const createData = (prisma.thumbnailGeneration.create as ReturnType<typeof vi.fn>).mock
       .calls[0][0].data;

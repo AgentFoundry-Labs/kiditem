@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Patch, Param, Query, Body } from '@nestjs/common';
 import { ProcessingCostsService } from './processing-costs.service';
 import { ListProcessingCostsQueryDto, CreateProcessingCostDto, UpdateProcessingCostDto } from './dto';
-import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
+import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
 
 @Controller('processing-costs')
 export class ProcessingCostsController {
@@ -9,28 +9,28 @@ export class ProcessingCostsController {
 
   @Get()
   async findAll(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Query() query: ListProcessingCostsQueryDto,
   ) {
-    return this.processingCostsService.findAll(companyId, query.status);
+    return this.processingCostsService.findAll(organizationId, query.status);
   }
 
   @Get('monthly')
-  async monthly(@CurrentCompany() companyId: string) {
-    return this.processingCostsService.monthly(companyId);
+  async monthly(@CurrentOrganization() organizationId: string) {
+    return this.processingCostsService.monthly(organizationId);
   }
 
   @Post()
-  create(@Body() dto: CreateProcessingCostDto, @CurrentCompany() companyId: string) {
-    return this.processingCostsService.create(companyId, dto);
+  create(@Body() dto: CreateProcessingCostDto, @CurrentOrganization() organizationId: string) {
+    return this.processingCostsService.create(organizationId, dto);
   }
 
   @Patch(':id')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateProcessingCostDto,
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
   ) {
-    return this.processingCostsService.update(id, companyId, dto);
+    return this.processingCostsService.update(id, organizationId, dto);
   }
 }

@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ReviewsService, computeSummary } from '../reviews.service';
 
-const COMPANY_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
-const OTHER_COMPANY_ID = 'b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e';
+const ORGANIZATION_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
+const OTHER_ORGANIZATION_ID = 'b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e';
 const LISTING_HEALTHY = '11111111-1111-4111-8111-111111111111';
 const LISTING_NEEDS_RATING = '22222222-2222-4222-8222-222222222222';
 const LISTING_NEEDS_VOLUME = '33333333-3333-4333-8333-333333333333';
@@ -32,7 +32,7 @@ describe('ReviewsService.list', () => {
     prisma.channelListing.findMany.mockResolvedValue([]);
     const svc = new ReviewsService(prisma as never);
 
-    const res = await svc.list(COMPANY_ID, {});
+    const res = await svc.list(ORGANIZATION_ID, {});
 
     expect(res).toEqual({
       items: [],
@@ -78,19 +78,19 @@ describe('ReviewsService.list', () => {
         channelName: 'Healthy Listing',
         master: { id: MASTER_HEALTHY, name: 'Healthy Toy', abcGrade: 'A' },
         options: [{ option: { sku: 'M-00000001-01' } }],
-        company: { name: 'KidItem Co' },
+        organization: { name: 'KidItem Co' },
       },
       {
         id: LISTING_NEEDS_RATING,
         channelName: 'Needs Rating',
         master: { id: MASTER_NEEDS_RATING, name: 'Low Rated Toy', abcGrade: 'C' },
         options: [{ option: { sku: 'M-00000002-01' } }],
-        company: { name: 'KidItem Co' },
+        organization: { name: 'KidItem Co' },
       },
     ]);
 
     const svc = new ReviewsService(prisma as never);
-    const res = await svc.list(COMPANY_ID, {});
+    const res = await svc.list(ORGANIZATION_ID, {});
 
     expect(res.total).toBe(2);
     expect(res.items).toHaveLength(2);
@@ -110,17 +110,17 @@ describe('ReviewsService.list', () => {
     expect(res.items[1].recentReviews).toBe(0);
   });
 
-  it('forwards companyId to every Prisma call (tenant isolation)', async () => {
+  it('forwards organizationId to every Prisma call (tenant isolation)', async () => {
     const prisma = makePrismaMock();
     prisma.review.groupBy.mockResolvedValue([]);
     prisma.channelListing.findMany.mockResolvedValue([]);
     const svc = new ReviewsService(prisma as never);
 
-    await svc.list(COMPANY_ID, {});
+    await svc.list(ORGANIZATION_ID, {});
 
     for (const call of prisma.review.groupBy.mock.calls) {
-      expect(call[0].where.companyId).toBe(COMPANY_ID);
-      expect(call[0].where.companyId).not.toBe(OTHER_COMPANY_ID);
+      expect(call[0].where.organizationId).toBe(ORGANIZATION_ID);
+      expect(call[0].where.organizationId).not.toBe(OTHER_ORGANIZATION_ID);
     }
   });
 
@@ -139,12 +139,12 @@ describe('ReviewsService.list', () => {
         channelName: `Listing ${agg.listingId}`,
         master: null,
         options: [],
-        company: { name: 'KidItem Co' },
+        organization: { name: 'KidItem Co' },
       })),
     );
 
     const svc = new ReviewsService(prisma as never);
-    const page1 = await svc.list(COMPANY_ID, { page: 1, limit: 2 });
+    const page1 = await svc.list(ORGANIZATION_ID, { page: 1, limit: 2 });
     expect(page1.total).toBe(5);
     expect(page1.items).toHaveLength(2);
     // Highest totalReviews first.
@@ -152,7 +152,7 @@ describe('ReviewsService.list', () => {
     expect(page1.items[1].totalReviews).toBe(4);
 
     prisma.review.groupBy.mockResolvedValueOnce(aggregates).mockResolvedValueOnce([]);
-    const page2 = await svc.list(COMPANY_ID, { page: 2, limit: 2 });
+    const page2 = await svc.list(ORGANIZATION_ID, { page: 2, limit: 2 });
     expect(page2.items).toHaveLength(2);
     expect(page2.items[0].totalReviews).toBe(3);
     expect(page2.items[1].totalReviews).toBe(2);
@@ -193,12 +193,12 @@ describe('ReviewsService.list', () => {
         channelName: `Listing ${agg.listingId}`,
         master: null,
         options: [],
-        company: { name: 'KidItem Co' },
+        organization: { name: 'KidItem Co' },
       })),
     );
 
     const svc = new ReviewsService(prisma as never);
-    const res = await svc.list(COMPANY_ID, { filter: 'new', page: 1, limit: 1 } as any);
+    const res = await svc.list(ORGANIZATION_ID, { filter: 'new', page: 1, limit: 1 } as any);
 
     expect(res.total).toBe(2);
     expect(res.items).toHaveLength(1);
@@ -235,12 +235,12 @@ describe('ReviewsService.list', () => {
         channelName: 'Healthy Listing',
         master: { id: MASTER_HEALTHY, name: 'Healthy Toy', abcGrade: 'A' },
         options: [{ option: { sku: 'M-00000001-01' } }],
-        company: { name: 'KidItem Co' },
+        organization: { name: 'KidItem Co' },
       },
     ]);
 
     const svc = new ReviewsService(prisma as never);
-    const res = await svc.list(COMPANY_ID, {});
+    const res = await svc.list(ORGANIZATION_ID, {});
 
     expect(res.total).toBe(1);
     expect(res.items.map((item) => item.listingId)).toEqual([LISTING_HEALTHY]);
@@ -268,13 +268,13 @@ describe('ReviewsService.list', () => {
         channelName: 'Healthy Listing',
         master: { id: MASTER_HEALTHY, name: 'Healthy Toy', abcGrade: 'A' },
         options: [{ option: { sku: 'M-00000001-01' } }],
-        company: { name: 'KidItem Co' },
+        organization: { name: 'KidItem Co' },
       },
     ]);
     const svc = new ReviewsService(prisma as never);
 
     const before = Date.now();
-    await svc.list(COMPANY_ID, {});
+    await svc.list(ORGANIZATION_ID, {});
     const after = Date.now();
 
     const recentCall = prisma.review.groupBy.mock.calls[1];

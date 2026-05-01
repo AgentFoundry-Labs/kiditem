@@ -35,7 +35,7 @@ import {
 } from '../../domain/policy/public-image-url';
 
 const SYSTEM_FIELDS = [
-  'id', 'code', 'companyId', 'optionCounter', 'isDeleted', 'deletedAt',
+  'id', 'code', 'organizationId', 'optionCounter', 'isDeleted', 'deletedAt',
   'healthUpdatedAt', 'rawData', 'processedData', 'draftContent',
   'createdAt', 'updatedAt', 'images', 'imageUrl',
 ] as const;
@@ -65,18 +65,10 @@ export class MastersService {
    *                  so cold-cache writes don't trip Prisma's 5 s default.
    */
   async create(
-    companyId: string,
+    organizationId: string,
     dto: CreateMasterDto,
     outerTx?: Prisma.TransactionClient,
   ): Promise<MasterProduct> {
-    const db = outerTx ?? this.prisma;
-    if (dto.supplierId) {
-      const supplier = await db.supplier.findFirst({
-        where: { id: dto.supplierId, companyId },
-        select: { id: true },
-      });
-      if (!supplier) throw new NotFoundException('supplier not found');
-    }
     const code = await this.codeSvc.generate();
     const stripped = this.strip(dto);
     try {
@@ -87,15 +79,15 @@ export class MastersService {
         const row = await tx.masterProduct.create({
           data: {
             ...stripped,
-            companyId,
+            organizationId,
             code,
             imageUrl: representativeImageUrl(normalizedImages),
             healthUpdatedAt: dto.healthScore !== undefined ? new Date() : null,
           } as Prisma.MasterProductUncheckedCreateInput,
         });
-        await this.createImageRowsTx(tx, companyId, row.id, normalizedImages);
+        await this.createImageRowsTx(tx, organizationId, row.id, normalizedImages);
         const created = await tx.masterProduct.findFirst({
-          where: { id: row.id, companyId },
+          where: { id: row.id, organizationId },
           include: MASTER_WITH_IMAGES,
         }) as MasterWithImageRows | null;
         if (!created) throw new NotFoundException('master not found');
@@ -106,29 +98,29 @@ export class MastersService {
     } catch (e) { mapPrismaError(e, 'master create'); }
   }
 
-  async list(companyId: string, q: ListMastersQuery) {
-    const { items, nextCursor } = await findMasterListPage(this.prisma, companyId, q);
+  async list(organizationId: string, q: ListMastersQuery) {
+    const { items, nextCursor } = await findMasterListPage(this.prisma, organizationId, q);
     return { items: items.map(withImageRows), nextCursor };
   }
 
   async findById(
-    companyId: string,
+    organizationId: string,
     id: string,
     opts: { includeDeleted?: boolean },
   ): Promise<MasterProduct> {
-    const row = await findMasterById(this.prisma, companyId, id, opts);
+    const row = await findMasterById(this.prisma, organizationId, id, opts);
     if (!row) throw new NotFoundException('master not found');
     return withImageRows(row);
   }
 
-  async findByCode(companyId: string, code: string): Promise<MasterProduct> {
-    const row = await findMasterByCode(this.prisma, companyId, code);
+  async findByCode(organizationId: string, code: string): Promise<MasterProduct> {
+    const row = await findMasterByCode(this.prisma, organizationId, code);
     if (!row) throw new NotFoundException('master not found');
     return withImageRows(row);
   }
 
-  async findByLegacy(companyId: string, legacyCode: string): Promise<MasterProduct> {
-    const row = await findMasterByLegacy(this.prisma, companyId, legacyCode);
+  async findByLegacy(organizationId: string, legacyCode: string): Promise<MasterProduct> {
+    const row = await findMasterByLegacy(this.prisma, organizationId, legacyCode);
     if (!row) throw new NotFoundException('master not found');
     return withImageRows(row);
   }
@@ -138,19 +130,11 @@ export class MastersService {
    *                  `{ timeout: >= 15000 }` on the outer `$transaction`.
    */
   async update(
-    companyId: string,
+    organizationId: string,
     id: string,
     dto: UpdateMasterDto,
     outerTx?: Prisma.TransactionClient,
   ): Promise<MasterProduct> {
-    const db = outerTx ?? this.prisma;
-    if (dto.supplierId !== undefined && dto.supplierId !== null) {
-      const supplier = await db.supplier.findFirst({
-        where: { id: dto.supplierId, companyId },
-        select: { id: true },
-      });
-      if (!supplier) throw new NotFoundException('supplier not found');
-    }
     const stripped = this.strip(dto);
     const data = { ...stripped } as Prisma.MasterProductUncheckedUpdateInput;
     if (dto.healthScore !== undefined) data.healthUpdatedAt = new Date();
@@ -158,20 +142,20 @@ export class MastersService {
     try {
       const updateInTx = async (tx: Prisma.TransactionClient) => {
         const { count } = await tx.masterProduct.updateMany({
-          where: { id, companyId, isDeleted: false },
+          where: { id, organizationId, isDeleted: false },
           data,
         });
         if (count === 0) throw new NotFoundException('master not found or deleted');
         if (dto.images !== undefined || dto.imageUrl !== undefined) {
           await this.replaceImagesTx(
             tx,
-            companyId,
+            organizationId,
             id,
             dto.images ?? (dto.imageUrl ? [{ url: dto.imageUrl, role: 'product', label: null, sortOrder: 0 }] : []),
           );
         }
         const updated = await tx.masterProduct.findFirst({
-          where: { id, companyId, isDeleted: false },
+          where: { id, organizationId, isDeleted: false },
           include: MASTER_WITH_IMAGES,
         }) as MasterWithImageRows | null;
         if (!updated) throw new NotFoundException('master not found or deleted');
@@ -188,28 +172,28 @@ export class MastersService {
    * envelopes without duplicating the read-path lenience logic.
    */
   async getImages(
-    companyId: string,
+    organizationId: string,
     id: string,
   ): Promise<MasterImageItem[]> {
-    const rows = await findMasterImageRows(this.prisma, companyId, id);
-    if (rows.length === 0) await this.findById(companyId, id, {});
+    const rows = await findMasterImageRows(this.prisma, organizationId, id);
+    if (rows.length === 0) await this.findById(organizationId, id, {});
     return rows.map(toMasterImageItem);
   }
 
   async updateImages(
-    companyId: string,
+    organizationId: string,
     id: string,
     images: unknown,
   ): Promise<MasterProduct> {
     const row = await this.prisma.$transaction(async (tx) => {
       const { count } = await tx.masterProduct.updateMany({
-        where: { id, companyId, isDeleted: false },
+        where: { id, organizationId, isDeleted: false },
         data: { imageUrl: representativeImageUrl(normalizeImagesForWrite(images)) },
       });
       if (count === 0) throw new NotFoundException('master not found or deleted');
-      await this.replaceImagesTx(tx, companyId, id, images);
+      await this.replaceImagesTx(tx, organizationId, id, images);
       const updated = await tx.masterProduct.findFirst({
-        where: { id, companyId, isDeleted: false },
+        where: { id, organizationId, isDeleted: false },
         include: MASTER_WITH_IMAGES,
       }) as MasterWithImageRows | null;
       if (!updated) throw new NotFoundException('master not found or deleted');
@@ -225,7 +209,7 @@ export class MastersService {
    * MasterProduct.imageUrl is updated in the same transaction as the cache.
    */
   async uploadImage(
-    companyId: string,
+    organizationId: string,
     id: string,
     file: MulterFile,
   ): Promise<MasterImageItem> {
@@ -243,16 +227,16 @@ export class MastersService {
     if (!ext) {
       throw new BadRequestException(`unsupported mime type: ${file.mimetype}`);
     }
-    await this.findById(companyId, id, {});
+    await this.findById(organizationId, id, {});
     const key = `product-images/${id}/${randomUUID()}.${ext}`;
     const url = await this.storage.save(key, file.buffer, file.mimetype);
     const row = await this.prisma.$transaction(async (tx) => {
       const existingCount = await tx.masterProductImage.count({
-        where: { companyId, masterId: id, isDeleted: false },
+        where: { organizationId, masterId: id, isDeleted: false },
       });
       const image = await tx.masterProductImage.create({
         data: {
-          companyId,
+          organizationId,
           masterId: id,
           url,
           storageKey: key,
@@ -267,7 +251,7 @@ export class MastersService {
       });
       if (existingCount === 0) {
         await tx.masterProduct.updateMany({
-          where: { id, companyId, isDeleted: false },
+          where: { id, organizationId, isDeleted: false },
           data: { imageUrl: url },
         });
       }
@@ -277,10 +261,10 @@ export class MastersService {
   }
 
   async originalImageBase64(
-    companyId: string,
+    organizationId: string,
     id: string,
   ): Promise<{ dataUrl: string }> {
-    const row = await this.findById(companyId, id, {});
+    const row = await this.findById(organizationId, id, {});
     const images = normalizeMasterImages((row as unknown as { images: unknown }).images);
     const url = row.imageUrl ?? images[0]?.url ?? row.thumbnailUrl ?? null;
     if (!url) throw new NotFoundException('image not found');
@@ -296,7 +280,7 @@ export class MastersService {
 
   private async createImageRowsTx(
     tx: Prisma.TransactionClient,
-    companyId: string,
+    organizationId: string,
     masterId: string,
     images: MasterImageItem[],
   ): Promise<void> {
@@ -304,7 +288,7 @@ export class MastersService {
     const primary = primaryImageIndex(images);
     await tx.masterProductImage.createMany({
       data: images.map((img, index) => ({
-        companyId,
+        organizationId,
         masterId,
         url: img.url,
         storageKey: img.storageKey ?? null,
@@ -323,17 +307,17 @@ export class MastersService {
 
   private async replaceImagesTx(
     tx: Prisma.TransactionClient,
-    companyId: string,
+    organizationId: string,
     masterId: string,
     images: unknown,
   ): Promise<void> {
     const normalized = normalizeImagesForWrite(images);
     await tx.masterProduct.updateMany({
-      where: { id: masterId, companyId, isDeleted: false },
+      where: { id: masterId, organizationId, isDeleted: false },
       data: { imageUrl: representativeImageUrl(normalized) },
     });
-    await tx.masterProductImage.deleteMany({ where: { companyId, masterId } });
-    await this.createImageRowsTx(tx, companyId, masterId, normalized);
+    await tx.masterProductImage.deleteMany({ where: { organizationId, masterId } });
+    await this.createImageRowsTx(tx, organizationId, masterId, normalized);
   }
 
   /**
@@ -341,13 +325,13 @@ export class MastersService {
    *                  `{ timeout: >= 15000 }` on the outer `$transaction`.
    */
   async softDelete(
-    companyId: string,
+    organizationId: string,
     id: string,
     outerTx?: Prisma.TransactionClient,
   ): Promise<void> {
     const db = outerTx ?? this.prisma;
     const { count } = await db.masterProduct.updateMany({
-      where: { id, companyId, isDeleted: false },
+      where: { id, organizationId, isDeleted: false },
       data: { isDeleted: true, deletedAt: new Date() },
     });
     if (count === 0) throw new NotFoundException('master not found');
@@ -363,14 +347,14 @@ export class MastersService {
    *                  `{ timeout: >= 15000 }` on the outer `$transaction`.
    */
   async restore(
-    companyId: string,
+    organizationId: string,
     id: string,
     outerTx?: Prisma.TransactionClient,
   ): Promise<void> {
     const db = outerTx ?? this.prisma;
     try {
       const { count } = await db.masterProduct.updateMany({
-        where: { id, companyId, isDeleted: true },
+        where: { id, organizationId, isDeleted: true },
         data: { isDeleted: false, deletedAt: null },
       });
       if (count === 0) throw new NotFoundException('master not found or not deleted');

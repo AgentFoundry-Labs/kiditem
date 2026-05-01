@@ -3,7 +3,7 @@ import { Observable, from, concat } from 'rxjs';
 import { map } from 'rxjs/operators';
 import type { AuthUser } from '../../../../auth/auth.types';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
-import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
+import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { PanelSseService } from '../../out/panel-event/panel-sse.service';
 import { PanelService } from '../../out/panel-event/panel.service';
 import type { PanelEvent, PanelItem } from '@kiditem/shared/panel';
@@ -24,12 +24,12 @@ export class PanelController {
    */
   @Sse('stream')
   async stream(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
     @Headers('last-event-id') lastEventId?: string,
   ): Promise<Observable<MessageEvent>> {
     const afterSeq = lastEventId ? parseInt(lastEventId, 10) : 0;
-    const replayed = this.sseService.replayAfter(companyId, afterSeq);
+    const replayed = this.sseService.replayAfter(organizationId, afterSeq);
 
     let initial$: Observable<MessageEvent>;
 
@@ -38,7 +38,7 @@ export class PanelController {
         map((event) => ({ data: event, id: String(event.seq) })),
       );
     } else {
-      const items = await this.panelService.snapshot(companyId, user.id);
+      const items = await this.panelService.snapshot(organizationId, user.id);
       const seq = this.sseService.currentSeq;
       const now = new Date().toISOString();
       const snapshotEvent: PanelEvent = {
@@ -54,25 +54,25 @@ export class PanelController {
       initial$ = from([{ data: snapshotEvent, id: String(seq) } as MessageEvent]);
     }
 
-    const live$ = this.sseService.getStream(companyId);
+    const live$ = this.sseService.getStream(organizationId);
     return concat(initial$, live$);
   }
 
   @Get('backfill')
   async backfill(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
     @Query('afterSeq') afterSeqStr?: string,
   ) {
     const afterSeq = afterSeqStr ? parseInt(afterSeqStr, 10) : 0;
-    return this.panelService.backfill(companyId, afterSeq, user.id);
+    return this.panelService.backfill(organizationId, afterSeq, user.id);
   }
 
   @Get('snapshot')
   async snapshot(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.panelService.snapshot(companyId, user.id);
+    return this.panelService.snapshot(organizationId, user.id);
   }
 }

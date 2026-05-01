@@ -10,7 +10,7 @@
  *   3. Dismiss emit/not-found — SSE DISMISS event shape + NotFoundException
  *   5. list(me|team|all) filter branches + sourceAlert join
  *   6. No N+1 — list() calls prisma.alert.findMany ≤ 1 time
- *   + Cross-company stream isolation (companyId filter)
+ *   + Cross-organization stream isolation (organizationId filter)
  *
  * Race / IDOR scenarios moved out: 실제 동시 트랜잭션은 sibling spec
  * `panel-pr3.pg.integration.spec.ts` + `action-board-claim.pg.integration.spec.ts`
@@ -47,7 +47,7 @@ const USER_B = 'dddddddd-0000-4000-8000-000000000004';
 function alertFixture(overrides: Record<string, unknown> = {}) {
   return {
     id: ALERT_ID,
-    companyId: CO,
+    organizationId: CO,
     productId: null,
     type: 'rule_violation',
     severity: 'warning',
@@ -63,7 +63,7 @@ function alertFixture(overrides: Record<string, unknown> = {}) {
 function taskFixture(overrides: Record<string, unknown> = {}) {
   return {
     id: TASK_ID,
-    companyId: CO,
+    organizationId: CO,
     taskKey: `promoted:${ALERT_ID}`,
     type: 'human',
     label: 'Test alert',
@@ -103,7 +103,7 @@ function makePrisma() {
       findFirstOrThrow: vi.fn(),
       findMany: vi.fn(),
     },
-    company: {
+    organization: {
       findFirst: vi.fn(),
     },
     // $transaction runs the callback with a tx proxy
@@ -196,7 +196,7 @@ describe('Panel PR3 integration — promote/dismiss/claim/list (Task 35)', () =>
 
   // ── Scenario 3: Dismiss emit ─────────────────────────────────────────────
 
-  it('Scenario 3: dismiss() → SSE DISMISS event arrives with itemId and no companyId leak', async () => {
+  it('Scenario 3: dismiss() → SSE DISMISS event arrives with itemId and no organizationId leak', async () => {
     const { sseService, alertsService, prisma } = ctx;
 
     prisma.alert.updateMany.mockResolvedValue({ count: 1 });
@@ -213,8 +213,8 @@ describe('Panel PR3 integration — promote/dismiss/claim/list (Task 35)', () =>
     const event = (events[0] as any).data;
     expect(event.type).toBe('dismiss');
     expect(event.itemId).toBe(ALERT_ID);
-    // companyId must NOT be in the outbound wire event (strip at PanelSseService)
-    expect(event.companyId).toBeUndefined();
+    // organizationId must NOT be in the outbound wire event (strip at PanelSseService)
+    expect(event.organizationId).toBeUndefined();
   });
 
   it('Scenario 3b: dismiss() not found → NotFoundException; no SSE emit', async () => {
@@ -245,7 +245,7 @@ describe('Panel PR3 integration — promote/dismiss/claim/list (Task 35)', () =>
     await actionBoardService.list(CO, USER_A, { assignedTo: 'me' });
 
     const whereArg = prisma.actionTask.findMany.mock.calls[0][0].where;
-    expect(whereArg.companyId).toBe(CO);
+    expect(whereArg.organizationId).toBe(CO);
     expect(whereArg.assigneeUserId).toBe(USER_A);
   });
 
@@ -258,7 +258,7 @@ describe('Panel PR3 integration — promote/dismiss/claim/list (Task 35)', () =>
     await actionBoardService.list(CO, USER_A, { assignedTo: 'team' });
 
     const whereArg = prisma.actionTask.findMany.mock.calls[0][0].where;
-    expect(whereArg.companyId).toBe(CO);
+    expect(whereArg.organizationId).toBe(CO);
     expect(whereArg.AND).toEqual(
       expect.arrayContaining([
         { assigneeUserId: { not: null } },
@@ -276,7 +276,7 @@ describe('Panel PR3 integration — promote/dismiss/claim/list (Task 35)', () =>
     await actionBoardService.list(CO, USER_A); // default = 'all'
 
     const whereArg = prisma.actionTask.findMany.mock.calls[0][0].where;
-    expect(whereArg.companyId).toBe(CO);
+    expect(whereArg.organizationId).toBe(CO);
     expect(whereArg.assigneeUserId).toBeUndefined();
     expect(whereArg.AND).toBeUndefined();
   });
@@ -342,7 +342,7 @@ describe('Panel PR3 integration — promote/dismiss/claim/list (Task 35)', () =>
     expect(alertFindManySpy).not.toHaveBeenCalled();
   });
 
-  // ── Cross-company isolation (dismiss event) ──────────────────────────────
+  // ── Cross-organization isolation (dismiss event) ──────────────────────────────
 
   it('Dismiss event for co-A does NOT appear in co-B stream', async () => {
     const { sseService, alertsService, prisma } = ctx;
@@ -357,7 +357,7 @@ describe('Panel PR3 integration — promote/dismiss/claim/list (Task 35)', () =>
 
     // co-A promotes and dismisses its own alert
     const txForPromote = wireTransaction(prisma);
-    txForPromote.alert.findFirst = vi.fn().mockResolvedValue(alertFixture({ companyId: CO }));
+    txForPromote.alert.findFirst = vi.fn().mockResolvedValue(alertFixture({ organizationId: CO }));
     txForPromote.actionTask.create = vi.fn().mockResolvedValue(taskFixture());
     txForPromote.alert.updateMany = vi.fn().mockResolvedValue({ count: 1 });
 

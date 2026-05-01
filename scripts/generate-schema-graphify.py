@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PRISMA_MODELS = ROOT / 'prisma' / 'models'
 
 IMPORTANT_FIELD_NAMES = {
-    'companyId', 'masterId', 'optionId', 'listingId', 'listingOptionId',
+    'organizationId', 'masterId', 'optionId', 'listingId', 'listingOptionId',
     'externalId', 'externalOptionId', 'vendorItemId', 'sellerProductId',
     'legacyCode', 'barcode', 'isDeleted', 'isActive', 'isUnmatched',
     'orderId', 'orderLineItemId', 'returnId', 'warehouseId', 'supplierId',

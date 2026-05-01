@@ -36,7 +36,7 @@ function makeService(prisma?: any) {
 function makeWakeupRow(overrides: Record<string, unknown> = {}) {
   return {
     id: 'wake-1',
-    company_id: 'company-1',
+    organization_id: 'organization-1',
     agent_id: 'agent-1',
     source: 'on_demand',
     trigger_detail: null,
@@ -59,7 +59,7 @@ function makeWakeupRow(overrides: Record<string, unknown> = {}) {
 
 const MOCK_TASK = {
   id: 'task-1',
-  companyId: 'company-1',
+  organizationId: 'organization-1',
   agentType: 'ad_strategy',
   status: 'completed',
   priority: 0,
@@ -80,18 +80,18 @@ const MOCK_TASK = {
 
 describe('AgentTraceService', () => {
   describe('getTrace', () => {
-    it('throws NotFoundException when task not found OR belongs to another company (cross-tenant)', async () => {
+    it('throws NotFoundException when task not found OR belongs to another organization (cross-tenant)', async () => {
       const { service, prisma } = makeService();
       prisma.agentTask.findFirst.mockResolvedValue(null);
 
-      // 다른 company id 로 접근 — findFirst 가 companyId 를 where 에 포함했기에 null
-      await expect(service.getTrace('task-1', 'company-2', {})).rejects.toThrow(NotFoundException);
+      // 다른 organization id 로 접근 — findFirst 가 organizationId 를 where 에 포함했기에 null
+      await expect(service.getTrace('task-1', 'organization-2', {})).rejects.toThrow(NotFoundException);
       expect(prisma.agentTask.findFirst).toHaveBeenCalledWith({
-        where: { id: 'task-1', companyId: 'company-2' },
+        where: { id: 'task-1', organizationId: 'organization-2' },
       });
 
       // 존재하지 않는 taskId — 동일 경로
-      await expect(service.getTrace('task-missing', 'company-1', {})).rejects.toThrow(
+      await expect(service.getTrace('task-missing', 'organization-1', {})).rejects.toThrow(
         NotFoundException,
       );
     });
@@ -106,7 +106,7 @@ describe('AgentTraceService', () => {
       prisma.heartbeatRun.findMany.mockResolvedValue([{ id: 'run-1' }, { id: 'run-2' }]);
       prisma.agentEvent.findMany.mockResolvedValue([{ id: 'evt-1', runId: 'run-1' }]);
 
-      const res = await service.getTrace('task-1', 'company-1', {});
+      const res = await service.getTrace('task-1', 'organization-1', {});
 
       expect(res.wakeupRequests).toHaveLength(2);
       expect(res.wakeupRequests[0].runId).toBe('run-1');
@@ -118,7 +118,7 @@ describe('AgentTraceService', () => {
       expect(res.pagination.hasMore).toBe(false);
       expect(res.pagination.nextCursor).toBeNull();
       expect(prisma.heartbeatRun.findMany).toHaveBeenCalledWith({
-        where: { id: { in: ['run-1', 'run-2'] }, companyId: 'company-1' },
+        where: { id: { in: ['run-1', 'run-2'] }, organizationId: 'organization-1' },
         orderBy: { startedAt: 'asc' },
       });
     });
@@ -128,7 +128,7 @@ describe('AgentTraceService', () => {
       prisma.agentTask.findFirst.mockResolvedValue({ ...MOCK_TASK, workflowRunId: null });
       prisma.$queryRaw.mockResolvedValue([]);
 
-      const res = await service.getTrace('task-1', 'company-1', {});
+      const res = await service.getTrace('task-1', 'organization-1', {});
 
       expect(res.traceability.markerFound).toBe(false);
       expect(res.traceability.creationPath).toBe('unknown');
@@ -137,13 +137,13 @@ describe('AgentTraceService', () => {
       expect(res.events).toHaveLength(0);
     });
 
-    it('marks creationPath=workflow when task.workflowRunId is set, scoping the WorkflowRun read by companyId', async () => {
+    it('marks creationPath=workflow when task.workflowRunId is set, scoping the WorkflowRun read by organizationId', async () => {
       const { service, prisma } = makeService();
       prisma.agentTask.findFirst.mockResolvedValue({ ...MOCK_TASK, workflowRunId: 'wf-1' });
       prisma.$queryRaw.mockResolvedValue([makeWakeupRow({ run_id: 'run-1' })]);
       prisma.workflowRun.findFirst.mockResolvedValue({ id: 'wf-1', status: 'completed' });
 
-      const res = await service.getTrace('task-1', 'company-1', {});
+      const res = await service.getTrace('task-1', 'organization-1', {});
 
       expect(res.traceability.creationPath).toBe('workflow');
       expect(res.workflowRun).toEqual({ id: 'wf-1', status: 'completed' });
@@ -151,7 +151,7 @@ describe('AgentTraceService', () => {
       // a malicious / corrupt task.workflowRunId pointing at another
       // tenant's run would otherwise leak into the trace response.
       expect(prisma.workflowRun.findFirst).toHaveBeenCalledWith({
-        where: { id: 'wf-1', companyId: 'company-1' },
+        where: { id: 'wf-1', organizationId: 'organization-1' },
       });
     });
 
@@ -162,11 +162,11 @@ describe('AgentTraceService', () => {
       // Cross-tenant findFirst returns null even though id exists in DB
       prisma.workflowRun.findFirst.mockResolvedValue(null);
 
-      const res = await service.getTrace('task-1', 'company-1', {});
+      const res = await service.getTrace('task-1', 'organization-1', {});
 
       expect(res.workflowRun).toBeNull();
       expect(prisma.workflowRun.findFirst).toHaveBeenCalledWith({
-        where: { id: 'wf-other', companyId: 'company-1' },
+        where: { id: 'wf-other', organizationId: 'organization-1' },
       });
     });
 
@@ -180,7 +180,7 @@ describe('AgentTraceService', () => {
       prisma.$queryRaw.mockResolvedValue(rows);
       prisma.heartbeatRun.findMany.mockResolvedValue([]);
 
-      const page1 = await service.getTrace('task-1', 'company-1', {});
+      const page1 = await service.getTrace('task-1', 'organization-1', {});
       expect(page1.pagination.hasMore).toBe(true);
       expect(page1.pagination.nextCursor).toBe('100');
       // 첫 페이지는 run-0 ~ run-99 (100건)
@@ -191,7 +191,7 @@ describe('AgentTraceService', () => {
 
       // 두번째 페이지 — cursor=100 으로 요청
       prisma.heartbeatRun.findMany.mockClear();
-      const page2 = await service.getTrace('task-1', 'company-1', { cursor: '100' });
+      const page2 = await service.getTrace('task-1', 'organization-1', { cursor: '100' });
       expect(page2.pagination.hasMore).toBe(false);
       expect(page2.pagination.nextCursor).toBeNull();
       const secondCall = prisma.heartbeatRun.findMany.mock.calls[0][0];
@@ -205,7 +205,7 @@ describe('AgentTraceService', () => {
       // payload 에 run_id 없음
       prisma.$queryRaw.mockResolvedValue([makeWakeupRow({ run_id: null })]);
 
-      await service.getTrace('task-1', 'company-1', {});
+      await service.getTrace('task-1', 'organization-1', {});
 
       expect(prisma.heartbeatRun.findMany).not.toHaveBeenCalled();
       expect(prisma.agentEvent.findMany).not.toHaveBeenCalled();
@@ -219,7 +219,7 @@ describe('AgentTraceService', () => {
       });
       prisma.$queryRaw.mockResolvedValue([]);
 
-      const res = await service.getTrace('task-1', 'company-1', {});
+      const res = await service.getTrace('task-1', 'organization-1', {});
 
       expect(res.task.error).toContain('[REDACTED]');
       expect(res.task.error).not.toContain('sk-abcdefghijklmnopqrstuvwxyz123456');
@@ -233,7 +233,7 @@ describe('AgentTraceService', () => {
         makeWakeupRow({ id: 'w2', run_id: 'run-dup' }),
       ]);
 
-      await service.getTrace('task-1', 'company-1', {});
+      await service.getTrace('task-1', 'organization-1', {});
 
       const call = prisma.heartbeatRun.findMany.mock.calls[0][0];
       expect(call.where.id.in).toEqual(['run-dup']);
@@ -250,12 +250,12 @@ describe('AgentTraceService', () => {
       prisma.agentTask.findMany.mockResolvedValue([MOCK_TASK]);
       prisma.agentTask.count.mockResolvedValue(1);
 
-      const res = await service.listTasks('company-1', {});
+      const res = await service.listTasks('organization-1', {});
 
       expect(res).toMatchObject({ total: 1, page: 1, limit: 20 });
       expect(res.items).toHaveLength(1);
       expect(prisma.agentTask.findMany).toHaveBeenCalledWith({
-        where: { companyId: 'company-1' },
+        where: { organizationId: 'organization-1' },
         orderBy: { createdAt: 'desc' },
         skip: 0,
         take: 20,
@@ -270,18 +270,18 @@ describe('AgentTraceService', () => {
       prisma.agentTask.findMany.mockResolvedValue([]);
       prisma.agentTask.count.mockResolvedValue(0);
 
-      await service.listTasks('company-1', query);
+      await service.listTasks('organization-1', query);
 
       expect(prisma.agentTask.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { companyId: 'company-1', ...expectedWhere },
+          where: { organizationId: 'organization-1', ...expectedWhere },
         }),
       );
     });
 
     it('applies from/to time range filter', async () => {
       const { service, prisma } = makeService();
-      await service.listTasks('company-1', {
+      await service.listTasks('organization-1', {
         from: '2026-04-01T00:00:00Z',
         to: '2026-04-13T23:59:59Z',
       });
@@ -293,7 +293,7 @@ describe('AgentTraceService', () => {
 
     it('computes skip correctly for page=3 limit=25', async () => {
       const { service, prisma } = makeService();
-      await service.listTasks('company-1', { page: 3, limit: 25 });
+      await service.listTasks('organization-1', { page: 3, limit: 25 });
 
       expect(prisma.agentTask.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ skip: 50, take: 25 }),
@@ -302,20 +302,20 @@ describe('AgentTraceService', () => {
 
     it('caps limit at 100', async () => {
       const { service, prisma } = makeService();
-      await service.listTasks('company-1', { limit: 500 });
+      await service.listTasks('organization-1', { limit: 500 });
 
       const call = prisma.agentTask.findMany.mock.calls[0][0];
       expect(call.take).toBe(100);
     });
 
-    it('always scopes by companyId (ADR-0006)', async () => {
+    it('always scopes by organizationId (ADR-0006)', async () => {
       const { service, prisma } = makeService();
-      await service.listTasks('company-xyz', { status: 'failed', agentType: 'review' });
+      await service.listTasks('organization-xyz', { status: 'failed', agentType: 'review' });
 
       const findCall = prisma.agentTask.findMany.mock.calls[0][0];
       const countCall = prisma.agentTask.count.mock.calls[0][0];
-      expect(findCall.where.companyId).toBe('company-xyz');
-      expect(countCall.where.companyId).toBe('company-xyz');
+      expect(findCall.where.organizationId).toBe('organization-xyz');
+      expect(countCall.where.organizationId).toBe('organization-xyz');
     });
   });
 });

@@ -1,7 +1,7 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ActivityEventsService } from './activity-events.service';
 import { ListActivityEventsQueryDto } from './dto';
-import { CurrentCompany } from '../auth/decorators/current-company.decorator';
+import { CurrentOrganization } from '../auth/decorators/current-organization.decorator';
 
 @Controller('activity-events')
 export class ActivityEventsController {
@@ -9,7 +9,7 @@ export class ActivityEventsController {
 
   @Get()
   findAll(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Query() query: ListActivityEventsQueryDto,
   ) {
     if (query.objectType && query.objectId) {
@@ -23,7 +23,7 @@ export class ActivityEventsController {
       );
     }
 
-    return this.activityEventsService.findByCompany(companyId, {
+    return this.activityEventsService.findByOrganization(organizationId, {
       objectType: query.objectType,
       eventType: query.eventType,
       limit: query.limit,

@@ -27,7 +27,7 @@ describe('FeatureGateService — full gate lifecycle', () => {
   });
 
   it('upsert gate (enabled=false) → isEnabled → returns false (block)', async () => {
-    const gate = { name: 'feature:checkout', enabled: false, allowedCompanies: [] };
+    const gate = { name: 'feature:checkout', enabled: false, allowedOrganizations: [] };
     prisma.featureGate.upsert.mockResolvedValue(gate);
     await service.upsert('feature:checkout', { enabled: false });
     expect(prisma.featureGate.upsert).toHaveBeenCalledWith(
@@ -42,14 +42,14 @@ describe('FeatureGateService — full gate lifecycle', () => {
     expect(await service.isEnabled('feature:checkout')).toBe(false);
   });
 
-  it('upsert gate (enabled=true, allowedCompanies=[company-A]) → isEnabled(company-A)=true, isEnabled(company-B)=false', async () => {
-    const gate = { name: 'feature:checkout', enabled: true, allowedCompanies: ['company-A'] };
+  it('upsert gate (enabled=true, allowedOrganizations=[organization-A]) → isEnabled(organization-A)=true, isEnabled(organization-B)=false', async () => {
+    const gate = { name: 'feature:checkout', enabled: true, allowedOrganizations: ['organization-A'] };
     prisma.featureGate.upsert.mockResolvedValue(gate);
-    await service.upsert('feature:checkout', { enabled: true, allowedCompanies: ['company-A'] });
+    await service.upsert('feature:checkout', { enabled: true, allowedOrganizations: ['organization-A'] });
 
     prisma.featureGate.findUnique.mockResolvedValue(gate);
-    expect(await service.isEnabled('feature:checkout', 'company-A')).toBe(true);
-    expect(await service.isEnabled('feature:checkout', 'company-B')).toBe(false);
+    expect(await service.isEnabled('feature:checkout', 'organization-A')).toBe(true);
+    expect(await service.isEnabled('feature:checkout', 'organization-B')).toBe(false);
   });
 
   it('delete gate → isEnabled → returns true (allow again)', async () => {

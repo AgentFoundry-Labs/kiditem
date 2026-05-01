@@ -30,7 +30,7 @@ dogma.
 | [`dashboard/`](dashboard) | Reconstructed: `adapter/in/http/`, `adapter/out/repository/`, `application/service/`, `helpers/` (pure). All `$queryRaw` lives behind `@Injectable` repository adapters; the prisma-coupled report-hydration helpers (`profit-calculation`, `ad-aggregation`, `wing-ad-summary`) are functions in the same out-adapter lane. |
 | [`statistics/`](statistics) | Flat (transitional): `statistics.controller.ts` + `statistics.service.ts` + `dto/`. No raw SQL surface; Prisma findMany/groupBy/aggregate stays in the service. Report aggregation reuses `common/per-listing-profit`. |
 | [`traffic/`](traffic) | Flat (transitional): `traffic.controller.ts` + `traffic.service.ts`. Read paths aggregate `ChannelListingDailySnapshot.traffic*`. Ingest path writes daily-fact + `ChannelScrapeRun`/`ChannelScrapeSnapshot` audit rows. |
-| [`supplier-stats/`](supplier-stats) | Flat (transitional): `supplier-stats.controller.ts` + `supplier-stats.service.ts` + `dto/`. Pure Prisma reads, chunked `OrderLineItem.optionId` groupBy with companyId-scoped `order` filter. |
+| [`supplier-stats/`](supplier-stats) | Flat (transitional): `supplier-stats.controller.ts` + `supplier-stats.service.ts` + `dto/`. Pure Prisma reads, chunked `OrderLineItem.optionId` groupBy with organizationId-scoped `order` filter. |
 
 The `dashboard` reconstruction is the priority case for this owner — it has
 the only `$queryRaw` calls and the biggest report-hydration surface, so
@@ -41,19 +41,19 @@ fat-service or repeated-invariant problem appears.
 
 ## Tenant Predicate Contract
 
-Every read in this owner binds `companyId` from `@CurrentCompany()`:
+Every read in this owner binds `organizationId` from `@CurrentOrganization()`:
 
-- ORM paths: `where: { companyId, ... }` on every tenant-owned table.
-- Raw SQL paths (dashboard only): `${companyId}::uuid` with a
+- ORM paths: `where: { organizationId, ... }` on every tenant-owned table.
+- Raw SQL paths (dashboard only): `${organizationId}::uuid` with a
   predicate on each tenant-owned join table (orders, channel_listings,
   master_products) — see `dashboard/adapter/out/repository/*.repository.adapter.ts`.
 - 2-hop joins use the predicate on every tenant-owned hop. The `topProducts`
-  raw SQL is the canonical example: it asserts `o.company_id`,
-  `cl.company_id`, and `mp.company_id` simultaneously.
+  raw SQL is the canonical example: it asserts `o.organization_id`,
+  `cl.organization_id`, and `mp.organization_id` simultaneously.
 
-`@Body()` / `@Query()` `companyId` injection is banned. The traffic CSV
+`@Body()` / `@Query()` `organizationId` injection is banned. The traffic CSV
 upload is the only mutation path — it scopes its scrape-run + daily-fact
-upserts via the `@CurrentCompany()` value passed from the controller.
+upserts via the `@CurrentOrganization()` value passed from the controller.
 
 ## Cross-Domain Read Dependencies
 

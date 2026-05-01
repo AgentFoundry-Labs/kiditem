@@ -43,7 +43,7 @@ function baseItem(overrides: Partial<RunItem> = {}): RunItem {
     title: 'Test workflow',
     deepLink: '/workflows/run-1',
     actorUserId: null,
-    visibility: 'company',
+    visibility: 'organization',
     createdAt: '2026-04-16T00:00:00.000Z',
     ...overrides,
   };
@@ -51,21 +51,21 @@ function baseItem(overrides: Partial<RunItem> = {}): RunItem {
 
 function workflowPayload(overrides: Partial<RunItem> = {}): PanelUpsertInternal {
   return {
-    companyId: 'co-1',
+    organizationId: 'co-1',
     item: baseItem({ id: 'workflow:run-1', source: 'workflow', sourceId: 'run-1', ...overrides }),
   };
 }
 
 function agentPayload(overrides: Partial<RunItem> = {}): PanelUpsertInternal {
   return {
-    companyId: 'co-1',
+    organizationId: 'co-1',
     item: baseItem({ id: 'agent:run-1', source: 'agent', sourceId: 'run-1', title: 'Ad strategy agent', deepLink: '/agents/agent-1/runs/run-1', ...overrides }),
   };
 }
 
 function imagePayload(overrides: Partial<RunItem> = {}): PanelUpsertInternal {
   return {
-    companyId: 'co-1',
+    organizationId: 'co-1',
     item: baseItem({ id: 'image:gen-1', source: 'image', sourceId: 'gen-1', title: '아동 레깅스', deepLink: '/products/prod-1/thumbnails', ...overrides }),
   };
 }

@@ -36,14 +36,14 @@ const DEFAULTS: Record<string, unknown> = {
 export class AdConfigService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getConfig(companyId: string): Promise<AdsConfig> {
+  async getConfig(organizationId: string): Promise<AdsConfig> {
     const settings = await this.prisma.systemSetting.findMany({
-      where: { companyId, key: { startsWith: 'ads.' } },
+      where: { organizationId, key: { startsWith: 'ads.' } },
     });
 
     if (settings.length === 0) {
-      await this.seedDefaults(companyId);
-      return this.getConfig(companyId);
+      await this.seedDefaults(organizationId);
+      return this.getConfig(organizationId);
     }
 
     const map = new Map<string, unknown>();
@@ -76,27 +76,27 @@ export class AdConfigService {
     };
   }
 
-  async updateConfig(key: string, value: unknown, companyId: string): Promise<void> {
+  async updateConfig(key: string, value: unknown, organizationId: string): Promise<void> {
     if (!key.startsWith('ads.') || !(key in DEFAULTS)) {
       throw new NotFoundException(`알 수 없는 설정 키: ${key}`);
     }
 
     await this.prisma.systemSetting.upsert({
-      where: { companyId_key: { companyId, key } },
+      where: { organizationId_key: { organizationId, key } },
       update: { value: JSON.stringify(value) },
-      create: { companyId, key, value: JSON.stringify(value) },
+      create: { organizationId, key, value: JSON.stringify(value) },
     });
   }
 
-  async seedDefaults(companyId: string): Promise<number> {
+  async seedDefaults(organizationId: string): Promise<number> {
     const existing = await this.prisma.systemSetting.findFirst({
-      where: { companyId, key: { startsWith: 'ads.' } },
+      where: { organizationId, key: { startsWith: 'ads.' } },
     });
     if (existing) return 0;
 
     const result = await this.prisma.systemSetting.createMany({
       data: Object.entries(DEFAULTS).map(([key, value]) => ({
-        companyId,
+        organizationId,
         key,
         value: JSON.stringify(value),
       })),

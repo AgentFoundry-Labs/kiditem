@@ -65,19 +65,19 @@ describe('SalesAnalysisService.getAnalysis — Plan D.3', () => {
     expect(x.channelType).toBe('other');
   });
 
-  it('IDOR — 3-hop companyId on return query + channelListing lookup', async () => {
+  it('IDOR — 3-hop organizationId on return query + channelListing lookup', async () => {
     const prisma = makePrisma({});
     await new SalesAnalysisService(prisma).getAnalysis('cA', '2026-04');
     expect(prisma.order.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ companyId: 'cA' }),
+      where: expect.objectContaining({ organizationId: 'cA' }),
     }));
     expect(prisma.orderReturnLineItem.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
-        companyId: 'cA',
+        organizationId: 'cA',
         return: expect.objectContaining({
-          companyId: 'cA',
+          organizationId: 'cA',
           order: expect.objectContaining({
-            companyId: 'cA',
+            organizationId: 'cA',
             orderedAt: expect.any(Object),
             status: expect.any(Object),   // ← verify status filter mirror
           }),
@@ -132,12 +132,12 @@ describe('SalesAnalysisService.getAnalysis — Plan D.3', () => {
       by: ['listingId'],
       _sum: { adSpend: true },
       where: expect.objectContaining({
-        companyId: 'cA',
+        organizationId: 'cA',
         businessDate: expect.objectContaining({ gte: expect.any(Date), lt: expect.any(Date) }),
       }),
     }));
     expect(prisma.channelListing.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ companyId: 'cA' }),
+      where: expect.objectContaining({ organizationId: 'cA' }),
     }));
   });
 

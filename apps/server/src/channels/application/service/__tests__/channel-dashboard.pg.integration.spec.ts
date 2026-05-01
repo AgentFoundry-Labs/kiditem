@@ -7,8 +7,8 @@ import {
   makeTestPrisma,
   resetDb,
   seedBaseFixture,
-  TEST_COMPANY_ID,
-  OTHER_COMPANY_ID,
+  TEST_ORGANIZATION_ID,
+  OTHER_ORGANIZATION_ID,
 } from '../../../../test-helpers/real-prisma';
 
 /**
@@ -21,9 +21,9 @@ import {
  *  - R-12 flat _count: Prisma groupBy returns `_count: number`.
  *  - C-11 unknown faultBy drop: only CUSTOMER/VENDOR surfaces.
  *  - KST day bucket: orderedAt 2026-04-14T15:00Z (KST 2026-04-15 00:00) buckets as 2026-04-15.
- *  - IDOR isolation: TEST_COMPANY_ID result excludes OTHER_COMPANY_ID rows.
+ *  - IDOR isolation: TEST_ORGANIZATION_ID result excludes OTHER_ORGANIZATION_ID rows.
  *
- * Fixture shape for primary company (TEST_COMPANY_ID):
+ * Fixture shape for primary organization (TEST_ORGANIZATION_ID):
  *  - 1 MasterProduct 'MP-A' (code M-01) + 1 ChannelListing 'CL-A' (externalId EXT-A).
  *  - 1 ChannelListingOption.
  *  - 3 Orders @ KST day boundaries + line items (I3 canonical revenue != order.totalPrice).
@@ -57,14 +57,14 @@ describe('Channel dashboard (PG integration)', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Shared seed — primary company (TEST_COMPANY_ID) + cross-company pollution
-  // row under OTHER_COMPANY_ID for IDOR verification.
+  // Shared seed — primary organization (TEST_ORGANIZATION_ID) + cross-organization pollution
+  // row under OTHER_ORGANIZATION_ID for IDOR verification.
   // ---------------------------------------------------------------------------
   async function seedFixture() {
-    // MasterProduct + ChannelListing + ChannelListingOption for TEST_COMPANY_ID
+    // MasterProduct + ChannelListing + ChannelListingOption for TEST_ORGANIZATION_ID
     const masterA = await prisma.masterProduct.create({
       data: {
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         code: 'M-01',
         name: 'Master A',
         category: 'Toy',
@@ -73,7 +73,7 @@ describe('Channel dashboard (PG integration)', () => {
     });
     const listingA = await prisma.channelListing.create({
       data: {
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         masterId: masterA.id,
         channel: 'coupang',
         externalId: 'EXT-A',
@@ -82,7 +82,7 @@ describe('Channel dashboard (PG integration)', () => {
     });
     const optA = await prisma.productOption.create({
       data: {
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         masterId: masterA.id,
         optionName: 'OPT-A',
         sku: 'M-01-001',
@@ -90,7 +90,7 @@ describe('Channel dashboard (PG integration)', () => {
     });
     const loA = await prisma.channelListingOption.create({
       data: {
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         listingId: listingA.id,
         optionId: optA.id,
         externalOptionId: 'VI-A',
@@ -106,7 +106,7 @@ describe('Channel dashboard (PG integration)', () => {
     // If the service uses order.totalPrice, revenue will be wrong — I3 canonical guard.
     const o1 = await prisma.order.create({
       data: {
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         platform: 'coupang',
         externalOrderId: 'ORD-1',
         orderedAt: new Date('2026-04-14T15:00:00.000Z'), // KST 2026-04-15 00:00
@@ -118,7 +118,7 @@ describe('Channel dashboard (PG integration)', () => {
     });
     await prisma.orderLineItem.create({
       data: {
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         orderId: o1.id,
         listingOptionId: loA.id,
         quantity: 2,
@@ -129,7 +129,7 @@ describe('Channel dashboard (PG integration)', () => {
     });
     await prisma.orderLineItem.create({
       data: {
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         orderId: o1.id,
         listingOptionId: loA.id,
         quantity: 1,
@@ -141,7 +141,7 @@ describe('Channel dashboard (PG integration)', () => {
 
     const o2 = await prisma.order.create({
       data: {
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         platform: 'coupang',
         externalOrderId: 'ORD-2',
         orderedAt: new Date('2026-04-15T15:00:00.000Z'), // KST 2026-04-16 00:00
@@ -153,7 +153,7 @@ describe('Channel dashboard (PG integration)', () => {
     });
     await prisma.orderLineItem.create({
       data: {
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         orderId: o2.id,
         listingOptionId: loA.id,
         quantity: 3,
@@ -166,7 +166,7 @@ describe('Channel dashboard (PG integration)', () => {
     // O3 lives at the boundary: orderedAt >= to → excluded by half-open.
     const o3 = await prisma.order.create({
       data: {
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         platform: 'coupang',
         externalOrderId: 'ORD-3',
         orderedAt: new Date('2026-04-16T15:00:00.000Z'), // KST 2026-04-17 00:00 — boundary
@@ -178,7 +178,7 @@ describe('Channel dashboard (PG integration)', () => {
     });
     await prisma.orderLineItem.create({
       data: {
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         orderId: o3.id,
         listingOptionId: loA.id,
         quantity: 1,
@@ -191,7 +191,7 @@ describe('Channel dashboard (PG integration)', () => {
     // OrderReturns — 2 in-window + 1 COURIER (C-11 drop)
     await prisma.orderReturn.create({
       data: {
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         orderId: o1.id,
         platform: 'coupang',
         externalReturnId: 'RET-1',
@@ -205,7 +205,7 @@ describe('Channel dashboard (PG integration)', () => {
     });
     await prisma.orderReturn.create({
       data: {
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         orderId: o2.id,
         platform: 'coupang',
         externalReturnId: 'RET-2',
@@ -220,7 +220,7 @@ describe('Channel dashboard (PG integration)', () => {
     // C-11: COURIER row persisted — service must drop (returns 0 in split).
     await prisma.orderReturn.create({
       data: {
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         orderId: o2.id,
         platform: 'coupang',
         externalReturnId: 'RET-3',
@@ -233,10 +233,10 @@ describe('Channel dashboard (PG integration)', () => {
       },
     });
 
-    // Cross-tenant pollution row (OTHER_COMPANY_ID) for IDOR verification.
+    // Cross-tenant pollution row (OTHER_ORGANIZATION_ID) for IDOR verification.
     const otherMaster = await prisma.masterProduct.create({
       data: {
-        companyId: OTHER_COMPANY_ID,
+        organizationId: OTHER_ORGANIZATION_ID,
         code: 'M-OTHER',
         name: 'Other Master',
         category: 'Toy',
@@ -245,7 +245,7 @@ describe('Channel dashboard (PG integration)', () => {
     });
     const otherListing = await prisma.channelListing.create({
       data: {
-        companyId: OTHER_COMPANY_ID,
+        organizationId: OTHER_ORGANIZATION_ID,
         masterId: otherMaster.id,
         channel: 'coupang',
         externalId: 'EXT-OTHER',
@@ -254,7 +254,7 @@ describe('Channel dashboard (PG integration)', () => {
     });
     const otherOpt = await prisma.productOption.create({
       data: {
-        companyId: OTHER_COMPANY_ID,
+        organizationId: OTHER_ORGANIZATION_ID,
         masterId: otherMaster.id,
         optionName: 'OPT-OTHER',
         sku: 'M-OTHER-001',
@@ -262,7 +262,7 @@ describe('Channel dashboard (PG integration)', () => {
     });
     const otherLo = await prisma.channelListingOption.create({
       data: {
-        companyId: OTHER_COMPANY_ID,
+        organizationId: OTHER_ORGANIZATION_ID,
         listingId: otherListing.id,
         optionId: otherOpt.id,
         externalOptionId: 'VI-OTHER',
@@ -270,7 +270,7 @@ describe('Channel dashboard (PG integration)', () => {
     });
     const otherOrder = await prisma.order.create({
       data: {
-        companyId: OTHER_COMPANY_ID,
+        organizationId: OTHER_ORGANIZATION_ID,
         platform: 'coupang',
         externalOrderId: 'ORD-OTHER',
         orderedAt: new Date('2026-04-14T15:30:00.000Z'),
@@ -282,7 +282,7 @@ describe('Channel dashboard (PG integration)', () => {
     });
     await prisma.orderLineItem.create({
       data: {
-        companyId: OTHER_COMPANY_ID,
+        organizationId: OTHER_ORGANIZATION_ID,
         orderId: otherOrder.id,
         listingOptionId: otherLo.id,
         quantity: 10,
@@ -293,7 +293,7 @@ describe('Channel dashboard (PG integration)', () => {
     });
     await prisma.orderReturn.create({
       data: {
-        companyId: OTHER_COMPANY_ID,
+        organizationId: OTHER_ORGANIZATION_ID,
         orderId: otherOrder.id,
         platform: 'coupang',
         externalReturnId: 'RET-OTHER',
@@ -318,10 +318,10 @@ describe('Channel dashboard (PG integration)', () => {
     it('returns lastModifiedAt from latest ChannelListing.updatedAt (R-07 rename)', async () => {
       const { listingA } = await seedFixture();
 
-      const result = await service.getSummary(TEST_COMPANY_ID);
+      const result = await service.getSummary(TEST_ORGANIZATION_ID);
 
       expect(result.lastModifiedAt).toBeInstanceOf(Date);
-      // Must equal the listing's updatedAt (only one ChannelListing for TEST_COMPANY_ID)
+      // Must equal the listing's updatedAt (only one ChannelListing for TEST_ORGANIZATION_ID)
       // Shared type is `string | Date | null` (zIsoDate union); runtime assertion above
       // guarantees Date here — cast to compare via getTime().
       expect((result.lastModifiedAt as Date).getTime()).toBe(listingA.updatedAt.getTime());
@@ -332,13 +332,13 @@ describe('Channel dashboard (PG integration)', () => {
     it('pendingAccept counts orders with status=accept_wait; pendingReturns counts returns with status=return_request', async () => {
       await seedFixture();
       // Seed fixture has no accept_wait orders; 3 return_request returns
-      const result = await service.getSummary(TEST_COMPANY_ID);
+      const result = await service.getSummary(TEST_ORGANIZATION_ID);
       expect(result.pendingAccept).toBe(0);
       expect(result.pendingReturns).toBe(3); // RET-1 + RET-2 + RET-3 (COURIER still counts as a pending return)
     });
 
-    it('returns null lastModifiedAt when no ChannelListing exists for the company', async () => {
-      const result = await service.getSummary(TEST_COMPANY_ID);
+    it('returns null lastModifiedAt when no ChannelListing exists for the organization', async () => {
+      const result = await service.getSummary(TEST_ORGANIZATION_ID);
       expect(result.lastModifiedAt).toBeNull();
       expect(result.todayOrders).toEqual({ count: 0, revenue: 0 });
     });
@@ -354,7 +354,7 @@ describe('Channel dashboard (PG integration)', () => {
 
       const from = new Date('2026-04-14T15:00:00.000Z'); // KST 2026-04-15 00:00
       const to = new Date('2026-04-16T15:00:00.000Z'); // KST 2026-04-17 00:00 (excluded)
-      const result = await service.getRevenueTrend(TEST_COMPANY_ID, from, to);
+      const result = await service.getRevenueTrend(TEST_ORGANIZATION_ID, from, to);
 
       // Expected:
       //   2026-04-15 bucket: O1 (20_000 + 5_000 = 25_000 line-item sum, NOT order.totalPrice 999_999)
@@ -376,15 +376,15 @@ describe('Channel dashboard (PG integration)', () => {
       expect(result.reduce((s, r) => s + r.revenue, 0)).toBe(49_000);
     });
 
-    it('IDOR: OTHER_COMPANY_ID orders never leak into TEST_COMPANY_ID result', async () => {
+    it('IDOR: OTHER_ORGANIZATION_ID orders never leak into TEST_ORGANIZATION_ID result', async () => {
       await seedFixture();
 
       const from = new Date('2026-04-14T00:00:00.000Z');
       const to = new Date('2026-04-20T00:00:00.000Z');
-      const result = await service.getRevenueTrend(TEST_COMPANY_ID, from, to);
+      const result = await service.getRevenueTrend(TEST_ORGANIZATION_ID, from, to);
 
       const total = result.reduce((s, r) => s + r.revenue, 0);
-      // Other company has 500_000 — must NOT appear.
+      // Other organization has 500_000 — must NOT appear.
       expect(total).toBeLessThan(500_000);
       expect(total).toBe(49_000 + 100_000); // O1 + O2 + O3 line-item sums
     });
@@ -393,7 +393,7 @@ describe('Channel dashboard (PG integration)', () => {
       await seedFixture();
       const from = new Date('2020-01-01T00:00:00.000Z');
       const to = new Date('2020-01-02T00:00:00.000Z');
-      const result = await service.getRevenueTrend(TEST_COMPANY_ID, from, to);
+      const result = await service.getRevenueTrend(TEST_ORGANIZATION_ID, from, to);
       expect(result).toEqual([]);
     });
   });
@@ -407,7 +407,7 @@ describe('Channel dashboard (PG integration)', () => {
 
       const from = new Date('2026-04-14T15:00:00.000Z');
       const to = new Date('2026-04-16T15:00:00.000Z'); // excludes O3
-      const result = await service.getProductRanking(TEST_COMPANY_ID, from, to);
+      const result = await service.getProductRanking(TEST_ORGANIZATION_ID, from, to);
 
       expect(result).toHaveLength(1);
       expect(result[0]).toEqual({
@@ -418,12 +418,12 @@ describe('Channel dashboard (PG integration)', () => {
       });
     });
 
-    it('IDOR: OTHER_COMPANY_ID listings never surface for TEST_COMPANY_ID', async () => {
+    it('IDOR: OTHER_ORGANIZATION_ID listings never surface for TEST_ORGANIZATION_ID', async () => {
       await seedFixture();
 
       const from = new Date('2026-04-14T00:00:00.000Z');
       const to = new Date('2026-04-20T00:00:00.000Z');
-      const result = await service.getProductRanking(TEST_COMPANY_ID, from, to);
+      const result = await service.getProductRanking(TEST_ORGANIZATION_ID, from, to);
 
       const names = result.map((r) => r.sellerProductName);
       expect(names).not.toContain('Other Master');
@@ -446,7 +446,7 @@ describe('Channel dashboard (PG integration)', () => {
       // No orphan returns in fixture → orphanReturnCount = 0.
       const from = new Date('2026-04-14T15:00:00.000Z');
       const to = new Date('2026-04-15T15:00:00.000Z'); // excludes O2
-      const result = await service.getReturnSummary(TEST_COMPANY_ID, from, to);
+      const result = await service.getReturnSummary(TEST_ORGANIZATION_ID, from, to);
 
       expect(result).toEqual({
         orderCount: 1,   // O1 only
@@ -460,7 +460,7 @@ describe('Channel dashboard (PG integration)', () => {
       await seedFixture();
       const from = new Date('2030-01-01T00:00:00.000Z');
       const to = new Date('2030-01-02T00:00:00.000Z');
-      const result = await service.getReturnSummary(TEST_COMPANY_ID, from, to);
+      const result = await service.getReturnSummary(TEST_ORGANIZATION_ID, from, to);
       expect(result.orderCount).toBe(0);
       expect(result.returnRate).toBe(0);
       expect(Number.isFinite(result.returnRate)).toBe(true);
@@ -475,16 +475,16 @@ describe('Channel dashboard (PG integration)', () => {
   /**
    * Inline seed helpers — NOT exported to test-helpers (scope guard).
    * Required Order fields from prisma/models/orders.prisma:
-   *   companyId, platform, externalOrderId (+ defaults: orderedAt, status, totalPrice, shippingPrice).
+   *   organizationId, platform, externalOrderId (+ defaults: orderedAt, status, totalPrice, shippingPrice).
    */
   async function seedOrderInline(opts: {
-    companyId: string;
+    organizationId: string;
     orderedAt: string;
     externalOrderId: string;
   }): Promise<string> {
     const o = await prisma.order.create({
       data: {
-        companyId: opts.companyId,
+        organizationId: opts.organizationId,
         externalOrderId: opts.externalOrderId,
         platform: 'coupang',
         orderedAt: new Date(opts.orderedAt),
@@ -498,17 +498,17 @@ describe('Channel dashboard (PG integration)', () => {
 
   /**
    * Required OrderReturn fields from prisma/models/orders.prisma:
-   *   companyId, platform, externalReturnId, requestedAt (+ defaults: status, reason, faultBy, type).
+   *   organizationId, platform, externalReturnId, requestedAt (+ defaults: status, reason, faultBy, type).
    */
   async function seedReturnInline(opts: {
-    companyId: string;
+    organizationId: string;
     orderId: string | null;
     requestedAt: string;
     externalReturnId?: string;
   }): Promise<string> {
     const r = await prisma.orderReturn.create({
       data: {
-        companyId: opts.companyId,
+        organizationId: opts.organizationId,
         orderId: opts.orderId,
         platform: 'coupang',
         externalReturnId: opts.externalReturnId ?? `RET-INLINE-${Date.now()}-${Math.random()}`,
@@ -531,44 +531,44 @@ describe('Channel dashboard (PG integration)', () => {
     it('past-period order with current-period return is EXCLUDED from current returnRate', async () => {
       // March order — outside April range
       const marchOrderId = await seedOrderInline({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         orderedAt: '2026-03-15T00:00:00Z',
         externalOrderId: 'OLD-1',
       });
       // April orders — inside range
       const aprOrder1Id = await seedOrderInline({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         orderedAt: '2026-04-05T00:00:00Z',
         externalOrderId: 'NEW-1',
       });
       await seedOrderInline({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         orderedAt: '2026-04-10T00:00:00Z',
         externalOrderId: 'NEW-2',
       });
       // NEW-3 at 2026-04-20 is IN range (Apr 20 < May 1 upper bound)
       await seedOrderInline({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         orderedAt: '2026-04-20T00:00:00Z',
         externalOrderId: 'NEW-3',
       });
       // Return on march order with april requestedAt — orderId linked to march order (out-of-range)
       await seedReturnInline({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         orderId: marchOrderId,
         requestedAt: '2026-04-07T00:00:00Z',
         externalReturnId: 'PAST-RET-1',
       });
       // Return on april order with future requestedAt — orderId linked to apr order (in-range)
       await seedReturnInline({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         orderId: aprOrder1Id,
         requestedAt: '2026-04-22T00:00:00Z',
         externalReturnId: 'PAST-RET-2',
       });
 
       const result = await service.getReturnSummary(
-        TEST_COMPANY_ID,
+        TEST_ORGANIZATION_ID,
         new Date('2026-04-01'),
         new Date('2026-05-01'),
       );
@@ -582,19 +582,19 @@ describe('Channel dashboard (PG integration)', () => {
 
     it('orphan return (orderId NULL) goes to orphanReturnCount only', async () => {
       await seedOrderInline({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         orderedAt: '2026-04-05T00:00:00Z',
         externalOrderId: 'APR-1',
       });
       await seedReturnInline({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         orderId: null,
         requestedAt: '2026-04-10T00:00:00Z',
         externalReturnId: 'ORPHAN-1',
       });
 
       const result = await service.getReturnSummary(
-        TEST_COMPANY_ID,
+        TEST_ORGANIZATION_ID,
         new Date('2026-04-01'),
         new Date('2026-05-01'),
       );
@@ -608,19 +608,19 @@ describe('Channel dashboard (PG integration)', () => {
 
     it('IDOR — returns from OTHER_COMPANY do not leak into TEST_COMPANY', async () => {
       const otherOrderId = await seedOrderInline({
-        companyId: OTHER_COMPANY_ID,
+        organizationId: OTHER_ORGANIZATION_ID,
         orderedAt: '2026-04-15T00:00:00Z',
         externalOrderId: 'OTHER-1',
       });
       await seedReturnInline({
-        companyId: OTHER_COMPANY_ID,
+        organizationId: OTHER_ORGANIZATION_ID,
         orderId: otherOrderId,
         requestedAt: '2026-04-20T00:00:00Z',
         externalReturnId: 'OTHER-RET-1',
       });
 
       const result = await service.getReturnSummary(
-        TEST_COMPANY_ID,
+        TEST_ORGANIZATION_ID,
         new Date('2026-04-01'),
         new Date('2026-05-01'),
       );
@@ -632,7 +632,7 @@ describe('Channel dashboard (PG integration)', () => {
       });
 
       // Double-blind: verify OTHER_COMPANY actually returns the data (service isn't universally broken)
-      const otherResult = await service.getReturnSummary(OTHER_COMPANY_ID, new Date('2026-04-01'), new Date('2026-05-01'));
+      const otherResult = await service.getReturnSummary(OTHER_ORGANIZATION_ID, new Date('2026-04-01'), new Date('2026-05-01'));
       expect(otherResult).toEqual({
         orderCount: 1,
         returnCount: 1,
@@ -644,7 +644,7 @@ describe('Channel dashboard (PG integration)', () => {
     it('perf baseline: 1000 orders + 200 returns completes under 2s', async () => {
       // Bulk-seed 1000 orders via createMany for speed
       const orderData = Array.from({ length: 1000 }, (_, i) => ({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: `PERF-${i}`,
         platform: 'coupang',
         orderedAt: new Date(
@@ -659,7 +659,7 @@ describe('Channel dashboard (PG integration)', () => {
       // Fetch IDs (needed for FK in returns)
       const orders = await prisma.order.findMany({
         where: {
-          companyId: TEST_COMPANY_ID,
+          organizationId: TEST_ORGANIZATION_ID,
           externalOrderId: { startsWith: 'PERF-' },
         },
         select: { id: true },
@@ -669,7 +669,7 @@ describe('Channel dashboard (PG integration)', () => {
 
       // 150 linked returns + 50 orphan returns via createMany
       const linkedReturnData = Array.from({ length: 150 }, (_, i) => ({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         orderId: orderIds[i],
         platform: 'coupang',
         externalReturnId: `PERF-RET-LINKED-${i}`,
@@ -680,7 +680,7 @@ describe('Channel dashboard (PG integration)', () => {
         faultBy: 'CUSTOMER',
       }));
       const orphanReturnData = Array.from({ length: 50 }, (_, i) => ({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         orderId: null,
         platform: 'coupang',
         externalReturnId: `PERF-RET-ORPHAN-${i}`,
@@ -695,7 +695,7 @@ describe('Channel dashboard (PG integration)', () => {
 
       const start = Date.now();
       const result = await service.getReturnSummary(
-        TEST_COMPANY_ID,
+        TEST_ORGANIZATION_ID,
         new Date('2026-04-01'),
         new Date('2026-05-01'),
       );
@@ -713,14 +713,14 @@ describe('Channel dashboard (PG integration)', () => {
   // #5 getReturnReasonBreakdown — flat `_count: true` shape (R-12).
   // ---------------------------------------------------------------------------
   describe('getReturnReasonBreakdown', () => {
-    it('groups returns by reason; scoped to companyId; flat _count number', async () => {
+    it('groups returns by reason; scoped to organizationId; flat _count number', async () => {
       await seedFixture();
 
       const from = new Date('2026-04-14T15:00:00.000Z');
       const to = new Date('2026-04-16T15:00:00.000Z');
-      const result = await service.getReturnReasonBreakdown(TEST_COMPANY_ID, from, to);
+      const result = await service.getReturnReasonBreakdown(TEST_ORGANIZATION_ID, from, to);
 
-      // TEST_COMPANY_ID: 단순변심 × 1, 제품불량 × 1, 배송사고 × 1
+      // TEST_ORGANIZATION_ID: 단순변심 × 1, 제품불량 × 1, 배송사고 × 1
       const byReason = new Map(result.map((r) => [r.reason, r.count]));
       expect(byReason.get('단순변심')).toBe(1);
       expect(byReason.get('제품불량')).toBe(1);
@@ -731,15 +731,15 @@ describe('Channel dashboard (PG integration)', () => {
       }
     });
 
-    it('IDOR: OTHER_COMPANY_ID reasons never leak', async () => {
+    it('IDOR: OTHER_ORGANIZATION_ID reasons never leak', async () => {
       await seedFixture();
 
       const from = new Date('2026-04-14T00:00:00.000Z');
       const to = new Date('2026-04-20T00:00:00.000Z');
-      const result = await service.getReturnReasonBreakdown(TEST_COMPANY_ID, from, to);
+      const result = await service.getReturnReasonBreakdown(TEST_ORGANIZATION_ID, from, to);
 
-      // TEST_COMPANY_ID has a 단순변심 (RET-1). OTHER also has a 단순변심 (RET-OTHER).
-      // Result for TEST_COMPANY_ID should show '단순변심': 1 (not 2).
+      // TEST_ORGANIZATION_ID has a 단순변심 (RET-1). OTHER also has a 단순변심 (RET-OTHER).
+      // Result for TEST_ORGANIZATION_ID should show '단순변심': 1 (not 2).
       const customerCount = result.find((r) => r.reason === '단순변심')?.count ?? 0;
       expect(customerCount).toBe(1);
     });
@@ -754,50 +754,50 @@ describe('Channel dashboard (PG integration)', () => {
 
       const from = new Date('2026-04-14T15:00:00.000Z');
       const to = new Date('2026-04-16T15:00:00.000Z');
-      const result = await service.getReturnFaultSplit(TEST_COMPANY_ID, from, to);
+      const result = await service.getReturnFaultSplit(TEST_ORGANIZATION_ID, from, to);
 
-      // TEST_COMPANY_ID has 1 CUSTOMER (RET-1), 1 VENDOR (RET-2), 1 COURIER (RET-3, dropped)
+      // TEST_ORGANIZATION_ID has 1 CUSTOMER (RET-1), 1 VENDOR (RET-2), 1 COURIER (RET-3, dropped)
       expect(result).toEqual({ customer: 1, vendor: 1 });
     });
 
-    it('IDOR: OTHER_COMPANY_ID returns never leak', async () => {
+    it('IDOR: OTHER_ORGANIZATION_ID returns never leak', async () => {
       await seedFixture();
 
       const from = new Date('2026-04-14T00:00:00.000Z');
       const to = new Date('2026-04-20T00:00:00.000Z');
-      const result = await service.getReturnFaultSplit(TEST_COMPANY_ID, from, to);
+      const result = await service.getReturnFaultSplit(TEST_ORGANIZATION_ID, from, to);
 
-      // OTHER has 1 CUSTOMER — must NOT inflate TEST_COMPANY_ID's customer count.
+      // OTHER has 1 CUSTOMER — must NOT inflate TEST_ORGANIZATION_ID's customer count.
       expect(result.customer).toBe(1); // only RET-1, NOT +RET-OTHER
     });
   });
 
   // ---------------------------------------------------------------------------
   // #7 2-hop defense-in-depth (R1/R2) — verifies that even if the application
-  //    invariant `Order.companyId == Order.listing.companyId` (or
-  //    `OrderLineItem.companyId == Order.companyId`) is violated, the raw-SQL
-  //    aggregations bind ${companyId}::uuid on every joined tenant-owned table
+  //    invariant `Order.organizationId == Order.listing.organizationId` (or
+  //    `OrderLineItem.organizationId == Order.organizationId`) is violated, the raw-SQL
+  //    aggregations bind ${organizationId}::uuid on every joined tenant-owned table
   //    and refuse to surface the foreign rows. Schema does not enforce the
-  //    cross-FK companyId match — see channels/AGENTS.md.
+  //    cross-FK organizationId match — see channels/AGENTS.md.
   // ---------------------------------------------------------------------------
   describe('2-hop defense-in-depth (R1/R2)', () => {
     it('getProductRanking: cross-tenant Order.listingId does not surface foreign master.name', async () => {
       await seedFixture();
-      // Locate the seeded OTHER_COMPANY_ID listing so we can corrupt an Order
-      // for TEST_COMPANY_ID by pointing its listing_id at the wrong tenant.
+      // Locate the seeded OTHER_ORGANIZATION_ID listing so we can corrupt an Order
+      // for TEST_ORGANIZATION_ID by pointing its listing_id at the wrong tenant.
       const otherListing = await prisma.channelListing.findFirstOrThrow({
-        where: { companyId: OTHER_COMPANY_ID, externalId: 'EXT-OTHER' },
+        where: { organizationId: OTHER_ORGANIZATION_ID, externalId: 'EXT-OTHER' },
       });
       const otherListingOption = await prisma.channelListingOption.findFirstOrThrow({
-        where: { companyId: OTHER_COMPANY_ID, listingId: otherListing.id },
+        where: { organizationId: OTHER_ORGANIZATION_ID, listingId: otherListing.id },
       });
 
-      // Corrupt: Order belongs to TEST_COMPANY_ID, but its listingId references
-      // a row that belongs to OTHER_COMPANY_ID. Schema permits this (FK is on
-      // id only, not companyId). Application code must reject it.
+      // Corrupt: Order belongs to TEST_ORGANIZATION_ID, but its listingId references
+      // a row that belongs to OTHER_ORGANIZATION_ID. Schema permits this (FK is on
+      // id only, not organizationId). Application code must reject it.
       const corruptOrder = await prisma.order.create({
         data: {
-          companyId: TEST_COMPANY_ID,
+          organizationId: TEST_ORGANIZATION_ID,
           platform: 'coupang',
           externalOrderId: 'CROSS-TENANT-LISTING',
           orderedAt: new Date('2026-04-14T15:00:00.000Z'),
@@ -809,7 +809,7 @@ describe('Channel dashboard (PG integration)', () => {
       });
       await prisma.orderLineItem.create({
         data: {
-          companyId: TEST_COMPANY_ID,
+          organizationId: TEST_ORGANIZATION_ID,
           orderId: corruptOrder.id,
           listingOptionId: otherListingOption.id, // ← cross-tenant
           quantity: 1,
@@ -821,7 +821,7 @@ describe('Channel dashboard (PG integration)', () => {
 
       const from = new Date('2026-04-14T15:00:00.000Z');
       const to = new Date('2026-04-16T15:00:00.000Z');
-      const result = await service.getProductRanking(TEST_COMPANY_ID, from, to);
+      const result = await service.getProductRanking(TEST_ORGANIZATION_ID, from, to);
 
       // Without the 2-hop filter, the result would include {sellerProductId:
       // 'EXT-OTHER', sellerProductName: 'Other Master'}. With it, only the
@@ -833,50 +833,52 @@ describe('Channel dashboard (PG integration)', () => {
       expect(names).toContain('Master A');
     });
 
-    it('getRevenueTrend: cross-tenant OrderLineItem.companyId does not inflate revenue', async () => {
+    it('getRevenueTrend: schema rejects cross-organization OrderLineItem.organizationId corruption', async () => {
       const { orders } = await seedFixture();
 
-      // Corrupt: an OrderLineItem rows whose companyId belongs to
-      // OTHER_COMPANY_ID, but is attached to a TEST_COMPANY order. Without
-      // the 2-hop filter the SUM(oli.total_price) would absorb its 750_000.
+      // Corrupt: an OrderLineItem row whose organizationId belongs to
+      // OTHER_ORGANIZATION_ID, but is attached to a TEST_ORGANIZATION order.
+      // The composite FK now rejects this before raw dashboard filters run.
       const otherListingOption = await prisma.channelListingOption.findFirstOrThrow({
-        where: { companyId: OTHER_COMPANY_ID, externalOptionId: 'VI-OTHER' },
+        where: { organizationId: OTHER_ORGANIZATION_ID, externalOptionId: 'VI-OTHER' },
       });
-      await prisma.orderLineItem.create({
-        data: {
-          companyId: OTHER_COMPANY_ID, // ← cross-tenant on the line item
-          orderId: orders.o1.id,
-          listingOptionId: otherListingOption.id,
-          quantity: 1,
-          unitPrice: 750_000,
-          totalPrice: 750_000,
-          externalLineId: 'CROSS-LI-2',
-        },
-      });
+      await expect(
+        prisma.orderLineItem.create({
+          data: {
+            organizationId: OTHER_ORGANIZATION_ID,
+            orderId: orders.o1.id,
+            listingOptionId: otherListingOption.id,
+            quantity: 1,
+            unitPrice: 750_000,
+            totalPrice: 750_000,
+            externalLineId: 'CROSS-LI-2',
+          },
+        }),
+      ).rejects.toMatchObject({ code: 'P2003' });
 
       const from = new Date('2026-04-14T15:00:00.000Z');
       const to = new Date('2026-04-16T15:00:00.000Z');
-      const result = await service.getRevenueTrend(TEST_COMPANY_ID, from, to);
+      const result = await service.getRevenueTrend(TEST_ORGANIZATION_ID, from, to);
 
-      // Pre-corruption, O1 day (2026-04-15) sums to 25_000 (20_000 + 5_000).
-      // The 750_000 corruption row must be filtered out by oli.company_id.
+      // O1 day (2026-04-15) sums to 25_000 (20_000 + 5_000).
+      // The rejected 750_000 corruption row cannot inflate the result.
       const total = result.reduce((s, r) => s + r.revenue, 0);
       expect(total).toBe(49_000); // 25_000 (O1) + 24_000 (O2). Never +750_000.
       const day15 = result.find((r) => r.day === '2026-04-15');
       expect(day15?.revenue).toBe(25_000);
     });
 
-    it('getProductRanking: cross-tenant master_products.companyId mismatch is filtered out', async () => {
+    it('getProductRanking: cross-tenant master_products.organizationId mismatch is filtered out', async () => {
       await seedFixture();
       // Construct a TEST_COMPANY ChannelListing whose master_id points at the
-      // OTHER tenant's MasterProduct. No FK companyId enforcement, so this
+      // OTHER tenant's MasterProduct. No FK organizationId enforcement, so this
       // is allowed by Postgres.
       const otherMaster = await prisma.masterProduct.findFirstOrThrow({
-        where: { companyId: OTHER_COMPANY_ID, code: 'M-OTHER' },
+        where: { organizationId: OTHER_ORGANIZATION_ID, code: 'M-OTHER' },
       });
       const corruptListing = await prisma.channelListing.create({
         data: {
-          companyId: TEST_COMPANY_ID,
+          organizationId: TEST_ORGANIZATION_ID,
           masterId: otherMaster.id, // ← cross-tenant master reference
           channel: 'coupang',
           externalId: 'EXT-CROSS',
@@ -885,14 +887,14 @@ describe('Channel dashboard (PG integration)', () => {
       });
       const corruptOption = await prisma.channelListingOption.create({
         data: {
-          companyId: TEST_COMPANY_ID,
+          organizationId: TEST_ORGANIZATION_ID,
           listingId: corruptListing.id,
           externalOptionId: 'VI-CROSS',
         },
       });
       const corruptOrder = await prisma.order.create({
         data: {
-          companyId: TEST_COMPANY_ID,
+          organizationId: TEST_ORGANIZATION_ID,
           platform: 'coupang',
           externalOrderId: 'CROSS-MASTER-1',
           orderedAt: new Date('2026-04-14T15:00:00.000Z'),
@@ -904,7 +906,7 @@ describe('Channel dashboard (PG integration)', () => {
       });
       await prisma.orderLineItem.create({
         data: {
-          companyId: TEST_COMPANY_ID,
+          organizationId: TEST_ORGANIZATION_ID,
           orderId: corruptOrder.id,
           listingOptionId: corruptOption.id,
           quantity: 1,
@@ -916,10 +918,10 @@ describe('Channel dashboard (PG integration)', () => {
 
       const from = new Date('2026-04-14T15:00:00.000Z');
       const to = new Date('2026-04-16T15:00:00.000Z');
-      const result = await service.getProductRanking(TEST_COMPANY_ID, from, to);
+      const result = await service.getProductRanking(TEST_ORGANIZATION_ID, from, to);
 
-      // Even though everything except MasterProduct.companyId is in TEST,
-      // the mp.company_id 2-hop filter must drop the row.
+      // Even though everything except MasterProduct.organizationId is in TEST,
+      // the mp.organization_id 2-hop filter must drop the row.
       const ids = result.map((r) => r.sellerProductId);
       expect(ids).not.toContain('EXT-CROSS');
     });

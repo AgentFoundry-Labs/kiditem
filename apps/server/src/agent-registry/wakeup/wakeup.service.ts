@@ -13,14 +13,14 @@ export class WakeupService {
    * Wakeup 요청 생성. 이미 queued인 같은 에이전트 요청이 있으면 coalescing.
    *
    * Trusted-internal: callers (HeartbeatService, DelegationService, controller
-   * `service.run()` path) supply the verified companyId from @CurrentCompany()
+   * `service.run()` path) supply the verified organizationId from @CurrentOrganization()
    * or from a previously-validated context. Each `findFirst` / `updateMany`
-   * in this service binds companyId so even a stale agentId cannot resurrect
+   * in this service binds organizationId so even a stale agentId cannot resurrect
    * a row from another tenant.
    */
   async requestWakeup(input: {
     agentId: string;
-    companyId: string;
+    organizationId: string;
     source: WakeupSource;
     reason?: string;
     payload?: Record<string, unknown>;
@@ -32,7 +32,7 @@ export class WakeupService {
     const existing = await this.prisma.agentWakeupRequest.findFirst({
       where: {
         agentId: input.agentId,
-        companyId: input.companyId,
+        organizationId: input.organizationId,
         status: 'queued',
       },
       orderBy: { requestedAt: 'desc' },
@@ -40,7 +40,7 @@ export class WakeupService {
 
     if (existing) {
       await this.prisma.agentWakeupRequest.updateMany({
-        where: { id: existing.id, companyId: input.companyId },
+        where: { id: existing.id, organizationId: input.organizationId },
         data: {
           coalescedCount: { increment: 1 },
           reason: input.reason ?? existing.reason,
@@ -54,7 +54,7 @@ export class WakeupService {
     const request = await this.prisma.agentWakeupRequest.create({
       data: {
         agent: { connect: { id: input.agentId } },
-        company: { connect: { id: input.companyId } },
+        organization: { connect: { id: input.organizationId } },
         source: input.source,
         reason: input.reason,
         payload: input.payload as any,
@@ -70,7 +70,7 @@ export class WakeupService {
   }
 
   /**
-   * 다음 처리할 wakeup 요청을 claim. 호출자가 받은 row.companyId 는 신뢰 가능 —
+   * 다음 처리할 wakeup 요청을 claim. 호출자가 받은 row.organizationId 는 신뢰 가능 —
    * findFirst 결과에 의존해서 그 row 의 status 만 업데이트한다.
    */
   async claimNext(agentId: string) {
@@ -82,7 +82,7 @@ export class WakeupService {
     if (!request) return null;
 
     await this.prisma.agentWakeupRequest.updateMany({
-      where: { id: request.id, companyId: request.companyId },
+      where: { id: request.id, organizationId: request.organizationId },
       data: { status: 'claimed', claimedAt: new Date() },
     });
 
@@ -90,18 +90,18 @@ export class WakeupService {
   }
 
   /**
-   * Wakeup 완료 처리. companyId 는 호출자(HeartbeatService) 가 wakeup row 에서
+   * Wakeup 완료 처리. organizationId 는 호출자(HeartbeatService) 가 wakeup row 에서
    * 직접 가져온 값이므로 신뢰 가능. updateMany 에 묶어 cross-tenant 가 finish
    * 호출로 다른 회사 wakeup 상태를 변조하지 못하도록 방어한다.
    */
   async finish(
     requestId: string,
-    companyId: string,
+    organizationId: string,
     runId: string,
     error?: string,
   ): Promise<void> {
     await this.prisma.agentWakeupRequest.updateMany({
-      where: { id: requestId, companyId },
+      where: { id: requestId, organizationId },
       data: {
         status: error ? 'failed' : 'finished',
         runId,

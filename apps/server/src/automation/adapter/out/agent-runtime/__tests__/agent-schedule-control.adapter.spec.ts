@@ -27,12 +27,12 @@ describe('AgentRuntimeScheduleControlAdapter', () => {
       const { adapter, agentRegistry } = makeAdapter();
       agentRegistry.findByType.mockResolvedValue({
         id: 'agent-global',
-        companyId: null,
+        organizationId: null,
         schedule: '0 9 * * *',
       });
 
       await expect(
-        adapter.getSchedule('rules_evaluation', 'company-1'),
+        adapter.getSchedule('rules_evaluation', 'organization-1'),
       ).resolves.toEqual({ schedule: 'disabled' });
       expect(agentRegistry.findByType).toHaveBeenCalledWith('rules_evaluation');
     });
@@ -41,12 +41,12 @@ describe('AgentRuntimeScheduleControlAdapter', () => {
       const { adapter, agentRegistry } = makeAdapter();
       agentRegistry.findByType.mockResolvedValue({
         id: 'agent-foreign',
-        companyId: 'company-other',
+        organizationId: 'organization-other',
         schedule: '0 9 * * *',
       });
 
       await expect(
-        adapter.getSchedule('rules_evaluation', 'company-1'),
+        adapter.getSchedule('rules_evaluation', 'organization-1'),
       ).resolves.toEqual({ schedule: 'disabled' });
     });
 
@@ -54,12 +54,12 @@ describe('AgentRuntimeScheduleControlAdapter', () => {
       const { adapter, agentRegistry } = makeAdapter();
       agentRegistry.findByType.mockResolvedValue({
         id: 'agent-tenant',
-        companyId: 'company-1',
+        organizationId: 'organization-1',
         schedule: '0 9,18 * * *',
       });
 
       await expect(
-        adapter.getSchedule('rules_evaluation', 'company-1'),
+        adapter.getSchedule('rules_evaluation', 'organization-1'),
       ).resolves.toEqual({ schedule: '0 9,18 * * *' });
     });
 
@@ -67,12 +67,12 @@ describe('AgentRuntimeScheduleControlAdapter', () => {
       const { adapter, agentRegistry } = makeAdapter();
       agentRegistry.findByType.mockResolvedValue({
         id: 'agent-tenant',
-        companyId: 'company-1',
+        organizationId: 'organization-1',
         schedule: null,
       });
 
       await expect(
-        adapter.getSchedule('rules_evaluation', 'company-1'),
+        adapter.getSchedule('rules_evaluation', 'organization-1'),
       ).resolves.toEqual({ schedule: 'disabled' });
     });
   });
@@ -82,12 +82,12 @@ describe('AgentRuntimeScheduleControlAdapter', () => {
       const { adapter, agentRegistry, heartbeat } = makeAdapter();
       agentRegistry.findByType.mockResolvedValue({
         id: 'agent-global',
-        companyId: null,
+        organizationId: null,
         schedule: null,
       });
 
       await expect(
-        adapter.setSchedule('rules_evaluation', 'company-1', '0 9 * * *'),
+        adapter.setSchedule('rules_evaluation', 'organization-1', '0 9 * * *'),
       ).rejects.toBeInstanceOf(TenantOwnedAgentRequiredError);
 
       expect(agentRegistry.update).not.toHaveBeenCalled();
@@ -98,12 +98,12 @@ describe('AgentRuntimeScheduleControlAdapter', () => {
       const { adapter, agentRegistry, heartbeat } = makeAdapter();
       agentRegistry.findByType.mockResolvedValue({
         id: 'agent-foreign',
-        companyId: 'company-other',
+        organizationId: 'organization-other',
         schedule: null,
       });
 
       await expect(
-        adapter.setSchedule('rules_evaluation', 'company-1', '0 9 * * *'),
+        adapter.setSchedule('rules_evaluation', 'organization-1', '0 9 * * *'),
       ).rejects.toBeInstanceOf(TenantOwnedAgentRequiredError);
 
       expect(agentRegistry.update).not.toHaveBeenCalled();
@@ -114,17 +114,17 @@ describe('AgentRuntimeScheduleControlAdapter', () => {
       const { adapter, agentRegistry, heartbeat } = makeAdapter();
       agentRegistry.findByType.mockResolvedValue({
         id: 'agent-tenant',
-        companyId: 'company-1',
+        organizationId: 'organization-1',
         schedule: null,
       });
 
       await expect(
-        adapter.setSchedule('rules_evaluation', 'company-1', '0 9 * * *'),
+        adapter.setSchedule('rules_evaluation', 'organization-1', '0 9 * * *'),
       ).resolves.toEqual({ schedule: '0 9 * * *' });
 
       expect(agentRegistry.update).toHaveBeenCalledWith(
         'agent-tenant',
-        'company-1',
+        'organization-1',
         { schedule: '0 9 * * *' },
       );
       expect(heartbeat.syncTimers).toHaveBeenCalledOnce();
@@ -134,17 +134,17 @@ describe('AgentRuntimeScheduleControlAdapter', () => {
       const { adapter, agentRegistry, heartbeat } = makeAdapter();
       agentRegistry.findByType.mockResolvedValue({
         id: 'agent-tenant',
-        companyId: 'company-1',
+        organizationId: 'organization-1',
         schedule: '0 9 * * *',
       });
 
       await expect(
-        adapter.setSchedule('rules_evaluation', 'company-1', null),
+        adapter.setSchedule('rules_evaluation', 'organization-1', null),
       ).resolves.toEqual({ schedule: 'disabled' });
 
       expect(agentRegistry.update).toHaveBeenCalledWith(
         'agent-tenant',
-        'company-1',
+        'organization-1',
         { schedule: null },
       );
       expect(heartbeat.syncTimers).toHaveBeenCalledOnce();

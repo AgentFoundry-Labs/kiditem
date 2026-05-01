@@ -56,7 +56,7 @@ describe('MarketplaceInstallService', () => {
       vi.mocked(store.findWorkflowCatalog).mockResolvedValue(null);
 
       await expect(
-        service.installWorkflow('m-1', 'company-1'),
+        service.installWorkflow('m-1', 'organization-1'),
       ).rejects.toBeInstanceOf(NotFoundException);
     });
 
@@ -70,7 +70,7 @@ describe('MarketplaceInstallService', () => {
       );
 
       await expect(
-        service.installWorkflow('m-1', 'company-1'),
+        service.installWorkflow('m-1', 'organization-1'),
       ).rejects.toBeInstanceOf(BadRequestException);
 
       expect(store.createWorkflowInstallation).not.toHaveBeenCalled();
@@ -81,10 +81,10 @@ describe('MarketplaceInstallService', () => {
       vi.mocked(store.findWorkflowCatalog).mockResolvedValue(workflowCatalog());
       vi.mocked(store.createWorkflowInstallation).mockResolvedValue({ id: 'tpl-1' });
 
-      const result = await service.installWorkflow('m-1', 'company-1');
+      const result = await service.installWorkflow('m-1', 'organization-1');
 
       expect(store.createWorkflowInstallation).toHaveBeenCalledWith({
-        companyId: 'company-1',
+        organizationId: 'organization-1',
         name: 'rules sweep',
         description: 'desc',
         module: 'analytics',
@@ -105,7 +105,7 @@ describe('MarketplaceInstallService', () => {
       );
       vi.mocked(store.createWorkflowInstallation).mockResolvedValue({ id: 'tpl-1' });
 
-      await service.installWorkflow('m-1', 'company-1');
+      await service.installWorkflow('m-1', 'organization-1');
 
       expect(store.createWorkflowInstallation).toHaveBeenCalledWith(
         expect.objectContaining({ module: 'order' }),
@@ -117,7 +117,7 @@ describe('MarketplaceInstallService', () => {
       vi.mocked(store.findWorkflowCatalog).mockResolvedValue(workflowCatalog());
       vi.mocked(store.createWorkflowInstallation).mockResolvedValue({ id: 'tpl-1' });
 
-      await service.installWorkflow('m-1', 'company-1', {
+      await service.installWorkflow('m-1', 'organization-1', {
         schedule: '0 9 * * *',
       });
 
@@ -149,7 +149,7 @@ describe('MarketplaceInstallService', () => {
       );
       vi.mocked(store.createWorkflowInstallation).mockResolvedValue({ id: 'tpl-1' });
 
-      await service.installWorkflow('m-1', 'company-1', {
+      await service.installWorkflow('m-1', 'organization-1', {
         agent_type: 'custom_agent',
         orphan_param: 'x',
       });
@@ -171,7 +171,7 @@ describe('MarketplaceInstallService', () => {
       const { service, store } = makeService();
       vi.mocked(store.findAgentCatalog).mockResolvedValue(null);
 
-      await expect(service.installAgent('m-1', 'company-1')).rejects.toBeInstanceOf(
+      await expect(service.installAgent('m-1', 'organization-1')).rejects.toBeInstanceOf(
         NotFoundException,
       );
     });
@@ -196,20 +196,20 @@ describe('MarketplaceInstallService', () => {
       });
       vi.mocked(store.findTenantManager).mockResolvedValue({ id: 'manager-1' });
 
-      await service.installAgent('m-1', 'company-1');
+      await service.installAgent('m-1', 'organization-1');
 
       expect(store.createAgentInstallation).toHaveBeenCalledWith(
         expect.objectContaining({
-          companyId: 'company-1',
+          organizationId: 'organization-1',
           name: 'Rules Bot',
           marketplaceId: 'm-1',
           role: 'specialist',
         }),
       );
-      expect(store.findTenantManager).toHaveBeenCalledWith('company-1');
+      expect(store.findTenantManager).toHaveBeenCalledWith('organization-1');
       expect(store.assignAgentReportsTo).toHaveBeenCalledWith(
         'agent-1',
-        'company-1',
+        'organization-1',
         'manager-1',
       );
     });
@@ -234,7 +234,7 @@ describe('MarketplaceInstallService', () => {
       });
       vi.mocked(store.findTenantManager).mockResolvedValue(null);
 
-      await service.installAgent('m-1', 'company-1');
+      await service.installAgent('m-1', 'organization-1');
 
       expect(store.assignAgentReportsTo).not.toHaveBeenCalled();
     });
@@ -258,7 +258,7 @@ describe('MarketplaceInstallService', () => {
         role: 'manager',
       });
 
-      await service.installAgent('m-1', 'company-1');
+      await service.installAgent('m-1', 'organization-1');
 
       expect(store.findTenantManager).not.toHaveBeenCalled();
       expect(store.assignAgentReportsTo).not.toHaveBeenCalled();
@@ -283,7 +283,7 @@ describe('MarketplaceInstallService', () => {
         role: 'manager',
       });
 
-      await service.installAgent('m-1', 'company-1', {
+      await service.installAgent('m-1', 'organization-1', {
         schedule: '0 9 * * *',
         monthlyTokenBudget: 100000,
         requiresApproval: true,
@@ -309,7 +309,7 @@ describe('MarketplaceInstallService', () => {
       vi.mocked(store.findInstalledWorkflow).mockResolvedValue(null);
 
       await expect(
-        service.uninstallWorkflow('m-1', 'company-1'),
+        service.uninstallWorkflow('m-1', 'organization-1'),
       ).rejects.toBeInstanceOf(NotFoundException);
 
       expect(store.deleteInstalledWorkflow).not.toHaveBeenCalled();
@@ -322,13 +322,13 @@ describe('MarketplaceInstallService', () => {
       vi.mocked(store.deleteInstalledWorkflow).mockResolvedValue(true);
 
       await expect(
-        service.uninstallWorkflow('m-1', 'company-1'),
+        service.uninstallWorkflow('m-1', 'organization-1'),
       ).resolves.toEqual({ ok: true });
 
-      expect(store.findInstalledWorkflow).toHaveBeenCalledWith('m-1', 'company-1');
+      expect(store.findInstalledWorkflow).toHaveBeenCalledWith('m-1', 'organization-1');
       expect(store.deleteInstalledWorkflow).toHaveBeenCalledWith(
         'tpl-1',
-        'company-1',
+        'organization-1',
       );
       expect(store.decrementInstallCountIfPositive).toHaveBeenCalledWith('m-1');
     });
@@ -339,7 +339,7 @@ describe('MarketplaceInstallService', () => {
       const { service, store } = makeService();
       vi.mocked(store.findInstalledAgent).mockResolvedValue(null);
 
-      await expect(service.uninstallAgent('m-1', 'company-1')).rejects.toBeInstanceOf(
+      await expect(service.uninstallAgent('m-1', 'organization-1')).rejects.toBeInstanceOf(
         NotFoundException,
       );
 
@@ -355,14 +355,14 @@ describe('MarketplaceInstallService', () => {
       });
       vi.mocked(store.deleteInstalledAgent).mockResolvedValue(true);
 
-      await expect(service.uninstallAgent('m-1', 'company-1')).resolves.toEqual({
+      await expect(service.uninstallAgent('m-1', 'organization-1')).resolves.toEqual({
         ok: true,
       });
 
-      expect(store.findInstalledAgent).toHaveBeenCalledWith('m-1', 'company-1');
+      expect(store.findInstalledAgent).toHaveBeenCalledWith('m-1', 'organization-1');
       expect(store.deleteInstalledAgent).toHaveBeenCalledWith(
         'agent-1',
-        'company-1',
+        'organization-1',
       );
       expect(store.decrementInstallCountIfPositive).toHaveBeenCalledWith('m-1');
     });

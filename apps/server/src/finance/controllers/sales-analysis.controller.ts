@@ -1,5 +1,5 @@
 import { Controller, Get, Query } from '@nestjs/common';
-import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
+import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
 import type { SalesAnalysisData } from '@kiditem/shared/finance';
 import { SalesAnalysisService } from '../services/sales-analysis.service';
 import { SalesAnalysisQueryDto } from '../dto/sales-analysis-query.dto';
@@ -10,9 +10,9 @@ export class SalesAnalysisController {
 
   @Get()
   async getAnalysis(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Query() query: SalesAnalysisQueryDto,
   ): Promise<SalesAnalysisData> {
-    return this.salesAnalysisService.getAnalysis(companyId, query.period);
+    return this.salesAnalysisService.getAnalysis(organizationId, query.period);
   }
 }

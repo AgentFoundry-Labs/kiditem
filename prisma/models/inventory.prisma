@@ -5,7 +5,7 @@
 model Inventory {
   id         String  @id @default(uuid()) @db.Uuid
   optionId   String  @unique @map("option_id") @db.Uuid
-  companyId  String  @map("company_id") @db.Uuid
+  organizationId  String  @map("organization_id") @db.Uuid
 
   currentStock    Int   @default(0) @map("current_stock")
   reservedStock   Int   @default(0) @map("reserved_stock")
@@ -22,9 +22,9 @@ model Inventory {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   option  ProductOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
-  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  @@index([companyId])
+  @@index([organizationId])
   @@index([currentStock])
   @@map("inventory")
 }
@@ -32,7 +32,7 @@ model Inventory {
 /// @namespace Inventory
 model StockTransaction {
   id          String   @id @default(uuid()) @db.Uuid
-  companyId   String   @map("company_id") @db.Uuid
+  organizationId   String   @map("organization_id") @db.Uuid
   optionId    String   @map("option_id") @db.Uuid
   optionName  String?  @map("option_name")  // denormalized for audit
   type        String
@@ -46,12 +46,12 @@ model StockTransaction {
   createdBy   String?  @map("created_by")
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  company   Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   option    ProductOption @relation(fields: [optionId], references: [id], onDelete: Restrict)
   warehouse Warehouse?    @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
 
-  @@index([companyId])
-  @@index([companyId, createdAt])
+  @@index([organizationId])
+  @@index([organizationId, createdAt])
   @@index([optionId])
   @@index([type])
   @@index([createdAt])
@@ -62,7 +62,7 @@ model StockTransaction {
 /// @describe 창고 간 이동 (from → to warehouse).
 model StockTransfer {
   id              String    @id @default(uuid()) @db.Uuid
-  companyId       String    @map("company_id") @db.Uuid
+  organizationId       String    @map("organization_id") @db.Uuid
   optionId        String    @map("option_id") @db.Uuid
   optionName      String?   @map("option_name")
   fromWarehouseId String    @map("from_warehouse_id") @db.Uuid
@@ -75,12 +75,12 @@ model StockTransfer {
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company       Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organization       Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   option        ProductOption @relation(fields: [optionId], references: [id], onDelete: Restrict)
   fromWarehouse Warehouse @relation("TransferFromWarehouse", fields: [fromWarehouseId], references: [id])
   toWarehouse   Warehouse @relation("TransferToWarehouse", fields: [toWarehouseId], references: [id])
 
-  @@index([companyId])
+  @@index([organizationId])
   @@index([optionId])
   @@index([status])
   @@map("stock_transfers")
@@ -89,7 +89,7 @@ model StockTransfer {
 /// @namespace Inventory
 model StockAudit {
   id            String    @id @default(uuid()) @db.Uuid
-  companyId     String    @map("company_id") @db.Uuid
+  organizationId     String    @map("organization_id") @db.Uuid
   auditNumber   String    @map("audit_number")
   status        String    @default("in_progress")
   totalProducts Int       @default(0) @map("total_products")
@@ -101,17 +101,17 @@ model StockAudit {
   items         Json?
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  @@unique([companyId, auditNumber])
-  @@index([companyId])
+  @@unique([organizationId, auditNumber])
+  @@index([organizationId])
   @@map("stock_audits")
 }
 
 /// @namespace Inventory
 model Warehouse {
   id        String   @id @default(uuid()) @db.Uuid
-  companyId String   @map("company_id") @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
   name      String
   code      String?
   address   String?
@@ -122,7 +122,7 @@ model Warehouse {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   // Warehouse references from other models
   stockTransfersFrom     StockTransfer[]      @relation("TransferFromWarehouse")
@@ -130,15 +130,15 @@ model Warehouse {
   stockTransactions      StockTransaction[]
   shipments              Shipment[]
 
-  @@unique([companyId, code])
-  @@index([companyId])
+  @@unique([organizationId, code])
+  @@index([organizationId])
   @@map("warehouses")
 }
 
 /// @namespace Inventory
 model PickingList {
   id          String        @id @default(uuid()) @db.Uuid
-  companyId   String        @map("company_id") @db.Uuid
+  organizationId   String        @map("organization_id") @db.Uuid
   listNumber  String        @map("list_number")
   status      String        @default("pending")
   totalItems  Int           @default(0) @map("total_items")
@@ -149,11 +149,11 @@ model PickingList {
   createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   items   PickingItem[]
 
-  @@unique([companyId, listNumber])
-  @@index([companyId])
+  @@unique([organizationId, listNumber])
+  @@index([organizationId])
   @@map("picking_lists")
 }
 
@@ -184,7 +184,7 @@ model PickingItem {
 /// @namespace Inventory
 model ReturnTransfer {
   id           String    @id @default(uuid()) @db.Uuid
-  companyId    String    @map("company_id") @db.Uuid
+  organizationId    String    @map("organization_id") @db.Uuid
   rtNumber     String    @map("rt_number")
   orderId      String?   @map("order_id") @db.Uuid
   optionId     String    @map("option_id") @db.Uuid
@@ -200,11 +200,11 @@ model ReturnTransfer {
   completedAt  DateTime? @map("completed_at") @db.Timestamptz
   updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   option  ProductOption @relation(fields: [optionId], references: [id], onDelete: Restrict)
 
-  @@unique([companyId, rtNumber])
-  @@index([companyId])
+  @@unique([organizationId, rtNumber])
+  @@index([organizationId])
   @@index([optionId])
   @@index([status])
   @@map("return_transfers")

@@ -5,15 +5,15 @@ import { workflowPanelMapper } from './workflow.mapper';
 /**
  * Query WorkflowRun + template, map to PanelRunItem.
  * ADR-0011: WorkflowRun.status 는 이제 canonical. 정규화 불필요.
- * Returns null if the run is missing for the current company.
+ * Returns null if the run is missing for the current organization.
  */
 export async function buildWorkflowPanelItem(
   prisma: PrismaService,
   runId: string,
-  companyId: string,
-): Promise<{ item: Omit<PanelItem, 'seq' | 'updatedAt'>; companyId: string } | null> {
+  organizationId: string,
+): Promise<{ item: Omit<PanelItem, 'seq' | 'updatedAt'>; organizationId: string } | null> {
   const run = await prisma.workflowRun.findFirst({
-    where: { id: runId, companyId },
+    where: { id: runId, organizationId },
     include: { template: { select: { name: true } } },
   });
   if (!run) return null;
@@ -34,8 +34,8 @@ export async function buildWorkflowPanelItem(
       triggeredByUserId: run.triggeredByUserId,
       createdAt: run.createdAt,
     },
-    companyId,
+    organizationId,
   );
 
-  return { item, companyId };
+  return { item, organizationId };
 }

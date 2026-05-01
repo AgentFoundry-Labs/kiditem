@@ -33,34 +33,34 @@ describe('PanelSseService', () => {
     title: 'test',
     deepLink: '/x',
     actorUserId: null,
-    visibility: 'company' as const,
+    visibility: 'organization' as const,
     createdAt: '2026-04-15T00:00:00Z',
     ...overrides,
   });
 
-  it('emits upsert and filters by companyId', async () => {
+  it('emits upsert and filters by organizationId', async () => {
     const sub = service.getStream('co-1');
     const next = firstValueFrom(sub.pipe(take(1)));
-    emitter.emit(PANEL_EVENTS.UPSERT, { item: makeItem(), companyId: 'co-1' });
+    emitter.emit(PANEL_EVENTS.UPSERT, { item: makeItem(), organizationId: 'co-1' });
     const msg = await next;
     expect((msg as any).data).toMatchObject({ type: 'upsert', seq: 1 });
     expect((msg as any).data.item).toMatchObject({ id: 'workflow:abc' });
   });
 
-  it('strips companyId from payload to client (CRITICAL #8)', async () => {
+  it('strips organizationId from payload to client (CRITICAL #8)', async () => {
     const sub = service.getStream('co-1');
     const next = firstValueFrom(sub.pipe(take(1)));
-    emitter.emit(PANEL_EVENTS.UPSERT, { item: makeItem(), companyId: 'co-1' });
+    emitter.emit(PANEL_EVENTS.UPSERT, { item: makeItem(), organizationId: 'co-1' });
     const msg = await next as any;
-    expect(msg.data.item).not.toHaveProperty('companyId');
+    expect(msg.data.item).not.toHaveProperty('organizationId');
   });
 
-  it('filters out other company', async () => {
+  it('filters out other organization', async () => {
     const sub = service.getStream('co-1');
     const collected: any[] = [];
     const subscription = sub.subscribe((e) => collected.push(e));
-    emitter.emit(PANEL_EVENTS.UPSERT, { item: makeItem({ id: 'other' }), companyId: 'co-2' });
-    emitter.emit(PANEL_EVENTS.UPSERT, { item: makeItem({ id: 'mine' }), companyId: 'co-1' });
+    emitter.emit(PANEL_EVENTS.UPSERT, { item: makeItem({ id: 'other' }), organizationId: 'co-2' });
+    emitter.emit(PANEL_EVENTS.UPSERT, { item: makeItem({ id: 'mine' }), organizationId: 'co-1' });
     await new Promise((r) => setTimeout(r, 10));
     subscription.unsubscribe();
     expect(collected).toHaveLength(1);
@@ -72,7 +72,7 @@ describe('PanelSseService', () => {
     const collected: any[] = [];
     const subscription = sub.subscribe((e) => collected.push((e as any).data));
     for (let i = 0; i < 3; i++) {
-      emitter.emit(PANEL_EVENTS.UPSERT, { item: makeItem({ id: `i-${i}` }), companyId: 'co-1' });
+      emitter.emit(PANEL_EVENTS.UPSERT, { item: makeItem({ id: `i-${i}` }), organizationId: 'co-1' });
     }
     await new Promise((r) => setTimeout(r, 10));
     subscription.unsubscribe();
@@ -81,16 +81,16 @@ describe('PanelSseService', () => {
 
   it('replayAfter returns events from ring buffer', async () => {
     for (let i = 0; i < 5; i++) {
-      emitter.emit(PANEL_EVENTS.UPSERT, { item: makeItem({ id: `i-${i}` }), companyId: 'co-1' });
+      emitter.emit(PANEL_EVENTS.UPSERT, { item: makeItem({ id: `i-${i}` }), organizationId: 'co-1' });
     }
     await new Promise((r) => setTimeout(r, 5));
     const replayed = service.replayAfter('co-1', 2);
     expect(replayed.map((e) => e.seq)).toEqual([3, 4, 5]);
   });
 
-  it('ring buffer caps at 100 per company', async () => {
+  it('ring buffer caps at 100 per organization', async () => {
     for (let i = 0; i < 150; i++) {
-      emitter.emit(PANEL_EVENTS.UPSERT, { item: makeItem({ id: `i-${i}` }), companyId: 'co-1' });
+      emitter.emit(PANEL_EVENTS.UPSERT, { item: makeItem({ id: `i-${i}` }), organizationId: 'co-1' });
     }
     await new Promise((r) => setTimeout(r, 20));
     const all = service.replayAfter('co-1', 0);
@@ -100,7 +100,7 @@ describe('PanelSseService', () => {
   it('dismiss event has itemId only (IMPORTANT #2)', async () => {
     const sub = service.getStream('co-1');
     const next = firstValueFrom(sub.pipe(take(1)));
-    emitter.emit(PANEL_EVENTS.DISMISS, { itemId: 'workflow:abc', companyId: 'co-1' });
+    emitter.emit(PANEL_EVENTS.DISMISS, { itemId: 'workflow:abc', organizationId: 'co-1' });
     const msg = await next as any;
     expect(msg.data.type).toBe('dismiss');
     expect(msg.data.itemId).toBe('workflow:abc');

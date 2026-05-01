@@ -25,7 +25,7 @@ export interface AgentCatalogInstallSource {
 export type MarketplaceInstallParams = Readonly<Record<string, unknown>>;
 
 export interface CreateWorkflowInstallationInput {
-  companyId: string;
+  organizationId: string;
   name: string;
   description: string;
   module: string;
@@ -38,7 +38,7 @@ export interface CreateWorkflowInstallationInput {
 }
 
 export interface CreateAgentInstallationInput {
-  companyId: string;
+  organizationId: string;
   name: string;
   type: string;
   description: string | null;
@@ -88,27 +88,27 @@ export interface MarketplaceInstallStorePort {
     input: CreateAgentInstallationInput,
   ): Promise<InstalledAgentDefinitionSnapshot>;
 
-  findTenantManager(companyId: string): Promise<TenantManagerAgentSnapshot | null>;
+  findTenantManager(organizationId: string): Promise<TenantManagerAgentSnapshot | null>;
 
   assignAgentReportsTo(
     agentId: string,
-    companyId: string,
+    organizationId: string,
     managerId: string,
   ): Promise<void>;
 
   findInstalledWorkflow(
     marketplaceId: string,
-    companyId: string,
+    organizationId: string,
   ): Promise<InstalledWorkflowTemplateSnapshot | null>;
 
-  deleteInstalledWorkflow(templateId: string, companyId: string): Promise<boolean>;
+  deleteInstalledWorkflow(templateId: string, organizationId: string): Promise<boolean>;
 
   findInstalledAgent(
     marketplaceId: string,
-    companyId: string,
+    organizationId: string,
   ): Promise<InstalledAgentDefinitionSnapshot | null>;
 
-  deleteInstalledAgent(agentId: string, companyId: string): Promise<boolean>;
+  deleteInstalledAgent(agentId: string, organizationId: string): Promise<boolean>;
 
   decrementInstallCountIfPositive(marketplaceId: string): Promise<void>;
 }

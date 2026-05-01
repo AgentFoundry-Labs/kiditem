@@ -11,7 +11,7 @@ const mockedBuildPerListingMetrics = vi.mocked(buildPerListingMetrics);
 
 /**
  * Plan B2c.orders T9 — sales-plans IDOR 3건 + KST boundary.
- * update / syncActuals / delete 가 findFirst({id, companyId}) 로 cross-company 격리.
+ * update / syncActuals / delete 가 findFirst({id, organizationId}) 로 cross-organization 격리.
  * syncActuals 는 kstMonthStart 로 월 경계 (KST midnight) 를 계산.
  */
 
@@ -43,28 +43,28 @@ describe('SalesPlansService', () => {
   });
 
   describe('findAll', () => {
-    it('lists plans scoped to companyId', async () => {
+    it('lists plans scoped to organizationId', async () => {
       prisma.salesPlan.findMany.mockResolvedValue([]);
 
-      await service.findAll('company-1');
+      await service.findAll('organization-1');
 
       expect(prisma.salesPlan.findMany).toHaveBeenCalledWith({
-        where: { companyId: 'company-1' },
+        where: { organizationId: 'organization-1' },
         orderBy: { period: 'desc' },
       });
     });
   });
 
   describe('create', () => {
-    it('throws BadRequest when duplicate period exists for company', async () => {
+    it('throws BadRequest when duplicate period exists for organization', async () => {
       prisma.salesPlan.findFirst.mockResolvedValue({ id: 'p1' });
 
       await expect(
-        service.create('company-1', { period: '2026-04' } as any),
+        service.create('organization-1', { period: '2026-04' } as any),
       ).rejects.toBeInstanceOf(BadRequestException);
 
       expect(prisma.salesPlan.findFirst).toHaveBeenCalledWith({
-        where: { companyId: 'company-1', period: '2026-04' },
+        where: { organizationId: 'organization-1', period: '2026-04' },
       });
     });
 
@@ -72,14 +72,14 @@ describe('SalesPlansService', () => {
       prisma.salesPlan.findFirst.mockResolvedValue(null);
       prisma.salesPlan.create.mockResolvedValue({ id: 'new' });
 
-      await service.create('company-1', {
+      await service.create('organization-1', {
         period: '2026-05',
         targetRevenue: 100,
       } as any);
 
       expect(prisma.salesPlan.create).toHaveBeenCalledWith({
         data: {
-          companyId: 'company-1',
+          organizationId: 'organization-1',
           period: '2026-05',
           targetRevenue: 100,
           targetOrders: 0,
@@ -91,14 +91,14 @@ describe('SalesPlansService', () => {
   });
 
   describe('update — IDOR fix', () => {
-    it('uses findFirst with {id, companyId} (not findUnique by id only)', async () => {
-      prisma.salesPlan.findFirst.mockResolvedValue({ id: 'p1', companyId: 'company-1' });
+    it('uses findFirst with {id, organizationId} (not findUnique by id only)', async () => {
+      prisma.salesPlan.findFirst.mockResolvedValue({ id: 'p1', organizationId: 'organization-1' });
       prisma.salesPlan.update.mockResolvedValue({ id: 'p1' });
 
-      await service.update('p1', 'company-1', { notes: 'updated' } as any);
+      await service.update('p1', 'organization-1', { notes: 'updated' } as any);
 
       expect(prisma.salesPlan.findFirst).toHaveBeenCalledWith({
-        where: { id: 'p1', companyId: 'company-1' },
+        where: { id: 'p1', organizationId: 'organization-1' },
       });
       expect(prisma.salesPlan.update).toHaveBeenCalledWith({
         where: { id: 'p1' },
@@ -106,12 +106,12 @@ describe('SalesPlansService', () => {
       });
     });
 
-    it('throws NotFoundException when plan belongs to another company', async () => {
-      // Cross-company access: findFirst returns null because scope filter blocks
+    it('throws NotFoundException when plan belongs to another organization', async () => {
+      // Cross-organization access: findFirst returns null because scope filter blocks
       prisma.salesPlan.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.update('p1', 'other-company', { notes: 'evil' } as any),
+        service.update('p1', 'other-organization', { notes: 'evil' } as any),
       ).rejects.toBeInstanceOf(NotFoundException);
 
       expect(prisma.salesPlan.update).not.toHaveBeenCalled();
@@ -119,10 +119,10 @@ describe('SalesPlansService', () => {
   });
 
   describe('syncActuals — IDOR fix + KST boundary', () => {
-    it('rejects cross-company access with NotFoundException', async () => {
+    it('rejects cross-organization access with NotFoundException', async () => {
       prisma.salesPlan.findFirst.mockResolvedValue(null);
 
-      await expect(service.syncActuals('p1', 'other-company')).rejects.toBeInstanceOf(
+      await expect(service.syncActuals('p1', 'other-organization')).rejects.toBeInstanceOf(
         NotFoundException,
       );
 
@@ -133,7 +133,7 @@ describe('SalesPlansService', () => {
     it('uses kstMonthStart for Order.aggregate window (2026-04-30 23:30 KST falls into April)', async () => {
       prisma.salesPlan.findFirst.mockResolvedValue({
         id: 'p1',
-        companyId: 'company-1',
+        organizationId: 'organization-1',
         period: '2026-04',
       });
       prisma.order.aggregate.mockResolvedValue({
@@ -145,7 +145,7 @@ describe('SalesPlansService', () => {
       ]);
       prisma.salesPlan.update.mockResolvedValue({ id: 'p1' });
 
-      await service.syncActuals('p1', 'company-1');
+      await service.syncActuals('p1', 'organization-1');
 
       const aggregateCall = prisma.order.aggregate.mock.calls[0][0];
       const window = aggregateCall.where.orderedAt;
@@ -163,14 +163,14 @@ describe('SalesPlansService', () => {
       const nextMonth = new Date('2026-04-30T15:00:00.000Z');
       expect(nextMonth < window.lt).toBe(false);
 
-      // Scope check — uses injected companyId, not plan.companyId implicitly
-      expect(aggregateCall.where.companyId).toBe('company-1');
+      // Scope check — uses injected organizationId, not plan.organizationId implicitly
+      expect(aggregateCall.where.organizationId).toBe('organization-1');
       expect(aggregateCall.where.status).toEqual({
         notIn: ['cancelled', 'returned', 'refunded'],
       });
       expect(mockedBuildPerListingMetrics).toHaveBeenCalledWith(
         prisma as any,
-        'company-1',
+        'organization-1',
         window.gte,
         window.lt,
       );
@@ -179,7 +179,7 @@ describe('SalesPlansService', () => {
     it('writes aggregate sums to actualRevenue / actualOrders / actualProfit', async () => {
       prisma.salesPlan.findFirst.mockResolvedValue({
         id: 'p1',
-        companyId: 'company-1',
+        organizationId: 'organization-1',
         period: '2026-04',
       });
       prisma.order.aggregate.mockResolvedValue({
@@ -192,7 +192,7 @@ describe('SalesPlansService', () => {
       ]);
       prisma.salesPlan.update.mockResolvedValue({ id: 'p1' });
 
-      await service.syncActuals('p1', 'company-1');
+      await service.syncActuals('p1', 'organization-1');
 
       expect(prisma.salesPlan.update).toHaveBeenCalledWith({
         where: { id: 'p1' },
@@ -207,7 +207,7 @@ describe('SalesPlansService', () => {
     it('defaults to zero when Order.aggregate is empty and live metrics are empty', async () => {
       prisma.salesPlan.findFirst.mockResolvedValue({
         id: 'p1',
-        companyId: 'company-1',
+        organizationId: 'organization-1',
         period: '2026-04',
       });
       prisma.order.aggregate.mockResolvedValue({
@@ -217,7 +217,7 @@ describe('SalesPlansService', () => {
       mockedBuildPerListingMetrics.mockResolvedValue([]);
       prisma.salesPlan.update.mockResolvedValue({ id: 'p1' });
 
-      await service.syncActuals('p1', 'company-1');
+      await service.syncActuals('p1', 'organization-1');
 
       expect(prisma.salesPlan.update).toHaveBeenCalledWith({
         where: { id: 'p1' },
@@ -232,7 +232,7 @@ describe('SalesPlansService', () => {
     it('month=12 wraps periodEnd to next year January (KST)', async () => {
       prisma.salesPlan.findFirst.mockResolvedValue({
         id: 'p1',
-        companyId: 'company-1',
+        organizationId: 'organization-1',
         period: '2026-12',
       });
       prisma.order.aggregate.mockResolvedValue({
@@ -242,7 +242,7 @@ describe('SalesPlansService', () => {
       mockedBuildPerListingMetrics.mockResolvedValue([]);
       prisma.salesPlan.update.mockResolvedValue({ id: 'p1' });
 
-      await service.syncActuals('p1', 'company-1');
+      await service.syncActuals('p1', 'organization-1');
 
       const window = prisma.order.aggregate.mock.calls[0][0].where.orderedAt;
       // periodStart = 2026-12-01 KST = 2026-11-30 15:00 UTC
@@ -251,7 +251,7 @@ describe('SalesPlansService', () => {
       expect(window.lt.toISOString()).toBe('2026-12-31T15:00:00.000Z');
       expect(mockedBuildPerListingMetrics).toHaveBeenCalledWith(
         prisma as any,
-        'company-1',
+        'organization-1',
         window.gte,
         window.lt,
       );
@@ -259,23 +259,23 @@ describe('SalesPlansService', () => {
   });
 
   describe('delete — IDOR fix', () => {
-    it('uses findFirst with {id, companyId}', async () => {
-      prisma.salesPlan.findFirst.mockResolvedValue({ id: 'p1', companyId: 'company-1' });
+    it('uses findFirst with {id, organizationId}', async () => {
+      prisma.salesPlan.findFirst.mockResolvedValue({ id: 'p1', organizationId: 'organization-1' });
       prisma.salesPlan.delete.mockResolvedValue({ id: 'p1' });
 
-      const result = await service.delete('p1', 'company-1');
+      const result = await service.delete('p1', 'organization-1');
 
       expect(prisma.salesPlan.findFirst).toHaveBeenCalledWith({
-        where: { id: 'p1', companyId: 'company-1' },
+        where: { id: 'p1', organizationId: 'organization-1' },
       });
       expect(prisma.salesPlan.delete).toHaveBeenCalledWith({ where: { id: 'p1' } });
       expect(result).toEqual({ ok: true });
     });
 
-    it('throws NotFoundException for cross-company id', async () => {
+    it('throws NotFoundException for cross-organization id', async () => {
       prisma.salesPlan.findFirst.mockResolvedValue(null);
 
-      await expect(service.delete('p1', 'other-company')).rejects.toBeInstanceOf(
+      await expect(service.delete('p1', 'other-organization')).rejects.toBeInstanceOf(
         NotFoundException,
       );
 

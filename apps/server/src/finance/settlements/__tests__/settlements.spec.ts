@@ -22,10 +22,10 @@ function makePrisma() {
 }
 
 const MOCK_SETTLEMENTS = [
-  { id: 's1', companyId: 'c1', period: '2025-03', expectedAmount: 1000000, actualAmount: 980000, difference: -20000, status: 'confirmed' },
-  { id: 's2', companyId: 'c1', period: '2025-02', expectedAmount: 900000, actualAmount: 0, difference: 0, status: 'pending' },
-  { id: 's3', companyId: 'c1', period: '2025-01', expectedAmount: 800000, actualAmount: 810000, difference: 10000, status: 'confirmed' },
-  { id: 's4', companyId: 'c1', period: '2024-12', expectedAmount: 1100000, actualAmount: 1100000, difference: 0, status: 'confirmed' },
+  { id: 's1', organizationId: 'c1', period: '2025-03', expectedAmount: 1000000, actualAmount: 980000, difference: -20000, status: 'confirmed' },
+  { id: 's2', organizationId: 'c1', period: '2025-02', expectedAmount: 900000, actualAmount: 0, difference: 0, status: 'pending' },
+  { id: 's3', organizationId: 'c1', period: '2025-01', expectedAmount: 800000, actualAmount: 810000, difference: 10000, status: 'confirmed' },
+  { id: 's4', organizationId: 'c1', period: '2024-12', expectedAmount: 1100000, actualAmount: 1100000, difference: 0, status: 'confirmed' },
 ];
 
 describe('SettlementsService', () => {
@@ -68,7 +68,7 @@ describe('SettlementsService', () => {
       const result = await service.findAll('c1');
 
       expect(prisma.settlement.findMany).toHaveBeenCalledWith({
-        where: { companyId: 'c1' },
+        where: { organizationId: 'c1' },
         orderBy: { period: 'desc' },
       });
       expect(result).toHaveLength(4);
@@ -81,7 +81,7 @@ describe('SettlementsService', () => {
       const result = await service.findAll('c1', '2025-03');
 
       expect(prisma.settlement.findMany).toHaveBeenCalledWith({
-        where: { companyId: 'c1', period: '2025-03' },
+        where: { organizationId: 'c1', period: '2025-03' },
         orderBy: { period: 'desc' },
       });
       expect(result).toHaveLength(1);
@@ -95,7 +95,7 @@ describe('SettlementsService', () => {
       const result = await service.findAll('c1', '2025');
 
       expect(prisma.settlement.findMany).toHaveBeenCalledWith({
-        where: { companyId: 'c1', period: { startsWith: '2025' } },
+        where: { organizationId: 'c1', period: { startsWith: '2025' } },
         orderBy: { period: 'desc' },
       });
       expect(result).toHaveLength(3);
@@ -107,7 +107,7 @@ describe('SettlementsService', () => {
       await service.findAll('c1', '');
 
       expect(prisma.settlement.findMany).toHaveBeenCalledWith({
-        where: { companyId: 'c1' },
+        where: { organizationId: 'c1' },
         orderBy: { period: 'desc' },
       });
     });
@@ -211,8 +211,8 @@ describe('SettlementsService', () => {
         new Date('2025-03-31T15:00:00.000Z'),
       );
 
-      const [strings, companyId, from, to] = prisma.$queryRaw.mock.calls[0] ?? [];
-      expect([companyId, from, to]).toEqual([
+      const [strings, organizationId, from, to] = prisma.$queryRaw.mock.calls[0] ?? [];
+      expect([organizationId, from, to]).toEqual([
         'c1',
         new Date('2025-02-28T15:00:00.000Z'),
         new Date('2025-03-31T15:00:00.000Z'),
@@ -224,14 +224,14 @@ describe('SettlementsService', () => {
   });
 
   describe('update', () => {
-    it('updates settlement when id + companyId match', async () => {
-      prisma.settlement.findFirst.mockResolvedValue({ id: 's1', companyId: 'c1' });
+    it('updates settlement when id + organizationId match', async () => {
+      prisma.settlement.findFirst.mockResolvedValue({ id: 's1', organizationId: 'c1' });
       prisma.settlement.update.mockResolvedValue({ id: 's1', actualAmount: 1000 });
 
       const result = await service.update('s1', 'c1', { actualAmount: 1000 });
 
       expect(prisma.settlement.findFirst).toHaveBeenCalledWith({
-        where: { id: 's1', companyId: 'c1' },
+        where: { id: 's1', organizationId: 'c1' },
       });
       expect(prisma.settlement.update).toHaveBeenCalledWith({
         where: { id: 's1' },
@@ -240,14 +240,14 @@ describe('SettlementsService', () => {
       expect(result.actualAmount).toBe(1000);
     });
 
-    it('throws BadRequestException when cross-company access attempted (IDOR)', async () => {
+    it('throws BadRequestException when cross-organization access attempted (IDOR)', async () => {
       prisma.settlement.findFirst.mockResolvedValue(null);
 
       await expect(service.update('s1', 'c1', { actualAmount: 9999 }))
         .rejects.toThrow(BadRequestException);
 
       expect(prisma.settlement.findFirst).toHaveBeenCalledWith({
-        where: { id: 's1', companyId: 'c1' },
+        where: { id: 's1', organizationId: 'c1' },
       });
       expect(prisma.settlement.update).not.toHaveBeenCalled();
     });
@@ -260,7 +260,7 @@ describe('SettlementsService', () => {
     });
 
     it('only updates provided fields', async () => {
-      prisma.settlement.findFirst.mockResolvedValue({ id: 's1', companyId: 'c1' });
+      prisma.settlement.findFirst.mockResolvedValue({ id: 's1', organizationId: 'c1' });
       prisma.settlement.update.mockResolvedValue({ id: 's1', status: 'confirmed' });
 
       await service.update('s1', 'c1', { status: 'confirmed' });

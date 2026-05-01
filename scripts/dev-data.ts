@@ -501,7 +501,7 @@ async function runCoupangReplay(
   const replayArgs = ['--dataset', datasetId, '--mode', mode];
   appendFlag(replayArgs, args, 'dry-run');
   appendFlag(replayArgs, args, 'yes');
-  for (const option of ['company-id', 'dev-user-id', 'api-url']) appendOption(replayArgs, args, option);
+  for (const option of ['organization-id', 'dev-user-id', 'api-url']) appendOption(replayArgs, args, option);
   return runCoupangAdapter(args, 'replay', replayArgs);
 }
 
@@ -671,7 +671,7 @@ async function commandSanitize(args: Args): Promise<void> {
 async function commandReplay(args: Args): Promise<void> {
   requireCoupangDomain(args, 'replay');
   const forwardedArgs: string[] = [];
-  for (const option of ['dataset', 'mode', 'company-id', 'dev-user-id', 'api-url']) {
+  for (const option of ['dataset', 'mode', 'organization-id', 'dev-user-id', 'api-url']) {
     appendOption(forwardedArgs, args, option);
   }
   appendFlag(forwardedArgs, args, 'dry-run');

@@ -18,7 +18,7 @@ export class DashboardInventoryService {
 
   async getSummary(
     ctx: DashboardContext,
-    companyId: string,
+    organizationId: string,
   ): Promise<DashboardInventorySummary> {
     try {
       const { now } = ctx;
@@ -34,57 +34,57 @@ export class DashboardInventoryService {
         lowCtrProducts,
         lowReviewProductsRaw,
       ] = await Promise.all([
-        // gradeCount — active products grouped by abcGrade (ADR-0018 Rule 1 companyId)
+        // gradeCount — active products grouped by abcGrade (ADR-0018 Rule 1 organizationId)
         this.prisma.masterProduct.groupBy({
           by: ['abcGrade'],
           _count: true,
-          where: { companyId, isDeleted: false },
+          where: { organizationId, isDeleted: false },
         }),
 
         // alerts — top-10 unread, newest first (legacy)
         this.prisma.alert.findMany({
-          where: { companyId, isRead: false },
+          where: { organizationId, isRead: false },
           orderBy: { createdAt: 'desc' },
           take: 10,
         }),
 
         // totalProducts — active product count (legacy)
         this.prisma.masterProduct.count({
-          where: { companyId, isDeleted: false },
+          where: { organizationId, isDeleted: false },
         }),
 
         // Plan F1 T3 — replaces profitLoss.findMany; live aggregation via shared helper.
-        // ADR-0016 (no profitLoss reads), ADR-0018 (companyId scoped via helper signature).
-        buildPerListingMetrics(this.prisma, companyId, ctx.monthStart, ctx.monthEnd),
+        // ADR-0016 (no profitLoss reads), ADR-0018 (organizationId scoped via helper signature).
+        buildPerListingMetrics(this.prisma, organizationId, ctx.monthStart, ctx.monthEnd),
 
         // inventoryRows for needReorder — JS-side filter per AGENTS.md
         // Fetch rows with currentStock > 0, then filter currentStock <= reorderPoint in JS
         // (legacy: fetch + JS filter, not DB count)
         this.prisma.inventory.findMany({
-          where: { companyId, currentStock: { gt: 0 } },
+          where: { organizationId, currentStock: { gt: 0 } },
           select: { currentStock: true, reorderPoint: true },
         }),
 
         // gradeChanges — last 7 days of grade history (legacy)
         this.prisma.gradeHistory.findMany({
-          where: { companyId, calculatedAt: { gte: sevenDaysAgo } },
+          where: { organizationId, calculatedAt: { gte: sevenDaysAgo } },
           select: { oldGrade: true, newGrade: true },
         }),
 
         // lowCtrProducts — CTR < 1.5%, ctr > 0 (legacy)
         this.prisma.thumbnail.count({
-          where: { companyId, ctr: { lt: 1.5, gt: 0 } },
+          where: { organizationId, ctr: { lt: 1.5, gt: 0 } },
         }),
 
         // lowReviewProducts — A-grade active products with review count (legacy)
         // Review 는 ChannelListing 에 달려있음 (Plan A.5). MasterProduct 기준 집계는
         // listings → reviews 로 경유. Filter _count.reviews < 10 in JS.
-        // 2-hop IDOR (ADR-0018 Rule 3): master.companyId + listings.companyId
+        // 2-hop IDOR (ADR-0018 Rule 3): master.organizationId + listings.organizationId
         this.prisma.masterProduct.findMany({
-          where: { companyId, isDeleted: false, abcGrade: 'A' },
+          where: { organizationId, isDeleted: false, abcGrade: 'A' },
           include: {
             listings: {
-              where: { companyId },
+              where: { organizationId },
               select: { _count: { select: { reviews: true } } },
             },
           },
@@ -134,7 +134,7 @@ export class DashboardInventoryService {
         lowReviewProducts,
       } satisfies Warnings;
 
-      // alerts — project to AlertItemDashboard shape (no companyId)
+      // alerts — project to AlertItemDashboard shape (no organizationId)
       const alerts: AlertItemDashboard[] = unreadAlerts.map((a) => ({
         id: a.id,
         type: a.type,

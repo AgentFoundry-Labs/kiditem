@@ -22,7 +22,7 @@
 erDiagram
   ChannelAccountDailyKpiSnapshot {
     String id PK
-    String companyId FK
+    String organizationId FK
     String channel
     String source
     String kpiType
@@ -40,7 +40,7 @@ erDiagram
   }
   ChannelAdTargetDailySnapshot {
     String id PK
-    String companyId FK
+    String organizationId FK
     String channel
     DateTime businessDate
     String listingId FK
@@ -77,7 +77,7 @@ erDiagram
   }
   ChannelListingDailySnapshot {
     String id PK
-    String companyId FK
+    String organizationId FK
     String listingId FK
     String channel
     String externalId
@@ -132,7 +132,7 @@ erDiagram
   }
   ChannelListingOptionDailySnapshot {
     String id PK
-    String companyId FK
+    String organizationId FK
     String listingId FK
     String listingOptionId FK
     String optionId FK
@@ -159,7 +159,7 @@ erDiagram
   }
   ChannelScrapeRun {
     String id PK
-    String companyId FK
+    String organizationId FK
     String channel
     String source
     String pageType
@@ -183,7 +183,7 @@ erDiagram
   }
   ChannelScrapeSnapshot {
     String id PK
-    String companyId FK
+    String organizationId FK
     String scrapeRunId FK
     String channel
     String source
@@ -213,20 +213,20 @@ erDiagram
 
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
-| ChannelAccountDailyKpiSnapshot | company | references external | Core | Company |
+| ChannelAccountDailyKpiSnapshot | organization | references external | Core | Organization |
 | ChannelAdTargetDailySnapshot | adTargetDaily | referenced by external | Advertising | AdAction |
-| ChannelAdTargetDailySnapshot | company | references external | Core | Company |
 | ChannelAdTargetDailySnapshot | listing | references external | Core | ChannelListing |
 | ChannelAdTargetDailySnapshot | listingOption | references external | Core | ChannelListingOption |
 | ChannelAdTargetDailySnapshot | option | references external | Core | ProductOption |
-| ChannelListingDailySnapshot | company | references external | Core | Company |
+| ChannelAdTargetDailySnapshot | organization | references external | Core | Organization |
 | ChannelListingDailySnapshot | listing | references external | Core | ChannelListing |
-| ChannelListingOptionDailySnapshot | company | references external | Core | Company |
+| ChannelListingDailySnapshot | organization | references external | Core | Organization |
 | ChannelListingOptionDailySnapshot | listing | references external | Core | ChannelListing |
 | ChannelListingOptionDailySnapshot | listingOption | references external | Core | ChannelListingOption |
 | ChannelListingOptionDailySnapshot | option | references external | Core | ProductOption |
-| ChannelScrapeRun | company | references external | Core | Company |
-| ChannelScrapeSnapshot | company | references external | Core | Company |
+| ChannelListingOptionDailySnapshot | organization | references external | Core | Organization |
+| ChannelScrapeRun | organization | references external | Core | Organization |
 | ChannelScrapeSnapshot | listing | references external | Core | ChannelListing |
 | ChannelScrapeSnapshot | listingOption | references external | Core | ChannelListingOption |
 | ChannelScrapeSnapshot | option | references external | Core | ProductOption |
+| ChannelScrapeSnapshot | organization | references external | Core | Organization |

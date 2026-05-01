@@ -1,6 +1,6 @@
 // Inventory + capability HTTP DTOs.
-// companyId is injected from `@CurrentCompany()` — never accept it from
-// `@Body()`/`@Query()`/`@Param()` and never declare a `companyId` field on a
+// organizationId is injected from `@CurrentOrganization()` — never accept it from
+// `@Body()`/`@Query()`/`@Param()` and never declare a `organizationId` field on a
 // request DTO.
 
 // Inventory

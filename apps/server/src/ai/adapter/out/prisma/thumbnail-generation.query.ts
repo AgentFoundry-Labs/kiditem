@@ -6,7 +6,7 @@ import type { GenerationMasterSummary, GenerationRow } from '../../../mapper/thu
 
 /**
  * Tenant-scoped read shapes for `ThumbnailGeneration` and the `MasterProduct`
- * context required to schedule edit jobs. All Prisma access binds `companyId`
+ * context required to schedule edit jobs. All Prisma access binds `organizationId`
  * on every query (and on every related include) so a generation cannot be
  * fetched, listed, or hydrated across tenants.
  *
@@ -26,18 +26,18 @@ export const THUMBNAIL_ANALYSIS_SELECT = {
 /**
  * Tenant-scoped include preset for the relations rendered into a
  * `ThumbnailGenerationItem`. Both `candidates` and `registrationAttempts` are
- * filtered by `companyId` even though the parent row already is — the relation
+ * filtered by `organizationId` even though the parent row already is — the relation
  * filter is the second tenant predicate that prevents stale cross-tenant rows
  * from leaking through include hydration.
  */
-export function generationInclude(companyId: string): Prisma.ThumbnailGenerationInclude {
+export function generationInclude(organizationId: string): Prisma.ThumbnailGenerationInclude {
   return {
     candidates: {
-      where: { companyId },
+      where: { organizationId },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
     },
     registrationAttempts: {
-      where: { companyId },
+      where: { organizationId },
       orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
       take: 1,
     },
@@ -45,28 +45,28 @@ export function generationInclude(companyId: string): Prisma.ThumbnailGeneration
 }
 
 export function inputImagesInclude(
-  companyId: string,
+  organizationId: string,
 ): Prisma.ThumbnailGeneration$inputImagesArgs {
   return {
-    where: { companyId },
+    where: { organizationId },
     orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
   };
 }
 
 export function candidatesInclude(
-  companyId: string,
+  organizationId: string,
 ): Prisma.ThumbnailGeneration$candidatesArgs {
   return {
-    where: { companyId },
+    where: { organizationId },
     orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
   };
 }
 
 export function thumbnailAnalysesInclude(
-  companyId: string,
+  organizationId: string,
 ): Prisma.MasterProduct$thumbnailAnalysesArgs {
   return {
-    where: { companyId },
+    where: { organizationId },
     orderBy: { updatedAt: 'desc' },
     take: 1,
     select: THUMBNAIL_ANALYSIS_SELECT,
@@ -78,15 +78,15 @@ export function thumbnailAnalysesInclude(
  * tenant-scoped image preset so the master image resolver can run, plus the
  * latest `ThumbnailAnalysis` row to drive prompt routing.
  */
-export function jobMasterSelect(companyId: string) {
+export function jobMasterSelect(organizationId: string) {
   return {
     id: true,
     name: true,
     imageUrl: true,
     thumbnailUrl: true,
     category: true,
-    images: thumbnailMasterImageSelect(companyId),
-    thumbnailAnalyses: thumbnailAnalysesInclude(companyId),
+    images: thumbnailMasterImageSelect(organizationId),
+    thumbnailAnalyses: thumbnailAnalysesInclude(organizationId),
   } satisfies Prisma.MasterProductSelect;
 }
 
@@ -97,17 +97,17 @@ export type EditorProductRow = {
   name: string;
   imageUrl: string | null;
   category: string | null;
-  companyId: string;
+  organizationId: string;
 };
 
 export async function findProductForEditor(
   prisma: PrismaService,
   productId: string,
-  companyId: string,
+  organizationId: string,
 ): Promise<EditorProductRow | null> {
   return prisma.masterProduct.findFirst({
-    where: { id: productId, companyId, isDeleted: false },
-    select: { id: true, name: true, imageUrl: true, category: true, companyId: true },
+    where: { id: productId, organizationId, isDeleted: false },
+    select: { id: true, name: true, imageUrl: true, category: true, organizationId: true },
   });
 }
 
@@ -120,12 +120,12 @@ export async function findProductForEditor(
 export async function findGenerationMasters(
   prisma: PrismaService,
   rows: Array<{ masterId: string }>,
-  companyId: string,
+  organizationId: string,
 ): Promise<Map<string, GenerationMasterSummary>> {
   const ids = [...new Set(rows.map((row) => row.masterId).filter(Boolean))];
   if (ids.length === 0) return new Map();
   const masters = await prisma.masterProduct.findMany({
-    where: { id: { in: ids }, companyId, isDeleted: false },
+    where: { id: { in: ids }, organizationId, isDeleted: false },
     select: { id: true, name: true, imageUrl: true, category: true },
   });
   return new Map(masters.map((master) => [master.id, master]));
@@ -134,50 +134,50 @@ export async function findGenerationMasters(
 export async function findGenerationMaster(
   prisma: PrismaService,
   masterId: string,
-  companyId: string,
+  organizationId: string,
 ): Promise<GenerationMasterSummary | null> {
-  const masters = await findGenerationMasters(prisma, [{ masterId }], companyId);
+  const masters = await findGenerationMasters(prisma, [{ masterId }], organizationId);
   return masters.get(masterId) ?? null;
 }
 
 export async function findJobMaster(
   prisma: PrismaService,
   masterId: string,
-  companyId: string,
+  organizationId: string,
 ): Promise<JobMasterRow | null> {
   return prisma.masterProduct.findFirst({
-    where: { id: masterId, companyId, isDeleted: false },
-    select: jobMasterSelect(companyId),
+    where: { id: masterId, organizationId, isDeleted: false },
+    select: jobMasterSelect(organizationId),
   });
 }
 
 export async function findJobMastersByIds(
   prisma: PrismaService,
   ids: string[],
-  companyId: string,
+  organizationId: string,
 ): Promise<Map<string, JobMasterRow>> {
   if (ids.length === 0) return new Map();
   const products = await prisma.masterProduct.findMany({
-    where: { id: { in: ids }, companyId, isDeleted: false },
-    select: jobMasterSelect(companyId),
+    where: { id: { in: ids }, organizationId, isDeleted: false },
+    select: jobMasterSelect(organizationId),
   });
   return new Map(products.map((p) => [p.id, p]));
 }
 
 export async function findGenerationRows(
   prisma: PrismaService,
-  companyId: string,
+  organizationId: string,
   opts: { productId?: string | null; limit?: number | null } = {},
 ): Promise<GenerationRow[]> {
   const limit = opts.limit ? Math.min(Math.max(opts.limit, 1), 100) : undefined;
   const rows = await prisma.thumbnailGeneration.findMany({
     where: {
-      companyId,
+      organizationId,
       ...(opts.productId ? { masterId: opts.productId } : {}),
     },
     orderBy: { createdAt: 'desc' },
     ...(limit ? { take: limit } : {}),
-    include: generationInclude(companyId),
+    include: generationInclude(organizationId),
   });
   return rows as unknown as GenerationRow[];
 }
@@ -185,11 +185,11 @@ export async function findGenerationRows(
 export async function findGenerationOrThrow(
   prisma: PrismaService,
   id: string,
-  companyId: string,
+  organizationId: string,
 ): Promise<GenerationRow> {
   const row = await prisma.thumbnailGeneration.findFirst({
-    where: { id, companyId },
-    include: generationInclude(companyId),
+    where: { id, organizationId },
+    include: generationInclude(organizationId),
   });
   if (!row) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
   return row as unknown as GenerationRow;
@@ -198,11 +198,11 @@ export async function findGenerationOrThrow(
 export async function findGenerationWithCandidatesOrThrow(
   prisma: PrismaService,
   id: string,
-  companyId: string,
+  organizationId: string,
 ) {
   const row = await prisma.thumbnailGeneration.findFirst({
-    where: { id, companyId },
-    include: { candidates: candidatesInclude(companyId) },
+    where: { id, organizationId },
+    include: { candidates: candidatesInclude(organizationId) },
   });
   if (!row) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
   return row;
@@ -211,12 +211,12 @@ export async function findGenerationWithCandidatesOrThrow(
 export async function findGenerationWithInputImages(
   prisma: PrismaService,
   id: string,
-  companyId: string,
+  organizationId: string,
 ) {
   return prisma.thumbnailGeneration.findFirst({
-    where: { id, companyId },
+    where: { id, organizationId },
     include: {
-      inputImages: inputImagesInclude(companyId),
+      inputImages: inputImagesInclude(organizationId),
     },
   });
 }
@@ -224,17 +224,17 @@ export async function findGenerationWithInputImages(
 export async function findActiveJobForProduct(
   prisma: PrismaService,
   masterId: string,
-  companyId: string,
+  organizationId: string,
   method: string,
 ): Promise<GenerationRow | null> {
   const row = await prisma.thumbnailGeneration.findFirst({
     where: {
       masterId,
-      companyId,
+      organizationId,
       method,
       status: { in: ['pending', 'running'] },
     },
-    include: generationInclude(companyId),
+    include: generationInclude(organizationId),
   });
   return (row as unknown as GenerationRow | null) ?? null;
 }
@@ -242,12 +242,12 @@ export async function findActiveJobForProduct(
 export async function findRecentAutoJob(
   prisma: PrismaService,
   masterId: string,
-  companyId: string,
+  organizationId: string,
   cooldownStart: Date,
 ): Promise<{ id: string } | null> {
   return prisma.thumbnailGeneration.findFirst({
     where: {
-      companyId,
+      organizationId,
       masterId,
       method: 'auto',
       createdAt: { gte: cooldownStart },
@@ -258,12 +258,12 @@ export async function findRecentAutoJob(
 
 export async function findAutoBatchCandidates(
   prisma: PrismaService,
-  companyId: string,
+  organizationId: string,
   take: number,
 ): Promise<Array<{ id: string }>> {
   return prisma.masterProduct.findMany({
     where: {
-      companyId,
+      organizationId,
       abcGrade: 'A',
       isDeleted: false,
       OR: [{ imageUrl: { not: null } }, { thumbnailUrl: { not: null } }],
@@ -277,10 +277,10 @@ export async function findAutoBatchCandidates(
 export async function findThumbnailAnalysisGrade(
   prisma: PrismaService,
   masterId: string,
-  companyId: string,
+  organizationId: string,
 ): Promise<{ grade: string; overallScore: number } | null> {
   return prisma.thumbnailAnalysis.findFirst({
-    where: { masterId, companyId },
+    where: { masterId, organizationId },
     select: { grade: true, overallScore: true },
   });
 }

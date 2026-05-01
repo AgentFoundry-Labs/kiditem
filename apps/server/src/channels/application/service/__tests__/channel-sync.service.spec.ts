@@ -39,7 +39,7 @@ describe('ChannelSyncService.syncSingleOrder (Plan A.5)', () => {
   });
 
   it('upserts Order with platform=coupang + externalOrderId=shipmentBoxId', async () => {
-    tx.order.upsert.mockResolvedValue({ id: 'order-1', companyId: 'c1' });
+    tx.order.upsert.mockResolvedValue({ id: 'order-1', organizationId: 'c1' });
     tx.channelListingOption.findFirst.mockResolvedValue(null);
     tx.orderLineItem.upsert.mockResolvedValue({});
 
@@ -58,7 +58,7 @@ describe('ChannelSyncService.syncSingleOrder (Plan A.5)', () => {
     expect(prisma.$transaction).toHaveBeenCalled();
     const upsertArgs = tx.order.upsert.mock.calls[0][0];
     expect(upsertArgs.where).toEqual({
-      companyId_platform_externalOrderId: { companyId: 'c1', platform: 'coupang', externalOrderId: 'SBX-100' },
+      organizationId_platform_externalOrderId: { organizationId: 'c1', platform: 'coupang', externalOrderId: 'SBX-100' },
     });
     expect(upsertArgs.create.externalNumber).toBe('CO-200');
     expect(upsertArgs.create.totalPrice).toBe(2000);
@@ -233,7 +233,7 @@ describe('ChannelSyncService.syncSingleReturn (Plan A.5)', () => {
 
     const args = tx.orderReturn.upsert.mock.calls[0][0];
     expect(args.where).toEqual({
-      companyId_platform_externalReturnId: { companyId: 'c1', platform: 'coupang', externalReturnId: 'RCT-1' },
+      organizationId_platform_externalReturnId: { organizationId: 'c1', platform: 'coupang', externalReturnId: 'RCT-1' },
     });
     expect(args.create.type).toBe('RETURN');
     expect(args.create.requesterName).toBe('Alice');
@@ -261,7 +261,7 @@ describe('ChannelSyncService.syncSingleReturn (Plan A.5)', () => {
     expect(tx.orderReturnLineItem.deleteMany).toHaveBeenCalledWith({ where: { returnId: 'ret-1' } });
     expect(tx.orderReturnLineItem.create).toHaveBeenCalledTimes(2);
     const firstCreate = tx.orderReturnLineItem.create.mock.calls[0][0].data;
-    expect(firstCreate.companyId).toBe('c1');
+    expect(firstCreate.organizationId).toBe('c1');
     expect(firstCreate.productName).toBe('Toy');
   });
 

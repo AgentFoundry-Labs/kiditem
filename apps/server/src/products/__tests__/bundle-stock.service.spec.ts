@@ -7,7 +7,7 @@ import { BundleStockService } from '../application/service/bundle-stock.service'
  * Mock shape mirrors what bundle-stock.service.ts touches:
  *   - `$queryRaw` for the row-level lock (result discarded).
  *   - `bundleComponent.findMany` returning rows with { qty, componentOption: { isDeleted, inventory? } }.
- *   - `productOption.updateMany` to materialize availableStock under company scope.
+ *   - `productOption.updateMany` to materialize availableStock under organization scope.
  */
 function makePrismaMock(
   components: Array<{ qty: number; currentStock: number | null }>,
@@ -45,14 +45,14 @@ describe('BundleStockService', () => {
   it('sets availableStock=0 when no components', async () => {
     const prisma = makePrismaMock([]);
     const svc = new BundleStockService(prisma);
-    const result = await svc.recompute('company-1', 'bundle-1');
+    const result = await svc.recompute('organization-1', 'bundle-1');
     expect(result).toBe(0);
     expect(prisma.productOption.findFirst).toHaveBeenCalledWith({
-      where: { id: 'bundle-1', companyId: 'company-1', isDeleted: false },
+      where: { id: 'bundle-1', organizationId: 'organization-1', isDeleted: false },
       select: { id: true },
     });
     expect(prisma.productOption.updateMany).toHaveBeenCalledWith({
-      where: { id: 'bundle-1', companyId: 'company-1' },
+      where: { id: 'bundle-1', organizationId: 'organization-1' },
       data: { availableStock: 0 },
     });
   });
@@ -63,7 +63,7 @@ describe('BundleStockService', () => {
       { qty: 2, currentStock: 5 },
     ]);
     const svc = new BundleStockService(prisma);
-    expect(await svc.recompute('company-1', 'b')).toBe(2);
+    expect(await svc.recompute('organization-1', 'b')).toBe(2);
   });
 
   it('treats missing inventory as stock=0 (capacity=0)', async () => {
@@ -72,22 +72,22 @@ describe('BundleStockService', () => {
       { qty: 1, currentStock: null },
     ]);
     const svc = new BundleStockService(prisma);
-    expect(await svc.recompute('company-1', 'b')).toBe(0);
+    expect(await svc.recompute('organization-1', 'b')).toBe(0);
   });
 
   it('excludes soft-deleted components via where filter', async () => {
     const prisma = makePrismaMock([{ qty: 1, currentStock: 5 }]);
     const svc = new BundleStockService(prisma);
-    await svc.recompute('company-1', 'b');
+    await svc.recompute('organization-1', 'b');
     const arg = (prisma.bundleComponent.findMany as any).mock.calls[0][0];
     expect(arg.where.componentOption).toEqual({ isDeleted: false });
   });
 
-  it('wrong company bundle option → NotFound, no stock write', async () => {
+  it('wrong organization bundle option → NotFound, no stock write', async () => {
     const prisma = makePrismaMock([{ qty: 1, currentStock: 5 }], null);
     const svc = new BundleStockService(prisma);
 
-    await expect(svc.recompute('company-1', 'bundle-1')).rejects.toThrow(NotFoundException);
+    await expect(svc.recompute('organization-1', 'bundle-1')).rejects.toThrow(NotFoundException);
 
     expect(prisma.bundleComponent.findMany).not.toHaveBeenCalled();
     expect(prisma.productOption.updateMany).not.toHaveBeenCalled();

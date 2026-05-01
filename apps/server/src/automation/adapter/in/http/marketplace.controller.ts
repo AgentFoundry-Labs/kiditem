@@ -7,7 +7,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
+import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { MarketplaceCatalogService } from '../../../application/service/marketplace-catalog.service';
 import { MarketplaceInstallService } from '../../../application/service/marketplace-install.service';
 import { ListMarketplaceQueryDto, InstallMarketplaceBodyDto } from './dto';
@@ -35,10 +35,10 @@ export class MarketplaceController {
 
   @Get('workflows')
   listWorkflows(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Query() query: ListMarketplaceQueryDto,
   ) {
-    return this.catalog.listWorkflows(companyId, query);
+    return this.catalog.listWorkflows(organizationId, query);
   }
 
   @Get('workflows/:id')
@@ -52,27 +52,27 @@ export class MarketplaceController {
   installWorkflow(
     @Param('id') id: string,
     @Body() body: InstallMarketplaceBodyDto,
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
   ) {
-    return this.install.installWorkflow(id, companyId, body.params);
+    return this.install.installWorkflow(id, organizationId, body.params);
   }
 
   @Post('workflows/:id/uninstall')
   uninstallWorkflow(
     @Param('id') id: string,
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
   ) {
-    return this.install.uninstallWorkflow(id, companyId);
+    return this.install.uninstallWorkflow(id, organizationId);
   }
 
   // ─── Agents ───────────────────────────────────────────────────────────────
 
   @Get('agents')
   listAgents(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Query() query: ListMarketplaceQueryDto,
   ) {
-    return this.catalog.listAgents(companyId, query);
+    return this.catalog.listAgents(organizationId, query);
   }
 
   @Get('agents/:id')
@@ -86,16 +86,16 @@ export class MarketplaceController {
   installAgent(
     @Param('id') id: string,
     @Body() body: InstallMarketplaceBodyDto,
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
   ) {
-    return this.install.installAgent(id, companyId, body.params);
+    return this.install.installAgent(id, organizationId, body.params);
   }
 
   @Post('agents/:id/uninstall')
   uninstallAgent(
     @Param('id') id: string,
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
   ) {
-    return this.install.uninstallAgent(id, companyId);
+    return this.install.uninstallAgent(id, organizationId);
   }
 }

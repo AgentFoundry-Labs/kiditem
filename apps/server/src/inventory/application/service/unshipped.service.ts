@@ -20,12 +20,12 @@ export class UnshippedService implements UnshippedPort {
     private readonly query: InventoryQueryRepositoryPort,
   ) {}
 
-  async findAll(input: ListUnshippedInput, companyId: string): Promise<UnshippedListResponse> {
+  async findAll(input: ListUnshippedInput, organizationId: string): Promise<UnshippedListResponse> {
     const { page, limit, skip } = paginationParams(input);
     const minDays = input.minDays ?? 0;
 
     const { items, total, delayedCount } = await this.query.listUnshipped(
-      companyId,
+      organizationId,
       minDays,
       skip,
       limit,

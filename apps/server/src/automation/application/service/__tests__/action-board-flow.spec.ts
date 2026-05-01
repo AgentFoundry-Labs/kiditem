@@ -17,7 +17,7 @@ function makePrisma() {
 function baseTask() {
   return {
     id: 'task-1',
-    companyId: 'c-1',
+    organizationId: 'c-1',
     taskKey: 'h-reorder',
     status: 'pending',
     priority: 'high',
@@ -46,7 +46,7 @@ describe('ActionBoardService — task 상태 전이', () => {
       await service.updateTask('task-1', 'c-1', { status: 'in_progress' });
 
       const call = prisma.actionTask.updateMany.mock.calls[0][0];
-      expect(call.where).toEqual({ id: 'task-1', companyId: 'c-1' });
+      expect(call.where).toEqual({ id: 'task-1', organizationId: 'c-1' });
       expect(call.data.status).toBe('in_progress');
       expect(call.data.activityLog).toEqual(
         expect.arrayContaining([
@@ -58,7 +58,7 @@ describe('ActionBoardService — task 상태 전이', () => {
         ]),
       );
       expect(prisma.actionTask.findFirstOrThrow).toHaveBeenCalledWith({
-        where: { id: 'task-1', companyId: 'c-1' },
+        where: { id: 'task-1', organizationId: 'c-1' },
       });
       expect(prisma.actionTask.update).not.toHaveBeenCalled();
     });
@@ -71,7 +71,7 @@ describe('ActionBoardService — task 상태 전이', () => {
       await service.updateTask('task-1', 'c-1', { priority: 'urgent' });
 
       const call = prisma.actionTask.updateMany.mock.calls[0][0];
-      expect(call.where).toEqual({ id: 'task-1', companyId: 'c-1' });
+      expect(call.where).toEqual({ id: 'task-1', organizationId: 'c-1' });
       expect(call.data.priority).toBe('urgent');
       expect(call.data.activityLog).toEqual(
         expect.arrayContaining([
@@ -88,7 +88,7 @@ describe('ActionBoardService — task 상태 전이', () => {
       await service.updateTask('task-1', 'c-1', { status: 'pending', priority: 'high' });
 
       const call = prisma.actionTask.updateMany.mock.calls[0][0];
-      expect(call.where).toEqual({ id: 'task-1', companyId: 'c-1' });
+      expect(call.where).toEqual({ id: 'task-1', organizationId: 'c-1' });
       expect(call.data.activityLog).toEqual([]);
       expect(call.data.status).toBeUndefined();
       expect(call.data.priority).toBeUndefined();
@@ -112,15 +112,15 @@ describe('ActionBoardService — task 상태 전이', () => {
       expect(prisma.actionTask.update).not.toHaveBeenCalled();
     });
 
-    it('다른 company 의 task 수정 시도는 NotFoundException (IDOR guard)', async () => {
-      // findFirst with { id, companyId } returns null for foreign company
+    it('다른 organization 의 task 수정 시도는 NotFoundException (IDOR guard)', async () => {
+      // findFirst with { id, organizationId } returns null for foreign organization
       prisma.actionTask.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.updateTask('task-1', 'foreign-company', { status: 'done' }),
+        service.updateTask('task-1', 'foreign-organization', { status: 'done' }),
       ).rejects.toBeInstanceOf(NotFoundException);
       expect(prisma.actionTask.findFirst).toHaveBeenCalledWith({
-        where: { id: 'task-1', companyId: 'foreign-company' },
+        where: { id: 'task-1', organizationId: 'foreign-organization' },
       });
       expect(prisma.actionTask.update).not.toHaveBeenCalled();
     });
@@ -135,7 +135,7 @@ describe('ActionBoardService — task 상태 전이', () => {
       await service.addNote('task-1', 'c-1', '발주 완료');
 
       const call = prisma.actionTask.updateMany.mock.calls[0][0];
-      expect(call.where).toEqual({ id: 'task-1', companyId: 'c-1' });
+      expect(call.where).toEqual({ id: 'task-1', organizationId: 'c-1' });
       expect(call.data.notes).toEqual([
         expect.objectContaining({ text: '발주 완료' }),
       ]);
@@ -158,21 +158,21 @@ describe('ActionBoardService — task 상태 전이', () => {
       await expect(service.addNote('task-1', 'c-1', 'hi')).rejects.toBeInstanceOf(NotFoundException);
     });
 
-    it('다른 company 의 task 에 note 추가 시도는 NotFoundException (IDOR guard)', async () => {
+    it('다른 organization 의 task 에 note 추가 시도는 NotFoundException (IDOR guard)', async () => {
       prisma.actionTask.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.addNote('task-1', 'foreign-company', 'injected note'),
+        service.addNote('task-1', 'foreign-organization', 'injected note'),
       ).rejects.toBeInstanceOf(NotFoundException);
       expect(prisma.actionTask.findFirst).toHaveBeenCalledWith({
-        where: { id: 'task-1', companyId: 'foreign-company' },
+        where: { id: 'task-1', organizationId: 'foreign-organization' },
       });
       expect(prisma.actionTask.update).not.toHaveBeenCalled();
     });
   });
 
   describe('executeTask', () => {
-    it('successful apiCall update is scoped to companyId in the write path', async () => {
+    it('successful apiCall update is scoped to organizationId in the write path', async () => {
       const task = {
         ...baseTask(),
         apiCall: { url: '/api/products/calculate-grades', method: 'POST', body: {} },
@@ -193,7 +193,7 @@ describe('ActionBoardService — task 상태 전이', () => {
         expect.objectContaining({ method: 'POST' }),
       );
       expect(prisma.actionTask.updateMany).toHaveBeenCalledWith({
-        where: { id: 'task-1', companyId: 'c-1' },
+        where: { id: 'task-1', organizationId: 'c-1' },
         data: expect.objectContaining({
           status: 'done',
           result: { ok: true },
@@ -201,7 +201,7 @@ describe('ActionBoardService — task 상태 전이', () => {
       });
     });
 
-    it('failed apiCall update is scoped to companyId in the write path', async () => {
+    it('failed apiCall update is scoped to organizationId in the write path', async () => {
       const task = {
         ...baseTask(),
         apiCall: { url: '/api/products/calculate-grades', method: 'POST', body: {} },
@@ -215,7 +215,7 @@ describe('ActionBoardService — task 상태 전이', () => {
       await service.executeTask('task-1', 'c-1');
 
       expect(prisma.actionTask.updateMany).toHaveBeenCalledWith({
-        where: { id: 'task-1', companyId: 'c-1' },
+        where: { id: 'task-1', organizationId: 'c-1' },
         data: expect.objectContaining({
           status: 'done',
           result: { error: 'network failed' },
@@ -252,14 +252,14 @@ describe('ActionBoardService — task 상태 전이', () => {
       await expect(service.executeTask('missing', 'c-1')).rejects.toBeInstanceOf(NotFoundException);
     });
 
-    it('다른 company 의 task 실행 시도는 NotFoundException (IDOR guard)', async () => {
+    it('다른 organization 의 task 실행 시도는 NotFoundException (IDOR guard)', async () => {
       prisma.actionTask.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.executeTask('task-1', 'foreign-company'),
+        service.executeTask('task-1', 'foreign-organization'),
       ).rejects.toBeInstanceOf(NotFoundException);
       expect(prisma.actionTask.findFirst).toHaveBeenCalledWith({
-        where: { id: 'task-1', companyId: 'foreign-company' },
+        where: { id: 'task-1', organizationId: 'foreign-organization' },
       });
     });
   });
@@ -269,7 +269,7 @@ describe('ActionTaskSchema — getTasks wire format drift assertion', () => {
   it('JSON-roundtripped getTasks result parses with ActionTaskSchema', () => {
     const taskLike = {
       id: 'task-1',
-      companyId: 'c-1',
+      organizationId: 'c-1',
       taskKey: 'h-reorder',
       type: 'human',
       label: '재고 부족',

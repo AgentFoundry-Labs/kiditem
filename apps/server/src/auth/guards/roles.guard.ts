@@ -11,7 +11,7 @@ import { ROLES_METADATA_KEY } from '../decorators/roles.decorator';
 
 /**
  * `@Roles(...)` 메타데이터가 설정된 라우트에만 역할 검증.
- * 메타 없으면 pass-through → 다른 가드(CompanyScopeGuard)에만 의존.
+ * 메타 없으면 pass-through → 다른 가드(OrganizationScopeGuard)에만 의존.
  */
 @Injectable()
 export class RolesGuard implements CanActivate {

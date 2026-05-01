@@ -1,5 +1,5 @@
 import { Controller, Get, Query } from '@nestjs/common';
-import { CurrentCompany } from '../../../../../auth/decorators/current-company.decorator';
+import { CurrentOrganization } from '../../../../../auth/decorators/current-organization.decorator';
 import { DashboardSalesService } from '../../../application/service/dashboard-sales.service';
 import { DashboardAdService } from '../../../application/service/dashboard-ad.service';
 import { DashboardInventoryService } from '../../../application/service/dashboard-inventory.service';
@@ -25,35 +25,35 @@ export class DashboardController {
   @Get('sales')
   async getSales(
     @Query() query: DashboardQueryDto,
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
   ): Promise<DashboardSalesSummary> {
     const ctx = buildDashboardContext(query.range, query.from, query.to);
-    return this.salesService.getSummary(ctx, companyId);
+    return this.salesService.getSummary(ctx, organizationId);
   }
 
   @Get('ad')
   async getAd(
     @Query() query: DashboardQueryDto,
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
   ): Promise<DashboardAdSummary> {
     const ctx = buildDashboardContext(query.range, query.from, query.to);
-    return this.adService.getSummary(ctx, companyId);
+    return this.adService.getSummary(ctx, organizationId);
   }
 
   @Get('inventory')
   async getInventory(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
   ): Promise<DashboardInventorySummary> {
     // range-agnostic — snapshot only
     const ctx = buildDashboardContext();
-    return this.inventoryService.getSummary(ctx, companyId);
+    return this.inventoryService.getSummary(ctx, organizationId);
   }
 
   @Get('trend')
   async getTrend(
     @Query() query: DashboardTrendQueryDto,
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
   ): Promise<DashboardTrendItem[]> {
-    return this.trendService.getTrend(companyId, query.range ?? '30d');
+    return this.trendService.getTrend(organizationId, query.range ?? '30d');
   }
 }

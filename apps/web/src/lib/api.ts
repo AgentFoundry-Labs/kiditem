@@ -1,5 +1,5 @@
-// Tenant scope is owned by the backend via `@CurrentCompany()`. The
-// frontend must never send `companyId` in API request bodies or query
+// Tenant scope is owned by the backend via `@CurrentOrganization()`. The
+// frontend must never send `organizationId` in API request bodies or query
 // strings — that path is untrusted and the backend will ignore it. See
 // `apps/web/AGENTS.md` (API Calls) for the full rule and rationale.
 

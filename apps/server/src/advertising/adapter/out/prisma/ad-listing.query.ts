@@ -25,7 +25,7 @@ export interface ScopedAdListingSummary extends AdListingSummary {
 
 /**
  * Listing-id list → tenant-scoped {listing + master meta} map.
- * `companyId` is bound on every read; soft-deleted listings are excluded.
+ * `organizationId` is bound on every read; soft-deleted listings are excluded.
  *
  * Sole owner of the `ChannelListing` + `MasterProduct` join shape used by
  * hub / campaign / benchmark / action read models. Mappers (`mappers/`) build
@@ -33,7 +33,7 @@ export interface ScopedAdListingSummary extends AdListingSummary {
  */
 export async function findScopedAdListings(
   prisma: PrismaService,
-  companyId: string,
+  organizationId: string,
   listingIds: Array<string | null | undefined>,
 ): Promise<Map<string, ScopedAdListingReadModel>> {
   const ids = Array.from(
@@ -42,13 +42,13 @@ export async function findScopedAdListings(
   if (ids.length === 0) return new Map();
 
   const listings = await prisma.channelListing.findMany({
-    where: { id: { in: ids }, companyId, isDeleted: false },
+    where: { id: { in: ids }, organizationId, isDeleted: false },
     select: { id: true, externalId: true, channelName: true, masterId: true },
   });
   const masterIds = Array.from(new Set(listings.map((listing) => listing.masterId)));
   const masters = masterIds.length > 0
     ? await prisma.masterProduct.findMany({
-        where: { id: { in: masterIds }, companyId },
+        where: { id: { in: masterIds }, organizationId },
         select: {
           id: true,
           code: true,

@@ -145,21 +145,21 @@ cross-module export).
 
 ### Stock mutation 원자 시퀀스
 
-`InventoryRepositoryAdapter.runInventoryStockMutation(id, companyId, op)` 가
+`InventoryRepositoryAdapter.runInventoryStockMutation(id, organizationId, op)` 가
 transaction boundary + Postgres row lock + tenant guard 를 캡슐화한다. 호출 시:
 
 1. `$transaction({ timeout: 15_000 })` 진입
-2. `tx.$queryRaw SELECT id FROM inventory WHERE id = $id::uuid AND company_id = $companyId::uuid FOR UPDATE` — row lock + tenant predicate
-3. `tx.inventory.findFirst({ id, companyId })` — IDOR guard (lock 후 재확인)
+2. `tx.$queryRaw SELECT id FROM inventory WHERE id = $id::uuid AND organization_id = $organizationId::uuid FOR UPDATE` — row lock + tenant predicate
+3. `tx.inventory.findFirst({ id, organizationId })` — IDOR guard (lock 후 재확인)
 4. `op(tx, lockedRow)` — application service callback
 
 Application service 의 `applyDelta` callback (전부 ports 만 사용):
 
 1. `assertSufficientStock(currentStock, delta)` — domain policy
 2. `repository.applyStockDelta(tx, ...)` — `inventory.update({ currentStock: { increment: delta } })`
-3. `repository.findOptionNameForLedger(tx, optionId, companyId)` — tenant-scoped 조회
+3. `repository.findOptionNameForLedger(tx, optionId, organizationId)` — tenant-scoped 조회
 4. `repository.appendStockLedger(tx, { ..., quantity: computeStoredQuantity(type, delta) })`
-5. `bundleStock.recomputeForComponent(companyId, optionId, tx)` — fan-out (BundleStockPort)
+5. `bundleStock.recomputeForComponent(organizationId, optionId, tx)` — fan-out (BundleStockPort)
 
 ### BundleStockPort 호출 규약
 
@@ -253,9 +253,9 @@ gate).
 - Controller 에서 `application/service/**` 직접 import — 동일.
 - Domain layer 에서 `@nestjs`, `@prisma/client`, `PrismaService`, `*.dto`, `adapter/in/http` import — 동일.
 - `*persistence.ts` 신규 추가 — 동일 (architecture spec).
-- `findUnique({ id })` (companyId 없이) — IDOR. 모든 read/update/delete 는 `findFirst({ id, companyId })`.
-- `@UseGuards('jwt')` / `@UsePipes(...)` / `@nestjs/passport` — 전역 `CompanyScopeGuard` + `ValidationPipe` 적용됨.
-- DTO 에 `companyId` 필드 추가, controller 에서 `@Body/@Query/@Param('companyId')` 수신 — `npm run check:tenant-scope` 가 잡는다.
+- `findUnique({ id })` (organizationId 없이) — IDOR. 모든 read/update/delete 는 `findFirst({ id, organizationId })`.
+- `@UseGuards('jwt')` / `@UsePipes(...)` / `@nestjs/passport` — 전역 `OrganizationScopeGuard` + `ValidationPipe` 적용됨.
+- DTO 에 `organizationId` 필드 추가, controller 에서 `@Body/@Query/@Param('organizationId')` 수신 — `npm run check:tenant-scope` 가 잡는다.
 - top-level `apps/server/src/{warehouses,stock-transfers,stock-audits,picking}` 부활 — capability folder 만 사용.
 - `isDeleted` 필터를 `BundleComponent` 에 사용 — hard-delete 모델, 필드 없음. 필요 시 `componentOption: { isDeleted: false }` relation 필터.
 

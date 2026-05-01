@@ -27,20 +27,20 @@ export class AdvertisingService {
     private readonly adConfigService: AdConfigService,
   ) {}
 
-  async getHubData(companyId: string): Promise<AdsHubData> {
-    await this.adConfigService.getConfig(companyId);
-    const products = await this.buildListingItems(companyId);
+  async getHubData(organizationId: string): Promise<AdsHubData> {
+    await this.adConfigService.getConfig(organizationId);
+    const products = await this.buildListingItems(organizationId);
     const summary = this.computeSummary(products);
     return { products, summary } satisfies AdsHubData;
   }
 
   async findAll(
     query: { page?: string | number; limit?: string | number },
-    companyId: string,
+    organizationId: string,
   ): Promise<FindAllAdsResponse> {
-    await this.adConfigService.getConfig(companyId);
+    await this.adConfigService.getConfig(organizationId);
     const { page, limit, skip } = paginationParams(query);
-    const all = await this.buildListingItems(companyId);
+    const all = await this.buildListingItems(organizationId);
     const items = all.slice(skip, skip + limit);
     return {
       items,
@@ -59,13 +59,13 @@ export class AdvertisingService {
   async changeTier(
     id: string,
     adTier: string,
-    companyId: string,
+    organizationId: string,
   ): Promise<{ ok: true }> {
     if (!(VALID_TIERS as readonly string[]).includes(adTier)) {
       throw new BadRequestException('유효하지 않은 티어입니다');
     }
     const listing = await this.prisma.channelListing.findFirst({
-      where: { id, companyId, isDeleted: false },
+      where: { id, organizationId, isDeleted: false },
       select: { masterId: true },
     });
     if (!listing) throw new NotFoundException('Ad not found');
@@ -74,7 +74,7 @@ export class AdvertisingService {
       (adTier as ValidTier) === 'OFF' ? null : adTier;
 
     const updated = await this.prisma.masterProduct.updateMany({
-      where: { id: listing.masterId, companyId },
+      where: { id: listing.masterId, organizationId },
       data: { adTier: nextTier },
     });
     if (updated.count !== 1) throw new NotFoundException('Ad not found');
@@ -82,12 +82,12 @@ export class AdvertisingService {
     return { ok: true };
   }
 
-  private async buildListingItems(companyId: string): Promise<AdsListItem[]> {
+  private async buildListingItems(organizationId: string): Promise<AdsListItem[]> {
     const thirtyDaysAgo = kstInclusiveDaysStart(30);
 
     const perListing = await this.prisma.channelListingDailySnapshot.groupBy({
       by: ['listingId'],
-      where: { companyId, businessDate: { gte: thirtyDaysAgo } },
+      where: { organizationId, businessDate: { gte: thirtyDaysAgo } },
       _sum: {
         adSpend: true,
         adImpressions: true,
@@ -101,7 +101,7 @@ export class AdvertisingService {
 
     const listingMap = await findScopedAdListings(
       this.prisma,
-      companyId,
+      organizationId,
       perListing.map((r) => r.listingId),
     );
 

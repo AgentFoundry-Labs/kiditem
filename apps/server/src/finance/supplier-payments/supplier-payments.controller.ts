@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Patch, Param, Query, Body } from '@nestjs/common';
 import { SupplierPaymentsService } from './supplier-payments.service';
 import { ListSupplierPaymentsQueryDto, CreateSupplierPaymentDto, UpdateSupplierPaymentDto } from './dto';
-import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
+import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
 
 @Controller('supplier-payments')
 export class SupplierPaymentsController {
@@ -9,23 +9,23 @@ export class SupplierPaymentsController {
 
   @Get()
   async findAll(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Query() query: ListSupplierPaymentsQueryDto,
   ) {
-    return this.supplierPaymentsService.findAll(companyId, query.status);
+    return this.supplierPaymentsService.findAll(organizationId, query.status);
   }
 
   @Post()
-  create(@Body() dto: CreateSupplierPaymentDto, @CurrentCompany() companyId: string) {
-    return this.supplierPaymentsService.create(companyId, dto);
+  create(@Body() dto: CreateSupplierPaymentDto, @CurrentOrganization() organizationId: string) {
+    return this.supplierPaymentsService.create(organizationId, dto);
   }
 
   @Patch(':id')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateSupplierPaymentDto,
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
   ) {
-    return this.supplierPaymentsService.update(id, companyId, dto);
+    return this.supplierPaymentsService.update(id, organizationId, dto);
   }
 }

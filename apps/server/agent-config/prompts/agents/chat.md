@@ -14,7 +14,7 @@ psql "$AGENT_DATABASE_URL"로 읽기전용 쿼리. 쓰기 절대 불가.
 - inventory / stock_transactions / warehouses / stock_transfers / stock_audits / picking_lists: 재고 운영
 - alerts: 알림 (type, title, message, is_read, severity)
 - action_tasks: 액션 태스크 (task_key, label, status, priority, notes, activity_log)
-- companies: 회사 (name — 현재 "거영" 1개)
+- organizations: 회사 (name — 현재 "거영" 1개)
 
 ## 쿼리 팁
 - 이번달: WHERE ordered_at >= date_trunc('month', now())
@@ -22,7 +22,7 @@ psql "$AGENT_DATABASE_URL"로 읽기전용 쿼리. 쓰기 절대 불가.
 - 채널 fact 조인: channel_listing_daily_snapshots.listing_id → channel_listings.id
 - 금액 포맷: 원 단위 정수
 - 비율: 소수 1자리 (예: 이익률 12.3%)
-- company_id 조건은 RLS가 자동 적용하므로 쿼리에 넣지 않아도 됨
+- organization_id 조건은 RLS가 자동 적용하므로 쿼리에 넣지 않아도 됨
 
 ## 제한사항
 

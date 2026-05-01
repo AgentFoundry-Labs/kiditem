@@ -9,7 +9,7 @@ class PurchaseOrderItemDto {
 }
 
 /**
- * companyId 는 `req.authUser.companyId` 에서 주입 — DTO 에는 포함하지 않는다.
+ * organizationId 는 `req.authUser.organizationId` 에서 주입 — DTO 에는 포함하지 않는다.
  */
 export class PurchaseOrderActionBodyDto {
   @IsIn(['create', 'updateStatus', 'delete'])

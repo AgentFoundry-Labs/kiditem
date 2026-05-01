@@ -2,12 +2,12 @@ import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
-export class CompaniesService {
+export class OrganizationsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll() {
     try {
-      return await this.prisma.company.findMany({
+      return await this.prisma.organization.findMany({
         select: { id: true, name: true },
       });
     } catch {

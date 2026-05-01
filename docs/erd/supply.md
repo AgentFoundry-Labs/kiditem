@@ -32,7 +32,7 @@ erDiagram
   }
   PurchaseOrder {
     String id PK
-    String companyId FK
+    String organizationId FK
     String supplierName
     String supplierContact
     String supplierId FK
@@ -63,7 +63,7 @@ erDiagram
   }
   Supplier {
     String id PK
-    String companyId FK
+    String organizationId FK
     String name
     String contactName
     String phone
@@ -78,7 +78,7 @@ erDiagram
   }
   SupplierPayment {
     String id PK
-    String companyId FK
+    String organizationId FK
     String supplierId FK
     String supplierName
     Int amount
@@ -113,9 +113,8 @@ erDiagram
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
 | MasterSupplierProduct | master | references external | Core | MasterProduct |
-| PurchaseOrder | company | references external | Core | Company |
+| PurchaseOrder | organization | references external | Core | Organization |
 | PurchaseOrderItem | option | references external | Core | ProductOption |
-| Supplier | company | references external | Core | Company |
-| Supplier | supplier | referenced by external | Core | MasterProduct |
-| SupplierPayment | company | references external | Core | Company |
+| Supplier | organization | references external | Core | Organization |
+| SupplierPayment | organization | references external | Core | Organization |
 | SupplierProduct | option | references external | Core | ProductOption |

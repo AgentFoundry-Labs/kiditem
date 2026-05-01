@@ -79,18 +79,18 @@ justifies them. The rest stays transitional flat CRUD by design:
 
 - `/api/sourcing/extension/product-data` accepts pushes from the 1688 / Alibaba
   browser extension. `MasterProduct` upsert keys on
-  `{ sourceUrl, companyId }` (idempotency).
+  `{ sourceUrl, organizationId }` (idempotency).
 - `/api/sourcing/scrape-url` enqueues an Agent OS task via `runByType('sourcing', …)`.
   The adapter is the only seam; `SourcingService` does not import
   `AgentRegistryService` directly.
 - `/api/sourcing/extension/products` returns paginated `MasterProduct`
-  rows scoped to the caller's company and platform filter.
+  rows scoped to the caller's organization and platform filter.
 - `/api/purchase-orders` action body (`create | updateStatus | delete`)
   preserves the legacy single-endpoint POST shape. Status transitions follow
   `draft → pending → ordered → shipped → received` exactly; deletion is
   allowed only from `draft` or `pending`.
 - `/api/suppliers` CRUD reads/writes are tenant-scoped via
-  `findFirst({ id, companyId })` before any update/delete.
+  `findFirst({ id, organizationId })` before any update/delete.
 
 ## 외부 consumer
 
@@ -111,7 +111,7 @@ other module imports sourcing/procurement/supplier services.
 - `AgentRegistryService` 를 `application/service/**` 에서 직접 inject — adapter
   를 우회한다. Use the gateway port.
 - `findUnique({ where: { id } })` 으로 supplier/PO 조회 — IDOR. 항상
-  `findFirst({ where: { id, companyId } })`.
+  `findFirst({ where: { id, organizationId } })`.
 - `supplier-payments` 의 import 또는 회로 추가 — finance owner domain 소관.
 - `master_products` 의 새 write 경로 추가 (현재는 `NotImplementedException`
   guarded). 변경하려면 Plan B3 (MasterCodeService) 가 선행되어야 한다.

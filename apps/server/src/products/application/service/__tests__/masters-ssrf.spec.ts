@@ -46,7 +46,7 @@ describe('MastersService.originalImageBase64 — SSRF defense', () => {
   for (const [url, label] of cases) {
     it(`blocks ${label} (${url})`, async () => {
       const svc = makeService({ imageUrl: url, thumbnailUrl: null, images: [] });
-      await expect(svc.originalImageBase64('company-1', 'master-1'))
+      await expect(svc.originalImageBase64('organization-1', 'master-1'))
         .rejects.toBeInstanceOf(BadRequestException);
       expect(globalThis.fetch).not.toHaveBeenCalled();
     });
@@ -59,14 +59,14 @@ describe('MastersService.originalImageBase64 — SSRF defense', () => {
       headers: { get: () => 'image/png' },
       arrayBuffer: async () => new ArrayBuffer(4),
     }) as any;
-    const result = await svc.originalImageBase64('company-1', 'master-1');
+    const result = await svc.originalImageBase64('organization-1', 'master-1');
     expect(result.dataUrl.startsWith('data:image/png;base64,')).toBe(true);
     expect(globalThis.fetch).toHaveBeenCalled();
   });
 
   it('returns 404 when no image url is set on the master', async () => {
     const svc = makeService({ imageUrl: null, thumbnailUrl: null, images: [] });
-    await expect(svc.originalImageBase64('company-1', 'master-1'))
+    await expect(svc.originalImageBase64('organization-1', 'master-1'))
       .rejects.toBeInstanceOf(NotFoundException);
   });
 });

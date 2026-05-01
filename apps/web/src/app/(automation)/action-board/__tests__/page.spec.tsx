@@ -49,7 +49,7 @@ const OTHER_USER_ID = 'user-other-0002-0000-000000000002';
 function makeTask(overrides: Partial<ActionTask> = {}): ActionTask {
   return {
     id: 'task-1',
-    companyId: 'company-1',
+    organizationId: 'organization-1',
     taskKey: 'ad.check.roas',
     type: 'human',
     label: '광고 ROAS 점검',

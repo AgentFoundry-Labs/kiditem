@@ -15,22 +15,22 @@ const LIST_WITH_ITEMS_INCLUDE = { items: true } as const;
 export class PickingRepositoryAdapter implements PickingRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
-  listPickingLists(companyId: string): Promise<PickingListRow[]> {
+  listPickingLists(organizationId: string): Promise<PickingListRow[]> {
     return this.prisma.pickingList.findMany({
-      where: { companyId },
+      where: { organizationId },
       include: LIST_WITH_ITEMS_INCLUDE,
       orderBy: { createdAt: 'desc' },
     });
   }
 
   createPickingList(
-    companyId: string,
+    organizationId: string,
     listNumber: string,
     items: PickableItem[],
   ): Promise<PickingListRow> {
     return this.prisma.pickingList.create({
       data: {
-        companyId,
+        organizationId,
         listNumber,
         totalItems: items.length,
         items: {
@@ -48,9 +48,9 @@ export class PickingRepositoryAdapter implements PickingRepositoryPort {
     });
   }
 
-  findPickingListOwnerId(id: string, companyId: string): Promise<{ id: string } | null> {
+  findPickingListOwnerId(id: string, organizationId: string): Promise<{ id: string } | null> {
     return this.prisma.pickingList.findFirst({
-      where: { id, companyId },
+      where: { id, organizationId },
       select: { id: true },
     });
   }
@@ -85,11 +85,11 @@ export class PickingRepositoryAdapter implements PickingRepositoryPort {
     });
   }
 
-  async completePickingList(id: string, companyId: string): Promise<PickingListRow> {
+  async completePickingList(id: string, organizationId: string): Promise<PickingListRow> {
     // Tenant guard + write live in the same function so check:tenant-scope sees
     // the scoped read before the bare-id update.
     const list = await this.prisma.pickingList.findFirst({
-      where: { id, companyId },
+      where: { id, organizationId },
       select: { id: true },
     });
     if (!list) throw new NotFoundException('피킹 리스트를 찾을 수 없습니다');

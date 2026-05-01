@@ -16,10 +16,10 @@ export class InventoryQueryRepositoryAdapter implements InventoryQueryRepository
   constructor(private readonly prisma: PrismaService) {}
 
   async listInventoryWithOption(
-    companyId: string,
+    organizationId: string,
     filters: InventoryListFilters,
   ): Promise<{ rows: InventoryWithOption[]; dbCount: number }> {
-    const where: Prisma.InventoryWhereInput = { companyId };
+    const where: Prisma.InventoryWhereInput = { organizationId };
     if (filters.optionId) where.optionId = filters.optionId;
     if (filters.masterId) where.option = { masterId: filters.masterId };
 
@@ -39,21 +39,21 @@ export class InventoryQueryRepositoryAdapter implements InventoryQueryRepository
     return { rows, dbCount };
   }
 
-  findInventoryById(id: string, companyId: string): Promise<InventoryRow | null> {
-    return this.prisma.inventory.findFirst({ where: { id, companyId } });
+  findInventoryById(id: string, organizationId: string): Promise<InventoryRow | null> {
+    return this.prisma.inventory.findFirst({ where: { id, organizationId } });
   }
 
-  findInventoryByOptionId(optionId: string, companyId: string): Promise<InventoryRow | null> {
-    return this.prisma.inventory.findFirst({ where: { optionId, companyId } });
+  findInventoryByOptionId(optionId: string, organizationId: string): Promise<InventoryRow | null> {
+    return this.prisma.inventory.findFirst({ where: { optionId, organizationId } });
   }
 
   async listStockTransactions(
-    companyId: string,
+    organizationId: string,
     filters: ListTransactionsFilters,
     skip: number,
     take: number,
   ): Promise<{ rows: StockTransactionRow[]; total: number }> {
-    const where: Prisma.StockTransactionWhereInput = { companyId };
+    const where: Prisma.StockTransactionWhereInput = { organizationId };
     if (filters.optionId) where.optionId = filters.optionId;
     if (filters.type) where.type = filters.type;
     if (filters.from || filters.to) {
@@ -77,14 +77,14 @@ export class InventoryQueryRepositoryAdapter implements InventoryQueryRepository
   }
 
   async groupTransactionsByType(
-    companyId: string,
+    organizationId: string,
     fromDate: Date,
   ): Promise<
     Array<{ type: string; _sum: { quantity: number | null; totalCost: number | null } }>
   > {
     const rows = await this.prisma.stockTransaction.groupBy({
       by: ['type'],
-      where: { companyId, createdAt: { gte: fromDate } },
+      where: { organizationId, createdAt: { gte: fromDate } },
       _sum: { quantity: true, totalCost: true },
     });
     return rows.map((r) => ({
@@ -94,13 +94,13 @@ export class InventoryQueryRepositoryAdapter implements InventoryQueryRepository
   }
 
   async listUnshipped(
-    companyId: string,
+    organizationId: string,
     minDays: number,
     skip: number,
     take: number,
   ): Promise<{ items: UnshippedItemRow[]; total: number; delayedCount: number }> {
     const where: Prisma.UnshippedItemWhereInput = {
-      companyId,
+      organizationId,
       ...(minDays > 0 ? { delayDays: { gte: minDays } } : {}),
     };
 
@@ -113,7 +113,7 @@ export class InventoryQueryRepositoryAdapter implements InventoryQueryRepository
       }),
       this.prisma.unshippedItem.count({ where }),
       this.prisma.unshippedItem.count({
-        where: { companyId, delayDays: { gte: 3 } },
+        where: { organizationId, delayDays: { gte: 3 } },
       }),
     ]);
 

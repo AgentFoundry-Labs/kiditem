@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Inject, Param, Patch, Post, Query } from '@nestjs/common';
-import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
+import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../../../auth/auth.types';
 import {
@@ -23,75 +23,75 @@ export class InventoryController {
   ) {}
 
   @Get()
-  list(@CurrentCompany() companyId: string, @Query() query: ListInventoryQueryDto) {
-    return this.inventory.list(query, companyId);
+  list(@CurrentOrganization() organizationId: string, @Query() query: ListInventoryQueryDto) {
+    return this.inventory.list(query, organizationId);
   }
 
   @Get('transactions')
   listTransactions(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Query() query: ListTransactionsQueryDto,
   ) {
-    return this.inventory.listTransactions(query, companyId);
+    return this.inventory.listTransactions(query, organizationId);
   }
 
   @Get('transactions/summary')
   transactionSummary(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Query() query: TransactionSummaryQueryDto,
   ) {
-    return this.inventory.getTransactionSummary(query, companyId);
+    return this.inventory.getTransactionSummary(query, organizationId);
   }
 
   @Get('option/:optionId')
   findByOptionId(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Param('optionId') optionId: string,
   ) {
-    return this.inventory.findByOptionId(optionId, companyId);
+    return this.inventory.findByOptionId(optionId, organizationId);
   }
 
   @Get(':id')
-  findById(@CurrentCompany() companyId: string, @Param('id') id: string) {
-    return this.inventory.findById(id, companyId);
+  findById(@CurrentOrganization() organizationId: string, @Param('id') id: string) {
+    return this.inventory.findById(id, organizationId);
   }
 
   @Patch(':id')
   updateMetadata(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Param('id') id: string,
     @Body() dto: UpdateInventoryMetadataDto,
   ) {
-    return this.inventory.updateMetadata(id, dto, companyId);
+    return this.inventory.updateMetadata(id, dto, organizationId);
   }
 
   @Post(':id/receive')
   receive(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() dto: ReceiveStockDto,
   ) {
-    return this.inventory.receive(id, dto, companyId, user.id);
+    return this.inventory.receive(id, dto, organizationId, user.id);
   }
 
   @Post(':id/issue')
   issue(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() dto: IssueStockDto,
   ) {
-    return this.inventory.issue(id, dto, companyId, user.id);
+    return this.inventory.issue(id, dto, organizationId, user.id);
   }
 
   @Post(':id/adjust')
   adjust(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() dto: AdjustStockDto,
   ) {
-    return this.inventory.adjust(id, dto, companyId, user.id);
+    return this.inventory.adjust(id, dto, organizationId, user.id);
   }
 }

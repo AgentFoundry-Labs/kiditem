@@ -85,7 +85,7 @@ describe('AdvertisingService', () => {
       { id: 'M2', code: 'M-00000002', name: 'C상품', abcGrade: 'C', adTier: null, healthScore: null },
     ]);
 
-    const result = await service.getHubData('company-1');
+    const result = await service.getHubData('organization-1');
 
     expect(result.products).toHaveLength(2);
     const l1 = result.products.find((p) => p.listingId === 'L1')!;
@@ -107,12 +107,12 @@ describe('AdvertisingService', () => {
   it('changeTier throws NotFoundException when id crosses tenant', async () => {
     prisma.channelListing.findFirst.mockResolvedValue(null);
 
-    await expect(service.changeTier('listing-x', '1차', 'company-A')).rejects.toBeInstanceOf(
+    await expect(service.changeTier('listing-x', '1차', 'organization-A')).rejects.toBeInstanceOf(
       NotFoundException,
     );
     expect(prisma.channelListing.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ id: 'listing-x', companyId: 'company-A' }),
+        where: expect.objectContaining({ id: 'listing-x', organizationId: 'organization-A' }),
       }),
     );
     expect(prisma.masterProduct.updateMany).not.toHaveBeenCalled();
@@ -121,17 +121,17 @@ describe('AdvertisingService', () => {
   it('changeTier OFF sets masterProduct.adTier to null', async () => {
     prisma.channelListing.findFirst.mockResolvedValue({ masterId: 'M1' });
 
-    const result = await service.changeTier('listing-1', 'OFF', 'company-1');
+    const result = await service.changeTier('listing-1', 'OFF', 'organization-1');
 
     expect(result).toEqual({ ok: true });
     expect(prisma.masterProduct.updateMany).toHaveBeenCalledWith({
-      where: { id: 'M1', companyId: 'company-1' },
+      where: { id: 'M1', organizationId: 'organization-1' },
       data: { adTier: null },
     });
   });
 
   it('changeTier rejects invalid tier', async () => {
-    await expect(service.changeTier('listing-1', '4차', 'company-1')).rejects.toBeInstanceOf(
+    await expect(service.changeTier('listing-1', '4차', 'organization-1')).rejects.toBeInstanceOf(
       BadRequestException,
     );
     expect(prisma.channelListing.findFirst).not.toHaveBeenCalled();
@@ -162,7 +162,7 @@ describe('AdvertisingService', () => {
       { id: 'M1', code: 'M-00000001', name: '상품1', abcGrade: 'B', adTier: '2차', healthScore: null },
     ]);
 
-    const result = await service.findAll({}, 'company-1');
+    const result = await service.findAll({}, 'organization-1');
 
     expect(result.page).toBe(1);
     expect(result.limit).toBe(50);
@@ -171,12 +171,12 @@ describe('AdvertisingService', () => {
     expect(result.items[0].listingId).toBe('L1');
   });
 
-  // companyId propagation removed — changeTier IDOR test above + check:idor /
+  // organizationId propagation removed — changeTier IDOR test above + check:idor /
   // check:tenant-scope scanners cover the tenant scope risk.
   it('empty-state — no daily-fact rows returns explicit empty hub (legacy Ad rows ignored)', async () => {
     prisma.channelListingDailySnapshot.groupBy.mockResolvedValue([]);
 
-    const result = await service.getHubData('company-1');
+    const result = await service.getHubData('organization-1');
 
     expect(result.products).toEqual([]);
     expect(result.summary.totalSpend).toBe(0);
@@ -209,7 +209,7 @@ describe('AdvertisingService', () => {
       { id: 'M1', code: 'M-1', name: '상품1', abcGrade: 'A', adTier: '1차', healthScore: null },
     ]);
 
-    const result = await service.getHubData('company-1');
+    const result = await service.getHubData('organization-1');
     // 30000/10000*100 = 300
     expect(result.products[0].metrics.roas).toBe(300);
     expect(result.summary.totalRoas).toBe(300);

@@ -1,5 +1,5 @@
 // Buffer that sums ad metrics across multiple target rows targeting the
-// same `(companyId, listingId, businessDate)` so the ingest handler emits
+// same `(organizationId, listingId, businessDate)` so the ingest handler emits
 // one `ChannelListingDailySnapshot` upsert per listing-day instead of
 // touching the same row N times. Each handler builds the buffer locally
 // and flushes it after the per-row loop.
@@ -17,7 +17,7 @@ export type SummedListingAdMetrics = {
 };
 
 export type ListingAdMetricAccumulator = {
-  companyId: string;
+  organizationId: string;
   listingId: string;
   channel: string;
   externalId: string;
@@ -30,7 +30,7 @@ export type ListingAdMetricAccumulator = {
 };
 
 export type AddListingAdMetricsInput = {
-  companyId: string;
+  organizationId: string;
   listingId: string;
   channel: string;
   externalId: string;
@@ -56,7 +56,7 @@ export function addListingAdMetrics(
   input: AddListingAdMetricsInput,
 ): void {
   const key = [
-    input.companyId,
+    input.organizationId,
     input.listingId,
     input.businessDate.toISOString().slice(0, 10),
   ].join('::');
@@ -72,7 +72,7 @@ export function addListingAdMetrics(
   }
 
   accumulators.set(key, {
-    companyId: input.companyId,
+    organizationId: input.organizationId,
     listingId: input.listingId,
     channel: input.channel,
     externalId: input.externalId,
@@ -104,7 +104,7 @@ export async function flushListingAdMetrics(
   let count = 0;
   for (const accumulator of accumulators.values()) {
     await upsertChannelListingDaily(prisma, {
-      companyId: accumulator.companyId,
+      organizationId: accumulator.organizationId,
       listingId: accumulator.listingId,
       channel: accumulator.channel,
       externalId: accumulator.externalId,

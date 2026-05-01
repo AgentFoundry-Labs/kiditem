@@ -9,7 +9,7 @@ const HEARTBEAT_FAILURE_TYPES = ['timeout'] as const;
 // satisfies 미적용: Prisma 모델 직접 반환 (Date ≠ string 불일치)
 export const AgentRuntimeStateSchema = z.object({
   agentId: z.string(),
-  companyId: z.string(),
+  organizationId: z.string(),
   adapterType: z.string(),
   sessionId: z.string().nullable(),
   stateJson: z.record(z.unknown()),
@@ -31,7 +31,7 @@ export const AgentRuntimeStateSchema = z.object({
 // satisfies 미적용: Prisma 모델 직접 반환 (Date ≠ string 불일치)
 export const AgentSchema = z.object({
   id: z.string(),
-  companyId: z.string().nullable(),
+  organizationId: z.string().nullable(),
   name: z.string(),
   type: z.string(),
   description: z.string().nullable(),
@@ -79,7 +79,7 @@ export const AgentListItemSchema = AgentSchema.omit({ promptTemplate: true });
 // satisfies 미적용: Prisma 모델 직접 반환 (Date ≠ string 불일치)
 export const HeartbeatRunSchema = z.object({
   id: z.string(),
-  companyId: z.string(),
+  organizationId: z.string(),
   agentId: z.string(),
   invocationSource: z.string(),
   triggerDetail: z.string().nullable(),

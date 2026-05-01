@@ -49,7 +49,7 @@ describe('order response schemas', () => {
     expect(OrderListItemSchema.parse(baseOrderListItem).totalQuantity).toBe(2);
   });
 
-  it('parses list response with delivery companies', () => {
+  it('parses list response with delivery organizations', () => {
     const parsed = OrderListResponseSchema.parse({
       items: [baseOrderListItem],
       total: 1,

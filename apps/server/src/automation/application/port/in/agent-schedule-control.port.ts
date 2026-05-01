@@ -34,7 +34,7 @@ export interface AgentScheduleControlPort {
    * tenant-owned (e.g. the global catalog template) — the tenant simply
    * has not opted into a schedule.
    */
-  getSchedule(agentType: string, companyId: string): Promise<AgentScheduleSnapshot>;
+  getSchedule(agentType: string, organizationId: string): Promise<AgentScheduleSnapshot>;
 
   /**
    * Set the schedule on the tenant-owned definition of `agentType`.
@@ -46,7 +46,7 @@ export interface AgentScheduleControlPort {
    */
   setSchedule(
     agentType: string,
-    companyId: string,
+    organizationId: string,
     schedule: string | null,
   ): Promise<AgentScheduleSnapshot>;
 }

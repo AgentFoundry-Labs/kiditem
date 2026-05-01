@@ -15,7 +15,7 @@ import { buildWorkflowPanelItem } from '../../mapper/panel-event/workflow-run.ma
 
 /** Subset of WorkflowTemplate fields needed for node execution */
 interface WorkflowTemplateRef {
-  companyId: string;
+  organizationId: string;
 }
 
 /** User-provided context data passed when triggering a workflow run */
@@ -26,10 +26,10 @@ type WorkflowRunContext = Record<string, unknown>;
  * methods on this service must NOT be exposed through any controller.
  *
  * `WorkflowOrchestrationService` is the sole caller and is responsible for verifying
- * tenant ownership (companyId scope on both WorkflowTemplate and WorkflowRun)
+ * tenant ownership (organizationId scope on both WorkflowTemplate and WorkflowRun)
  * before invoking `runWorkflow` / `runBatch`. As a defense-in-depth measure
- * the runner re-binds `companyId` on every Prisma read and write, so a
- * mismatched (runId, templateId, companyId) triple does not cross tenants
+ * the runner re-binds `organizationId` on every Prisma read and write, so a
+ * mismatched (runId, templateId, organizationId) triple does not cross tenants
  * even if a buggy caller invokes the runner directly.
  *
  * Do NOT call the runner from a controller, MQ consumer, or cron handler
@@ -48,9 +48,9 @@ export class WorkflowRunnerService {
     this.executorServices = { agentRegistry: this.agentRegistry };
   }
 
-  private async emitPanelUpsert(runId: string, companyId: string): Promise<void> {
+  private async emitPanelUpsert(runId: string, organizationId: string): Promise<void> {
     try {
-      const result = await buildWorkflowPanelItem(this.prisma, runId, companyId);
+      const result = await buildWorkflowPanelItem(this.prisma, runId, organizationId);
       if (!result) return;
       this.eventEmitter.emit(PANEL_EVENTS.UPSERT, result);
     } catch (err) {
@@ -58,24 +58,24 @@ export class WorkflowRunnerService {
     }
   }
 
-  async runWorkflow(runId: string, templateId: string, companyId: string): Promise<void> {
+  async runWorkflow(runId: string, templateId: string, organizationId: string): Promise<void> {
     const template = await this.prisma.workflowTemplate.findFirst({
-      where: { id: templateId, companyId },
+      where: { id: templateId, organizationId },
     });
     if (!template) {
       await this.prisma.workflowRun.updateMany({
-        where: { id: runId, companyId },
+        where: { id: runId, organizationId },
         data: { status: 'failed', error: 'Template not found' },
       });
-      await this.emitPanelUpsert(runId, companyId);
+      await this.emitPanelUpsert(runId, organizationId);
       return;
     }
 
     const run = await this.prisma.workflowRun.findFirst({
-      where: { id: runId, companyId },
+      where: { id: runId, organizationId },
     });
     if (!run) {
-      this.logger.warn(`Workflow run ${runId} not found for company ${companyId}`);
+      this.logger.warn(`Workflow run ${runId} not found for organization ${organizationId}`);
       return;
     }
     const runContext: WorkflowRunContext = (run?.contextData as WorkflowRunContext) ?? {};
@@ -87,10 +87,10 @@ export class WorkflowRunnerService {
     const context = new WorkflowContext();
 
     await this.prisma.workflowRun.updateMany({
-      where: { id: runId, companyId },
+      where: { id: runId, organizationId },
       data: { status: 'running', startedAt: new Date() },
     });
-    await this.emitPanelUpsert(runId, companyId);
+    await this.emitPanelUpsert(runId, organizationId);
 
     const stack = dag.getStartNodes();
     const visited = new Set<string>();
@@ -113,7 +113,7 @@ export class WorkflowRunnerService {
         // Run all ready nodes concurrently
         const results = await Promise.allSettled(
           readyNodeIds.map((nodeId) =>
-            this.executeNode(runId, nodeId, dag, context, template, runContext, companyId),
+            this.executeNode(runId, nodeId, dag, context, template, runContext, organizationId),
           ),
         );
 
@@ -125,7 +125,7 @@ export class WorkflowRunnerService {
               result.reason instanceof Error
                 ? result.reason.message
                 : String(result.reason);
-            await this.recordRunError(runId, `Step ${nodeId} failed: ${message}`, companyId);
+            await this.recordRunError(runId, `Step ${nodeId} failed: ${message}`, organizationId);
             return;
           }
           visited.add(nodeId);
@@ -145,10 +145,10 @@ export class WorkflowRunnerService {
             context,
             template,
             runContext,
-            companyId,
+            organizationId,
           ).catch(async (err) => {
             const message = err instanceof Error ? err.message : String(err);
-            await this.recordRunError(runId, `Step ${nodeId} failed: ${message}`, companyId);
+            await this.recordRunError(runId, `Step ${nodeId} failed: ${message}`, organizationId);
             return null;
           });
 
@@ -162,17 +162,17 @@ export class WorkflowRunnerService {
     }
 
     await this.prisma.workflowRun.updateMany({
-      where: { id: runId, companyId },
+      where: { id: runId, organizationId },
       data: { status: 'succeeded', completedAt: new Date() },
     });
-    await this.emitPanelUpsert(runId, companyId);
+    await this.emitPanelUpsert(runId, organizationId);
   }
 
   async runBatch(
-    items: { runId: string; templateId: string; companyId: string }[],
+    items: { runId: string; templateId: string; organizationId: string }[],
   ): Promise<void> {
     for (const item of items) {
-      await this.runWorkflow(item.runId, item.templateId, item.companyId);
+      await this.runWorkflow(item.runId, item.templateId, item.organizationId);
     }
   }
 
@@ -183,7 +183,7 @@ export class WorkflowRunnerService {
     context: WorkflowContext,
     template: WorkflowTemplateRef,
     runContext: WorkflowRunContext,
-    companyId: string,
+    organizationId: string,
   ): Promise<{ nextNodes: string[] }> {
     const nodeDef = dag.nodes.get(nodeId);
     if (!nodeDef) return { nextNodes: [] };
@@ -192,7 +192,7 @@ export class WorkflowRunnerService {
     if (!executor) {
       const error = `No executor for node type: ${nodeDef.type}`;
       this.logger.error(error);
-      await this.recordStepError(runId, nodeDef, error, companyId);
+      await this.recordStepError(runId, nodeDef, error, organizationId);
       throw new Error(error);
     }
 
@@ -209,16 +209,16 @@ export class WorkflowRunnerService {
 
     // Append step to WorkflowRun.steps Json array
     const run = await this.prisma.workflowRun.findFirst({
-      where: { id: runId, companyId },
+      where: { id: runId, organizationId },
     });
     const steps = (run?.steps as unknown[] ?? []);
     const stepIndex = steps.length;
     steps.push(stepEntry);
     await this.prisma.workflowRun.updateMany({
-      where: { id: runId, companyId },
+      where: { id: runId, organizationId },
       data: { steps: steps as any },
     });
-    await this.emitPanelUpsert(runId, companyId);
+    await this.emitPanelUpsert(runId, organizationId);
 
     try {
       // Tenant scope is owned by the runner, not the template author.
@@ -227,7 +227,7 @@ export class WorkflowRunnerService {
       // side-effect executors and agent delegation cannot be coerced into a
       // foreign tenant or forged workflow trace by editing template JSON.
       const {
-        company_id: _ignoredCompanyId,
+        organization_id: _ignoredOrganizationId,
         _context: _ignoredCtx,
         _workflow_run_id: _ignoredWorkflowRunId,
         _workflow_node_id: _ignoredWorkflowNodeId,
@@ -236,7 +236,7 @@ export class WorkflowRunnerService {
         nodeDef.config ?? {};
       const resolvedConfig = context.resolveConfig({
         ...safeNodeConfig,
-        company_id: template.companyId,
+        organization_id: template.organizationId,
         _context: runContext,
         _workflow_run_id: runId,
         _workflow_node_id: nodeId,
@@ -249,10 +249,10 @@ export class WorkflowRunnerService {
       stepEntry.completedAt = new Date().toISOString();
       steps[stepIndex] = stepEntry;
       await this.prisma.workflowRun.updateMany({
-        where: { id: runId, companyId },
+        where: { id: runId, organizationId },
         data: { steps: steps as any },
       });
-      await this.emitPanelUpsert(runId, companyId);
+      await this.emitPanelUpsert(runId, organizationId);
 
       const branch = nodeDef.type.startsWith('condition.')
         ? (output.branch as string) ?? null
@@ -268,10 +268,10 @@ export class WorkflowRunnerService {
       stepEntry.completedAt = new Date().toISOString();
       steps[stepIndex] = stepEntry;
       await this.prisma.workflowRun.updateMany({
-        where: { id: runId, companyId },
+        where: { id: runId, organizationId },
         data: { steps: steps as any },
       });
-      await this.emitPanelUpsert(runId, companyId);
+      await this.emitPanelUpsert(runId, organizationId);
 
       throw err;
     }
@@ -281,10 +281,10 @@ export class WorkflowRunnerService {
     runId: string,
     nodeDef: { id: string; type: string; label: string },
     error: string,
-    companyId: string,
+    organizationId: string,
   ) {
     const run = await this.prisma.workflowRun.findFirst({
-      where: { id: runId, companyId },
+      where: { id: runId, organizationId },
     });
     const steps = (run?.steps as unknown[] ?? []);
     steps.push({
@@ -298,18 +298,18 @@ export class WorkflowRunnerService {
       outputData: null,
     });
     await this.prisma.workflowRun.updateMany({
-      where: { id: runId, companyId },
+      where: { id: runId, organizationId },
       data: { steps: steps as any },
     });
-    await this.emitPanelUpsert(runId, companyId);
+    await this.emitPanelUpsert(runId, organizationId);
   }
 
-  private async recordRunError(runId: string, error: string, companyId: string) {
+  private async recordRunError(runId: string, error: string, organizationId: string) {
     await this.prisma.workflowRun.updateMany({
-      where: { id: runId, companyId },
+      where: { id: runId, organizationId },
       data: { status: 'failed', error, completedAt: new Date() },
     });
-    await this.emitPanelUpsert(runId, companyId);
+    await this.emitPanelUpsert(runId, organizationId);
   }
 
 }

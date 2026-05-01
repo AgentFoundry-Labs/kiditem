@@ -202,7 +202,7 @@ npm run data:dev:replay -- --domain coupang --mode scoped-replace --yes
 | 모드 | 의미 | 기본 사용처 |
 |---|---|---|
 | `upsert` | 기존 데이터를 지우지 않고 같은 key 는 갱신 | 빠른 smoke |
-| `scoped-replace` | 회사/company + channel + date range 범위만 교체 | 표준 개발 데이터 세팅 |
+| `scoped-replace` | 회사/organization + channel + date range 범위만 교체 | 표준 개발 데이터 세팅 |
 | `pull-only` | bundle 을 내려받지만 replay adapter 를 호출하지 않음 | adapter 추가 전 도메인/objects 준비 |
 | `full-reset` | Docker volume 을 직접 초기화한 뒤 replay | 온보딩/E2E 전용, CLI 자동화 없음 |
 

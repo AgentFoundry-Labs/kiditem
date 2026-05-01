@@ -26,7 +26,7 @@ interface PurchaseOrder {
   productId: string;
   productName: string;
   sku: string;
-  company: string;
+  organization: string;
   quantity: number;
   unitCost: number;
   totalCost: number;

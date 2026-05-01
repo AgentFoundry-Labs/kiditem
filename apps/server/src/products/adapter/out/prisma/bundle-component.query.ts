@@ -11,7 +11,7 @@ import { ListBundleComponentsQuery } from '../../../dto/list-bundle-components.q
  */
 export async function listBundleComponentsForTenant(
   prisma: PrismaService,
-  companyId: string,
+  organizationId: string,
   q: ListBundleComponentsQuery,
 ): Promise<BundleComponent[]> {
   if (!q.bundleOptionId && !q.componentOptionId) {
@@ -21,7 +21,7 @@ export async function listBundleComponentsForTenant(
   }
   return prisma.bundleComponent.findMany({
     where: {
-      companyId,
+      organizationId,
       ...(q.bundleOptionId ? { bundleOptionId: q.bundleOptionId } : {}),
       ...(q.componentOptionId ? { componentOptionId: q.componentOptionId } : {}),
     },

@@ -41,11 +41,11 @@ export type LatestTargetRow = {
 export async function findAdActionsForReview(
   prisma: PrismaService,
   query: AdActionQuery,
-  companyId: string,
+  organizationId: string,
 ) {
   const limit = Math.min(query.limit || 50, 200);
 
-  const where: Prisma.AdActionWhereInput = { companyId };
+  const where: Prisma.AdActionWhereInput = { organizationId };
   if (query.approvalStatus && query.approvalStatus !== 'all') where.approvalStatus = query.approvalStatus;
   if (query.executeStatus && query.executeStatus !== 'all') where.executeStatus = query.executeStatus;
   if (query.listingId) where.listingId = query.listingId;
@@ -59,14 +59,14 @@ export async function findAdActionsForReview(
       take: limit,
     }),
     Promise.all([
-      prisma.adAction.count({ where: { companyId, approvalStatus: 'pending_review' } }),
-      prisma.adAction.count({ where: { companyId, approvalStatus: 'approved', executeStatus: 'queued' } }),
-      prisma.adAction.count({ where: { companyId, executeStatus: 'running' } }),
-      prisma.adAction.count({ where: { companyId, executeStatus: 'done' } }),
-      prisma.adAction.count({ where: { companyId, executeStatus: 'failed' } }),
+      prisma.adAction.count({ where: { organizationId, approvalStatus: 'pending_review' } }),
+      prisma.adAction.count({ where: { organizationId, approvalStatus: 'approved', executeStatus: 'queued' } }),
+      prisma.adAction.count({ where: { organizationId, executeStatus: 'running' } }),
+      prisma.adAction.count({ where: { organizationId, executeStatus: 'done' } }),
+      prisma.adAction.count({ where: { organizationId, executeStatus: 'failed' } }),
     ]),
     prisma.channelScrapeRun.findFirst({
-      where: { companyId },
+      where: { organizationId },
       orderBy: [
         { finishedAt: 'desc' },
         { startedAt: 'desc' },
@@ -76,7 +76,7 @@ export async function findAdActionsForReview(
     }),
   ]);
 
-  const hydrated = await hydrateActionRelations(prisma, companyId, actions);
+  const hydrated = await hydrateActionRelations(prisma, organizationId, actions);
   const priorityOrder = { urgent: 0, high: 1, medium: 2, low: 3 };
   const sortedItems = [...hydrated].sort((a, b) => {
     const priDiff =
@@ -102,7 +102,7 @@ export async function findAdActionsForReview(
 
 export async function findLatestAdActionTargetRows(
   prisma: PrismaService,
-  companyId: string,
+  organizationId: string,
 ): Promise<LatestTargetRow[]> {
   return prisma.$queryRaw<LatestTargetRow[]>(
     Prisma.sql`
@@ -126,7 +126,7 @@ export async function findLatestAdActionTargetRows(
           cad.clicks,
           cad.conversions
         FROM channel_ad_target_daily_snapshots cad
-        WHERE cad.company_id = ${companyId}::uuid
+        WHERE cad.organization_id = ${organizationId}::uuid
           AND cad.target_type IN ('campaign', 'keyword', 'product')
         ORDER BY
           cad.target_key,
@@ -162,25 +162,25 @@ export async function findLatestAdActionTargetRows(
       FROM latest
       LEFT JOIN channel_listings cl
              ON cl.id = latest.listing_id
-            AND cl.company_id = ${companyId}::uuid
+            AND cl.organization_id = ${organizationId}::uuid
             AND cl.is_deleted = false
       LEFT JOIN master_products mp
              ON mp.id = cl.master_id
-            AND mp.company_id = ${companyId}::uuid
+            AND mp.organization_id = ${organizationId}::uuid
       LEFT JOIN channel_listing_options clo
              ON clo.id = latest.listing_option_id
-            AND clo.company_id = ${companyId}::uuid
+            AND clo.organization_id = ${organizationId}::uuid
             AND clo.is_active = true
       LEFT JOIN product_options po
              ON po.id = clo.option_id
-            AND po.company_id = ${companyId}::uuid
+            AND po.organization_id = ${organizationId}::uuid
     `,
   );
 }
 
 export async function findLatestListingOptionStockById(
   prisma: PrismaService,
-  companyId: string,
+  organizationId: string,
   listingOptionIds: string[],
 ): Promise<Map<string, number | null>> {
   const ids = Array.from(new Set(listingOptionIds));
@@ -193,7 +193,7 @@ export async function findLatestListingOptionStockById(
       listing_option_id AS "listingOptionId",
       stock_qty         AS "stockQty"
     FROM channel_listing_option_daily_snapshots
-    WHERE company_id = ${companyId}::uuid
+    WHERE organization_id = ${organizationId}::uuid
       AND listing_option_id = ANY(${ids}::uuid[])
     ORDER BY
       listing_option_id,
@@ -210,12 +210,12 @@ type ActionRow = Prisma.AdActionGetPayload<Record<string, never>>;
 
 async function hydrateActionRelations(
   prisma: PrismaService,
-  companyId: string,
+  organizationId: string,
   actions: ActionRow[],
 ) {
   const listingMap = await findScopedAdListings(
     prisma,
-    companyId,
+    organizationId,
     actions.map((action) => action.listingId),
   );
   const dailyIds = Array.from(
@@ -227,7 +227,7 @@ async function hydrateActionRelations(
   );
   const dailies = dailyIds.length > 0
     ? await prisma.channelAdTargetDailySnapshot.findMany({
-        where: { id: { in: dailyIds }, companyId },
+        where: { id: { in: dailyIds }, organizationId },
         select: {
           id: true,
           targetType: true,

@@ -13,7 +13,7 @@ const RING_BUFFER_SIZE = 100;
 
 interface BufferedEvent {
   event: PanelEvent;
-  companyId: string;
+  organizationId: string;
 }
 
 @Injectable()
@@ -26,13 +26,13 @@ export class PanelSseService implements OnModuleDestroy {
   handleUpsert(payload: PanelUpsertInternal) {
     const seq = ++this.seqCounter;
     const timestamp = new Date().toISOString();
-    // companyId는 payload에 있는 internal routing 용도 — item에는 포함 안 됨 (wire schema는 companyId 없음)
+    // organizationId는 payload에 있는 internal routing 용도 — item에는 포함 안 됨 (wire schema는 organizationId 없음)
     const event: PanelEvent = {
       type: 'upsert',
       seq,
       item: { ...payload.item, seq, updatedAt: timestamp } as PanelItem,
     };
-    this.push(payload.companyId, event);
+    this.push(payload.organizationId, event);
   }
 
   @OnEvent(PANEL_EVENTS.DISMISS)
@@ -43,32 +43,32 @@ export class PanelSseService implements OnModuleDestroy {
       seq,
       itemId: payload.itemId,
     };
-    this.push(payload.companyId, event);
+    this.push(payload.organizationId, event);
   }
 
-  private push(companyId: string, event: PanelEvent) {
-    const buffered: BufferedEvent = { event, companyId };
+  private push(organizationId: string, event: PanelEvent) {
+    const buffered: BufferedEvent = { event, organizationId };
     this.subject.next(buffered);
-    const arr = this.ringBuffer.get(companyId) ?? [];
+    const arr = this.ringBuffer.get(organizationId) ?? [];
     arr.push(buffered);
     if (arr.length > RING_BUFFER_SIZE) arr.shift();
-    this.ringBuffer.set(companyId, arr);
+    this.ringBuffer.set(organizationId, arr);
   }
 
   /**
-   * 구독자의 companyId와 일치하는 이벤트만 통과.
+   * 구독자의 organizationId와 일치하는 이벤트만 통과.
    * MessageEvent는 @nestjs/common (NOT DOM MessageEvent).
    * 현재 seqCounter를 getter로 노출 (controller가 snapshot resetClient 판단 시 사용).
    */
-  getStream(subscriberCompanyId: string): Observable<MessageEvent> {
+  getStream(subscriberOrganizationId: string): Observable<MessageEvent> {
     return this.subject.asObservable().pipe(
-      filter((b) => b.companyId === subscriberCompanyId),
+      filter((b) => b.organizationId === subscriberOrganizationId),
       map((b) => ({ data: b.event, id: String(b.event.seq) })),
     );
   }
 
-  replayAfter(companyId: string, afterSeq: number): PanelEvent[] {
-    const arr = this.ringBuffer.get(companyId) ?? [];
+  replayAfter(organizationId: string, afterSeq: number): PanelEvent[] {
+    const arr = this.ringBuffer.get(organizationId) ?? [];
     return arr.filter((b) => b.event.seq > afterSeq).map((b) => b.event) satisfies PanelEvent[];
   }
 

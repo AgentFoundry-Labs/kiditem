@@ -21,12 +21,12 @@ export class AuditsService implements AuditsPort {
     private readonly repository: AuditsRepositoryPort,
   ) {}
 
-  findAll(companyId: string): Promise<StockAuditRow[]> {
-    return this.repository.listStockAudits(companyId);
+  findAll(organizationId: string): Promise<StockAuditRow[]> {
+    return this.repository.listStockAudits(organizationId);
   }
 
-  create(companyId: string, dto: CreateStockAuditInput): Promise<StockAuditRow> {
-    return this.repository.createStockAudit(companyId, {
+  create(organizationId: string, dto: CreateStockAuditInput): Promise<StockAuditRow> {
+    return this.repository.createStockAudit(organizationId, {
       auditNumber: dto.auditNumber,
       items: dto.items,
       totalProducts: dto.totalProducts,
@@ -36,10 +36,10 @@ export class AuditsService implements AuditsPort {
 
   async update(
     id: string,
-    companyId: string,
+    organizationId: string,
     dto: UpdateStockAuditInput,
   ): Promise<StockAuditRow> {
-    const existing = await this.repository.findStockAuditById(id, companyId);
+    const existing = await this.repository.findStockAuditById(id, organizationId);
     if (!existing) throw new BadRequestException('재고 실사를 찾을 수 없습니다');
 
     const data: StockAuditUpdateData = {};

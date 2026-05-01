@@ -8,8 +8,8 @@ import {
   makeTestPrisma,
   resetDb,
   seedBaseFixture,
-  TEST_COMPANY_ID,
-  OTHER_COMPANY_ID,
+  TEST_ORGANIZATION_ID,
+  OTHER_ORGANIZATION_ID,
   IDOR_SENTINEL,
 } from '../../../test-helpers/real-prisma';
 import {
@@ -60,14 +60,14 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
   }) {
     const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const { id: masterId } = await setupMaster(prisma, {
-      companyId: TEST_COMPANY_ID, code: `M-T-${opts.suffix}`, name: `Master T-${opts.suffix}`,
+      organizationId: TEST_ORGANIZATION_ID, code: `M-T-${opts.suffix}`, name: `Master T-${opts.suffix}`,
     });
     const { id: optionId } = await setupProductOption(prisma, {
-      companyId: TEST_COMPANY_ID, masterId,
+      organizationId: TEST_ORGANIZATION_ID, masterId,
       sku: `SKU-T-${opts.suffix}`, costPrice: opts.costPrice ?? 0, commissionRate: 0,
     });
     const { listingId, listingOptionId } = await setupChannelListing(prisma, {
-      companyId: TEST_COMPANY_ID, masterId,
+      organizationId: TEST_ORGANIZATION_ID, masterId,
       channel: 'coupang', externalId: `EXT-T-${opts.suffix}`,
       optionId, externalOptionId: `VI-T-${opts.suffix}`,
     });
@@ -76,7 +76,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       // Bypass helper to set Order.totalPrice independently of lineItem totals.
       const order = await prisma.order.create({
         data: {
-          companyId: TEST_COMPANY_ID,
+          organizationId: TEST_ORGANIZATION_ID,
           platform: 'coupang',
           externalOrderId: `TREND-T-${opts.suffix}`,
           orderedAt: yesterday,
@@ -87,7 +87,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       });
       await prisma.orderLineItem.create({
         data: {
-          companyId: TEST_COMPANY_ID,
+          organizationId: TEST_ORGANIZATION_ID,
           orderId: order.id,
           listingOptionId,
           optionId,
@@ -99,7 +99,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       });
     } else {
       await seedOrderWithLineItems(prisma, {
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: `TREND-T-${opts.suffix}`,
         orderedAt: yesterday.toISOString(),
         shippingPrice: 0,
@@ -109,7 +109,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
 
     if (opts.adSpend !== undefined) {
       await seedAd(prisma, {
-        companyId: TEST_COMPANY_ID, listingId,
+        organizationId: TEST_ORGANIZATION_ID, listingId,
         date: yesterday.toISOString().slice(0, 10), spend: opts.adSpend,
       });
     }
@@ -119,25 +119,25 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
   it('T1: TEST sees only TEST rows — OTHER sentinel never leaks', async () => {
     await seedTestListingWithYesterdayOrder({ suffix: '1', lineItemTotalPrice: 30_000 });
     // OTHER sentinel
-    const oM = await setupMaster(prisma, { companyId: OTHER_COMPANY_ID, code: 'M-O-1', name: 'OM' });
-    const oO = await setupProductOption(prisma, { companyId: OTHER_COMPANY_ID, masterId: oM.id, sku: 'SKU-O-1' });
+    const oM = await setupMaster(prisma, { organizationId: OTHER_ORGANIZATION_ID, code: 'M-O-1', name: 'OM' });
+    const oO = await setupProductOption(prisma, { organizationId: OTHER_ORGANIZATION_ID, masterId: oM.id, sku: 'SKU-O-1' });
     const oL = await setupChannelListing(prisma, {
-      companyId: OTHER_COMPANY_ID, masterId: oM.id,
+      organizationId: OTHER_ORGANIZATION_ID, masterId: oM.id,
       channel: 'coupang', externalId: 'EXT-O-1', optionId: oO.id, externalOptionId: 'VI-O-1',
     });
     await seedOrderWithLineItems(prisma, {
-      companyId: OTHER_COMPANY_ID,
+      organizationId: OTHER_ORGANIZATION_ID,
       externalOrderId: 'TREND-O-1',
       orderedAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
       shippingPrice: 0,
       lineItems: [{ quantity: 1, totalPrice: IDOR_SENTINEL, optionId: oO.id, listingOptionId: oL.listingOptionId }],
     });
     await seedAd(prisma, {
-      companyId: OTHER_COMPANY_ID, listingId: oL.listingId,
+      organizationId: OTHER_ORGANIZATION_ID, listingId: oL.listingId,
       date: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10), spend: IDOR_SENTINEL,
     });
 
-    const result = await service.getTrend(TEST_COMPANY_ID, '30d');
+    const result = await service.getTrend(TEST_ORGANIZATION_ID, '30d');
     for (const row of result) {
       expect(row.revenue).not.toBe(IDOR_SENTINEL);
       expect(row.adCost).not.toBe(IDOR_SENTINEL);
@@ -148,29 +148,29 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
 
   it('T2: OTHER sees only OTHER — TEST does not leak', async () => {
     await seedTestListingWithYesterdayOrder({ suffix: '2', lineItemTotalPrice: 30_000 });
-    const oM = await setupMaster(prisma, { companyId: OTHER_COMPANY_ID, code: 'M-O-2', name: 'OM' });
-    const oO = await setupProductOption(prisma, { companyId: OTHER_COMPANY_ID, masterId: oM.id, sku: 'SKU-O-2' });
+    const oM = await setupMaster(prisma, { organizationId: OTHER_ORGANIZATION_ID, code: 'M-O-2', name: 'OM' });
+    const oO = await setupProductOption(prisma, { organizationId: OTHER_ORGANIZATION_ID, masterId: oM.id, sku: 'SKU-O-2' });
     const oL = await setupChannelListing(prisma, {
-      companyId: OTHER_COMPANY_ID, masterId: oM.id,
+      organizationId: OTHER_ORGANIZATION_ID, masterId: oM.id,
       channel: 'coupang', externalId: 'EXT-O-2', optionId: oO.id, externalOptionId: 'VI-O-2',
     });
     await seedOrderWithLineItems(prisma, {
-      companyId: OTHER_COMPANY_ID,
+      organizationId: OTHER_ORGANIZATION_ID,
       externalOrderId: 'TREND-O-2',
       orderedAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
       shippingPrice: 0,
       lineItems: [{ quantity: 1, totalPrice: IDOR_SENTINEL, optionId: oO.id, listingOptionId: oL.listingOptionId }],
     });
 
-    const result = await service.getTrend(OTHER_COMPANY_ID, '30d');
+    const result = await service.getTrend(OTHER_ORGANIZATION_ID, '30d');
     for (const row of result) {
       expect(row.revenue).not.toBe(30_000);
     }
     expect(result.find((r) => r.revenue === IDOR_SENTINEL)).toBeDefined();
   });
 
-  it('T3: fresh company → []', async () => {
-    const result = await service.getTrend(TEST_COMPANY_ID, '7d');
+  it('T3: fresh organization → []', async () => {
+    const result = await service.getTrend(TEST_ORGANIZATION_ID, '7d');
     expect(result).toEqual([]);
   });
 
@@ -188,7 +188,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       costPrice: 70_000,
     });
 
-    const result = await service.getTrend(TEST_COMPANY_ID, '30d');
+    const result = await service.getTrend(TEST_ORGANIZATION_ID, '30d');
     const yesterdayRow = result.find((r) => r.revenue === 100_000);
     expect(yesterdayRow).toBeDefined();
     expect(yesterdayRow?.profit).toBe(30_000);

@@ -12,10 +12,10 @@ import {
 } from '../../../../test-helpers/finance-seeds';
 import {
   makeTestPrisma,
-  OTHER_COMPANY_ID,
+  OTHER_ORGANIZATION_ID,
   resetDb,
   seedBaseFixture,
-  TEST_COMPANY_ID,
+  TEST_ORGANIZATION_ID,
 } from '../../../../test-helpers/real-prisma';
 import { ActionBoardService } from '../action-board.service';
 
@@ -65,19 +65,19 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
 
   it('seeds live warning tasks and related products for the requested tenant only', async () => {
     const ownMaster = await setupMaster(prisma, {
-      companyId: TEST_COMPANY_ID,
+      organizationId: TEST_ORGANIZATION_ID,
       code: 'ACT-NEG',
       name: 'Own Negative',
     });
     const ownOption = await setupProductOption(prisma, {
-      companyId: TEST_COMPANY_ID,
+      organizationId: TEST_ORGANIZATION_ID,
       masterId: ownMaster.id,
       sku: 'ACT-NEG-SKU',
       costPrice: 6_000,
       commissionRate: 0.1,
     });
     const ownListing = await setupChannelListing(prisma, {
-      companyId: TEST_COMPANY_ID,
+      organizationId: TEST_ORGANIZATION_ID,
       masterId: ownMaster.id,
       channel: 'coupang',
       externalId: 'ACT-NEG-EXT',
@@ -86,7 +86,7 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
       externalOptionId: 'ACT-NEG-VI',
     });
     await seedOrderWithLineItems(prisma, {
-      companyId: TEST_COMPANY_ID,
+      organizationId: TEST_ORGANIZATION_ID,
       externalOrderId: 'ACT-NEG-ORD',
       orderedAt: currentMonthIso(5),
       shippingPrice: 1_000,
@@ -100,14 +100,14 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
       ],
     });
     await seedAd(prisma, {
-      companyId: TEST_COMPANY_ID,
+      organizationId: TEST_ORGANIZATION_ID,
       listingId: ownListing.listingId,
       date: currentMonthIso(5),
       spend: 5_000,
     });
     await prisma.inventory.create({
       data: {
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         optionId: ownOption.id,
         currentStock: 2,
         reorderPoint: 5,
@@ -115,19 +115,19 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
     });
 
     const foreignMaster = await setupMaster(prisma, {
-      companyId: OTHER_COMPANY_ID,
+      organizationId: OTHER_ORGANIZATION_ID,
       code: 'ACT-FGN',
       name: 'Foreign Negative',
     });
     const foreignOption = await setupProductOption(prisma, {
-      companyId: OTHER_COMPANY_ID,
+      organizationId: OTHER_ORGANIZATION_ID,
       masterId: foreignMaster.id,
       sku: 'ACT-FGN-SKU',
       costPrice: 6_000,
       commissionRate: 0.1,
     });
     const foreignListing = await setupChannelListing(prisma, {
-      companyId: OTHER_COMPANY_ID,
+      organizationId: OTHER_ORGANIZATION_ID,
       masterId: foreignMaster.id,
       channel: 'coupang',
       externalId: 'ACT-FGN-EXT',
@@ -136,7 +136,7 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
       externalOptionId: 'ACT-FGN-VI',
     });
     await seedOrderWithLineItems(prisma, {
-      companyId: OTHER_COMPANY_ID,
+      organizationId: OTHER_ORGANIZATION_ID,
       externalOrderId: 'ACT-FGN-ORD',
       orderedAt: currentMonthIso(6),
       shippingPrice: 1_000,
@@ -150,13 +150,13 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
       ],
     });
     await seedAd(prisma, {
-      companyId: OTHER_COMPANY_ID,
+      organizationId: OTHER_ORGANIZATION_ID,
       listingId: foreignListing.listingId,
       date: currentMonthIso(6),
       spend: 5_000,
     });
 
-    const result = await service.getTasks(TEST_COMPANY_ID);
+    const result = await service.getTasks(TEST_ORGANIZATION_ID);
 
     const taskKeys = result.map((task) => task.taskKey);
     expect(taskKeys).toEqual(expect.arrayContaining([
@@ -203,10 +203,10 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
     expect(allRelatedNames).not.toContain('Foreign Negative');
 
     const ownStoredCount = await prisma.actionTask.count({
-      where: { companyId: TEST_COMPANY_ID },
+      where: { organizationId: TEST_ORGANIZATION_ID },
     });
     const foreignStoredCount = await prisma.actionTask.count({
-      where: { companyId: OTHER_COMPANY_ID },
+      where: { organizationId: OTHER_ORGANIZATION_ID },
     });
     expect(ownStoredCount).toBeGreaterThan(0);
     expect(foreignStoredCount).toBe(0);
@@ -214,25 +214,25 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
 
   it('keeps reorder task seeding and related products when the live metrics array is empty', async () => {
     const stockOnlyMaster = await setupMaster(prisma, {
-      companyId: TEST_COMPANY_ID,
+      organizationId: TEST_ORGANIZATION_ID,
       code: 'ACT-STOCK',
       name: 'Stock Only',
     });
     const stockOnlyOption = await setupProductOption(prisma, {
-      companyId: TEST_COMPANY_ID,
+      organizationId: TEST_ORGANIZATION_ID,
       masterId: stockOnlyMaster.id,
       sku: 'ACT-STOCK-SKU',
     });
     await prisma.inventory.create({
       data: {
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         optionId: stockOnlyOption.id,
         currentStock: 1,
         reorderPoint: 3,
       },
     });
 
-    const result = await service.getTasks(TEST_COMPANY_ID);
+    const result = await service.getTasks(TEST_ORGANIZATION_ID);
 
     const taskKeys = result.map((task) => task.taskKey);
     expect(taskKeys).toEqual(expect.arrayContaining([

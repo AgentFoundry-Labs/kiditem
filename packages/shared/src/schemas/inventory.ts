@@ -4,7 +4,7 @@ import { zIsoDate } from './common.js';
 export const InventorySchema = z.object({
   id: z.string().uuid(),
   optionId: z.string().uuid(),
-  companyId: z.string().uuid(),
+  organizationId: z.string().uuid(),
   currentStock: z.number().int(),
   reservedStock: z.number().int(),
   safetyStock: z.number().int(),

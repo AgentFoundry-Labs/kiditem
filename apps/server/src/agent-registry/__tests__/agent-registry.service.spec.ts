@@ -74,7 +74,7 @@ const MOCK_DEF = {
   requiresApproval: true,
   monthlyTokenBudget: 0,
   tokensUsed: 0,
-  companyId: 'company-1',
+  organizationId: 'organization-1',
   isActive: true,
   schedule: null,
   status: 'idle',
@@ -105,27 +105,27 @@ describe('AgentRegistryService', () => {
   });
 
   describe('getById tenant scope', () => {
-    it('throws NotFoundException when agent belongs to a different company (IDOR guard)', async () => {
+    it('throws NotFoundException when agent belongs to a different organization (IDOR guard)', async () => {
       const { service, prisma } = makeService();
       prisma.agentDefinition.findFirst.mockResolvedValue(null);
 
-      await expect(service.getById('def-1', 'company-OTHER')).rejects.toThrow(NotFoundException);
+      await expect(service.getById('def-1', 'organization-OTHER')).rejects.toThrow(NotFoundException);
       expect(prisma.agentDefinition.findFirst).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
             id: 'def-1',
-            OR: [{ companyId: 'company-OTHER' }, { companyId: null }],
+            OR: [{ organizationId: 'organization-OTHER' }, { organizationId: null }],
           }),
         }),
       );
     });
 
-    it('returns agent when global (companyId=null) under any tenant', async () => {
+    it('returns agent when global (organizationId=null) under any tenant', async () => {
       const { service, prisma } = makeService();
-      prisma.agentDefinition.findFirst.mockResolvedValue({ ...MOCK_DEF, companyId: null });
+      prisma.agentDefinition.findFirst.mockResolvedValue({ ...MOCK_DEF, organizationId: null });
 
-      const result = await service.getById('def-1', 'company-1');
-      expect(result.companyId).toBeNull();
+      const result = await service.getById('def-1', 'organization-1');
+      expect(result.organizationId).toBeNull();
     });
   });
 
@@ -136,7 +136,7 @@ describe('AgentRegistryService', () => {
       prisma.agentTask.create.mockResolvedValue({ id: 'task-1' });
 
       const result = await service.run('def-1', {
-        companyId: 'company-1',
+        organizationId: 'organization-1',
         dryRun: true,
         workflowRunId: '00000000-0000-0000-0000-000000000001',
         workflowNodeId: 'agent-node',
@@ -153,7 +153,7 @@ describe('AgentRegistryService', () => {
       expect(heartbeat.wakeAgent).toHaveBeenCalledWith(
         expect.objectContaining({
           agentId: 'def-1',
-          companyId: 'company-1',
+          organizationId: 'organization-1',
           source: 'on_demand',
           payload: expect.objectContaining({
             dry_run: true,
@@ -164,7 +164,7 @@ describe('AgentRegistryService', () => {
       expect(prisma.agentTask.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
           agentType: 'ad_strategy',
-          companyId: 'company-1',
+          organizationId: 'organization-1',
           workflowRunId: '00000000-0000-0000-0000-000000000001',
           workflowNodeId: 'agent-node',
           sourceDataId: '00000000-0000-0000-0000-000000000002',
@@ -191,60 +191,60 @@ describe('AgentRegistryService', () => {
   });
 
   describe('pauseAgent / resumeAgent — tenant-owned writes (denies global)', () => {
-    it('pauses agent with reason via updateMany binding companyId', async () => {
+    it('pauses agent with reason via updateMany binding organizationId', async () => {
       const { service, prisma } = makeService();
 
-      await service.pauseAgent('def-1', 'company-1', 'Budget review');
+      await service.pauseAgent('def-1', 'organization-1', 'Budget review');
 
       expect(prisma.agentDefinition.updateMany).toHaveBeenCalledWith({
-        where: { id: 'def-1', companyId: 'company-1' },
+        where: { id: 'def-1', organizationId: 'organization-1' },
         data: expect.objectContaining({ status: 'paused', pauseReason: 'Budget review' }),
       });
     });
 
-    it('throws NotFoundException when pause target belongs to a different company', async () => {
+    it('throws NotFoundException when pause target belongs to a different organization', async () => {
       const { service, prisma } = makeService();
       prisma.agentDefinition.updateMany.mockResolvedValue({ count: 0 });
 
-      await expect(service.pauseAgent('def-1', 'company-OTHER')).rejects.toThrow(NotFoundException);
+      await expect(service.pauseAgent('def-1', 'organization-OTHER')).rejects.toThrow(NotFoundException);
     });
 
-    it('rejects pause on global definition (companyId=null) — tenant cannot mutate platform template', async () => {
+    it('rejects pause on global definition (organizationId=null) — tenant cannot mutate platform template', async () => {
       const { service, prisma } = makeService();
-      // updateMany with companyId binding returns 0 because the row's companyId is null
+      // updateMany with organizationId binding returns 0 because the row's organizationId is null
       prisma.agentDefinition.updateMany.mockResolvedValue({ count: 0 });
 
-      await expect(service.pauseAgent('def-global', 'company-1')).rejects.toThrow(NotFoundException);
-      // Confirm the WHERE clause would never match a null companyId row
+      await expect(service.pauseAgent('def-global', 'organization-1')).rejects.toThrow(NotFoundException);
+      // Confirm the WHERE clause would never match a null organizationId row
       expect(prisma.agentDefinition.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 'def-global', companyId: 'company-1' },
+          where: { id: 'def-global', organizationId: 'organization-1' },
         }),
       );
     });
 
-    it('resumes agent — both updates scope to (id, companyId) only', async () => {
+    it('resumes agent — both updates scope to (id, organizationId) only', async () => {
       const { service, prisma } = makeService();
 
-      await service.resumeAgent('def-1', 'company-1');
+      await service.resumeAgent('def-1', 'organization-1');
 
       // status reset
       expect(prisma.agentDefinition.updateMany).toHaveBeenCalledWith({
-        where: { id: 'def-1', companyId: 'company-1' },
+        where: { id: 'def-1', organizationId: 'organization-1' },
         data: expect.objectContaining({ status: 'idle', pauseReason: null }),
       });
       // failure counter reset
       expect(prisma.agentDefinition.updateMany).toHaveBeenCalledWith({
-        where: { id: 'def-1', companyId: 'company-1' },
+        where: { id: 'def-1', organizationId: 'organization-1' },
         data: expect.objectContaining({ rtConsecutiveFailCount: 0, rtLastFailedAt: null }),
       });
     });
 
-    it('resumeAgent throws NotFoundException when status updateMany returns count=0 (different company OR global)', async () => {
+    it('resumeAgent throws NotFoundException when status updateMany returns count=0 (different organization OR global)', async () => {
       const { service, prisma } = makeService();
       prisma.agentDefinition.updateMany.mockResolvedValue({ count: 0 });
 
-      await expect(service.resumeAgent('def-1', 'company-OTHER')).rejects.toThrow(NotFoundException);
+      await expect(service.resumeAgent('def-1', 'organization-OTHER')).rejects.toThrow(NotFoundException);
       // The first updateMany failed → no second updateMany should fire.
       expect(prisma.agentDefinition.updateMany).toHaveBeenCalledTimes(1);
     });
@@ -253,10 +253,10 @@ describe('AgentRegistryService', () => {
       const { service, prisma } = makeService();
       prisma.agentDefinition.updateMany.mockResolvedValue({ count: 0 });
 
-      await expect(service.resetSession('def-global', 'company-1')).rejects.toThrow(NotFoundException);
+      await expect(service.resetSession('def-global', 'organization-1')).rejects.toThrow(NotFoundException);
       expect(prisma.agentDefinition.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 'def-global', companyId: 'company-1' },
+          where: { id: 'def-global', organizationId: 'organization-1' },
           data: expect.objectContaining({ rtSessionId: null }),
         }),
       );
@@ -264,20 +264,20 @@ describe('AgentRegistryService', () => {
   });
 
   describe('update / delete — tenant-owned writes (denies global)', () => {
-    it('update binds companyId in the actual mutation (not just pre-read)', async () => {
+    it('update binds organizationId in the actual mutation (not just pre-read)', async () => {
       const { service, prisma } = makeService();
       prisma.agentDefinition.updateMany.mockResolvedValue({ count: 1 });
       prisma.agentDefinition.findFirstOrThrow.mockResolvedValue({ ...MOCK_DEF, name: 'updated' });
 
-      await service.update('def-1', 'company-1', { name: 'updated' });
+      await service.update('def-1', 'organization-1', { name: 'updated' });
 
       expect(prisma.agentDefinition.updateMany).toHaveBeenCalledWith({
-        where: { id: 'def-1', companyId: 'company-1' },
+        where: { id: 'def-1', organizationId: 'organization-1' },
         data: expect.objectContaining({ name: 'updated' }),
       });
       // Reload also bound
       expect(prisma.agentDefinition.findFirstOrThrow).toHaveBeenCalledWith({
-        where: { id: 'def-1', companyId: 'company-1' },
+        where: { id: 'def-1', organizationId: 'organization-1' },
       });
       // No bare-id update was issued
       expect(prisma.agentDefinition.update).not.toHaveBeenCalled();
@@ -288,19 +288,19 @@ describe('AgentRegistryService', () => {
       prisma.agentDefinition.updateMany.mockResolvedValue({ count: 0 });
 
       await expect(
-        service.update('def-global', 'company-1', { name: 'tenant-attempt' }),
+        service.update('def-global', 'organization-1', { name: 'tenant-attempt' }),
       ).rejects.toThrow(NotFoundException);
       expect(prisma.agentDefinition.findFirstOrThrow).not.toHaveBeenCalled();
     });
 
-    it('delete binds companyId in the actual mutation', async () => {
+    it('delete binds organizationId in the actual mutation', async () => {
       const { service, prisma } = makeService();
       prisma.agentDefinition.deleteMany.mockResolvedValue({ count: 1 });
 
-      await service.delete('def-1', 'company-1');
+      await service.delete('def-1', 'organization-1');
 
       expect(prisma.agentDefinition.deleteMany).toHaveBeenCalledWith({
-        where: { id: 'def-1', companyId: 'company-1' },
+        where: { id: 'def-1', organizationId: 'organization-1' },
       });
       // No bare-id delete was issued
       expect(prisma.agentDefinition.delete).not.toHaveBeenCalled();
@@ -310,7 +310,7 @@ describe('AgentRegistryService', () => {
       const { service, prisma } = makeService();
       prisma.agentDefinition.deleteMany.mockResolvedValue({ count: 0 });
 
-      await expect(service.delete('def-global', 'company-1')).rejects.toThrow(NotFoundException);
+      await expect(service.delete('def-global', 'organization-1')).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -321,14 +321,14 @@ describe('AgentRegistryService', () => {
       prisma.agentTask.create.mockResolvedValue({ id: 'task-1' });
 
       await service.run('def-1', {
-        companyId: 'company-1',
+        organizationId: 'organization-1',
         workflowRunId: '00000000-0000-0000-0000-0000000000aa',
         workflowNodeId: 'agent-node',
         sourceDataId: '00000000-0000-0000-0000-0000000000bb',
       });
 
       const createCall = prisma.agentTask.create.mock.calls[0][0];
-      expect(createCall.data.companyId).toBe('company-1');
+      expect(createCall.data.organizationId).toBe('organization-1');
       expect(createCall.data.workflowRunId).toBe('00000000-0000-0000-0000-0000000000aa');
       expect(createCall.data.workflowNodeId).toBe('agent-node');
       expect(createCall.data.sourceDataId).toBe('00000000-0000-0000-0000-0000000000bb');
@@ -338,19 +338,19 @@ describe('AgentRegistryService', () => {
       expect(createCall.data.input.sourceDataId).toBeUndefined();
     });
 
-    it('uses caller-supplied (trusted) companyId on AgentTask, not the definition’s', async () => {
+    it('uses caller-supplied (trusted) organizationId on AgentTask, not the definition’s', async () => {
       const { service, prisma } = makeService();
-      // Global definition (companyId=null) invoked with a tenant-bound caller.
-      prisma.agentDefinition.findFirst.mockResolvedValue({ ...MOCK_DEF, companyId: null });
+      // Global definition (organizationId=null) invoked with a tenant-bound caller.
+      prisma.agentDefinition.findFirst.mockResolvedValue({ ...MOCK_DEF, organizationId: null });
       prisma.agentTask.create.mockResolvedValue({ id: 'task-1' });
 
-      await service.run('def-1', { companyId: 'company-1' });
+      await service.run('def-1', { organizationId: 'organization-1' });
 
       const createCall = prisma.agentTask.create.mock.calls[0][0];
-      expect(createCall.data.companyId).toBe('company-1');
+      expect(createCall.data.organizationId).toBe('organization-1');
     });
 
-    it('falls back to def.companyId when caller supplies no companyId (internal callers)', async () => {
+    it('falls back to def.organizationId when caller supplies no organizationId (internal callers)', async () => {
       const { service, prisma } = makeService();
       prisma.agentDefinition.findFirst.mockResolvedValue(MOCK_DEF);
       prisma.agentTask.create.mockResolvedValue({ id: 'task-1' });
@@ -358,7 +358,7 @@ describe('AgentRegistryService', () => {
       await service.run('def-1');
 
       const createCall = prisma.agentTask.create.mock.calls[0][0];
-      expect(createCall.data.companyId).toBe('company-1');
+      expect(createCall.data.organizationId).toBe('organization-1');
     });
 
     it('extra payload still merges into input JSON (backward compat envelope)', async () => {
@@ -367,7 +367,7 @@ describe('AgentRegistryService', () => {
       prisma.agentTask.create.mockResolvedValue({ id: 'task-1' });
 
       await service.run('def-1', {
-        companyId: 'company-1',
+        organizationId: 'organization-1',
         extra: { legacy_threshold: 7 },
       });
 
@@ -377,13 +377,13 @@ describe('AgentRegistryService', () => {
   });
 
   describe('getRunById', () => {
-    it('throws NotFoundException when run belongs to a different company', async () => {
+    it('throws NotFoundException when run belongs to a different organization', async () => {
       const { service, prisma } = makeService();
       prisma.heartbeatRun.findFirst.mockResolvedValue(null);
 
-      await expect(service.getRunById('run-1', 'company-OTHER')).rejects.toThrow(NotFoundException);
+      await expect(service.getRunById('run-1', 'organization-OTHER')).rejects.toThrow(NotFoundException);
       expect(prisma.heartbeatRun.findFirst).toHaveBeenCalledWith({
-        where: { id: 'run-1', companyId: 'company-OTHER' },
+        where: { id: 'run-1', organizationId: 'organization-OTHER' },
       });
     });
   });
@@ -393,19 +393,19 @@ describe('AgentRegistryService', () => {
       const { service, prisma } = makeService();
       prisma.agentDefinition.findFirst.mockResolvedValue(null);
 
-      await expect(service.getRunHistory('agent-1', 'company-OTHER')).rejects.toThrow(NotFoundException);
+      await expect(service.getRunHistory('agent-1', 'organization-OTHER')).rejects.toThrow(NotFoundException);
       expect(prisma.heartbeatRun.findMany).not.toHaveBeenCalled();
     });
 
-    it('getRunHistory lists runs scoped to (agentId, companyId)', async () => {
+    it('getRunHistory lists runs scoped to (agentId, organizationId)', async () => {
       const { service, prisma } = makeService();
       prisma.agentDefinition.findFirst.mockResolvedValue({ id: 'agent-1' });
       prisma.heartbeatRun.findMany.mockResolvedValue([{ id: 'run-1' }]);
 
-      const result = await service.getRunHistory('agent-1', 'company-1', 5);
+      const result = await service.getRunHistory('agent-1', 'organization-1', 5);
 
       expect(prisma.heartbeatRun.findMany).toHaveBeenCalledWith({
-        where: { agentId: 'agent-1', companyId: 'company-1' },
+        where: { agentId: 'agent-1', organizationId: 'organization-1' },
         orderBy: { createdAt: 'desc' },
         take: 5,
       });

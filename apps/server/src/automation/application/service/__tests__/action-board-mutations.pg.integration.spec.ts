@@ -5,10 +5,10 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 import { ActionBoardService } from '../action-board.service';
 import {
   makeTestPrisma,
-  OTHER_COMPANY_ID,
+  OTHER_ORGANIZATION_ID,
   resetDb,
   seedBaseFixture,
-  TEST_COMPANY_ID,
+  TEST_ORGANIZATION_ID,
 } from '../../../../test-helpers/real-prisma';
 
 async function seedTask(
@@ -17,7 +17,7 @@ async function seedTask(
 ) {
   return prisma.actionTask.create({
     data: {
-      companyId: TEST_COMPANY_ID,
+      organizationId: TEST_ORGANIZATION_ID,
       taskKey: `mutation-idor-${crypto.randomUUID()}`,
       type: 'ai',
       label: 'Mutation IDOR guard',
@@ -52,34 +52,34 @@ describe('ActionBoard mutations — real Postgres tenant guard', () => {
     service = new ActionBoardService(prisma as any);
   });
 
-  it('updateTask rejects a foreign-company id and leaves the row unchanged', async () => {
+  it('updateTask rejects a foreign-organization id and leaves the row unchanged', async () => {
     const task = await seedTask(prisma);
 
     await expect(
-      service.updateTask(task.id, OTHER_COMPANY_ID, { status: 'done', priority: 'urgent' }),
+      service.updateTask(task.id, OTHER_ORGANIZATION_ID, { status: 'done', priority: 'urgent' }),
     ).rejects.toBeInstanceOf(NotFoundException);
 
     const db = await prisma.actionTask.findUniqueOrThrow({ where: { id: task.id } });
-    expect(db.companyId).toBe(TEST_COMPANY_ID);
+    expect(db.organizationId).toBe(TEST_ORGANIZATION_ID);
     expect(db.status).toBe('pending');
     expect(db.priority).toBe('medium');
     expect(db.activityLog).toEqual([]);
   });
 
-  it('addNote rejects a foreign-company id and leaves notes/activityLog unchanged', async () => {
+  it('addNote rejects a foreign-organization id and leaves notes/activityLog unchanged', async () => {
     const task = await seedTask(prisma);
 
     await expect(
-      service.addNote(task.id, OTHER_COMPANY_ID, 'foreign tenant note'),
+      service.addNote(task.id, OTHER_ORGANIZATION_ID, 'foreign tenant note'),
     ).rejects.toBeInstanceOf(NotFoundException);
 
     const db = await prisma.actionTask.findUniqueOrThrow({ where: { id: task.id } });
-    expect(db.companyId).toBe(TEST_COMPANY_ID);
+    expect(db.organizationId).toBe(TEST_ORGANIZATION_ID);
     expect(db.notes).toEqual([]);
     expect(db.activityLog).toEqual([]);
   });
 
-  it('executeTask rejects a foreign-company id before calling apiCall or mutating the task', async () => {
+  it('executeTask rejects a foreign-organization id before calling apiCall or mutating the task', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
       json: async () => ({ ok: true }),
@@ -89,12 +89,12 @@ describe('ActionBoard mutations — real Postgres tenant guard', () => {
     });
 
     await expect(
-      service.executeTask(task.id, OTHER_COMPANY_ID),
+      service.executeTask(task.id, OTHER_ORGANIZATION_ID),
     ).rejects.toBeInstanceOf(NotFoundException);
 
     expect(fetchSpy).not.toHaveBeenCalled();
     const db = await prisma.actionTask.findUniqueOrThrow({ where: { id: task.id } });
-    expect(db.companyId).toBe(TEST_COMPANY_ID);
+    expect(db.organizationId).toBe(TEST_ORGANIZATION_ID);
     expect(db.status).toBe('pending');
     expect(db.result).toBeNull();
     expect(db.activityLog).toEqual([]);

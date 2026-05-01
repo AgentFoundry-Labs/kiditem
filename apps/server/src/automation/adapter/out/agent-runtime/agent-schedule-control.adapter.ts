@@ -16,10 +16,10 @@ import {
  *
  * Tenant-isolation contract:
  * - `findByType` resolves the catalog row by unique `type`; that row
- *   may be a global template (`companyId = null`) shared across
+ *   may be a global template (`organizationId = null`) shared across
  *   tenants.
  * - For both reads and writes, this adapter compares
- *   `agent.companyId === companyId`. A non-tenant-owned row is treated
+ *   `agent.organizationId === organizationId`. A non-tenant-owned row is treated
  *   as "no schedule for this tenant" on read, and as a hard rejection
  *   on write. This mirrors the rule documented in
  *   `apps/server/src/rules/AGENTS.md`: tenants must not mutate the
@@ -36,10 +36,10 @@ export class AgentRuntimeScheduleControlAdapter
 
   async getSchedule(
     agentType: string,
-    companyId: string,
+    organizationId: string,
   ): Promise<AgentScheduleSnapshot> {
     const agent = await this.agentRegistry.findByType(agentType);
-    if (agent.companyId !== companyId) {
+    if (agent.organizationId !== organizationId) {
       return { schedule: 'disabled' };
     }
     return { schedule: agent.schedule ?? 'disabled' };
@@ -47,14 +47,14 @@ export class AgentRuntimeScheduleControlAdapter
 
   async setSchedule(
     agentType: string,
-    companyId: string,
+    organizationId: string,
     schedule: string | null,
   ): Promise<AgentScheduleSnapshot> {
     const agent = await this.agentRegistry.findByType(agentType);
-    if (agent.companyId !== companyId) {
+    if (agent.organizationId !== organizationId) {
       throw new TenantOwnedAgentRequiredError(agentType);
     }
-    await this.agentRegistry.update(agent.id, companyId, { schedule });
+    await this.agentRegistry.update(agent.id, organizationId, { schedule });
     await this.heartbeat.syncTimers();
     return { schedule: schedule ?? 'disabled' };
   }

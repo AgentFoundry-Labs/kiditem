@@ -53,21 +53,21 @@ export class ReviewsService {
    * totalReviews DESC then listingId ASC for stable order across pages.
    */
   async list(
-    companyId: string,
+    organizationId: string,
     query: ListReviewsQueryDto,
   ): Promise<ReviewListResponse> {
     const page = query.page ?? DEFAULT_PAGE;
     const limit = query.limit ?? DEFAULT_LIMIT;
     const filter = query.filter ?? DEFAULT_FILTER;
 
-    const allAggregates = await this.aggregateListings(companyId);
+    const allAggregates = await this.aggregateListings(organizationId);
     const listingDisplays = await this.loadListingDisplays(
-      companyId,
+      organizationId,
       allAggregates.map((a) => a.listingId),
     );
     const aggregates = allAggregates.filter((a) => listingDisplays.has(a.listingId));
     const recentByListing = await this.recentReviewsByListing(
-      companyId,
+      organizationId,
       aggregates.map((a) => a.listingId),
     );
     const summary = computeSummary(aggregates);
@@ -88,7 +88,7 @@ export class ReviewsService {
         productId: display?.masterId ?? agg.listingId,
         productName: display?.productName ?? '-',
         sku: display?.sku ?? null,
-        company: display?.companyName ?? '-',
+        organization: display?.companyName ?? '-',
         grade: display?.grade ?? '-',
         totalReviews: agg.totalReviews,
         avgRating: round2(agg.avgRating),
@@ -108,10 +108,10 @@ export class ReviewsService {
     } satisfies ReviewListResponse;
   }
 
-  private async aggregateListings(companyId: string): Promise<ListingAggregate[]> {
+  private async aggregateListings(organizationId: string): Promise<ListingAggregate[]> {
     const rows = await this.prisma.review.groupBy({
       by: ['listingId'],
-      where: { companyId, listingId: { not: null } },
+      where: { organizationId, listingId: { not: null } },
       _count: { _all: true },
       _avg: { rating: true },
       _max: { reviewedAt: true },
@@ -132,7 +132,7 @@ export class ReviewsService {
   }
 
   private async recentReviewsByListing(
-    companyId: string,
+    organizationId: string,
     listingIds: string[],
   ): Promise<Map<string, number>> {
     if (listingIds.length === 0) return new Map();
@@ -140,7 +140,7 @@ export class ReviewsService {
     const rows = await this.prisma.review.groupBy({
       by: ['listingId'],
       where: {
-        companyId,
+        organizationId,
         listingId: { in: listingIds },
         reviewedAt: { gte: since },
       },
@@ -155,12 +155,12 @@ export class ReviewsService {
   }
 
   private async loadListingDisplays(
-    companyId: string,
+    organizationId: string,
     listingIds: string[],
   ): Promise<Map<string, ListingDisplay>> {
     if (listingIds.length === 0) return new Map();
     const rows = await this.prisma.channelListing.findMany({
-      where: { id: { in: listingIds }, companyId, isDeleted: false },
+      where: { id: { in: listingIds }, organizationId, isDeleted: false },
       select: {
         id: true,
         channelName: true,
@@ -171,7 +171,7 @@ export class ReviewsService {
           orderBy: { createdAt: 'asc' },
           take: 1,
         },
-        company: { select: { name: true } },
+        organization: { select: { name: true } },
       },
     });
     const map = new Map<string, ListingDisplay>();
@@ -180,7 +180,7 @@ export class ReviewsService {
         masterId: row.master?.id ?? null,
         productName: row.master?.name ?? row.channelName ?? null,
         sku: row.options[0]?.option?.sku ?? null,
-        companyName: row.company?.name ?? null,
+        companyName: row.organization?.name ?? null,
         grade: row.master?.abcGrade ?? null,
       });
     }

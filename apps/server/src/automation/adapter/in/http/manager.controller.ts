@@ -1,5 +1,5 @@
 import { Controller, Post, Get, Body, Query } from '@nestjs/common';
-import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
+import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { ManagerService } from '../../../application/service/agent/manager.service';
 import {
   ListConversationsQueryDto,
@@ -13,15 +13,15 @@ export class ManagerController {
   ) {}
 
   @Post('ask')
-  ask(@Body() body: ManagerAskBodyDto, @CurrentCompany() companyId: string) {
-    return this.managerService.ask({ ...body, companyId });
+  ask(@Body() body: ManagerAskBodyDto, @CurrentOrganization() organizationId: string) {
+    return this.managerService.ask({ ...body, organizationId });
   }
 
   @Get('conversations')
   getConversations(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Query() query: ListConversationsQueryDto,
   ) {
-    return this.managerService.getConversations(companyId, query.limit);
+    return this.managerService.getConversations(organizationId, query.limit);
   }
 }

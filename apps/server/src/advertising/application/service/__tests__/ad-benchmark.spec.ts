@@ -77,7 +77,7 @@ describe('AdBenchmarkService', () => {
       { id: 'M2', code: 'M-00000002', name: '상품2', abcGrade: 'B', adTier: null, healthScore: null },
     ]);
 
-    const result = await service.getDiagnosis('company-1');
+    const result = await service.getDiagnosis('organization-1');
 
     expect(result.listings).toHaveLength(2);
     expect(result.listings[0].listingId).toBe('L1');
@@ -100,7 +100,7 @@ describe('AdBenchmarkService', () => {
     prisma.channelListingDailySnapshot.groupBy.mockResolvedValue([]);
     prisma.channelListing.findMany.mockResolvedValue([]);
 
-    const result = await service.getDiagnosis('company-1');
+    const result = await service.getDiagnosis('organization-1');
 
     const ctrDiag = result.diagnosis.find((d) => d.metric === 'ctr')!;
     expect(ctrDiag.status).toBe('above');
@@ -112,7 +112,7 @@ describe('AdBenchmarkService', () => {
     expect(cvrDiag.status).toBe('above');
   });
 
-  // companyId propagation removed — covered by check:idor / check:tenant-scope
+  // organizationId propagation removed — covered by check:idor / check:tenant-scope
   // and ad-benchmark-flow.pg.integration cross-tenant scenario #11.
   it('empty-state — no daily-fact rows returns null ratios (legacy Ad rows ignored)', async () => {
     prisma.channelListingDailySnapshot.aggregate.mockResolvedValue({
@@ -127,7 +127,7 @@ describe('AdBenchmarkService', () => {
     prisma.channelListingDailySnapshot.groupBy.mockResolvedValue([]);
     prisma.channelListing.findMany.mockResolvedValue([]);
 
-    const result = await service.getDiagnosis('company-1');
+    const result = await service.getDiagnosis('organization-1');
 
     expect(result.ownMetrics.spend).toBe(0);
     expect(result.ownMetrics.roas).toBeNull();

@@ -21,8 +21,8 @@ import { ListProductCatalogQuery } from '../../dto/list-product-catalog.query';
 export class ProductCatalogService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(companyId: string, q: ListProductCatalogQuery): Promise<ProductCatalogListResponse> {
-    const { rows, total, page, limit } = await findCatalogPage(this.prisma, companyId, q);
+  async list(organizationId: string, q: ListProductCatalogQuery): Promise<ProductCatalogListResponse> {
+    const { rows, total, page, limit } = await findCatalogPage(this.prisma, organizationId, q);
     return {
       items: rows.map(mapCatalogListItem),
       total,
@@ -31,17 +31,17 @@ export class ProductCatalogService {
     } satisfies ProductCatalogListResponse;
   }
 
-  async detail(companyId: string, id: string): Promise<ProductCatalogDetail> {
-    const row = await findCatalogDetail(this.prisma, companyId, id);
+  async detail(organizationId: string, id: string): Promise<ProductCatalogDetail> {
+    const row = await findCatalogDetail(this.prisma, organizationId, id);
     if (!row) throw new NotFoundException('master not found');
     return mapCatalogDetail(row);
   }
 
   async counts(
-    companyId: string,
+    organizationId: string,
     q: Pick<ListProductCatalogQuery, 'status' | 'pipelineStep'> = {},
   ): Promise<ProductCatalogCounts> {
-    const rows = await findCatalogCountsRows(this.prisma, companyId, q);
+    const rows = await findCatalogCountsRows(this.prisma, organizationId, q);
     return mapCatalogCounts(rows);
   }
 }

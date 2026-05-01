@@ -6,17 +6,17 @@ import { CreateCategoryDto, UpdateCategoryDto } from './dto';
 export class CategoriesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(companyId: string) {
+  async findAll(organizationId: string) {
     return this.prisma.categoryMapping.findMany({
-      where: { companyId },
+      where: { organizationId },
       orderBy: { internalCategory: 'asc' },
     });
   }
 
-  async create(companyId: string, dto: CreateCategoryDto) {
+  async create(organizationId: string, dto: CreateCategoryDto) {
     return this.prisma.categoryMapping.create({
       data: {
-        companyId,
+        organizationId,
         internalCategory: dto.internalCategory,
         coupangCategoryId: dto.coupangCategoryId,
         coupangCategoryName: dto.coupangCategoryName,
@@ -26,9 +26,9 @@ export class CategoriesService {
     });
   }
 
-  async update(id: string, companyId: string, dto: UpdateCategoryDto) {
+  async update(id: string, organizationId: string, dto: UpdateCategoryDto) {
     const existing = await this.prisma.categoryMapping.findFirst({
-      where: { id, companyId },
+      where: { id, organizationId },
     });
     if (!existing) {
       throw new BadRequestException('카테고리 매핑을 찾을 수 없습니다');
@@ -40,9 +40,9 @@ export class CategoriesService {
     });
   }
 
-  async delete(id: string, companyId: string) {
+  async delete(id: string, organizationId: string) {
     const existing = await this.prisma.categoryMapping.findFirst({
-      where: { id, companyId },
+      where: { id, organizationId },
     });
     if (!existing) {
       throw new BadRequestException('카테고리 매핑을 찾을 수 없습니다');

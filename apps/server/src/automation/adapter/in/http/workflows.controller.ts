@@ -7,7 +7,7 @@ import {
   RunWorkflowBodyDto,
   BatchRunWorkflowBodyDto,
 } from './dto/workflows';
-import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
+import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../../../auth/auth.types';
 
@@ -20,41 +20,41 @@ export class WorkflowsController {
   constructor(private readonly workflowsService: WorkflowOrchestrationService) {}
 
   @Post()
-  create(@Body() body: CreateWorkflowBodyDto, @CurrentCompany() companyId: string) {
-    return this.workflowsService.create(body, companyId);
+  create(@Body() body: CreateWorkflowBodyDto, @CurrentOrganization() organizationId: string) {
+    return this.workflowsService.create(body, organizationId);
   }
 
   @Get()
-  findAll(@CurrentCompany() companyId: string, @Query() query: ListWorkflowsQueryDto) {
-    return this.workflowsService.findAll(companyId, query);
+  findAll(@CurrentOrganization() organizationId: string, @Query() query: ListWorkflowsQueryDto) {
+    return this.workflowsService.findAll(organizationId, query);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string, @CurrentCompany() companyId: string) {
-    return this.workflowsService.findOne(id, companyId);
+  findOne(@Param('id') id: string, @CurrentOrganization() organizationId: string) {
+    return this.workflowsService.findOne(id, organizationId);
   }
 
   @Put(':id')
   update(
     @Param('id') id: string,
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Body() body: UpdateWorkflowBodyDto,
   ) {
-    return this.workflowsService.update(id, companyId, body);
+    return this.workflowsService.update(id, organizationId, body);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string, @CurrentCompany() companyId: string) {
-    return this.workflowsService.remove(id, companyId);
+  remove(@Param('id') id: string, @CurrentOrganization() organizationId: string) {
+    return this.workflowsService.remove(id, organizationId);
   }
 
   @Post('batch-run')
   batchRun(
     @Body() body: BatchRunWorkflowBodyDto,
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.workflowsService.batchRun(body.workflowIds, companyId, {
+    return this.workflowsService.batchRun(body.workflowIds, organizationId, {
       triggeredBy: body.triggeredBy,
       context: body.context,
       triggeredByUserId: resolveTriggeredByUserId(body.triggeredBy, user),
@@ -64,11 +64,11 @@ export class WorkflowsController {
   @Post(':id/run')
   triggerRun(
     @Param('id') id: string,
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Body() body: RunWorkflowBodyDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.workflowsService.triggerRun(id, companyId, {
+    return this.workflowsService.triggerRun(id, organizationId, {
       triggeredBy: body.triggeredBy,
       context: body.context,
       triggeredByUserId: resolveTriggeredByUserId(body.triggeredBy, user),
@@ -76,8 +76,8 @@ export class WorkflowsController {
   }
 
   @Get(':id/runs')
-  findRuns(@Param('id') id: string, @CurrentCompany() companyId: string) {
-    return this.workflowsService.findRuns(id, companyId);
+  findRuns(@Param('id') id: string, @CurrentOrganization() organizationId: string) {
+    return this.workflowsService.findRuns(id, organizationId);
   }
 }
 
@@ -86,7 +86,7 @@ export class WorkflowRunsController {
   constructor(private readonly workflowsService: WorkflowOrchestrationService) {}
 
   @Get(':runId')
-  findRunDetail(@Param('runId') runId: string, @CurrentCompany() companyId: string) {
-    return this.workflowsService.findRunDetail(runId, companyId);
+  findRunDetail(@Param('runId') runId: string, @CurrentOrganization() organizationId: string) {
+    return this.workflowsService.findRunDetail(runId, organizationId);
   }
 }

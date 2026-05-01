@@ -19,7 +19,7 @@ export type UpdateStockAuditInput = {
 };
 
 export interface AuditsPort {
-  findAll(companyId: string): Promise<StockAuditRow[]>;
-  create(companyId: string, dto: CreateStockAuditInput): Promise<StockAuditRow>;
-  update(id: string, companyId: string, dto: UpdateStockAuditInput): Promise<StockAuditRow>;
+  findAll(organizationId: string): Promise<StockAuditRow[]>;
+  create(organizationId: string, dto: CreateStockAuditInput): Promise<StockAuditRow>;
+  update(id: string, organizationId: string, dto: UpdateStockAuditInput): Promise<StockAuditRow>;
 }

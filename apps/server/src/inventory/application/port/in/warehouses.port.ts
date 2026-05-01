@@ -18,8 +18,8 @@ export type CreateWarehouseInput = {
 export type UpdateWarehouseInput = Partial<CreateWarehouseInput>;
 
 export interface WarehousesPort {
-  findAll(companyId: string): Promise<WarehouseListItem[]>;
-  create(companyId: string, dto: CreateWarehouseInput): Promise<WarehouseRow>;
-  update(id: string, companyId: string, dto: UpdateWarehouseInput): Promise<WarehouseRow>;
-  delete(id: string, companyId: string): Promise<{ ok: true }>;
+  findAll(organizationId: string): Promise<WarehouseListItem[]>;
+  create(organizationId: string, dto: CreateWarehouseInput): Promise<WarehouseRow>;
+  update(id: string, organizationId: string, dto: UpdateWarehouseInput): Promise<WarehouseRow>;
+  delete(id: string, organizationId: string): Promise<{ ok: true }>;
 }

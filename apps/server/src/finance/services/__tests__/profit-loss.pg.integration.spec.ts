@@ -8,8 +8,8 @@ import {
   makeTestPrisma,
   resetDb,
   seedBaseFixture,
-  TEST_COMPANY_ID,
-  OTHER_COMPANY_ID,
+  TEST_ORGANIZATION_ID,
+  OTHER_ORGANIZATION_ID,
 } from '../../../test-helpers/real-prisma';
 
 /**
@@ -20,7 +20,7 @@ import {
  * への live aggregation に書き換えた。
  *
  * 検証:
- *   1. IDOR: 2 companies × 3 orders each — TEST company query excludes OTHER company rows.
+ *   1. IDOR: 2 organizations × 3 orders each — TEST organization query excludes OTHER organization rows.
  *   2. Shipping revenue-weighted split: 2 listings in 9000:3000 ratio, shipping 3000 → 2250 + 750.
  *   3. PLDataSchema.parse(row) — no shape drift vs shared schema.
  *   4. KST boundary: orderedAt UTC that falls in May KST is excluded from April query, included in May.
@@ -33,15 +33,15 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Create a minimal master + listing + option + listingOption stack for a company. */
+/** Create a minimal master + listing + option + listingOption stack for a organization. */
 async function setupListing(
   prisma: PrismaClient,
-  companyId: string,
+  organizationId: string,
   suffix: string,
 ) {
   const master = await prisma.masterProduct.create({
     data: {
-      companyId,
+      organizationId,
       code: `M-${suffix}`,
       name: `Master ${suffix}`,
       category: '유아용품',
@@ -51,7 +51,7 @@ async function setupListing(
   });
   const listing = await prisma.channelListing.create({
     data: {
-      companyId,
+      organizationId,
       masterId: master.id,
       channel: 'coupang',
       externalId: `EXT-${suffix}`,
@@ -60,7 +60,7 @@ async function setupListing(
   });
   const option = await prisma.productOption.create({
     data: {
-      companyId,
+      organizationId,
       masterId: master.id,
       optionName: `OPT-${suffix}`,
       sku: `SKU-${suffix}`,
@@ -71,7 +71,7 @@ async function setupListing(
   });
   const listingOption = await prisma.channelListingOption.create({
     data: {
-      companyId,
+      organizationId,
       listingId: listing.id,
       optionId: option.id,
       externalOptionId: `VI-${suffix}`,
@@ -83,7 +83,7 @@ async function setupListing(
 /** Create an order with one or more line items. Each lineItem uses the given listingOption. */
 async function createOrder(
   prisma: PrismaClient,
-  companyId: string,
+  organizationId: string,
   opts: {
     orderedAt: Date;
     shippingPrice?: number;
@@ -94,7 +94,7 @@ async function createOrder(
 ) {
   const order = await prisma.order.create({
     data: {
-      companyId,
+      organizationId,
       platform: 'coupang',
       externalOrderId: opts.externalOrderId ?? `ORD-${Date.now()}-${Math.random()}`,
       orderedAt: opts.orderedAt,
@@ -107,7 +107,7 @@ async function createOrder(
   for (const li of opts.lineItems) {
     await prisma.orderLineItem.create({
       data: {
-        companyId,
+        organizationId,
         orderId: order.id,
         listingOptionId: li.listingOptionId,
         optionId: li.optionId,
@@ -128,7 +128,7 @@ async function createOrder(
 async function seedBulkOrders(
   prisma: PrismaClient,
   opts: {
-    companyId: string;
+    organizationId: string;
     listingOptionId: string;
     optionId: string;
     orderCount: number;
@@ -137,11 +137,11 @@ async function seedBulkOrders(
     month: number;
   },
 ) {
-  const { companyId, listingOptionId, optionId, orderCount, lineItemsPerOrder, year, month } = opts;
+  const { organizationId, listingOptionId, optionId, orderCount, lineItemsPerOrder, year, month } = opts;
 
   // Build all order rows
   const orderRows: Array<{
-    companyId: string;
+    organizationId: string;
     platform: string;
     externalOrderId: string;
     orderedAt: Date;
@@ -155,7 +155,7 @@ async function seedBulkOrders(
 
   for (let i = 0; i < orderCount; i++) {
     orderRows.push({
-      companyId,
+      organizationId,
       platform: 'coupang',
       externalOrderId: `BULK-${i}-${Date.now()}-${Math.random()}`,
       orderedAt,
@@ -169,13 +169,13 @@ async function seedBulkOrders(
 
   // Fetch back to get IDs
   const createdOrders = await prisma.order.findMany({
-    where: { companyId, externalOrderId: { startsWith: 'BULK-' } },
+    where: { organizationId, externalOrderId: { startsWith: 'BULK-' } },
     select: { id: true },
   });
 
   // Build all lineItem rows
   const lineItemRows: Array<{
-    companyId: string;
+    organizationId: string;
     orderId: string;
     listingOptionId: string;
     optionId: string;
@@ -188,7 +188,7 @@ async function seedBulkOrders(
   for (const order of createdOrders) {
     for (let j = 0; j < lineItemsPerOrder; j++) {
       lineItemRows.push({
-        companyId,
+        organizationId,
         orderId: order.id,
         listingOptionId,
         optionId,
@@ -234,68 +234,68 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Test 1: IDOR — 2 companies × 3 orders each
+  // Test 1: IDOR — 2 organizations × 3 orders each
   // ---------------------------------------------------------------------------
   it('IDOR: findAll(TEST_COMPANY) returns only TEST rows; OTHER rows never leak', async () => {
-    // TEST company — 3 listings, 1 order each
-    const listA = await setupListing(prisma, TEST_COMPANY_ID, 'IDOR-A');
-    const listB = await setupListing(prisma, TEST_COMPANY_ID, 'IDOR-B');
-    const listC = await setupListing(prisma, TEST_COMPANY_ID, 'IDOR-C');
+    // TEST organization — 3 listings, 1 order each
+    const listA = await setupListing(prisma, TEST_ORGANIZATION_ID, 'IDOR-A');
+    const listB = await setupListing(prisma, TEST_ORGANIZATION_ID, 'IDOR-B');
+    const listC = await setupListing(prisma, TEST_ORGANIZATION_ID, 'IDOR-C');
 
     const orderedAt = new Date('2026-04-15T00:00:00.000Z');
 
-    await createOrder(prisma, TEST_COMPANY_ID, {
+    await createOrder(prisma, TEST_ORGANIZATION_ID, {
       orderedAt,
       externalOrderId: 'IDOR-TEST-1',
       lineItems: [{ listingOptionId: listA.listingOption.id, optionId: listA.option.id, totalPrice: 10_000 }],
     });
-    await createOrder(prisma, TEST_COMPANY_ID, {
+    await createOrder(prisma, TEST_ORGANIZATION_ID, {
       orderedAt,
       externalOrderId: 'IDOR-TEST-2',
       lineItems: [{ listingOptionId: listB.listingOption.id, optionId: listB.option.id, totalPrice: 20_000 }],
     });
-    await createOrder(prisma, TEST_COMPANY_ID, {
+    await createOrder(prisma, TEST_ORGANIZATION_ID, {
       orderedAt,
       externalOrderId: 'IDOR-TEST-3',
       lineItems: [{ listingOptionId: listC.listingOption.id, optionId: listC.option.id, totalPrice: 30_000 }],
     });
 
-    // OTHER company — 3 listings, 1 order each
-    const otherListA = await setupListing(prisma, OTHER_COMPANY_ID, 'IDOR-OA');
-    const otherListB = await setupListing(prisma, OTHER_COMPANY_ID, 'IDOR-OB');
-    const otherListC = await setupListing(prisma, OTHER_COMPANY_ID, 'IDOR-OC');
+    // OTHER organization — 3 listings, 1 order each
+    const otherListA = await setupListing(prisma, OTHER_ORGANIZATION_ID, 'IDOR-OA');
+    const otherListB = await setupListing(prisma, OTHER_ORGANIZATION_ID, 'IDOR-OB');
+    const otherListC = await setupListing(prisma, OTHER_ORGANIZATION_ID, 'IDOR-OC');
 
-    await createOrder(prisma, OTHER_COMPANY_ID, {
+    await createOrder(prisma, OTHER_ORGANIZATION_ID, {
       orderedAt,
       externalOrderId: 'IDOR-OTHER-1',
       lineItems: [{ listingOptionId: otherListA.listingOption.id, optionId: otherListA.option.id, totalPrice: 999_999 }],
     });
-    await createOrder(prisma, OTHER_COMPANY_ID, {
+    await createOrder(prisma, OTHER_ORGANIZATION_ID, {
       orderedAt,
       externalOrderId: 'IDOR-OTHER-2',
       lineItems: [{ listingOptionId: otherListB.listingOption.id, optionId: otherListB.option.id, totalPrice: 999_999 }],
     });
-    await createOrder(prisma, OTHER_COMPANY_ID, {
+    await createOrder(prisma, OTHER_ORGANIZATION_ID, {
       orderedAt,
       externalOrderId: 'IDOR-OTHER-3',
       lineItems: [{ listingOptionId: otherListC.listingOption.id, optionId: otherListC.option.id, totalPrice: 999_999 }],
     });
 
-    const result = await service.findAll(TEST_COMPANY_ID, 2026, 4);
+    const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4);
 
-    // TEST company has 3 listings → 3 rows
+    // TEST organization has 3 listings → 3 rows
     expect(result).toHaveLength(3);
 
-    // None of the OTHER company's external IDs in result
+    // None of the OTHER organization's external IDs in result
     const externalIds = result.map((r) => r.externalId);
     expect(externalIds.every((id) => id.startsWith('EXT-IDOR-') && !id.startsWith('EXT-IDOR-O'))).toBe(true);
     expect(externalIds.some((id) => id.startsWith('EXT-IDOR-O'))).toBe(false);
 
-    // No OTHER company revenue (999_999 each) should appear
+    // No OTHER organization revenue (999_999 each) should appear
     expect(result.every((r) => r.revenue < 999_999)).toBe(true);
 
-    // OTHER company query should see only OTHER rows
-    const otherResult = await service.findAll(OTHER_COMPANY_ID, 2026, 4);
+    // OTHER organization query should see only OTHER rows
+    const otherResult = await service.findAll(OTHER_ORGANIZATION_ID, 2026, 4);
     expect(otherResult).toHaveLength(3);
     expect(otherResult.every((r) => r.externalId.startsWith('EXT-IDOR-O'))).toBe(true);
     expect(otherResult.some((r) => r.externalId.startsWith('EXT-IDOR-A') || r.externalId.startsWith('EXT-IDOR-B'))).toBe(false);
@@ -305,14 +305,14 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
   // Test 2: Shipping revenue-weighted split
   // ---------------------------------------------------------------------------
   it('Shipping splits revenue-weighted: 9000:3000 order → 2250+750 across 2 listings', async () => {
-    const listA = await setupListing(prisma, TEST_COMPANY_ID, 'SHIP-A');
-    const listB = await setupListing(prisma, TEST_COMPANY_ID, 'SHIP-B');
+    const listA = await setupListing(prisma, TEST_ORGANIZATION_ID, 'SHIP-A');
+    const listB = await setupListing(prisma, TEST_ORGANIZATION_ID, 'SHIP-B');
 
     // One order with 2 lineItems across 2 listings: 9000 (A) + 3000 (B), shippingPrice=3000
     const orderedAt = new Date('2026-04-15T00:00:00.000Z');
     const order = await prisma.order.create({
       data: {
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         platform: 'coupang',
         externalOrderId: 'SHIP-ORD-1',
         orderedAt,
@@ -323,7 +323,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
     });
     await prisma.orderLineItem.create({
       data: {
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         orderId: order.id,
         listingOptionId: listA.listingOption.id,
         optionId: listA.option.id,
@@ -335,7 +335,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
     });
     await prisma.orderLineItem.create({
       data: {
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         orderId: order.id,
         listingOptionId: listB.listingOption.id,
         optionId: listB.option.id,
@@ -346,7 +346,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
       },
     });
 
-    const result = await service.findAll(TEST_COMPANY_ID, 2026, 4);
+    const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4);
 
     expect(result).toHaveLength(2);
 
@@ -371,23 +371,23 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
   // Test 3: PLDataSchema.parse(row) — shape drift guard
   // ---------------------------------------------------------------------------
   it('All rows pass PLDataSchema.parse() — no shape drift vs shared schema', async () => {
-    const listA = await setupListing(prisma, TEST_COMPANY_ID, 'SCHEMA-A');
-    const listB = await setupListing(prisma, TEST_COMPANY_ID, 'SCHEMA-B');
+    const listA = await setupListing(prisma, TEST_ORGANIZATION_ID, 'SCHEMA-A');
+    const listB = await setupListing(prisma, TEST_ORGANIZATION_ID, 'SCHEMA-B');
 
     const orderedAt = new Date('2026-04-15T00:00:00.000Z');
 
-    await createOrder(prisma, TEST_COMPANY_ID, {
+    await createOrder(prisma, TEST_ORGANIZATION_ID, {
       orderedAt,
       externalOrderId: 'SCHEMA-ORD-1',
       lineItems: [{ listingOptionId: listA.listingOption.id, optionId: listA.option.id, totalPrice: 15_000 }],
     });
-    await createOrder(prisma, TEST_COMPANY_ID, {
+    await createOrder(prisma, TEST_ORGANIZATION_ID, {
       orderedAt,
       externalOrderId: 'SCHEMA-ORD-2',
       lineItems: [{ listingOptionId: listB.listingOption.id, optionId: listB.option.id, totalPrice: 25_000 }],
     });
 
-    const result = await service.findAll(TEST_COMPANY_ID, 2026, 4);
+    const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4);
     expect(result.length).toBeGreaterThan(0);
 
     for (const row of result) {
@@ -401,33 +401,33 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
   // ---------------------------------------------------------------------------
   it('KST boundary: 2026-04-30T15:00:00Z (= 2026-05-01 00:00 KST) excluded from April, included in May', async () => {
     // Two distinct listings so result rows are distinguishable by listingId/externalId
-    const listApril = await setupListing(prisma, TEST_COMPANY_ID, 'KST-APRIL');
-    const listEarlyMay = await setupListing(prisma, TEST_COMPANY_ID, 'KST-EARLY-MAY');
-    const listLateApril = await setupListing(prisma, TEST_COMPANY_ID, 'KST-LATE-APRIL');
+    const listApril = await setupListing(prisma, TEST_ORGANIZATION_ID, 'KST-APRIL');
+    const listEarlyMay = await setupListing(prisma, TEST_ORGANIZATION_ID, 'KST-EARLY-MAY');
+    const listLateApril = await setupListing(prisma, TEST_ORGANIZATION_ID, 'KST-LATE-APRIL');
 
     // In-window April order (KST: 2026-04-15)
-    await createOrder(prisma, TEST_COMPANY_ID, {
+    await createOrder(prisma, TEST_ORGANIZATION_ID, {
       orderedAt: new Date('2026-04-15T00:00:00.000Z'),
       externalOrderId: 'KST-APRIL-ORD',
       lineItems: [{ listingOptionId: listApril.listingOption.id, optionId: listApril.option.id, totalPrice: 10_000 }],
     });
 
     // Upper boundary: 2026-04-30T15:00:00.000Z = 2026-05-01 00:00 KST — EXCLUDED from April, INCLUDED in May
-    await createOrder(prisma, TEST_COMPANY_ID, {
+    await createOrder(prisma, TEST_ORGANIZATION_ID, {
       orderedAt: new Date('2026-04-30T15:00:00.000Z'),
       externalOrderId: 'KST-EARLY-MAY-ORD',
       lineItems: [{ listingOptionId: listEarlyMay.listingOption.id, optionId: listEarlyMay.option.id, totalPrice: 50_000 }],
     });
 
     // Lower boundary: 2026-04-30T14:59:59.999Z = 2026-04-30 23:59:59.999 KST — last ms of April, INCLUDED in April
-    await createOrder(prisma, TEST_COMPANY_ID, {
+    await createOrder(prisma, TEST_ORGANIZATION_ID, {
       orderedAt: new Date('2026-04-30T14:59:59.999Z'),
       externalOrderId: 'KST-LATE-APRIL-ORD',
       lineItems: [{ listingOptionId: listLateApril.listingOption.id, optionId: listLateApril.option.id, totalPrice: 77_777 }],
     });
 
     // April query: in-window + late-April orders (INCLUDED); early-May order (EXCLUDED)
-    const aprilResult = await service.findAll(TEST_COMPANY_ID, 2026, 4);
+    const aprilResult = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4);
 
     // LATE-APRIL (sentinel revenue 77_777) MUST appear in April
     const lateAprilRow = aprilResult.find((r) => r.externalId === 'EXT-KST-LATE-APRIL');
@@ -442,7 +442,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
     expect(aprilResult.every((r) => r.revenue !== 50_000)).toBe(true);
 
     // May query: EARLY-MAY (INCLUDED); LATE-APRIL (EXCLUDED)
-    const mayResult = await service.findAll(TEST_COMPANY_ID, 2026, 5);
+    const mayResult = await service.findAll(TEST_ORGANIZATION_ID, 2026, 5);
 
     // EARLY-MAY MUST appear in May
     const earlyMayRow = mayResult.find((r) => r.externalId === 'EXT-KST-EARLY-MAY');
@@ -461,16 +461,16 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
   // Test 5: Empty returns + empty ads → returnCount: 0, adCost: 0
   // ---------------------------------------------------------------------------
   it('Empty returns + empty ad rows → returnCount: 0, adCost: 0 (Map fallback)', async () => {
-    const list = await setupListing(prisma, TEST_COMPANY_ID, 'EMPTY-A');
+    const list = await setupListing(prisma, TEST_ORGANIZATION_ID, 'EMPTY-A');
 
-    await createOrder(prisma, TEST_COMPANY_ID, {
+    await createOrder(prisma, TEST_ORGANIZATION_ID, {
       orderedAt: new Date('2026-04-15T00:00:00.000Z'),
       externalOrderId: 'EMPTY-ORD-1',
       lineItems: [{ listingOptionId: list.listingOption.id, optionId: list.option.id, totalPrice: 20_000 }],
     });
 
     // No OrderReturnLineItem seeded, no Ad seeded
-    const result = await service.findAll(TEST_COMPANY_ID, 2026, 4);
+    const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4);
 
     expect(result).toHaveLength(1);
     const row = result[0];
@@ -483,12 +483,12 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
   // Test 6: Null listingOption on ReturnLineItem → skipped; properly wired → counted
   // ---------------------------------------------------------------------------
   it('ReturnLineItem with null orderLineItem.listingOption → skipped; properly wired → returnCount: 1', async () => {
-    const list = await setupListing(prisma, TEST_COMPANY_ID, 'NULL-LO');
+    const list = await setupListing(prisma, TEST_ORGANIZATION_ID, 'NULL-LO');
 
     const orderedAt = new Date('2026-04-15T00:00:00.000Z');
 
     // Create the order with a real line item that points to the listing
-    const order = await createOrder(prisma, TEST_COMPANY_ID, {
+    const order = await createOrder(prisma, TEST_ORGANIZATION_ID, {
       orderedAt,
       externalOrderId: 'NULL-LO-ORD',
       lineItems: [{ listingOptionId: list.listingOption.id, optionId: list.option.id, totalPrice: 10_000 }],
@@ -502,7 +502,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
     // Also create an orphaned order line item with NULL listingOptionId
     const orphanLineItem = await prisma.orderLineItem.create({
       data: {
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         orderId: order.id,
         listingOptionId: null, // intentionally null — no listingOption
         quantity: 1,
@@ -517,7 +517,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
     //   ReturnLineItem B: wired to orphan lineItem (null listingOptionId) → should be skipped
     const orderReturn = await prisma.orderReturn.create({
       data: {
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         orderId: order.id,
         platform: 'coupang',
         externalReturnId: 'RET-NULL-LO',
@@ -533,7 +533,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
     // ReturnLineItem A — properly wired (contributes to returnCount)
     await prisma.orderReturnLineItem.create({
       data: {
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         returnId: orderReturn.id,
         orderLineItemId: realLineItem.id, // real lineItem with listingOptionId → listingId resolves
         productName: 'real item',
@@ -544,7 +544,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
     // ReturnLineItem B — orphaned (skipped by aggregation)
     await prisma.orderReturnLineItem.create({
       data: {
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         returnId: orderReturn.id,
         orderLineItemId: orphanLineItem.id, // null listingOptionId → no listingId → skipped
         productName: 'orphaned',
@@ -552,7 +552,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
       },
     });
 
-    const result = await service.findAll(TEST_COMPANY_ID, 2026, 4);
+    const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4);
 
     // Only 1 row for the real listing
     const row = result.find((r) => r.externalId === 'EXT-NULL-LO');
@@ -566,10 +566,10 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
   // Test 7: CEO-C3 latency baseline — 1000 orders × 3 lineItems under 2s
   // ---------------------------------------------------------------------------
   it('handles 1000 orders with 3 lineItems each under 2s (CEO-C3 baseline)', async () => {
-    const { listingOption, option, listing } = await setupListing(prisma, TEST_COMPANY_ID, 'PERF-A');
+    const { listingOption, option, listing } = await setupListing(prisma, TEST_ORGANIZATION_ID, 'PERF-A');
 
     await seedBulkOrders(prisma, {
-      companyId: TEST_COMPANY_ID,
+      organizationId: TEST_ORGANIZATION_ID,
       listingOptionId: listingOption.id,
       optionId: option.id,
       orderCount: 1000,
@@ -579,7 +579,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
     });
 
     const start = Date.now();
-    const result = await service.findAll(TEST_COMPANY_ID, 2026, 4);
+    const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4);
     const latencyMs = Date.now() - start;
 
     expect(result.length).toBeGreaterThan(0);

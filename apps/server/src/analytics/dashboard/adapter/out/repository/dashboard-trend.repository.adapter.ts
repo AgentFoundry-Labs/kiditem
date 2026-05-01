@@ -25,7 +25,7 @@ export class DashboardTrendRepositoryAdapter {
   constructor(private readonly prisma: PrismaService) {}
 
   async fetchTrendRevenueRows(
-    companyId: string,
+    organizationId: string,
     since: Date,
   ): Promise<TrendRevenueRow[]> {
     return this.prisma.$queryRaw<TrendRevenueRow[]>`
@@ -34,7 +34,7 @@ export class DashboardTrendRepositoryAdapter {
         COALESCE(SUM(oli.total_price), 0)::int AS revenue
       FROM orders o
       JOIN order_line_items oli ON oli.order_id = o.id
-      WHERE o.company_id = ${companyId}::uuid
+      WHERE o.organization_id = ${organizationId}::uuid
         AND o.ordered_at >= ${since}
       GROUP BY 1
       ORDER BY 1
@@ -42,7 +42,7 @@ export class DashboardTrendRepositoryAdapter {
   }
 
   async fetchTrendAdCostRows(
-    companyId: string,
+    organizationId: string,
     since: Date,
   ): Promise<TrendAdCostRow[]> {
     return this.prisma.$queryRaw<TrendAdCostRow[]>(Prisma.sql`
@@ -50,7 +50,7 @@ export class DashboardTrendRepositoryAdapter {
         TO_CHAR(business_date, 'YYYY-MM-DD') AS date,
         COALESCE(SUM(ad_spend), 0)::int AS ad_cost
       FROM channel_listing_daily_snapshots
-      WHERE company_id = ${companyId}::uuid
+      WHERE organization_id = ${organizationId}::uuid
         AND business_date >= ${since}::date
       GROUP BY 1
       ORDER BY 1

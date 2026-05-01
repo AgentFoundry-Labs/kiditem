@@ -3,7 +3,7 @@ import { Type } from 'class-transformer';
 
 /**
  * `GET /api/agent-registry/tasks` 목록 필터.
- * companyId 는 `@CurrentCompany()` 로 주입 — DTO 에 포함하지 않는다 (ADR-0006).
+ * organizationId 는 `@CurrentOrganization()` 로 주입 — DTO 에 포함하지 않는다 (ADR-0006).
  */
 export class TraceListQueryDto {
   @IsOptional()

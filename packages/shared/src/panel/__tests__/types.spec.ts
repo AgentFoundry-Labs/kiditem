@@ -11,7 +11,7 @@ const makeRun = (overrides = {}) => ({
   title: 'Test',
   deepLink: '/workflows/runs/abc',
   actorUserId: null,
-  visibility: 'company' as const,
+  visibility: 'organization' as const,
   createdAt: '2026-04-15T00:00:00Z',
   updatedAt: '2026-04-15T00:00:00Z',
   ...overrides,

@@ -81,21 +81,21 @@ UNDER_EXAMINATION|REJECTED   → 'draft'
 ### 3. Sync 3종 (Products / Orders / Inventory)
 
 `application/service/channel-sync.service.ts`:
-- `syncProducts(companyId)` — Coupang seller-products → `ChannelListing` / `ChannelListingOption` 동기화 (Wave C1).
+- `syncProducts(organizationId)` — Coupang seller-products → `ChannelListing` / `ChannelListingOption` 동기화 (Wave C1).
   - `this.coupang.getSellerProducts({nextToken, maxPerPage})` 로 페이지 순회 (`MAX_PAGES=200` 안전 한도).
   - 각 listing 은 별도 `prisma.$transaction({timeout: 15_000})` — batch 중 실패가 다른 listing 동기화를 막지 않음 (continue-on-error, `result.errors` 카운트).
-  - **Refresh-only**: `ChannelListing.masterId` 가 required 이므로, 기존 listing 이 없는 `sellerProductId` 는 skip + report. master 자동 생성 금지 (제품 import / admin UI 가 담당). 같은 `(companyId, channel='coupang', externalId=sellerProductId)` 는 매번 update — 재실행 idempotent.
+  - **Refresh-only**: `ChannelListing.masterId` 가 required 이므로, 기존 listing 이 없는 `sellerProductId` 는 skip + report. master 자동 생성 금지 (제품 import / admin UI 가 담당). 같은 `(organizationId, channel='coupang', externalId=sellerProductId)` 는 매번 update — 재실행 idempotent.
   - **Option upsert**: `ChannelListingOption` 은 `(listingId, externalOptionId=String(vendorItemId))` 로 upsert. `vendorItemId` 누락 시 `BadRequestException` (전체 listing transaction rollback). 내부 `optionId` 매칭은 별도 단계 (nullable 유지).
   - **Status mapping**: `normalizeCoupangProductStatus(statusName)` 로 `APPROVED|ON_SALE → active`, `SUSPEND → paused`, `DELETED → deleted`, `UNDER_EXAMINATION|REJECTED → draft`. 기타는 lowercase fallback.
-- `syncOrders()` → `syncSingleOrder(payload, companyId)` — Coupang order sheets → `Order` + N `OrderLineItem` (`platform='coupang'`, `externalOrderId=shipmentBoxId`, `externalLineId=vendorItemId`). `prisma.$transaction(async (tx) => {...}, { timeout: 15_000 })` 원자.
-- `syncReturns()` → `syncSingleReturn(payload, companyId)` — Coupang receipts → `OrderReturn` + N `OrderReturnLineItem` (`type=RETURN|EXCHANGE` first-class). matchedOrder lookup (`tx.order.findFirst`) 도 transaction 내부.
+- `syncOrders()` → `syncSingleOrder(payload, organizationId)` — Coupang order sheets → `Order` + N `OrderLineItem` (`platform='coupang'`, `externalOrderId=shipmentBoxId`, `externalLineId=vendorItemId`). `prisma.$transaction(async (tx) => {...}, { timeout: 15_000 })` 원자.
+- `syncReturns()` → `syncSingleReturn(payload, organizationId)` — Coupang receipts → `OrderReturn` + N `OrderReturnLineItem` (`type=RETURN|EXCHANGE` first-class). matchedOrder lookup (`tx.order.findFirst`) 도 transaction 내부.
 - `syncInventory()` — stub. 별도 wave (InventoryService single-writer 경계 결정 후) 가 작성.
 
 **Sync 원자 패턴**:
 ```ts
 await this.prisma.$transaction(async (tx) => {
   const order = await tx.order.upsert({
-    where: { companyId_platform_externalOrderId: { companyId, platform: 'coupang', externalOrderId: shipmentBoxId } },
+    where: { organizationId_platform_externalOrderId: { organizationId, platform: 'coupang', externalOrderId: shipmentBoxId } },
     ...
   });
   for (const item of orderItems) {
@@ -103,7 +103,7 @@ await this.prisma.$transaction(async (tx) => {
       throw new BadRequestException(`OrderLineItem missing vendorItemId — cannot upsert (shipmentBoxId=${shipmentBoxId})`);
     }
     const listingOption = await tx.channelListingOption.findFirst({
-      where: { companyId, externalOptionId: vendorItemId, isActive: true,
+      where: { organizationId, externalOptionId: vendorItemId, isActive: true,
                listing: { channel: 'coupang', isDeleted: false, ... } },
       ...,
     });
@@ -129,10 +129,10 @@ await this.prisma.$transaction(async (tx) => {
 **PrismaService 직접 주입 (transitional 결정)**: `channel-dashboard.service.ts` 는 `PrismaService` 를 직접 inject 한다. 대시보드 쿼리 메서드들은 read-only 집계이며 포트 추상화 비용 대비 이득이 작다. 이 결정은 Wave H2 Lane C 에서 의도적으로 내린 selective hex 선택이다 (전용 dashboard repository port 를 추가하지 않음).
 
 **규칙**:
-- Parameterized binding 만 사용: `${companyId}::uuid`. **String concat 절대 금지** (SQL injection 위험).
+- Parameterized binding 만 사용: `${organizationId}::uuid`. **String concat 절대 금지** (SQL injection 위험).
 - 결과 typed array로 캐스팅 후 JS 변환.
 - channel-sync 에서는 raw SQL **사용 안 함** (Prisma client 만).
-- **2-hop tenant predicate (필수)**: 단일 `o.company_id` 필터에 의존하지 말고 join 된 모든 tenant-owned 테이블(`orders`, `order_line_items`, `channel_listings`, `master_products`) 에 `... .company_id = ${companyId}::uuid` 을 명시한다. `Order.listing_id` / `ChannelListing.master_id` 는 schema-level cross-FK companyId enforcement 가 없어, 잘못된 backfill / 미래 cross-domain bug 가 들어왔을 때 1-hop 필터만으로는 다른 tenant 의 row 가 leak 될 수 있음. `getRevenueTrend`/`getProductRanking` 가 이 패턴을 사용한다. This is the preserved R1/R2/R3 risk rule: listing/master joins do not have schema-level cross-company enforcement.
+- **2-hop tenant predicate (필수)**: 단일 `o.organization_id` 필터에 의존하지 말고 join 된 모든 tenant-owned 테이블(`orders`, `order_line_items`, `channel_listings`, `master_products`) 에 `... .organization_id = ${organizationId}::uuid` 을 명시한다. `Order.listing_id` / `ChannelListing.master_id` 는 schema-level cross-FK organizationId enforcement 가 없어, 잘못된 backfill / 미래 cross-domain bug 가 들어왔을 때 1-hop 필터만으로는 다른 tenant 의 row 가 leak 될 수 있음. `getRevenueTrend`/`getProductRanking` 가 이 패턴을 사용한다. This is the preserved R1/R2/R3 risk rule: listing/master joins do not have schema-level cross-organization enforcement.
 
 #### getReturnSummary
 
@@ -144,11 +144,11 @@ await this.prisma.$transaction(async (tx) => {
 - Finance `sales-analysis.service.ts` follows the same live aggregation / orphan-return side metric contract; keep both surfaces aligned if return-rate semantics change.
 - **응답 타입**: `@kiditem/shared` 의 `ReturnSummarySchema` (Zod). 서비스가 `satisfies` 로 드리프트 방지.
 
-### 5. Company Isolation
+### 5. Organization Isolation
 
-대시보드 모든 엔드포인트는 `@CurrentCompany()` 데코레이터로 companyId 추출. 서비스의 모든 $queryRaw에 `WHERE company_id = ${companyId}::uuid` 필수. JOIN 으로 다른 tenant-owned 테이블을 끌어오는 경우 §4 의 2-hop tenant predicate 규칙도 함께 적용한다.
+대시보드 모든 엔드포인트는 `@CurrentOrganization()` 데코레이터로 organizationId 추출. 서비스의 모든 $queryRaw에 `WHERE organization_id = ${organizationId}::uuid` 필수. JOIN 으로 다른 tenant-owned 테이블을 끌어오는 경우 §4 의 2-hop tenant predicate 규칙도 함께 적용한다.
 
-**Cross-company 조회 금지** — guard + decorator 가 강제하지만 새 raw 쿼리 추가 시 명시적 체크.
+**Cross-organization 조회 금지** — guard + decorator 가 강제하지만 새 raw 쿼리 추가 시 명시적 체크.
 
 ### 6. Health Check (Non-fatal)
 
@@ -161,7 +161,7 @@ await this.prisma.$transaction(async (tx) => {
 
 - **Coupang Open API** (v2/v4) — `adapter/out/coupang/` 으로만
 - **Prisma** — 내부 DB (ChannelListing, Order/OrderLineItem, Inventory 등). Plan A.5 후 channel-agnostic schema.
-- **auth/** — `@CurrentCompany()` 데코레이터
+- **auth/** — `@CurrentOrganization()` 데코레이터
 
 ## 금지 (Hard bans)
 
@@ -169,7 +169,7 @@ await this.prisma.$transaction(async (tx) => {
 - ❌ 서비스에서 `adapter/out/coupang/` 함수 직접 import — `CoupangProviderPort` 경유만
 - ❌ Status mapping 우회 (raw status 그대로 DB 저장 금지)
 - ❌ $queryRaw 에 string concat (parameterized 만)
-- ❌ Cross-company raw 쿼리 (companyId WHERE 빠뜨리지 말 것)
+- ❌ Cross-organization raw 쿼리 (organizationId WHERE 빠뜨리지 말 것)
 - ❌ Adapter 내 retry 로직 추가 — 의도적으로 caller 책임으로 둠 (변경 시 scoped plan + instruction update)
 - ❌ 환경 변수 fallback 추가 (현재는 throw — 운영 환경 자격증명 누락 즉시 발견 의도)
 - ❌ `adapters/coupang/` 하위에 shim 이외의 파일 추가 (compat shim 은 `orders.ts` 1개뿐)
@@ -181,6 +181,6 @@ await this.prisma.$transaction(async (tx) => {
 | Coupang API endpoint 추가 | `adapter/out/coupang/{products,orders}.ts` + `application/port/out/coupang-provider.port.ts` (인터페이스 확장) + `adapter/out/coupang/coupang-provider.adapter.ts` + `application/service/channel-sync.service.ts` (호출자) + DTO 추가 |
 | Status map 변경 | `normalizeCoupangProductStatus` / `normalizeCoupangOrderStatus` in `application/service/channel-sync.service.ts` + 본 문서 §2 표 업데이트 |
 | 새 sync 종류 (예: 카테고리) | `adapter/out/coupang/` 신규 모듈 + `adapter/in/http/channel-sync.controller.ts` + `application/service/channel-sync.service.ts` 메서드 추가 |
-| Dashboard 쿼리 추가 | `application/service/channel-dashboard.service.ts` ($queryRaw + companyId) + `adapter/in/http/channel-dashboard.controller.ts` + 응답 타입 |
+| Dashboard 쿼리 추가 | `application/service/channel-dashboard.service.ts` ($queryRaw + organizationId) + `adapter/in/http/channel-dashboard.controller.ts` + 응답 타입 |
 | 재시도/큐 도입 | adapter 설계 변경 scoped plan 필요 (현재 비재시도가 의도) |
 | Multi-vendor 지원 | adapter 의 ENV 의존 → 멀티-credential 테이블로 리팩토링. 큰 변경 → scoped plan + instruction update 필수 |

@@ -42,7 +42,7 @@ export class PrismaMarketplaceInstallStoreAdapter
     const [template] = await this.prisma.$transaction([
       this.prisma.workflowTemplate.create({
         data: {
-          companyId: input.companyId,
+          organizationId: input.organizationId,
           name: input.name,
           description: input.description,
           module: input.module,
@@ -66,7 +66,7 @@ export class PrismaMarketplaceInstallStoreAdapter
     const [agent] = await this.prisma.$transaction([
       this.prisma.agentDefinition.create({
         data: {
-          companyId: input.companyId,
+          organizationId: input.organizationId,
           name: input.name,
           type: input.type,
           description: input.description,
@@ -96,51 +96,51 @@ export class PrismaMarketplaceInstallStoreAdapter
     return agent;
   }
 
-  async findTenantManager(companyId: string) {
+  async findTenantManager(organizationId: string) {
     return this.prisma.agentDefinition.findFirst({
-      where: { companyId, role: 'manager' },
+      where: { organizationId, role: 'manager' },
       select: { id: true },
     });
   }
 
   async assignAgentReportsTo(
     agentId: string,
-    companyId: string,
+    organizationId: string,
     managerId: string,
   ) {
     await this.prisma.agentDefinition.updateMany({
-      where: { id: agentId, companyId },
+      where: { id: agentId, organizationId },
       data: { reportsTo: managerId },
     });
   }
 
-  async findInstalledWorkflow(marketplaceId: string, companyId: string) {
+  async findInstalledWorkflow(marketplaceId: string, organizationId: string) {
     return this.prisma.workflowTemplate.findFirst({
-      where: { marketplaceId, companyId },
+      where: { marketplaceId, organizationId },
       select: { id: true },
     });
   }
 
   async deleteInstalledWorkflow(
     templateId: string,
-    companyId: string,
+    organizationId: string,
   ): Promise<boolean> {
     const result = await this.prisma.workflowTemplate.deleteMany({
-      where: { id: templateId, companyId },
+      where: { id: templateId, organizationId },
     });
     return result.count > 0;
   }
 
-  async findInstalledAgent(marketplaceId: string, companyId: string) {
+  async findInstalledAgent(marketplaceId: string, organizationId: string) {
     return this.prisma.agentDefinition.findFirst({
-      where: { marketplaceId, companyId },
+      where: { marketplaceId, organizationId },
       select: { id: true, role: true },
     });
   }
 
-  async deleteInstalledAgent(agentId: string, companyId: string): Promise<boolean> {
+  async deleteInstalledAgent(agentId: string, organizationId: string): Promise<boolean> {
     const result = await this.prisma.agentDefinition.deleteMany({
-      where: { id: agentId, companyId },
+      where: { id: agentId, organizationId },
     });
     return result.count > 0;
   }

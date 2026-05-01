@@ -12,7 +12,7 @@ export class ReturnsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll(
-    companyId: string,
+    organizationId: string,
     query: { from?: string; to?: string; type?: string },
   ): Promise<{
     items: OrderReturnWithLineItems[];
@@ -22,7 +22,7 @@ export class ReturnsService {
     const type = query.type || 'return';
 
     const where: Record<string, unknown> = {
-      companyId,
+      organizationId,
       type: type === 'exchange' ? 'EXCHANGE' : 'RETURN',
     };
 
@@ -49,28 +49,28 @@ export class ReturnsService {
 
   async findOne(
     id: string,
-    companyId: string,
+    organizationId: string,
   ): Promise<OrderReturnWithLineItems> {
     const ret = await this.prisma.orderReturn.findFirst({
-      where: { id, companyId },
+      where: { id, organizationId },
       include: { lineItems: true },
     });
     if (!ret) throw new NotFoundException('OrderReturn not found');
     return ret;
   }
 
-  async getStats(companyId: string): Promise<{
+  async getStats(organizationId: string): Promise<{
     stats: { total: number; uc: number; rc: number; completed: number };
   }> {
     const [total, uc, rc, completed, returnsCompleted] = await Promise.all([
-      this.prisma.orderReturn.count({ where: { companyId } }),
-      this.prisma.orderReturn.count({ where: { companyId, status: 'UC' } }),
-      this.prisma.orderReturn.count({ where: { companyId, status: 'RC' } }),
+      this.prisma.orderReturn.count({ where: { organizationId } }),
+      this.prisma.orderReturn.count({ where: { organizationId, status: 'UC' } }),
+      this.prisma.orderReturn.count({ where: { organizationId, status: 'RC' } }),
       this.prisma.orderReturn.count({
-        where: { companyId, status: 'COMPLETED' },
+        where: { organizationId, status: 'COMPLETED' },
       }),
       this.prisma.orderReturn.count({
-        where: { companyId, status: 'RETURNS_COMPLETED' },
+        where: { organizationId, status: 'RETURNS_COMPLETED' },
       }),
     ]);
 

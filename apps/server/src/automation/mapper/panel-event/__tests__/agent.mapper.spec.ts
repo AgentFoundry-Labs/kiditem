@@ -10,7 +10,7 @@ const CO_ID = '44444444-4444-4444-4444-444444444444';
 
 const baseRun: HeartbeatRun = {
   id: RUN_ID,
-  companyId: CO_ID,
+  organizationId: CO_ID,
   agentId: AGENT_ID,
   invocationSource: 'on_demand',
   triggerDetail: null,
@@ -67,13 +67,13 @@ describe('agentPanelMapper', () => {
     expect(item.failureType).toBeNull();
   });
 
-  it('triggeredByUserId: null maps to actorUserId: null and visibility: company', () => {
+  it('triggeredByUserId: null maps to actorUserId: null and visibility: organization', () => {
     const item = agentPanelMapper.mapToItem(
       makeInput({ triggeredByUserId: null }),
       'co-1',
     );
     expect(item.actorUserId).toBeNull();
-    expect(item.visibility).toBe('company');
+    expect(item.visibility).toBe('organization');
   });
 
   it('triggeredByUserId uuid maps to actorUserId and visibility: user', () => {

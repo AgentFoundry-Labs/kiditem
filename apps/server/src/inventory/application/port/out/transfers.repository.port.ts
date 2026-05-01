@@ -4,7 +4,7 @@ export const TRANSFERS_REPOSITORY_PORT = Symbol('TransfersRepositoryPort');
 
 export type StockTransferBareRow = {
   id: string;
-  companyId: string;
+  organizationId: string;
   optionId: string;
   optionName: string | null;
   fromWarehouseId: string;
@@ -38,21 +38,21 @@ export type CreateStockTransferData = {
 };
 
 export interface TransfersRepositoryPort {
-  listStockTransfers(companyId: string, status?: string): Promise<StockTransferRow[]>;
+  listStockTransfers(organizationId: string, status?: string): Promise<StockTransferRow[]>;
 
   findOptionForTransfer(
     optionId: string,
-    companyId: string,
+    organizationId: string,
   ): Promise<{ optionName: string | null } | null>;
 
   createStockTransfer(
-    companyId: string,
+    organizationId: string,
     data: CreateStockTransferData,
   ): Promise<StockTransferRow>;
 
   findStockTransferById(
     id: string,
-    companyId: string,
+    organizationId: string,
   ): Promise<StockTransferBareRow | null>;
 
   updateStockTransferStatus(

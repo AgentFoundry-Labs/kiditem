@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { ThumbnailWingPersistence } from '../adapter/out/prisma/thumbnail-wing.persistence';
 import { ThumbnailWingService } from '../application/service/thumbnail-wing.service';
 
-const COMPANY_ID = 'company-1';
+const ORGANIZATION_ID = 'organization-1';
 const GENERATION_ID = '7d000000-0000-4000-8000-000000000010';
 
 function makeService() {
@@ -58,7 +58,7 @@ describe('ThumbnailWingService', () => {
   it('registers through Playwriter and records current-schema registration attempts', async () => {
     const { service, prisma, imageFetcher, automationRunner } = makeService();
 
-    const result = await service.registerToWing(GENERATION_ID, COMPANY_ID);
+    const result = await service.registerToWing(GENERATION_ID, ORGANIZATION_ID);
 
     expect(result).toMatchObject({ success: true, screenshotPath: `/tmp/wing-upload-${GENERATION_ID}.png` });
     expect(imageFetcher.fetchTrustedStorageImage).toHaveBeenCalledWith(
@@ -72,14 +72,14 @@ describe('ThumbnailWingService', () => {
     );
     expect(prisma.thumbnailRegistrationAttempt.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        companyId: COMPANY_ID,
+        organizationId: ORGANIZATION_ID,
         generationId: GENERATION_ID,
         status: 'uploaded',
       }),
       select: { id: true },
     });
     expect(prisma.thumbnailRegistrationAttempt.updateMany).toHaveBeenCalledWith({
-      where: { id: 'attempt-1', companyId: COMPANY_ID },
+      where: { id: 'attempt-1', organizationId: ORGANIZATION_ID },
       data: expect.objectContaining({
         status: 'uploaded',
         errorMessage: null,
@@ -91,14 +91,14 @@ describe('ThumbnailWingService', () => {
   it('clears failed registration attempts instead of touching removed legacy columns', async () => {
     const { service, prisma } = makeService();
 
-    await service.clearRegistrationError(GENERATION_ID, COMPANY_ID);
+    await service.clearRegistrationError(GENERATION_ID, ORGANIZATION_ID);
 
     expect(prisma.thumbnailGeneration.findFirst).toHaveBeenCalledWith({
-      where: { id: GENERATION_ID, companyId: COMPANY_ID },
+      where: { id: GENERATION_ID, organizationId: ORGANIZATION_ID },
       select: { id: true },
     });
     expect(prisma.thumbnailRegistrationAttempt.deleteMany).toHaveBeenCalledWith({
-      where: { generationId: GENERATION_ID, companyId: COMPANY_ID, status: 'failed' },
+      where: { generationId: GENERATION_ID, organizationId: ORGANIZATION_ID, status: 'failed' },
     });
   });
 
@@ -106,12 +106,12 @@ describe('ThumbnailWingService', () => {
     const { service, prisma, imageFetcher } = makeService();
     imageFetcher.fetchTrustedStorageImage.mockRejectedValueOnce(new Error('image fetch failed'));
 
-    await expect(service.registerToWing(GENERATION_ID, COMPANY_ID)).rejects.toThrow(
+    await expect(service.registerToWing(GENERATION_ID, ORGANIZATION_ID)).rejects.toThrow(
       'image fetch failed',
     );
 
     expect(prisma.thumbnailRegistrationAttempt.updateMany).toHaveBeenCalledWith({
-      where: { id: 'attempt-1', companyId: COMPANY_ID },
+      where: { id: 'attempt-1', organizationId: ORGANIZATION_ID },
       data: expect.objectContaining({
         status: 'failed',
         errorMessage: 'image fetch failed',
@@ -119,13 +119,13 @@ describe('ThumbnailWingService', () => {
     });
   });
 
-  it('successful registration update is scoped to companyId in the write path', async () => {
+  it('successful registration update is scoped to organizationId in the write path', async () => {
     const { service, prisma } = makeService();
 
-    await service.registerToWing(GENERATION_ID, COMPANY_ID);
+    await service.registerToWing(GENERATION_ID, ORGANIZATION_ID);
 
     expect(prisma.thumbnailRegistrationAttempt.updateMany).toHaveBeenCalledWith({
-      where: { id: 'attempt-1', companyId: COMPANY_ID },
+      where: { id: 'attempt-1', organizationId: ORGANIZATION_ID },
       data: expect.objectContaining({
         status: 'uploaded',
         errorMessage: null,
@@ -139,25 +139,25 @@ describe('ThumbnailWingService', () => {
     imageFetcher.fetchTrustedStorageImage.mockRejectedValueOnce(new Error('image fetch failed'));
     prisma.thumbnailRegistrationAttempt.updateMany.mockResolvedValueOnce({ count: 0 });
 
-    await expect(service.registerToWing(GENERATION_ID, COMPANY_ID)).rejects.toThrow(
+    await expect(service.registerToWing(GENERATION_ID, ORGANIZATION_ID)).rejects.toThrow(
       'ThumbnailRegistrationAttempt attempt-1 not found',
     );
   });
 
-  it('does not create a registration attempt until the generation master is confirmed in the caller company', async () => {
+  it('does not create a registration attempt until the generation master is confirmed in the caller organization', async () => {
     const { service, prisma } = makeService();
     prisma.masterProduct.findFirst.mockResolvedValueOnce(null);
 
-    await expect(service.registerToWing(GENERATION_ID, COMPANY_ID)).rejects.toThrow(
+    await expect(service.registerToWing(GENERATION_ID, ORGANIZATION_ID)).rejects.toThrow(
       'MasterProduct master-1 not found',
     );
 
     expect(prisma.masterProduct.findFirst).toHaveBeenCalledWith({
-      where: { id: 'master-1', companyId: COMPANY_ID, isDeleted: false },
+      where: { id: 'master-1', organizationId: ORGANIZATION_ID, isDeleted: false },
       select: {
         name: true,
         listings: {
-          where: { companyId: COMPANY_ID, channel: 'coupang', isDeleted: false },
+          where: { organizationId: ORGANIZATION_ID, channel: 'coupang', isDeleted: false },
           select: { channelName: true, createdAt: true },
           orderBy: { createdAt: 'asc' },
           take: 1,

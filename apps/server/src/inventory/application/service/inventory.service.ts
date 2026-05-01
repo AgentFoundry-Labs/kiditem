@@ -60,12 +60,12 @@ export class InventoryService implements InventoryPort {
   ) {}
 
   // ===== Reads =====
-  async list(input: ListInventoryInput, companyId: string): Promise<InventoryListResponse> {
+  async list(input: ListInventoryInput, organizationId: string): Promise<InventoryListResponse> {
     const page = input.page ?? 1;
     const limit = input.limit ?? 50;
     const skip = (page - 1) * limit;
 
-    const { rows, dbCount } = await this.query.listInventoryWithOption(companyId, {
+    const { rows, dbCount } = await this.query.listInventoryWithOption(organizationId, {
       optionId: input.optionId,
       masterId: input.masterId,
     });
@@ -86,14 +86,14 @@ export class InventoryService implements InventoryPort {
     };
   }
 
-  async findById(id: string, companyId: string): Promise<Inventory> {
-    const row = await this.query.findInventoryById(id, companyId);
+  async findById(id: string, organizationId: string): Promise<Inventory> {
+    const row = await this.query.findInventoryById(id, organizationId);
     if (!row) throw new NotFoundException('Inventory not found');
     return toInventory(row);
   }
 
-  async findByOptionId(optionId: string, companyId: string): Promise<Inventory> {
-    const row = await this.query.findInventoryByOptionId(optionId, companyId);
+  async findByOptionId(optionId: string, organizationId: string): Promise<Inventory> {
+    const row = await this.query.findInventoryByOptionId(optionId, organizationId);
     if (!row) throw new NotFoundException('Inventory not found');
     return toInventory(row);
   }
@@ -102,7 +102,7 @@ export class InventoryService implements InventoryPort {
   async updateMetadata(
     id: string,
     dto: UpdateInventoryMetadataInput,
-    companyId: string,
+    organizationId: string,
   ): Promise<Inventory> {
     const data: InventoryMetadataUpdateData = {};
     if (dto.safetyStock !== undefined) data.safetyStock = dto.safetyStock;
@@ -111,7 +111,7 @@ export class InventoryService implements InventoryPort {
     if (dto.leadTimeDays !== undefined) data.leadTimeDays = dto.leadTimeDays;
     if (dto.warehouseLocation !== undefined) data.warehouseLocation = dto.warehouseLocation;
 
-    const updated = await this.repository.updateInventoryMetadata(id, companyId, data);
+    const updated = await this.repository.updateInventoryMetadata(id, organizationId, data);
     return toInventory(updated);
   }
 
@@ -119,10 +119,10 @@ export class InventoryService implements InventoryPort {
   receive(
     id: string,
     dto: ReceiveStockInput,
-    companyId: string,
+    organizationId: string,
     userId: string,
   ): Promise<StockOperationResult> {
-    return this.applyDelta(id, companyId, {
+    return this.applyDelta(id, organizationId, {
       type: 'RECEIVE',
       delta: dto.quantity,
       unitCost: dto.unitCost ?? 0,
@@ -135,10 +135,10 @@ export class InventoryService implements InventoryPort {
   issue(
     id: string,
     dto: IssueStockInput,
-    companyId: string,
+    organizationId: string,
     userId: string,
   ): Promise<StockOperationResult> {
-    return this.applyDelta(id, companyId, {
+    return this.applyDelta(id, organizationId, {
       type: 'ISSUE',
       delta: -dto.quantity,
       unitCost: 0,
@@ -153,10 +153,10 @@ export class InventoryService implements InventoryPort {
   adjust(
     id: string,
     dto: AdjustStockInput,
-    companyId: string,
+    organizationId: string,
     userId: string,
   ): Promise<StockOperationResult> {
-    return this.applyDelta(id, companyId, {
+    return this.applyDelta(id, organizationId, {
       type: 'ADJUST',
       delta: dto.delta,
       unitCost: 0,
@@ -170,7 +170,7 @@ export class InventoryService implements InventoryPort {
   // Bundle fan-out is composed inside the same tx via the products port.
   private async applyDelta(
     id: string,
-    companyId: string,
+    organizationId: string,
     params: {
       type: StockTransactionType;
       delta: number;
@@ -182,7 +182,7 @@ export class InventoryService implements InventoryPort {
       userId: string;
     },
   ): Promise<StockOperationResult> {
-    return this.repository.runInventoryStockMutation(id, companyId, async (tx, locked) => {
+    return this.repository.runInventoryStockMutation(id, organizationId, async (tx, locked) => {
       try {
         assertSufficientStock(locked.currentStock, params.delta);
       } catch (err) {
@@ -203,13 +203,13 @@ export class InventoryService implements InventoryPort {
       const optionName = await this.repository.findOptionNameForLedger(
         tx,
         updated.optionId,
-        companyId,
+        organizationId,
       );
 
       const storedQuantity = computeStoredQuantity(params.type, params.delta);
 
       const transaction = await this.repository.appendStockLedger(tx, {
-        companyId,
+        organizationId,
         optionId: updated.optionId,
         optionName,
         type: params.type,
@@ -224,7 +224,7 @@ export class InventoryService implements InventoryPort {
       });
 
       const recomputedBundleOptionIds = await this.bundleStock.recomputeForComponent(
-        companyId,
+        organizationId,
         updated.optionId,
         tx,
       );
@@ -248,14 +248,14 @@ export class InventoryService implements InventoryPort {
   // ===== Ledger =====
   async listTransactions(
     input: ListTransactionsInput,
-    companyId: string,
+    organizationId: string,
   ): Promise<TransactionListResponse> {
     const page = input.page ?? 1;
     const limit = input.limit ?? 50;
     const skip = (page - 1) * limit;
 
     const { rows, total } = await this.query.listStockTransactions(
-      companyId,
+      organizationId,
       {
         optionId: input.optionId,
         type: input.type,
@@ -276,11 +276,11 @@ export class InventoryService implements InventoryPort {
 
   async getTransactionSummary(
     input: TransactionSummaryInput,
-    companyId: string,
+    organizationId: string,
   ): Promise<TransactionSummary> {
     const days = input.days ?? 30;
     const fromDate = new Date(Date.now() - days * 86400000);
-    const grouped = await this.query.groupTransactionsByType(companyId, fromDate);
+    const grouped = await this.query.groupTransactionsByType(organizationId, fromDate);
 
     const lookup = Object.fromEntries(
       grouped.map((g) => [g.type, { qty: g._sum.quantity ?? 0, amt: g._sum.totalCost ?? 0 }]),

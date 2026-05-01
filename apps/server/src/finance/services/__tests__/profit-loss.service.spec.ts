@@ -35,7 +35,7 @@ const mkLineItem = (listing: {
 });
 
 describe('ProfitLossService.findAll (live aggregation)', () => {
-  it('IDOR — findMany called with companyId filter + grouping returns only that company rows', async () => {
+  it('IDOR — findMany called with organizationId filter + grouping returns only that organization rows', async () => {
     const l1 = { id: 'listing-a1', externalId: 'ext-a1', channelName: 'coupang', master: { id: 'master-a1', code: 'MA1', legacyCode: null, name: 'ProductA1', category: 'kids', abcGrade: 'A', thumbnailUrl: null } };
     const l2 = { id: 'listing-a2', externalId: 'ext-a2', channelName: 'coupang', master: { id: 'master-a2', code: 'MA2', legacyCode: 'LEG-A2', name: 'ProductA2', category: 'baby', abcGrade: 'B', thumbnailUrl: 'https://x.com/a2.jpg' } };
     const orders = [
@@ -47,7 +47,7 @@ describe('ProfitLossService.findAll (live aggregation)', () => {
     const service = new ProfitLossService(prisma);
     const result = await service.findAll('companyA', 2026, 4);
     expect(prisma.order.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ companyId: 'companyA' }),
+      where: expect.objectContaining({ organizationId: 'companyA' }),
     }));
     expect(result).toHaveLength(2);
     expect(result.map(r => r.listingId).sort()).toEqual(['listing-a1', 'listing-a2']);
@@ -164,7 +164,7 @@ describe('ProfitLossService.findAll (live aggregation)', () => {
     expect(row.returnCount).toBe(2);
     expect(prisma.orderReturnLineItem.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
-        companyId: 'companyA',
+        organizationId: 'companyA',
         return: expect.objectContaining({
           requestedAt: expect.objectContaining({ gte: expect.any(Date), lt: expect.any(Date) }),
         }),
@@ -172,7 +172,7 @@ describe('ProfitLossService.findAll (live aggregation)', () => {
     }));
   });
 
-  it('adCost aggregated from channelListingDailySnapshot.groupBy by listingId with companyId filter', async () => {
+  it('adCost aggregated from channelListingDailySnapshot.groupBy by listingId with organizationId filter', async () => {
     const l = { id: 'l1', externalId: 'e1', channelName: 'coupang', master: { id: 'm1', code: 'M1', legacyCode: null, name: 'P1', category: null, abcGrade: null, thumbnailUrl: null } };
     const orders = [{ id: 'o1', shippingPrice: 3000, lineItems: [mkLineItem(l, { quantity: 1, totalPrice: 10000, costPrice: 5000, commissionRate: 0.1, otherCost: 0 })] }];
     const adRows = [{ listingId: 'l1', _sum: { adSpend: 1500 } }];
@@ -185,7 +185,7 @@ describe('ProfitLossService.findAll (live aggregation)', () => {
       by: ['listingId'],
       _sum: { adSpend: true },
       where: expect.objectContaining({
-        companyId: 'companyA',
+        organizationId: 'companyA',
         businessDate: expect.objectContaining({ gte: expect.any(Date), lt: expect.any(Date) }),
       }),
     }));

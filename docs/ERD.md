@@ -27,7 +27,7 @@ This ERD is a development-time navigation aid. The source of truth is still the 
 | [Agents](erd/agents.md) | 8 |
 | [AI](erd/ai.md) | 8 |
 | [Channels](erd/channels.md) | 6 |
-| [Core](erd/core.md) | 9 |
+| [Core](erd/core.md) | 12 |
 | [Finance](erd/finance.md) | 5 |
 | [Inventory](erd/inventory.md) | 8 |
 | [Orders](erd/orders.md) | 9 |
@@ -65,19 +65,22 @@ This ERD is a development-time navigation aid. The source of truth is still the 
 | ChannelListingOptionDailySnapshot | Channels | `channel_listing_option_daily_snapshots` | 채널 listing option/vendor item 의 일별 정규화 상태. |
 | ChannelScrapeRun | Channels | `channel_scrape_runs` | 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장. |
 | ChannelScrapeSnapshot | Channels | `channel_scrape_snapshots` | 채널 스크래퍼/API 가 본 원본 row. 매칭 실패/파서 변경 대비 rawJson 을 보존. |
-| BundleComponent | Core | `bundle_components` | 세트 옵션의 구성품 관계. bundleOption(isBundle=true) ↔ componentOption. Cross-master 허용, cross-company 금지. |
+| BundleComponent | Core | `bundle_components` | 세트 옵션의 구성품 관계. bundleOption(isBundle=true) ↔ componentOption. Cross-master 허용, cross-organization 금지. |
 | CategoryMapping | Core | `category_mappings` | - |
+| ChannelAccount | Core | `channel_accounts` | Marketplace/store account such as Coupang Wing or Naver SmartStore. Operational channel ownership is distinct from the SaaS organization. |
 | ChannelListing | Core | `channel_listings` | 채널에 올라간 판매 등록상품. 쿠팡 등록상품ID, 네이버 상품번호 등. |
 | ChannelListingOption | Core | `channel_listing_options` | 채널 listing 내 옵션 externalOptionId 와 내부 ProductOption 매핑. |
-| Company | Core | `companies` | - |
+| LegalEntity | Core | `legal_entities` | Legal/business entity under an organization. This stores tax, invoice, and settlement identity separately from the SaaS organization boundary. |
 | MasterProduct | Core | `master_products` | 기획상품 family. 같은 컨셉의 옵션들을 묶는 entity. 운영/광고/전략 단위. |
 | MasterProductImage | Core | `master_product_images` | MasterProduct 이미지 갤러리. Source of truth 이며 MasterProduct.imageUrl 은 대표 이미지 캐시로만 동기화된다. |
+| Organization | Core | `organizations` | - |
+| OrganizationMembership | Core | `organization_memberships` | B2B customer/workspace membership. A user may belong to multiple organizations; this row supplies request organization and role. |
 | ProductOption | Core | `product_options` | 물리 SKU. 바코드 1:1. 재고/매입/창고 단위. isBundle 이면 구성품 기반 계산. |
-| User | Core | `users` | human(직원) / agent(AI, agentDefinitionId 연결) / system(챗봇, companyId=null) 통합 관리. |
+| User | Core | `users` | human(직원) / agent(AI, agentDefinitionId 연결) / system(챗봇). 조직 소속은 OrganizationMembership 이 source of truth. |
 | GradeHistory | Finance | `grade_histories` | ABC 등급 변경 추적. |
 | ManualLedger | Finance | `manual_ledgers` | 자동 집계 외 수기 수입/지출. |
 | ProcessingCost | Finance | `processing_costs` | - |
-| ProfitLoss | Finance | `profit_loss` | 월간 손익. companyId+listingId+year+month unique. |
+| ProfitLoss | Finance | `profit_loss` | 월간 손익. organizationId+listingId+year+month unique. |
 | SalesPlan | Finance | `sales_plans` | - |
 | Inventory | Inventory | `inventory` | ProductOption 에 1:1. Bundle option 은 inventory 미생성 (availableStock 계산값 사용). |
 | PickingItem | Inventory | `picking_items` | - |
@@ -89,9 +92,9 @@ This ERD is a development-time navigation aid. The source of truth is still the 
 | Warehouse | Inventory | `warehouses` | - |
 | CSRecord | Orders | `cs_records` | - |
 | Order | Orders | `orders` | 채널-agnostic 주문 aggregate. Coupang 등 채널별 raw payload 는 metadata Json. 라인 아이템은 OrderLineItem. |
-| OrderLineItem | Orders | `order_line_items` | 주문 라인 아이템 — 1 SKU 단위. listingOption → option 으로 SKU 해상도. companyId 는 IDOR 방어용 denormalize (B2a 패턴). |
+| OrderLineItem | Orders | `order_line_items` | 주문 라인 아이템 — 1 SKU 단위. listingOption → option 으로 SKU 해상도. order FK 는 organizationId 를 함께 참조해 cross-organization mismatch 를 DB 가 차단한다. |
 | OrderReturn | Orders | `order_returns` | 채널-agnostic 반품 aggregate. 반품 item 은 OrderReturnLineItem 으로 정규화. type=RETURN/EXCHANGE 구분 first-class. |
-| OrderReturnLineItem | Orders | `order_return_line_items` | 반품 라인 아이템 — 반품 건 내 SKU 단위 상세. companyId 는 IDOR 방어용 denormalize. |
+| OrderReturnLineItem | Orders | `order_return_line_items` | 반품 라인 아이템 — 반품 건 내 SKU 단위 상세. return FK 는 organizationId 를 함께 참조해 cross-organization mismatch 를 DB 가 차단한다. |
 | Review | Orders | `reviews` | - |
 | Settlement | Orders | `settlements` | 월별 정산 (예상 vs 실제 비교). |
 | Shipment | Orders | `shipments` | - |
@@ -106,7 +109,7 @@ This ERD is a development-time navigation aid. The source of truth is still the 
 | ActivityEvent | System | `activity_events` | - |
 | Alert | System | `alerts` | - |
 | BusinessRule | System | `business_rules` | 온톨로지 룰 엔진 (조건→액션 자동화). |
-| FeatureGate | System | `feature_gates` | 피처 플래그. allowedCompanies: string[] 로 회사별 enable. |
+| FeatureGate | System | `feature_gates` | 피처 플래그. allowedOrganizations: string[] 로 회사별 enable. |
 | Marketplace | System | `marketplace` | type 으로 agent/workflow 카탈로그 통합. |
 | MigrationCheckpoint | System | `migration_checkpoints` | 이관 스크립트 체크포인트 (Plan C 용). 이관 완료 후 drop 가능. |
 | SystemSetting | System | `system_settings` | - |
@@ -117,7 +120,7 @@ This ERD is a development-time navigation aid. The source of truth is still the 
 erDiagram
   ActionTask {
     String id PK
-    String companyId FK
+    String organizationId FK
     String taskKey
     String type
     String label
@@ -140,7 +143,7 @@ erDiagram
   }
   ActivityEvent {
     String id PK
-    String companyId FK
+    String organizationId FK
     String objectType
     String objectId
     String eventType
@@ -151,7 +154,7 @@ erDiagram
   }
   AdAction {
     String id PK
-    String companyId FK
+    String organizationId FK
     String listingId FK
     String adTargetDailyId FK
     String actionType
@@ -174,7 +177,7 @@ erDiagram
   }
   AgentDefinition {
     String id PK
-    String companyId FK
+    String organizationId FK
     String name
     String type UK
     String description
@@ -225,7 +228,7 @@ erDiagram
   }
   AgentEvent {
     String id PK
-    String companyId FK
+    String organizationId FK
     String agentId FK
     String runId
     String eventType
@@ -250,7 +253,7 @@ erDiagram
   }
   AgentTask {
     String id PK
-    String companyId
+    String organizationId
     String agentType
     String status
     Int priority
@@ -268,7 +271,7 @@ erDiagram
   }
   AgentWakeupRequest {
     String id PK
-    String companyId FK
+    String organizationId FK
     String agentId FK
     String source
     String triggerDetail
@@ -288,7 +291,7 @@ erDiagram
   }
   Alert {
     String id PK
-    String companyId FK
+    String organizationId FK
     String targetType
     String targetId
     String type
@@ -303,14 +306,14 @@ erDiagram
     String id PK
     String bundleOptionId FK
     String componentOptionId FK
-    String companyId FK
+    String organizationId FK
     Int qty
     DateTime createdAt
     DateTime updatedAt
   }
   BusinessRule {
     String id PK
-    String companyId FK
+    String organizationId FK
     String name
     String displayName
     String description
@@ -330,7 +333,7 @@ erDiagram
   }
   CategoryMapping {
     String id PK
-    String companyId FK
+    String organizationId FK
     String internalCategory
     String coupangCategoryId
     String coupangCategoryName
@@ -339,9 +342,23 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  ChannelAccount {
+    String id PK
+    String organizationId FK
+    String channel
+    String name
+    String externalAccountId
+    String sellerId
+    String vendorId
+    String status
+    Boolean isPrimary
+    Json config
+    DateTime createdAt
+    DateTime updatedAt
+  }
   ChannelAccountDailyKpiSnapshot {
     String id PK
-    String companyId FK
+    String organizationId FK
     String channel
     String source
     String kpiType
@@ -359,7 +376,7 @@ erDiagram
   }
   ChannelAdTargetDailySnapshot {
     String id PK
-    String companyId FK
+    String organizationId FK
     String channel
     DateTime businessDate
     String listingId FK
@@ -397,7 +414,7 @@ erDiagram
   ChannelListing {
     String id PK
     String masterId FK
-    String companyId FK
+    String organizationId FK
     String channel
     String externalId
     String channelName
@@ -415,7 +432,7 @@ erDiagram
   }
   ChannelListingDailySnapshot {
     String id PK
-    String companyId FK
+    String organizationId FK
     String listingId FK
     String channel
     String externalId
@@ -472,7 +489,7 @@ erDiagram
     String id PK
     String listingId FK
     String optionId FK
-    String companyId FK
+    String organizationId FK
     String externalOptionId
     String itemName
     Int salePrice
@@ -483,7 +500,7 @@ erDiagram
   }
   ChannelListingOptionDailySnapshot {
     String id PK
-    String companyId FK
+    String organizationId FK
     String listingId FK
     String listingOptionId FK
     String optionId FK
@@ -510,7 +527,7 @@ erDiagram
   }
   ChannelScrapeRun {
     String id PK
-    String companyId FK
+    String organizationId FK
     String channel
     String source
     String pageType
@@ -534,7 +551,7 @@ erDiagram
   }
   ChannelScrapeSnapshot {
     String id PK
-    String companyId FK
+    String organizationId FK
     String scrapeRunId FK
     String channel
     String source
@@ -553,18 +570,9 @@ erDiagram
     Json normalizedJson
     DateTime createdAt
   }
-  Company {
-    String id PK
-    String name
-    String slug UK
-    String businessNumber
-    Boolean isActive
-    DateTime createdAt
-    DateTime updatedAt
-  }
   ContentGeneration {
     String id PK
-    String companyId FK
+    String organizationId FK
     String masterId FK
     Json originalImages
     Json processedImages
@@ -580,8 +588,8 @@ erDiagram
   }
   CSRecord {
     String id PK
-    String companyId FK
-    String orderId
+    String organizationId FK
+    String orderId FK
     String listingId FK
     String csType
     String csStatus
@@ -619,7 +627,7 @@ erDiagram
   }
   ExecutionWorker {
     String id PK
-    String companyId FK
+    String organizationId FK
     String workerKey UK
     String label
     String status
@@ -635,14 +643,14 @@ erDiagram
     String name UK
     String description
     Boolean enabled
-    StringArray allowedCompanies
+    StringArray allowedOrganizations
     Json metadata
     DateTime createdAt
     DateTime updatedAt
   }
   GradeHistory {
     String id PK
-    String companyId FK
+    String organizationId FK
     String masterId FK
     String oldGrade
     String newGrade
@@ -655,7 +663,7 @@ erDiagram
   }
   HeartbeatRun {
     String id PK
-    String companyId FK
+    String organizationId FK
     String agentId FK
     String invocationSource
     String triggerDetail
@@ -685,7 +693,7 @@ erDiagram
   Inventory {
     String id PK
     String optionId FK,UK
-    String companyId FK
+    String organizationId FK
     Int currentStock
     Int reservedStock
     Int safetyStock
@@ -698,9 +706,22 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  LegalEntity {
+    String id PK
+    String organizationId FK
+    String name
+    String businessNumber
+    String countryCode
+    String representativeName
+    String address
+    Boolean isPrimary
+    Json metadata
+    DateTime createdAt
+    DateTime updatedAt
+  }
   ManualLedger {
     String id PK
-    String companyId FK
+    String organizationId FK
     DateTime date
     String type
     String category
@@ -736,7 +757,7 @@ erDiagram
   }
   MasterProduct {
     String id PK
-    String companyId FK
+    String organizationId FK
     String code UK
     String legacyCode
     String barcode
@@ -764,7 +785,6 @@ erDiagram
     String pipelineStep
     String detailPageUrl
     String thumbnailStrategy
-    String supplierId FK
     Boolean isDeleted
     DateTime deletedAt
     Boolean isTemporary
@@ -775,7 +795,7 @@ erDiagram
   }
   MasterProductImage {
     String id PK
-    String companyId FK
+    String organizationId FK
     String masterId FK
     String url
     String storageKey
@@ -816,7 +836,7 @@ erDiagram
   }
   Order {
     String id PK
-    String companyId FK
+    String organizationId FK
     String platform
     String externalOrderId
     String externalNumber
@@ -841,7 +861,7 @@ erDiagram
   }
   OrderLineItem {
     String id PK
-    String companyId FK
+    String organizationId FK
     String orderId FK
     String listingOptionId FK
     String optionId FK
@@ -859,7 +879,7 @@ erDiagram
   }
   OrderReturn {
     String id PK
-    String companyId FK
+    String organizationId FK
     String orderId FK
     String platform
     String externalReturnId
@@ -879,7 +899,7 @@ erDiagram
   }
   OrderReturnLineItem {
     String id PK
-    String companyId FK
+    String organizationId FK
     String returnId FK
     String orderLineItemId FK
     String optionId FK
@@ -887,6 +907,26 @@ erDiagram
     Int quantity
     Json metadata
     DateTime createdAt
+  }
+  Organization {
+    String id PK
+    String name
+    String slug UK
+    Boolean isActive
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  OrganizationMembership {
+    String id PK
+    String organizationId FK
+    String userId FK
+    String role
+    String status
+    String invitedById FK
+    DateTime joinedAt
+    DateTime lastSelectedAt
+    DateTime createdAt
+    DateTime updatedAt
   }
   PickingItem {
     String id PK
@@ -905,7 +945,7 @@ erDiagram
   }
   PickingList {
     String id PK
-    String companyId FK
+    String organizationId FK
     String listNumber
     String status
     Int totalItems
@@ -918,7 +958,7 @@ erDiagram
   }
   ProcessingCost {
     String id PK
-    String companyId FK
+    String organizationId FK
     String masterId FK
     String productName
     String vendor
@@ -934,7 +974,7 @@ erDiagram
   ProductOption {
     String id PK
     String masterId FK
-    String companyId FK
+    String organizationId FK
     String sku UK
     String barcode
     String legacyCode
@@ -957,7 +997,7 @@ erDiagram
   }
   ProfitLoss {
     String id PK
-    String companyId FK
+    String organizationId FK
     String listingId FK
     Int year
     Int month
@@ -976,7 +1016,7 @@ erDiagram
   }
   PurchaseOrder {
     String id PK
-    String companyId FK
+    String organizationId FK
     String supplierName
     String supplierContact
     String supplierId FK
@@ -1007,7 +1047,7 @@ erDiagram
   }
   ReturnTransfer {
     String id PK
-    String companyId FK
+    String organizationId FK
     String rtNumber
     String orderId
     String optionId FK
@@ -1025,7 +1065,7 @@ erDiagram
   }
   Review {
     String id PK
-    String companyId FK
+    String organizationId FK
     String listingId FK
     String platform
     Int rating
@@ -1036,7 +1076,7 @@ erDiagram
   }
   SalesPlan {
     String id PK
-    String companyId FK
+    String organizationId FK
     String period
     Int targetRevenue
     Int targetOrders
@@ -1050,7 +1090,7 @@ erDiagram
   }
   ScrapeTarget {
     String id PK
-    String companyId FK
+    String organizationId FK
     String url
     String label
     String category
@@ -1060,7 +1100,7 @@ erDiagram
   }
   Settlement {
     String id PK
-    String companyId FK
+    String organizationId FK
     String period
     Int expectedAmount
     Int actualAmount
@@ -1078,7 +1118,7 @@ erDiagram
   }
   Shipment {
     String id PK
-    String companyId FK
+    String organizationId FK
     String orderId FK
     String listingId FK
     String optionId FK
@@ -1095,7 +1135,7 @@ erDiagram
   }
   StockAudit {
     String id PK
-    String companyId FK
+    String organizationId FK
     String auditNumber
     String status
     Int totalProducts
@@ -1109,7 +1149,7 @@ erDiagram
   }
   StockTransaction {
     String id PK
-    String companyId FK
+    String organizationId FK
     String optionId FK
     String optionName
     String type
@@ -1125,7 +1165,7 @@ erDiagram
   }
   StockTransfer {
     String id PK
-    String companyId FK
+    String organizationId FK
     String optionId FK
     String optionName
     String fromWarehouseId FK
@@ -1140,7 +1180,7 @@ erDiagram
   }
   Supplier {
     String id PK
-    String companyId FK
+    String organizationId FK
     String name
     String contactName
     String phone
@@ -1155,7 +1195,7 @@ erDiagram
   }
   SupplierPayment {
     String id PK
-    String companyId FK
+    String organizationId FK
     String supplierId FK
     String supplierName
     Int amount
@@ -1179,7 +1219,7 @@ erDiagram
   }
   SystemSetting {
     String id PK
-    String companyId FK
+    String organizationId FK
     String key
     Json value
     DateTime createdAt
@@ -1187,7 +1227,7 @@ erDiagram
   }
   Thumbnail {
     String id PK
-    String companyId FK
+    String organizationId FK
     String listingId FK
     String imageUrl
     String strategy
@@ -1202,7 +1242,7 @@ erDiagram
   }
   ThumbnailAnalysis {
     String id PK
-    String companyId FK
+    String organizationId FK
     String masterId FK,UK
     String imageUrl
     Int overallScore
@@ -1222,7 +1262,7 @@ erDiagram
   }
   ThumbnailGeneration {
     String id PK
-    String companyId FK
+    String organizationId FK
     String masterId FK
     String originalUrl
     String selectedUrl
@@ -1243,7 +1283,7 @@ erDiagram
   }
   ThumbnailGenerationCandidate {
     String id PK
-    String companyId FK
+    String organizationId FK
     String generationId FK
     String url
     String storageKey
@@ -1258,7 +1298,7 @@ erDiagram
   }
   ThumbnailGenerationInputImage {
     String id PK
-    String companyId FK
+    String organizationId FK
     String generationId FK
     String url
     String storageKey
@@ -1275,7 +1315,7 @@ erDiagram
   }
   ThumbnailRegistrationAttempt {
     String id PK
-    String companyId FK
+    String organizationId FK
     String generationId FK
     String status
     String errorMessage
@@ -1288,7 +1328,7 @@ erDiagram
   }
   ThumbnailTracking {
     String id PK
-    String companyId FK
+    String organizationId FK
     String listingId FK
     String generationId FK
     String originalGrade
@@ -1306,8 +1346,8 @@ erDiagram
   }
   UnshippedItem {
     String id PK
-    String companyId FK
-    String orderId
+    String organizationId FK
+    String orderId FK
     String listingId FK
     String optionId FK
     String productName
@@ -1321,7 +1361,6 @@ erDiagram
   }
   User {
     String id PK
-    String companyId FK
     String email UK
     String name
     String password
@@ -1337,7 +1376,7 @@ erDiagram
   }
   Warehouse {
     String id PK
-    String companyId FK
+    String organizationId FK
     String name
     String code
     String address
@@ -1350,7 +1389,7 @@ erDiagram
   }
   WorkflowRun {
     String id PK
-    String companyId
+    String organizationId
     String templateId FK
     String status
     String triggeredBy
@@ -1365,7 +1404,7 @@ erDiagram
   }
   WorkflowTemplate {
     String id PK
-    String companyId FK
+    String organizationId FK
     String name
     String description
     String module
@@ -1412,65 +1451,6 @@ erDiagram
   ChannelScrapeSnapshot o|--o{ ChannelAdTargetDailySnapshot : "rawSnapshot"
   ChannelScrapeSnapshot o|--o{ ChannelListingDailySnapshot : "rawSnapshot"
   ChannelScrapeSnapshot o|--o{ ChannelListingOptionDailySnapshot : "rawSnapshot"
-  Company ||--o{ ActionTask : "company"
-  Company ||--o{ ActivityEvent : "company"
-  Company ||--o{ AdAction : "company"
-  Company o|--o{ AgentDefinition : "company"
-  Company ||--o{ AgentEvent : "company"
-  Company ||--o{ AgentWakeupRequest : "company"
-  Company ||--o{ Alert : "company"
-  Company ||--o{ BundleComponent : "company"
-  Company ||--o{ BusinessRule : "company"
-  Company ||--o{ CategoryMapping : "company"
-  Company ||--o{ ChannelAccountDailyKpiSnapshot : "company"
-  Company ||--o{ ChannelAdTargetDailySnapshot : "company"
-  Company ||--o{ ChannelListing : "company"
-  Company ||--o{ ChannelListingDailySnapshot : "company"
-  Company ||--o{ ChannelListingOption : "company"
-  Company ||--o{ ChannelListingOptionDailySnapshot : "company"
-  Company ||--o{ ChannelScrapeRun : "company"
-  Company ||--o{ ChannelScrapeSnapshot : "company"
-  Company ||--o{ ContentGeneration : "company"
-  Company ||--o{ CSRecord : "company"
-  Company ||--o{ ExecutionWorker : "company"
-  Company ||--o{ GradeHistory : "company"
-  Company ||--o{ HeartbeatRun : "company"
-  Company ||--o{ Inventory : "company"
-  Company ||--o{ ManualLedger : "company"
-  Company ||--o{ MasterProduct : "company"
-  Company ||--o{ MasterProductImage : "company"
-  Company ||--o{ Order : "company"
-  Company ||--o{ OrderLineItem : "company"
-  Company ||--o{ OrderReturn : "company"
-  Company ||--o{ OrderReturnLineItem : "company"
-  Company ||--o{ PickingList : "company"
-  Company ||--o{ ProcessingCost : "company"
-  Company ||--o{ ProductOption : "company"
-  Company ||--o{ ProfitLoss : "company"
-  Company ||--o{ PurchaseOrder : "company"
-  Company ||--o{ ReturnTransfer : "company"
-  Company ||--o{ Review : "company"
-  Company ||--o{ SalesPlan : "company"
-  Company ||--o{ ScrapeTarget : "company"
-  Company ||--o{ Settlement : "company"
-  Company ||--o{ Shipment : "company"
-  Company ||--o{ StockAudit : "company"
-  Company ||--o{ StockTransaction : "company"
-  Company ||--o{ StockTransfer : "company"
-  Company ||--o{ Supplier : "company"
-  Company ||--o{ SupplierPayment : "company"
-  Company ||--o{ SystemSetting : "company"
-  Company ||--o{ Thumbnail : "company"
-  Company ||--o{ ThumbnailAnalysis : "company"
-  Company ||--o{ ThumbnailGeneration : "company"
-  Company ||--o{ ThumbnailGenerationCandidate : "company"
-  Company ||--o{ ThumbnailGenerationInputImage : "company"
-  Company ||--o{ ThumbnailRegistrationAttempt : "company"
-  Company ||--o{ ThumbnailTracking : "company"
-  Company ||--o{ UnshippedItem : "company"
-  Company o|--o{ User : "company"
-  Company ||--o{ Warehouse : "company"
-  Company ||--o{ WorkflowTemplate : "company"
   ExecutionTask ||--o{ ExecutionLog : "task"
   ExecutionWorker o|--o{ ExecutionTask : "worker"
   Marketplace o|--o{ AgentDefinition : "marketplace"
@@ -1484,11 +1464,74 @@ erDiagram
   MasterProduct ||--o{ ProductOption : "master"
   MasterProduct ||--|| ThumbnailAnalysis : "master"
   MasterProduct ||--o{ ThumbnailGeneration : "master"
+  Order o|--o{ CSRecord : "order"
   Order ||--o{ OrderLineItem : "order"
   Order o|--o{ OrderReturn : "order"
   Order o|--o{ Shipment : "order"
+  Order ||--o{ UnshippedItem : "order"
   OrderLineItem o|--o{ OrderReturnLineItem : "orderLineItem"
   OrderReturn ||--o{ OrderReturnLineItem : "return"
+  Organization ||--o{ ActionTask : "organization"
+  Organization ||--o{ ActivityEvent : "organization"
+  Organization ||--o{ AdAction : "organization"
+  Organization o|--o{ AgentDefinition : "organization"
+  Organization ||--o{ AgentEvent : "organization"
+  Organization ||--o{ AgentWakeupRequest : "organization"
+  Organization ||--o{ Alert : "organization"
+  Organization ||--o{ BundleComponent : "organization"
+  Organization ||--o{ BusinessRule : "organization"
+  Organization ||--o{ CategoryMapping : "organization"
+  Organization ||--o{ ChannelAccount : "organization"
+  Organization ||--o{ ChannelAccountDailyKpiSnapshot : "organization"
+  Organization ||--o{ ChannelAdTargetDailySnapshot : "organization"
+  Organization ||--o{ ChannelListing : "organization"
+  Organization ||--o{ ChannelListingDailySnapshot : "organization"
+  Organization ||--o{ ChannelListingOption : "organization"
+  Organization ||--o{ ChannelListingOptionDailySnapshot : "organization"
+  Organization ||--o{ ChannelScrapeRun : "organization"
+  Organization ||--o{ ChannelScrapeSnapshot : "organization"
+  Organization ||--o{ ContentGeneration : "organization"
+  Organization ||--o{ CSRecord : "organization"
+  Organization ||--o{ ExecutionWorker : "organization"
+  Organization ||--o{ GradeHistory : "organization"
+  Organization ||--o{ HeartbeatRun : "organization"
+  Organization ||--o{ Inventory : "organization"
+  Organization ||--o{ LegalEntity : "organization"
+  Organization ||--o{ ManualLedger : "organization"
+  Organization ||--o{ MasterProduct : "organization"
+  Organization ||--o{ MasterProductImage : "organization"
+  Organization ||--o{ Order : "organization"
+  Organization ||--o{ OrderLineItem : "organization"
+  Organization ||--o{ OrderReturn : "organization"
+  Organization ||--o{ OrderReturnLineItem : "organization"
+  Organization ||--o{ OrganizationMembership : "organization"
+  Organization ||--o{ PickingList : "organization"
+  Organization ||--o{ ProcessingCost : "organization"
+  Organization ||--o{ ProductOption : "organization"
+  Organization ||--o{ ProfitLoss : "organization"
+  Organization ||--o{ PurchaseOrder : "organization"
+  Organization ||--o{ ReturnTransfer : "organization"
+  Organization ||--o{ Review : "organization"
+  Organization ||--o{ SalesPlan : "organization"
+  Organization ||--o{ ScrapeTarget : "organization"
+  Organization ||--o{ Settlement : "organization"
+  Organization ||--o{ Shipment : "organization"
+  Organization ||--o{ StockAudit : "organization"
+  Organization ||--o{ StockTransaction : "organization"
+  Organization ||--o{ StockTransfer : "organization"
+  Organization ||--o{ Supplier : "organization"
+  Organization ||--o{ SupplierPayment : "organization"
+  Organization ||--o{ SystemSetting : "organization"
+  Organization ||--o{ Thumbnail : "organization"
+  Organization ||--o{ ThumbnailAnalysis : "organization"
+  Organization ||--o{ ThumbnailGeneration : "organization"
+  Organization ||--o{ ThumbnailGenerationCandidate : "organization"
+  Organization ||--o{ ThumbnailGenerationInputImage : "organization"
+  Organization ||--o{ ThumbnailRegistrationAttempt : "organization"
+  Organization ||--o{ ThumbnailTracking : "organization"
+  Organization ||--o{ UnshippedItem : "organization"
+  Organization ||--o{ Warehouse : "organization"
+  Organization ||--o{ WorkflowTemplate : "organization"
   PickingList ||--o{ PickingItem : "pickingList"
   ProductOption ||--o{ BundleComponent : "bundleOption"
   ProductOption ||--o{ BundleComponent : "componentOption"
@@ -1509,7 +1552,6 @@ erDiagram
   ProductOption o|--o{ UnshippedItem : "option"
   PurchaseOrder ||--o{ PurchaseOrderItem : "order"
   PurchaseOrder o|--o{ SupplierPayment : "purchaseOrder"
-  Supplier o|--o{ MasterProduct : "supplier"
   Supplier ||--o{ MasterSupplierProduct : "supplier"
   Supplier o|--o{ PurchaseOrder : "supplier"
   Supplier ||--o{ SupplierPayment : "supplier"
@@ -1520,6 +1562,8 @@ erDiagram
   ThumbnailGeneration ||--o{ ThumbnailTracking : "generation"
   User o|--o{ ActionTask : "assigneeUser"
   User o|--o{ HeartbeatRun : "triggeredByUser"
+  User o|--o{ OrganizationMembership : "invitedBy"
+  User ||--o{ OrganizationMembership : "user"
   User o|--o{ ThumbnailGeneration : "triggeredByUser"
   User o|--o{ WorkflowRun : "triggeredByUser"
   Warehouse o|--o{ Shipment : "warehouse"

@@ -97,7 +97,7 @@ function tallyDistributions(
 /**
  * Compose the `findAllWithAnalysis` response from already-fetched master and
  * analysis rows. Ownership filtering (analysis rows whose master is not in
- * the caller-company master set are dropped) and unclassified projection
+ * the caller-organization master set are dropped) and unclassified projection
  * (masters with no quality run yet) live here so the service stays as a
  * thin Prisma orchestrator.
  */
@@ -141,7 +141,7 @@ export type AnalysisSummaryRow = Pick<
 
 /**
  * Same tallying as the listing path but driven by the lightweight summary
- * select (no full row hydration). `masterCount` is the company-scoped master
+ * select (no full row hydration). `masterCount` is the organization-scoped master
  * total before any analysis filtering — it doubles as the upper bound on
  * `unclassifiedCount`.
  */

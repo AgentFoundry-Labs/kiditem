@@ -70,7 +70,7 @@ describe('AdSyncService', () => {
         { id: 'L2', externalId: 'COUPANG-2' },
       ]);
 
-      const map = await service.buildListingMap('company-1');
+      const map = await service.buildListingMap('organization-1');
 
       expect(map.externalOptionIdMap.get('V1')).toEqual({
         listingId: 'L1',
@@ -89,9 +89,9 @@ describe('AdSyncService', () => {
 
       expect(prisma.channelListingOption.findMany).toHaveBeenCalledWith({
         where: {
-          companyId: 'company-1',
+          organizationId: 'organization-1',
           isActive: true,
-          listing: { companyId: 'company-1', channel: 'coupang', isDeleted: false },
+          listing: { organizationId: 'organization-1', channel: 'coupang', isDeleted: false },
         },
         select: {
           id: true,
@@ -101,7 +101,7 @@ describe('AdSyncService', () => {
         },
       });
       expect(prisma.channelListing.findMany).toHaveBeenCalledWith({
-        where: { companyId: 'company-1', isDeleted: false, channel: 'coupang' },
+        where: { organizationId: 'organization-1', isDeleted: false, channel: 'coupang' },
         select: { id: true, externalId: true },
       });
     });
@@ -119,7 +119,7 @@ describe('AdSyncService', () => {
         { id: 'L1', externalId: 'COUPANG-NULL' },
       ]);
 
-      const map = await service.buildListingMap('company-1');
+      const map = await service.buildListingMap('organization-1');
 
       // Wave C2 contract: listingOptionId 는 internal optionId 가 null 이어도
       // 보존되어야 한다 (C3 의 option daily snapshot 이 listingOptionId 만으로
@@ -132,18 +132,18 @@ describe('AdSyncService', () => {
       });
     });
 
-    it('cross-tenant isolation — company B externalOptionId does not leak into company A map', async () => {
+    it('cross-tenant isolation — organization B externalOptionId does not leak into organization A map', async () => {
       prisma.channelListingOption.findMany.mockResolvedValue([]);
       prisma.channelListing.findMany.mockResolvedValue([]);
 
-      const map = await service.buildListingMap('company-A');
+      const map = await service.buildListingMap('organization-A');
 
       expect(map.externalOptionIdMap.size).toBe(0);
       expect(map.externalIdMap.size).toBe(0);
 
       expect(prisma.channelListingOption.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining({ companyId: 'company-A' }),
+          where: expect.objectContaining({ organizationId: 'organization-A' }),
         }),
       );
     });
@@ -234,22 +234,22 @@ describe('AdSyncService', () => {
     it('markScraped writes with tenant scope and returns the updated target shape', async () => {
       const target = {
         id: 'target-1',
-        companyId: 'company-1',
+        organizationId: 'organization-1',
         lastScrapedAt: new Date('2026-04-29T00:00:00Z'),
       };
       prisma.scrapeTarget.updateMany.mockResolvedValue({ count: 1 });
       prisma.scrapeTarget.findFirst.mockResolvedValue(target);
 
-      await expect(service.markScraped('target-1', 'company-1')).resolves.toBe(
+      await expect(service.markScraped('target-1', 'organization-1')).resolves.toBe(
         target,
       );
 
       expect(prisma.scrapeTarget.updateMany).toHaveBeenCalledWith({
-        where: { id: 'target-1', companyId: 'company-1' },
+        where: { id: 'target-1', organizationId: 'organization-1' },
         data: { lastScrapedAt: expect.any(Date) },
       });
       expect(prisma.scrapeTarget.findFirst).toHaveBeenCalledWith({
-        where: { id: 'target-1', companyId: 'company-1' },
+        where: { id: 'target-1', organizationId: 'organization-1' },
       });
       expect(prisma.scrapeTarget.update).not.toHaveBeenCalled();
     });
@@ -258,7 +258,7 @@ describe('AdSyncService', () => {
       prisma.scrapeTarget.updateMany.mockResolvedValue({ count: 0 });
 
       await expect(
-        service.markScraped('target-other-tenant', 'company-1'),
+        service.markScraped('target-other-tenant', 'organization-1'),
       ).rejects.toThrow(NotFoundException);
       expect(prisma.scrapeTarget.update).not.toHaveBeenCalled();
     });
@@ -266,22 +266,22 @@ describe('AdSyncService', () => {
     it('deleteScrapeTarget writes with tenant scope and returns the updated target shape', async () => {
       const target = {
         id: 'target-1',
-        companyId: 'company-1',
+        organizationId: 'organization-1',
         isActive: false,
       };
       prisma.scrapeTarget.updateMany.mockResolvedValue({ count: 1 });
       prisma.scrapeTarget.findFirst.mockResolvedValue(target);
 
       await expect(
-        service.deleteScrapeTarget('target-1', 'company-1'),
+        service.deleteScrapeTarget('target-1', 'organization-1'),
       ).resolves.toBe(target);
 
       expect(prisma.scrapeTarget.updateMany).toHaveBeenCalledWith({
-        where: { id: 'target-1', companyId: 'company-1' },
+        where: { id: 'target-1', organizationId: 'organization-1' },
         data: { isActive: false },
       });
       expect(prisma.scrapeTarget.findFirst).toHaveBeenCalledWith({
-        where: { id: 'target-1', companyId: 'company-1' },
+        where: { id: 'target-1', organizationId: 'organization-1' },
       });
       expect(prisma.scrapeTarget.update).not.toHaveBeenCalled();
     });
@@ -290,24 +290,24 @@ describe('AdSyncService', () => {
       prisma.scrapeTarget.updateMany.mockResolvedValue({ count: 0 });
 
       await expect(
-        service.deleteScrapeTarget('target-other-tenant', 'company-1'),
+        service.deleteScrapeTarget('target-other-tenant', 'organization-1'),
       ).rejects.toThrow(NotFoundException);
       expect(prisma.scrapeTarget.update).not.toHaveBeenCalled();
     });
 
-    it('createScrapeTarget scopes to companyId (no default fallback)', async () => {
+    it('createScrapeTarget scopes to organizationId (no default fallback)', async () => {
       prisma.scrapeTarget.create.mockResolvedValue({ id: 't1' });
 
       await service.createScrapeTarget(
         'https://x.com/a',
         'Label',
         undefined,
-        'company-xyz',
+        'organization-xyz',
       );
 
       expect(prisma.scrapeTarget.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
-          companyId: 'company-xyz',
+          organizationId: 'organization-xyz',
           url: 'https://x.com/a',
           label: 'Label',
           category: 'advertising',
@@ -336,7 +336,7 @@ describe('AdSyncService', () => {
         lastObservedAt: new Date('2026-04-27T03:00:00Z'),
       });
 
-      const result = await service.getExtensionStatus('company-1');
+      const result = await service.getExtensionStatus('organization-1');
 
       expect(result.connected).toBe(true);
       expect(result.listingCount).toBe(7);
@@ -361,7 +361,7 @@ describe('AdSyncService', () => {
       prisma.channelScrapeRun.findFirst.mockResolvedValue(null);
       prisma.channelAccountDailyKpiSnapshot.findFirst.mockResolvedValue(null);
 
-      const result = await service.getExtensionStatus('company-1');
+      const result = await service.getExtensionStatus('organization-1');
 
       expect(result.currentWinnerCount).toBe(0);
       expect(result.currentNonWinnerCount).toBe(0);
@@ -375,30 +375,30 @@ describe('AdSyncService', () => {
       expect(result.wing.lastSync).toBeNull();
     });
 
-    it('passes companyId through all reads (no default fallback) — no legacy AdSnapshot/ItemWinner reads', async () => {
+    it('passes organizationId through all reads (no default fallback) — no legacy AdSnapshot/ItemWinner reads', async () => {
       prisma.channelListing.count.mockResolvedValue(0);
       prisma.$queryRaw.mockResolvedValue([]);
       prisma.channelScrapeSnapshot.count.mockResolvedValue(0);
       prisma.channelScrapeRun.findFirst.mockResolvedValue(null);
       prisma.channelAccountDailyKpiSnapshot.findFirst.mockResolvedValue(null);
 
-      await service.getExtensionStatus('company-xyz');
+      await service.getExtensionStatus('organization-xyz');
 
       expect(prisma.channelListing.count).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining({ companyId: 'company-xyz' }),
+          where: expect.objectContaining({ organizationId: 'organization-xyz' }),
         }),
       );
       expect(prisma.channelScrapeSnapshot.count).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { companyId: 'company-xyz' } }),
+        expect.objectContaining({ where: { organizationId: 'organization-xyz' } }),
       );
       expect(prisma.channelScrapeRun.findFirst).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { companyId: 'company-xyz' } }),
+        expect.objectContaining({ where: { organizationId: 'organization-xyz' } }),
       );
       expect(prisma.channelAccountDailyKpiSnapshot.findFirst).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            companyId: 'company-xyz',
+            organizationId: 'organization-xyz',
             source: 'wing',
             kpiType: 'wing_itemwinner_kpi',
           }),

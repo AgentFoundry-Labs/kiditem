@@ -75,22 +75,22 @@ export class AdStrategyService {
   /** ABC 등급 규칙 기반 recommendations + 요약. */
   async getRules(
     _period: '7d' | '14d' | 'month',
-    companyId: string,
+    organizationId: string,
   ): Promise<AdRulesData> {
-    const recommendations = await this.buildActions(companyId);
+    const recommendations = await this.buildActions(organizationId);
     return toAdRulesData(recommendations);
   }
 
   /** 주간 액션 플랜 — strategy context 한 번 hydrate 후 4 sub-service 조립. */
   async getWeeklyPlan(
     period: '7d' | '14d' | 'month',
-    companyId: string,
+    organizationId: string,
   ): Promise<AdWeeklyPlan> {
     const { year, month } = getCurrentPeriod();
     const ctx = await loadStrategyContext(
       this.prisma,
       this.adConfigService,
-      companyId,
+      organizationId,
       year,
       month,
     );
@@ -132,12 +132,12 @@ export class AdStrategyService {
   /** AI agent 로 보강한 주간 플랜. agent 미정의/실패 시 원본 그대로 (graceful). */
   async getAiEnhancedPlan(
     period: '7d' | '14d' | 'month',
-    companyId: string,
+    organizationId: string,
   ): Promise<AdWeeklyPlan> {
-    const plan = await this.getWeeklyPlan(period, companyId);
+    const plan = await this.getWeeklyPlan(period, organizationId);
     const enhancedActions = await this.adRecommend.enhanceActionsWithAi(
       plan.actions,
-      companyId,
+      organizationId,
     );
     return { ...plan, actions: enhancedActions } satisfies AdWeeklyPlan;
   }
@@ -146,20 +146,20 @@ export class AdStrategyService {
    * urgent/high 만 필터 → 상위 20 → recommendation 카드. 계산기 기반 —
    * agent task 의존 없음 (B2b 복원).
    */
-  async getRecommendations(companyId: string): Promise<AdStrategyRecommendation[]> {
-    const actions = await this.buildActions(companyId);
+  async getRecommendations(organizationId: string): Promise<AdStrategyRecommendation[]> {
+    const actions = await this.buildActions(organizationId);
     return toRecommendationCards(actions);
   }
 
   /** Exposure analysis — ad aggregate + review + traffic + leadTime hydrate 후 ad-exposure 위임. */
-  async getExposureAnalysis(companyId: string): Promise<ExposureAnalysisData> {
+  async getExposureAnalysis(organizationId: string): Promise<ExposureAnalysisData> {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
     const [adAggAll, reviewAgg, recentReviewAgg] = await Promise.all([
       this.prisma.channelListingDailySnapshot.groupBy({
         by: ['listingId'],
-        where: { companyId },
+        where: { organizationId },
         _sum: {
           adSpend: true,
           adRevenue: true,
@@ -170,14 +170,14 @@ export class AdStrategyService {
       }),
       this.prisma.review.groupBy({
         by: ['listingId'],
-        where: { companyId, listingId: { not: null } },
+        where: { organizationId, listingId: { not: null } },
         _count: { id: true },
         _avg: { rating: true },
       }),
       this.prisma.review.groupBy({
         by: ['listingId'],
         where: {
-          companyId,
+          organizationId,
           listingId: { not: null },
           reviewedAt: { gte: thirtyDaysAgo },
         },
@@ -200,10 +200,10 @@ export class AdStrategyService {
 
     const [listings, trafficDailyRows, inventoryByOption, leadTimeByListing] =
       await Promise.all([
-        hydrateListings(this.prisma, companyId, listingIds),
+        hydrateListings(this.prisma, organizationId, listingIds),
         this.prisma.channelListingDailySnapshot.findMany({
           where: {
-            companyId,
+            organizationId,
             listingId: { in: listingIds },
             businessDate: { gte: since14d },
           },
@@ -214,8 +214,8 @@ export class AdStrategyService {
             trafficOrders: true,
           },
         }),
-        getInventorySnapshot(this.prisma, companyId, listingIds),
-        loadLeadTimeByListing(this.prisma, companyId, listingIds),
+        getInventorySnapshot(this.prisma, organizationId, listingIds),
+        loadLeadTimeByListing(this.prisma, organizationId, listingIds),
       ]);
 
     const adGroups = toAdAggregateRows(adAggAll);
@@ -310,12 +310,12 @@ export class AdStrategyService {
    */
   async registerCampaign(
     dto: RegisterCampaignDto,
-    companyId: string,
+    organizationId: string,
   ): Promise<{ ok: true; actionId: string; taskId: string | null }> {
     // 1. listingId 검증 (per-item IDOR guard)
     for (const listing of dto.listings) {
       const found = await this.prisma.channelListing.findFirst({
-        where: { id: listing.listingId, companyId, isDeleted: false },
+        where: { id: listing.listingId, organizationId, isDeleted: false },
         select: { id: true },
       });
       if (!found) {
@@ -328,7 +328,7 @@ export class AdStrategyService {
     // 2. 중복 캠페인 체크
     const existing = await this.prisma.adAction.findFirst({
       where: {
-        companyId,
+        organizationId,
         actionType: 'create_campaign',
         targetLabel: dto.campaignName,
         executeStatus: { in: ['queued', 'running', 'done'] },
@@ -360,7 +360,7 @@ export class AdStrategyService {
 
     const action = await this.prisma.adAction.create({
       data: {
-        companyId,
+        organizationId,
         actionType: 'create_campaign',
         targetType: 'campaign',
         targetLabel: dto.campaignName,
@@ -388,12 +388,12 @@ export class AdStrategyService {
   // ─────────────────────────────────────────────────────────────
 
   /** getRules / getRecommendations 공통 — strategy context hydrate 후 rule 평가. */
-  private async buildActions(companyId: string): Promise<AdStrategyAction[]> {
+  private async buildActions(organizationId: string): Promise<AdStrategyAction[]> {
     const { year, month } = getCurrentPeriod();
     const ctx = await loadStrategyContext(
       this.prisma,
       this.adConfigService,
-      companyId,
+      organizationId,
       year,
       month,
     );

@@ -61,7 +61,7 @@ describe('PanelSseClient', () => {
       type: 'upsert', seq: 1, item: {
         id: 'x', kind: 'run', source: 'workflow', sourceId: 's', seq: 1,
         status: 'running', title: 't', deepLink: '/x', actorUserId: null,
-        visibility: 'company', createdAt: '2026-04-15T00:00:00Z',
+        visibility: 'organization', createdAt: '2026-04-15T00:00:00Z',
         updatedAt: '2026-04-15T00:00:00Z',
       },
     }) });

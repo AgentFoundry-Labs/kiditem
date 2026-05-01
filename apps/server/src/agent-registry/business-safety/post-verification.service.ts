@@ -10,11 +10,11 @@ export class PostVerificationService {
   async schedule(context: {
     agentId: string;
     runId: string;
-    companyId: string;
+    organizationId: string;
   }): Promise<void> {
     await this.wakeupService.requestWakeup({
       agentId: context.agentId,
-      companyId: context.companyId,
+      organizationId: context.organizationId,
       source: 'automation',
       reason: `PostVerification for run ${context.runId}`,
       triggerDetail: `verify:${context.runId}`,

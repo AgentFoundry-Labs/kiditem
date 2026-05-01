@@ -11,24 +11,24 @@ export interface RangeAdMetrics {
 /**
  * Period ad aggregation — sums additive ad metrics from
  * `ChannelListingDailySnapshot` over the requested half-open `[from, to)`
- * window scoped to a company.
+ * window scoped to a organization.
  *
  * Daily facts are the single source-of-truth for listing/day ad metrics;
  * period views derive via SUM. Caller-side ROAS/CTR/CVR must use the shared
  * `ratio-recompute` helper — provider ratios are not stored on additive
  * columns.
  *
- * Multi-tenant: every read is scoped by `companyId`.
+ * Multi-tenant: every read is scoped by `organizationId`.
  */
 export async function aggregateAdForRange(
   prisma: PrismaService,
-  companyId: string,
+  organizationId: string,
   from: Date,
   to: Date,
 ): Promise<RangeAdMetrics> {
   const agg = await prisma.channelListingDailySnapshot.aggregate({
     where: {
-      companyId,
+      organizationId,
       businessDate: { gte: from, lt: to },
     },
     _sum: {

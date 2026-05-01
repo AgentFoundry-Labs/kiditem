@@ -35,9 +35,9 @@ export class AdCampaignsService {
   async getCampaigns(
     period: AdPeriod,
     campaignName: string | undefined,
-    companyId: string,
+    organizationId: string,
   ): Promise<AdCampaignSnapshot[]> {
-    const rollups = await findCampaignRollups(this.prisma, companyId, period, campaignName);
+    const rollups = await findCampaignRollups(this.prisma, organizationId, period, campaignName);
     const rollupsWithListing = rollups.filter(
       (r): r is typeof r & { listingId: string } => r.listingId != null,
     );
@@ -46,7 +46,7 @@ export class AdCampaignsService {
     const listingIds = Array.from(
       new Set(rollupsWithListing.map((r) => r.listingId)),
     );
-    const listingMap = await findScopedAdListings(this.prisma, companyId, listingIds);
+    const listingMap = await findScopedAdListings(this.prisma, organizationId, listingIds);
 
     return rollupsWithListing.flatMap((rollup) => {
       const listing = listingMap.get(rollup.listingId);
@@ -63,12 +63,12 @@ export class AdCampaignsService {
   async getTrends(
     period: AdPeriod,
     days: number | undefined,
-    companyId: string,
+    organizationId: string,
   ): Promise<AdTrendsData> {
     const dayCount = period ? periodToDays(period) : Math.min(days ?? 14, 90);
-    const rows = await findAdTrendDailyRows(this.prisma, companyId, dayCount);
+    const rows = await findAdTrendDailyRows(this.prisma, organizationId, dayCount);
     const dailyAggregates = aggregateDailyAdRows(rows);
-    const gradeBudget = await findGradeBudgetTotals(this.prisma, companyId, rows);
+    const gradeBudget = await findGradeBudgetTotals(this.prisma, organizationId, rows);
     return toAdTrendsData({ dailyAggregates, gradeBudget });
   }
 }

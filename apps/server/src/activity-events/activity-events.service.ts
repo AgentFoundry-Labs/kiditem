@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 interface CreateActivityEventInput {
-  companyId: string;
+  organizationId: string;
   objectType: string;
   objectId: string;
   eventType: string;
@@ -39,13 +39,13 @@ export class ActivityEventsService {
     });
   }
 
-  async findByCompany(
-    companyId: string,
+  async findByOrganization(
+    organizationId: string,
     query: { objectType?: string; eventType?: string; limit?: number },
   ) {
     return this.prisma.activityEvent.findMany({
       where: {
-        companyId,
+        organizationId,
         ...(query.objectType && { objectType: query.objectType }),
         ...(query.eventType && { eventType: query.eventType }),
       },

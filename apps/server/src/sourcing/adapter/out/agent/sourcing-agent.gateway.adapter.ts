@@ -12,11 +12,11 @@ export class SourcingAgentGatewayAdapter implements SourcingAgentGatewayPort {
 
   async scrapeUrl(request: SourcingScrapeRequest): Promise<SourcingScrapeResult> {
     const result = await this.agentRegistry.runByType('sourcing', {
-      companyId: request.companyId,
+      organizationId: request.organizationId,
       extra: {
         action: 'scrape_url',
         url: request.url,
-        company_id: request.companyId,
+        organization_id: request.organizationId,
       },
     });
     return { taskId: result.taskId };

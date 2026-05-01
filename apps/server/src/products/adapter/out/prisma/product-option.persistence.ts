@@ -9,7 +9,7 @@ import { mapPrismaError } from '../../../util/prisma-error';
  * Tenant-scoped Prisma writers + intra-transaction reads for `ProductOption`.
  *
  * Every helper takes a Prisma client (`Prisma.TransactionClient` or
- * `PrismaService`) as the first argument and binds `companyId` on the actual
+ * `PrismaService`) as the first argument and binds `organizationId` on the actual
  * write/read predicate. The OptionsService keeps `$transaction` ownership;
  * these helpers are deliberately not aware of when to open one.
  *
@@ -22,7 +22,7 @@ import { mapPrismaError } from '../../../util/prisma-error';
 export type OptionTxClient = Prisma.TransactionClient | PrismaService;
 
 /**
- * Atomically increment `MasterProduct.optionCounter` for `(masterId, companyId,
+ * Atomically increment `MasterProduct.optionCounter` for `(masterId, organizationId,
  * isDeleted: false)` and re-read the post-increment `{code, optionCounter}`.
  *
  * Combines the TOCTOU guard (filter on `isDeleted: false`) with the counter
@@ -35,16 +35,16 @@ export type OptionTxClient = Prisma.TransactionClient | PrismaService;
  */
 export async function incrementMasterOptionCounter(
   tx: Prisma.TransactionClient,
-  companyId: string,
+  organizationId: string,
   masterId: string,
 ): Promise<{ code: string; optionCounter: number }> {
   const { count } = await tx.masterProduct.updateMany({
-    where: { id: masterId, companyId, isDeleted: false },
+    where: { id: masterId, organizationId, isDeleted: false },
     data: { optionCounter: { increment: 1 } },
   });
   if (count === 0) throw new NotFoundException('master not found or deleted');
   const master = await tx.masterProduct.findFirst({
-    where: { id: masterId, companyId, isDeleted: false },
+    where: { id: masterId, organizationId, isDeleted: false },
     select: { code: true, optionCounter: true },
   });
   if (!master) throw new NotFoundException('master not found or deleted');
@@ -54,7 +54,7 @@ export async function incrementMasterOptionCounter(
 /**
  * Persist a new `ProductOption` row with the system-managed fields hard-pinned
  * regardless of caller payload:
- *   - `companyId` from `@CurrentCompany()` (never DTO).
+ *   - `organizationId` from `@CurrentOrganization()` (never DTO).
  *   - `masterId` from the validated DTO that was used to increment the
  *     counter (never re-derived from the create payload).
  *   - `availableStock: null` — ADR-0014 (BundleStockService is sole writer).
@@ -64,7 +64,7 @@ export async function incrementMasterOptionCounter(
  */
 export async function createOptionWithSku(
   tx: Prisma.TransactionClient,
-  companyId: string,
+  organizationId: string,
   masterId: string,
   sku: string,
   data: Record<string, unknown>,
@@ -73,7 +73,7 @@ export async function createOptionWithSku(
     return await tx.productOption.create({
       data: {
         ...data,
-        companyId,
+        organizationId,
         masterId,
         sku,
         availableStock: null,
@@ -89,11 +89,11 @@ export async function createOptionWithSku(
  */
 export async function findCurrentOption(
   tx: Prisma.TransactionClient,
-  companyId: string,
+  organizationId: string,
   id: string,
 ): Promise<ProductOption> {
   const row = await tx.productOption.findFirst({
-    where: { id, companyId, isDeleted: false },
+    where: { id, organizationId, isDeleted: false },
   });
   if (!row) throw new NotFoundException('option not found');
   return row;
@@ -101,16 +101,16 @@ export async function findCurrentOption(
 
 /**
  * Reject `isBundle=true → false` flips when the option still owns
- * `BundleComponent` rows. Both predicates carry `companyId` so a stale
+ * `BundleComponent` rows. Both predicates carry `organizationId` so a stale
  * cross-tenant row cannot block the patch.
  */
 export async function assertNoBundleComponents(
   tx: Prisma.TransactionClient,
-  companyId: string,
+  organizationId: string,
   bundleOptionId: string,
 ): Promise<void> {
   const count = await tx.bundleComponent.count({
-    where: { bundleOptionId, companyId },
+    where: { bundleOptionId, organizationId },
   });
   if (count > 0) {
     throw new ConflictException('bundle has components; cannot set isBundle=false');
@@ -123,11 +123,11 @@ export async function assertNoBundleComponents(
  */
 export async function assertNotUsedAsComponent(
   tx: Prisma.TransactionClient,
-  companyId: string,
+  organizationId: string,
   componentOptionId: string,
 ): Promise<void> {
   const count = await tx.bundleComponent.count({
-    where: { componentOptionId, companyId },
+    where: { componentOptionId, organizationId },
   });
   if (count > 0) {
     throw new ConflictException('option is used as component; cannot set isBundle=true');
@@ -135,25 +135,25 @@ export async function assertNotUsedAsComponent(
 }
 
 /**
- * Tenant-scoped option patch. `updateMany({ id, companyId, isDeleted: false })`
+ * Tenant-scoped option patch. `updateMany({ id, organizationId, isDeleted: false })`
  * keeps the bare-id write off the SQL path entirely; the count guard catches
  * "row exists in another tenant or is already soft-deleted" without reading
  * the row first.
  */
 export async function applyOptionPatch(
   tx: Prisma.TransactionClient,
-  companyId: string,
+  organizationId: string,
   id: string,
   data: Prisma.ProductOptionUncheckedUpdateInput,
 ): Promise<ProductOption> {
   try {
     const { count } = await tx.productOption.updateMany({
-      where: { id, companyId, isDeleted: false },
+      where: { id, organizationId, isDeleted: false },
       data,
     });
     if (count === 0) throw new NotFoundException('option not found');
     const updated = await tx.productOption.findFirst({
-      where: { id, companyId, isDeleted: false },
+      where: { id, organizationId, isDeleted: false },
     });
     if (!updated) throw new NotFoundException('option not found');
     return updated;
@@ -167,11 +167,11 @@ export async function applyOptionPatch(
  */
 export async function softDeleteOptionRow(
   tx: Prisma.TransactionClient,
-  companyId: string,
+  organizationId: string,
   id: string,
 ): Promise<void> {
   const { count } = await tx.productOption.updateMany({
-    where: { id, companyId, isDeleted: false },
+    where: { id, organizationId, isDeleted: false },
     data: { isDeleted: true, deletedAt: new Date() },
   });
   if (count === 0) throw new NotFoundException('option not found');
@@ -185,12 +185,12 @@ export async function softDeleteOptionRow(
  */
 export async function restoreOptionRow(
   db: OptionTxClient,
-  companyId: string,
+  organizationId: string,
   id: string,
 ): Promise<void> {
   try {
     const { count } = await db.productOption.updateMany({
-      where: { id, companyId, isDeleted: true },
+      where: { id, organizationId, isDeleted: true },
       data: { isDeleted: false, deletedAt: null },
     });
     if (count === 0) throw new NotFoundException('option not found or not deleted');
@@ -206,11 +206,11 @@ export async function restoreOptionRow(
  */
 export async function findBundleIdsUsingComponent(
   tx: Prisma.TransactionClient,
-  companyId: string,
+  organizationId: string,
   componentOptionId: string,
 ): Promise<string[]> {
   const affected = await tx.bundleComponent.findMany({
-    where: { companyId, componentOptionId },
+    where: { organizationId, componentOptionId },
     select: { bundleOptionId: true },
   });
   return affected.map((r) => r.bundleOptionId);

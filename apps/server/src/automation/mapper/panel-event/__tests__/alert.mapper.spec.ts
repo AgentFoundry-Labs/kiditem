@@ -4,14 +4,14 @@ import { alertPanelMapper } from '../alert.mapper';
 import type { Alert } from '@prisma/client';
 
 const ALERT_ID = '11111111-1111-1111-1111-111111111111';
-const COMPANY_ID = '22222222-2222-2222-2222-222222222222';
+const ORGANIZATION_ID = '22222222-2222-2222-2222-222222222222';
 const TARGET_ID = '33333333-3333-3333-3333-333333333333';
 
 const ACTION_TASK_ID = '44444444-4444-4444-4444-444444444444';
 
 const baseAlert: Alert = {
   id: ALERT_ID,
-  companyId: COMPANY_ID,
+  organizationId: ORGANIZATION_ID,
   targetType: 'master',
   targetId: TARGET_ID,
   type: 'rule_violation',
@@ -92,9 +92,9 @@ describe('alertPanelMapper', () => {
     },
   );
 
-  it('does not leak companyId to item output', () => {
+  it('does not leak organizationId to item output', () => {
     const item = alertPanelMapper.mapToItem(baseAlert);
-    expect((item as any).companyId).toBeUndefined();
+    expect((item as any).organizationId).toBeUndefined();
   });
 
   it('actionTaskId null pass-through', () => {

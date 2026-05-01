@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Inject, Param, Patch, Post } from '@nestjs/common';
-import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
+import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import {
   PICKING_PORT,
   type PickingPort,
@@ -13,27 +13,27 @@ export class PickingController {
   ) {}
 
   @Get()
-  findAll(@CurrentCompany() companyId: string) {
-    return this.picking.findAll(companyId);
+  findAll(@CurrentOrganization() organizationId: string) {
+    return this.picking.findAll(organizationId);
   }
 
   @Post('generate')
-  generate(@CurrentCompany() companyId: string) {
-    return this.picking.generate(companyId);
+  generate(@CurrentOrganization() organizationId: string) {
+    return this.picking.generate(organizationId);
   }
 
   @Patch(':id/items/:itemId')
   updateItem(
     @Param('id') id: string,
     @Param('itemId') itemId: string,
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Body() dto: UpdatePickingItemDto,
   ) {
-    return this.picking.updateItem(id, itemId, companyId, dto);
+    return this.picking.updateItem(id, itemId, organizationId, dto);
   }
 
   @Patch(':id/complete')
-  complete(@Param('id') id: string, @CurrentCompany() companyId: string) {
-    return this.picking.complete(id, companyId);
+  complete(@Param('id') id: string, @CurrentOrganization() organizationId: string) {
+    return this.picking.complete(id, organizationId);
   }
 }

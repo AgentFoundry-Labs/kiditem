@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ThumbnailAutoService } from '../application/service/thumbnail-auto.service';
 
-const COMPANY_ID = 'company-1';
+const ORGANIZATION_ID = 'organization-1';
 
 describe('ThumbnailAutoService', () => {
   it('wraps auto generation scheduling in a HeartbeatRun visible to the agent tab', async () => {
@@ -32,18 +32,18 @@ describe('ThumbnailAutoService', () => {
       eventEmitter as never,
     );
 
-    const result = await service.runBatch(COMPANY_ID, 5);
+    const result = await service.runBatch(ORGANIZATION_ID, 5);
 
     expect(result).toEqual({ ...batchResult, runId: 'run-1' });
     expect(prisma.heartbeatRun.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         agentId: 'agent-1',
-        companyId: COMPANY_ID,
+        organizationId: ORGANIZATION_ID,
         status: 'running',
       }),
       select: { id: true },
     });
-    expect(generationService.createAutoBatch).toHaveBeenCalledWith(COMPANY_ID, 5);
+    expect(generationService.createAutoBatch).toHaveBeenCalledWith(ORGANIZATION_ID, 5);
     expect(prisma.heartbeatRun.update).toHaveBeenCalledWith({
       where: { id: 'run-1' },
       data: expect.objectContaining({

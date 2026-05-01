@@ -18,16 +18,16 @@ export class SalesPlansService {
     };
   }
 
-  async findAll(companyId: string) {
+  async findAll(organizationId: string) {
     return this.prisma.salesPlan.findMany({
-      where: { companyId },
+      where: { organizationId },
       orderBy: { period: 'desc' },
     });
   }
 
-  async create(companyId: string, dto: CreateSalesPlanDto) {
+  async create(organizationId: string, dto: CreateSalesPlanDto) {
     const existing = await this.prisma.salesPlan.findFirst({
-      where: { companyId, period: dto.period },
+      where: { organizationId, period: dto.period },
     });
 
     if (existing) {
@@ -36,7 +36,7 @@ export class SalesPlansService {
 
     return this.prisma.salesPlan.create({
       data: {
-        companyId,
+        organizationId,
         period: dto.period,
         targetRevenue: dto.targetRevenue ?? 0,
         targetOrders: dto.targetOrders ?? 0,
@@ -46,9 +46,9 @@ export class SalesPlansService {
     });
   }
 
-  async update(id: string, companyId: string, dto: UpdateSalesPlanDto) {
+  async update(id: string, organizationId: string, dto: UpdateSalesPlanDto) {
     const existing = await this.prisma.salesPlan.findFirst({
-      where: { id, companyId },
+      where: { id, organizationId },
     });
     if (!existing) {
       throw new NotFoundException('판매 계획을 찾을 수 없습니다');
@@ -60,9 +60,9 @@ export class SalesPlansService {
     });
   }
 
-  async syncActuals(id: string, companyId: string) {
+  async syncActuals(id: string, organizationId: string) {
     const plan = await this.prisma.salesPlan.findFirst({
-      where: { id, companyId },
+      where: { id, organizationId },
     });
     if (!plan) {
       throw new NotFoundException('판매 계획을 찾을 수 없습니다');
@@ -73,7 +73,7 @@ export class SalesPlansService {
     const [orderAgg, metrics] = await Promise.all([
       this.prisma.order.aggregate({
         where: {
-          companyId,
+          organizationId,
           orderedAt: {
             gte: from,
             lt: to,
@@ -83,7 +83,7 @@ export class SalesPlansService {
         _sum: { totalPrice: true },
         _count: { id: true },
       }),
-      buildPerListingMetrics(this.prisma, companyId, from, to),
+      buildPerListingMetrics(this.prisma, organizationId, from, to),
     ]);
     const actualProfit = metrics.reduce((sum, metric) => sum + metric.netProfit, 0);
 
@@ -97,9 +97,9 @@ export class SalesPlansService {
     });
   }
 
-  async delete(id: string, companyId: string) {
+  async delete(id: string, organizationId: string) {
     const existing = await this.prisma.salesPlan.findFirst({
-      where: { id, companyId },
+      where: { id, organizationId },
     });
     if (!existing) {
       throw new NotFoundException('판매 계획을 찾을 수 없습니다');

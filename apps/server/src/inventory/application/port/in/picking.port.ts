@@ -11,13 +11,13 @@ export type UpdatePickingItemInput = {
 };
 
 export interface PickingPort {
-  findAll(companyId: string): Promise<PickingListRow[]>;
-  generate(companyId: string): Promise<PickingListRow>;
+  findAll(organizationId: string): Promise<PickingListRow[]>;
+  generate(organizationId: string): Promise<PickingListRow>;
   updateItem(
     listId: string,
     itemId: string,
-    companyId: string,
+    organizationId: string,
     dto: UpdatePickingItemInput,
   ): Promise<PickingItemRow>;
-  complete(id: string, companyId: string): Promise<PickingListRow>;
+  complete(id: string, organizationId: string): Promise<PickingListRow>;
 }

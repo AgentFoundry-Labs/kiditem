@@ -14,8 +14,8 @@ import {
   makeTestPrisma,
   resetDb,
   seedBaseFixture,
-  TEST_COMPANY_ID,
-  OTHER_COMPANY_ID,
+  TEST_ORGANIZATION_ID,
+  OTHER_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import { seedOrderWithLineItems } from '../../test-helpers/finance-seeds';
 
@@ -24,7 +24,7 @@ describe('AdStrategy flow (PG integration)', () => {
   let service: AdStrategyService;
 
   async function seedGradedListing(params: {
-    companyId: string;
+    organizationId: string;
     abcGrade: 'A' | 'B' | 'C';
     adTier?: string | null;
     healthScore?: number | null;
@@ -37,7 +37,7 @@ describe('AdStrategy flow (PG integration)', () => {
   }) {
     const master = await prisma.masterProduct.create({
       data: {
-        companyId: params.companyId,
+        organizationId: params.organizationId,
         code: `M-${params.suffix}`,
         name: `Master ${params.suffix}`,
         abcGrade: params.abcGrade,
@@ -48,7 +48,7 @@ describe('AdStrategy flow (PG integration)', () => {
     });
     const option = await prisma.productOption.create({
       data: {
-        companyId: params.companyId,
+        organizationId: params.organizationId,
         masterId: master.id,
         sku: `SKU-${params.suffix}`,
         optionName: `Option ${params.suffix}`,
@@ -61,7 +61,7 @@ describe('AdStrategy flow (PG integration)', () => {
     });
     const listing = await prisma.channelListing.create({
       data: {
-        companyId: params.companyId,
+        organizationId: params.organizationId,
         masterId: master.id,
         channel: 'coupang',
         externalId: `EXT-${params.suffix}`,
@@ -70,7 +70,7 @@ describe('AdStrategy flow (PG integration)', () => {
     });
     const listingOption = await prisma.channelListingOption.create({
       data: {
-        companyId: params.companyId,
+        organizationId: params.organizationId,
         listingId: listing.id,
         optionId: option.id,
         externalOptionId: `VI-${params.suffix}`,
@@ -88,7 +88,7 @@ describe('AdStrategy flow (PG integration)', () => {
    * call-sites need not change.
    */
   async function seedAd(params: {
-    companyId: string;
+    organizationId: string;
     listingId: string;
     optionId?: string | null;
     externalId?: string;
@@ -110,7 +110,7 @@ describe('AdStrategy flow (PG integration)', () => {
     });
     return prisma.channelListingDailySnapshot.create({
       data: {
-        companyId: params.companyId,
+        organizationId: params.organizationId,
         listingId: params.listingId,
         channel: 'coupang',
         externalId: params.externalId ?? listing.externalId,
@@ -154,7 +154,7 @@ describe('AdStrategy flow (PG integration)', () => {
   describe('getRules / getWeeklyPlan — 3-grade listing scenario', () => {
     it('#1 A 등급 ROAS 480+ → recommendations 에 포함 + summary 집계', async () => {
       const a = await seedGradedListing({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
         adTier: '1차',
         healthScore: 80,
@@ -162,7 +162,7 @@ describe('AdStrategy flow (PG integration)', () => {
         suffix: 'A-EXPAND',
       });
       await seedOrderWithLineItems(prisma, {
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: 'ORD-A-EXPAND',
         orderedAt: new Date().toISOString(),
         shippingPrice: 2_000,
@@ -176,7 +176,7 @@ describe('AdStrategy flow (PG integration)', () => {
         ],
       });
       await seedAd({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         listingId: a.listing.id,
         optionId: a.option.id,
         spend: 2_000,
@@ -186,7 +186,7 @@ describe('AdStrategy flow (PG integration)', () => {
         conversions: 10,
       });
 
-      const rules = await service.getRules('14d', TEST_COMPANY_ID);
+      const rules = await service.getRules('14d', TEST_ORGANIZATION_ID);
 
       expect(rules.recommendations.length).toBeGreaterThanOrEqual(1);
       const aAction = rules.recommendations.find((row) => row.listing.listingId === a.listing.id);
@@ -201,18 +201,18 @@ describe('AdStrategy flow (PG integration)', () => {
 
     it('#2 3-grade listing 동시 평가 + priority 정렬', async () => {
       const a = await seedGradedListing({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
         adTier: '1차',
         suffix: 'A-GOOD',
       });
       const b = await seedGradedListing({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'B',
         suffix: 'B-OK',
       });
       const c = await seedGradedListing({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'C',
         availableStock: 0,
         adTier: '2차',
@@ -221,7 +221,7 @@ describe('AdStrategy flow (PG integration)', () => {
 
       // A: 공격 확장 (high)
       await seedAd({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         listingId: a.listing.id,
         optionId: a.option.id,
         spend: 10000,
@@ -232,7 +232,7 @@ describe('AdStrategy flow (PG integration)', () => {
       });
       // B: 유지 (low)
       await seedAd({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         listingId: b.listing.id,
         optionId: b.option.id,
         spend: 10000,
@@ -243,7 +243,7 @@ describe('AdStrategy flow (PG integration)', () => {
       });
       // C: 재고 0 + 광고 ON → 긴급
       await seedAd({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         listingId: c.listing.id,
         optionId: c.option.id,
         spend: 10000,
@@ -253,7 +253,7 @@ describe('AdStrategy flow (PG integration)', () => {
         conversions: 10,
       });
 
-      const plan = await service.getWeeklyPlan('14d', TEST_COMPANY_ID);
+      const plan = await service.getWeeklyPlan('14d', TEST_ORGANIZATION_ID);
 
       expect(plan.actions.length).toBe(3);
       // priority 정렬: urgent 먼저
@@ -265,7 +265,7 @@ describe('AdStrategy flow (PG integration)', () => {
 
     it('#3 getWeeklyPlan 의 issues + tierAnalysis + top20 shape', async () => {
       const a = await seedGradedListing({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
         adTier: '1차',
         costPrice: 10_000,
@@ -275,7 +275,7 @@ describe('AdStrategy flow (PG integration)', () => {
       // 14일 내 Ad history → adIssues 포착 (highSpend)
       for (let i = 0; i < 10; i++) {
         await seedAd({
-          companyId: TEST_COMPANY_ID,
+          organizationId: TEST_ORGANIZATION_ID,
           listingId: a.listing.id,
           optionId: a.option.id,
           daysAgo: i,
@@ -287,7 +287,7 @@ describe('AdStrategy flow (PG integration)', () => {
         });
       }
       await seedOrderWithLineItems(prisma, {
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: 'ORD-A-TOP',
         orderedAt: new Date().toISOString(),
         shippingPrice: 2_000,
@@ -301,7 +301,7 @@ describe('AdStrategy flow (PG integration)', () => {
         ],
       });
 
-      const plan = await service.getWeeklyPlan('14d', TEST_COMPANY_ID);
+      const plan = await service.getWeeklyPlan('14d', TEST_ORGANIZATION_ID);
 
       // Issues shape
       expect(plan.issues).toHaveProperty('zeroConversion');
@@ -327,26 +327,26 @@ describe('AdStrategy flow (PG integration)', () => {
     it('#4 urgent/high 만 필터링, 20개 limit', async () => {
       // urgent 1건 + high 2건 + low 1건 seed
       const c = await seedGradedListing({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'C',
         availableStock: 0,
         adTier: '3차',
         suffix: 'C-URGENT',
       });
       const a = await seedGradedListing({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
         suffix: 'A-HIGH',
       });
       const b = await seedGradedListing({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'B',
         suffix: 'B-LOW',
       });
 
       // urgent: 재고 0
       await seedAd({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         listingId: c.listing.id,
         optionId: c.option.id,
         spend: 5000,
@@ -356,7 +356,7 @@ describe('AdStrategy flow (PG integration)', () => {
       });
       // A-1 high: ROAS 500
       await seedAd({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         listingId: a.listing.id,
         optionId: a.option.id,
         spend: 10000,
@@ -367,7 +367,7 @@ describe('AdStrategy flow (PG integration)', () => {
       });
       // B-3 low: ROAS 310
       await seedAd({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         listingId: b.listing.id,
         optionId: b.option.id,
         spend: 10000,
@@ -377,7 +377,7 @@ describe('AdStrategy flow (PG integration)', () => {
         conversions: 10,
       });
 
-      const recs = await service.getRecommendations(TEST_COMPANY_ID);
+      const recs = await service.getRecommendations(TEST_ORGANIZATION_ID);
 
       expect(recs.length).toBeLessThanOrEqual(20);
       // low 는 제외
@@ -398,7 +398,7 @@ describe('AdStrategy flow (PG integration)', () => {
   describe('getExposureAnalysis', () => {
     it('#5 점수 집계 + factor shape', async () => {
       const listing = await seedGradedListing({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
         adTier: '1차',
         healthScore: 80,
@@ -410,7 +410,7 @@ describe('AdStrategy flow (PG integration)', () => {
       });
 
       await seedAd({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         listingId: listing.listing.id,
         optionId: listing.option.id,
         spend: 10000,
@@ -423,7 +423,7 @@ describe('AdStrategy flow (PG integration)', () => {
       // Review seed (listingId 필수)
       await prisma.review.createMany({
         data: Array.from({ length: 25 }, (_, i) => ({
-          companyId: TEST_COMPANY_ID,
+          organizationId: TEST_ORGANIZATION_ID,
           listingId: listing.listing.id,
           platform: 'coupang',
           rating: 5,
@@ -438,8 +438,8 @@ describe('AdStrategy flow (PG integration)', () => {
       todayUpdate.setHours(0, 0, 0, 0);
       await prisma.channelListingDailySnapshot.update({
         where: {
-          companyId_listingId_businessDate: {
-            companyId: TEST_COMPANY_ID,
+          organizationId_listingId_businessDate: {
+            organizationId: TEST_ORGANIZATION_ID,
             listingId: listing.listing.id,
             businessDate: todayUpdate,
           },
@@ -452,7 +452,7 @@ describe('AdStrategy flow (PG integration)', () => {
         },
       });
 
-      const result = await service.getExposureAnalysis(TEST_COMPANY_ID);
+      const result = await service.getExposureAnalysis(TEST_ORGANIZATION_ID);
 
       expect(result.scores.length).toBe(1);
       const score = result.scores[0];
@@ -472,7 +472,7 @@ describe('AdStrategy flow (PG integration)', () => {
     it('#6 urgentActions: factor score <30 listing 만 추출', async () => {
       // 점수 낮은 listing: 리뷰 0, 광고 있으나 ROAS 낮음
       const weak = await seedGradedListing({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'C',
         healthScore: 10,
         availableStock: 0,
@@ -484,7 +484,7 @@ describe('AdStrategy flow (PG integration)', () => {
       });
 
       await seedAd({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         listingId: weak.listing.id,
         optionId: weak.option.id,
         spend: 100000,
@@ -494,7 +494,7 @@ describe('AdStrategy flow (PG integration)', () => {
         conversions: 2,
       });
 
-      const result = await service.getExposureAnalysis(TEST_COMPANY_ID);
+      const result = await service.getExposureAnalysis(TEST_ORGANIZATION_ID);
 
       expect(result.urgentActions.length).toBeGreaterThanOrEqual(1);
       const urgent = result.urgentActions.find(
@@ -519,14 +519,14 @@ describe('AdStrategy flow (PG integration)', () => {
             operationMode: 'manual',
             listings: [{ listingId: fakeListingId }],
           },
-          TEST_COMPANY_ID,
+          TEST_ORGANIZATION_ID,
         ),
       ).rejects.toThrow(NotFoundException);
     });
 
     it('#8 cross-tenant listingId → NotFoundException (IDOR guard)', async () => {
       const foreign = await seedGradedListing({
-        companyId: OTHER_COMPANY_ID,
+        organizationId: OTHER_ORGANIZATION_ID,
         abcGrade: 'A',
         suffix: 'FOREIGN',
       });
@@ -541,14 +541,14 @@ describe('AdStrategy flow (PG integration)', () => {
             operationMode: 'manual',
             listings: [{ listingId: foreign.listing.id }],
           },
-          TEST_COMPANY_ID,
+          TEST_ORGANIZATION_ID,
         ),
       ).rejects.toThrow(NotFoundException);
     });
 
     it('#9 soft-deleted listing → NotFoundException', async () => {
       const deleted = await seedGradedListing({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
         suffix: 'DELETED',
       });
@@ -567,14 +567,14 @@ describe('AdStrategy flow (PG integration)', () => {
             operationMode: 'manual',
             listings: [{ listingId: deleted.listing.id }],
           },
-          TEST_COMPANY_ID,
+          TEST_ORGANIZATION_ID,
         ),
       ).rejects.toThrow(NotFoundException);
     });
 
     it('#10 유효 listing → AdAction + ExecutionTask 생성', async () => {
       const listing = await seedGradedListing({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
         suffix: 'OK',
       });
@@ -590,7 +590,7 @@ describe('AdStrategy flow (PG integration)', () => {
           keywords: [{ keyword: 'kids toy', bidPrice: 200 }],
           targetRoas: 300,
         },
-        TEST_COMPANY_ID,
+        TEST_ORGANIZATION_ID,
       );
 
       expect(result.ok).toBe(true);
@@ -600,7 +600,7 @@ describe('AdStrategy flow (PG integration)', () => {
       const action = await prisma.adAction.findUniqueOrThrow({
         where: { id: result.actionId },
       });
-      expect(action.companyId).toBe(TEST_COMPANY_ID);
+      expect(action.organizationId).toBe(TEST_ORGANIZATION_ID);
       expect(action.actionType).toBe('create_campaign');
       expect(action.targetType).toBe('campaign');
       expect(action.targetLabel).toBe('OK campaign');
@@ -617,7 +617,7 @@ describe('AdStrategy flow (PG integration)', () => {
 
     it('#11 동일 campaignName 재등록 → ConflictException', async () => {
       const listing = await seedGradedListing({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
         suffix: 'DUP',
       });
@@ -630,10 +630,10 @@ describe('AdStrategy flow (PG integration)', () => {
         listings: [{ listingId: listing.listing.id }],
       };
 
-      await service.registerCampaign(dto, TEST_COMPANY_ID);
+      await service.registerCampaign(dto, TEST_ORGANIZATION_ID);
 
       await expect(
-        service.registerCampaign(dto, TEST_COMPANY_ID),
+        service.registerCampaign(dto, TEST_ORGANIZATION_ID),
       ).rejects.toThrow(ConflictException);
     });
   });
@@ -641,20 +641,20 @@ describe('AdStrategy flow (PG integration)', () => {
   describe('cross-tenant scope', () => {
     it('#12 다른 회사의 Ad 집계에 침범하지 않음', async () => {
       const own = await seedGradedListing({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
         adTier: '1차',
         suffix: 'OWN',
       });
       const foreign = await seedGradedListing({
-        companyId: OTHER_COMPANY_ID,
+        organizationId: OTHER_ORGANIZATION_ID,
         abcGrade: 'A',
         adTier: '1차',
         suffix: 'FOREIGN',
       });
 
       await seedAd({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         listingId: own.listing.id,
         optionId: own.option.id,
         spend: 10000,
@@ -664,7 +664,7 @@ describe('AdStrategy flow (PG integration)', () => {
         conversions: 10,
       });
       await seedAd({
-        companyId: OTHER_COMPANY_ID,
+        organizationId: OTHER_ORGANIZATION_ID,
         listingId: foreign.listing.id,
         optionId: foreign.option.id,
         spend: 10000,
@@ -674,12 +674,12 @@ describe('AdStrategy flow (PG integration)', () => {
         conversions: 10,
       });
 
-      const plan = await service.getWeeklyPlan('14d', TEST_COMPANY_ID);
+      const plan = await service.getWeeklyPlan('14d', TEST_ORGANIZATION_ID);
 
       expect(plan.actions).toHaveLength(1);
       expect(plan.actions[0].listing.listingId).toBe(own.listing.id);
 
-      const exposure = await service.getExposureAnalysis(TEST_COMPANY_ID);
+      const exposure = await service.getExposureAnalysis(TEST_ORGANIZATION_ID);
       expect(exposure.scores).toHaveLength(1);
       expect(exposure.scores[0].listing.listingId).toBe(own.listing.id);
     });
@@ -691,7 +691,7 @@ describe('AdStrategy flow (PG integration)', () => {
 
   describe('Wave C4 — channel state signals on getRules / getWeeklyPlan', () => {
     async function seedListingDaily(params: {
-      companyId: string;
+      organizationId: string;
       listingId: string;
       channel?: string;
       externalId: string;
@@ -705,7 +705,7 @@ describe('AdStrategy flow (PG integration)', () => {
     }) {
       return prisma.channelListingDailySnapshot.create({
         data: {
-          companyId: params.companyId,
+          organizationId: params.organizationId,
           listingId: params.listingId,
           channel: params.channel ?? 'coupang',
           externalId: params.externalId,
@@ -722,7 +722,7 @@ describe('AdStrategy flow (PG integration)', () => {
     }
 
     async function seedOptionDaily(params: {
-      companyId: string;
+      organizationId: string;
       listingId: string;
       listingOptionId: string;
       externalId: string;
@@ -732,7 +732,7 @@ describe('AdStrategy flow (PG integration)', () => {
     }) {
       return prisma.channelListingOptionDailySnapshot.create({
         data: {
-          companyId: params.companyId,
+          organizationId: params.organizationId,
           listingId: params.listingId,
           listingOptionId: params.listingOptionId,
           channel: 'coupang',
@@ -747,7 +747,7 @@ describe('AdStrategy flow (PG integration)', () => {
 
     it('attaches latest listing+option daily snapshot to action.channelState (C4-#1)', async () => {
       const a = await seedGradedListing({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
         adTier: '1차',
         suffix: 'C4-EV',
@@ -757,7 +757,7 @@ describe('AdStrategy flow (PG integration)', () => {
       // 2026-04-14 row so it remains the latest businessDate AND carries
       // the spend/revenue the rule engine needs.
       await seedListingDaily({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         listingId: a.listing.id,
         externalId: a.listing.externalId,
         businessDate: '2026-04-13',
@@ -766,7 +766,7 @@ describe('AdStrategy flow (PG integration)', () => {
       });
       await prisma.channelListingDailySnapshot.create({
         data: {
-          companyId: TEST_COMPANY_ID,
+          organizationId: TEST_ORGANIZATION_ID,
           listingId: a.listing.id,
           channel: 'coupang',
           externalId: a.listing.externalId,
@@ -783,7 +783,7 @@ describe('AdStrategy flow (PG integration)', () => {
         },
       });
       await seedOptionDaily({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         listingId: a.listing.id,
         listingOptionId: a.listingOption.id,
         externalId: a.listing.externalId,
@@ -792,7 +792,7 @@ describe('AdStrategy flow (PG integration)', () => {
         stockQty: 0,
       });
 
-      const rules = await service.getRules('14d', TEST_COMPANY_ID);
+      const rules = await service.getRules('14d', TEST_ORGANIZATION_ID);
       const action = rules.recommendations.find(
         (r) => r.listing.listingId === a.listing.id,
       );
@@ -809,14 +809,14 @@ describe('AdStrategy flow (PG integration)', () => {
 
     it('uses the deterministic hydrated primary option, not an arbitrary option daily row (C4-#1b)', async () => {
       const a = await seedGradedListing({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
         adTier: '1차',
         suffix: 'C4-MULTI',
       });
       const earlierOption = await prisma.productOption.create({
         data: {
-          companyId: TEST_COMPANY_ID,
+          organizationId: TEST_ORGANIZATION_ID,
           masterId: a.master.id,
           sku: 'SKU-C4-MULTI-EARLY',
           optionName: 'Option C4-MULTI EARLY',
@@ -829,7 +829,7 @@ describe('AdStrategy flow (PG integration)', () => {
       });
       const earlierListingOption = await prisma.channelListingOption.create({
         data: {
-          companyId: TEST_COMPANY_ID,
+          organizationId: TEST_ORGANIZATION_ID,
           listingId: a.listing.id,
           optionId: earlierOption.id,
           externalOptionId: 'VI-C4-MULTI-EARLY',
@@ -841,7 +841,7 @@ describe('AdStrategy flow (PG integration)', () => {
       // the strategy aggregate input AND the latest channel-state.
       await prisma.channelListingDailySnapshot.create({
         data: {
-          companyId: TEST_COMPANY_ID,
+          organizationId: TEST_ORGANIZATION_ID,
           listingId: a.listing.id,
           channel: 'coupang',
           externalId: a.listing.externalId,
@@ -855,7 +855,7 @@ describe('AdStrategy flow (PG integration)', () => {
         },
       });
       await seedOptionDaily({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         listingId: a.listing.id,
         listingOptionId: a.listingOption.id,
         externalId: a.listing.externalId,
@@ -864,7 +864,7 @@ describe('AdStrategy flow (PG integration)', () => {
         stockQty: 0,
       });
       await seedOptionDaily({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         listingId: a.listing.id,
         listingOptionId: earlierListingOption.id,
         externalId: a.listing.externalId,
@@ -873,7 +873,7 @@ describe('AdStrategy flow (PG integration)', () => {
         stockQty: 7,
       });
 
-      const rules = await service.getRules('14d', TEST_COMPANY_ID);
+      const rules = await service.getRules('14d', TEST_ORGANIZATION_ID);
       const action = rules.recommendations.find(
         (r) => r.listing.listingId === a.listing.id,
       );
@@ -893,13 +893,13 @@ describe('AdStrategy flow (PG integration)', () => {
       // present, the rule engine MUST NOT append the ' · 관측' evidence
       // suffix to `reason`.
       const a = await seedGradedListing({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
         adTier: '1차',
         suffix: 'C4-NOSNAP',
       });
       await seedAd({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         listingId: a.listing.id,
         optionId: a.option.id,
         spend: 10000,
@@ -909,7 +909,7 @@ describe('AdStrategy flow (PG integration)', () => {
         conversions: 10,
       });
 
-      const rules = await service.getRules('14d', TEST_COMPANY_ID);
+      const rules = await service.getRules('14d', TEST_ORGANIZATION_ID);
       const action = rules.recommendations.find(
         (r) => r.listing.listingId === a.listing.id,
       );
@@ -927,19 +927,19 @@ describe('AdStrategy flow (PG integration)', () => {
 
     it('cross-tenant — OTHER_COMPANY daily snapshot does not bleed into TEST_COMPANY action (C4-#3, H3 semantics)', async () => {
       const ours = await seedGradedListing({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
         adTier: '1차',
         suffix: 'C4-OURS',
       });
       const theirs = await seedGradedListing({
-        companyId: OTHER_COMPANY_ID,
+        organizationId: OTHER_ORGANIZATION_ID,
         abcGrade: 'A',
         adTier: '1차',
         suffix: 'C4-THEIRS',
       });
       await seedAd({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         listingId: ours.listing.id,
         optionId: ours.option.id,
         spend: 10000,
@@ -948,9 +948,9 @@ describe('AdStrategy flow (PG integration)', () => {
         impressions: 10000,
         conversions: 10,
       });
-      // Seed a noisy daily snapshot in the OTHER company — must not leak.
+      // Seed a noisy daily snapshot in the OTHER organization — must not leak.
       await seedListingDaily({
-        companyId: OTHER_COMPANY_ID,
+        organizationId: OTHER_ORGANIZATION_ID,
         listingId: theirs.listing.id,
         externalId: theirs.listing.externalId,
         businessDate: '2026-04-14',
@@ -958,7 +958,7 @@ describe('AdStrategy flow (PG integration)', () => {
         winnerGapPrice: -9999,
       });
 
-      const rules = await service.getRules('14d', TEST_COMPANY_ID);
+      const rules = await service.getRules('14d', TEST_ORGANIZATION_ID);
       const action = rules.recommendations.find(
         (r) => r.listing.listingId === ours.listing.id,
       );

@@ -9,7 +9,7 @@ import { Prisma } from '@prisma/client';
 import type { PrismaService } from '../../../../prisma/prisma.service';
 
 export interface UpsertAccountKpiInput {
-  companyId: string;
+  organizationId: string;
   channel: string;
   source: string;
   kpiType: string;
@@ -27,7 +27,7 @@ export interface UpsertAccountKpiInput {
  * similar provider KPI surfaces that cannot be attributed to one
  * listing).
  *
- * Idempotent on `(companyId, channel, source, businessDate, kpiType)`.
+ * Idempotent on `(organizationId, channel, source, businessDate, kpiType)`.
  * `normalizedJson` is the structured KPI payload reads consume;
  * `rawJson` carries the unmassaged provider blob for audit.
  *
@@ -47,8 +47,8 @@ export async function upsertChannelAccountKpi(
 
   return prisma.channelAccountDailyKpiSnapshot.upsert({
     where: {
-      companyId_channel_source_businessDate_kpiType: {
-        companyId: input.companyId,
+      organizationId_channel_source_businessDate_kpiType: {
+        organizationId: input.organizationId,
         channel: input.channel,
         source: input.source,
         businessDate: input.businessDate,
@@ -56,7 +56,7 @@ export async function upsertChannelAccountKpi(
       },
     },
     create: {
-      companyId: input.companyId,
+      organizationId: input.organizationId,
       channel: input.channel,
       source: input.source,
       kpiType: input.kpiType,

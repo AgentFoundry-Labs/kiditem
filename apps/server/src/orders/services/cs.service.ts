@@ -12,12 +12,12 @@ export class CsService {
       limit?: string | number;
       csStatus?: string;
     },
-    companyId: string,
+    organizationId: string,
   ) {
     const { page, limit, skip } = paginationParams(query);
 
     const where = {
-      companyId,
+      organizationId,
       ...(query.csStatus ? { csStatus: query.csStatus } : {}),
     };
 
@@ -31,7 +31,7 @@ export class CsService {
       this.prisma.cSRecord.count({ where }),
       this.prisma.cSRecord.groupBy({
         by: ['csStatus'],
-        where: { companyId },
+        where: { organizationId },
         _count: true,
       }),
     ]);
@@ -68,14 +68,14 @@ export class CsService {
       /** @deprecated Legacy frontend alias — Transform 이 listingId 로 이미 복사. Plan D 이후 제거 예정. */
       productId?: string;
     },
-    companyId: string,
+    organizationId: string,
   ) {
     // DTO @Transform 이 이미 listingId 로 매핑하지만, service 레벨에서도
     // 방어적 resolve (Transform 미동작 시나리오·testing 대비).
     const resolvedListingId = data.listingId ?? data.productId ?? null;
     return this.prisma.cSRecord.create({
       data: {
-        companyId,
+        organizationId,
         csType: data.csType,
         content: data.content,
         priority: data.priority ?? 'normal',

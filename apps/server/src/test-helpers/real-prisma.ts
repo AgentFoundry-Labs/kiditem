@@ -61,27 +61,27 @@ export async function resetDb(prisma: PrismaClient): Promise<void> {
 }
 
 /**
- * Test fixture — 테스트용 Company + User seed.
- * 각 테스트에서 직접 company/user 를 만들 필요 없이 공통 기반 제공.
+ * Test fixture — 테스트용 Organization + User seed.
+ * 각 테스트에서 직접 organization/user 를 만들 필요 없이 공통 기반 제공.
  */
-export const TEST_COMPANY_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
+export const TEST_ORGANIZATION_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
 export const TEST_USER_ID = 'f1234567-89ab-4cde-8f01-23456789abcd';
-export const OTHER_COMPANY_ID = 'b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e';
+export const OTHER_ORGANIZATION_ID = 'b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e';
 export const OTHER_USER_ID = 'e2345678-9abc-4def-8012-3456789abcde';
 
 /**
- * Sentinel value used in IDOR integration tests — seed OTHER_COMPANY_ID rows with
- * this value, then assert TEST_COMPANY_ID queries never surface it. A partial leak
+ * Sentinel value used in IDOR integration tests — seed OTHER_ORGANIZATION_ID rows with
+ * this value, then assert TEST_ORGANIZATION_ID queries never surface it. A partial leak
  * (sum of TEST + OTHER) wouldn't equal IDOR_SENTINEL exactly, so a stricter
  * positive-value assertion should accompany (e.g., expect(row.x).toBe(500)).
  */
 export const IDOR_SENTINEL = 999_999_999;
 
 export async function seedBaseFixture(prisma: PrismaClient): Promise<void> {
-  await prisma.company.createMany({
+  await prisma.organization.createMany({
     data: [
-      { id: TEST_COMPANY_ID, name: 'Test Co', slug: 'test-co' },
-      { id: OTHER_COMPANY_ID, name: 'Other Co', slug: 'other-co' },
+      { id: TEST_ORGANIZATION_ID, name: 'Test Co', slug: 'test-co' },
+      { id: OTHER_ORGANIZATION_ID, name: 'Other Co', slug: 'other-co' },
     ],
     skipDuplicates: true,
   });
@@ -89,7 +89,6 @@ export async function seedBaseFixture(prisma: PrismaClient): Promise<void> {
     data: [
       {
         id: TEST_USER_ID,
-        companyId: TEST_COMPANY_ID,
         email: 'test@test.local',
         name: 'Tester',
         role: 'owner',
@@ -97,11 +96,27 @@ export async function seedBaseFixture(prisma: PrismaClient): Promise<void> {
       },
       {
         id: OTHER_USER_ID,
-        companyId: OTHER_COMPANY_ID,
         email: 'other@test.local',
         name: 'Other Tester',
         role: 'owner',
         type: 'human',
+      },
+    ],
+    skipDuplicates: true,
+  });
+  await prisma.organizationMembership.createMany({
+    data: [
+      {
+        organizationId: TEST_ORGANIZATION_ID,
+        userId: TEST_USER_ID,
+        role: 'owner',
+        status: 'active',
+      },
+      {
+        organizationId: OTHER_ORGANIZATION_ID,
+        userId: OTHER_USER_ID,
+        role: 'owner',
+        status: 'active',
       },
     ],
     skipDuplicates: true,
@@ -112,16 +127,16 @@ export async function seedBaseFixture(prisma: PrismaClient): Promise<void> {
  * RLS-scoped pg client.
  *
  * Opens a raw `pg.Client` connected as `chatbot_readonly` (RLS-enforced role),
- * optionally sets `app.company_id` session variable, runs `fn`, and cleans up.
+ * optionally sets `app.organization_id` session variable, runs `fn`, and cleans up.
  *
  * 용도: Products domain RLS 4-matrix 검증 (filter set / no session / cross-tenant guess / option).
  * `chatbot_readonly` 역할은 `prisma/test-db-setup.sh` 가 테스트 DB 부팅 시 생성한다.
  *
- * @param companyId - UUID to set as `app.company_id`. `null` → no session var set (RLS → 0 rows).
+ * @param organizationId - UUID to set as `app.organization_id`. `null` → no session var set (RLS → 0 rows).
  * @param fn - consumer receiving the connected pg client.
  */
 export async function withChatbotReadonly<T>(
-  companyId: string | null,
+  organizationId: string | null,
   fn: (client: Client) => Promise<T>,
 ): Promise<T> {
   const testUrl = process.env.DATABASE_URL
@@ -134,8 +149,8 @@ export async function withChatbotReadonly<T>(
   const client = new Client({ connectionString: url });
   await client.connect();
   try {
-    if (companyId !== null) {
-      await client.query(`SET app.company_id = '${companyId}'`);
+    if (organizationId !== null) {
+      await client.query(`SET app.organization_id = '${organizationId}'`);
     }
     return await fn(client);
   } finally {

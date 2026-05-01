@@ -1,6 +1,6 @@
 // apps/server/src/orders/controllers/reviews.controller.ts
 import { Controller, Get, Query } from '@nestjs/common';
-import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
+import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
 import {
   ReviewListResponseSchema,
   type ReviewListResponse,
@@ -8,7 +8,7 @@ import {
 import { ReviewsService } from '../services/reviews.service';
 import { ListReviewsQueryDto } from '../dto/list-reviews.dto';
 
-// NOTE: no `@UseGuards`/`@UsePipes` — global APP_GUARD (CompanyScopeGuard)
+// NOTE: no `@UseGuards`/`@UsePipes` — global APP_GUARD (OrganizationScopeGuard)
 // + global ValidationPipe handle that. See apps/server/AGENTS.md.
 @Controller('reviews')
 export class ReviewsController {
@@ -16,10 +16,10 @@ export class ReviewsController {
 
   @Get()
   async list(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Query() query: ListReviewsQueryDto,
   ): Promise<ReviewListResponse> {
-    const response = await this.svc.list(companyId, query);
+    const response = await this.svc.list(organizationId, query);
     return ReviewListResponseSchema.parse(response);
   }
 }

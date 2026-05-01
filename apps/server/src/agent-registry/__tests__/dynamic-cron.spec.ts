@@ -50,7 +50,7 @@ const MOCK_AGENT = {
   id: 'agent-1',
   name: '광고 전략 에이전트',
   type: 'ad_strategy',
-  companyId: 'company-1',
+  organizationId: 'organization-1',
   schedule: '0 9 * * *',
   isActive: true,
 };

@@ -31,10 +31,10 @@ describe('AdStrategyAgentService', () => {
       const { service, agentRunner } = makeService();
       agentRunner.runByType.mockResolvedValue({ ok: true, taskId: 'task-1', agentType: 'ad_strategy' });
 
-      const result = await service.run({ companyId: 'c-1', dryRun: true });
+      const result = await service.run({ organizationId: 'c-1', dryRun: true });
 
       expect(agentRunner.runByType).toHaveBeenCalledWith('ad_strategy', {
-        companyId: 'c-1',
+        organizationId: 'c-1',
         dryRun: true,
       });
       expect(result.ok).toBe(true);
@@ -42,14 +42,14 @@ describe('AdStrategyAgentService', () => {
   });
 
   describe('getStatus', () => {
-    it('scopes task lookup to the current company', async () => {
+    it('scopes task lookup to the current organization', async () => {
       const { service, prisma } = makeService();
-      prisma.agentTask.findFirst.mockResolvedValue({ id: 'task-1', companyId: 'c-1' });
+      prisma.agentTask.findFirst.mockResolvedValue({ id: 'task-1', organizationId: 'c-1' });
 
       await service.getStatus('task-1', 'c-1');
 
       expect(prisma.agentTask.findFirst).toHaveBeenCalledWith({
-        where: { id: 'task-1', companyId: 'c-1' },
+        where: { id: 'task-1', organizationId: 'c-1' },
         include: { logs: { orderBy: { createdAt: 'desc' }, take: 10 } },
       });
     });

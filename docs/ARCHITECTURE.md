@@ -59,7 +59,7 @@ Current top-level backend owners/platforms:
 ```
 activity-events  advertising  agent-registry  ai  analytics  auth
 automation       channels     chat            common
-companies        feature-gate finance         inventory
+organizations        feature-gate finance         inventory
 orders           prisma       products        rules
 sourcing         test-helpers types           uploads
 ```
@@ -104,10 +104,10 @@ are still shared or not yet folded into a group, for example `ad-ops`,
 - Prisma `db push` does not express every operational constraint. Re-run
   `npm run db:3layer-setup` when schema sync needs partial indexes, CHECK
   constraints, or chatbot/agent RLS policies.
-- NestJS uses the owner DB role and must pass `companyId` explicitly from
-  `@CurrentCompany()` into tenant-owned reads and writes.
+- NestJS uses the owner DB role and must pass `organizationId` explicitly from
+  `@CurrentOrganization()` into tenant-owned reads and writes.
 - Chatbot/agent read-only DB access uses `chatbot_readonly`/agent read URLs
-  with `app.company_id` RLS policies where configured.
+  with `app.organization_id` RLS policies where configured.
 - Native PostgreSQL enums are not used; use `String` plus app-level validation.
 - Unsafe raw SQL APIs are banned. Use Prisma tagged templates and tenant
   predicates for tenant-owned tables.

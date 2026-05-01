@@ -8,10 +8,10 @@ import type { PanelRunMapper } from './types';
  *
  * service 호출 예 (panel.service.ts):
  *   const gen = await prisma.thumbnailGeneration.findFirst({
- *     where: { id, companyId }, include: { product: { select: { id: true, title: true } } }
+ *     where: { id, organizationId }, include: { product: { select: { id: true, title: true } } }
  *   });
  *   const input: ImageAdapterInput = { generation: gen, product: { id: gen.product.id, title: gen.product.title } };
- *   const item = imagePanelMapper.mapToItem(input, companyId);
+ *   const item = imagePanelMapper.mapToItem(input, organizationId);
  */
 export interface ImageAdapterInput {
   generation: ThumbnailGeneration;
@@ -23,7 +23,7 @@ const VALID_STATUS = new Set<PanelRunItemType['status']>(PanelRunItem.shape.stat
 
 export const imagePanelMapper: PanelRunMapper<ImageAdapterInput> = {
   source: 'image',
-  mapToItem(input, _companyId) {
+  mapToItem(input, _organizationId) {
     const { generation, product } = input;
 
     // ADR-0011 Rule 4: NO mapping table — pass-through only.
@@ -55,6 +55,6 @@ export const imagePanelMapper: PanelRunMapper<ImageAdapterInput> = {
     };
   },
   defaultVisibility(input) {
-    return input.generation.triggeredByUserId == null ? 'company' : 'user';
+    return input.generation.triggeredByUserId == null ? 'organization' : 'user';
   },
 };

@@ -11,9 +11,9 @@
 |---|---|---|
 | CSRecord | `cs_records` | - |
 | Order | `orders` | 채널-agnostic 주문 aggregate. Coupang 등 채널별 raw payload 는 metadata Json. 라인 아이템은 OrderLineItem. |
-| OrderLineItem | `order_line_items` | 주문 라인 아이템 — 1 SKU 단위. listingOption → option 으로 SKU 해상도. companyId 는 IDOR 방어용 denormalize (B2a 패턴). |
+| OrderLineItem | `order_line_items` | 주문 라인 아이템 — 1 SKU 단위. listingOption → option 으로 SKU 해상도. order FK 는 organizationId 를 함께 참조해 cross-organization mismatch 를 DB 가 차단한다. |
 | OrderReturn | `order_returns` | 채널-agnostic 반품 aggregate. 반품 item 은 OrderReturnLineItem 으로 정규화. type=RETURN/EXCHANGE 구분 first-class. |
-| OrderReturnLineItem | `order_return_line_items` | 반품 라인 아이템 — 반품 건 내 SKU 단위 상세. companyId 는 IDOR 방어용 denormalize. |
+| OrderReturnLineItem | `order_return_line_items` | 반품 라인 아이템 — 반품 건 내 SKU 단위 상세. return FK 는 organizationId 를 함께 참조해 cross-organization mismatch 를 DB 가 차단한다. |
 | Review | `reviews` | - |
 | Settlement | `settlements` | 월별 정산 (예상 vs 실제 비교). |
 | Shipment | `shipments` | - |
@@ -25,8 +25,8 @@
 erDiagram
   CSRecord {
     String id PK
-    String companyId FK
-    String orderId
+    String organizationId FK
+    String orderId FK
     String listingId FK
     String csType
     String csStatus
@@ -40,7 +40,7 @@ erDiagram
   }
   Order {
     String id PK
-    String companyId FK
+    String organizationId FK
     String platform
     String externalOrderId
     String externalNumber
@@ -65,7 +65,7 @@ erDiagram
   }
   OrderLineItem {
     String id PK
-    String companyId FK
+    String organizationId FK
     String orderId FK
     String listingOptionId FK
     String optionId FK
@@ -83,7 +83,7 @@ erDiagram
   }
   OrderReturn {
     String id PK
-    String companyId FK
+    String organizationId FK
     String orderId FK
     String platform
     String externalReturnId
@@ -103,7 +103,7 @@ erDiagram
   }
   OrderReturnLineItem {
     String id PK
-    String companyId FK
+    String organizationId FK
     String returnId FK
     String orderLineItemId FK
     String optionId FK
@@ -114,7 +114,7 @@ erDiagram
   }
   Review {
     String id PK
-    String companyId FK
+    String organizationId FK
     String listingId FK
     String platform
     Int rating
@@ -125,7 +125,7 @@ erDiagram
   }
   Settlement {
     String id PK
-    String companyId FK
+    String organizationId FK
     String period
     Int expectedAmount
     Int actualAmount
@@ -143,7 +143,7 @@ erDiagram
   }
   Shipment {
     String id PK
-    String companyId FK
+    String organizationId FK
     String orderId FK
     String listingId FK
     String optionId FK
@@ -160,8 +160,8 @@ erDiagram
   }
   UnshippedItem {
     String id PK
-    String companyId FK
-    String orderId
+    String organizationId FK
+    String orderId FK
     String listingId FK
     String optionId FK
     String productName
@@ -173,9 +173,11 @@ erDiagram
     DateTime notifiedAt
     DateTime createdAt
   }
+  Order o|--o{ CSRecord : "order"
   Order ||--o{ OrderLineItem : "order"
   Order o|--o{ OrderReturn : "order"
   Order o|--o{ Shipment : "order"
+  Order ||--o{ UnshippedItem : "order"
   OrderLineItem o|--o{ OrderReturnLineItem : "orderLineItem"
   OrderReturn ||--o{ OrderReturnLineItem : "return"
 ```
@@ -184,23 +186,23 @@ erDiagram
 
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
-| CSRecord | company | references external | Core | Company |
 | CSRecord | listing | references external | Core | ChannelListing |
-| Order | company | references external | Core | Company |
+| CSRecord | organization | references external | Core | Organization |
 | Order | listing | references external | Core | ChannelListing |
-| OrderLineItem | company | references external | Core | Company |
+| Order | organization | references external | Core | Organization |
 | OrderLineItem | listingOption | references external | Core | ChannelListingOption |
 | OrderLineItem | option | references external | Core | ProductOption |
-| OrderReturn | company | references external | Core | Company |
-| OrderReturnLineItem | company | references external | Core | Company |
+| OrderLineItem | organization | references external | Core | Organization |
+| OrderReturn | organization | references external | Core | Organization |
 | OrderReturnLineItem | option | references external | Core | ProductOption |
-| Review | company | references external | Core | Company |
+| OrderReturnLineItem | organization | references external | Core | Organization |
 | Review | listing | references external | Core | ChannelListing |
-| Settlement | company | references external | Core | Company |
-| Shipment | company | references external | Core | Company |
+| Review | organization | references external | Core | Organization |
+| Settlement | organization | references external | Core | Organization |
 | Shipment | listing | references external | Core | ChannelListing |
 | Shipment | option | references external | Core | ProductOption |
+| Shipment | organization | references external | Core | Organization |
 | Shipment | warehouse | references external | Inventory | Warehouse |
-| UnshippedItem | company | references external | Core | Company |
 | UnshippedItem | listing | references external | Core | ChannelListing |
 | UnshippedItem | option | references external | Core | ProductOption |
+| UnshippedItem | organization | references external | Core | Organization |

@@ -9,7 +9,7 @@ import { BundleComponentsService } from '../application/service/bundle-component
 import { StorageService } from '../../common/storage/storage.service';
 import {
   makeTestPrisma, resetDb, seedBaseFixture,
-  TEST_COMPANY_ID, OTHER_COMPANY_ID,
+  TEST_ORGANIZATION_ID, OTHER_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 
 describe('BundleComponentsService integration', () => {
@@ -40,140 +40,140 @@ describe('BundleComponentsService integration', () => {
 
   afterAll(async () => { await prisma.$disconnect(); });
 
-  async function setup(companyId: string) {
-    const m = await mastersSvc.create(companyId, { name: 'M' } as any);
-    const bundle = await optionsSvc.create(companyId, {
+  async function setup(organizationId: string) {
+    const m = await mastersSvc.create(organizationId, { name: 'M' } as any);
+    const bundle = await optionsSvc.create(organizationId, {
       masterId: m.id, optionName: 'Bundle', isBundle: true,
     } as any);
-    const comp = await optionsSvc.create(companyId, {
+    const comp = await optionsSvc.create(organizationId, {
       masterId: m.id, optionName: 'Comp',
     } as any);
     return { master: m, bundle, comp };
   }
 
   it('creates a bundle component and triggers recompute', async () => {
-    const { bundle, comp } = await setup(TEST_COMPANY_ID);
+    const { bundle, comp } = await setup(TEST_ORGANIZATION_ID);
     await prisma.inventory.create({
-      data: { companyId: TEST_COMPANY_ID, optionId: comp.id, currentStock: 20 },
+      data: { organizationId: TEST_ORGANIZATION_ID, optionId: comp.id, currentStock: 20 },
     });
-    const bc = await svc.create(TEST_COMPANY_ID, {
+    const bc = await svc.create(TEST_ORGANIZATION_ID, {
       bundleOptionId: bundle.id, componentOptionId: comp.id, qty: 2,
     });
-    expect(bc.companyId).toBe(TEST_COMPANY_ID);
+    expect(bc.organizationId).toBe(TEST_ORGANIZATION_ID);
     const updated = await prisma.productOption.findUniqueOrThrow({ where: { id: bundle.id } });
     expect(updated.availableStock).toBe(10);
   });
 
   it('rejects when bundleOption.isBundle=false', async () => {
-    const m = await mastersSvc.create(TEST_COMPANY_ID, { name: 'M' } as any);
-    const notBundle = await optionsSvc.create(TEST_COMPANY_ID, { masterId: m.id, optionName: 'X' } as any);
-    const comp = await optionsSvc.create(TEST_COMPANY_ID, { masterId: m.id, optionName: 'Y' } as any);
+    const m = await mastersSvc.create(TEST_ORGANIZATION_ID, { name: 'M' } as any);
+    const notBundle = await optionsSvc.create(TEST_ORGANIZATION_ID, { masterId: m.id, optionName: 'X' } as any);
+    const comp = await optionsSvc.create(TEST_ORGANIZATION_ID, { masterId: m.id, optionName: 'Y' } as any);
     await expect(
-      svc.create(TEST_COMPANY_ID, {
+      svc.create(TEST_ORGANIZATION_ID, {
         bundleOptionId: notBundle.id, componentOptionId: comp.id, qty: 1,
       }),
     ).rejects.toMatchObject({ status: 400 });
   });
 
   it('rejects nested bundle (component.isBundle=true)', async () => {
-    const m = await mastersSvc.create(TEST_COMPANY_ID, { name: 'M' } as any);
-    const b1 = await optionsSvc.create(TEST_COMPANY_ID, {
+    const m = await mastersSvc.create(TEST_ORGANIZATION_ID, { name: 'M' } as any);
+    const b1 = await optionsSvc.create(TEST_ORGANIZATION_ID, {
       masterId: m.id, optionName: 'B1', isBundle: true,
     } as any);
-    const b2 = await optionsSvc.create(TEST_COMPANY_ID, {
+    const b2 = await optionsSvc.create(TEST_ORGANIZATION_ID, {
       masterId: m.id, optionName: 'B2', isBundle: true,
     } as any);
     await expect(
-      svc.create(TEST_COMPANY_ID, {
+      svc.create(TEST_ORGANIZATION_ID, {
         bundleOptionId: b1.id, componentOptionId: b2.id, qty: 1,
       }),
     ).rejects.toMatchObject({ status: 400 });
   });
 
-  it('rejects cross-company component', async () => {
-    const { bundle } = await setup(TEST_COMPANY_ID);
-    const other = await setup(OTHER_COMPANY_ID);
+  it('rejects cross-organization component', async () => {
+    const { bundle } = await setup(TEST_ORGANIZATION_ID);
+    const other = await setup(OTHER_ORGANIZATION_ID);
     await expect(
-      svc.create(TEST_COMPANY_ID, {
+      svc.create(TEST_ORGANIZATION_ID, {
         bundleOptionId: bundle.id, componentOptionId: other.comp.id, qty: 1,
       }),
     ).rejects.toMatchObject({ status: 404 });
   });
 
-  it('rejects cross-company bundle option as not found', async () => {
-    const { comp } = await setup(TEST_COMPANY_ID);
-    const other = await setup(OTHER_COMPANY_ID);
+  it('rejects cross-organization bundle option as not found', async () => {
+    const { comp } = await setup(TEST_ORGANIZATION_ID);
+    const other = await setup(OTHER_ORGANIZATION_ID);
     await expect(
-      svc.create(TEST_COMPANY_ID, {
+      svc.create(TEST_ORGANIZATION_ID, {
         bundleOptionId: other.bundle.id, componentOptionId: comp.id, qty: 1,
       }),
     ).rejects.toMatchObject({ status: 404 });
   });
 
   it('rejects self reference', async () => {
-    const { bundle } = await setup(TEST_COMPANY_ID);
+    const { bundle } = await setup(TEST_ORGANIZATION_ID);
     await expect(
-      svc.create(TEST_COMPANY_ID, {
+      svc.create(TEST_ORGANIZATION_ID, {
         bundleOptionId: bundle.id, componentOptionId: bundle.id, qty: 1,
       }),
     ).rejects.toMatchObject({ status: 409 });
   });
 
   it('rejects when bundleOption is soft-deleted', async () => {
-    const { bundle, comp } = await setup(TEST_COMPANY_ID);
-    await optionsSvc.softDelete(TEST_COMPANY_ID, bundle.id);
+    const { bundle, comp } = await setup(TEST_ORGANIZATION_ID);
+    await optionsSvc.softDelete(TEST_ORGANIZATION_ID, bundle.id);
     await expect(
-      svc.create(TEST_COMPANY_ID, {
+      svc.create(TEST_ORGANIZATION_ID, {
         bundleOptionId: bundle.id, componentOptionId: comp.id, qty: 1,
       }),
     ).rejects.toMatchObject({ status: 404 });
   });
 
   it('rejects when componentOption is soft-deleted', async () => {
-    const { bundle, comp } = await setup(TEST_COMPANY_ID);
-    await optionsSvc.softDelete(TEST_COMPANY_ID, comp.id);
+    const { bundle, comp } = await setup(TEST_ORGANIZATION_ID);
+    await optionsSvc.softDelete(TEST_ORGANIZATION_ID, comp.id);
     await expect(
-      svc.create(TEST_COMPANY_ID, {
+      svc.create(TEST_ORGANIZATION_ID, {
         bundleOptionId: bundle.id, componentOptionId: comp.id, qty: 1,
       }),
     ).rejects.toMatchObject({ status: 404 });
   });
 
   it('updates qty and re-recomputes', async () => {
-    const { bundle, comp } = await setup(TEST_COMPANY_ID);
+    const { bundle, comp } = await setup(TEST_ORGANIZATION_ID);
     await prisma.inventory.create({
-      data: { companyId: TEST_COMPANY_ID, optionId: comp.id, currentStock: 20 },
+      data: { organizationId: TEST_ORGANIZATION_ID, optionId: comp.id, currentStock: 20 },
     });
-    const bc = await svc.create(TEST_COMPANY_ID, {
+    const bc = await svc.create(TEST_ORGANIZATION_ID, {
       bundleOptionId: bundle.id, componentOptionId: comp.id, qty: 2,
     });
-    await svc.update(TEST_COMPANY_ID, bc.id, { qty: 5 });
+    await svc.update(TEST_ORGANIZATION_ID, bc.id, { qty: 5 });
     const bundleAfter = await prisma.productOption.findUniqueOrThrow({ where: { id: bundle.id } });
     expect(bundleAfter.availableStock).toBe(4);
   });
 
   it('hard-deletes and re-recomputes', async () => {
-    const { bundle, comp } = await setup(TEST_COMPANY_ID);
+    const { bundle, comp } = await setup(TEST_ORGANIZATION_ID);
     await prisma.inventory.create({
-      data: { companyId: TEST_COMPANY_ID, optionId: comp.id, currentStock: 20 },
+      data: { organizationId: TEST_ORGANIZATION_ID, optionId: comp.id, currentStock: 20 },
     });
-    const bc = await svc.create(TEST_COMPANY_ID, {
+    const bc = await svc.create(TEST_ORGANIZATION_ID, {
       bundleOptionId: bundle.id, componentOptionId: comp.id, qty: 2,
     });
-    await svc.delete(TEST_COMPANY_ID, bc.id);
+    await svc.delete(TEST_ORGANIZATION_ID, bc.id);
     const bundleAfter = await prisma.productOption.findUniqueOrThrow({ where: { id: bundle.id } });
     expect(bundleAfter.availableStock).toBe(0);
   });
 
   it('concurrent recompute — final availableStock deterministic', async () => {
-    const { bundle, comp: c1 } = await setup(TEST_COMPANY_ID);
-    const m2 = await mastersSvc.create(TEST_COMPANY_ID, { name: 'N' } as any);
-    const c2 = await optionsSvc.create(TEST_COMPANY_ID, { masterId: m2.id, optionName: 'C2' } as any);
-    await prisma.inventory.create({ data: { companyId: TEST_COMPANY_ID, optionId: c1.id, currentStock: 20 } });
-    await prisma.inventory.create({ data: { companyId: TEST_COMPANY_ID, optionId: c2.id, currentStock: 30 } });
+    const { bundle, comp: c1 } = await setup(TEST_ORGANIZATION_ID);
+    const m2 = await mastersSvc.create(TEST_ORGANIZATION_ID, { name: 'N' } as any);
+    const c2 = await optionsSvc.create(TEST_ORGANIZATION_ID, { masterId: m2.id, optionName: 'C2' } as any);
+    await prisma.inventory.create({ data: { organizationId: TEST_ORGANIZATION_ID, optionId: c1.id, currentStock: 20 } });
+    await prisma.inventory.create({ data: { organizationId: TEST_ORGANIZATION_ID, optionId: c2.id, currentStock: 30 } });
     await Promise.all([
-      svc.create(TEST_COMPANY_ID, { bundleOptionId: bundle.id, componentOptionId: c1.id, qty: 2 }),
-      svc.create(TEST_COMPANY_ID, { bundleOptionId: bundle.id, componentOptionId: c2.id, qty: 3 }),
+      svc.create(TEST_ORGANIZATION_ID, { bundleOptionId: bundle.id, componentOptionId: c1.id, qty: 2 }),
+      svc.create(TEST_ORGANIZATION_ID, { bundleOptionId: bundle.id, componentOptionId: c2.id, qty: 3 }),
     ]);
     const bundleAfter = await prisma.productOption.findUniqueOrThrow({ where: { id: bundle.id } });
     expect(bundleAfter.availableStock).toBe(10);

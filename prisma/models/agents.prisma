@@ -4,7 +4,7 @@
 /// @describe 에이전트 정의. rt_* 필드로 런타임 상태 내장 (별도 테이블 없음). reportsTo 자기참조 (매니저→전문가 계층).
 model AgentDefinition {
   id          String  @id @default(uuid()) @db.Uuid
-  companyId   String? @map("company_id") @db.Uuid
+  organizationId   String? @map("organization_id") @db.Uuid
   name        String
   type        String  @unique
   description String?
@@ -78,7 +78,7 @@ model AgentDefinition {
   marketplaceId String? @map("marketplace_id") @db.Uuid
 
   // Relations
-  company        Company?     @relation(fields: [companyId], references: [id])
+  organization        Organization?     @relation(fields: [organizationId], references: [id])
   marketplace    Marketplace? @relation(fields: [marketplaceId], references: [id])
   parent         AgentDefinition?  @relation("AgentHierarchy", fields: [reportsTo], references: [id])
   children       AgentDefinition[] @relation("AgentHierarchy")
@@ -87,11 +87,11 @@ model AgentDefinition {
   agentEvents    AgentEvent[]
   users             User[]
 
-  @@index([companyId])
+  @@index([organizationId])
   @@index([type])
   @@index([isActive])
-  @@index([companyId, status])
-  @@index([companyId, reportsTo])
+  @@index([organizationId, status])
+  @@index([organizationId, reportsTo])
   @@index([marketplaceId])
   @@map("agent_definitions")
 }
@@ -99,7 +99,7 @@ model AgentDefinition {
 /// @namespace Agents
 model AgentTask {
   id        String  @id @default(uuid()) @db.Uuid
-  companyId String? @map("company_id") @db.Uuid
+  organizationId String? @map("organization_id") @db.Uuid
   agentType String  @map("agent_type")
   status    String  @default("pending")
   priority  Int     @default(0)
@@ -120,7 +120,7 @@ model AgentTask {
 
   logs AgentLog[]
 
-  @@index([companyId])
+  @@index([organizationId])
   @@index([status])
   @@index([agentType])
   @@index([workflowRunId])
@@ -132,7 +132,7 @@ model AgentTask {
 /// @describe eventType 으로 permission_denied / action_snapshot 통합.
 model AgentEvent {
   id          String    @id @default(uuid()) @db.Uuid
-  companyId   String    @map("company_id") @db.Uuid
+  organizationId   String    @map("organization_id") @db.Uuid
   agentId     String    @map("agent_id") @db.Uuid
   runId       String?   @map("run_id") @db.Uuid
   eventType   String    @map("event_type")             // permission_denied | action_snapshot
@@ -151,10 +151,10 @@ model AgentEvent {
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
   agent   AgentDefinition @relation(fields: [agentId], references: [id])
-  company Company         @relation(fields: [companyId], references: [id])
+  organization Organization         @relation(fields: [organizationId], references: [id])
 
-  @@index([companyId, agentId, createdAt])
-  @@index([companyId, eventType, createdAt])
+  @@index([organizationId, agentId, createdAt])
+  @@index([organizationId, eventType, createdAt])
   @@index([runId])
   @@map("agent_events")
 }
@@ -178,7 +178,7 @@ model AgentLog {
 /// @namespace Agents
 model AgentWakeupRequest {
   id              String  @id @default(uuid()) @db.Uuid
-  companyId       String  @map("company_id") @db.Uuid
+  organizationId       String  @map("organization_id") @db.Uuid
   agentId         String  @map("agent_id") @db.Uuid
   source          String
   triggerDetail   String? @map("trigger_detail")
@@ -198,10 +198,10 @@ model AgentWakeupRequest {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   agent         AgentDefinition @relation(fields: [agentId], references: [id])
-  company       Company         @relation(fields: [companyId], references: [id])
+  organization       Organization         @relation(fields: [organizationId], references: [id])
   heartbeatRuns HeartbeatRun[]
 
-  @@index([companyId, agentId, status])
+  @@index([organizationId, agentId, status])
   @@index([agentId, requestedAt])
   @@map("agent_wakeup_requests")
 }
@@ -210,7 +210,7 @@ model AgentWakeupRequest {
 /// @describe 에이전트 안전 파이프라인 (Budget/Cap/DryRun). AgentDefinition 과 함께 agent runtime state 구성.
 model HeartbeatRun {
   id               String  @id @default(uuid()) @db.Uuid
-  companyId        String  @map("company_id") @db.Uuid
+  organizationId        String  @map("organization_id") @db.Uuid
   agentId          String  @map("agent_id") @db.Uuid
   invocationSource String  @default("on_demand") @map("invocation_source")
   triggerDetail    String? @map("trigger_detail")
@@ -239,13 +239,13 @@ model HeartbeatRun {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   agent           AgentDefinition     @relation(fields: [agentId], references: [id])
-  company         Company             @relation(fields: [companyId], references: [id])
+  organization         Organization             @relation(fields: [organizationId], references: [id])
   wakeupRequest   AgentWakeupRequest? @relation(fields: [wakeupRequestId], references: [id])
   triggeredByUser User?               @relation("HeartbeatRunTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
 
-  @@index([companyId, agentId, startedAt])
+  @@index([organizationId, agentId, startedAt])
   @@index([status])
-  @@index([companyId, triggeredByUserId])
+  @@index([organizationId, triggeredByUserId])
   @@map("heartbeat_runs")
 }
 
@@ -253,7 +253,7 @@ model HeartbeatRun {
 /// @describe steps Json 으로 단계별 결과 흡수 (별도 StepRun 없음).
 model WorkflowRun {
   id                 String    @id @default(uuid()) @db.Uuid
-  companyId          String?   @map("company_id") @db.Uuid
+  organizationId          String?   @map("organization_id") @db.Uuid
   templateId         String    @map("template_id") @db.Uuid
   status             String    @default("pending")
   triggeredBy        String    @default("manual") @map("triggered_by")
@@ -269,18 +269,18 @@ model WorkflowRun {
   template          WorkflowTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
   triggeredByUser   User?            @relation("WorkflowRunTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
 
-  @@index([companyId])
+  @@index([organizationId])
   @@index([templateId])
   @@index([status])
   @@index([createdAt])
-  @@index([companyId, triggeredByUserId])
+  @@index([organizationId, triggeredByUserId])
   @@map("workflow_runs")
 }
 
 /// @namespace Agents
 model WorkflowTemplate {
   id          String   @id @default(uuid()) @db.Uuid
-  companyId   String   @map("company_id") @db.Uuid
+  organizationId   String   @map("organization_id") @db.Uuid
   name        String
   description String   @default("")
   module      String   @default("order")
@@ -295,11 +295,11 @@ model WorkflowTemplate {
 
   marketplaceId String? @map("marketplace_id") @db.Uuid
 
-  company     Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   marketplace Marketplace? @relation(fields: [marketplaceId], references: [id])
   runs        WorkflowRun[]
 
-  @@index([companyId])
+  @@index([organizationId])
   @@index([isActive])
   @@index([module])
   @@index([marketplaceId])

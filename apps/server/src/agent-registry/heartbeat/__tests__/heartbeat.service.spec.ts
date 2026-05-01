@@ -90,7 +90,7 @@ function makeService() {
 
 const MOCK_AGENT = {
   id: 'agent-1',
-  companyId: 'c-1',
+  organizationId: 'c-1',
   name: '광고 전략 에이전트',
   type: 'ad_strategy',
   status: 'idle',
@@ -223,7 +223,7 @@ describe('HeartbeatService', () => {
       wakeup.claimNext.mockResolvedValue({
         id: 'w-1',
         agentId: 'agent-1',
-        companyId: 'c-1',
+        organizationId: 'c-1',
         source: 'on_demand',
         triggerDetail: null,
         payload: null,
@@ -253,7 +253,7 @@ describe('HeartbeatService', () => {
 
       await (service as any).executeHeartbeat('agent-1');
 
-      // heartbeat_runs terminal write — now updateMany binding (id, companyId).
+      // heartbeat_runs terminal write — now updateMany binding (id, organizationId).
       // stderrExcerpt is written by TranscriptService (event handler, sync in this test),
       // so we only verify the critical-path write (error field).
       const updateCalls = prisma.heartbeatRun.updateMany.mock.calls;

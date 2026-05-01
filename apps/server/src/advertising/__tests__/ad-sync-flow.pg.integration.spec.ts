@@ -9,8 +9,8 @@ import {
   makeTestPrisma,
   resetDb,
   seedBaseFixture,
-  TEST_COMPANY_ID,
-  OTHER_COMPANY_ID,
+  TEST_ORGANIZATION_ID,
+  OTHER_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 
 /**
@@ -25,7 +25,7 @@ describe('AdSync flow (PG integration, H2)', () => {
   let adSyncService: AdSyncService;
 
   async function seedListing(params: {
-    companyId: string;
+    organizationId: string;
     externalId: string;
     externalOptionId: string;
     legacySuffix?: string;
@@ -33,7 +33,7 @@ describe('AdSync flow (PG integration, H2)', () => {
     const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}${params.legacySuffix ?? ''}`;
     const master = await prisma.masterProduct.create({
       data: {
-        companyId: params.companyId,
+        organizationId: params.organizationId,
         code: `M-${unique}`,
         name: `Master ${unique}`,
         optionCounter: 0,
@@ -41,7 +41,7 @@ describe('AdSync flow (PG integration, H2)', () => {
     });
     const option = await prisma.productOption.create({
       data: {
-        companyId: params.companyId,
+        organizationId: params.organizationId,
         masterId: master.id,
         sku: `SKU-${unique}`,
         optionName: `Option ${unique}`,
@@ -49,7 +49,7 @@ describe('AdSync flow (PG integration, H2)', () => {
     });
     const listing = await prisma.channelListing.create({
       data: {
-        companyId: params.companyId,
+        organizationId: params.organizationId,
         masterId: master.id,
         channel: 'coupang',
         externalId: params.externalId,
@@ -57,7 +57,7 @@ describe('AdSync flow (PG integration, H2)', () => {
     });
     const listingOption = await prisma.channelListingOption.create({
       data: {
-        companyId: params.companyId,
+        organizationId: params.organizationId,
         listingId: listing.id,
         optionId: option.id,
         externalOptionId: params.externalOptionId,
@@ -92,21 +92,21 @@ describe('AdSync flow (PG integration, H2)', () => {
   });
 
   describe('buildListingMap', () => {
-    it('#1 populates externalOptionIdMap + externalIdMap only for scoped company', async () => {
+    it('#1 populates externalOptionIdMap + externalIdMap only for scoped organization', async () => {
       const a = await seedListing({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         externalId: 'EXT-A',
         externalOptionId: 'VENDOR-A',
         legacySuffix: '-a',
       });
       await seedListing({
-        companyId: OTHER_COMPANY_ID,
+        organizationId: OTHER_ORGANIZATION_ID,
         externalId: 'EXT-OTHER',
         externalOptionId: 'VENDOR-OTHER',
         legacySuffix: '-other',
       });
 
-      const map = await adSyncService.buildListingMap(TEST_COMPANY_ID);
+      const map = await adSyncService.buildListingMap(TEST_ORGANIZATION_ID);
 
       expect(map.externalOptionIdMap.get('VENDOR-A')).toEqual({
         listingId: a.listing.id,
@@ -125,7 +125,7 @@ describe('AdSync flow (PG integration, H2)', () => {
   describe('sync(ad_campaign)', () => {
     it('#2 vendorItemId hit → ChannelListingDailySnapshot ad metrics + ChannelAdTargetDailySnapshot at product grain', async () => {
       const seeded = await seedListing({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         externalId: 'EXT-COUPANG-1',
         externalOptionId: 'VI-HIT-1',
       });
@@ -156,14 +156,14 @@ describe('AdSync flow (PG integration, H2)', () => {
             },
           ],
         },
-        TEST_COMPANY_ID,
+        TEST_ORGANIZATION_ID,
       );
 
       expect(result.success).toBe(true);
 
       // Listing daily metric upsert.
       const listingDaily = await prisma.channelListingDailySnapshot.findFirst({
-        where: { companyId: TEST_COMPANY_ID, listingId: seeded.listing.id },
+        where: { organizationId: TEST_ORGANIZATION_ID, listingId: seeded.listing.id },
       });
       expect(listingDaily).toBeDefined();
       expect(listingDaily?.businessDate.toISOString().slice(0, 10)).toBe(
@@ -187,7 +187,7 @@ describe('AdSync flow (PG integration, H2)', () => {
       // vendorItemId, the match propagates the listing's externalId.
       const targetDaily = await prisma.channelAdTargetDailySnapshot.findFirst({
         where: {
-          companyId: TEST_COMPANY_ID,
+          organizationId: TEST_ORGANIZATION_ID,
           targetType: 'product',
           targetKey: 'product:EXT-COUPANG-1:CAMP-1',
         },
@@ -203,7 +203,7 @@ describe('AdSync flow (PG integration, H2)', () => {
       // Account-level KPI for the campaign-as-a-whole.
       const kpi = await prisma.channelAccountDailyKpiSnapshot.findFirst({
         where: {
-          companyId: TEST_COMPANY_ID,
+          organizationId: TEST_ORGANIZATION_ID,
           source: 'advertising',
           kpiType: 'advertising_campaign_kpis',
         },
@@ -216,7 +216,7 @@ describe('AdSync flow (PG integration, H2)', () => {
 
     it('#3 keyword row → ChannelAdTargetDailySnapshot at keyword grain', async () => {
       const seeded = await seedListing({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         externalId: 'EXT-COUPANG-2',
         externalOptionId: 'VI-UNUSED-2',
       });
@@ -241,12 +241,12 @@ describe('AdSync flow (PG integration, H2)', () => {
             },
           ],
         },
-        TEST_COMPANY_ID,
+        TEST_ORGANIZATION_ID,
       );
 
       const targetDaily = await prisma.channelAdTargetDailySnapshot.findFirst({
         where: {
-          companyId: TEST_COMPANY_ID,
+          organizationId: TEST_ORGANIZATION_ID,
           targetType: 'keyword',
           targetKey: 'keyword:CAMP-β:AG-1:widget',
         },
@@ -261,7 +261,7 @@ describe('AdSync flow (PG integration, H2)', () => {
 
     it('#4 unmatched row preserves raw snapshot but does not write listing daily — target daily lands only when key is buildable', async () => {
       await seedListing({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         externalId: 'EXT-PRESENT',
         externalOptionId: 'VI-PRESENT',
       });
@@ -285,20 +285,20 @@ describe('AdSync flow (PG integration, H2)', () => {
             },
           ],
         },
-        TEST_COMPANY_ID,
+        TEST_ORGANIZATION_ID,
       );
 
       // No listing daily because there's no listing match.
       const listingDailyCount =
         await prisma.channelListingDailySnapshot.count({
-          where: { companyId: TEST_COMPANY_ID },
+          where: { organizationId: TEST_ORGANIZATION_ID },
         });
       expect(listingDailyCount).toBe(0);
 
       // Target daily DOES land at campaign grain (campaignId is enough).
       const targetDaily = await prisma.channelAdTargetDailySnapshot.findFirst({
         where: {
-          companyId: TEST_COMPANY_ID,
+          organizationId: TEST_ORGANIZATION_ID,
           targetType: 'campaign',
           targetKey: 'campaign:CAMP-γ',
         },
@@ -308,14 +308,14 @@ describe('AdSync flow (PG integration, H2)', () => {
 
       // Raw snapshot preserved.
       const rawCount = await prisma.channelScrapeSnapshot.count({
-        where: { companyId: TEST_COMPANY_ID, source: 'advertising' },
+        where: { organizationId: TEST_ORGANIZATION_ID, source: 'advertising' },
       });
       expect(rawCount).toBe(1);
     });
 
-    it('#5 cross-tenant: other-company vendorItemId never lands in this companys daily-fact tables', async () => {
+    it('#5 cross-tenant: other-organization vendorItemId never lands in this companys daily-fact tables', async () => {
       await seedListing({
-        companyId: OTHER_COMPANY_ID,
+        organizationId: OTHER_ORGANIZATION_ID,
         externalId: 'EXT-OTHER-ONLY',
         externalOptionId: 'VI-OTHER-ONLY',
         legacySuffix: '-xt',
@@ -342,25 +342,25 @@ describe('AdSync flow (PG integration, H2)', () => {
             },
           ],
         },
-        TEST_COMPANY_ID,
+        TEST_ORGANIZATION_ID,
       );
 
       const listingDailyCount =
         await prisma.channelListingDailySnapshot.count({
-          where: { companyId: TEST_COMPANY_ID },
+          where: { organizationId: TEST_ORGANIZATION_ID },
         });
       expect(listingDailyCount).toBe(0);
 
       const otherListingDaily =
         await prisma.channelListingDailySnapshot.count({
-          where: { companyId: OTHER_COMPANY_ID },
+          where: { organizationId: OTHER_ORGANIZATION_ID },
         });
       expect(otherListingDaily).toBe(0);
 
       // Target daily lands in TEST_COMPANY scope (we attribute by ingestion
-      // company), with listingId NULL — confirming no cross-tenant leak.
+      // organization), with listingId NULL — confirming no cross-tenant leak.
       const targetDaily = await prisma.channelAdTargetDailySnapshot.findFirst({
-        where: { companyId: TEST_COMPANY_ID },
+        where: { organizationId: TEST_ORGANIZATION_ID },
       });
       expect(targetDaily?.listingId).toBeNull();
       expect(targetDaily?.listingOptionId).toBeNull();
@@ -368,7 +368,7 @@ describe('AdSync flow (PG integration, H2)', () => {
 
     it('#6 idempotent replay: same payload twice → same listing-day metric values, sampleCount=2', async () => {
       const seeded = await seedListing({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         externalId: 'EXT-IDEM',
         externalOptionId: 'VI-IDEM',
       });
@@ -394,11 +394,11 @@ describe('AdSync flow (PG integration, H2)', () => {
           },
         ],
       };
-      await adSyncService.sync(payload, TEST_COMPANY_ID);
-      await adSyncService.sync(payload, TEST_COMPANY_ID);
+      await adSyncService.sync(payload, TEST_ORGANIZATION_ID);
+      await adSyncService.sync(payload, TEST_ORGANIZATION_ID);
 
       const listingDaily = await prisma.channelListingDailySnapshot.findFirst({
-        where: { companyId: TEST_COMPANY_ID, listingId: seeded.listing.id },
+        where: { organizationId: TEST_ORGANIZATION_ID, listingId: seeded.listing.id },
       });
       expect(listingDaily).toBeDefined();
       expect(listingDaily?.adSpend).toBe(1000); // overwrite, not double
@@ -407,7 +407,7 @@ describe('AdSync flow (PG integration, H2)', () => {
 
       const targetDaily = await prisma.channelAdTargetDailySnapshot.findFirst({
         where: {
-          companyId: TEST_COMPANY_ID,
+          organizationId: TEST_ORGANIZATION_ID,
           targetType: 'product',
           targetKey: 'product:EXT-IDEM:CAMP-IDEM',
         },
@@ -421,7 +421,7 @@ describe('AdSync flow (PG integration, H2)', () => {
   describe('sync(traffic)', () => {
     it('#7 matched traffic row → listing-day traffic metrics (no TrafficStats write)', async () => {
       const seeded = await seedListing({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         externalId: 'EXT-TRAFFIC',
         externalOptionId: 'VI-TRAFFIC',
       });
@@ -443,11 +443,11 @@ describe('AdSync flow (PG integration, H2)', () => {
             },
           ],
         },
-        TEST_COMPANY_ID,
+        TEST_ORGANIZATION_ID,
       );
 
       const listingDaily = await prisma.channelListingDailySnapshot.findFirst({
-        where: { companyId: TEST_COMPANY_ID, listingId: seeded.listing.id },
+        where: { organizationId: TEST_ORGANIZATION_ID, listingId: seeded.listing.id },
       });
       expect(listingDaily?.trafficVisitors).toBe(100);
       expect(listingDaily?.trafficViews).toBe(200);
@@ -461,7 +461,7 @@ describe('AdSync flow (PG integration, H2)', () => {
   describe('cross-source metaJson namespacing', () => {
     it('#9 ad_campaign + traffic on same (listing, businessDate) preserve each other`s metaJson keys', async () => {
       const seeded = await seedListing({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         externalId: 'EXT-META-MERGE',
         externalOptionId: 'VI-META-MERGE',
       });
@@ -490,7 +490,7 @@ describe('AdSync flow (PG integration, H2)', () => {
             },
           ],
         },
-        TEST_COMPANY_ID,
+        TEST_ORGANIZATION_ID,
       );
 
       // Second payload: traffic on the same listing/day writes provider
@@ -513,11 +513,11 @@ describe('AdSync flow (PG integration, H2)', () => {
             },
           ],
         },
-        TEST_COMPANY_ID,
+        TEST_ORGANIZATION_ID,
       );
 
       const listingDaily = await prisma.channelListingDailySnapshot.findFirst({
-        where: { companyId: TEST_COMPANY_ID, listingId: seeded.listing.id },
+        where: { organizationId: TEST_ORGANIZATION_ID, listingId: seeded.listing.id },
       });
       expect(listingDaily).toBeDefined();
       expect(listingDaily?.businessDate.toISOString().slice(0, 10)).toBe(
@@ -574,12 +574,12 @@ describe('AdSync flow (PG integration, H2)', () => {
             },
           ],
         },
-        TEST_COMPANY_ID,
+        TEST_ORGANIZATION_ID,
       );
 
       const kpis = await prisma.channelAccountDailyKpiSnapshot.findMany({
         where: {
-          companyId: TEST_COMPANY_ID,
+          organizationId: TEST_ORGANIZATION_ID,
           source: 'coupang_ads',
           kpiType: 'coupang_ads_daily',
         },

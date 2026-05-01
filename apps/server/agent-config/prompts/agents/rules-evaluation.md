@@ -11,7 +11,7 @@
 ## 태스크
 
 1. `products`, `profit_loss`, `inventory`, `reviews`, `thumbnails` 테이블에서 평가에 필요한 데이터를 조회한다.
-   - 반드시 `company_id = '{{company_id}}'` AND `is_deleted = false` 조건 적용
+   - 반드시 `organization_id = '{{organization_id}}'` AND `is_deleted = false` 조건 적용
    - 수익성: revenue, net_profit, profit_rate, ad_cost, margin
    - 재고: current_stock, daily_sales_avg, 재고일수
    - 피드백: 리뷰 수, 썸네일 CTR

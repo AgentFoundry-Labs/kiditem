@@ -16,7 +16,7 @@ describe('SafetyPipelineService', () => {
     const pipeline = makePipeline();
     const result = await pipeline.validate({
       agentId: 'a-1', trustLevel: 2, actionCap: { maxBudgetChangePct: 30 },
-      runId: 'r-1', companyId: 'c-1',
+      runId: 'r-1', organizationId: 'c-1',
       body: { actions: [{ budgetChangePct: 50 }], dry_run: true },
     });
     expect(result.allowed).toBe(true);
@@ -28,7 +28,7 @@ describe('SafetyPipelineService', () => {
     const body = { actions: [{ budgetChangePct: 50 }], dry_run: false };
     const result = await pipeline.validate({
       agentId: 'a-1', trustLevel: 0, actionCap: { maxBudgetChangePct: 30 },
-      runId: 'r-1', companyId: 'c-1', body,
+      runId: 'r-1', organizationId: 'c-1', body,
     });
     expect(result.dryRunForced).toBe(true);
     expect(body.dry_run).toBe(true);
@@ -38,7 +38,7 @@ describe('SafetyPipelineService', () => {
     const pipeline = makePipeline();
     const result = await pipeline.validate({
       agentId: 'a-1', trustLevel: 2, actionCap: { maxBudgetChangePct: 30 },
-      runId: 'r-1', companyId: 'c-1',
+      runId: 'r-1', organizationId: 'c-1',
       body: { actions: [{ budgetChangePct: 50 }], dry_run: false },
     });
     expect(result.blockedActions).toHaveLength(1);

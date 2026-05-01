@@ -87,7 +87,7 @@ describe('PurchaseOrderActionBodyDto', () => {
   it('valid create action', async () => {
     await expectValid(PurchaseOrderActionBodyDto, {
       action: 'create',
-      companyId: UUID,
+      organizationId: UUID,
       supplierName: '광저우 무역',
       items: [{ productName: '아동복 세트', quantity: 100, unitPriceCny: 25.5 }],
     });
@@ -111,12 +111,12 @@ describe('PurchaseOrderActionBodyDto', () => {
   it('create requires non-empty items (missing + empty array)', async () => {
     await expectInvalid(PurchaseOrderActionBodyDto, {
       action: 'create',
-      companyId: UUID,
+      organizationId: UUID,
       supplierName: 'X',
     }); // missing items
     await expectInvalid(PurchaseOrderActionBodyDto, {
       action: 'create',
-      companyId: UUID,
+      organizationId: UUID,
       supplierName: 'X',
       items: [],
     }); // empty items array
@@ -125,7 +125,7 @@ describe('PurchaseOrderActionBodyDto', () => {
   it('create validates nested item fields', async () => {
     await expectInvalid(PurchaseOrderActionBodyDto, {
       action: 'create',
-      companyId: UUID,
+      organizationId: UUID,
       supplierName: 'X',
       items: [{ productName: '', quantity: -1, unitPriceCny: 25 }],
     });

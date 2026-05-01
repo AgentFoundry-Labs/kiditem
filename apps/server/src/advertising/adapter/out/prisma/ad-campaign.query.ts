@@ -38,7 +38,7 @@ export type AdTrendDailyRow = {
  */
 export async function findCampaignRollups(
   prisma: PrismaService,
-  companyId: string,
+  organizationId: string,
   period: AdPeriod,
   campaignName?: string,
 ): Promise<CampaignRollup[]> {
@@ -55,7 +55,7 @@ export async function findCampaignRollups(
       SUM(clicks)::int            AS clicks,
       SUM(conversions)::int       AS conversions
     FROM channel_ad_target_daily_snapshots
-    WHERE company_id = ${companyId}::uuid
+    WHERE organization_id = ${organizationId}::uuid
       AND target_type = 'campaign'
       AND business_date >= ${cutoff}
       ${
@@ -75,12 +75,12 @@ export async function findCampaignRollups(
  */
 export async function findAdTrendDailyRows(
   prisma: PrismaService,
-  companyId: string,
+  organizationId: string,
   days: number,
 ): Promise<AdTrendDailyRow[]> {
   const since = kstInclusiveDaysStart(days);
   return prisma.channelListingDailySnapshot.findMany({
-    where: { companyId, businessDate: { gte: since } },
+    where: { organizationId, businessDate: { gte: since } },
     select: {
       businessDate: true,
       adSpend: true,
@@ -129,7 +129,7 @@ export function aggregateDailyAdRows(
  */
 export async function findGradeBudgetTotals(
   prisma: PrismaService,
-  companyId: string,
+  organizationId: string,
   rows: AdTrendDailyRow[],
 ): Promise<Record<'A' | 'B' | 'C', number>> {
   const totals: Record<'A' | 'B' | 'C', number> = { A: 0, B: 0, C: 0 };
@@ -139,13 +139,13 @@ export async function findGradeBudgetTotals(
   if (listingIds.length === 0) return totals;
 
   const listings = await prisma.channelListing.findMany({
-    where: { id: { in: listingIds }, companyId, isDeleted: false },
+    where: { id: { in: listingIds }, organizationId, isDeleted: false },
     select: { id: true, masterId: true },
   });
   const masterIds = Array.from(new Set(listings.map((l) => l.masterId)));
   const masters = masterIds.length > 0
     ? await prisma.masterProduct.findMany({
-        where: { id: { in: masterIds }, companyId },
+        where: { id: { in: masterIds }, organizationId },
         select: { id: true, abcGrade: true },
       })
     : [];

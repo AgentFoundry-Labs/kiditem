@@ -2,7 +2,7 @@
 import {
   Body, Controller, Delete, Get, Param, Patch, Post, Query,
 } from '@nestjs/common';
-import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
+import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { BundleComponentSchema, type BundleComponent } from '@kiditem/shared/product';
 import { toSerializable } from '../../../util/serialize';
 import { BundleComponentsService } from '../../../application/service/bundle-components.service';
@@ -11,7 +11,7 @@ import { UpdateBundleComponentDto } from '../../../dto/update-bundle-component.d
 import { ListBundleComponentsQuery } from '../../../dto/list-bundle-components.query';
 
 // NOTE (auth/AGENTS.md Hard bans): no `@UseGuards` / `@UsePipes` — rely on the
-// global APP_GUARD (CompanyScopeGuard + RolesGuard) and the global
+// global APP_GUARD (OrganizationScopeGuard + RolesGuard) and the global
 // ValidationPipe registered in main.ts / app.module.ts.
 @Controller('products/bundle-components')
 export class BundleComponentsController {
@@ -19,36 +19,36 @@ export class BundleComponentsController {
 
   @Post()
   async create(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Body() dto: CreateBundleComponentDto,
   ): Promise<BundleComponent> {
-    return BundleComponentSchema.parse(toSerializable(await this.svc.create(companyId, dto)));
+    return BundleComponentSchema.parse(toSerializable(await this.svc.create(organizationId, dto)));
   }
 
   @Get()
   async list(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Query() q: ListBundleComponentsQuery,
   ): Promise<BundleComponent[]> {
-    const rows = await this.svc.list(companyId, q);
+    const rows = await this.svc.list(organizationId, q);
     return rows.map(r => BundleComponentSchema.parse(toSerializable(r)));
   }
 
   @Patch(':id')
   async update(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Param('id') id: string,
     @Body() dto: UpdateBundleComponentDto,
   ): Promise<BundleComponent> {
-    return BundleComponentSchema.parse(toSerializable(await this.svc.update(companyId, id, dto)));
+    return BundleComponentSchema.parse(toSerializable(await this.svc.update(organizationId, id, dto)));
   }
 
   @Delete(':id')
   async delete(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Param('id') id: string,
   ): Promise<{ ok: true }> {
-    await this.svc.delete(companyId, id);
+    await this.svc.delete(organizationId, id);
     return { ok: true };
   }
 }

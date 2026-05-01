@@ -27,8 +27,8 @@ export class ThumbnailWingService {
     private readonly automationRunner: WingAutomationPort,
   ) {}
 
-  async registerToWing(generationId: string, companyId: string): Promise<WingRegistrationResult> {
-    const gen = await this.persistence.findGenerationWithCandidates(generationId, companyId);
+  async registerToWing(generationId: string, organizationId: string): Promise<WingRegistrationResult> {
+    const gen = await this.persistence.findGenerationWithCandidates(generationId, organizationId);
     if (!gen) throw new NotFoundException(`ThumbnailGeneration ${generationId} not found`);
 
     const selectedUrl = pickRegistrationImageUrl(gen);
@@ -36,7 +36,7 @@ export class ThumbnailWingService {
       throw new NotFoundException('Generation not found or no selected image');
     }
 
-    const master = await this.persistence.findRegistrableMaster(gen.masterId, companyId);
+    const master = await this.persistence.findRegistrableMaster(gen.masterId, organizationId);
     if (!master) throw new NotFoundException(`MasterProduct ${gen.masterId} not found`);
 
     const productName = pickWingProductName(master);
@@ -44,7 +44,7 @@ export class ThumbnailWingService {
       throw new BadRequestException('쿠팡 등록 상품명을 찾을 수 없습니다');
     }
 
-    const attempt = await this.persistence.createRegistrationAttempt(generationId, companyId);
+    const attempt = await this.persistence.createRegistrationAttempt(generationId, organizationId);
 
     try {
       const imagePath = await this.materializeImage(selectedUrl, generationId);
@@ -56,7 +56,7 @@ export class ThumbnailWingService {
         imagePath,
         screenshotPath,
       });
-      await this.persistence.updateRegistrationAttemptOrThrow(attempt.id, companyId, {
+      await this.persistence.updateRegistrationAttemptOrThrow(attempt.id, organizationId, {
         status: automation.success ? 'uploaded' : 'failed',
         errorMessage: automation.success ? null : automation.error ?? 'Unknown error',
         screenshotUrl: automation.success ? screenshotPath : null,
@@ -66,7 +66,7 @@ export class ThumbnailWingService {
       return toRegistrationResult(automation, screenshotPath);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      await this.persistence.updateRegistrationAttemptOrThrow(attempt.id, companyId, {
+      await this.persistence.updateRegistrationAttemptOrThrow(attempt.id, organizationId, {
         status: 'failed',
         errorMessage: message,
         finishedAt: new Date(),
@@ -77,12 +77,12 @@ export class ThumbnailWingService {
 
   async batchRegister(
     generationIds: string[],
-    companyId: string,
+    organizationId: string,
   ): Promise<{ results: Array<WingRegistrationResult & { id: string }> }> {
     const results: Array<WingRegistrationResult & { id: string }> = [];
     for (const id of generationIds) {
       try {
-        const result = await this.registerToWing(id, companyId);
+        const result = await this.registerToWing(id, organizationId);
         results.push({ id, ...result });
       } catch (err) {
         results.push({
@@ -96,19 +96,19 @@ export class ThumbnailWingService {
     return { results };
   }
 
-  async clearRegistrationError(id: string, companyId: string): Promise<{ ok: true }> {
-    await this.persistence.ensureGenerationExists(id, companyId);
-    await this.persistence.deleteFailedRegistrationAttempts(id, companyId);
+  async clearRegistrationError(id: string, organizationId: string): Promise<{ ok: true }> {
+    await this.persistence.ensureGenerationExists(id, organizationId);
+    await this.persistence.deleteFailedRegistrationAttempts(id, organizationId);
     return { ok: true };
   }
 
-  async verifyRegistration(id: string, companyId: string): Promise<WingVerificationResult> {
-    const gen = await this.persistence.findGenerationWithLatestAttempt(id, companyId);
+  async verifyRegistration(id: string, organizationId: string): Promise<WingVerificationResult> {
+    const gen = await this.persistence.findGenerationWithLatestAttempt(id, organizationId);
     if (!gen) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
 
     const latest = gen.registrationAttempts[0] ?? null;
     if (latest) {
-      await this.persistence.updateRegistrationAttemptOrThrow(latest.id, companyId, {
+      await this.persistence.updateRegistrationAttemptOrThrow(latest.id, organizationId, {
         finishedAt: new Date(),
       });
     }

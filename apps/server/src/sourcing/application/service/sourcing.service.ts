@@ -47,7 +47,7 @@ export class SourcingService {
     return null;
   }
 
-  async receiveExtensionData(data: any, companyId: string): Promise<{
+  async receiveExtensionData(data: any, organizationId: string): Promise<{
     ok: boolean;
     message: string;
     product_count: number;
@@ -69,7 +69,7 @@ export class SourcingService {
       };
 
       const existing = await this.prisma.masterProduct.findFirst({
-        where: { sourceUrl: data.source_url, companyId },
+        where: { sourceUrl: data.source_url, organizationId },
       });
 
       if (existing) {
@@ -93,8 +93,8 @@ export class SourcingService {
     };
   }
 
-  async scrapeUrl(url: string, companyId: string): Promise<{ ok: boolean; message: string; taskId: string }> {
-    const result = await this.agentGateway.scrapeUrl({ companyId, url });
+  async scrapeUrl(url: string, organizationId: string): Promise<{ ok: boolean; message: string; taskId: string }> {
+    const result = await this.agentGateway.scrapeUrl({ organizationId, url });
 
     return {
       ok: true,
@@ -105,11 +105,11 @@ export class SourcingService {
 
   async listProducts(
     query: { page?: string | number; limit?: string | number; platform?: string },
-    companyId: string,
+    organizationId: string,
   ) {
     const { page, limit, skip } = paginationParams(query);
     const where = {
-      companyId,
+      organizationId,
       pipelineStep: { in: ['draft', 'processing', 'processed'] as string[] },
       ...(query.platform && {
         sourcePlatform: PLATFORM_MAP[query.platform.toLowerCase()] || query.platform,

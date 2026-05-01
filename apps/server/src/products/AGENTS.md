@@ -4,7 +4,7 @@
 
 - **MasterProduct** (family, 기획상품) — 운영/광고/전략 단위. `code = 'M-' + nextval('master_code_seq').padStart(8)`.
 - **ProductOption** (물리 SKU, 바코드 단위) — 재고/매입/창고 단위. `sku = {master.code}-{optionCounter.padStart(2)}`.
-- **BundleComponent** — 세트 구성 관계 (cross-master 허용, cross-company 금지, Plan B1 에선 nested bundle 금지).
+- **BundleComponent** — 세트 구성 관계 (cross-master 허용, cross-organization 금지, Plan B1 에선 nested bundle 금지).
 
 ## Topology (Phase 3B contract-aligned)
 
@@ -62,16 +62,16 @@ products/
 - **code 생성**: `MasterCodeService.generate()` — `nextval('master_code_seq')`. race-free + gap-tolerant. `adapter/out/prisma/master-code.service.ts` 에 위치 (Prisma raw SQL adapter).
 - **sku 생성**: `OptionsService.create` 의 `$transaction` 안에서 `incrementMasterOptionCounter` (`masterProduct.updateMany + findFirst` 2-step). WHERE 에 `isDeleted:false` 포함 (TOCTOU 차단). 모든 raw write 는 `adapter/out/prisma/product-option.persistence.ts` 가 보유.
 - **availableStock materialize**: `BundleStockService.recompute` **만** write. `OptionsService.update` 는 payload 에서 명시적 strip (`stripProductOptionSystemFields` in `domain/policy/product-option-mutation-rules.ts`).
-- **BundleComponent.companyId**: auth companyId 아닌 `bundleOption.companyId` 에서 파생 (3-way invariant — `domain/policy/bundle-component-rules.ts`).
+- **BundleComponent.organizationId**: auth organizationId 아닌 `bundleOption.organizationId` 에서 파생 (3-way invariant — `domain/policy/bundle-component-rules.ts`).
 - **Bundle recompute**: component CRUD 시 inline `$transaction` + `SELECT ... FOR UPDATE` row-level lock. row-lock SQL 의 canonical owner 는 `adapter/out/prisma/bundle-stock.persistence.ts`. Option soft-delete 시에도 파생 recompute.
 - **Soft-delete**: Master / Option 만. cascade 없음. Restore 도 cascade 없음.
 - **Hard delete**: BundleComponent 만.
 
 ## Controller / Service 관행
 
-- Controller (`adapter/in/http/`) 는 `@UseGuards` / `@UsePipes` **사용 금지**. 전역 `CompanyScopeGuard` (APP_GUARD) + 전역 `ValidationPipe` 에 의존.
-- Controller 는 `@CurrentCompany()` 로 companyId 주입.
-- Categories compatibility controller 도 `@CurrentCompany()` 로 받은 companyId 만 service 에 전달한다. DTO 에 `companyId` 를 추가하거나 client-provided companyId 를 신뢰하지 않는다.
+- Controller (`adapter/in/http/`) 는 `@UseGuards` / `@UsePipes` **사용 금지**. 전역 `OrganizationScopeGuard` (APP_GUARD) + 전역 `ValidationPipe` 에 의존.
+- Controller 는 `@CurrentOrganization()` 로 organizationId 주입.
+- Categories compatibility controller 도 `@CurrentOrganization()` 로 받은 organizationId 만 service 에 전달한다. DTO 에 `organizationId` 를 추가하거나 client-provided organizationId 를 신뢰하지 않는다.
 - Application service (`application/service/`) 는 raw Prisma row 반환. Controller 가 `toSerializable()` + Zod parse.
 - Domain 코드 (`domain/policy`, `domain/service`) 는 Prisma / Nest 의존 금지. 위반 시 reconstruction contract 위반.
 
@@ -87,5 +87,5 @@ products/
 
 ## RLS
 
-- `chatbot_readonly` — session `SET app.company_id` 필수. 7 RLS policies (Plan A Task 11).
-- NestJS (`kiditem`) — table owner → RLS 우회. App-level `where.companyId` 필수.
+- `chatbot_readonly` — session `SET app.organization_id` 필수. 7 RLS policies (Plan A Task 11).
+- NestJS (`kiditem`) — table owner → RLS 우회. App-level `where.organizationId` 필수.

@@ -3,7 +3,7 @@
 /// @namespace Supply
 model Supplier {
   id           String   @id @default(uuid()) @db.Uuid
-  companyId    String   @map("company_id") @db.Uuid
+  organizationId    String   @map("organization_id") @db.Uuid
   name         String
   contactName  String?  @map("contact_name")
   phone        String?
@@ -16,14 +16,13 @@ model Supplier {
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company                Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organization                Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   supplierProducts       SupplierProduct[]
   purchaseOrders         PurchaseOrder[]
   payments               SupplierPayment[]
   masterSupplierProducts MasterSupplierProduct[]
-  masterProducts         MasterProduct[]         // 주공급처 direct FK (Master 단위 기본 공급처)
 
-  @@index([companyId])
+  @@index([organizationId])
   @@index([status])
   @@map("suppliers")
 }
@@ -50,7 +49,7 @@ model SupplierProduct {
 /// @namespace Supply
 model SupplierPayment {
   id              String    @id @default(uuid()) @db.Uuid
-  companyId       String    @map("company_id") @db.Uuid
+  organizationId       String    @map("organization_id") @db.Uuid
   supplierId      String    @map("supplier_id") @db.Uuid
   supplierName    String?   @map("supplier_name")
   amount          Int       @default(0)
@@ -63,12 +62,12 @@ model SupplierPayment {
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   supplier      Supplier       @relation(fields: [supplierId], references: [id], onDelete: Cascade)
   purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
 
-  @@index([companyId])
-  @@index([companyId, status])
+  @@index([organizationId])
+  @@index([organizationId, status])
   @@index([supplierId])
   @@index([purchaseOrderId])
   @@index([status])
@@ -79,7 +78,7 @@ model SupplierPayment {
 /// @describe 발주 state machine (draft→pending→ordered→shipped→received). 입고 검수 필드 포함 (receivedQty, defectQty). 단위는 CNY(Decimal 12,2).
 model PurchaseOrder {
   id        String @id @default(uuid()) @db.Uuid
-  companyId String @map("company_id") @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
 
   supplierName    String  @map("supplier_name")
   supplierContact String? @map("supplier_contact")
@@ -104,12 +103,12 @@ model PurchaseOrder {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company  Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organization  Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   supplier Supplier?           @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   items    PurchaseOrderItem[]
   supplierPayments SupplierPayment[]
 
-  @@index([companyId])
+  @@index([organizationId])
   @@index([status])
   @@index([supplierId])
   @@map("purchase_orders")
@@ -154,4 +153,3 @@ model MasterSupplierProduct {
   @@index([supplierId])
   @@map("master_supplier_products")
 }
-

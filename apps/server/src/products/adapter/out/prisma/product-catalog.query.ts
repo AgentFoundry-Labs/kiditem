@@ -2,10 +2,10 @@
 //
 // Catalog hydrated read shape used by `GET /api/products/catalog`,
 // `GET /api/products/catalog/:id`, and `GET /api/products/catalog/counts`.
-// Owns the WHERE builder (companyId + soft-delete + grade + pipelineStep +
+// Owns the WHERE builder (organizationId + soft-delete + grade + pipelineStep +
 // search OR-clause), the explicit `select` that intentionally excludes
 // rawData / processedData / draftContent JSON blobs, and the nested option
-// tenant scope (`{ companyId, isDeleted: false, isActive: true }`).
+// tenant scope (`{ organizationId, isDeleted: false, isActive: true }`).
 import type { Prisma } from '@prisma/client';
 import type { PrismaService } from '../../../../prisma/prisma.service';
 import type { ListProductCatalogQuery } from '../../../dto/list-product-catalog.query';
@@ -13,7 +13,7 @@ import type { ListProductCatalogQuery } from '../../../dto/list-product-catalog.
 export type CatalogOptionRow = {
   id: string;
   masterId: string;
-  companyId: string;
+  organizationId: string;
   sku: string;
   barcode: string | null;
   legacyCode: string | null;
@@ -38,7 +38,7 @@ export type CatalogOptionRow = {
 
 export type CatalogMasterRow = {
   id: string;
-  companyId: string;
+  organizationId: string;
   code: string;
   legacyCode: string | null;
   barcode: string | null;
@@ -64,7 +64,6 @@ export type CatalogMasterRow = {
   pipelineStep: string | null;
   detailPageUrl: string | null;
   thumbnailStrategy: string;
-  supplierId: string | null;
   isDeleted: boolean;
   deletedAt: Date | null;
   isTemporary: boolean;
@@ -94,7 +93,7 @@ export function normalizePipelineStep(value: string | undefined | null): string 
 }
 
 export function buildCatalogWhere(
-  companyId: string,
+  organizationId: string,
   q: Pick<ListProductCatalogQuery, 'search' | 'grade' | 'pipelineStep' | 'status'>,
 ): Prisma.MasterProductWhereInput {
   const ands: Prisma.MasterProductWhereInput[] = [];
@@ -105,7 +104,7 @@ export function buildCatalogWhere(
         { code: { contains: q.search } },
         { legacyCode: { contains: q.search } },
         // ADR-0022 — source barcode/EAN. May match multiple masters because
-        // (companyId, barcode) is non-unique by design.
+        // (organizationId, barcode) is non-unique by design.
         { barcode: { contains: q.search } },
         { options: { some: { sku: { contains: q.search, mode: 'insensitive' }, isDeleted: false } } },
         // Also match option-level legacy code (판매자 상품코드) so users can find
@@ -116,7 +115,7 @@ export function buildCatalogWhere(
   }
   const pipelineStep = normalizePipelineStep(q.pipelineStep ?? q.status);
   return {
-    companyId,
+    organizationId,
     isDeleted: false,
     ...(q.grade ? { abcGrade: q.grade } : {}),
     ...(pipelineStep ? { pipelineStep } : {}),
@@ -128,13 +127,13 @@ export function buildCatalogWhere(
  * Explicit `select` so we never load `rawData` / `processedData` / `draftContent`
  * JSON blobs for catalog list/detail. Zod strips unknown keys on response but the
  * DB + network cost would still be paid without this. Nested option `where`
- * binds `companyId` for tenant isolation (defense in depth on top of the master
+ * binds `organizationId` for tenant isolation (defense in depth on top of the master
  * `where`).
  */
-export function buildCatalogMasterSelect(companyId: string) {
+export function buildCatalogMasterSelect(organizationId: string) {
   return {
     id: true,
-    companyId: true,
+    organizationId: true,
     code: true,
     legacyCode: true,
     barcode: true,
@@ -160,7 +159,6 @@ export function buildCatalogMasterSelect(companyId: string) {
     pipelineStep: true,
     detailPageUrl: true,
     thumbnailStrategy: true,
-    supplierId: true,
     isDeleted: true,
     deletedAt: true,
     isTemporary: true,
@@ -169,7 +167,7 @@ export function buildCatalogMasterSelect(companyId: string) {
     createdAt: true,
     updatedAt: true,
     options: {
-      where: { companyId, isDeleted: false, isActive: true },
+      where: { organizationId, isDeleted: false, isActive: true },
       orderBy: [{ sortOrder: 'asc' as const }, { createdAt: 'asc' as const }],
       include: { inventory: { select: { currentStock: true } } },
     },
@@ -178,19 +176,19 @@ export function buildCatalogMasterSelect(companyId: string) {
 
 export async function findCatalogPage(
   prisma: PrismaService,
-  companyId: string,
+  organizationId: string,
   q: ListProductCatalogQuery,
 ): Promise<{ rows: CatalogMasterRow[]; total: number; page: number; limit: number }> {
   const page = q.page ?? 1;
   const limit = q.limit ?? 20;
-  const where = buildCatalogWhere(companyId, q);
+  const where = buildCatalogWhere(organizationId, q);
   const [rows, total] = await Promise.all([
     prisma.masterProduct.findMany({
       where,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       skip: (page - 1) * limit,
       take: limit,
-      select: buildCatalogMasterSelect(companyId),
+      select: buildCatalogMasterSelect(organizationId),
     }),
     prisma.masterProduct.count({ where }),
   ]);
@@ -199,23 +197,23 @@ export async function findCatalogPage(
 
 export async function findCatalogDetail(
   prisma: PrismaService,
-  companyId: string,
+  organizationId: string,
   id: string,
 ): Promise<CatalogMasterRow | null> {
   const row = await prisma.masterProduct.findFirst({
-    where: { id, companyId, isDeleted: false },
-    select: buildCatalogMasterSelect(companyId),
+    where: { id, organizationId, isDeleted: false },
+    select: buildCatalogMasterSelect(organizationId),
   });
   return (row as unknown as CatalogMasterRow | null) ?? null;
 }
 
 export async function findCatalogCountsRows(
   prisma: PrismaService,
-  companyId: string,
+  organizationId: string,
   q: Pick<ListProductCatalogQuery, 'status' | 'pipelineStep'> = {},
 ): Promise<CatalogCountsRow[]> {
   return prisma.masterProduct.findMany({
-    where: buildCatalogWhere(companyId, q),
+    where: buildCatalogWhere(organizationId, q),
     select: { abcGrade: true, adTier: true, pipelineStep: true, isTemporary: true },
   });
 }

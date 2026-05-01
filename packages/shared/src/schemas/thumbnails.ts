@@ -33,7 +33,7 @@ export const ThumbnailListItemSchema = z.object({
   id: z.string(),
   productId: z.string(),
   productName: z.string(),
-  company: z.string(),
+  organization: z.string(),
   imageUrl: z.string(),
   ctr: z.number(),
   prevCtr: z.number(),

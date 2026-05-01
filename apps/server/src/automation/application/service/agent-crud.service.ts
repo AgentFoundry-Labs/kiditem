@@ -34,10 +34,10 @@ export class AgentCrudService {
     return def;
   }
 
-  async list(companyId: string, query: { isActive?: string } = {}): Promise<AgentListItem[]> {
+  async list(organizationId: string, query: { isActive?: string } = {}): Promise<AgentListItem[]> {
     const items = await this.prisma.agentDefinition.findMany({
       where: {
-        companyId,
+        organizationId,
         ...(query.isActive !== undefined && { isActive: query.isActive === 'true' }),
       },
       omit: { promptTemplate: true },
@@ -53,15 +53,15 @@ export class AgentCrudService {
     }) satisfies AgentListItem);
   }
 
-  async getById(id: string, companyId?: string) {
-    const def = companyId
+  async getById(id: string, organizationId?: string) {
+    const def = organizationId
       ? await this.prisma.agentDefinition.findFirst({
-          where: { id, ...tenantScopeFilter(companyId) },
+          where: { id, ...tenantScopeFilter(organizationId) },
         })
       : await this.prisma.agentDefinition.findFirst({ where: { id } });
     if (!def) throw new NotFoundException(`Agent definition ${id} not found`);
 
-    if (companyId && def.companyId && def.companyId !== companyId) {
+    if (organizationId && def.organizationId && def.organizationId !== organizationId) {
       throw new ForbiddenException('Access denied to this agent');
     }
 
@@ -69,7 +69,7 @@ export class AgentCrudService {
   }
 
   async create(data: {
-    companyId: string;
+    organizationId: string;
     name: string;
     type: string;
     description?: string;
@@ -107,7 +107,7 @@ export class AgentCrudService {
     return created;
   }
 
-  async update(id: string, companyId: string, data: AgentDefinitionUpdateData) {
+  async update(id: string, organizationId: string, data: AgentDefinitionUpdateData) {
     if (typeof data.allowedTools === 'string') {
       const toolCheck = validateAllowedTools(data.allowedTools);
       if (!toolCheck.valid) {
@@ -130,35 +130,35 @@ export class AgentCrudService {
     };
 
     const result = await this.prisma.agentDefinition.updateMany({
-      where: { id, ...tenantOwnedFilter(companyId) },
+      where: { id, ...tenantOwnedFilter(organizationId) },
       data: updateData,
     });
     if (result.count === 0) throw new NotFoundException(`Agent definition ${id} not found`);
 
     const updated = await this.prisma.agentDefinition.findFirstOrThrow({
-      where: { id, ...tenantOwnedFilter(companyId) },
+      where: { id, ...tenantOwnedFilter(organizationId) },
     });
     await this.heartbeat.syncTimers();
     return updated;
   }
 
-  async delete(id: string, companyId: string): Promise<{ ok: boolean }> {
+  async delete(id: string, organizationId: string): Promise<{ ok: boolean }> {
     const result = await this.prisma.agentDefinition.deleteMany({
-      where: { id, ...tenantOwnedFilter(companyId) },
+      where: { id, ...tenantOwnedFilter(organizationId) },
     });
     if (result.count === 0) throw new NotFoundException(`Agent definition ${id} not found`);
     await this.heartbeat.syncTimers();
     return { ok: true };
   }
 
-  async getOrgTree(companyId: string): Promise<OrgNode[]> {
+  async getOrgTree(organizationId: string): Promise<OrgNode[]> {
     const catalog = await this.prisma.marketplace.findMany({
       where: { type: 'agent', isPublished: true, adapterType: 'claude_local' },
       orderBy: { name: 'asc' },
     });
 
     const hired = await this.prisma.agentDefinition.findMany({
-      where: { companyId, adapterType: 'claude_local', isActive: true },
+      where: { organizationId, adapterType: 'claude_local', isActive: true },
     });
     const hiredByMarketplaceId = new Map(
       hired.filter((h) => h.marketplaceId).map((h) => [h.marketplaceId!, h]),

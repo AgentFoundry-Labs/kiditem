@@ -100,7 +100,7 @@ function makeService() {
 
 const MOCK_AGENT = {
   id: 'agent-1',
-  companyId: 'c-1',
+  organizationId: 'c-1',
   name: '광고 전략 에이전트',
   type: 'ad_strategy',
   status: 'idle',
@@ -125,7 +125,7 @@ const MOCK_AGENT = {
 const MOCK_WAKEUP = {
   id: 'w-1',
   agentId: 'agent-1',
-  companyId: 'c-1',
+  organizationId: 'c-1',
   source: 'on_demand',
   triggerDetail: null,
   payload: null,
@@ -136,7 +136,7 @@ function makeRunningRun(overrides?: Partial<any>) {
   return {
     id: 'run-1',
     agentId: 'agent-1',
-    companyId: 'c-1',
+    organizationId: 'c-1',
     status: 'running',
     failureType: null,
     error: null,
@@ -235,14 +235,14 @@ describe('HeartbeatService — Panel emit hook (Task 17)', () => {
     // First panel emit: running run
     const createPayload = panelCalls[0][1];
     expect(createPayload).toMatchObject({
-      companyId: 'c-1',
+      organizationId: 'c-1',
     });
     expect(createPayload.item).toBeDefined();
     expect(createPayload.item.status).toBe('running');
     expect(createPayload.item.source).toBe('agent');
     expect(createPayload.item.title).toBe(MOCK_AGENT.name);
-    // companyId must NOT be on the item (envelope only)
-    expect(createPayload.item.companyId).toBeUndefined();
+    // organizationId must NOT be on the item (envelope only)
+    expect(createPayload.item.organizationId).toBeUndefined();
   });
 
   it('emits PANEL_EVENTS.UPSERT on terminal transition (succeeded)', async () => {
@@ -257,8 +257,8 @@ describe('HeartbeatService — Panel emit hook (Task 17)', () => {
     expect(panelCalls.length).toBeGreaterThanOrEqual(2);
     const terminalPayload = panelCalls[1][1];
     expect(terminalPayload.item.status).toBe('succeeded');
-    expect(terminalPayload.companyId).toBe('c-1');
-    expect(terminalPayload.item.companyId).toBeUndefined();
+    expect(terminalPayload.organizationId).toBe('c-1');
+    expect(terminalPayload.item.organizationId).toBeUndefined();
   });
 
   it('emits PANEL_EVENTS.UPSERT on terminal transition (failed)', async () => {

@@ -2,13 +2,13 @@ import { describe, it, expect, vi } from 'vitest';
 import { NotFoundException } from '@nestjs/common';
 import { AgentTasksService } from './agent-tasks.service';
 
-const COMPANY_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
-const OTHER_COMPANY_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+const ORGANIZATION_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+const OTHER_ORGANIZATION_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 const TASK_ID = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
 
 const BASE_TASK = {
   id: TASK_ID,
-  companyId: COMPANY_ID,
+  organizationId: ORGANIZATION_ID,
   agentType: 'content',
   status: 'running',
   input: {},
@@ -51,33 +51,33 @@ function makeService() {
 }
 
 describe('AgentTasksService', () => {
-  it('create passes companyId to AgentRegistry and re-reads the created task in tenant scope', async () => {
+  it('create passes organizationId to AgentRegistry and re-reads the created task in tenant scope', async () => {
     const { service, prisma, agentRegistry } = makeService();
     const input = { productId: 'product-1' };
     prisma.agentTask.findFirst.mockResolvedValue(BASE_TASK);
 
-    const result = await service.create('content', input, COMPANY_ID);
+    const result = await service.create('content', input, ORGANIZATION_ID);
 
     expect(agentRegistry.runByType).toHaveBeenCalledWith('content', {
-      companyId: COMPANY_ID,
+      organizationId: ORGANIZATION_ID,
       extra: input,
     });
     expect(prisma.agentTask.findFirst).toHaveBeenCalledWith({
-      where: { id: TASK_ID, companyId: COMPANY_ID },
+      where: { id: TASK_ID, organizationId: ORGANIZATION_ID },
     });
     expect(result).toEqual(BASE_TASK);
   });
 
-  it('findAll scopes tasks to the current company', async () => {
+  it('findAll scopes tasks to the current organization', async () => {
     const { service, prisma } = makeService();
     prisma.agentTask.findMany.mockResolvedValue([BASE_TASK]);
 
-    await service.findAll({ status: 'running', agentType: 'content', limit: 10 }, COMPANY_ID);
+    await service.findAll({ status: 'running', agentType: 'content', limit: 10 }, ORGANIZATION_ID);
 
     expect(prisma.agentTask.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
-          companyId: COMPANY_ID,
+          organizationId: ORGANIZATION_ID,
           status: 'running',
           agentType: 'content',
         },
@@ -86,26 +86,26 @@ describe('AgentTasksService', () => {
     );
   });
 
-  it('findOne rejects a task id that is not owned by the current company', async () => {
+  it('findOne rejects a task id that is not owned by the current organization', async () => {
     const { service, prisma } = makeService();
-    prisma.agentTask.findUnique.mockResolvedValue({ ...BASE_TASK, companyId: OTHER_COMPANY_ID });
+    prisma.agentTask.findUnique.mockResolvedValue({ ...BASE_TASK, organizationId: OTHER_ORGANIZATION_ID });
     prisma.agentTask.findFirst.mockResolvedValue(null);
 
-    await expect(service.findOne(TASK_ID, COMPANY_ID)).rejects.toThrow(NotFoundException);
+    await expect(service.findOne(TASK_ID, ORGANIZATION_ID)).rejects.toThrow(NotFoundException);
     expect(prisma.agentTask.findFirst).toHaveBeenCalledWith({
-      where: { id: TASK_ID, companyId: COMPANY_ID },
+      where: { id: TASK_ID, organizationId: ORGANIZATION_ID },
       include: { logs: { orderBy: { createdAt: 'asc' } } },
     });
   });
 
-  it('cancel rejects a task id that is not owned by the current company', async () => {
+  it('cancel rejects a task id that is not owned by the current organization', async () => {
     const { service, prisma } = makeService();
-    prisma.agentTask.update.mockResolvedValue({ ...BASE_TASK, companyId: OTHER_COMPANY_ID });
+    prisma.agentTask.update.mockResolvedValue({ ...BASE_TASK, organizationId: OTHER_ORGANIZATION_ID });
     prisma.agentTask.updateMany.mockResolvedValue({ count: 0 });
 
-    await expect(service.cancel(TASK_ID, COMPANY_ID)).rejects.toThrow(NotFoundException);
+    await expect(service.cancel(TASK_ID, ORGANIZATION_ID)).rejects.toThrow(NotFoundException);
     expect(prisma.agentTask.updateMany).toHaveBeenCalledWith({
-      where: { id: TASK_ID, companyId: COMPANY_ID },
+      where: { id: TASK_ID, organizationId: ORGANIZATION_ID },
       data: expect.objectContaining({
         status: 'failed',
         error: 'Cancelled by user',

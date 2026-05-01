@@ -37,13 +37,13 @@ export type StrategyContext = {
  *   primary-option list (avoids attaching the wrong option's daily snapshot).
  * - Live profit metrics + channel state run in parallel after hydrate.
  *
- * Tenant scope: every read binds `companyId`. Cross-tenant rows cannot
+ * Tenant scope: every read binds `organizationId`. Cross-tenant rows cannot
  * reach the orchestrator.
  */
 export async function loadStrategyContext(
   prisma: PrismaService,
   adConfigService: AdConfigService,
-  companyId: string,
+  organizationId: string,
   year: number,
   month: number,
 ): Promise<StrategyContext> {
@@ -52,7 +52,7 @@ export async function loadStrategyContext(
   const [adAggAll, adAgg14d, config] = await Promise.all([
     prisma.channelListingDailySnapshot.groupBy({
       by: ['listingId'],
-      where: { companyId },
+      where: { organizationId },
       _sum: {
         adSpend: true,
         adRevenue: true,
@@ -63,7 +63,7 @@ export async function loadStrategyContext(
     }),
     prisma.channelListingDailySnapshot.groupBy({
       by: ['listingId'],
-      where: { companyId, businessDate: { gte: since14d } },
+      where: { organizationId, businessDate: { gte: since14d } },
       _sum: {
         adSpend: true,
         adRevenue: true,
@@ -72,7 +72,7 @@ export async function loadStrategyContext(
         adConversions: true,
       },
     }),
-    adConfigService.getConfig(companyId),
+    adConfigService.getConfig(organizationId),
   ]);
 
   const listingIds = uniqueIds([
@@ -85,14 +85,14 @@ export async function loadStrategyContext(
     to: kstMonthStart(year, month + 1),
   };
 
-  const listings = await hydrateListings(prisma, companyId, listingIds);
+  const listings = await hydrateListings(prisma, organizationId, listingIds);
   const [liveMetrics, channelStateByListing] = await Promise.all([
     listingIds.length === 0
       ? Promise.resolve([])
-      : buildPerListingMetrics(prisma, companyId, monthWindow.from, monthWindow.to).then(
+      : buildPerListingMetrics(prisma, organizationId, monthWindow.from, monthWindow.to).then(
           (rows) => rows.filter((row) => listingIdSet.has(row.listingId)),
         ),
-    loadChannelStateByListing(prisma, companyId, listings),
+    loadChannelStateByListing(prisma, organizationId, listings),
   ]);
 
   const profitRateByListing = new Map<string, number>(
@@ -126,7 +126,7 @@ export async function loadStrategyContext(
  */
 export async function loadChannelStateByListing(
   prisma: PrismaService,
-  companyId: string,
+  organizationId: string,
   listings: HydratedListing[],
 ): Promise<Map<string, ChannelStateSignal>> {
   const map = new Map<string, ChannelStateSignal>();
@@ -204,7 +204,7 @@ export async function loadChannelStateByListing(
         product_rank        AS "productRank",
         category_rank       AS "categoryRank"
       FROM channel_listing_daily_snapshots
-      WHERE company_id = ${companyId}::uuid
+      WHERE organization_id = ${organizationId}::uuid
         AND listing_id = ANY(${listingIds}::uuid[])
       ORDER BY
         listing_id,
@@ -231,7 +231,7 @@ export async function loadChannelStateByListing(
             winner_price         AS "winnerPrice",
             winner_gap_price     AS "winnerGapPrice"
           FROM channel_listing_option_daily_snapshots
-          WHERE company_id = ${companyId}::uuid
+          WHERE organization_id = ${organizationId}::uuid
             AND listing_option_id = ANY(${primaryListingOptionIds}::uuid[])
           ORDER BY
             listing_option_id,
@@ -297,13 +297,13 @@ export async function loadChannelStateByListing(
  */
 export async function loadLeadTimeByListing(
   prisma: PrismaService,
-  companyId: string,
+  organizationId: string,
   listingIds: string[],
 ): Promise<Map<string, number | null>> {
   const map = new Map<string, number | null>();
   if (listingIds.length === 0) return map;
   const rows = await prisma.channelListingOption.findMany({
-    where: { companyId, listingId: { in: listingIds }, isActive: true },
+    where: { organizationId, listingId: { in: listingIds }, isActive: true },
     select: {
       listingId: true,
       optionId: true,
@@ -314,7 +314,7 @@ export async function loadLeadTimeByListing(
   );
   const inventories = optionIds.length > 0
     ? await prisma.inventory.findMany({
-        where: { optionId: { in: optionIds }, companyId },
+        where: { optionId: { in: optionIds }, organizationId },
         select: { optionId: true, leadTimeDays: true },
       })
     : [];
@@ -330,18 +330,18 @@ export async function loadLeadTimeByListing(
 
 /**
  * listingIds → HydratedListing[] (master + ABC/tier/health meta + primary
- * option pricing). companyId scope is enforced (ADR-0006). primaryOption is
+ * option pricing). organizationId scope is enforced (ADR-0006). primaryOption is
  * the deterministic first active option (createdAt asc, externalOptionId asc,
  * id asc); ad-grade-rules uses it for margin / adBudgetLimit evaluation.
  */
 export async function hydrateListings(
   prisma: PrismaService,
-  companyId: string,
+  organizationId: string,
   listingIds: string[],
 ): Promise<HydratedListing[]> {
   if (listingIds.length === 0) return [];
   const rows = await prisma.channelListing.findMany({
-    where: { id: { in: listingIds }, companyId, isDeleted: false },
+    where: { id: { in: listingIds }, organizationId, isDeleted: false },
     select: {
       id: true,
       externalId: true,
@@ -372,13 +372,13 @@ export async function hydrateListings(
   const [masters, productOptions] = await Promise.all([
     masterIds.length > 0
       ? prisma.masterProduct.findMany({
-          where: { id: { in: masterIds }, companyId },
+          where: { id: { in: masterIds }, organizationId },
           select: { id: true, code: true, name: true, abcGrade: true, adTier: true, healthScore: true },
         })
       : Promise.resolve([]),
     optionIds.length > 0
       ? prisma.productOption.findMany({
-          where: { id: { in: optionIds }, companyId },
+          where: { id: { in: optionIds }, organizationId },
           select: {
             id: true,
             availableStock: true,
@@ -434,12 +434,12 @@ export async function hydrateListings(
  */
 export async function getInventorySnapshot(
   prisma: PrismaService,
-  companyId: string,
+  organizationId: string,
   listingIds: string[],
 ): Promise<Map<string, InventoryRow>> {
   if (listingIds.length === 0) return new Map();
   const options = await prisma.channelListingOption.findMany({
-    where: { companyId, listingId: { in: listingIds }, isActive: true, optionId: { not: null } },
+    where: { organizationId, listingId: { in: listingIds }, isActive: true, optionId: { not: null } },
     select: {
       optionId: true,
       listingId: true,
@@ -450,7 +450,7 @@ export async function getInventorySnapshot(
   );
   const productOptions = optionIds.length > 0
     ? await prisma.productOption.findMany({
-        where: { id: { in: optionIds }, companyId },
+        where: { id: { in: optionIds }, organizationId },
         select: { id: true, availableStock: true, costPrice: true, sellPrice: true, commissionRate: true },
       })
     : [];

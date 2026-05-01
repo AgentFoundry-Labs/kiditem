@@ -35,44 +35,44 @@ export type TransactionSummaryInput = {
 };
 
 export interface InventoryPort {
-  list(input: ListInventoryInput, companyId: string): Promise<InventoryListResponse>;
-  findById(id: string, companyId: string): Promise<Inventory>;
-  findByOptionId(optionId: string, companyId: string): Promise<Inventory>;
+  list(input: ListInventoryInput, organizationId: string): Promise<InventoryListResponse>;
+  findById(id: string, organizationId: string): Promise<Inventory>;
+  findByOptionId(optionId: string, organizationId: string): Promise<Inventory>;
 
   updateMetadata(
     id: string,
     dto: UpdateInventoryMetadataInput,
-    companyId: string,
+    organizationId: string,
   ): Promise<Inventory>;
 
   receive(
     id: string,
     dto: ReceiveStockInput,
-    companyId: string,
+    organizationId: string,
     userId: string,
   ): Promise<StockOperationResult>;
 
   issue(
     id: string,
     dto: IssueStockInput,
-    companyId: string,
+    organizationId: string,
     userId: string,
   ): Promise<StockOperationResult>;
 
   adjust(
     id: string,
     dto: AdjustStockInput,
-    companyId: string,
+    organizationId: string,
     userId: string,
   ): Promise<StockOperationResult>;
 
   listTransactions(
     input: ListTransactionsInput,
-    companyId: string,
+    organizationId: string,
   ): Promise<TransactionListResponse>;
 
   getTransactionSummary(
     input: TransactionSummaryInput,
-    companyId: string,
+    organizationId: string,
   ): Promise<TransactionSummary>;
 }

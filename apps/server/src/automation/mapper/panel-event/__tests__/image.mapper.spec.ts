@@ -5,12 +5,12 @@ import type { ThumbnailGeneration } from '@prisma/client';
 
 const GEN_ID = '11111111-1111-1111-1111-111111111111';
 const MASTER_ID = '22222222-2222-2222-2222-222222222222';
-const COMPANY_ID = '33333333-3333-3333-3333-333333333333';
+const ORGANIZATION_ID = '33333333-3333-3333-3333-333333333333';
 const USER_ID = '44444444-4444-4444-4444-444444444444';
 
 const baseGeneration: ThumbnailGeneration = {
   id: GEN_ID,
-  companyId: COMPANY_ID,
+  organizationId: ORGANIZATION_ID,
   masterId: MASTER_ID,
   originalUrl: null,
   selectedUrl: null,
@@ -81,13 +81,13 @@ describe('imagePanelMapper', () => {
     expect(item.source).toBe('image');
   });
 
-  it('triggeredByUserId: null maps to actorUserId: null and visibility: company', () => {
+  it('triggeredByUserId: null maps to actorUserId: null and visibility: organization', () => {
     const item = imagePanelMapper.mapToItem(
       makeInput({ triggeredByUserId: null }),
       'co-1',
     );
     expect(item.actorUserId).toBeNull();
-    expect(item.visibility).toBe('company');
+    expect(item.visibility).toBe('organization');
   });
 
   it('triggeredByUserId uuid maps to actorUserId and visibility: user', () => {
@@ -119,10 +119,10 @@ describe('imagePanelMapper', () => {
     expect(item.failureType).toBeNull();
   });
 
-  it('output does NOT include companyId (envelope carries it)', () => {
+  it('output does NOT include organizationId (envelope carries it)', () => {
     const item = imagePanelMapper.mapToItem(makeInput(), 'co-1');
-    expect('companyId' in item).toBe(false);
-    // Confirm Zod parse also succeeds (companyId not in schema)
+    expect('organizationId' in item).toBe(false);
+    // Confirm Zod parse also succeeds (organizationId not in schema)
     const result = PanelRunItem.omit({ seq: true, updatedAt: true }).safeParse(item);
     expect(result.success).toBe(true);
   });

@@ -14,7 +14,7 @@ import { WorkflowRunSchema } from './workflow.js';
 //  - 실제 스키마의 `priority`, `sourceDataId`, `updatedAt` 은 Planner 명세에 없지만 포함.
 export const AgentTaskSchema = z.object({
   id: z.string(),
-  companyId: z.string().nullable(),
+  organizationId: z.string().nullable(),
   agentType: z.string(),
   status: z.string(),
   priority: z.number().int(),
@@ -41,7 +41,7 @@ export const WorkflowRunTraceSchema = WorkflowRunSchema;
 // ⚠️ Date fields: requestedAt, claimedAt, finishedAt, createdAt, updatedAt
 export const AgentWakeupRequestSchema = z.object({
   id: z.string(),
-  companyId: z.string(),
+  organizationId: z.string(),
   agentId: z.string(),
   source: z.string(),
   triggerDetail: z.string().nullable(),
@@ -67,7 +67,7 @@ export const AgentWakeupRequestSchema = z.object({
 //              실제 스키마는 tableName/recordId/fieldName/valueBefore/valueAfter/restoredAt 을 사용.
 export const AgentEventSchema = z.object({
   id: z.string(),
-  companyId: z.string(),
+  organizationId: z.string(),
   agentId: z.string(),
   runId: z.string().nullable(),
   eventType: z.string(),

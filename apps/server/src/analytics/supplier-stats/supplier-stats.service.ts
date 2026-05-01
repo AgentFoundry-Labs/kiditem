@@ -30,10 +30,10 @@ export class SupplierStatsService {
   constructor(private readonly prisma: PrismaService) {}
 
   /** 거래처별 매출 집계: supplier 의 SupplierProduct(optionId) + MasterSupplierProduct(masterId→options) 합산. */
-  async getSalesBySupplier(companyId: string) {
+  async getSalesBySupplier(organizationId: string) {
     // 1) Supplier 와 양쪽 매핑을 얇게 조회 (orders include 없이 Cartesian 폭발 회피)
     const suppliers = await this.prisma.supplier.findMany({
-      where: { companyId },
+      where: { organizationId },
       select: {
         id: true,
         name: true,
@@ -68,7 +68,7 @@ export class SupplierStatsService {
       }
     }
 
-    const orderStatsByOptionId = await this.aggregateOrdersByOptionIds(companyId, allOptionIds);
+    const orderStatsByOptionId = await this.aggregateOrdersByOptionIds(organizationId, allOptionIds);
 
     // 4) supplier 별 집계 — 중복 optionId 방지
     return suppliers.map((supplier) => {
@@ -109,7 +109,7 @@ export class SupplierStatsService {
    * - SupplierProduct 경로: `supplyPrice` 는 schema 실값
    * - MasterSupplierProduct 경로: `supplyPrice` 는 schema 에 없으므로 `null` (spec §5.5)
    */
-  async getProductSales(companyId: string, supplierId: string) {
+  async getProductSales(organizationId: string, supplierId: string) {
     const [supplierProducts, masterSupplierProducts] = await Promise.all([
       this.prisma.supplierProduct.findMany({
         where: { supplierId },
@@ -150,7 +150,7 @@ export class SupplierStatsService {
       for (const o of msp.master.options) allOptionIds.add(o.id);
     }
 
-    const orderStats = await this.aggregateOrdersByOptionIds(companyId, allOptionIds);
+    const orderStats = await this.aggregateOrdersByOptionIds(organizationId, allOptionIds);
 
     const counted = new Set<string>();
     const results: SupplierProductSalesRow[] = [];
@@ -204,14 +204,14 @@ export class SupplierStatsService {
   }
 
   /** 거래처 거래 이력: purchaseOrder + supplierPayment 를 시간순 타임라인으로. */
-  async getHistory(companyId: string, supplierId: string) {
+  async getHistory(organizationId: string, supplierId: string) {
     const [purchaseOrders, payments] = await Promise.all([
       this.prisma.purchaseOrder.findMany({
-        where: { companyId, supplierId },
+        where: { organizationId, supplierId },
         orderBy: { orderDate: 'desc' },
       }),
       this.prisma.supplierPayment.findMany({
-        where: { companyId, supplierId },
+        where: { organizationId, supplierId },
         orderBy: { createdAt: 'desc' },
       }),
     ]);
@@ -241,10 +241,10 @@ export class SupplierStatsService {
   /**
    * OrderLineItem.optionId → groupBy 집계 (chunked for >1000 ids, Postgres IN 성능 안정화).
    *
-   * companyId 는 상위 Order 로 scope (ADR-0015 Order-level company). status filter 로 cancelled/returned 제외.
+   * organizationId 는 상위 Order 로 scope (ADR-0015 Order-level organization). status filter 로 cancelled/returned 제외.
    */
   private async aggregateOrdersByOptionIds(
-    companyId: string,
+    organizationId: string,
     optionIds: Set<string>,
   ): Promise<Map<string, OptionOrderStats>> {
     const result = new Map<string, OptionOrderStats>();
@@ -257,7 +257,7 @@ export class SupplierStatsService {
         by: ['optionId'],
         where: {
           optionId: { in: chunk },
-          order: { companyId, status: { notIn: [...ORDER_STATUS_EXCLUDE] } },
+          order: { organizationId, status: { notIn: [...ORDER_STATUS_EXCLUDE] } },
         },
         _count: { _all: true },
         _sum: { quantity: true, totalPrice: true },

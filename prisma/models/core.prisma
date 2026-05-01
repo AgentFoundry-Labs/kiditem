@@ -1,17 +1,18 @@
 // core.prisma — Core domain
 
 /// @namespace Core
-model Company {
+model Organization {
   id             String   @id @default(uuid()) @db.Uuid
   name           String
   slug           String   @unique
-  businessNumber String?  @map("business_number")
   isActive       Boolean  @default(true) @map("is_active")
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   // Core
-  users          User[]
+  memberships    OrganizationMembership[]
+  legalEntities  LegalEntity[]
+  channelAccounts ChannelAccount[]
   orders         Order[]
   purchaseOrders PurchaseOrder[]
   profitLoss     ProfitLoss[]
@@ -110,20 +111,19 @@ model Company {
   channelAccountDailyKpiSnapshots ChannelAccountDailyKpiSnapshot[]
 
   // Additional back-relations for FK rename additions
-  gradeHistory            GradeHistory[]            // Task 8 Step 2 adds companyId to GradeHistory
+  gradeHistory            GradeHistory[]            // Task 8 Step 2 adds organizationId to GradeHistory
 
-  @@map("companies")
+  @@map("organizations")
 }
 
 /// @namespace Core
-/// @describe human(직원) / agent(AI, agentDefinitionId 연결) / system(챗봇, companyId=null) 통합 관리.
+/// @describe human(직원) / agent(AI, agentDefinitionId 연결) / system(챗봇). 조직 소속은 OrganizationMembership 이 source of truth.
 model User {
   id                String    @id @default(uuid()) @db.Uuid
-  companyId         String?   @map("company_id") @db.Uuid
   email             String    @unique
   name              String
   password          String?
-  role              String    @default("member")
+  role              String    @default("member") // global/default role; per-organization role lives on OrganizationMembership.
   type              String    @default("human")
   team              String?
   avatarUrl         String?   @map("avatar_url")
@@ -133,21 +133,91 @@ model User {
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company                   Company?         @relation(fields: [companyId], references: [id], onDelete: Cascade)
   agentDefinition           AgentDefinition? @relation(fields: [agentDefinitionId], references: [id])
+  memberships               OrganizationMembership[]
+  invitedOrganizationMemberships OrganizationMembership[] @relation("OrganizationMembershipInviter")
   triggeredWorkflowRuns     WorkflowRun[]    @relation("WorkflowRunTriggeredBy")
   triggeredHeartbeatRuns        HeartbeatRun[]        @relation("HeartbeatRunTriggeredBy")
   triggeredThumbnailGenerations ThumbnailGeneration[] @relation("ThumbnailGenerationTriggeredBy")
   assignedActionTasks           ActionTask[]          @relation("ActionTaskAssignee")
 
-  @@index([companyId])
   @@map("users")
+}
+
+/// @namespace Core
+/// @describe B2B customer/workspace membership. A user may belong to multiple organizations; this row supplies request organization and role.
+model OrganizationMembership {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  role           String   @default("member")
+  status         String   @default("active")
+  invitedById    String?  @map("invited_by_id") @db.Uuid
+  joinedAt       DateTime @default(now()) @map("joined_at") @db.Timestamptz
+  lastSelectedAt DateTime? @map("last_selected_at") @db.Timestamptz
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy    User?        @relation("OrganizationMembershipInviter", fields: [invitedById], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, userId])
+  @@index([userId, status])
+  @@index([organizationId, role])
+  @@map("organization_memberships")
+}
+
+/// @namespace Core
+/// @describe Legal/business entity under an organization. This stores tax, invoice, and settlement identity separately from the SaaS organization boundary.
+model LegalEntity {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  name           String
+  businessNumber String?  @map("business_number")
+  countryCode    String   @default("KR") @map("country_code")
+  representativeName String? @map("representative_name")
+  address        String?
+  isPrimary      Boolean  @default(false) @map("is_primary")
+  metadata       Json?    @db.JsonB
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([organizationId, isPrimary])
+  @@map("legal_entities")
+}
+
+/// @namespace Core
+/// @describe Marketplace/store account such as Coupang Wing or Naver SmartStore. Operational channel ownership is distinct from the SaaS organization.
+model ChannelAccount {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  channel        String
+  name           String
+  externalAccountId String? @map("external_account_id")
+  sellerId       String?  @map("seller_id")
+  vendorId       String?  @map("vendor_id")
+  status         String   @default("active")
+  isPrimary      Boolean  @default(false) @map("is_primary")
+  config         Json?    @db.JsonB
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, channel, externalAccountId])
+  @@index([organizationId, channel])
+  @@index([organizationId, isPrimary])
+  @@map("channel_accounts")
 }
 
 /// @namespace Core
 model CategoryMapping {
   id                  String   @id @default(uuid()) @db.Uuid
-  companyId           String   @map("company_id") @db.Uuid
+  organizationId           String   @map("organization_id") @db.Uuid
   internalCategory    String   @map("internal_category")
   coupangCategoryId   String?  @map("coupang_category_id")
   coupangCategoryName String?  @map("coupang_category_name")
@@ -156,9 +226,9 @@ model CategoryMapping {
   createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt           DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  @@unique([companyId, internalCategory])
+  @@unique([organizationId, internalCategory])
   @@map("category_mappings")
 }
 
@@ -166,10 +236,10 @@ model CategoryMapping {
 /// @describe 기획상품 family. 같은 컨셉의 옵션들을 묶는 entity. 운영/광고/전략 단위.
 model MasterProduct {
   id          String   @id @default(uuid()) @db.Uuid
-  companyId   String   @map("company_id") @db.Uuid
+  organizationId   String   @map("organization_id") @db.Uuid
   code        String   @unique
   legacyCode  String?  @map("legacy_code")
-  /// Source barcode/EAN (ADR-0022). 비어있을 수 있고 (companyId, barcode) 가
+  /// Source barcode/EAN (ADR-0022). 비어있을 수 있고 (organizationId, barcode) 가
   /// **non-unique** — 한 EAN 이 여러 product family 에 걸칠 수 있는 외부 데이터를
   /// 그대로 보존한다. 실제 옵션/스캐너 단위 unique 는 ProductOption.barcode 가 담당.
   barcode     String?
@@ -202,8 +272,6 @@ model MasterProduct {
   detailPageUrl   String?  @map("detail_page_url")
   thumbnailStrategy String @default("standard") @map("thumbnail_strategy")
 
-  supplierId      String?  @map("supplier_id") @db.Uuid
-
   isDeleted    Boolean   @default(false) @map("is_deleted")
   deletedAt    DateTime? @map("deleted_at") @db.Timestamptz
   isTemporary  Boolean   @default(false) @map("is_temporary")
@@ -213,8 +281,7 @@ model MasterProduct {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company  Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  supplier Supplier?       @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  organization  Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   options  ProductOption[]
   listings ChannelListing[]
 
@@ -225,12 +292,12 @@ model MasterProduct {
   processingCosts       ProcessingCost[]
   masterSupplierProducts MasterSupplierProduct[]
 
-  @@unique([companyId, legacyCode])
-  @@index([companyId])
-  @@index([companyId, isDeleted])
-  @@index([companyId, isDeleted, isTemporary])
-  @@index([companyId, legacyCode])
-  @@index([companyId, barcode])
+  @@unique([organizationId, legacyCode])
+  @@index([organizationId])
+  @@index([organizationId, isDeleted])
+  @@index([organizationId, isDeleted, isTemporary])
+  @@index([organizationId, legacyCode])
+  @@index([organizationId, barcode])
   @@index([abcGrade])
   @@index([pipelineStep])
   @@index([category])
@@ -242,7 +309,7 @@ model MasterProduct {
 /// @describe MasterProduct 이미지 갤러리. Source of truth 이며 MasterProduct.imageUrl 은 대표 이미지 캐시로만 동기화된다.
 model MasterProductImage {
   id        String @id @default(uuid()) @db.Uuid
-  companyId String @map("company_id") @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
   masterId  String @map("master_id") @db.Uuid
 
   url        String
@@ -264,13 +331,13 @@ model MasterProductImage {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   master  MasterProduct @relation(fields: [masterId], references: [id], onDelete: Cascade)
 
-  @@index([companyId])
+  @@index([organizationId])
   @@index([masterId])
-  @@index([companyId, masterId])
-  @@index([companyId, role])
+  @@index([organizationId, masterId])
+  @@index([organizationId, role])
   @@index([masterId, role, sortOrder])
   @@index([masterId, isPrimary])
   @@map("master_product_images")
@@ -281,7 +348,7 @@ model MasterProductImage {
 model ProductOption {
   id          String   @id @default(uuid()) @db.Uuid
   masterId    String   @map("master_id") @db.Uuid
-  companyId   String   @map("company_id") @db.Uuid
+  organizationId   String   @map("organization_id") @db.Uuid
 
   sku         String   @unique
   barcode     String?
@@ -308,7 +375,7 @@ model ProductOption {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   master      MasterProduct @relation(fields: [masterId], references: [id], onDelete: Restrict)
-  company     Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organization     Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   inventory   Inventory?
 
   components  BundleComponent[] @relation("BundleOption")
@@ -337,13 +404,13 @@ model ProductOption {
   channelAdTargetDailySnapshots ChannelAdTargetDailySnapshot[]
 
   @@unique([masterId, optionName])
-  @@unique([companyId, barcode])
-  @@unique([companyId, legacyCode])
-  @@index([companyId])
+  @@unique([organizationId, barcode])
+  @@unique([organizationId, legacyCode])
+  @@index([organizationId])
   @@index([masterId])
   @@index([masterId, isDeleted])
-  @@index([companyId, isTemporary])
-  @@index([companyId, legacyCode])
+  @@index([organizationId, isTemporary])
+  @@index([organizationId, legacyCode])
   @@index([isBundle])
   @@map("product_options")
 }
@@ -353,7 +420,7 @@ model ProductOption {
 model ChannelListing {
   id          String   @id @default(uuid()) @db.Uuid
   masterId    String   @map("master_id") @db.Uuid
-  companyId   String   @map("company_id") @db.Uuid
+  organizationId   String   @map("organization_id") @db.Uuid
 
   channel     String
   externalId  String   @map("external_id")
@@ -376,7 +443,7 @@ model ChannelListing {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   master  MasterProduct @relation(fields: [masterId], references: [id], onDelete: Restrict)
-  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   options ChannelListingOption[]
 
   reviews            Review[]
@@ -397,8 +464,8 @@ model ChannelListing {
   // Channels — daily fact extensions (Hard rewrite H1)
   channelAdTargetDailySnapshots ChannelAdTargetDailySnapshot[]
 
-  @@unique([companyId, channel, externalId])
-  @@index([companyId])
+  @@unique([organizationId, channel, externalId])
+  @@index([organizationId])
   @@index([masterId])
   @@index([channel, isDeleted])
   @@index([masterId, isDeleted])
@@ -412,7 +479,7 @@ model ChannelListingOption {
   id               String   @id @default(uuid()) @db.Uuid
   listingId        String   @map("listing_id") @db.Uuid
   optionId         String?  @map("option_id") @db.Uuid
-  companyId        String   @map("company_id") @db.Uuid
+  organizationId        String   @map("organization_id") @db.Uuid
 
   externalOptionId String   @map("external_option_id") @db.VarChar(60)
   itemName         String?  @map("item_name")
@@ -426,7 +493,7 @@ model ChannelListingOption {
 
   listing ChannelListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
   option  ProductOption? @relation(fields: [optionId], references: [id], onDelete: SetNull)
-  company Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   orderLineItems    OrderLineItem[]
 
   // Channels — market-data snapshots (Wave C0)
@@ -437,20 +504,20 @@ model ChannelListingOption {
   channelAdTargetDailySnapshots ChannelAdTargetDailySnapshot[]
 
   @@unique([listingId, externalOptionId])
-  @@index([companyId, externalOptionId])
+  @@index([organizationId, externalOptionId])
   @@index([optionId])
   @@index([externalOptionId])
-  @@index([companyId, isUnmatched])
+  @@index([organizationId, isUnmatched])
   @@map("channel_listing_options")
 }
 
 /// @namespace Core
-/// @describe 세트 옵션의 구성품 관계. bundleOption(isBundle=true) ↔ componentOption. Cross-master 허용, cross-company 금지.
+/// @describe 세트 옵션의 구성품 관계. bundleOption(isBundle=true) ↔ componentOption. Cross-master 허용, cross-organization 금지.
 model BundleComponent {
   id                String @id @default(uuid()) @db.Uuid
   bundleOptionId    String @map("bundle_option_id") @db.Uuid
   componentOptionId String @map("component_option_id") @db.Uuid
-  companyId         String @map("company_id") @db.Uuid
+  organizationId         String @map("organization_id") @db.Uuid
   qty               Int    @default(1)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
@@ -458,10 +525,10 @@ model BundleComponent {
 
   bundleOption    ProductOption @relation("BundleOption", fields: [bundleOptionId], references: [id], onDelete: Cascade)
   componentOption ProductOption @relation("ComponentOption", fields: [componentOptionId], references: [id], onDelete: Restrict)
-  company         Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organization         Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([bundleOptionId, componentOptionId])
   @@index([componentOptionId])
-  @@index([companyId])
+  @@index([organizationId])
   @@map("bundle_components")
 }

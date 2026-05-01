@@ -45,14 +45,14 @@ registerNode('condition.evaluate', async (_prisma, config, context) => {
 registerNode('notification.alert', async (prisma, config, context) => {
   const title = context.resolve((config.title as string) ?? '');
   const message = context.resolve((config.message as string) ?? '');
-  // The runner injects `company_id` from the verified template owner.
-  // Any caller-supplied `company_id` in the node config is overwritten
+  // The runner injects `organization_id` from the verified template owner.
+  // Any caller-supplied `organization_id` in the node config is overwritten
   // before this executor runs, so this value is the trusted tenant scope.
-  const companyId = config.company_id as string;
+  const organizationId = config.organization_id as string;
 
   await prisma.alert.create({
     data: {
-      companyId,
+      organizationId,
       type: (config.alert_type as string) ?? 'workflow',
       severity: (config.severity as string) ?? 'info',
       title,
@@ -62,7 +62,7 @@ registerNode('notification.alert', async (prisma, config, context) => {
 
   if (config.product_id) {
     await recordActivity(prisma, {
-      companyId,
+      organizationId,
       objectType: 'product',
       objectId: config.product_id as string,
       eventType: 'alert_created',
@@ -79,12 +79,12 @@ registerNode('agent_task.create', async (_prisma, config, _context, services) =>
   if (!services?.agentRegistry) {
     throw new Error('AgentRegistryService is required for agent_task.create');
   }
-  const companyId = config.company_id as string | undefined;
-  if (!companyId) {
-    throw new Error('agent_task.create requires runner-injected company_id');
+  const organizationId = config.organization_id as string | undefined;
+  if (!organizationId) {
+    throw new Error('agent_task.create requires runner-injected organization_id');
   }
   const result = await services.agentRegistry.runByType(config.agent_type as string, {
-    companyId,
+    organizationId,
     workflowRunId: config._workflow_run_id as string | undefined,
     workflowNodeId: config._workflow_node_id as string | undefined,
     sourceDataId: config.source_data_id as string | undefined,

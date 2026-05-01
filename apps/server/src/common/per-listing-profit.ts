@@ -10,10 +10,10 @@ import { resolvePricing } from './option-pricing-resolver';
  *
  * Pure function (no @Injectable). Follows ADR-0016 live aggregation:
  *   - I3 canonical: revenue = SUM(OrderLineItem.totalPrice)
- *   - I7 multi-tenant: every Prisma call scoped by companyId
+ *   - I7 multi-tenant: every Prisma call scoped by organizationId
  *   - I8 half-open: orderedAt: { gte: from, lt: to }
  *   - R-1 shipping: order-level Order.shippingPrice, revenue-weighted distribution
- *   - ADR-0018 compliance: all 2 queries pass companyId; no $queryRaw used
+ *   - ADR-0018 compliance: all 2 queries pass organizationId; no $queryRaw used
  *
  * Excludes returnCount (D.3b will add) — the OrderReturnLineItem fetch stays
  * in profit-loss.service.findAll because PLData.returnCount is finance-specific.
@@ -47,14 +47,14 @@ const EXCLUDED_ORDER_STATUSES = ['cancelled', 'returned', 'refunded'] as const;
 
 export async function buildPerListingMetrics(
   prisma: PrismaService,
-  companyId: string,
+  organizationId: string,
   from: Date,
   to: Date,
 ): Promise<PerListingMetrics[]> {
   const [orders, adRows] = await Promise.all([
     prisma.order.findMany({
       where: {
-        companyId,
+        organizationId,
         orderedAt: { gte: from, lt: to },
         status: { notIn: [...EXCLUDED_ORDER_STATUSES] },
       },
@@ -102,7 +102,7 @@ export async function buildPerListingMetrics(
     prisma.channelListingDailySnapshot.groupBy({
       by: ['listingId'],
       _sum: { adSpend: true },
-      where: { companyId, businessDate: { gte: from, lt: to } },
+      where: { organizationId, businessDate: { gte: from, lt: to } },
     }),
   ]);
 

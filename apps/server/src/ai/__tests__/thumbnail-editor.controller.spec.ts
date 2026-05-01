@@ -3,7 +3,7 @@ import { ThumbnailEditorController } from '../adapter/in/http/thumbnail-editor.c
 import type { ThumbnailEditorDto } from '../adapter/in/http/dto/thumbnail-editor.dto';
 import type { ThumbnailEditorInputImage } from '../domain/model/thumbnail-editor';
 
-const COMPANY_ID = 'company-1';
+const ORGANIZATION_ID = 'organization-1';
 const PRODUCT_ID = '7d000000-0000-4000-8000-000000000001';
 
 function makeInput(
@@ -29,7 +29,7 @@ function makeController() {
   const editorAi = {
     resolveInputImage: vi.fn(async (
       value: string,
-      _companyId: string,
+      _organizationId: string,
       options: { label: string; role: ThumbnailEditorInputImage['role']; sortOrder: number },
     ) => makeInput(value, options.label, options.role, options.sortOrder)),
     generateEdit: vi.fn(async () => [
@@ -66,7 +66,7 @@ describe('ThumbnailEditorController parity behavior', () => {
       mode: 'edit',
     } satisfies ThumbnailEditorDto;
 
-    await controller.generate(body, COMPANY_ID);
+    await controller.generate(body, ORGANIZATION_ID);
 
     const inputs = editorAi.generateEdit.mock.calls[0][0] as ThumbnailEditorInputImage[];
     expect(inputs.map((input) => input.label)).toEqual([
@@ -88,7 +88,7 @@ describe('ThumbnailEditorController parity behavior', () => {
       styleType: 'minimal',
     } satisfies ThumbnailEditorDto;
 
-    await controller.generate(body, COMPANY_ID);
+    await controller.generate(body, ORGANIZATION_ID);
 
     const options = editorAi.generateCreative.mock.calls[0][2] as Record<string, unknown>;
     expect(options.productName).toBeUndefined();

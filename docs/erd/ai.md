@@ -24,7 +24,7 @@
 erDiagram
   ContentGeneration {
     String id PK
-    String companyId FK
+    String organizationId FK
     String masterId FK
     Json originalImages
     Json processedImages
@@ -40,7 +40,7 @@ erDiagram
   }
   Thumbnail {
     String id PK
-    String companyId FK
+    String organizationId FK
     String listingId FK
     String imageUrl
     String strategy
@@ -55,7 +55,7 @@ erDiagram
   }
   ThumbnailAnalysis {
     String id PK
-    String companyId FK
+    String organizationId FK
     String masterId FK,UK
     String imageUrl
     Int overallScore
@@ -75,7 +75,7 @@ erDiagram
   }
   ThumbnailGeneration {
     String id PK
-    String companyId FK
+    String organizationId FK
     String masterId FK
     String originalUrl
     String selectedUrl
@@ -96,7 +96,7 @@ erDiagram
   }
   ThumbnailGenerationCandidate {
     String id PK
-    String companyId FK
+    String organizationId FK
     String generationId FK
     String url
     String storageKey
@@ -111,7 +111,7 @@ erDiagram
   }
   ThumbnailGenerationInputImage {
     String id PK
-    String companyId FK
+    String organizationId FK
     String generationId FK
     String url
     String storageKey
@@ -128,7 +128,7 @@ erDiagram
   }
   ThumbnailRegistrationAttempt {
     String id PK
-    String companyId FK
+    String organizationId FK
     String generationId FK
     String status
     String errorMessage
@@ -141,7 +141,7 @@ erDiagram
   }
   ThumbnailTracking {
     String id PK
-    String companyId FK
+    String organizationId FK
     String listingId FK
     String generationId FK
     String originalGrade
@@ -167,17 +167,17 @@ erDiagram
 
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
-| ContentGeneration | company | references external | Core | Company |
 | ContentGeneration | master | references external | Core | MasterProduct |
-| Thumbnail | company | references external | Core | Company |
+| ContentGeneration | organization | references external | Core | Organization |
 | Thumbnail | listing | references external | Core | ChannelListing |
-| ThumbnailAnalysis | company | references external | Core | Company |
+| Thumbnail | organization | references external | Core | Organization |
 | ThumbnailAnalysis | master | references external | Core | MasterProduct |
-| ThumbnailGeneration | company | references external | Core | Company |
+| ThumbnailAnalysis | organization | references external | Core | Organization |
 | ThumbnailGeneration | master | references external | Core | MasterProduct |
+| ThumbnailGeneration | organization | references external | Core | Organization |
 | ThumbnailGeneration | triggeredByUser | references external | Core | User |
-| ThumbnailGenerationCandidate | company | references external | Core | Company |
-| ThumbnailGenerationInputImage | company | references external | Core | Company |
-| ThumbnailRegistrationAttempt | company | references external | Core | Company |
-| ThumbnailTracking | company | references external | Core | Company |
+| ThumbnailGenerationCandidate | organization | references external | Core | Organization |
+| ThumbnailGenerationInputImage | organization | references external | Core | Organization |
+| ThumbnailRegistrationAttempt | organization | references external | Core | Organization |
 | ThumbnailTracking | listing | references external | Core | ChannelListing |
+| ThumbnailTracking | organization | references external | Core | Organization |

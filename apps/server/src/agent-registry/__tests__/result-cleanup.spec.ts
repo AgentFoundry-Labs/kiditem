@@ -87,7 +87,7 @@ describe('ResultCleanupService.cleanupAgent', () => {
     const { service, prisma } = makeService();
     const oldRun = {
       id: 'run-old-1',
-      companyId: 'co-1',
+      organizationId: 'co-1',
       resultJson: { actions: [{ action: 'bid_adjust' }] },
       errorCode: null,
     };
@@ -97,7 +97,7 @@ describe('ResultCleanupService.cleanupAgent', () => {
 
     expect(count).toBe(1);
     expect(prisma.heartbeatRun.updateMany).toHaveBeenCalledWith({
-      where: { id: 'run-old-1', companyId: 'co-1' },
+      where: { id: 'run-old-1', organizationId: 'co-1' },
       data: {
         isSummarized: true,
         summary: '1개 액션 실행: bid_adjust',
@@ -144,8 +144,8 @@ describe('ResultCleanupService.cleanupAll', () => {
     // agent-1 has 2 old runs, agent-2 has none
     prisma.heartbeatRun.findMany
       .mockResolvedValueOnce([
-        { id: 'run-1', companyId: 'co-1', resultJson: null, errorCode: null },
-        { id: 'run-2', companyId: 'co-1', resultJson: null, errorCode: 'timeout' },
+        { id: 'run-1', organizationId: 'co-1', resultJson: null, errorCode: null },
+        { id: 'run-2', organizationId: 'co-1', resultJson: null, errorCode: 'timeout' },
       ])
       .mockResolvedValueOnce([]);
 

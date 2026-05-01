@@ -2,8 +2,8 @@
 
 ## What changed
 
-- `ActionTaskService.getTasks(companyId)` now derives finance warnings from `buildPerListingMetrics()`
-- removed `resolveCompanyId()` fallback and all `profitLoss` reads from action-task
+- `ActionTaskService.getTasks(organizationId)` now derives finance warnings from `buildPerListingMetrics()`
+- removed `resolveOrganizationId()` fallback and all `profitLoss` reads from action-task
 - related products now come from one live metrics array plus tenant-scoped inventory joins
 - added dedicated unit and PG integration coverage for `getTasks()`
 

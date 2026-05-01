@@ -6,7 +6,7 @@ export type BundleComponentRuleCode =
   | 'component-option-not-found'
   | 'option-is-not-bundle'
   | 'nested-bundle-not-supported'
-  | 'cross-company';
+  | 'cross-organization';
 
 export class BundleComponentRuleError extends Error {
   constructor(
@@ -27,7 +27,7 @@ export class BundleComponentRuleError extends Error {
  */
 export interface BundleOptionForRules {
   id: string;
-  companyId: string;
+  organizationId: string;
   isBundle: boolean;
 }
 
@@ -46,9 +46,9 @@ export function ensureNotSelfReference(
  *     so `null` here means tombstone or not-our-tenant — surface as 404).
  *   - `bundleOption.isBundle === true`.
  *   - `componentOption.isBundle === false` (Plan B1: no nested bundles).
- *   - `bundleOption.companyId === authCompanyId` (caller owns the bundle).
- *   - `componentOption.companyId === bundleOption.companyId`
- *     (cross-company composition forbidden).
+ *   - `bundleOption.organizationId === authOrganizationId` (caller owns the bundle).
+ *   - `componentOption.organizationId === bundleOption.organizationId`
+ *     (cross-organization composition forbidden).
  *
  * Asserts both options non-null on success so the caller's narrowed types
  * remain accurate.
@@ -56,7 +56,7 @@ export function ensureNotSelfReference(
 export function ensureBundleAndComponentInvariants(
   bundleOpt: BundleOptionForRules | null,
   compOpt: BundleOptionForRules | null,
-  authCompanyId: string,
+  authOrganizationId: string,
 ): asserts bundleOpt is BundleOptionForRules {
   if (!bundleOpt) {
     throw new BundleComponentRuleError(
@@ -82,10 +82,10 @@ export function ensureBundleAndComponentInvariants(
       'nested bundle not supported in Plan B1',
     );
   }
-  if (bundleOpt.companyId !== authCompanyId) {
-    throw new BundleComponentRuleError('cross-company', 'cross-company not allowed');
+  if (bundleOpt.organizationId !== authOrganizationId) {
+    throw new BundleComponentRuleError('cross-organization', 'cross-organization not allowed');
   }
-  if (compOpt.companyId !== bundleOpt.companyId) {
-    throw new BundleComponentRuleError('cross-company', 'cross-company not allowed');
+  if (compOpt.organizationId !== bundleOpt.organizationId) {
+    throw new BundleComponentRuleError('cross-organization', 'cross-organization not allowed');
   }
 }

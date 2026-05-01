@@ -123,6 +123,6 @@ LEFT JOIN profit_loss pl ON pl.product_id = p.id
   AND pl.year = EXTRACT(YEAR FROM CURRENT_DATE)
   AND pl.month = EXTRACT(MONTH FROM CURRENT_DATE)
 LEFT JOIN inventory i ON i.product_id = p.id
-WHERE p.company_id = '{companyId}' AND p.is_deleted = false
+WHERE p.organization_id = '{organizationId}' AND p.is_deleted = false
 ORDER BY p.name
 ```

@@ -8,7 +8,7 @@ function makeTransactionPrisma(tx: any) {
 }
 
 describe('OptionsService tenant boundary internals', () => {
-  it('re-reads the incremented master counter with company scope inside create', async () => {
+  it('re-reads the incremented master counter with organization scope inside create', async () => {
     const tx = {
       masterProduct: {
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -16,27 +16,27 @@ describe('OptionsService tenant boundary internals', () => {
         findUniqueOrThrow: vi.fn().mockResolvedValue({ code: 'M-00000001', optionCounter: 1 }),
       },
       productOption: {
-        create: vi.fn().mockResolvedValue({ id: 'option-1', companyId: 'company-1' }),
+        create: vi.fn().mockResolvedValue({ id: 'option-1', organizationId: 'organization-1' }),
       },
     };
     const svc = new OptionsService(makeTransactionPrisma(tx) as any, {} as any);
 
-    await svc.create('company-1', { masterId: 'master-1', optionName: 'Red' } as any);
+    await svc.create('organization-1', { masterId: 'master-1', optionName: 'Red' } as any);
 
     expect(tx.masterProduct.findFirst).toHaveBeenCalledWith({
-      where: { id: 'master-1', companyId: 'company-1', isDeleted: false },
+      where: { id: 'master-1', organizationId: 'organization-1', isDeleted: false },
       select: { code: true, optionCounter: true },
     });
     expect(tx.masterProduct.findUniqueOrThrow).not.toHaveBeenCalled();
   });
 
-  it('scopes bundle-owned relation count by company when rejecting isBundle=false', async () => {
+  it('scopes bundle-owned relation count by organization when rejecting isBundle=false', async () => {
     const tx = {
       productOption: {
         findFirst: vi
           .fn()
-          .mockResolvedValueOnce({ id: 'option-1', companyId: 'company-1', isBundle: true })
-          .mockResolvedValueOnce({ id: 'option-1', companyId: 'company-1', isBundle: true }),
+          .mockResolvedValueOnce({ id: 'option-1', organizationId: 'organization-1', isBundle: true })
+          .mockResolvedValueOnce({ id: 'option-1', organizationId: 'organization-1', isBundle: true }),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       bundleComponent: {
@@ -45,20 +45,20 @@ describe('OptionsService tenant boundary internals', () => {
     };
     const svc = new OptionsService(makeTransactionPrisma(tx) as any, {} as any);
 
-    await svc.update('company-1', 'option-1', { isBundle: false } as any);
+    await svc.update('organization-1', 'option-1', { isBundle: false } as any);
 
     expect(tx.bundleComponent.count).toHaveBeenCalledWith({
-      where: { bundleOptionId: 'option-1', companyId: 'company-1' },
+      where: { bundleOptionId: 'option-1', organizationId: 'organization-1' },
     });
   });
 
-  it('scopes component relation count by company when rejecting isBundle=true', async () => {
+  it('scopes component relation count by organization when rejecting isBundle=true', async () => {
     const tx = {
       productOption: {
         findFirst: vi
           .fn()
-          .mockResolvedValueOnce({ id: 'option-1', companyId: 'company-1', isBundle: false })
-          .mockResolvedValueOnce({ id: 'option-1', companyId: 'company-1', isBundle: false }),
+          .mockResolvedValueOnce({ id: 'option-1', organizationId: 'organization-1', isBundle: false })
+          .mockResolvedValueOnce({ id: 'option-1', organizationId: 'organization-1', isBundle: false }),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       bundleComponent: {
@@ -67,10 +67,10 @@ describe('OptionsService tenant boundary internals', () => {
     };
     const svc = new OptionsService(makeTransactionPrisma(tx) as any, {} as any);
 
-    await svc.update('company-1', 'option-1', { isBundle: true } as any);
+    await svc.update('organization-1', 'option-1', { isBundle: true } as any);
 
     expect(tx.bundleComponent.count).toHaveBeenCalledWith({
-      where: { componentOptionId: 'option-1', companyId: 'company-1' },
+      where: { componentOptionId: 'option-1', organizationId: 'organization-1' },
     });
   });
 });

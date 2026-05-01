@@ -22,7 +22,7 @@ export class SettlementsService {
     };
   }
 
-  async findAll(companyId: string, period?: string) {
+  async findAll(organizationId: string, period?: string) {
     const periodFilter =
       period?.length === 7
         ? { period }
@@ -31,15 +31,15 @@ export class SettlementsService {
           : undefined;
 
     return this.prisma.settlement.findMany({
-      where: { companyId, ...periodFilter },
+      where: { organizationId, ...periodFilter },
       orderBy: { period: 'desc' },
     });
   }
 
-  async create(companyId: string, dto: CreateSettlementDto) {
+  async create(organizationId: string, dto: CreateSettlementDto) {
     return this.prisma.settlement.create({
       data: {
-        companyId,
+        organizationId,
         period: dto.period,
         expectedAmount: dto.expectedAmount,
         commission: dto.commission,
@@ -50,14 +50,14 @@ export class SettlementsService {
     });
   }
 
-  async reconcile(companyId: string, period: string) {
+  async reconcile(organizationId: string, period: string) {
     const { from, to } = this.resolveWindow(period);
 
     // 1. Build live metrics and compare them to the order aggregate side.
     //    SUM(total_price)::bigint — 단일 월 매출이 int32 (~21억 KRW) 초과 가능성 (대형 셀러).
     //    bigint → Number() 로 안전 변환 (2^53 이하 보장).
     const [metrics, rows] = await Promise.all([
-      buildPerListingMetrics(this.prisma, companyId, from, to),
+      buildPerListingMetrics(this.prisma, organizationId, from, to),
       this.prisma.$queryRaw<
         Array<{
           listing_id: string;
@@ -71,7 +71,7 @@ export class SettlementsService {
           FROM order_line_items oli
           JOIN channel_listing_options clo ON oli.listing_option_id = clo.id
           JOIN orders o ON oli.order_id = o.id
-         WHERE o.company_id = ${companyId}::uuid
+         WHERE o.organization_id = ${organizationId}::uuid
            AND o.ordered_at >= ${from}
            AND o.ordered_at <  ${to}
            AND o.status NOT IN ('cancelled', 'returned', 'refunded')
@@ -142,9 +142,9 @@ export class SettlementsService {
     } satisfies SettlementReconcileResponse;
   }
 
-  async update(id: string, companyId: string, dto: UpdateSettlementDto) {
+  async update(id: string, organizationId: string, dto: UpdateSettlementDto) {
     const existing = await this.prisma.settlement.findFirst({
-      where: { id, companyId },
+      where: { id, organizationId },
     });
     if (!existing) {
       throw new BadRequestException('정산 내역을 찾을 수 없습니다');

@@ -7,7 +7,7 @@ import { BundleStockService } from '../application/service/bundle-stock.service'
 import { OptionsService } from '../application/service/options.service';
 import { StorageService } from '../../common/storage/storage.service';
 import {
-  makeTestPrisma, resetDb, seedBaseFixture, TEST_COMPANY_ID, OTHER_COMPANY_ID,
+  makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID, OTHER_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 
 describe('OptionsService integration', () => {
@@ -37,42 +37,42 @@ describe('OptionsService integration', () => {
   afterAll(async () => { await prisma.$disconnect(); });
 
   it('creates an option with auto-generated sku', async () => {
-    const m = await mastersSvc.create(TEST_COMPANY_ID, { name: 'M1' } as any);
-    const opt = await svc.create(TEST_COMPANY_ID, { masterId: m.id, optionName: 'Red' } as any);
+    const m = await mastersSvc.create(TEST_ORGANIZATION_ID, { name: 'M1' } as any);
+    const opt = await svc.create(TEST_ORGANIZATION_ID, { masterId: m.id, optionName: 'Red' } as any);
     expect(opt.sku).toBe(`${m.code}-01`);
     expect(opt.availableStock).toBeNull();
     expect(opt.isBundle).toBe(false);
   });
 
   it('increments counter for subsequent options', async () => {
-    const m = await mastersSvc.create(TEST_COMPANY_ID, { name: 'M2' } as any);
-    const o1 = await svc.create(TEST_COMPANY_ID, { masterId: m.id, optionName: 'A' } as any);
-    const o2 = await svc.create(TEST_COMPANY_ID, { masterId: m.id, optionName: 'B' } as any);
+    const m = await mastersSvc.create(TEST_ORGANIZATION_ID, { name: 'M2' } as any);
+    const o1 = await svc.create(TEST_ORGANIZATION_ID, { masterId: m.id, optionName: 'A' } as any);
+    const o2 = await svc.create(TEST_ORGANIZATION_ID, { masterId: m.id, optionName: 'B' } as any);
     expect(o1.sku).toBe(`${m.code}-01`);
     expect(o2.sku).toBe(`${m.code}-02`);
   });
 
   it('fails option creation on soft-deleted master (TOCTOU guarded)', async () => {
-    const m = await mastersSvc.create(TEST_COMPANY_ID, { name: 'M3' } as any);
-    await mastersSvc.softDelete(TEST_COMPANY_ID, m.id);
+    const m = await mastersSvc.create(TEST_ORGANIZATION_ID, { name: 'M3' } as any);
+    await mastersSvc.softDelete(TEST_ORGANIZATION_ID, m.id);
     await expect(
-      svc.create(TEST_COMPANY_ID, { masterId: m.id, optionName: 'X' } as any),
+      svc.create(TEST_ORGANIZATION_ID, { masterId: m.id, optionName: 'X' } as any),
     ).rejects.toMatchObject({ status: 404 });
   });
 
   it('enforces partial-unique index for null optionName (single-option)', async () => {
-    const m = await mastersSvc.create(TEST_COMPANY_ID, { name: 'M4' } as any);
-    await svc.create(TEST_COMPANY_ID, { masterId: m.id } as any);
+    const m = await mastersSvc.create(TEST_ORGANIZATION_ID, { name: 'M4' } as any);
+    await svc.create(TEST_ORGANIZATION_ID, { masterId: m.id } as any);
     await expect(
-      svc.create(TEST_COMPANY_ID, { masterId: m.id } as any),
+      svc.create(TEST_ORGANIZATION_ID, { masterId: m.id } as any),
     ).rejects.toMatchObject({ status: 409 });
   });
 
   it('race: 10 concurrent creates → 10 distinct sku with no collisions (gaps allowed)', async () => {
-    const m = await mastersSvc.create(TEST_COMPANY_ID, { name: 'M5' } as any);
+    const m = await mastersSvc.create(TEST_ORGANIZATION_ID, { name: 'M5' } as any);
     const results = await Promise.allSettled(
       Array.from({ length: 10 }).map((_, i) =>
-        svc.create(TEST_COMPANY_ID, { masterId: m.id, optionName: `Opt-${i}` } as any),
+        svc.create(TEST_ORGANIZATION_ID, { masterId: m.id, optionName: `Opt-${i}` } as any),
       ),
     );
     const fulfilled = results
@@ -84,137 +84,137 @@ describe('OptionsService integration', () => {
   });
 
   it('searches by seller product code legacyCode', async () => {
-    const master = await mastersSvc.create(TEST_COMPANY_ID, { name: 'Legacy Search Master' } as any);
-    const match = await svc.create(TEST_COMPANY_ID, {
+    const master = await mastersSvc.create(TEST_ORGANIZATION_ID, { name: 'Legacy Search Master' } as any);
+    const match = await svc.create(TEST_ORGANIZATION_ID, {
       masterId: master.id,
       optionName: 'Legacy Search Match',
       legacyCode: '10349-1',
     } as any);
-    await svc.create(TEST_COMPANY_ID, {
+    await svc.create(TEST_ORGANIZATION_ID, {
       masterId: master.id,
       optionName: 'Other Option',
       legacyCode: '10349-2',
     } as any);
 
-    const { items } = await svc.list(TEST_COMPANY_ID, { search: '10349-1', limit: 10 } as any);
+    const { items } = await svc.list(TEST_ORGANIZATION_ID, { search: '10349-1', limit: 10 } as any);
 
     expect(items.map((item) => item.id)).toEqual([match.id]);
   });
 
   it('does not search option-management rows by barcode data', async () => {
-    const master = await mastersSvc.create(TEST_COMPANY_ID, { name: 'Barcode Boundary Master' } as any);
+    const master = await mastersSvc.create(TEST_ORGANIZATION_ID, { name: 'Barcode Boundary Master' } as any);
     const barcode = '8801234567890';
-    await svc.create(TEST_COMPANY_ID, {
+    await svc.create(TEST_ORGANIZATION_ID, {
       masterId: master.id,
       optionName: 'Blue / S',
       legacyCode: '10349-1',
       barcode,
     } as any);
 
-    const { items } = await svc.list(TEST_COMPANY_ID, { search: barcode, limit: 10 } as any);
+    const { items } = await svc.list(TEST_ORGANIZATION_ID, { search: barcode, limit: 10 } as any);
 
     expect(items).toEqual([]);
   });
 
   it('prevents isBundle flip true → false when BundleComponent rows exist', async () => {
-    const m = await mastersSvc.create(TEST_COMPANY_ID, { name: 'M6' } as any);
-    const bundle = await svc.create(TEST_COMPANY_ID, {
+    const m = await mastersSvc.create(TEST_ORGANIZATION_ID, { name: 'M6' } as any);
+    const bundle = await svc.create(TEST_ORGANIZATION_ID, {
       masterId: m.id, optionName: 'Bundle', isBundle: true,
     } as any);
-    const comp = await svc.create(TEST_COMPANY_ID, { masterId: m.id, optionName: 'Comp' } as any);
+    const comp = await svc.create(TEST_ORGANIZATION_ID, { masterId: m.id, optionName: 'Comp' } as any);
     await prisma.bundleComponent.create({
       data: {
         bundleOptionId: bundle.id,
         componentOptionId: comp.id,
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         qty: 1,
       },
     });
     await expect(
-      svc.update(TEST_COMPANY_ID, bundle.id, { isBundle: false } as any),
+      svc.update(TEST_ORGANIZATION_ID, bundle.id, { isBundle: false } as any),
     ).rejects.toMatchObject({ status: 409 });
   });
 
   it('rejects re-parenting: PATCH with masterId of another master is ignored', async () => {
-    const m1 = await mastersSvc.create(TEST_COMPANY_ID, { name: 'A' } as any);
-    const m2 = await mastersSvc.create(TEST_COMPANY_ID, { name: 'B' } as any);
-    const opt = await svc.create(TEST_COMPANY_ID, { masterId: m1.id, optionName: 'X' } as any);
-    const updated = await svc.update(TEST_COMPANY_ID, opt.id, { masterId: m2.id } as any);
+    const m1 = await mastersSvc.create(TEST_ORGANIZATION_ID, { name: 'A' } as any);
+    const m2 = await mastersSvc.create(TEST_ORGANIZATION_ID, { name: 'B' } as any);
+    const opt = await svc.create(TEST_ORGANIZATION_ID, { masterId: m1.id, optionName: 'X' } as any);
+    const updated = await svc.update(TEST_ORGANIZATION_ID, opt.id, { masterId: m2.id } as any);
     expect(updated.masterId).toBe(m1.id); // NOT reassigned
   });
 
-  it('update returns 404 for another company option id', async () => {
-    const otherMaster = await mastersSvc.create(OTHER_COMPANY_ID, { name: 'Other master' } as any);
-    const otherOpt = await svc.create(OTHER_COMPANY_ID, {
+  it('update returns 404 for another organization option id', async () => {
+    const otherMaster = await mastersSvc.create(OTHER_ORGANIZATION_ID, { name: 'Other master' } as any);
+    const otherOpt = await svc.create(OTHER_ORGANIZATION_ID, {
       masterId: otherMaster.id,
       optionName: 'Other option',
     } as any);
 
     await expect(
-      svc.update(TEST_COMPANY_ID, otherOpt.id, { optionName: 'Leaked update' } as any),
+      svc.update(TEST_ORGANIZATION_ID, otherOpt.id, { optionName: 'Leaked update' } as any),
     ).rejects.toMatchObject({ status: 404 });
 
-    const unchanged = await svc.findById(OTHER_COMPANY_ID, otherOpt.id, {});
+    const unchanged = await svc.findById(OTHER_ORGANIZATION_ID, otherOpt.id, {});
     expect(unchanged.optionName).toBe('Other option');
   });
 
-  it('findBySku returns 404 for a sku belonging to another company (IDOR)', async () => {
-    // Seed an option under OTHER_COMPANY_ID, then ensure TEST_COMPANY_ID cannot
+  it('findBySku returns 404 for a sku belonging to another organization (IDOR)', async () => {
+    // Seed an option under OTHER_ORGANIZATION_ID, then ensure TEST_ORGANIZATION_ID cannot
     // surface it via the by-sku lookup. The previous implementation used
-    // `findUnique({ where: { sku } })` and post-filtered companyId, which still
+    // `findUnique({ where: { sku } })` and post-filtered organizationId, which still
     // returned 404 to the caller but loaded a cross-tenant row into memory.
-    // The refactored `findFirst({ sku, companyId, isDeleted: false })` keeps the
+    // The refactored `findFirst({ sku, organizationId, isDeleted: false })` keeps the
     // row off the SQL path entirely.
-    const otherMaster = await mastersSvc.create(OTHER_COMPANY_ID, { name: 'Other master' } as any);
-    const otherOpt = await svc.create(OTHER_COMPANY_ID, {
+    const otherMaster = await mastersSvc.create(OTHER_ORGANIZATION_ID, { name: 'Other master' } as any);
+    const otherOpt = await svc.create(OTHER_ORGANIZATION_ID, {
       masterId: otherMaster.id,
       optionName: 'Other option',
     } as any);
 
-    await expect(svc.findBySku(TEST_COMPANY_ID, otherOpt.sku)).rejects.toMatchObject({
+    await expect(svc.findBySku(TEST_ORGANIZATION_ID, otherOpt.sku)).rejects.toMatchObject({
       status: 404,
     });
 
     // Sanity: owning tenant still sees its own option.
-    const own = await svc.findBySku(OTHER_COMPANY_ID, otherOpt.sku);
+    const own = await svc.findBySku(OTHER_ORGANIZATION_ID, otherOpt.sku);
     expect(own.id).toBe(otherOpt.id);
   });
 
   it('findBySku returns 404 when the sku belongs to a soft-deleted option', async () => {
-    const m = await mastersSvc.create(TEST_COMPANY_ID, { name: 'Sku soft-delete master' } as any);
-    const opt = await svc.create(TEST_COMPANY_ID, {
+    const m = await mastersSvc.create(TEST_ORGANIZATION_ID, { name: 'Sku soft-delete master' } as any);
+    const opt = await svc.create(TEST_ORGANIZATION_ID, {
       masterId: m.id,
       optionName: 'Will be deleted',
     } as any);
-    await svc.softDelete(TEST_COMPANY_ID, opt.id);
+    await svc.softDelete(TEST_ORGANIZATION_ID, opt.id);
 
-    await expect(svc.findBySku(TEST_COMPANY_ID, opt.sku)).rejects.toMatchObject({
+    await expect(svc.findBySku(TEST_ORGANIZATION_ID, opt.sku)).rejects.toMatchObject({
       status: 404,
     });
   });
 
   it('triggers recompute on bundles when component option is soft-deleted', async () => {
-    const m = await mastersSvc.create(TEST_COMPANY_ID, { name: 'M7' } as any);
-    const bundle = await svc.create(TEST_COMPANY_ID, {
+    const m = await mastersSvc.create(TEST_ORGANIZATION_ID, { name: 'M7' } as any);
+    const bundle = await svc.create(TEST_ORGANIZATION_ID, {
       masterId: m.id, optionName: 'B', isBundle: true,
     } as any);
-    const comp = await svc.create(TEST_COMPANY_ID, { masterId: m.id, optionName: 'C' } as any);
+    const comp = await svc.create(TEST_ORGANIZATION_ID, { masterId: m.id, optionName: 'C' } as any);
     await prisma.inventory.create({
-      data: { companyId: TEST_COMPANY_ID, optionId: comp.id, currentStock: 10 },
+      data: { organizationId: TEST_ORGANIZATION_ID, optionId: comp.id, currentStock: 10 },
     });
     await prisma.bundleComponent.create({
       data: {
         bundleOptionId: bundle.id,
         componentOptionId: comp.id,
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         qty: 2,
       },
     });
-    await bundleStockSvc.recompute(TEST_COMPANY_ID, bundle.id);
+    await bundleStockSvc.recompute(TEST_ORGANIZATION_ID, bundle.id);
     const before = await prisma.productOption.findUniqueOrThrow({ where: { id: bundle.id } });
     expect(before.availableStock).toBe(5);
 
-    await svc.softDelete(TEST_COMPANY_ID, comp.id);
+    await svc.softDelete(TEST_ORGANIZATION_ID, comp.id);
     const after = await prisma.productOption.findUniqueOrThrow({ where: { id: bundle.id } });
     expect(after.availableStock).toBe(0);
   });

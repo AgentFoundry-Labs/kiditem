@@ -23,7 +23,7 @@ function wrap(node: ReactElement) {
 
 const baseTask = {
   id: 'task-aaaaaaaa-bbbb',
-  companyId: 'c1',
+  organizationId: 'c1',
   agentType: 'ad-strategy',
   status: 'succeeded',
   priority: 0,
@@ -42,7 +42,7 @@ const baseTask = {
 
 const baseRun = {
   id: 'run-aaaa',
-  companyId: 'c1',
+  organizationId: 'c1',
   agentId: 'agent-1',
   invocationSource: 'timer',
   triggerDetail: null,
@@ -68,7 +68,7 @@ const baseRun = {
 function makeEvent(overrides: Record<string, unknown> = {}) {
   return {
     id: 'ev-1',
-    companyId: 'c1',
+    organizationId: 'c1',
     agentId: 'agent-1',
     runId: 'run-aaaa',
     eventType: 'agent.status.changed',

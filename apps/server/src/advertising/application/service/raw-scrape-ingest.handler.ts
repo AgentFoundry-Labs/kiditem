@@ -57,7 +57,7 @@ export interface RawScrapeIngestDeps {
 
 export async function ingestRawScrape(
   payload: ExtensionSyncDto,
-  companyId: string,
+  organizationId: string,
   map: ListingMap,
   deps: RawScrapeIngestDeps,
 ) {
@@ -73,7 +73,7 @@ export async function ingestRawScrape(
     payload.dateTo,
   );
   const scrapeRun = await createScrapeRun(prisma, {
-    companyId,
+    organizationId,
     channel: 'coupang',
     source,
     pageType: source === 'wing' ? 'itemwinner' : 'advertising',
@@ -116,7 +116,7 @@ export async function ingestRawScrape(
         ]);
         const snapshot = await appendScrapeSnapshot(prisma, {
           scrapeRunId: scrapeRun.id,
-          companyId,
+          organizationId,
           channel: 'coupang',
           source: 'wing',
           pageType: 'itemwinner',
@@ -143,7 +143,7 @@ export async function ingestRawScrape(
           const listingState = normalizeWingListingState(row);
           if (listingState) {
             await upsertChannelListingDaily(prisma, {
-              companyId,
+              organizationId,
               listingId: match.listingId,
               channel: 'coupang',
               externalId: match.externalId ?? externalIdRaw ?? '',
@@ -157,7 +157,7 @@ export async function ingestRawScrape(
             const optionState = normalizeWingOptionState(row);
             if (optionState) {
               await upsertChannelOptionDaily(prisma, {
-                companyId,
+                organizationId,
                 listingId: match.listingId,
                 listingOptionId: match.listingOptionId,
                 optionId: match.optionId,
@@ -178,7 +178,7 @@ export async function ingestRawScrape(
       const kpis = payload.kpis || {};
       if (Object.keys(kpis).length > 0 && businessDate) {
         await upsertChannelAccountKpi(prisma, {
-          companyId,
+          organizationId,
           channel: 'coupang',
           source: 'wing',
           kpiType: 'wing_itemwinner_kpi',
@@ -220,7 +220,7 @@ export async function ingestRawScrape(
         ]);
         const snapshot = await appendScrapeSnapshot(prisma, {
           scrapeRunId: scrapeRun.id,
-          companyId,
+          organizationId,
           channel: 'coupang',
           source: 'advertising',
           pageType,
@@ -261,7 +261,7 @@ export async function ingestRawScrape(
         // Listing-day metric upsert when listing identity is known.
         if (match.listingId && match.externalId) {
           addListingAdMetrics(listingAdMetrics, {
-            companyId,
+            organizationId,
             listingId: match.listingId,
             channel: 'coupang',
             externalId: match.externalId,
@@ -298,7 +298,7 @@ export async function ingestRawScrape(
             listingId: match.listingId,
           });
           await upsertChannelAdTargetDaily(prisma, {
-            companyId,
+            organizationId,
             channel: 'coupang',
             businessDate,
             targetType,
@@ -367,7 +367,7 @@ export async function ingestRawScrape(
         ]);
         await appendScrapeSnapshot(prisma, {
           scrapeRunId: scrapeRun.id,
-          companyId,
+          organizationId,
           channel: 'coupang',
           source,
           pageType: 'unknown',
@@ -389,7 +389,7 @@ export async function ingestRawScrape(
 
     await finalizeScrapeRun(prisma, {
       scrapeRunId: scrapeRun.id,
-      companyId,
+      organizationId,
       status: 'complete',
       rowCount: scrapeSnapshotCount,
       matchedCount: scrapeMatched,
@@ -414,7 +414,7 @@ export async function ingestRawScrape(
   } catch (err) {
     await finalizeScrapeRunOnError(prisma, {
       scrapeRunId: scrapeRun.id,
-      companyId,
+      organizationId,
       rowCount: scrapeSnapshotCount,
       matchedCount: scrapeMatched,
       unmatchedCount: scrapeUnmatched,

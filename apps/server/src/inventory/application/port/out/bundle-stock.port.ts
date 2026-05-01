@@ -8,7 +8,7 @@ export const BUNDLE_STOCK_PORT = Symbol('BundleStockPort');
 // BundleStockService.recomputeForComponent (ADR-0014 single-writer invariant).
 export interface BundleStockPort {
   recomputeForComponent(
-    companyId: string,
+    organizationId: string,
     componentOptionId: string,
     tx: RepositoryTransaction,
   ): Promise<string[]>;

@@ -14,7 +14,7 @@ import { MasterCodeService } from '../adapter/out/prisma/master-code.service';
 import { MastersService } from '../application/service/masters.service';
 import { StorageService } from '../../common/storage/storage.service';
 import {
-  makeTestPrisma, resetDb, seedBaseFixture, TEST_COMPANY_ID,
+  makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 
 describe('Pagination stability', () => {
@@ -41,18 +41,18 @@ describe('Pagination stability', () => {
   it('cursor stability — paginate with mid-iteration soft-delete', async () => {
     const ids: string[] = [];
     for (let i = 0; i < 5; i++) {
-      const m = await svc.create(TEST_COMPANY_ID, { name: `M${i}` } as any);
+      const m = await svc.create(TEST_ORGANIZATION_ID, { name: `M${i}` } as any);
       ids.push(m.id);
     }
-    const page1 = await svc.list(TEST_COMPANY_ID, { limit: 2 } as any);
+    const page1 = await svc.list(TEST_ORGANIZATION_ID, { limit: 2 } as any);
     expect(page1.items).toHaveLength(2);
     expect(page1.nextCursor).not.toBeNull();
 
     // 페이지1 에 포함되지 않은 row 하나를 soft-delete → 다음 페이지에서 안 보여야 함.
     const notReturned = ids.find((id) => !page1.items.some((it) => it.id === id))!;
-    await svc.softDelete(TEST_COMPANY_ID, notReturned);
+    await svc.softDelete(TEST_ORGANIZATION_ID, notReturned);
 
-    const page2 = await svc.list(TEST_COMPANY_ID, {
+    const page2 = await svc.list(TEST_ORGANIZATION_ID, {
       limit: 2, cursor: page1.nextCursor!,
     } as any);
     expect(page2.items.some((it) => it.id === notReturned)).toBe(false);

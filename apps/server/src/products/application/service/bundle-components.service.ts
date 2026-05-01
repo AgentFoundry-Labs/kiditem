@@ -39,7 +39,7 @@ function mapBundleComponentRuleError(error: unknown): never {
     case 'option-is-not-bundle':
     case 'nested-bundle-not-supported':
       throw new BadRequestException(error.message);
-    case 'cross-company':
+    case 'cross-organization':
       throw new ForbiddenException(error.message);
   }
 }
@@ -58,10 +58,10 @@ function ensureNotSelfReferenceForHttp(
 function ensureBundleAndComponentInvariantsForHttp(
   bundleOpt: BundleOptionForRules | null,
   compOpt: BundleOptionForRules | null,
-  authCompanyId: string,
+  authOrganizationId: string,
 ): asserts bundleOpt is BundleOptionForRules {
   try {
-    ensureBundleAndComponentInvariants(bundleOpt, compOpt, authCompanyId);
+    ensureBundleAndComponentInvariants(bundleOpt, compOpt, authOrganizationId);
   } catch (error) {
     mapBundleComponentRuleError(error);
   }
@@ -89,7 +89,7 @@ export class BundleComponentsService {
   ) {}
 
   async create(
-    companyId: string,
+    organizationId: string,
     dto: CreateBundleComponentDto,
     outerTx?: Prisma.TransactionClient,
   ): Promise<BundleComponent> {
@@ -98,27 +98,27 @@ export class BundleComponentsService {
     const db = outerTx ?? this.prisma;
     const [bundleOpt, compOpt] = await Promise.all([
       db.productOption.findFirst({
-        where: { id: dto.bundleOptionId, companyId, isDeleted: false },
+        where: { id: dto.bundleOptionId, organizationId, isDeleted: false },
       }),
       db.productOption.findFirst({
-        where: { id: dto.componentOptionId, companyId, isDeleted: false },
+        where: { id: dto.componentOptionId, organizationId, isDeleted: false },
       }),
     ]);
-    ensureBundleAndComponentInvariantsForHttp(bundleOpt, compOpt, companyId);
+    ensureBundleAndComponentInvariantsForHttp(bundleOpt, compOpt, organizationId);
 
     const exec = async (
       tx: Prisma.TransactionClient,
     ): Promise<BundleComponent> => {
-      await lockBundleOptionRow(tx, dto.bundleOptionId, companyId);
+      await lockBundleOptionRow(tx, dto.bundleOptionId, organizationId);
       try {
         const bc = await createBundleComponent(tx, {
           bundleOptionId: dto.bundleOptionId,
           componentOptionId: dto.componentOptionId,
           qty: dto.qty,
-          // 3-way invariant: derive from bundle, not auth companyId.
-          companyId: bundleOpt.companyId,
+          // 3-way invariant: derive from bundle, not auth organizationId.
+          organizationId: bundleOpt.organizationId,
         });
-        await this.bundleStock.recompute(companyId, dto.bundleOptionId, tx);
+        await this.bundleStock.recompute(organizationId, dto.bundleOptionId, tx);
         return bc;
       } catch (e) {
         // mapPrismaError returns `never` — TS narrows the try-block happy path.
@@ -131,14 +131,14 @@ export class BundleComponentsService {
   }
 
   async list(
-    companyId: string,
+    organizationId: string,
     q: ListBundleComponentsQuery,
   ): Promise<BundleComponent[]> {
-    return listBundleComponentsForTenant(this.prisma, companyId, q);
+    return listBundleComponentsForTenant(this.prisma, organizationId, q);
   }
 
   async update(
-    companyId: string,
+    organizationId: string,
     id: string,
     dto: UpdateBundleComponentDto,
     outerTx?: Prisma.TransactionClient,
@@ -146,19 +146,19 @@ export class BundleComponentsService {
     const exec = async (
       tx: Prisma.TransactionClient,
     ): Promise<BundleComponent> => {
-      const row = await findBundleComponentForTenant(tx, id, companyId);
+      const row = await findBundleComponentForTenant(tx, id, organizationId);
       if (!row) throw new NotFoundException('bundle-component not found');
-      await lockBundleOptionRow(tx, row.bundleOptionId, companyId);
+      await lockBundleOptionRow(tx, row.bundleOptionId, organizationId);
       try {
-        const count = await updateBundleComponentQty(tx, id, companyId, dto.qty);
+        const count = await updateBundleComponentQty(tx, id, organizationId, dto.qty);
         if (count === 0) {
           throw new NotFoundException('bundle-component not found');
         }
-        const updated = await findBundleComponentForTenant(tx, id, companyId);
+        const updated = await findBundleComponentForTenant(tx, id, organizationId);
         if (!updated) {
           throw new NotFoundException('bundle-component not found');
         }
-        await this.bundleStock.recompute(companyId, row.bundleOptionId, tx);
+        await this.bundleStock.recompute(organizationId, row.bundleOptionId, tx);
         return updated;
       } catch (e) {
         mapPrismaError(e, 'bundle-component update');
@@ -170,23 +170,23 @@ export class BundleComponentsService {
   }
 
   async delete(
-    companyId: string,
+    organizationId: string,
     id: string,
     outerTx?: Prisma.TransactionClient,
   ): Promise<void> {
     const exec = async (tx: Prisma.TransactionClient): Promise<void> => {
-      const row = await findBundleComponentForTenant(tx, id, companyId);
+      const row = await findBundleComponentForTenant(tx, id, organizationId);
       if (!row) throw new NotFoundException('bundle-component not found');
-      await lockBundleOptionRow(tx, row.bundleOptionId, companyId);
+      await lockBundleOptionRow(tx, row.bundleOptionId, organizationId);
       try {
-        const count = await deleteBundleComponentScoped(tx, id, companyId);
+        const count = await deleteBundleComponentScoped(tx, id, organizationId);
         if (count === 0) {
           throw new NotFoundException('bundle-component not found');
         }
       } catch (e) {
         mapPrismaError(e, 'bundle-component delete');
       }
-      await this.bundleStock.recompute(companyId, row.bundleOptionId, tx);
+      await this.bundleStock.recompute(organizationId, row.bundleOptionId, tx);
     };
     await (outerTx
       ? exec(outerTx)

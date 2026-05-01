@@ -1,7 +1,7 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ProfitLossService } from '../services/profit-loss.service';
 import { ProfitLossQueryDto } from '../dto';
-import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
+import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
 
 @Controller('profit-loss')
 export class ProfitLossController {
@@ -9,11 +9,11 @@ export class ProfitLossController {
 
   @Get()
   findAll(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Query() query: ProfitLossQueryDto,
   ) {
     const { year, month } = this.resolvePeriod(query.period);
-    return this.profitLossService.findAll(companyId, year, month);
+    return this.profitLossService.findAll(organizationId, year, month);
   }
 
   /**

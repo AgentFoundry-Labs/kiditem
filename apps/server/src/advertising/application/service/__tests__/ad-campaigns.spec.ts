@@ -50,7 +50,7 @@ describe('AdCampaignsService', () => {
       { id: 'M1', code: 'M-00000001', name: '상품1', abcGrade: 'A', adTier: null, healthScore: null },
     ]);
 
-    const result = await service.getCampaigns('7d', undefined, 'company-1');
+    const result = await service.getCampaigns('7d', undefined, 'organization-1');
 
     expect(result).toHaveLength(1);
     expect(result[0].listing.listingId).toBe('L1');
@@ -109,7 +109,7 @@ describe('AdCampaignsService', () => {
       { id: 'M1', abcGrade: 'A' },
     ]);
 
-    const result = await service.getTrends('14d', undefined, 'company-1');
+    const result = await service.getTrends('14d', undefined, 'organization-1');
 
     expect(result.daily).toHaveLength(4);
     expect(result.daily[0].date).toBe('2026-04-10');
@@ -171,21 +171,21 @@ describe('AdCampaignsService', () => {
       { id: 'M4', abcGrade: null },
     ]);
 
-    const result = await service.getTrends('14d', undefined, 'company-1');
+    const result = await service.getTrends('14d', undefined, 'organization-1');
 
     expect(result.gradeBudget.A).toBe(10000);
     expect(result.gradeBudget.B).toBe(5000);
     expect(result.gradeBudget.C).toBe(2000);
   });
 
-  // companyId propagation + period call-shape tests removed — covered by
+  // organizationId propagation + period call-shape tests removed — covered by
   // check:idor / check:tenant-scope scanners and ad-strategy-flow integration.
   it('empty state — no daily rows returns explicit empty (legacy ignored)', async () => {
     prisma.$queryRaw.mockResolvedValue([]);
     prisma.channelListingDailySnapshot.findMany.mockResolvedValue([]);
 
-    const campaigns = await service.getCampaigns('7d', undefined, 'company-1');
-    const trends = await service.getTrends('14d', undefined, 'company-1');
+    const campaigns = await service.getCampaigns('7d', undefined, 'organization-1');
+    const trends = await service.getTrends('14d', undefined, 'organization-1');
 
     expect(campaigns).toEqual([]);
     expect(trends.daily).toEqual([]);

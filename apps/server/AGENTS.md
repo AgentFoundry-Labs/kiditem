@@ -121,16 +121,18 @@ explicitly retires the compatibility surface.
 ## Reconstruction Guardrails
 
 - **No unsafe raw SQL** — production code must not use `$queryRawUnsafe` or `$executeRawUnsafe`. Use Prisma tagged templates with bound values; dynamic identifiers require an allowlist plus `Prisma.sql`.
-- **Raw SQL tenant predicate** — `$queryRaw` over tenant-owned tables must bind `company_id = ${companyId}::uuid` or an equivalent tenant predicate in the SQL window.
-- **Service companyId signature** — tenant-owned service methods take `companyId: string` explicitly. Controllers supply it from `@CurrentCompany()`, not from body/query DTOs.
-- **Mutation scope** — create/update/delete paths must include company scope in the actual DB write path. For single-resource update/delete, read by `{ id, companyId }` before writing or use an equivalent scoped write.
-- **No default company lookup** — never recover missing context with `company.findFirst({ isActive: true })`, env defaults, or first-row fallbacks.
+- **Organization naming** — `Organization` is the code/schema name for the SaaS/customer boundary. Use `tenant` only in explanatory text such as “multi-tenant”; do not introduce `tenantId` variables, columns, DTO fields, or route params.
+- **Raw SQL organization predicate** — `$queryRaw` over organization-owned tables must bind `organization_id = ${organizationId}::uuid` or an equivalent organization predicate in the SQL window.
+- **Service organizationId signature** — organization-owned service methods take `organizationId: string` explicitly. Controllers supply it from `@CurrentOrganization()`, not from body/query DTOs.
+- **Mutation scope** — create/update/delete paths must include organization scope in the actual DB write path. For single-resource update/delete, read by `{ id, organizationId }` before writing or use an equivalent scoped write.
+- **No default organization lookup** — never recover missing context with `organization.findFirst({ isActive: true })`, env defaults, or first-row fallbacks.
+- **Membership role source** — request `AuthUser.organizationId` and `AuthUser.role` come from active `OrganizationMembership`, not from `User.organizationId`. Platform auth owns membership selection; business services receive only the resolved `organizationId`.
 - **DTO boundary** — controllers do not use `as any`; service parameters match DTOs or service-internal interfaces. Avoid `Record<string, unknown>` as a DTO substitute.
 - **Large service policy** — do not add substantial behavior to 700+ line services. Split by domain capability or write a replacement plan before changing behavior.
-- **Scanner evidence** — two complementary tenant-scope gates:
-  - `npm run check:idor` — raw SQL tenancy (`$queryRaw` tagged templates must bind `company_id`).
-  - `npm run check:tenant-scope` — ORM-level tenant scope (no bare-id `findUnique`, no bare-id `update`/`delete` without a preceding tenant-scoped read in the same function, no controller `@Body`/`@Query`/`@Param('companyId')`, no DTO `companyId` field).
-  Both are valid completion evidence for reconstruction PRs that touch tenant-owned services or controllers. `check:tenant-scope` is baseline-reporting until the remaining cleanup lanes make it green; do not add new findings, and record any expected baseline failure in the PR. If a gate fails because the scanner is broken, repair the scanner before claiming a safety fix. Narrow false positives go in `scripts/.tenant-scope-allowlist.txt` with a per-pattern entry and a recorded reason — never broad globs.
+- **Scanner evidence** — two complementary organization-scope gates:
+  - `npm run check:idor` — raw SQL tenancy (`$queryRaw` tagged templates must bind `organization_id`).
+  - `npm run check:tenant-scope` — ORM-level organization scope (no bare-id `findUnique`, no bare-id `update`/`delete` without a preceding organization-scoped read in the same function, no controller `@Body`/`@Query`/`@Param('organizationId')`, no DTO `organizationId` field).
+  Both are valid completion evidence for reconstruction PRs that touch organization-owned services or controllers. `check:tenant-scope` is baseline-reporting until the remaining cleanup lanes make it green; do not add new findings, and record any expected baseline failure in the PR. If a gate fails because the scanner is broken, repair the scanner before claiming a safety fix. Narrow false positives go in `scripts/.tenant-scope-allowlist.txt` with a per-pattern entry and a recorded reason — never broad globs.
 
 ## Data Access — Legacy Prisma vs Reconstructed Domains
 
@@ -214,18 +216,18 @@ domain instead of growing as standalone bounded contexts:
 | `rules` | business policy definitions, thresholds, rule evaluation result handling; delegates Agent OS work through automation ports |
 | `automation` / `agent-os` | `agent-registry`, `workflows`, `action-task`, `marketplace`, `panel`, Agent OS runtime entrypoints/adapters; `rules` is a business policy domain that depends on automation ports. Keep/delete/rewrite contracts live in this table and the scoped `automation`, `agent-registry`, `rules`, and `marketplace` `AGENTS.md` files. |
 | `analytics` | `dashboard`, `statistics`, `traffic`, `supplier-stats` |
-| `platform` | `auth`, `companies`, `feature-gate`, `common`, `prisma`, uploads/platform infra |
+| `platform` | `auth`, `organizations`, `feature-gate`, `common`, `prisma`, uploads/platform infra |
 
-## 멀티테넌트 격리 — 회사 스코프
+## 멀티테넌트 격리 — Organization 스코프
 
-서비스 로직에서 companyId 는 **반드시 `@CurrentCompany()` 데코레이터가 주입한 값** 사용.
+서비스 로직에서 organizationId 는 **반드시 `@CurrentOrganization()` 데코레이터가 주입한 값** 사용.
 
 ### 금지 (Hard bans)
 
-- ❌ **`prisma.company.findFirst({ where: { isActive: true } })` 로 "기본 회사" 집기** — 멀티테넌트에서 타 회사 데이터 섞임. cs.service 와 channel-sync.service 에서 두 번 재발했던 anti-pattern.
-- ❌ **`findUnique({ where: { id } })` 로 리소스 GET/PATCH/DELETE** — id 만으로 크로스-테넌트 접근 가능 (IDOR). 항상 `findFirst({ where: { id, companyId } })` 사용.
-- ❌ `@Body() / @Query()` 에서 `companyId` 수신 — DTO 에 필드 포함 금지.
-- ❌ Service 내부에서 `companyId` 기본값 폴백 생성 — 항상 매개변수로 받고, 없으면 throw.
+- ❌ **`prisma.organization.findFirst({ where: { isActive: true } })` 로 "기본 조직" 집기** — 멀티테넌트에서 다른 조직 데이터가 섞임. cs.service 와 channel-sync.service 에서 두 번 재발했던 anti-pattern.
+- ❌ **`findUnique({ where: { id } })` 로 리소스 GET/PATCH/DELETE** — id 만으로 크로스-테넌트 접근 가능 (IDOR). 항상 `findFirst({ where: { id, organizationId } })` 사용.
+- ❌ `@Body() / @Query()` 에서 `organizationId` 수신 — DTO 에 필드 포함 금지.
+- ❌ Service 내부에서 `organizationId` 기본값 폴백 생성 — 항상 매개변수로 받고, 없으면 throw.
 
 ### 패턴
 
@@ -234,15 +236,15 @@ domain instead of growing as standalone bounded contexts:
 @Post('upload')
 async upload(
   @UploadedFile() file: MulterFile,
-  @CurrentCompany() companyId: string,   // 항상 데코레이터 경유
+  @CurrentOrganization() organizationId: string,   // 항상 데코레이터 경유
 ) {
-  return this.service.upload(file, companyId);
+  return this.service.upload(file, organizationId);
 }
 
-// ✓ 서비스 — id + companyId 조합으로 접근 권한 검증
-async getProduct(id: string, companyId: string) {
+// ✓ 서비스 — id + organizationId 조합으로 접근 권한 검증
+async getProduct(id: string, organizationId: string) {
   const product = await this.prisma.product.findFirst({
-    where: { id, companyId },  // cross-tenant 접근 차단
+    where: { id, organizationId },  // cross-tenant 접근 차단
   });
   if (!product) throw new NotFoundException('Product not found');
   return product;
@@ -261,7 +263,7 @@ async getProduct(id: string, companyId: string) {
 | [`src/agent-registry/AGENTS.md`](src/agent-registry/AGENTS.md) | Agent OS compatibility/capability surface — facade, heartbeat, safety, delegation, trace, wakeup. New AgentRegistry implementation work lives in automation application services. |
 | [`src/ai/AGENTS.md`](src/ai/AGENTS.md) | Dual-path AI — image work delegates to Agent OS, text transform calls Gemini directly, thumbnail/Wing automation uses explicit application ports where already reconstructed. |
 | [`src/analytics/AGENTS.md`](src/analytics/AGENTS.md) | Reporting/read-model owner — `dashboard`, `statistics`, `traffic`, `supplier-stats`; dashboard is reconstructed, the rest stay flat until a concrete driver appears. |
-| [`src/auth/AGENTS.md`](src/auth/AGENTS.md) | 인증/권한 인프라 — `@CurrentUser`, `@CurrentCompany`, `@Roles`, `@SkipAuth`, CompanyScopeGuard, DevAuthMiddleware. |
+| [`src/auth/AGENTS.md`](src/auth/AGENTS.md) | 인증/권한 인프라 — `@CurrentUser`, `@CurrentOrganization`, `@Roles`, `@SkipAuth`, OrganizationScopeGuard, DevAuthMiddleware. |
 | [`src/channels/AGENTS.md`](src/channels/AGENTS.md) | Coupang integration — `adapter/out/coupang/` provider boundary, product/order/return sync on channel-agnostic spine, inventory sync still stubbed behind InventoryService single-writer boundary. |
 | [`src/chat/AGENTS.md`](src/chat/AGENTS.md) | CopilotKit Runtime + ClaudeCliAdapter — Express pre-registration, Claude CLI spawn, SSE token streaming. |
 | [`src/finance/AGENTS.md`](src/finance/AGENTS.md) | Finance owner — P&L, sales analysis, manual ledger, processing costs, supplier payments, sales plans, settlements; live aggregation and KST month windows. |
@@ -280,13 +282,13 @@ async getProduct(id: string, companyId: string) {
 `src/automation/adapter/in/http/panel.controller.ts` +
 `src/automation/adapter/out/panel-event/` +
 `src/automation/mapper/panel-event/` 조합으로 관리한다. SSE multiplex 채널.
-`EventEmitter2` 버스로 도메인(workflow/agent/image/alert) 이벤트 받아 companyId
+`EventEmitter2` 버스로 도메인(workflow/agent/image/alert) 이벤트 받아 organizationId
 필터 + strip + ring buffer + monotonic seq → `@Sse()` 로
 Observable<MessageEvent> 내보냄. Automation workflow application services 가 상태 전이 지점에서
 `PANEL_EVENTS.UPSERT` emit (`automation/mapper/panel-event/workflow-run.mapper.ts`
 경유). 단일 인스턴스 전제 (prod 멀티 인스턴스 시 pg LISTEN/Redis 도입 필요).
 
-**가시성 모델**: Panel 은 요청 user 의 `User-WorkflowRun` 관계(ownership + 조회 권한)로 필터링된 이벤트만 스트림. 즉 동일 company 내에서도 사용자마다 보이는 WorkflowRun 이 다를 수 있음. `automation/adapter/out/panel-event/panel.service.ts` 의 snapshot backfill + ring buffer replay 가 이 관계를 경유한다.
+**가시성 모델**: Panel 은 요청 user 의 `User-WorkflowRun` 관계(ownership + 조회 권한)로 필터링된 이벤트만 스트림. 즉 동일 organization 내에서도 사용자마다 보이는 WorkflowRun 이 다를 수 있음. `automation/adapter/out/panel-event/panel.service.ts` 의 snapshot backfill + ring buffer replay 가 이 관계를 경유한다.
 
 ### Notable Sub-Domains (LOW signal — 별도 scoped doc 없음)
 
@@ -298,7 +300,7 @@ Observable<MessageEvent> 내보냄. Automation workflow application services 가
   orchestration 은 `automation/application/service/action-board.service.ts`,
   seed 임계값은 pure `automation/domain/policy/action-seeds.ts` 가 소유한다.
   룰 임계 변경은 여전히 hardcode 정책 변경이며 DB 설정이 아니다.
-- **`src/feature-gate/`** — Feature flag 도메인. `allowedCompanies: string[]` array 로 회사별 enable. 멀티-레벨 enable 로직 (global / per-company). agent-registry 의 FeatureGateService 와 별개 (이건 endpoint, 그건 runtime 평가).
+- **`src/feature-gate/`** — Feature flag 도메인. `allowedOrganizations: string[]` array 로 조직별 enable. 멀티-레벨 enable 로직 (global / per-organization). agent-registry 의 FeatureGateService 와 별개 (이건 endpoint, 그건 runtime 평가).
 
 각 도메인 작업 시 위 특이점만 의식하면 부모 NestJS 패턴으로 충분.
 

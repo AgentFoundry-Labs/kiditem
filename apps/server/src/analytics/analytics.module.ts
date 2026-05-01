@@ -26,9 +26,9 @@ import { SupplierStatsModule } from './supplier-stats/supplier-stats.module';
  *     sub-domain that needed an out-adapter lane in this wave). Statistics,
  *     traffic, and supplier-stats use Prisma directly because they have no
  *     `$queryRaw` surfaces.
- *   - Tenant predicates: every read binds `companyId` from
- *     `@CurrentCompany()`. Raw SQL paths bind `${companyId}::uuid` per
- *     ADR-0018; ORM paths use `where: { companyId, ... }`.
+ *   - Tenant predicates: every read binds `organizationId` from
+ *     `@CurrentOrganization()`. Raw SQL paths bind `${organizationId}::uuid` per
+ *     ADR-0018; ORM paths use `where: { organizationId, ... }`.
  *   - Public routes are preserved: `/api/dashboard/*`,
  *     `/api/statistics`, `/api/traffic/*`, `/api/supplier-stats`.
  */

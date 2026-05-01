@@ -3,14 +3,14 @@ import type { ListingMap } from '../../../domain/listing-match';
 
 export async function buildAdSyncListingMap(
   prisma: PrismaService,
-  companyId: string,
+  organizationId: string,
 ): Promise<ListingMap> {
   const [options, listings] = await Promise.all([
     prisma.channelListingOption.findMany({
       where: {
-        companyId,
+        organizationId,
         isActive: true,
-        listing: { companyId, channel: 'coupang', isDeleted: false },
+        listing: { organizationId, channel: 'coupang', isDeleted: false },
       },
       select: {
         id: true,
@@ -20,7 +20,7 @@ export async function buildAdSyncListingMap(
       },
     }),
     prisma.channelListing.findMany({
-      where: { companyId, isDeleted: false, channel: 'coupang' },
+      where: { organizationId, isDeleted: false, channel: 'coupang' },
       select: { id: true, externalId: true },
     }),
   ]);

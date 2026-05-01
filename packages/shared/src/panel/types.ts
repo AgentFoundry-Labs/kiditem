@@ -3,7 +3,7 @@ import { PanelRunSourceSchema } from './sources.js';
 
 const PanelItemBase = z.object({
   id: z.string(),
-  // companyId는 서버 내부에서만 사용, 와이어에서는 drop됨
+  // organizationId는 서버 내부에서만 사용, 와이어에서는 drop됨
   seq: z.number().int(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
@@ -11,7 +11,7 @@ const PanelItemBase = z.object({
   title: z.string(),
   subtitle: z.string().optional(),
   actorUserId: z.string().uuid().nullable(),
-  visibility: z.enum(['company', 'user']),
+  visibility: z.enum(['organization', 'user']),
 });
 
 export const PanelRunItem = PanelItemBase.extend({

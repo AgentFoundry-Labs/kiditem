@@ -9,15 +9,18 @@
 
 | Model | Table | Description |
 |---|---|---|
-| BundleComponent | `bundle_components` | 세트 옵션의 구성품 관계. bundleOption(isBundle=true) ↔ componentOption. Cross-master 허용, cross-company 금지. |
+| BundleComponent | `bundle_components` | 세트 옵션의 구성품 관계. bundleOption(isBundle=true) ↔ componentOption. Cross-master 허용, cross-organization 금지. |
 | CategoryMapping | `category_mappings` | - |
+| ChannelAccount | `channel_accounts` | Marketplace/store account such as Coupang Wing or Naver SmartStore. Operational channel ownership is distinct from the SaaS organization. |
 | ChannelListing | `channel_listings` | 채널에 올라간 판매 등록상품. 쿠팡 등록상품ID, 네이버 상품번호 등. |
 | ChannelListingOption | `channel_listing_options` | 채널 listing 내 옵션 externalOptionId 와 내부 ProductOption 매핑. |
-| Company | `companies` | - |
+| LegalEntity | `legal_entities` | Legal/business entity under an organization. This stores tax, invoice, and settlement identity separately from the SaaS organization boundary. |
 | MasterProduct | `master_products` | 기획상품 family. 같은 컨셉의 옵션들을 묶는 entity. 운영/광고/전략 단위. |
 | MasterProductImage | `master_product_images` | MasterProduct 이미지 갤러리. Source of truth 이며 MasterProduct.imageUrl 은 대표 이미지 캐시로만 동기화된다. |
+| Organization | `organizations` | - |
+| OrganizationMembership | `organization_memberships` | B2B customer/workspace membership. A user may belong to multiple organizations; this row supplies request organization and role. |
 | ProductOption | `product_options` | 물리 SKU. 바코드 1:1. 재고/매입/창고 단위. isBundle 이면 구성품 기반 계산. |
-| User | `users` | human(직원) / agent(AI, agentDefinitionId 연결) / system(챗봇, companyId=null) 통합 관리. |
+| User | `users` | human(직원) / agent(AI, agentDefinitionId 연결) / system(챗봇). 조직 소속은 OrganizationMembership 이 source of truth. |
 
 ## Mermaid ER Diagram
 
@@ -27,14 +30,14 @@ erDiagram
     String id PK
     String bundleOptionId FK
     String componentOptionId FK
-    String companyId FK
+    String organizationId FK
     Int qty
     DateTime createdAt
     DateTime updatedAt
   }
   CategoryMapping {
     String id PK
-    String companyId FK
+    String organizationId FK
     String internalCategory
     String coupangCategoryId
     String coupangCategoryName
@@ -43,10 +46,24 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  ChannelAccount {
+    String id PK
+    String organizationId FK
+    String channel
+    String name
+    String externalAccountId
+    String sellerId
+    String vendorId
+    String status
+    Boolean isPrimary
+    Json config
+    DateTime createdAt
+    DateTime updatedAt
+  }
   ChannelListing {
     String id PK
     String masterId FK
-    String companyId FK
+    String organizationId FK
     String channel
     String externalId
     String channelName
@@ -66,7 +83,7 @@ erDiagram
     String id PK
     String listingId FK
     String optionId FK
-    String companyId FK
+    String organizationId FK
     String externalOptionId
     String itemName
     Int salePrice
@@ -75,18 +92,22 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  Company {
+  LegalEntity {
     String id PK
+    String organizationId FK
     String name
-    String slug UK
     String businessNumber
-    Boolean isActive
+    String countryCode
+    String representativeName
+    String address
+    Boolean isPrimary
+    Json metadata
     DateTime createdAt
     DateTime updatedAt
   }
   MasterProduct {
     String id PK
-    String companyId FK
+    String organizationId FK
     String code UK
     String legacyCode
     String barcode
@@ -114,7 +135,6 @@ erDiagram
     String pipelineStep
     String detailPageUrl
     String thumbnailStrategy
-    String supplierId FK
     Boolean isDeleted
     DateTime deletedAt
     Boolean isTemporary
@@ -125,7 +145,7 @@ erDiagram
   }
   MasterProductImage {
     String id PK
-    String companyId FK
+    String organizationId FK
     String masterId FK
     String url
     String storageKey
@@ -143,10 +163,30 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  Organization {
+    String id PK
+    String name
+    String slug UK
+    Boolean isActive
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  OrganizationMembership {
+    String id PK
+    String organizationId FK
+    String userId FK
+    String role
+    String status
+    String invitedById FK
+    DateTime joinedAt
+    DateTime lastSelectedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
   ProductOption {
     String id PK
     String masterId FK
-    String companyId FK
+    String organizationId FK
     String sku UK
     String barcode
     String legacyCode
@@ -169,7 +209,6 @@ erDiagram
   }
   User {
     String id PK
-    String companyId FK
     String email UK
     String name
     String password
@@ -184,20 +223,24 @@ erDiagram
     DateTime updatedAt
   }
   ChannelListing ||--o{ ChannelListingOption : "listing"
-  Company ||--o{ BundleComponent : "company"
-  Company ||--o{ CategoryMapping : "company"
-  Company ||--o{ ChannelListing : "company"
-  Company ||--o{ ChannelListingOption : "company"
-  Company ||--o{ MasterProduct : "company"
-  Company ||--o{ MasterProductImage : "company"
-  Company ||--o{ ProductOption : "company"
-  Company o|--o{ User : "company"
   MasterProduct ||--o{ ChannelListing : "master"
   MasterProduct ||--o{ MasterProductImage : "master"
   MasterProduct ||--o{ ProductOption : "master"
+  Organization ||--o{ BundleComponent : "organization"
+  Organization ||--o{ CategoryMapping : "organization"
+  Organization ||--o{ ChannelAccount : "organization"
+  Organization ||--o{ ChannelListing : "organization"
+  Organization ||--o{ ChannelListingOption : "organization"
+  Organization ||--o{ LegalEntity : "organization"
+  Organization ||--o{ MasterProduct : "organization"
+  Organization ||--o{ MasterProductImage : "organization"
+  Organization ||--o{ OrganizationMembership : "organization"
+  Organization ||--o{ ProductOption : "organization"
   ProductOption ||--o{ BundleComponent : "bundleOption"
   ProductOption ||--o{ BundleComponent : "componentOption"
   ProductOption o|--o{ ChannelListingOption : "option"
+  User o|--o{ OrganizationMembership : "invitedBy"
+  User ||--o{ OrganizationMembership : "user"
 ```
 
 ## External References
@@ -221,64 +264,63 @@ erDiagram
 | ChannelListingOption | listingOption | referenced by external | Channels | ChannelListingOptionDailySnapshot |
 | ChannelListingOption | listingOption | referenced by external | Channels | ChannelScrapeSnapshot |
 | ChannelListingOption | listingOption | referenced by external | Orders | OrderLineItem |
-| Company | company | referenced by external | Advertising | AdAction |
-| Company | company | referenced by external | Advertising | ExecutionWorker |
-| Company | company | referenced by external | Advertising | ScrapeTarget |
-| Company | company | referenced by external | Agents | AgentDefinition |
-| Company | company | referenced by external | Agents | AgentEvent |
-| Company | company | referenced by external | Agents | AgentWakeupRequest |
-| Company | company | referenced by external | Agents | HeartbeatRun |
-| Company | company | referenced by external | Agents | WorkflowTemplate |
-| Company | company | referenced by external | AI | ContentGeneration |
-| Company | company | referenced by external | AI | Thumbnail |
-| Company | company | referenced by external | AI | ThumbnailAnalysis |
-| Company | company | referenced by external | AI | ThumbnailGeneration |
-| Company | company | referenced by external | AI | ThumbnailGenerationCandidate |
-| Company | company | referenced by external | AI | ThumbnailGenerationInputImage |
-| Company | company | referenced by external | AI | ThumbnailRegistrationAttempt |
-| Company | company | referenced by external | AI | ThumbnailTracking |
-| Company | company | referenced by external | Channels | ChannelAccountDailyKpiSnapshot |
-| Company | company | referenced by external | Channels | ChannelAdTargetDailySnapshot |
-| Company | company | referenced by external | Channels | ChannelListingDailySnapshot |
-| Company | company | referenced by external | Channels | ChannelListingOptionDailySnapshot |
-| Company | company | referenced by external | Channels | ChannelScrapeRun |
-| Company | company | referenced by external | Channels | ChannelScrapeSnapshot |
-| Company | company | referenced by external | Finance | GradeHistory |
-| Company | company | referenced by external | Finance | ManualLedger |
-| Company | company | referenced by external | Finance | ProcessingCost |
-| Company | company | referenced by external | Finance | ProfitLoss |
-| Company | company | referenced by external | Finance | SalesPlan |
-| Company | company | referenced by external | Inventory | Inventory |
-| Company | company | referenced by external | Inventory | PickingList |
-| Company | company | referenced by external | Inventory | ReturnTransfer |
-| Company | company | referenced by external | Inventory | StockAudit |
-| Company | company | referenced by external | Inventory | StockTransaction |
-| Company | company | referenced by external | Inventory | StockTransfer |
-| Company | company | referenced by external | Inventory | Warehouse |
-| Company | company | referenced by external | Orders | CSRecord |
-| Company | company | referenced by external | Orders | Order |
-| Company | company | referenced by external | Orders | OrderLineItem |
-| Company | company | referenced by external | Orders | OrderReturn |
-| Company | company | referenced by external | Orders | OrderReturnLineItem |
-| Company | company | referenced by external | Orders | Review |
-| Company | company | referenced by external | Orders | Settlement |
-| Company | company | referenced by external | Orders | Shipment |
-| Company | company | referenced by external | Orders | UnshippedItem |
-| Company | company | referenced by external | Supply | PurchaseOrder |
-| Company | company | referenced by external | Supply | Supplier |
-| Company | company | referenced by external | Supply | SupplierPayment |
-| Company | company | referenced by external | System | ActionTask |
-| Company | company | referenced by external | System | ActivityEvent |
-| Company | company | referenced by external | System | Alert |
-| Company | company | referenced by external | System | BusinessRule |
-| Company | company | referenced by external | System | SystemSetting |
 | MasterProduct | master | referenced by external | AI | ContentGeneration |
 | MasterProduct | master | referenced by external | AI | ThumbnailAnalysis |
 | MasterProduct | master | referenced by external | AI | ThumbnailGeneration |
 | MasterProduct | master | referenced by external | Finance | GradeHistory |
 | MasterProduct | master | referenced by external | Finance | ProcessingCost |
 | MasterProduct | master | referenced by external | Supply | MasterSupplierProduct |
-| MasterProduct | supplier | references external | Supply | Supplier |
+| Organization | organization | referenced by external | Advertising | AdAction |
+| Organization | organization | referenced by external | Advertising | ExecutionWorker |
+| Organization | organization | referenced by external | Advertising | ScrapeTarget |
+| Organization | organization | referenced by external | Agents | AgentDefinition |
+| Organization | organization | referenced by external | Agents | AgentEvent |
+| Organization | organization | referenced by external | Agents | AgentWakeupRequest |
+| Organization | organization | referenced by external | Agents | HeartbeatRun |
+| Organization | organization | referenced by external | Agents | WorkflowTemplate |
+| Organization | organization | referenced by external | AI | ContentGeneration |
+| Organization | organization | referenced by external | AI | Thumbnail |
+| Organization | organization | referenced by external | AI | ThumbnailAnalysis |
+| Organization | organization | referenced by external | AI | ThumbnailGeneration |
+| Organization | organization | referenced by external | AI | ThumbnailGenerationCandidate |
+| Organization | organization | referenced by external | AI | ThumbnailGenerationInputImage |
+| Organization | organization | referenced by external | AI | ThumbnailRegistrationAttempt |
+| Organization | organization | referenced by external | AI | ThumbnailTracking |
+| Organization | organization | referenced by external | Channels | ChannelAccountDailyKpiSnapshot |
+| Organization | organization | referenced by external | Channels | ChannelAdTargetDailySnapshot |
+| Organization | organization | referenced by external | Channels | ChannelListingDailySnapshot |
+| Organization | organization | referenced by external | Channels | ChannelListingOptionDailySnapshot |
+| Organization | organization | referenced by external | Channels | ChannelScrapeRun |
+| Organization | organization | referenced by external | Channels | ChannelScrapeSnapshot |
+| Organization | organization | referenced by external | Finance | GradeHistory |
+| Organization | organization | referenced by external | Finance | ManualLedger |
+| Organization | organization | referenced by external | Finance | ProcessingCost |
+| Organization | organization | referenced by external | Finance | ProfitLoss |
+| Organization | organization | referenced by external | Finance | SalesPlan |
+| Organization | organization | referenced by external | Inventory | Inventory |
+| Organization | organization | referenced by external | Inventory | PickingList |
+| Organization | organization | referenced by external | Inventory | ReturnTransfer |
+| Organization | organization | referenced by external | Inventory | StockAudit |
+| Organization | organization | referenced by external | Inventory | StockTransaction |
+| Organization | organization | referenced by external | Inventory | StockTransfer |
+| Organization | organization | referenced by external | Inventory | Warehouse |
+| Organization | organization | referenced by external | Orders | CSRecord |
+| Organization | organization | referenced by external | Orders | Order |
+| Organization | organization | referenced by external | Orders | OrderLineItem |
+| Organization | organization | referenced by external | Orders | OrderReturn |
+| Organization | organization | referenced by external | Orders | OrderReturnLineItem |
+| Organization | organization | referenced by external | Orders | Review |
+| Organization | organization | referenced by external | Orders | Settlement |
+| Organization | organization | referenced by external | Orders | Shipment |
+| Organization | organization | referenced by external | Orders | UnshippedItem |
+| Organization | organization | referenced by external | Supply | PurchaseOrder |
+| Organization | organization | referenced by external | Supply | Supplier |
+| Organization | organization | referenced by external | Supply | SupplierPayment |
+| Organization | organization | referenced by external | System | ActionTask |
+| Organization | organization | referenced by external | System | ActivityEvent |
+| Organization | organization | referenced by external | System | Alert |
+| Organization | organization | referenced by external | System | BusinessRule |
+| Organization | organization | referenced by external | System | SystemSetting |
 | ProductOption | option | referenced by external | Channels | ChannelAdTargetDailySnapshot |
 | ProductOption | option | referenced by external | Channels | ChannelListingOptionDailySnapshot |
 | ProductOption | option | referenced by external | Channels | ChannelScrapeSnapshot |

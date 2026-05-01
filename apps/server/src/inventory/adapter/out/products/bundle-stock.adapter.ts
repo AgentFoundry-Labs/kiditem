@@ -14,12 +14,12 @@ export class BundleStockAdapter implements BundleStockPort {
   constructor(private readonly bundleStock: BundleStockService) {}
 
   recomputeForComponent(
-    companyId: string,
+    organizationId: string,
     componentOptionId: string,
     tx: RepositoryTransaction,
   ): Promise<string[]> {
     return this.bundleStock.recomputeForComponent(
-      companyId,
+      organizationId,
       componentOptionId,
       tx as Prisma.TransactionClient,
     );

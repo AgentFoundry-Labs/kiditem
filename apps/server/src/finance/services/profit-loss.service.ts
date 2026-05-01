@@ -16,7 +16,7 @@ export class ProfitLossService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll(
-    companyId: string,
+    organizationId: string,
     year: number,
     month: number,
   ): Promise<PLData[]> {
@@ -25,10 +25,10 @@ export class ProfitLossService {
     const to = kstMonthStart(year, month + 1);
 
     const [metrics, returnRows] = await Promise.all([
-      buildPerListingMetrics(this.prisma, companyId, from, to),
+      buildPerListingMetrics(this.prisma, organizationId, from, to),
       this.prisma.orderReturnLineItem.findMany({
         where: {
-          companyId,
+          organizationId,
           return: { requestedAt: { gte: from, lt: to } },
         },
         select: {
@@ -70,7 +70,7 @@ export class ProfitLossService {
 
     this.logger.log({
       msg: 'profit-loss.findAll',
-      companyId,
+      organizationId,
       year,
       month,
       listingCount: rows.length,

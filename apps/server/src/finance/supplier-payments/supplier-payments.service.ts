@@ -7,8 +7,8 @@ import { CreateSupplierPaymentDto, UpdateSupplierPaymentDto } from './dto';
 export class SupplierPaymentsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(companyId: string, status?: string) {
-    const where: Prisma.SupplierPaymentWhereInput = { companyId };
+  async findAll(organizationId: string, status?: string) {
+    const where: Prisma.SupplierPaymentWhereInput = { organizationId };
     if (status) {
       where.status = status;
     }
@@ -20,9 +20,9 @@ export class SupplierPaymentsService {
     });
   }
 
-  async create(companyId: string, dto: CreateSupplierPaymentDto) {
+  async create(organizationId: string, dto: CreateSupplierPaymentDto) {
     const supplier = await this.prisma.supplier.findFirst({
-      where: { id: dto.supplierId, companyId },
+      where: { id: dto.supplierId, organizationId },
       select: { id: true },
     });
     if (!supplier) {
@@ -31,7 +31,7 @@ export class SupplierPaymentsService {
 
     if (dto.purchaseOrderId) {
       const purchaseOrder = await this.prisma.purchaseOrder.findFirst({
-        where: { id: dto.purchaseOrderId, companyId },
+        where: { id: dto.purchaseOrderId, organizationId },
         select: { id: true },
       });
       if (!purchaseOrder) {
@@ -41,7 +41,7 @@ export class SupplierPaymentsService {
 
     return this.prisma.supplierPayment.create({
       data: {
-        companyId,
+        organizationId,
         supplierId: dto.supplierId,
         amount: dto.amount,
         dueDate: dto.dueDate ? new Date(dto.dueDate) : undefined,
@@ -52,9 +52,9 @@ export class SupplierPaymentsService {
     });
   }
 
-  async update(id: string, companyId: string, dto: UpdateSupplierPaymentDto) {
+  async update(id: string, organizationId: string, dto: UpdateSupplierPaymentDto) {
     const result = await this.prisma.supplierPayment.updateMany({
-      where: { id, companyId },
+      where: { id, organizationId },
       data: {
         ...(dto.paidAmount !== undefined && { paidAmount: dto.paidAmount }),
         ...(dto.paidDate !== undefined && { paidDate: new Date(dto.paidDate) }),
@@ -66,7 +66,7 @@ export class SupplierPaymentsService {
       throw new BadRequestException('거래처 결제를 찾을 수 없습니다');
     }
     return this.prisma.supplierPayment.findFirstOrThrow({
-      where: { id, companyId },
+      where: { id, organizationId },
       include: { supplier: true },
     });
   }

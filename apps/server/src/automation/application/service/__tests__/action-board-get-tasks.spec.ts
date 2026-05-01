@@ -29,7 +29,7 @@ function makePrisma() {
 function makeTask(taskKey: string, priority: 'urgent' | 'high' | 'medium') {
   return {
     id: `task-${taskKey}`,
-    companyId: 'company-1',
+    organizationId: 'organization-1',
     taskKey,
     type: taskKey.startsWith('analyze') ? 'ai' : 'human',
     label: taskKey,
@@ -63,7 +63,7 @@ describe('ActionBoardService.getTasks', () => {
     vi.useRealTimers();
   });
 
-  it('derives warning seeds from live metrics with explicit company scope and KST month boundaries', async () => {
+  it('derives warning seeds from live metrics with explicit organization scope and KST month boundaries', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-04-30T14:30:00.000Z'));
 
@@ -121,33 +121,33 @@ describe('ActionBoardService.getTasks', () => {
       makeTask('h-minus-ad-stop', 'urgent'),
     ]);
 
-    const result = await service.getTasks('company-1');
+    const result = await service.getTasks('organization-1');
 
     expect(mockedBuildPerListingMetrics).toHaveBeenCalledWith(
       prisma as any,
-      'company-1',
+      'organization-1',
       new Date('2026-03-31T15:00:00.000Z'),
       new Date('2026-04-30T15:00:00.000Z'),
     );
     expect(prisma.inventory.findMany).toHaveBeenNthCalledWith(1, {
-      where: { companyId: 'company-1', currentStock: { gt: 0 } },
+      where: { organizationId: 'organization-1', currentStock: { gt: 0 } },
       select: { currentStock: true, reorderPoint: true },
     });
     expect(prisma.thumbnail.count).toHaveBeenCalledWith({
-      where: { companyId: 'company-1', ctr: { gt: 0, lt: 1.5 } },
+      where: { organizationId: 'organization-1', ctr: { gt: 0, lt: 1.5 } },
     });
     expect(prisma.masterProduct.findMany).toHaveBeenCalledWith({
-      where: { companyId: 'company-1', isDeleted: false, abcGrade: 'A' },
+      where: { organizationId: 'organization-1', isDeleted: false, abcGrade: 'A' },
       include: {
         listings: {
-          where: { companyId: 'company-1', isDeleted: false },
+          where: { organizationId: 'organization-1', isDeleted: false },
           select: { _count: { select: { reviews: true } } },
         },
       },
     });
 
     const seededTaskKeys = prisma.actionTask.upsert.mock.calls.map(
-      ([call]) => call.where.companyId_taskKey_date.taskKey,
+      ([call]) => call.where.organizationId_taskKey_date.taskKey,
     );
     expect(seededTaskKeys).toEqual(
       expect.arrayContaining([
@@ -167,7 +167,7 @@ describe('ActionBoardService.getTasks', () => {
     );
     expect(
       prisma.actionTask.upsert.mock.calls.every(
-        ([call]) => call.where.companyId_taskKey_date.companyId === 'company-1',
+        ([call]) => call.where.organizationId_taskKey_date.organizationId === 'organization-1',
       ),
     ).toBe(true);
 
@@ -226,10 +226,10 @@ describe('ActionBoardService.getTasks', () => {
       makeTask('h-reorder', 'high'),
     ]);
 
-    const result = await service.getTasks('company-1');
+    const result = await service.getTasks('organization-1');
 
     const seededTaskKeys = prisma.actionTask.upsert.mock.calls.map(
-      ([call]) => call.where.companyId_taskKey_date.taskKey,
+      ([call]) => call.where.organizationId_taskKey_date.taskKey,
     );
     expect(seededTaskKeys).toEqual(
       expect.arrayContaining([

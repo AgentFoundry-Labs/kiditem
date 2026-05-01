@@ -28,12 +28,12 @@ export class PickingService implements PickingPort {
     private readonly confirmedOrders: ConfirmedOrdersPort,
   ) {}
 
-  findAll(companyId: string): Promise<PickingListRow[]> {
-    return this.repository.listPickingLists(companyId);
+  findAll(organizationId: string): Promise<PickingListRow[]> {
+    return this.repository.listPickingLists(organizationId);
   }
 
-  async generate(companyId: string): Promise<PickingListRow> {
-    const orders = await this.confirmedOrders.findConfirmedOrdersForPicking(companyId);
+  async generate(organizationId: string): Promise<PickingListRow> {
+    const orders = await this.confirmedOrders.findConfirmedOrdersForPicking(organizationId);
     if (orders.length === 0) {
       throw new BadRequestException('피킹 대상 주문이 없습니다 (status=confirmed)');
     }
@@ -46,17 +46,17 @@ export class PickingService implements PickingPort {
     }
 
     const listNumber = `PK-${Date.now()}`;
-    return this.repository.createPickingList(companyId, listNumber, items);
+    return this.repository.createPickingList(organizationId, listNumber, items);
   }
 
   async updateItem(
     listId: string,
     itemId: string,
-    companyId: string,
+    organizationId: string,
     dto: UpdatePickingItemInput,
   ): Promise<PickingItemRow> {
-    // PickingItem has no companyId column — verify ownership via PickingList (IDOR guard).
-    const list = await this.repository.findPickingListOwnerId(listId, companyId);
+    // PickingItem has no organizationId column — verify ownership via PickingList (IDOR guard).
+    const list = await this.repository.findPickingListOwnerId(listId, organizationId);
     if (!list) {
       throw new NotFoundException('피킹 리스트를 찾을 수 없습니다');
     }
@@ -84,9 +84,9 @@ export class PickingService implements PickingPort {
     return updated;
   }
 
-  async complete(id: string, companyId: string): Promise<PickingListRow> {
+  async complete(id: string, organizationId: string): Promise<PickingListRow> {
     // Tenant guard lives inside the repository adapter (so the scoped read
     // and bare-id update sit in the same function for check:tenant-scope).
-    return this.repository.completePickingList(id, companyId);
+    return this.repository.completePickingList(id, organizationId);
   }
 }

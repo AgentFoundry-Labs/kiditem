@@ -2,7 +2,7 @@
  * Permission Hierarchy Resolver — 5-layer permission resolution.
  *
  * Layers (lowest priority → highest):
- *   global → company → agentType → instance → runtime
+ *   global → organization → agentType → instance → runtime
  *
  * Rules:
  *   deniedSkills: UNION across all layers (deny accumulates)

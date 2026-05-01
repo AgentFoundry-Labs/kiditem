@@ -7,8 +7,8 @@ import { CreateManualLedgerDto } from './dto';
 export class ManualLedgerService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(companyId: string, type?: string, period?: string) {
-    const where: Prisma.ManualLedgerWhereInput = { companyId };
+  async findAll(organizationId: string, type?: string, period?: string) {
+    const where: Prisma.ManualLedgerWhereInput = { organizationId };
 
     if (type) {
       where.type = type;
@@ -28,10 +28,10 @@ export class ManualLedgerService {
     });
   }
 
-  async create(companyId: string, dto: CreateManualLedgerDto) {
+  async create(organizationId: string, dto: CreateManualLedgerDto) {
     return this.prisma.manualLedger.create({
       data: {
-        companyId,
+        organizationId,
         date: new Date(dto.date),
         type: dto.type,
         category: dto.category,
@@ -43,9 +43,9 @@ export class ManualLedgerService {
     });
   }
 
-  async delete(id: string, companyId: string) {
+  async delete(id: string, organizationId: string) {
     const result = await this.prisma.manualLedger.deleteMany({
-      where: { id, companyId },
+      where: { id, organizationId },
     });
     if (result.count === 0) {
       throw new BadRequestException('수기 장부 항목을 찾을 수 없습니다');

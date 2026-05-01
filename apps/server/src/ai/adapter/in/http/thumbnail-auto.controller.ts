@@ -1,5 +1,5 @@
 import { Controller, DefaultValuePipe, ParseIntPipe, Post, Query } from '@nestjs/common';
-import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
+import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { ThumbnailAutoService } from '../../../application/service/thumbnail-auto.service';
 
 @Controller('thumbnail-auto')
@@ -8,9 +8,9 @@ export class ThumbnailAutoController {
 
   @Post('batch')
   runBatch(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Query('limit', new DefaultValuePipe(30), ParseIntPipe) limit: number,
   ) {
-    return this.autoService.runBatch(companyId, limit);
+    return this.autoService.runBatch(organizationId, limit);
   }
 }

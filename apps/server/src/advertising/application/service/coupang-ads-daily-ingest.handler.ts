@@ -28,14 +28,14 @@ export interface CoupangAdsDailyIngestDeps {
 
 export async function ingestCoupangAdsDaily(
   payload: ExtensionSyncDto,
-  companyId: string,
+  organizationId: string,
   deps: CoupangAdsDailyIngestDeps,
 ) {
   const { prisma } = deps;
   const rows = payload.data ?? [];
 
   const scrapeRun = await createScrapeRun(prisma, {
-    companyId,
+    organizationId,
     channel: 'coupang',
     source: 'coupang_ads',
     pageType: 'dashboard_daily',
@@ -65,7 +65,7 @@ export async function ingestCoupangAdsDaily(
         : null;
       const snapshot = await appendScrapeSnapshot(prisma, {
         scrapeRunId: scrapeRun.id,
-        companyId,
+        organizationId,
         channel: 'coupang',
         source: 'coupang_ads',
         pageType: 'dashboard_daily',
@@ -107,7 +107,7 @@ export async function ingestCoupangAdsDaily(
         providerConversionRate,
       };
       await upsertChannelAccountKpi(prisma, {
-        companyId,
+        organizationId,
         channel: 'coupang',
         source: 'coupang_ads',
         kpiType: 'coupang_ads_daily',
@@ -121,7 +121,7 @@ export async function ingestCoupangAdsDaily(
 
     await finalizeScrapeRun(prisma, {
       scrapeRunId: scrapeRun.id,
-      companyId,
+      organizationId,
       status: 'complete',
       rowCount: scrapeSnapshotCount,
       matchedCount: 0,
@@ -140,7 +140,7 @@ export async function ingestCoupangAdsDaily(
   } catch (err) {
     await finalizeScrapeRunOnError(prisma, {
       scrapeRunId: scrapeRun.id,
-      companyId,
+      organizationId,
       rowCount: scrapeSnapshotCount,
       matchedCount: 0,
       unmatchedCount: scrapeSnapshotCount,

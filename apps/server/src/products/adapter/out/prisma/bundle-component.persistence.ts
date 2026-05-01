@@ -12,9 +12,9 @@ export { lockBundleOptionRow } from './bundle-stock.persistence';
 export async function findBundleComponentForTenant(
   tx: Prisma.TransactionClient,
   id: string,
-  companyId: string,
+  organizationId: string,
 ): Promise<BundleComponent | null> {
-  return tx.bundleComponent.findFirst({ where: { id, companyId } });
+  return tx.bundleComponent.findFirst({ where: { id, organizationId } });
 }
 
 export async function createBundleComponent(
@@ -24,10 +24,10 @@ export async function createBundleComponent(
     componentOptionId: string;
     qty: number;
     /**
-     * Always derived from `bundleOption.companyId` (3-way invariant), not
-     * the auth caller's companyId.
+     * Always derived from `bundleOption.organizationId` (3-way invariant), not
+     * the auth caller's organizationId.
      */
-    companyId: string;
+    organizationId: string;
   },
 ): Promise<BundleComponent> {
   return tx.bundleComponent.create({ data });
@@ -40,11 +40,11 @@ export async function createBundleComponent(
 export async function updateBundleComponentQty(
   tx: Prisma.TransactionClient,
   id: string,
-  companyId: string,
+  organizationId: string,
   qty: number,
 ): Promise<number> {
   const { count } = await tx.bundleComponent.updateMany({
-    where: { id, companyId },
+    where: { id, organizationId },
     data: { qty },
   });
   return count;
@@ -53,10 +53,10 @@ export async function updateBundleComponentQty(
 export async function deleteBundleComponentScoped(
   tx: Prisma.TransactionClient,
   id: string,
-  companyId: string,
+  organizationId: string,
 ): Promise<number> {
   const { count } = await tx.bundleComponent.deleteMany({
-    where: { id, companyId },
+    where: { id, organizationId },
   });
   return count;
 }

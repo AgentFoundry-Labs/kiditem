@@ -3,8 +3,8 @@
 import { apiClient } from '@/lib/api-client';
 import type { WorkflowCatalogItem, AgentCatalogItem } from '@kiditem/shared/marketplace';
 
-// All endpoints are scoped on the backend via `@CurrentCompany()`. The
-// client must NOT send `companyId` in query/body — that path is untrusted
+// All endpoints are scoped on the backend via `@CurrentOrganization()`. The
+// client must NOT send `organizationId` in query/body — that path is untrusted
 // and the backend would ignore it anyway.
 export const marketplaceApi = {
   // Workflows

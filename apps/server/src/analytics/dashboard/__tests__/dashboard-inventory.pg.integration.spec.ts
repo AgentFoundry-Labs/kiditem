@@ -8,8 +8,8 @@ import {
   makeTestPrisma,
   resetDb,
   seedBaseFixture,
-  TEST_COMPANY_ID,
-  OTHER_COMPANY_ID,
+  TEST_ORGANIZATION_ID,
+  OTHER_ORGANIZATION_ID,
 } from '../../../test-helpers/real-prisma';
 import {
   setupMaster,
@@ -56,20 +56,20 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
    */
   async function seedBaseStructure() {
     const masterT1 = await setupMaster(prisma, {
-      companyId: TEST_COMPANY_ID, code: 'M-T-1', name: 'Master T1', abcGrade: 'A',
+      organizationId: TEST_ORGANIZATION_ID, code: 'M-T-1', name: 'Master T1', abcGrade: 'A',
     });
     const masterT2 = await setupMaster(prisma, {
-      companyId: TEST_COMPANY_ID, code: 'M-T-2', name: 'Master T2', abcGrade: 'B',
+      organizationId: TEST_ORGANIZATION_ID, code: 'M-T-2', name: 'Master T2', abcGrade: 'B',
     });
     const optionT1 = await setupProductOption(prisma, {
-      companyId: TEST_COMPANY_ID, masterId: masterT1.id, sku: 'SKU-T-1',
+      organizationId: TEST_ORGANIZATION_ID, masterId: masterT1.id, sku: 'SKU-T-1',
     });
     await prisma.inventory.create({
-      data: { companyId: TEST_COMPANY_ID, optionId: optionT1.id, currentStock: 10, reorderPoint: 5 },
+      data: { organizationId: TEST_ORGANIZATION_ID, optionId: optionT1.id, currentStock: 10, reorderPoint: 5 },
     });
     await prisma.alert.create({
       data: {
-        companyId: TEST_COMPANY_ID, type: 'inventory', severity: 'medium',
+        organizationId: TEST_ORGANIZATION_ID, type: 'inventory', severity: 'medium',
         title: 'Test alert', message: 'test',
         targetType: 'master', targetId: masterT1.id, isRead: false,
       },
@@ -77,20 +77,20 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
 
     for (let i = 1; i <= 5; i++) {
       const masterO = await setupMaster(prisma, {
-        companyId: OTHER_COMPANY_ID, code: `M-O-${i}`, name: `Master O${i}`,
+        organizationId: OTHER_ORGANIZATION_ID, code: `M-O-${i}`, name: `Master O${i}`,
         abcGrade: i <= 3 ? 'A' : 'B',
       });
       const optionO = await setupProductOption(prisma, {
-        companyId: OTHER_COMPANY_ID, masterId: masterO.id, sku: `SKU-O-${i}`,
+        organizationId: OTHER_ORGANIZATION_ID, masterId: masterO.id, sku: `SKU-O-${i}`,
       });
       await prisma.inventory.create({
-        data: { companyId: OTHER_COMPANY_ID, optionId: optionO.id, currentStock: 1, reorderPoint: 100 },
+        data: { organizationId: OTHER_ORGANIZATION_ID, optionId: optionO.id, currentStock: 1, reorderPoint: 100 },
       });
     }
     for (let i = 1; i <= 3; i++) {
       await prisma.alert.create({
         data: {
-          companyId: OTHER_COMPANY_ID, type: 'inventory', severity: 'high',
+          organizationId: OTHER_ORGANIZATION_ID, type: 'inventory', severity: 'high',
           title: `OTHER alert ${i}`, message: 'other',
           targetType: 'master', targetId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', isRead: false,
         },
@@ -101,7 +101,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
   it('T1: TEST sees only TEST products, alerts, gradeCount', async () => {
     await seedBaseStructure();
     const ctx = buildDashboardContext();
-    const result = await service.getSummary(ctx, TEST_COMPANY_ID);
+    const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
 
     expect(result.totalProducts).toBe(2);
     expect(result.gradeCount.A).toBe(1);
@@ -113,7 +113,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
   it('T2: OTHER sees only OTHER — TEST does not leak', async () => {
     await seedBaseStructure();
     const ctx = buildDashboardContext();
-    const result = await service.getSummary(ctx, OTHER_COMPANY_ID);
+    const result = await service.getSummary(ctx, OTHER_ORGANIZATION_ID);
 
     expect(result.totalProducts).toBe(5);
     expect(result.gradeCount.A).toBe(3);
@@ -121,9 +121,9 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     expect(result.alerts.length).toBe(3);
   });
 
-  it('T3: fresh company → zero-valued summary', async () => {
+  it('T3: fresh organization → zero-valued summary', async () => {
     const ctx = buildDashboardContext();
-    const result = await service.getSummary(ctx, TEST_COMPANY_ID);
+    const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
     expect(result.totalProducts).toBe(0);
     expect(result.alerts.length).toBe(0);
     expect(result.warnings.minusProducts).toBe(0);
@@ -136,19 +136,19 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     // Loss order: revenue 50_000, costPrice 80_000, commission 10%, shipping 5_000
     // netProfit = 50_000 - 80_000 - 5_000 - 5_000 - 0 - 0 = -40_000  → minus
     const { id: masterId } = await setupMaster(prisma, {
-      companyId: TEST_COMPANY_ID, code: 'M-T-LOSS', name: 'Loss Master', abcGrade: 'A',
+      organizationId: TEST_ORGANIZATION_ID, code: 'M-T-LOSS', name: 'Loss Master', abcGrade: 'A',
     });
     const { id: optionId } = await setupProductOption(prisma, {
-      companyId: TEST_COMPANY_ID, masterId,
+      organizationId: TEST_ORGANIZATION_ID, masterId,
       sku: 'SKU-T-LOSS', costPrice: 80_000, commissionRate: 0.1, otherCost: 0,
     });
     const { listingOptionId } = await setupChannelListing(prisma, {
-      companyId: TEST_COMPANY_ID, masterId,
+      organizationId: TEST_ORGANIZATION_ID, masterId,
       channel: 'coupang', externalId: 'EXT-T-LOSS',
       optionId, externalOptionId: 'VI-T-LOSS',
     });
     await seedOrderWithLineItems(prisma, {
-      companyId: TEST_COMPANY_ID,
+      organizationId: TEST_ORGANIZATION_ID,
       externalOrderId: 'INV-T-LOSS-1',
       orderedAt: midMonth().toISOString(),
       shippingPrice: 5_000,
@@ -156,7 +156,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     });
 
     const ctx = buildDashboardContext();
-    const result = await service.getSummary(ctx, TEST_COMPANY_ID);
+    const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
 
     expect(result.warnings.minusProducts).toBe(1);
     expect(result.warnings.lowProfitProducts).toBe(0);
@@ -165,11 +165,11 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
 
   it('T5: 3 warnings — minus + lowProfit + highAd seeded on 3 listings', async () => {
     // Listing A: minus (cost > revenue)
-    const a = await setupMaster(prisma, { companyId: TEST_COMPANY_ID, code: 'M-T-A', name: 'A', abcGrade: 'A' });
-    const aOpt = await setupProductOption(prisma, { companyId: TEST_COMPANY_ID, masterId: a.id, sku: 'SKU-T-A', costPrice: 80_000, commissionRate: 0.1 });
-    const aList = await setupChannelListing(prisma, { companyId: TEST_COMPANY_ID, masterId: a.id, channel: 'coupang', externalId: 'EXT-T-A', optionId: aOpt.id, externalOptionId: 'VI-T-A' });
+    const a = await setupMaster(prisma, { organizationId: TEST_ORGANIZATION_ID, code: 'M-T-A', name: 'A', abcGrade: 'A' });
+    const aOpt = await setupProductOption(prisma, { organizationId: TEST_ORGANIZATION_ID, masterId: a.id, sku: 'SKU-T-A', costPrice: 80_000, commissionRate: 0.1 });
+    const aList = await setupChannelListing(prisma, { organizationId: TEST_ORGANIZATION_ID, masterId: a.id, channel: 'coupang', externalId: 'EXT-T-A', optionId: aOpt.id, externalOptionId: 'VI-T-A' });
     await seedOrderWithLineItems(prisma, {
-      companyId: TEST_COMPANY_ID, externalOrderId: 'INV-T-A-1', orderedAt: midMonth().toISOString(),
+      organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'INV-T-A-1', orderedAt: midMonth().toISOString(),
       shippingPrice: 0, lineItems: [{ quantity: 1, totalPrice: 50_000, optionId: aOpt.id, listingOptionId: aList.listingOptionId }],
     });
 
@@ -177,30 +177,30 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     // Aim: revenue=100_000, costPrice=85_000, commission 0.10×100_000=10_000, shipping 0, ad 0, other 0
     //   netProfit = 100_000 - 85_000 - 10_000 - 0 - 0 - 0 = 5_000 → 5.0% (NOT lowProfit; rate must be <=3)
     // Adjust: costPrice=88_000 → netProfit = 100_000 - 88_000 - 10_000 = 2_000 → 2.0% (lowProfit ✓)
-    const b = await setupMaster(prisma, { companyId: TEST_COMPANY_ID, code: 'M-T-B', name: 'B', abcGrade: 'A' });
-    const bOpt = await setupProductOption(prisma, { companyId: TEST_COMPANY_ID, masterId: b.id, sku: 'SKU-T-B', costPrice: 88_000, commissionRate: 0.1 });
-    const bList = await setupChannelListing(prisma, { companyId: TEST_COMPANY_ID, masterId: b.id, channel: 'coupang', externalId: 'EXT-T-B', optionId: bOpt.id, externalOptionId: 'VI-T-B' });
+    const b = await setupMaster(prisma, { organizationId: TEST_ORGANIZATION_ID, code: 'M-T-B', name: 'B', abcGrade: 'A' });
+    const bOpt = await setupProductOption(prisma, { organizationId: TEST_ORGANIZATION_ID, masterId: b.id, sku: 'SKU-T-B', costPrice: 88_000, commissionRate: 0.1 });
+    const bList = await setupChannelListing(prisma, { organizationId: TEST_ORGANIZATION_ID, masterId: b.id, channel: 'coupang', externalId: 'EXT-T-B', optionId: bOpt.id, externalOptionId: 'VI-T-B' });
     await seedOrderWithLineItems(prisma, {
-      companyId: TEST_COMPANY_ID, externalOrderId: 'INV-T-B-1', orderedAt: midMonth().toISOString(),
+      organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'INV-T-B-1', orderedAt: midMonth().toISOString(),
       shippingPrice: 0, lineItems: [{ quantity: 1, totalPrice: 100_000, optionId: bOpt.id, listingOptionId: bList.listingOptionId }],
     });
 
     // Listing C: highAd (revenue>0, adCost > 15% of revenue)
     // revenue=100_000, adCost=20_000 → adRate=20% (>15)
-    const c = await setupMaster(prisma, { companyId: TEST_COMPANY_ID, code: 'M-T-C', name: 'C', abcGrade: 'A' });
-    const cOpt = await setupProductOption(prisma, { companyId: TEST_COMPANY_ID, masterId: c.id, sku: 'SKU-T-C', costPrice: 0, commissionRate: 0 });
-    const cList = await setupChannelListing(prisma, { companyId: TEST_COMPANY_ID, masterId: c.id, channel: 'coupang', externalId: 'EXT-T-C', optionId: cOpt.id, externalOptionId: 'VI-T-C' });
+    const c = await setupMaster(prisma, { organizationId: TEST_ORGANIZATION_ID, code: 'M-T-C', name: 'C', abcGrade: 'A' });
+    const cOpt = await setupProductOption(prisma, { organizationId: TEST_ORGANIZATION_ID, masterId: c.id, sku: 'SKU-T-C', costPrice: 0, commissionRate: 0 });
+    const cList = await setupChannelListing(prisma, { organizationId: TEST_ORGANIZATION_ID, masterId: c.id, channel: 'coupang', externalId: 'EXT-T-C', optionId: cOpt.id, externalOptionId: 'VI-T-C' });
     await seedOrderWithLineItems(prisma, {
-      companyId: TEST_COMPANY_ID, externalOrderId: 'INV-T-C-1', orderedAt: midMonth().toISOString(),
+      organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'INV-T-C-1', orderedAt: midMonth().toISOString(),
       shippingPrice: 0, lineItems: [{ quantity: 1, totalPrice: 100_000, optionId: cOpt.id, listingOptionId: cList.listingOptionId }],
     });
     await seedAd(prisma, {
-      companyId: TEST_COMPANY_ID, listingId: cList.listingId,
+      organizationId: TEST_ORGANIZATION_ID, listingId: cList.listingId,
       date: midMonth().toISOString().slice(0, 10), spend: 20_000,
     });
 
     const ctx = buildDashboardContext();
-    const result = await service.getSummary(ctx, TEST_COMPANY_ID);
+    const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
 
     expect(result.warnings.minusProducts).toBe(1);
     expect(result.warnings.lowProfitProducts).toBe(1);

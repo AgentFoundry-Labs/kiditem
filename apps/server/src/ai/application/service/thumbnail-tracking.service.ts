@@ -5,7 +5,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 
 type TrackingRow = {
   id: string;
-  companyId: string;
+  organizationId: string;
   listingId: string;
   generationId: string;
   originalGrade: string;
@@ -66,12 +66,12 @@ export class ThumbnailTrackingService {
 
   async findAll(
     query: { page?: number; limit?: number; status?: ThumbnailTrackingStatus },
-    companyId: string,
+    organizationId: string,
   ): Promise<ThumbnailTrackingListResponse> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 50;
     const skip = (page - 1) * limit;
-    const where: Record<string, unknown> = { companyId };
+    const where: Record<string, unknown> = { organizationId };
     if (query.status) where.status = query.status;
 
     const [rows, total] = await Promise.all([
@@ -91,14 +91,14 @@ export class ThumbnailTrackingService {
   }
 
   async create(input: {
-    companyId: string;
+    organizationId: string;
     masterId: string;
     generationId: string;
     originalGrade: string;
     originalScore: number;
   }): Promise<ThumbnailTrackingRecord | null> {
     const listing = await this.prisma.channelListing.findFirst({
-      where: { masterId: input.masterId, companyId: input.companyId, isDeleted: false },
+      where: { masterId: input.masterId, organizationId: input.organizationId, isDeleted: false },
       select: { id: true },
       orderBy: { createdAt: 'asc' },
     });
@@ -111,7 +111,7 @@ export class ThumbnailTrackingService {
 
     const existing = await this.prisma.thumbnailTracking.findFirst({
       where: {
-        companyId: input.companyId,
+        organizationId: input.organizationId,
         listingId: listing.id,
         generationId: input.generationId,
       },
@@ -122,7 +122,7 @@ export class ThumbnailTrackingService {
     try {
       const row = await this.prisma.thumbnailTracking.create({
         data: {
-          companyId: input.companyId,
+          organizationId: input.organizationId,
           listingId: listing.id,
           generationId: input.generationId,
           originalGrade: input.originalGrade,
@@ -135,7 +135,7 @@ export class ThumbnailTrackingService {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
         const row = await this.prisma.thumbnailTracking.findFirst({
           where: {
-            companyId: input.companyId,
+            organizationId: input.organizationId,
             listingId: listing.id,
             generationId: input.generationId,
           },
@@ -150,10 +150,10 @@ export class ThumbnailTrackingService {
   async updateMetrics(
     id: string,
     input: UpdateThumbnailTrackingMetricsInput,
-    companyId: string,
+    organizationId: string,
   ): Promise<ThumbnailTrackingRecord> {
     const existing = await this.prisma.thumbnailTracking.findFirst({
-      where: { id, companyId },
+      where: { id, organizationId },
     });
     if (!existing) throw new NotFoundException(`ThumbnailTracking ${id} not found`);
 
@@ -174,13 +174,13 @@ export class ThumbnailTrackingService {
     }
 
     const result = await this.prisma.thumbnailTracking.updateMany({
-      where: { id, companyId },
+      where: { id, organizationId },
       data: updateData,
     });
     if (result.count === 0) throw new NotFoundException(`ThumbnailTracking ${id} not found`);
 
     const row = await this.prisma.thumbnailTracking.findFirst({
-      where: { id, companyId },
+      where: { id, organizationId },
       include: LISTING_INCLUDE,
     });
     if (!row) throw new NotFoundException(`ThumbnailTracking ${id} not found`);

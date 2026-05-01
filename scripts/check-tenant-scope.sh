@@ -5,21 +5,21 @@
 # This scanner targets ORM-level tenant-scope risks in apps/server/src:
 #
 #   1. findUnique({ where: { id } })
-#      Bare-id reads are IDOR candidates — companyId must be in the where clause
+#      Bare-id reads are IDOR candidates — organizationId must be in the where clause
 #      (root AGENTS.md "Multi-tenant scope" rule).
 #
 #   2. update/delete({ where: { id } })
 #      Bare-id mutations without a tenant-scoped read in the preceding ~25 lines
-#      of the same file (read-then-write pattern: findFirst({ id, companyId })
+#      of the same file (read-then-write pattern: findFirst({ id, organizationId })
 #      followed by update/delete by id is allowed; the unscoped bare site by
 #      itself is not).
 #
-#   3. Controller @Body / @Query / @Param receiving 'companyId'
-#      companyId must come from @CurrentCompany(), never from client payload.
+#   3. Controller @Body / @Query / @Param receiving 'organizationId'
+#      organizationId must come from @CurrentOrganization(), never from client payload.
 #
-#   4. DTO file declaring a `companyId` property
-#      DTOs must not carry companyId — service signatures take it as an explicit
-#      argument supplied by the controller from @CurrentCompany().
+#   4. DTO file declaring a `organizationId` property
+#      DTOs must not carry organizationId — service signatures take it as an explicit
+#      argument supplied by the controller from @CurrentOrganization().
 #
 # Exclusions (always):
 #   - Test files (__tests__/, *.spec.ts, *.integration.spec.ts)
@@ -140,8 +140,8 @@ window_from_index() {
   done
 }
 
-# ── Pattern 1: findUnique({ where: { id ... } }) without companyId ─────────
-echo "🔍 [1/4] findUnique({ where: { id ... } }) without companyId scope..."
+# ── Pattern 1: findUnique({ where: { id ... } }) without organizationId ─────────
+echo "🔍 [1/4] findUnique({ where: { id ... } }) without organizationId scope..."
 P1_HITS=()
 while IFS= read -r file; do
   [ -z "$file" ] && continue
@@ -163,7 +163,7 @@ while IFS= read -r file; do
     window=$(window_from_index "$i" "$((i + 10))")
     [[ "$window" =~ where[[:space:]]*: ]] || continue
     [[ "$window" =~ (^|[^[:alnum:]_])id[[:space:]]*[:},] ]] || continue
-    if [[ "$window" == *companyId* ]]; then
+    if [[ "$window" == *organizationId* ]]; then
       continue
     fi
 
@@ -196,15 +196,15 @@ while IFS= read -r file; do
     win_after=$(window_from_index "$i" "$((i + 10))")
     [[ "$win_after" =~ where[[:space:]]*: ]] || continue
     [[ "$win_after" =~ (^|[^[:alnum:]_])id[[:space:]]*[:},] ]] || continue
-    if [[ "$win_after" == *companyId* ]]; then
+    if [[ "$win_after" == *organizationId* ]]; then
       continue
     fi
 
-    # Preceding ~25 lines: any tenant-scoped read (findFirst with companyId,
-    # or any explicit companyId reference) is treated as "scoped" — the
+    # Preceding ~25 lines: any tenant-scoped read (findFirst with organizationId,
+    # or any explicit organizationId reference) is treated as "scoped" — the
     # canonical read-then-write pattern.
     win_before=$(window_from_index "$((i - 25))" "$((i - 1))")
-    if [[ "$win_before" == *companyId* ]]; then
+    if [[ "$win_before" == *organizationId* ]]; then
       continue
     fi
 
@@ -220,8 +220,8 @@ if [ ${#P2_HITS[@]} -gt 0 ]; then
   FAIL_PATTERNS=$((FAIL_PATTERNS + 1))
 fi
 
-# ── Pattern 3: Controller @Body / @Query / @Param('companyId') ─────────────
-echo "🔍 [3/4] Controller @Body / @Query / @Param receiving 'companyId'..."
+# ── Pattern 3: Controller @Body / @Query / @Param('organizationId') ─────────────
+echo "🔍 [3/4] Controller @Body / @Query / @Param receiving 'organizationId'..."
 P3_HITS=()
 while IFS= read -r match; do
   [ -z "$match" ] && continue
@@ -235,19 +235,19 @@ while IFS= read -r match; do
   is_allowlisted "controllerParam" "$rel" && continue
 
   P3_HITS+=("$rel:$lineno: $content")
-done < <(rg -n "@(Body|Query|Param)\s*\(\s*['\"]companyId['\"]" "$SERVER_SRC" "${EXCLUDE_GLOBS[@]}" 2>/dev/null || true)
+done < <(rg -n "@(Body|Query|Param)\s*\(\s*['\"]organizationId['\"]" "$SERVER_SRC" "${EXCLUDE_GLOBS[@]}" 2>/dev/null || true)
 
 if [ ${#P3_HITS[@]} -gt 0 ]; then
-  echo "❌ FAIL [3/4]: ${#P3_HITS[@]} site(s) receiving companyId via @Body/@Query/@Param:"
+  echo "❌ FAIL [3/4]: ${#P3_HITS[@]} site(s) receiving organizationId via @Body/@Query/@Param:"
   for h in "${P3_HITS[@]}"; do
     echo "   - $h"
   done
   FAIL_PATTERNS=$((FAIL_PATTERNS + 1))
 fi
 
-# ── Pattern 4: DTO files declaring companyId field ─────────────────────────
+# ── Pattern 4: DTO files declaring organizationId field ─────────────────────────
 # Scope: paths under **/dto/** or filenames ending in *.dto.ts.
-echo "🔍 [4/4] DTO files declaring companyId field..."
+echo "🔍 [4/4] DTO files declaring organizationId field..."
 P4_HITS=()
 while IFS= read -r match; do
   [ -z "$match" ] && continue
@@ -267,10 +267,10 @@ while IFS= read -r match; do
   is_allowlisted "dtoField" "$rel" && continue
 
   P4_HITS+=("$rel:$lineno: $content")
-done < <(rg -n '^\s*companyId\??\s*:' "$SERVER_SRC" "${EXCLUDE_GLOBS[@]}" 2>/dev/null || true)
+done < <(rg -n '^\s*organizationId\??\s*:' "$SERVER_SRC" "${EXCLUDE_GLOBS[@]}" 2>/dev/null || true)
 
 if [ ${#P4_HITS[@]} -gt 0 ]; then
-  echo "❌ FAIL [4/4]: ${#P4_HITS[@]} DTO field(s) declaring companyId:"
+  echo "❌ FAIL [4/4]: ${#P4_HITS[@]} DTO field(s) declaring organizationId:"
   for h in "${P4_HITS[@]}"; do
     echo "   - $h"
   done
@@ -282,9 +282,9 @@ if [ "$FAIL_PATTERNS" -gt 0 ]; then
   echo "❌ check:tenant-scope FAIL — $FAIL_PATTERNS pattern(s) failing."
   echo ""
   echo "  Tenant scope rules (root AGENTS.md → Cross-Domain Rules):"
-  echo "    - GET/PATCH/DELETE single resource: findFirst({ where: { id, companyId } })"
-  echo "    - Mutating service: companyId from @CurrentCompany() as explicit arg"
-  echo "    - DTOs do NOT carry companyId; controllers do NOT receive it from clients"
+  echo "    - GET/PATCH/DELETE single resource: findFirst({ where: { id, organizationId } })"
+  echo "    - Mutating service: organizationId from @CurrentOrganization() as explicit arg"
+  echo "    - DTOs do NOT carry organizationId; controllers do NOT receive it from clients"
   echo ""
   echo "  Narrow false positives go in scripts/.tenant-scope-allowlist.txt"
   echo "  with a per-pattern entry and a recorded reason."

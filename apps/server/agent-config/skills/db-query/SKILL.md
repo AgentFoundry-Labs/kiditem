@@ -27,11 +27,11 @@ psql "$AGENT_DATABASE_URL" -t -A -F '|' -c "SELECT ..."
 | profit_loss | 월별 손익 | product_id, year, month, revenue, net_profit, profit_rate, ad_cost |
 | reviews | 리뷰 | product_id, rating, content |
 | thumbnails | 썸네일 CTR | product_id, ctr, measured_at |
-| alerts | 알림 | company_id, product_id, type, severity, title |
+| alerts | 알림 | organization_id, product_id, type, severity, title |
 
 ## 규칙
 
-- `company_id`로 항상 필터링 (멀티 테넌시)
+- `organization_id`로 항상 필터링 (멀티 테넌시)
 - `is_deleted = false` 조건 필수
 - 날짜 범위: `CURRENT_DATE - N` 형식
 - 결과가 많을 때 `LIMIT` 사용

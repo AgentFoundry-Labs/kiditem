@@ -12,8 +12,8 @@ import {
   makeTestPrisma,
   resetDb,
   seedBaseFixture,
-  OTHER_COMPANY_ID,
-  TEST_COMPANY_ID,
+  OTHER_ORGANIZATION_ID,
+  TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 
 /**
@@ -34,7 +34,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
   let prisma: PrismaClient;
   let adSyncService: AdSyncService;
   let scrapePersistence: ChannelScrapePersistenceService;
-  const companyId = TEST_COMPANY_ID;
+  const organizationId = TEST_ORGANIZATION_ID;
 
   async function seedListingWithOption(opts: {
     externalId: string;
@@ -44,7 +44,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
     const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const master = await prisma.masterProduct.create({
       data: {
-        companyId,
+        organizationId,
         code: `M-${stamp}`,
         name: `Master ${stamp}`,
         optionCounter: 0,
@@ -55,7 +55,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
         ? null
         : await prisma.productOption.create({
             data: {
-              companyId,
+              organizationId,
               masterId: master.id,
               sku: `SKU-${stamp}`,
               optionName: `Option ${stamp}`,
@@ -63,7 +63,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
           });
     const listing = await prisma.channelListing.create({
       data: {
-        companyId,
+        organizationId,
         masterId: master.id,
         channel: 'coupang',
         externalId: opts.externalId,
@@ -71,7 +71,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
     });
     const listingOption = await prisma.channelListingOption.create({
       data: {
-        companyId,
+        organizationId,
         listingId: listing.id,
         optionId: productOption?.id ?? null,
         externalOptionId: opts.externalOptionId,
@@ -117,9 +117,9 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
     expect(dto.dateTo).toBe('2026-04-14');
   });
 
-  it('ChannelScrapeRun finalization is company-scoped', async () => {
+  it('ChannelScrapeRun finalization is organization-scoped', async () => {
     const run = await scrapePersistence.createRun({
-      companyId,
+      organizationId,
       channel: 'coupang',
       source: 'advertising',
       pageType: 'campaign',
@@ -128,10 +128,10 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
     await expect(
       scrapePersistence.finalizeRun({
         scrapeRunId: run.id,
-        companyId: OTHER_COMPANY_ID,
+        organizationId: OTHER_ORGANIZATION_ID,
         status: 'complete',
       }),
-    ).rejects.toThrow('ChannelScrapeRun not found for company scope');
+    ).rejects.toThrow('ChannelScrapeRun not found for organization scope');
 
     const stillRunning = await prisma.channelScrapeRun.findUnique({
       where: { id: run.id },
@@ -140,7 +140,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
 
     await scrapePersistence.finalizeRun({
       scrapeRunId: run.id,
-      companyId,
+      organizationId,
       status: 'complete',
       rowCount: 0,
     });
@@ -205,7 +205,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
           },
         ],
       },
-      companyId,
+      organizationId,
     )) as {
       scrapeRunId: string;
       scrapeSnapshotCount: number;
@@ -294,7 +294,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
           },
         ],
       },
-      companyId,
+      organizationId,
     )) as { scrapeRunId: string };
 
     const snap = await prisma.channelScrapeSnapshot.findFirst({
@@ -340,7 +340,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
           },
         ],
       },
-      companyId,
+      organizationId,
     )) as {
       scrapeRunId: string;
       scrapeSnapshotCount: number;
@@ -367,7 +367,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
 
     // H2 — traffic metrics now land on ChannelListingDailySnapshot, not TrafficStats.
     const listingDaily = await prisma.channelListingDailySnapshot.findFirst({
-      where: { companyId, listingId: matched.listing.id },
+      where: { organizationId, listingId: matched.listing.id },
     });
     expect(listingDaily).toBeDefined();
     expect(listingDaily?.businessDate.toISOString().slice(0, 10)).toBe('2026-04-14');
@@ -391,7 +391,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
           { date: '2026-04-13T15:30:00Z', adSpend: 3000, adRevenue: 7000, impressions: 30, clicks: 3 },
         ],
       },
-      companyId,
+      organizationId,
     )) as {
       scrapeRunId: string;
       scrapeSnapshotCount: number;
@@ -463,7 +463,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
               },
             ],
           },
-          companyId,
+          organizationId,
         ),
       ).rejects.toThrow('boom — simulated PG failure');
     } finally {
@@ -473,7 +473,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
     }
 
     const errored = await prisma.channelScrapeRun.findFirst({
-      where: { companyId, source: 'advertising' },
+      where: { organizationId, source: 'advertising' },
       orderBy: { startedAt: 'desc' },
     });
     expect(errored).toBeDefined();
@@ -499,7 +499,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
           { externalId: 'EXT-X2', value: 2 },
         ],
       },
-      companyId,
+      organizationId,
     )) as { scrapeRunId: string; scrapeSnapshotCount: number };
 
     expect(result.scrapeSnapshotCount).toBe(2);
@@ -536,7 +536,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
           },
         ],
       },
-      companyId,
+      organizationId,
     )) as {
       scrapeRunId: string;
       scrapeSnapshotCount: number;
@@ -577,7 +577,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
           { adSpend: 999 }, // missing date — must still snapshot
         ],
       },
-      companyId,
+      organizationId,
     )) as { scrapeRunId: string; scrapeSnapshotCount: number };
 
     expect(result.scrapeSnapshotCount).toBe(2);
@@ -592,7 +592,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
 
     // H2 — only the date-bearing row produces a ChannelAccountDailyKpiSnapshot row.
     const kpiSnaps = await prisma.channelAccountDailyKpiSnapshot.count({
-      where: { companyId, source: 'coupang_ads', kpiType: 'coupang_ads_daily' },
+      where: { organizationId, source: 'coupang_ads', kpiType: 'coupang_ads_daily' },
     });
     expect(kpiSnaps).toBe(1);
   });
@@ -618,7 +618,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
           },
         ],
       },
-      companyId,
+      organizationId,
     )) as { scrapeRunId: string };
 
     const run = await prisma.channelScrapeRun.findUnique({
@@ -659,7 +659,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
           },
         ],
       },
-      companyId,
+      organizationId,
     )) as {
       scrapeRunId: string;
       scrapeSnapshotCount: number;
@@ -676,7 +676,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
 
     // H2 — winner state lands on ChannelListingDailySnapshot, not ItemWinner.
     const listingDaily = await prisma.channelListingDailySnapshot.findFirst({
-      where: { companyId, listingId: matched.listing.id },
+      where: { organizationId, listingId: matched.listing.id },
     });
     expect(listingDaily?.isOfferWinner).toBe(true);
     expect(listingDaily?.myPrice).toBe(10000);
@@ -709,11 +709,11 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
           },
         ],
       },
-      companyId,
+      organizationId,
     )) as { scrapeRunId: string };
 
     const listingDaily = await prisma.channelListingDailySnapshot.findFirst({
-      where: { companyId, listingId: matched.listing.id },
+      where: { organizationId, listingId: matched.listing.id },
     });
     expect(listingDaily).toBeDefined();
     expect(listingDaily?.businessDate.toISOString().slice(0, 10)).toBe(
@@ -738,7 +738,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
 
     const optionDaily =
       await prisma.channelListingOptionDailySnapshot.findFirst({
-        where: { companyId, listingOptionId: matched.listingOption.id },
+        where: { organizationId, listingOptionId: matched.listingOption.id },
       });
     expect(optionDaily).toBeDefined();
     expect(optionDaily?.externalOptionId).toBe('VENDOR-C3-A');
@@ -772,14 +772,14 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
           },
         ],
       },
-      companyId,
+      organizationId,
     );
     const firstListing = await prisma.channelListingDailySnapshot.findFirst({
-      where: { companyId, listingId: matched.listing.id },
+      where: { organizationId, listingId: matched.listing.id },
     });
     const firstOption =
       await prisma.channelListingOptionDailySnapshot.findFirst({
-        where: { companyId, listingOptionId: matched.listingOption.id },
+        where: { organizationId, listingOptionId: matched.listingOption.id },
       });
     expect(firstListing).toBeDefined();
     expect(firstOption).toBeDefined();
@@ -808,12 +808,12 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
           },
         ],
       },
-      companyId,
+      organizationId,
     );
 
     // Listing daily — exactly one row, sampleCount=2, fields overwritten.
     const listingDailies = await prisma.channelListingDailySnapshot.findMany({
-      where: { companyId, listingId: matched.listing.id },
+      where: { organizationId, listingId: matched.listing.id },
     });
     expect(listingDailies).toHaveLength(1);
     const listingDaily = listingDailies[0];
@@ -835,7 +835,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
     // Option daily — same idempotent shape.
     const optionDailies =
       await prisma.channelListingOptionDailySnapshot.findMany({
-        where: { companyId, listingOptionId: matched.listingOption.id },
+        where: { organizationId, listingOptionId: matched.listingOption.id },
       });
     expect(optionDailies).toHaveLength(1);
     expect(optionDailies[0].sampleCount).toBe(2);
@@ -848,7 +848,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
 
     // Raw snapshots accumulate (one per scrape, append-only).
     const rawCount = await prisma.channelScrapeSnapshot.count({
-      where: { companyId, listingId: matched.listing.id },
+      where: { organizationId, listingId: matched.listing.id },
     });
     expect(rawCount).toBe(2);
   });
@@ -875,7 +875,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
           },
         ],
       },
-      companyId,
+      organizationId,
     );
     await adSyncService.sync(
       {
@@ -893,11 +893,11 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
           },
         ],
       },
-      companyId,
+      organizationId,
     );
 
     const listings = await prisma.channelListingDailySnapshot.findMany({
-      where: { companyId, listingId: matched.listing.id },
+      where: { organizationId, listingId: matched.listing.id },
       orderBy: { businessDate: 'asc' },
     });
     expect(listings).toHaveLength(2);
@@ -908,7 +908,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
       '2026-04-14',
     );
     const options = await prisma.channelListingOptionDailySnapshot.findMany({
-      where: { companyId, listingOptionId: matched.listingOption.id },
+      where: { organizationId, listingOptionId: matched.listingOption.id },
       orderBy: { businessDate: 'asc' },
     });
     expect(options).toHaveLength(2);
@@ -936,18 +936,18 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
           },
         ],
       },
-      companyId,
+      organizationId,
     );
 
     const listingDaily = await prisma.channelListingDailySnapshot.findFirst({
-      where: { companyId, listingId: matched.listing.id },
+      where: { organizationId, listingId: matched.listing.id },
     });
     expect(listingDaily).toBeDefined();
     expect(listingDaily?.isOfferWinner).toBe(true);
 
     const optionDaily =
       await prisma.channelListingOptionDailySnapshot.findFirst({
-        where: { companyId, listingOptionId: matched.listingOption.id },
+        where: { organizationId, listingOptionId: matched.listingOption.id },
       });
     expect(optionDaily).toBeNull();
   });
@@ -976,12 +976,12 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
           },
         ],
       },
-      companyId,
+      organizationId,
     );
 
     const optionDaily =
       await prisma.channelListingOptionDailySnapshot.findFirst({
-        where: { companyId, listingOptionId: matched.listingOption.id },
+        where: { organizationId, listingOptionId: matched.listingOption.id },
       });
     expect(optionDaily).toBeDefined();
     expect(optionDaily?.optionId).toBeNull();
@@ -1006,20 +1006,20 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
           },
         ],
       },
-      companyId,
+      organizationId,
     );
 
     const listingCount = await prisma.channelListingDailySnapshot.count({
-      where: { companyId },
+      where: { organizationId },
     });
     const optionCount = await prisma.channelListingOptionDailySnapshot.count({
-      where: { companyId },
+      where: { organizationId },
     });
     expect(listingCount).toBe(0);
     expect(optionCount).toBe(0);
 
     const rawCount = await prisma.channelScrapeSnapshot.count({
-      where: { companyId, externalId: 'EXT-C3-NONE' },
+      where: { organizationId, externalId: 'EXT-C3-NONE' },
     });
     expect(rawCount).toBe(1);
   });
@@ -1046,13 +1046,13 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
           },
         ],
       },
-      companyId,
+      organizationId,
     );
 
     // H2 — daily fact landed regardless of the legacy short-product-name
     // filter. Winner state is independent.
     const listingDaily = await prisma.channelListingDailySnapshot.findFirst({
-      where: { companyId, listingId: matched.listing.id },
+      where: { organizationId, listingId: matched.listing.id },
     });
     expect(listingDaily?.isOfferWinner).toBe(true);
     expect(listingDaily?.myPrice).toBe(2000);
@@ -1081,7 +1081,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
           },
         ],
       },
-      companyId,
+      organizationId,
     );
     // Second scrape: row is observed but lacks winnerPrice/myPrice/isWinner.
     // The previous values must survive.
@@ -1098,11 +1098,11 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
           },
         ],
       },
-      companyId,
+      organizationId,
     );
 
     const listingDaily = await prisma.channelListingDailySnapshot.findFirst({
-      where: { companyId, listingId: matched.listing.id },
+      where: { organizationId, listingId: matched.listing.id },
     });
     expect(listingDaily?.productName).toBe('Persistent State');
     expect(listingDaily?.isOfferWinner).toBe(true);
@@ -1111,17 +1111,17 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
     expect(listingDaily?.sampleCount).toBe(2);
   });
 
-  it('Wave C3 — cross-tenant isolation: same listing identifiers in another company never bleed into this companys daily snapshots', async () => {
+  it('Wave C3 — cross-tenant isolation: same listing identifiers in another organization never bleed into this companys daily snapshots', async () => {
     const ours = await seedListingWithOption({
       externalId: 'EXT-C3-XT',
       externalOptionId: 'VENDOR-C3-XT',
     });
 
-    // Set up a row in OTHER_COMPANY_ID with the same external identifiers.
+    // Set up a row in OTHER_ORGANIZATION_ID with the same external identifiers.
     const otherStamp = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const otherMaster = await prisma.masterProduct.create({
       data: {
-        companyId: OTHER_COMPANY_ID,
+        organizationId: OTHER_ORGANIZATION_ID,
         code: `M-OTHER-${otherStamp}`,
         name: `Master ${otherStamp}`,
         optionCounter: 0,
@@ -1129,7 +1129,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
     });
     const otherListing = await prisma.channelListing.create({
       data: {
-        companyId: OTHER_COMPANY_ID,
+        organizationId: OTHER_ORGANIZATION_ID,
         masterId: otherMaster.id,
         channel: 'coupang',
         externalId: 'EXT-C3-XT',
@@ -1137,7 +1137,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
     });
     const otherListingOption = await prisma.channelListingOption.create({
       data: {
-        companyId: OTHER_COMPANY_ID,
+        organizationId: OTHER_ORGANIZATION_ID,
         listingId: otherListing.id,
         externalOptionId: 'VENDOR-C3-XT',
         isActive: true,
@@ -1160,7 +1160,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
           },
         ],
       },
-      companyId,
+      organizationId,
     );
     await adSyncService.sync(
       {
@@ -1178,12 +1178,12 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
           },
         ],
       },
-      OTHER_COMPANY_ID,
+      OTHER_ORGANIZATION_ID,
     );
 
-    // Ours: matches the company-scoped listing only.
+    // Ours: matches the organization-scoped listing only.
     const oursDaily = await prisma.channelListingDailySnapshot.findMany({
-      where: { companyId },
+      where: { organizationId },
     });
     expect(oursDaily).toHaveLength(1);
     expect(oursDaily[0].listingId).toBe(ours.listing.id);
@@ -1191,14 +1191,14 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
 
     const oursOptionDaily =
       await prisma.channelListingOptionDailySnapshot.findMany({
-        where: { companyId },
+        where: { organizationId },
       });
     expect(oursOptionDaily).toHaveLength(1);
     expect(oursOptionDaily[0].listingOptionId).toBe(ours.listingOption.id);
 
     // Theirs: matches its own scope.
     const theirsDaily = await prisma.channelListingDailySnapshot.findMany({
-      where: { companyId: OTHER_COMPANY_ID },
+      where: { organizationId: OTHER_ORGANIZATION_ID },
     });
     expect(theirsDaily).toHaveLength(1);
     expect(theirsDaily[0].listingId).toBe(otherListing.id);
@@ -1206,7 +1206,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
 
     const theirsOptionDaily =
       await prisma.channelListingOptionDailySnapshot.findMany({
-        where: { companyId: OTHER_COMPANY_ID },
+        where: { organizationId: OTHER_ORGANIZATION_ID },
       });
     expect(theirsOptionDaily).toHaveLength(1);
     expect(theirsOptionDaily[0].listingOptionId).toBe(otherListingOption.id);

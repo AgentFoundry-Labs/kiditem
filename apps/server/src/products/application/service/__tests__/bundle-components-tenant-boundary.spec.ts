@@ -11,7 +11,7 @@ describe('BundleComponentsService tenant boundary internals', () => {
   it('keeps the parent row lock before a scoped updateMany mutation', async () => {
     const row = {
       id: 'bc-1',
-      companyId: 'company-1',
+      organizationId: 'organization-1',
       bundleOptionId: 'bundle-1',
       componentOptionId: 'component-1',
       qty: 2,
@@ -30,24 +30,24 @@ describe('BundleComponentsService tenant boundary internals', () => {
     const bundleStock = { recompute: vi.fn().mockResolvedValue(undefined) };
     const svc = new BundleComponentsService(makeTransactionPrisma(tx) as any, bundleStock as any);
 
-    await svc.update('company-1', 'bc-1', { qty: 5 });
+    await svc.update('organization-1', 'bc-1', { qty: 5 });
 
     expect(tx.$queryRaw).toHaveBeenCalled();
     expect(tx.bundleComponent.updateMany).toHaveBeenCalledWith({
-      where: { id: 'bc-1', companyId: 'company-1' },
+      where: { id: 'bc-1', organizationId: 'organization-1' },
       data: { qty: 5 },
     });
     expect(tx.bundleComponent.update).not.toHaveBeenCalled();
     expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
       tx.bundleComponent.updateMany.mock.invocationCallOrder[0],
     );
-    expect(bundleStock.recompute).toHaveBeenCalledWith('company-1', 'bundle-1', tx);
+    expect(bundleStock.recompute).toHaveBeenCalledWith('organization-1', 'bundle-1', tx);
   });
 
   it('keeps the parent row lock before a scoped deleteMany mutation', async () => {
     const row = {
       id: 'bc-1',
-      companyId: 'company-1',
+      organizationId: 'organization-1',
       bundleOptionId: 'bundle-1',
       componentOptionId: 'component-1',
       qty: 2,
@@ -63,16 +63,16 @@ describe('BundleComponentsService tenant boundary internals', () => {
     const bundleStock = { recompute: vi.fn().mockResolvedValue(undefined) };
     const svc = new BundleComponentsService(makeTransactionPrisma(tx) as any, bundleStock as any);
 
-    await svc.delete('company-1', 'bc-1');
+    await svc.delete('organization-1', 'bc-1');
 
     expect(tx.$queryRaw).toHaveBeenCalled();
     expect(tx.bundleComponent.deleteMany).toHaveBeenCalledWith({
-      where: { id: 'bc-1', companyId: 'company-1' },
+      where: { id: 'bc-1', organizationId: 'organization-1' },
     });
     expect(tx.bundleComponent.delete).not.toHaveBeenCalled();
     expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
       tx.bundleComponent.deleteMany.mock.invocationCallOrder[0],
     );
-    expect(bundleStock.recompute).toHaveBeenCalledWith('company-1', 'bundle-1', tx);
+    expect(bundleStock.recompute).toHaveBeenCalledWith('organization-1', 'bundle-1', tx);
   });
 });

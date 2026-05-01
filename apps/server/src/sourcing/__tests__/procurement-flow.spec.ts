@@ -21,7 +21,7 @@ function makePrisma() {
 
 const MOCK_ORDER_DRAFT = {
   id: 'po-1',
-  companyId: 'company-1',
+  organizationId: 'organization-1',
   supplierName: 'Test Supplier',
   supplierId: null,
   status: 'draft',
@@ -44,7 +44,7 @@ describe('ProcurementService — PO status lifecycle', () => {
     const created = { ...MOCK_ORDER_DRAFT, items: [], supplier: null };
     prisma.purchaseOrder.create.mockResolvedValue(created);
 
-    const result = await service.create('company-1', {
+    const result = await service.create('organization-1', {
       supplierName: 'Test Supplier',
       items: [{ productName: 'Widget', quantity: 10, unitPriceCny: 50 }],
     });
@@ -52,7 +52,7 @@ describe('ProcurementService — PO status lifecycle', () => {
     expect(prisma.purchaseOrder.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          companyId: 'company-1',
+          organizationId: 'organization-1',
           supplierName: 'Test Supplier',
           status: 'draft',
           totalAmountCny: 500,
@@ -68,11 +68,11 @@ describe('ProcurementService — PO status lifecycle', () => {
       .mockResolvedValueOnce({ ...MOCK_ORDER_DRAFT, status: 'pending', items: [], supplier: null });
     prisma.purchaseOrder.updateMany.mockResolvedValue({ count: 1 });
 
-    const result = await service.updateStatus('company-1', 'po-1', 'pending');
-    expect(prisma.purchaseOrder.findFirst).toHaveBeenCalledWith({ where: { id: 'po-1', companyId: 'company-1' } });
+    const result = await service.updateStatus('organization-1', 'po-1', 'pending');
+    expect(prisma.purchaseOrder.findFirst).toHaveBeenCalledWith({ where: { id: 'po-1', organizationId: 'organization-1' } });
     expect(prisma.purchaseOrder.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'po-1', companyId: 'company-1' },
+        where: { id: 'po-1', organizationId: 'organization-1' },
         data: expect.objectContaining({ status: 'pending' }),
       }),
     );
@@ -85,7 +85,7 @@ describe('ProcurementService — PO status lifecycle', () => {
       .mockResolvedValueOnce({ ...MOCK_ORDER_DRAFT, status: 'ordered', items: [], supplier: null });
     prisma.purchaseOrder.updateMany.mockResolvedValue({ count: 1 });
 
-    await service.updateStatus('company-1', 'po-1', 'ordered');
+    await service.updateStatus('organization-1', 'po-1', 'ordered');
     expect(prisma.purchaseOrder.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: 'ordered' }) }),
     );
@@ -97,7 +97,7 @@ describe('ProcurementService — PO status lifecycle', () => {
       .mockResolvedValueOnce({ ...MOCK_ORDER_DRAFT, status: 'shipped', items: [], supplier: null });
     prisma.purchaseOrder.updateMany.mockResolvedValue({ count: 1 });
 
-    await service.updateStatus('company-1', 'po-1', 'shipped');
+    await service.updateStatus('organization-1', 'po-1', 'shipped');
     expect(prisma.purchaseOrder.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: 'shipped' }) }),
     );
@@ -109,7 +109,7 @@ describe('ProcurementService — PO status lifecycle', () => {
       .mockResolvedValueOnce({ ...MOCK_ORDER_DRAFT, status: 'received', items: [], supplier: null });
     prisma.purchaseOrder.updateMany.mockResolvedValue({ count: 1 });
 
-    await service.updateStatus('company-1', 'po-1', 'received');
+    await service.updateStatus('organization-1', 'po-1', 'received');
     expect(prisma.purchaseOrder.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ status: 'received', receivedAt: expect.any(Date) }),
@@ -120,15 +120,15 @@ describe('ProcurementService — PO status lifecycle', () => {
   it('invalid transition draft→received → throws BadRequestException', async () => {
     prisma.purchaseOrder.findFirst.mockResolvedValue({ ...MOCK_ORDER_DRAFT, status: 'draft' });
 
-    await expect(service.updateStatus('company-1', 'po-1', 'received')).rejects.toThrow(BadRequestException);
+    await expect(service.updateStatus('organization-1', 'po-1', 'received')).rejects.toThrow(BadRequestException);
     expect(prisma.purchaseOrder.updateMany).not.toHaveBeenCalled();
   });
 
-  it('updateStatus wrong company → not found, no mutation', async () => {
+  it('updateStatus wrong organization → not found, no mutation', async () => {
     prisma.purchaseOrder.findFirst.mockResolvedValue(null);
-    prisma.purchaseOrder.findUnique.mockResolvedValue({ ...MOCK_ORDER_DRAFT, companyId: 'company-2', status: 'draft' });
+    prisma.purchaseOrder.findUnique.mockResolvedValue({ ...MOCK_ORDER_DRAFT, organizationId: 'organization-2', status: 'draft' });
 
-    await expect(service.updateStatus('company-1', 'po-1', 'pending')).rejects.toThrow(BadRequestException);
+    await expect(service.updateStatus('organization-1', 'po-1', 'pending')).rejects.toThrow(BadRequestException);
 
     expect(prisma.purchaseOrder.updateMany).not.toHaveBeenCalled();
     expect(prisma.purchaseOrder.update).not.toHaveBeenCalled();
@@ -138,22 +138,22 @@ describe('ProcurementService — PO status lifecycle', () => {
     prisma.purchaseOrder.findFirst.mockResolvedValue({ ...MOCK_ORDER_DRAFT, status: 'draft' });
     prisma.purchaseOrder.deleteMany.mockResolvedValue({ count: 1 });
 
-    await service.delete('company-1', 'po-1');
-    expect(prisma.purchaseOrder.deleteMany).toHaveBeenCalledWith({ where: { id: 'po-1', companyId: 'company-1' } });
+    await service.delete('organization-1', 'po-1');
+    expect(prisma.purchaseOrder.deleteMany).toHaveBeenCalledWith({ where: { id: 'po-1', organizationId: 'organization-1' } });
   });
 
   it('delete non-draft PO → throws BadRequestException', async () => {
     prisma.purchaseOrder.findFirst.mockResolvedValue({ ...MOCK_ORDER_DRAFT, status: 'shipped' });
 
-    await expect(service.delete('company-1', 'po-1')).rejects.toThrow(BadRequestException);
+    await expect(service.delete('organization-1', 'po-1')).rejects.toThrow(BadRequestException);
     expect(prisma.purchaseOrder.deleteMany).not.toHaveBeenCalled();
   });
 
-  it('delete wrong company → not found, no mutation', async () => {
+  it('delete wrong organization → not found, no mutation', async () => {
     prisma.purchaseOrder.findFirst.mockResolvedValue(null);
-    prisma.purchaseOrder.findUnique.mockResolvedValue({ ...MOCK_ORDER_DRAFT, companyId: 'company-2', status: 'draft' });
+    prisma.purchaseOrder.findUnique.mockResolvedValue({ ...MOCK_ORDER_DRAFT, organizationId: 'organization-2', status: 'draft' });
 
-    await expect(service.delete('company-1', 'po-1')).rejects.toThrow(BadRequestException);
+    await expect(service.delete('organization-1', 'po-1')).rejects.toThrow(BadRequestException);
 
     expect(prisma.purchaseOrder.deleteMany).not.toHaveBeenCalled();
     expect(prisma.purchaseOrder.delete).not.toHaveBeenCalled();

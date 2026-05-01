@@ -14,8 +14,8 @@ export class ReturnTransfersService {
     return `RT-${yy}${mm}${dd}-${Date.now()}`;
   }
 
-  async findAll(companyId: string, query: { status?: string }) {
-    const where: Record<string, unknown> = { companyId };
+  async findAll(organizationId: string, query: { status?: string }) {
+    const where: Record<string, unknown> = { organizationId };
     if (query.status) where.status = query.status;
 
     return this.prisma.returnTransfer.findMany({
@@ -25,9 +25,9 @@ export class ReturnTransfersService {
     });
   }
 
-  async create(companyId: string, dto: CreateReturnTransferDto) {
+  async create(organizationId: string, dto: CreateReturnTransferDto) {
     const option = await this.prisma.productOption.findFirst({
-      where: { id: dto.optionId, companyId, isDeleted: false },
+      where: { id: dto.optionId, organizationId, isDeleted: false },
       select: { optionName: true },
     });
     if (!option) throw new NotFoundException('Option not found');
@@ -36,7 +36,7 @@ export class ReturnTransfersService {
 
     return this.prisma.returnTransfer.create({
       data: {
-        companyId,
+        organizationId,
         rtNumber,
         orderId: dto.orderId,
         optionId: dto.optionId,
@@ -49,9 +49,9 @@ export class ReturnTransfersService {
     });
   }
 
-  async update(id: string, dto: UpdateReturnTransferDto, companyId: string) {
+  async update(id: string, dto: UpdateReturnTransferDto, organizationId: string) {
     const existing = await this.prisma.returnTransfer.findFirst({
-      where: { id, companyId },
+      where: { id, organizationId },
     });
     if (!existing) throw new NotFoundException('반품을 찾을 수 없습니다');
 

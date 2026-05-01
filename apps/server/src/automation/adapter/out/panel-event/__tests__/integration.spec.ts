@@ -49,7 +49,7 @@ describe('Panel integration', () => {
     title: 't',
     deepLink: '/x',
     actorUserId: null,
-    visibility: 'company' as const,
+    visibility: 'organization' as const,
     createdAt: '2026-04-15T00:00:00Z',
     ...overrides,
   });
@@ -63,27 +63,27 @@ describe('Panel integration', () => {
     expect(event.resetClient).toBe(true);
   });
 
-  it('upsert event flows from emitter to stream, companyId stripped', async () => {
+  it('upsert event flows from emitter to stream, organizationId stripped', async () => {
     const stream$ = await controller.stream('co-1', { id: 'user-1' } as any, undefined);
     const collected: any[] = [];
     const sub = stream$.subscribe((e) => collected.push((e as any).data));
     await new Promise((r) => setTimeout(r, 10));
-    emitter.emit(PANEL_EVENTS.UPSERT, { item: makeItem(), companyId: 'co-1' });
+    emitter.emit(PANEL_EVENTS.UPSERT, { item: makeItem(), organizationId: 'co-1' });
     await new Promise((r) => setTimeout(r, 10));
     sub.unsubscribe();
     const upsert = collected.find((e) => e.type === 'upsert');
     expect(upsert).toBeDefined();
     expect(upsert.item.id).toBe('workflow:abc');
-    expect(upsert.item).not.toHaveProperty('companyId');
+    expect(upsert.item).not.toHaveProperty('organizationId');
   });
 
-  it('other company events are filtered', async () => {
+  it('other organization events are filtered', async () => {
     const stream$ = await controller.stream('co-1', { id: 'user-1' } as any, undefined);
     const collected: any[] = [];
     const sub = stream$.subscribe((e) => collected.push((e as any).data));
     await new Promise((r) => setTimeout(r, 10));
-    emitter.emit(PANEL_EVENTS.UPSERT, { item: makeItem({ id: 'other' }), companyId: 'co-2' });
-    emitter.emit(PANEL_EVENTS.UPSERT, { item: makeItem({ id: 'mine' }), companyId: 'co-1' });
+    emitter.emit(PANEL_EVENTS.UPSERT, { item: makeItem({ id: 'other' }), organizationId: 'co-2' });
+    emitter.emit(PANEL_EVENTS.UPSERT, { item: makeItem({ id: 'mine' }), organizationId: 'co-1' });
     await new Promise((r) => setTimeout(r, 10));
     sub.unsubscribe();
     const upserts = collected.filter((e) => e.type === 'upsert');
@@ -103,7 +103,7 @@ describe('Panel integration', () => {
 
   it('Last-Event-ID triggers ring buffer replay without snapshot', async () => {
     for (let i = 0; i < 3; i++) {
-      emitter.emit(PANEL_EVENTS.UPSERT, { item: makeItem({ id: `r-${i}` }), companyId: 'co-1' });
+      emitter.emit(PANEL_EVENTS.UPSERT, { item: makeItem({ id: `r-${i}` }), organizationId: 'co-1' });
     }
     await new Promise((r) => setTimeout(r, 10));
     const stream$ = await controller.stream('co-1', { id: 'user-1' } as any, '1');

@@ -3,7 +3,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { GlobalExceptionFilter } from '../src/common/filters/global-exception.filter';
-import { createMockPrisma, TEST_USER_ID, TEST_COMPANY_ID } from './helpers/mock-prisma';
+import { createMockPrisma, TEST_USER_ID, TEST_ORGANIZATION_ID } from './helpers/mock-prisma';
 import request from 'supertest';
 
 let app: INestApplication;
@@ -47,4 +47,4 @@ export async function closeApp() {
   if (app) await app.close();
 }
 
-export { mockPrisma, TEST_USER_ID, TEST_COMPANY_ID };
+export { mockPrisma, TEST_USER_ID, TEST_ORGANIZATION_ID };

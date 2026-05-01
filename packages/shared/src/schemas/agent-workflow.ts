@@ -14,7 +14,7 @@ export const WorkflowStepSchema = z.object({
 export const AgentWorkflowSchema = z.object({
   id: z.string(),
   agentId: z.string(),
-  companyId: z.string(),
+  organizationId: z.string(),
   type: z.string(),
   status: z.string(),
   currentStep: z.number(),

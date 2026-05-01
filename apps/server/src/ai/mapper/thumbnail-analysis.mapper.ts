@@ -35,7 +35,7 @@ export function hasActualAnalysis(a: AnalysisRow): boolean {
  * Project a `thumbnailAnalysis` row + the originating master into the shared
  * `ThumbnailAnalysisResult` shape. The master argument is allowed to be
  * `null` so the same mapper can render a row whose master is no longer
- * findable for the caller's company (in which case `productName` falls back
+ * findable for the caller's organization (in which case `productName` falls back
  * to empty and the image URL falls back to the analysis row's own value).
  */
 export function toAnalysisResult(

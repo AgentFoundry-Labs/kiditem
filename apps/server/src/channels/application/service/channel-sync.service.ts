@@ -123,7 +123,7 @@ export class ChannelSyncService {
    * 내부 `optionId` 는 별도 매칭 단계가 채우며 여기서는 nullable 그대로 유지
    * (unmatched 옵션이 ingestion 을 막지 않게).
    */
-  async syncProducts(companyId: string): Promise<SyncResult> {
+  async syncProducts(organizationId: string): Promise<SyncResult> {
     const result: SyncResult = { synced: 0, errors: 0, details: [] };
     const PRODUCT_PAGE_SIZE = 50;
     const MAX_PAGES = 200;
@@ -150,7 +150,7 @@ export class ChannelSyncService {
         for (const summary of items) {
           const sellerProductId = String(summary.sellerProductId);
           try {
-            await this.syncSingleProductListing(sellerProductId, companyId, result);
+            await this.syncSingleProductListing(sellerProductId, organizationId, result);
           } catch (error: unknown) {
             result.errors += 1;
             const message = error instanceof Error ? error.message : 'Unknown error';
@@ -183,13 +183,13 @@ export class ChannelSyncService {
 
   private async syncSingleProductListing(
     sellerProductId: string,
-    companyId: string,
+    organizationId: string,
     result: SyncResult,
   ): Promise<void> {
     // Refresh-only: 신규 master 자동 생성 금지. 기존 listing 이 있을 때만 진행.
     const existing = await this.prisma.channelListing.findFirst({
       where: {
-        companyId,
+        organizationId,
         channel: 'coupang',
         externalId: sellerProductId,
         isDeleted: false,
@@ -219,7 +219,7 @@ export class ChannelSyncService {
         const updated = await tx.channelListing.updateMany({
           where: {
             id: existing.id,
-            companyId,
+            organizationId,
             channel: 'coupang',
             externalId: sellerProductId,
             isDeleted: false,
@@ -239,7 +239,7 @@ export class ChannelSyncService {
         });
         if (updated.count !== 1) {
           throw new BadRequestException(
-            `ChannelListing ${sellerProductId} is no longer active for this company`,
+            `ChannelListing ${sellerProductId} is no longer active for this organization`,
           );
         }
 
@@ -267,7 +267,7 @@ export class ChannelSyncService {
               isActive: true,
             },
             create: {
-              companyId,
+              organizationId,
               listingId: existing.id,
               externalOptionId,
               itemName: item.itemName ?? null,
@@ -285,7 +285,7 @@ export class ChannelSyncService {
     result.synced += 1;
   }
 
-  async syncOrders(companyId: string, from?: Date, to?: Date): Promise<SyncResult> {
+  async syncOrders(organizationId: string, from?: Date, to?: Date): Promise<SyncResult> {
     const result: SyncResult = { synced: 0, errors: 0, details: [] };
 
     try {
@@ -314,7 +314,7 @@ export class ChannelSyncService {
 
       for (const order of orders) {
         try {
-          await this.syncSingleOrder(order, companyId);
+          await this.syncSingleOrder(order, organizationId);
           result.synced++;
         } catch (error: unknown) {
           result.errors++;
@@ -340,7 +340,7 @@ export class ChannelSyncService {
     return result;
   }
 
-  async syncInventory(_companyId: string): Promise<SyncResult> {
+  async syncInventory(_organizationId: string): Promise<SyncResult> {
     throw new NotImplementedException(
       'Inventory sync is not implemented yet — define the InventoryService single-writer boundary before adding channel inventory writes',
     );
@@ -348,7 +348,7 @@ export class ChannelSyncService {
 
   private async syncSingleOrder(
     payload: CoupangSyncOrderPayload,
-    companyId: string,
+    organizationId: string,
   ): Promise<void> {
     const shipmentBoxId = String(payload.shipmentBoxId);
     const orderItems = payload.orderItems ?? [];
@@ -370,8 +370,8 @@ export class ChannelSyncService {
       async (tx) => {
         const order = await tx.order.upsert({
           where: {
-            companyId_platform_externalOrderId: {
-              companyId,
+            organizationId_platform_externalOrderId: {
+              organizationId,
               platform: 'coupang',
               externalOrderId: shipmentBoxId,
             },
@@ -389,7 +389,7 @@ export class ChannelSyncService {
             metadata: metadata as Prisma.InputJsonValue,
           },
           create: {
-            companyId,
+            organizationId,
             platform: 'coupang',
             externalOrderId: shipmentBoxId,
             externalNumber: payload.orderId ? String(payload.orderId) : null,
@@ -423,7 +423,7 @@ export class ChannelSyncService {
           const externalLineId = externalOptionId;
           const listingOption = await tx.channelListingOption.findFirst({
             where: {
-              companyId,
+              organizationId,
               externalOptionId,
               isActive: true,
               listing: {
@@ -464,7 +464,7 @@ export class ChannelSyncService {
               metadata: lineItemMetadata as Prisma.InputJsonValue,
             },
             create: {
-              companyId,
+              organizationId,
               orderId: order.id,
               listingOptionId: listingOption?.id ?? null,
               optionId: listingOption?.optionId ?? null,
@@ -487,7 +487,7 @@ export class ChannelSyncService {
 
   private async syncSingleReturn(
     payload: CoupangSyncReturnPayload,
-    companyId: string,
+    organizationId: string,
   ): Promise<void> {
     const receiptId = String(payload.receiptId);
     const metadata = {
@@ -502,7 +502,7 @@ export class ChannelSyncService {
         const matchedOrder = payload.orderId
           ? await tx.order.findFirst({
               where: {
-                companyId,
+                organizationId,
                 platform: 'coupang',
                 externalNumber: String(payload.orderId),
               },
@@ -512,8 +512,8 @@ export class ChannelSyncService {
 
         const ret = await tx.orderReturn.upsert({
           where: {
-            companyId_platform_externalReturnId: {
-              companyId,
+            organizationId_platform_externalReturnId: {
+              organizationId,
               platform: 'coupang',
               externalReturnId: receiptId,
             },
@@ -534,7 +534,7 @@ export class ChannelSyncService {
             metadata: metadata as Prisma.InputJsonValue,
           },
           create: {
-            companyId,
+            organizationId,
             platform: 'coupang',
             externalReturnId: receiptId,
             type: payload.receiptType ?? 'RETURN',
@@ -561,7 +561,7 @@ export class ChannelSyncService {
         for (const it of items) {
           await tx.orderReturnLineItem.create({
             data: {
-              companyId,
+              organizationId,
               returnId: ret.id,
               productName: it.productName ?? it.vendorItemName ?? '',
               quantity: it.quantity ?? 1,

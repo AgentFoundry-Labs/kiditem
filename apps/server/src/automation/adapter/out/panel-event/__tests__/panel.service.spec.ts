@@ -20,7 +20,7 @@ describe('PanelService', () => {
     service = moduleRef.get(PanelService);
   });
 
-  it('snapshot filters by companyId and visibility', async () => {
+  it('snapshot filters by organizationId and visibility', async () => {
     prisma.workflowRun.findMany.mockResolvedValue([
       {
         id: 'r1', status: 'running', templateId: 't1',
@@ -41,7 +41,7 @@ describe('PanelService', () => {
     const items = await service.snapshot('co-1', 'user-a');
     expect(items).toHaveLength(2);
     expect(items[0]).toMatchObject({ id: 'workflow:r1', visibility: 'user', actorUserId: 'user-a' });
-    expect(items[1]).toMatchObject({ id: 'workflow:r2', visibility: 'company' });
+    expect(items[1]).toMatchObject({ id: 'workflow:r2', visibility: 'organization' });
   });
 
   it('snapshot filters out other users user-scoped items', async () => {
@@ -54,12 +54,12 @@ describe('PanelService', () => {
     expect(items[0].id).toBe('workflow:r1');
   });
 
-  it('queries with companyId + pending/running OR updatedAt window', async () => {
+  it('queries with organizationId + pending/running OR updatedAt window', async () => {
     await service.snapshot('co-1', 'user-a');
     expect(prisma.workflowRun.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          companyId: 'co-1',
+          organizationId: 'co-1',
           OR: expect.arrayContaining([
             { status: { in: ['pending', 'running'] } },
             expect.objectContaining({

@@ -20,7 +20,7 @@ describe('InventoryService — metadata update', () => {
 
   it('passes only allowed fields to repository — currentStock never set', async () => {
     repository.updateInventoryMetadata.mockResolvedValue({
-      id: 'i1', optionId: 'o1', companyId: 'c1',
+      id: 'i1', optionId: 'o1', organizationId: 'c1',
       currentStock: 999, reservedStock: 0, safetyStock: 20,
       reorderPoint: 0, reorderQuantity: 0, leadTimeDays: null,
       dailySalesAvg: 0, warehouseLocation: null, lastRestockedAt: null,

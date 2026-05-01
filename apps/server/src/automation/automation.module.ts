@@ -71,7 +71,7 @@ import { WorkflowRunnerService } from './application/service/workflow-runner.ser
  *   `adapter/out/workflow-runner/executors/slim-core-allowlist.ts` so it
  *   sits next to its lockstep counterpart `builtin.ts`. Public routes
  *   `/api/marketplace/workflows*` and `/api/marketplace/agents*` and the
- *   `@CurrentCompany()` tenant trust contract are unchanged.
+ *   `@CurrentOrganization()` tenant trust contract are unchanged.
  */
 @Module({
   controllers: [

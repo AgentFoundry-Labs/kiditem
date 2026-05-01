@@ -45,22 +45,22 @@ export class ThumbnailAnalysisService {
 
   // ─── 목록 / 요약 ─────────────────────────────────────────────
 
-  async findAllWithAnalysis(companyId: string): Promise<ThumbnailAnalysisListResponse> {
+  async findAllWithAnalysis(organizationId: string): Promise<ThumbnailAnalysisListResponse> {
     const [masters, analyses] = await Promise.all([
       this.prisma.masterProduct.findMany({
-        where: { companyId, isDeleted: false, pipelineStep: null },
+        where: { organizationId, isDeleted: false, pipelineStep: null },
         select: {
           id: true,
           name: true,
           imageUrl: true,
           thumbnailUrl: true,
-          images: thumbnailMasterImageSelect(companyId),
+          images: thumbnailMasterImageSelect(organizationId),
           createdAt: true,
         },
         orderBy: { createdAt: 'desc' },
       }),
       this.prisma.thumbnailAnalysis.findMany({
-        where: { companyId },
+        where: { organizationId },
         orderBy: { updatedAt: 'desc' },
       }),
     ]);
@@ -71,14 +71,14 @@ export class ThumbnailAnalysisService {
     );
   }
 
-  async getSummary(companyId: string): Promise<ThumbnailAnalysisSummary> {
+  async getSummary(organizationId: string): Promise<ThumbnailAnalysisSummary> {
     const masters = await this.prisma.masterProduct.findMany({
-      where: { companyId, isDeleted: false, pipelineStep: null },
+      where: { organizationId, isDeleted: false, pipelineStep: null },
       select: { id: true },
     });
     const analyses = masters.length
       ? await this.prisma.thumbnailAnalysis.findMany({
-          where: { companyId, masterId: { in: masters.map((m) => m.id) } },
+          where: { organizationId, masterId: { in: masters.map((m) => m.id) } },
           select: {
             grade: true,
             complianceGrade: true,
@@ -100,19 +100,19 @@ export class ThumbnailAnalysisService {
    */
   async analyzeProduct(
     productId: string,
-    companyId: string,
+    organizationId: string,
     scope: AnalysisScope,
     signal?: AbortSignal,
   ): Promise<ThumbnailAnalysisResult> {
     const master = await this.prisma.masterProduct.findFirst({
-      where: { id: productId, companyId, isDeleted: false },
+      where: { id: productId, organizationId, isDeleted: false },
       select: {
         id: true,
         name: true,
         imageUrl: true,
         thumbnailUrl: true,
         category: true,
-        images: thumbnailMasterImageSelect(companyId),
+        images: thumbnailMasterImageSelect(organizationId),
         createdAt: true,
       },
     });
@@ -133,7 +133,7 @@ export class ThumbnailAnalysisService {
     const update: Prisma.ThumbnailAnalysisUpdateInput = { imageUrl };
     const create: Prisma.ThumbnailAnalysisCreateInput = {
       master: { connect: { id: master.id } },
-      company: { connect: { id: companyId } },
+      organization: { connect: { id: organizationId } },
       imageUrl,
       overallScore: 0,
       grade: 'F',
@@ -293,26 +293,26 @@ export class ThumbnailAnalysisService {
   }
 
   /**
-   * Company-scoped batch analysis. AbortController 가 회사별로 1개 유지되어
+   * Organization-scoped batch analysis. AbortController 가 회사별로 1개 유지되어
    * 같은 회사가 새 batch 를 시작하면 이전 inflight 는 cancel.
    */
   async analyzeBatch(
     productIds: string[],
-    companyId: string,
+    organizationId: string,
     scope: AnalysisScope,
   ): Promise<ThumbnailAnalysisResult[]> {
     if (productIds.length === 0) return [];
-    const previous = this.batchAborts.get(companyId);
+    const previous = this.batchAborts.get(organizationId);
     if (previous) previous.abort();
     const controller = new AbortController();
-    this.batchAborts.set(companyId, controller);
+    this.batchAborts.set(organizationId, controller);
 
     const results: ThumbnailAnalysisResult[] = [];
     try {
       for (const id of productIds) {
         if (controller.signal.aborted) break;
         try {
-          results.push(await this.analyzeProduct(id, companyId, scope, controller.signal));
+          results.push(await this.analyzeProduct(id, organizationId, scope, controller.signal));
         } catch (err) {
           if (controller.signal.aborted || this.isAbortError(err)) break;
           this.logger.warn(
@@ -323,19 +323,19 @@ export class ThumbnailAnalysisService {
     } finally {
       // Only clear if this is still the active controller (a newer batch
       // would have replaced it).
-      if (this.batchAborts.get(companyId) === controller) {
-        this.batchAborts.delete(companyId);
+      if (this.batchAborts.get(organizationId) === controller) {
+        this.batchAborts.delete(organizationId);
       }
     }
     return results;
   }
 
-  cancelBatch(companyId: string): { cancelled: boolean } {
-    const controller = this.batchAborts.get(companyId);
+  cancelBatch(organizationId: string): { cancelled: boolean } {
+    const controller = this.batchAborts.get(organizationId);
     const hasInflight = Boolean(controller);
     if (controller) {
       controller.abort();
-      this.batchAborts.delete(companyId);
+      this.batchAborts.delete(organizationId);
     }
     return { cancelled: hasInflight };
   }
@@ -354,9 +354,9 @@ export class ThumbnailAnalysisService {
    */
   async preInspect(
     productIds: string[] | undefined,
-    companyId: string,
+    organizationId: string,
   ): Promise<{ processed: number; failed: number }> {
-    const where: Prisma.MasterProductWhereInput = { companyId, isDeleted: false };
+    const where: Prisma.MasterProductWhereInput = { organizationId, isDeleted: false };
     if (productIds?.length) where.id = { in: productIds };
     const masters = await this.prisma.masterProduct.findMany({
       where,
@@ -364,7 +364,7 @@ export class ThumbnailAnalysisService {
         id: true,
         imageUrl: true,
         thumbnailUrl: true,
-        images: thumbnailMasterImageSelect(companyId),
+        images: thumbnailMasterImageSelect(organizationId),
       },
     });
     let processed = 0;
@@ -381,7 +381,7 @@ export class ThumbnailAnalysisService {
           where: { masterId: m.id },
           create: {
             masterId: m.id,
-            companyId,
+            organizationId,
             imageUrl,
             overallScore: 0,
             grade: 'F',

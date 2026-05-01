@@ -7,8 +7,8 @@
 # Allowlist entries should be narrow: one path + one pattern + a recorded reason.
 # Adding "all" or broad globs defeats the gate. Re-justify when allowlisting.
 
-# Marketplace is a globally-shared catalog (Marketplace model has no companyId
+# Marketplace is a globally-shared catalog (Marketplace model has no organizationId
 # column — workflow/agent template rows are not tenant-owned). findUnique by
 # bare id on this table is intentional. Tenant scope is enforced separately on
-# the per-company install records (WorkflowTemplate / AgentDefinition).
+# the per-organization install records (WorkflowTemplate / AgentDefinition).
 apps/server/src/marketplace/marketplace.service.ts findUnique

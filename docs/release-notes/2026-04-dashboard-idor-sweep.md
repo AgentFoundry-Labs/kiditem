@@ -11,19 +11,19 @@ Pre-fix 환경에서 아래 엔드포인트 응답 수치가 **실제 값보다 
 - `GET /api/dashboard/ad` — 광고 일별 집계 (dailyAd) + Wing 연동 (wingAdData)
 - `GET /api/dashboard/inventory` — 재고/알림/등급/썸네일 요약
 
-단일 테넌트 환경 (현재 dev / 초기 stg) 에서는 `companyId` 가 1 개뿐이므로 **실질적인 data leak 없음**. 멀티테넌트 SaaS 전환 이후 (최소 2 회사 row 존재) 부터 영향 발생.
+단일 테넌트 환경 (현재 dev / 초기 stg) 에서는 `organizationId` 가 1 개뿐이므로 **실질적인 data leak 없음**. 멀티테넌트 SaaS 전환 이후 (최소 2 회사 row 존재) 부터 영향 발생.
 
 ## 수정 사이트
 
-1. `dashboard.controller.ts` — `@Get('trend')` + `@Get('inventory')` + `@Get('sales')` (preemptive) 에 `@CurrentCompany()` 추가
-2. `dashboard-trend.service.ts` — 3 개 쿼리 (profitLoss.aggregate + orders $queryRaw + ads $queryRaw) 에 `companyId` 바인딩
-3. Historical `dashboard/helpers/wing-ad-summary.ts` path — helper signature 에 `companyId` 2 nd positional 추가 + Wing summary queries 에 적용
-4. `dashboard-ad.service.ts` — dailyAdRows `$queryRaw` 에 `company_id = ${companyId}::uuid` 바인딩
-5. `dashboard-inventory.service.ts` — 8 개 Prisma 쿼리 (masterProduct.groupBy/count/findMany, alert.findMany, profitLoss.findMany, inventory.findMany, gradeHistory.findMany, thumbnail.count) 에 `where: { companyId }` 추가, `masterProduct.findMany` 의 `include: { listings }` 에 2-hop `where: { companyId }` 추가
+1. `dashboard.controller.ts` — `@Get('trend')` + `@Get('inventory')` + `@Get('sales')` (preemptive) 에 `@CurrentOrganization()` 추가
+2. `dashboard-trend.service.ts` — 3 개 쿼리 (profitLoss.aggregate + orders $queryRaw + ads $queryRaw) 에 `organizationId` 바인딩
+3. Historical `dashboard/helpers/wing-ad-summary.ts` path — helper signature 에 `organizationId` 2 nd positional 추가 + Wing summary queries 에 적용
+4. `dashboard-ad.service.ts` — dailyAdRows `$queryRaw` 에 `organization_id = ${organizationId}::uuid` 바인딩
+5. `dashboard-inventory.service.ts` — 8 개 Prisma 쿼리 (masterProduct.groupBy/count/findMany, alert.findMany, profitLoss.findMany, inventory.findMany, gradeHistory.findMany, thumbnail.count) 에 `where: { organizationId }` 추가, `masterProduct.findMany` 의 `include: { listings }` 에 2-hop `where: { organizationId }` 추가
 
 ## Enforcement
 
-- 새 규칙: `scripts/check-queryraw-tenancy.sh` — 모든 `$queryRaw` 가 `company_id` 바인딩 포함 확인
+- 새 규칙: `scripts/check-queryraw-tenancy.sh` — 모든 `$queryRaw` 가 `organization_id` 바인딩 포함 확인
 - `npm run check:idor` 로 로컬 실행
 - Auto-exemptions: `FOR UPDATE` row-lock on UUID PK + `nextval()` sequence (structurally safe — tenancy enforced elsewhere)
 - CI 통합은 별도 Plan

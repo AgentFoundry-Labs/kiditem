@@ -58,7 +58,7 @@ describe('inventory shared schemas', () => {
         inventory: {
           id: inventoryRow.id,
           optionId: inventoryRow.optionId,
-          companyId: '00000000-0000-4000-8000-000000000004',
+          organizationId: '00000000-0000-4000-8000-000000000004',
           currentStock: 15,
           reservedStock: 0,
           safetyStock: 3,

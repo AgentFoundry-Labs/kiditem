@@ -1,7 +1,7 @@
 export const AGENT_RUNNER_PORT = Symbol('AGENT_RUNNER_PORT');
 
 export interface AgentRunnerInput {
-  companyId?: string;
+  organizationId?: string;
   dryRun?: boolean;
   extra?: Record<string, unknown>;
   workflowRunId?: string;

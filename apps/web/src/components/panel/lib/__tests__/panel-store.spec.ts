@@ -4,7 +4,7 @@ import { createPanelStore } from '../panel-store';
 const makeItem = (overrides = {}) => ({
   id: 'workflow:abc', kind: 'run' as const, source: 'workflow' as const, sourceId: 'abc',
   seq: 1, status: 'running' as const, title: 't', deepLink: '/x',
-  actorUserId: null, visibility: 'company' as const,
+  actorUserId: null, visibility: 'organization' as const,
   createdAt: '2026-04-15T00:00:00Z', updatedAt: '2026-04-15T00:00:00Z',
   ...overrides,
 });

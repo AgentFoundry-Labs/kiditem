@@ -58,13 +58,13 @@ function booleanParam(params: MarketplaceInstallParams | undefined, key: string)
  * read-only projection of the catalog table.
  *
  * Tenant scope:
- * - All writes bind `companyId` from the trusted `@CurrentCompany()`
+ * - All writes bind `organizationId` from the trusted `@CurrentOrganization()`
  *   value the controller passes in. Catalog rows themselves are global
- *   (companyId-less); the slot of "owns this install" is recorded by
- *   the cloned `WorkflowTemplate.companyId` / `AgentDefinition.companyId`.
+ *   (organizationId-less); the slot of "owns this install" is recorded by
+ *   the cloned `WorkflowTemplate.organizationId` / `AgentDefinition.organizationId`.
  * - Uninstall reads the tenant's installed row by `(marketplaceId,
- *   companyId)` before delete so a foreign-tenant id cannot be used to
- *   remove another company's installation.
+ *   organizationId)` before delete so a foreign-tenant id cannot be used to
+ *   remove another organization's installation.
  */
 @Injectable()
 export class MarketplaceInstallService {
@@ -75,7 +75,7 @@ export class MarketplaceInstallService {
 
   async installWorkflow(
     marketplaceId: string,
-    companyId: string,
+    organizationId: string,
     params?: MarketplaceInstallParams,
   ) {
     const catalog = await this.store.findWorkflowCatalog(marketplaceId);
@@ -118,7 +118,7 @@ export class MarketplaceInstallService {
 
     const schedule = stringParam(params, 'schedule');
     const template = await this.store.createWorkflowInstallation({
-      companyId,
+      organizationId,
       name: catalog.name,
       description: catalog.description,
       module: catalog.module ?? 'order',
@@ -135,7 +135,7 @@ export class MarketplaceInstallService {
 
   async installAgent(
     marketplaceId: string,
-    companyId: string,
+    organizationId: string,
     params?: MarketplaceInstallParams,
   ) {
     const catalog = await this.store.findAgentCatalog(marketplaceId);
@@ -149,7 +149,7 @@ export class MarketplaceInstallService {
     const timeoutSeconds = numberParam(params, 'timeoutSeconds');
 
     const agent = await this.store.createAgentInstallation({
-      companyId,
+      organizationId,
       name: catalog.name,
       type: `${catalog.name.replace(/\s/g, '_').toLowerCase()}_${Date.now()}`,
       description: catalog.description,
@@ -171,11 +171,11 @@ export class MarketplaceInstallService {
       ...(timeoutSeconds !== undefined && { timeoutSeconds }),
     });
 
-    // Specialists report to a manager in the same company when one exists.
+    // Specialists report to a manager in the same organization when one exists.
     if (agent.role === 'specialist') {
-      const manager = await this.store.findTenantManager(companyId);
+      const manager = await this.store.findTenantManager(organizationId);
       if (manager) {
-        await this.store.assignAgentReportsTo(agent.id, companyId, manager.id);
+        await this.store.assignAgentReportsTo(agent.id, organizationId, manager.id);
       }
     }
 
@@ -184,11 +184,11 @@ export class MarketplaceInstallService {
 
   async uninstallWorkflow(
     marketplaceId: string,
-    companyId: string,
+    organizationId: string,
   ): Promise<{ ok: boolean }> {
     const installed = await this.store.findInstalledWorkflow(
       marketplaceId,
-      companyId,
+      organizationId,
     );
     if (!installed) {
       throw new NotFoundException('설치된 워크플로우를 찾을 수 없습니다');
@@ -196,7 +196,7 @@ export class MarketplaceInstallService {
 
     const deleted = await this.store.deleteInstalledWorkflow(
       installed.id,
-      companyId,
+      organizationId,
     );
     if (deleted) {
       await this.store.decrementInstallCountIfPositive(marketplaceId);
@@ -207,14 +207,14 @@ export class MarketplaceInstallService {
 
   async uninstallAgent(
     marketplaceId: string,
-    companyId: string,
+    organizationId: string,
   ): Promise<{ ok: boolean }> {
-    const installed = await this.store.findInstalledAgent(marketplaceId, companyId);
+    const installed = await this.store.findInstalledAgent(marketplaceId, organizationId);
     if (!installed) {
       throw new NotFoundException('설치된 에이전트를 찾을 수 없습니다');
     }
 
-    const deleted = await this.store.deleteInstalledAgent(installed.id, companyId);
+    const deleted = await this.store.deleteInstalledAgent(installed.id, organizationId);
     if (deleted) {
       await this.store.decrementInstallCountIfPositive(marketplaceId);
     }

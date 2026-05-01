@@ -61,7 +61,7 @@ const LISTING_PRICING_SELECT = {
  * Inline use of the same low-level Prisma primitives keeps the domain
  * boundary clean.
  *
- * Daily fact upsert keys on `(companyId, listingId, businessDate)` matching
+ * Daily fact upsert keys on `(organizationId, listingId, businessDate)` matching
  * the unique index on `ChannelListingDailySnapshot`. Repeated uploads for
  * the same day overwrite the additive `traffic*` columns to the new total
  * (idempotent under operator re-uploads of the same period).
@@ -70,7 +70,7 @@ const LISTING_PRICING_SELECT = {
 export class TrafficService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async uploadTrafficStats(file: MulterFile, companyId: string) {
+  async uploadTrafficStats(file: MulterFile, organizationId: string) {
     if (file.size > 10 * 1024 * 1024) {
       throw new BadRequestException('파일 크기 10MB 초과');
     }
@@ -124,7 +124,7 @@ export class TrafficService {
     // Coupang 의 '등록상품ID' 는 ChannelListing.externalId 에 해당.
     // CSV upload 는 Coupang 전용이므로 channel='coupang' 로 제한.
     const listings = await this.prisma.channelListing.findMany({
-      where: { companyId, isDeleted: false, channel: 'coupang' },
+      where: { organizationId, isDeleted: false, channel: 'coupang' },
       select: { id: true, externalId: true },
     });
     const listingMap = new Map<string, string>(
@@ -250,7 +250,7 @@ export class TrafficService {
       // upsert failures never erase audit/replay rows.
       const run = await this.prisma.channelScrapeRun.create({
         data: {
-          companyId,
+          organizationId,
           channel: 'coupang',
           source: 'traffic_csv_upload',
           pageType: 'traffic',
@@ -281,7 +281,7 @@ export class TrafficService {
         const businessDate = parsed.date ? new Date(parsed.date) : null;
         const snapshot = await this.prisma.channelScrapeSnapshot.create({
           data: {
-            companyId,
+            organizationId,
             scrapeRunId: run.id,
             channel: 'coupang',
             source: 'traffic_csv_upload',
@@ -351,14 +351,14 @@ export class TrafficService {
             // re-upload of the same day yields the same totals (idempotent).
             await tx.channelListingDailySnapshot.upsert({
               where: {
-                companyId_listingId_businessDate: {
-                  companyId,
+                organizationId_listingId_businessDate: {
+                  organizationId,
                   listingId: d.listingId,
                   businessDate,
                 },
               },
               create: {
-                companyId,
+                organizationId,
                 listingId: d.listingId,
                 channel: 'coupang',
                 externalId: d.externalId,
@@ -398,7 +398,7 @@ export class TrafficService {
           }
         });
       } catch (err) {
-        await this.updateScrapeRunOrThrow(run.id, companyId, {
+        await this.updateScrapeRunOrThrow(run.id, organizationId, {
           status: 'error',
           matchedCount: matchedRows,
           unmatchedCount: unmatchedRows,
@@ -413,7 +413,7 @@ export class TrafficService {
       }
 
       upserted = dataArr.length;
-      await this.updateScrapeRunOrThrow(run.id, companyId, {
+      await this.updateScrapeRunOrThrow(run.id, organizationId, {
         status: 'complete',
         matchedCount: matchedRows,
         unmatchedCount: unmatchedRows,
@@ -440,11 +440,11 @@ export class TrafficService {
 
   private async updateScrapeRunOrThrow(
     id: string,
-    companyId: string,
+    organizationId: string,
     data: Prisma.ChannelScrapeRunUpdateManyMutationInput,
   ) {
     const result = await this.prisma.channelScrapeRun.updateMany({
-      where: { id, companyId },
+      where: { id, organizationId },
       data,
     });
     if (result.count === 0) {
@@ -456,10 +456,10 @@ export class TrafficService {
    * Period traffic summary — KST-anchored half-open window over
    * `ChannelListingDailySnapshot.traffic*` columns.
    *
-   * `companyId` is required by the multi-tenant rule. The controller passes
-   * the request company.
+   * `organizationId` is required by the multi-tenant rule. The controller passes
+   * the request organization.
    */
-  async getTrafficSummary(days: number, companyId: string) {
+  async getTrafficSummary(days: number, organizationId: string) {
     const todayStart = kstDayStart(new Date());
     const todayEnd = new Date(todayStart.getTime() + 86400000);
 
@@ -487,7 +487,7 @@ export class TrafficService {
           trafficViews: true,
           trafficCartAdds: true,
         },
-        where: { companyId, businessDate: { gte: start, lt: end } },
+        where: { organizationId, businessDate: { gte: start, lt: end } },
       }),
       this.prisma.channelListingDailySnapshot.aggregate({
         _sum: {
@@ -496,7 +496,7 @@ export class TrafficService {
           trafficSalesQty: true,
           trafficVisitors: true,
         },
-        where: { companyId, businessDate: { gte: prevStart, lt: prevEnd } },
+        where: { organizationId, businessDate: { gte: prevStart, lt: prevEnd } },
       }),
       this.prisma.channelListingDailySnapshot.groupBy({
         by: ['listingId'],
@@ -505,7 +505,7 @@ export class TrafficService {
           trafficSalesQty: true,
           trafficOrders: true,
         },
-        where: { companyId, businessDate: { gte: start, lt: end } },
+        where: { organizationId, businessDate: { gte: start, lt: end } },
       }),
     ]);
 
@@ -521,7 +521,7 @@ export class TrafficService {
     if (listingRows.length > 0) {
       const listingIds = listingRows.map((r) => r.listingId);
       const listings = await this.prisma.channelListing.findMany({
-        where: { id: { in: listingIds }, companyId, isDeleted: false },
+        where: { id: { in: listingIds }, organizationId, isDeleted: false },
         select: LISTING_PRICING_SELECT,
       });
       const listingMap = new Map(listings.map((l) => [l.id, l]));
@@ -578,7 +578,7 @@ export class TrafficService {
     };
   }
 
-  async getMonthlyRevenue(year: number, month: number, companyId: string) {
+  async getMonthlyRevenue(year: number, month: number, organizationId: string) {
     // KST month boundaries via `kstDayStart` of month-first / next-month-first.
     const startUtc = new Date(Date.UTC(year, month - 1, 1));
     const endUtcExclusive = new Date(Date.UTC(year, month, 1));
@@ -589,7 +589,7 @@ export class TrafficService {
       this.prisma.channelListingDailySnapshot.groupBy({
         by: ['businessDate'],
         where: {
-          companyId,
+          organizationId,
           businessDate: { gte: start, lt: endExclusive },
         },
         _sum: {
@@ -603,7 +603,7 @@ export class TrafficService {
       this.prisma.channelListingDailySnapshot.groupBy({
         by: ['listingId', 'businessDate'],
         where: {
-          companyId,
+          organizationId,
           businessDate: { gte: start, lt: endExclusive },
         },
         _sum: {
@@ -618,7 +618,7 @@ export class TrafficService {
     const listings =
       listingIds.length > 0
         ? await this.prisma.channelListing.findMany({
-            where: { id: { in: listingIds }, companyId, isDeleted: false },
+            where: { id: { in: listingIds }, organizationId, isDeleted: false },
             select: LISTING_PRICING_SELECT,
           })
         : [];

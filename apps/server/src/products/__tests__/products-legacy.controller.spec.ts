@@ -32,7 +32,7 @@ describe('ProductsLegacyController (GET-only alias, e2e)', () => {
     app = moduleRef.createNestApplication();
     app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
     app.use((req: any, _res: any, next: any) => {
-      req.authUser = { id: 'test-user', companyId: 'company-1' };
+      req.authUser = { id: 'test-user', organizationId: 'organization-1' };
       next();
     });
     await app.init();
@@ -77,14 +77,14 @@ describe('ProductsLegacyController (GET-only alias, e2e)', () => {
     const id = '11111111-1111-4111-8111-111111111111';
     const res = await request(app.getHttpServer()).get(`/products/${id}`);
     expect(res.status).toBe(200);
-    expect(catalog.detail).toHaveBeenCalledWith('company-1', id);
+    expect(catalog.detail).toHaveBeenCalledWith('organization-1', id);
   });
 
   it('GET /products/:id/original-image-base64 with UUID delegates to masters.originalImageBase64', async () => {
     const id = '11111111-1111-4111-8111-111111111111';
     const res = await request(app.getHttpServer()).get(`/products/${id}/original-image-base64`);
     expect(res.status).toBe(200);
-    expect(masters.originalImageBase64).toHaveBeenCalledWith('company-1', id);
+    expect(masters.originalImageBase64).toHaveBeenCalledWith('organization-1', id);
   });
 
   it('does NOT register PATCH /products/:id (write path deferred)', async () => {

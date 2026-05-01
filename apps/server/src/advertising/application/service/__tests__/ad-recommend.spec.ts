@@ -40,20 +40,20 @@ describe('AdRecommendService.enhanceActionsWithAi', () => {
   });
 
   it('returns empty array for empty input', async () => {
-    const result = await service.enhanceActionsWithAi([], 'company-1');
+    const result = await service.enhanceActionsWithAi([], 'organization-1');
     expect(result).toEqual([]);
   });
 
   it('returns the input actions unchanged (pass-through)', async () => {
     const actions = [makeAction(), makeAction({ actionType: 'change_bid', priority: 'high' })];
-    const result = await service.enhanceActionsWithAi(actions, 'company-1');
+    const result = await service.enhanceActionsWithAi(actions, 'organization-1');
     expect(result).toEqual(actions);
   });
 
   it('does not mutate the input actions array', async () => {
     const actions = [makeAction()];
     const snapshot = JSON.parse(JSON.stringify(actions));
-    await service.enhanceActionsWithAi(actions, 'company-1');
+    await service.enhanceActionsWithAi(actions, 'organization-1');
     expect(actions).toEqual(snapshot);
   });
 });

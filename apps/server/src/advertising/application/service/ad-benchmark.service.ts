@@ -54,9 +54,9 @@ export class AdBenchmarkService {
    * 30 inclusive KST businessDates. Ratios recompute from sums (no provider
    * per-row ratios). Industry averages come from `AdConfigService.getConfig`.
    */
-  async getDiagnosis(companyId: string): Promise<AdBenchmarkData> {
-    const config = await this.adConfigService.getConfig(companyId);
-    const aggregates = await findBenchmarkAggregates(this.prisma, companyId);
+  async getDiagnosis(organizationId: string): Promise<AdBenchmarkData> {
+    const config = await this.adConfigService.getConfig(organizationId);
+    const aggregates = await findBenchmarkAggregates(this.prisma, organizationId);
 
     const ownMetrics = buildAdMetrics(aggregates.totals);
 
@@ -79,7 +79,7 @@ export class AdBenchmarkService {
 
     const summaryMap = await findScopedAdListings(
       this.prisma,
-      companyId,
+      organizationId,
       aggregates.perListing.map((row) => row.listingId),
     );
 

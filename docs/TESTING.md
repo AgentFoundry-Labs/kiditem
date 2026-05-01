@@ -13,7 +13,7 @@ KidItem 은 테스트를 많이 쓰는 것이 아니라, 운영 리스크를 줄
 | 테스트 목적 | 작성 기준 | 선호 tier |
 |---|---|---|
 | **운영 치명 경로** | 깨지면 보안/돈/재고/광고비/주문/외부 채널 실행에 직접 피해가 나는 흐름 | Integration 또는 E2E |
-| **Tenant / IDOR / raw SQL 안전** | `companyId` 격리, 2-hop/3-hop tenant predicate, `$queryRaw` 조건, scoped mutation 보장이 필요함 | Integration + scanner |
+| **Tenant / IDOR / raw SQL 안전** | `organizationId` 격리, 2-hop/3-hop tenant predicate, `$queryRaw` 조건, scoped mutation 보장이 필요함 | Integration + scanner |
 | **Transaction / row-lock / race** | `updateMany(count)`, `SELECT FOR UPDATE`, unique constraint, rollback semantics 처럼 DB가 실제 판정자임 | Integration |
 | **도메인 정책** | 가격, 재고, 광고 예산, 등급, 상태 전이처럼 순수 계산/규칙이 있고 경계값이 중요함 | Unit, 실제 객체 |
 | **Public contract** | API response, Zod schema, external payload, cache/serialization shape가 깨지면 소비자가 깨짐 | E2E, contract unit |
@@ -111,7 +111,7 @@ npx vitest run src/inventory/picking
 npm run test:e2e --workspace=apps/server
 ```
 
-Prisma 는 여전히 mock 이므로 "HTTP 레이어 회귀" 위주. DB 쿼리 정확성은 `toHaveBeenCalledWith({ where: objectContaining({ companyId }) })` 같은 assertion 으로 간접 검증.
+Prisma 는 여전히 mock 이므로 "HTTP 레이어 회귀" 위주. DB 쿼리 정확성은 `toHaveBeenCalledWith({ where: objectContaining({ organizationId }) })` 같은 assertion 으로 간접 검증.
 
 ## Tier 3 — Integration (real Postgres)
 
@@ -131,7 +131,7 @@ npm run db:test:down       # 종료 + 볼륨 자동 소멸 (tmpfs)
 - **Race guard**: `updateMany({ where: { ..., field: null }, count })` 기반 atomic claim 패턴
 - **P2002 동시 race**: `@@unique` 제약 걸린 트랜잭션 충돌
 - **Multi-statement 트랜잭션**: `$transaction` 내부 롤백 동작
-- **IDOR end-to-end**: 다른 companyId 로 쿼리 시 실제 row 격리
+- **IDOR end-to-end**: 다른 organizationId 로 쿼리 시 실제 row 격리
 
 ### 현재 예시 커버
 

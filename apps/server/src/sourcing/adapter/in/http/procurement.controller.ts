@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Query, Body, BadRequestException } from '@nestjs/common';
 import { ProcurementService } from '../../../application/service/procurement.service';
 import { ListPurchaseOrdersQueryDto, PurchaseOrderActionBodyDto } from './dto';
-import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
+import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 
 @Controller('purchase-orders')
 export class ProcurementController {
@@ -11,19 +11,19 @@ export class ProcurementController {
 
   @Get()
   findAll(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Query() query: ListPurchaseOrdersQueryDto,
   ) {
-    return this.procurementService.findAll(companyId, query);
+    return this.procurementService.findAll(organizationId, query);
   }
 
   @Post()
   async handleAction(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Body() body: PurchaseOrderActionBodyDto,
   ) {
     if (body.action === 'create') {
-      return this.procurementService.create(companyId, {
+      return this.procurementService.create(organizationId, {
         supplierName: body.supplierName!,
         supplierId: body.supplierId,
         items: body.items!,
@@ -31,10 +31,10 @@ export class ProcurementController {
       });
     }
     if (body.action === 'updateStatus') {
-      return this.procurementService.updateStatus(companyId, body.id!, body.status!);
+      return this.procurementService.updateStatus(organizationId, body.id!, body.status!);
     }
     if (body.action === 'delete') {
-      return this.procurementService.delete(companyId, body.id!);
+      return this.procurementService.delete(organizationId, body.id!);
     }
     throw new BadRequestException(`Unknown action: ${body.action}`);
   }

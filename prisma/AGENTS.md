@@ -13,7 +13,7 @@ prisma/
     ├── agents.prisma           (AgentDefinition, AgentTask, AgentEvent, AgentLog, AgentWakeupRequest, HeartbeatRun, WorkflowRun, WorkflowTemplate)
     ├── ai.prisma               (Thumbnail*, ContentGeneration)
     ├── channels.prisma         (ChannelScrapeRun, ChannelScrapeSnapshot, ChannelListingDailySnapshot, ChannelListingOptionDailySnapshot, ChannelAdTargetDailySnapshot, ChannelAccountDailyKpiSnapshot — daily facts are source-of-truth for listing/option/day market data)
-    ├── core.prisma             (Company, User, MasterProduct, ProductOption, ChannelListing, ChannelListingOption, BundleComponent, CategoryMapping)
+    ├── core.prisma             (Organization, OrganizationMembership, LegalEntity, ChannelAccount, User, MasterProduct, ProductOption, ChannelListing, ChannelListingOption, BundleComponent, CategoryMapping)
     ├── finance.prisma          (ProfitLoss, GradeHistory, ManualLedger, ProcessingCost, SalesPlan)
     ├── inventory.prisma        (Inventory, Stock*, Warehouse, Picking*, ReturnTransfer)
     │                            ↳ StockTransaction 은 InventoryService 의 내부 ledger.
@@ -68,7 +68,7 @@ npm run data:dev:sync -- --profile workspace-demo --yes
 
 - Bundle 원본은 Google Drive 의 `{domain}-{lane}/bundles/` zip archive, 로컬 사본은 `.data/` 아래에 둔다. 둘 다 Git 커밋 금지.
 - Drive 의 `profiles/*.json` 이 화면 기준 상태를, `{domain}-{lane}/latest.json` 이 현재 기준 dataset 과 archive checksum 을 가리킨다. 같은 날 다시 만들면 기존 zip 을 덮어쓰지 말고 `datasetId` 의 `vN` 을 올린다.
-- 표준 replay 모드는 `scoped-replace` 다. manifest 의 company/channel/date range scope 만 교체한다.
+- 표준 replay 모드는 `scoped-replace` 다. manifest 의 organization/channel/date range scope 만 교체한다.
 - Coupang bundle 은 `POST /api/ads/extension/sync` 경로로 replay 한다. 앱이 실제 ingest 하는 코드와 다른 DB writer 를 만들지 않는다.
 - `scripts/seed-channel-market-data.ts` 같은 synthetic market-data seed 는 금지. 실제 scrape payload replay 로 대체한다.
 - 자세한 포맷/운영 절차는 [`docs/DEV_DATA_BUNDLES.md`](../docs/DEV_DATA_BUNDLES.md) 를 따른다.
@@ -87,7 +87,7 @@ git pull
 npm install --legacy-peer-deps
 npm run db:push -- --accept-data-loss   # drop 이 포함됐으면 플래그 필요
 npx prisma generate
-npm run db:3layer-setup                 # partial unique indexes + company-id RLS policies + 3 CHECK constraints 재적용
+npm run db:3layer-setup                 # partial unique indexes + organization-id RLS policies + 3 CHECK constraints 재적용
 npm run db:erd                          # docs/ERD.md + docs/erd/*.md 재생성
 npm run graphify:schema                 # graphify-out/schema/** + schema-consumers/** 재생성
 ```
@@ -137,7 +137,7 @@ docker exec kiditem-postgres pg_dump -U kiditem --data-only --column-inserts \
 - After schema changes: always run the schema-change checklist above (`db:push` + `prisma generate` + `db:3layer-setup` + generated ERD/Graphify artifacts)
 - Keep Zod schemas in sync: use `satisfies z.infer<typeof Schema>` pattern in services
 - Json 흡수 패턴은 일회성 raw payload 보존용으로만 사용한다. 운영 쿼리·집계·IDOR guard 가 필요한 child row 는 `OrderReturnLineItem` 처럼 정규화한다.
-- **FK 컬럼에 `@@index` 명시 필수** — Prisma 는 FK 에 자동 인덱스를 만들지 **않는다**. JOIN/역방향 조회가 있는 FK (대부분) 는 명시적 `@@index([foreignKey])` 추가. 복합이 자주 쓰이면 `@@index([companyId, foreignKey])` 등 조합 인덱스도 함께.
+- **FK 컬럼에 `@@index` 명시 필수** — Prisma 는 FK 에 자동 인덱스를 만들지 **않는다**. JOIN/역방향 조회가 있는 FK (대부분) 는 명시적 `@@index([foreignKey])` 추가. 복합이 자주 쓰이면 `@@index([organizationId, foreignKey])` 등 조합 인덱스도 함께.
 - **Optional FK (`Foo?`) 에도 `onDelete` 명시** — default 동작에 의존하지 말 것. 부모 삭제 시 동작(`SetNull` / `Restrict` / `Cascade`)을 의도에 맞게 기입해 리뷰어가 정책을 바로 읽을 수 있게.
 
 ## 통합 모델 규칙
@@ -154,20 +154,20 @@ docker exec kiditem-postgres pg_dump -U kiditem --data-only --column-inserts \
 - Restore 시 활성 row 와 충돌 → P2002 → `ConflictException`.
 
 적용된 column 4개 (Plan A Task 11 + Plan B1):
-- `master_products(company_id, legacy_code)` → `master_products_company_legacy_active`
+- `master_products(organization_id, legacy_code)` → `master_products_organization_legacy_active`
 - `product_options(master_id, option_name)` → `product_options_master_option_name_active` + `product_options_master_null_option` (`option_name IS NULL` 케이스)
-- `product_options(company_id, barcode)` → `product_options_company_barcode_active`
-- `product_options(company_id, legacy_code)` → `product_options_company_legacy_active`
-- `channel_listings(company_id, channel, external_id)` → `channel_listings_company_channel_external_active` (active-row uniqueness)
+- `product_options(organization_id, barcode)` → `product_options_organization_barcode_active`
+- `product_options(organization_id, legacy_code)` → `product_options_organization_legacy_active`
+- `channel_listings(organization_id, channel, external_id)` → `channel_listings_organization_channel_external_active` (active-row uniqueness)
 
-서비스 코드는 `findUnique({ companyId_xxx })` 대신 **`findFirst({ where: { ..., isDeleted: false } })`** 사용.
+서비스 코드는 `findUnique({ organizationId_xxx })` 대신 **`findFirst({ where: { ..., isDeleted: false } })`** 사용.
 
 Prisma `db:push` 재실행 시 full unique constraint 가 다시 생성 → 반드시 `npm run db:3layer-setup` 재실행 (스크립트는 idempotent: `DROP ... IF EXISTS` → `CREATE`).
 
 ## Barcode 의미 분리 (R0)
 
-- `MasterProduct.barcode` = source EAN/자사상품코드. **nullable + non-unique**, `(companyId, barcode)` index 만. 같은 EAN 이 여러 product family 에 걸치는 외부 데이터를 그대로 보존. 검색은 multi-result 가능 — `findUnique` 가정 금지.
-- `ProductOption.barcode` = 진짜 옵션/스캐너 단위 barcode. `(companyId, barcode)` partial unique 유지 (`product_options_company_barcode_active`). `/options/by-barcode/:barcode` 의 single-result 의미는 이 컬럼이 보장.
+- `MasterProduct.barcode` = source EAN/자사상품코드. **nullable + non-unique**, `(organizationId, barcode)` index 만. 같은 EAN 이 여러 product family 에 걸치는 외부 데이터를 그대로 보존. 검색은 multi-result 가능 — `findUnique` 가정 금지.
+- `ProductOption.barcode` = 진짜 옵션/스캐너 단위 barcode. `(organizationId, barcode)` partial unique 유지 (`product_options_organization_barcode_active`). `/options/by-barcode/:barcode` 의 single-result 의미는 이 컬럼이 보장.
 - baseline import (`scripts/import-product-baseline.ts`) 는 source EAN 을 절대 `ProductOption.barcode` 에 쓰지 않는다 (null). master 식별자는 `(source barcode or blank fallback, normalized product name)` 결정적 키로 `MasterProduct.legacyCode = kiditem:v1:<sha256-16chars>` 에 저장 (idempotency 전용 — UI 노출 금지, user-facing code 는 `MasterProduct.code`).
 - 별도 source 가 진짜 옵션 barcode 를 제공하면 별도 import path 로 `ProductOption.barcode` 채움. baseline path 와 섞지 말 것.
 
@@ -200,11 +200,18 @@ HeartbeatRun 추가 필드:
 `User.type` 필드로 사람과 AI를 통합 관리:
 - `human` — 사람 직원
 - `agent` — AI 에이전트 (`agentDefinitionId` 연결)
-- `system` — 챗봇 (`company_id = null`, 전체 공유)
+- `system` — 챗봇/시스템 사용자. `User` 에 직접 organization FK 를 두지 않으며, 활성 `OrganizationMembership` 이 없으면 HTTP 도메인 라우트에서는 organization context 가 없는 사용자로 취급한다.
+
+## Organization Boundary
+
+- `Organization` 은 SaaS/customer workspace boundary 다. RLS, IDOR 방어, chatbot/read-only scope 의 기준 컬럼은 `organization_id`.
+- `OrganizationMembership` 이 사용자 소속과 조직 내 role 의 source of truth. `User.organizationId` 재도입 금지.
+- `LegalEntity` 는 세금계산서/정산/사업자등록 identity 를 나타내며 SaaS boundary 가 아니다.
+- `ChannelAccount` 는 쿠팡 Wing, 네이버 스마트스토어 같은 marketplace/store 계정을 나타내며 SaaS boundary 가 아니다.
 
 ## RLS (Row Level Security)
 
-`chatbot_readonly` DB 유저에 `company_id` 기반 행 필터 적용. 정책은 [`prisma/3layer-setup.sql`](3layer-setup.sql) 의 RLS 섹션이 source of truth — 새 company-scoped 테이블 추가 시 해당 파일에 같은 패턴(`ENABLE ROW LEVEL SECURITY` + `CREATE POLICY ... USING (company_id = current_setting('app.company_id', true)::uuid)`) 으로 등록한다.
-- NestJS 서버 (`kiditem` 유저): 테이블 오너 → RLS 미적용 (코드에서 `where.companyId` 명시 필터, `apps/server/AGENTS.md` 참고)
-- 챗봇/에이전트 (`chatbot_readonly`): RLS 적용 → 세션변수 `app.company_id`로 자동 필터
+`chatbot_readonly` DB 유저에 `organization_id` 기반 행 필터 적용. 정책은 [`prisma/3layer-setup.sql`](3layer-setup.sql) 의 RLS 섹션이 source of truth — 새 organization-scoped 테이블 추가 시 해당 파일에 같은 패턴(`ENABLE ROW LEVEL SECURITY` + `CREATE POLICY ... USING (organization_id = current_setting('app.organization_id', true)::uuid)`) 으로 등록한다.
+- NestJS 서버 (`kiditem` 유저): 테이블 오너 → RLS 미적용 (코드에서 `where.organizationId` 명시 필터, `apps/server/AGENTS.md` 참고)
+- 챗봇/에이전트 (`chatbot_readonly`): RLS 적용 → 세션변수 `app.organization_id`로 자동 필터
 - 검증: `SELECT tablename FROM pg_policies WHERE schemaname='public' ORDER BY tablename;` 으로 정책 등록 테이블 확인 가능.

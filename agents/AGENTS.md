@@ -37,15 +37,15 @@ asyncpg raw SQL only (no ORM):
 
 ```python
 row = await pool.fetchrow(
-    "SELECT id, name FROM master_products WHERE id = $1 AND company_id = $2",
+    "SELECT id, name FROM master_products WHERE id = $1 AND organization_id = $2",
     master_id,
-    company_id,
+    organization_id,
 )
 await pool.execute(
-    "UPDATE master_products SET pipeline_step = $1 WHERE id = $2 AND company_id = $3",
+    "UPDATE master_products SET pipeline_step = $1 WHERE id = $2 AND organization_id = $3",
     "listed",
     master_id,
-    company_id,
+    organization_id,
 )
 ```
 

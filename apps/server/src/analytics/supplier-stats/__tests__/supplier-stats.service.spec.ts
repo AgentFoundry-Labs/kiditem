@@ -54,11 +54,11 @@ describe('SupplierStatsService', () => {
         // opt-4 — 주문 없음
       ]);
 
-      const result = await service.getSalesBySupplier('company-1');
+      const result = await service.getSalesBySupplier('organization-1');
 
-      // suppliers 조회 — companyId scope
+      // suppliers 조회 — organizationId scope
       expect(prisma.supplier.findMany).toHaveBeenCalledWith({
-        where: { companyId: 'company-1' },
+        where: { organizationId: 'organization-1' },
         select: expect.any(Object),
       });
       // productOption.findMany — masterId in set + isDeleted:false
@@ -66,10 +66,10 @@ describe('SupplierStatsService', () => {
         where: { masterId: { in: ['mst-1'] }, isDeleted: false },
         select: { id: true, masterId: true },
       });
-      // orderLineItem.groupBy — optionId in 4 ids + order.companyId + status notIn
+      // orderLineItem.groupBy — optionId in 4 ids + order.organizationId + status notIn
       const groupByCall = prisma.orderLineItem.groupBy.mock.calls[0][0];
       expect(groupByCall.by).toEqual(['optionId']);
-      expect(groupByCall.where.order.companyId).toBe('company-1');
+      expect(groupByCall.where.order.organizationId).toBe('organization-1');
       expect(groupByCall.where.order.status).toEqual({ notIn: ['cancelled', 'returned'] });
       expect(Array.from(groupByCall.where.optionId.in).sort()).toEqual([
         'opt-1',
@@ -109,7 +109,7 @@ describe('SupplierStatsService', () => {
         { optionId: 'opt-2', _count: { _all: 2 }, _sum: { quantity: 6, totalPrice: 60_000 } },
       ]);
 
-      const result = await service.getSalesBySupplier('company-1');
+      const result = await service.getSalesBySupplier('organization-1');
 
       // opt-1 은 SupplierProduct 로 먼저 카운트 → MasterSupplierProduct 경로에서 skip
       expect(result).toEqual([
@@ -127,7 +127,7 @@ describe('SupplierStatsService', () => {
     it('empty supplier list → empty result + no downstream queries', async () => {
       prisma.supplier.findMany.mockResolvedValue([]);
 
-      const result = await service.getSalesBySupplier('company-1');
+      const result = await service.getSalesBySupplier('organization-1');
 
       expect(result).toEqual([]);
       expect(prisma.productOption.findMany).not.toHaveBeenCalled();
@@ -147,7 +147,7 @@ describe('SupplierStatsService', () => {
         { optionId: 'opt-1', _count: { _all: 1 }, _sum: { quantity: 3, totalPrice: 30_000 } },
       ]);
 
-      const result = await service.getSalesBySupplier('company-1');
+      const result = await service.getSalesBySupplier('organization-1');
 
       expect(prisma.productOption.findMany).not.toHaveBeenCalled();
       expect(result[0]).toMatchObject({
@@ -170,7 +170,7 @@ describe('SupplierStatsService', () => {
       ]);
       prisma.orderLineItem.groupBy.mockResolvedValue([]);
 
-      const result = await service.getSalesBySupplier('company-1');
+      const result = await service.getSalesBySupplier('organization-1');
 
       expect(result).toEqual([
         {
@@ -221,7 +221,7 @@ describe('SupplierStatsService', () => {
         // opt-3 — 주문 없음
       ]);
 
-      const result = await service.getProductSales('company-1', 'sup-1');
+      const result = await service.getProductSales('organization-1', 'sup-1');
 
       expect(prisma.supplierProduct.findMany).toHaveBeenCalledWith({
         where: { supplierId: 'sup-1' },
@@ -312,7 +312,7 @@ describe('SupplierStatsService', () => {
         { optionId: 'opt-2', _count: { _all: 1 }, _sum: { quantity: 4, totalPrice: 20_000 } },
       ]);
 
-      const result = await service.getProductSales('company-1', 'sup-1');
+      const result = await service.getProductSales('organization-1', 'sup-1');
 
       // opt-1 은 SupplierProduct 경로에서만 나와야 함 (supplyPrice: 2_000)
       // opt-2 는 MasterSupplierProduct 경로에서 나오고 supplyPrice: null
@@ -330,7 +330,7 @@ describe('SupplierStatsService', () => {
       prisma.supplierProduct.findMany.mockResolvedValue([]);
       prisma.masterSupplierProduct.findMany.mockResolvedValue([]);
 
-      const result = await service.getProductSales('company-1', 'sup-1');
+      const result = await service.getProductSales('organization-1', 'sup-1');
 
       expect(result).toEqual([]);
       expect(prisma.orderLineItem.groupBy).not.toHaveBeenCalled();
@@ -358,7 +358,7 @@ describe('SupplierStatsService', () => {
         },
       ]);
 
-      const timeline = await service.getHistory('company-1', 'sup-1');
+      const timeline = await service.getHistory('organization-1', 'sup-1');
 
       // 최신이 먼저 — 2026-04-15 > 2026-04-10
       expect(timeline[0].type).toBe('payment');
@@ -368,18 +368,18 @@ describe('SupplierStatsService', () => {
       expect(timeline[1].description).toBe('발주 #11111111 - Supplier One');
     });
 
-    it('scopes purchaseOrder + payment by companyId + supplierId', async () => {
+    it('scopes purchaseOrder + payment by organizationId + supplierId', async () => {
       prisma.purchaseOrder.findMany.mockResolvedValue([]);
       prisma.supplierPayment.findMany.mockResolvedValue([]);
 
-      await service.getHistory('company-1', 'sup-1');
+      await service.getHistory('organization-1', 'sup-1');
 
       expect(prisma.purchaseOrder.findMany).toHaveBeenCalledWith({
-        where: { companyId: 'company-1', supplierId: 'sup-1' },
+        where: { organizationId: 'organization-1', supplierId: 'sup-1' },
         orderBy: { orderDate: 'desc' },
       });
       expect(prisma.supplierPayment.findMany).toHaveBeenCalledWith({
-        where: { companyId: 'company-1', supplierId: 'sup-1' },
+        where: { organizationId: 'organization-1', supplierId: 'sup-1' },
         orderBy: { createdAt: 'desc' },
       });
     });

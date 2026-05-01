@@ -6,7 +6,7 @@ import {
 
 const baseTask = {
   id: 'task-1',
-  companyId: 'company-1',
+  organizationId: 'organization-1',
   taskKey: 'inventory.low',
   type: 'reorder',
   label: '재발주 필요',

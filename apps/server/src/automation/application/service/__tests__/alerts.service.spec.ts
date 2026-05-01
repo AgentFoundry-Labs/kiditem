@@ -4,14 +4,14 @@ import { Prisma } from '@prisma/client';
 import { AlertsService, type PromoteAlertInput } from '../alerts.service';
 import { PANEL_EVENTS } from '../../../adapter/out/panel-event/panel-events';
 
-const COMPANY_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+const ORGANIZATION_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const ALERT_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 const TASK_ID = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
 const USER_ID = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
 
 const BASE_ALERT = {
   id: ALERT_ID,
-  companyId: COMPANY_ID,
+  organizationId: ORGANIZATION_ID,
   targetType: null,
   targetId: null,
   type: 'strategy_change',
@@ -25,7 +25,7 @@ const BASE_ALERT = {
 
 const BASE_TASK = {
   id: TASK_ID,
-  companyId: COMPANY_ID,
+  organizationId: ORGANIZATION_ID,
   taskKey: `promoted:${ALERT_ID}`,
   type: 'human',
   label: 'Test alert',
@@ -85,7 +85,7 @@ function mockTransaction(
 
 describe('AlertsService.promote', () => {
   describe('happy path', () => {
-    // Covers: actionTask create + alert update + panel emit + IDOR company scope
+    // Covers: actionTask create + alert update + panel emit + IDOR organization scope
     // + Task 32 unassigned initial state (assigneeUserId=null despite USER_ID passed)
     it('creates actionTask + updates alert + emits panel event (IDOR scope + unassigned)', async () => {
       const { service, prisma, eventEmitter } = makeService();
@@ -95,16 +95,16 @@ describe('AlertsService.promote', () => {
       tx.actionTask.create = vi.fn().mockResolvedValue(BASE_TASK);
       tx.alert.updateMany = vi.fn().mockResolvedValue({ count: 1 });
 
-      const result = await service.promote(ALERT_ID, COMPANY_ID, {}, USER_ID);
+      const result = await service.promote(ALERT_ID, ORGANIZATION_ID, {}, USER_ID);
 
-      // findFirst + updateMany 둘 다 companyId 포함 (IDOR 방어)
+      // findFirst + updateMany 둘 다 organizationId 포함 (IDOR 방어)
       expect(tx.alert.findFirst).toHaveBeenCalledWith(
-        expect.objectContaining({ where: expect.objectContaining({ companyId: COMPANY_ID }) }),
+        expect.objectContaining({ where: expect.objectContaining({ organizationId: ORGANIZATION_ID }) }),
       );
       expect(tx.actionTask.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            companyId: COMPANY_ID,
+            organizationId: ORGANIZATION_ID,
             taskKey: `promoted:${ALERT_ID}`,
             priority: 'urgent', // critical → urgent
             role: 'ad',         // strategy_change → ad
@@ -117,7 +117,7 @@ describe('AlertsService.promote', () => {
         expect.objectContaining({
           where: expect.objectContaining({
             id: ALERT_ID,
-            companyId: COMPANY_ID,
+            organizationId: ORGANIZATION_ID,
             actionTaskId: null,
           }),
           data: { actionTaskId: TASK_ID },
@@ -125,7 +125,7 @@ describe('AlertsService.promote', () => {
       );
       expect(eventEmitter.emit).toHaveBeenCalledWith(
         PANEL_EVENTS.UPSERT,
-        expect.objectContaining({ companyId: COMPANY_ID }),
+        expect.objectContaining({ organizationId: ORGANIZATION_ID }),
       );
       expect(result.task).toEqual(BASE_TASK);
       expect(result.updatedAlert.actionTaskId).toBe(TASK_ID);
@@ -142,7 +142,7 @@ describe('AlertsService.promote', () => {
         actionTaskId: TASK_ID,
       });
 
-      await expect(service.promote(ALERT_ID, COMPANY_ID, {}, USER_ID)).rejects.toThrow(
+      await expect(service.promote(ALERT_ID, ORGANIZATION_ID, {}, USER_ID)).rejects.toThrow(
         ConflictException,
       );
       expect(eventEmitter.emit).not.toHaveBeenCalled();
@@ -150,13 +150,13 @@ describe('AlertsService.promote', () => {
   });
 
   describe('alert not found', () => {
-    it('throws NotFoundException when alert does not exist for companyId', async () => {
+    it('throws NotFoundException when alert does not exist for organizationId', async () => {
       const { service, prisma } = makeService();
       const tx = mockTransaction(prisma);
 
       tx.alert.findFirst = vi.fn().mockResolvedValue(null);
 
-      await expect(service.promote(ALERT_ID, COMPANY_ID, {}, USER_ID)).rejects.toThrow(
+      await expect(service.promote(ALERT_ID, ORGANIZATION_ID, {}, USER_ID)).rejects.toThrow(
         NotFoundException,
       );
     });
@@ -174,7 +174,7 @@ describe('AlertsService.promote', () => {
       });
       tx.actionTask.create = vi.fn().mockRejectedValue(p2002);
 
-      await expect(service.promote(ALERT_ID, COMPANY_ID, {}, USER_ID)).rejects.toThrow(
+      await expect(service.promote(ALERT_ID, ORGANIZATION_ID, {}, USER_ID)).rejects.toThrow(
         new ConflictException('Already promoted (race)'),
       );
       expect(eventEmitter.emit).not.toHaveBeenCalled();
@@ -191,7 +191,7 @@ describe('AlertsService.promote', () => {
       });
       tx.actionTask.create = vi.fn().mockRejectedValue(p2003);
 
-      await expect(service.promote(ALERT_ID, COMPANY_ID, {}, USER_ID)).rejects.toThrow(p2003);
+      await expect(service.promote(ALERT_ID, ORGANIZATION_ID, {}, USER_ID)).rejects.toThrow(p2003);
     });
   });
 
@@ -205,7 +205,7 @@ describe('AlertsService.promote', () => {
       tx.alert.updateMany = vi.fn().mockResolvedValue({ count: 0 });
       tx.actionTask.delete = vi.fn().mockResolvedValue(BASE_TASK);
 
-      await expect(service.promote(ALERT_ID, COMPANY_ID, {}, USER_ID)).rejects.toThrow(
+      await expect(service.promote(ALERT_ID, ORGANIZATION_ID, {}, USER_ID)).rejects.toThrow(
         new ConflictException('Already promoted (race)'),
       );
       expect(tx.actionTask.delete).toHaveBeenCalledWith({ where: { id: TASK_ID } });
@@ -226,7 +226,7 @@ describe('AlertsService.promote', () => {
       });
 
       // Should resolve successfully despite emit throwing
-      const result = await service.promote(ALERT_ID, COMPANY_ID, {}, USER_ID);
+      const result = await service.promote(ALERT_ID, ORGANIZATION_ID, {}, USER_ID);
       expect(result.task).toEqual(BASE_TASK);
     });
   });
@@ -250,7 +250,7 @@ describe('AlertsService.promote', () => {
         callOrder.push('emit_called');
       });
 
-      await service.promote(ALERT_ID, COMPANY_ID, {}, USER_ID);
+      await service.promote(ALERT_ID, ORGANIZATION_ID, {}, USER_ID);
 
       expect(callOrder).toEqual(['$transaction_resolved', 'emit_called']);
     });
@@ -274,7 +274,7 @@ describe('AlertsService.promote', () => {
         tx.actionTask.create = vi.fn().mockResolvedValue({ ...BASE_TASK, priority: expectedPriority });
         tx.alert.updateMany = vi.fn().mockResolvedValue({ count: 1 });
 
-        await service.promote(ALERT_ID, COMPANY_ID, {}, USER_ID);
+        await service.promote(ALERT_ID, ORGANIZATION_ID, {}, USER_ID);
 
         expect(tx.actionTask.create).toHaveBeenCalledWith(
           expect.objectContaining({
@@ -297,7 +297,7 @@ describe('AlertsService.promote', () => {
       tx.actionTask.create = vi.fn().mockResolvedValue(BASE_TASK);
       tx.alert.updateMany = vi.fn().mockResolvedValue({ count: 1 });
 
-      await service.promote(ALERT_ID, COMPANY_ID, input, USER_ID);
+      await service.promote(ALERT_ID, ORGANIZATION_ID, input, USER_ID);
 
       expect(tx.actionTask.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -314,26 +314,26 @@ describe('AlertsService.markAsRead', () => {
     prisma.alert.updateMany.mockResolvedValue({ count: 1 });
     prisma.alert.findFirst.mockResolvedValue({ ...BASE_ALERT, isRead: true });
 
-    const result = await service.markAsRead(ALERT_ID, COMPANY_ID);
+    const result = await service.markAsRead(ALERT_ID, ORGANIZATION_ID);
 
     expect(prisma.alert.updateMany).toHaveBeenCalledWith({
-      where: { id: ALERT_ID, companyId: COMPANY_ID },
+      where: { id: ALERT_ID, organizationId: ORGANIZATION_ID },
       data: { isRead: true },
     });
     expect(prisma.alert.findFirst).toHaveBeenCalledWith({
-      where: { id: ALERT_ID, companyId: COMPANY_ID },
+      where: { id: ALERT_ID, organizationId: ORGANIZATION_ID },
     });
     expect(result).toEqual({ ...BASE_ALERT, isRead: true });
   });
 
-  it('rejects a cross-company alert id without a bare update', async () => {
+  it('rejects a cross-organization alert id without a bare update', async () => {
     const { service, prisma } = makeService();
-    prisma.alert.findUnique.mockResolvedValue({ ...BASE_ALERT, companyId: 'other-company' });
+    prisma.alert.findUnique.mockResolvedValue({ ...BASE_ALERT, organizationId: 'other-organization' });
     prisma.alert.updateMany.mockResolvedValue({ count: 0 });
 
-    await expect(service.markAsRead(ALERT_ID, COMPANY_ID)).rejects.toThrow(NotFoundException);
+    await expect(service.markAsRead(ALERT_ID, ORGANIZATION_ID)).rejects.toThrow(NotFoundException);
     expect(prisma.alert.updateMany).toHaveBeenCalledWith({
-      where: { id: ALERT_ID, companyId: COMPANY_ID },
+      where: { id: ALERT_ID, organizationId: ORGANIZATION_ID },
       data: { isRead: true },
     });
     expect(prisma.alert.update).not.toHaveBeenCalled();
@@ -346,15 +346,15 @@ describe('AlertsService.dismiss', () => {
       const { service, prisma, eventEmitter } = makeService();
       prisma.alert.updateMany.mockResolvedValue({ count: 1 });
 
-      await service.dismiss(ALERT_ID, COMPANY_ID);
+      await service.dismiss(ALERT_ID, ORGANIZATION_ID);
 
       expect(prisma.alert.updateMany).toHaveBeenCalledWith({
-        where: { id: ALERT_ID, companyId: COMPANY_ID },
+        where: { id: ALERT_ID, organizationId: ORGANIZATION_ID },
         data: { isRead: true },
       });
       expect(eventEmitter.emit).toHaveBeenCalledWith(
         PANEL_EVENTS.DISMISS,
-        { itemId: ALERT_ID, companyId: COMPANY_ID },
+        { itemId: ALERT_ID, organizationId: ORGANIZATION_ID },
       );
     });
   });
@@ -364,7 +364,7 @@ describe('AlertsService.dismiss', () => {
       const { service, prisma, eventEmitter } = makeService();
       prisma.alert.updateMany.mockResolvedValue({ count: 0 });
 
-      await expect(service.dismiss(ALERT_ID, COMPANY_ID)).rejects.toThrow(NotFoundException);
+      await expect(service.dismiss(ALERT_ID, ORGANIZATION_ID)).rejects.toThrow(NotFoundException);
       expect(eventEmitter.emit).not.toHaveBeenCalled();
     });
   });
@@ -378,10 +378,10 @@ describe('AlertsService.dismiss', () => {
       });
 
       // Should resolve without throwing
-      await expect(service.dismiss(ALERT_ID, COMPANY_ID)).resolves.toBeUndefined();
+      await expect(service.dismiss(ALERT_ID, ORGANIZATION_ID)).resolves.toBeUndefined();
     });
   });
 
-  // company scope (IDOR) 는 happy path 의 updateMany assertion 에서 companyId 포함
+  // organization scope (IDOR) 는 happy path 의 updateMany assertion 에서 organizationId 포함
   // 확인 → 중복 제거
 });

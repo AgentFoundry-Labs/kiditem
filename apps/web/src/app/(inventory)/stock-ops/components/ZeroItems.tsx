@@ -18,7 +18,7 @@ interface ProductItem {
   name: string;
   sku: string | null;
   category: string | null;
-  company: string;
+  organization: string;
   costPrice: number;
   sellPrice: number;
   currentStock: number;
@@ -173,7 +173,7 @@ export default function ZeroItems() {
                         {formatNumber(item.currentStock)}개
                       </td>
                       <td className="py-2 px-3 text-slate-500 text-xs">
-                        {item.company}
+                        {item.organization}
                       </td>
                     </tr>
                   ))

@@ -7,7 +7,7 @@ import { decodeCursor, encodeCursor } from '../../../util/cursor';
 /**
  * Tenant-scoped read shapes for `ProductOption`.
  *
- * All reads bind `companyId` and exclude soft-deleted rows by default. They
+ * All reads bind `organizationId` and exclude soft-deleted rows by default. They
  * use `findFirst` (never `findUnique`) so the multi-tenant predicate sits in
  * the SQL window — the `check:tenant-scope` scanner forbids bare-id
  * `findUnique`/`findUniqueOrThrow` calls. `findBySku` and `findByBarcode`
@@ -31,7 +31,7 @@ export interface OptionsListPage {
  */
 export async function listOptions(
   prisma: PrismaService,
-  companyId: string,
+  organizationId: string,
   q: ListOptionsQuery,
 ): Promise<OptionsListPage> {
   const limit = q.limit ?? 50;
@@ -57,7 +57,7 @@ export async function listOptions(
   }
 
   const where: Prisma.ProductOptionWhereInput = {
-    companyId,
+    organizationId,
     ...(q.includeDeleted ? {} : { isDeleted: false }),
     ...(q.masterId ? { masterId: q.masterId } : {}),
     ...(q.isBundle !== undefined ? { isBundle: q.isBundle } : {}),
@@ -84,14 +84,14 @@ export async function listOptions(
 
 export async function findOptionById(
   prisma: PrismaService,
-  companyId: string,
+  organizationId: string,
   id: string,
   opts: { includeDeleted?: boolean },
 ): Promise<ProductOption> {
   const row = await prisma.productOption.findFirst({
     where: {
       id,
-      companyId,
+      organizationId,
       ...(opts.includeDeleted ? {} : { isDeleted: false }),
     },
   });
@@ -106,11 +106,11 @@ export async function findOptionById(
  */
 export async function findOptionBySku(
   prisma: PrismaService,
-  companyId: string,
+  organizationId: string,
   sku: string,
 ): Promise<ProductOption> {
   const row = await prisma.productOption.findFirst({
-    where: { sku, companyId, isDeleted: false },
+    where: { sku, organizationId, isDeleted: false },
   });
   if (!row) throw new NotFoundException('option not found');
   return row;
@@ -118,17 +118,17 @@ export async function findOptionBySku(
 
 /**
  * Barcode uniqueness is enforced by partial index
- * (`product_options_company_barcode_active`) — only active rows are unique.
+ * (`product_options_organization_barcode_active`) — only active rows are unique.
  * `findFirst` matches the partial-index semantics and excludes soft-deleted
  * rows.
  */
 export async function findOptionByBarcode(
   prisma: PrismaService,
-  companyId: string,
+  organizationId: string,
   barcode: string,
 ): Promise<ProductOption> {
   const row = await prisma.productOption.findFirst({
-    where: { companyId, barcode, isDeleted: false },
+    where: { organizationId, barcode, isDeleted: false },
   });
   if (!row) throw new NotFoundException('option not found');
   return row;

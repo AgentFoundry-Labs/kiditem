@@ -14,18 +14,18 @@ export type BenchmarkAggregates = {
 
 /**
  * Benchmark aggregation source: `ChannelListingDailySnapshot` over the last
- * 30 inclusive KST businessDates. Returns both the company-wide totals and
+ * 30 inclusive KST businessDates. Returns both the organization-wide totals and
  * per-listing sums. Caller maps each into `AdMetrics` via
  * `domain/ad-metrics.ts::buildAdMetrics` (ratios recompute from sums).
  */
 export async function findBenchmarkAggregates(
   prisma: PrismaService,
-  companyId: string,
+  organizationId: string,
 ): Promise<BenchmarkAggregates> {
   const thirtyDaysAgo = kstInclusiveDaysStart(30);
   const [totals, perListing] = await Promise.all([
     prisma.channelListingDailySnapshot.aggregate({
-      where: { companyId, businessDate: { gte: thirtyDaysAgo } },
+      where: { organizationId, businessDate: { gte: thirtyDaysAgo } },
       _sum: {
         adSpend: true,
         adImpressions: true,
@@ -36,7 +36,7 @@ export async function findBenchmarkAggregates(
     }),
     prisma.channelListingDailySnapshot.groupBy({
       by: ['listingId'],
-      where: { companyId, businessDate: { gte: thirtyDaysAgo } },
+      where: { organizationId, businessDate: { gte: thirtyDaysAgo } },
       _sum: {
         adSpend: true,
         adImpressions: true,

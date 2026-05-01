@@ -26,7 +26,7 @@ function wrap(node: ReactElement) {
 
 const baseTask = {
   id: 'task-0000-aaaa-bbbb-cccc',
-  companyId: 'c1',
+  organizationId: 'c1',
   agentType: 'ad-strategy',
   status: 'succeeded',
   priority: 0,

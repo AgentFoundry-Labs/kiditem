@@ -154,7 +154,7 @@ describe('PickingService — confirmed orders → picking → verification', () 
   });
 
   describe('complete', () => {
-    it('delegates to repository with companyId', async () => {
+    it('delegates to repository with organizationId', async () => {
       repository.completePickingList.mockResolvedValue({ id: 'pl-1', status: 'completed' });
       await service.complete('pl-1', 'c-1');
       expect(repository.completePickingList).toHaveBeenCalledWith('pl-1', 'c-1');

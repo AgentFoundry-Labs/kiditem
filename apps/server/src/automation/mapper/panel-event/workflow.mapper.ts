@@ -8,7 +8,7 @@ import type { PanelRunMapper } from './types';
  *
  * service 호출 예 (workflows.service.ts):
  *   const run = await prisma.workflowRun.findFirst({
- *     where: { id, companyId }, include: { template: { select: { name: true } } }
+ *     where: { id, organizationId }, include: { template: { select: { name: true } } }
  *   });
  *   const steps = Array.isArray(run.steps) ? run.steps : [];
  *   const input: WorkflowRunInput = {
@@ -19,7 +19,7 @@ import type { PanelRunMapper } from './types';
  *     triggeredByUserId: run.triggeredByUserId,
  *     createdAt: run.createdAt,
  *   };
- *   const item = workflowPanelMapper.mapToItem(input, companyId);
+ *   const item = workflowPanelMapper.mapToItem(input, organizationId);
  */
 export interface WorkflowRunInput {
   id: string;
@@ -37,7 +37,7 @@ const VALID_STATUS = new Set<PanelRunItemType['status']>(PanelRunItem.shape.stat
 
 export const workflowPanelMapper: PanelRunMapper<WorkflowRunInput> = {
   source: 'workflow',
-  mapToItem(input, _companyId) {
+  mapToItem(input, _organizationId) {
     const total = input.steps.length;
     const completed = input.steps.filter((s) => s.status === 'succeeded').length;
     const status = VALID_STATUS.has(input.status as PanelRunItemType['status'])
@@ -61,6 +61,6 @@ export const workflowPanelMapper: PanelRunMapper<WorkflowRunInput> = {
     };
   },
   defaultVisibility(input) {
-    return input.triggeredByUserId == null ? 'company' : 'user';
+    return input.triggeredByUserId == null ? 'organization' : 'user';
   },
 };

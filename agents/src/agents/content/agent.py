@@ -64,7 +64,7 @@ class ContentAgent(BaseAgent):
     ) -> dict:
         """Step 1: Generate copywriting + theme colors, write to draft_content."""
         product = await pool.fetchrow(
-            "SELECT id, company_id, raw_data, status FROM products WHERE id = $1",
+            "SELECT id, organization_id, raw_data, status FROM products WHERE id = $1",
             product_id,
         )
         if not product:
@@ -117,7 +117,7 @@ class ContentAgent(BaseAgent):
                     await self._upsert_content_generation(
                         conn,
                         product_id=product_id,
-                        company_id=product["company_id"],
+                        organization_id=product["organization_id"],
                         page_data=draft_data,
                         status="COMPLETED",
                     )
@@ -146,7 +146,7 @@ class ContentAgent(BaseAgent):
             await self._upsert_content_generation(
                 pool,
                 product_id=product_id,
-                company_id=product["company_id"],
+                organization_id=product["organization_id"],
                 status="FAILED",
                 error_message=error_msg[:1000],
             )
@@ -164,7 +164,7 @@ class ContentAgent(BaseAgent):
         progress_callback = task_input.get("_progress_callback")
 
         product = await pool.fetchrow(
-            "SELECT id, company_id, raw_data, status FROM products WHERE id = $1",
+            "SELECT id, organization_id, raw_data, status FROM products WHERE id = $1",
             product_id,
         )
         if not product:
@@ -246,7 +246,7 @@ class ContentAgent(BaseAgent):
                     await self._upsert_content_generation(
                         conn,
                         product_id=product_id,
-                        company_id=product["company_id"],
+                        organization_id=product["organization_id"],
                         page_data=result,
                         status="COMPLETED",
                     )
@@ -270,7 +270,7 @@ class ContentAgent(BaseAgent):
             await self._upsert_content_generation(
                 pool,
                 product_id=product_id,
-                company_id=product["company_id"],
+                organization_id=product["organization_id"],
                 status="FAILED",
                 error_message=error_msg[:1000],
             )
@@ -292,7 +292,7 @@ class ContentAgent(BaseAgent):
             raise ValueError("draftContent snapshot required in task_input for image mode")
 
         product = await pool.fetchrow(
-            "SELECT id, company_id FROM products WHERE id = $1",
+            "SELECT id, organization_id FROM products WHERE id = $1",
             product_id,
         )
         if not product:
@@ -327,7 +327,7 @@ class ContentAgent(BaseAgent):
                     await self._upsert_content_generation(
                         conn,
                         product_id=product_id,
-                        company_id=product["company_id"],
+                        organization_id=product["organization_id"],
                         page_data=page_data,
                         status="COMPLETED",
                     )
@@ -356,7 +356,7 @@ class ContentAgent(BaseAgent):
             await self._upsert_content_generation(
                 pool,
                 product_id=product_id,
-                company_id=product["company_id"],
+                organization_id=product["organization_id"],
                 status="FAILED",
                 error_message=error_msg[:1000],
             )
@@ -368,7 +368,7 @@ class ContentAgent(BaseAgent):
         db: asyncpg.Pool | asyncpg.Connection,
         *,
         product_id: str,
-        company_id: str,
+        organization_id: str,
         page_data: DetailPageData | None = None,
         status: str = "PENDING",
         error_message: str | None = None,
@@ -414,13 +414,13 @@ class ContentAgent(BaseAgent):
             await db.execute(
                 """
                 INSERT INTO content_generations
-                    (id, company_id, product_id, generated_title, detail_page_html,
+                    (id, organization_id, product_id, generated_title, detail_page_html,
                      original_images, processed_images, status, error_message,
                      created_at, updated_at)
                 VALUES
                     (gen_random_uuid(), $1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, NOW(), NOW())
                 """,
-                company_id,
+                organization_id,
                 product_id,
                 generated_title,
                 detail_page_json,

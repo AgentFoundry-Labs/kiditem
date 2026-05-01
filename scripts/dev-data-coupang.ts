@@ -47,7 +47,7 @@ type BundleManifest = {
   description?: string;
   defaultImportMode?: ImportMode;
   scope?: {
-    companyId?: string;
+    organizationId?: string;
     channel?: 'coupang';
     businessDateFrom?: string;
     businessDateTo?: string;
@@ -256,15 +256,15 @@ async function createPrisma(): Promise<PrismaClient> {
   return prisma;
 }
 
-async function resolveCompanyId(
+async function resolveOrganizationId(
   prisma: PrismaClient,
   args: Args,
   manifest: BundleManifest,
 ): Promise<string> {
   const explicit =
-    value(args, 'company-id') ??
-    manifest.scope?.companyId ??
-    process.env.KIDITEM_DEV_COMPANY_ID;
+    value(args, 'organization-id') ??
+    manifest.scope?.organizationId ??
+    process.env.KIDITEM_DEV_ORGANIZATION_ID;
   if (explicit) return explicit;
 
   const userId =
@@ -274,13 +274,13 @@ async function resolveCompanyId(
   if (userId) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { companyId: true },
+      select: { organizationId: true },
     });
-    if (user?.companyId) return user.companyId;
+    if (user?.organizationId) return user.organizationId;
   }
 
   throw new Error(
-    'Company scope is required. Pass --company-id, set KIDITEM_DEV_COMPANY_ID, or set a dev user env.',
+    'Organization scope is required. Pass --organization-id, set KIDITEM_DEV_ORGANIZATION_ID, or set a dev user env.',
   );
 }
 
@@ -291,10 +291,10 @@ function parseBusinessDate(input: string | undefined, label: string): Date {
   return new Date(`${input}T00:00:00.000Z`);
 }
 
-async function cleanupLegacySeedRows(prisma: PrismaClient, companyId: string) {
+async function cleanupLegacySeedRows(prisma: PrismaClient, organizationId: string) {
   const account = await prisma.$executeRaw`
     DELETE FROM channel_account_daily_kpi_snapshots
-    WHERE company_id = ${companyId}::uuid
+    WHERE organization_id = ${organizationId}::uuid
       AND (
         normalized_json->>'seededBy' = ${LEGACY_MARKET_DATA_SEED}
         OR raw_json->>'seededBy' = ${LEGACY_MARKET_DATA_SEED}
@@ -302,22 +302,22 @@ async function cleanupLegacySeedRows(prisma: PrismaClient, companyId: string) {
   `;
   const targets = await prisma.$executeRaw`
     DELETE FROM channel_ad_target_daily_snapshots
-    WHERE company_id = ${companyId}::uuid
+    WHERE organization_id = ${organizationId}::uuid
       AND meta_json->>'seededBy' = ${LEGACY_MARKET_DATA_SEED}
   `;
   const listing = await prisma.$executeRaw`
     DELETE FROM channel_listing_daily_snapshots
-    WHERE company_id = ${companyId}::uuid
+    WHERE organization_id = ${organizationId}::uuid
       AND meta_json->>'seededBy' = ${LEGACY_MARKET_DATA_SEED}
   `;
   const snapshots = await prisma.$executeRaw`
     DELETE FROM channel_scrape_snapshots
-    WHERE company_id = ${companyId}::uuid
+    WHERE organization_id = ${organizationId}::uuid
       AND normalized_json->>'seededBy' = ${LEGACY_MARKET_DATA_SEED}
   `;
   const runs = await prisma.$executeRaw`
     DELETE FROM channel_scrape_runs
-    WHERE company_id = ${companyId}::uuid
+    WHERE organization_id = ${organizationId}::uuid
       AND meta_json->>'seededBy' = ${LEGACY_MARKET_DATA_SEED}
   `;
   return { account, targets, listing, snapshots, runs };
@@ -325,7 +325,7 @@ async function cleanupLegacySeedRows(prisma: PrismaClient, companyId: string) {
 
 async function scopedReplace(
   prisma: PrismaClient,
-  companyId: string,
+  organizationId: string,
   manifest: BundleManifest,
   sources: string[],
 ) {
@@ -334,20 +334,20 @@ async function scopedReplace(
   const to = parseBusinessDate(manifest.scope?.businessDateTo, 'scope.businessDateTo');
 
   const adTargets = await prisma.channelAdTargetDailySnapshot.deleteMany({
-    where: { companyId, channel, businessDate: { gte: from, lte: to } },
+    where: { organizationId, channel, businessDate: { gte: from, lte: to } },
   });
   const optionDaily = await prisma.channelListingOptionDailySnapshot.deleteMany({
-    where: { companyId, channel, businessDate: { gte: from, lte: to } },
+    where: { organizationId, channel, businessDate: { gte: from, lte: to } },
   });
   const listingDaily = await prisma.channelListingDailySnapshot.deleteMany({
-    where: { companyId, channel, businessDate: { gte: from, lte: to } },
+    where: { organizationId, channel, businessDate: { gte: from, lte: to } },
   });
   const accountKpi = await prisma.channelAccountDailyKpiSnapshot.deleteMany({
-    where: { companyId, channel, businessDate: { gte: from, lte: to } },
+    where: { organizationId, channel, businessDate: { gte: from, lte: to } },
   });
   const snapshots = await prisma.channelScrapeSnapshot.deleteMany({
     where: {
-      companyId,
+      organizationId,
       channel,
       source: { in: sources },
       businessDate: { gte: from, lte: to },
@@ -355,7 +355,7 @@ async function scopedReplace(
   });
   const runs = await prisma.channelScrapeRun.deleteMany({
     where: {
-      companyId,
+      organizationId,
       channel,
       source: { in: sources },
       businessDate: { gte: from, lte: to },
@@ -429,10 +429,10 @@ async function commandReplay(args: Args): Promise<unknown> {
     }
     const prisma = await createPrisma();
     try {
-      const companyId = await resolveCompanyId(prisma, args, manifest);
+      const organizationId = await resolveOrganizationId(prisma, args, manifest);
       cleanup = {
-        legacySeed: await cleanupLegacySeedRows(prisma, companyId),
-        scoped: await scopedReplace(prisma, companyId, manifest, [...sources]),
+        legacySeed: await cleanupLegacySeedRows(prisma, organizationId),
+        scoped: await scopedReplace(prisma, organizationId, manifest, [...sources]),
       };
     } finally {
       await prisma.$disconnect();

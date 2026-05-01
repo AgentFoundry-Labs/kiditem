@@ -15,8 +15,8 @@ import {
 } from '@kiditem/shared/agent-trace';
 import type { OrgNode } from './agent-types';
 
-// All endpoints are scoped on the backend via `@CurrentCompany()`. The
-// client must NOT send `companyId` in query/body — that path is untrusted
+// All endpoints are scoped on the backend via `@CurrentOrganization()`. The
+// client must NOT send `organizationId` in query/body — that path is untrusted
 // and the backend would ignore it anyway.
 export const agentApi = {
   list: () => apiClient.get<Agent[]>('/api/agent-registry'),

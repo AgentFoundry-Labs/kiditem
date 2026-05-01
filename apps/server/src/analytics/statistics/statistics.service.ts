@@ -32,28 +32,28 @@ export class StatisticsService {
     };
   }
 
-  private buildOrderWhere(companyId: string, period?: string): Prisma.OrderWhereInput {
+  private buildOrderWhere(organizationId: string, period?: string): Prisma.OrderWhereInput {
     const { from, to } = this.resolveWindow(period);
     return {
-      companyId,
+      organizationId,
       orderedAt: { gte: from, lt: to },
       status: { notIn: [...EXCLUDED_ORDER_STATUSES] },
     };
   }
 
-  private getListingMetrics(companyId: string, period?: string) {
+  private getListingMetrics(organizationId: string, period?: string) {
     const { from, to } = this.resolveWindow(period);
-    return buildPerListingMetrics(this.prisma, companyId, from, to);
+    return buildPerListingMetrics(this.prisma, organizationId, from, to);
   }
 
-  async overview(companyId: string, period?: string) {
+  async overview(organizationId: string, period?: string) {
     const [metrics, totalProducts, totalOrders] = await Promise.all([
-      this.getListingMetrics(companyId, period),
+      this.getListingMetrics(organizationId, period),
       this.prisma.masterProduct.count({
-        where: { companyId, isDeleted: false },
+        where: { organizationId, isDeleted: false },
       }),
       this.prisma.order.count({
-        where: this.buildOrderWhere(companyId, period),
+        where: this.buildOrderWhere(organizationId, period),
       }),
     ]);
 
@@ -70,8 +70,8 @@ export class StatisticsService {
     } satisfies StatisticsOverview;
   }
 
-  async products(companyId: string, period?: string) {
-    const metrics = await this.getListingMetrics(companyId, period);
+  async products(organizationId: string, period?: string) {
+    const metrics = await this.getListingMetrics(organizationId, period);
 
     return [...metrics]
       .sort((a, b) => b.revenue - a.revenue)
@@ -97,8 +97,8 @@ export class StatisticsService {
       } satisfies StatisticsProductRow));
   }
 
-  async categories(companyId: string, period?: string) {
-    const metrics = await this.getListingMetrics(companyId, period);
+  async categories(organizationId: string, period?: string) {
+    const metrics = await this.getListingMetrics(organizationId, period);
 
     const categoryMap = new Map<string, { revenue: number; orders: number; profit: number }>();
 
@@ -121,8 +121,8 @@ export class StatisticsService {
       .sort((a, b) => b.revenue - a.revenue);
   }
 
-  async delivery(companyId: string, period?: string) {
-    const where: Record<string, unknown> = { companyId };
+  async delivery(organizationId: string, period?: string) {
+    const where: Record<string, unknown> = { organizationId };
 
     if (period) {
       const [year, month] = period.split('-').map(Number);
@@ -164,7 +164,7 @@ export class StatisticsService {
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400000);
     const dailyShipments = await this.prisma.shipment.findMany({
       where: {
-        companyId,
+        organizationId,
         shippedAt: { gte: thirtyDaysAgo, lte: now },
       },
       select: { shippedAt: true },
@@ -186,7 +186,7 @@ export class StatisticsService {
     // Daily order counts/revenue (last 30 days)
     const dailyOrders = await this.prisma.order.findMany({
       where: {
-        companyId,
+        organizationId,
         orderedAt: { gte: thirtyDaysAgo, lte: now },
         status: { notIn: ['cancelled', 'returned'] },
       },
@@ -221,8 +221,8 @@ export class StatisticsService {
     } satisfies StatisticsDeliveryResponse;
   }
 
-  async grades(companyId: string, period?: string) {
-    const metrics = await this.getListingMetrics(companyId, period);
+  async grades(organizationId: string, period?: string) {
+    const metrics = await this.getListingMetrics(organizationId, period);
 
     const gradeMap = new Map<string, { revenue: number; profit: number; productCount: number; adCost: number }>();
 
@@ -248,8 +248,8 @@ export class StatisticsService {
       .sort((a, b) => b.revenue - a.revenue);
   }
 
-  async pareto(companyId: string, period?: string) {
-    const metrics = [...await this.getListingMetrics(companyId, period)]
+  async pareto(organizationId: string, period?: string) {
+    const metrics = [...await this.getListingMetrics(organizationId, period)]
       .sort((a, b) => b.revenue - a.revenue);
 
     const totalRevenue = metrics.reduce((sum, metric) => sum + metric.revenue, 0);
@@ -296,9 +296,9 @@ export class StatisticsService {
     } satisfies StatisticsParetoResponse;
   }
 
-  async repurchase(companyId: string, period?: string) {
+  async repurchase(organizationId: string, period?: string) {
     const whereOrder: Prisma.OrderWhereInput = {
-      companyId,
+      organizationId,
       status: { notIn: ['cancelled', 'returned'] },
     };
     if (period) {

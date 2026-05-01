@@ -166,9 +166,9 @@ export const queryKeys = {
     detail: (id: string) => [...queryKeys.sourcing.all, 'detail', id] as const,
     preview: (id: string) => [...queryKeys.sourcing.all, 'preview', id] as const,
   },
-  companies: {
-    all: ['companies'] as const,
-    list: () => [...queryKeys.companies.all, 'list'] as const,
+  organizations: {
+    all: ['organizations'] as const,
+    list: () => [...queryKeys.organizations.all, 'list'] as const,
   },
   suppliers: {
     all: ['suppliers'] as const,

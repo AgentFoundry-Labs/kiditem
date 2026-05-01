@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { createApp, closeApp, TEST_COMPANY_ID } from './setup';
+import { createApp, closeApp, TEST_ORGANIZATION_ID } from './setup';
 
 let api: ReturnType<Awaited<ReturnType<typeof createApp>>['request']>;
 let prisma: Awaited<ReturnType<typeof createApp>>['prisma'];
@@ -84,7 +84,7 @@ describe('Marketplace Agent CRUD — /api/marketplace/agents', () => {
     });
 
     it('lists available agents with installed status', async () => {
-      // companyId 는 DevAuthMiddleware + @CurrentCompany() 로 자동 주입 — 쿼리 불필요
+      // organizationId 는 DevAuthMiddleware + @CurrentOrganization() 로 자동 주입 — 쿼리 불필요
       const res = await api().get('/api/marketplace/agents');
 
       expect(res.status).toBe(200);
@@ -92,10 +92,10 @@ describe('Marketplace Agent CRUD — /api/marketplace/agents', () => {
       expect(res.body[0].name).toBe('매니저 에이전트');
       expect(res.body[0].installed).toBe(false);
 
-      // installed 판정에 사용되는 agentDefinition 조회가 companyId 로 스코프되는지 확인 (multitenancy)
+      // installed 판정에 사용되는 agentDefinition 조회가 organizationId 로 스코프되는지 확인 (multitenancy)
       expect(prisma.agentDefinition.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining({ companyId: TEST_COMPANY_ID }),
+          where: expect.objectContaining({ organizationId: TEST_ORGANIZATION_ID }),
         }),
       );
     });
@@ -122,7 +122,7 @@ describe('Marketplace Agent CRUD — /api/marketplace/agents', () => {
     });
 
     it('installs agent and returns created definition', async () => {
-      // body 는 비어 있어도 되고 — companyId 는 auth context 에서 주입
+      // body 는 비어 있어도 되고 — organizationId 는 auth context 에서 주입
       const res = await api()
         .post(`/api/marketplace/agents/${MARKETPLACE_AGENT_ID}/install`)
         .send({});
@@ -159,10 +159,10 @@ describe('Marketplace Workflow CRUD — /api/marketplace/workflows', () => {
       expect(res.body[0].name).toBe('광고 성과 분석');
       expect(res.body[0].installed).toBe(false);
 
-      // installed 판정에 사용되는 workflowTemplate 조회가 companyId 로 스코프되는지 확인 (multitenancy)
+      // installed 판정에 사용되는 workflowTemplate 조회가 organizationId 로 스코프되는지 확인 (multitenancy)
       expect(prisma.workflowTemplate.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining({ companyId: TEST_COMPANY_ID }),
+          where: expect.objectContaining({ organizationId: TEST_ORGANIZATION_ID }),
         }),
       );
     });

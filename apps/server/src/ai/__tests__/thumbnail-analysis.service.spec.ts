@@ -13,8 +13,8 @@ type MasterRow = {
   createdAt: Date;
 };
 
-const COMPANY_ID = 'company-1';
-const OTHER_COMPANY = 'company-2';
+const ORGANIZATION_ID = 'organization-1';
+const OTHER_COMPANY = 'organization-2';
 const PRODUCT_ID = '7d000000-0000-4000-8000-000000000001';
 
 function makeMaster(overrides: Partial<MasterRow> = {}): MasterRow {
@@ -34,7 +34,7 @@ function makeAnalysisRow(over: Record<string, unknown> = {}) {
   return {
     id: 'analysis-1',
     masterId: PRODUCT_ID,
-    companyId: COMPANY_ID,
+    organizationId: ORGANIZATION_ID,
     imageUrl: 'https://example.com/master.jpg',
     overallScore: 80,
     grade: 'A',
@@ -64,8 +64,8 @@ function makeAnalysisRow(over: Record<string, unknown> = {}) {
 function makePrismaMock(master: MasterRow | null) {
   return {
     masterProduct: {
-      findFirst: vi.fn(async (args: { where: { companyId?: string } }) => {
-        if (master && args.where.companyId === COMPANY_ID) return master;
+      findFirst: vi.fn(async (args: { where: { organizationId?: string } }) => {
+        if (master && args.where.organizationId === ORGANIZATION_ID) return master;
         return null;
       }),
     },
@@ -181,7 +181,7 @@ describe('ThumbnailAnalysisService AI flow', () => {
       vision as never,
       recompose as never,
     );
-    await service.analyzeProduct(PRODUCT_ID, COMPANY_ID, 'quality');
+    await service.analyzeProduct(PRODUCT_ID, ORGANIZATION_ID, 'quality');
     expect(vision.analyzeQuality).toHaveBeenCalledTimes(1);
     expect(vision.analyzeQuality.mock.calls[0][0][0].imageUrl).toBe(
       'https://cdn/primary.jpg',
@@ -197,7 +197,7 @@ describe('ThumbnailAnalysisService AI flow', () => {
       vision as never,
       recompose as never,
     );
-    await service.analyzeProduct(PRODUCT_ID, COMPANY_ID, 'quality');
+    await service.analyzeProduct(PRODUCT_ID, ORGANIZATION_ID, 'quality');
     expect(vision.checkCompliance).not.toHaveBeenCalled();
     expect(recompose.classifyByImage).toHaveBeenCalledTimes(1);
     const upsertArgs = prisma.thumbnailAnalysis.upsert.mock.calls[0][0];
@@ -216,7 +216,7 @@ describe('ThumbnailAnalysisService AI flow', () => {
       vision as never,
       recompose as never,
     );
-    await service.analyzeProduct(PRODUCT_ID, COMPANY_ID, 'compliance');
+    await service.analyzeProduct(PRODUCT_ID, ORGANIZATION_ID, 'compliance');
     expect(vision.analyzeQuality).not.toHaveBeenCalled();
     expect(recompose.classifyByImage).not.toHaveBeenCalled();
     const upsertArgs = prisma.thumbnailAnalysis.upsert.mock.calls[0][0];
@@ -226,7 +226,7 @@ describe('ThumbnailAnalysisService AI flow', () => {
     expect(upsertArgs.update.recompose).toBeUndefined();
   });
 
-  it('throws NotFoundException for another company product id', async () => {
+  it('throws NotFoundException for another organization product id', async () => {
     const prisma = makePrismaMock(null);
     const vision = makeVisionMock({});
     const recompose = makeRecomposeMock();
@@ -250,7 +250,7 @@ describe('ThumbnailAnalysisService AI flow', () => {
       recompose as never,
     );
 
-    await expect(service.analyzeProduct(PRODUCT_ID, COMPANY_ID, 'quality')).rejects.toBeInstanceOf(
+    await expect(service.analyzeProduct(PRODUCT_ID, ORGANIZATION_ID, 'quality')).rejects.toBeInstanceOf(
       ServiceUnavailableException,
     );
     expect(prisma.thumbnailAnalysis.upsert).not.toHaveBeenCalled();
@@ -267,7 +267,7 @@ describe('ThumbnailAnalysisService AI flow', () => {
     );
 
     await expect(
-      service.analyzeProduct(PRODUCT_ID, COMPANY_ID, 'compliance'),
+      service.analyzeProduct(PRODUCT_ID, ORGANIZATION_ID, 'compliance'),
     ).rejects.toBeInstanceOf(ServiceUnavailableException);
     expect(prisma.thumbnailAnalysis.upsert).not.toHaveBeenCalled();
   });
@@ -283,7 +283,7 @@ describe('ThumbnailAnalysisService AI flow', () => {
       recompose as never,
     );
 
-    await expect(service.analyzeProduct(PRODUCT_ID, COMPANY_ID, 'compliance')).rejects.toThrow(
+    await expect(service.analyzeProduct(PRODUCT_ID, ORGANIZATION_ID, 'compliance')).rejects.toThrow(
       'fetch failed',
     );
     expect(prisma.thumbnailAnalysis.upsert).not.toHaveBeenCalled();
@@ -313,7 +313,7 @@ describe('ThumbnailAnalysisService AI flow', () => {
       makeRecomposeMock() as never,
     );
 
-    const result = await service.findAllWithAnalysis(COMPANY_ID);
+    const result = await service.findAllWithAnalysis(ORGANIZATION_ID);
 
     expect(result.analyzed).toBe(0);
     expect(result.gradeDistribution.F).toBe(0);
@@ -323,7 +323,7 @@ describe('ThumbnailAnalysisService AI flow', () => {
     expect(result.unclassified[0].imageSpec?.issues[0]?.type).toBe('low_resolution');
   });
 
-  it('does not render analysis rows whose master is not owned by the caller company', async () => {
+  it('does not render analysis rows whose master is not owned by the caller organization', async () => {
     const crossTenantAnalysis = makeAnalysisRow({
       master: {
         id: PRODUCT_ID,
@@ -340,7 +340,7 @@ describe('ThumbnailAnalysisService AI flow', () => {
       makeRecomposeMock() as never,
     );
 
-    const result = await service.findAllWithAnalysis(COMPANY_ID);
+    const result = await service.findAllWithAnalysis(ORGANIZATION_ID);
 
     expect(result.total).toBe(0);
     expect(result.allResults).toHaveLength(0);

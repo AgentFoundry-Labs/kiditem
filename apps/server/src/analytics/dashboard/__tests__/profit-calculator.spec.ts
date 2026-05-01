@@ -70,7 +70,7 @@ describe('calculateProfitForRange — R-1 shipping per-order', () => {
     ]);
     const from = new Date('2026-04-01T00:00:00Z');
     const to = new Date('2026-05-01T00:00:00Z');
-    const result = await calculateProfitForRange(prisma as any, 'company-1', from, to);
+    const result = await calculateProfitForRange(prisma as any, 'organization-1', from, to);
     expect(result.shippingCost).toBe(3000); // NOT 999 × 3
   });
 
@@ -99,7 +99,7 @@ describe('calculateProfitForRange — R-1 shipping per-order', () => {
     ]);
     const from = new Date('2026-04-01T00:00:00Z');
     const to = new Date('2026-05-01T00:00:00Z');
-    const result = await calculateProfitForRange(prisma as any, 'company-1', from, to);
+    const result = await calculateProfitForRange(prisma as any, 'organization-1', from, to);
     expect(result.shippingCost).toBe(5500);
   });
 
@@ -109,7 +109,7 @@ describe('calculateProfitForRange — R-1 shipping per-order', () => {
     ]);
     const from = new Date('2026-04-01T00:00:00Z');
     const to = new Date('2026-05-01T00:00:00Z');
-    const result = await calculateProfitForRange(prisma as any, 'company-1', from, to);
+    const result = await calculateProfitForRange(prisma as any, 'organization-1', from, to);
     expect(result.shippingCost).toBe(3000);
     expect(result.revenue).toBe(0);
   });
@@ -134,11 +134,11 @@ describe('calculateProfitForRange — R-1 shipping per-order', () => {
     };
     const from = new Date('2026-04-01T00:00:00Z');
     const to = new Date('2026-05-01T00:00:00Z');
-    await calculateProfitForRange(prisma as any, 'company-1', from, to);
+    await calculateProfitForRange(prisma as any, 'organization-1', from, to);
     // The status filter is the service's contract — assert findMany was called with notIn filter
     expect(findManyMock).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
-        companyId: 'company-1',
+        organizationId: 'organization-1',
         status: expect.objectContaining({ notIn: expect.arrayContaining(['cancelled', 'returned', 'refunded']) }),
       }),
     }));
@@ -162,11 +162,11 @@ describe('calculateProfitForRange — daily-fact ad spend aggregation', () => {
     };
     const from = new Date('2026-04-01T00:00:00Z');
     const to = new Date('2026-05-01T00:00:00Z');
-    const result = await calculateProfitForRange(prisma as any, 'company-1', from, to);
+    const result = await calculateProfitForRange(prisma as any, 'organization-1', from, to);
 
     expect(aggregateMock).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
-        companyId: 'company-1',
+        organizationId: 'organization-1',
         businessDate: { gte: from, lt: to },
       }),
       _sum: expect.objectContaining({
@@ -201,7 +201,7 @@ describe('calculateProfitForRange — daily-fact ad spend aggregation', () => {
     };
     const from = new Date('2026-04-01T00:00:00Z');
     const to = new Date('2026-05-01T00:00:00Z');
-    const result = await calculateProfitForRange(prisma as any, 'company-1', from, to);
+    const result = await calculateProfitForRange(prisma as any, 'organization-1', from, to);
     expect(result.adCost).toBe(0);
     expect(result.adRevenue).toBe(0);
     expect(result.adImpressions).toBe(0);

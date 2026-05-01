@@ -10,9 +10,9 @@ import type { GenerationRow } from '../../../mapper/thumbnail-generation.mapper'
 
 /**
  * Tenant-scoped writers for `ThumbnailGeneration` and its candidate / input-
- * image / master-product relations. Each function takes the company scope as
+ * image / master-product relations. Each function takes the organization scope as
  * an explicit argument and binds it on every write — there is no fallback or
- * default-company recovery path.
+ * default-organization recovery path.
  *
  * Writes that span multiple rows ( `applyGeneration`, `replaceGenerationResult`,
  * `removeCandidate`, `reEditJob`) take ownership of `$transaction` here so the
@@ -21,7 +21,7 @@ import type { GenerationRow } from '../../../mapper/thumbnail-generation.mapper'
 
 export interface SaveEditorResultInput {
   productId: string;
-  companyId: string;
+  organizationId: string;
   originalUrl: string | null;
   candidates: ThumbnailEditorCandidate[];
   inputImages?: ThumbnailEditorInputImage[];
@@ -37,7 +37,7 @@ export async function saveEditorResult(
 ): Promise<string> {
   const generation = await prisma.thumbnailGeneration.create({
     data: {
-      companyId: input.companyId,
+      organizationId: input.organizationId,
       masterId: input.productId,
       originalUrl: input.originalUrl,
       method: input.method,
@@ -50,7 +50,7 @@ export async function saveEditorResult(
       triggeredByUserId: input.triggeredByUserId ?? null,
       candidates: {
         create: input.candidates.map((c, index) => ({
-          companyId: input.companyId,
+          organizationId: input.organizationId,
           url: c.url,
           storageKey: c.storageKey ?? null,
           filename: c.filename ?? c.storageKey?.split('/').pop() ?? null,
@@ -64,7 +64,7 @@ export async function saveEditorResult(
       inputImages: input.inputImages?.length
         ? {
             create: input.inputImages.map((img) => ({
-              companyId: input.companyId,
+              organizationId: input.organizationId,
               url: img.url,
               storageKey: img.storageKey,
               role: img.role,
@@ -92,7 +92,7 @@ export async function saveEditorResult(
 export async function createPendingEditJob(
   prisma: PrismaService,
   args: {
-    companyId: string;
+    organizationId: string;
     masterId: string;
     originalUrl: string;
     method: string;
@@ -102,7 +102,7 @@ export async function createPendingEditJob(
 ): Promise<GenerationRow> {
   const generation = await prisma.thumbnailGeneration.create({
     data: {
-      companyId: args.companyId,
+      organizationId: args.organizationId,
       masterId: args.masterId,
       originalUrl: args.originalUrl,
       method: args.method,
@@ -113,25 +113,25 @@ export async function createPendingEditJob(
         ? (args.editAnalysis as unknown as Prisma.InputJsonValue)
         : Prisma.JsonNull,
     },
-    include: generationInclude(args.companyId),
+    include: generationInclude(args.organizationId),
   });
   return generation as unknown as GenerationRow;
 }
 
 /**
  * Update `selectedUrl` (or clear it on de-select), gating the change to the
- * caller's company. When selecting a real URL also flips status/phase to
+ * caller's organization. When selecting a real URL also flips status/phase to
  * succeeded/ready to mirror the legacy behavior.
  */
 export async function setSelectedCandidate(
   prisma: PrismaService,
   id: string,
-  companyId: string,
+  organizationId: string,
   selectedUrl: string | null,
 ): Promise<void> {
   await prisma.$transaction(async (tx) => {
     await tx.thumbnailGeneration.updateMany({
-      where: { id, companyId },
+      where: { id, organizationId },
       data: {
         selectedUrl: selectedUrl,
         ...(selectedUrl ? { status: 'succeeded', phase: 'ready' } : {}),
@@ -153,31 +153,31 @@ export interface ApplyGenerationSelected {
  * Apply the chosen candidate as the master product's primary image. Single
  * transaction owns: write `MasterProduct.imageUrl`, demote any existing
  * primary `MasterProductImage`, insert the new primary image, and flip the
- * generation row to phase=`applied`. All writes bind `companyId`.
+ * generation row to phase=`applied`. All writes bind `organizationId`.
  */
 export async function applyGenerationToMaster(
   prisma: PrismaService,
   args: {
     id: string;
-    companyId: string;
+    organizationId: string;
     masterId: string;
     selected: ApplyGenerationSelected | null;
   },
 ): Promise<void> {
-  const { id, companyId, masterId, selected } = args;
+  const { id, organizationId, masterId, selected } = args;
   await prisma.$transaction(async (tx) => {
     if (selected) {
       await tx.masterProduct.updateMany({
-        where: { id: masterId, companyId, isDeleted: false },
+        where: { id: masterId, organizationId, isDeleted: false },
         data: { imageUrl: selected.url },
       });
       await tx.masterProductImage.updateMany({
-        where: { companyId, masterId, isDeleted: false },
+        where: { organizationId, masterId, isDeleted: false },
         data: { isPrimary: false },
       });
       await tx.masterProductImage.create({
         data: {
-          companyId,
+          organizationId,
           masterId,
           url: selected.url,
           storageKey: selected.storageKey,
@@ -194,7 +194,7 @@ export async function applyGenerationToMaster(
       });
     }
     await tx.thumbnailGeneration.updateMany({
-      where: { id, companyId },
+      where: { id, organizationId },
       data: { status: 'succeeded', phase: 'applied', selectedUrl: selected?.url ?? null },
     });
   });
@@ -203,10 +203,10 @@ export async function applyGenerationToMaster(
 export async function markGenerationCancelled(
   prisma: PrismaService,
   id: string,
-  companyId: string,
+  organizationId: string,
 ): Promise<void> {
   await prisma.thumbnailGeneration.updateMany({
-    where: { id, companyId },
+    where: { id, organizationId },
     data: { status: 'cancelled', phase: null },
   });
 }
@@ -214,9 +214,9 @@ export async function markGenerationCancelled(
 export async function deleteGeneration(
   prisma: PrismaService,
   id: string,
-  companyId: string,
+  organizationId: string,
 ): Promise<void> {
-  await prisma.thumbnailGeneration.deleteMany({ where: { id, companyId } });
+  await prisma.thumbnailGeneration.deleteMany({ where: { id, organizationId } });
 }
 
 /**
@@ -228,23 +228,23 @@ export async function removeCandidate(
   prisma: PrismaService,
   args: {
     id: string;
-    companyId: string;
+    organizationId: string;
     candidateId: string;
     candidateUrl: string;
     selectedUrl: string | null;
     remainingAfterDelete: number;
   },
 ): Promise<void> {
-  const { id, companyId, candidateId, candidateUrl, selectedUrl, remainingAfterDelete } = args;
+  const { id, organizationId, candidateId, candidateUrl, selectedUrl, remainingAfterDelete } = args;
   await prisma.$transaction(async (tx) => {
-    await tx.thumbnailGenerationCandidate.deleteMany({ where: { id: candidateId, companyId } });
+    await tx.thumbnailGenerationCandidate.deleteMany({ where: { id: candidateId, organizationId } });
     if (remainingAfterDelete === 0) {
-      await tx.thumbnailGeneration.deleteMany({ where: { id, companyId } });
+      await tx.thumbnailGeneration.deleteMany({ where: { id, organizationId } });
       return;
     }
     if (selectedUrl === candidateUrl) {
       await tx.thumbnailGeneration.updateMany({
-        where: { id, companyId },
+        where: { id, organizationId },
         data: { selectedUrl: null },
       });
     }
@@ -261,18 +261,18 @@ export async function resetGenerationForReEdit(
   prisma: PrismaService,
   args: {
     id: string;
-    companyId: string;
+    organizationId: string;
     purpose: 'compliance' | 'quality';
     variantKey: 'auto' | 'with-box' | 'no-box' | null;
   },
 ): Promise<void> {
-  const { id, companyId, purpose, variantKey } = args;
+  const { id, organizationId, purpose, variantKey } = args;
   await prisma.$transaction(async (tx) => {
     await tx.thumbnailGenerationCandidate.deleteMany({
-      where: { generationId: id, companyId },
+      where: { generationId: id, organizationId },
     });
     await tx.thumbnailGeneration.updateMany({
-      where: { id, companyId },
+      where: { id, organizationId },
       data: {
         status: 'pending',
         phase: null,
@@ -292,15 +292,15 @@ export async function resetGenerationForReEdit(
  * Atomically lock a pending/running generation into `running` and increment
  * its attempt counter. Returns true when the lock was taken so the caller
  * knows whether to proceed; returns false if the row was already locked or no
- * longer exists in the caller's company.
+ * longer exists in the caller's organization.
  */
 export async function lockGenerationForProcessing(
   prisma: PrismaService,
   id: string,
-  companyId: string,
+  organizationId: string,
 ): Promise<boolean> {
   const locked = await prisma.thumbnailGeneration.updateMany({
-    where: { id, companyId, status: { in: ['pending', 'running'] } },
+    where: { id, organizationId, status: { in: ['pending', 'running'] } },
     data: {
       status: 'running',
       phase: null,
@@ -320,26 +320,26 @@ export async function replaceGenerationResult(
   prisma: PrismaService,
   args: {
     generationId: string;
-    companyId: string;
+    organizationId: string;
     candidates: ThumbnailEditorCandidate[];
     inputImages: ThumbnailEditorInputImage[];
     inputMeta: Prisma.InputJsonValue;
     editAnalysis: EditAnalysisResult | null;
   },
 ): Promise<void> {
-  const { generationId, companyId, candidates, inputImages, inputMeta, editAnalysis } = args;
+  const { generationId, organizationId, candidates, inputImages, inputMeta, editAnalysis } = args;
   await prisma.$transaction(async (tx) => {
     const current = await tx.thumbnailGeneration.findFirst({
-      where: { id: generationId, companyId, status: 'running' },
+      where: { id: generationId, organizationId, status: 'running' },
       select: { id: true },
     });
     if (!current) return;
-    await tx.thumbnailGenerationCandidate.deleteMany({ where: { generationId, companyId } });
-    await tx.thumbnailGenerationInputImage.deleteMany({ where: { generationId, companyId } });
+    await tx.thumbnailGenerationCandidate.deleteMany({ where: { generationId, organizationId } });
+    await tx.thumbnailGenerationInputImage.deleteMany({ where: { generationId, organizationId } });
     if (candidates.length > 0) {
       await tx.thumbnailGenerationCandidate.createMany({
         data: candidates.map((candidate, index) => ({
-          companyId,
+          organizationId,
           generationId,
           url: candidate.url,
           storageKey: candidate.storageKey ?? null,
@@ -355,7 +355,7 @@ export async function replaceGenerationResult(
     if (inputImages.length > 0) {
       await tx.thumbnailGenerationInputImage.createMany({
         data: inputImages.map((img) => ({
-          companyId,
+          organizationId,
           generationId,
           url: img.url,
           storageKey: img.storageKey,
@@ -371,7 +371,7 @@ export async function replaceGenerationResult(
       });
     }
     await tx.thumbnailGeneration.updateMany({
-      where: { id: generationId, companyId, status: 'running' },
+      where: { id: generationId, organizationId, status: 'running' },
       data: {
         status: 'succeeded',
         phase: 'ready',
@@ -389,12 +389,12 @@ export async function replaceGenerationResult(
 export async function markGenerationFailed(
   prisma: PrismaService,
   id: string,
-  companyId: string,
+  organizationId: string,
   message: string,
 ): Promise<void> {
   await prisma.thumbnailGeneration
     .updateMany({
-      where: { id, companyId, status: 'running' },
+      where: { id, organizationId, status: 'running' },
       data: { status: 'failed', phase: null, errorMessage: message },
     })
     .catch(() => {});

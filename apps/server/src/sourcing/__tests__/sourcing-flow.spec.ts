@@ -43,11 +43,11 @@ describe('SourcingService — extension data ingestion', () => {
         price: 15.5,
         images: ['https://img1.jpg'],
       },
-      'company-1',
+      'organization-1',
     )).rejects.toThrow(NotImplementedException);
 
     expect(prisma.masterProduct.findFirst).toHaveBeenCalledWith({
-      where: { sourceUrl: 'https://1688.com/item/12345', companyId: 'company-1' },
+      where: { sourceUrl: 'https://1688.com/item/12345', organizationId: 'organization-1' },
     });
     expect(prisma.masterProduct.create).not.toHaveBeenCalled();
     expect(prisma.masterProduct.update).not.toHaveBeenCalled();
@@ -66,7 +66,7 @@ describe('SourcingService — extension data ingestion', () => {
         source_platform: '1688',
         price: 18.0,
       },
-      'company-1',
+      'organization-1',
     );
 
     expect(prisma.masterProduct.update).toHaveBeenCalledWith(
@@ -94,7 +94,7 @@ describe('SourcingService — extension data ingestion', () => {
         source_platform: '1688',
         priceRange: '12.5-25.0',
       },
-      'company-1',
+      'organization-1',
     );
 
     expect(prisma.masterProduct.update).toHaveBeenCalledWith(
@@ -107,7 +107,7 @@ describe('SourcingService — extension data ingestion', () => {
     );
   });
 
-  it('companyId scopes source_url lookup before updating a matched product', async () => {
+  it('organizationId scopes source_url lookup before updating a matched product', async () => {
     prisma.masterProduct.findFirst.mockResolvedValue({ id: 'prod-3' });
     prisma.masterProduct.update.mockResolvedValue({ id: 'prod-3' });
 
@@ -119,11 +119,11 @@ describe('SourcingService — extension data ingestion', () => {
         source_platform: 'alibaba',
         price: 8.0,
       },
-      'company-A',
+      'organization-A',
     );
 
     expect(prisma.masterProduct.findFirst).toHaveBeenCalledWith({
-      where: { sourceUrl: 'https://alibaba.com/product/abc', companyId: 'company-A' },
+      where: { sourceUrl: 'https://alibaba.com/product/abc', organizationId: 'organization-A' },
     });
     expect(prisma.masterProduct.update).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -144,7 +144,7 @@ describe('SourcingService — extension data ingestion', () => {
         source_platform: '1688',
         total_found: 42,
       },
-      'company-1',
+      'organization-1',
     );
 
     expect(prisma.masterProduct.findFirst).not.toHaveBeenCalled();
@@ -153,11 +153,11 @@ describe('SourcingService — extension data ingestion', () => {
     expect(result.ok).toBe(true);
   });
 
-  it('scrapeUrl → delegates to SourcingAgentGatewayPort with companyId scope', async () => {
-    const result = await service.scrapeUrl('https://1688.com/item/77', 'company-2');
+  it('scrapeUrl → delegates to SourcingAgentGatewayPort with organizationId scope', async () => {
+    const result = await service.scrapeUrl('https://1688.com/item/77', 'organization-2');
 
     expect(agentGateway.scrapeUrl).toHaveBeenCalledWith({
-      companyId: 'company-2',
+      organizationId: 'organization-2',
       url: 'https://1688.com/item/77',
     });
     expect(result.taskId).toBe('task-1');

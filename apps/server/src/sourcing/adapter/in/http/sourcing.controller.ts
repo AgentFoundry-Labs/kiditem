@@ -5,7 +5,7 @@ import {
   ScrapeUrlBodyDto,
   ListExtensionProductsQueryDto,
 } from './dto';
-import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
+import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 
 @Controller('sourcing')
 export class SourcingController {
@@ -16,24 +16,24 @@ export class SourcingController {
   @Post('extension/product-data')
   async receiveExtensionData(
     @Body() data: ReceiveExtensionDataBody,
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
   ) {
-    return this.sourcingService.receiveExtensionData(data, companyId);
+    return this.sourcingService.receiveExtensionData(data, organizationId);
   }
 
   @Post('scrape-url')
   async scrapeUrl(
     @Body() body: ScrapeUrlBodyDto,
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
   ) {
-    return this.sourcingService.scrapeUrl(body.url.trim(), companyId);
+    return this.sourcingService.scrapeUrl(body.url.trim(), organizationId);
   }
 
   @Get('extension/products')
   listProducts(
     @Query() query: ListExtensionProductsQueryDto,
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
   ) {
-    return this.sourcingService.listProducts(query, companyId);
+    return this.sourcingService.listProducts(query, organizationId);
   }
 }

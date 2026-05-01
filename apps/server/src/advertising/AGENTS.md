@@ -1,7 +1,7 @@
 # advertising — Ad Operations
 
 광고 관리 도메인. products 3-layer schema (MasterProduct / ProductOption / ChannelListing) 기반.
-Multi-tenant scope rule 준수 — 모든 service 가 companyId 말미 파라미터 + `@CurrentCompany()` decorator 를 통해 전파.
+Multi-tenant scope rule 준수 — 모든 service 가 organizationId 말미 파라미터 + `@CurrentOrganization()` decorator 를 통해 전파.
 
 ## Reconstruction note
 
@@ -45,7 +45,7 @@ Channel market-data pipeline was rewritten in 4 phases (H1 schema → H2 ingest 
 - **`buildAdTargetKey()` single source** — `apps/server/src/advertising/util/ad-target-key.ts` builds `ChannelAdTargetDailySnapshot.targetKey`. Patterns: `campaign:<id|name>` / `keyword:<id|name>:<adGroup>:<keyword>` / `product:<externalId|listingId>:<id|name>`. Throws when no usable identifier — no `unknown:unknown` rows.
 - **Account/store KPI rules** — listing 에 귀속되지 않는 dashboard KPI 는 `ChannelAccountDailyKpiSnapshot` 으로 land. `kpiType`: `wing_dashboard` (traffic/dashboard payload), `wing_itemwinner_kpi` (raw_scrape wing kpi), `advertising_campaign_kpis` (ad_campaign top-level kpis), `coupang_ads_daily` (coupang ads daily aggregate).
 - **`AdAction.adTargetDailyId`** — `AdAction` 의 source row 는 `ChannelAdTargetDailySnapshot.id`. 이전 `snapshotId`/`AdSnapshot` 컬럼은 H4 에서 제거됨.
-- **Multi-tenant**: 모든 read 는 `companyId` 를 WHERE 에 포함. Single-resource GET/PATCH/DELETE 는 `findFirst({ where: { id, companyId } })`.
+- **Multi-tenant**: 모든 read 는 `organizationId` 를 WHERE 에 포함. Single-resource GET/PATCH/DELETE 는 `findFirst({ where: { id, organizationId } })`.
 
 ### Cross-domain coupling exception
 
@@ -60,7 +60,7 @@ Channel market-data pipeline was rewritten in 4 phases (H1 schema → H2 ingest 
 
 ## Structure
 
-- **Controller**: `adapter/in/http/advertising.controller.ts` — all `/api/ads/*` routes (14+ endpoints), `@CurrentCompany()` 주입
+- **Controller**: `adapter/in/http/advertising.controller.ts` — all `/api/ads/*` routes (14+ endpoints), `@CurrentOrganization()` 주입
 - **Persistence adapters**: `adapter/out/prisma/*.persistence.ts` — `ad-action` / `ad-execution` / `channel-scrape-run` / `channel-daily-fact` / `channel-account-kpi` / `scrape-target`
 - **Query adapters**: `adapter/out/prisma/*.query.ts` — `ad-action` / `ad-benchmark` / `ad-campaign` / `ad-listing` / `ad-strategy-context` / `ad-sync-listing-map`
 - **Application services**: `application/service/`
@@ -79,7 +79,7 @@ Channel market-data pipeline was rewritten in 4 phases (H1 schema → H2 ingest 
 Extension scrape (Coupang vendor_item_id, external_id)
     ↓ POST /api/ads/extension/sync
 AdSyncService.sync
-  ↳ buildListingMap(companyId): externalOptionIdMap + externalIdMap
+  ↳ buildListingMap(organizationId): externalOptionIdMap + externalIdMap
        ↳ externalOptionIdMap entries carry { listingId, listingOptionId, optionId|null, externalId }
   ↳ matchListingFromRow returns ListingMatch { listingId, listingOptionId, optionId, externalId, externalOptionId } 우선순위:
       1) Coupang vendorItemId → ChannelListingOption.externalOptionId → {listingId, listingOptionId, optionId|null}
@@ -168,9 +168,9 @@ Threshold (5000 / 100/200/480 / 0.85 / 1.2 / 0.5 / 3000) 는 현재 하드코딩
 
 ## Multi-tenant scope rule 준수
 
-- 모든 service 메서드는 `companyId: string` 을 **마지막 파라미터** 로 받음
-- `getDefaultCompanyId()` / `prisma.company.findFirst({isActive:true})` 금지
-- IDOR 방지: GET/PATCH/DELETE 단일 리소스 접근 시 `findFirst({id, companyId})`
+- 모든 service 메서드는 `organizationId: string` 을 **마지막 파라미터** 로 받음
+- `getDefaultOrganizationId()` / `prisma.organization.findFirst({isActive:true})` 금지
+- IDOR 방지: GET/PATCH/DELETE 단일 리소스 접근 시 `findFirst({id, organizationId})`
 
 ## Matching 우선순위 불변
 

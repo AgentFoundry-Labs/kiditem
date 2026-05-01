@@ -36,7 +36,7 @@ import {
  *
  * Invariants (all preserved across the Phase 3B split):
  *   - SKU generation runs inside a `$transaction` with the 2-step shape
- *     `masterProduct.updateMany({id, companyId, isDeleted:false})` →
+ *     `masterProduct.updateMany({id, organizationId, isDeleted:false})` →
  *     tenant-scoped `findFirst` reread → `productOption.create`. The race
  *     guard + TOCTOU + counter increment all live in
  *     `incrementMasterOptionCounter` so they cannot drift apart.
@@ -66,54 +66,54 @@ export class OptionsService {
   ) {}
 
   async create(
-    companyId: string,
+    organizationId: string,
     dto: CreateOptionDto,
     outerTx?: Prisma.TransactionClient,
   ): Promise<ProductOption> {
     const exec = async (tx: Prisma.TransactionClient) => {
-      const master = await incrementMasterOptionCounter(tx, companyId, dto.masterId);
+      const master = await incrementMasterOptionCounter(tx, organizationId, dto.masterId);
       const sku = buildOptionSku(master.code, master.optionCounter);
       const stripped = stripProductOptionSystemFields(dto);
-      return createOptionWithSku(tx, companyId, dto.masterId, sku, stripped);
+      return createOptionWithSku(tx, organizationId, dto.masterId, sku, stripped);
     };
     return outerTx
       ? exec(outerTx)
       : this.prisma.$transaction(exec, { timeout: 15000 });
   }
 
-  async list(companyId: string, q: ListOptionsQuery): Promise<OptionsListPage> {
-    return listOptions(this.prisma, companyId, q);
+  async list(organizationId: string, q: ListOptionsQuery): Promise<OptionsListPage> {
+    return listOptions(this.prisma, organizationId, q);
   }
 
   async findById(
-    companyId: string,
+    organizationId: string,
     id: string,
     opts: { includeDeleted?: boolean },
   ): Promise<ProductOption> {
-    return findOptionById(this.prisma, companyId, id, opts);
+    return findOptionById(this.prisma, organizationId, id, opts);
   }
 
-  async findBySku(companyId: string, sku: string): Promise<ProductOption> {
-    return findOptionBySku(this.prisma, companyId, sku);
+  async findBySku(organizationId: string, sku: string): Promise<ProductOption> {
+    return findOptionBySku(this.prisma, organizationId, sku);
   }
 
-  async findByBarcode(companyId: string, barcode: string): Promise<ProductOption> {
-    return findOptionByBarcode(this.prisma, companyId, barcode);
+  async findByBarcode(organizationId: string, barcode: string): Promise<ProductOption> {
+    return findOptionByBarcode(this.prisma, organizationId, barcode);
   }
 
   async update(
-    companyId: string,
+    organizationId: string,
     id: string,
     dto: UpdateOptionDto,
     outerTx?: Prisma.TransactionClient,
   ): Promise<ProductOption> {
     const exec = async (tx: Prisma.TransactionClient) => {
-      const current = await findCurrentOption(tx, companyId, id);
+      const current = await findCurrentOption(tx, organizationId, id);
       const flip = classifyBundleFlip(current.isBundle, dto.isBundle);
       if (flip === 'enable-to-disable') {
-        await assertNoBundleComponents(tx, companyId, id);
+        await assertNoBundleComponents(tx, organizationId, id);
       } else if (flip === 'disable-to-enable') {
-        await assertNotUsedAsComponent(tx, companyId, id);
+        await assertNotUsedAsComponent(tx, organizationId, id);
       }
 
       const stripped = stripProductOptionSystemFields(dto);
@@ -121,7 +121,7 @@ export class OptionsService {
         { ...stripped } as Prisma.ProductOptionUncheckedUpdateInput,
         dto,
       );
-      return applyOptionPatch(tx, companyId, id, data);
+      return applyOptionPatch(tx, organizationId, id, data);
     };
     return outerTx
       ? exec(outerTx)
@@ -129,15 +129,15 @@ export class OptionsService {
   }
 
   async softDelete(
-    companyId: string,
+    organizationId: string,
     id: string,
     outerTx?: Prisma.TransactionClient,
   ): Promise<void> {
     const exec = async (tx: Prisma.TransactionClient) => {
-      await softDeleteOptionRow(tx, companyId, id);
-      const bundleIds = await findBundleIdsUsingComponent(tx, companyId, id);
+      await softDeleteOptionRow(tx, organizationId, id);
+      const bundleIds = await findBundleIdsUsingComponent(tx, organizationId, id);
       for (const bundleId of bundleIds) {
-        await this.bundleStock.recompute(companyId, bundleId, tx);
+        await this.bundleStock.recompute(organizationId, bundleId, tx);
       }
     };
     await (outerTx
@@ -146,10 +146,10 @@ export class OptionsService {
   }
 
   async restore(
-    companyId: string,
+    organizationId: string,
     id: string,
     outerTx?: Prisma.TransactionClient,
   ): Promise<void> {
-    await restoreOptionRow(outerTx ?? this.prisma, companyId, id);
+    await restoreOptionRow(outerTx ?? this.prisma, organizationId, id);
   }
 }

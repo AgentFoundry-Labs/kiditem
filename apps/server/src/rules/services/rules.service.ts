@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { randomUUID } from 'node:crypto';
@@ -14,7 +14,7 @@ import type { RuleItem } from '@kiditem/shared/rules';
 import type { EvaluationResult, ProductEvalResult } from './types';
 
 @Injectable()
-export class RulesService implements OnModuleInit {
+export class RulesService {
   private readonly logger = new Logger(RulesService.name);
 
   private static readonly PANEL_EMIT_BATCH_CAP = 50;
@@ -26,14 +26,10 @@ export class RulesService implements OnModuleInit {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
-  async onModuleInit(): Promise<void> {
-    await this.seedRulesIfEmpty();
-  }
-
-  async evaluateAll(companyId: string): Promise<EvaluationResult> {
+  async evaluateAll(organizationId: string): Promise<EvaluationResult> {
     const result = await this.agentRunner.runByType('rules_evaluation', {
-      companyId,
-      extra: { company_id: companyId },
+      organizationId,
+      extra: { organization_id: organizationId },
     });
 
     this.logger.log(`Rules evaluation spawned: ${result.taskId}`);
@@ -44,18 +40,18 @@ export class RulesService implements OnModuleInit {
   async onResultReady(event: AgentResultReadyEvent): Promise<void> {
     if (event.agentType !== 'rules_evaluation') return;
 
-    const companyId = event.companyId;
+    const organizationId = event.organizationId;
     const products = (event.resultJson.products as ProductEvalResult[]) || [];
 
     try {
       // 2-1. healthScore 일괄 업데이트 — Prisma updateMany + $transaction.
-      // event.companyId 가 신뢰 경계. 각 update 는 (id, companyId) 로 스코프 → 다른 회사 master 가 섞일 수 없음.
+      // event.organizationId 가 신뢰 경계. 각 update 는 (id, organizationId) 로 스코프 → 다른 회사 master 가 섞일 수 없음.
       if (products.length > 0) {
         const now = new Date();
         await this.prisma.$transaction(
           products.map((r) =>
             this.prisma.masterProduct.updateMany({
-              where: { id: r.masterId, companyId },
+              where: { id: r.masterId, organizationId },
               data: { healthScore: r.healthScore, healthUpdatedAt: now },
             }),
           ),
@@ -65,7 +61,7 @@ export class RulesService implements OnModuleInit {
       // 2-2. activity_events 기록
       const events = products.flatMap((r) =>
         r.violations.map((v) => ({
-          companyId,
+          organizationId,
           objectType: 'product',
           objectId: r.masterId,
           eventType: 'rule_violation',
@@ -90,7 +86,7 @@ export class RulesService implements OnModuleInit {
         r.violations
           .filter((v) => v.severity === 'critical')
           .map((v) => ({
-            companyId,
+            organizationId,
             targetType: 'master',
             targetId: r.masterId,
             type: 'rule_violation',
@@ -108,7 +104,7 @@ export class RulesService implements OnModuleInit {
             this.eventEmitter.emit(PANEL_EVENTS.UPSERT, {
               item: alertPanelMapper.mapToItem({
                 id: randomUUID(),
-                companyId,
+                organizationId,
                 targetType: null,
                 targetId: null,
                 type: 'batch_summary',
@@ -119,13 +115,13 @@ export class RulesService implements OnModuleInit {
                 actionTaskId: null,
                 createdAt: new Date(),
               }),
-              companyId,
+              organizationId,
             });
           } else {
             for (const alert of inserted) {
               this.eventEmitter.emit(PANEL_EVENTS.UPSERT, {
                 item: alertPanelMapper.mapToItem(alert),
-                companyId,
+                organizationId,
               });
             }
           }
@@ -150,7 +146,7 @@ export class RulesService implements OnModuleInit {
     });
   }
 
-  async getSummary(companyId: string): Promise<{
+  async getSummary(organizationId: string): Promise<{
     total: number;
     healthy: number;
     warning: number;
@@ -161,19 +157,19 @@ export class RulesService implements OnModuleInit {
   }> {
     const [healthy, warning, critical, total, lastEval] = await Promise.all([
       this.prisma.masterProduct.count({
-        where: { companyId, isDeleted: false, healthScore: { gte: 70 } },
+        where: { organizationId, isDeleted: false, healthScore: { gte: 70 } },
       }),
       this.prisma.masterProduct.count({
-        where: { companyId, isDeleted: false, healthScore: { gte: 40, lt: 70 } },
+        where: { organizationId, isDeleted: false, healthScore: { gte: 40, lt: 70 } },
       }),
       this.prisma.masterProduct.count({
-        where: { companyId, isDeleted: false, healthScore: { lt: 40 } },
+        where: { organizationId, isDeleted: false, healthScore: { lt: 40 } },
       }),
       this.prisma.masterProduct.count({
-        where: { companyId, isDeleted: false },
+        where: { organizationId, isDeleted: false },
       }),
       this.prisma.masterProduct.findFirst({
-        where: { companyId, isDeleted: false, healthUpdatedAt: { not: null } },
+        where: { organizationId, isDeleted: false, healthUpdatedAt: { not: null } },
         orderBy: { healthUpdatedAt: 'desc' },
         select: { healthUpdatedAt: true },
       }),
@@ -182,7 +178,7 @@ export class RulesService implements OnModuleInit {
     const notEvaluated = total - healthy - warning - critical;
 
     const topCritical = await this.prisma.masterProduct.findMany({
-      where: { companyId, isDeleted: false, healthScore: { lt: 40 } },
+      where: { organizationId, isDeleted: false, healthScore: { lt: 40 } },
       orderBy: { healthScore: 'asc' },
       take: 5,
       select: { id: true, name: true, healthScore: true, abcGrade: true },
@@ -199,17 +195,17 @@ export class RulesService implements OnModuleInit {
     };
   }
 
-  async findAllRules(companyId: string, category?: string) {
+  async findAllRules(organizationId: string, category?: string) {
     const rows = await this.prisma.businessRule.findMany({
       where: {
-        companyId,
+        organizationId,
         ...(category ? { category } : {}),
       },
       orderBy: { sortOrder: 'asc' },
     });
     return rows.map((r) => ({
       id: r.id,
-      companyId: r.companyId,
+      organizationId: r.organizationId,
       name: r.name,
       displayName: r.displayName,
       description: r.description,
@@ -231,14 +227,14 @@ export class RulesService implements OnModuleInit {
 
   async updateRule(
     id: string,
-    companyId: string,
+    organizationId: string,
     data: { threshold?: unknown; active?: boolean; autoExecute?: boolean },
   ) {
     // Tenant-scoped read first — IDOR prevention. Mirrors AlertsService.markAsRead
     // and the kiditem standard pattern in apps/server/AGENTS.md
     // (멀티테넌트 격리 — 회사 스코프).
     const existing = await this.prisma.businessRule.findFirst({
-      where: { id, companyId },
+      where: { id, organizationId },
     });
     if (!existing) throw new NotFoundException('Rule not found');
 
@@ -252,26 +248,14 @@ export class RulesService implements OnModuleInit {
     });
   }
 
-  async suggestThresholds(companyId: string): Promise<{ taskId: string | undefined; status: string }> {
+  async suggestThresholds(organizationId: string): Promise<{ taskId: string | undefined; status: string }> {
     const result = await this.agentRunner.runByType('rules_suggest', {
-      companyId,
-      extra: { company_id: companyId },
+      organizationId,
+      extra: { organization_id: organizationId },
     });
 
     return { taskId: result.taskId, status: 'running' };
   }
 
   // ── Private ──
-
-  private async seedRulesIfEmpty(): Promise<void> {
-    const firstCompany = await this.prisma.company.findFirst();
-    if (!firstCompany) return;
-
-    const existing = await this.prisma.businessRule.count({
-      where: { companyId: firstCompany.id },
-    });
-    if (existing > 0) return;
-
-    this.logger.warn('No rules in DB — seed manually or use RULES.md');
-  }
 }

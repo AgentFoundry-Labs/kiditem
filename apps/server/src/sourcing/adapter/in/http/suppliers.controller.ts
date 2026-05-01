@@ -1,33 +1,33 @@
 import { Controller, Get, Post, Patch, Delete, Param, Body } from '@nestjs/common';
 import { SuppliersService } from '../../../application/service/suppliers.service';
 import { CreateSupplierDto, UpdateSupplierDto } from './dto';
-import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
+import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 
 @Controller('suppliers')
 export class SuppliersController {
   constructor(private readonly suppliersService: SuppliersService) {}
 
   @Get()
-  async findAll(@CurrentCompany() companyId: string) {
-    return this.suppliersService.findAll(companyId);
+  async findAll(@CurrentOrganization() organizationId: string) {
+    return this.suppliersService.findAll(organizationId);
   }
 
   @Post()
-  create(@Body() dto: CreateSupplierDto, @CurrentCompany() companyId: string) {
-    return this.suppliersService.create(companyId, dto);
+  create(@Body() dto: CreateSupplierDto, @CurrentOrganization() organizationId: string) {
+    return this.suppliersService.create(organizationId, dto);
   }
 
   @Patch(':id')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateSupplierDto,
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
   ) {
-    return this.suppliersService.update(id, companyId, dto);
+    return this.suppliersService.update(id, organizationId, dto);
   }
 
   @Delete(':id')
-  delete(@Param('id') id: string, @CurrentCompany() companyId: string) {
-    return this.suppliersService.delete(id, companyId);
+  delete(@Param('id') id: string, @CurrentOrganization() organizationId: string) {
+    return this.suppliersService.delete(id, organizationId);
   }
 }

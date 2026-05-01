@@ -55,7 +55,7 @@ describe('Advertising read services — KST cutoff', () => {
       };
       const service = new AdBenchmarkService(prisma, adConfig);
 
-      await service.getDiagnosis('company-1');
+      await service.getDiagnosis('organization-1');
 
       // Inclusive 30 businessDates = today plus 29 prior KST dates.
       // KST midnight cutoff = 2026-03-29T00:00 KST = 2026-03-28T15:00:00.000Z.
@@ -84,7 +84,7 @@ describe('Advertising read services — KST cutoff', () => {
       };
       const service = new AdvertisingService(prisma, adConfig);
 
-      await service.getHubData('company-1');
+      await service.getHubData('organization-1');
 
       const expectedKstCutoff = new Date('2026-03-28T15:00:00.000Z');
       const groupByCall =

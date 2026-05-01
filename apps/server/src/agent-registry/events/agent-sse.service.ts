@@ -10,13 +10,13 @@ import {
 } from './agent-events';
 
 /**
- * Internal SSE payload — `companyId` 는 라우팅 전용이며 구독자에게는 직렬화되지 않는다.
- * (ADR-0008 "Admin role-gated observability" — company 스코프 격리)
+ * Internal SSE payload — `organizationId` 는 라우팅 전용이며 구독자에게는 직렬화되지 않는다.
+ * (ADR-0008 "Admin role-gated observability" — organization 스코프 격리)
  */
 interface SsePayload {
   type: string;
   data: Record<string, unknown>;
-  companyId: string;
+  organizationId: string;
   timestamp: string;
 }
 
@@ -34,7 +34,7 @@ export class AgentSseService {
         status: event.status,
         runId: event.runId,
       },
-      companyId: event.companyId,
+      organizationId: event.organizationId,
       timestamp: new Date().toISOString(),
     });
   }
@@ -51,7 +51,7 @@ export class AgentSseService {
         tokensUsed: event.tokensUsed,
         budget: event.budget,
       },
-      companyId: event.companyId,
+      organizationId: event.organizationId,
       timestamp: new Date().toISOString(),
     });
   }
@@ -66,20 +66,20 @@ export class AgentSseService {
         consecutiveFailCount: event.consecutiveFailCount,
         lastError: event.lastError,
       },
-      companyId: event.companyId,
+      organizationId: event.organizationId,
       timestamp: new Date().toISOString(),
     });
   }
 
   /**
-   * SSE 스트림. 구독자의 `companyId` 와 일치하는 이벤트만 통과.
-   * 클라이언트 응답 직전 `companyId` 는 제거 (내부 라우팅 전용).
+   * SSE 스트림. 구독자의 `organizationId` 와 일치하는 이벤트만 통과.
+   * 클라이언트 응답 직전 `organizationId` 는 제거 (내부 라우팅 전용).
    */
-  getStream(subscriberCompanyId: string): Observable<MessageEvent> {
+  getStream(subscriberOrganizationId: string): Observable<MessageEvent> {
     return this.subject.asObservable().pipe(
-      filter((payload) => payload.companyId === subscriberCompanyId),
+      filter((payload) => payload.organizationId === subscriberOrganizationId),
       map((payload) => {
-        const { companyId: _drop, ...publicPayload } = payload;
+        const { organizationId: _drop, ...publicPayload } = payload;
         return { data: publicPayload } as MessageEvent;
       }),
     );

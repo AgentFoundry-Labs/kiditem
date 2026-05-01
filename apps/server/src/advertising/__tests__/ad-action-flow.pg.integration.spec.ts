@@ -7,8 +7,8 @@ import {
   makeTestPrisma,
   resetDb,
   seedBaseFixture,
-  TEST_COMPANY_ID,
-  OTHER_COMPANY_ID,
+  TEST_ORGANIZATION_ID,
+  OTHER_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 
 describe('AdAction flow (PG integration)', () => {
@@ -16,7 +16,7 @@ describe('AdAction flow (PG integration)', () => {
   let adActionService: AdActionService;
 
   async function seedListingWithOption(params: {
-    companyId: string;
+    organizationId: string;
     abcGrade?: string | null;
     availableStock?: number | null;
     costPrice?: number | null;
@@ -27,7 +27,7 @@ describe('AdAction flow (PG integration)', () => {
     const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const master = await prisma.masterProduct.create({
       data: {
-        companyId: params.companyId,
+        organizationId: params.organizationId,
         code: `M-${unique}`,
         name: `Master ${unique}`,
         abcGrade: params.abcGrade ?? null,
@@ -36,7 +36,7 @@ describe('AdAction flow (PG integration)', () => {
     });
     const option = await prisma.productOption.create({
       data: {
-        companyId: params.companyId,
+        organizationId: params.organizationId,
         masterId: master.id,
         sku: `SKU-${unique}`,
         optionName: `Option ${unique}`,
@@ -48,7 +48,7 @@ describe('AdAction flow (PG integration)', () => {
     });
     const listing = await prisma.channelListing.create({
       data: {
-        companyId: params.companyId,
+        organizationId: params.organizationId,
         masterId: master.id,
         channel: 'coupang',
         externalId: `EXT-${unique}${params.externalIdSuffix ?? ''}`,
@@ -59,7 +59,7 @@ describe('AdAction flow (PG integration)', () => {
     // ChannelListingOption row exists so the join lands.
     const listingOption = await prisma.channelListingOption.create({
       data: {
-        companyId: params.companyId,
+        organizationId: params.organizationId,
         listingId: listing.id,
         optionId: option.id,
         externalOptionId: `VID-${unique}`,
@@ -76,7 +76,7 @@ describe('AdAction flow (PG integration)', () => {
    * KST businessDate so the latest-per-targetKey query lands it.
    */
   async function seedSnapshot(params: {
-    companyId: string;
+    organizationId: string;
     listingId: string;
     listingOptionId?: string | null;
     optionId?: string | null;
@@ -122,7 +122,7 @@ describe('AdAction flow (PG integration)', () => {
 
     return prisma.channelAdTargetDailySnapshot.create({
       data: {
-        companyId: params.companyId,
+        organizationId: params.organizationId,
         channel: 'coupang',
         businessDate: today,
         targetType: params.pageType,
@@ -172,12 +172,12 @@ describe('AdAction flow (PG integration)', () => {
   describe('generateActions — 5 rules', () => {
     it('#1 Rule 1: zero stock + campaign + dailyBudget>0 → change_daily_budget urgent', async () => {
       const { listing, option, listingOption } = await seedListingWithOption({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'B',
         availableStock: 0,
       });
       await seedSnapshot({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         listingId: listing.id,
         listingOptionId: listingOption.id,
         optionId: option.id,
@@ -187,11 +187,11 @@ describe('AdAction flow (PG integration)', () => {
         dailyBudget: 10000,
       });
 
-      const result = await adActionService.generateActions(TEST_COMPANY_ID);
+      const result = await adActionService.generateActions(TEST_ORGANIZATION_ID);
 
       expect(result.generated).toBe(1);
       const action = await prisma.adAction.findFirstOrThrow({
-        where: { companyId: TEST_COMPANY_ID },
+        where: { organizationId: TEST_ORGANIZATION_ID },
       });
       expect(action.actionType).toBe('change_daily_budget');
       expect(action.targetType).toBe('campaign');
@@ -202,11 +202,11 @@ describe('AdAction flow (PG integration)', () => {
 
     it('#2 Rule 1 skip when target row has no listingOptionId (option daily join 불가)', async () => {
       const { listing } = await seedListingWithOption({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'B',
       });
       await seedSnapshot({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         listingId: listing.id,
         listingOptionId: null,
         optionId: null,
@@ -217,20 +217,20 @@ describe('AdAction flow (PG integration)', () => {
         roas: 300,
       });
 
-      const result = await adActionService.generateActions(TEST_COMPANY_ID);
+      const result = await adActionService.generateActions(TEST_ORGANIZATION_ID);
 
       expect(result.generated).toBe(0);
-      const count = await prisma.adAction.count({ where: { companyId: TEST_COMPANY_ID } });
+      const count = await prisma.adAction.count({ where: { organizationId: TEST_ORGANIZATION_ID } });
       expect(count).toBe(0);
     });
 
     it('#3 Rule 2: keyword + spend>=5000 + conversions=0 → pause_keyword urgent', async () => {
       const { listing, option, listingOption } = await seedListingWithOption({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'B',
       });
       await seedSnapshot({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         listingId: listing.id,
         listingOptionId: listingOption.id,
         optionId: option.id,
@@ -241,11 +241,11 @@ describe('AdAction flow (PG integration)', () => {
         conversions: 0,
       });
 
-      const result = await adActionService.generateActions(TEST_COMPANY_ID);
+      const result = await adActionService.generateActions(TEST_ORGANIZATION_ID);
 
       expect(result.generated).toBe(1);
       const action = await prisma.adAction.findFirstOrThrow({
-        where: { companyId: TEST_COMPANY_ID },
+        where: { organizationId: TEST_ORGANIZATION_ID },
       });
       expect(action.actionType).toBe('pause_keyword');
       expect(action.targetType).toBe('keyword');
@@ -254,11 +254,11 @@ describe('AdAction flow (PG integration)', () => {
 
     it('#4 Rule 3: keyword + currentBid>0 + 100<=roas<200 → change_bid to 85% rounded', async () => {
       const { listing, option, listingOption } = await seedListingWithOption({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'B',
       });
       await seedSnapshot({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         listingId: listing.id,
         listingOptionId: listingOption.id,
         optionId: option.id,
@@ -271,11 +271,11 @@ describe('AdAction flow (PG integration)', () => {
         roas: 150,
       });
 
-      const result = await adActionService.generateActions(TEST_COMPANY_ID);
+      const result = await adActionService.generateActions(TEST_ORGANIZATION_ID);
 
       expect(result.generated).toBe(1);
       const action = await prisma.adAction.findFirstOrThrow({
-        where: { companyId: TEST_COMPANY_ID },
+        where: { organizationId: TEST_ORGANIZATION_ID },
       });
       expect(action.actionType).toBe('change_bid');
       expect(action.currentValue).toBe(1000);
@@ -284,12 +284,12 @@ describe('AdAction flow (PG integration)', () => {
 
     it('#5 Rule 4: A grade + campaign + roas>=480 → budget expand 1.2x', async () => {
       const { listing, option, listingOption } = await seedListingWithOption({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
         availableStock: 100,
       });
       await seedSnapshot({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         listingId: listing.id,
         listingOptionId: listingOption.id,
         optionId: option.id,
@@ -300,11 +300,11 @@ describe('AdAction flow (PG integration)', () => {
         roas: 500,
       });
 
-      const result = await adActionService.generateActions(TEST_COMPANY_ID);
+      const result = await adActionService.generateActions(TEST_ORGANIZATION_ID);
 
       expect(result.generated).toBe(1);
       const action = await prisma.adAction.findFirstOrThrow({
-        where: { companyId: TEST_COMPANY_ID },
+        where: { organizationId: TEST_ORGANIZATION_ID },
       });
       expect(action.actionType).toBe('change_daily_budget');
       expect(action.currentValue).toBe(10000);
@@ -314,12 +314,12 @@ describe('AdAction flow (PG integration)', () => {
 
     it('#6 Rule 5: C grade campaign + dailyBudget>3000 → budget shrink to 50% (min 3000)', async () => {
       const { listing, option, listingOption } = await seedListingWithOption({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'C',
         availableStock: 50,
       });
       await seedSnapshot({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         listingId: listing.id,
         listingOptionId: listingOption.id,
         optionId: option.id,
@@ -330,11 +330,11 @@ describe('AdAction flow (PG integration)', () => {
         roas: 50,
       });
 
-      const result = await adActionService.generateActions(TEST_COMPANY_ID);
+      const result = await adActionService.generateActions(TEST_ORGANIZATION_ID);
 
       expect(result.generated).toBe(1);
       const action = await prisma.adAction.findFirstOrThrow({
-        where: { companyId: TEST_COMPANY_ID },
+        where: { organizationId: TEST_ORGANIZATION_ID },
       });
       expect(action.actionType).toBe('change_daily_budget');
       expect(action.currentValue).toBe(20000);
@@ -345,12 +345,12 @@ describe('AdAction flow (PG integration)', () => {
   describe('lifecycle + ExecutionTask', () => {
     it('#7 approve → ExecutionTask created (idempotent)', async () => {
       const { listing, option, listingOption } = await seedListingWithOption({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'B',
         availableStock: 0,
       });
       await seedSnapshot({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         listingId: listing.id,
         listingOptionId: listingOption.id,
         optionId: option.id,
@@ -359,12 +359,12 @@ describe('AdAction flow (PG integration)', () => {
         campaignName: 'approve',
         dailyBudget: 5000,
       });
-      await adActionService.generateActions(TEST_COMPANY_ID);
+      await adActionService.generateActions(TEST_ORGANIZATION_ID);
       const action = await prisma.adAction.findFirstOrThrow({
-        where: { companyId: TEST_COMPANY_ID },
+        where: { organizationId: TEST_ORGANIZATION_ID },
       });
 
-      await adActionService.approveActions([action.id], TEST_COMPANY_ID);
+      await adActionService.approveActions([action.id], TEST_ORGANIZATION_ID);
 
       const updated = await prisma.adAction.findUniqueOrThrow({ where: { id: action.id } });
       expect(updated.approvalStatus).toBe('approved');
@@ -373,19 +373,19 @@ describe('AdAction flow (PG integration)', () => {
       expect(tasks).toHaveLength(1);
       expect(tasks[0].status).toBe('queued');
 
-      await adActionService.approveActions([action.id], TEST_COMPANY_ID);
+      await adActionService.approveActions([action.id], TEST_ORGANIZATION_ID);
       const tasksAgain = await prisma.executionTask.findMany({ where: { actionId: action.id } });
       expect(tasksAgain).toHaveLength(1);
     });
 
     it('#8 markRunning → markFailed → resetFailed → re-queued + new ExecutionTask', async () => {
       const { listing, option, listingOption } = await seedListingWithOption({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'B',
         availableStock: 0,
       });
       await seedSnapshot({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         listingId: listing.id,
         listingOptionId: listingOption.id,
         optionId: option.id,
@@ -394,22 +394,22 @@ describe('AdAction flow (PG integration)', () => {
         campaignName: 'retry',
         dailyBudget: 5000,
       });
-      await adActionService.generateActions(TEST_COMPANY_ID);
+      await adActionService.generateActions(TEST_ORGANIZATION_ID);
       const action = await prisma.adAction.findFirstOrThrow({
-        where: { companyId: TEST_COMPANY_ID },
+        where: { organizationId: TEST_ORGANIZATION_ID },
       });
-      await adActionService.approveActions([action.id], TEST_COMPANY_ID);
+      await adActionService.approveActions([action.id], TEST_ORGANIZATION_ID);
 
-      await adActionService.markRunning(action.id, { snapshot: 'before' }, TEST_COMPANY_ID);
+      await adActionService.markRunning(action.id, { snapshot: 'before' }, TEST_ORGANIZATION_ID);
       let current = await prisma.adAction.findUniqueOrThrow({ where: { id: action.id } });
       expect(current.executeStatus).toBe('running');
 
-      await adActionService.markFailed(action.id, 'timeout', { err: 'boom' }, TEST_COMPANY_ID);
+      await adActionService.markFailed(action.id, 'timeout', { err: 'boom' }, TEST_ORGANIZATION_ID);
       current = await prisma.adAction.findUniqueOrThrow({ where: { id: action.id } });
       expect(current.executeStatus).toBe('failed');
       expect(current.errorMessage).toBe('timeout');
 
-      await adActionService.resetFailed(TEST_COMPANY_ID);
+      await adActionService.resetFailed(TEST_ORGANIZATION_ID);
       current = await prisma.adAction.findUniqueOrThrow({ where: { id: action.id } });
       expect(current.executeStatus).toBe('queued');
       expect(current.errorMessage).toBeNull();
@@ -424,12 +424,12 @@ describe('AdAction flow (PG integration)', () => {
 
     it('#9 markDone → executeStatus=done + executedAt set', async () => {
       const { listing, option, listingOption } = await seedListingWithOption({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'B',
         availableStock: 0,
       });
       await seedSnapshot({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         listingId: listing.id,
         listingOptionId: listingOption.id,
         optionId: option.id,
@@ -438,14 +438,14 @@ describe('AdAction flow (PG integration)', () => {
         campaignName: 'done',
         dailyBudget: 5000,
       });
-      await adActionService.generateActions(TEST_COMPANY_ID);
+      await adActionService.generateActions(TEST_ORGANIZATION_ID);
       const action = await prisma.adAction.findFirstOrThrow({
-        where: { companyId: TEST_COMPANY_ID },
+        where: { organizationId: TEST_ORGANIZATION_ID },
       });
-      await adActionService.approveActions([action.id], TEST_COMPANY_ID);
-      await adActionService.markRunning(action.id, undefined, TEST_COMPANY_ID);
+      await adActionService.approveActions([action.id], TEST_ORGANIZATION_ID);
+      await adActionService.markRunning(action.id, undefined, TEST_ORGANIZATION_ID);
 
-      await adActionService.markDone(action.id, { after: 'ok' }, TEST_COMPANY_ID);
+      await adActionService.markDone(action.id, { after: 'ok' }, TEST_ORGANIZATION_ID);
 
       const current = await prisma.adAction.findUniqueOrThrow({ where: { id: action.id } });
       expect(current.executeStatus).toBe('done');
@@ -454,12 +454,12 @@ describe('AdAction flow (PG integration)', () => {
 
     it('#10 reject → approvalStatus=rejected + open tasks cancelled', async () => {
       const { listing, option, listingOption } = await seedListingWithOption({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'B',
         availableStock: 0,
       });
       await seedSnapshot({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         listingId: listing.id,
         listingOptionId: listingOption.id,
         optionId: option.id,
@@ -468,13 +468,13 @@ describe('AdAction flow (PG integration)', () => {
         campaignName: 'reject',
         dailyBudget: 5000,
       });
-      await adActionService.generateActions(TEST_COMPANY_ID);
+      await adActionService.generateActions(TEST_ORGANIZATION_ID);
       const action = await prisma.adAction.findFirstOrThrow({
-        where: { companyId: TEST_COMPANY_ID },
+        where: { organizationId: TEST_ORGANIZATION_ID },
       });
-      await adActionService.approveActions([action.id], TEST_COMPANY_ID);
+      await adActionService.approveActions([action.id], TEST_ORGANIZATION_ID);
 
-      await adActionService.rejectActions([action.id], TEST_COMPANY_ID);
+      await adActionService.rejectActions([action.id], TEST_ORGANIZATION_ID);
 
       const current = await prisma.adAction.findUniqueOrThrow({ where: { id: action.id } });
       expect(current.approvalStatus).toBe('rejected');
@@ -484,14 +484,14 @@ describe('AdAction flow (PG integration)', () => {
   });
 
   describe('cross-tenant + IDOR', () => {
-    it('#11 generateActions scopes to companyId — other company snapshot ignored', async () => {
+    it('#11 generateActions scopes to organizationId — other organization snapshot ignored', async () => {
       const mine = await seedListingWithOption({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'B',
         availableStock: 0,
       });
       await seedSnapshot({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         listingId: mine.listing.id,
         listingOptionId: mine.listingOption.id,
         optionId: mine.option.id,
@@ -502,13 +502,13 @@ describe('AdAction flow (PG integration)', () => {
       });
 
       const other = await seedListingWithOption({
-        companyId: OTHER_COMPANY_ID,
+        organizationId: OTHER_ORGANIZATION_ID,
         abcGrade: 'B',
         availableStock: 0,
         externalIdSuffix: '-other',
       });
       await seedSnapshot({
-        companyId: OTHER_COMPANY_ID,
+        organizationId: OTHER_ORGANIZATION_ID,
         listingId: other.listing.id,
         listingOptionId: other.listingOption.id,
         optionId: other.option.id,
@@ -518,22 +518,22 @@ describe('AdAction flow (PG integration)', () => {
         dailyBudget: 9000,
       });
 
-      const result = await adActionService.generateActions(TEST_COMPANY_ID);
+      const result = await adActionService.generateActions(TEST_ORGANIZATION_ID);
 
       expect(result.generated).toBe(1);
-      const mineCount = await prisma.adAction.count({ where: { companyId: TEST_COMPANY_ID } });
-      const otherCount = await prisma.adAction.count({ where: { companyId: OTHER_COMPANY_ID } });
+      const mineCount = await prisma.adAction.count({ where: { organizationId: TEST_ORGANIZATION_ID } });
+      const otherCount = await prisma.adAction.count({ where: { organizationId: OTHER_ORGANIZATION_ID } });
       expect(mineCount).toBe(1);
       expect(otherCount).toBe(0);
     });
 
     it('#12 generateActions does not propagate cross-tenant listing references from corrupt target rows', async () => {
       const foreign = await seedListingWithOption({
-        companyId: OTHER_COMPANY_ID,
+        organizationId: OTHER_ORGANIZATION_ID,
         abcGrade: 'A',
       });
       const corruptTarget = await seedSnapshot({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         listingId: foreign.listing.id,
         listingOptionId: foreign.listingOption.id,
         optionId: foreign.option.id,
@@ -544,11 +544,11 @@ describe('AdAction flow (PG integration)', () => {
         conversions: 0,
       });
 
-      const result = await adActionService.generateActions(TEST_COMPANY_ID);
+      const result = await adActionService.generateActions(TEST_ORGANIZATION_ID);
 
       expect(result.generated).toBe(1);
       const action = await prisma.adAction.findFirstOrThrow({
-        where: { companyId: TEST_COMPANY_ID },
+        where: { organizationId: TEST_ORGANIZATION_ID },
       });
       expect(action.adTargetDailyId).toBe(corruptTarget.id);
       expect(action.listingId).toBeNull();
@@ -556,12 +556,12 @@ describe('AdAction flow (PG integration)', () => {
 
     it('#13 markRunning on another tenant id → NotFoundException', async () => {
       const other = await seedListingWithOption({
-        companyId: OTHER_COMPANY_ID,
+        organizationId: OTHER_ORGANIZATION_ID,
         abcGrade: 'B',
         availableStock: 0,
       });
       await seedSnapshot({
-        companyId: OTHER_COMPANY_ID,
+        organizationId: OTHER_ORGANIZATION_ID,
         listingId: other.listing.id,
         listingOptionId: other.listingOption.id,
         optionId: other.option.id,
@@ -570,13 +570,13 @@ describe('AdAction flow (PG integration)', () => {
         campaignName: 'other only',
         dailyBudget: 5000,
       });
-      await adActionService.generateActions(OTHER_COMPANY_ID);
+      await adActionService.generateActions(OTHER_ORGANIZATION_ID);
       const foreignAction = await prisma.adAction.findFirstOrThrow({
-        where: { companyId: OTHER_COMPANY_ID },
+        where: { organizationId: OTHER_ORGANIZATION_ID },
       });
 
       await expect(
-        adActionService.markRunning(foreignAction.id, undefined, TEST_COMPANY_ID),
+        adActionService.markRunning(foreignAction.id, undefined, TEST_ORGANIZATION_ID),
       ).rejects.toThrow(/not found/i);
 
       const foreignAfter = await prisma.adAction.findUniqueOrThrow({ where: { id: foreignAction.id } });

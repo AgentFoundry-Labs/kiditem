@@ -77,7 +77,7 @@ const successInv = {
 const successTrend: unknown[] = [];
 const aiActionTask = {
   id: 'task-ai-1',
-  companyId: 'company-1',
+  organizationId: 'organization-1',
   taskKey: 'ad_bid',
   type: 'ai',
   label: '광고 입찰 조정',

@@ -103,7 +103,7 @@ function makeService() {
 
 const MOCK_AGENT = {
   id: 'agent-1',
-  companyId: 'c-1',
+  organizationId: 'c-1',
   name: '광고 전략 에이전트',
   type: 'ad_strategy',
   status: 'idle',
@@ -134,7 +134,7 @@ function mockAdapterGen(result: any) {
 const MOCK_WAKEUP = {
   id: 'w-1',
   agentId: 'agent-1',
-  companyId: 'c-1',
+  organizationId: 'c-1',
   source: 'on_demand',
   triggerDetail: null,
   payload: null,
@@ -180,7 +180,7 @@ describe('HeartbeatService — full execution lifecycle', () => {
 
       const result = await service.wakeAgent({
         agentId: 'agent-1',
-        companyId: 'c-1',
+        organizationId: 'c-1',
         source: 'on_demand',
         reason: 'Manual trigger',
       });
@@ -214,7 +214,7 @@ describe('HeartbeatService — full execution lifecycle', () => {
       expect(result).toEqual({ ok: false, error: 'budget_exceeded', agentId: 'agent-1' });
       expect(eventEmitter.emit).toHaveBeenCalledWith(
         AGENT_EVENTS.BUDGET_WARNING,
-        expect.objectContaining({ level: 'exceeded', companyId: 'c-1' }),
+        expect.objectContaining({ level: 'exceeded', organizationId: 'c-1' }),
       );
     });
 
@@ -278,7 +278,7 @@ describe('HeartbeatService — full execution lifecycle', () => {
       );
       expect(eventEmitter.emit).toHaveBeenCalledWith(
         AGENT_EVENTS.STATUS_CHANGED,
-        expect.objectContaining({ status: 'running', companyId: 'c-1' }),
+        expect.objectContaining({ status: 'running', organizationId: 'c-1' }),
       );
     });
 
@@ -291,18 +291,18 @@ describe('HeartbeatService — full execution lifecycle', () => {
 
       expect(prisma.heartbeatRun.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining({ id: 'run-1', companyId: 'c-1' }),
+          where: expect.objectContaining({ id: 'run-1', organizationId: 'c-1' }),
           data: expect.objectContaining({ status: 'succeeded' }),
         }),
       );
       expect(eventEmitter.emit).toHaveBeenCalledWith(
         AGENT_EVENTS.RESULT_READY,
-        expect.objectContaining({ agentType: 'ad_strategy', companyId: 'c-1' }),
+        expect.objectContaining({ agentType: 'ad_strategy', organizationId: 'c-1' }),
       );
-      // Phase 0.3: status_changed 이벤트도 companyId 포함
+      // Phase 0.3: status_changed 이벤트도 organizationId 포함
       expect(eventEmitter.emit).toHaveBeenCalledWith(
         AGENT_EVENTS.STATUS_CHANGED,
-        expect.objectContaining({ companyId: 'c-1' }),
+        expect.objectContaining({ organizationId: 'c-1' }),
       );
     });
 
@@ -348,7 +348,7 @@ describe('HeartbeatService — full execution lifecycle', () => {
 
       expect(prisma.heartbeatRun.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining({ id: 'run-1', companyId: 'c-1' }),
+          where: expect.objectContaining({ id: 'run-1', organizationId: 'c-1' }),
           data: expect.objectContaining({ status: 'failed' }),
         }),
       );
@@ -386,7 +386,7 @@ describe('HeartbeatService — full execution lifecycle', () => {
         expect.objectContaining({
           where: expect.objectContaining({
             id: 'agent-1',
-            OR: [{ companyId: 'c-1' }, { companyId: null }],
+            OR: [{ organizationId: 'c-1' }, { organizationId: null }],
           }),
           data: expect.objectContaining({
             status: 'paused',
@@ -396,7 +396,7 @@ describe('HeartbeatService — full execution lifecycle', () => {
       );
       expect(eventEmitter.emit).toHaveBeenCalledWith(
         AGENT_EVENTS.AUTO_PAUSED,
-        expect.objectContaining({ agentId: 'agent-1', companyId: 'c-1' }),
+        expect.objectContaining({ agentId: 'agent-1', organizationId: 'c-1' }),
       );
     });
 

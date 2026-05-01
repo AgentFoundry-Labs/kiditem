@@ -31,43 +31,43 @@ describe('FeatureGateService', () => {
       prisma.featureGate.findUnique.mockResolvedValue({
         name: 'agent:pricing',
         enabled: false,
-        allowedCompanies: [],
+        allowedOrganizations: [],
       });
       expect(await service.isEnabled('agent:pricing')).toBe(false);
     });
 
-    it('returns true when enabled with empty allowedCompanies (all allowed)', async () => {
+    it('returns true when enabled with empty allowedOrganizations (all allowed)', async () => {
       prisma.featureGate.findUnique.mockResolvedValue({
         name: 'agent:pricing',
         enabled: true,
-        allowedCompanies: [],
+        allowedOrganizations: [],
       });
-      expect(await service.isEnabled('agent:pricing', 'company-1')).toBe(true);
+      expect(await service.isEnabled('agent:pricing', 'organization-1')).toBe(true);
     });
 
-    it('returns true when company is in allowedCompanies', async () => {
+    it('returns true when organization is in allowedOrganizations', async () => {
       prisma.featureGate.findUnique.mockResolvedValue({
         name: 'agent:pricing',
         enabled: true,
-        allowedCompanies: ['company-1', 'company-2'],
+        allowedOrganizations: ['organization-1', 'organization-2'],
       });
-      expect(await service.isEnabled('agent:pricing', 'company-1')).toBe(true);
+      expect(await service.isEnabled('agent:pricing', 'organization-1')).toBe(true);
     });
 
-    it('returns false when company is not in allowedCompanies', async () => {
+    it('returns false when organization is not in allowedOrganizations', async () => {
       prisma.featureGate.findUnique.mockResolvedValue({
         name: 'agent:pricing',
         enabled: true,
-        allowedCompanies: ['company-1'],
+        allowedOrganizations: ['organization-1'],
       });
-      expect(await service.isEnabled('agent:pricing', 'company-99')).toBe(false);
+      expect(await service.isEnabled('agent:pricing', 'organization-99')).toBe(false);
     });
 
-    it('returns false when allowedCompanies set but no companyId provided', async () => {
+    it('returns false when allowedOrganizations set but no organizationId provided', async () => {
       prisma.featureGate.findUnique.mockResolvedValue({
         name: 'agent:pricing',
         enabled: true,
-        allowedCompanies: ['company-1'],
+        allowedOrganizations: ['organization-1'],
       });
       expect(await service.isEnabled('agent:pricing')).toBe(false);
     });

@@ -48,7 +48,7 @@ export function useProductActions({ productId, product, workflows }: UseProductA
     queryClient.invalidateQueries({ queryKey: [...queryKeys.products.catalog.detail(productId), "activities"] });
   };
 
-  // Poll single workflow run — backend scopes activity-events by @CurrentCompany().
+  // Poll single workflow run — backend scopes activity-events by @CurrentOrganization().
   useQuery({
     queryKey: ['wf-poll', wfPollState?.runId],
     queryFn: async () => {
@@ -100,7 +100,7 @@ export function useProductActions({ productId, product, workflows }: UseProductA
       }
       if (!product) return null;
       const events = await apiClient.get<ActivityEvent[]>(
-        `/api/activity-events?objectType=company&eventType=workflow_analysis&limit=1`
+        `/api/activity-events?objectType=organization&eventType=workflow_analysis&limit=1`
       ).catch(() => null);
       if (Array.isArray(events) && events.length > 0) {
         const eventTime = new Date(events[0].createdAt).getTime();

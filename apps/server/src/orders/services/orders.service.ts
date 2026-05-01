@@ -93,7 +93,7 @@ export class OrdersService {
   }
 
   async findAll(
-    companyId: string,
+    organizationId: string,
     query: { from?: string; to?: string; status?: string; page?: string | number; limit?: string | number },
   ): Promise<OrderListResponse> {
     const dbStatus = query.status || 'ACCEPT';
@@ -117,7 +117,7 @@ export class OrdersService {
 
     const orders = await this.prisma.order.findMany({
       where: {
-        companyId,
+        organizationId,
         status: statusFilter,
         ...(Object.keys(orderedAtFilter).length > 0 && {
           orderedAt: orderedAtFilter,
@@ -125,7 +125,7 @@ export class OrdersService {
       },
       include: {
         lineItems: {
-          where: { companyId },
+          where: { organizationId },
           orderBy: { createdAt: 'asc' },
         },
       },
@@ -139,13 +139,13 @@ export class OrdersService {
     } satisfies OrderListResponse;
   }
 
-  async findOne(id: string, companyId: string) {
-    // ADR-0006: findUnique({ where: { id } }) 금지 — companyId 필수
+  async findOne(id: string, organizationId: string) {
+    // ADR-0006: findUnique({ where: { id } }) 금지 — organizationId 필수
     const order = await this.prisma.order.findFirst({
-      where: { id, companyId },
+      where: { id, organizationId },
       include: {
         lineItems: {
-          where: { companyId },
+          where: { organizationId },
         },
       },
     });
@@ -153,7 +153,7 @@ export class OrdersService {
     return order;
   }
 
-  async getStats(companyId: string): Promise<OrderStatsResponse> {
+  async getStats(organizationId: string): Promise<OrderStatsResponse> {
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const dayOfWeek = now.getDay();
@@ -161,19 +161,19 @@ export class OrdersService {
 
     const [total, accept, instruct, departure, delivering, finalDelivery, todayAgg, weekAgg] =
       await Promise.all([
-        this.prisma.order.count({ where: { companyId } }),
-        this.prisma.order.count({ where: { companyId, status: 'ACCEPT' } }),
-        this.prisma.order.count({ where: { companyId, status: 'INSTRUCT' } }),
-        this.prisma.order.count({ where: { companyId, status: 'DEPARTURE' } }),
-        this.prisma.order.count({ where: { companyId, status: 'DELIVERING' } }),
-        this.prisma.order.count({ where: { companyId, status: 'FINAL_DELIVERY' } }),
+        this.prisma.order.count({ where: { organizationId } }),
+        this.prisma.order.count({ where: { organizationId, status: 'ACCEPT' } }),
+        this.prisma.order.count({ where: { organizationId, status: 'INSTRUCT' } }),
+        this.prisma.order.count({ where: { organizationId, status: 'DEPARTURE' } }),
+        this.prisma.order.count({ where: { organizationId, status: 'DELIVERING' } }),
+        this.prisma.order.count({ where: { organizationId, status: 'FINAL_DELIVERY' } }),
         this.prisma.order.aggregate({
-          where: { companyId, orderedAt: { gte: todayStart } },
+          where: { organizationId, orderedAt: { gte: todayStart } },
           _count: true,
           _sum: { totalPrice: true },
         }),
         this.prisma.order.aggregate({
-          where: { companyId, orderedAt: { gte: weekStart } },
+          where: { organizationId, orderedAt: { gte: weekStart } },
           _count: true,
           _sum: { totalPrice: true },
         }),
@@ -195,13 +195,13 @@ export class OrdersService {
   /**
    * shipmentBoxId 소유권 + safe-integer 검증 — 주어진 ID 들이 모두
    *   1) Number.MAX_SAFE_INTEGER 안전 범위 안 (정수 양수)
-   *   2) companyId 의 Coupang 주문 (companyId + platform + externalOrderId)
+   *   2) organizationId 의 Coupang 주문 (organizationId + platform + externalOrderId)
    * 위 두 조건을 만족해야 외부 API 호출. DTO ValidationPipe 가 1차 방어이지만
    * 내부 caller (workflow 등) 가 DTO 우회 가능하므로 service 에서도 defensive.
    */
   private async assertOwnedShipmentBoxIds(
     shipmentBoxIds: number[],
-    companyId: string,
+    organizationId: string,
   ): Promise<void> {
     const unsafe = shipmentBoxIds.filter(
       (id) => !Number.isSafeInteger(id) || id <= 0,
@@ -214,7 +214,7 @@ export class OrdersService {
     const externalOrderIds = shipmentBoxIds.map((id) => String(id));
     const owned = await this.prisma.order.findMany({
       where: {
-        companyId,
+        organizationId,
         platform: 'coupang',
         externalOrderId: { in: externalOrderIds },
       },
@@ -224,16 +224,16 @@ export class OrdersService {
       const ownedSet = new Set(owned.map((o) => o.externalOrderId));
       const missing = externalOrderIds.filter((id) => !ownedSet.has(id));
       throw new NotFoundException(
-        `Order(s) not found for company: ${missing.join(', ')}`,
+        `Order(s) not found for organization: ${missing.join(', ')}`,
       );
     }
   }
 
   async confirm(
     shipmentBoxIds: number[],
-    companyId: string,
+    organizationId: string,
   ): Promise<OrderActionResponse> {
-    await this.assertOwnedShipmentBoxIds(shipmentBoxIds, companyId);
+    await this.assertOwnedShipmentBoxIds(shipmentBoxIds, organizationId);
     const result = await confirmOrderSheets(shipmentBoxIds);
     return {
       message: `${shipmentBoxIds.length}건 승인 완료`,
@@ -245,9 +245,9 @@ export class OrdersService {
     shipmentBoxId: number,
     deliveryCompanyCode: string,
     invoiceNumber: string,
-    companyId: string,
+    organizationId: string,
   ): Promise<OrderActionResponse> {
-    await this.assertOwnedShipmentBoxIds([shipmentBoxId], companyId);
+    await this.assertOwnedShipmentBoxIds([shipmentBoxId], organizationId);
     const result = await uploadInvoice(shipmentBoxId, {
       deliveryCompanyCode,
       invoiceNumber,

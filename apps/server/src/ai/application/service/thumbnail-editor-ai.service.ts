@@ -106,13 +106,13 @@ export class ThumbnailEditorAiService {
 
   async resolveInputImage(
     input: string,
-    companyId: string,
+    organizationId: string,
     options: ResolveInputOptions,
   ): Promise<ThumbnailEditorInputImage> {
     const dataUrl = this.parseDataUrl(input);
     if (dataUrl) {
       const url = await this.storage.save(
-        this.inputStorageKey(companyId, dataUrl.mimeType),
+        this.inputStorageKey(organizationId, dataUrl.mimeType),
         dataUrl.buffer,
         dataUrl.mimeType,
       );
@@ -148,7 +148,7 @@ export class ThumbnailEditorAiService {
     }
 
     const url = await this.storage.save(
-      this.inputStorageKey(companyId, fetched.mimeType),
+      this.inputStorageKey(organizationId, fetched.mimeType),
       fetched.buffer,
       fetched.mimeType,
     );
@@ -167,7 +167,7 @@ export class ThumbnailEditorAiService {
 
   async generateEdit(
     inputs: ThumbnailEditorInputImage[],
-    companyId: string,
+    organizationId: string,
     options: GenerateEditOptions,
   ): Promise<ThumbnailEditorCandidate[]> {
     const includeReferences = options.referenceMode === 'edit-image'
@@ -175,7 +175,7 @@ export class ThumbnailEditorAiService {
       : true;
     return this.generateAndStore(
       inputs,
-      companyId,
+      organizationId,
       this.buildEditPrompt(inputs, options),
       'edit',
       includeReferences,
@@ -184,12 +184,12 @@ export class ThumbnailEditorAiService {
 
   async generateCreative(
     inputs: ThumbnailEditorInputImage[],
-    companyId: string,
+    organizationId: string,
     options: GenerateCreativeOptions,
   ): Promise<ThumbnailEditorCandidate[]> {
     return this.generateAndStore(
       inputs,
-      companyId,
+      organizationId,
       this.buildCreativePrompt(inputs, options),
       'creative',
       false,
@@ -198,7 +198,7 @@ export class ThumbnailEditorAiService {
 
   private async generateAndStore(
     inputs: ThumbnailEditorInputImage[],
-    companyId: string,
+    organizationId: string,
     prompt: string,
     method: ThumbnailEditorMode,
     includeReferences: boolean,
@@ -242,7 +242,7 @@ export class ThumbnailEditorAiService {
       const mimeType = inlineData.mimeType ?? 'image/png';
       const buffer = Buffer.from(inlineData.data, 'base64');
       this.imageFetcher.assertSupportedMime(mimeType);
-      const key = this.candidateStorageKey(companyId, mimeType);
+      const key = this.candidateStorageKey(organizationId, mimeType);
       const url = await this.storage.save(key, buffer, mimeType);
       candidates.push({
         url,
@@ -363,11 +363,11 @@ export class ThumbnailEditorAiService {
     return { buffer, mimeType };
   }
 
-  private inputStorageKey(companyId: string, mimeType: string): string {
-    return `thumbnail-inputs/${companyId}/${randomUUID()}.${this.imageFetcher.extForMime(mimeType)}`;
+  private inputStorageKey(organizationId: string, mimeType: string): string {
+    return `thumbnail-inputs/${organizationId}/${randomUUID()}.${this.imageFetcher.extForMime(mimeType)}`;
   }
 
-  private candidateStorageKey(companyId: string, mimeType: string): string {
-    return `thumbnail-generations/${companyId}/${randomUUID()}.${this.imageFetcher.extForMime(mimeType)}`;
+  private candidateStorageKey(organizationId: string, mimeType: string): string {
+    return `thumbnail-generations/${organizationId}/${randomUUID()}.${this.imageFetcher.extForMime(mimeType)}`;
   }
 }

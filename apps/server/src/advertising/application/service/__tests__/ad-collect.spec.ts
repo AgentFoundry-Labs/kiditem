@@ -29,7 +29,7 @@ describe('AdCollectService (H3 — scrape-run status)', () => {
       .mockResolvedValueOnce(15) // campaign
       .mockResolvedValueOnce(8); // product (wing)
 
-    const result = await service.getStatus('company-1');
+    const result = await service.getStatus('organization-1');
 
     expect(result.lastCollectedAt).toEqual(new Date('2026-04-27T05:00:00Z'));
     expect(result.campaignSnapshotCount).toBe(15);
@@ -40,7 +40,7 @@ describe('AdCollectService (H3 — scrape-run status)', () => {
     expect(counts[0][0]).toEqual(
       expect.objectContaining({
         where: expect.objectContaining({
-          companyId: 'company-1',
+          organizationId: 'organization-1',
           source: 'advertising',
           pageType: { in: ['campaign', 'keyword', 'product', 'advertising'] },
         }),
@@ -49,7 +49,7 @@ describe('AdCollectService (H3 — scrape-run status)', () => {
     expect(counts[1][0]).toEqual(
       expect.objectContaining({
         where: expect.objectContaining({
-          companyId: 'company-1',
+          organizationId: 'organization-1',
           source: 'wing',
           pageType: { in: ['itemwinner', 'traffic'] },
         }),
@@ -64,7 +64,7 @@ describe('AdCollectService (H3 — scrape-run status)', () => {
     });
     prisma.channelScrapeRun.count.mockResolvedValue(0);
 
-    const result = await service.getStatus('company-1');
+    const result = await service.getStatus('organization-1');
 
     expect(result.lastCollectedAt).toEqual(new Date('2026-04-27T01:00:00Z'));
   });
@@ -73,24 +73,24 @@ describe('AdCollectService (H3 — scrape-run status)', () => {
     prisma.channelScrapeRun.findFirst.mockResolvedValue(null);
     prisma.channelScrapeRun.count.mockResolvedValue(0);
 
-    const result = await service.getStatus('company-1');
+    const result = await service.getStatus('organization-1');
 
     expect(result.lastCollectedAt).toBeNull();
     expect(result.campaignSnapshotCount).toBe(0);
     expect(result.productSnapshotCount).toBe(0);
   });
 
-  it('passes companyId through all reads', async () => {
+  it('passes organizationId through all reads', async () => {
     prisma.channelScrapeRun.findFirst.mockResolvedValue(null);
     prisma.channelScrapeRun.count.mockResolvedValue(0);
 
-    await service.getStatus('company-xyz');
+    await service.getStatus('organization-xyz');
 
     expect(prisma.channelScrapeRun.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { companyId: 'company-xyz' } }),
+      expect.objectContaining({ where: { organizationId: 'organization-xyz' } }),
     );
     for (const call of prisma.channelScrapeRun.count.mock.calls) {
-      expect(call[0].where.companyId).toBe('company-xyz');
+      expect(call[0].where.organizationId).toBe('organization-xyz');
     }
   });
 });

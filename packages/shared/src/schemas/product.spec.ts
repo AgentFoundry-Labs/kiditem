@@ -30,7 +30,7 @@ describe('product schemas', () => {
   it('rejects legacy string image arrays on shared write contract', () => {
     expect(() => MasterSchema.parse({
       id: '11111111-1111-4111-8111-111111111111',
-      companyId: '22222222-2222-4222-8222-222222222222',
+      organizationId: '22222222-2222-4222-8222-222222222222',
       code: 'M-00000001',
       legacyCode: null,
       barcode: null,
@@ -56,7 +56,6 @@ describe('product schemas', () => {
       pipelineStep: null,
       detailPageUrl: null,
       thumbnailStrategy: 'standard',
-      supplierId: null,
       isDeleted: false,
       deletedAt: null,
       isTemporary: false,
@@ -70,7 +69,7 @@ describe('product schemas', () => {
   it('uses null ranges and zero counts for catalog rows without options', () => {
     const row = ProductCatalogListItemSchema.parse({
       id: '11111111-1111-4111-8111-111111111111',
-      companyId: '22222222-2222-4222-8222-222222222222',
+      organizationId: '22222222-2222-4222-8222-222222222222',
       code: 'M-00000001',
       legacyCode: null,
       barcode: null,
@@ -96,7 +95,6 @@ describe('product schemas', () => {
       pipelineStep: null,
       detailPageUrl: null,
       thumbnailStrategy: 'standard',
-      supplierId: null,
       isDeleted: false,
       deletedAt: null,
       isTemporary: false,
@@ -118,7 +116,7 @@ describe('product schemas', () => {
   it('requires detail options to be an array', () => {
     const base = ProductCatalogListItemSchema.parse({
       id: '11111111-1111-4111-8111-111111111111',
-      companyId: '22222222-2222-4222-8222-222222222222',
+      organizationId: '22222222-2222-4222-8222-222222222222',
       code: 'M-00000001',
       legacyCode: null,
       barcode: null,
@@ -144,7 +142,6 @@ describe('product schemas', () => {
       pipelineStep: null,
       detailPageUrl: null,
       thumbnailStrategy: 'standard',
-      supplierId: null,
       isDeleted: false,
       deletedAt: null,
       isTemporary: false,
@@ -165,7 +162,7 @@ describe('product schemas', () => {
 describe('master source barcode (ADR-0022, R0)', () => {
   const baseRow = {
     id: '11111111-1111-4111-8111-111111111111',
-    companyId: '22222222-2222-4222-8222-222222222222',
+    organizationId: '22222222-2222-4222-8222-222222222222',
     code: 'M-00000001',
     legacyCode: null,
     barcode: null,
@@ -191,7 +188,6 @@ describe('master source barcode (ADR-0022, R0)', () => {
     pipelineStep: null,
     detailPageUrl: null,
     thumbnailStrategy: 'standard',
-    supplierId: null,
     isDeleted: false,
     deletedAt: null,
     isTemporary: false,

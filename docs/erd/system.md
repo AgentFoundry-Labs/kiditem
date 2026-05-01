@@ -13,7 +13,7 @@
 | ActivityEvent | `activity_events` | - |
 | Alert | `alerts` | - |
 | BusinessRule | `business_rules` | 온톨로지 룰 엔진 (조건→액션 자동화). |
-| FeatureGate | `feature_gates` | 피처 플래그. allowedCompanies: string[] 로 회사별 enable. |
+| FeatureGate | `feature_gates` | 피처 플래그. allowedOrganizations: string[] 로 회사별 enable. |
 | Marketplace | `marketplace` | type 으로 agent/workflow 카탈로그 통합. |
 | MigrationCheckpoint | `migration_checkpoints` | 이관 스크립트 체크포인트 (Plan C 용). 이관 완료 후 drop 가능. |
 | SystemSetting | `system_settings` | - |
@@ -24,7 +24,7 @@
 erDiagram
   ActionTask {
     String id PK
-    String companyId FK
+    String organizationId FK
     String taskKey
     String type
     String label
@@ -47,7 +47,7 @@ erDiagram
   }
   ActivityEvent {
     String id PK
-    String companyId FK
+    String organizationId FK
     String objectType
     String objectId
     String eventType
@@ -58,7 +58,7 @@ erDiagram
   }
   Alert {
     String id PK
-    String companyId FK
+    String organizationId FK
     String targetType
     String targetId
     String type
@@ -71,7 +71,7 @@ erDiagram
   }
   BusinessRule {
     String id PK
-    String companyId FK
+    String organizationId FK
     String name
     String displayName
     String description
@@ -94,7 +94,7 @@ erDiagram
     String name UK
     String description
     Boolean enabled
-    StringArray allowedCompanies
+    StringArray allowedOrganizations
     Json metadata
     DateTime createdAt
     DateTime updatedAt
@@ -134,7 +134,7 @@ erDiagram
   }
   SystemSetting {
     String id PK
-    String companyId FK
+    String organizationId FK
     String key
     Json value
     DateTime createdAt
@@ -148,10 +148,10 @@ erDiagram
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
 | ActionTask | assigneeUser | references external | Core | User |
-| ActionTask | company | references external | Core | Company |
-| ActivityEvent | company | references external | Core | Company |
-| Alert | company | references external | Core | Company |
-| BusinessRule | company | references external | Core | Company |
+| ActionTask | organization | references external | Core | Organization |
+| ActivityEvent | organization | references external | Core | Organization |
+| Alert | organization | references external | Core | Organization |
+| BusinessRule | organization | references external | Core | Organization |
 | Marketplace | marketplace | referenced by external | Agents | AgentDefinition |
 | Marketplace | marketplace | referenced by external | Agents | WorkflowTemplate |
-| SystemSetting | company | references external | Core | Company |
+| SystemSetting | organization | references external | Core | Organization |

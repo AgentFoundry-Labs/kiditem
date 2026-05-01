@@ -21,7 +21,7 @@ during instruction cleanup; durable contracts now live in `AGENTS.md`, scoped
 - 분자·분모 모두 "이 기간 주문된 건" 집합 기준 → 반품률 ≤ 100% 보장
 - 원본 주문 없는 고아 반품은 **"원본 주문 없는 반품"** 별도 지표로 노출
 
-## 수치 변화 예시 (2026-02 샘플 company)
+## 수치 변화 예시 (2026-02 샘플 organization)
 
 > DB 접근 불가 — 아래 수치는 실제 production snapshot 으로 배포 전 교체 필요.
 
@@ -36,26 +36,26 @@ during instruction cleanup; durable contracts now live in `AGENTS.md`, scoped
 
 ```sql
 WITH candidate AS (
-  SELECT o.company_id, COUNT(*) AS o_cnt
+  SELECT o.organization_id, COUNT(*) AS o_cnt
   FROM orders o
   WHERE o.ordered_at >= '2026-02-01' AND o.ordered_at < '2026-03-01'
-  GROUP BY o.company_id HAVING COUNT(*) >= 10
+  GROUP BY o.organization_id HAVING COUNT(*) >= 10
   ORDER BY o_cnt DESC LIMIT 1
 )
 SELECT
-  c.company_id,
+  c.organization_id,
   (SELECT COUNT(*) FROM order_returns orr
-     WHERE orr.company_id = c.company_id
+     WHERE orr.organization_id = c.organization_id
      AND orr.requested_at >= '2026-02-01' AND orr.requested_at < '2026-03-01') AS old_num,
   (SELECT COUNT(*) FROM orders o
-     WHERE o.company_id = c.company_id
+     WHERE o.organization_id = c.organization_id
      AND o.ordered_at >= '2026-02-01' AND o.ordered_at < '2026-03-01') AS denom,
   (SELECT COUNT(*) FROM order_returns orr
      INNER JOIN orders o ON orr.order_id = o.id
-     WHERE o.company_id = c.company_id
+     WHERE o.organization_id = c.organization_id
      AND o.ordered_at >= '2026-02-01' AND o.ordered_at < '2026-03-01') AS new_num,
   (SELECT COUNT(*) FROM order_returns
-     WHERE company_id = c.company_id
+     WHERE organization_id = c.organization_id
      AND order_id IS NULL
      AND requested_at >= '2026-02-01' AND requested_at < '2026-03-01') AS orphan
 FROM candidate c;
@@ -84,8 +84,8 @@ FROM candidate c;
 ## 기술 배경 (개발팀 대상)
 
 - 수정 대상: `channel-dashboard.service.getReturnSummary`
-- 새 semantic: Prisma relation filter (`order: { companyId, orderedAt }`) — 기간 필터는 `orders.ordered_at` 기준
-- 2-hop IDOR defense: `companyId` 를 `orderReturn` + 조인된 `order` 양쪽에 적용 (ADR-0006 준수)
+- 새 semantic: Prisma relation filter (`order: { organizationId, orderedAt }`) — 기간 필터는 `orders.ordered_at` 기준
+- 2-hop IDOR defense: `organizationId` 를 `orderReturn` + 조인된 `order` 양쪽에 적용 (ADR-0006 준수)
 - `ReturnSummary` 타입에 `orphanReturnCount: number` 필드 추가 (`@kiditem/shared` ReturnSummarySchema Zod 신설)
 
 기존 동일 semantic 이름을 쓰는 `sales-analysis.service:70` 는 D.3 (live aggregation 전환 시) 에서 같이 수렴됩니다 (ADR-0017 § Scope boundaries). D.3 전까지 `channel-dashboard.returnRate` (live 실측) 와 `sales-analysis.returnRate` (ProfitLoss 테이블 미기재로 0) 값이 다를 수 있으나, 두 지표가 같은 UI 에 함께 노출되는 위치는 없습니다.

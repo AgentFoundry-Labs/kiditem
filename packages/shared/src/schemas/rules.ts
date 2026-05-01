@@ -4,7 +4,7 @@ import { z } from 'zod';
 // 출처: rules.service.ts findAllRules() — Prisma BusinessRule 모델 기반
 export const RuleItemSchema = z.object({
   id: z.string(),
-  companyId: z.string(),
+  organizationId: z.string(),
   name: z.string(),
   displayName: z.string(),
   description: z.string().nullable(),

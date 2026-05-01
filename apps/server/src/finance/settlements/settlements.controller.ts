@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Patch, Param, Query, Body } from '@nestjs/common';
 import { SettlementsService } from './settlements.service';
 import { ListSettlementsQueryDto, CreateSettlementDto, UpdateSettlementDto, ReconcileSettlementDto } from './dto';
-import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
+import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
 
 @Controller('settlements')
 export class SettlementsController {
@@ -11,31 +11,31 @@ export class SettlementsController {
 
   @Get()
   async findAll(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Query() query: ListSettlementsQueryDto,
   ) {
-    return this.settlementsService.findAll(companyId, query.period);
+    return this.settlementsService.findAll(organizationId, query.period);
   }
 
   @Post()
-  create(@Body() dto: CreateSettlementDto, @CurrentCompany() companyId: string) {
-    return this.settlementsService.create(companyId, dto);
+  create(@Body() dto: CreateSettlementDto, @CurrentOrganization() organizationId: string) {
+    return this.settlementsService.create(organizationId, dto);
   }
 
   @Post('reconcile')
   async reconcile(
     @Body() dto: ReconcileSettlementDto,
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
   ) {
-    return this.settlementsService.reconcile(companyId, dto.period);
+    return this.settlementsService.reconcile(organizationId, dto.period);
   }
 
   @Patch(':id')
   update(
     @Param('id') id: string,
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Body() dto: UpdateSettlementDto,
   ) {
-    return this.settlementsService.update(id, companyId, dto);
+    return this.settlementsService.update(id, organizationId, dto);
   }
 }

@@ -24,18 +24,18 @@ export class TransfersService implements TransfersPort {
     private readonly repository: TransfersRepositoryPort,
   ) {}
 
-  findAll(companyId: string, query: { status?: string }): Promise<StockTransferRow[]> {
-    return this.repository.listStockTransfers(companyId, query.status);
+  findAll(organizationId: string, query: { status?: string }): Promise<StockTransferRow[]> {
+    return this.repository.listStockTransfers(organizationId, query.status);
   }
 
   async create(
-    companyId: string,
+    organizationId: string,
     dto: CreateStockTransferInput,
   ): Promise<StockTransferRow> {
-    const option = await this.repository.findOptionForTransfer(dto.optionId, companyId);
+    const option = await this.repository.findOptionForTransfer(dto.optionId, organizationId);
     if (!option) throw new NotFoundException('Option not found');
 
-    return this.repository.createStockTransfer(companyId, {
+    return this.repository.createStockTransfer(organizationId, {
       optionId: dto.optionId,
       optionName: option.optionName ?? '',
       fromWarehouseId: dto.fromWarehouseId,
@@ -48,9 +48,9 @@ export class TransfersService implements TransfersPort {
   async update(
     id: string,
     dto: UpdateStockTransferInput,
-    companyId: string,
+    organizationId: string,
   ): Promise<StockTransferRow> {
-    const existing = await this.repository.findStockTransferById(id, companyId);
+    const existing = await this.repository.findStockTransferById(id, organizationId);
     if (!existing) throw new NotFoundException('재고 이동을 찾을 수 없습니다');
 
     try {

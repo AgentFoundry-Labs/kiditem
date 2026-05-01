@@ -37,24 +37,24 @@ export class AgentRegistryService implements OnModuleInit {
     return this.crud.findByType(type);
   }
 
-  list(companyId: string, query: { isActive?: string } = {}) {
-    return this.crud.list(companyId, query);
+  list(organizationId: string, query: { isActive?: string } = {}) {
+    return this.crud.list(organizationId, query);
   }
 
-  getById(id: string, companyId?: string) {
-    return this.crud.getById(id, companyId);
+  getById(id: string, organizationId?: string) {
+    return this.crud.getById(id, organizationId);
   }
 
   create(data: Parameters<AgentCrudService['create']>[0]) {
     return this.crud.create(data);
   }
 
-  update(id: string, companyId: string, data: AgentDefinitionUpdateData) {
-    return this.crud.update(id, companyId, data);
+  update(id: string, organizationId: string, data: AgentDefinitionUpdateData) {
+    return this.crud.update(id, organizationId, data);
   }
 
-  delete(id: string, companyId: string): Promise<{ ok: boolean }> {
-    return this.crud.delete(id, companyId);
+  delete(id: string, organizationId: string): Promise<{ ok: boolean }> {
+    return this.crud.delete(id, organizationId);
   }
 
   runByType(type: string, input?: AgentRunInput) {
@@ -69,35 +69,35 @@ export class AgentRegistryService implements OnModuleInit {
     return this.costAnalytics.resetMonthlyBudgets();
   }
 
-  getRunById(runId: string, companyId: string) {
-    return this.lifecycle.getRunById(runId, companyId);
+  getRunById(runId: string, organizationId: string) {
+    return this.lifecycle.getRunById(runId, organizationId);
   }
 
-  getRunHistory(agentId: string, companyId: string, limit = 20) {
-    return this.lifecycle.getRunHistory(agentId, companyId, limit);
+  getRunHistory(agentId: string, organizationId: string, limit = 20) {
+    return this.lifecycle.getRunHistory(agentId, organizationId, limit);
   }
 
-  getRuntimeState(agentId: string, companyId: string) {
-    return this.lifecycle.getRuntimeState(agentId, companyId);
+  getRuntimeState(agentId: string, organizationId: string) {
+    return this.lifecycle.getRuntimeState(agentId, organizationId);
   }
 
-  resetSession(agentId: string, companyId: string): Promise<{ ok: boolean }> {
-    return this.lifecycle.resetSession(agentId, companyId);
+  resetSession(agentId: string, organizationId: string): Promise<{ ok: boolean }> {
+    return this.lifecycle.resetSession(agentId, organizationId);
   }
 
-  pauseAgent(agentId: string, companyId: string, reason?: string): Promise<{ ok: boolean }> {
-    return this.lifecycle.pauseAgent(agentId, companyId, reason);
+  pauseAgent(agentId: string, organizationId: string, reason?: string): Promise<{ ok: boolean }> {
+    return this.lifecycle.pauseAgent(agentId, organizationId, reason);
   }
 
-  resumeAgent(agentId: string, companyId: string): Promise<{ ok: boolean }> {
-    return this.lifecycle.resumeAgent(agentId, companyId);
+  resumeAgent(agentId: string, organizationId: string): Promise<{ ok: boolean }> {
+    return this.lifecycle.resumeAgent(agentId, organizationId);
   }
 
-  getCostAnalytics(companyId: string, query: { from?: string; to?: string; agentId?: string }) {
-    return this.costAnalytics.getCostAnalytics(companyId, query);
+  getCostAnalytics(organizationId: string, query: { from?: string; to?: string; agentId?: string }) {
+    return this.costAnalytics.getCostAnalytics(organizationId, query);
   }
 
-  getOrgTree(companyId: string) {
-    return this.crud.getOrgTree(companyId);
+  getOrgTree(organizationId: string) {
+    return this.crud.getOrgTree(organizationId);
   }
 }

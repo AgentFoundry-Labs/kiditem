@@ -13,9 +13,9 @@ import { CreateSupplierDto, UpdateSupplierDto } from '../../adapter/in/http/dto'
 export class SuppliersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(companyId: string) {
+  async findAll(organizationId: string) {
     const suppliers = await this.prisma.supplier.findMany({
-      where: { companyId },
+      where: { organizationId },
       include: {
         _count: {
           select: {
@@ -35,10 +35,10 @@ export class SuppliersService {
     }));
   }
 
-  async create(companyId: string, dto: CreateSupplierDto) {
+  async create(organizationId: string, dto: CreateSupplierDto) {
     return this.prisma.supplier.create({
       data: {
-        companyId,
+        organizationId,
         name: dto.name,
         contactName: dto.contactName,
         phone: dto.phone,
@@ -51,9 +51,9 @@ export class SuppliersService {
     });
   }
 
-  async update(id: string, companyId: string, dto: UpdateSupplierDto) {
+  async update(id: string, organizationId: string, dto: UpdateSupplierDto) {
     const existing = await this.prisma.supplier.findFirst({
-      where: { id, companyId },
+      where: { id, organizationId },
     });
     if (!existing) {
       throw new BadRequestException('거래처를 찾을 수 없습니다');
@@ -75,9 +75,9 @@ export class SuppliersService {
     });
   }
 
-  async delete(id: string, companyId: string) {
+  async delete(id: string, organizationId: string) {
     const existing = await this.prisma.supplier.findFirst({
-      where: { id, companyId },
+      where: { id, organizationId },
     });
     if (!existing) {
       throw new BadRequestException('거래처를 찾을 수 없습니다');

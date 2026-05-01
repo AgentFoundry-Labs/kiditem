@@ -33,7 +33,7 @@ export class DashboardAdService {
     private readonly adRepository: DashboardAdRepositoryAdapter,
   ) {}
 
-  async getSummary(ctx: DashboardContext, companyId: string): Promise<DashboardAdSummary> {
+  async getSummary(ctx: DashboardContext, organizationId: string): Promise<DashboardAdSummary> {
     try {
       const { year, month, monthStart, monthEnd, prevMonthDate, dateRange, now } = ctx;
 
@@ -56,25 +56,25 @@ export class DashboardAdService {
         wingAdSummary,
       ] = await Promise.all([
         // Current calendar-month ad aggregation (replaces inline raw SQL)
-        aggregateAdForRange(this.prisma, companyId, monthStart, monthEnd),
+        aggregateAdForRange(this.prisma, organizationId, monthStart, monthEnd),
         // Previous calendar-month ad aggregation
-        aggregateAdForRange(this.prisma, companyId, prevMonthDate, monthStart),
+        aggregateAdForRange(this.prisma, organizationId, prevMonthDate, monthStart),
         // Range KPI current period
-        aggregateAdForRange(this.prisma, companyId, dateRange.start, dateRange.end),
+        aggregateAdForRange(this.prisma, organizationId, dateRange.start, dateRange.end),
         // Range KPI previous period
-        aggregateAdForRange(this.prisma, companyId, dateRange.prevStart, dateRange.prevEnd),
+        aggregateAdForRange(this.prisma, organizationId, dateRange.prevStart, dateRange.prevEnd),
         // 30-day daily ad cost — moved to ad repository adapter (raw SQL lane)
-        this.adRepository.fetchDailyAdCost(companyId, thirtyDaysAgo),
+        this.adRepository.fetchDailyAdCost(organizationId, thirtyDaysAgo),
         // Current month profit (Order-based, v2 I3 lineItem canonical)
-        calculateProfitForRange(this.prisma, companyId, monthStart, monthEnd),
+        calculateProfitForRange(this.prisma, organizationId, monthStart, monthEnd),
         // Previous month profit (Order-based)
-        calculateProfitForRange(this.prisma, companyId, prevMonthDate, monthStart),
+        calculateProfitForRange(this.prisma, organizationId, prevMonthDate, monthStart),
         // Range profit current period (legacy: rangeProfitCur.adCost for rangeKpi)
-        calculateProfitForRange(this.prisma, companyId, dateRange.start, dateRange.end),
+        calculateProfitForRange(this.prisma, organizationId, dateRange.start, dateRange.end),
         // Range profit previous period (legacy: rangeProfitPrev.adCost for prevAdCost)
-        calculateProfitForRange(this.prisma, companyId, dateRange.prevStart, dateRange.prevEnd),
-        // Wing adSummary snapshot (ADR-0018 — companyId threaded)
-        fetchWingAdSummary(this.prisma, companyId, year, month, monthStart),
+        calculateProfitForRange(this.prisma, organizationId, dateRange.prevStart, dateRange.prevEnd),
+        // Wing adSummary snapshot (ADR-0018 — organizationId threaded)
+        fetchWingAdSummary(this.prisma, organizationId, year, month, monthStart),
       ]);
 
       return {

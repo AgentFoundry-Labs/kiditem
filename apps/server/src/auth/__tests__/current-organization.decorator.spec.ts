@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
-import { currentCompanyFactory } from '../decorators/current-company.decorator';
+import { currentOrganizationFactory } from '../decorators/current-organization.decorator';
 import { currentUserFactory } from '../decorators/current-user.decorator';
 
 function createCtx(authUser: unknown): ExecutionContext {
@@ -20,36 +20,36 @@ function createCtx(authUser: unknown): ExecutionContext {
   } as unknown as ExecutionContext;
 }
 
-describe('currentCompanyFactory', () => {
-  it('returns companyId when authUser has one', () => {
-    const ctx = createCtx({ id: 'u1', companyId: 'c1', role: 'owner', type: 'human', email: 'a@b.c' });
-    expect(currentCompanyFactory(ctx)).toBe('c1');
+describe('currentOrganizationFactory', () => {
+  it('returns organizationId when authUser has one', () => {
+    const ctx = createCtx({ id: 'u1', organizationId: 'c1', role: 'owner', type: 'human', email: 'a@b.c' });
+    expect(currentOrganizationFactory(ctx)).toBe('c1');
   });
 
   it('throws UnauthorizedException("auth_required") when authUser is missing', () => {
     const ctx = createCtx(undefined);
-    expect(() => currentCompanyFactory(ctx)).toThrow(UnauthorizedException);
+    expect(() => currentOrganizationFactory(ctx)).toThrow(UnauthorizedException);
     try {
-      currentCompanyFactory(ctx);
+      currentOrganizationFactory(ctx);
     } catch (e) {
       expect((e as UnauthorizedException).message).toContain('auth_required');
     }
   });
 
-  it('throws UnauthorizedException("no_company_context") when companyId is null', () => {
-    const ctx = createCtx({ id: 'u1', companyId: null, role: 'system', type: 'system', email: 'sys@x' });
-    expect(() => currentCompanyFactory(ctx)).toThrow(UnauthorizedException);
+  it('throws UnauthorizedException("no_organization_context") when organizationId is null', () => {
+    const ctx = createCtx({ id: 'u1', organizationId: null, role: 'system', type: 'system', email: 'sys@x' });
+    expect(() => currentOrganizationFactory(ctx)).toThrow(UnauthorizedException);
     try {
-      currentCompanyFactory(ctx);
+      currentOrganizationFactory(ctx);
     } catch (e) {
-      expect((e as UnauthorizedException).message).toContain('no_company_context');
+      expect((e as UnauthorizedException).message).toContain('no_organization_context');
     }
   });
 });
 
 describe('currentUserFactory', () => {
   it('returns authUser when present', () => {
-    const user = { id: 'u1', companyId: 'c1', role: 'owner', type: 'human', email: 'a@b.c' };
+    const user = { id: 'u1', organizationId: 'c1', role: 'owner', type: 'human', email: 'a@b.c' };
     const ctx = createCtx(user);
     expect(currentUserFactory(ctx)).toEqual(user);
   });

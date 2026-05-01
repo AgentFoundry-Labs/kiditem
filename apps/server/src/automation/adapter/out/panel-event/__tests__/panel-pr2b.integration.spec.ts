@@ -1,11 +1,11 @@
 /**
- * PR2b integration test — Panel SSE pipeline 4-source + alert + company isolation (Task 26)
+ * PR2b integration test — Panel SSE pipeline 4-source + alert + organization isolation (Task 26)
  *
  * Extends PR2a to cover:
  *   1. 4-source single-stream — workflow + agent + image + alert all arrive, alert has kind: 'alert'
  *   2. My/team split data flow — actorUserId values propagate correctly (null vs user vs other)
  *   3. Concurrent rules eval no-contamination — co-A and co-B alert items stay isolated
- *   4. Partial-emit failure — first valid item arrives even when second emits with bad companyId filter
+ *   4. Partial-emit failure — first valid item arrives even when second emits with bad organizationId filter
  *   5. Actor-null for alert items — alert actorUserId is always null through the bus
  *
  * Mock boundary: PrismaService only.
@@ -40,16 +40,16 @@ function baseRunItem(overrides: Partial<RunItem> = {}): RunItem {
     title: 'Test workflow',
     deepLink: '/workflows/run-1',
     actorUserId: null,
-    visibility: 'company',
+    visibility: 'organization',
     createdAt: '2026-04-16T00:00:00.000Z',
     ...overrides,
   };
 }
 
 function alertPayload(
-  overrides: Partial<AlertItem & { companyId: string }> = {},
+  overrides: Partial<AlertItem & { organizationId: string }> = {},
 ): PanelUpsertInternal {
-  const { companyId = 'co-1', ...itemOverrides } = overrides;
+  const { organizationId = 'co-1', ...itemOverrides } = overrides;
   const item: AlertItem = {
     kind: 'alert',
     id: 'alert-1',
@@ -66,21 +66,21 @@ function alertPayload(
     ...itemOverrides,
   };
   return {
-    companyId,
+    organizationId,
     item,
   };
 }
 
 function workflowPayload(overrides: Partial<RunItem> = {}): PanelUpsertInternal {
   return {
-    companyId: 'co-1',
+    organizationId: 'co-1',
     item: baseRunItem({ id: 'workflow:run-1', source: 'workflow', sourceId: 'run-1', ...overrides }),
   };
 }
 
 function agentPayload(overrides: Partial<RunItem> = {}): PanelUpsertInternal {
   return {
-    companyId: 'co-1',
+    organizationId: 'co-1',
     item: baseRunItem({
       id: 'agent:run-1',
       source: 'agent',
@@ -94,7 +94,7 @@ function agentPayload(overrides: Partial<RunItem> = {}): PanelUpsertInternal {
 
 function imagePayload(overrides: Partial<RunItem> = {}): PanelUpsertInternal {
   return {
-    companyId: 'co-1',
+    organizationId: 'co-1',
     item: baseRunItem({
       id: 'image:gen-1',
       source: 'image',
@@ -123,7 +123,7 @@ async function buildModule(): Promise<TestingModule> {
 
 // ── tests ──────────────────────────────────────────────────────────────────
 
-describe('Panel PR2b integration — 4 source + alert + concurrent company isolation (Task 26)', () => {
+describe('Panel PR2b integration — 4 source + alert + concurrent organization isolation (Task 26)', () => {
   let moduleRef: TestingModule;
   let sseService: PanelSseService;
   let emitter: EventEmitter2;
@@ -220,7 +220,7 @@ describe('Panel PR2b integration — 4 source + alert + concurrent company isola
 
   // ── Scenario 3: Concurrent rules eval no-contamination ──────────────────
 
-  it('Scenario 3: co-A and co-B alert items — zero cross-company leak', async () => {
+  it('Scenario 3: co-A and co-B alert items — zero cross-organization leak', async () => {
     // Set up separate streams for co-A and co-B
     const streamA$ = sseService.getStream('co-A').pipe(take(2), toArray());
     const streamB$ = sseService.getStream('co-B').pipe(take(2), toArray());
@@ -231,19 +231,19 @@ describe('Panel PR2b integration — 4 source + alert + concurrent company isola
     // Interleave emits from co-A and co-B
     emitter.emit(
       PANEL_EVENTS.UPSERT,
-      alertPayload({ companyId: 'co-A', id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', title: 'co-A alert 1' }),
+      alertPayload({ organizationId: 'co-A', id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', title: 'co-A alert 1' }),
     );
     emitter.emit(
       PANEL_EVENTS.UPSERT,
-      alertPayload({ companyId: 'co-B', id: 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', title: 'co-B alert 1' }),
+      alertPayload({ organizationId: 'co-B', id: 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', title: 'co-B alert 1' }),
     );
     emitter.emit(
       PANEL_EVENTS.UPSERT,
-      alertPayload({ companyId: 'co-A', id: 'a1eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', title: 'co-A alert 2' }),
+      alertPayload({ organizationId: 'co-A', id: 'a1eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', title: 'co-A alert 2' }),
     );
     emitter.emit(
       PANEL_EVENTS.UPSERT,
-      alertPayload({ companyId: 'co-B', id: 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', title: 'co-B alert 2' }),
+      alertPayload({ organizationId: 'co-B', id: 'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', title: 'co-B alert 2' }),
     );
 
     const eventsA = await collectA;
@@ -264,7 +264,7 @@ describe('Panel PR2b integration — 4 source + alert + concurrent company isola
       expect(e.item.title).toMatch(/^co-B/);
     });
 
-    // Zero cross-company leak: no co-B items in co-A stream and vice versa
+    // Zero cross-organization leak: no co-B items in co-A stream and vice versa
     const coAIds = panelEventsA.map((e: any) => e.item.id);
     const coBIds = panelEventsB.map((e: any) => e.item.id);
     coAIds.forEach((id: string) => expect(coBIds).not.toContain(id));
@@ -273,18 +273,18 @@ describe('Panel PR2b integration — 4 source + alert + concurrent company isola
 
   // ── Scenario 4: Partial-emit failure — first valid item arrives ──────────
 
-  it('Scenario 4: valid alert arrives even when second emit has mismatched companyId', async () => {
+  it('Scenario 4: valid alert arrives even when second emit has mismatched organizationId', async () => {
     // Subscribe to co-1 and expect exactly 1 event (the valid one)
     const stream$ = sseService.getStream('co-1').pipe(take(1), toArray());
     const collectPromise = lastValueFrom(stream$);
 
     // Valid co-1 emit
-    emitter.emit(PANEL_EVENTS.UPSERT, alertPayload({ companyId: 'co-1', title: 'valid alert' }));
+    emitter.emit(PANEL_EVENTS.UPSERT, alertPayload({ organizationId: 'co-1', title: 'valid alert' }));
 
-    // "Bad" emit: companyId is co-2 — subscriber for co-1 should NOT receive this
+    // "Bad" emit: organizationId is co-2 — subscriber for co-1 should NOT receive this
     emitter.emit(
       PANEL_EVENTS.UPSERT,
-      alertPayload({ companyId: 'co-2', title: 'wrong company alert' }),
+      alertPayload({ organizationId: 'co-2', title: 'wrong organization alert' }),
     );
 
     const events = await collectPromise;

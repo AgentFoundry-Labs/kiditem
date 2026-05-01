@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { CompanyScopeGuard } from '../guards/company-scope.guard';
+import { OrganizationScopeGuard } from '../guards/organization-scope.guard';
 import { SKIP_AUTH_KEY } from '../decorators/skip-auth.decorator';
 
 function createCtx(authUser: unknown, meta: Record<string | symbol, unknown> = {}): ExecutionContext {
@@ -28,15 +28,15 @@ function makeReflector(metaFor: (key: string) => unknown): Reflector {
   } as unknown as Reflector;
 }
 
-describe('CompanyScopeGuard', () => {
+describe('OrganizationScopeGuard', () => {
   it('passes when @SkipAuth() metadata is set', () => {
-    const guard = new CompanyScopeGuard(makeReflector((k) => (k === SKIP_AUTH_KEY ? true : undefined)));
+    const guard = new OrganizationScopeGuard(makeReflector((k) => (k === SKIP_AUTH_KEY ? true : undefined)));
     const ctx = createCtx(undefined);
     expect(guard.canActivate(ctx)).toBe(true);
   });
 
   it('throws auth_required when req.authUser missing', () => {
-    const guard = new CompanyScopeGuard(makeReflector(() => undefined));
+    const guard = new OrganizationScopeGuard(makeReflector(() => undefined));
     const ctx = createCtx(undefined);
     expect(() => guard.canActivate(ctx)).toThrow(UnauthorizedException);
     try {
@@ -46,25 +46,25 @@ describe('CompanyScopeGuard', () => {
     }
   });
 
-  it('throws no_company_context when companyId is null', () => {
-    const guard = new CompanyScopeGuard(makeReflector(() => undefined));
-    const ctx = createCtx({ id: 'u1', companyId: null, role: 'system', type: 'system', email: 's@x' });
+  it('throws no_organization_context when organizationId is null', () => {
+    const guard = new OrganizationScopeGuard(makeReflector(() => undefined));
+    const ctx = createCtx({ id: 'u1', organizationId: null, role: 'system', type: 'system', email: 's@x' });
     expect(() => guard.canActivate(ctx)).toThrow(UnauthorizedException);
     try {
       guard.canActivate(ctx);
     } catch (e) {
-      expect((e as UnauthorizedException).message).toContain('no_company_context');
+      expect((e as UnauthorizedException).message).toContain('no_organization_context');
     }
   });
 
-  it('passes when authUser has companyId', () => {
-    const guard = new CompanyScopeGuard(makeReflector(() => undefined));
-    const ctx = createCtx({ id: 'u1', companyId: 'c1', role: 'owner', type: 'human', email: 'a@b' });
+  it('passes when authUser has organizationId', () => {
+    const guard = new OrganizationScopeGuard(makeReflector(() => undefined));
+    const ctx = createCtx({ id: 'u1', organizationId: 'c1', role: 'owner', type: 'human', email: 'a@b' });
     expect(guard.canActivate(ctx)).toBe(true);
   });
 
   it('skips guard for non-http contexts', () => {
-    const guard = new CompanyScopeGuard(makeReflector(() => undefined));
+    const guard = new OrganizationScopeGuard(makeReflector(() => undefined));
     const ctx = {
       ...createCtx(undefined),
       getType: () => 'rpc',

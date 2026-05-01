@@ -1,5 +1,5 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
-import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
+import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { ProductCatalogCountsSchema, ProductCatalogDetailSchema, ProductCatalogListResponseSchema, type ProductCatalogCounts, type ProductCatalogDetail, type ProductCatalogListResponse } from '@kiditem/shared/product';
 import { ProductCatalogService } from '../../../application/service/product-catalog.service';
 import { ListProductCatalogQuery } from '../../../dto/list-product-catalog.query';
@@ -10,25 +10,25 @@ export class ProductCatalogController {
 
   @Get()
   async list(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Query() q: ListProductCatalogQuery,
   ): Promise<ProductCatalogListResponse> {
-    return ProductCatalogListResponseSchema.parse(await this.catalog.list(companyId, q));
+    return ProductCatalogListResponseSchema.parse(await this.catalog.list(organizationId, q));
   }
 
   @Get('counts')
   async counts(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Query() q: ListProductCatalogQuery,
   ): Promise<ProductCatalogCounts> {
-    return ProductCatalogCountsSchema.parse(await this.catalog.counts(companyId, q));
+    return ProductCatalogCountsSchema.parse(await this.catalog.counts(organizationId, q));
   }
 
   @Get(':id')
   async detail(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Param('id') id: string,
   ): Promise<ProductCatalogDetail> {
-    return ProductCatalogDetailSchema.parse(await this.catalog.detail(companyId, id));
+    return ProductCatalogDetailSchema.parse(await this.catalog.detail(organizationId, id));
   }
 }

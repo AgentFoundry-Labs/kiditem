@@ -7,8 +7,8 @@ import {
   makeTestPrisma,
   resetDb,
   seedBaseFixture,
-  TEST_COMPANY_ID,
-  OTHER_COMPANY_ID,
+  TEST_ORGANIZATION_ID,
+  OTHER_ORGANIZATION_ID,
 } from '../../../test-helpers/real-prisma';
 
 /**
@@ -20,10 +20,10 @@ import {
  *   getHistory         — PurchaseOrder + SupplierPayment 시간순 timeline (T7 변경 없음, 참조 검증만).
  *
  * 관통 invariants:
- *   - OrderLineItem.optionId groupBy 는 `order.companyId + status notIn(cancelled, returned)` 로 scope.
+ *   - OrderLineItem.optionId groupBy 는 `order.organizationId + status notIn(cancelled, returned)` 로 scope.
  *   - 중복 option (SupplierProduct + MasterSupplierProduct 양쪽 등장) 은 `counted Set` 으로 한 번만 집계.
  *   - MasterSupplierProduct 경로는 schema 에 supplyPrice 없음 → service 가 `null` 반환.
- *   - Cross-tenant — OTHER_COMPANY_ID 소유 리소스는 TEST_COMPANY_ID 호출에 섞이지 않음.
+ *   - Cross-tenant — OTHER_ORGANIZATION_ID 소유 리소스는 TEST_ORGANIZATION_ID 호출에 섞이지 않음.
  *   - OrderLineItem.optionId = null 은 `{ in: chunk }` 필터로 자연 배제.
  *
  * CHUNK 경계 테스트:
@@ -65,14 +65,14 @@ describe('Supplier-stats flow (PG integration)', () => {
 
   /** Master + N options. optionCounter 는 N 로 세팅 (sku 생성 race-free 가정 무시 — 수동 sku 지정). */
   async function seedMasterWithOptions(params: {
-    companyId: string;
+    organizationId: string;
     masterCode: string;
     masterName: string;
     optionNames: string[];
   }) {
     const master = await prisma.masterProduct.create({
       data: {
-        companyId: params.companyId,
+        organizationId: params.organizationId,
         code: params.masterCode,
         name: params.masterName,
         optionCounter: params.optionNames.length,
@@ -82,7 +82,7 @@ describe('Supplier-stats flow (PG integration)', () => {
     for (let i = 0; i < params.optionNames.length; i++) {
       const option = await prisma.productOption.create({
         data: {
-          companyId: params.companyId,
+          organizationId: params.organizationId,
           masterId: master.id,
           optionName: params.optionNames[i],
           sku: `${params.masterCode}-${String(i + 1).padStart(3, '0')}`,
@@ -95,14 +95,14 @@ describe('Supplier-stats flow (PG integration)', () => {
 
   /** ChannelListing + ChannelListingOption per option. Orders 에서 listingOptionId 참조용. */
   async function seedListingForMaster(params: {
-    companyId: string;
+    organizationId: string;
     masterId: string;
     suffix: string;
     options: Array<{ id: string }>;
   }) {
     const listing = await prisma.channelListing.create({
       data: {
-        companyId: params.companyId,
+        organizationId: params.organizationId,
         masterId: params.masterId,
         channel: 'coupang',
         externalId: `EXT-${params.suffix}`,
@@ -113,7 +113,7 @@ describe('Supplier-stats flow (PG integration)', () => {
     for (let i = 0; i < params.options.length; i++) {
       const lo = await prisma.channelListingOption.create({
         data: {
-          companyId: params.companyId,
+          organizationId: params.organizationId,
           listingId: listing.id,
           optionId: params.options[i].id,
           externalOptionId: `VI-${params.suffix}-${i}`,
@@ -129,7 +129,7 @@ describe('Supplier-stats flow (PG integration)', () => {
    * (service 의 `groupBy({ by: ['optionId'] })` 경로 검증). `listingOptionId` 는 B2a 패턴 연동.
    */
   async function seedOrderWithLineItem(params: {
-    companyId: string;
+    organizationId: string;
     externalOrderId: string;
     optionId: string | null;
     listingOptionId?: string;
@@ -140,7 +140,7 @@ describe('Supplier-stats flow (PG integration)', () => {
     const totalPrice = params.unitPrice * params.quantity;
     const order = await prisma.order.create({
       data: {
-        companyId: params.companyId,
+        organizationId: params.organizationId,
         platform: 'coupang',
         externalOrderId: params.externalOrderId,
         orderedAt: new Date(Date.UTC(2026, 3, 10, 3, 0, 0)),
@@ -150,7 +150,7 @@ describe('Supplier-stats flow (PG integration)', () => {
     });
     await prisma.orderLineItem.create({
       data: {
-        companyId: params.companyId,
+        organizationId: params.organizationId,
         orderId: order.id,
         optionId: params.optionId,
         listingOptionId: params.listingOptionId ?? null,
@@ -170,23 +170,23 @@ describe('Supplier-stats flow (PG integration)', () => {
       // Supplier S1 — SupplierProduct(opt-M1-a, opt-M1-b), 2 options 직접 매핑
       // Supplier S2 — MasterSupplierProduct(masterM2), master 에 속한 옵션 2개 자동 포함
       const { master: masterM1, options: m1Options } = await seedMasterWithOptions({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         masterCode: 'M-001',
         masterName: 'Master 1',
         optionNames: ['M1-a', 'M1-b'],
       });
       const { master: masterM2, options: m2Options } = await seedMasterWithOptions({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         masterCode: 'M-002',
         masterName: 'Master 2',
         optionNames: ['M2-a', 'M2-b'],
       });
 
       const s1 = await prisma.supplier.create({
-        data: { companyId: TEST_COMPANY_ID, name: 'Supplier 1' },
+        data: { organizationId: TEST_ORGANIZATION_ID, name: 'Supplier 1' },
       });
       const s2 = await prisma.supplier.create({
-        data: { companyId: TEST_COMPANY_ID, name: 'Supplier 2' },
+        data: { organizationId: TEST_ORGANIZATION_ID, name: 'Supplier 2' },
       });
 
       // S1 → SupplierProduct(m1Options[0], m1Options[1])
@@ -204,14 +204,14 @@ describe('Supplier-stats flow (PG integration)', () => {
       // Orders: channel listings 불필요 (optionId 경로) 단, service 는 optionId 를 직접 사용.
       // m1Options[0]: 2 orders × qty 3 / unit 10k → totalRevenue 60k, totalQuantity 6, totalOrders 2
       await seedOrderWithLineItem({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: 'S1-O1',
         optionId: m1Options[0].id,
         unitPrice: 10_000,
         quantity: 3,
       });
       await seedOrderWithLineItem({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: 'S1-O2',
         optionId: m1Options[0].id,
         unitPrice: 10_000,
@@ -219,7 +219,7 @@ describe('Supplier-stats flow (PG integration)', () => {
       });
       // m1Options[1]: 1 order × qty 2 / unit 15k → 30k, 2, 1
       await seedOrderWithLineItem({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: 'S1-O3',
         optionId: m1Options[1].id,
         unitPrice: 15_000,
@@ -227,7 +227,7 @@ describe('Supplier-stats flow (PG integration)', () => {
       });
       // m2Options[0]: 1 order × qty 4 / unit 8k → 32k, 4, 1
       await seedOrderWithLineItem({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: 'S2-O1',
         optionId: m2Options[0].id,
         unitPrice: 8_000,
@@ -235,7 +235,7 @@ describe('Supplier-stats flow (PG integration)', () => {
       });
       // m2Options[1]: 0 orders — explicit empty case
 
-      const result = await service.getSalesBySupplier(TEST_COMPANY_ID);
+      const result = await service.getSalesBySupplier(TEST_ORGANIZATION_ID);
 
       expect(result).toHaveLength(2);
       const byName = new Map(result.map((r) => [r.supplierName, r]));
@@ -266,14 +266,14 @@ describe('Supplier-stats flow (PG integration)', () => {
       // Master M1 에 2 options, Supplier S 가 SupplierProduct(opt0) + MasterSupplierProduct(masterM1) 둘 다 가짐.
       // MasterSupplierProduct 경로가 opt0 을 다시 노출하지만, counted Set 으로 skip 되어야 한다.
       const { master, options } = await seedMasterWithOptions({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         masterCode: 'M-DUP',
         masterName: 'Master Dup',
         optionNames: ['opt-0', 'opt-1'],
       });
 
       const supplier = await prisma.supplier.create({
-        data: { companyId: TEST_COMPANY_ID, name: 'Dual Supplier' },
+        data: { organizationId: TEST_ORGANIZATION_ID, name: 'Dual Supplier' },
       });
 
       // SupplierProduct(opt-0) — 직접 매핑
@@ -292,7 +292,7 @@ describe('Supplier-stats flow (PG integration)', () => {
 
       // opt-0: 1 order × qty 4 / unit 10k → 40k, 4, 1
       await seedOrderWithLineItem({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: 'DUP-O1',
         optionId: options[0].id,
         unitPrice: 10_000,
@@ -300,14 +300,14 @@ describe('Supplier-stats flow (PG integration)', () => {
       });
       // opt-1: 1 order × qty 2 / unit 20k → 40k, 2, 1
       await seedOrderWithLineItem({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: 'DUP-O2',
         optionId: options[1].id,
         unitPrice: 20_000,
         quantity: 2,
       });
 
-      const result = await service.getSalesBySupplier(TEST_COMPANY_ID);
+      const result = await service.getSalesBySupplier(TEST_ORGANIZATION_ID);
 
       expect(result).toHaveLength(1);
       expect(result[0]).toEqual({
@@ -324,14 +324,14 @@ describe('Supplier-stats flow (PG integration)', () => {
 
     it('excludes cancelled + returned orders from groupBy aggregate', async () => {
       const { options } = await seedMasterWithOptions({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         masterCode: 'M-STATUS',
         masterName: 'Status test',
         optionNames: ['opt-0'],
       });
 
       const supplier = await prisma.supplier.create({
-        data: { companyId: TEST_COMPANY_ID, name: 'Status Supplier' },
+        data: { organizationId: TEST_ORGANIZATION_ID, name: 'Status Supplier' },
       });
       await prisma.supplierProduct.create({
         data: {
@@ -344,7 +344,7 @@ describe('Supplier-stats flow (PG integration)', () => {
 
       // paid: 1 × 5k × qty 1 → 5k
       await seedOrderWithLineItem({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: 'STATUS-OK',
         optionId: options[0].id,
         unitPrice: 5_000,
@@ -353,7 +353,7 @@ describe('Supplier-stats flow (PG integration)', () => {
       });
       // cancelled — excluded
       await seedOrderWithLineItem({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: 'STATUS-CANCEL',
         optionId: options[0].id,
         unitPrice: 99_999,
@@ -362,7 +362,7 @@ describe('Supplier-stats flow (PG integration)', () => {
       });
       // returned — excluded
       await seedOrderWithLineItem({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: 'STATUS-RETURN',
         optionId: options[0].id,
         unitPrice: 77_777,
@@ -370,7 +370,7 @@ describe('Supplier-stats flow (PG integration)', () => {
         status: 'returned',
       });
 
-      const result = await service.getSalesBySupplier(TEST_COMPANY_ID);
+      const result = await service.getSalesBySupplier(TEST_ORGANIZATION_ID);
 
       expect(result[0]).toMatchObject({
         totalOrders: 1,
@@ -383,14 +383,14 @@ describe('Supplier-stats flow (PG integration)', () => {
       // `OrderLineItem.optionId` 가 null 인 행은 `{ optionId: { in: chunk } }` 필터에서 제외됨.
       // 이 행이 다른 supplier 의 revenue 로 집계되는 일이 없어야 한다.
       const { options } = await seedMasterWithOptions({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         masterCode: 'M-NULL',
         masterName: 'Null test',
         optionNames: ['opt-0'],
       });
 
       const supplier = await prisma.supplier.create({
-        data: { companyId: TEST_COMPANY_ID, name: 'Null-safe Supplier' },
+        data: { organizationId: TEST_ORGANIZATION_ID, name: 'Null-safe Supplier' },
       });
       await prisma.supplierProduct.create({
         data: {
@@ -403,7 +403,7 @@ describe('Supplier-stats flow (PG integration)', () => {
 
       // valid order with optionId
       await seedOrderWithLineItem({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: 'NULL-OK',
         optionId: options[0].id,
         unitPrice: 7_000,
@@ -411,14 +411,14 @@ describe('Supplier-stats flow (PG integration)', () => {
       });
       // orphan line — optionId: null (예: extension sync 실패, unmatched externalLineId)
       await seedOrderWithLineItem({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: 'NULL-ORPHAN',
         optionId: null,
         unitPrice: 999_999,
         quantity: 99,
       });
 
-      const result = await service.getSalesBySupplier(TEST_COMPANY_ID);
+      const result = await service.getSalesBySupplier(TEST_ORGANIZATION_ID);
 
       // null-optionId lineItem must not leak into supplier aggregate
       expect(result[0]).toMatchObject({
@@ -429,8 +429,8 @@ describe('Supplier-stats flow (PG integration)', () => {
     });
 
     it('empty supplier list → empty result', async () => {
-      // No suppliers for TEST_COMPANY_ID
-      const result = await service.getSalesBySupplier(TEST_COMPANY_ID);
+      // No suppliers for TEST_ORGANIZATION_ID
+      const result = await service.getSalesBySupplier(TEST_ORGANIZATION_ID);
       expect(result).toEqual([]);
     });
 
@@ -441,11 +441,11 @@ describe('Supplier-stats flow (PG integration)', () => {
     it('chunk logic exercised with 50 optionIds under 1 chunk — all aggregated correctly', async () => {
       const OPTION_COUNT = 50;
       const supplier = await prisma.supplier.create({
-        data: { companyId: TEST_COMPANY_ID, name: 'Big Supplier' },
+        data: { organizationId: TEST_ORGANIZATION_ID, name: 'Big Supplier' },
       });
 
       const { options } = await seedMasterWithOptions({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         masterCode: 'M-BULK',
         masterName: 'Bulk Master',
         optionNames: Array.from({ length: OPTION_COUNT }, (_, i) => `opt-${i}`),
@@ -465,7 +465,7 @@ describe('Supplier-stats flow (PG integration)', () => {
       // aggregated: 50 orders, 100 qty, 10,000 rev
       for (let i = 0; i < OPTION_COUNT; i++) {
         await seedOrderWithLineItem({
-          companyId: TEST_COMPANY_ID,
+          organizationId: TEST_ORGANIZATION_ID,
           externalOrderId: `BULK-${i.toString().padStart(3, '0')}`,
           optionId: options[i].id,
           unitPrice: 100,
@@ -473,7 +473,7 @@ describe('Supplier-stats flow (PG integration)', () => {
         });
       }
 
-      const result = await service.getSalesBySupplier(TEST_COMPANY_ID);
+      const result = await service.getSalesBySupplier(TEST_ORGANIZATION_ID);
 
       expect(result).toHaveLength(1);
       expect(result[0]).toMatchObject({
@@ -485,16 +485,16 @@ describe('Supplier-stats flow (PG integration)', () => {
       });
     });
 
-    it('cross-tenant — OTHER_COMPANY_ID supplier + options do not leak into TEST_COMPANY_ID result', async () => {
-      // TEST_COMPANY_ID 소유 supplier + master + option + order
+    it('cross-tenant — OTHER_ORGANIZATION_ID supplier + options do not leak into TEST_ORGANIZATION_ID result', async () => {
+      // TEST_ORGANIZATION_ID 소유 supplier + master + option + order
       const { options: ownOptions } = await seedMasterWithOptions({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         masterCode: 'M-OWN',
         masterName: 'Own Master',
         optionNames: ['own-opt'],
       });
       const ownSupplier = await prisma.supplier.create({
-        data: { companyId: TEST_COMPANY_ID, name: 'Own Supplier' },
+        data: { organizationId: TEST_ORGANIZATION_ID, name: 'Own Supplier' },
       });
       await prisma.supplierProduct.create({
         data: {
@@ -505,22 +505,22 @@ describe('Supplier-stats flow (PG integration)', () => {
         },
       });
       await seedOrderWithLineItem({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: 'OWN-O1',
         optionId: ownOptions[0].id,
         unitPrice: 5_000,
         quantity: 1,
       });
 
-      // OTHER_COMPANY_ID 소유 supplier + master + option + order
+      // OTHER_ORGANIZATION_ID 소유 supplier + master + option + order
       const { options: foreignOptions } = await seedMasterWithOptions({
-        companyId: OTHER_COMPANY_ID,
+        organizationId: OTHER_ORGANIZATION_ID,
         masterCode: 'M-FOR',
         masterName: 'Foreign Master',
         optionNames: ['for-opt'],
       });
       const foreignSupplier = await prisma.supplier.create({
-        data: { companyId: OTHER_COMPANY_ID, name: 'Foreign Supplier' },
+        data: { organizationId: OTHER_ORGANIZATION_ID, name: 'Foreign Supplier' },
       });
       await prisma.supplierProduct.create({
         data: {
@@ -531,15 +531,15 @@ describe('Supplier-stats flow (PG integration)', () => {
         },
       });
       await seedOrderWithLineItem({
-        companyId: OTHER_COMPANY_ID,
+        organizationId: OTHER_ORGANIZATION_ID,
         externalOrderId: 'FOR-O1',
         optionId: foreignOptions[0].id,
         unitPrice: 99_999,
         quantity: 99,
       });
 
-      // TEST_COMPANY_ID 조회 → OWN 만 보여야
-      const result = await service.getSalesBySupplier(TEST_COMPANY_ID);
+      // TEST_ORGANIZATION_ID 조회 → OWN 만 보여야
+      const result = await service.getSalesBySupplier(TEST_ORGANIZATION_ID);
 
       expect(result).toHaveLength(1);
       expect(result[0].supplierId).toBe(ownSupplier.id);
@@ -554,20 +554,20 @@ describe('Supplier-stats flow (PG integration)', () => {
   describe('getProductSales', () => {
     it('returns SupplierProduct rows with real supplyPrice + MasterSupplierProduct rows with supplyPrice: null', async () => {
       const { master: m1, options: m1Options } = await seedMasterWithOptions({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         masterCode: 'M-SP',
         masterName: 'SP Master',
         optionNames: ['sp-opt'],
       });
       const { master: m2, options: m2Options } = await seedMasterWithOptions({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         masterCode: 'M-MSP',
         masterName: 'MSP Master',
         optionNames: ['msp-opt-a', 'msp-opt-b'],
       });
 
       const supplier = await prisma.supplier.create({
-        data: { companyId: TEST_COMPANY_ID, name: 'Mixed Supplier' },
+        data: { organizationId: TEST_ORGANIZATION_ID, name: 'Mixed Supplier' },
       });
 
       // SupplierProduct(m1.sp-opt) — supplyPrice 실값 2500
@@ -586,7 +586,7 @@ describe('Supplier-stats flow (PG integration)', () => {
 
       // sp-opt: 1 order × qty 3 / unit 10k → 30k, 3, 1
       await seedOrderWithLineItem({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: 'SP-O1',
         optionId: m1Options[0].id,
         unitPrice: 10_000,
@@ -594,7 +594,7 @@ describe('Supplier-stats flow (PG integration)', () => {
       });
       // msp-opt-a: 1 order × qty 1 / unit 8k → 8k, 1, 1
       await seedOrderWithLineItem({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: 'MSP-OA',
         optionId: m2Options[0].id,
         unitPrice: 8_000,
@@ -602,7 +602,7 @@ describe('Supplier-stats flow (PG integration)', () => {
       });
       // msp-opt-b: 0 orders
 
-      const result = await service.getProductSales(TEST_COMPANY_ID, supplier.id);
+      const result = await service.getProductSales(TEST_ORGANIZATION_ID, supplier.id);
 
       expect(result).toHaveLength(3);
       const byOptionId = new Map(result.map((r) => [r.optionId, r]));
@@ -655,14 +655,14 @@ describe('Supplier-stats flow (PG integration)', () => {
       // opt-0 는 SupplierProduct 로 등록 + MasterSupplierProduct(master) 로도 커버됨.
       // counted Set 으로 master path 에서 skip. 결과는 SupplierProduct row (supplyPrice 실값) 한 개.
       const { master, options } = await seedMasterWithOptions({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         masterCode: 'M-CONFLICT',
         masterName: 'Conflict Master',
         optionNames: ['shared'],
       });
 
       const supplier = await prisma.supplier.create({
-        data: { companyId: TEST_COMPANY_ID, name: 'Conflict Supplier' },
+        data: { organizationId: TEST_ORGANIZATION_ID, name: 'Conflict Supplier' },
       });
 
       await prisma.supplierProduct.create({
@@ -678,14 +678,14 @@ describe('Supplier-stats flow (PG integration)', () => {
       });
 
       await seedOrderWithLineItem({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: 'CONFLICT-O1',
         optionId: options[0].id,
         unitPrice: 10_000,
         quantity: 2,
       });
 
-      const result = await service.getProductSales(TEST_COMPANY_ID, supplier.id);
+      const result = await service.getProductSales(TEST_ORGANIZATION_ID, supplier.id);
 
       // 딱 1 row — SupplierProduct 경로 우선
       expect(result).toHaveLength(1);
@@ -698,27 +698,27 @@ describe('Supplier-stats flow (PG integration)', () => {
 
     it('empty supplier mapping → empty result', async () => {
       const supplier = await prisma.supplier.create({
-        data: { companyId: TEST_COMPANY_ID, name: 'Empty Supplier' },
+        data: { organizationId: TEST_ORGANIZATION_ID, name: 'Empty Supplier' },
       });
-      const result = await service.getProductSales(TEST_COMPANY_ID, supplier.id);
+      const result = await service.getProductSales(TEST_ORGANIZATION_ID, supplier.id);
       expect(result).toEqual([]);
     });
 
-    it('companyId scope on order.groupBy — OTHER_COMPANY_ID orders do not count', async () => {
-      // supplier.id 는 TEST_COMPANY_ID 소유.
-      // 하지만 옵션 ID 가 동일하게 OTHER_COMPANY_ID 쪽 order 에 섞여 있으면?
-      //   → master 와 option 은 companyId 로 namespace. OTHER 측 order 는 별 option 을 가리키므로 자연히 분리.
-      //   → 시나리오: TEST_COMPANY_ID 옵션에 OTHER_COMPANY_ID order 가 lineItem 으로 attach 된 케이스
-      //     (Prisma 가 허용해도 service 의 `order: { companyId }` 필터로 배제 되어야 함).
+    it('organizationId scope on order.groupBy — OTHER_ORGANIZATION_ID orders do not count', async () => {
+      // supplier.id 는 TEST_ORGANIZATION_ID 소유.
+      // 하지만 옵션 ID 가 동일하게 OTHER_ORGANIZATION_ID 쪽 order 에 섞여 있으면?
+      //   → master 와 option 은 organizationId 로 namespace. OTHER 측 order 는 별 option 을 가리키므로 자연히 분리.
+      //   → 시나리오: TEST_ORGANIZATION_ID 옵션에 OTHER_ORGANIZATION_ID order 가 lineItem 으로 attach 된 케이스
+      //     (Prisma 가 허용해도 service 의 `order: { organizationId }` 필터로 배제 되어야 함).
       const { options } = await seedMasterWithOptions({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         masterCode: 'M-ISO',
         masterName: 'ISO Master',
         optionNames: ['iso-opt'],
       });
 
       const supplier = await prisma.supplier.create({
-        data: { companyId: TEST_COMPANY_ID, name: 'ISO Supplier' },
+        data: { organizationId: TEST_ORGANIZATION_ID, name: 'ISO Supplier' },
       });
       await prisma.supplierProduct.create({
         data: {
@@ -729,27 +729,27 @@ describe('Supplier-stats flow (PG integration)', () => {
         },
       });
 
-      // TEST_COMPANY_ID order — included
+      // TEST_ORGANIZATION_ID order — included
       await seedOrderWithLineItem({
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: 'ISO-OWN',
         optionId: options[0].id,
         unitPrice: 5_000,
         quantity: 1,
       });
-      // OTHER_COMPANY_ID order — same optionId but 다른 companyId
+      // OTHER_ORGANIZATION_ID order — same optionId but 다른 organizationId
       await seedOrderWithLineItem({
-        companyId: OTHER_COMPANY_ID,
+        organizationId: OTHER_ORGANIZATION_ID,
         externalOrderId: 'ISO-FOR',
         optionId: options[0].id,
         unitPrice: 999_999,
         quantity: 99,
       });
 
-      const result = await service.getProductSales(TEST_COMPANY_ID, supplier.id);
+      const result = await service.getProductSales(TEST_ORGANIZATION_ID, supplier.id);
 
       expect(result).toHaveLength(1);
-      // OTHER_COMPANY_ID order (999,999 × 99) 는 섞이지 않음
+      // OTHER_ORGANIZATION_ID order (999,999 × 99) 는 섞이지 않음
       expect(result[0].totalRevenue).toBe(5_000);
       expect(result[0].totalQuantity).toBe(1);
       expect(result[0].totalOrders).toBe(1);
@@ -763,12 +763,12 @@ describe('Supplier-stats flow (PG integration)', () => {
   describe('getHistory', () => {
     it('merges PurchaseOrder + SupplierPayment timeline desc by date', async () => {
       const supplier = await prisma.supplier.create({
-        data: { companyId: TEST_COMPANY_ID, name: 'History Supplier' },
+        data: { organizationId: TEST_ORGANIZATION_ID, name: 'History Supplier' },
       });
 
       await prisma.purchaseOrder.create({
         data: {
-          companyId: TEST_COMPANY_ID,
+          organizationId: TEST_ORGANIZATION_ID,
           supplierId: supplier.id,
           supplierName: 'History Supplier',
           totalAmountCny: '1000.00',
@@ -778,14 +778,14 @@ describe('Supplier-stats flow (PG integration)', () => {
       });
       await prisma.supplierPayment.create({
         data: {
-          companyId: TEST_COMPANY_ID,
+          organizationId: TEST_ORGANIZATION_ID,
           supplierId: supplier.id,
           amount: 500_000,
           status: 'paid',
         },
       });
 
-      const timeline = await service.getHistory(TEST_COMPANY_ID, supplier.id);
+      const timeline = await service.getHistory(TEST_ORGANIZATION_ID, supplier.id);
 
       expect(timeline).toHaveLength(2);
       // 2026-04-10 PO vs today's payment (createdAt) → payment newer
@@ -795,17 +795,17 @@ describe('Supplier-stats flow (PG integration)', () => {
       expect(timeline[1].amount).toBe(1_000); // Number('1000.00') === 1000
     });
 
-    it('scopes to companyId + supplierId (cross-company payments excluded)', async () => {
+    it('scopes to organizationId + supplierId (cross-organization payments excluded)', async () => {
       const ownSupplier = await prisma.supplier.create({
-        data: { companyId: TEST_COMPANY_ID, name: 'Own' },
+        data: { organizationId: TEST_ORGANIZATION_ID, name: 'Own' },
       });
       const foreignSupplier = await prisma.supplier.create({
-        data: { companyId: OTHER_COMPANY_ID, name: 'Foreign' },
+        data: { organizationId: OTHER_ORGANIZATION_ID, name: 'Foreign' },
       });
 
       await prisma.supplierPayment.create({
         data: {
-          companyId: TEST_COMPANY_ID,
+          organizationId: TEST_ORGANIZATION_ID,
           supplierId: ownSupplier.id,
           amount: 100,
           status: 'paid',
@@ -813,14 +813,14 @@ describe('Supplier-stats flow (PG integration)', () => {
       });
       await prisma.supplierPayment.create({
         data: {
-          companyId: OTHER_COMPANY_ID,
+          organizationId: OTHER_ORGANIZATION_ID,
           supplierId: foreignSupplier.id,
           amount: 999_999,
           status: 'paid',
         },
       });
 
-      const timeline = await service.getHistory(TEST_COMPANY_ID, ownSupplier.id);
+      const timeline = await service.getHistory(TEST_ORGANIZATION_ID, ownSupplier.id);
       expect(timeline).toHaveLength(1);
       expect(timeline[0].amount).toBe(100);
     });

@@ -13,7 +13,7 @@ rewrite / defer 분류는 이 파일과 `apps/server/AGENTS.md` 의 automation /
 agent-os topology 에 직접 보존한다.
 
 1. DAG runner (`automation/application/service/workflow-runner.service.ts`)
-2. WorkflowRun 감사 기록 (`(id, companyId)` 스코프 read/write)
+2. WorkflowRun 감사 기록 (`(id, organizationId)` 스코프 read/write)
 3. Panel event projection (`PANEL_EVENTS.UPSERT` via `automation/mapper/panel-event/workflow-run.mapper`)
 4. Agent delegation boundary (`agent_task.create` → `AgentRegistryService.runByType`)
 
@@ -51,7 +51,7 @@ automation/
   위임한다 (`AgentRegistryService.runByType`). compatibility alias 도 두지
   않는다 — 옛 template 이 `ai_process` 를 가리키면 unknown executor 로 실패
   하고 그 실패가 `WorkflowRun.error` 에 남는다.
-- Executors must not trust `company_id`, `_context`, `_workflow_run_id`, or
+- Executors must not trust `organization_id`, `_context`, `_workflow_run_id`, or
   `_workflow_node_id` from template/client JSON. The runner strips those keys
   and injects trusted values immediately before execution.
 - Do not reintroduce legacy aliases:
@@ -67,7 +67,7 @@ automation/
 | `trigger.manual` | 수동 트리거 진입점. side-effect 없음 |
 | `trigger.schedule` | cron 트리거 진입점. side-effect 없음 |
 | `condition.evaluate` | 단일 numeric 비교 (`lt/gt/eq/gte/lte`) → branch 분기 |
-| `notification.alert` | `Alert` row 생성 + `ActivityEvent` 기록. **runner 가 주입한 `company_id` 만** 사용 |
+| `notification.alert` | `Alert` row 생성 + `ActivityEvent` 기록. **runner 가 주입한 `organization_id` 만** 사용 |
 | `agent_task.create` | `AgentRegistryService.runByType` 으로 agent 위임. AI/LLM 진입점은 이것 하나뿐 |
 
 ## 제거된 executor (재도입 금지)
@@ -111,16 +111,16 @@ lockstep 이 단일 파일에서 닫힌다.
 
 ## Tenant boundary (runner-injected only)
 
-Runner 가 모든 노드 호출 직전에 `nodeDef.config.company_id` 와
+Runner 가 모든 노드 호출 직전에 `nodeDef.config.organization_id` 와
 `nodeDef.config._context`, `nodeDef.config._workflow_run_id`,
 `nodeDef.config._workflow_node_id` 를 **떼어내고**, 검증된
-`template.companyId`, 실행 시점의 `runContext`, 실제 `runId/nodeId` 로
+`template.organizationId`, 실행 시점의 `runContext`, 실제 `runId/nodeId` 로
 덮어쓴다.
 
 ```ts
 // automation/application/service/workflow-runner.service.ts
 const {
-  company_id: _ignoredCompanyId,
+  organization_id: _ignoredOrganizationId,
   _context: _ignoredCtx,
   _workflow_run_id: _ignoredWorkflowRunId,
   _workflow_node_id: _ignoredWorkflowNodeId,
@@ -128,30 +128,30 @@ const {
 } = nodeDef.config ?? {};
 const resolvedConfig = context.resolveConfig({
   ...safeNodeConfig,
-  company_id: template.companyId, // runner 가 주입한 trusted 값
+  organization_id: template.organizationId, // runner 가 주입한 trusted 값
   _context: runContext,
   _workflow_run_id: runId,
   _workflow_node_id: nodeId,
 });
 ```
 
-따라서 template/client 가 어떤 `company_id` 를 노드 config 에 박아도
+따라서 template/client 가 어떤 `organization_id` 를 노드 config 에 박아도
 `notification.alert` 같은 side-effect executor 는 **항상** 소유 회사
 스코프로만 쓴다. 새 executor 도 이 contract 에 의존해도 된다 — 그러나
-client/template-provided `company_id` 를 신뢰하는 코드를 추가하지 말 것.
+client/template-provided `organization_id` 를 신뢰하는 코드를 추가하지 말 것.
 
-WorkflowRun 자체의 read/write 도 항상 `{ id: runId, companyId }` /
-`{ id: templateId, companyId }` 로 묶여 있다 (`updateMany` / `findFirst`).
+WorkflowRun 자체의 read/write 도 항상 `{ id: runId, organizationId }` /
+`{ id: templateId, organizationId }` 로 묶여 있다 (`updateMany` / `findFirst`).
 이 PR 의 외부에서도 이 패턴을 깨지 말 것.
 
 ## Execution Flow
 
-1. `POST /api/workflows/:id/run` — `@CurrentCompany()` 가 trusted companyId
-   주입 (DTO/query 의 companyId 신뢰 금지)
+1. `POST /api/workflows/:id/run` — `@CurrentOrganization()` 가 trusted organizationId
+   주입 (DTO/query 의 organizationId 신뢰 금지)
 2. `WorkflowOrchestrationService.triggerRun` —
-   `findFirst({ id, companyId })` 로 템플릿 소유권 검증 →
+   `findFirst({ id, organizationId })` 로 템플릿 소유권 검증 →
    `WorkflowRun(pending)` 생성 → fire-and-forget 으로
-   `runner.runWorkflow(runId, templateId, template.companyId)` 호출
+   `runner.runWorkflow(runId, templateId, template.organizationId)` 호출
 3. Runner — DAG 순회, 각 노드 executor 실행 → `WorkflowRun.steps` 누적
 4. 실행 종료 → `WorkflowRun.status` 를 `succeeded` 또는 `failed` 로 기록하고
    panel upsert emit
@@ -185,7 +185,7 @@ Output key 이름과 모양은 그 노드를 등록하는 executor 파일이 단
 
 엔진이 주입하는 필드. executor 는 절대로 set 하지 말 것.
 
-- `company_id` — runner 가 검증된 template owner 로 강제 주입
+- `organization_id` — runner 가 검증된 template owner 로 강제 주입
 - `_context` — `WorkflowRun.contextData` (productId 등)
 - `_workflow_run_id` / `_workflow_node_id` — runner 가 주입한 실제 식별자
 

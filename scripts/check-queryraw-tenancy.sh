@@ -2,13 +2,13 @@
 # ADR-0018 Rule 4 — $queryRaw tenancy enforcement
 #
 # Scans apps/server/src for $queryRaw tagged templates (excluding tests/specs/docs)
-# and verifies each site has `company_id` binding within 30 lines after the hit.
+# and verifies each site has `organization_id` binding within 30 lines after the hit.
 #
 # Scope: $queryRaw (tagged template). $queryRawUnsafe is separately banned by ADR-0009.
 #
 # Exemptions (auto-detected within the 30-line window):
 #   - `FOR UPDATE` row locks on UUID primary key (id = ${uuid}::uuid FOR UPDATE) —
-#     tenancy is enforced by the subsequent Prisma findFirst({ id, companyId }).
+#     tenancy is enforced by the subsequent Prisma findFirst({ id, organizationId }).
 #   - `nextval('...')` sequence calls — globally scoped sequence, no tenant data.
 #
 # Exits 1 if any non-exempt site is missing the binding.
@@ -75,13 +75,13 @@ for file in "${FILES[@]}"; do
     end=$((lineno + 30))
     window=$(sed -n "${lineno},${end}p" "$file" 2>/dev/null || true)
 
-    # Compliant: has `company_id` binding anywhere in the window.
-    if echo "$window" | rg -q 'company_id'; then
+    # Compliant: has `organization_id` binding anywhere in the window.
+    if echo "$window" | rg -q 'organization_id'; then
       continue
     fi
 
     # Exempt: FOR UPDATE row-lock on UUID primary key. Tenancy enforced by
-    # the subsequent Prisma findFirst({ id, companyId }). (B1/B2a/inventory pattern.)
+    # the subsequent Prisma findFirst({ id, organizationId }). (B1/B2a/inventory pattern.)
     if echo "$window" | rg -q 'FOR UPDATE'; then
       continue
     fi
@@ -102,15 +102,15 @@ for file in "${FILES[@]}"; do
 done
 
 if [ ${#FAILURES[@]} -gt 0 ]; then
-  echo "❌ FAIL: \$queryRaw without company_id binding found in:"
+  echo "❌ FAIL: \$queryRaw without organization_id binding found in:"
   for f in "${FAILURES[@]}"; do
     echo "   - $f"
   done
   echo ""
-  echo "ADR-0018 Rule 2: every \$queryRaw must bind WHERE company_id = \${companyId}::uuid"
+  echo "ADR-0018 Rule 2: every \$queryRaw must bind WHERE organization_id = \${organizationId}::uuid"
   echo "(Exemptions: FOR UPDATE row-lock on UUID PK, nextval() sequence.)"
   exit 1
 fi
 
-echo "✅ PASS: all \$queryRaw sites bind company_id or are exempt (ADR-0018 Rule 2)"
+echo "✅ PASS: all \$queryRaw sites bind organization_id or are exempt (ADR-0018 Rule 2)"
 exit 0

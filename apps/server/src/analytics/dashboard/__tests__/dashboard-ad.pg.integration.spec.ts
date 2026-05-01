@@ -9,8 +9,8 @@ import {
   makeTestPrisma,
   resetDb,
   seedBaseFixture,
-  TEST_COMPANY_ID,
-  OTHER_COMPANY_ID,
+  TEST_ORGANIZATION_ID,
+  OTHER_ORGANIZATION_ID,
   IDOR_SENTINEL,
 } from '../../../test-helpers/real-prisma';
 
@@ -41,7 +41,7 @@ describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows'
     await seedBaseFixture(prisma);
   });
 
-  async function seedAdsTwoCompanies() {
+  async function seedAdsTwoOrganizations() {
     // Hard rewrite Phase H3b — seed `ChannelListingDailySnapshot` rows
     // (daily-fact source-of-truth) instead of legacy `Ad` rows. Reads still
     // assert IDOR + value isolation but on the new column shape.
@@ -51,22 +51,22 @@ describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows'
     );
 
     const masterT = await prisma.masterProduct.create({
-      data: { companyId: TEST_COMPANY_ID, code: 'M-T', name: 'Master T', category: 'Toy', optionCounter: 1 },
+      data: { organizationId: TEST_ORGANIZATION_ID, code: 'M-T', name: 'Master T', category: 'Toy', optionCounter: 1 },
     });
     const listingT = await prisma.channelListing.create({
-      data: { companyId: TEST_COMPANY_ID, masterId: masterT.id, channel: 'coupang', externalId: 'L-T' },
+      data: { organizationId: TEST_ORGANIZATION_ID, masterId: masterT.id, channel: 'coupang', externalId: 'L-T' },
     });
     const masterO = await prisma.masterProduct.create({
-      data: { companyId: OTHER_COMPANY_ID, code: 'M-O', name: 'Master O', category: 'Toy', optionCounter: 1 },
+      data: { organizationId: OTHER_ORGANIZATION_ID, code: 'M-O', name: 'Master O', category: 'Toy', optionCounter: 1 },
     });
     const listingO = await prisma.channelListing.create({
-      data: { companyId: OTHER_COMPANY_ID, masterId: masterO.id, channel: 'coupang', externalId: 'L-O' },
+      data: { organizationId: OTHER_ORGANIZATION_ID, masterId: masterO.id, channel: 'coupang', externalId: 'L-O' },
     });
 
     // TEST daily fact — adSpend 500
     await prisma.channelListingDailySnapshot.create({
       data: {
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         listingId: listingT.id,
         channel: 'coupang',
         externalId: 'L-T',
@@ -82,7 +82,7 @@ describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows'
     // OTHER daily fact — sentinel
     await prisma.channelListingDailySnapshot.create({
       data: {
-        companyId: OTHER_COMPANY_ID,
+        organizationId: OTHER_ORGANIZATION_ID,
         listingId: listingO.id,
         channel: 'coupang',
         externalId: 'L-O',
@@ -97,9 +97,9 @@ describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows'
   }
 
   it('TEST getSummary().dailyAd never includes OTHER sentinel spend', async () => {
-    await seedAdsTwoCompanies();
+    await seedAdsTwoOrganizations();
     const ctx = buildDashboardContext('30d');
-    const result = await service.getSummary(ctx, TEST_COMPANY_ID);
+    const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
 
     if (result.dailyAd) {
       for (const row of result.dailyAd) {
@@ -114,9 +114,9 @@ describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows'
   });
 
   it('OTHER getSummary().dailyAd sees only OTHER sentinel (not TEST 500)', async () => {
-    await seedAdsTwoCompanies();
+    await seedAdsTwoOrganizations();
     const ctx = buildDashboardContext('30d');
-    const result = await service.getSummary(ctx, OTHER_COMPANY_ID);
+    const result = await service.getSummary(ctx, OTHER_ORGANIZATION_ID);
 
     if (result.dailyAd && result.dailyAd.length > 0) {
       // TEST value 500 must not appear
@@ -130,12 +130,12 @@ describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows'
   });
 
   it('monthly totalAdSpend reflects TEST-only data', async () => {
-    await seedAdsTwoCompanies();
+    await seedAdsTwoOrganizations();
     const ctx = buildDashboardContext('30d');
-    const result = await service.getSummary(ctx, TEST_COMPANY_ID);
+    const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
 
     // TEST has 1 ad row this month with spend=500
-    // monthly.totalAdSpend comes from calculateProfitForRange helper (already companyId-scoped)
+    // monthly.totalAdSpend comes from calculateProfitForRange helper (already organizationId-scoped)
     // Just assert no sentinel bleed
     expect(result.monthly.totalAdSpend).not.toBe(IDOR_SENTINEL);
   });

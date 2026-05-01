@@ -12,7 +12,7 @@ export class UpsertFeatureGateDto {
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
-  allowedCompanies?: string[];
+  allowedOrganizations?: string[];
 
   @IsOptional()
   metadata?: Record<string, unknown>;

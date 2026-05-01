@@ -9,8 +9,8 @@ import {
   makeTestPrisma,
   resetDb,
   seedBaseFixture,
-  TEST_COMPANY_ID,
-  OTHER_COMPANY_ID,
+  TEST_ORGANIZATION_ID,
+  OTHER_ORGANIZATION_ID,
   IDOR_SENTINEL,
 } from '../../../test-helpers/real-prisma';
 import {
@@ -52,14 +52,14 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
    */
   async function seedTestListing(suffix: string) {
     const { id: masterId } = await setupMaster(prisma, {
-      companyId: TEST_COMPANY_ID, code: `M-T-${suffix}`, name: `Master T-${suffix}`, abcGrade: 'A',
+      organizationId: TEST_ORGANIZATION_ID, code: `M-T-${suffix}`, name: `Master T-${suffix}`, abcGrade: 'A',
     });
     const { id: optionId } = await setupProductOption(prisma, {
-      companyId: TEST_COMPANY_ID, masterId,
+      organizationId: TEST_ORGANIZATION_ID, masterId,
       sku: `SKU-T-${suffix}`, costPrice: 50_000, commissionRate: 0.1, otherCost: 0,
     });
     const { listingId, listingOptionId } = await setupChannelListing(prisma, {
-      companyId: TEST_COMPANY_ID, masterId,
+      organizationId: TEST_ORGANIZATION_ID, masterId,
       channel: 'coupang', externalId: `EXT-T-${suffix}`, channelName: '쿠팡',
       optionId, externalOptionId: `VI-T-${suffix}`,
     });
@@ -74,7 +74,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
   it('T1: baseline monthly — single order, math verified', async () => {
     const { optionId, listingOptionId } = await seedTestListing('1');
     await seedOrderWithLineItems(prisma, {
-      companyId: TEST_COMPANY_ID,
+      organizationId: TEST_ORGANIZATION_ID,
       externalOrderId: 'SALES-T-1',
       orderedAt: midMonth().toISOString(),
       shippingPrice: 10_000,
@@ -82,7 +82,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     });
 
     const ctx = buildDashboardContext();
-    const result = await service.getSummary(ctx, TEST_COMPANY_ID);
+    const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
 
     expect(result.monthly.revenue).toBe(100_000);
     expect(result.monthly.profit).toBe(30_000);             // 100k - 50k - 10k - 10k - 0 - 0
@@ -96,7 +96,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
   it('T2: IDOR isolation — OTHER sentinel never leaks into TEST', async () => {
     const t = await seedTestListing('2');
     await seedOrderWithLineItems(prisma, {
-      companyId: TEST_COMPANY_ID,
+      organizationId: TEST_ORGANIZATION_ID,
       externalOrderId: 'SALES-T-2',
       orderedAt: midMonth().toISOString(),
       shippingPrice: 0,
@@ -104,17 +104,17 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     });
 
     // OTHER sentinel
-    const oMaster = await setupMaster(prisma, { companyId: OTHER_COMPANY_ID, code: 'M-O-2', name: 'Other M2' });
+    const oMaster = await setupMaster(prisma, { organizationId: OTHER_ORGANIZATION_ID, code: 'M-O-2', name: 'Other M2' });
     const oOption = await setupProductOption(prisma, {
-      companyId: OTHER_COMPANY_ID, masterId: oMaster.id, sku: 'SKU-O-2', costPrice: 0, commissionRate: 0,
+      organizationId: OTHER_ORGANIZATION_ID, masterId: oMaster.id, sku: 'SKU-O-2', costPrice: 0, commissionRate: 0,
     });
     const oListing = await setupChannelListing(prisma, {
-      companyId: OTHER_COMPANY_ID, masterId: oMaster.id,
+      organizationId: OTHER_ORGANIZATION_ID, masterId: oMaster.id,
       channel: 'coupang', externalId: 'EXT-O-2',
       optionId: oOption.id, externalOptionId: 'VI-O-2',
     });
     await seedOrderWithLineItems(prisma, {
-      companyId: OTHER_COMPANY_ID,
+      organizationId: OTHER_ORGANIZATION_ID,
       externalOrderId: 'SALES-O-2',
       orderedAt: midMonth().toISOString(),
       shippingPrice: 0,
@@ -122,7 +122,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     });
 
     const ctx = buildDashboardContext();
-    const result = await service.getSummary(ctx, TEST_COMPANY_ID);
+    const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
 
     expect(result.monthly.revenue).toBe(1_000);
     expect(result.monthly.revenue).not.toBe(IDOR_SENTINEL);
@@ -138,7 +138,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     const recent = new Date();
     recent.setDate(recent.getDate() - 3);
     await seedOrderWithLineItems(prisma, {
-      companyId: TEST_COMPANY_ID,
+      organizationId: TEST_ORGANIZATION_ID,
       externalOrderId: 'SALES-T-3',
       orderedAt: recent.toISOString(),
       shippingPrice: 0,
@@ -146,16 +146,16 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     });
 
     const ctx = buildDashboardContext('week');
-    const result = await service.getSummary(ctx, TEST_COMPANY_ID);
+    const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
 
     expect(result.rangeKpi).toBeDefined();
     expect(result.rangeKpi?.range).toBe('week');
     expect(result.rangeKpi?.revenue).toBe(50_000);
   });
 
-  it('T4: empty company returns zero-valued structure (no error)', async () => {
+  it('T4: empty organization returns zero-valued structure (no error)', async () => {
     const ctx = buildDashboardContext();
-    const result = await service.getSummary(ctx, TEST_COMPANY_ID);
+    const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
 
     expect(result.monthly.revenue).toBe(0);
     expect(result.monthly.profit).toBe(0);
@@ -179,7 +179,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     );
     await prisma.channelAccountDailyKpiSnapshot.create({
       data: {
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         channel: 'coupang',
         source: 'wing',
         kpiType: 'wing_dashboard',
@@ -194,7 +194,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     });
 
     const ctx = buildDashboardContext();
-    const result = await service.getSummary(ctx, TEST_COMPANY_ID);
+    const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
 
     expect(result.trafficKpi?.adSummary).toMatchObject({ adGmv: '7777', adSpend: '2222' });
     expect(result.trafficKpi?.source).toBe('wing');
@@ -205,18 +205,18 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     // Seed 12 listings × 1 order each, decreasing revenue 12000, 11000, ..., 1000
     for (let i = 1; i <= 12; i++) {
       const { id: masterId } = await setupMaster(prisma, {
-        companyId: TEST_COMPANY_ID, code: `M-T-TOP-${i}`, name: `Top ${i}`, abcGrade: i <= 4 ? 'A' : i <= 8 ? 'B' : 'C',
+        organizationId: TEST_ORGANIZATION_ID, code: `M-T-TOP-${i}`, name: `Top ${i}`, abcGrade: i <= 4 ? 'A' : i <= 8 ? 'B' : 'C',
       });
       const { id: optionId } = await setupProductOption(prisma, {
-        companyId: TEST_COMPANY_ID, masterId, sku: `SKU-T-TOP-${i}`, costPrice: 0, commissionRate: 0,
+        organizationId: TEST_ORGANIZATION_ID, masterId, sku: `SKU-T-TOP-${i}`, costPrice: 0, commissionRate: 0,
       });
       const { listingOptionId } = await setupChannelListing(prisma, {
-        companyId: TEST_COMPANY_ID, masterId,
+        organizationId: TEST_ORGANIZATION_ID, masterId,
         channel: 'coupang', externalId: `EXT-T-TOP-${i}`, channelName: `채널${i}`,
         optionId, externalOptionId: `VI-T-TOP-${i}`,
       });
       await seedOrderWithLineItems(prisma, {
-        companyId: TEST_COMPANY_ID,
+        organizationId: TEST_ORGANIZATION_ID,
         externalOrderId: `SALES-T-TOP-${i}`,
         orderedAt: midMonth().toISOString(),
         shippingPrice: 0,
@@ -225,13 +225,13 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     }
 
     const ctx = buildDashboardContext();
-    const result = await service.getSummary(ctx, TEST_COMPANY_ID);
+    const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
 
     expect(result.topProducts).toHaveLength(10);
     expect(result.topProducts[0].revenue).toBe(12_000);
     expect(result.topProducts[9].revenue).toBe(3_000);
     expect(result.topProducts[0].name).toBe('Top 1');
-    expect(result.topProducts[0].company).toBe('채널1');     // ChannelListing.channelName
+    expect(result.topProducts[0].organization).toBe('채널1');     // ChannelListing.channelName
 
     // KNOWN APPROXIMATION assertion (critic MAJOR #2):
     // Top-N rows always carry profitRate=30.0 and netProfit=round(revenue*0.3).

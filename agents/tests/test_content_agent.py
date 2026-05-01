@@ -168,10 +168,10 @@ class TestStep2Snapshot:
         """PIPE-06: Step 2 passes draftContent snapshot to pipeline.run_step2()."""
         agent = ContentAgent()
 
-        # Minimal product row (only id and company_id needed)
+        # Minimal product row (only id and organization_id needed)
         mock_pool.fetchrow = AsyncMock(return_value={
             "id": sample_product_id,
-            "company_id": str(uuid.uuid4()),
+            "organization_id": str(uuid.uuid4()),
         })
 
         with patch("src.agents.content.agent.TemplatePipeline") as MockPipeline:
@@ -202,7 +202,7 @@ class TestStep2Snapshot:
 
         mock_pool.fetchrow = AsyncMock(return_value={
             "id": sample_product_id,
-            "company_id": str(uuid.uuid4()),
+            "organization_id": str(uuid.uuid4()),
         })
 
         with patch("src.agents.content.agent.TemplatePipeline") as MockPipeline:
@@ -228,7 +228,7 @@ class TestStep2Snapshot:
 
         mock_pool.fetchrow = AsyncMock(return_value={
             "id": sample_product_id,
-            "company_id": str(uuid.uuid4()),
+            "organization_id": str(uuid.uuid4()),
         })
 
         with patch("src.agents.content.agent.TemplatePipeline") as MockPipeline:
@@ -256,7 +256,7 @@ class TestStep2Snapshot:
 
         mock_pool.fetchrow = AsyncMock(return_value={
             "id": sample_product_id,
-            "company_id": str(uuid.uuid4()),
+            "organization_id": str(uuid.uuid4()),
             "raw_data": None,  # Step 2 should NOT need raw_data
             "status": "draft",
         })

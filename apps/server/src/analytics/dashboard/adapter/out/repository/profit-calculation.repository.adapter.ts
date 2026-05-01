@@ -24,7 +24,7 @@ export interface RangeProfitMetrics {
  *
  * v2 invariants applied:
  *  - I3: revenue = SUM(OrderLineItem.totalPrice) (lineItem-level canonical)
- *  - I7: companyId filter (ADR-0006 multi-tenant isolation)
+ *  - I7: organizationId filter (ADR-0006 multi-tenant isolation)
  *  - I8: half-open range `orderedAt >= from && orderedAt < to` (never `lte`)
  *  - C-08: v2 nested-only resolver — `resolvePricing({ option })`
  *
@@ -43,13 +43,13 @@ export interface RangeProfitMetrics {
  */
 export async function calculateProfitForRange(
   prisma: PrismaService,
-  companyId: string,
+  organizationId: string,
   from: Date,
   to: Date,
 ): Promise<RangeProfitMetrics> {
   const orders = await prisma.order.findMany({
     where: {
-      companyId, // v2 I7 — ADR-0006 IDOR scope (previously absent)
+      organizationId, // v2 I7 — ADR-0006 IDOR scope (previously absent)
       orderedAt: { gte: from, lt: to }, // v2 I8 half-open
       status: { notIn: ['cancelled', 'returned', 'refunded'] },
     },
@@ -101,7 +101,7 @@ export async function calculateProfitForRange(
   // 비율(ROAS/CTR/CVR) 은 호출자가 ratio-recompute 헬퍼로 별도 산출.
   const adAgg = await prisma.channelListingDailySnapshot.aggregate({
     where: {
-      companyId,
+      organizationId,
       businessDate: { gte: from, lt: to },
     },
     _sum: {

@@ -78,7 +78,7 @@ export function ReviewTable({ items, loading, activeFilter, page, total, PAGE_SI
                     </span>
                   </td>
                   <td className="font-medium text-slate-900">{d.productName}</td>
-                  <td className="text-slate-500 text-xs">{d.company}</td>
+                  <td className="text-slate-500 text-xs">{d.organization}</td>
                   <td className="text-right tabular-nums">{d.totalReviews}</td>
                   <td className="text-right tabular-nums">
                     <span className="flex items-center justify-end gap-1">

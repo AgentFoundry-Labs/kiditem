@@ -31,14 +31,14 @@ describe('DelegationService', () => {
     const service = new DelegationService(prisma, wakeup, denial);
 
     prisma.agentDefinition.findFirst
-      .mockResolvedValueOnce({ id: 'mgr-1', name: 'Manager', role: 'manager', companyId: 'co-1' })
+      .mockResolvedValueOnce({ id: 'mgr-1', name: 'Manager', role: 'manager', organizationId: 'co-1' })
       .mockResolvedValueOnce({ id: 'spec-1', name: 'Specialist', type: 'ad_strategy', reportsTo: 'mgr-1' });
 
     const result = await service.delegate({
       parentAgentId: 'mgr-1',
       childAgentType: 'ad_strategy',
       parentRunId: 'run-1',
-      companyId: 'co-1',
+      organizationId: 'co-1',
     });
 
     expect(result.ok).toBe(true);
@@ -55,7 +55,7 @@ describe('DelegationService', () => {
     const service = new DelegationService(prisma, wakeup, denial);
 
     prisma.agentDefinition.findFirst
-      .mockResolvedValueOnce({ id: 'mgr-1', name: 'Manager', role: 'manager', companyId: 'co-1' })
+      .mockResolvedValueOnce({ id: 'mgr-1', name: 'Manager', role: 'manager', organizationId: 'co-1' })
       .mockResolvedValueOnce({ id: 'spec-2', name: 'Other', type: 'other', reportsTo: 'other-mgr' });
 
     await expect(
@@ -63,7 +63,7 @@ describe('DelegationService', () => {
         parentAgentId: 'mgr-1',
         childAgentType: 'other',
         parentRunId: 'run-1',
-        companyId: 'co-1',
+        organizationId: 'co-1',
       }),
     ).rejects.toThrow(ForbiddenException);
     expect(denial.recordDenial).toHaveBeenCalled();
@@ -82,7 +82,7 @@ describe('DelegationService', () => {
         parentAgentId: 'mgr-1',
         childAgentType: 'nonexistent',
         parentRunId: 'run-1',
-        companyId: 'co-1',
+        organizationId: 'co-1',
       }),
     ).rejects.toThrow(NotFoundException);
   });

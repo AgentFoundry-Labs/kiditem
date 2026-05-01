@@ -25,7 +25,7 @@ const makeRunItem = (id: string, actorUserId: string | null, status: 'running' |
   title: `워크플로우 ${id}`,
   deepLink: `/workflows/${id}`,
   actorUserId,
-  visibility: 'company' as const,
+  visibility: 'organization' as const,
   createdAt: '2026-04-15T00:00:00Z',
   updatedAt: '2026-04-15T00:00:00Z',
 });

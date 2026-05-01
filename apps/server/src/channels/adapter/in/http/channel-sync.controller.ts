@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Body } from '@nestjs/common';
 import { ChannelSyncService } from '../../../application/service/channel-sync.service';
 import { SyncOrdersBodyDto } from './dto';
-import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
+import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 
 @Controller('coupang-sync')
 export class ChannelSyncController {
@@ -13,22 +13,22 @@ export class ChannelSyncController {
   }
 
   @Post('products')
-  async syncProducts(@CurrentCompany() companyId: string) {
-    return this.syncService.syncProducts(companyId);
+  async syncProducts(@CurrentOrganization() organizationId: string) {
+    return this.syncService.syncProducts(organizationId);
   }
 
   @Post('orders')
   async syncOrders(
     @Body() body: SyncOrdersBodyDto,
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
   ) {
     const from = body.from ? new Date(body.from) : undefined;
     const to = body.to ? new Date(body.to) : undefined;
-    return this.syncService.syncOrders(companyId, from, to);
+    return this.syncService.syncOrders(organizationId, from, to);
   }
 
   @Post('inventory')
-  async syncInventory(@CurrentCompany() companyId: string) {
-    return this.syncService.syncInventory(companyId);
+  async syncInventory(@CurrentOrganization() organizationId: string) {
+    return this.syncService.syncInventory(organizationId);
   }
 }

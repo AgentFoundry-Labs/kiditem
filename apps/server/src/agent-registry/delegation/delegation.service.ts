@@ -25,23 +25,23 @@ export class DelegationService {
     parentAgentId: string;
     childAgentType: string;
     parentRunId: string;
-    companyId: string;
+    organizationId: string;
     payload?: Record<string, unknown>;
     reason?: string;
   }) {
-    // Tenant scope: parent agent must be owned by the caller's company OR be a
-    // global definition (companyId = null). Child is a system-wide catalog
+    // Tenant scope: parent agent must be owned by the caller's organization OR be a
+    // global definition (organizationId = null). Child is a system-wide catalog
     // entry resolved by `type`, which is unique across the table.
     const parent = await this.prisma.agentDefinition.findFirst({
       where: {
         id: input.parentAgentId,
-        OR: [{ companyId: input.companyId }, { companyId: null }],
+        OR: [{ organizationId: input.organizationId }, { organizationId: null }],
       },
     });
     const child = await this.prisma.agentDefinition.findFirst({
       where: {
         type: input.childAgentType,
-        OR: [{ companyId: input.companyId }, { companyId: null }],
+        OR: [{ organizationId: input.organizationId }, { organizationId: null }],
       },
     });
     if (!parent || !child) {
@@ -50,10 +50,10 @@ export class DelegationService {
 
     const validation = validateDelegation(parent, child);
     if (!validation.valid) {
-      const companyId = input.companyId || parent.companyId;
-      if (companyId) {
+      const organizationId = input.organizationId || parent.organizationId;
+      if (organizationId) {
         await this.denialTracker.recordDenial({
-          companyId,
+          organizationId,
           agentId: input.parentAgentId,
           runId: input.parentRunId,
           category: 'delegation_denied',
@@ -63,14 +63,14 @@ export class DelegationService {
       throw new ForbiddenException(validation.reason);
     }
 
-    const companyId = input.companyId || parent.companyId;
-    if (!companyId) {
-      throw new BadRequestException('no_company_id');
+    const organizationId = input.organizationId || parent.organizationId;
+    if (!organizationId) {
+      throw new BadRequestException('no_organization_id');
     }
 
     const wakeup = await this.wakeupService.requestWakeup({
       agentId: child.id,
-      companyId,
+      organizationId,
       source: 'assignment',
       reason: input.reason ?? `Delegated by ${parent.name}`,
       payload: {

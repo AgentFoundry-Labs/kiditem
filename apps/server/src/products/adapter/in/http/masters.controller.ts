@@ -18,7 +18,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
  */
 const MAX_IMAGE_UPLOAD_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
 const ALLOWED_IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
-import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
+import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { MasterImageItemSchema, MasterSchema, MasterWithOptionsSchema, type Master, type MasterImageItem, type MasterWithOptions } from '@kiditem/shared/product';
 import type { MulterFile } from '../../../../common/types';
 import { toSerializable } from '../../../util/serialize';
@@ -32,7 +32,7 @@ import { ListOptionsQuery } from '../../../dto/list-options.query';
 
 // Controllers MUST NOT touch Prisma directly (apps/server/AGENTS.md —
 // controller/service boundary). For child options we delegate to
-// `OptionsService.list` which applies companyId scope + soft-delete filter +
+// `OptionsService.list` which applies organizationId scope + soft-delete filter +
 // the standard `createdAt desc` ordering used across the products domain.
 @Controller('products/masters')
 export class MastersController {
@@ -43,19 +43,19 @@ export class MastersController {
 
   @Post()
   async create(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Body() dto: CreateMasterDto,
   ): Promise<Master> {
-    const row = await this.svc.create(companyId, dto);
+    const row = await this.svc.create(organizationId, dto);
     return MasterSchema.parse(toSerializable(row));
   }
 
   @Get()
   async list(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Query() q: ListMastersQuery,
   ): Promise<{ items: Master[]; nextCursor: string | null }> {
-    const { items, nextCursor } = await this.svc.list(companyId, q);
+    const { items, nextCursor } = await this.svc.list(organizationId, q);
     return {
       items: items.map(r => MasterSchema.parse(toSerializable(r))),
       nextCursor,
@@ -64,36 +64,36 @@ export class MastersController {
 
   @Get('by-code/:code')
   async findByCode(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Param('code') code: string,
   ): Promise<Master> {
-    return MasterSchema.parse(toSerializable(await this.svc.findByCode(companyId, code)));
+    return MasterSchema.parse(toSerializable(await this.svc.findByCode(organizationId, code)));
   }
 
   @Get('by-legacy/:legacyCode')
   async findByLegacy(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Param('legacyCode') legacyCode: string,
   ): Promise<Master> {
-    return MasterSchema.parse(toSerializable(await this.svc.findByLegacy(companyId, legacyCode)));
+    return MasterSchema.parse(toSerializable(await this.svc.findByLegacy(organizationId, legacyCode)));
   }
 
   @Get(':id/images')
   async getImages(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Param('id') id: string,
   ): Promise<{ images: MasterImageItem[] }> {
-    const images = await this.svc.getImages(companyId, id);
+    const images = await this.svc.getImages(organizationId, id);
     return { images: images.map((img) => MasterImageItemSchema.parse(img)) };
   }
 
   @Patch(':id/images')
   async updateImages(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Param('id') id: string,
     @Body() dto: UpdateMasterImagesDto,
   ): Promise<{ images: MasterImageItem[] }> {
-    const row = await this.svc.updateImages(companyId, id, dto.items);
+    const row = await this.svc.updateImages(organizationId, id, dto.items);
     const images = ((row as unknown as { images: MasterImageItem[] | null }).images ?? []).map(
       (img) => MasterImageItemSchema.parse(img),
     );
@@ -114,62 +114,62 @@ export class MastersController {
     }),
   )
   async uploadImage(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Param('id') id: string,
     @UploadedFile() file: MulterFile,
   ): Promise<{ image: MasterImageItem }> {
-    return this.uploadImageResponse(companyId, id, file);
+    return this.uploadImageResponse(organizationId, id, file);
   }
 
   private async uploadImageResponse(
-    companyId: string,
+    organizationId: string,
     id: string,
     file: MulterFile,
   ): Promise<{ image: MasterImageItem }> {
-    const image = await this.svc.uploadImage(companyId, id, file);
+    const image = await this.svc.uploadImage(organizationId, id, file);
     return { image: MasterImageItemSchema.parse(image) };
   }
 
   @Get(':id')
   async findById(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Param('id') id: string,
     @Query('includeDeleted') includeDeleted?: string,
   ): Promise<MasterWithOptions> {
-    const row = await this.svc.findById(companyId, id, {
+    const row = await this.svc.findById(organizationId, id, {
       includeDeleted: includeDeleted === 'true',
     });
     const q = new ListOptionsQuery();
     q.masterId = id;
-    const { items: options } = await this.optionsSvc.list(companyId, q);
+    const { items: options } = await this.optionsSvc.list(organizationId, q);
     return MasterWithOptionsSchema.parse(toSerializable({ ...row, options }));
   }
 
   @Patch(':id')
   async update(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Param('id') id: string,
     @Body() dto: UpdateMasterDto,
   ): Promise<Master> {
-    const row = await this.svc.update(companyId, id, dto);
+    const row = await this.svc.update(organizationId, id, dto);
     return MasterSchema.parse(toSerializable(row));
   }
 
   @Delete(':id')
   async softDelete(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Param('id') id: string,
   ): Promise<{ ok: true }> {
-    await this.svc.softDelete(companyId, id);
+    await this.svc.softDelete(organizationId, id);
     return { ok: true };
   }
 
   @Post(':id/restore')
   async restore(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Param('id') id: string,
   ): Promise<{ ok: true }> {
-    await this.svc.restore(companyId, id);
+    await this.svc.restore(organizationId, id);
     return { ok: true };
   }
 }

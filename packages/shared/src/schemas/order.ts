@@ -10,7 +10,7 @@ export type OrderReturnType = z.infer<typeof OrderReturnTypeSchema>;
 
 export const OrderSchema = z.object({
   id: z.string().uuid(),
-  companyId: z.string().uuid(),
+  organizationId: z.string().uuid(),
   platform: z.string().max(20),
   externalOrderId: z.string().max(60),
   externalNumber: z.string().max(60).nullable(),
@@ -37,7 +37,7 @@ export type Order = z.infer<typeof OrderSchema>;
 
 export const OrderLineItemSchema = z.object({
   id: z.string().uuid(),
-  companyId: z.string().uuid(),
+  organizationId: z.string().uuid(),
   orderId: z.string().uuid(),
   listingOptionId: z.string().uuid().nullable(),
   optionId: z.string().uuid().nullable(),
@@ -57,7 +57,7 @@ export type OrderLineItem = z.infer<typeof OrderLineItemSchema>;
 
 export const OrderReturnSchema = z.object({
   id: z.string().uuid(),
-  companyId: z.string().uuid(),
+  organizationId: z.string().uuid(),
   orderId: z.string().uuid().nullable(),
   platform: z.string().max(20),
   externalReturnId: z.string().max(60),
@@ -79,7 +79,7 @@ export type OrderReturn = z.infer<typeof OrderReturnSchema>;
 
 export const OrderReturnLineItemSchema = z.object({
   id: z.string().uuid(),
-  companyId: z.string().uuid(),
+  organizationId: z.string().uuid(),
   returnId: z.string().uuid(),
   orderLineItemId: z.string().uuid().nullable(),
   optionId: z.string().uuid().nullable(),

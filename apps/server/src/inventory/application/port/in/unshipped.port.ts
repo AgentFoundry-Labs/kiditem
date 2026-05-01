@@ -17,5 +17,5 @@ export type UnshippedListResponse = {
 };
 
 export interface UnshippedPort {
-  findAll(input: ListUnshippedInput, companyId: string): Promise<UnshippedListResponse>;
+  findAll(input: ListUnshippedInput, organizationId: string): Promise<UnshippedListResponse>;
 }

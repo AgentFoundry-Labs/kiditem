@@ -30,7 +30,7 @@ export class ResultCleanupService {
   /**
    * Cleanup old results for a single agent. Daily background sweep — runs are
    * filtered to the agent's runs only, and each per-run update binds the
-   * `companyId` we just read so cross-tenant rows cannot be summarized even
+   * `organizationId` we just read so cross-tenant rows cannot be summarized even
    * if a stale agentId leaks through.
    * Returns number of runs summarized.
    */
@@ -47,7 +47,7 @@ export class ResultCleanupService {
       },
       select: {
         id: true,
-        companyId: true,
+        organizationId: true,
         resultJson: true,
         errorCode: true,
       },
@@ -63,7 +63,7 @@ export class ResultCleanupService {
       );
 
       const updated = await this.prisma.heartbeatRun.updateMany({
-        where: { id: run.id, companyId: run.companyId },
+        where: { id: run.id, organizationId: run.organizationId },
         data: {
           isSummarized: true,
           summary,

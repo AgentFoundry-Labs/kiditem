@@ -6,7 +6,7 @@
 //   `scripts/import-baseline-planner.ts`. Source 자사상품코드 lives on
 //   `MasterProduct.barcode` (non-unique). Option/scanner barcode is left
 //   null for this baseline source — the planner never writes the source EAN
-//   onto `ProductOption.barcode` so the (companyId, barcode) unique on
+//   onto `ProductOption.barcode` so the (organizationId, barcode) unique on
 //   options stays meaningful.
 // - Wing rows are attached only when the planner reports an exact match
 //   (option-legacy unique, or single-master barcode fallback). Ambiguous /
@@ -27,7 +27,7 @@ import {
 type CliArgs = {
   kiditemPath: string;
   wingPath: string;
-  companyId: string;
+  organizationId: string;
   write: boolean;
 };
 
@@ -49,15 +49,15 @@ function parseArgs(argv: string[]): CliArgs {
 
   const kiditemPath = args.get('kiditem') as string | undefined;
   const wingPath = args.get('wing') as string | undefined;
-  const companyId = args.get('company') as string | undefined;
+  const organizationId = args.get('organization') as string | undefined;
   if (!kiditemPath) throw new Error('Missing --kiditem <xlsx-path>');
   if (!wingPath) throw new Error('Missing --wing <xlsx-path>');
-  if (!companyId) throw new Error('Missing --company <uuid>');
+  if (!organizationId) throw new Error('Missing --organization <uuid>');
 
   return {
     kiditemPath,
     wingPath,
-    companyId,
+    organizationId,
     write: args.get('write') === true,
   };
 }
@@ -109,7 +109,7 @@ interface KiditemWriteStats {
 
 async function applyKiditemPlan(
   prisma: PrismaClient,
-  companyId: string,
+  organizationId: string,
   plan: KiditemPlan,
   write: boolean,
 ): Promise<KiditemWriteStats> {
@@ -150,7 +150,7 @@ async function applyKiditemPlan(
 
     await prisma.$transaction(async (tx) => {
       const existing = await tx.masterProduct.findFirst({
-        where: { companyId, legacyCode: masterPlan.importKey, isDeleted: false },
+        where: { organizationId, legacyCode: masterPlan.importKey, isDeleted: false },
         select: { id: true, code: true },
       });
 
@@ -175,7 +175,7 @@ async function applyKiditemPlan(
         const code = await nextMasterCode(tx);
         const created = await tx.masterProduct.create({
           data: {
-            companyId,
+            organizationId,
             code,
             legacyCode: masterPlan.importKey,
             barcode: masterPlan.sourceBarcode,
@@ -194,7 +194,7 @@ async function applyKiditemPlan(
       for (const optionPlan of optionsForMaster) {
         const existingOption = optionPlan.optionLegacyCode
           ? await tx.productOption.findFirst({
-              where: { companyId, legacyCode: optionPlan.optionLegacyCode, isDeleted: false },
+              where: { organizationId, legacyCode: optionPlan.optionLegacyCode, isDeleted: false },
               select: { id: true, sku: true },
             })
           : null;
@@ -218,7 +218,7 @@ async function applyKiditemPlan(
           const sku = await nextOptionSku(tx, masterId, masterCode);
           const created = await tx.productOption.create({
             data: {
-              companyId,
+              organizationId,
               masterId,
               sku,
               legacyCode: optionPlan.optionLegacyCode,
@@ -241,7 +241,7 @@ async function applyKiditemPlan(
             warehouseLocation: optionPlan.warehouseLocation,
           },
           create: {
-            companyId,
+            organizationId,
             optionId,
             currentStock: optionPlan.currentStock,
             safetyStock: optionPlan.safetyStock,
@@ -282,7 +282,7 @@ interface WingWriteStats {
 
 async function applyWingPlan(
   prisma: PrismaClient,
-  companyId: string,
+  organizationId: string,
   wingPlan: WingPlan,
   write: boolean,
 ): Promise<WingWriteStats> {
@@ -311,7 +311,7 @@ async function applyWingPlan(
 
   for (const attachment of wingPlan.attachments) {
     const master = await prisma.masterProduct.findFirst({
-      where: { companyId, legacyCode: attachment.masterImportKey, isDeleted: false },
+      where: { organizationId, legacyCode: attachment.masterImportKey, isDeleted: false },
       select: { id: true },
     });
     if (!master) {
@@ -321,7 +321,7 @@ async function applyWingPlan(
 
     const existing = await prisma.channelListing.findFirst({
       where: {
-        companyId,
+        organizationId,
         channel: 'coupang',
         externalId: attachment.listingExternalId,
         isDeleted: false,
@@ -340,7 +340,7 @@ async function applyWingPlan(
     } else {
       await prisma.channelListing.create({
         data: {
-          companyId,
+          organizationId,
           masterId: master.id,
           channel: 'coupang',
           externalId: attachment.listingExternalId,
@@ -368,8 +368,8 @@ async function main(): Promise<void> {
   const adapter = new PrismaPg({ connectionString });
   const prisma = new PrismaClient({ adapter });
   try {
-    const kiditem = await applyKiditemPlan(prisma, args.companyId, kiditemPlan, args.write);
-    const wing = await applyWingPlan(prisma, args.companyId, wingPlan, args.write);
+    const kiditem = await applyKiditemPlan(prisma, args.organizationId, kiditemPlan, args.write);
+    const wing = await applyWingPlan(prisma, args.organizationId, wingPlan, args.write);
 
     const report = {
       mode: args.write ? 'write' : 'dry-run',

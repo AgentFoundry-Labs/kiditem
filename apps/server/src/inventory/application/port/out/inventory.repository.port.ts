@@ -12,7 +12,7 @@ export type InventoryMetadataUpdateData = {
 };
 
 export type StockLedgerEntry = {
-  companyId: string;
+  organizationId: string;
   optionId: string;
   optionName: string | null;
   type: string;
@@ -29,13 +29,13 @@ export type StockLedgerEntry = {
 export interface InventoryRepositoryPort {
   updateInventoryMetadata(
     id: string,
-    companyId: string,
+    organizationId: string,
     data: InventoryMetadataUpdateData,
   ): Promise<InventoryRow>;
 
   runInventoryStockMutation<T>(
     inventoryId: string,
-    companyId: string,
+    organizationId: string,
     op: (tx: RepositoryTransaction, lockedRow: InventoryRow) => Promise<T>,
   ): Promise<T>;
 
@@ -50,7 +50,7 @@ export interface InventoryRepositoryPort {
   findOptionNameForLedger(
     tx: RepositoryTransaction,
     optionId: string,
-    companyId: string,
+    organizationId: string,
   ): Promise<string | null>;
 
   appendStockLedger(

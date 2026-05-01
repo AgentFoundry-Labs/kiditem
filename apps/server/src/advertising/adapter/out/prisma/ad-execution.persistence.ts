@@ -9,7 +9,7 @@ import { scrubExecutionError } from '../../../domain/ad-execution-error-scrubber
  * cross-row invariant the service used to mix with orchestration:
  *
  * - `upsertExecutionWorkerForLease` — find-or-create the worker row scoped
- *   to `(workerKey, companyId)` so cross-tenant `workerKey` collisions cannot
+ *   to `(workerKey, organizationId)` so cross-tenant `workerKey` collisions cannot
  *   pin the wrong row.
  * - `leaseQueuedTasks` — atomically claim N queued tasks for the worker via
  *   tenant-scoped `updateMany` race-guards and update the worker pointer in
@@ -63,26 +63,26 @@ const json = (v: unknown): Prisma.InputJsonValue | undefined =>
   v != null ? (v as Prisma.InputJsonValue) : undefined;
 
 /**
- * Find or create the worker row scoped to `(workerKey, companyId)`. The
+ * Find or create the worker row scoped to `(workerKey, organizationId)`. The
  * tenant scope is applied to the update path via `updateMany` so a worker
- * row from another company cannot be reused by mistake.
+ * row from another organization cannot be reused by mistake.
  */
 export async function upsertExecutionWorkerForLease(
   prisma: PrismaService,
   workerKey: string,
   options: LeaseOptions | undefined,
-  companyId: string,
+  organizationId: string,
 ): Promise<{ id: string; workerKey: string }> {
   const requestedPageType = (options?.pageType || '').trim().toLowerCase();
 
   const existing = await prisma.executionWorker.findFirst({
-    where: { workerKey, companyId },
+    where: { workerKey, organizationId },
     select: { id: true },
   });
 
   if (existing) {
     const updated = await prisma.executionWorker.updateMany({
-      where: { id: existing.id, companyId },
+      where: { id: existing.id, organizationId },
       data: {
         label: options?.label ?? undefined,
         status: 'online',
@@ -98,7 +98,7 @@ export async function upsertExecutionWorkerForLease(
 
   return prisma.executionWorker.create({
     data: {
-      companyId,
+      organizationId,
       workerKey,
       label: options?.label ?? null,
       status: 'online',
@@ -109,7 +109,7 @@ export async function upsertExecutionWorkerForLease(
 }
 
 /**
- * Atomically lease up to `limit` queued tasks owned by `companyId`. The
+ * Atomically lease up to `limit` queued tasks owned by `organizationId`. The
  * `updateMany` race-guard (`status: 'queued'` predicate) ensures only the
  * winning worker captures a contended task — losers simply skip the row.
  *
@@ -121,13 +121,13 @@ export async function leaseQueuedTasks(
   worker: { id: string; workerKey: string },
   requestedPageType: string,
   limit: number,
-  companyId: string,
+  organizationId: string,
 ): Promise<LeasedExecutionTask[]> {
   const candidates = await prisma.executionTask.findMany({
     where: {
       status: 'queued',
       action: {
-        companyId,
+        organizationId,
         approvalStatus: 'approved',
         executeStatus: { in: ['queued', 'failed'] },
       },
@@ -154,7 +154,7 @@ export async function leaseQueuedTasks(
   await prisma.$transaction(async (tx) => {
     for (const task of selected) {
       const updated = await tx.executionTask.updateMany({
-        where: { id: task.id, status: 'queued', action: { companyId } },
+        where: { id: task.id, status: 'queued', action: { organizationId } },
         data: {
           status: 'leased',
           workerId: worker.id,
@@ -179,7 +179,7 @@ export async function leaseQueuedTasks(
 
     if (leasedTasks.length > 0) {
       const updated = await tx.executionWorker.updateMany({
-        where: { id: worker.id, companyId },
+        where: { id: worker.id, organizationId },
         data: { currentTaskRef: leasedTasks[0].taskId, lastHeartbeatAt: now },
       });
       if (updated.count === 0) {
@@ -199,10 +199,10 @@ export async function heartbeatWorkerOrThrow(
   prisma: PrismaService,
   workerKey: string,
   meta: { currentUrl?: string; currentPageType?: string } | undefined,
-  companyId: string,
+  organizationId: string,
 ): Promise<void> {
   const result = await prisma.executionWorker.updateMany({
-    where: { workerKey, companyId },
+    where: { workerKey, organizationId },
     data: {
       lastHeartbeatAt: new Date(),
       status: 'online',
@@ -218,32 +218,32 @@ export async function heartbeatWorkerOrThrow(
 
 /**
  * Tenant-scoped task lookup for the report path. Returns `null` when the
- * task does not exist for the company so the orchestration layer can throw
+ * task does not exist for the organization so the orchestration layer can throw
  * a `NotFoundException` after the read but before any write.
  */
 export async function findScopedExecutionTask(
   prisma: PrismaService,
   taskId: string,
-  companyId: string,
+  organizationId: string,
 ): Promise<ScopedExecutionTask | null> {
   return prisma.executionTask.findFirst({
-    where: { id: taskId, action: { companyId } },
+    where: { id: taskId, action: { organizationId } },
     include: { action: true },
   });
 }
 
 /**
  * Look up the worker row that currently owns the task, scoped to the
- * company. Returns the worker key for the conflict check or `null` when the
- * task is not currently leased to a worker in this company.
+ * organization. Returns the worker key for the conflict check or `null` when the
+ * task is not currently leased to a worker in this organization.
  */
 export async function findTaskWorkerKey(
   prisma: PrismaService,
   workerId: string,
-  companyId: string,
+  organizationId: string,
 ): Promise<string | null> {
   const worker = await prisma.executionWorker.findFirst({
-    where: { id: workerId, companyId },
+    where: { id: workerId, organizationId },
     select: { workerKey: true },
   });
   return worker?.workerKey ?? null;
@@ -252,7 +252,7 @@ export async function findTaskWorkerKey(
 /**
  * Persist the worker-reported task transition together with the matching
  * `AdAction` state change in a single transaction. All writes are scoped to
- * `companyId` and the helper throws `NotFoundException` when any row update
+ * `organizationId` and the helper throws `NotFoundException` when any row update
  * becomes a no-op so a partial report cannot land.
  *
  * Error messages are scrubbed via `scrubExecutionError` before they reach
@@ -262,7 +262,7 @@ export async function reportExecutionTask(
   prisma: PrismaService,
   body: ExecutionReportInput,
   task: ScopedExecutionTask,
-  companyId: string,
+  organizationId: string,
 ): Promise<void> {
   const now = new Date();
 
@@ -271,7 +271,7 @@ export async function reportExecutionTask(
       data: Prisma.ExecutionTaskUpdateManyMutationInput,
     ) => {
       const updated = await tx.executionTask.updateMany({
-        where: { id: body.taskId, action: { companyId } },
+        where: { id: body.taskId, action: { organizationId } },
         data,
       });
       if (updated.count === 0) {
@@ -282,7 +282,7 @@ export async function reportExecutionTask(
       data: Prisma.AdActionUpdateManyMutationInput,
     ) => {
       const updated = await tx.adAction.updateMany({
-        where: { id: task.actionId, companyId },
+        where: { id: task.actionId, organizationId },
         data,
       });
       if (updated.count === 0) {
@@ -353,7 +353,7 @@ export async function reportExecutionTask(
     }
 
     const workerUpdated = await tx.executionWorker.updateMany({
-      where: { workerKey: body.workerKey, companyId },
+      where: { workerKey: body.workerKey, organizationId },
       data: {
         currentTaskRef: body.status === 'running' ? body.taskId : null,
         lastHeartbeatAt: now,

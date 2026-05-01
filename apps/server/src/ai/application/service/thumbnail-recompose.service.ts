@@ -27,13 +27,13 @@ export class ThumbnailRecomposeService {
     private readonly vision: ThumbnailVisionAiService,
   ) {}
 
-  async classify(productId: string, companyId: string): Promise<RecomposeVariantClassification> {
+  async classify(productId: string, organizationId: string): Promise<RecomposeVariantClassification> {
     const master = await this.prisma.masterProduct.findFirst({
-      where: { id: productId, companyId, isDeleted: false },
+      where: { id: productId, organizationId, isDeleted: false },
       select: {
         imageUrl: true,
         thumbnailUrl: true,
-        images: thumbnailMasterImageSelect(companyId),
+        images: thumbnailMasterImageSelect(organizationId),
       },
     });
     if (!master) throw new NotFoundException('Product not found');

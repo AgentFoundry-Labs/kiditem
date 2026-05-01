@@ -56,12 +56,12 @@ export type MoneyRange = z.infer<typeof MoneyRangeSchema>;
 // ===== Master (family) =====
 export const MasterSchema = z.object({
   id: z.string().uuid(),
-  companyId: z.string().uuid(),
+  organizationId: z.string().uuid(),
   code: z.string(),
   legacyCode: z.string().nullable(),
   // Source barcode/EAN (ADR-0022). Non-unique — search may return multiple
   // masters. Distinct from `ProductOptionSchema.barcode` which is the true
-  // option/scanner barcode and remains unique per company.
+  // option/scanner barcode and remains unique per organization.
   barcode: z.string().nullable(),
   name: z.string(),
   description: z.string(),
@@ -85,7 +85,6 @@ export const MasterSchema = z.object({
   pipelineStep: z.string().nullable(),
   detailPageUrl: z.string().url().nullable(),
   thumbnailStrategy: z.enum(['standard', 'premium', 'custom']),
-  supplierId: z.string().uuid().nullable(),
   isDeleted: z.boolean(),
   deletedAt: zIsoDate.nullable(),
   isTemporary: z.boolean(),
@@ -100,7 +99,7 @@ export type Master = z.infer<typeof MasterSchema>;
 export const ProductOptionSchema = z.object({
   id: z.string().uuid(),
   masterId: z.string().uuid(),
-  companyId: z.string().uuid(),
+  organizationId: z.string().uuid(),
   sku: z.string(),
   barcode: z.string().nullable(),
   legacyCode: z.string().nullable(),
@@ -127,7 +126,7 @@ export const BundleComponentSchema = z.object({
   id: z.string().uuid(),
   bundleOptionId: z.string().uuid(),
   componentOptionId: z.string().uuid(),
-  companyId: z.string().uuid(),
+  organizationId: z.string().uuid(),
   qty: z.number().int().min(1),
   createdAt: zIsoDate,
   updatedAt: zIsoDate,

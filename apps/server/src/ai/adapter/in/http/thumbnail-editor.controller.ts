@@ -1,6 +1,6 @@
 import { BadRequestException, Body, Controller, Post } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
+import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { ThumbnailEditorDto } from './dto/thumbnail-editor.dto';
 import { ThumbnailEditorAiService } from '../../../application/service/thumbnail-editor-ai.service';
 import type {
@@ -18,16 +18,16 @@ export class ThumbnailEditorController {
   ) {}
 
   @Post('generate')
-  async generate(@Body() body: ThumbnailEditorDto, @CurrentCompany() companyId: string) {
+  async generate(@Body() body: ThumbnailEditorDto, @CurrentOrganization() organizationId: string) {
     const mode = body.mode ?? 'edit';
     const product = body.productId
-      ? await this.generationService.findProductForEditor(body.productId, companyId)
+      ? await this.generationService.findProductForEditor(body.productId, organizationId)
       : null;
     if (body.productId && !product) {
       throw new BadRequestException('productId 에 해당하는 상품을 찾을 수 없습니다');
     }
 
-    const inputs = await this.resolveInputs(body, companyId);
+    const inputs = await this.resolveInputs(body, organizationId);
     if (inputs.length === 0) {
       throw new BadRequestException('상품 사진이 필요합니다');
     }
@@ -35,14 +35,14 @@ export class ThumbnailEditorController {
     const editCase = this.inferEditCase(body);
     const composition = this.compositionText(body);
     const candidates = mode === 'creative'
-      ? await this.editorAi.generateCreative(inputs, companyId, {
+      ? await this.editorAi.generateCreative(inputs, organizationId, {
           sceneType: body.sceneType,
           styleType: body.styleType,
           productDescription: body.productDescription,
           userPrompt: body.userPrompt,
           hasStyleReference: Boolean(body.backgroundReference),
         })
-      : await this.editorAi.generateEdit(inputs, companyId, {
+      : await this.editorAi.generateEdit(inputs, organizationId, {
           purpose: body.purpose,
           editCase,
           composition,
@@ -56,7 +56,7 @@ export class ThumbnailEditorController {
     const generationId = product
       ? await this.generationService.saveEditorResult({
           productId: product.id,
-          companyId,
+          organizationId,
           originalUrl: product.imageUrl ?? inputs[0]?.url ?? null,
           candidates,
           inputImages: inputs,
@@ -76,7 +76,7 @@ export class ThumbnailEditorController {
 
   private async resolveInputs(
     body: ThumbnailEditorDto,
-    companyId: string,
+    organizationId: string,
   ): Promise<ThumbnailEditorInputImage[]> {
     const inputs: ThumbnailEditorInputImage[] = [];
     const add = async (
@@ -87,7 +87,7 @@ export class ThumbnailEditorController {
     ) => {
       if (!value) return;
       inputs.push(
-        await this.editorAi.resolveInputImage(value, companyId, {
+        await this.editorAi.resolveInputImage(value, organizationId, {
           label,
           role,
           sortOrder: inputs.length,

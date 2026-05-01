@@ -20,16 +20,16 @@ import {
   makeTestPrisma,
   resetDb,
   seedBaseFixture,
-  TEST_COMPANY_ID,
+  TEST_ORGANIZATION_ID,
   TEST_USER_ID,
-  OTHER_COMPANY_ID,
+  OTHER_ORGANIZATION_ID,
   OTHER_USER_ID,
 } from '../../../../test-helpers/real-prisma';
 
 async function seedTask(prisma: PrismaClient, overrides: Partial<ActionTask> = {}) {
   return prisma.actionTask.create({
     data: {
-      companyId: TEST_COMPANY_ID,
+      organizationId: TEST_ORGANIZATION_ID,
       taskKey: 'test-task',
       type: 'human',
       label: 'Test',
@@ -64,7 +64,7 @@ describe('ActionBoardService.claim/unclaim — real Postgres race guard', () => 
   it('단일 claim → assigneeUserId 세팅', async () => {
     const task = await seedTask(prisma);
 
-    const result = await service.claim(task.id, TEST_COMPANY_ID, TEST_USER_ID);
+    const result = await service.claim(task.id, TEST_ORGANIZATION_ID, TEST_USER_ID);
     expect(result.assigneeUserId).toBe(TEST_USER_ID);
 
     const db = await prisma.actionTask.findUniqueOrThrow({ where: { id: task.id } });
@@ -75,8 +75,8 @@ describe('ActionBoardService.claim/unclaim — real Postgres race guard', () => 
     const task = await seedTask(prisma);
 
     const results = await Promise.allSettled([
-      service.claim(task.id, TEST_COMPANY_ID, TEST_USER_ID),
-      service.claim(task.id, TEST_COMPANY_ID, OTHER_USER_ID),
+      service.claim(task.id, TEST_ORGANIZATION_ID, TEST_USER_ID),
+      service.claim(task.id, TEST_ORGANIZATION_ID, OTHER_USER_ID),
     ]);
 
     const fulfilled = results.filter((r) => r.status === 'fulfilled');
@@ -94,10 +94,10 @@ describe('ActionBoardService.claim/unclaim — real Postgres race guard', () => 
 
   it('이미 claim 된 task 재시도 → ConflictException', async () => {
     const task = await seedTask(prisma);
-    await service.claim(task.id, TEST_COMPANY_ID, TEST_USER_ID);
+    await service.claim(task.id, TEST_ORGANIZATION_ID, TEST_USER_ID);
 
     await expect(
-      service.claim(task.id, TEST_COMPANY_ID, OTHER_USER_ID),
+      service.claim(task.id, TEST_ORGANIZATION_ID, OTHER_USER_ID),
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
@@ -105,7 +105,7 @@ describe('ActionBoardService.claim/unclaim — real Postgres race guard', () => 
     const task = await seedTask(prisma);
 
     await expect(
-      service.claim(task.id, OTHER_COMPANY_ID, OTHER_USER_ID),
+      service.claim(task.id, OTHER_ORGANIZATION_ID, OTHER_USER_ID),
     ).rejects.toBeInstanceOf(ConflictException);
 
     const db = await prisma.actionTask.findUniqueOrThrow({ where: { id: task.id } });
@@ -117,20 +117,20 @@ describe('ActionBoardService.claim/unclaim — real Postgres race guard', () => 
 
     // 다른 유저가 unclaim 시도 → ConflictException
     await expect(
-      service.unclaim(task.id, TEST_COMPANY_ID, OTHER_USER_ID),
+      service.unclaim(task.id, TEST_ORGANIZATION_ID, OTHER_USER_ID),
     ).rejects.toBeInstanceOf(ConflictException);
 
     // 본인이 unclaim → 성공
-    const result = await service.unclaim(task.id, TEST_COMPANY_ID, TEST_USER_ID);
+    const result = await service.unclaim(task.id, TEST_ORGANIZATION_ID, TEST_USER_ID);
     expect(result.assigneeUserId).toBeNull();
   });
 
   it('claim + unclaim + reclaim 순환 — 동시성 없이도 일관성', async () => {
     const task = await seedTask(prisma);
 
-    await service.claim(task.id, TEST_COMPANY_ID, TEST_USER_ID);
-    await service.unclaim(task.id, TEST_COMPANY_ID, TEST_USER_ID);
-    const final = await service.claim(task.id, TEST_COMPANY_ID, OTHER_USER_ID);
+    await service.claim(task.id, TEST_ORGANIZATION_ID, TEST_USER_ID);
+    await service.unclaim(task.id, TEST_ORGANIZATION_ID, TEST_USER_ID);
+    const final = await service.claim(task.id, TEST_ORGANIZATION_ID, OTHER_USER_ID);
 
     expect(final.assigneeUserId).toBe(OTHER_USER_ID);
   });

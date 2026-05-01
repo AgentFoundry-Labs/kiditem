@@ -7,13 +7,13 @@ export class FeatureGateService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async isEnabled(name: string, companyId?: string): Promise<boolean> {
+  async isEnabled(name: string, organizationId?: string): Promise<boolean> {
     const gate = await this.prisma.featureGate.findUnique({ where: { name } });
     if (!gate) return true; // 게이트 없으면 기본 허용
     if (!gate.enabled) return false;
-    if (gate.allowedCompanies.length === 0) return true; // 빈 배열 = 전체 허용
-    if (!companyId) return false;
-    return gate.allowedCompanies.includes(companyId);
+    if (gate.allowedOrganizations.length === 0) return true; // 빈 배열 = 전체 허용
+    if (!organizationId) return false;
+    return gate.allowedOrganizations.includes(organizationId);
   }
 
   async list() {
@@ -25,7 +25,7 @@ export class FeatureGateService {
     data: {
       enabled?: boolean;
       description?: string;
-      allowedCompanies?: string[];
+      allowedOrganizations?: string[];
       metadata?: Record<string, unknown>;
     },
   ) {

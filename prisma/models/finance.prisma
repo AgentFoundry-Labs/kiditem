@@ -1,10 +1,10 @@
 // finance.prisma — Finance domain
 
 /// @namespace Finance
-/// @describe 월간 손익. companyId+listingId+year+month unique.
+/// @describe 월간 손익. organizationId+listingId+year+month unique.
 model ProfitLoss {
   id        String @id @default(uuid()) @db.Uuid
-  companyId String @map("company_id") @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
   listingId String @map("listing_id") @db.Uuid
 
   year  Int
@@ -24,11 +24,11 @@ model ProfitLoss {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   listing ChannelListing @relation(fields: [listingId], references: [id], onDelete: Restrict)
 
-  @@unique([companyId, listingId, year, month])
-  @@index([companyId])
+  @@unique([organizationId, listingId, year, month])
+  @@index([organizationId])
   @@index([listingId])
   @@index([year, month])
   @@map("profit_loss")
@@ -38,7 +38,7 @@ model ProfitLoss {
 /// @describe ABC 등급 변경 추적.
 model GradeHistory {
   id            String   @id @default(uuid()) @db.Uuid
-  companyId     String   @map("company_id") @db.Uuid
+  organizationId     String   @map("organization_id") @db.Uuid
   masterId      String   @map("master_id") @db.Uuid
   oldGrade      String?  @map("old_grade")
   newGrade      String   @map("new_grade")
@@ -50,7 +50,7 @@ model GradeHistory {
   calculatedAt  DateTime @default(now()) @map("calculated_at") @db.Timestamptz
 
   master  MasterProduct @relation(fields: [masterId], references: [id], onDelete: Cascade)
-  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([masterId])
   @@index([calculatedAt])
@@ -62,7 +62,7 @@ model GradeHistory {
 /// @describe 자동 집계 외 수기 수입/지출.
 model ManualLedger {
   id          String   @id @default(uuid()) @db.Uuid
-  companyId   String   @map("company_id") @db.Uuid
+  organizationId   String   @map("organization_id") @db.Uuid
   date        DateTime @default(now()) @db.Date
   type        String
   category    String
@@ -74,16 +74,16 @@ model ManualLedger {
   createdBy   String?  @map("created_by")
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  @@index([companyId])
+  @@index([organizationId])
   @@map("manual_ledgers")
 }
 
 /// @namespace Finance
 model ProcessingCost {
   id          String   @id @default(uuid()) @db.Uuid
-  companyId   String   @map("company_id") @db.Uuid
+  organizationId   String   @map("organization_id") @db.Uuid
   masterId    String   @map("master_id") @db.Uuid
   productName String?  @map("product_name")
   vendor      String?
@@ -96,11 +96,11 @@ model ProcessingCost {
   notes       String?
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   master  MasterProduct @relation(fields: [masterId], references: [id], onDelete: Restrict)
 
-  @@index([companyId])
-  @@index([companyId, date])
+  @@index([organizationId])
+  @@index([organizationId, date])
   @@index([masterId])
   @@map("processing_costs")
 }
@@ -108,7 +108,7 @@ model ProcessingCost {
 /// @namespace Finance
 model SalesPlan {
   id            String   @id @default(uuid()) @db.Uuid
-  companyId     String   @map("company_id") @db.Uuid
+  organizationId     String   @map("organization_id") @db.Uuid
   period        String
   targetRevenue Int      @default(0) @map("target_revenue")
   targetOrders  Int      @default(0) @map("target_orders")
@@ -120,9 +120,9 @@ model SalesPlan {
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  @@unique([companyId, period])
+  @@unique([organizationId, period])
   @@map("sales_plans")
 }
 

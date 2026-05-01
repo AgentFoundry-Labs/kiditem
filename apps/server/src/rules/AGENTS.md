@@ -77,7 +77,7 @@ async handleAgentResult(event) {
 
 ### 3. healthScore bulk update — Prisma updateMany + $transaction
 
-healthScore 일괄 갱신은 `prisma.$transaction(products.map(r => prisma.masterProduct.updateMany({ where: { id: r.masterId, companyId }, data: ... })))` 패턴을 사용한다. 각 update 의 where 절이 `(id, companyId)` 로 스코프되므로 다른 회사 master 는 절대 갱신되지 않는다. unsafe raw SQL API 는 사용하지 않는다. raw SQL 이 필요할 때만 `prisma.$executeRaw` tagged template + `WHERE company_id = ${companyId}::uuid` 로 작성한다.
+healthScore 일괄 갱신은 `prisma.$transaction(products.map(r => prisma.masterProduct.updateMany({ where: { id: r.masterId, organizationId }, data: ... })))` 패턴을 사용한다. 각 update 의 where 절이 `(id, organizationId)` 로 스코프되므로 다른 회사 master 는 절대 갱신되지 않는다. unsafe raw SQL API 는 사용하지 않는다. raw SQL 이 필요할 때만 `prisma.$executeRaw` tagged template + `WHERE organization_id = ${organizationId}::uuid` 로 작성한다.
 
 ### 4. OnModuleInit 시드
 
@@ -88,11 +88,11 @@ healthScore 일괄 갱신은 `prisma.$transaction(products.map(r => prisma.maste
 - 룰 평가는 **반드시 agent**. 서비스 내 직접 평가 금지
 - Critical 위반 → alert 자동 생성, 모든 위반 → activity_event 생성
 - 스케줄은 tenant-owned `rules_evaluation` agent config (cron) 에 저장. rules
-  테이블 아님. 글로벌 catalog `AgentDefinition(companyId=null)` 은 모든
+  테이블 아님. 글로벌 catalog `AgentDefinition(organizationId=null)` 은 모든
   tenant 가 공유하므로 schedule PATCH 로 수정하지 않는다. tenant-owned row
   가 없으면 GET 은 `disabled`, PATCH 는 400 을 반환한다.
-- 회사 스코프: `@CurrentCompany()` 데코레이터 필수
-- Bulk update 는 Prisma updateMany + `{ id, companyId }` where 절로 묶고 `prisma.$transaction(...)` 으로 감싼다. raw SQL 이 정말 필요하면 tagged template + `company_id = ${companyId}::uuid` bind 만 허용. `$executeRawUnsafe` 는 절대 금지.
+- 회사 스코프: `@CurrentOrganization()` 데코레이터 필수
+- Bulk update 는 Prisma updateMany + `{ id, organizationId }` where 절로 묶고 `prisma.$transaction(...)` 으로 감싼다. raw SQL 이 정말 필요하면 tagged template + `organization_id = ${organizationId}::uuid` bind 만 허용. `$executeRawUnsafe` 는 절대 금지.
 
 ## Prohibits
 
@@ -113,5 +113,5 @@ healthScore 일괄 갱신은 `prisma.$transaction(products.map(r => prisma.maste
 |---|---|
 | Agent result 형식 변경 | `agent-config/prompts/agents/rules-evaluation.md` + `services/rules.service.ts:36-105` (handler) + `__tests__/rules-flow.spec.ts` |
 | 새 룰 카테고리 | DB seed (`onModuleInit`) + `rules.service.ts:list filter` + 프론트 카테고리 enum |
-| Bulk update 변경 | `services/rules.service.ts` healthScore $transaction 블록 — `(id, companyId)` 스코프 유지 + unsafe raw SQL 금지 + `__tests__/rules-flow.spec.ts` & `rules.service.spec.ts` 의 $transaction/updateMany 모킹 동기화 |
+| Bulk update 변경 | `services/rules.service.ts` healthScore $transaction 블록 — `(id, organizationId)` 스코프 유지 + unsafe raw SQL 금지 + `__tests__/rules-flow.spec.ts` & `rules.service.spec.ts` 의 $transaction/updateMany 모킹 동기화 |
 | 스케줄 cron 변경 | `automation/adapter/out/agent-runtime/agent-schedule-control.adapter.ts` (포트 단일 진입점) — controller 는 wire-up 만, heartbeat `replaceAgentTimer` 는 어댑터 내부 호출 |

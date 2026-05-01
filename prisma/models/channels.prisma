@@ -13,7 +13,7 @@
 /// @describe 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장.
 model ChannelScrapeRun {
   id          String   @id @default(uuid()) @db.Uuid
-  companyId   String   @map("company_id") @db.Uuid
+  organizationId   String   @map("organization_id") @db.Uuid
 
   channel       String
   source        String
@@ -40,11 +40,11 @@ model ChannelScrapeRun {
   metaJson  Json? @map("meta_json")
   errorJson Json? @map("error_json")
 
-  company   Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organization   Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   snapshots ChannelScrapeSnapshot[]
 
-  @@index([companyId, channel, source, businessDate])
-  @@index([companyId, status, startedAt])
+  @@index([organizationId, channel, source, businessDate])
+  @@index([organizationId, status, startedAt])
   @@index([startedAt])
   @@map("channel_scrape_runs")
 }
@@ -53,7 +53,7 @@ model ChannelScrapeRun {
 /// @describe 채널 스크래퍼/API 가 본 원본 row. 매칭 실패/파서 변경 대비 rawJson 을 보존.
 model ChannelScrapeSnapshot {
   id          String  @id @default(uuid()) @db.Uuid
-  companyId   String  @map("company_id") @db.Uuid
+  organizationId   String  @map("organization_id") @db.Uuid
   scrapeRunId String? @map("scrape_run_id") @db.Uuid
 
   channel      String
@@ -77,7 +77,7 @@ model ChannelScrapeSnapshot {
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  company       Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organization       Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   scrapeRun     ChannelScrapeRun?     @relation(fields: [scrapeRunId], references: [id], onDelete: SetNull)
   listing       ChannelListing?       @relation(fields: [listingId], references: [id], onDelete: SetNull)
   listingOption ChannelListingOption? @relation(fields: [listingOptionId], references: [id], onDelete: SetNull)
@@ -88,15 +88,15 @@ model ChannelScrapeSnapshot {
   adTargetDailySnapshots ChannelAdTargetDailySnapshot[]    @relation("AdTargetDailyRawSnapshot")
   accountKpiSnapshots    ChannelAccountDailyKpiSnapshot[]  @relation("AccountKpiRawSnapshot")
 
-  @@index([companyId, channel, source, businessDate])
-  @@index([companyId, channel, pageType, businessDate])
+  @@index([organizationId, channel, source, businessDate])
+  @@index([organizationId, channel, pageType, businessDate])
   @@index([scrapeRunId])
   @@index([listingId, businessDate])
   @@index([listingOptionId, businessDate])
   @@index([optionId, businessDate])
-  @@index([companyId, channel, externalId])
-  @@index([companyId, channel, externalOptionId])
-  @@index([companyId, matchStatus])
+  @@index([organizationId, channel, externalId])
+  @@index([organizationId, channel, externalOptionId])
+  @@index([organizationId, matchStatus])
   @@index([observedAt])
   @@map("channel_scrape_snapshots")
 }
@@ -105,7 +105,7 @@ model ChannelScrapeSnapshot {
 /// @describe 채널 listing 의 일별 정규화 상태. 반복 scrape 는 businessDate row 를 upsert.
 model ChannelListingDailySnapshot {
   id        String @id @default(uuid()) @db.Uuid
-  companyId String @map("company_id") @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
   listingId String @map("listing_id") @db.Uuid
 
   channel      String
@@ -169,17 +169,17 @@ model ChannelListingDailySnapshot {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company     Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organization     Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   listing     ChannelListing          @relation(fields: [listingId], references: [id], onDelete: Cascade)
   rawSnapshot ChannelScrapeSnapshot?  @relation("ListingDailyRawSnapshot", fields: [rawSnapshotId], references: [id], onDelete: SetNull)
 
-  @@unique([companyId, listingId, businessDate])
-  @@index([companyId, channel, externalId, businessDate])
+  @@unique([organizationId, listingId, businessDate])
+  @@index([organizationId, channel, externalId, businessDate])
   @@index([rawSnapshotId])
-  @@index([companyId, businessDate])
+  @@index([organizationId, businessDate])
   @@index([listingId, businessDate])
-  @@index([companyId, channel, businessDate])
-  @@index([companyId, isOfferWinner])
+  @@index([organizationId, channel, businessDate])
+  @@index([organizationId, isOfferWinner])
   @@map("channel_listing_daily_snapshots")
 }
 
@@ -187,7 +187,7 @@ model ChannelListingDailySnapshot {
 /// @describe 채널 listing option/vendor item 의 일별 정규화 상태.
 model ChannelListingOptionDailySnapshot {
   id              String  @id @default(uuid()) @db.Uuid
-  companyId       String  @map("company_id") @db.Uuid
+  organizationId       String  @map("organization_id") @db.Uuid
   listingId       String  @map("listing_id") @db.Uuid
   listingOptionId String  @map("listing_option_id") @db.Uuid
   optionId        String? @map("option_id") @db.Uuid
@@ -217,20 +217,20 @@ model ChannelListingOptionDailySnapshot {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company       Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organization       Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   listing       ChannelListing         @relation(fields: [listingId], references: [id], onDelete: Cascade)
   listingOption ChannelListingOption   @relation(fields: [listingOptionId], references: [id], onDelete: Cascade)
   option        ProductOption?         @relation(fields: [optionId], references: [id], onDelete: SetNull)
   rawSnapshot   ChannelScrapeSnapshot? @relation("OptionDailyRawSnapshot", fields: [rawSnapshotId], references: [id], onDelete: SetNull)
 
-  @@unique([companyId, listingOptionId, businessDate])
-  @@index([companyId, channel, externalId, externalOptionId, businessDate])
+  @@unique([organizationId, listingOptionId, businessDate])
+  @@index([organizationId, channel, externalId, externalOptionId, businessDate])
   @@index([rawSnapshotId])
-  @@index([companyId, businessDate])
+  @@index([organizationId, businessDate])
   @@index([listingId, businessDate])
   @@index([listingOptionId, businessDate])
   @@index([optionId, businessDate])
-  @@index([companyId, externalOptionId])
+  @@index([organizationId, externalOptionId])
   @@map("channel_listing_option_daily_snapshots")
 }
 
@@ -238,7 +238,7 @@ model ChannelListingOptionDailySnapshot {
 /// @describe 채널 광고 타겟(캠페인/키워드/상품)의 일별 정규화 fact. 기간 view 는 SUM 으로 derive.
 model ChannelAdTargetDailySnapshot {
   id           String   @id @default(uuid()) @db.Uuid
-  companyId    String   @map("company_id") @db.Uuid
+  organizationId    String   @map("organization_id") @db.Uuid
   channel      String
   businessDate DateTime @map("business_date") @db.Date
 
@@ -278,7 +278,7 @@ model ChannelAdTargetDailySnapshot {
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company       Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organization       Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   listing       ChannelListing?        @relation(fields: [listingId], references: [id], onDelete: SetNull)
   listingOption ChannelListingOption?  @relation(fields: [listingOptionId], references: [id], onDelete: SetNull)
   option        ProductOption?         @relation(fields: [optionId], references: [id], onDelete: SetNull)
@@ -286,11 +286,11 @@ model ChannelAdTargetDailySnapshot {
 
   adActions AdAction[]
 
-  @@unique([companyId, channel, businessDate, targetType, targetKey])
-  @@index([companyId, channel, businessDate])
+  @@unique([organizationId, channel, businessDate, targetType, targetKey])
+  @@index([organizationId, channel, businessDate])
   @@index([listingId, businessDate])
   @@index([listingOptionId, businessDate])
-  @@index([companyId, targetType, businessDate])
+  @@index([organizationId, targetType, businessDate])
   @@index([rawSnapshotId])
   @@index([optionId, businessDate])
   @@map("channel_ad_target_daily_snapshots")
@@ -300,7 +300,7 @@ model ChannelAdTargetDailySnapshot {
 /// @describe 채널 계정/스토어 단위 KPI 일별 정규화 fact (listing 에 귀속되지 않는 dashboard KPI 용).
 model ChannelAccountDailyKpiSnapshot {
   id           String    @id @default(uuid()) @db.Uuid
-  companyId    String    @map("company_id") @db.Uuid
+  organizationId    String    @map("organization_id") @db.Uuid
   channel      String
   source       String                              // 'wing' | 'advertising' | ...
   kpiType      String    @map("kpi_type")          // e.g. 'wing_dashboard' | 'wing_itemwinner_kpi'
@@ -318,11 +318,11 @@ model ChannelAccountDailyKpiSnapshot {
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company     Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organization     Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   rawSnapshot ChannelScrapeSnapshot? @relation("AccountKpiRawSnapshot", fields: [rawSnapshotId], references: [id], onDelete: SetNull)
 
-  @@unique([companyId, channel, source, businessDate, kpiType])
-  @@index([companyId, channel, businessDate])
+  @@unique([organizationId, channel, source, businessDate, kpiType])
+  @@index([organizationId, channel, businessDate])
   @@index([rawSnapshotId])
   @@map("channel_account_daily_kpi_snapshots")
 }

@@ -17,7 +17,7 @@ describe('DenialTrackerService', () => {
     const service = new DenialTrackerService(prisma);
 
     await service.recordDenial({
-      companyId: 'co-1',
+      organizationId: 'co-1',
       agentId: 'agent-1',
       runId: 'run-1',
       category: 'dangerous_tool',
@@ -41,7 +41,7 @@ describe('DenialTrackerService', () => {
     await service.listDenials('agent-1', 'co-1');
 
     expect(prisma.agentEvent.findMany).toHaveBeenCalledWith({
-      where: { agentId: 'agent-1', companyId: 'co-1', eventType: 'permission_denied' },
+      where: { agentId: 'agent-1', organizationId: 'co-1', eventType: 'permission_denied' },
       orderBy: { createdAt: 'desc' },
       take: 50,
     });

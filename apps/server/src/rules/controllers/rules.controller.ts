@@ -15,7 +15,7 @@ import {
   AgentScheduleControlPort,
   TenantOwnedAgentRequiredError,
 } from '../../automation/application/port/in/agent-schedule-control.port';
-import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
+import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
 import {
   ListRulesQueryDto,
   UpdateRuleBodyDto,
@@ -33,8 +33,8 @@ export class RulesController {
   ) {}
 
   @Post('evaluate')
-  async evaluate(@CurrentCompany() companyId: string) {
-    return this.rulesService.evaluateAll(companyId);
+  async evaluate(@CurrentOrganization() organizationId: string) {
+    return this.rulesService.evaluateAll(organizationId);
   }
 
   @Get('evaluate/status/:taskId')
@@ -43,20 +43,20 @@ export class RulesController {
   }
 
   @Get('summary')
-  async summary(@CurrentCompany() companyId: string) {
-    return this.rulesService.getSummary(companyId);
+  async summary(@CurrentOrganization() organizationId: string) {
+    return this.rulesService.getSummary(organizationId);
   }
 
   @Get()
-  async findAll(@CurrentCompany() companyId: string, @Query() query: ListRulesQueryDto) {
-    return this.rulesService.findAllRules(companyId, query.category);
+  async findAll(@CurrentOrganization() organizationId: string, @Query() query: ListRulesQueryDto) {
+    return this.rulesService.findAllRules(organizationId, query.category);
   }
 
   @Get('schedule')
-  async getSchedule(@CurrentCompany() companyId: string) {
+  async getSchedule(@CurrentOrganization() organizationId: string) {
     const { schedule } = await this.scheduleControl.getSchedule(
       RULES_EVALUATION_AGENT_TYPE,
-      companyId,
+      organizationId,
     );
     return {
       schedule,
@@ -70,20 +70,20 @@ export class RulesController {
   }
 
   @Get('suggest-thresholds')
-  async suggestThresholds(@CurrentCompany() companyId: string) {
-    return this.rulesService.suggestThresholds(companyId);
+  async suggestThresholds(@CurrentOrganization() organizationId: string) {
+    return this.rulesService.suggestThresholds(organizationId);
   }
 
   @Patch('schedule')
   async updateSchedule(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Body() body: UpdateScheduleBodyDto,
   ) {
     const next = body.schedule === 'disabled' ? null : body.schedule;
     try {
       await this.scheduleControl.setSchedule(
         RULES_EVALUATION_AGENT_TYPE,
-        companyId,
+        organizationId,
         next,
       );
     } catch (err) {
@@ -100,9 +100,9 @@ export class RulesController {
   @Patch(':id')
   update(
     @Param('id') id: string,
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Body() body: UpdateRuleBodyDto,
   ) {
-    return this.rulesService.updateRule(id, companyId, body);
+    return this.rulesService.updateRule(id, organizationId, body);
   }
 }

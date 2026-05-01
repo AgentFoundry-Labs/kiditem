@@ -10,9 +10,9 @@ import type { ConfirmedOrdersPort } from '../../../application/port/out/confirme
 export class ConfirmedOrdersRepositoryAdapter implements ConfirmedOrdersPort {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findConfirmedOrdersForPicking(companyId: string): Promise<PickingSourceOrder[]> {
+  async findConfirmedOrdersForPicking(organizationId: string): Promise<PickingSourceOrder[]> {
     const rows = await this.prisma.order.findMany({
-      where: { companyId, status: 'confirmed' },
+      where: { organizationId, status: 'confirmed' },
       include: {
         lineItems: {
           include: { option: { select: { sku: true, optionName: true } } },

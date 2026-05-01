@@ -13,11 +13,11 @@ export interface AgentDefinitionUpdateData {
 }
 
 /**
- * Input contract for Agent OS execution. `companyId` is the trusted tenant
- * scope from `@CurrentCompany()` or an explicit internal hand-off.
+ * Input contract for Agent OS execution. `organizationId` is the trusted tenant
+ * scope from `@CurrentOrganization()` or an explicit internal hand-off.
  */
 export interface AgentRunInput {
-  companyId?: string;
+  organizationId?: string;
   dryRun?: boolean;
   workflowRunId?: string;
   workflowNodeId?: string;
@@ -25,8 +25,8 @@ export interface AgentRunInput {
   extra?: Record<string, unknown>;
 }
 
-export const tenantScopeFilter = (companyId: string) => ({
-  OR: [{ companyId }, { companyId: null }],
+export const tenantScopeFilter = (organizationId: string) => ({
+  OR: [{ organizationId }, { organizationId: null }],
 });
 
-export const tenantOwnedFilter = (companyId: string) => ({ companyId });
+export const tenantOwnedFilter = (organizationId: string) => ({ organizationId });

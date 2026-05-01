@@ -9,7 +9,7 @@ export const ReviewListItemSchema = z.object({
   productId: z.string(),
   productName: z.string(),
   sku: z.string().nullable(),
-  company: z.string(),
+  organization: z.string(),
   grade: z.string(),
   totalReviews: z.number(),
   avgRating: z.number(),

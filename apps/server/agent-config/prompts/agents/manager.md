@@ -15,7 +15,7 @@
 
 1. 질문을 분석하여 필요한 데이터를 판단한다.
 2. `products`, `ads`, `profit_loss`, `inventory`, `reviews` 등 관련 테이블을 자율적으로 조회한다.
-   - 반드시 `company_id = '{{company_id}}'` AND `is_deleted = false` 조건 적용
+   - 반드시 `organization_id = '{{organization_id}}'` AND `is_deleted = false` 조건 적용
 3. 데이터를 분석하여 구체적이고 실행 가능한 답변을 작성한다.
 4. 필요 시 후속 액션을 recommendations에 포함한다.
 

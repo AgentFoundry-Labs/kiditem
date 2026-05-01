@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ThumbnailEditorAiService } from '../application/service/thumbnail-editor-ai.service';
 import type { ThumbnailEditorInputImage } from '../domain/model/thumbnail-editor';
 
-const COMPANY_ID = 'company-1';
+const ORGANIZATION_ID = 'organization-1';
 
 function makeInput(over: Partial<ThumbnailEditorInputImage> = {}): ThumbnailEditorInputImage {
   return {
@@ -65,7 +65,7 @@ describe('ThumbnailEditorAiService reference prompt parity', () => {
   it('keeps creative generation free of generation reference images', async () => {
     const { service, generateContent, references } = makeService();
 
-    await service.generateCreative([makeInput()], COMPANY_ID, {
+    await service.generateCreative([makeInput()], ORGANIZATION_ID, {
       sceneType: 'white-studio',
       styleType: 'minimal',
     });
@@ -77,7 +77,7 @@ describe('ThumbnailEditorAiService reference prompt parity', () => {
   it('keeps editor generation references on the generateFromInputs-compatible path', async () => {
     const { service, generateContent, references } = makeService();
 
-    await service.generateEdit([makeInput()], COMPANY_ID, {
+    await service.generateEdit([makeInput()], ORGANIZATION_ID, {
       purpose: 'compliance',
       editCase: 'single',
     });
@@ -88,7 +88,7 @@ describe('ThumbnailEditorAiService reference prompt parity', () => {
 
   it('uses edit-image references only for compliance re-edits', async () => {
     const quality = makeService();
-    await quality.service.generateEdit([makeInput()], COMPANY_ID, {
+    await quality.service.generateEdit([makeInput()], ORGANIZATION_ID, {
       purpose: 'quality',
       editCase: 'single',
       referenceMode: 'edit-image',
@@ -98,7 +98,7 @@ describe('ThumbnailEditorAiService reference prompt parity', () => {
     expect(requestParts(quality.generateContent).some((part) => part.text === 'REFERENCE PART')).toBe(false);
 
     const compliance = makeService();
-    await compliance.service.generateEdit([makeInput()], COMPANY_ID, {
+    await compliance.service.generateEdit([makeInput()], ORGANIZATION_ID, {
       purpose: 'compliance',
       editCase: 'single',
       referenceMode: 'edit-image',

@@ -32,15 +32,15 @@ describe('ManagerService', () => {
       agentRunner.runByType.mockResolvedValue({ ok: true, taskId: 'task-1', agentType: 'manager' });
 
       const result = await service.ask({
-        companyId: 'c-1',
+        organizationId: 'c-1',
         request: '이 상품 왜 안 팔려?',
       });
 
       expect(agentRunner.runByType).toHaveBeenCalledWith('manager', expect.objectContaining({
-        companyId: 'c-1',
+        organizationId: 'c-1',
         dryRun: false,
         extra: expect.objectContaining({
-          company_id: 'c-1',
+          organization_id: 'c-1',
           user_request: '이 상품 왜 안 팔려?',
         }),
       }));
@@ -52,7 +52,7 @@ describe('ManagerService', () => {
       agentRunner.runByType.mockResolvedValue({ ok: true, taskId: 'task-2' });
 
       await service.ask({
-        companyId: 'c-1',
+        organizationId: 'c-1',
         request: '이 상품 분석해줘',
         productId: 'p-123',
       });
@@ -83,8 +83,8 @@ describe('ManagerService', () => {
       await service.onResultReady(event);
 
       expect(agentRunner.runByType).toHaveBeenCalledTimes(2);
-      expect(agentRunner.runByType).toHaveBeenCalledWith('ad_strategy', { companyId: 'c-1' });
-      expect(agentRunner.runByType).toHaveBeenCalledWith('rules_evaluation', { companyId: 'c-1' });
+      expect(agentRunner.runByType).toHaveBeenCalledWith('ad_strategy', { organizationId: 'c-1' });
+      expect(agentRunner.runByType).toHaveBeenCalledWith('rules_evaluation', { organizationId: 'c-1' });
       expect(prisma.activityEvent.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
           title: '운영 매니저: 2건 에이전트 실행',

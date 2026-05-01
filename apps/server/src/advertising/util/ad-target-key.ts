@@ -4,7 +4,7 @@
 // `ChannelAdTargetDailySnapshot.targetKey`.
 //
 // The daily-fact table is uniquely keyed by
-//   (companyId, channel, businessDate, targetType, targetKey)
+//   (organizationId, channel, businessDate, targetType, targetKey)
 // so `targetKey` MUST be non-null and stable across replays.
 //
 // Patterns (single source of truth):

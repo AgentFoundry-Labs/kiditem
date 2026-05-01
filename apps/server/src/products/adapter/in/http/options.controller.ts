@@ -2,7 +2,7 @@
 import {
   Body, Controller, Delete, Get, Param, Patch, Post, Query,
 } from '@nestjs/common';
-import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
+import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { BundleComponentSchema, OptionWithComponentsSchema, ProductOptionSchema, type BundleComponent, type OptionWithComponents, type ProductOption } from '@kiditem/shared/product';
 import { toSerializable } from '../../../util/serialize';
 import { OptionsService } from '../../../application/service/options.service';
@@ -12,12 +12,12 @@ import { UpdateOptionDto } from '../../../dto/update-option.dto';
 import { ListOptionsQuery } from '../../../dto/list-options.query';
 
 // NOTE (auth/AGENTS.md Hard bans): no `@UseGuards` / `@UsePipes` here — rely on
-// global APP_GUARD (CompanyScopeGuard + RolesGuard) and global ValidationPipe
+// global APP_GUARD (OrganizationScopeGuard + RolesGuard) and global ValidationPipe
 // registered in main.ts / app.module.ts.
 //
 // Controllers MUST NOT touch Prisma directly (apps/server/AGENTS.md —
 // controller/service boundary). For bundle components we delegate to
-// `BundleComponentsService.list` which already applies the companyId scope.
+// `BundleComponentsService.list` which already applies the organizationId scope.
 @Controller('products/options')
 export class OptionsController {
   constructor(
@@ -27,18 +27,18 @@ export class OptionsController {
 
   @Post()
   async create(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Body() dto: CreateOptionDto,
   ): Promise<ProductOption> {
-    return ProductOptionSchema.parse(toSerializable(await this.svc.create(companyId, dto)));
+    return ProductOptionSchema.parse(toSerializable(await this.svc.create(organizationId, dto)));
   }
 
   @Get()
   async list(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Query() q: ListOptionsQuery,
   ): Promise<{ items: ProductOption[]; nextCursor: string | null }> {
-    const { items, nextCursor } = await this.svc.list(companyId, q);
+    const { items, nextCursor } = await this.svc.list(organizationId, q);
     return {
       items: items.map(r => ProductOptionSchema.parse(toSerializable(r))),
       nextCursor,
@@ -47,68 +47,68 @@ export class OptionsController {
 
   @Get('by-sku/:sku')
   async findBySku(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Param('sku') sku: string,
   ): Promise<ProductOption> {
-    return ProductOptionSchema.parse(toSerializable(await this.svc.findBySku(companyId, sku)));
+    return ProductOptionSchema.parse(toSerializable(await this.svc.findBySku(organizationId, sku)));
   }
 
   @Get('by-barcode/:barcode')
   async findByBarcode(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Param('barcode') barcode: string,
   ): Promise<ProductOption> {
-    return ProductOptionSchema.parse(toSerializable(await this.svc.findByBarcode(companyId, barcode)));
+    return ProductOptionSchema.parse(toSerializable(await this.svc.findByBarcode(organizationId, barcode)));
   }
 
   @Get(':id/components')
   async components(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Param('id') id: string,
   ): Promise<BundleComponent[]> {
     // Ensure cross-tenant / soft-delete check before exposing components.
-    await this.svc.findById(companyId, id, {});
-    const rows = await this.bundleComponentsSvc.list(companyId, { bundleOptionId: id });
+    await this.svc.findById(organizationId, id, {});
+    const rows = await this.bundleComponentsSvc.list(organizationId, { bundleOptionId: id });
     return rows.map(r => BundleComponentSchema.parse(toSerializable(r)));
   }
 
   @Get(':id')
   async findById(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Param('id') id: string,
     @Query('includeDeleted') includeDeleted?: string,
   ): Promise<OptionWithComponents> {
-    const row = await this.svc.findById(companyId, id, {
+    const row = await this.svc.findById(organizationId, id, {
       includeDeleted: includeDeleted === 'true',
     });
-    const components = await this.bundleComponentsSvc.list(companyId, { bundleOptionId: id });
+    const components = await this.bundleComponentsSvc.list(organizationId, { bundleOptionId: id });
     return OptionWithComponentsSchema.parse(toSerializable({ ...row, components }));
   }
 
   @Patch(':id')
   async update(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Param('id') id: string,
     @Body() dto: UpdateOptionDto,
   ): Promise<ProductOption> {
-    return ProductOptionSchema.parse(toSerializable(await this.svc.update(companyId, id, dto)));
+    return ProductOptionSchema.parse(toSerializable(await this.svc.update(organizationId, id, dto)));
   }
 
   @Delete(':id')
   async softDelete(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Param('id') id: string,
   ): Promise<{ ok: true }> {
-    await this.svc.softDelete(companyId, id);
+    await this.svc.softDelete(organizationId, id);
     return { ok: true };
   }
 
   @Post(':id/restore')
   async restore(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Param('id') id: string,
   ): Promise<{ ok: true }> {
-    await this.svc.restore(companyId, id);
+    await this.svc.restore(organizationId, id);
     return { ok: true };
   }
 }

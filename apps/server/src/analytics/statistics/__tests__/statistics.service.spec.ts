@@ -72,17 +72,17 @@ describe('StatisticsService', () => {
       prisma.masterProduct.count.mockResolvedValue(2);
       prisma.order.count.mockResolvedValue(1);
 
-      const result = await service.overview('company-1', '2026-04');
+      const result = await service.overview('organization-1', '2026-04');
 
       expect(mockedBuildPerListingMetrics).toHaveBeenCalledWith(
         prisma as any,
-        'company-1',
+        'organization-1',
         new Date('2026-03-31T15:00:00.000Z'),
         new Date('2026-04-30T15:00:00.000Z'),
       );
       expect(prisma.order.count).toHaveBeenCalledWith({
         where: {
-          companyId: 'company-1',
+          organizationId: 'organization-1',
           orderedAt: {
             gte: new Date('2026-03-31T15:00:00.000Z'),
             lt: new Date('2026-04-30T15:00:00.000Z'),
@@ -105,17 +105,17 @@ describe('StatisticsService', () => {
       prisma.masterProduct.count.mockResolvedValue(0);
       prisma.order.count.mockResolvedValue(0);
 
-      await service.overview('company-1');
+      await service.overview('organization-1');
 
       expect(mockedBuildPerListingMetrics).toHaveBeenCalledWith(
         prisma as any,
-        'company-1',
+        'organization-1',
         new Date(0),
         new Date('2026-04-30T15:00:00.000Z'),
       );
       expect(prisma.order.count).toHaveBeenCalledWith({
         where: {
-          companyId: 'company-1',
+          organizationId: 'organization-1',
           orderedAt: {
             gte: new Date(0),
             lt: new Date('2026-04-30T15:00:00.000Z'),
@@ -147,7 +147,7 @@ describe('StatisticsService', () => {
         },
       ]);
 
-      const result = await service.products('company-1', '2026-04');
+      const result = await service.products('organization-1', '2026-04');
 
       expect(result).toEqual([
         {
@@ -195,7 +195,7 @@ describe('StatisticsService', () => {
         { ...baseMetric, listingId: 'listing-4', category: null, revenue: 50_000, netProfit: 10_000, orderCount: 2 },
       ]);
 
-      const result = await service.categories('company-1', '2026-04');
+      const result = await service.categories('organization-1', '2026-04');
       const byCategory = new Map(result.map((row) => [row.category, row]));
 
       expect(byCategory.get('유아용품')).toEqual({
@@ -235,7 +235,7 @@ describe('StatisticsService', () => {
         { ...baseMetric, listingId: 'listing-4', grade: null, revenue: 50_000, netProfit: 5_000, adCost: 0 },
       ]);
 
-      const result = await service.grades('company-1', '2026-04');
+      const result = await service.grades('organization-1', '2026-04');
 
       expect(result).toEqual([
         {
@@ -274,7 +274,7 @@ describe('StatisticsService', () => {
         { ...baseMetric, listingId: 'listing-3', masterName: 'Product C', grade: null, revenue: 100 },
       ]);
 
-      const result = await service.pareto('company-1', '2026-04');
+      const result = await service.pareto('organization-1', '2026-04');
 
       expect(result).toEqual({
         totalRevenue: 1000,
@@ -337,12 +337,12 @@ describe('StatisticsService', () => {
         },
       ]);
 
-      const result = await service.delivery('company-1', '2026-04');
+      const result = await service.delivery('organization-1', '2026-04');
 
       expect(prisma.order.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            companyId: 'company-1',
+            organizationId: 'organization-1',
             status: { notIn: ['cancelled', 'returned'] },
           }),
           select: {
@@ -442,12 +442,12 @@ describe('StatisticsService', () => {
         },
       ]);
 
-      const result = await service.repurchase('company-1', '2026-04');
+      const result = await service.repurchase('organization-1', '2026-04');
 
       expect(prisma.order.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            companyId: 'company-1',
+            organizationId: 'organization-1',
             status: { notIn: ['cancelled', 'returned'] },
             orderedAt: expect.objectContaining({
               gte: expect.any(Date),
@@ -461,7 +461,7 @@ describe('StatisticsService', () => {
         expect.objectContaining({
           where: expect.objectContaining({
             order: expect.objectContaining({
-              companyId: 'company-1',
+              organizationId: 'organization-1',
               status: { notIn: ['cancelled', 'returned'] },
             }),
             listingOptionId: { not: null },
@@ -496,11 +496,11 @@ describe('StatisticsService', () => {
       prisma.order.findMany.mockResolvedValue([]);
       prisma.orderLineItem.findMany.mockResolvedValue([]);
 
-      await service.repurchase('company-1');
+      await service.repurchase('organization-1');
 
       const orderCall = prisma.order.findMany.mock.calls[0][0];
       expect(orderCall.where).toEqual({
-        companyId: 'company-1',
+        organizationId: 'organization-1',
         status: { notIn: ['cancelled', 'returned'] },
       });
     });

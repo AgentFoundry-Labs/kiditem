@@ -7,7 +7,7 @@ export interface WingAdSummaryResult extends WingAdSummary {
 }
 
 /**
- * Fetch + parse the current month's Wing adSummary KPI snapshot for a company.
+ * Fetch + parse the current month's Wing adSummary KPI snapshot for a organization.
  *
  * Source: `ChannelAccountDailyKpiSnapshot(source='wing',
  * kpiType='wing_dashboard')`. The ingestion writes the wing dashboard payload
@@ -18,18 +18,18 @@ export interface WingAdSummaryResult extends WingAdSummary {
  *
  * Selection order (deterministic tiebreaker chain):
  *   businessDate DESC, lastObservedAt DESC, id DESC
- * — daily-fact upserts overwrite the same `(companyId, channel, source,
+ * — daily-fact upserts overwrite the same `(organizationId, channel, source,
  * businessDate, kpiType)` row each scrape, so the most-recent observation
  * already carries the longest-span normalized payload.
  *
- * Returns null when no qualifying snapshot exists for this company.
+ * Returns null when no qualifying snapshot exists for this organization.
  *
- * Multi-tenant: `companyId` filter is part of the unique key + every where
+ * Multi-tenant: `organizationId` filter is part of the unique key + every where
  * clause.
  */
 export async function fetchWingAdSummary(
   prisma: PrismaService,
-  companyId: string,
+  organizationId: string,
   year: number,
   month: number,
   _monthStart: Date,
@@ -47,7 +47,7 @@ export async function fetchWingAdSummary(
 
   const candidateRows = await prisma.channelAccountDailyKpiSnapshot.findMany({
     where: {
-      companyId,
+      organizationId,
       source: 'wing',
       kpiType: 'wing_dashboard',
       businessDate: { gte: sinceCutoff },

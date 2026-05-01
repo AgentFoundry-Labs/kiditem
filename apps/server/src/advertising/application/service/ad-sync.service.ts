@@ -47,25 +47,25 @@ export class AdSyncService {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
-  async sync(payload: ExtensionSyncDto, companyId: string) {
-    const map = await this.buildListingMap(companyId);
+  async sync(payload: ExtensionSyncDto, organizationId: string) {
+    const map = await this.buildListingMap(organizationId);
 
     switch (payload.type) {
       case 'ad_campaign':
-        return ingestAdCampaign(payload, companyId, map, {
+        return ingestAdCampaign(payload, organizationId, map, {
           prisma: this.prisma,
         });
       case 'raw_scrape':
-        return ingestRawScrape(payload, companyId, map, {
+        return ingestRawScrape(payload, organizationId, map, {
           prisma: this.prisma,
         });
       case 'traffic':
-        return ingestTraffic(payload, companyId, map, {
+        return ingestTraffic(payload, organizationId, map, {
           prisma: this.prisma,
           eventEmitter: this.eventEmitter,
         });
       case 'coupang_ads_daily':
-        return ingestCoupangAdsDaily(payload, companyId, {
+        return ingestCoupangAdsDaily(payload, organizationId, {
           prisma: this.prisma,
         });
       default:
@@ -89,7 +89,7 @@ export class AdSyncService {
    * `ChannelAccountDailyKpiSnapshot(source='wing', kpiType='wing_itemwinner_kpi')`.
    * Empty-state returns explicit zero/null.
    */
-  async getExtensionStatus(companyId: string): Promise<AdExtensionStatus> {
+  async getExtensionStatus(organizationId: string): Promise<AdExtensionStatus> {
     const [
       listingCount,
       latestPerListing,
@@ -98,7 +98,7 @@ export class AdSyncService {
       wingKpiRow,
     ] = await Promise.all([
       this.prisma.channelListing.count({
-        where: { companyId, isDeleted: false },
+        where: { organizationId, isDeleted: false },
       }),
       // DISTINCT ON (listing_id) returns one row per listing — the latest
       // daily snapshot per the deterministic ordering above. Bound is N rows
@@ -110,7 +110,7 @@ export class AdSyncService {
           is_offer_winner   AS "isOfferWinner",
           last_observed_at  AS "lastObservedAt"
         FROM channel_listing_daily_snapshots
-        WHERE company_id = ${companyId}::uuid
+        WHERE organization_id = ${organizationId}::uuid
         ORDER BY
           listing_id,
           business_date DESC,
@@ -118,9 +118,9 @@ export class AdSyncService {
           updated_at DESC,
           id DESC
       `),
-      this.prisma.channelScrapeSnapshot.count({ where: { companyId } }),
+      this.prisma.channelScrapeSnapshot.count({ where: { organizationId } }),
       this.prisma.channelScrapeRun.findFirst({
-        where: { companyId },
+        where: { organizationId },
         orderBy: [
           { finishedAt: 'desc' },
           { startedAt: 'desc' },
@@ -134,7 +134,7 @@ export class AdSyncService {
       }),
       this.prisma.channelAccountDailyKpiSnapshot.findFirst({
         where: {
-          companyId,
+          organizationId,
           source: 'wing',
           kpiType: 'wing_itemwinner_kpi',
         },
@@ -206,8 +206,8 @@ export class AdSyncService {
     } satisfies AdExtensionStatus;
   }
 
-  async buildListingMap(companyId: string): Promise<ListingMap> {
-    return buildAdSyncListingMap(this.prisma, companyId);
+  async buildListingMap(organizationId: string): Promise<ListingMap> {
+    return buildAdSyncListingMap(this.prisma, organizationId);
   }
 
   matchListingFromRow(
@@ -217,24 +217,24 @@ export class AdSyncService {
     return matchListingFromRowFn(row, map);
   }
 
-  async getScrapeTargets(companyId: string) {
-    return listScrapeTargets(this.prisma, companyId);
+  async getScrapeTargets(organizationId: string) {
+    return listScrapeTargets(this.prisma, organizationId);
   }
 
   async createScrapeTarget(
     url: string,
     label: string | undefined,
     category: string | undefined,
-    companyId: string,
+    organizationId: string,
   ) {
-    return createScrapeTarget(this.prisma, url, label, category, companyId);
+    return createScrapeTarget(this.prisma, url, label, category, organizationId);
   }
 
-  async markScraped(id: string, companyId: string) {
-    return markScrapeTargetScraped(this.prisma, id, companyId);
+  async markScraped(id: string, organizationId: string) {
+    return markScrapeTargetScraped(this.prisma, id, organizationId);
   }
 
-  async deleteScrapeTarget(id: string, companyId: string) {
-    return deleteScrapeTarget(this.prisma, id, companyId);
+  async deleteScrapeTarget(id: string, organizationId: string) {
+    return deleteScrapeTarget(this.prisma, id, organizationId);
   }
 }

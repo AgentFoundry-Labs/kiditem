@@ -4,7 +4,7 @@ import * as XLSX from 'xlsx';
 
 import { TrafficService } from '../traffic.service';
 
-const COMPANY_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
+const ORGANIZATION_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
 
 function makeUploadFile() {
   const sheet = XLSX.utils.json_to_sheet([
@@ -63,14 +63,14 @@ describe('TrafficService — scrape-run tenant-scoped writes', () => {
     vi.clearAllMocks();
   });
 
-  it('scopes the completed scrape-run update to companyId', async () => {
+  it('scopes the completed scrape-run update to organizationId', async () => {
     const { prisma } = makePrisma();
     const service = new TrafficService(prisma as never);
 
-    await service.uploadTrafficStats(makeUploadFile(), COMPANY_ID);
+    await service.uploadTrafficStats(makeUploadFile(), ORGANIZATION_ID);
 
     expect(prisma.channelScrapeRun.updateMany).toHaveBeenCalledWith({
-      where: { id: 'run-1', companyId: COMPANY_ID },
+      where: { id: 'run-1', organizationId: ORGANIZATION_ID },
       data: expect.objectContaining({
         status: 'complete',
         matchedCount: 1,
@@ -79,17 +79,17 @@ describe('TrafficService — scrape-run tenant-scoped writes', () => {
     });
   });
 
-  it('scopes the error scrape-run update to companyId', async () => {
+  it('scopes the error scrape-run update to organizationId', async () => {
     const { prisma } = makePrisma();
     prisma.$transaction.mockRejectedValueOnce(new Error('daily upsert failed'));
     const service = new TrafficService(prisma as never);
 
     await expect(
-      service.uploadTrafficStats(makeUploadFile(), COMPANY_ID),
+      service.uploadTrafficStats(makeUploadFile(), ORGANIZATION_ID),
     ).rejects.toThrow('daily upsert failed');
 
     expect(prisma.channelScrapeRun.updateMany).toHaveBeenCalledWith({
-      where: { id: 'run-1', companyId: COMPANY_ID },
+      where: { id: 'run-1', organizationId: ORGANIZATION_ID },
       data: expect.objectContaining({
         status: 'error',
         matchedCount: 1,
@@ -105,7 +105,7 @@ describe('TrafficService — scrape-run tenant-scoped writes', () => {
     const service = new TrafficService(prisma as never);
 
     await expect(
-      service.uploadTrafficStats(makeUploadFile(), COMPANY_ID),
+      service.uploadTrafficStats(makeUploadFile(), ORGANIZATION_ID),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 });

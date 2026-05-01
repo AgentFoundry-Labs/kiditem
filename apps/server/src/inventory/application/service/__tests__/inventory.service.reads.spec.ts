@@ -30,14 +30,14 @@ describe('InventoryService — reads', () => {
   });
 
   describe('list', () => {
-    it('returns paged items with summary + derived status; companyId filter from arg', async () => {
+    it('returns paged items with summary + derived status; organizationId filter from arg', async () => {
       query.listInventoryWithOption.mockResolvedValue({
         rows: [
           {
             id: 'inv-1', optionId: 'opt-1', currentStock: 100, reservedStock: 0,
             safetyStock: 10, reorderPoint: 20, reorderQuantity: 50, leadTimeDays: 14,
             dailySalesAvg: 5, warehouseLocation: 'A-1', lastRestockedAt: null,
-            createdAt: new Date(), updatedAt: new Date(), companyId: 'c1',
+            createdAt: new Date(), updatedAt: new Date(), organizationId: 'c1',
             option: {
               masterId: 'm1', sku: 'SKU-1', optionName: 'Red', isBundle: false,
               availableStock: null, isDeleted: false,
@@ -66,7 +66,7 @@ describe('InventoryService — reads', () => {
             id: 'inv-b', optionId: 'opt-b', currentStock: 0, reservedStock: 0,
             safetyStock: 0, reorderPoint: 0, reorderQuantity: 0, leadTimeDays: null,
             dailySalesAvg: 0, warehouseLocation: null, lastRestockedAt: null,
-            createdAt: new Date(), updatedAt: new Date(), companyId: 'c1',
+            createdAt: new Date(), updatedAt: new Date(), organizationId: 'c1',
             option: {
               masterId: 'm1', sku: 'BDL-1', optionName: null, isBundle: true,
               availableStock: 5, isDeleted: false,
@@ -85,9 +85,9 @@ describe('InventoryService — reads', () => {
   });
 
   describe('findById / findByOptionId', () => {
-    it('returns inventory when owned by company', async () => {
+    it('returns inventory when owned by organization', async () => {
       query.findInventoryById.mockResolvedValue({
-        id: 'inv-1', optionId: 'opt-1', companyId: 'c1',
+        id: 'inv-1', optionId: 'opt-1', organizationId: 'c1',
         currentStock: 50, reservedStock: 0, safetyStock: 0, reorderPoint: 0,
         reorderQuantity: 0, leadTimeDays: null, dailySalesAvg: 0,
         warehouseLocation: null, lastRestockedAt: null,
@@ -103,9 +103,9 @@ describe('InventoryService — reads', () => {
       await expect(service.findById('inv-1', 'c2')).rejects.toThrow(NotFoundException);
     });
 
-    it('findByOptionId scopes by company', async () => {
+    it('findByOptionId scopes by organization', async () => {
       query.findInventoryByOptionId.mockResolvedValue({
-        id: 'inv-1', optionId: 'opt-1', companyId: 'c1',
+        id: 'inv-1', optionId: 'opt-1', organizationId: 'c1',
         currentStock: 50, reservedStock: 0, safetyStock: 0, reorderPoint: 0,
         reorderQuantity: 0, leadTimeDays: null, dailySalesAvg: 0,
         warehouseLocation: null, lastRestockedAt: null,
@@ -122,7 +122,7 @@ describe('InventoryService — reads', () => {
       query.listStockTransactions.mockResolvedValue({
         rows: [
           {
-            id: 't1', companyId: 'c1', optionId: 'o1', optionName: 'R', type: 'RECEIVE',
+            id: 't1', organizationId: 'c1', optionId: 'o1', optionName: 'R', type: 'RECEIVE',
             quantity: 5, unitCost: 100, totalCost: 500,
             warehouseId: null, relatedId: null, relatedType: null, note: null,
             createdBy: 'u1', createdAt: new Date(),

@@ -47,7 +47,7 @@ export class SalesAnalysisService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getAnalysis(
-    companyId: string,
+    organizationId: string,
     period?: string,
   ): Promise<SalesAnalysisData> {
     const startedAt = Date.now();
@@ -61,7 +61,7 @@ export class SalesAnalysisService {
       // 1) Orders with nested listingOption.listing.channel
       this.prisma.order.findMany({
         where: {
-          companyId,
+          organizationId,
           orderedAt: { gte: from, lt: to },
           status: { notIn: [...EXCLUDED_ORDER_STATUSES] },
         },
@@ -83,15 +83,15 @@ export class SalesAnalysisService {
         },
       }),
       // 2) Return events — need (orderId, channel) per returned lineItem.
-      //    3-hop IDOR: OrderReturnLineItem.companyId + return.companyId + return.order.companyId
+      //    3-hop IDOR: OrderReturnLineItem.organizationId + return.organizationId + return.order.organizationId
       //    Status filter mirror on return.order.
       this.prisma.orderReturnLineItem.findMany({
         where: {
-          companyId,
+          organizationId,
           return: {
-            companyId,
+            organizationId,
             order: {
-              companyId,
+              organizationId,
               orderedAt: { gte: from, lt: to },
               status: { notIn: [...EXCLUDED_ORDER_STATUSES] },
             },
@@ -115,14 +115,14 @@ export class SalesAnalysisService {
         by: ['listingId'],
         _sum: { adSpend: true },
         where: {
-          companyId,
+          organizationId,
           businessDate: { gte: from, lt: to },
         },
       }),
       // 4) Orphan return count (ADR-0017 side metric) — orderId NULL, requestedAt ∈ period
       this.prisma.orderReturn.count({
         where: {
-          companyId,
+          organizationId,
           orderId: null,
           requestedAt: { gte: from, lt: to },
         },
@@ -137,7 +137,7 @@ export class SalesAnalysisService {
     const listings =
       adListingIds.length > 0
         ? await this.prisma.channelListing.findMany({
-            where: { id: { in: adListingIds }, companyId },
+            where: { id: { in: adListingIds }, organizationId },
             select: { id: true, channel: true },
           })
         : [];
@@ -260,7 +260,7 @@ export class SalesAnalysisService {
 
     this.logger.log({
       msg: 'sales-analysis.getAnalysis',
-      companyId,
+      organizationId,
       period: resolvedPeriod,
       channelCount: channels.length,
       totalOrders: totals.totalOrders,

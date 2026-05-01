@@ -11,13 +11,13 @@ import {
   makeTestPrisma,
   resetDb,
   seedBaseFixture,
-  TEST_COMPANY_ID,
+  TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 
 describe('Order sync (PG integration)', () => {
   let prisma: PrismaClient;
   let service: ChannelSyncService;
-  const companyId = TEST_COMPANY_ID;
+  const organizationId = TEST_ORGANIZATION_ID;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
@@ -64,11 +64,11 @@ describe('Order sync (PG integration)', () => {
           },
         ],
       },
-      companyId,
+      organizationId,
     );
 
     const orders = await prisma.order.findMany({
-      where: { companyId },
+      where: { organizationId },
       include: { lineItems: true },
     });
     expect(orders).toHaveLength(1);
@@ -97,7 +97,7 @@ describe('Order sync (PG integration)', () => {
         },
       ],
     };
-    await (service as any).syncSingleOrder(basePayload, companyId);
+    await (service as any).syncSingleOrder(basePayload, organizationId);
 
     const updatedPayload = {
       ...basePayload,
@@ -106,10 +106,10 @@ describe('Order sync (PG integration)', () => {
         { ...basePayload.orderItems[0], shippingCount: 5, orderPrice: 500 },
       ],
     };
-    await (service as any).syncSingleOrder(updatedPayload, companyId);
+    await (service as any).syncSingleOrder(updatedPayload, organizationId);
 
     const orders = await prisma.order.findMany({
-      where: { companyId },
+      where: { organizationId },
       include: { lineItems: true },
     });
     expect(orders).toHaveLength(1);
@@ -122,7 +122,7 @@ describe('Order sync (PG integration)', () => {
   it('vendorItemId match → optionId + sku denormalized', async () => {
     const master = await prisma.masterProduct.create({
       data: {
-        companyId,
+        organizationId,
         code: `M-${Date.now()}`,
         name: 'Master',
         optionCounter: 1,
@@ -130,7 +130,7 @@ describe('Order sync (PG integration)', () => {
     });
     const option = await prisma.productOption.create({
       data: {
-        companyId,
+        organizationId,
         masterId: master.id,
         sku: `SKU-${Date.now()}`,
         optionName: 'Red',
@@ -139,7 +139,7 @@ describe('Order sync (PG integration)', () => {
     });
     const listing = await prisma.channelListing.create({
       data: {
-        companyId,
+        organizationId,
         masterId: master.id,
         channel: 'coupang',
         externalId: `LST-${Date.now()}`,
@@ -147,7 +147,7 @@ describe('Order sync (PG integration)', () => {
     });
     const listingOption = await prisma.channelListingOption.create({
       data: {
-        companyId,
+        organizationId,
         listingId: listing.id,
         optionId: option.id,
         externalOptionId: 'V_KNOWN',
@@ -171,11 +171,11 @@ describe('Order sync (PG integration)', () => {
           },
         ],
       },
-      companyId,
+      organizationId,
     );
 
     const lineItems = await prisma.orderLineItem.findMany({
-      where: { companyId },
+      where: { organizationId },
     });
     expect(lineItems).toHaveLength(1);
     expect(lineItems[0].listingOptionId).toBe(listingOption.id);
@@ -200,11 +200,11 @@ describe('Order sync (PG integration)', () => {
           },
         ],
       },
-      companyId,
+      organizationId,
     );
 
     const lineItems = await prisma.orderLineItem.findMany({
-      where: { companyId },
+      where: { organizationId },
     });
     expect(lineItems).toHaveLength(1);
     expect(lineItems[0].optionId).toBeNull();
@@ -227,11 +227,11 @@ describe('Order sync (PG integration)', () => {
           { productName: 'Book', quantity: 2 },
         ],
       },
-      companyId,
+      organizationId,
     );
 
     const returns = await prisma.orderReturn.findMany({
-      where: { companyId },
+      where: { organizationId },
       include: { lineItems: true },
     });
     expect(returns).toHaveLength(1);

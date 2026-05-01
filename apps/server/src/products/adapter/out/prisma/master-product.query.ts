@@ -2,7 +2,7 @@
 //
 // MasterProduct hydrated read shape — owns the canonical `include` for the
 // nested image rows, the row type the mapper consumes, and tenant-scoped
-// list/find queries. `companyId` is bound on every read; soft-delete is
+// list/find queries. `organizationId` is bound on every read; soft-delete is
 // applied unless an explicit `includeDeleted` opt opens it for restore /
 // audit paths.
 import type { MasterProduct, MasterProductImage, Prisma } from '@prisma/client';
@@ -21,13 +21,13 @@ export type MasterWithImageRows = MasterProduct & { images: MasterProductImage[]
 
 export async function findMasterById(
   prisma: PrismaService,
-  companyId: string,
+  organizationId: string,
   id: string,
   opts: { includeDeleted?: boolean },
 ): Promise<MasterWithImageRows | null> {
   return prisma.masterProduct.findFirst({
     where: {
-      id, companyId,
+      id, organizationId,
       ...(opts.includeDeleted ? {} : { isDeleted: false }),
     },
     include: MASTER_WITH_IMAGES,
@@ -36,33 +36,33 @@ export async function findMasterById(
 
 export async function findMasterByCode(
   prisma: PrismaService,
-  companyId: string,
+  organizationId: string,
   code: string,
 ): Promise<MasterWithImageRows | null> {
   return prisma.masterProduct.findFirst({
-    where: { code, companyId, isDeleted: false },
+    where: { code, organizationId, isDeleted: false },
     include: MASTER_WITH_IMAGES,
   }) as Promise<MasterWithImageRows | null>;
 }
 
 export async function findMasterByLegacy(
   prisma: PrismaService,
-  companyId: string,
+  organizationId: string,
   legacyCode: string,
 ): Promise<MasterWithImageRows | null> {
   return prisma.masterProduct.findFirst({
-    where: { companyId, legacyCode, isDeleted: false },
+    where: { organizationId, legacyCode, isDeleted: false },
     include: MASTER_WITH_IMAGES,
   }) as Promise<MasterWithImageRows | null>;
 }
 
 export async function findMasterImageRows(
   prisma: PrismaService,
-  companyId: string,
+  organizationId: string,
   masterId: string,
 ): Promise<MasterProductImage[]> {
   return prisma.masterProductImage.findMany({
-    where: { companyId, masterId, isDeleted: false },
+    where: { organizationId, masterId, isDeleted: false },
     orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
   });
 }
@@ -76,7 +76,7 @@ export async function findMasterImageRows(
  */
 export async function findMasterListPage(
   prisma: PrismaService,
-  companyId: string,
+  organizationId: string,
   q: ListMastersQuery,
 ): Promise<{ items: MasterWithImageRows[]; nextCursor: string | null }> {
   const limit = q.limit ?? 50;
@@ -89,7 +89,7 @@ export async function findMasterListPage(
         { legacyCode: { contains: q.search } },
         { code: { contains: q.search } },
         // ADR-0022 — search by source barcode/EAN. May return multiple masters
-        // because (companyId, barcode) is non-unique by design.
+        // because (organizationId, barcode) is non-unique by design.
         { barcode: { contains: q.search } },
       ],
     });
@@ -105,7 +105,7 @@ export async function findMasterListPage(
   }
 
   const where: Prisma.MasterProductWhereInput = {
-    companyId,
+    organizationId,
     ...(q.includeDeleted ? {} : { isDeleted: false }),
     ...(q.isDeleted !== undefined ? { isDeleted: q.isDeleted } : {}),
     ...(q.isTemporary !== undefined ? { isTemporary: q.isTemporary } : {}),

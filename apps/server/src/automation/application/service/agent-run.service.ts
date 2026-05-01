@@ -29,10 +29,10 @@ export class AgentRunService {
   }
 
   async run(id: string, input?: AgentRunInput) {
-    const def = await this.agents.getById(id, input?.companyId);
+    const def = await this.agents.getById(id, input?.organizationId);
     const dryRun = input?.dryRun ?? def.requiresApproval;
 
-    if (input?.companyId && def.companyId && def.companyId !== input.companyId) {
+    if (input?.organizationId && def.organizationId && def.organizationId !== input.organizationId) {
       throw new ForbiddenException('Access denied to this agent');
     }
 
@@ -49,12 +49,12 @@ export class AgentRunService {
       }
     }
 
-    const taskCompanyId = input?.companyId ?? def.companyId ?? null;
+    const taskOrganizationId = input?.organizationId ?? def.organizationId ?? null;
 
     const task = await this.prisma.agentTask.create({
       data: {
         agentType: def.type,
-        companyId: taskCompanyId,
+        organizationId: taskOrganizationId,
         workflowRunId: input?.workflowRunId ?? null,
         workflowNodeId: input?.workflowNodeId ?? null,
         sourceDataId: input?.sourceDataId ?? null,
@@ -72,7 +72,7 @@ export class AgentRunService {
     try {
       await this.heartbeat.wakeAgent({
         agentId: def.id,
-        companyId: input?.companyId ?? def.companyId ?? undefined,
+        organizationId: input?.organizationId ?? def.organizationId ?? undefined,
         source: 'on_demand',
         reason: `run() call for ${def.type}`,
         payload: {

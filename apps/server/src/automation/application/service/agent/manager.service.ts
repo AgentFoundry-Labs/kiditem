@@ -21,13 +21,13 @@ export class ManagerService {
   ) {}
 
   async ask(input: {
-    companyId: string;
+    organizationId: string;
     request: string;
     productId?: string;
     context?: Record<string, unknown>;
   }) {
     const extra: Record<string, unknown> = {
-      company_id: input.companyId,
+      organization_id: input.organizationId,
       user_request: input.request,
     };
 
@@ -38,7 +38,7 @@ export class ManagerService {
     }
 
     return this.agentRunner.runByType('manager', {
-      companyId: input.companyId,
+      organizationId: input.organizationId,
       dryRun: false,
       extra,
     });
@@ -53,7 +53,7 @@ export class ManagerService {
       if (recommended?.length) {
         for (const agentType of recommended) {
           try {
-            await this.agentRunner.runByType(agentType, { companyId: event.companyId });
+            await this.agentRunner.runByType(agentType, { organizationId: event.organizationId });
             this.logger.log(`Manager dispatched agent: ${agentType}`);
           } catch (err) {
             this.logger.error(`Manager failed to dispatch agent ${agentType}: ${err}`);
@@ -68,9 +68,9 @@ export class ManagerService {
 
       await this.prisma.activityEvent.create({
         data: {
-          companyId: event.companyId,
-          objectType: 'company',
-          objectId: event.companyId,
+          organizationId: event.organizationId,
+          objectType: 'organization',
+          objectId: event.organizationId,
           eventType: 'manager_response',
           source: 'agent:claude_cli',
           title,
@@ -82,9 +82,9 @@ export class ManagerService {
     }
   }
 
-  async getConversations(companyId: string, limit = 20) {
+  async getConversations(organizationId: string, limit = 20) {
     return this.prisma.agentTask.findMany({
-      where: { agentType: 'manager', companyId },
+      where: { agentType: 'manager', organizationId },
       orderBy: { createdAt: 'desc' },
       take: limit,
     });

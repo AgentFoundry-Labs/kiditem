@@ -9,7 +9,7 @@ import type { BundleStockPort } from '../../port/out/bundle-stock.port';
 // invoking it immediately with a fake `tx` and the seeded locked inventory row.
 function makeRepository(initialStock: number, lastRestockedAt: Date | null = null) {
   const lockedRow = {
-    id: 'i1', optionId: 'o1', companyId: 'c1',
+    id: 'i1', optionId: 'o1', organizationId: 'c1',
     currentStock: initialStock,
     reservedStock: 0, safetyStock: 0, reorderPoint: 0, reorderQuantity: 0,
     leadTimeDays: null, dailySalesAvg: 0, warehouseLocation: null,
@@ -22,7 +22,7 @@ function makeRepository(initialStock: number, lastRestockedAt: Date | null = nul
     updateInventoryMetadata: vi.fn(),
     runInventoryStockMutation: vi.fn(async (
       _id: string,
-      _companyId: string,
+      _organizationId: string,
       op: (tx: any, row: any) => Promise<unknown>,
     ) => op(tx, lockedRow)),
     applyStockDelta: vi.fn(),
@@ -54,7 +54,7 @@ describe('InventoryService — mutations (receive/issue/adjust)', () => {
     it('atomic sequence: lock → update → ledger → fan-out', async () => {
       bind(10);
       repository.applyStockDelta.mockResolvedValue({
-        id: 'i1', optionId: 'o1', companyId: 'c1', currentStock: 15,
+        id: 'i1', optionId: 'o1', organizationId: 'c1', currentStock: 15,
       });
       repository.findOptionNameForLedger.mockResolvedValue('Red');
       repository.appendStockLedger.mockResolvedValue({
@@ -69,7 +69,7 @@ describe('InventoryService — mutations (receive/issue/adjust)', () => {
       expect(repository.applyStockDelta).toHaveBeenCalledWith(tx, 'i1', 5, true, null);
       expect(repository.findOptionNameForLedger).toHaveBeenCalledWith(tx, 'o1', 'c1');
       expect(repository.appendStockLedger).toHaveBeenCalledWith(tx, expect.objectContaining({
-        companyId: 'c1', optionId: 'o1', type: 'RECEIVE',
+        organizationId: 'c1', optionId: 'o1', type: 'RECEIVE',
         quantity: 5, unitCost: 100, totalCost: 500,
         optionName: 'Red', createdBy: 'user-1',
       }));
@@ -80,7 +80,7 @@ describe('InventoryService — mutations (receive/issue/adjust)', () => {
 
     it('unitCost defaults to 0', async () => {
       bind(10);
-      repository.applyStockDelta.mockResolvedValue({ id: 'i1', optionId: 'o1', companyId: 'c1' });
+      repository.applyStockDelta.mockResolvedValue({ id: 'i1', optionId: 'o1', organizationId: 'c1' });
       repository.findOptionNameForLedger.mockResolvedValue(null);
       repository.appendStockLedger.mockResolvedValue({
         id: 'tx1', optionId: 'o1', type: 'RECEIVE', quantity: 5, unitCost: 0,
@@ -106,7 +106,7 @@ describe('InventoryService — mutations (receive/issue/adjust)', () => {
   describe('issue', () => {
     it('decrements stock; carries relatedId/relatedType', async () => {
       bind(10);
-      repository.applyStockDelta.mockResolvedValue({ id: 'i1', optionId: 'o1', companyId: 'c1' });
+      repository.applyStockDelta.mockResolvedValue({ id: 'i1', optionId: 'o1', organizationId: 'c1' });
       repository.findOptionNameForLedger.mockResolvedValue(null);
       repository.appendStockLedger.mockResolvedValue({
         id: 'tx1', optionId: 'o1', type: 'ISSUE', quantity: 3, unitCost: 0,
@@ -134,7 +134,7 @@ describe('InventoryService — mutations (receive/issue/adjust)', () => {
     it('does not bump lastRestockedAt', async () => {
       const existing = new Date('2024-01-01T00:00:00Z');
       bind(10, existing);
-      repository.applyStockDelta.mockResolvedValue({ id: 'i1', optionId: 'o1', companyId: 'c1' });
+      repository.applyStockDelta.mockResolvedValue({ id: 'i1', optionId: 'o1', organizationId: 'c1' });
       repository.findOptionNameForLedger.mockResolvedValue(null);
       repository.appendStockLedger.mockResolvedValue({
         id: 'tx1', optionId: 'o1', type: 'ISSUE', quantity: 3, unitCost: 0, createdAt: new Date(),
@@ -149,7 +149,7 @@ describe('InventoryService — mutations (receive/issue/adjust)', () => {
   describe('adjust', () => {
     it('positive delta increments; signed quantity stored in ledger', async () => {
       bind(10);
-      repository.applyStockDelta.mockResolvedValue({ id: 'i1', optionId: 'o1', companyId: 'c1' });
+      repository.applyStockDelta.mockResolvedValue({ id: 'i1', optionId: 'o1', organizationId: 'c1' });
       repository.findOptionNameForLedger.mockResolvedValue(null);
       repository.appendStockLedger.mockResolvedValue({
         id: 'tx1', optionId: 'o1', type: 'ADJUST', quantity: 4, unitCost: 0, createdAt: new Date(),
@@ -166,7 +166,7 @@ describe('InventoryService — mutations (receive/issue/adjust)', () => {
 
     it('negative delta stores signed quantity', async () => {
       bind(10);
-      repository.applyStockDelta.mockResolvedValue({ id: 'i1', optionId: 'o1', companyId: 'c1' });
+      repository.applyStockDelta.mockResolvedValue({ id: 'i1', optionId: 'o1', organizationId: 'c1' });
       repository.findOptionNameForLedger.mockResolvedValue(null);
       repository.appendStockLedger.mockResolvedValue({
         id: 'tx1', optionId: 'o1', type: 'ADJUST', quantity: -4, unitCost: 0, createdAt: new Date(),

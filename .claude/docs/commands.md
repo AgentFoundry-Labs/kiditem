@@ -74,7 +74,7 @@ AI_TEXT_MODEL=gemini-2.5-flash
 AI_IMAGE_ANALYSIS_MODEL=gemini-3.1-flash-lite-preview
 AI_IMAGE_ANALYSIS_VERIFY_MODEL=gemini-3.1-flash-lite-preview
 AI_IMAGE_MODEL=gemini-3.1-flash-image-preview
-CHATBOT_DATABASE_URL=postgresql://chatbot_readonly:chatbot_readonly@localhost:5433/kiditem?options=-c%20app.company_id%3D{company_uuid}
+CHATBOT_DATABASE_URL=postgresql://chatbot_readonly:chatbot_readonly@localhost:5433/kiditem?options=-c%20app.organization_id%3D{company_uuid}
 ```
 
 ### agents/.env

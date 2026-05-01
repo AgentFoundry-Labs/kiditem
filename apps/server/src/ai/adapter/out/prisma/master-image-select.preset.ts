@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 /**
  * Prisma include preset for `MasterProduct.images` used by thumbnail-AI flows.
  *
- * Tenant scope: callers pass `companyId` so the to-many relation include is
+ * Tenant scope: callers pass `organizationId` so the to-many relation include is
  * tenant-filtered, not just the parent master row. Pure URL/precedence rules
  * over the resulting row shape live in `domain/thumbnail-master-image.ts`.
  */
@@ -13,9 +13,9 @@ export const THUMBNAIL_MASTER_IMAGE_SELECT: Prisma.MasterProduct$imagesArgs = {
   orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
 };
 
-export function thumbnailMasterImageSelect(companyId: string): Prisma.MasterProduct$imagesArgs {
+export function thumbnailMasterImageSelect(organizationId: string): Prisma.MasterProduct$imagesArgs {
   return {
     ...THUMBNAIL_MASTER_IMAGE_SELECT,
-    where: { companyId, isDeleted: false },
+    where: { organizationId, isDeleted: false },
   };
 }

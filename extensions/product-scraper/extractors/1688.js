@@ -24,9 +24,9 @@ ProductScraper.alibaba1688 = (() => {
   ];
 
   const SEARCH_SUPPLIER = [
-    "div.company-name",
-    "a.company-name",
-    "[class*='company-name']",
+    "div.organization-name",
+    "a.organization-name",
+    "[class*='organization-name']",
   ];
 
   const DETAIL = {
@@ -46,9 +46,9 @@ ProductScraper.alibaba1688 = (() => {
     ],
     supplierName: [
       ".od-shop-navigation h1",
-      ".shop-company-name h1",
-      "a.shop-company-name h1",
-      "[class*='company-name'] h1",
+      ".shop-organization-name h1",
+      "a.shop-organization-name h1",
+      "[class*='organization-name'] h1",
     ],
     images: [
       "img.ant-image-img.preview-img",

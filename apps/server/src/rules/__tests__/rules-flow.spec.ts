@@ -14,7 +14,7 @@ function makePrisma() {
     alert: { createManyAndReturn: vi.fn().mockResolvedValue([]) },
     masterProduct: { count: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     businessRule: { findMany: vi.fn(), update: vi.fn(), count: vi.fn() },
-    company: { findFirst: vi.fn() },
+    organization: { findFirst: vi.fn() },
     $transaction: vi.fn().mockResolvedValue([]),
   };
 }
@@ -47,11 +47,11 @@ describe('RulesService — full evaluation flow', () => {
       const { service, agentRunner } = makeService();
       agentRunner.runByType.mockResolvedValue({ ok: true, taskId: 'task-1', agentType: 'rules_evaluation' });
 
-      const result = await service.evaluateAll('company-1');
+      const result = await service.evaluateAll('organization-1');
 
       expect(agentRunner.runByType).toHaveBeenCalledWith('rules_evaluation', {
-        companyId: 'company-1',
-        extra: { company_id: 'company-1' },
+        organizationId: 'organization-1',
+        extra: { organization_id: 'organization-1' },
       });
       expect(result).toEqual({ taskId: 'task-1', status: 'running' });
     });
@@ -60,7 +60,7 @@ describe('RulesService — full evaluation flow', () => {
       const { service, agentRunner } = makeService();
       agentRunner.runByType.mockResolvedValue({ ok: true, taskId: 'task-xyz', agentType: 'rules_evaluation' });
 
-      const result = await service.evaluateAll('company-2');
+      const result = await service.evaluateAll('organization-2');
 
       expect(result.taskId).toBe('task-xyz');
       expect(result.status).toBe('running');
@@ -105,7 +105,7 @@ describe('RulesService — full evaluation flow', () => {
       const txArg = prisma.$transaction.mock.calls[0][0];
       expect(Array.isArray(txArg)).toBe(true);
       expect(prisma.masterProduct.updateMany).toHaveBeenCalledWith({
-        where: { id: 'p1', companyId: 'c-1' },
+        where: { id: 'p1', organizationId: 'c-1' },
         data: expect.objectContaining({ healthScore: 75 }),
       });
     });
@@ -172,7 +172,7 @@ describe('RulesService — full evaluation flow', () => {
       prisma.activityEvent.createMany.mockResolvedValue({ count: 2 });
       prisma.alert.createManyAndReturn.mockResolvedValue([{
         id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-        companyId: 'c-1',
+        organizationId: 'c-1',
         targetType: 'master',
         targetId: 'p2',
         type: 'rule_violation',
@@ -386,11 +386,11 @@ describe('RulesService — full evaluation flow', () => {
       const { service, agentRunner } = makeService();
       agentRunner.runByType.mockResolvedValue({ ok: true, taskId: 'task-s1' });
 
-      const result = await service.suggestThresholds('company-1');
+      const result = await service.suggestThresholds('organization-1');
 
       expect(agentRunner.runByType).toHaveBeenCalledWith('rules_suggest', {
-        companyId: 'company-1',
-        extra: { company_id: 'company-1' },
+        organizationId: 'organization-1',
+        extra: { organization_id: 'organization-1' },
       });
       expect(result).toEqual({ taskId: 'task-s1', status: 'running' });
     });

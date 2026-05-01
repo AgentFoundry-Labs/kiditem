@@ -17,8 +17,8 @@ rewrite / defer 분류와 hard-delete 기준은 이 파일과 sibling scoped
   로 들어간다.
 - `AgentRegistryService.runByType` / `.run` 이 **유일한** AI/LLM 위임 경계.
   workflow 의 `agent_task.create` executor, rules 의 `evaluateAll`, sourcing /
-  advertising / AI thumbnail / companies/agent-tasks 가 모두 이 boundary 만 사용한다.
-- `AgentTask` 의 first-class trace columns (`companyId`, `workflowRunId`,
+  advertising / AI thumbnail / organizations/agent-tasks 가 모두 이 boundary 만 사용한다.
+- `AgentTask` 의 first-class trace columns (`organizationId`, `workflowRunId`,
   `workflowNodeId`, `sourceDataId`) 는 production rewrite 까지 호환 보존.
 - `domains/` (manager + ad-strategy post-processing) 는 owner domain 으로 모두
   이동 완료. `manager` 는 AO-3B 에서 `automation` (`apps/server/src/automation/adapter/in/http/manager.controller.ts`
@@ -47,17 +47,17 @@ rewrite / defer 분류와 hard-delete 기준은 이 파일과 sibling scoped
 
 ## AgentDefinition tenant policy
 
-`AgentDefinition.companyId` 는 nullable 이다.
+`AgentDefinition.organizationId` 는 nullable 이다.
 
 | 값 | 의미 | Read/Run | Mutate (update / delete / pause / resume / resetSession) |
 |---|---|---|---|
 | `null` | 글로벌 catalog 템플릿 (시스템 시드) | 모든 tenant 허용 | **금지** — platform/seed 만 수정 |
-| `<companyId>` | tenant 가 보유한 인스턴스 (marketplace hire 결과) | 해당 tenant 만 | 해당 tenant 만 |
+| `<organizationId>` | tenant 가 보유한 인스턴스 (marketplace hire 결과) | 해당 tenant 만 | 해당 tenant 만 |
 
 구현: `automation/application/service/agent-registry.types.ts` +
 `agent-{crud,run,lifecycle}.service.ts`
-- 읽기/실행 (`tenantScopeFilter`): `OR: [{ companyId }, { companyId: null }]` — 글로벌 + 본인 tenant
-- 쓰기 (`tenantOwnedFilter`): `{ companyId }` — 본인 tenant 전용. `updateMany` / `deleteMany` 의 actual mutation 에 binding (pre-read 만 scope 하는 패턴 금지).
+- 읽기/실행 (`tenantScopeFilter`): `OR: [{ organizationId }, { organizationId: null }]` — 글로벌 + 본인 tenant
+- 쓰기 (`tenantOwnedFilter`): `{ organizationId }` — 본인 tenant 전용. `updateMany` / `deleteMany` 의 actual mutation 에 binding (pre-read 만 scope 하는 패턴 금지).
 
 글로벌 row 의 `rt_*` 필드는 모든 tenant 가 공유하기 때문에 `resetSession` / `pauseAgent` / `resumeAgent` 같은 lifecycle mutation 도 tenant-owned 만 허용한다. Marketplace 의 "hire" 흐름은 글로벌 정의를 tenant-owned row 로 clone 한다 — tenant 는 자기 clone 을 수정하지 upstream 을 건드리지 않는다.
 
@@ -67,7 +67,7 @@ rewrite / defer 분류와 hard-delete 기준은 이 파일과 sibling scoped
 
 | Column | 의미 | 출처 |
 |---|---|---|
-| `companyId` | 이 실행의 tenant scope | controller `@CurrentCompany()` (trusted). 내부 caller 가 생략하면 `def.companyId` fallback. 글로벌 정의 + caller 미지정 → `null` (시스템 실행) |
+| `organizationId` | 이 실행의 tenant scope | controller `@CurrentOrganization()` (trusted). 내부 caller 가 생략하면 `def.organizationId` fallback. 글로벌 정의 + caller 미지정 → `null` (시스템 실행) |
 | `workflowRunId` | Workflow 가 만든 task 면 그 run 의 id | runner 가 `agent_task.create` executor 에서 주입 |
 | `workflowNodeId` | 동일 run 안에서 어떤 노드가 만들었는지 | runner 가 주입 |
 | `sourceDataId` | 도메인 trigger 가 만든 task 면 origin row id | 도메인 service (예: `sourcing`, `rules`) 가 주입 |
@@ -75,9 +75,9 @@ rewrite / defer 분류와 hard-delete 기준은 이 파일과 sibling scoped
 `input.extra` 는 backward-compat envelope 다. legacy caller 가 임의 payload 를 넘길 수 있도록 `AgentTask.input` JSON 과 wakeup `payload` 에 머지된다. 새 caller 는 위 first-class column 을 쓴다.
 
 `AgentTrace` 조회 (`agent-trace.service.ts`) 는 항상 tenant scope 로 묶인다:
-- `agentTask.findFirst({ id, companyId })` — task 자체 tenant 검증
-- `workflowRun.findFirst({ id: task.workflowRunId, companyId })` — task 의 workflowRunId 가 가리키는 run 도 동일 tenant 인지 이중 확인 (bare `findUnique` 금지)
-- `heartbeatRun.findMany({ id: { in }, companyId })` / `agentEvent.findMany({ runId: { in }, companyId })` — IN 쿼리에도 companyId binding
+- `agentTask.findFirst({ id, organizationId })` — task 자체 tenant 검증
+- `workflowRun.findFirst({ id: task.workflowRunId, organizationId })` — task 의 workflowRunId 가 가리키는 run 도 동일 tenant 인지 이중 확인 (bare `findUnique` 금지)
+- `heartbeatRun.findMany({ id: { in }, organizationId })` / `agentEvent.findMany({ runId: { in }, organizationId })` — IN 쿼리에도 organizationId binding
 
 ## "No silent model fallback" vs "Adapter fallback chain"
 
@@ -134,12 +134,12 @@ States: `running` → `awaiting_approval` → `running` → `completed` / `faile
 
 ### 4. Feature Gate — DB-Based Runtime Gate
 
-Check `FeatureGateService.isEnabled('agent:{type}', companyId)` before agent execution.
+Check `FeatureGateService.isEnabled('agent:{type}', organizationId)` before agent execution.
 
 - No gate in DB → default **allow** (backward compatible)
 - `enabled: false` → block
-- `enabled: true` + `allowedCompanies: []` → allow all
-- `enabled: true` + `allowedCompanies: ['uuid']` → specific companies only
+- `enabled: true` + `allowedOrganizations: []` → allow all
+- `enabled: true` + `allowedOrganizations: ['uuid']` → specific organizations only
 - Gate naming: `agent:{type}`
 
 ### 5. Immutable ExecutionContext
@@ -198,7 +198,7 @@ Applied in two places: `heartbeat.service.ts:wakeAgent()` +
 
 ### 8. Permission Hierarchy (#8)
 
-5-layer 퍼미션 해석: global → company → agentType → instance → runtime.
+5-layer 퍼미션 해석: global → organization → agentType → instance → runtime.
 
 ```
 permissions/hierarchy.validator.ts
@@ -359,11 +359,11 @@ Adding a new `agent-registry/domains/{name}/` folder is rejected during review.
 
 ## Agent Data Access
 
-- Agents use `psql "$AGENT_DATABASE_URL"` for DB queries (read-only role: `chatbot_readonly`, scoped by `app.company_id` RLS)
+- Agents use `psql "$AGENT_DATABASE_URL"` for DB queries (read-only role: `chatbot_readonly`, scoped by `app.organization_id` RLS)
 - `AGENT_DATABASE_URL` is injected via ExecutionContext env. 프롬프트에서 `$AGENT_DATABASE_URL`로 직접 참조.
 - Prompts are loaded from `agent-config/prompts/agents/{type}.md` files (git-tracked)
 - DB `prompt_template` stores file path (e.g., 'agent-config/prompts/agents/ad-strategy.md')
-- Operational params (company_id, task_id, dry_run) are still {{key}} substituted
+- Operational params (organization_id, task_id, dry_run) are still {{key}} substituted
 - Business data is NOT injected — agents query autonomously
 
 ## Prohibited

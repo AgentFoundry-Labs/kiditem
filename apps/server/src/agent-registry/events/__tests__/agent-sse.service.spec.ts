@@ -31,8 +31,8 @@ describe('AgentSseService', () => {
       },
     });
     expect((event.data as any).timestamp).toBeDefined();
-    // companyId 는 구독자 응답에서 제거되어야 한다 (내부 라우팅 전용).
-    expect((event.data as any).companyId).toBeUndefined();
+    // organizationId 는 구독자 응답에서 제거되어야 한다 (내부 라우팅 전용).
+    expect((event.data as any).organizationId).toBeUndefined();
   });
 
   it('emits budget_warning SSE payload on handleBudgetWarning', async () => {
@@ -69,7 +69,7 @@ describe('AgentSseService', () => {
     });
   });
 
-  it('filters events by companyId — subscriber only receives own company events', async () => {
+  it('filters events by organizationId — subscriber only receives own organization events', async () => {
     const service = new AgentSseService();
     // co-1 구독자의 스트림을 200ms 동안 수집
     const collected$ = service

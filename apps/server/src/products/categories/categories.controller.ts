@@ -1,33 +1,33 @@
 import { Controller, Get, Post, Patch, Delete, Param, Body } from '@nestjs/common';
 import { CategoriesService } from './categories.service';
 import { CreateCategoryDto, UpdateCategoryDto } from './dto';
-import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
+import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
 
 @Controller('categories')
 export class CategoriesController {
   constructor(private readonly categoriesService: CategoriesService) {}
 
   @Get()
-  async findAll(@CurrentCompany() companyId: string) {
-    return this.categoriesService.findAll(companyId);
+  async findAll(@CurrentOrganization() organizationId: string) {
+    return this.categoriesService.findAll(organizationId);
   }
 
   @Post()
-  create(@Body() dto: CreateCategoryDto, @CurrentCompany() companyId: string) {
-    return this.categoriesService.create(companyId, dto);
+  create(@Body() dto: CreateCategoryDto, @CurrentOrganization() organizationId: string) {
+    return this.categoriesService.create(organizationId, dto);
   }
 
   @Patch(':id')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateCategoryDto,
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
   ) {
-    return this.categoriesService.update(id, companyId, dto);
+    return this.categoriesService.update(id, organizationId, dto);
   }
 
   @Delete(':id')
-  delete(@Param('id') id: string, @CurrentCompany() companyId: string) {
-    return this.categoriesService.delete(id, companyId);
+  delete(@Param('id') id: string, @CurrentOrganization() organizationId: string) {
+    return this.categoriesService.delete(id, organizationId);
   }
 }

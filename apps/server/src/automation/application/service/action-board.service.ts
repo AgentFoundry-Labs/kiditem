@@ -29,26 +29,26 @@ export class ActionBoardService {
     };
   }
 
-  async getTasks(companyId: string) {
+  async getTasks(organizationId: string) {
     const { today, from, to } = this.resolveTodayContext();
 
     // 1. Gather warnings data (same logic as dashboard)
     const [metrics, inventoryRows, lowCtrCount, lowReviewCount] =
       await Promise.all([
-        buildPerListingMetrics(this.prisma, companyId, from, to),
+        buildPerListingMetrics(this.prisma, organizationId, from, to),
         this.prisma.inventory.findMany({
-          where: { companyId, currentStock: { gt: 0 } },
+          where: { organizationId, currentStock: { gt: 0 } },
           select: { currentStock: true, reorderPoint: true },
         }),
         this.prisma.thumbnail.count({
-          where: { companyId, ctr: { gt: 0, lt: 1.5 } },
+          where: { organizationId, ctr: { gt: 0, lt: 1.5 } },
         }),
         this.prisma.masterProduct
           .findMany({
-            where: { companyId, isDeleted: false, abcGrade: 'A' },
+            where: { organizationId, isDeleted: false, abcGrade: 'A' },
             include: {
               listings: {
-                where: { companyId, isDeleted: false },
+                where: { organizationId, isDeleted: false },
                 select: { _count: { select: { reviews: true } } },
               },
             },
@@ -93,10 +93,10 @@ export class ActionBoardService {
     for (const seed of seeds) {
       await this.prisma.actionTask.upsert({
         where: {
-          companyId_taskKey_date: { companyId, taskKey: seed.taskKey, date: today },
+          organizationId_taskKey_date: { organizationId, taskKey: seed.taskKey, date: today },
         },
         create: {
-          companyId,
+          organizationId,
           taskKey: seed.taskKey,
           type: seed.type,
           label: seed.label,
@@ -119,7 +119,7 @@ export class ActionBoardService {
     // 4. Fetch today's tasks (sort by priority weight: urgent→high→medium)
     const priorityWeight: Record<string, number> = { urgent: 0, high: 1, medium: 2 };
     const tasks = await this.prisma.actionTask.findMany({
-      where: { companyId, date: today },
+      where: { organizationId, date: today },
       orderBy: { createdAt: 'asc' },
     });
     tasks.sort((a, b) =>
@@ -127,7 +127,7 @@ export class ActionBoardService {
     );
 
     // 5. Attach related products
-    const relatedMap = await this.getRelatedProducts(companyId, metrics);
+    const relatedMap = await this.getRelatedProducts(organizationId, metrics);
 
     const result = tasks.map((t) => ({
       ...t,
@@ -144,8 +144,8 @@ export class ActionBoardService {
     return result;
   }
 
-  async updateTask(id: string, companyId: string, data: { status?: string; priority?: string }) {
-    const task = await this.prisma.actionTask.findFirst({ where: { id, companyId } });
+  async updateTask(id: string, organizationId: string, data: { status?: string; priority?: string }) {
+    const task = await this.prisma.actionTask.findFirst({ where: { id, organizationId } });
     if (!task) throw new NotFoundException('Task not found');
 
     const log = (task.activityLog as Array<Record<string, unknown>>) || [];
@@ -170,14 +170,14 @@ export class ActionBoardService {
       updates.priority = data.priority;
     }
 
-    return this.updateActionTaskOrThrow(id, companyId, {
+    return this.updateActionTaskOrThrow(id, organizationId, {
       ...updates,
       activityLog: log as unknown as Prisma.InputJsonValue,
     });
   }
 
-  async addNote(id: string, companyId: string, text: string) {
-    const task = await this.prisma.actionTask.findFirst({ where: { id, companyId } });
+  async addNote(id: string, organizationId: string, text: string) {
+    const task = await this.prisma.actionTask.findFirst({ where: { id, organizationId } });
     if (!task) throw new NotFoundException('Task not found');
 
     const notes = (task.notes as Array<Record<string, unknown>>) || [];
@@ -186,14 +186,14 @@ export class ActionBoardService {
     const log = (task.activityLog as Array<Record<string, unknown>>) || [];
     log.push({ action: 'note_added', timestamp: new Date().toISOString() });
 
-    return this.updateActionTaskOrThrow(id, companyId, {
+    return this.updateActionTaskOrThrow(id, organizationId, {
       notes: notes as unknown as Prisma.InputJsonValue,
       activityLog: log as unknown as Prisma.InputJsonValue,
     });
   }
 
-  async executeTask(id: string, companyId: string) {
-    const task = await this.prisma.actionTask.findFirst({ where: { id, companyId } });
+  async executeTask(id: string, organizationId: string) {
+    const task = await this.prisma.actionTask.findFirst({ where: { id, organizationId } });
     if (!task) throw new NotFoundException('Task not found');
     if (!task.apiCall) throw new NotFoundException('No apiCall defined for this task');
 
@@ -219,7 +219,7 @@ export class ActionBoardService {
         success: res.ok,
       });
 
-      return this.updateActionTaskOrThrow(id, companyId, {
+      return this.updateActionTaskOrThrow(id, organizationId, {
         result: result as Prisma.InputJsonValue,
         status: 'done',
         activityLog: log as unknown as Prisma.InputJsonValue,
@@ -235,7 +235,7 @@ export class ActionBoardService {
         detail: err instanceof Error ? err.message : 'Unknown error',
       });
 
-      return this.updateActionTaskOrThrow(id, companyId, {
+      return this.updateActionTaskOrThrow(id, organizationId, {
         result: { error: scrubSecrets(err instanceof Error ? err.message : String(err)) } as Prisma.InputJsonValue,
         status: 'done',
         activityLog: log as unknown as Prisma.InputJsonValue,
@@ -243,37 +243,37 @@ export class ActionBoardService {
     }
   }
 
-  async claim(taskId: string, companyId: string, userId: string) {
+  async claim(taskId: string, organizationId: string, userId: string) {
     const { count } = await this.prisma.actionTask.updateMany({
-      where: { id: taskId, companyId, assigneeUserId: null },
+      where: { id: taskId, organizationId, assigneeUserId: null },
       data: { assigneeUserId: userId },
     });
     if (count === 0) throw new ConflictException('Already claimed or task not found');
     return this.prisma.actionTask.findFirstOrThrow({
-      where: { id: taskId, companyId },
+      where: { id: taskId, organizationId },
       include: { assigneeUser: { select: { id: true, name: true } } },
     });
   }
 
-  async unclaim(taskId: string, companyId: string, userId: string) {
+  async unclaim(taskId: string, organizationId: string, userId: string) {
     const { count } = await this.prisma.actionTask.updateMany({
-      where: { id: taskId, companyId, assigneeUserId: userId },
+      where: { id: taskId, organizationId, assigneeUserId: userId },
       data: { assigneeUserId: null },
     });
     if (count === 0) throw new ConflictException('Not assigned to you or task not found');
     return this.prisma.actionTask.findFirstOrThrow({
-      where: { id: taskId, companyId },
+      where: { id: taskId, organizationId },
       include: { assigneeUser: { select: { id: true, name: true } } },
     });
   }
 
   async list(
-    companyId: string,
+    organizationId: string,
     currentUserId: string,
     opts: { assignedTo?: 'me' | 'team' | 'all' } = {},
   ) {
     const { assignedTo = 'all' } = opts;
-    const where: Prisma.ActionTaskWhereInput = { companyId };
+    const where: Prisma.ActionTaskWhereInput = { organizationId };
     if (assignedTo === 'me') {
       where.assigneeUserId = currentUserId;
     } else if (assignedTo === 'team') {
@@ -293,7 +293,7 @@ export class ActionBoardService {
     const taskIds = tasks.map((t) => t.id);
     const sourceAlerts = taskIds.length > 0
       ? await this.prisma.alert.findMany({
-          where: { companyId, actionTaskId: { in: taskIds } },
+          where: { organizationId, actionTaskId: { in: taskIds } },
           select: { id: true, actionTaskId: true, severity: true, type: true, title: true },
         })
       : [];
@@ -307,21 +307,21 @@ export class ActionBoardService {
 
   private async updateActionTaskOrThrow(
     id: string,
-    companyId: string,
+    organizationId: string,
     data: Prisma.ActionTaskUpdateManyMutationInput,
   ) {
     const { count } = await this.prisma.actionTask.updateMany({
-      where: { id, companyId },
+      where: { id, organizationId },
       data,
     });
     if (count === 0) throw new NotFoundException('Task not found');
-    return this.prisma.actionTask.findFirstOrThrow({ where: { id, companyId } });
+    return this.prisma.actionTask.findFirstOrThrow({ where: { id, organizationId } });
   }
 
   // ── Private helpers ──
 
   private async getRelatedProducts(
-    companyId: string,
+    organizationId: string,
     metrics: PerListingMetrics[],
   ): Promise<Record<string, RelatedProduct[]>> {
     const map: Record<string, RelatedProduct[]> = {};
@@ -359,7 +359,7 @@ export class ActionBoardService {
     // Reorder products — Inventory → option → master (2-hop, B2c.dashboard C-03)
     const invWithOption = await this.prisma.inventory.findMany({
       where: {
-        companyId,
+        organizationId,
         currentStock: { gt: 0 },
         reorderPoint: { gt: 0 },
       },

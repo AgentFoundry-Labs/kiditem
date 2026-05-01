@@ -12,7 +12,7 @@
 ## 태스크
 
 1. `products`, `ads`, `profit_loss`, `inventory` 테이블에서 광고 상품의 실적 데이터를 조회한다.
-   - 반드시 `company_id = '{{company_id}}'` AND `is_deleted = false` 조건 적용
+   - 반드시 `organization_id = '{{organization_id}}'` AND `is_deleted = false` 조건 적용
    - 최근 7~14일 광고 데이터: spend, revenue, impressions, clicks, conversions
    - ROAS = revenue / spend
    - 상품별 abc_grade, 재고 현황, 손익 데이터

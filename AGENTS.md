@@ -115,7 +115,9 @@ Precedence: the most-specific `AGENTS.md` wins, then parent `AGENTS.md` files.
 - **No silent model fallback** — `model = model or default` 패턴 금지. 모델 미지정은 explicit error.
 - **No native PG enums** — `String` + app-level validation. Production cast error experience.
 - **No `$queryRawUnsafe`** — Prisma raw SQL 은 항상 tagged template (`$queryRaw\`...\``). 동적 식별자가 필요하면 whitelist + tagged interpolation.
-- **Multi-tenant scope** — 모든 mutating service 는 `@CurrentCompany()` 로 받은 `companyId` 를 WHERE/INSERT 에 포함. 단일 리소스 GET/PATCH/DELETE 는 `findFirst({ where: { id, companyId } })`. `findUnique({ where: { id } })` 금지 (IDOR).
+- **Organization boundary** — 코드와 DB 의 SaaS/customer boundary 이름은 `Organization` / `organizationId` 다. `tenant` 는 아키텍처 설명 용어로만 쓰고 변수명·컬럼명·API 계약에는 쓰지 않는다. 회사 법인 정보는 `LegalEntity`, 마켓플레이스/스토어 계정은 `ChannelAccount` 로 분리한다.
+- **Multi-tenant scope** — 모든 mutating service 는 `@CurrentOrganization()` 로 받은 `organizationId` 를 WHERE/INSERT 에 포함. 단일 리소스 GET/PATCH/DELETE 는 `findFirst({ where: { id, organizationId } })`. `findUnique({ where: { id } })` 금지 (IDOR).
+- **Membership source of truth** — 사용자의 현재 조직과 조직 내 role 은 `OrganizationMembership` 이 source of truth. `User` 에 직접 `organizationId` 를 두지 않는다. 시스템/챗봇 사용자는 활성 membership 이 없을 수 있고, 도메인 HTTP 라우트는 `OrganizationScopeGuard` 가 이를 차단한다.
 - **DB 동기화** — `git pull` 은 DB 를 자동 갱신하지 않는다. 스키마는 `db:push`, 공유 개발 데이터는 Google Drive dev data profile sync 로 맞춘다: [prisma/AGENTS.md — DB 동기화](prisma/AGENTS.md#db-동기화--schema-vs-data-중요), [docs/DEV_DATA_BUNDLES.md](docs/DEV_DATA_BUNDLES.md).
 - **신규 영구 규칙** — incident-driven 또는 cross-domain 새 규칙은 해당 scope 의 `AGENTS.md` 본문에 직접 등록. 별도 결정 이력 폴더는 두지 않는다 (별도 결정 문서 체계 폐지, 2026-04-26).
 
@@ -127,8 +129,8 @@ file and the nearest scoped `AGENTS.md`; session plans and temporary scratch
 notes stay out of git.
 
 - **Rules before deletion** — record contract, scanner, or regression-test gates before deleting legacy implementation.
-- **Boundary exception is narrow** — tenant guards, raw SQL policy, scanner scripts, shared export topology, and dependency tooling may cross domains. Business logic rewrites still use one owner domain per PR.
-- **Tenant service contract** — tenant-owned services receive `companyId` as an explicit argument from `@CurrentCompany()`. Client-provided `companyId` is not trusted.
+- **Boundary exception is narrow** — organization guards, raw SQL policy, scanner scripts, shared export topology, and dependency tooling may cross domains. Business logic rewrites still use one owner domain per PR.
+- **Organization service contract** — organization-owned services receive `organizationId` as an explicit argument from `@CurrentOrganization()`. Client-provided `organizationId` is not trusted.
 - **Raw SQL contract** — production raw SQL uses Prisma tagged templates only. Unsafe raw SQL APIs remain banned even when inputs appear sanitized.
 - **Shared contract** — do not expand the `@kiditem/shared` root barrel for new domains. Add or use domain subpath exports instead.
 - **Large-file contract** — do not add substantial behavior to 700+ line services/components. Write a split/replacement plan first.

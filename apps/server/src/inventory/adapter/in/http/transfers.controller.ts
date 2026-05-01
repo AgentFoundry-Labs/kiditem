@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Inject, Param, Patch, Post, Query } from '@nestjs/common';
-import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
+import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import {
   TRANSFERS_PORT,
   type TransfersPort,
@@ -19,21 +19,21 @@ export class TransfersController {
   ) {}
 
   @Get()
-  findAll(@CurrentCompany() companyId: string, @Query() query: ListStockTransfersQueryDto) {
-    return this.transfers.findAll(companyId, query);
+  findAll(@CurrentOrganization() organizationId: string, @Query() query: ListStockTransfersQueryDto) {
+    return this.transfers.findAll(organizationId, query);
   }
 
   @Post()
-  create(@Body() dto: CreateStockTransferDto, @CurrentCompany() companyId: string) {
-    return this.transfers.create(companyId, dto);
+  create(@Body() dto: CreateStockTransferDto, @CurrentOrganization() organizationId: string) {
+    return this.transfers.create(organizationId, dto);
   }
 
   @Patch(':id')
   update(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Param('id') id: string,
     @Body() dto: UpdateStockTransferDto,
   ) {
-    return this.transfers.update(id, dto, companyId);
+    return this.transfers.update(id, dto, organizationId);
   }
 }

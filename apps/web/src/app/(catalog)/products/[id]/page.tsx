@@ -42,17 +42,17 @@ export default function ProductDetailPage() {
 
   const error = productError ? "데이터를 불러오지 못했습니다." : !loading && !product ? "상품을 찾을 수 없습니다." : null;
 
-  // Activities fetch — tenant scope is set by backend via @CurrentCompany();
-  // the company-level branch drops `objectId` so the controller takes the
-  // tenant-safe findByCompany path.
+  // Activities fetch — organization scope is set by backend via @CurrentOrganization();
+  // the organization-level branch drops `objectId` so the controller takes the
+  // organization-safe findByOrganization path.
   const { data: activities = [] } = useQuery({
     queryKey: [...queryKeys.products.catalog.detail(productId), "activities"],
     queryFn: async () => {
-      const [productEvents, companyEvents] = await Promise.all([
+      const [productEvents, organizationEvents] = await Promise.all([
         apiClient.get<any[]>(`/api/activity-events?objectType=product&objectId=${productId}&eventType=workflow_analysis`).catch(() => []),
-        apiClient.get<any[]>(`/api/activity-events?objectType=company&eventType=workflow_analysis&limit=10`).catch(() => []),
+        apiClient.get<any[]>(`/api/activity-events?objectType=organization&eventType=workflow_analysis&limit=10`).catch(() => []),
       ]);
-      const all = [...(productEvents || []), ...(companyEvents || [])];
+      const all = [...(productEvents || []), ...(organizationEvents || [])];
       all.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       return all;
     },
@@ -69,7 +69,7 @@ export default function ProductDetailPage() {
     enabled: !!productId,
   });
 
-  // Workflows fetch — backend scopes by @CurrentCompany().
+  // Workflows fetch — backend scopes by @CurrentOrganization().
   const { data: workflows = [] } = useQuery({
     queryKey: [...queryKeys.workflows.list(), "active"],
     queryFn: async () => {

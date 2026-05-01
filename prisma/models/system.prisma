@@ -43,7 +43,7 @@ model Marketplace {
 /// @describe 온톨로지 룰 엔진 (조건→액션 자동화).
 model BusinessRule {
   id              String   @id @default(uuid()) @db.Uuid
-  companyId       String   @map("company_id") @db.Uuid
+  organizationId       String   @map("organization_id") @db.Uuid
   name            String                             // "deficit-detection"
   displayName     String   @map("display_name")      // "적자 상품 감지"
   description     String?
@@ -61,10 +61,10 @@ model BusinessRule {
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organization         Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  @@unique([companyId, name])
-  @@index([companyId, active])
+  @@unique([organizationId, name])
+  @@index([organizationId, active])
   @@index([category])
   @@map("business_rules")
 }
@@ -73,7 +73,7 @@ model BusinessRule {
 /// @describe 액션 보드 (수동 할일 관리).
 model ActionTask {
   id          String   @id @default(uuid()) @db.Uuid
-  companyId   String   @map("company_id") @db.Uuid
+  organizationId   String   @map("organization_id") @db.Uuid
   taskKey     String   @map("task_key")
   type        String   @default("human")
   label       String
@@ -96,25 +96,25 @@ model ActionTask {
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organization      Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   assigneeUser User?    @relation("ActionTaskAssignee", fields: [assigneeUserId], references: [id], onDelete: SetNull)
   sourceAlerts Alert[]  @relation("AlertPromotedTo")
 
-  @@unique([companyId, taskKey, date])
-  @@index([companyId, date])
-  @@index([companyId, assigneeUserId])
-  @@index([companyId, targetType, targetId])
+  @@unique([organizationId, taskKey, date])
+  @@index([organizationId, date])
+  @@index([organizationId, assigneeUserId])
+  @@index([organizationId, targetType, targetId])
   @@map("action_tasks")
 }
 
 /// @namespace System
-/// @describe 피처 플래그. allowedCompanies: string[] 로 회사별 enable.
+/// @describe 피처 플래그. allowedOrganizations: string[] 로 회사별 enable.
 model FeatureGate {
   id               String   @id @default(uuid()) @db.Uuid
   name             String   @unique
   description      String?
   enabled          Boolean  @default(false)
-  allowedCompanies String[] @map("allowed_companies")
+  allowedOrganizations String[] @map("allowed_organizations")
   metadata         Json?    @db.JsonB
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
@@ -126,7 +126,7 @@ model FeatureGate {
 /// @namespace System
 model ActivityEvent {
   id         String   @id @default(uuid()) @db.Uuid
-  companyId  String   @map("company_id") @db.Uuid
+  organizationId  String   @map("organization_id") @db.Uuid
   objectType String   @map("object_type")
   objectId   String   @map("object_id") @db.Uuid
   eventType  String   @map("event_type")
@@ -135,9 +135,9 @@ model ActivityEvent {
   data       Json?
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  @@index([companyId])
+  @@index([organizationId])
   @@index([objectType, objectId])
   @@index([eventType])
   @@index([createdAt])
@@ -147,7 +147,7 @@ model ActivityEvent {
 /// @namespace System
 model Alert {
   id        String @id @default(uuid()) @db.Uuid
-  companyId String @map("company_id") @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
 
   targetType String? @map("target_type")
   targetId   String? @map("target_id") @db.Uuid
@@ -162,13 +162,13 @@ model Alert {
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  company    Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organization    Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   actionTask ActionTask?  @relation("AlertPromotedTo", fields: [actionTaskId], references: [id], onDelete: SetNull)
 
-  @@index([companyId])
-  @@index([companyId, isRead, createdAt])
-  @@index([companyId, actionTaskId])
-  @@index([companyId, targetType, targetId])
+  @@index([organizationId])
+  @@index([organizationId, isRead, createdAt])
+  @@index([organizationId, actionTaskId])
+  @@index([organizationId, targetType, targetId])
   @@index([isRead])
   @@index([type])
   @@index([createdAt])
@@ -178,15 +178,15 @@ model Alert {
 /// @namespace System
 model SystemSetting {
   id        String   @id @default(uuid()) @db.Uuid
-  companyId String   @map("company_id") @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
   key       String
   value     Json
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  @@unique([companyId, key])
+  @@unique([organizationId, key])
   @@map("system_settings")
 }
 

@@ -13,7 +13,7 @@ import {
   makeTestPrisma,
   resetDb,
   seedBaseFixture,
-  TEST_COMPANY_ID,
+  TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 
 function listOk(
@@ -73,7 +73,7 @@ describe('Product sync (PG integration, Wave C1)', () => {
   let prisma: PrismaClient;
   let service: ChannelSyncService;
   let coupangPort: CoupangProviderPort;
-  const companyId = TEST_COMPANY_ID;
+  const organizationId = TEST_ORGANIZATION_ID;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
@@ -111,7 +111,7 @@ describe('Product sync (PG integration, Wave C1)', () => {
   async function seedListing(externalId: string) {
     const master = await prisma.masterProduct.create({
       data: {
-        companyId,
+        organizationId,
         code: `M-${externalId}`,
         name: `Master ${externalId}`,
         optionCounter: 0,
@@ -119,7 +119,7 @@ describe('Product sync (PG integration, Wave C1)', () => {
     });
     return prisma.channelListing.create({
       data: {
-        companyId,
+        organizationId,
         masterId: master.id,
         channel: 'coupang',
         externalId,
@@ -147,7 +147,7 @@ describe('Product sync (PG integration, Wave C1)', () => {
       }),
     );
 
-    const result = await service.syncProducts(companyId);
+    const result = await service.syncProducts(organizationId);
     expect(result.synced).toBe(1);
     expect(result.errors).toBe(0);
 
@@ -185,7 +185,7 @@ describe('Product sync (PG integration, Wave C1)', () => {
         }),
       );
 
-    const r1 = await service.syncProducts(companyId);
+    const r1 = await service.syncProducts(organizationId);
     expect(r1.synced).toBe(1);
     expect(r1.errors).toBe(0);
 
@@ -198,7 +198,7 @@ describe('Product sync (PG integration, Wave C1)', () => {
     expect(afterFirst[0].salePrice).toBe(10000);
     expect(afterFirst[0].optionId).toBeNull();
 
-    const r2 = await service.syncProducts(companyId);
+    const r2 = await service.syncProducts(organizationId);
     expect(r2.synced).toBe(1);
     expect(r2.errors).toBe(0);
 
@@ -224,7 +224,7 @@ describe('Product sync (PG integration, Wave C1)', () => {
     vi.mocked(coupangPort.getSellerProducts).mockResolvedValueOnce(
       listOk([{ sellerProductId: 999, sellerProductName: 'New Listing' }]),
     );
-    const result = await service.syncProducts(companyId);
+    const result = await service.syncProducts(organizationId);
     expect(result.synced).toBe(0);
     expect(result.errors).toBe(0);
     expect(result.details?.[0]).toContain('Listing 999');
@@ -232,9 +232,9 @@ describe('Product sync (PG integration, Wave C1)', () => {
     // Detail call must be skipped — no point fetching options for unmatched listings.
     expect(coupangPort.getSellerProduct).not.toHaveBeenCalled();
 
-    const masters = await prisma.masterProduct.findMany({ where: { companyId } });
+    const masters = await prisma.masterProduct.findMany({ where: { organizationId } });
     expect(masters).toHaveLength(0);
-    const listings = await prisma.channelListing.findMany({ where: { companyId } });
+    const listings = await prisma.channelListing.findMany({ where: { organizationId } });
     expect(listings).toHaveLength(0);
   });
 
@@ -249,7 +249,7 @@ describe('Product sync (PG integration, Wave C1)', () => {
       .mockResolvedValueOnce(detailOk({ sellerProductId: 300, items: [] }))
       .mockResolvedValueOnce(detailOk({ sellerProductId: 301, items: [] }));
 
-    const result = await service.syncProducts(companyId);
+    const result = await service.syncProducts(organizationId);
     expect(result.synced).toBe(2);
     expect(result.errors).toBe(0);
     expect(listingA.id).not.toBe(listingB.id);
@@ -277,14 +277,14 @@ describe('Product sync (PG integration, Wave C1)', () => {
         }),
       );
 
-    const result = await service.syncProducts(companyId);
+    const result = await service.syncProducts(organizationId);
     expect(result.synced).toBe(1);
     expect(result.errors).toBe(1);
     expect(result.details?.[0]).toContain('Listing 350');
     expect(result.details?.[0]).toContain('FORBIDDEN');
 
     const synced = await prisma.channelListing.findFirst({
-      where: { companyId, externalId: '351' },
+      where: { organizationId, externalId: '351' },
     });
     expect(synced?.channelName).toBe('Still Synced');
     expect(synced?.status).toBe('active');
@@ -309,7 +309,7 @@ describe('Product sync (PG integration, Wave C1)', () => {
       });
     });
 
-    const result = await service.syncProducts(companyId);
+    const result = await service.syncProducts(organizationId);
     expect(result.synced).toBe(0);
     expect(result.errors).toBe(1);
     expect(result.details?.[0]).toContain('Listing 360');
@@ -340,7 +340,7 @@ describe('Product sync (PG integration, Wave C1)', () => {
       }),
     );
 
-    const result = await service.syncProducts(companyId);
+    const result = await service.syncProducts(organizationId);
     expect(result.synced).toBe(0);
     expect(result.errors).toBe(1);
     expect(result.details?.[0]).toContain('Listing 400');
@@ -360,7 +360,7 @@ describe('Product sync (PG integration, Wave C1)', () => {
       message: 'invalid credentials',
       data: undefined,
     } as SellerProductListResponse);
-    const result = await service.syncProducts(companyId);
+    const result = await service.syncProducts(organizationId);
     expect(result.synced).toBe(0);
     expect(result.errors).toBe(1);
     expect(result.details?.[0]).toContain('FORBIDDEN');

@@ -41,10 +41,10 @@ import { scrubSecrets } from '@kiditem/shared/security';
 import { PANEL_EVENTS } from '../../automation/adapter/out/panel-event/panel-events';
 import { agentPanelMapper } from '../../automation/mapper/panel-event/agent.mapper';
 
-/** Extract company-level permission layer from agent.permissions JSON. Future extension point. */
+/** Extract organization-level permission layer from agent.permissions JSON. Future extension point. */
 function extractCompanyLayer(permissions: Record<string, unknown> | null | undefined): PermissionLayer | undefined {
-  if (!permissions?.company) return undefined;
-  return permissions.company as PermissionLayer;
+  if (!permissions?.organization) return undefined;
+  return permissions.organization as PermissionLayer;
 }
 
 /** Extract agentType-level permission layer from agent.permissions JSON. Future extension point. */
@@ -81,7 +81,7 @@ export class HeartbeatService {
    */
   async wakeAgent(input: {
     agentId: string;
-    companyId?: string;
+    organizationId?: string;
     source: WakeupSource;
     reason?: string;
     payload?: Record<string, unknown>;
@@ -94,11 +94,11 @@ export class HeartbeatService {
       return { ok: false, error: 'agent_paused', agentId: input.agentId };
     }
 
-    const companyId = input.companyId || agent.companyId;
-    if (!companyId) throw new BadRequestException(`No companyId for agent ${agent.name}`);
+    const organizationId = input.organizationId || agent.organizationId;
+    if (!organizationId) throw new BadRequestException(`No organizationId for agent ${agent.name}`);
 
     // 피처 게이트 체크
-    const gateAllowed = await this.featureGateService.isEnabled(`agent:${agent.type}`, companyId);
+    const gateAllowed = await this.featureGateService.isEnabled(`agent:${agent.type}`, organizationId);
     if (!gateAllowed) {
       return { ok: false, error: 'feature_gate_blocked', agentId: input.agentId };
     }
@@ -111,7 +111,7 @@ export class HeartbeatService {
           AGENT_EVENTS.BUDGET_WARNING,
           new AgentBudgetWarningEvent(
             agent.id, agent.name, 'exceeded', usageRatio,
-            agent.tokensUsed, agent.monthlyTokenBudget, companyId,
+            agent.tokensUsed, agent.monthlyTokenBudget, organizationId,
           ),
         );
         return { ok: false, error: 'budget_exceeded', agentId: input.agentId };
@@ -122,7 +122,7 @@ export class HeartbeatService {
           AGENT_EVENTS.BUDGET_WARNING,
           new AgentBudgetWarningEvent(
             agent.id, agent.name, 'critical', usageRatio,
-            agent.tokensUsed, agent.monthlyTokenBudget, companyId,
+            agent.tokensUsed, agent.monthlyTokenBudget, organizationId,
           ),
         );
       } else if (usageRatio >= 0.80) {
@@ -131,7 +131,7 @@ export class HeartbeatService {
           AGENT_EVENTS.BUDGET_WARNING,
           new AgentBudgetWarningEvent(
             agent.id, agent.name, 'warning', usageRatio,
-            agent.tokensUsed, agent.monthlyTokenBudget, companyId,
+            agent.tokensUsed, agent.monthlyTokenBudget, organizationId,
           ),
         );
       }
@@ -139,7 +139,7 @@ export class HeartbeatService {
 
     const wakeup = await this.wakeupService.requestWakeup({
       agentId: input.agentId,
-      companyId,
+      organizationId,
       source: input.source,
       reason: input.reason,
       payload: input.payload,
@@ -179,7 +179,7 @@ export class HeartbeatService {
     const wakeup = await this.wakeupService.claimNext(agentId);
     if (!wakeup) return;
 
-    const companyId = wakeup.companyId;
+    const organizationId = wakeup.organizationId;
 
     // Permission Hierarchy Resolution (Pattern #8)
     const instanceTools = (agent.allowedTools ?? '').split(/\s+/).filter(Boolean);
@@ -187,7 +187,7 @@ export class HeartbeatService {
       [
         // Layer 1: global defaults — future extension point (returns undefined for now)
         {},
-        // Layer 2: company-level — future extension point from agent.permissions JSON
+        // Layer 2: organization-level — future extension point from agent.permissions JSON
         ...(extractCompanyLayer((agent as any).permissions) ? [extractCompanyLayer((agent as any).permissions)!] : []),
         // Layer 3: agentType-level — future extension point from agent.permissions JSON
         ...(extractTypeLayer((agent as any).permissions) ? [extractTypeLayer((agent as any).permissions)!] : []),
@@ -228,7 +228,7 @@ export class HeartbeatService {
     const run = await this.prisma.heartbeatRun.create({
       data: {
         agent: { connect: { id: agentId } },
-        company: { connect: { id: companyId } },
+        organization: { connect: { id: organizationId } },
         invocationSource: wakeup.source,
         triggerDetail: wakeup.triggerDetail,
         status: 'running',
@@ -246,14 +246,14 @@ export class HeartbeatService {
 
     this.eventEmitter.emit(
       AGENT_EVENTS.STATUS_CHANGED,
-      new AgentStatusChangedEvent(agent.id, agent.name, 'running', companyId, run.id),
+      new AgentStatusChangedEvent(agent.id, agent.name, 'running', organizationId, run.id),
     );
 
     // Panel Live Ops: emit on create (agent source visible immediately on start)
     try {
       this.eventEmitter.emit(PANEL_EVENTS.UPSERT, {
-        item: agentPanelMapper.mapToItem({ run, agent: { id: agent.id, name: agent.name } }, companyId),
-        companyId,
+        item: agentPanelMapper.mapToItem({ run, agent: { id: agent.id, name: agent.name } }, organizationId),
+        organizationId,
       });
     } catch (err) {
       this.logger.warn(`Panel emit failed on run create (run=${run.id}): ${err}`);
@@ -283,7 +283,7 @@ export class HeartbeatService {
       graceSec: 10,
       env: Object.freeze({
         KIDITEM_AGENT_ID: agent.id,
-        KIDITEM_COMPANY_ID: companyId,
+        KIDITEM_ORGANIZATION_ID: organizationId,
         KIDITEM_RUN_ID: run.id,
         AGENT_DATABASE_URL: process.env.AGENT_DATABASE_URL || process.env.DATABASE_URL || '',
       }),
@@ -405,11 +405,11 @@ export class HeartbeatService {
     }
 
     // #17 Async Transcript — Step 1: Blocking save (critical fields only).
-    // updateMany binds (id, companyId) so a forged runId from another tenant
+    // updateMany binds (id, organizationId) so a forged runId from another tenant
     // cannot mark a foreign HeartbeatRun terminal. We then re-read the row
     // to populate `terminalRun` for the panel emit below.
     await this.prisma.heartbeatRun.updateMany({
-      where: { id: run.id, companyId },
+      where: { id: run.id, organizationId },
       data: {
         status,
         failureType,
@@ -423,25 +423,25 @@ export class HeartbeatService {
       },
     });
     const terminalRun = await this.prisma.heartbeatRun.findFirst({
-      where: { id: run.id, companyId },
+      where: { id: run.id, organizationId },
     });
     if (!terminalRun) {
-      this.logger.error(`HeartbeatRun ${run.id} missing after terminal update for company ${companyId}`);
+      this.logger.error(`HeartbeatRun ${run.id} missing after terminal update for organization ${organizationId}`);
       return;
     }
 
     // Panel Live Ops: emit on terminal transition (running → succeeded | failed)
     try {
       this.eventEmitter.emit(PANEL_EVENTS.UPSERT, {
-        item: agentPanelMapper.mapToItem({ run: terminalRun, agent: { id: agent.id, name: agent.name } }, companyId),
-        companyId,
+        item: agentPanelMapper.mapToItem({ run: terminalRun, agent: { id: agent.id, name: agent.name } }, organizationId),
+        organizationId,
       });
     } catch (err) {
       this.logger.warn(`Panel emit failed on terminal transition (run=${run.id}): ${err}`);
     }
 
     // ── RESULT_READY: Safety Pipeline + domain event ──
-    if (status === 'succeeded' && resultJson && companyId) {
+    if (status === 'succeeded' && resultJson && organizationId) {
       let safetyAllowed = true;
 
       if (this.safetyPipeline) {
@@ -450,7 +450,7 @@ export class HeartbeatService {
           trustLevel: (agent as any).trustLevel ?? 0,
           actionCap: (agent as any).actionCap ?? {},
           runId: run.id,
-          companyId,
+          organizationId,
           body: resultJson as any,
         });
 
@@ -467,21 +467,21 @@ export class HeartbeatService {
       if (safetyAllowed) {
         this.eventEmitter.emit(
           AGENT_EVENTS.RESULT_READY,
-          new AgentResultReadyEvent(agent.type, agent.id, run.id, resultJson, companyId),
+          new AgentResultReadyEvent(agent.type, agent.id, run.id, resultJson, organizationId),
         );
 
-        // TrustLevel 조정 — companyId 는 wakeup row 에서 가져온 신뢰값
+        // TrustLevel 조정 — organizationId 는 wakeup row 에서 가져온 신뢰값
         if (this.dryRunGate) {
-          await this.dryRunGate.adjustTrust(agent.id, companyId, true);
+          await this.dryRunGate.adjustTrust(agent.id, organizationId, true);
         }
       }
     }
 
     // #17 Async Transcript — Step 2: Fire-and-forget (non-critical fields).
-    // companyId is forwarded so the async listener can scope its updateMany.
+    // organizationId is forwarded so the async listener can scope its updateMany.
     this.eventEmitter.emit(TRANSCRIPT_EVENT, {
       runId: run.id,
-      companyId,
+      organizationId,
       stdoutExcerpt: scrubSecrets(result.stdout.slice(0, 5000)),
       stderrExcerpt: scrubSecrets(result.stderr.slice(0, 2000)),
       usageJson: result.usage ?? null,
@@ -520,7 +520,7 @@ export class HeartbeatService {
       // updateMany scopes to the agent's tenant (or global definition); a stale
       // agentId from another tenant cannot toggle the foreign agent's status.
       await this.prisma.agentDefinition.updateMany({
-        where: { id: agentId, OR: [{ companyId }, { companyId: null }] },
+        where: { id: agentId, OR: [{ organizationId }, { organizationId: null }] },
         data: {
           status: 'paused',
           pauseReason: `consecutive_failures(${(updatedAgent as any).rtConsecutiveFailCount})`,
@@ -530,14 +530,14 @@ export class HeartbeatService {
 
       this.eventEmitter.emit(
         AGENT_EVENTS.STATUS_CHANGED,
-        new AgentStatusChangedEvent(agent.id, agent.name, 'paused', companyId, run.id),
+        new AgentStatusChangedEvent(agent.id, agent.name, 'paused', organizationId, run.id),
       );
       this.eventEmitter.emit(
         AGENT_EVENTS.AUTO_PAUSED,
         new AgentAutoPausedEvent(
           agent.id, agent.name,
           (updatedAgent as any).rtConsecutiveFailCount,
-          companyId,
+          organizationId,
           (updatedAgent as any).rtLastError ?? undefined,
         ),
       );
@@ -552,14 +552,14 @@ export class HeartbeatService {
       const finalStatus = status === 'succeeded' ? 'succeeded' : 'failed';
       this.eventEmitter.emit(
         AGENT_EVENTS.STATUS_CHANGED,
-        new AgentStatusChangedEvent(agent.id, agent.name, finalStatus as any, companyId, run.id),
+        new AgentStatusChangedEvent(agent.id, agent.name, finalStatus as any, organizationId, run.id),
       );
     }
 
-    // Wakeup 완료 — wakeup row 의 companyId 는 wakeup 생성 시점에 검증된 값
+    // Wakeup 완료 — wakeup row 의 organizationId 는 wakeup 생성 시점에 검증된 값
     await this.wakeupService.finish(
       wakeup.id,
-      companyId,
+      organizationId,
       run.id,
       errorCode ? scrubSecrets(result.stderr.slice(0, 500)) : undefined,
     );
@@ -616,7 +616,7 @@ export class HeartbeatService {
     try {
       const job = new CronJob(
         newSchedule,
-        () => this.onTimerFire(agent.id, agent.companyId),
+        () => this.onTimerFire(agent.id, agent.organizationId),
         null, true, 'Asia/Seoul',
       );
       this.schedulerRegistry.addCronJob(jobName, job);
@@ -641,7 +641,7 @@ export class HeartbeatService {
     });
 
     for (const agent of agents) {
-      if (!agent.companyId) continue;
+      if (!agent.organizationId) continue;
       const runtime = (agent.runtimeConfig as Record<string, unknown>) || {};
       const intervalSec = (runtime.intervalSec as number) || 0;
 
@@ -651,7 +651,7 @@ export class HeartbeatService {
           const jobName = `heartbeat-timer-${agent.id}`;
           const job = new CronJob(
             agent.schedule,
-            () => this.onTimerFire(agent.id, agent.companyId),
+            () => this.onTimerFire(agent.id, agent.organizationId),
             null, true, 'Asia/Seoul',
           );
           this.schedulerRegistry.addCronJob(jobName, job);
@@ -665,7 +665,7 @@ export class HeartbeatService {
       if (intervalSec > 0 && !agent.schedule) {
         const jobName = `heartbeat-interval-${agent.id}`;
         const interval = setInterval(
-          () => this.onTimerFire(agent.id, agent.companyId),
+          () => this.onTimerFire(agent.id, agent.organizationId),
           intervalSec * 1000,
         );
         this.schedulerRegistry.addInterval(jobName, interval);
@@ -702,11 +702,11 @@ export class HeartbeatService {
     }
   }
 
-  private async onTimerFire(agentId: string, companyId: string | null): Promise<void> {
+  private async onTimerFire(agentId: string, organizationId: string | null): Promise<void> {
     try {
       await this.wakeAgent({
         agentId,
-        companyId: companyId ?? undefined,
+        organizationId: organizationId ?? undefined,
         source: 'timer',
         reason: 'Scheduled heartbeat',
       });

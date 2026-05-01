@@ -54,7 +54,7 @@ export class MarketplaceCatalogService {
   // ─── Workflow Catalog ───
 
   async listWorkflows(
-    companyId: string,
+    organizationId: string,
     query: { module?: string; category?: string } = {},
   ): Promise<MarketplaceCatalogItem[]> {
     const items = await this.prisma.marketplace.findMany({
@@ -68,7 +68,7 @@ export class MarketplaceCatalogService {
     });
 
     const installed = await this.prisma.workflowTemplate.findMany({
-      where: { companyId, marketplaceId: { not: null } },
+      where: { organizationId, marketplaceId: { not: null } },
       select: { marketplaceId: true },
     });
     const installedSet = new Set(installed.map((i) => i.marketplaceId));
@@ -110,7 +110,7 @@ export class MarketplaceCatalogService {
   // ─── Agent Catalog ───
 
   async listAgents(
-    companyId: string,
+    organizationId: string,
     query: { role?: string; category?: string } = {},
   ): Promise<MarketplaceCatalogItem[]> {
     const items = await this.prisma.marketplace.findMany({
@@ -124,7 +124,7 @@ export class MarketplaceCatalogService {
     });
 
     const installed = await this.prisma.agentDefinition.findMany({
-      where: { companyId, marketplaceId: { not: null } },
+      where: { organizationId, marketplaceId: { not: null } },
       select: { marketplaceId: true },
     });
     const installedSet = new Set(installed.map((i) => i.marketplaceId));

@@ -26,7 +26,7 @@ LEFT JOIN profit_loss pl ON pl.product_id = p.id
   AND pl.year = EXTRACT(YEAR FROM CURRENT_DATE)::int
   AND pl.month = EXTRACT(MONTH FROM CURRENT_DATE)::int
 LEFT JOIN inventory i ON i.product_id = p.id
-WHERE p.company_id = '{{company_id}}' AND p.is_deleted = false
+WHERE p.organization_id = '{{organization_id}}' AND p.is_deleted = false
 ORDER BY pl.revenue DESC NULLS LAST
 ```
 

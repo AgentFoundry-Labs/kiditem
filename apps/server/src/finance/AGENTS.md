@@ -13,7 +13,7 @@ finance/
 ├── controllers/                # profit-loss, sales-analysis (2개)
 ├── services/                   # profit-loss, sales-analysis
 ├── dto/                        # 2 query DTO
-├── manual-ledger/              # 수기 장부 CRUD (companyId scoped)
+├── manual-ledger/              # 수기 장부 CRUD (organizationId scoped)
 ├── processing-costs/           # 가공비 CRUD + 월별 집계 + MasterProduct check
 ├── supplier-payments/          # 거래처 결제 CRUD (Supplier/PurchaseOrder scoped check)
 ├── sales-plans/                # 판매 계획 CRUD + syncActuals (KST month window)
@@ -54,17 +54,17 @@ Order (+ shippingPrice)
 
 **Shipping 배분**: `Order.shippingPrice` 를 lineItem revenue 비율로 revenue-weighted 분배. 분모 0 guard: 모든 lineItem totalPrice = 0 인 경우 해당 order shipping drop.
 
-**Exit log**: `this.logger.log('profit-loss.findAll', { companyId, year, month, orderCount, listingCount, latencyMs })`.
+**Exit log**: `this.logger.log('profit-loss.findAll', { organizationId, year, month, orderCount, listingCount, latencyMs })`.
 
 **Prohibit**: `prisma.profitLoss.*` 호출 금지. `ProductOption.shippingCost` live read 금지 (source-of-truth = `Order.shippingPrice`).
 
 ### 2. sales-analysis.service
 
-`getAnalysis(companyId, period?)` — live aggregation via Order + OrderReturnLineItem + ChannelListingDailySnapshot.groupBy. Group key: `ChannelListing.channel` (platform: coupang/naver/wing/...). Return rate uses distinct-order count, INNER JOIN, and 3-hop IDOR guard. Orphan returns (orderId NULL) → `totals.orphanReturnCount` side metric.
+`getAnalysis(organizationId, period?)` — live aggregation via Order + OrderReturnLineItem + ChannelListingDailySnapshot.groupBy. Group key: `ChannelListing.channel` (platform: coupang/naver/wing/...). Return rate uses distinct-order count, INNER JOIN, and 3-hop IDOR guard. Orphan returns (orderId NULL) → `totals.orphanReturnCount` side metric.
 
 `ProfitLoss` table read 제거.
 
-**Exit log**: `this.logger.log('sales-analysis.getAnalysis', { companyId, period, channelCount, totalOrders, totalRevenue, orphanReturnCount, latencyMs })`.
+**Exit log**: `this.logger.log('sales-analysis.getAnalysis', { organizationId, period, channelCount, totalOrders, totalRevenue, orphanReturnCount, latencyMs })`.
 
 ### 3. Period 파싱 — YYYY-MM 형식
 
@@ -111,4 +111,4 @@ profit-loss.service.ts:12-14, sales-analysis.service.ts:16-23:
 | 새 metric 추가 | `services/profit-loss.service.ts` 또는 `sales-analysis.service.ts` $queryRaw + 응답 타입 + `__tests__/pl-flow.spec.ts` |
 | Pricing 로직 변경 | `common/option-pricing-resolver.ts` (resolvePricing) + 호출자 (`profit-loss.service.ts`) |
 | Date range 지원 | period 파싱 로직 + DTO + scoped plan/instruction update (현재 월 단위 의도) |
-| 채널 추가 | `prisma/schema.prisma` (Company), seed, sales-analysis 그룹핑 |
+| 채널 추가 | `prisma/schema.prisma` (Organization), seed, sales-analysis 그룹핑 |

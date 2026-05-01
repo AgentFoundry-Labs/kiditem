@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { TrafficService } from './traffic.service';
-import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
+import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
 
 interface MulterFile {
   fieldname: string;
@@ -57,22 +57,22 @@ export class TrafficController {
   @Get('summary')
   async summary(
     @Query('days') days: string | undefined,
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
   ) {
     const d = days ? parseInt(days, 10) : 30;
-    return this.trafficService.getTrafficSummary(d, companyId);
+    return this.trafficService.getTrafficSummary(d, organizationId);
   }
 
   @Get('monthly')
   async monthly(
     @Query('year') year: string | undefined,
     @Query('month') month: string | undefined,
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
   ): Promise<MonthlyTrafficResponse> {
     const now = new Date();
     const y = year ? parseInt(year, 10) : now.getFullYear();
     const m = month ? parseInt(month, 10) : now.getMonth() + 1;
-    return this.trafficService.getMonthlyRevenue(y, m, companyId);
+    return this.trafficService.getMonthlyRevenue(y, m, organizationId);
   }
 
   @Post('upload')
@@ -89,11 +89,11 @@ export class TrafficController {
   )
   async upload(
     @UploadedFile() file: MulterFile,
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
   ) {
     if (!file) {
       throw new BadRequestException('파일이 필요합니다.');
     }
-    return this.trafficService.uploadTrafficStats(file, companyId);
+    return this.trafficService.uploadTrafficStats(file, organizationId);
   }
 }

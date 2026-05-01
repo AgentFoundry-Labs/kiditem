@@ -6,7 +6,7 @@
  * `sku` is system-generated inside the SKU lifecycle layer.
  */
 export const PRODUCT_OPTION_SYSTEM_FIELDS = [
-  'id', 'sku', 'companyId', 'masterId', 'availableStock',
+  'id', 'sku', 'organizationId', 'masterId', 'availableStock',
   'isDeleted', 'deletedAt', 'createdAt', 'updatedAt',
 ] as const;
 

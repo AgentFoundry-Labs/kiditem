@@ -26,7 +26,7 @@ describe('WakeupService', () => {
 
       const result = await service.requestWakeup({
         agentId: 'agent-1',
-        companyId: 'c-1',
+        organizationId: 'c-1',
         source: 'on_demand',
         reason: 'Test',
       });
@@ -36,7 +36,7 @@ describe('WakeupService', () => {
         expect.objectContaining({
           where: expect.objectContaining({
             agentId: 'agent-1',
-            companyId: 'c-1',
+            organizationId: 'c-1',
             status: 'queued',
           }),
         }),
@@ -44,18 +44,18 @@ describe('WakeupService', () => {
       expect(prisma.agentWakeupRequest.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
           agent: { connect: { id: 'agent-1' } },
-          company: { connect: { id: 'c-1' } },
+          organization: { connect: { id: 'c-1' } },
           source: 'on_demand',
           status: 'queued',
         }),
       });
     });
 
-    it('coalesces when existing queued request — updateMany binds companyId', async () => {
+    it('coalesces when existing queued request — updateMany binds organizationId', async () => {
       const { service, prisma } = makeService();
       prisma.agentWakeupRequest.findFirst.mockResolvedValue({
         id: 'w-existing',
-        companyId: 'c-1',
+        organizationId: 'c-1',
         coalescedCount: 2,
         reason: 'Old',
         payload: null,
@@ -63,7 +63,7 @@ describe('WakeupService', () => {
 
       const result = await service.requestWakeup({
         agentId: 'agent-1',
-        companyId: 'c-1',
+        organizationId: 'c-1',
         source: 'timer',
         reason: 'New reason',
       });
@@ -71,7 +71,7 @@ describe('WakeupService', () => {
       expect(result.id).toBe('w-existing');
       expect(prisma.agentWakeupRequest.create).not.toHaveBeenCalled();
       expect(prisma.agentWakeupRequest.updateMany).toHaveBeenCalledWith({
-        where: { id: 'w-existing', companyId: 'c-1' },
+        where: { id: 'w-existing', organizationId: 'c-1' },
         data: expect.objectContaining({
           coalescedCount: { increment: 1 },
           reason: 'New reason',
@@ -81,11 +81,11 @@ describe('WakeupService', () => {
   });
 
   describe('claimNext', () => {
-    it('claims oldest queued request — updateMany binds the row\'s own companyId', async () => {
+    it('claims oldest queued request — updateMany binds the row\'s own organizationId', async () => {
       const { service, prisma } = makeService();
       prisma.agentWakeupRequest.findFirst.mockResolvedValue({
         id: 'w-1',
-        companyId: 'c-1',
+        organizationId: 'c-1',
         source: 'on_demand',
       });
 
@@ -93,7 +93,7 @@ describe('WakeupService', () => {
 
       expect(result?.id).toBe('w-1');
       expect(prisma.agentWakeupRequest.updateMany).toHaveBeenCalledWith({
-        where: { id: 'w-1', companyId: 'c-1' },
+        where: { id: 'w-1', organizationId: 'c-1' },
         data: expect.objectContaining({ status: 'claimed' }),
       });
     });
@@ -109,13 +109,13 @@ describe('WakeupService', () => {
   });
 
   describe('finish', () => {
-    it('marks request as finished — updateMany binds companyId', async () => {
+    it('marks request as finished — updateMany binds organizationId', async () => {
       const { service, prisma } = makeService();
 
       await service.finish('w-1', 'c-1', 'run-1');
 
       expect(prisma.agentWakeupRequest.updateMany).toHaveBeenCalledWith({
-        where: { id: 'w-1', companyId: 'c-1' },
+        where: { id: 'w-1', organizationId: 'c-1' },
         data: expect.objectContaining({ status: 'finished', runId: 'run-1' }),
       });
     });
@@ -126,7 +126,7 @@ describe('WakeupService', () => {
       await service.finish('w-1', 'c-1', 'run-1', 'timeout error');
 
       expect(prisma.agentWakeupRequest.updateMany).toHaveBeenCalledWith({
-        where: { id: 'w-1', companyId: 'c-1' },
+        where: { id: 'w-1', organizationId: 'c-1' },
         data: expect.objectContaining({ status: 'failed', error: 'timeout error' }),
       });
     });

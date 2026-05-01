@@ -12,7 +12,7 @@ function makePrisma() {
   };
 }
 
-const COMPANY_ID = 'company-1';
+const ORGANIZATION_ID = 'organization-1';
 const LISTING_ID = '11111111-1111-1111-1111-111111111111';
 const LEGACY_PRODUCT_ID = '22222222-2222-2222-2222-222222222222';
 
@@ -34,12 +34,12 @@ describe('CsService.create', () => {
         content: '배송 문의',
         listingId: LISTING_ID,
       },
-      COMPANY_ID,
+      ORGANIZATION_ID,
     );
 
     expect(prisma.cSRecord.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        companyId: COMPANY_ID,
+        organizationId: ORGANIZATION_ID,
         csType: 'inquiry',
         content: '배송 문의',
         listingId: LISTING_ID,
@@ -55,12 +55,12 @@ describe('CsService.create', () => {
         content: '상품 문의',
         productId: LEGACY_PRODUCT_ID,
       },
-      COMPANY_ID,
+      ORGANIZATION_ID,
     );
 
     expect(prisma.cSRecord.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        companyId: COMPANY_ID,
+        organizationId: ORGANIZATION_ID,
         listingId: LEGACY_PRODUCT_ID,
       }),
     });
@@ -74,7 +74,7 @@ describe('CsService.create', () => {
         listingId: LISTING_ID,
         productId: LEGACY_PRODUCT_ID,
       },
-      COMPANY_ID,
+      ORGANIZATION_ID,
     );
 
     expect(prisma.cSRecord.create).toHaveBeenCalledWith({
@@ -90,12 +90,12 @@ describe('CsService.create', () => {
         csType: 'inquiry',
         content: '일반 문의',
       },
-      COMPANY_ID,
+      ORGANIZATION_ID,
     );
 
     expect(prisma.cSRecord.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        companyId: COMPANY_ID,
+        organizationId: ORGANIZATION_ID,
         listingId: null,
       }),
     });

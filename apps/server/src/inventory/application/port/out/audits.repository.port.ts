@@ -2,7 +2,7 @@ export const AUDITS_REPOSITORY_PORT = Symbol('AuditsRepositoryPort');
 
 export type StockAuditRow = {
   id: string;
-  companyId: string;
+  organizationId: string;
   auditNumber: string;
   status: string;
   totalProducts: number;
@@ -32,8 +32,8 @@ export type StockAuditUpdateData = {
 };
 
 export interface AuditsRepositoryPort {
-  listStockAudits(companyId: string): Promise<StockAuditRow[]>;
-  findStockAuditById(id: string, companyId: string): Promise<StockAuditRow | null>;
-  createStockAudit(companyId: string, data: CreateStockAuditData): Promise<StockAuditRow>;
+  listStockAudits(organizationId: string): Promise<StockAuditRow[]>;
+  findStockAuditById(id: string, organizationId: string): Promise<StockAuditRow | null>;
+  createStockAudit(organizationId: string, data: CreateStockAuditData): Promise<StockAuditRow>;
   updateStockAudit(id: string, data: StockAuditUpdateData): Promise<StockAuditRow>;
 }

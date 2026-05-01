@@ -23,17 +23,17 @@ import {
   makeTestPrisma,
   resetDb,
   seedBaseFixture,
-  TEST_COMPANY_ID,
+  TEST_ORGANIZATION_ID,
   TEST_USER_ID,
-  OTHER_COMPANY_ID,
-} from '../../test-helpers/real-prisma';
+  OTHER_ORGANIZATION_ID,
+} from '../../../../../test-helpers/real-prisma';
 
 const ALERT_ID = 'aaaaaaaa-1111-4000-8000-000000000001';
 
 function alertSeed(overrides: Record<string, unknown> = {}) {
   return {
     id: ALERT_ID,
-    companyId: TEST_COMPANY_ID,
+    organizationId: TEST_ORGANIZATION_ID,
     type: 'rule_violation',
     severity: 'warning' as const,
     title: 'Low CTR',
@@ -70,18 +70,18 @@ describe('Alerts.promote — real Postgres race guard', () => {
 
     const { task, updatedAlert } = await service.promote(
       ALERT_ID,
-      TEST_COMPANY_ID,
+      TEST_ORGANIZATION_ID,
       {},
       TEST_USER_ID,
     );
 
     expect(task.id).toBeTruthy();
-    expect(task.companyId).toBe(TEST_COMPANY_ID);
+    expect(task.organizationId).toBe(TEST_ORGANIZATION_ID);
     expect(updatedAlert.actionTaskId).toBe(task.id);
 
     const db = await prisma.alert.findUniqueOrThrow({ where: { id: ALERT_ID } });
     expect(db.actionTaskId).toBe(task.id);
-    const taskRows = await prisma.actionTask.count({ where: { companyId: TEST_COMPANY_ID } });
+    const taskRows = await prisma.actionTask.count({ where: { organizationId: TEST_ORGANIZATION_ID } });
     expect(taskRows).toBe(1);
   });
 
@@ -90,8 +90,8 @@ describe('Alerts.promote — real Postgres race guard', () => {
 
     // 두 promote 를 동시에 발사 — 실제 Postgres 동시 트랜잭션 경쟁 발생
     const results = await Promise.allSettled([
-      service.promote(ALERT_ID, TEST_COMPANY_ID, {}, TEST_USER_ID),
-      service.promote(ALERT_ID, TEST_COMPANY_ID, {}, TEST_USER_ID),
+      service.promote(ALERT_ID, TEST_ORGANIZATION_ID, {}, TEST_USER_ID),
+      service.promote(ALERT_ID, TEST_ORGANIZATION_ID, {}, TEST_USER_ID),
     ]);
 
     const fulfilled = results.filter((r) => r.status === 'fulfilled');
@@ -106,10 +106,10 @@ describe('Alerts.promote — real Postgres race guard', () => {
     expect(err).toBeInstanceOf(ConflictException);
 
     // DB 상태: ActionTask 정확히 1개, alert.actionTaskId 는 그 task id
-    const taskCount = await prisma.actionTask.count({ where: { companyId: TEST_COMPANY_ID } });
+    const taskCount = await prisma.actionTask.count({ where: { organizationId: TEST_ORGANIZATION_ID } });
     expect(taskCount).toBe(1);
 
-    const tasks = await prisma.actionTask.findMany({ where: { companyId: TEST_COMPANY_ID } });
+    const tasks = await prisma.actionTask.findMany({ where: { organizationId: TEST_ORGANIZATION_ID } });
     const alertRow = await prisma.alert.findUniqueOrThrow({ where: { id: ALERT_ID } });
     expect(alertRow.actionTaskId).toBe(tasks[0].id);
   });
@@ -119,7 +119,7 @@ describe('Alerts.promote — real Postgres race guard', () => {
 
     const results = await Promise.allSettled(
       Array.from({ length: 5 }, () =>
-        service.promote(ALERT_ID, TEST_COMPANY_ID, {}, TEST_USER_ID),
+        service.promote(ALERT_ID, TEST_ORGANIZATION_ID, {}, TEST_USER_ID),
       ),
     );
 
@@ -132,7 +132,7 @@ describe('Alerts.promote — real Postgres race guard', () => {
       expect((r as PromiseRejectedResult).reason).toBeInstanceOf(ConflictException);
     }
 
-    const taskCount = await prisma.actionTask.count({ where: { companyId: TEST_COMPANY_ID } });
+    const taskCount = await prisma.actionTask.count({ where: { organizationId: TEST_ORGANIZATION_ID } });
     expect(taskCount).toBe(1);
   });
 
@@ -140,23 +140,23 @@ describe('Alerts.promote — real Postgres race guard', () => {
     await prisma.alert.create({ data: alertSeed() });
 
     // 첫 promote 성공
-    await service.promote(ALERT_ID, TEST_COMPANY_ID, {}, TEST_USER_ID);
+    await service.promote(ALERT_ID, TEST_ORGANIZATION_ID, {}, TEST_USER_ID);
 
     // 두 번째 promote → actionTaskId 존재 체크에서 차단
     await expect(
-      service.promote(ALERT_ID, TEST_COMPANY_ID, {}, TEST_USER_ID),
+      service.promote(ALERT_ID, TEST_ORGANIZATION_ID, {}, TEST_USER_ID),
     ).rejects.toBeInstanceOf(ConflictException);
 
-    const taskCount = await prisma.actionTask.count({ where: { companyId: TEST_COMPANY_ID } });
+    const taskCount = await prisma.actionTask.count({ where: { organizationId: TEST_ORGANIZATION_ID } });
     expect(taskCount).toBe(1);
   });
 
   it('다른 회사의 alert promote 시도 → NotFoundException (IDOR 방어)', async () => {
-    await prisma.alert.create({ data: alertSeed({ companyId: TEST_COMPANY_ID }) });
+    await prisma.alert.create({ data: alertSeed({ organizationId: TEST_ORGANIZATION_ID }) });
 
-    // OTHER_COMPANY_ID 로 접근
+    // OTHER_ORGANIZATION_ID 로 접근
     await expect(
-      service.promote(ALERT_ID, OTHER_COMPANY_ID, {}, TEST_USER_ID),
+      service.promote(ALERT_ID, OTHER_ORGANIZATION_ID, {}, TEST_USER_ID),
     ).rejects.toBeInstanceOf(NotFoundException);
 
     const taskCount = await prisma.actionTask.count();
@@ -168,7 +168,7 @@ describe('Alerts.promote — real Postgres race guard', () => {
 
   it('존재하지 않는 alert → NotFoundException', async () => {
     await expect(
-      service.promote('00000000-0000-4000-8000-000000000999', TEST_COMPANY_ID, {}, TEST_USER_ID),
+      service.promote('00000000-0000-4000-8000-000000000999', TEST_ORGANIZATION_ID, {}, TEST_USER_ID),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 });

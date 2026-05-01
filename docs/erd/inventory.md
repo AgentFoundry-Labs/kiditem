@@ -25,7 +25,7 @@ erDiagram
   Inventory {
     String id PK
     String optionId FK,UK
-    String companyId FK
+    String organizationId FK
     Int currentStock
     Int reservedStock
     Int safetyStock
@@ -55,7 +55,7 @@ erDiagram
   }
   PickingList {
     String id PK
-    String companyId FK
+    String organizationId FK
     String listNumber
     String status
     Int totalItems
@@ -68,7 +68,7 @@ erDiagram
   }
   ReturnTransfer {
     String id PK
-    String companyId FK
+    String organizationId FK
     String rtNumber
     String orderId
     String optionId FK
@@ -86,7 +86,7 @@ erDiagram
   }
   StockAudit {
     String id PK
-    String companyId FK
+    String organizationId FK
     String auditNumber
     String status
     Int totalProducts
@@ -100,7 +100,7 @@ erDiagram
   }
   StockTransaction {
     String id PK
-    String companyId FK
+    String organizationId FK
     String optionId FK
     String optionName
     String type
@@ -116,7 +116,7 @@ erDiagram
   }
   StockTransfer {
     String id PK
-    String companyId FK
+    String organizationId FK
     String optionId FK
     String optionName
     String fromWarehouseId FK
@@ -131,7 +131,7 @@ erDiagram
   }
   Warehouse {
     String id PK
-    String companyId FK
+    String organizationId FK
     String name
     String code
     String address
@@ -152,16 +152,16 @@ erDiagram
 
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
-| Inventory | company | references external | Core | Company |
 | Inventory | option | references external | Core | ProductOption |
+| Inventory | organization | references external | Core | Organization |
 | PickingItem | option | references external | Core | ProductOption |
-| PickingList | company | references external | Core | Company |
-| ReturnTransfer | company | references external | Core | Company |
+| PickingList | organization | references external | Core | Organization |
 | ReturnTransfer | option | references external | Core | ProductOption |
-| StockAudit | company | references external | Core | Company |
-| StockTransaction | company | references external | Core | Company |
+| ReturnTransfer | organization | references external | Core | Organization |
+| StockAudit | organization | references external | Core | Organization |
 | StockTransaction | option | references external | Core | ProductOption |
-| StockTransfer | company | references external | Core | Company |
+| StockTransaction | organization | references external | Core | Organization |
 | StockTransfer | option | references external | Core | ProductOption |
-| Warehouse | company | references external | Core | Company |
+| StockTransfer | organization | references external | Core | Organization |
+| Warehouse | organization | references external | Core | Organization |
 | Warehouse | warehouse | referenced by external | Orders | Shipment |

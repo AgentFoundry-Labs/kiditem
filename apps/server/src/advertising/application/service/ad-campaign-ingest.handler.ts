@@ -58,7 +58,7 @@ export interface AdCampaignIngestDeps {
 
 export async function ingestAdCampaign(
   payload: ExtensionSyncDto,
-  companyId: string,
+  organizationId: string,
   map: ListingMap,
   deps: AdCampaignIngestDeps,
 ) {
@@ -75,7 +75,7 @@ export async function ingestAdCampaign(
   const scrapeRows = pairScrapeRows(payload.data, normalizedRows);
 
   const scrapeRun = await createScrapeRun(prisma, {
-    companyId,
+    organizationId,
     channel: 'coupang',
     source: 'advertising',
     pageType: 'campaign',
@@ -118,7 +118,7 @@ export async function ingestAdCampaign(
       ]);
       const snapshot = await appendScrapeSnapshot(prisma, {
         scrapeRunId: scrapeRun.id,
-        companyId,
+        organizationId,
         channel: 'coupang',
         source: 'advertising',
         pageType: cleanString(row.pageType) || 'campaign',
@@ -179,7 +179,7 @@ export async function ingestAdCampaign(
           adOrders: rowOrders,
         };
         addListingAdMetrics(listingAdMetrics, {
-          companyId,
+          organizationId,
           listingId: match.listingId,
           channel: 'coupang',
           externalId: match.externalId,
@@ -210,7 +210,7 @@ export async function ingestAdCampaign(
           listingId: match.listingId,
         });
         await upsertChannelAdTargetDaily(prisma, {
-          companyId,
+          organizationId,
           channel: 'coupang',
           businessDate: today,
           targetType,
@@ -275,7 +275,7 @@ export async function ingestAdCampaign(
         rowCount: scrapeRows.length,
       };
       await upsertChannelAccountKpi(prisma, {
-        companyId,
+        organizationId,
         channel: 'coupang',
         source: 'advertising',
         kpiType: 'advertising_campaign_kpis',
@@ -290,7 +290,7 @@ export async function ingestAdCampaign(
 
     await finalizeScrapeRun(prisma, {
       scrapeRunId: scrapeRun.id,
-      companyId,
+      organizationId,
       status: 'complete',
       rowCount: scrapeSnapshotCount,
       matchedCount: scrapeMatched,
@@ -314,7 +314,7 @@ export async function ingestAdCampaign(
   } catch (err) {
     await finalizeScrapeRunOnError(prisma, {
       scrapeRunId: scrapeRun.id,
-      companyId,
+      organizationId,
       rowCount: scrapeSnapshotCount,
       matchedCount: scrapeMatched,
       unmatchedCount: scrapeUnmatched,

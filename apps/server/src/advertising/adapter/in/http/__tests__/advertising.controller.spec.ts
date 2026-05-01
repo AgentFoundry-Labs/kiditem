@@ -9,7 +9,7 @@ import { AdvertisingController } from '../advertising.controller';
 
 // Controller wiring: this spec keeps the cases where the controller does
 // real work — defaults, body→service transformations, command/sub-action
-// dispatch (including BadRequest), and cross-tenant companyId propagation.
+// dispatch (including BadRequest), and cross-tenant organizationId propagation.
 // Pure pass-through GETs are removed because TypeScript signatures + the
 // service unit/integration suites already cover them; see the Phase 3B
 // Lane C plan ("Test Cleanup Inventory") for the full rationale.
@@ -77,7 +77,7 @@ function makeController(svcs = makeServices()) {
   return { ctrl, svcs };
 }
 
-const COMPANY = 'company-1';
+const COMPANY = 'organization-1';
 
 describe('AdvertisingController — defaults + body transformations', () => {
   it('PATCH /:id/tier extracts adTier from body before delegating', () => {
@@ -132,13 +132,13 @@ describe('AdvertisingController — defaults + body transformations', () => {
 });
 
 describe('AdvertisingController — POST /scrape-targets dispatch', () => {
-  it('action=markScraped → sync.markScraped(id, companyId)', () => {
+  it('action=markScraped → sync.markScraped(id, organizationId)', () => {
     const { ctrl, svcs } = makeController();
     ctrl.handleScrapeTarget({ action: 'markScraped', id: 'target-1' } as any, COMPANY);
     expect(svcs.sync.markScraped).toHaveBeenCalledWith('target-1', COMPANY);
   });
 
-  it('create body → sync.createScrapeTarget(url, label, category, companyId)', () => {
+  it('create body → sync.createScrapeTarget(url, label, category, organizationId)', () => {
     const { ctrl, svcs } = makeController();
     ctrl.handleScrapeTarget(
       { url: 'https://example.com', label: 'L', category: 'C' } as any,
@@ -161,12 +161,12 @@ describe('AdvertisingController — POST /actions sub-action dispatch', () => {
     ({ ctrl, svcs } = makeController());
   });
 
-  it('action=generate → action.generateActions(companyId)', () => {
+  it('action=generate → action.generateActions(organizationId)', () => {
     ctrl.handleActionCommand({ action: 'generate' } as any, COMPANY);
     expect(svcs.action.generateActions).toHaveBeenCalledWith(COMPANY);
   });
 
-  it('action=approve → action.approveActions(ids, companyId)', () => {
+  it('action=approve → action.approveActions(ids, organizationId)', () => {
     ctrl.handleActionCommand({ action: 'approve', ids: ['a', 'b'] } as any, COMPANY);
     expect(svcs.action.approveActions).toHaveBeenCalledWith(['a', 'b'], COMPANY);
   });
@@ -176,12 +176,12 @@ describe('AdvertisingController — POST /actions sub-action dispatch', () => {
     expect(svcs.action.approveActions).toHaveBeenCalledWith([], COMPANY);
   });
 
-  it('action=reject → action.rejectActions(ids, companyId)', () => {
+  it('action=reject → action.rejectActions(ids, organizationId)', () => {
     ctrl.handleActionCommand({ action: 'reject', ids: ['a'] } as any, COMPANY);
     expect(svcs.action.rejectActions).toHaveBeenCalledWith(['a'], COMPANY);
   });
 
-  it('action=markRunning → action.markRunning(id, beforeJson, companyId)', () => {
+  it('action=markRunning → action.markRunning(id, beforeJson, organizationId)', () => {
     ctrl.handleActionCommand(
       { action: 'markRunning', id: 'x', beforeJson: { before: 1 } } as any,
       COMPANY,
@@ -195,7 +195,7 @@ describe('AdvertisingController — POST /actions sub-action dispatch', () => {
     ).toThrow(BadRequestException);
   });
 
-  it('action=markDone → action.markDone(id, afterJson, companyId)', () => {
+  it('action=markDone → action.markDone(id, afterJson, organizationId)', () => {
     ctrl.handleActionCommand(
       { action: 'markDone', id: 'x', afterJson: { after: 1 } } as any,
       COMPANY,
@@ -209,7 +209,7 @@ describe('AdvertisingController — POST /actions sub-action dispatch', () => {
     ).toThrow(BadRequestException);
   });
 
-  it('action=markFailed → action.markFailed(id, errorMessage, afterJson, companyId)', () => {
+  it('action=markFailed → action.markFailed(id, errorMessage, afterJson, organizationId)', () => {
     ctrl.handleActionCommand(
       {
         action: 'markFailed',
@@ -228,7 +228,7 @@ describe('AdvertisingController — POST /actions sub-action dispatch', () => {
     ).toThrow(BadRequestException);
   });
 
-  it('action=resetFailed → action.resetFailed(companyId)', () => {
+  it('action=resetFailed → action.resetFailed(organizationId)', () => {
     ctrl.handleActionCommand({ action: 'resetFailed' } as any, COMPANY);
     expect(svcs.action.resetFailed).toHaveBeenCalledWith(COMPANY);
   });
@@ -240,12 +240,12 @@ describe('AdvertisingController — POST /actions sub-action dispatch', () => {
   });
 });
 
-describe('AdvertisingController — companyId 격리 (ADR-0006)', () => {
-  it('서로 다른 companyId 는 각각 전파 (cross-tenant 흘림 없음)', () => {
+describe('AdvertisingController — organizationId 격리 (ADR-0006)', () => {
+  it('서로 다른 organizationId 는 각각 전파 (cross-tenant 흘림 없음)', () => {
     const { ctrl, svcs } = makeController();
-    ctrl.getHub('company-a');
-    ctrl.getHub('company-b');
-    expect(svcs.advertising.getHubData).toHaveBeenNthCalledWith(1, 'company-a');
-    expect(svcs.advertising.getHubData).toHaveBeenNthCalledWith(2, 'company-b');
+    ctrl.getHub('organization-a');
+    ctrl.getHub('organization-b');
+    expect(svcs.advertising.getHubData).toHaveBeenNthCalledWith(1, 'organization-a');
+    expect(svcs.advertising.getHubData).toHaveBeenNthCalledWith(2, 'organization-b');
   });
 });

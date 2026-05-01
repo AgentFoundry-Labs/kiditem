@@ -21,26 +21,26 @@ export class WarehousesService implements WarehousesPort {
     private readonly repository: WarehousesRepositoryPort,
   ) {}
 
-  findAll(companyId: string): Promise<WarehouseListItem[]> {
-    return this.repository.listWarehouses(companyId);
+  findAll(organizationId: string): Promise<WarehouseListItem[]> {
+    return this.repository.listWarehouses(organizationId);
   }
 
-  create(companyId: string, dto: CreateWarehouseInput): Promise<WarehouseRow> {
-    return this.repository.createWarehouse(companyId, dto);
+  create(organizationId: string, dto: CreateWarehouseInput): Promise<WarehouseRow> {
+    return this.repository.createWarehouse(organizationId, dto);
   }
 
   async update(
     id: string,
-    companyId: string,
+    organizationId: string,
     dto: UpdateWarehouseInput,
   ): Promise<WarehouseRow> {
-    const existing = await this.repository.findWarehouseById(id, companyId);
+    const existing = await this.repository.findWarehouseById(id, organizationId);
     if (!existing) throw new BadRequestException('창고를 찾을 수 없습니다');
     return this.repository.updateWarehouse(id, dto);
   }
 
-  async delete(id: string, companyId: string): Promise<{ ok: true }> {
-    const existing = await this.repository.findWarehouseById(id, companyId);
+  async delete(id: string, organizationId: string): Promise<{ ok: true }> {
+    const existing = await this.repository.findWarehouseById(id, organizationId);
     if (!existing) throw new BadRequestException('창고를 찾을 수 없습니다');
     await this.repository.deleteWarehouse(id);
     return { ok: true };

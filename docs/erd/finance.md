@@ -12,7 +12,7 @@
 | GradeHistory | `grade_histories` | ABC 등급 변경 추적. |
 | ManualLedger | `manual_ledgers` | 자동 집계 외 수기 수입/지출. |
 | ProcessingCost | `processing_costs` | - |
-| ProfitLoss | `profit_loss` | 월간 손익. companyId+listingId+year+month unique. |
+| ProfitLoss | `profit_loss` | 월간 손익. organizationId+listingId+year+month unique. |
 | SalesPlan | `sales_plans` | - |
 
 ## Mermaid ER Diagram
@@ -21,7 +21,7 @@
 erDiagram
   GradeHistory {
     String id PK
-    String companyId FK
+    String organizationId FK
     String masterId FK
     String oldGrade
     String newGrade
@@ -34,7 +34,7 @@ erDiagram
   }
   ManualLedger {
     String id PK
-    String companyId FK
+    String organizationId FK
     DateTime date
     String type
     String category
@@ -48,7 +48,7 @@ erDiagram
   }
   ProcessingCost {
     String id PK
-    String companyId FK
+    String organizationId FK
     String masterId FK
     String productName
     String vendor
@@ -63,7 +63,7 @@ erDiagram
   }
   ProfitLoss {
     String id PK
-    String companyId FK
+    String organizationId FK
     String listingId FK
     Int year
     Int month
@@ -82,7 +82,7 @@ erDiagram
   }
   SalesPlan {
     String id PK
-    String companyId FK
+    String organizationId FK
     String period
     Int targetRevenue
     Int targetOrders
@@ -100,11 +100,11 @@ erDiagram
 
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
-| GradeHistory | company | references external | Core | Company |
 | GradeHistory | master | references external | Core | MasterProduct |
-| ManualLedger | company | references external | Core | Company |
-| ProcessingCost | company | references external | Core | Company |
+| GradeHistory | organization | references external | Core | Organization |
+| ManualLedger | organization | references external | Core | Organization |
 | ProcessingCost | master | references external | Core | MasterProduct |
-| ProfitLoss | company | references external | Core | Company |
+| ProcessingCost | organization | references external | Core | Organization |
 | ProfitLoss | listing | references external | Core | ChannelListing |
-| SalesPlan | company | references external | Core | Company |
+| ProfitLoss | organization | references external | Core | Organization |
+| SalesPlan | organization | references external | Core | Organization |

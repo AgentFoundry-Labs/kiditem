@@ -8,7 +8,7 @@ import type { ProductOption } from '@kiditem/shared/product';
 const option: ProductOption = {
   id: '11111111-1111-4111-8111-111111111111',
   masterId: '22222222-2222-4222-8222-222222222222',
-  companyId: '33333333-3333-4333-8333-333333333333',
+  organizationId: '33333333-3333-4333-8333-333333333333',
   sku: 'M-00000001-01',
   barcode: '8801234567890',
   legacyCode: '10349-1',

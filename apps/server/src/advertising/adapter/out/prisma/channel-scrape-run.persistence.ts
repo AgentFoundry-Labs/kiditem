@@ -3,8 +3,8 @@
 // Pure functions over `PrismaService`. Owns only the run lifecycle (create
 // run → append snapshot per row → finalize run / finalize-on-error). Daily
 // fact upserts live in sibling files so each persistence concern can evolve
-// independently. Tenant predicate (`companyId`) is required on every write
-// path; `finalizeRun` rejects when `(scrapeRunId, companyId)` does not match
+// independently. Tenant predicate (`organizationId`) is required on every write
+// path; `finalizeRun` rejects when `(scrapeRunId, organizationId)` does not match
 // to keep cross-tenant errors loud.
 
 import { Logger } from '@nestjs/common';
@@ -15,7 +15,7 @@ import type { ScrapeMatchStatus } from '../../../domain/listing-match';
 const logger = new Logger('ChannelScrapeRunPersistence');
 
 export interface ScrapeRunInput {
-  companyId: string;
+  organizationId: string;
   channel: string;
   source: string;
   pageType: string;
@@ -30,7 +30,7 @@ export interface ScrapeRunInput {
 
 export interface ScrapeSnapshotInput {
   scrapeRunId: string;
-  companyId: string;
+  organizationId: string;
   channel: string;
   source: string;
   pageType: string;
@@ -49,7 +49,7 @@ export interface ScrapeSnapshotInput {
 
 export interface ScrapeRunFinalize {
   scrapeRunId: string;
-  companyId: string;
+  organizationId: string;
   status: 'complete' | 'error' | 'partial';
   rowCount?: number;
   matchedCount?: number;
@@ -64,7 +64,7 @@ export async function createScrapeRun(
 ): Promise<{ id: string }> {
   return prisma.channelScrapeRun.create({
     data: {
-      companyId: input.companyId,
+      organizationId: input.organizationId,
       channel: input.channel,
       source: input.source,
       pageType: input.pageType,
@@ -91,7 +91,7 @@ export async function appendScrapeSnapshot(
   return prisma.channelScrapeSnapshot.create({
     data: {
       scrapeRunId: input.scrapeRunId,
-      companyId: input.companyId,
+      organizationId: input.organizationId,
       channel: input.channel,
       source: input.source,
       pageType: input.pageType,
@@ -119,7 +119,7 @@ export async function finalizeScrapeRun(
   input: ScrapeRunFinalize,
 ): Promise<void> {
   const result = await prisma.channelScrapeRun.updateMany({
-    where: { id: input.scrapeRunId, companyId: input.companyId },
+    where: { id: input.scrapeRunId, organizationId: input.organizationId },
     data: {
       status: input.status,
       rowCount: input.rowCount ?? 0,
@@ -135,7 +135,7 @@ export async function finalizeScrapeRun(
   });
   if (result.count !== 1) {
     throw new Error(
-      `ChannelScrapeRun not found for company scope: ${input.scrapeRunId}`,
+      `ChannelScrapeRun not found for organization scope: ${input.scrapeRunId}`,
     );
   }
 }
@@ -162,7 +162,7 @@ export async function finalizeScrapeRunOnError(
   prisma: PrismaService,
   input: {
     scrapeRunId: string;
-    companyId: string;
+    organizationId: string;
     rowCount: number;
     matchedCount: number;
     unmatchedCount: number;
@@ -172,7 +172,7 @@ export async function finalizeScrapeRunOnError(
   try {
     await finalizeScrapeRun(prisma, {
       scrapeRunId: input.scrapeRunId,
-      companyId: input.companyId,
+      organizationId: input.organizationId,
       status: 'error',
       rowCount: input.rowCount,
       matchedCount: input.matchedCount,

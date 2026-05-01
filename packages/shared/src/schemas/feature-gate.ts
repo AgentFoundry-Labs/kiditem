@@ -5,7 +5,7 @@ export const FeatureGateSchema = z.object({
   name: z.string(),
   description: z.string().nullable(),
   enabled: z.boolean(),
-  allowedCompanies: z.array(z.string()),
+  allowedOrganizations: z.array(z.string()),
   metadata: z.record(z.unknown()).nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),

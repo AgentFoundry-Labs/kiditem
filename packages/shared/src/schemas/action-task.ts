@@ -16,7 +16,7 @@ export const ActionTaskSourceAlertSchema = z.object({
 
 export const ActionTaskSchema = z.object({
   id: z.string(),
-  companyId: z.string(),
+  organizationId: z.string(),
   taskKey: z.string(),
   type: z.string(),
   label: z.string(),

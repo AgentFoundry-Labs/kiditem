@@ -2,7 +2,7 @@
 import { Type } from 'class-transformer';
 import {
   IsArray, IsBoolean, IsIn, IsInt, IsNotEmpty, IsNumber, IsOptional,
-  IsString, IsUUID, IsUrl, Max, MaxLength, Min, ValidateIf, ValidateNested,
+  IsString, IsUrl, Max, MaxLength, Min, ValidateIf, ValidateNested,
 } from 'class-validator';
 import { MasterImageItemDto } from './master-image-item.dto';
 
@@ -38,9 +38,6 @@ export class CreateMasterDto {
 
   @IsOptional() @IsArray() @IsString({ each: true })
   tags?: string[];
-
-  @IsOptional() @IsUUID()
-  supplierId?: string;
 
   @IsOptional() @IsUrl()
   sourceUrl?: string;

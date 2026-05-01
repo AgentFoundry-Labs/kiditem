@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Inject, Param, Patch, Post } from '@nestjs/common';
-import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
+import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import {
   WAREHOUSES_PORT,
   type WarehousesPort,
@@ -13,26 +13,26 @@ export class WarehousesController {
   ) {}
 
   @Get()
-  findAll(@CurrentCompany() companyId: string) {
-    return this.warehouses.findAll(companyId);
+  findAll(@CurrentOrganization() organizationId: string) {
+    return this.warehouses.findAll(organizationId);
   }
 
   @Post()
-  create(@Body() dto: CreateWarehouseDto, @CurrentCompany() companyId: string) {
-    return this.warehouses.create(companyId, dto);
+  create(@Body() dto: CreateWarehouseDto, @CurrentOrganization() organizationId: string) {
+    return this.warehouses.create(organizationId, dto);
   }
 
   @Patch(':id')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateWarehouseDto,
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
   ) {
-    return this.warehouses.update(id, companyId, dto);
+    return this.warehouses.update(id, organizationId, dto);
   }
 
   @Delete(':id')
-  delete(@Param('id') id: string, @CurrentCompany() companyId: string) {
-    return this.warehouses.delete(id, companyId);
+  delete(@Param('id') id: string, @CurrentOrganization() organizationId: string) {
+    return this.warehouses.delete(id, organizationId);
   }
 }

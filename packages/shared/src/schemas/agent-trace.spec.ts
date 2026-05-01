@@ -9,7 +9,7 @@ import {
 function makeTask(overrides: Record<string, unknown> = {}) {
   return {
     id: 'task-1',
-    companyId: 'co-1',
+    organizationId: 'co-1',
     agentType: 'vision_strategist',
     status: 'completed',
     priority: 0,
@@ -31,7 +31,7 @@ function makeTask(overrides: Record<string, unknown> = {}) {
 function makeHeartbeat(id: string) {
   return {
     id,
-    companyId: 'co-1',
+    organizationId: 'co-1',
     agentId: 'ag-1',
     invocationSource: 'on_demand',
     triggerDetail: null,
@@ -58,7 +58,7 @@ function makeHeartbeat(id: string) {
 function makeEvent(id: string, overrides: Record<string, unknown> = {}) {
   return {
     id,
-    companyId: 'co-1',
+    organizationId: 'co-1',
     agentId: 'ag-1',
     runId: 'hb-1',
     eventType: 'action_snapshot',

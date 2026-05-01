@@ -12,9 +12,9 @@ import type {
 export class WarehousesRepositoryAdapter implements WarehousesRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
-  async listWarehouses(companyId: string): Promise<WarehouseListItem[]> {
+  async listWarehouses(organizationId: string): Promise<WarehouseListItem[]> {
     const rows = await this.prisma.warehouse.findMany({
-      where: { companyId },
+      where: { organizationId },
       include: {
         _count: {
           select: { shipments: true },
@@ -29,14 +29,14 @@ export class WarehousesRepositoryAdapter implements WarehousesRepositoryPort {
     }));
   }
 
-  findWarehouseById(id: string, companyId: string): Promise<WarehouseRow | null> {
-    return this.prisma.warehouse.findFirst({ where: { id, companyId } });
+  findWarehouseById(id: string, organizationId: string): Promise<WarehouseRow | null> {
+    return this.prisma.warehouse.findFirst({ where: { id, organizationId } });
   }
 
-  createWarehouse(companyId: string, data: CreateWarehouseData): Promise<WarehouseRow> {
+  createWarehouse(organizationId: string, data: CreateWarehouseData): Promise<WarehouseRow> {
     return this.prisma.warehouse.create({
       data: {
-        companyId,
+        organizationId,
         name: data.name,
         code: data.code,
         address: data.address,

@@ -1,5 +1,5 @@
 import { Controller, Get, Header, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
-import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
+import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { ProductCatalogService } from '../../../application/service/product-catalog.service';
 import { MastersService } from '../../../application/service/masters.service';
 import { ListProductCatalogQuery } from '../../../dto/list-product-catalog.query';
@@ -25,20 +25,20 @@ export class ProductsLegacyController {
   @Header('Deprecation', DEPRECATION_HEADER)
   @Header('Sunset', SUNSET_HEADER)
   async list(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Query() q: ListProductCatalogQuery,
   ) {
-    return this.catalog.list(companyId, q);
+    return this.catalog.list(organizationId, q);
   }
 
   @Get('pipeline-stats')
   @Header('Deprecation', DEPRECATION_HEADER)
   @Header('Sunset', SUNSET_HEADER)
   async pipelineStats(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Query() q: ListProductCatalogQuery,
   ) {
-    return this.catalog.counts(companyId, q);
+    return this.catalog.counts(organizationId, q);
   }
 
   // Both GET and POST supported for calculate-grades: action-board.service.ts
@@ -49,22 +49,22 @@ export class ProductsLegacyController {
   @Get('calculate-grades')
   @Header('Deprecation', DEPRECATION_HEADER)
   @Header('Sunset', SUNSET_HEADER)
-  async calculateGradesGet(@CurrentCompany() companyId: string) {
-    return this.calculateGradesImpl(companyId);
+  async calculateGradesGet(@CurrentOrganization() organizationId: string) {
+    return this.calculateGradesImpl(organizationId);
   }
 
   @Post('calculate-grades')
   @HttpCode(200)
   @Header('Deprecation', DEPRECATION_HEADER)
   @Header('Sunset', SUNSET_HEADER)
-  async calculateGradesPost(@CurrentCompany() companyId: string) {
-    return this.calculateGradesImpl(companyId);
+  async calculateGradesPost(@CurrentOrganization() organizationId: string) {
+    return this.calculateGradesImpl(organizationId);
   }
 
-  private async calculateGradesImpl(companyId: string) {
+  private async calculateGradesImpl(organizationId: string) {
     return {
       ok: true,
-      counts: await this.catalog.counts(companyId),
+      counts: await this.catalog.counts(organizationId),
     };
   }
 
@@ -72,19 +72,19 @@ export class ProductsLegacyController {
   @Header('Deprecation', DEPRECATION_HEADER)
   @Header('Sunset', SUNSET_HEADER)
   async originalImageBase64(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Param('id', new ParseUUIDPipe()) id: string,
   ) {
-    return this.masters.originalImageBase64(companyId, id);
+    return this.masters.originalImageBase64(organizationId, id);
   }
 
   @Get(':id')
   @Header('Deprecation', DEPRECATION_HEADER)
   @Header('Sunset', SUNSET_HEADER)
   async detail(
-    @CurrentCompany() companyId: string,
+    @CurrentOrganization() organizationId: string,
     @Param('id', new ParseUUIDPipe()) id: string,
   ) {
-    return this.catalog.detail(companyId, id);
+    return this.catalog.detail(organizationId, id);
   }
 }

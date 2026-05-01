@@ -28,7 +28,7 @@ import type {
 function legacyToTemplate(wf: Workflow): WorkflowTemplate {
   return {
     id: wf.id,
-    companyId: null,
+    organizationId: null,
     name: wf.name,
     description: wf.description,
     module: wf.module,

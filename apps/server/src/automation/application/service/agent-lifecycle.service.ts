@@ -6,31 +6,31 @@ import { tenantOwnedFilter, tenantScopeFilter } from './agent-registry.types';
 export class AgentLifecycleService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getRunById(runId: string, companyId: string) {
+  async getRunById(runId: string, organizationId: string) {
     const run = await this.prisma.heartbeatRun.findFirst({
-      where: { id: runId, companyId },
+      where: { id: runId, organizationId },
     });
     if (!run) throw new NotFoundException(`HeartbeatRun ${runId} not found`);
     return run;
   }
 
-  async getRunHistory(agentId: string, companyId: string, limit = 20) {
+  async getRunHistory(agentId: string, organizationId: string, limit = 20) {
     const owned = await this.prisma.agentDefinition.findFirst({
-      where: { id: agentId, ...tenantScopeFilter(companyId) },
+      where: { id: agentId, ...tenantScopeFilter(organizationId) },
       select: { id: true },
     });
     if (!owned) throw new NotFoundException(`Agent definition ${agentId} not found`);
 
     return this.prisma.heartbeatRun.findMany({
-      where: { agentId, companyId },
+      where: { agentId, organizationId },
       orderBy: { createdAt: 'desc' },
       take: limit,
     });
   }
 
-  async getRuntimeState(agentId: string, companyId: string) {
+  async getRuntimeState(agentId: string, organizationId: string) {
     const agent = await this.prisma.agentDefinition.findFirst({
-      where: { id: agentId, ...tenantScopeFilter(companyId) },
+      where: { id: agentId, ...tenantScopeFilter(organizationId) },
     });
     if (!agent) {
       return {
@@ -61,33 +61,33 @@ export class AgentLifecycleService {
     };
   }
 
-  async resetSession(agentId: string, companyId: string): Promise<{ ok: boolean }> {
+  async resetSession(agentId: string, organizationId: string): Promise<{ ok: boolean }> {
     const result = await this.prisma.agentDefinition.updateMany({
-      where: { id: agentId, ...tenantOwnedFilter(companyId) },
+      where: { id: agentId, ...tenantOwnedFilter(organizationId) },
       data: { rtSessionId: null } as any,
     });
     if (result.count === 0) throw new NotFoundException(`Agent definition ${agentId} not found`);
     return { ok: true };
   }
 
-  async pauseAgent(agentId: string, companyId: string, reason?: string): Promise<{ ok: boolean }> {
+  async pauseAgent(agentId: string, organizationId: string, reason?: string): Promise<{ ok: boolean }> {
     const result = await this.prisma.agentDefinition.updateMany({
-      where: { id: agentId, ...tenantOwnedFilter(companyId) },
+      where: { id: agentId, ...tenantOwnedFilter(organizationId) },
       data: { status: 'paused', pauseReason: reason, pausedAt: new Date() },
     });
     if (result.count === 0) throw new NotFoundException(`Agent definition ${agentId} not found`);
     return { ok: true };
   }
 
-  async resumeAgent(agentId: string, companyId: string): Promise<{ ok: boolean }> {
+  async resumeAgent(agentId: string, organizationId: string): Promise<{ ok: boolean }> {
     const result = await this.prisma.agentDefinition.updateMany({
-      where: { id: agentId, ...tenantOwnedFilter(companyId) },
+      where: { id: agentId, ...tenantOwnedFilter(organizationId) },
       data: { status: 'idle', pauseReason: null, pausedAt: null },
     });
     if (result.count === 0) throw new NotFoundException(`Agent definition ${agentId} not found`);
 
     await this.prisma.agentDefinition.updateMany({
-      where: { id: agentId, ...tenantOwnedFilter(companyId) },
+      where: { id: agentId, ...tenantOwnedFilter(organizationId) },
       data: { rtConsecutiveFailCount: 0, rtLastFailedAt: null } as any,
     });
     return { ok: true };

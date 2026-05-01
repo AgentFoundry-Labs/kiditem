@@ -35,7 +35,7 @@ export function isConcurrencySafe(nodeType: string): boolean {
 export async function recordActivity(
   prisma: PrismaService,
   event: {
-    companyId: string;
+    organizationId: string;
     objectType: string;
     objectId: string;
     eventType: string;

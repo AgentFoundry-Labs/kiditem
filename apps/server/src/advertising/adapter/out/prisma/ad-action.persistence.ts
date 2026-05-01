@@ -18,12 +18,12 @@ type AdActionTxClient = Prisma.TransactionClient | PrismaService;
 
 /**
  * Persist a batch of action candidates as `AdAction` rows scoped to one
- * company. Returns the created rows in input order so the caller can build a
+ * organization. Returns the created rows in input order so the caller can build a
  * preview list without re-querying.
  */
 export async function createAdActionsFromCandidates(
   prisma: PrismaService,
-  companyId: string,
+  organizationId: string,
   candidates: ActionCandidate[],
 ): Promise<AdAction[]> {
   if (candidates.length === 0) return [];
@@ -31,7 +31,7 @@ export async function createAdActionsFromCandidates(
     candidates.map((c) =>
       prisma.adAction.create({
         data: {
-          companyId,
+          organizationId,
           listingId: c.listingId,
           // Audit pointer to source daily fact row.
           adTargetDailyId: c.adTargetDailyId,
@@ -61,10 +61,10 @@ export async function createAdActionsFromCandidates(
 export async function approveAdActions(
   tx: Prisma.TransactionClient,
   ids: string[],
-  companyId: string,
+  organizationId: string,
 ): Promise<void> {
   await tx.adAction.updateMany({
-    where: { id: { in: ids }, companyId },
+    where: { id: { in: ids }, organizationId },
     data: {
       approvalStatus: 'approved',
       approvedAt: new Date(),
@@ -73,7 +73,7 @@ export async function approveAdActions(
   });
 
   const scopedActions = await tx.adAction.findMany({
-    where: { id: { in: ids }, companyId },
+    where: { id: { in: ids }, organizationId },
     select: { id: true },
   });
   const scopedIds = scopedActions.map((a) => a.id);
@@ -104,15 +104,15 @@ export async function approveAdActions(
 export async function rejectAdActions(
   tx: Prisma.TransactionClient,
   ids: string[],
-  companyId: string,
+  organizationId: string,
 ): Promise<void> {
   await tx.adAction.updateMany({
-    where: { id: { in: ids }, companyId },
+    where: { id: { in: ids }, organizationId },
     data: { approvalStatus: 'rejected', executeStatus: 'queued' },
   });
 
   const scopedActions = await tx.adAction.findMany({
-    where: { id: { in: ids }, companyId },
+    where: { id: { in: ids }, organizationId },
     select: { id: true },
   });
   const scopedIds = scopedActions.map((a) => a.id);
@@ -125,16 +125,16 @@ export async function rejectAdActions(
 }
 
 /**
- * Re-queue every approved-but-failed action for the company and create a
+ * Re-queue every approved-but-failed action for the organization and create a
  * fresh `ExecutionTask` per re-queued action so the worker fleet picks them
  * up on the next lease cycle.
  */
 export async function resetFailedAdActions(
   tx: Prisma.TransactionClient,
-  companyId: string,
+  organizationId: string,
 ): Promise<void> {
   const failedActions = await tx.adAction.findMany({
-    where: { companyId, executeStatus: 'failed', approvalStatus: 'approved' },
+    where: { organizationId, executeStatus: 'failed', approvalStatus: 'approved' },
     select: { id: true },
   });
 
@@ -142,7 +142,7 @@ export async function resetFailedAdActions(
   const ids = failedActions.map((a) => a.id);
 
   await tx.adAction.updateMany({
-    where: { id: { in: ids }, companyId },
+    where: { id: { in: ids }, organizationId },
     data: { executeStatus: 'queued', errorMessage: null },
   });
 
@@ -153,17 +153,17 @@ export async function resetFailedAdActions(
 
 /**
  * Tenant-scoped single-row state transition for `AdAction`. Throws
- * `NotFoundException` when the row does not belong to the company so cross-
+ * `NotFoundException` when the row does not belong to the organization so cross-
  * tenant id usage cannot silently no-op.
  */
 export async function updateActionOrThrow(
   prisma: AdActionTxClient,
   id: string,
-  companyId: string,
+  organizationId: string,
   data: Prisma.AdActionUpdateManyMutationInput,
 ): Promise<void> {
   const updated = await prisma.adAction.updateMany({
-    where: { id, companyId },
+    where: { id, organizationId },
     data,
   });
   if (updated.count !== 1) throw new NotFoundException('AdAction not found');

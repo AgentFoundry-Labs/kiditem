@@ -7,8 +7,8 @@ import { CreateProcessingCostDto, UpdateProcessingCostDto } from './dto';
 export class ProcessingCostsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(companyId: string, status?: string) {
-    const where: Prisma.ProcessingCostWhereInput = { companyId };
+  async findAll(organizationId: string, status?: string) {
+    const where: Prisma.ProcessingCostWhereInput = { organizationId };
     if (status) {
       where.status = status;
     }
@@ -20,9 +20,9 @@ export class ProcessingCostsService {
     });
   }
 
-  async create(companyId: string, dto: CreateProcessingCostDto) {
+  async create(organizationId: string, dto: CreateProcessingCostDto) {
     const master = await this.prisma.masterProduct.findFirst({
-      where: { id: dto.masterId, companyId, isDeleted: false },
+      where: { id: dto.masterId, organizationId, isDeleted: false },
       select: { id: true },
     });
     if (!master) {
@@ -33,7 +33,7 @@ export class ProcessingCostsService {
 
     return this.prisma.processingCost.create({
       data: {
-        companyId,
+        organizationId,
         masterId: dto.masterId,
         processType: dto.processType,
         unitCost: dto.unitCost,
@@ -47,9 +47,9 @@ export class ProcessingCostsService {
     });
   }
 
-  async update(id: string, companyId: string, dto: UpdateProcessingCostDto) {
+  async update(id: string, organizationId: string, dto: UpdateProcessingCostDto) {
     const result = await this.prisma.processingCost.updateMany({
-      where: { id, companyId },
+      where: { id, organizationId },
       data: {
         ...(dto.status !== undefined && { status: dto.status }),
         ...(dto.notes !== undefined && { notes: dto.notes }),
@@ -59,15 +59,15 @@ export class ProcessingCostsService {
       throw new BadRequestException('가공비를 찾을 수 없습니다');
     }
     return this.prisma.processingCost.findFirstOrThrow({
-      where: { id, companyId },
+      where: { id, organizationId },
       include: { master: true },
     });
   }
 
   /** 월별 가공비 집계: status별 totalCost 합산 */
-  async monthly(companyId: string) {
+  async monthly(organizationId: string) {
     const costs = await this.prisma.processingCost.findMany({
-      where: { companyId },
+      where: { organizationId },
       select: { date: true, totalCost: true, status: true },
       orderBy: { date: 'desc' },
     });

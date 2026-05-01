@@ -6,7 +6,7 @@ import type { AdCollectStatus } from '@kiditem/shared/advertising';
 export class AdCollectService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async startCollection(_period: string | undefined, _companyId: string) {
+  async startCollection(_period: string | undefined, _organizationId: string) {
     return {
       status: 'extension_required',
       message: '크롬 익스텐션의 정보 수집 버튼을 사용하세요.',
@@ -23,11 +23,11 @@ export class AdCollectService {
    * has historically surfaced. `ChannelScrapeSnapshot` count would be
    * "row 수" which is reported separately by `getExtensionStatus`.
    */
-  async getStatus(companyId: string): Promise<AdCollectStatus> {
+  async getStatus(organizationId: string): Promise<AdCollectStatus> {
     try {
       const [latestRun, campaignCount, productCount] = await Promise.all([
         this.prisma.channelScrapeRun.findFirst({
-          where: { companyId },
+          where: { organizationId },
           orderBy: [
             { finishedAt: 'desc' },
             { startedAt: 'desc' },
@@ -39,7 +39,7 @@ export class AdCollectService {
         // generic 'advertising') from the Coupang ad center.
         this.prisma.channelScrapeRun.count({
           where: {
-            companyId,
+            organizationId,
             source: 'advertising',
             pageType: { in: ['campaign', 'keyword', 'product', 'advertising'] },
           },
@@ -47,7 +47,7 @@ export class AdCollectService {
         // Wing-side scrape runs (item-winner status, traffic dashboard).
         this.prisma.channelScrapeRun.count({
           where: {
-            companyId,
+            organizationId,
             source: 'wing',
             pageType: { in: ['itemwinner', 'traffic'] },
           },

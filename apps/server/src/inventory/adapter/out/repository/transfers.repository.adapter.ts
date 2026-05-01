@@ -18,8 +18,8 @@ const TRANSFER_INCLUDE = {
 export class TransfersRepositoryAdapter implements TransfersRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
-  listStockTransfers(companyId: string, status?: string): Promise<StockTransferRow[]> {
-    const where: Prisma.StockTransferWhereInput = { companyId };
+  listStockTransfers(organizationId: string, status?: string): Promise<StockTransferRow[]> {
+    const where: Prisma.StockTransferWhereInput = { organizationId };
     if (status) where.status = status;
     return this.prisma.stockTransfer.findMany({
       where,
@@ -30,29 +30,29 @@ export class TransfersRepositoryAdapter implements TransfersRepositoryPort {
 
   findOptionForTransfer(
     optionId: string,
-    companyId: string,
+    organizationId: string,
   ): Promise<{ optionName: string | null } | null> {
     return this.prisma.productOption.findFirst({
-      where: { id: optionId, companyId, isDeleted: false },
+      where: { id: optionId, organizationId, isDeleted: false },
       select: { optionName: true },
     });
   }
 
   createStockTransfer(
-    companyId: string,
+    organizationId: string,
     data: CreateStockTransferData,
   ): Promise<StockTransferRow> {
     return this.prisma.stockTransfer.create({
-      data: { companyId, ...data },
+      data: { organizationId, ...data },
       include: TRANSFER_INCLUDE,
     });
   }
 
   findStockTransferById(
     id: string,
-    companyId: string,
+    organizationId: string,
   ): Promise<StockTransferBareRow | null> {
-    return this.prisma.stockTransfer.findFirst({ where: { id, companyId } });
+    return this.prisma.stockTransfer.findFirst({ where: { id, organizationId } });
   }
 
   updateStockTransferStatus(

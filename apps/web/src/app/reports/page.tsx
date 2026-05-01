@@ -40,7 +40,7 @@ export default function ReportsPage() {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const ws1 = XLSX.utils.json_to_sheet(products.map((p: any) => ({
           등급: p.abcGrade, 상품명: p.name, SKU: p.sku, 카테고리: p.category,
-          회사: p.company, 판매가: p.sellPrice, 매입가: p.costPrice,
+          회사: p.organization, 판매가: p.sellPrice, 매입가: p.costPrice,
           매출: p.revenue, 순이익: p.netProfit, "이익률(%)": p.profitRate,
           "광고비율(%)": p.adRate, 재고: p.currentStock, 상태: p.status,
         })));
@@ -50,7 +50,7 @@ export default function ReportsPage() {
       if (type === "full" || type === "profitloss") {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const ws2 = XLSX.utils.json_to_sheet((Array.isArray(profitLoss) ? profitLoss : []).map((d: any) => ({
-          등급: d.grade, 상품명: d.productName, 회사: d.company,
+          등급: d.grade, 상품명: d.productName, 회사: d.organization,
           매출: d.revenue, 매입원가: d.costOfGoods, 수수료: d.commission,
           배송비: d.shippingCost, 광고비: d.adCost, 순이익: d.netProfit,
           "이익률(%)": d.profitRate, 주문수: d.orderCount,
@@ -61,7 +61,7 @@ export default function ReportsPage() {
       if (type === "full" || type === "inventory") {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const ws3 = XLSX.utils.json_to_sheet(inventory.map((i: any) => ({
-          상품명: i.productName, SKU: i.sku, 회사: i.company,
+          상품명: i.productName, SKU: i.sku, 회사: i.organization,
           현재고: i.currentStock, 적정재고: i.optimalStock, 발주점: i.reorderPoint,
           일평균판매: i.avgDailySales, 남은일수: i.daysRemaining,
           추천발주량: i.recommendedOrder, 상태: i.status,
@@ -73,7 +73,7 @@ export default function ReportsPage() {
         const adProducts = adsData?.products ?? [];
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const ws4 = XLSX.utils.json_to_sheet(adProducts.map((a: any) => ({
-          등급: a.grade, 광고등급: a.adTier, 상품명: a.name, 회사: a.company,
+          등급: a.grade, 광고등급: a.adTier, 상품명: a.name, 회사: a.organization,
           광고비: a.spend, 광고매출: a.adRevenue, "ROAS(%)": a.roas,
           "CTR(%)": a.ctr, "전환율(%)": a.convRate, "광고비율(%)": a.adRate,
         })));

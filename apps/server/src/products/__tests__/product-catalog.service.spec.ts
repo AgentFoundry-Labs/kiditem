@@ -16,7 +16,7 @@ describe('ProductCatalogService', () => {
   it('maps active options into ranges and total stock', async () => {
     const { service } = makeService([{
       id: 'm1',
-      companyId: 'c1',
+      organizationId: 'c1',
       code: 'M-1',
       legacyCode: null,
       name: 'Toy',
@@ -41,7 +41,6 @@ describe('ProductCatalogService', () => {
       pipelineStep: 'processed',
       detailPageUrl: null,
       thumbnailStrategy: 'standard',
-      supplierId: null,
       isDeleted: false,
       deletedAt: null,
       isTemporary: false,
@@ -50,8 +49,8 @@ describe('ProductCatalogService', () => {
       createdAt: new Date('2026-04-24T00:00:00.000Z'),
       updatedAt: new Date('2026-04-24T00:00:00.000Z'),
       options: [
-        { id: 'o1', masterId: 'm1', companyId: 'c1', sku: 'M-1-01', barcode: null, legacyCode: null, optionName: 'Red', sortOrder: 0, costPrice: 1000, sellPrice: 2000, commissionRate: null, shippingCost: null, otherCost: 0, isBundle: false, availableStock: null, isDeleted: false, deletedAt: null, isTemporary: false, temporaryReason: null, isActive: true, createdAt: new Date('2026-04-24T00:00:00.000Z'), updatedAt: new Date('2026-04-24T00:00:00.000Z'), inventory: { currentStock: 4 } },
-        { id: 'o2', masterId: 'm1', companyId: 'c1', sku: 'M-1-02', barcode: null, legacyCode: null, optionName: 'Set', sortOrder: 1, costPrice: 3000, sellPrice: 5000, commissionRate: null, shippingCost: null, otherCost: 0, isBundle: true, availableStock: 2, isDeleted: false, deletedAt: null, isTemporary: false, temporaryReason: null, isActive: true, createdAt: new Date('2026-04-24T00:00:00.000Z'), updatedAt: new Date('2026-04-24T00:00:00.000Z'), inventory: null },
+        { id: 'o1', masterId: 'm1', organizationId: 'c1', sku: 'M-1-01', barcode: null, legacyCode: null, optionName: 'Red', sortOrder: 0, costPrice: 1000, sellPrice: 2000, commissionRate: null, shippingCost: null, otherCost: 0, isBundle: false, availableStock: null, isDeleted: false, deletedAt: null, isTemporary: false, temporaryReason: null, isActive: true, createdAt: new Date('2026-04-24T00:00:00.000Z'), updatedAt: new Date('2026-04-24T00:00:00.000Z'), inventory: { currentStock: 4 } },
+        { id: 'o2', masterId: 'm1', organizationId: 'c1', sku: 'M-1-02', barcode: null, legacyCode: null, optionName: 'Set', sortOrder: 1, costPrice: 3000, sellPrice: 5000, commissionRate: null, shippingCost: null, otherCost: 0, isBundle: true, availableStock: 2, isDeleted: false, deletedAt: null, isTemporary: false, temporaryReason: null, isActive: true, createdAt: new Date('2026-04-24T00:00:00.000Z'), updatedAt: new Date('2026-04-24T00:00:00.000Z'), inventory: null },
       ],
     }]);
 
@@ -62,10 +61,10 @@ describe('ProductCatalogService', () => {
     expect(result.items[0].totalAvailableStock).toBe(6);
   });
 
-  it('scopes nested option reads by company in catalog detail', async () => {
+  it('scopes nested option reads by organization in catalog detail', async () => {
     const { service, prisma } = makeService([{
       id: 'm1',
-      companyId: 'c1',
+      organizationId: 'c1',
       code: 'M-1',
       legacyCode: null,
       name: 'Toy',
@@ -90,7 +89,6 @@ describe('ProductCatalogService', () => {
       pipelineStep: null,
       detailPageUrl: null,
       thumbnailStrategy: 'standard',
-      supplierId: null,
       isDeleted: false,
       deletedAt: null,
       isTemporary: false,
@@ -105,7 +103,7 @@ describe('ProductCatalogService', () => {
 
     const select = prisma.masterProduct.findFirst.mock.calls[0][0].select;
     expect(select.options.where).toEqual({
-      companyId: 'c1',
+      organizationId: 'c1',
       isDeleted: false,
       isActive: true,
     });

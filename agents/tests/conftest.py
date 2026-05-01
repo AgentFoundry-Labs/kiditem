@@ -110,7 +110,7 @@ def mock_pool(sample_product_id, sample_raw_data):
     # fetchrow returns product row
     product_row = {
         "id": sample_product_id,
-        "company_id": str(uuid.uuid4()),
+        "organization_id": str(uuid.uuid4()),
         "raw_data": json.dumps(sample_raw_data),
         "status": "draft",
     }

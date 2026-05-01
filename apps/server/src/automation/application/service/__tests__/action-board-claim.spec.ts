@@ -17,7 +17,7 @@ function makePrisma() {
 function baseTask(overrides: Record<string, unknown> = {}) {
   return {
     id: 'task-1',
-    companyId: 'c-1',
+    organizationId: 'c-1',
     taskKey: 'h-reorder',
     status: 'pending',
     priority: 'high',
@@ -51,13 +51,13 @@ describe('ActionBoardService — claim/unclaim/list', () => {
       const result = await service.claim('task-1', 'c-1', 'u-1');
 
       expect(prisma.actionTask.updateMany).toHaveBeenCalledWith({
-        where: { id: 'task-1', companyId: 'c-1', assigneeUserId: null },
+        where: { id: 'task-1', organizationId: 'c-1', assigneeUserId: null },
         data: { assigneeUserId: 'u-1' },
       });
       expect(result.assigneeUser).toEqual({ id: 'u-1', name: 'Alice' });
     });
 
-    // race condition (updateMany count=0) + company scope IDOR 는 real Postgres
+    // race condition (updateMany count=0) + organization scope IDOR 는 real Postgres
     // spec (`action-board-claim.pg.integration.spec.ts` — "두 유저 동시 claim" /
     //  "다른 회사의 task claim → ConflictException") 이 대체하므로 제거.
   });
@@ -73,7 +73,7 @@ describe('ActionBoardService — claim/unclaim/list', () => {
       const result = await service.unclaim('task-1', 'c-1', 'u-1');
 
       expect(prisma.actionTask.updateMany).toHaveBeenCalledWith({
-        where: { id: 'task-1', companyId: 'c-1', assigneeUserId: 'u-1' },
+        where: { id: 'task-1', organizationId: 'c-1', assigneeUserId: 'u-1' },
         data: { assigneeUserId: null },
       });
       expect(result.assigneeUserId).toBeNull();

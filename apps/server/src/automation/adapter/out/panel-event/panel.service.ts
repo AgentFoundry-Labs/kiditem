@@ -17,12 +17,12 @@ export class PanelService {
    * - 최근 24h terminal run
    * Sources: workflow run, agent heartbeat run, thumbnail generation, alert.
    */
-  async snapshot(companyId: string, currentUserId: string): Promise<Array<Omit<PanelItem, 'seq' | 'updatedAt'>>> {
+  async snapshot(organizationId: string, currentUserId: string): Promise<Array<Omit<PanelItem, 'seq' | 'updatedAt'>>> {
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 3600 * 1000);
 
     const workflowRuns = await this.prisma.workflowRun.findMany({
       where: {
-        companyId,
+        organizationId,
         OR: [
           { status: { in: ['pending', 'running'] } },
           { updatedAt: { gte: twentyFourHoursAgo } },
@@ -54,7 +54,7 @@ export class PanelService {
             triggeredByUserId: run.triggeredByUserId,
             createdAt: run.createdAt,
           },
-          companyId,
+          organizationId,
         ),
       );
     }
@@ -63,7 +63,7 @@ export class PanelService {
     try {
       const heartbeatRuns = await this.prisma.heartbeatRun.findMany({
         where: {
-          companyId,
+          organizationId,
           OR: [
             { status: { in: ['pending', 'running'] } },
             { updatedAt: { gte: twentyFourHoursAgo } },
@@ -78,7 +78,7 @@ export class PanelService {
         items.push(
           agentPanelMapper.mapToItem(
             { run, agent: { id: run.agent.id, name: run.agent.name } },
-            companyId,
+            organizationId,
           ),
         );
       }
@@ -90,7 +90,7 @@ export class PanelService {
     try {
       const thumbnailGens = await this.prisma.thumbnailGeneration.findMany({
         where: {
-          companyId,
+          organizationId,
           OR: [
             { status: { in: ['pending', 'running'] } },
             { updatedAt: { gte: twentyFourHoursAgo } },
@@ -105,7 +105,7 @@ export class PanelService {
         items.push(
           imagePanelMapper.mapToItem(
             { generation: gen, product: { id: gen.master.id, title: gen.master.name } },
-            companyId,
+            organizationId,
           ),
         );
       }
@@ -117,7 +117,7 @@ export class PanelService {
     try {
       const alerts = await this.prisma.alert.findMany({
         where: {
-          companyId,
+          organizationId,
           createdAt: { gte: twentyFourHoursAgo },
         },
         orderBy: { createdAt: 'desc' },
@@ -131,14 +131,14 @@ export class PanelService {
       this.logger.warn('Alert source backfill failed', err);
     }
 
-    // Visibility 필터: alert items are always company-visible (no visibility field).
-    // run items: company OR (user AND actorUserId === currentUserId).
+    // Visibility 필터: alert items are always organization-visible (no visibility field).
+    // run items: organization OR (user AND actorUserId === currentUserId).
     // Note: Omit<union> doesn't distribute — cast to 'any' for discriminant narrowing.
     return items.filter((item) => {
       const i = item as any;
-      if (i.kind === 'alert') return true; // alerts always company-wide
+      if (i.kind === 'alert') return true; // alerts always organization-wide
       return (
-        i.visibility === 'company' ||
+        i.visibility === 'organization' ||
         (i.visibility === 'user' && i.actorUserId === currentUserId)
       );
     }) satisfies Array<Omit<PanelItem, 'seq' | 'updatedAt'>>;
@@ -151,7 +151,7 @@ export class PanelService {
    *   (c) Server 재시작 감지 후 리셋
    * Snapshot과 동일 구현. seq는 클라가 서버 stream seq로 override.
    */
-  async backfill(companyId: string, _afterSeq: number, currentUserId: string) {
-    return this.snapshot(companyId, currentUserId);
+  async backfill(organizationId: string, _afterSeq: number, currentUserId: string) {
+    return this.snapshot(organizationId, currentUserId);
   }
 }

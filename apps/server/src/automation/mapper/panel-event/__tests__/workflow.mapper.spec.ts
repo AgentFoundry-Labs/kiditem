@@ -29,12 +29,12 @@ describe('workflowPanelMapper', () => {
     });
   });
 
-  it('visibility=company when triggeredByUserId=null (scheduled)', () => {
+  it('visibility=organization when triggeredByUserId=null (scheduled)', () => {
     const item = workflowPanelMapper.mapToItem(
       { ...input, triggeredByUserId: null },
       'co-1',
     );
-    expect(item.visibility).toBe('company');
+    expect(item.visibility).toBe('organization');
     expect(item.actorUserId).toBeNull();
   });
 

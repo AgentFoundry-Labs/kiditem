@@ -20,7 +20,7 @@ export type PickingItemRow = {
 
 export type PickingListRow = {
   id: string;
-  companyId: string;
+  organizationId: string;
   listNumber: string;
   status: string;
   totalItems: number;
@@ -41,15 +41,15 @@ export type PickingItemUpdateData = {
 };
 
 export interface PickingRepositoryPort {
-  listPickingLists(companyId: string): Promise<PickingListRow[]>;
+  listPickingLists(organizationId: string): Promise<PickingListRow[]>;
 
   createPickingList(
-    companyId: string,
+    organizationId: string,
     listNumber: string,
     items: PickableItem[],
   ): Promise<PickingListRow>;
 
-  findPickingListOwnerId(id: string, companyId: string): Promise<{ id: string } | null>;
+  findPickingListOwnerId(id: string, organizationId: string): Promise<{ id: string } | null>;
 
   findPickingItemInList(itemId: string, listId: string): Promise<PickingItemRow | null>;
 
@@ -62,5 +62,5 @@ export interface PickingRepositoryPort {
 
   writePickedCount(listId: string, count: number): Promise<void>;
 
-  completePickingList(id: string, companyId: string): Promise<PickingListRow>;
+  completePickingList(id: string, organizationId: string): Promise<PickingListRow>;
 }

@@ -32,12 +32,12 @@ export class ThumbnailAutoService implements OnModuleInit {
     }
   }
 
-  async runBatch(companyId: string, limit = 30): Promise<AutoBatchResult & { runId: string }> {
+  async runBatch(organizationId: string, limit = 30): Promise<AutoBatchResult & { runId: string }> {
     const agentId = await this.ensureAgentDefinition();
     const run = await this.prisma.heartbeatRun.create({
       data: {
         agentId,
-        companyId,
+        organizationId,
         invocationSource: 'on_demand',
         triggerDetail: `thumbnail-auto batch limit=${limit}`,
         status: 'running',
@@ -46,10 +46,10 @@ export class ThumbnailAutoService implements OnModuleInit {
       select: { id: true },
     });
 
-    this.emitStatus(agentId, 'running', companyId, run.id, { limit });
+    this.emitStatus(agentId, 'running', organizationId, run.id, { limit });
 
     try {
-      const result = await this.generationService.createAutoBatch(companyId, limit);
+      const result = await this.generationService.createAutoBatch(organizationId, limit);
       await this.prisma.heartbeatRun.update({
         where: { id: run.id },
         data: {
@@ -58,7 +58,7 @@ export class ThumbnailAutoService implements OnModuleInit {
           resultJson: result as unknown as Prisma.InputJsonValue,
         },
       });
-      this.emitStatus(agentId, 'succeeded', companyId, run.id, {
+      this.emitStatus(agentId, 'succeeded', organizationId, run.id, {
         attempted: result.attempted,
         succeeded: result.succeeded,
         failed: result.failed,
@@ -76,7 +76,7 @@ export class ThumbnailAutoService implements OnModuleInit {
           resultJson: { limit } as Prisma.InputJsonValue,
         },
       });
-      this.emitStatus(agentId, 'failed', companyId, run.id, { error: message });
+      this.emitStatus(agentId, 'failed', organizationId, run.id, { error: message });
       throw err;
     }
   }
@@ -117,13 +117,13 @@ export class ThumbnailAutoService implements OnModuleInit {
   private emitStatus(
     agentId: string,
     status: 'running' | 'succeeded' | 'failed',
-    companyId: string,
+    organizationId: string,
     runId: string,
     data: Record<string, unknown>,
   ): void {
     this.eventEmitter.emit(
       AGENT_EVENTS.STATUS_CHANGED,
-      new AgentStatusChangedEvent(agentId, AGENT_NAME, status, companyId, runId, data),
+      new AgentStatusChangedEvent(agentId, AGENT_NAME, status, organizationId, runId, data),
     );
   }
 }

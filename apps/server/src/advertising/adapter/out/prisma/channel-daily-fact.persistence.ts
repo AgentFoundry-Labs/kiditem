@@ -19,7 +19,7 @@
 //   numerator/denominator columns.
 //
 // metaJson namespacing (audit-data preservation rule):
-//   Multiple payloads can land on the same `(companyId, listingId,
+//   Multiple payloads can land on the same `(organizationId, listingId,
 //   businessDate)` (or other daily-fact unique key) row — e.g. campaign
 //   ingest writes provider ROAS/CTR, then traffic ingest writes provider
 //   conversion rate to the same listing-day row. To preserve each caller's
@@ -127,7 +127,7 @@ interface ListingDailyMetrics {
 }
 
 export interface ListingDailyUpsertInput extends ListingDailyState {
-  companyId: string;
+  organizationId: string;
   listingId: string;
   channel: string;
   externalId: string;
@@ -151,7 +151,7 @@ export interface ListingOptionDailyState {
 }
 
 export interface ListingOptionDailyUpsertInput extends ListingOptionDailyState {
-  companyId: string;
+  organizationId: string;
   listingId: string;
   listingOptionId: string;
   optionId?: string | null;
@@ -176,7 +176,7 @@ export interface AdTargetDailyMetrics {
 }
 
 export interface UpsertAdTargetDailyInput extends AdTargetDailyMetrics {
-  companyId: string;
+  organizationId: string;
   channel: string;
   businessDate: Date;
   targetType: AdTargetType;
@@ -389,7 +389,7 @@ async function mergeNamespacedMetaJson(
     | 'channel_listing_option_daily_snapshots'
     | 'channel_ad_target_daily_snapshots',
   id: string,
-  companyId: string,
+  organizationId: string,
   metaJson: MetaJsonInput,
 ): Promise<void> {
   if (!isNamespacedMetaJson(metaJson)) return;
@@ -399,7 +399,7 @@ async function mergeNamespacedMetaJson(
       UPDATE channel_listing_daily_snapshots
       SET meta_json = COALESCE(meta_json, '{}'::jsonb) || ${patchJson}::jsonb
       WHERE id = ${id}::uuid
-        AND company_id = ${companyId}::uuid
+        AND organization_id = ${organizationId}::uuid
     `);
     return;
   }
@@ -408,7 +408,7 @@ async function mergeNamespacedMetaJson(
       UPDATE channel_listing_option_daily_snapshots
       SET meta_json = COALESCE(meta_json, '{}'::jsonb) || ${patchJson}::jsonb
       WHERE id = ${id}::uuid
-        AND company_id = ${companyId}::uuid
+        AND organization_id = ${organizationId}::uuid
     `);
     return;
   }
@@ -416,14 +416,14 @@ async function mergeNamespacedMetaJson(
     UPDATE channel_ad_target_daily_snapshots
     SET meta_json = COALESCE(meta_json, '{}'::jsonb) || ${patchJson}::jsonb
     WHERE id = ${id}::uuid
-      AND company_id = ${companyId}::uuid
+      AND organization_id = ${organizationId}::uuid
   `);
 }
 
 /**
  * Upsert listing-level daily state.
  *
- * Idempotent on `(companyId, listingId, businessDate)`. Repeated calls
+ * Idempotent on `(organizationId, listingId, businessDate)`. Repeated calls
  * increment `sampleCount`, refresh `lastObservedAt` and `rawSnapshotId`,
  * and overwrite observable fields when the new value is non-null.
  * `firstObservedAt` is preserved across updates.
@@ -466,14 +466,14 @@ export async function upsertChannelListingDaily(
   return prisma.$transaction(async (tx) => {
     const row = await tx.channelListingDailySnapshot.upsert({
       where: {
-        companyId_listingId_businessDate: {
-          companyId: input.companyId,
+        organizationId_listingId_businessDate: {
+          organizationId: input.organizationId,
           listingId: input.listingId,
           businessDate: input.businessDate,
         },
       },
       create: {
-        companyId: input.companyId,
+        organizationId: input.organizationId,
         listingId: input.listingId,
         channel: input.channel,
         externalId: input.externalId,
@@ -516,7 +516,7 @@ export async function upsertChannelListingDaily(
       tx,
       'channel_listing_daily_snapshots',
       row.id,
-      input.companyId,
+      input.organizationId,
       input.metaJson,
     );
     return row;
@@ -525,7 +525,7 @@ export async function upsertChannelListingDaily(
 
 /**
  * Upsert option-level daily state.
- * Idempotent on `(companyId, listingOptionId, businessDate)`. Same update
+ * Idempotent on `(organizationId, listingOptionId, businessDate)`. Same update
  * semantics as `upsertChannelListingDaily`.
  */
 export async function upsertChannelOptionDaily(
@@ -539,14 +539,14 @@ export async function upsertChannelOptionDaily(
   return prisma.$transaction(async (tx) => {
     const row = await tx.channelListingOptionDailySnapshot.upsert({
       where: {
-        companyId_listingOptionId_businessDate: {
-          companyId: input.companyId,
+        organizationId_listingOptionId_businessDate: {
+          organizationId: input.organizationId,
           listingOptionId: input.listingOptionId,
           businessDate: input.businessDate,
         },
       },
       create: {
-        companyId: input.companyId,
+        organizationId: input.organizationId,
         listingId: input.listingId,
         listingOptionId: input.listingOptionId,
         optionId: input.optionId ?? null,
@@ -587,7 +587,7 @@ export async function upsertChannelOptionDaily(
       tx,
       'channel_listing_option_daily_snapshots',
       row.id,
-      input.companyId,
+      input.organizationId,
       input.metaJson,
     );
     return row;
@@ -597,7 +597,7 @@ export async function upsertChannelOptionDaily(
 /**
  * Upsert ad target (campaign/keyword/product) daily fact.
  *
- * Idempotent on `(companyId, channel, businessDate, targetType, targetKey)`.
+ * Idempotent on `(organizationId, channel, businessDate, targetType, targetKey)`.
  *
  * Metric semantics (overwrite-on-replay): caller MUST pass a daily total
  * per `(target, businessDate)` row from the provider. Repeated calls
@@ -635,8 +635,8 @@ export async function upsertChannelAdTargetDaily(
   return prisma.$transaction(async (tx) => {
     const row = await tx.channelAdTargetDailySnapshot.upsert({
       where: {
-        companyId_channel_businessDate_targetType_targetKey: {
-          companyId: input.companyId,
+        organizationId_channel_businessDate_targetType_targetKey: {
+          organizationId: input.organizationId,
           channel: input.channel,
           businessDate: input.businessDate,
           targetType: input.targetType,
@@ -644,7 +644,7 @@ export async function upsertChannelAdTargetDaily(
         },
       },
       create: {
-        companyId: input.companyId,
+        organizationId: input.organizationId,
         channel: input.channel,
         businessDate: input.businessDate,
         targetType: input.targetType,
@@ -686,7 +686,7 @@ export async function upsertChannelAdTargetDaily(
       tx,
       'channel_ad_target_daily_snapshots',
       row.id,
-      input.companyId,
+      input.organizationId,
       input.metaJson,
     );
     return row;

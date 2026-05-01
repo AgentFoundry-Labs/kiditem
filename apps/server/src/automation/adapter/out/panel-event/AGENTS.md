@@ -45,7 +45,7 @@ automation/
 ## Inbound entrypoints
 
 - HTTP — `@Sse('stream')`, `GET /api/panel/snapshot`, `GET /api/panel/backfill`.
-  `@CurrentCompany()` + `@CurrentUser()` 항상 사용.
+  `@CurrentOrganization()` + `@CurrentUser()` 항상 사용.
 - EventEmitter2 — `PANEL_EVENTS.UPSERT` / `PANEL_EVENTS.DISMISS` 를
   `WorkflowOrchestrationService`, `WorkflowRunnerService`,
   `HeartbeatService`, `RulesService`, `AlertsService`,
@@ -54,7 +54,7 @@ automation/
 ## Outbound dependencies
 
 - Prisma read-only join: `workflowRun`, `heartbeatRun`, `thumbnailGeneration`,
-  `alert`. 모두 `companyId` 스코프.
+  `alert`. 모두 `organizationId` 스코프.
 - LLM/provider 없음. 외부 fetch 없음. 파일시스템 없음.
 
 ## Visibility

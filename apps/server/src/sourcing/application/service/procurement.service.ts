@@ -10,7 +10,7 @@ import {
 export class ProcurementService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(companyId: string, query: { page?: number; limit?: number; status?: string }): Promise<{
+  async findAll(organizationId: string, query: { page?: number; limit?: number; status?: string }): Promise<{
     items: unknown[];
     total: number;
     page: number;
@@ -23,7 +23,7 @@ export class ProcurementService {
     const skip = (page - 1) * limit;
 
     const where: Prisma.PurchaseOrderWhereInput = {
-      companyId,
+      organizationId,
       ...(status ? { status } : {}),
     };
 
@@ -66,7 +66,7 @@ export class ProcurementService {
     return { items, total, page, limit, counts };
   }
 
-  async create(companyId: string, data: {
+  async create(organizationId: string, data: {
     supplierName: string;
     supplierId?: string;
     items: {
@@ -84,7 +84,7 @@ export class ProcurementService {
 
     return this.prisma.purchaseOrder.create({
       data: {
-        companyId,
+        organizationId,
         supplierName: data.supplierName,
         supplierId: data.supplierId || null,
         totalAmountCny,
@@ -106,9 +106,9 @@ export class ProcurementService {
     });
   }
 
-  async updateStatus(companyId: string, id: string, newStatus: string) {
+  async updateStatus(organizationId: string, id: string, newStatus: string) {
     const order = await this.prisma.purchaseOrder.findFirst({
-      where: { id, companyId },
+      where: { id, organizationId },
     });
 
     if (!order) {
@@ -127,7 +127,7 @@ export class ProcurementService {
     }
 
     const { count } = await this.prisma.purchaseOrder.updateMany({
-      where: { id, companyId },
+      where: { id, organizationId },
       data: updateData,
     });
     if (count === 0) {
@@ -135,7 +135,7 @@ export class ProcurementService {
     }
 
     const updated = await this.prisma.purchaseOrder.findFirst({
-      where: { id, companyId },
+      where: { id, organizationId },
       include: { items: true, supplier: true },
     });
     if (!updated) {
@@ -144,9 +144,9 @@ export class ProcurementService {
     return updated;
   }
 
-  async delete(companyId: string, id: string) {
+  async delete(organizationId: string, id: string) {
     const order = await this.prisma.purchaseOrder.findFirst({
-      where: { id, companyId },
+      where: { id, organizationId },
     });
 
     if (!order) {
@@ -160,7 +160,7 @@ export class ProcurementService {
     }
 
     const { count } = await this.prisma.purchaseOrder.deleteMany({
-      where: { id, companyId },
+      where: { id, organizationId },
     });
     if (count === 0) {
       throw new BadRequestException('발주를 찾을 수 없습니다');

@@ -1,7 +1,7 @@
 import { IsOptional, IsString } from 'class-validator';
 
 /**
- * companyId 는 `@CurrentCompany()` 에서 주입 — DTO 필드에서 제거.
+ * organizationId 는 `@CurrentOrganization()` 에서 주입 — DTO 필드에서 제거.
  * 필터는 그대로 유지.
  */
 export class ListMarketplaceQueryDto {

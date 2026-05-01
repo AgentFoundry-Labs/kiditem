@@ -64,15 +64,15 @@ export class AlertsService {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
-  async findAll(companyId: string, limit?: number) {
+  async findAll(organizationId: string, limit?: number) {
     try {
       const rows = await this.prisma.alert.findMany({
-        where: { companyId, isRead: false },
+        where: { organizationId, isRead: false },
         orderBy: { createdAt: 'desc' },
         ...(limit ? { take: limit } : {}),
         select: {
           id: true,
-          companyId: true,
+          organizationId: true,
           targetType: true,
           targetId: true,
           type: true,
@@ -92,21 +92,21 @@ export class AlertsService {
     }
   }
 
-  async markAsRead(id: string, companyId: string) {
+  async markAsRead(id: string, organizationId: string) {
     const result = await this.prisma.alert.updateMany({
-      where: { id, companyId },
+      where: { id, organizationId },
       data: { isRead: true },
     });
     if (result.count === 0) throw new NotFoundException('알림을 찾을 수 없습니다.');
 
-    const alert = await this.prisma.alert.findFirst({ where: { id, companyId } });
+    const alert = await this.prisma.alert.findFirst({ where: { id, organizationId } });
     if (!alert) throw new NotFoundException('알림을 찾을 수 없습니다.');
     return alert;
   }
 
-  async markAllAsRead(companyId: string): Promise<{ updated: number }> {
+  async markAllAsRead(organizationId: string): Promise<{ updated: number }> {
     const result = await this.prisma.alert.updateMany({
-      where: { companyId, isRead: false },
+      where: { organizationId, isRead: false },
       data: { isRead: true },
     });
     return { updated: result.count };
@@ -117,9 +117,9 @@ export class AlertsService {
    *
    * Race guard:
    *  1. findFirst + actionTaskId != null check → ConflictException (already promoted)
-   *  2. actionTask.create inside $transaction — @@unique([companyId, taskKey, date])
+   *  2. actionTask.create inside $transaction — @@unique([organizationId, taskKey, date])
    *     P2002 on create → ConflictException('Already promoted (race)')
-   *  3. alert.updateMany with companyId + actionTaskId: null — atomic ownership claim
+   *  3. alert.updateMany with organizationId + actionTaskId: null — atomic ownership claim
    *     count=0 → rollback (delete task) + ConflictException
    *
    * Emit is OUTSIDE $transaction: guaranteed to fire only after commit so SSE
@@ -127,13 +127,13 @@ export class AlertsService {
    */
   async promote(
     alertId: string,
-    companyId: string,
+    organizationId: string,
     input: PromoteAlertInput,
     currentUserId: string,
   ): Promise<{ task: ActionTask; updatedAlert: Alert }> {
     const result = await this.prisma.$transaction(async (tx) => {
-      // companyId scope enforced — IDOR prevention (apps/server/AGENTS.md)
-      const alert = await tx.alert.findFirst({ where: { id: alertId, companyId } });
+      // organizationId scope enforced — IDOR prevention (apps/server/AGENTS.md)
+      const alert = await tx.alert.findFirst({ where: { id: alertId, organizationId } });
       if (!alert) throw new NotFoundException('Alert not found');
       if (alert.actionTaskId) throw new ConflictException('Already promoted');
 
@@ -141,7 +141,7 @@ export class AlertsService {
       try {
         task = await tx.actionTask.create({
           data: {
-            companyId,
+            organizationId,
             taskKey: `promoted:${alert.id}`,
             type: 'human',
             label: alert.title,
@@ -163,9 +163,9 @@ export class AlertsService {
         throw err;
       }
 
-      // Atomic ownership claim — companyId scope + null guard prevent double-promote
+      // Atomic ownership claim — organizationId scope + null guard prevent double-promote
       const { count } = await tx.alert.updateMany({
-        where: { id: alertId, companyId, actionTaskId: null },
+        where: { id: alertId, organizationId, actionTaskId: null },
         data: { actionTaskId: task.id },
       });
 
@@ -181,7 +181,7 @@ export class AlertsService {
     // Emit AFTER $transaction commit — SSE subscribers observe consistent state
     try {
       const item = alertPanelMapper.mapToItem(result.updatedAlert);
-      this.eventEmitter.emit(PANEL_EVENTS.UPSERT, { item, companyId });
+      this.eventEmitter.emit(PANEL_EVENTS.UPSERT, { item, organizationId });
     } catch (err) {
       this.logger.warn('Panel emit failed after promote', err);
     }
@@ -195,16 +195,16 @@ export class AlertsService {
    * NOT a delete: alert stays in DB. Client store removes it from live view via
    * the dismiss event. The 24h window means it continues to appear in history.
    */
-  async dismiss(alertId: string, companyId: string): Promise<void> {
+  async dismiss(alertId: string, organizationId: string): Promise<void> {
     const { count } = await this.prisma.alert.updateMany({
-      where: { id: alertId, companyId }, // companyId scope — IDOR prevention
+      where: { id: alertId, organizationId }, // organizationId scope — IDOR prevention
       data: { isRead: true },
     });
     if (count === 0) throw new NotFoundException('Alert not found');
 
     // Emit DISMISS — client store removes item from live panel (PR1 Task 3 wire shape)
     try {
-      this.eventEmitter.emit(PANEL_EVENTS.DISMISS, { itemId: alertId, companyId });
+      this.eventEmitter.emit(PANEL_EVENTS.DISMISS, { itemId: alertId, organizationId });
     } catch (err) {
       this.logger.warn('Panel dismiss emit failed', err);
     }

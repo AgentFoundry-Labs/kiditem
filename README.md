@@ -93,8 +93,8 @@ extensions/          — Chrome 익스텐션 (1688/Alibaba 스크래퍼)
 
 ```
 DATABASE_URL=postgresql://kiditem:kiditem@localhost:5433/kiditem
-AGENT_DATABASE_URL=postgresql://chatbot_readonly:chatbot_readonly@localhost:5433/kiditem?options=-c%20app.company_id%3D{company_uuid}
-CHATBOT_DATABASE_URL=postgresql://chatbot_readonly:chatbot_readonly@localhost:5433/kiditem?options=-c%20app.company_id%3D{company_uuid}
+AGENT_DATABASE_URL=postgresql://chatbot_readonly:chatbot_readonly@localhost:5433/kiditem?options=-c%20app.organization_id%3D{company_uuid}
+CHATBOT_DATABASE_URL=postgresql://chatbot_readonly:chatbot_readonly@localhost:5433/kiditem?options=-c%20app.organization_id%3D{company_uuid}
 
 # Coupang Wing API
 COUPANG_ACCESS_KEY=

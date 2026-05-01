@@ -34,7 +34,7 @@ import { pct1 } from '../../helpers/percent';
  * stays Order-based (Wing override of monthly metrics is the dashboard-ad service's
  * responsibility per spec § A.6).
  *
- * Per ADR-0006 + ADR-0018: every Prisma call binds companyId via parameter / ${companyId}::uuid.
+ * Per ADR-0006 + ADR-0018: every Prisma call binds organizationId via parameter / ${organizationId}::uuid.
  */
 @Injectable()
 export class DashboardSalesService {
@@ -47,7 +47,7 @@ export class DashboardSalesService {
 
   async getSummary(
     ctx: DashboardContext,
-    companyId: string,
+    organizationId: string,
   ): Promise<DashboardSalesSummary> {
     try {
       const startedAt = Date.now();
@@ -64,20 +64,20 @@ export class DashboardSalesService {
         monthlyTrend,
         wing,
       ] = await Promise.all([
-        calculateProfitForRange(this.prisma, companyId, monthStart, monthEnd),
-        calculateProfitForRange(this.prisma, companyId, prevMonthDate, monthStart),
-        calculateProfitForRange(this.prisma, companyId, dateRange.start, dateRange.end),
-        calculateProfitForRange(this.prisma, companyId, dateRange.prevStart, dateRange.prevEnd),
-        this.salesRepository.fetchTodayKpis(companyId, todayStart, todayEnd),
-        this.salesRepository.fetchTopProducts(companyId, monthStart, monthEnd),
-        this.salesRepository.fetchDailyRevenue(companyId, monthStart, monthEnd),
-        this.fetchMonthlyTrend(companyId, monthStart),
-        fetchWingAdSummary(this.prisma, companyId, year, month, monthStart),
+        calculateProfitForRange(this.prisma, organizationId, monthStart, monthEnd),
+        calculateProfitForRange(this.prisma, organizationId, prevMonthDate, monthStart),
+        calculateProfitForRange(this.prisma, organizationId, dateRange.start, dateRange.end),
+        calculateProfitForRange(this.prisma, organizationId, dateRange.prevStart, dateRange.prevEnd),
+        this.salesRepository.fetchTodayKpis(organizationId, todayStart, todayEnd),
+        this.salesRepository.fetchTopProducts(organizationId, monthStart, monthEnd),
+        this.salesRepository.fetchDailyRevenue(organizationId, monthStart, monthEnd),
+        this.fetchMonthlyTrend(organizationId, monthStart),
+        fetchWingAdSummary(this.prisma, organizationId, year, month, monthStart),
       ]);
 
       this.logger.debug({
         msg: 'dashboard-sales.getSummary',
-        companyId,
+        organizationId,
         range: ctx.effectiveRange,
         latencyMs: Date.now() - startedAt,
         topProductsCount: topProductRows.length,
@@ -170,14 +170,14 @@ export class DashboardSalesService {
 
   // ── monthlyTrend = loop × 6 calculateProfitForRange (Q2 decision) ────────
   private async fetchMonthlyTrend(
-    companyId: string,
+    organizationId: string,
     currentMonthStart: Date,
   ): Promise<MonthlyTrendItem[]> {
     const offsets = [5, 4, 3, 2, 1, 0]; // chronological: oldest → current
     const trends = await Promise.all(offsets.map(async (offset) => {
       const start = new Date(currentMonthStart.getFullYear(), currentMonthStart.getMonth() - offset, 1);
       const end = new Date(start.getFullYear(), start.getMonth() + 1, 1);
-      const m = await calculateProfitForRange(this.prisma, companyId, start, end);
+      const m = await calculateProfitForRange(this.prisma, organizationId, start, end);
       const period = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}`;
       return { period, revenue: m.revenue, profit: m.netProfit, adCost: m.adCost } satisfies MonthlyTrendItem;
     }));

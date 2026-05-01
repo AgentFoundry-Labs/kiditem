@@ -4,7 +4,7 @@ import { z } from 'zod';
  * P&L row — listingId-primary (Plan B2c.orders T10).
  *
  * Source: `profit-loss.service.ts` + statistics `products()` return shape.
- * ADR-0013 (3-layer schema) 반영: `productId`/`sku`/`company` 등 stale 필드 제거,
+ * ADR-0013 (3-layer schema) 반영: `productId`/`sku`/`organization` 등 stale 필드 제거,
  * ChannelListing(`listingId`) + MasterProduct(`masterId`) + 채널/외부ID 를 1급 필드로.
  *
  * Frontend consumers (`apps/web/src/app/profit-loss/**`) 는 Plan D 에서 재배선한다.

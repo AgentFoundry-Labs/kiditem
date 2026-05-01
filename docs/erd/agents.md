@@ -24,7 +24,7 @@
 erDiagram
   AgentDefinition {
     String id PK
-    String companyId FK
+    String organizationId FK
     String name
     String type UK
     String description
@@ -75,7 +75,7 @@ erDiagram
   }
   AgentEvent {
     String id PK
-    String companyId FK
+    String organizationId FK
     String agentId FK
     String runId
     String eventType
@@ -100,7 +100,7 @@ erDiagram
   }
   AgentTask {
     String id PK
-    String companyId
+    String organizationId
     String agentType
     String status
     Int priority
@@ -118,7 +118,7 @@ erDiagram
   }
   AgentWakeupRequest {
     String id PK
-    String companyId FK
+    String organizationId FK
     String agentId FK
     String source
     String triggerDetail
@@ -138,7 +138,7 @@ erDiagram
   }
   HeartbeatRun {
     String id PK
-    String companyId FK
+    String organizationId FK
     String agentId FK
     String invocationSource
     String triggerDetail
@@ -167,7 +167,7 @@ erDiagram
   }
   WorkflowRun {
     String id PK
-    String companyId
+    String organizationId
     String templateId FK
     String status
     String triggeredBy
@@ -182,7 +182,7 @@ erDiagram
   }
   WorkflowTemplate {
     String id PK
-    String companyId FK
+    String organizationId FK
     String name
     String description
     String module
@@ -210,12 +210,12 @@ erDiagram
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
 | AgentDefinition | agentDefinition | referenced by external | Core | User |
-| AgentDefinition | company | references external | Core | Company |
 | AgentDefinition | marketplace | references external | System | Marketplace |
-| AgentEvent | company | references external | Core | Company |
-| AgentWakeupRequest | company | references external | Core | Company |
-| HeartbeatRun | company | references external | Core | Company |
+| AgentDefinition | organization | references external | Core | Organization |
+| AgentEvent | organization | references external | Core | Organization |
+| AgentWakeupRequest | organization | references external | Core | Organization |
+| HeartbeatRun | organization | references external | Core | Organization |
 | HeartbeatRun | triggeredByUser | references external | Core | User |
 | WorkflowRun | triggeredByUser | references external | Core | User |
-| WorkflowTemplate | company | references external | Core | Company |
 | WorkflowTemplate | marketplace | references external | System | Marketplace |
+| WorkflowTemplate | organization | references external | Core | Organization |

@@ -41,7 +41,7 @@ function makeMockPrisma(): PrismaMock {
   };
 }
 
-const COMPANY_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+const ORGANIZATION_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
 
 describe('ChannelDashboardService', () => {
   let prisma: PrismaMock;
@@ -66,7 +66,7 @@ describe('ChannelDashboardService', () => {
       const updatedAt = new Date('2026-04-20T05:00:00.000Z');
       prisma.channelListing.findFirst.mockResolvedValueOnce({ updatedAt });
 
-      const result = await service.getSummary(COMPANY_ID);
+      const result = await service.getSummary(ORGANIZATION_ID);
 
       expect(result).toEqual({
         todayOrders: { count: 3, revenue: 45_000 },
@@ -88,7 +88,7 @@ describe('ChannelDashboardService', () => {
       prisma.orderReturn.count.mockResolvedValueOnce(0);
       prisma.channelListing.findFirst.mockResolvedValueOnce(null);
 
-      const result = await service.getSummary(COMPANY_ID);
+      const result = await service.getSummary(ORGANIZATION_ID);
 
       expect(result.todayOrders).toEqual({ count: 0, revenue: 0 });
       expect(result.lastModifiedAt).toBeNull();
@@ -108,7 +108,7 @@ describe('ChannelDashboardService', () => {
 
       const from = new Date('2026-04-14T15:00:00.000Z');
       const to = new Date('2026-04-15T15:00:00.000Z');
-      const result = await service.getRevenueTrend(COMPANY_ID, from, to);
+      const result = await service.getRevenueTrend(ORGANIZATION_ID, from, to);
 
       expect(result).toEqual([
         { day: '2026-04-15', revenue: 120_000, orderCount: 4 },
@@ -119,7 +119,7 @@ describe('ChannelDashboardService', () => {
       prisma.$queryRaw.mockResolvedValueOnce([]);
 
       const result = await service.getRevenueTrend(
-        COMPANY_ID,
+        ORGANIZATION_ID,
         new Date('2026-01-01T00:00:00.000Z'),
         new Date('2026-01-02T00:00:00.000Z'),
       );
@@ -155,7 +155,7 @@ describe('ChannelDashboardService', () => {
       ]);
 
       const result = await service.getProductRanking(
-        COMPANY_ID,
+        ORGANIZATION_ID,
         new Date('2026-04-01T00:00:00.000Z'),
         new Date('2026-05-01T00:00:00.000Z'),
       );
@@ -225,7 +225,7 @@ describe('ChannelDashboardService', () => {
       expect(result.returnRate).toBe(0);
     });
 
-    it('IDOR — 2-hop companyId on relation filter + orphan companyId', async () => {
+    it('IDOR — 2-hop organizationId on relation filter + orphan organizationId', async () => {
       const orderCount = vi.fn().mockResolvedValue(5);
       const orderReturnCount = vi.fn().mockImplementation((args: any) => {
         if (args?.where?.orderId === null) return Promise.resolve(0);
@@ -235,17 +235,17 @@ describe('ChannelDashboardService', () => {
       const svc = new ChannelDashboardService(mockPrisma as unknown as PrismaService);
       await svc.getReturnSummary('companyA', new Date('2026-04-01'), new Date('2026-05-01'));
 
-      // Order count: top-level companyId
+      // Order count: top-level organizationId
       expect(orderCount).toHaveBeenCalledWith(expect.objectContaining({
-        where: expect.objectContaining({ companyId: 'companyA' }),
+        where: expect.objectContaining({ organizationId: 'companyA' }),
       }));
 
-      // INNER JOIN return count: companyId on BOTH top-level AND order relation (2-hop)
+      // INNER JOIN return count: organizationId on BOTH top-level AND order relation (2-hop)
       expect(orderReturnCount).toHaveBeenCalledWith(expect.objectContaining({
         where: expect.objectContaining({
-          companyId: 'companyA',
+          organizationId: 'companyA',
           order: expect.objectContaining({
-            companyId: 'companyA',
+            organizationId: 'companyA',
             orderedAt: expect.objectContaining({
               gte: expect.any(Date),
               lt: expect.any(Date),
@@ -254,10 +254,10 @@ describe('ChannelDashboardService', () => {
         }),
       }));
 
-      // Orphan count: top-level companyId + orderId null + requestedAt
+      // Orphan count: top-level organizationId + orderId null + requestedAt
       expect(orderReturnCount).toHaveBeenCalledWith(expect.objectContaining({
         where: expect.objectContaining({
-          companyId: 'companyA',
+          organizationId: 'companyA',
           orderId: null,
           requestedAt: expect.objectContaining({
             gte: expect.any(Date),
@@ -279,7 +279,7 @@ describe('ChannelDashboardService', () => {
       ]);
 
       const result = await service.getReturnReasonBreakdown(
-        COMPANY_ID,
+        ORGANIZATION_ID,
         new Date('2026-04-01T00:00:00.000Z'),
         new Date('2026-05-01T00:00:00.000Z'),
       );
@@ -304,7 +304,7 @@ describe('ChannelDashboardService', () => {
       ]);
 
       const result = await service.getReturnFaultSplit(
-        COMPANY_ID,
+        ORGANIZATION_ID,
         new Date('2026-04-01T00:00:00.000Z'),
         new Date('2026-05-01T00:00:00.000Z'),
       );
@@ -316,7 +316,7 @@ describe('ChannelDashboardService', () => {
       prisma.orderReturn.groupBy.mockResolvedValueOnce([]);
 
       const result = await service.getReturnFaultSplit(
-        COMPANY_ID,
+        ORGANIZATION_ID,
         new Date('2026-04-01T00:00:00.000Z'),
         new Date('2026-05-01T00:00:00.000Z'),
       );

@@ -17,7 +17,7 @@ describe('upsertChannelListingDaily — namespaced metaJson merge', () => {
     };
 
     await upsertChannelListingDaily(prisma, {
-      companyId: 'company-1',
+      organizationId: 'organization-1',
       listingId: 'listing-1',
       channel: 'coupang',
       externalId: 'EXT-1',
