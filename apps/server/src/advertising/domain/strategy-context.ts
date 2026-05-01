@@ -137,9 +137,12 @@ export function sumListingStock(inventory: Map<string, InventoryRow>, listingId:
  */
 export function computeListingProfitRate(inv: InventoryRow | null): number {
   if (!inv) return 0;
-  const cost = inv.costPrice ?? 0;
   const sell = inv.sellPrice ?? 0;
   if (sell <= 0) return 0;
+  // Unknown cost is neutral for exposure scoring; treating it as free stock
+  // would incorrectly boost the product as highly profitable.
+  if (inv.costPrice == null) return 0;
+  const cost = inv.costPrice;
   const commission = inv.commissionRate != null ? Number(inv.commissionRate) : 0;
   return Math.round(((sell - cost - sell * commission) / sell) * 100);
 }

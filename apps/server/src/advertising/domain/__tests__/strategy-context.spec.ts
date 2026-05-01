@@ -158,6 +158,66 @@ describe('domain/strategy-context — pure transforms', () => {
     expect(computeListingProfitRate(null)).toBe(0);
   });
 
+  it('computeListingProfitRate returns negative when cost exceeds sell minus commission', () => {
+    // sell 10_000, cost 12_000, 10% commission → (10_000 - 12_000 - 1_000)/10_000 = -30%.
+    // ad-strategy downstream rules (e.g. C-1 minus profit warning) rely on the negative
+    // value being preserved; treating "loss" as 0 would silently mask C-grade actions.
+    expect(
+      computeListingProfitRate({
+        optionId: 'opt-loss',
+        listingId: 'L1',
+        availableStock: 5,
+        costPrice: 12_000,
+        sellPrice: 10_000,
+        commissionRate: 0.1,
+      } as InventoryRow),
+    ).toBe(-30);
+  });
+
+  it('computeListingProfitRate treats null commissionRate as 0', () => {
+    // Channel data sometimes lands without commission; we must not throw or return NaN.
+    expect(
+      computeListingProfitRate({
+        optionId: 'opt-no-commission',
+        listingId: 'L1',
+        availableStock: 5,
+        costPrice: 4_000,
+        sellPrice: 10_000,
+        commissionRate: null,
+      } as InventoryRow),
+    ).toBe(60);
+  });
+
+  it('computeListingProfitRate treats null costPrice as neutral', () => {
+    // Missing cost is unknown, not free inventory. Exposure scoring treats
+    // profitRate > 10 as a strong positive signal, so keep missing cost neutral.
+    expect(
+      computeListingProfitRate({
+        optionId: 'opt-no-cost',
+        listingId: 'L1',
+        availableStock: 5,
+        costPrice: null,
+        sellPrice: 10_000,
+        commissionRate: 0,
+      } as InventoryRow),
+    ).toBe(0);
+  });
+
+  it('computeListingProfitRate handles 100% commission cleanly (zero margin)', () => {
+    // Edge case: commission consumes all revenue. With cost 0 + commission 1.0 the
+    // margin should be exactly 0%, not -0% or NaN.
+    expect(
+      computeListingProfitRate({
+        optionId: 'opt-full-commission',
+        listingId: 'L1',
+        availableStock: 5,
+        costPrice: 0,
+        sellPrice: 10_000,
+        commissionRate: 1,
+      } as InventoryRow),
+    ).toBe(0);
+  });
+
   it('emptyMetrics returns zero-metric row with null ratios', () => {
     const row = emptyMetrics('L1');
     expect(row.listingId).toBe('L1');
