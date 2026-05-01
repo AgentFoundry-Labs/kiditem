@@ -1,5 +1,6 @@
 const BLOCKED_PATTERNS = [
   /^python:\*$/,
+  /^Bash\(psql:/,
   /^Bash\(rm:/,
   /^Bash\(sudo:/,
   /^Bash\(kill:/,

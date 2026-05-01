@@ -66,7 +66,7 @@ describe('resolvePermissions', () => {
   });
 
   it('backward compatible: single instance layer = same as current behavior', () => {
-    const instanceTools = ['Bash(psql:*)', 'Read'];
+    const instanceTools = ['Bash(curl:*)', 'Read'];
     const layers: PermissionLayer[] = [
       {
         allowedTools: instanceTools,

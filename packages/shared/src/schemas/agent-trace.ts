@@ -46,6 +46,7 @@ export const AgentWakeupRequestSchema = z.object({
   source: z.string(),
   triggerDetail: z.string().nullable(),
   reason: z.string().nullable(),
+  legacyTaskId: z.string().nullable(),
   payload: z.unknown().nullable(),
   status: z.string(),
   coalescedCount: z.number().int(),

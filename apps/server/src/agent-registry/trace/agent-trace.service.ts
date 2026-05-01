@@ -6,17 +6,16 @@ import { PrismaService } from '../../prisma/prisma.service';
 import type { TraceQueryDto, TraceListQueryDto } from './dto';
 
 /**
- * AgentTraceService — task → wakeup → run → event 2-hop JSONB 역추적.
+ * AgentTraceService — task → wakeup → run → event 2-hop trace lookup.
  *
  * 역추적 경로:
  *   AgentTask.id
- *     → AgentWakeupRequest.payload->>'_legacy_task_id' 매칭 (legacy marker 경유)
+ *     → AgentWakeupRequest.legacyTaskId 매칭
  *     → wakeupRequests[].runId
  *     → HeartbeatRun + AgentEvent (runId IN) 조회
  *
  * 규약:
  *   - 모든 where 절에 organizationId 포함 (ADR-0006)
- *   - `$queryRaw` tagged template 만 사용 — `$queryRawUnsafe` 금지 (ADR-0009)
  *   - 응답 직렬화 직전 scrubDeep 방어 (ADR-0007 read-time)
  *   - task marker 미검출 시 traceability.warning 으로 legacy 상태 고지
  */
@@ -67,18 +66,12 @@ export class AgentTraceService {
     });
     if (!task) throw new NotFoundException('task_not_found');
 
-    // 2. wakeupRequests — JSONB marker 매칭. tagged template + cast 로 binding 안전.
-    const rawRows = await this.prisma.$queryRaw<AgentWakeupRequestRow[]>`
-      SELECT
-        id, organization_id, agent_id, source, trigger_detail, reason, payload,
-        status, coalesced_count, requested_by_type, requested_by_id, run_id,
-        requested_at, claimed_at, finished_at, error, created_at, updated_at
-      FROM agent_wakeup_requests
-      WHERE organization_id = ${organizationId}::uuid
-        AND payload->>'_legacy_task_id' = ${taskId}
-      ORDER BY requested_at ASC
-    `;
-    const wakeupRequests = rawRows.map(mapWakeupRow);
+    // 2. wakeupRequests — Prisma-owned legacyTaskId column replaces the former
+    // JSONB expression index on payload->_legacy_task_id.
+    const wakeupRequests = await this.prisma.agentWakeupRequest.findMany({
+      where: { organizationId, legacyTaskId: taskId },
+      orderBy: { requestedAt: 'asc' },
+    }) as AgentWakeupRequest[];
 
     // 3. runId 수집 + 커서 슬라이스
     const runIds = Array.from(
@@ -132,7 +125,7 @@ export class AgentTraceService {
         : 'unknown';
     const warning = markerFound
       ? null
-      : '이 태스크의 실행 추적 마커(_legacy_task_id)가 누락되어 트레이스를 복원할 수 없습니다. 새로운 태스크는 정상 추적됩니다.';
+      : '이 태스크의 실행 추적 마커(legacyTaskId)가 누락되어 트레이스를 복원할 수 없습니다. 새로운 태스크는 정상 추적됩니다.';
 
     // 9. 응답 조립 + scrubDeep read-time 방어 (ADR-0007)
     // satisfies 미적용: WorkflowRun/HeartbeatRun.status 는 Prisma String 이지만 shared 스키마는
@@ -154,50 +147,4 @@ export class AgentTraceService {
 
     return scrubDeep(response as unknown as AgentTrace);
   }
-}
-
-// ── 내부 타입: $queryRaw snake_case 로우 → camelCase 매핑 ──
-
-interface AgentWakeupRequestRow {
-  id: string;
-  organization_id: string;
-  agent_id: string;
-  source: string;
-  trigger_detail: string | null;
-  reason: string | null;
-  payload: unknown;
-  status: string;
-  coalesced_count: number;
-  requested_by_type: string | null;
-  requested_by_id: string | null;
-  run_id: string | null;
-  requested_at: Date;
-  claimed_at: Date | null;
-  finished_at: Date | null;
-  error: string | null;
-  created_at: Date;
-  updated_at: Date;
-}
-
-function mapWakeupRow(r: AgentWakeupRequestRow): AgentWakeupRequest {
-  return {
-    id: r.id,
-    organizationId: r.organization_id,
-    agentId: r.agent_id,
-    source: r.source,
-    triggerDetail: r.trigger_detail,
-    reason: r.reason,
-    payload: r.payload,
-    status: r.status,
-    coalescedCount: Number(r.coalesced_count),
-    requestedByType: r.requested_by_type,
-    requestedById: r.requested_by_id,
-    runId: r.run_id,
-    requestedAt: r.requested_at,
-    claimedAt: r.claimed_at,
-    finishedAt: r.finished_at,
-    error: r.error,
-    createdAt: r.created_at,
-    updatedAt: r.updated_at,
-  } as AgentWakeupRequest;
 }

@@ -26,10 +26,5 @@ export function buildClaudeCliEnv(): NodeJS.ProcessEnv {
     const value = process.env[key];
     if (value !== undefined) env[key] = value;
   }
-  env.AGENT_DATABASE_URL =
-    process.env.CHATBOT_DATABASE_URL ||
-    process.env.AGENT_DATABASE_URL ||
-    process.env.DATABASE_URL ||
-    '';
   return env;
 }

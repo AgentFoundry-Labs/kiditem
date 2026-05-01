@@ -73,10 +73,16 @@ function readSheetRows(filePath: string): WorkbookRow[] {
 type Tx = Prisma.TransactionClient;
 
 async function nextMasterCode(tx: Tx): Promise<string> {
-  const rows = await tx.$queryRaw<Array<{ code: string }>>`
-    SELECT 'M-' || lpad(nextval('master_code_seq')::text, 8, '0') AS code
-  `;
-  return rows[0].code;
+  const counter = await tx.masterCodeCounter.upsert({
+    where: { key: 'master_product' },
+    create: { key: 'master_product', value: 1 },
+    update: { value: { increment: 1 } },
+    select: { value: true },
+  });
+  if (counter.value > 99999999) {
+    throw new Error(`master code counter overflow: ${counter.value} > 99999999`);
+  }
+  return `M-${String(counter.value).padStart(8, '0')}`;
 }
 
 async function nextOptionSku(tx: Tx, masterId: string, masterCode: string): Promise<string> {

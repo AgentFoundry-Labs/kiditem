@@ -1,21 +1,18 @@
 ---
 name: db-query
 description: >
-  PostgreSQL 쿼리 실행 패턴. psql CLI를 사용하여 KidItem DB에서
-  상품, 주문, 광고, 재고 데이터를 조회.
+  Deprecated. Direct DB query access is disabled; agents must use server-provided
+  context and backend application ports.
 ---
 
-# DB Query Skill
+# DB Query Skill (Deprecated)
 
-## 연결
+Direct PostgreSQL access from agents is disabled. Do not use `psql`,
+`AGENT_DATABASE_URL`, `DATABASE_URL`, or raw SQL from an agent process.
 
-DB URL은 환경변수 `$AGENT_DATABASE_URL`로 제공됨.
-
-```bash
-psql "$AGENT_DATABASE_URL" -t -A -F '|' -c "SELECT ..."
-```
-
-읽기 전용 연결. INSERT/UPDATE/DELETE 불가. PostgreSQL이 물리적으로 차단합니다.
+Agent data must be supplied by NestJS application services after
+organization-scoped authorization has already run. If required data is missing,
+return a concise request for the missing backend-provided context.
 
 ## 주요 테이블
 

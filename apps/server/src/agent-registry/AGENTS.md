@@ -359,12 +359,12 @@ Adding a new `agent-registry/domains/{name}/` folder is rejected during review.
 
 ## Agent Data Access
 
-- Agents use `psql "$AGENT_DATABASE_URL"` for DB queries (read-only role: `chatbot_readonly`, scoped by `app.organization_id` RLS)
-- `AGENT_DATABASE_URL` is injected via ExecutionContext env. 프롬프트에서 `$AGENT_DATABASE_URL`로 직접 참조.
+- Agents do not receive DB credentials and must not query PostgreSQL directly.
+- ExecutionContext env carries runtime metadata only (`KIDITEM_AGENT_ID`, `KIDITEM_ORGANIZATION_ID`, `KIDITEM_RUN_ID`). Business data must come from backend application services/ports as organization-scoped context.
 - Prompts are loaded from `agent-config/prompts/agents/{type}.md` files (git-tracked)
 - DB `prompt_template` stores file path (e.g., 'agent-config/prompts/agents/ad-strategy.md')
 - Operational params (organization_id, task_id, dry_run) are still {{key}} substituted
-- Business data is NOT injected — agents query autonomously
+- Business data is supplied explicitly by the owning backend use case when needed; prompts must not instruct agents to use `psql`, `DATABASE_URL`, or raw SQL.
 
 ## Prohibited
 

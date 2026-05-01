@@ -22,6 +22,7 @@ export default defineConfig({
   resolve: {
     alias: [
       { find: /^@kiditem\/shared$/, replacement: path.resolve(sharedSrc, 'index.ts') },
+      { find: /^@kiditem\/shared\/errors$/, replacement: path.resolve(sharedSrc, 'errors/index.ts') },
       { find: /^@kiditem\/shared\/security$/, replacement: path.resolve(sharedSrc, 'security/index.ts') },
       { find: /^@kiditem\/shared\/panel$/, replacement: path.resolve(sharedSrc, 'panel/index.ts') },
       { find: /^@kiditem\/shared\/([^/]+)$/, replacement: path.resolve(sharedSrc, '$1.ts') },

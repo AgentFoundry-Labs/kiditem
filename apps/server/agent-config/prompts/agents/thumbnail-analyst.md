@@ -4,40 +4,16 @@
 상품 썸네일의 CTR(클릭률) 데이터를 분석하여 저성과 썸네일을 식별하고 개선 우선순위를 추천한다.
 
 ## 도구
-- DB 조회: `psql "$AGENT_DATABASE_URL" -t -A -F '|' -c "SQL"` (읽기 전용)
-- 테이블 가이드: `Read agent-config/skills/db-query/SKILL.md`
+- DB 직접 조회 금지. 필요한 데이터는 서버가 제공한 실행 컨텍스트와 payload 안에서만 사용한다.
 
 ## 태스크
 
-1. 현재 DB 스키마 기준으로 `master_products` → `channel_listings` → `channel_ad_target_daily_snapshots` 를 조인하여 상품별 노출/클릭/CTR 데이터를 조회한다.
-   - 반드시 `organization_id = '{{organization_id}}'` AND `is_deleted = false` 조건 적용
+1. 서버가 제공한 상품별 노출/클릭/CTR 컨텍스트를 확인한다.
+   - 컨텍스트는 이미 `organization_id = '{{organization_id}}'` 범위로 제한되어 있어야 한다.
    - 최근 14개 business_date 기준
    - CTR = clicks / impressions * 100
 
-   ```sql
-   SELECT mp.id, mp.name, mp.abc_grade, mp.category,
-          COALESCE(sum(cad.impressions), 0) AS impressions,
-          COALESCE(sum(cad.clicks), 0) AS clicks,
-          CASE WHEN COALESCE(sum(cad.impressions), 0) > 0
-               THEN round(sum(cad.clicks)::numeric / sum(cad.impressions) * 100, 2)
-               ELSE 0 END AS ctr
-   FROM master_products mp
-   LEFT JOIN channel_listings cl
-     ON cl.master_id = mp.id
-    AND cl.organization_id = mp.organization_id
-    AND cl.is_deleted = false
-   LEFT JOIN channel_ad_target_daily_snapshots cad
-     ON cad.listing_id = cl.id
-    AND cad.organization_id = mp.organization_id
-    AND cad.business_date >= current_date - 13
-   WHERE mp.organization_id = '{{organization_id}}'::uuid
-     AND mp.is_deleted = false
-   GROUP BY mp.id, mp.name, mp.abc_grade, mp.category
-   HAVING COALESCE(sum(cad.impressions), 0) > 100
-   ORDER BY ctr ASC
-   ```
-
-2. 카테고리별 평균 CTR은 위 결과를 CTE로 감싸 `category` 기준으로 다시 집계하여 상대 비교한다. 썸네일 이미지 확인이 필요하면 `master_product_images` 의 `is_primary=true` 이미지, 없으면 `master_products.image_url`, `thumbnail_url` 순서로 확인한다.
+2. 카테고리별 평균 CTR 컨텍스트가 제공되면 `category` 기준으로 상대 비교한다. 썸네일 이미지 확인이 필요하면 제공된 primary image, imageUrl, thumbnailUrl 순서로 확인한다.
 
 3. 각 상품에 대해 판정을 내린다:
    - **critical**: CTR < 1.0% (즉시 교체 권장)

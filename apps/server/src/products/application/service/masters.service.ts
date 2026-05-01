@@ -69,13 +69,13 @@ export class MastersService {
     dto: CreateMasterDto,
     outerTx?: Prisma.TransactionClient,
   ): Promise<MasterProduct> {
-    const code = await this.codeSvc.generate();
     const stripped = this.strip(dto);
     try {
       const normalizedImages = normalizeImagesForWrite(
         dto.images ?? (dto.imageUrl ? [{ url: dto.imageUrl, role: 'product', label: null, sortOrder: 0 }] : []),
       );
       const createInTx = async (tx: Prisma.TransactionClient) => {
+        const code = await this.codeSvc.generate(tx);
         const row = await tx.masterProduct.create({
           data: {
             ...stripped,

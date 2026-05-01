@@ -38,7 +38,7 @@ model AgentDefinition {
 
   // Prompt & Tools (기존)
   promptTemplate String @map("prompt_template") @db.Text
-  allowedTools   String   @default("Bash(psql:*) Read Grep") @map("allowed_tools")
+  allowedTools   String   @default("Read Grep") @map("allowed_tools")
   permissionMode String   @default("bypassPermissions") @map("permission_mode")
   fallbackChain  String[] @default(["claude_local"]) @map("fallback_chain")
 
@@ -183,6 +183,7 @@ model AgentWakeupRequest {
   source          String
   triggerDetail   String? @map("trigger_detail")
   reason          String?
+  legacyTaskId    String? @map("legacy_task_id") @db.Uuid
   payload         Json?   @db.JsonB
   status          String  @default("queued")
   coalescedCount  Int     @default(0) @map("coalesced_count")
@@ -202,6 +203,7 @@ model AgentWakeupRequest {
   heartbeatRuns HeartbeatRun[]
 
   @@index([organizationId, agentId, status])
+  @@index([organizationId, legacyTaskId])
   @@index([agentId, requestedAt])
   @@map("agent_wakeup_requests")
 }
@@ -305,4 +307,3 @@ model WorkflowTemplate {
   @@index([marketplaceId])
   @@map("workflow_templates")
 }
-

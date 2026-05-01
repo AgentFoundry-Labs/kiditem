@@ -23,7 +23,9 @@ function makePrisma() {
     agentLog: {
       findMany: vi.fn().mockResolvedValue([]),
     },
-    $queryRaw: vi.fn().mockResolvedValue([]),
+    agentWakeupRequest: {
+      findMany: vi.fn().mockResolvedValue([]),
+    },
   };
 }
 
@@ -32,27 +34,27 @@ function makeService(prisma?: any) {
   return { service: new AgentTraceService(p as any), prisma: p };
 }
 
-/** snake_case row — $queryRaw 결과 모양 */
 function makeWakeupRow(overrides: Record<string, unknown> = {}) {
   return {
     id: 'wake-1',
-    organization_id: 'organization-1',
-    agent_id: 'agent-1',
+    organizationId: 'organization-1',
+    agentId: 'agent-1',
     source: 'on_demand',
-    trigger_detail: null,
+    triggerDetail: null,
     reason: null,
+    legacyTaskId: 'task-1',
     payload: { _legacy_task_id: 'task-1' },
     status: 'finished',
-    coalesced_count: 0,
-    requested_by_type: 'system',
-    requested_by_id: null,
-    run_id: 'run-1',
-    requested_at: new Date('2026-04-13T00:00:00Z'),
-    claimed_at: new Date('2026-04-13T00:00:01Z'),
-    finished_at: new Date('2026-04-13T00:00:10Z'),
+    coalescedCount: 0,
+    requestedByType: 'system',
+    requestedById: null,
+    runId: 'run-1',
+    requestedAt: new Date('2026-04-13T00:00:00Z'),
+    claimedAt: new Date('2026-04-13T00:00:01Z'),
+    finishedAt: new Date('2026-04-13T00:00:10Z'),
     error: null,
-    created_at: new Date('2026-04-13T00:00:00Z'),
-    updated_at: new Date('2026-04-13T00:00:10Z'),
+    createdAt: new Date('2026-04-13T00:00:00Z'),
+    updatedAt: new Date('2026-04-13T00:00:10Z'),
     ...overrides,
   };
 }
@@ -99,9 +101,9 @@ describe('AgentTraceService', () => {
     it('assembles trace from marker-matched wakeup → runs → events (direct path)', async () => {
       const { service, prisma } = makeService();
       prisma.agentTask.findFirst.mockResolvedValue(MOCK_TASK);
-      prisma.$queryRaw.mockResolvedValue([
-        makeWakeupRow({ id: 'wake-1', run_id: 'run-1' }),
-        makeWakeupRow({ id: 'wake-2', run_id: 'run-2' }),
+      prisma.agentWakeupRequest.findMany.mockResolvedValue([
+        makeWakeupRow({ id: 'wake-1', runId: 'run-1' }),
+        makeWakeupRow({ id: 'wake-2', runId: 'run-2' }),
       ]);
       prisma.heartbeatRun.findMany.mockResolvedValue([{ id: 'run-1' }, { id: 'run-2' }]);
       prisma.agentEvent.findMany.mockResolvedValue([{ id: 'evt-1', runId: 'run-1' }]);
@@ -126,13 +128,13 @@ describe('AgentTraceService', () => {
     it('returns warning when marker not found (unknown creationPath)', async () => {
       const { service, prisma } = makeService();
       prisma.agentTask.findFirst.mockResolvedValue({ ...MOCK_TASK, workflowRunId: null });
-      prisma.$queryRaw.mockResolvedValue([]);
+      prisma.agentWakeupRequest.findMany.mockResolvedValue([]);
 
       const res = await service.getTrace('task-1', 'organization-1', {});
 
       expect(res.traceability.markerFound).toBe(false);
       expect(res.traceability.creationPath).toBe('unknown');
-      expect(res.traceability.warning).toContain('_legacy_task_id');
+      expect(res.traceability.warning).toContain('legacyTaskId');
       expect(res.heartbeatRuns).toHaveLength(0);
       expect(res.events).toHaveLength(0);
     });
@@ -140,7 +142,7 @@ describe('AgentTraceService', () => {
     it('marks creationPath=workflow when task.workflowRunId is set, scoping the WorkflowRun read by organizationId', async () => {
       const { service, prisma } = makeService();
       prisma.agentTask.findFirst.mockResolvedValue({ ...MOCK_TASK, workflowRunId: 'wf-1' });
-      prisma.$queryRaw.mockResolvedValue([makeWakeupRow({ run_id: 'run-1' })]);
+      prisma.agentWakeupRequest.findMany.mockResolvedValue([makeWakeupRow({ runId: 'run-1' })]);
       prisma.workflowRun.findFirst.mockResolvedValue({ id: 'wf-1', status: 'completed' });
 
       const res = await service.getTrace('task-1', 'organization-1', {});
@@ -158,7 +160,7 @@ describe('AgentTraceService', () => {
     it('returns null workflowRun when the linked WorkflowRun belongs to another tenant', async () => {
       const { service, prisma } = makeService();
       prisma.agentTask.findFirst.mockResolvedValue({ ...MOCK_TASK, workflowRunId: 'wf-other' });
-      prisma.$queryRaw.mockResolvedValue([]);
+      prisma.agentWakeupRequest.findMany.mockResolvedValue([]);
       // Cross-tenant findFirst returns null even though id exists in DB
       prisma.workflowRun.findFirst.mockResolvedValue(null);
 
@@ -175,9 +177,9 @@ describe('AgentTraceService', () => {
       prisma.agentTask.findFirst.mockResolvedValue(MOCK_TASK);
       // 120 개 wakeups — 120 개 runId
       const rows = Array.from({ length: 120 }, (_, i) =>
-        makeWakeupRow({ id: `wake-${i}`, run_id: `run-${i}` }),
+        makeWakeupRow({ id: `wake-${i}`, runId: `run-${i}` }),
       );
-      prisma.$queryRaw.mockResolvedValue(rows);
+      prisma.agentWakeupRequest.findMany.mockResolvedValue(rows);
       prisma.heartbeatRun.findMany.mockResolvedValue([]);
 
       const page1 = await service.getTrace('task-1', 'organization-1', {});
@@ -203,7 +205,7 @@ describe('AgentTraceService', () => {
       const { service, prisma } = makeService();
       prisma.agentTask.findFirst.mockResolvedValue(MOCK_TASK);
       // payload 에 run_id 없음
-      prisma.$queryRaw.mockResolvedValue([makeWakeupRow({ run_id: null })]);
+      prisma.agentWakeupRequest.findMany.mockResolvedValue([makeWakeupRow({ runId: null })]);
 
       await service.getTrace('task-1', 'organization-1', {});
 
@@ -217,7 +219,7 @@ describe('AgentTraceService', () => {
         ...MOCK_TASK,
         error: 'API error: sk-abcdefghijklmnopqrstuvwxyz123456',
       });
-      prisma.$queryRaw.mockResolvedValue([]);
+      prisma.agentWakeupRequest.findMany.mockResolvedValue([]);
 
       const res = await service.getTrace('task-1', 'organization-1', {});
 
@@ -228,9 +230,9 @@ describe('AgentTraceService', () => {
     it('deduplicates runIds from multiple wakeups sharing same run_id', async () => {
       const { service, prisma } = makeService();
       prisma.agentTask.findFirst.mockResolvedValue(MOCK_TASK);
-      prisma.$queryRaw.mockResolvedValue([
-        makeWakeupRow({ id: 'w1', run_id: 'run-dup' }),
-        makeWakeupRow({ id: 'w2', run_id: 'run-dup' }),
+      prisma.agentWakeupRequest.findMany.mockResolvedValue([
+        makeWakeupRow({ id: 'w1', runId: 'run-dup' }),
+        makeWakeupRow({ id: 'w2', runId: 'run-dup' }),
       ]);
 
       await service.getTrace('task-1', 'organization-1', {});

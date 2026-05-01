@@ -292,7 +292,7 @@ model MasterProduct {
   processingCosts       ProcessingCost[]
   masterSupplierProducts MasterSupplierProduct[]
 
-  @@unique([organizationId, legacyCode])
+  @@unique([organizationId, legacyCode], map: "master_products_organization_id_legacy_code_key", where: raw("is_deleted = false AND legacy_code IS NOT NULL"))
   @@index([organizationId])
   @@index([organizationId, isDeleted])
   @@index([organizationId, isDeleted, isTemporary])
@@ -303,6 +303,16 @@ model MasterProduct {
   @@index([category])
   @@index([brand])
   @@map("master_products")
+}
+
+/// @namespace Core
+/// @describe MasterProduct.code allocator. Prisma-owned replacement for the former PostgreSQL sequence.
+model MasterCodeCounter {
+  key       String   @id
+  value     Int      @default(0)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("master_code_counters")
 }
 
 /// @namespace Core
@@ -403,9 +413,10 @@ model ProductOption {
   // Channels — daily fact extensions (Hard rewrite H1)
   channelAdTargetDailySnapshots ChannelAdTargetDailySnapshot[]
 
-  @@unique([masterId, optionName])
-  @@unique([organizationId, barcode])
-  @@unique([organizationId, legacyCode])
+  @@unique([masterId], map: "product_options_master_null_option", where: raw("option_name IS NULL"))
+  @@unique([masterId, optionName], map: "product_options_master_id_option_name_key", where: raw("is_deleted = false AND option_name IS NOT NULL"))
+  @@unique([organizationId, barcode], map: "product_options_organization_id_barcode_key", where: raw("is_deleted = false AND barcode IS NOT NULL"))
+  @@unique([organizationId, legacyCode], map: "product_options_organization_id_legacy_code_key", where: raw("is_deleted = false AND legacy_code IS NOT NULL"))
   @@index([organizationId])
   @@index([masterId])
   @@index([masterId, isDeleted])
@@ -464,7 +475,7 @@ model ChannelListing {
   // Channels — daily fact extensions (Hard rewrite H1)
   channelAdTargetDailySnapshots ChannelAdTargetDailySnapshot[]
 
-  @@unique([organizationId, channel, externalId])
+  @@unique([organizationId, channel, externalId], map: "channel_listings_organization_id_channel_external_id_key", where: raw("is_deleted = false"))
   @@index([organizationId])
   @@index([masterId])
   @@index([channel, isDeleted])

@@ -4,7 +4,7 @@
 > Regenerate this file with `npm run db:erd` after Prisma schema changes.
 > When committing schema navigation artifacts, run `npm run graphify:schema` as well.
 
-This ERD is a development-time navigation aid. The source of truth is still the Prisma schema under `prisma/`, plus PostgreSQL-only constraints in `prisma/3layer-setup.sql`.
+This ERD is a development-time navigation aid. The source of truth is the Prisma schema under `prisma/`.
 
 ## Sources
 
@@ -27,7 +27,7 @@ This ERD is a development-time navigation aid. The source of truth is still the 
 | [Agents](erd/agents.md) | 8 |
 | [AI](erd/ai.md) | 8 |
 | [Channels](erd/channels.md) | 6 |
-| [Core](erd/core.md) | 12 |
+| [Core](erd/core.md) | 13 |
 | [Finance](erd/finance.md) | 5 |
 | [Inventory](erd/inventory.md) | 8 |
 | [Orders](erd/orders.md) | 9 |
@@ -71,6 +71,7 @@ This ERD is a development-time navigation aid. The source of truth is still the 
 | ChannelListing | Core | `channel_listings` | 채널에 올라간 판매 등록상품. 쿠팡 등록상품ID, 네이버 상품번호 등. |
 | ChannelListingOption | Core | `channel_listing_options` | 채널 listing 내 옵션 externalOptionId 와 내부 ProductOption 매핑. |
 | LegalEntity | Core | `legal_entities` | Legal/business entity under an organization. This stores tax, invoice, and settlement identity separately from the SaaS organization boundary. |
+| MasterCodeCounter | Core | `master_code_counters` | MasterProduct.code allocator. Prisma-owned replacement for the former PostgreSQL sequence. |
 | MasterProduct | Core | `master_products` | 기획상품 family. 같은 컨셉의 옵션들을 묶는 entity. 운영/광고/전략 단위. |
 | MasterProductImage | Core | `master_product_images` | MasterProduct 이미지 갤러리. Source of truth 이며 MasterProduct.imageUrl 은 대표 이미지 캐시로만 동기화된다. |
 | Organization | Core | `organizations` | - |
@@ -276,6 +277,7 @@ erDiagram
     String source
     String triggerDetail
     String reason
+    String legacyTaskId
     Json payload
     String status
     Int coalescedCount
@@ -755,6 +757,11 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  MasterCodeCounter {
+    String key PK
+    Int value
+    DateTime updatedAt
+  }
   MasterProduct {
     String id PK
     String organizationId FK
@@ -973,7 +980,7 @@ erDiagram
   }
   ProductOption {
     String id PK
-    String masterId FK
+    String masterId FK,UK
     String organizationId FK
     String sku UK
     String barcode
@@ -1461,7 +1468,7 @@ erDiagram
   MasterProduct ||--o{ MasterProductImage : "master"
   MasterProduct ||--o{ MasterSupplierProduct : "master"
   MasterProduct ||--o{ ProcessingCost : "master"
-  MasterProduct ||--o{ ProductOption : "master"
+  MasterProduct ||--|| ProductOption : "master"
   MasterProduct ||--|| ThumbnailAnalysis : "master"
   MasterProduct ||--o{ ThumbnailGeneration : "master"
   Order o|--o{ CSRecord : "order"

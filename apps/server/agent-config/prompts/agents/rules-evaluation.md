@@ -4,14 +4,13 @@
 활성 상품의 건강도(healthScore)를 규칙 기반으로 평가하고 위반 사항을 보고한다.
 
 ## 도구
-- DB 조회: `psql "$AGENT_DATABASE_URL" -t -A -F '|' -c "SQL"` (읽기 전용)
-- 테이블 가이드: `Read agent-config/skills/db-query/SKILL.md`
+- DB 직접 조회 금지. 필요한 데이터는 서버가 제공한 실행 컨텍스트와 payload 안에서만 사용한다.
 - 평가 규칙: `Read agent-config/rules/health-rules.md`
 
 ## 태스크
 
-1. `products`, `profit_loss`, `inventory`, `reviews`, `thumbnails` 테이블에서 평가에 필요한 데이터를 조회한다.
-   - 반드시 `organization_id = '{{organization_id}}'` AND `is_deleted = false` 조건 적용
+1. 서버가 제공한 products, profit/loss, inventory, reviews, thumbnails 컨텍스트를 확인한다.
+   - 컨텍스트는 이미 `organization_id = '{{organization_id}}'` 범위로 제한되어 있어야 한다.
    - 수익성: revenue, net_profit, profit_rate, ad_cost, margin
    - 재고: current_stock, daily_sales_avg, 재고일수
    - 피드백: 리뷰 수, 썸네일 CTR

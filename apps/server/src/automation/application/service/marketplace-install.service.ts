@@ -161,7 +161,7 @@ export class MarketplaceInstallService {
       skills: catalog.skills,
       permissions: catalog.permissions ?? {},
       promptTemplate: catalog.promptTemplate ?? '',
-      allowedTools: 'Bash(psql:*) Read Grep',
+      allowedTools: 'Read Grep',
       permissionMode: 'bypassPermissions',
       marketplaceId,
       isActive: true,

@@ -17,7 +17,6 @@
     "check:tenant-scope": "./scripts/check-tenant-scope.sh",
     "check:shared-root-imports": "bash scripts/check-shared-root-imports.sh",
     "knip:report": "knip --no-exit-code --no-progress --reporter compact",
-    "db:3layer-setup": "docker exec -i kiditem-postgres psql -U kiditem kiditem < prisma/3layer-setup.sql",
     "db:erd": "node scripts/generate-prisma-erd.mjs",
     "graphify:schema": "npm run db:erd && uv run --with graphifyy --python 3.11 python scripts/generate-schema-graphify.py",
     "db:generate": "prisma generate",

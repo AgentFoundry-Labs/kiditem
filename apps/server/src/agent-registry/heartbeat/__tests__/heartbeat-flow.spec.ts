@@ -111,7 +111,7 @@ const MOCK_AGENT = {
   adapterConfig: { command: 'claude' },
   runtimeConfig: {},
   promptTemplate: 'Task: {{task_id}}',
-  allowedTools: 'Bash(psql:*) Read',
+  allowedTools: 'Read',
   permissionMode: 'bypassPermissions',
   timeoutSeconds: 300,
   monthlyTokenBudget: 0,

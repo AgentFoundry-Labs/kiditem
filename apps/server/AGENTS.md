@@ -10,7 +10,7 @@ npm run build           # Production build
 docker compose up -d    # Run via Docker (from root)
 ```
 
-Env: `.env` → `DATABASE_URL`, `CHATBOT_DATABASE_URL`, `COUPANG_*`, `GEMINI_API_KEY`
+Env: `.env` → `DATABASE_URL`, `COUPANG_*`, `GEMINI_API_KEY`
 
 ## Scoped Instructions
 
@@ -114,9 +114,9 @@ explicitly retires the compatibility surface.
   `AGENT_RUNNER_PORT`; the compatibility implementation delegates to
   `AgentRegistryService.runByType()` → HeartbeatService → adapter execution
   (Claude CLI or Python HTTP).
-- Agent data access: `AGENT_DATABASE_URL` (read-only PostgreSQL). Agents query DB directly via psql.
+- Agent data access: agents do not receive database URLs and must not query PostgreSQL directly. Data access goes through backend application services/ports that already bind `organizationId`.
 - Agent prompts: stored in `agent-config/prompts/`, NOT in DB. DB `prompt_template` field holds file path.
-- No data injection in prompts — agents fetch what they need through the read-only `AGENT_DATABASE_URL` path.
+- Agent prompts may receive bounded, organization-scoped context from the backend. Do not expose raw DB credentials or tell agents to use `psql`.
 
 ## Reconstruction Guardrails
 

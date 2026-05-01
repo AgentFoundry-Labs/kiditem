@@ -101,13 +101,13 @@ are still shared or not yet folded into a group, for example `ad-ops`,
 ## Data And Tenant Rules
 
 - Prisma schema source of truth lives under `prisma/models/`.
-- Prisma `db push` does not express every operational constraint. Re-run
-  `npm run db:3layer-setup` when schema sync needs partial indexes, CHECK
-  constraints, or chatbot/agent RLS policies.
+- Prisma schema is the only DB schema source of truth. `prisma db push`
+  should be sufficient after schema edits; do not add SQL overlays for RLS,
+  CHECK constraints, expression indexes, or standalone sequences.
 - NestJS uses the owner DB role and must pass `organizationId` explicitly from
   `@CurrentOrganization()` into tenant-owned reads and writes.
-- Chatbot/agent read-only DB access uses `chatbot_readonly`/agent read URLs
-  with `app.organization_id` RLS policies where configured.
+- Chatbot/agent processes do not receive DB URLs. Business data reaches agents
+  through backend application services/ports after organization scoping.
 - Native PostgreSQL enums are not used; use `String` plus app-level validation.
 - Unsafe raw SQL APIs are banned. Use Prisma tagged templates and tenant
   predicates for tenant-owned tables.

@@ -3,9 +3,15 @@ import { validateAllowedTools } from '../dangerous-patterns';
 
 describe('validateAllowedTools', () => {
   it('passes safe tool patterns', () => {
-    const result = validateAllowedTools('Bash(psql:*) Bash(curl:*) Read');
+    const result = validateAllowedTools('Read Grep');
     expect(result.valid).toBe(true);
     expect(result.blocked).toEqual([]);
+  });
+
+  it('blocks direct database shells', () => {
+    const result = validateAllowedTools('Bash(psql:*) Read');
+    expect(result.valid).toBe(false);
+    expect(result.blocked).toEqual(['Bash(psql:*)']);
   });
 
   it('blocks dangerous patterns', () => {

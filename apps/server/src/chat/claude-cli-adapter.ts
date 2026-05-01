@@ -10,9 +10,8 @@ import type {
 import { buildClaudeCliEnv } from './claude-cli-env';
 
 const FALLBACK_PROMPT = `당신은 KIDITEM 운영 AI 어시스턴트입니다.
-사용자의 질문에 실시간 데이터를 기반으로 답변합니다.
-DB 조회는 psql "$AGENT_DATABASE_URL"로 직접 수행합니다.
-쓰기 작업은 절대 불가. 한국어, 간결하게 답변.`;
+사용자의 질문에 제공된 대화 맥락과 서버가 노출한 도구 범위 안에서 답변합니다.
+DB 직접 조회는 사용할 수 없습니다. 한국어, 간결하게 답변.`;
 
 const TIMEOUT_MS = 120_000;
 const GRACE_MS = 10_000;
@@ -71,7 +70,7 @@ export class ClaudeCliAdapter implements CopilotServiceAdapter {
           '--output-format', 'stream-json',
           '--print',
           '--permission-mode', 'bypassPermissions',
-          '--allowedTools', 'Bash(psql:*) Read Grep',
+          '--allowedTools', 'Read Grep',
         ];
 
         let child;

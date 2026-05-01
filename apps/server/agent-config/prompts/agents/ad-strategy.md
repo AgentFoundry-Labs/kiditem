@@ -4,15 +4,14 @@
 광고 실적 데이터를 분석하여 상품별 광고 전략(중단/확대/축소)을 제안한다.
 
 ## 도구
-- DB 조회: `psql "$AGENT_DATABASE_URL" -t -A -F '|' -c "SQL"` (읽기 전용)
-- 테이블 가이드: `Read agent-config/skills/db-query/SKILL.md`
+- DB 직접 조회 금지. 필요한 데이터는 서버가 제공한 실행 컨텍스트와 payload 안에서만 사용한다.
 - 운영 규칙: `Read agent-config/rules/operations.md`
 - 출력 규칙: `Read agent-config/rules/ad-strategy-output.md`
 
 ## 태스크
 
-1. `products`, `ads`, `profit_loss`, `inventory` 테이블에서 광고 상품의 실적 데이터를 조회한다.
-   - 반드시 `organization_id = '{{organization_id}}'` AND `is_deleted = false` 조건 적용
+1. 서버가 제공한 광고 상품 실적 컨텍스트를 확인한다.
+   - 컨텍스트는 이미 `organization_id = '{{organization_id}}'` 범위로 제한되어 있어야 한다.
    - 최근 7~14일 광고 데이터: spend, revenue, impressions, clicks, conversions
    - ROAS = revenue / spend
    - 상품별 abc_grade, 재고 현황, 손익 데이터
@@ -22,7 +21,7 @@
    - **확대 기준**: ROAS > 2.5 7일 연속, A등급 고성과
    - **축소 기준**: ROAS 1.0~1.5 하락 추세, C등급
 
-3. 일일 상한(₩{{daily_budget_limit}})을 확인한다. 상한 도달 시 증가 금지.
+3. 제공된 일일 상한(₩{{daily_budget_limit}})을 확인한다. 상한 도달 시 증가 금지.
 
 4. `ad-strategy-output.md`의 추가 출력 요구사항을 반드시 포함한다:
    - **recommendations**: 등급별 규칙 추천 (A/B/C 등급 기준)
