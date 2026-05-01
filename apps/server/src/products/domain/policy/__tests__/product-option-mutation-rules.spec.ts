@@ -139,11 +139,6 @@ describe('applyTemporaryReasonClearing', () => {
     const data = { temporaryReason: 'still temporary' };
     const result = applyTemporaryReasonClearing(data, { isTemporary: true });
     expect(result).toEqual(data);
-    // Implementation returns the original reference unchanged in the non-flip
-    // path. Future refactors may freely change this to a clone — what matters
-    // is that the original object's contents are not mutated, asserted in the
-    // separate "does not mutate" test below.
-    expect(result).toBe(data);
   });
 
   it('leaves data untouched when isTemporary is undefined', () => {
