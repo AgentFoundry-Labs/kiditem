@@ -106,7 +106,7 @@ describe('AdAction flow (PG integration)', () => {
       params.pageType === 'keyword'
         ? `keyword:${params.campaignName ?? 'C'}::${params.keyword ?? params.externalId}`
         : params.pageType === 'product'
-          ? `product:${params.externalId}:${params.campaignName ?? params.externalId}`
+          ? `product:${params.externalId}`
           : `campaign:${params.campaignName ?? params.externalId}`;
 
     // When the test passes `roas` without an explicit spend, default spend to

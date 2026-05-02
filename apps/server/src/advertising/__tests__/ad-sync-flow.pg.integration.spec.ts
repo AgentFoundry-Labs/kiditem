@@ -183,13 +183,13 @@ describe('AdSync flow (PG integration, H2)', () => {
       });
 
       // Target daily fact at product grain. The targetKey is built from
-      // the listing's externalId (EXT-COUPANG-1) — when the row only carries
-      // vendorItemId, the match propagates the listing's externalId.
+      // the provider vendorItemId/externalOptionId because the ad-products
+      // source is vendor-item scoped and may not carry campaign identity.
       const targetDaily = await prisma.channelAdTargetDailySnapshot.findFirst({
         where: {
           organizationId: TEST_ORGANIZATION_ID,
           targetType: 'product',
-          targetKey: 'product:EXT-COUPANG-1:CAMP-1',
+          targetKey: 'product:VI-HIT-1',
         },
       });
       expect(targetDaily).toBeDefined();
@@ -409,7 +409,7 @@ describe('AdSync flow (PG integration, H2)', () => {
         where: {
           organizationId: TEST_ORGANIZATION_ID,
           targetType: 'product',
-          targetKey: 'product:EXT-IDEM:CAMP-IDEM',
+          targetKey: 'product:VI-IDEM',
         },
       });
       expect(targetDaily?.spend).toBe(1000);

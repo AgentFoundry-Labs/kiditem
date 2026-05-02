@@ -194,8 +194,7 @@ export default function ProfitLossPage() {
                 href="/sales-analysis"
                 className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-900 hover:text-amber-700 underline underline-offset-2"
               >
-                <TrendingUp size={14} /> 매출 분석 → Wing 일매출 / 쿠팡 광고 KPI
-                탭으로 이동
+                <TrendingUp size={14} /> 매출 분석 → Wing 일매출 탭으로 이동
               </Link>
             </div>
           </div>

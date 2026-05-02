@@ -17,6 +17,27 @@ export type CampaignRollup = {
   orders: number;
 };
 
+export type ProductTargetRollup = {
+  targetKey: string;
+  campaignId: string | null;
+  campaignName: string | null;
+  listingId: string | null;
+  listingOptionId: string | null;
+  optionId: string | null;
+  externalId: string | null;
+  externalOptionId: string | null;
+  keyword: string | null;
+  status: string | null;
+  onOff: string | null;
+  metaJson: unknown | null;
+  spend: number;
+  revenue: number;
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  orders: number;
+};
+
 export type AdTrendDailyAggregate = {
   date: string;
   sums: AdMetricSums;
@@ -66,6 +87,79 @@ export async function findCampaignRollups(
           : Prisma.empty
       }
     GROUP BY target_key
+  `);
+}
+
+/**
+ * Product-grain rollup from `ChannelAdTargetDailySnapshot.targetType='product'`.
+ * This is the normalized source for the ad-products tab. Raw scrape snapshots
+ * remain audit/replay evidence only and are never the product-list API source.
+ */
+export async function findProductTargetRollups(
+  prisma: PrismaService,
+  organizationId: string,
+  period: AdPeriod,
+): Promise<ProductTargetRollup[]> {
+  const cutoff = periodCutoff(period);
+  return prisma.$queryRaw<ProductTargetRollup[]>(Prisma.sql`
+    WITH scoped AS (
+      SELECT *
+      FROM channel_ad_target_daily_snapshots
+      WHERE organization_id = ${organizationId}::uuid
+        AND target_type = 'product'
+        AND business_date >= ${cutoff}
+    ),
+    rollups AS (
+      SELECT
+        target_key        AS "targetKey",
+        SUM(spend)::int   AS spend,
+        SUM(revenue)::int AS revenue,
+        SUM(impressions)::int AS impressions,
+        SUM(clicks)::int AS clicks,
+        SUM(conversions)::int AS conversions,
+        SUM(orders)::int AS orders
+      FROM scoped
+      GROUP BY target_key
+    ),
+    latest AS (
+      SELECT DISTINCT ON (target_key)
+        target_key AS "targetKey",
+        campaign_id AS "campaignId",
+        campaign_name AS "campaignName",
+        listing_id::text AS "listingId",
+        listing_option_id::text AS "listingOptionId",
+        option_id::text AS "optionId",
+        external_id AS "externalId",
+        external_option_id AS "externalOptionId",
+        keyword,
+        status,
+        on_off AS "onOff",
+        meta_json AS "metaJson"
+      FROM scoped
+      ORDER BY target_key, business_date DESC, updated_at DESC
+    )
+    SELECT
+      rollups."targetKey",
+      latest."campaignId",
+      latest."campaignName",
+      latest."listingId"::uuid AS "listingId",
+      latest."listingOptionId"::uuid AS "listingOptionId",
+      latest."optionId"::uuid AS "optionId",
+      latest."externalId",
+      latest."externalOptionId",
+      latest.keyword,
+      latest.status,
+      latest."onOff",
+      latest."metaJson",
+      rollups.spend,
+      rollups.revenue,
+      rollups.impressions,
+      rollups.clicks,
+      rollups.conversions,
+      rollups.orders
+    FROM rollups
+    JOIN latest USING ("targetKey")
+    ORDER BY rollups.revenue DESC, rollups.spend DESC, rollups."targetKey" ASC
   `);
 }
 

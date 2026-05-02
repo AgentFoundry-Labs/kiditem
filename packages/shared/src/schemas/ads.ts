@@ -82,7 +82,18 @@ export const AdCampaignSnapshotSchema = z.object({
 export type AdCampaignSnapshot = z.infer<typeof AdCampaignSnapshotSchema>;
 
 export const AdProductSnapshotSchema = z.object({
-  listing: AdListingSummarySchema,
+  listing: AdListingSummarySchema.nullable(),
+  externalId: z.string().nullable(),
+  externalOptionId: z.string().nullable(),
+  campaignId: z.string().nullable(),
+  campaignName: z.string().nullable(),
+  keyword: z.string().nullable(),
+  status: z.string().nullable(),
+  onOff: z.string().nullable(),
+  productName: z.string().nullable(),
+  imageUrl: z.string().nullable(),
+  productUrl: z.string().nullable(),
+  saleType: z.string().nullable(),
   period: z.string(),
   metrics: AdMetricsSchema,
 });

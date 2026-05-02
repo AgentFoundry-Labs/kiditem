@@ -6,6 +6,7 @@ import { queryKeys } from '@/lib/query-keys';
 import type {
   AdCampaignSnapshot,
   AdExtensionStatus,
+  AdProductSnapshot,
   AdRulesData,
   AdWeeklyPlan,
   AdsHubData,
@@ -34,6 +35,18 @@ export type CampaignProductData = {
 type CampaignsResponse = {
   campaigns: AdCampaignSnapshot[];
   totalKpi: Record<string, number>;
+};
+
+export type RoasThresholds = {
+  excellent: number;
+  warning: number;
+  poor: number;
+};
+
+const DEFAULT_ROAS_THRESHOLDS: RoasThresholds = {
+  excellent: 300,
+  warning: 200,
+  poor: 100,
 };
 
 // H3 — `/api/ads/extension/status` shape moved to current-state semantics.
@@ -102,6 +115,16 @@ function campaignTotals(campaigns: AdCampaignSnapshot[]): Record<string, number>
 
 export function toCampaignsResponse(campaigns: AdCampaignSnapshot[]): CampaignsResponse {
   return { campaigns, totalKpi: campaignTotals(campaigns) };
+}
+
+export function useAdsConfig(): RoasThresholds {
+  const { data } = useQuery({
+    queryKey: queryKeys.ads.config(),
+    queryFn: () =>
+      apiClient.get<{ roas: { thresholds: RoasThresholds } }>('/api/ads/config'),
+    staleTime: 5 * 60 * 1000,
+  });
+  return data?.roas?.thresholds ?? DEFAULT_ROAS_THRESHOLDS;
 }
 
 export function useAdOpsData(period: string, tab: string) {
@@ -200,6 +223,46 @@ export function useAdOpsData(period: string, tab: string) {
     trafficSummary,
     isLoading,
   };
+}
+
+export type AdProductRow = CampaignProductData & { campaignName: string };
+
+export function useAdProducts(period: string, enabled: boolean) {
+  const campPeriod = period;
+
+  const productsQuery = useQuery({
+    queryKey: queryKeys.ads.products(campPeriod),
+    queryFn: () =>
+      apiClient.get<AdProductSnapshot[]>(`/api/ads/products?period=${campPeriod}`),
+    enabled,
+  });
+
+  const products: AdProductRow[] = (productsQuery.data ?? []).map((snapshot) => ({
+    vendorItemId:
+      snapshot.externalOptionId ??
+      snapshot.externalId ??
+      snapshot.listing?.externalId ??
+      '',
+    productName:
+      snapshot.productName ??
+      snapshot.listing?.channelName ??
+      snapshot.listing?.masterProduct.name ??
+      '(이름 없음)',
+    keyword: snapshot.keyword,
+    onOff: snapshot.onOff,
+    imageUrl: snapshot.imageUrl,
+    adSpend: snapshot.metrics.spend,
+    adRevenue: snapshot.metrics.revenue,
+    impressions: snapshot.metrics.impressions,
+    clicks: snapshot.metrics.clicks,
+    ctr: snapshot.metrics.ctr,
+    adConversions: snapshot.metrics.conversions,
+    conversionRate: snapshot.metrics.cvr,
+    roas: snapshot.metrics.roas,
+    campaignName: snapshot.campaignName ?? '',
+  }));
+
+  return { products, isLoading: productsQuery.isLoading };
 }
 
 export function useRegisterCampaign() {

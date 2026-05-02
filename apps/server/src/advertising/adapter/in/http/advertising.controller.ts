@@ -84,6 +84,11 @@ export class AdvertisingController {
     return this.advertisingService.changeTier(id, body.adTier, organizationId);
   }
 
+  @Get('products')
+  getProducts(@Query() query: StrategyQueryDto, @CurrentOrganization() organizationId: string) {
+    return this.adCampaignsService.getProducts(query.period ?? '14d', organizationId);
+  }
+
   // === 캠페인 ===
 
   @Get('campaigns/trends')

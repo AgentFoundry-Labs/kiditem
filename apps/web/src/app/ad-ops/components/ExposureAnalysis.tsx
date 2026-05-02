@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import {
   TrendingUp,
   Star,
@@ -143,8 +143,8 @@ function ProductTable({ products }: { products: ExposureProductScore[] }) {
               const isOpen = expanded === p.listing.listingId;
               const color = scoreColor(p.totalScore);
               return (
-                <>
-                  <tr key={p.listing.listingId}>
+                <Fragment key={p.listing.listingId}>
+                  <tr>
                     <td className="font-medium max-w-[260px] truncate" style={{ color: 'var(--text-primary)' }}>{p.listing.channelName ?? p.listing.masterProduct.name}</td>
                     <td>{p.grade ?? '-'}</td>
                     <td className="text-right font-black tabular-nums" style={{ color }}>{p.totalScore}</td>
@@ -156,7 +156,7 @@ function ProductTable({ products }: { products: ExposureProductScore[] }) {
                     </td>
                   </tr>
                   {isOpen && (
-                    <tr key={`${p.listing.listingId}-detail`}>
+                    <tr>
                       <td colSpan={5} className="p-0">
                         <div className="grid grid-cols-1 md:grid-cols-5 gap-2 p-3" style={{ background: 'var(--surface-sunken)' }}>
                           {p.factors.map((factor) => {
@@ -174,7 +174,7 @@ function ProductTable({ products }: { products: ExposureProductScore[] }) {
                       </td>
                     </tr>
                   )}
-                </>
+                </Fragment>
               );
             })}
           </tbody>

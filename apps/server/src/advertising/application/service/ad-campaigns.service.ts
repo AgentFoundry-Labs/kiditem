@@ -7,15 +7,18 @@ import {
   findAdTrendDailyRows,
   findCampaignRollups,
   findGradeBudgetTotals,
+  findProductTargetRollups,
 } from '../../adapter/out/prisma/ad-campaign.query';
 import { findCoupangAdsDailyAccountKpi } from '../../adapter/out/prisma/ad-account-kpi.query';
 import {
   toAdCampaignSnapshot,
+  toAdProductSnapshot,
   toAdTrendsData,
 } from '../../mapper/ad-campaign.mapper';
 import { periodToDays, type AdPeriod } from '../../domain/ad-metrics';
 import type {
   AdCampaignSnapshot,
+  AdProductSnapshot,
   AdTrendsData,
 } from '@kiditem/shared/advertising';
 
@@ -58,6 +61,35 @@ export class AdCampaignsService {
     return rollups.map((rollup) => {
       const listing = rollup.listingId ? listingMap.get(rollup.listingId) ?? null : null;
       return toAdCampaignSnapshot(rollup, listing, period);
+    });
+  }
+
+  /**
+   * Product-grain ad rows from normalized target daily facts. Raw
+   * `ChannelScrapeSnapshot` rows stay audit/replay evidence; the UI reads
+   * this fact projection instead.
+   */
+  async getProducts(
+    period: AdPeriod,
+    organizationId: string,
+  ): Promise<AdProductSnapshot[]> {
+    const rollups = await findProductTargetRollups(this.prisma, organizationId, period);
+    if (rollups.length === 0) return [];
+
+    const listingIds = Array.from(
+      new Set(
+        rollups
+          .map((r) => r.listingId)
+          .filter((id): id is string => id != null),
+      ),
+    );
+    const listingMap = listingIds.length > 0
+      ? await findScopedAdListings(this.prisma, organizationId, listingIds)
+      : new Map();
+
+    return rollups.map((rollup) => {
+      const listing = rollup.listingId ? listingMap.get(rollup.listingId) ?? null : null;
+      return toAdProductSnapshot(rollup, listing, period);
     });
   }
 

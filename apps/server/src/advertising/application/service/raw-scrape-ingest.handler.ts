@@ -294,6 +294,7 @@ export async function ingestRawScrape(
             campaignName: rowCampaignName,
             adGroup: rowAdGroup,
             keyword: rowKeyword,
+            externalOptionId: externalOptionIdRaw ?? match.externalOptionId,
             externalId: externalIdRaw ?? match.externalId,
             listingId: match.listingId,
           });
@@ -325,6 +326,10 @@ export async function ingestRawScrape(
                 providerRoas,
                 providerCtr,
                 pageType,
+                productName: cleanString(row.productName),
+                imageUrl: cleanString(row.imageUrl),
+                productUrl: cleanString(row.productUrl),
+                saleType: cleanString(row.saleType),
               },
             },
             spend: rowSpend,

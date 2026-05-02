@@ -78,6 +78,7 @@ export const queryKeys = {
   ads: {
     all: ['ads'] as const,
     list: () => [...queryKeys.ads.all, 'list'] as const,
+    products: (period?: string) => [...queryKeys.ads.all, 'products', period] as const,
     campaigns: (period?: string) => [...queryKeys.ads.all, 'campaigns', period] as const,
     campaignProducts: (name: string, period?: string) => [...queryKeys.ads.all, 'campaigns', name, period] as const,
     trends: (period?: string | number) => [...queryKeys.ads.all, 'trends', period] as const,
@@ -140,10 +141,6 @@ export const queryKeys = {
     statistics: (tab: string, period: string) =>
       [...queryKeys.salesAnalysis.all, 'statistics', tab, period] as const,
     dataSources: () => [...queryKeys.salesAnalysis.all, 'dataSources'] as const,
-    adsMonthly: (year: number, month: number) =>
-      [...queryKeys.salesAnalysis.all, 'adsMonthly', year, month] as const,
-    wingMappedInventory: (year: number, month: number) =>
-      [...queryKeys.salesAnalysis.all, 'wingMappedInventory', year, month] as const,
   },
   thumbnails: {
     all: ['thumbnails'] as const,
