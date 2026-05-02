@@ -45,26 +45,30 @@ function CampaignSummary({ campaigns, onSelect }: { campaigns: AdCampaignSnapsho
         </button>
       </div>
       <div className="divide-y" style={{ borderColor: "var(--border-subtle)" }}>
-        {top.map((c) => (
-          <button
-            key={`${c.campaignName ?? c.campaignId ?? c.listing.listingId}`}
-            onClick={() => onSelect(c.campaignName ?? undefined)}
-            className="w-full flex items-center justify-between px-5 py-3 transition-colors text-left hover:bg-[var(--surface-sunken)]"
-          >
-            <div>
-              <div className="text-[13px] font-semibold" style={{ color: "var(--text-primary)" }}>{c.campaignName ?? c.listing.masterProduct.name}</div>
-              <div className="text-[11px] mt-0.5" style={{ color: "var(--text-tertiary)" }}>
-                클릭 {formatNumber(c.metrics.clicks)} · 전환 {c.metrics.conversions}
+        {top.map((c) => {
+          const rowKey = `${c.campaignName ?? c.campaignId ?? c.listing?.listingId ?? "unknown"}`;
+          const displayName = c.campaignName ?? c.listing?.masterProduct.name ?? "알 수 없는 캠페인";
+          return (
+            <button
+              key={rowKey}
+              onClick={() => onSelect(c.campaignName ?? undefined)}
+              className="w-full flex items-center justify-between px-5 py-3 transition-colors text-left hover:bg-[var(--surface-sunken)]"
+            >
+              <div>
+                <div className="text-[13px] font-semibold" style={{ color: "var(--text-primary)" }}>{displayName}</div>
+                <div className="text-[11px] mt-0.5" style={{ color: "var(--text-tertiary)" }}>
+                  클릭 {formatNumber(c.metrics.clicks)} · 전환 {c.metrics.conversions}
+                </div>
               </div>
-            </div>
-            <div className="text-right">
-              <div className="text-[13px] font-semibold tabular-nums" style={{ color: "var(--text-primary)" }}>{formatKRW(c.metrics.revenue)}원</div>
-              <div className={cn("text-[11px] font-semibold tabular-nums", roasColor(c.metrics.roas ?? 0, roasT))}>
-                ROAS {c.metrics.roas ?? 0}%
+              <div className="text-right">
+                <div className="text-[13px] font-semibold tabular-nums" style={{ color: "var(--text-primary)" }}>{formatKRW(c.metrics.revenue)}원</div>
+                <div className={cn("text-[11px] font-semibold tabular-nums", roasColor(c.metrics.roas ?? 0, roasT))}>
+                  ROAS {c.metrics.roas ?? 0}%
+                </div>
               </div>
-            </div>
-          </button>
-        ))}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

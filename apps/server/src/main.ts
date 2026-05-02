@@ -62,7 +62,8 @@ async function bootstrap() {
   app.useGlobalFilters(new GlobalExceptionFilter());
 
   // 이미지는 S3-호환 스토리지(MinIO/R2/S3)에서 직접 서빙 (StorageService 참조)
-  await app.listen(4000);
-  console.log('Server running on http://localhost:4000');
+  const port = Number(process.env.PORT) || 4000;
+  await app.listen(port);
+  console.log(`Server running on http://localhost:${port}`);
 }
 bootstrap();

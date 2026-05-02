@@ -1,4 +1,6 @@
 import type {
+  AdAccountKpi,
+  AdAccountKpiDayPoint,
   AdCampaignSnapshot,
   AdMetrics,
   AdTrendsData,
@@ -10,20 +12,24 @@ import type {
   AdTrendDailyAggregate,
   CampaignRollup,
 } from '../adapter/out/prisma/ad-campaign.query';
+import type { AdAccountKpiDayRow } from '../adapter/out/prisma/ad-account-kpi.query';
 import { scopedListingToSummary } from './ad-listing.mapper';
 
 /**
- * CampaignRollup row + ScopedAdListing → AdCampaignSnapshot. Listings hidden
- * by tenant scope (or soft-deleted) cause a `null` return so the caller can
- * `flatMap` them out without leaking unscoped rows.
+ * CampaignRollup row → AdCampaignSnapshot. Campaign-grain rollups in
+ * `ChannelAdTargetDailySnapshot` are not always tied to a single listing
+ * (Coupang campaigns frequently span many products), so `listing` can be
+ * `null`. Listings hidden by tenant scope (or soft-deleted) also surface as
+ * a `null` listing so the caller cannot leak unscoped rows even when a
+ * stale `listing_id` survives on the rollup row.
  */
 export function toAdCampaignSnapshot(
-  rollup: CampaignRollup & { listingId: string },
-  listing: ScopedAdListingReadModel,
+  rollup: CampaignRollup,
+  listing: ScopedAdListingReadModel | null,
   period: AdPeriod,
 ): AdCampaignSnapshot {
   return {
-    listing: scopedListingToSummary(listing),
+    listing: listing ? scopedListingToSummary(listing) : null,
     campaignId: rollup.campaignId,
     campaignName: rollup.campaignName,
     period,
@@ -37,17 +43,64 @@ export function toAdCampaignSnapshot(
   } satisfies AdCampaignSnapshot;
 }
 
+/**
+ * Account-level daily KPI rows (`coupang_ads_daily`) → period summary +
+ * sorted daily series. `latestBusinessDate` is the max date with data.
+ * The summary `AdMetrics.roas` recomputes from window totals.
+ */
+export function toAdAccountKpi(rows: AdAccountKpiDayRow[]): {
+  summary: AdAccountKpi | null;
+  daily: AdAccountKpiDayPoint[];
+} {
+  if (rows.length === 0) return { summary: null, daily: [] };
+  const sorted = [...rows].sort((a, b) =>
+    a.businessDate.localeCompare(b.businessDate),
+  );
+  const totalsSums = sorted.reduce(
+    (acc, row) => ({
+      spend: acc.spend + row.sums.spend,
+      revenue: acc.revenue + row.sums.revenue,
+      clicks: acc.clicks + row.sums.clicks,
+      impressions: acc.impressions + row.sums.impressions,
+      conversions: acc.conversions + row.sums.conversions,
+    }),
+    { spend: 0, revenue: 0, clicks: 0, impressions: 0, conversions: 0 },
+  );
+  const totalOrders = sorted.reduce((acc, row) => acc + row.orders, 0);
+  const summary = {
+    metrics: buildAdMetrics(totalsSums),
+    orders: totalOrders,
+    periodDayCount: sorted.length,
+    latestBusinessDate: sorted[sorted.length - 1].businessDate,
+    source: 'coupang_ads_daily',
+  } satisfies AdAccountKpi;
+  const daily = sorted.map(
+    (row) =>
+      ({
+        date: row.businessDate,
+        metrics: buildAdMetrics(row.sums),
+        orders: row.orders,
+      }) satisfies AdAccountKpiDayPoint,
+  );
+  return { summary, daily };
+}
+
 export type GradeBudgetTotals = Record<'A' | 'B' | 'C', number>;
 
 export type AdTrendsMapperInput = {
   dailyAggregates: AdTrendDailyAggregate[];
   gradeBudget: GradeBudgetTotals;
+  accountKpiRows: AdAccountKpiDayRow[];
 };
 
 /**
- * Daily-aggregate rows + grade budget totals → AdTrendsData. Splits the
- * daily series at the midpoint to compute first/second half comparisons,
- * recomputing ratios from sums in both halves and the daily series.
+ * Daily-aggregate rows + grade budget totals → AdTrendsData.
+ *
+ * `daily` always carries per-listing ad metrics from
+ * `ChannelListingDailySnapshot` (truthful per-listing series — zero is
+ * zero, never substituted). Account-level `coupang_ads_daily` series and
+ * summary land in `accountDaily`/`accountSummary` so the UI can render
+ * both surfaces side-by-side without one masking the other.
  */
 export function toAdTrendsData(input: AdTrendsMapperInput): AdTrendsData {
   const sortedDaily = [...input.dailyAggregates].sort((a, b) =>
@@ -58,6 +111,8 @@ export function toAdTrendsData(input: AdTrendsMapperInput): AdTrendsData {
     metrics: buildAdMetrics(row.sums),
   }));
 
+  const account = toAdAccountKpi(input.accountKpiRows);
+
   const mid = Math.floor(daily.length / 2);
   const firstHalf = aggregate(daily.slice(0, mid));
   const secondHalf = aggregate(daily.slice(mid));
@@ -67,6 +122,8 @@ export function toAdTrendsData(input: AdTrendsMapperInput): AdTrendsData {
     firstHalf,
     secondHalf,
     gradeBudget: input.gradeBudget,
+    accountDaily: account.daily,
+    accountSummary: account.summary,
   } satisfies AdTrendsData;
 }
 

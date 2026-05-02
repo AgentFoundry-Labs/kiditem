@@ -65,25 +65,36 @@ export function CampaignTable({ campaigns, sortBy, onSortChange, selectedCampaig
                 <td colSpan={9} className="text-center py-12 text-slate-500">캠페인 데이터가 없습니다.</td>
               </tr>
             )}
-            {sorted.map((c) => (
-              <tr
-                key={`${c.campaignName ?? c.campaignId ?? c.listing.listingId}`}
-                onClick={() => onSelectCampaign(selectedCampaign === c.campaignName ? null : c.campaignName)}
-                className={cn('cursor-pointer transition-colors', selectedCampaign === c.campaignName ? 'bg-blue-50' : 'hover:bg-slate-50')}
-              >
-                <td className="font-medium text-slate-900 max-w-[240px] truncate">{c.campaignName ?? c.listing.channelName ?? c.listing.masterProduct.name}</td>
-                <td className="text-right">{formatKRW(c.metrics.spend)}</td>
-                <td className="text-right">{formatKRW(c.metrics.revenue)}</td>
-                <td className={cn('text-right font-semibold', roasColor(c.metrics.roas ?? 0, roasT))}>
-                  {c.metrics.roas ?? 0}%
-                </td>
-                <td className="text-right">{formatNumber(c.metrics.impressions)}</td>
-                <td className="text-right">{formatNumber(c.metrics.clicks)}</td>
-                <td className="text-right">{(c.metrics.ctr ?? 0).toFixed(2)}%</td>
-                <td className="text-right">{c.metrics.conversions}</td>
-                <td className="text-right">{(c.metrics.cvr ?? 0).toFixed(2)}%</td>
-              </tr>
-            ))}
+            {sorted.map((c) => {
+              const rowKey = `${c.campaignName ?? c.campaignId ?? c.listing?.listingId ?? 'unknown'}`;
+              const displayName = c.campaignName ?? c.listing?.channelName ?? c.listing?.masterProduct.name ?? '알 수 없는 캠페인';
+              return (
+                <tr
+                  key={rowKey}
+                  onClick={() => onSelectCampaign(selectedCampaign === c.campaignName ? null : c.campaignName)}
+                  className={cn('cursor-pointer transition-colors', selectedCampaign === c.campaignName ? 'bg-blue-50' : 'hover:bg-slate-50')}
+                >
+                  <td className="font-medium text-slate-900 max-w-[240px] truncate">
+                    {displayName}
+                    {c.listing == null && (
+                      <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-500">
+                        캠페인 단위
+                      </span>
+                    )}
+                  </td>
+                  <td className="text-right">{formatKRW(c.metrics.spend)}</td>
+                  <td className="text-right">{formatKRW(c.metrics.revenue)}</td>
+                  <td className={cn('text-right font-semibold', roasColor(c.metrics.roas ?? 0, roasT))}>
+                    {c.metrics.roas ?? 0}%
+                  </td>
+                  <td className="text-right">{formatNumber(c.metrics.impressions)}</td>
+                  <td className="text-right">{formatNumber(c.metrics.clicks)}</td>
+                  <td className="text-right">{(c.metrics.ctr ?? 0).toFixed(2)}%</td>
+                  <td className="text-right">{c.metrics.conversions}</td>
+                  <td className="text-right">{(c.metrics.cvr ?? 0).toFixed(2)}%</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

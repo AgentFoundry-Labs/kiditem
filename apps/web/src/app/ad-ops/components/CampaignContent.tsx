@@ -9,7 +9,7 @@ import { roasColor } from "../lib/status-colors";
 import { toCampaignsResponse } from "../hooks/useAdOpsData";
 import { CampaignTable } from "./CampaignTable";
 import { ProductDrilldown } from "./ProductDrilldown";
-import type { AdCampaignSnapshot } from "@kiditem/shared/advertising";
+import type { AdCampaignSnapshot, AdTrendsData } from "@kiditem/shared/advertising";
 
 export default function CampaignContent({ initialCampaign }: { initialCampaign: string | null }) {
   const [period, setPeriod] = useState("7d");
@@ -33,8 +33,17 @@ export default function CampaignContent({ initialCampaign }: { initialCampaign: 
         .then(toCampaignsResponse),
   });
 
+  // Trends carries the account-level KPI summary from coupang_ads_daily —
+  // useful as a fallback KPI surface when campaign-grain rollups are sparse
+  // or fully campaign-attributed (no listing identity).
+  const { data: trends } = useQuery({
+    queryKey: queryKeys.ads.trends(period),
+    queryFn: () => apiClient.get<AdTrendsData>(`/api/ads/campaigns/trends?period=${period}`),
+  });
+
   const campaigns = data?.campaigns ?? [];
-  const kpi = data?.totalKpi ?? {};
+  const campaignKpi = data?.totalKpi ?? {};
+  const accountSummary = trends?.accountSummary ?? null;
 
   if (isLoading) {
     return (
@@ -44,7 +53,8 @@ export default function CampaignContent({ initialCampaign }: { initialCampaign: 
     );
   }
 
-  if (campaigns.length === 0) {
+  // No campaign rollup AND no account summary → truly nothing to show.
+  if (campaigns.length === 0 && !accountSummary) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[40vh]" style={{ color: "var(--text-tertiary)" }}>
         <p className="text-sm mb-2">캠페인 스냅샷 데이터가 없습니다.</p>
@@ -72,31 +82,73 @@ export default function CampaignContent({ initialCampaign }: { initialCampaign: 
         </div>
       </div>
 
-      {/* KPI 카드 */}
-      <div className="grid grid-cols-4 gap-3">
-        {[
-          { label: "총 광고비", value: `${formatKRW(kpi.adSpend ?? 0)}원` },
-          { label: "광고 매출", value: `${formatKRW(kpi.adRevenue ?? 0)}원` },
-          { label: "ROAS", value: `${kpi.roas ?? 0}%`, colorClass: roasColor(kpi.roas ?? 0, roasT) },
-          { label: "CTR", value: `${(kpi.ctr ?? 0).toFixed(2)}%` },
-        ].map((k) => (
-          <div key={k.label} className="rounded-2xl px-5 py-4" style={{ background: "var(--card-bg)", boxShadow: "var(--shadow-sm)", border: "1px solid var(--border-subtle)" }}>
-            <div className="text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: "var(--text-tertiary)" }}>{k.label}</div>
-            <div className={cn("text-[22px] font-black tabular-nums leading-tight", k.colorClass ?? "")} style={!k.colorClass ? { color: "var(--text-primary)" } : {}}>
-              {k.value}
+      {/* 캠페인 합산 KPI — 캠페인 단위 rollup. 0 이면 0 그대로 보여줌. */}
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+            캠페인 합산 (ChannelAdTargetDailySnapshot)
+          </span>
+        </div>
+        <div className="grid grid-cols-4 gap-3">
+          {[
+            { label: "총 광고비", value: `${formatKRW(campaignKpi.adSpend ?? 0)}원` },
+            { label: "광고 매출", value: `${formatKRW(campaignKpi.adRevenue ?? 0)}원` },
+            { label: "ROAS", value: `${campaignKpi.roas ?? 0}%`, colorClass: roasColor(campaignKpi.roas ?? 0, roasT) },
+            { label: "CTR", value: `${(campaignKpi.ctr ?? 0).toFixed(2)}%` },
+          ].map((k) => (
+            <div key={k.label} className="rounded-2xl px-5 py-4" style={{ background: "var(--card-bg)", boxShadow: "var(--shadow-sm)", border: "1px solid var(--border-subtle)" }}>
+              <div className="text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: "var(--text-tertiary)" }}>{k.label}</div>
+              <div className={cn("text-[22px] font-black tabular-nums leading-tight", k.colorClass ?? "")} style={!k.colorClass ? { color: "var(--text-primary)" } : {}}>
+                {k.value}
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
 
+      {/* 계정 합산 KPI — 쿠팡 광고센터 일별 집계 (coupang_ads_daily). 캠페인 합산과 별도 carded. */}
+      {accountSummary && (
+        <div>
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+              계정 합산 (쿠팡 광고센터 일별 · {accountSummary.source})
+            </span>
+            <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+              {accountSummary.periodDayCount}일 · 최근 {accountSummary.latestBusinessDate ?? "-"}
+            </span>
+          </div>
+          <div className="grid grid-cols-4 gap-3">
+            {[
+              { label: "총 광고비", value: `${formatKRW(accountSummary.metrics.spend)}원` },
+              { label: "광고 매출", value: `${formatKRW(accountSummary.metrics.revenue)}원` },
+              { label: "ROAS", value: `${accountSummary.metrics.roas ?? 0}%`, colorClass: roasColor(accountSummary.metrics.roas ?? 0, roasT) },
+              { label: "CTR", value: `${(accountSummary.metrics.ctr ?? 0).toFixed(2)}%` },
+            ].map((k) => (
+              <div key={k.label} className="rounded-2xl px-5 py-4" style={{ background: "var(--card-bg)", boxShadow: "var(--shadow-sm)", border: "1px solid var(--border-subtle)" }}>
+                <div className="text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: "var(--text-tertiary)" }}>{k.label}</div>
+                <div className={cn("text-[22px] font-black tabular-nums leading-tight", k.colorClass ?? "")} style={!k.colorClass ? { color: "var(--text-primary)" } : {}}>
+                  {k.value}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* 캠페인 테이블 */}
-      <CampaignTable
-        campaigns={campaigns}
-        sortBy={sortBy}
-        onSortChange={setSortBy}
-        selectedCampaign={selectedCampaign}
-        onSelectCampaign={setSelectedCampaign}
-      />
+      {campaigns.length > 0 ? (
+        <CampaignTable
+          campaigns={campaigns}
+          sortBy={sortBy}
+          onSortChange={setSortBy}
+          selectedCampaign={selectedCampaign}
+          onSelectCampaign={setSelectedCampaign}
+        />
+      ) : (
+        <div className="rounded-xl px-4 py-3 text-xs" style={{ background: "var(--surface-sunken)", color: "var(--text-tertiary)", border: "1px solid var(--border-subtle)" }}>
+          기간 내 캠페인 단위 광고 row 가 없습니다.
+        </div>
+      )}
 
       {/* 상품 드릴다운 */}
       {selectedCampaign && (

@@ -23,6 +23,13 @@ export type StrategyContext = {
   profitRateByListing: Map<string, number>;
   channelStateByListing: Map<string, ChannelStateSignal>;
   gradeMap: Map<string, 'A' | 'B' | 'C' | null>;
+  /**
+   * Per-listing Wing traffic totals over the lifetime window. Keys are the
+   * same `listingId` as `adGroups`. Used as a top20 ranking fallback when
+   * the source data does not attribute ad spend to listings (Drive replay
+   * shape — campaign source carries no productId).
+   */
+  trafficByListing: Map<string, { revenue: number; orders: number }>;
   config: AdsConfig;
 };
 
@@ -49,7 +56,7 @@ export async function loadStrategyContext(
 ): Promise<StrategyContext> {
   const since14d = kstInclusiveDaysStart(14);
 
-  const [adAggAll, adAgg14d, config] = await Promise.all([
+  const [adAggAll, adAgg14d, trafficAggAll, config] = await Promise.all([
     prisma.channelListingDailySnapshot.groupBy({
       by: ['listingId'],
       where: { organizationId },
@@ -70,6 +77,14 @@ export async function loadStrategyContext(
         adClicks: true,
         adImpressions: true,
         adConversions: true,
+      },
+    }),
+    prisma.channelListingDailySnapshot.groupBy({
+      by: ['listingId'],
+      where: { organizationId, businessDate: { gte: since14d } },
+      _sum: {
+        trafficRevenue: true,
+        trafficOrders: true,
       },
     }),
     adConfigService.getConfig(organizationId),
@@ -99,6 +114,15 @@ export async function loadStrategyContext(
     liveMetrics.map((metric) => [metric.listingId, metric.profitRate]),
   );
 
+  const trafficByListing = new Map<string, { revenue: number; orders: number }>();
+  for (const row of trafficAggAll) {
+    if (!row.listingId) continue;
+    trafficByListing.set(row.listingId, {
+      revenue: row._sum.trafficRevenue ?? 0,
+      orders: row._sum.trafficOrders ?? 0,
+    });
+  }
+
   return {
     adGroups: toAdAggregateRows(adAggAll),
     adIssuesAdGroups: toAdAggregateRows(adAgg14d),
@@ -106,6 +130,7 @@ export async function loadStrategyContext(
     profitRateByListing,
     channelStateByListing,
     gradeMap: buildGradeMap(listings),
+    trafficByListing,
     config: config satisfies AdsConfig,
   };
 }

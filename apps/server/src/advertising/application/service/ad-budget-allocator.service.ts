@@ -163,36 +163,54 @@ export class AdBudgetAllocatorService {
   }
 
   /**
-   * Top 20 listing (spend desc, tie-break revenue desc, rank 1-indexed).
+   * Top 20 listings ranked by a single composite key:
+   *   ad spend desc → ad revenue desc → traffic revenue desc → traffic orders desc.
    *
-   * 기존 ad-strategy.service.ts:1067-1144 본문 이전.
-   * 변경:
-   *  - prisma.channelListing.findMany / legacy ad groupBy 제거.
-   *  - 정렬 기준: ad spend desc → revenue desc tie-break.
-   *  - listing 에 매칭되는 adGroup 이 없으면 (광고 0건) skip.
+   * Each item carries its real ad metrics (which may be zero — never
+   * substituted with traffic) plus a separate `traffic` field for Wing
+   * revenue/orders evidence. Listings without any signal are excluded.
    */
   calcTop20(input: Top20Input): AdTop20Item[] {
-    const { listings, adGroups } = input;
+    const { listings, adGroups, trafficByListing } = input;
     const adGroupMap = new Map(adGroups.map((g) => [g.listingId, g]));
 
     const candidates = listings
       .map((l) => {
-        const ag = adGroupMap.get(l.id);
-        if (!ag) return null;
-        const ctr = ag.impressions > 0 ? Math.round((ag.clicks / ag.impressions) * 10000) / 100 : null;
-        const roas = ag.spend > 0 ? Math.round((ag.revenue / ag.spend) * 10000) / 100 : null;
-        const cvr = ag.clicks > 0 ? Math.round((ag.conversions / ag.clicks) * 10000) / 100 : null;
+        const ag = adGroupMap.get(l.id) ?? null;
+        const traffic = trafficByListing.get(l.id) ?? null;
+        const trafficRevenue = traffic?.revenue ?? 0;
+        const trafficOrders = traffic?.orders ?? 0;
+        const spend = ag?.spend ?? 0;
+        const revenue = ag?.revenue ?? 0;
+        const impressions = ag?.impressions ?? 0;
+        const clicks = ag?.clicks ?? 0;
+        const conversions = ag?.conversions ?? 0;
+        // Listing has no signal at all — drop it.
+        if (
+          spend === 0 &&
+          revenue === 0 &&
+          trafficRevenue === 0 &&
+          trafficOrders === 0
+        ) {
+          return null;
+        }
+        const ctr = impressions > 0 ? Math.round((clicks / impressions) * 10000) / 100 : null;
+        const roas = spend > 0 ? Math.round((revenue / spend) * 10000) / 100 : null;
+        const cvr = clicks > 0 ? Math.round((conversions / clicks) * 10000) / 100 : null;
         return {
           listing: toListingSummary(l),
           grade: l.masterProduct.abcGrade,
-          spend: ag.spend,
-          revenue: ag.revenue,
+          spend,
+          revenue,
+          trafficRevenue,
+          trafficOrders,
+          traffic: trafficRevenue > 0 || trafficOrders > 0 ? { revenue: trafficRevenue, orders: trafficOrders } : null,
           metrics: {
-            spend: ag.spend,
-            impressions: ag.impressions,
-            clicks: ag.clicks,
-            conversions: ag.conversions,
-            revenue: ag.revenue,
+            spend,
+            impressions,
+            clicks,
+            conversions,
+            revenue,
             ctr,
             roas,
             cvr,
@@ -203,17 +221,17 @@ export class AdBudgetAllocatorService {
 
     candidates.sort((a, b) => {
       if (b.spend !== a.spend) return b.spend - a.spend;
-      return b.revenue - a.revenue;
+      if (b.revenue !== a.revenue) return b.revenue - a.revenue;
+      if (b.trafficRevenue !== a.trafficRevenue) return b.trafficRevenue - a.trafficRevenue;
+      return b.trafficOrders - a.trafficOrders;
     });
 
-    return candidates.slice(0, 20).map(
-      (c, i) =>
-        ({
-          listing: c.listing,
-          grade: c.grade,
-          rank: i + 1,
-          metrics: c.metrics,
-        }) satisfies AdTop20Item,
-    );
+    return candidates.slice(0, 20).map((c, i) => ({
+      listing: c.listing,
+      grade: c.grade,
+      rank: i + 1,
+      metrics: c.metrics,
+      traffic: c.traffic,
+    } satisfies AdTop20Item));
   }
 }

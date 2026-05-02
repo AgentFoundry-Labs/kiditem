@@ -329,6 +329,7 @@ describe('AdBudgetAllocatorService.calcTop20', () => {
     const result = service.calcTop20({
       listings: [listingA, listingB, listingC],
       adGroups,
+      trafficByListing: new Map(),
     });
     expect(result).toHaveLength(3);
     // L_B 우선 (spend tie + 더 높은 revenue), 다음 L_A, L_C
@@ -340,12 +341,13 @@ describe('AdBudgetAllocatorService.calcTop20', () => {
     expect(result[2].rank).toBe(3);
   });
 
-  it('skips listings without an adGroup match (광고 0건)', () => {
+  it('drops listings with no signal at all (no ad, no traffic)', () => {
     const result = service.calcTop20({
       listings: [listingA, listingB],
       adGroups: [
         { listingId: 'L_A', spend: 1000, impressions: 0, clicks: 0, conversions: 0, revenue: 5000 },
       ],
+      trafficByListing: new Map(),
     });
     expect(result).toHaveLength(1);
     expect(result[0].listing.listingId).toBe('L_A');
@@ -379,7 +381,7 @@ describe('AdBudgetAllocatorService.calcTop20', () => {
         revenue: 0,
       });
     }
-    const result = service.calcTop20({ listings, adGroups });
+    const result = service.calcTop20({ listings, adGroups, trafficByListing: new Map() });
     expect(result).toHaveLength(20);
     // 첫 번째 = spend 가장 큰 listing (i=24)
     expect(result[0].listing.listingId).toBe('L_24');
@@ -393,6 +395,7 @@ describe('AdBudgetAllocatorService.calcTop20', () => {
       adGroups: [
         { listingId: 'L_A', spend: 100, impressions: 1000, clicks: 50, conversions: 5, revenue: 500 },
       ],
+      trafficByListing: new Map(),
     });
     expect(result[0].listing).toEqual({
       listingId: 'L_A',
@@ -405,5 +408,28 @@ describe('AdBudgetAllocatorService.calcTop20', () => {
     expect(result[0].metrics.ctr).toBeCloseTo(5);
     expect(result[0].metrics.roas).toBeCloseTo(500);
     expect(result[0].metrics.cvr).toBeCloseTo(10);
+  });
+
+  it('uses traffic as a tie-breaker but keeps ad metrics truthful (zero stays zero)', () => {
+    const result = service.calcTop20({
+      listings: [listingA, listingB, listingC],
+      adGroups: [
+        { listingId: 'L_A', spend: 0, impressions: 0, clicks: 0, conversions: 0, revenue: 0 },
+        { listingId: 'L_B', spend: 0, impressions: 0, clicks: 0, conversions: 0, revenue: 0 },
+        { listingId: 'L_C', spend: 0, impressions: 0, clicks: 0, conversions: 0, revenue: 0 },
+      ],
+      trafficByListing: new Map([
+        ['L_A', { revenue: 50000, orders: 5 }],
+        ['L_B', { revenue: 100000, orders: 8 }],
+        ['L_C', { revenue: 0, orders: 0 }],
+      ]),
+    });
+    // L_C drops (no signal), L_B then L_A by traffic; ad metrics stay 0 — never replaced.
+    expect(result).toHaveLength(2);
+    expect(result[0].listing.listingId).toBe('L_B');
+    expect(result[0].metrics.spend).toBe(0);
+    expect(result[0].metrics.revenue).toBe(0);
+    expect(result[0].traffic).toEqual({ revenue: 100000, orders: 8 });
+    expect(result[1].listing.listingId).toBe('L_A');
   });
 });

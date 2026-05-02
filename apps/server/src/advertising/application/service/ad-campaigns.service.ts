@@ -8,6 +8,7 @@ import {
   findCampaignRollups,
   findGradeBudgetTotals,
 } from '../../adapter/out/prisma/ad-campaign.query';
+import { findCoupangAdsDailyAccountKpi } from '../../adapter/out/prisma/ad-account-kpi.query';
 import {
   toAdCampaignSnapshot,
   toAdTrendsData,
@@ -29,8 +30,11 @@ export class AdCampaignsService {
 
   /**
    * Campaign-grain rollup from `ChannelAdTargetDailySnapshot.targetType='campaign'`
-   * over the requested period. Listings outside the tenant scope (or
-   * soft-deleted) are dropped via the listing read model.
+   * over the requested period. Rollups without a `listingId` (campaigns that
+   * span many products — the typical Coupang case) surface with `listing: null`
+   * so operators see real campaign performance instead of an empty list.
+   * Listings hidden by tenant scope (or soft-deleted) downgrade to a
+   * `listing: null` row instead of leaking the unscoped reference.
    */
   async getCampaigns(
     period: AdPeriod,
@@ -38,20 +42,22 @@ export class AdCampaignsService {
     organizationId: string,
   ): Promise<AdCampaignSnapshot[]> {
     const rollups = await findCampaignRollups(this.prisma, organizationId, period, campaignName);
-    const rollupsWithListing = rollups.filter(
-      (r): r is typeof r & { listingId: string } => r.listingId != null,
-    );
-    if (rollupsWithListing.length === 0) return [];
+    if (rollups.length === 0) return [];
 
     const listingIds = Array.from(
-      new Set(rollupsWithListing.map((r) => r.listingId)),
+      new Set(
+        rollups
+          .map((r) => r.listingId)
+          .filter((id): id is string => id != null),
+      ),
     );
-    const listingMap = await findScopedAdListings(this.prisma, organizationId, listingIds);
+    const listingMap = listingIds.length > 0
+      ? await findScopedAdListings(this.prisma, organizationId, listingIds)
+      : new Map();
 
-    return rollupsWithListing.flatMap((rollup) => {
-      const listing = listingMap.get(rollup.listingId);
-      if (!listing) return [];
-      return [toAdCampaignSnapshot(rollup, listing, period)];
+    return rollups.map((rollup) => {
+      const listing = rollup.listingId ? listingMap.get(rollup.listingId) ?? null : null;
+      return toAdCampaignSnapshot(rollup, listing, period);
     });
   }
 
@@ -59,6 +65,12 @@ export class AdCampaignsService {
    * Daily ad trend from `ChannelListingDailySnapshot` aggregated by
    * `businessDate` over the requested window. ABC grade budget is computed
    * by joining each daily row to its listing's master grade.
+   *
+   * Account-level `coupang_ads_daily` rows are also fetched so the response
+   * carries the real Coupang ad dashboard surface alongside the per-listing
+   * series. The mapper substitutes the account series into the primary
+   * `daily` chart when per-listing ad metrics are empty (the Drive replay
+   * shape — campaign source is not listing-attributed).
    */
   async getTrends(
     period: AdPeriod,
@@ -66,9 +78,12 @@ export class AdCampaignsService {
     organizationId: string,
   ): Promise<AdTrendsData> {
     const dayCount = period ? periodToDays(period) : Math.min(days ?? 14, 90);
-    const rows = await findAdTrendDailyRows(this.prisma, organizationId, dayCount);
+    const [rows, accountKpiRows] = await Promise.all([
+      findAdTrendDailyRows(this.prisma, organizationId, dayCount),
+      findCoupangAdsDailyAccountKpi(this.prisma, organizationId, period ?? '14d'),
+    ]);
     const dailyAggregates = aggregateDailyAdRows(rows);
     const gradeBudget = await findGradeBudgetTotals(this.prisma, organizationId, rows);
-    return toAdTrendsData({ dailyAggregates, gradeBudget });
+    return toAdTrendsData({ dailyAggregates, gradeBudget, accountKpiRows });
   }
 }

@@ -8,8 +8,10 @@ describe('AdCampaignsService', () => {
 
   beforeEach(() => {
     prisma = {
-      // H3 — campaign rollup uses $queryRaw against ChannelAdTargetDailySnapshot.
-      $queryRaw: vi.fn(),
+      // H3 — campaign rollup uses $queryRaw against ChannelAdTargetDailySnapshot;
+      // getTrends additionally reads coupang_ads_daily account KPI via $queryRaw.
+      // Default to empty so trends tests that don't care about account KPI still pass.
+      $queryRaw: vi.fn().mockResolvedValue([]),
       channelListing: {
         findMany: vi.fn(),
       },
@@ -176,6 +178,72 @@ describe('AdCampaignsService', () => {
     expect(result.gradeBudget.A).toBe(10000);
     expect(result.gradeBudget.B).toBe(5000);
     expect(result.gradeBudget.C).toBe(2000);
+  });
+
+  it('getCampaigns surfaces listing-less rollups (Drive replay shape — campaign source has no productId)', async () => {
+    prisma.$queryRaw.mockResolvedValue([
+      {
+        targetKey: 'campaign:매출 TOP 제품',
+        campaignId: null,
+        campaignName: '매출 TOP 제품',
+        listingId: null,
+        spend: 30000,
+        revenue: 87000,
+        impressions: 48000,
+        clicks: 110,
+        conversions: 5,
+      },
+    ]);
+
+    const result = await service.getCampaigns('14d', undefined, 'organization-1');
+
+    expect(result).toHaveLength(1);
+    expect(result[0].listing).toBeNull();
+    expect(result[0].campaignName).toBe('매출 TOP 제품');
+    expect(result[0].metrics.spend).toBe(30000);
+    expect(result[0].metrics.roas).toBe(290); // 87000/30000*100
+  });
+
+  it('getTrends folds in coupang_ads_daily account KPI when present', async () => {
+    prisma.channelListingDailySnapshot.findMany.mockResolvedValue([]);
+    // First $queryRaw call is account KPI (getTrends doesn't call campaign rollup).
+    prisma.$queryRaw.mockResolvedValue([
+      {
+        businessDate: new Date('2026-04-29T00:00:00Z'),
+        adSpend: 279486,
+        adRevenue: 1629780,
+        clicks: 1520,
+        impressions: 527984,
+        conversions: 1629780,
+        orders: 29,
+      },
+      {
+        businessDate: new Date('2026-04-30T00:00:00Z'),
+        adSpend: 40183,
+        adRevenue: 200250,
+        clicks: 206,
+        impressions: 65731,
+        conversions: 200250,
+        orders: 18,
+      },
+    ]);
+
+    const result = await service.getTrends('14d', undefined, 'organization-1');
+
+    expect(result.accountSummary).not.toBeNull();
+    expect(result.accountSummary?.metrics.spend).toBe(319669); // 279486 + 40183
+    expect(result.accountSummary?.metrics.revenue).toBe(1830030);
+    // CVR uses orders as the conversion count (provider's `conversions`
+    // field carries revenue, not a count — see ad-account-kpi.query.ts).
+    expect(result.accountSummary?.metrics.conversions).toBe(47); // 29 + 18
+    expect(result.accountSummary?.orders).toBe(47);
+    expect(result.accountSummary?.periodDayCount).toBe(2);
+    expect(result.accountSummary?.latestBusinessDate).toBe('2026-04-30');
+    // Per-listing `daily` stays per-listing — never substituted by account series.
+    expect(result.daily).toHaveLength(0);
+    // Account series surfaces independently for the UI to render alongside.
+    expect(result.accountDaily).toHaveLength(2);
+    expect(result.accountDaily[0].metrics.spend).toBe(279486);
   });
 
   // organizationId propagation + period call-shape tests removed — covered by

@@ -32,21 +32,27 @@ export function ProductDrilldown({ campaignName, period }: Props) {
       apiClient.get<AdCampaignSnapshot[]>(
         `/api/ads/campaigns?period=${period}&campaign=${encodeURIComponent(campaignName)}`,
       ).then((rows) => ({
-        products: rows.map((snapshot) => ({
-          vendorItemId: snapshot.listing.externalId,
-          productName: snapshot.listing.channelName ?? snapshot.listing.masterProduct.name,
-          keyword: snapshot.campaignName,
-          onOff: null,
-          imageUrl: null,
-          adSpend: snapshot.metrics.spend,
-          adRevenue: snapshot.metrics.revenue,
-          impressions: snapshot.metrics.impressions,
-          clicks: snapshot.metrics.clicks,
-          ctr: snapshot.metrics.ctr,
-          adConversions: snapshot.metrics.conversions,
-          conversionRate: snapshot.metrics.cvr,
-          roas: snapshot.metrics.roas,
-        } satisfies CampaignProductData)),
+        // Drop campaign-grain rollups without listing identity from the
+        // product drilldown — they have no per-product info to render.
+        products: rows
+          .filter((snapshot): snapshot is typeof snapshot & {
+            listing: NonNullable<typeof snapshot.listing>;
+          } => snapshot.listing != null)
+          .map((snapshot) => ({
+            vendorItemId: snapshot.listing.externalId,
+            productName: snapshot.listing.channelName ?? snapshot.listing.masterProduct.name,
+            keyword: snapshot.campaignName,
+            onOff: null,
+            imageUrl: null,
+            adSpend: snapshot.metrics.spend,
+            adRevenue: snapshot.metrics.revenue,
+            impressions: snapshot.metrics.impressions,
+            clicks: snapshot.metrics.clicks,
+            ctr: snapshot.metrics.ctr,
+            adConversions: snapshot.metrics.conversions,
+            conversionRate: snapshot.metrics.cvr,
+            roas: snapshot.metrics.roas,
+          } satisfies CampaignProductData)),
       })),
   });
 

@@ -146,6 +146,14 @@ export interface TierAnalysisInput {
 export interface Top20Input {
   listings: HydratedListing[];
   adGroups: AdAggregateRow[];
+  /**
+   * Per-listing Wing traffic for the same window. Surfaced alongside ad
+   * metrics on each Top 20 item and used as a tie-breaker in the
+   * composite sort key so listings with no ad attribution still rank by
+   * their traffic signal — without ever substituting traffic numbers
+   * into the ad-metric columns.
+   */
+  trafficByListing: Map<string, { revenue: number; orders: number }>;
 }
 
 export interface ExposureScoreInput {
