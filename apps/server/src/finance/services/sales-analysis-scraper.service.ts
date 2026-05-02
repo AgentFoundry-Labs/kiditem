@@ -4,6 +4,9 @@ import type {
   SalesAnalysisAdsDayRow,
   SalesAnalysisAdsMonthly,
   SalesAnalysisDataSources,
+  SalesAnalysisWingMappedInventory,
+  SalesAnalysisWingMappedInventoryItem,
+  SalesAnalysisWingMappedInventoryStockStatus,
 } from '@kiditem/shared/finance';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -237,6 +240,198 @@ export class SalesAnalysisScraperService {
 
     return result;
   }
+
+  async getWingMappedInventory(
+    organizationId: string,
+    year: number,
+    month: number,
+  ): Promise<SalesAnalysisWingMappedInventory> {
+    const startedAt = Date.now();
+    const start = new Date(Date.UTC(year, month - 1, 1));
+    const endExclusive = new Date(Date.UTC(year, month, 1));
+
+    const wingRows = await this.prisma.channelListingDailySnapshot.groupBy({
+      by: ['listingId'],
+      where: {
+        organizationId,
+        businessDate: { gte: start, lt: endExclusive },
+        channel: 'coupang',
+        OR: [
+          { trafficRevenue: { gt: 0 } },
+          { trafficOrders: { gt: 0 } },
+          { trafficSalesQty: { gt: 0 } },
+          { trafficVisitors: { gt: 0 } },
+        ],
+      },
+      _sum: {
+        trafficRevenue: true,
+        trafficOrders: true,
+        trafficSalesQty: true,
+        trafficVisitors: true,
+      },
+    });
+
+    const listingIds = wingRows.map((row) => row.listingId);
+    const listings =
+      listingIds.length > 0
+        ? await this.prisma.channelListing.findMany({
+            where: {
+              id: { in: listingIds },
+              organizationId,
+              isDeleted: false,
+              master: {
+                organizationId,
+                isDeleted: false,
+              },
+            },
+            select: {
+              id: true,
+              externalId: true,
+              channelName: true,
+              master: {
+                select: {
+                  id: true,
+                  code: true,
+                  name: true,
+                  options: {
+                    where: { organizationId, isDeleted: false },
+                    select: {
+                      id: true,
+                      sku: true,
+                      optionName: true,
+                      inventory: {
+                        select: {
+                          currentStock: true,
+                          safetyStock: true,
+                        },
+                      },
+                    },
+                    orderBy: [{ sortOrder: 'asc' }, { sku: 'asc' }],
+                  },
+                },
+              },
+            },
+          })
+        : [];
+    const listingMap = new Map(listings.map((listing) => [listing.id, listing]));
+
+    const items: SalesAnalysisWingMappedInventoryItem[] = [];
+    let skippedNoOption = 0;
+    let skippedMultiOption = 0;
+    let skippedMissingInventory = 0;
+
+    for (const row of wingRows) {
+      const listing = listingMap.get(row.listingId);
+      if (!listing) {
+        skippedNoOption++;
+        continue;
+      }
+
+      const activeOptions = listing.master.options;
+      if (activeOptions.length === 0) {
+        skippedNoOption++;
+        continue;
+      }
+      if (activeOptions.length > 1) {
+        skippedMultiOption++;
+        continue;
+      }
+
+      const option = activeOptions[0];
+      if (!option.inventory) {
+        skippedMissingInventory++;
+        continue;
+      }
+
+      const monthRevenue = row._sum.trafficRevenue ?? 0;
+      const monthOrders = row._sum.trafficOrders ?? 0;
+      const monthSalesQty = row._sum.trafficSalesQty ?? 0;
+      const visitors = row._sum.trafficVisitors ?? 0;
+      const currentStock = option.inventory.currentStock;
+      const safetyStock = option.inventory.safetyStock;
+      const projectedStock = currentStock - monthSalesQty;
+      const safetyGap = projectedStock - safetyStock;
+      const stockStatus = deriveStockStatus(projectedStock, safetyStock);
+
+      items.push({
+        listingId: listing.id,
+        externalId: listing.externalId,
+        channelName: listing.channelName,
+        masterId: listing.master.id,
+        masterCode: listing.master.code,
+        masterName: listing.master.name,
+        optionId: option.id,
+        sku: option.sku,
+        optionName: option.optionName,
+        currentStock,
+        safetyStock,
+        monthRevenue,
+        monthOrders,
+        monthSalesQty,
+        visitors,
+        projectedStock,
+        safetyGap,
+        stockStatus,
+      } satisfies SalesAnalysisWingMappedInventoryItem);
+    }
+
+    items.sort((a, b) => {
+      const statusOrder = { out: 0, low: 1, ok: 2 } satisfies Record<
+        SalesAnalysisWingMappedInventoryStockStatus,
+        number
+      >;
+      const statusDiff = statusOrder[a.stockStatus] - statusOrder[b.stockStatus];
+      if (statusDiff !== 0) return statusDiff;
+      return a.safetyGap - b.safetyGap;
+    });
+
+    const result: SalesAnalysisWingMappedInventory = {
+      year,
+      month,
+      summary: {
+        totalWingListings: wingRows.length,
+        mappedListings: items.length,
+        skippedNoOption,
+        skippedMultiOption,
+        skippedMissingInventory,
+        totalRevenue: items.reduce((sum, item) => sum + item.monthRevenue, 0),
+        totalOrders: items.reduce((sum, item) => sum + item.monthOrders, 0),
+        totalSalesQty: items.reduce(
+          (sum, item) => sum + item.monthSalesQty,
+          0,
+        ),
+        lowStockCount: items.filter((item) => item.stockStatus === 'low')
+          .length,
+        outOfStockCount: items.filter((item) => item.stockStatus === 'out')
+          .length,
+      },
+      items,
+      generatedAt: new Date().toISOString(),
+    };
+
+    this.logger.log({
+      msg: 'sales-analysis.wingMappedInventory',
+      organizationId,
+      year,
+      month,
+      totalWingListings: result.summary.totalWingListings,
+      mappedListings: result.summary.mappedListings,
+      skippedMultiOption: result.summary.skippedMultiOption,
+      skippedMissingInventory: result.summary.skippedMissingInventory,
+      latencyMs: Date.now() - startedAt,
+    });
+
+    return result;
+  }
+}
+
+function deriveStockStatus(
+  projectedStock: number,
+  safetyStock: number,
+): SalesAnalysisWingMappedInventoryStockStatus {
+  if (projectedStock <= 0) return 'out';
+  if (projectedStock <= safetyStock) return 'low';
+  return 'ok';
 }
 
 function formatBusinessDate(date: Date): string {

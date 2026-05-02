@@ -87,3 +87,63 @@ export type SalesAnalysisAdsDayRow = z.infer<typeof AdsDayRowSchema>;
 export type SalesAnalysisAdsCampaignRollup = z.infer<
   typeof AdsCampaignRollupSchema
 >;
+
+const WingMappedInventoryStockStatusSchema = z.enum(['out', 'low', 'ok']);
+
+const WingMappedInventorySummarySchema = z.object({
+  totalWingListings: z.number().int().nonnegative(),
+  mappedListings: z.number().int().nonnegative(),
+  skippedNoOption: z.number().int().nonnegative(),
+  skippedMultiOption: z.number().int().nonnegative(),
+  skippedMissingInventory: z.number().int().nonnegative(),
+  totalRevenue: z.number().int().nonnegative(),
+  totalOrders: z.number().int().nonnegative(),
+  totalSalesQty: z.number().int().nonnegative(),
+  lowStockCount: z.number().int().nonnegative(),
+  outOfStockCount: z.number().int().nonnegative(),
+});
+
+const WingMappedInventoryItemSchema = z.object({
+  listingId: z.string(),
+  externalId: z.string(),
+  channelName: z.string().nullable(),
+  masterId: z.string(),
+  masterCode: z.string(),
+  masterName: z.string(),
+  optionId: z.string(),
+  sku: z.string(),
+  optionName: z.string().nullable(),
+  currentStock: z.number().int(),
+  safetyStock: z.number().int(),
+  monthRevenue: z.number().int().nonnegative(),
+  monthOrders: z.number().int().nonnegative(),
+  monthSalesQty: z.number().int().nonnegative(),
+  visitors: z.number().int().nonnegative(),
+  projectedStock: z.number().int(),
+  safetyGap: z.number().int(),
+  stockStatus: WingMappedInventoryStockStatusSchema,
+});
+
+/**
+ * `/api/sales-analysis/wing/mapped-inventory?year=&month=` — read-only bridge
+ * from Wing listing-level daily sales facts to internal inventory. Only listings
+ * whose mapped MasterProduct has exactly one active ProductOption with Inventory
+ * are returned; multi-option masters are counted and excluded until option-level
+ * ChannelListingOption mapping exists.
+ */
+export const SalesAnalysisWingMappedInventorySchema = z.object({
+  year: z.number().int(),
+  month: z.number().int().min(1).max(12),
+  summary: WingMappedInventorySummarySchema,
+  items: z.array(WingMappedInventoryItemSchema),
+  generatedAt: isoDate,
+});
+export type SalesAnalysisWingMappedInventory = z.infer<
+  typeof SalesAnalysisWingMappedInventorySchema
+>;
+export type SalesAnalysisWingMappedInventoryItem = z.infer<
+  typeof WingMappedInventoryItemSchema
+>;
+export type SalesAnalysisWingMappedInventoryStockStatus = z.infer<
+  typeof WingMappedInventoryStockStatusSchema
+>;

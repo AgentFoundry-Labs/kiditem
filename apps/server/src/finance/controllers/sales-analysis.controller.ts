@@ -4,11 +4,13 @@ import type {
   SalesAnalysisAdsMonthly,
   SalesAnalysisData,
   SalesAnalysisDataSources,
+  SalesAnalysisWingMappedInventory,
 } from '@kiditem/shared/finance';
 import { SalesAnalysisService } from '../services/sales-analysis.service';
 import { SalesAnalysisScraperService } from '../services/sales-analysis-scraper.service';
 import { SalesAnalysisQueryDto } from '../dto/sales-analysis-query.dto';
 import { SalesAnalysisAdsMonthlyQueryDto } from '../dto/sales-analysis-ads-monthly.dto';
+import { SalesAnalysisWingMappedInventoryQueryDto } from '../dto/sales-analysis-wing-mapped-inventory.dto';
 
 @Controller('sales-analysis')
 export class SalesAnalysisController {
@@ -38,6 +40,18 @@ export class SalesAnalysisController {
     @Query() query: SalesAnalysisAdsMonthlyQueryDto,
   ): Promise<SalesAnalysisAdsMonthly> {
     return this.scraperService.getMonthlyAds(
+      organizationId,
+      query.year,
+      query.month,
+    );
+  }
+
+  @Get('wing/mapped-inventory')
+  async getWingMappedInventory(
+    @CurrentOrganization() organizationId: string,
+    @Query() query: SalesAnalysisWingMappedInventoryQueryDto,
+  ): Promise<SalesAnalysisWingMappedInventory> {
+    return this.scraperService.getWingMappedInventory(
       organizationId,
       query.year,
       query.month,

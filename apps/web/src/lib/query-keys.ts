@@ -142,6 +142,8 @@ export const queryKeys = {
     dataSources: () => [...queryKeys.salesAnalysis.all, 'dataSources'] as const,
     adsMonthly: (year: number, month: number) =>
       [...queryKeys.salesAnalysis.all, 'adsMonthly', year, month] as const,
+    wingMappedInventory: (year: number, month: number) =>
+      [...queryKeys.salesAnalysis.all, 'wingMappedInventory', year, month] as const,
   },
   thumbnails: {
     all: ['thumbnails'] as const,
