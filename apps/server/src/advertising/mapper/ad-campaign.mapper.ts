@@ -3,6 +3,7 @@ import type {
   AdAccountKpiDayPoint,
   AdCampaignSnapshot,
   AdMetrics,
+  AdProductSnapshot,
   AdTrendsData,
 } from '@kiditem/shared/advertising';
 import type { AdPeriod } from '../domain/ad-metrics';
@@ -11,6 +12,7 @@ import type { ScopedAdListingReadModel } from '../adapter/out/prisma/ad-listing.
 import type {
   AdTrendDailyAggregate,
   CampaignRollup,
+  ProductTargetRollup,
 } from '../adapter/out/prisma/ad-campaign.query';
 import type { AdAccountKpiDayRow } from '../adapter/out/prisma/ad-account-kpi.query';
 import { scopedListingToSummary } from './ad-listing.mapper';
@@ -41,6 +43,57 @@ export function toAdCampaignSnapshot(
       conversions: campaignConversionCount(rollup),
     }),
   } satisfies AdCampaignSnapshot;
+}
+
+export function toAdProductSnapshot(
+  rollup: ProductTargetRollup,
+  listing: ScopedAdListingReadModel | null,
+  period: AdPeriod,
+): AdProductSnapshot {
+  const productName =
+    readTargetMetaString(rollup.metaJson, 'productName') ??
+    listing?.channelName ??
+    listing?.masterProduct.name ??
+    null;
+  return {
+    listing: listing ? scopedListingToSummary(listing) : null,
+    externalId: rollup.externalId,
+    externalOptionId: rollup.externalOptionId,
+    campaignId: rollup.campaignId,
+    campaignName: rollup.campaignName,
+    keyword: rollup.keyword,
+    status: rollup.status,
+    onOff: rollup.onOff,
+    productName,
+    imageUrl: readTargetMetaString(rollup.metaJson, 'imageUrl'),
+    productUrl: readTargetMetaString(rollup.metaJson, 'productUrl'),
+    saleType: readTargetMetaString(rollup.metaJson, 'saleType'),
+    period,
+    metrics: buildAdMetrics({
+      spend: rollup.spend,
+      revenue: rollup.revenue,
+      impressions: rollup.impressions,
+      clicks: rollup.clicks,
+      conversions: campaignConversionCount(rollup),
+    }),
+  } satisfies AdProductSnapshot;
+}
+
+function readTargetMetaString(metaJson: unknown, key: string): string | null {
+  if (!isRecord(metaJson)) return null;
+  for (const source of ['advertising.raw.target', 'advertising.campaign.target']) {
+    const data = metaJson[source];
+    if (!isRecord(data)) continue;
+    const value = data[key];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function campaignConversionCount(rollup: CampaignRollup): number {

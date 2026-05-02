@@ -40,9 +40,10 @@ Channel market-data pipeline was rewritten in 4 phases (H1 schema → H2 ingest 
   Provider ratios live in `metaJson` for audit only.
 - **Overwrite-on-replay metric semantics** — provider-supplied daily totals are written by overwrite (not increment). Same payload twice → same value (idempotent). `sampleCount` increments per observation.
 - **Raw row first** — every payload appends `ChannelScrapeSnapshot` before daily-fact upsert. Daily-fact failure must not lose raw data.
+- **Raw snapshots are not read models** — 화면/API 의 주 데이터는 `ChannelScrapeSnapshot.rawJson` / `normalizedJson` 을 직접 읽지 않는다. Raw snapshot 은 audit/debug/replay/count evidence 로만 사용하고, listing/product/campaign 화면 데이터는 `ChannelListing*`, `MasterProduct`/`ProductOption`, `Channel*DailySnapshot` fact projection 을 거쳐 읽는다.
 - **`metaJson` is caller-source namespaced** — `{ source: '<logical-source>', data: {...} }`. Helper merges via read → spread → write. Source key collision forbidden. Current sources: `advertising.campaign`, `advertising.campaign.target`, `advertising.raw`, `advertising.raw.target`, `wing.traffic`, `wing.itemwinner`, `traffic.csv_upload`.
 - **Dev data replay uses the same ingest path** — Google Drive Coupang bundles are replayed through `POST /api/ads/extension/sync`. Synthetic `seed-channel-market-data` style writers are not supported because they bypass the real extension/Wing normalization path.
-- **`buildAdTargetKey()` single source** — `apps/server/src/advertising/util/ad-target-key.ts` builds `ChannelAdTargetDailySnapshot.targetKey`. Patterns: `campaign:<id|name>` / `keyword:<id|name>:<adGroup>:<keyword>` / `product:<externalId|listingId>:<id|name>`. Throws when no usable identifier — no `unknown:unknown` rows.
+- **`buildAdTargetKey()` single source** — `apps/server/src/advertising/util/ad-target-key.ts` builds `ChannelAdTargetDailySnapshot.targetKey`. Patterns: `campaign:<id|name>` / `keyword:<id|name>:<adGroup>:<keyword>` / `product:<externalOptionId|externalId|listingId>`. Throws when no usable identifier — no `unknown:unknown` rows.
 - **Account/store KPI rules** — listing 에 귀속되지 않는 dashboard KPI 는 `ChannelAccountDailyKpiSnapshot` 으로 land. `kpiType`: `wing_dashboard` (traffic/dashboard payload), `wing_itemwinner_kpi` (raw_scrape wing kpi), `advertising_campaign_kpis` (ad_campaign top-level kpis), `coupang_ads_daily` (coupang ads daily aggregate).
 - **`AdAction.adTargetDailyId`** — `AdAction` 의 source row 는 `ChannelAdTargetDailySnapshot.id`. 이전 `snapshotId`/`AdSnapshot` 컬럼은 H4 에서 제거됨.
 - **Multi-tenant**: 모든 read 는 `organizationId` 를 WHERE 에 포함. Single-resource GET/PATCH/DELETE 는 `findFirst({ where: { id, organizationId } })`.
@@ -69,8 +70,8 @@ Channel market-data pipeline was rewritten in 4 phases (H1 schema → H2 ingest 
 - **Domain**: `domain/` — pure ad rules + helpers (`ad-action-rules`, `ad-execution-error-scrubber`, `ad-metrics`, `business-date`, `listing-match`, `scrape-row-normalizers`, `strategy-context`)
 - **Mappers**: `mapper/` — `ad-campaign.mapper.ts`, `ad-listing.mapper.ts`, `ad-strategy.mapper.ts`
 - **Transitional facade (services/)**: `services/channel-scrape-persistence.service.ts` only — thin @Injectable wrapper over `adapter/out/prisma/channel-scrape-run.persistence.ts` / `channel-daily-fact.persistence.ts` / `channel-account-kpi.persistence.ts`. Kept because two integration tests inject the class directly. New callers should import the persistence functions from `adapter/out/prisma/` instead.
-- **Frontend**: `apps/web/src/app/ad-ops/` — 4 탭 (status / strategy / campaign / exposure)
-- **DB**: AdAction (listingId nullable, targetType ∈ {'campaign','keyword'}, `adTargetDailyId` → ChannelAdTargetDailySnapshot), ScrapeTarget, ExecutionTask, ExecutionLog, ExecutionWorker
+- **Frontend**: `apps/web/src/app/ad-ops/` — 5 탭 (status / strategy / campaign / products / exposure)
+- **DB**: AdAction (listingId nullable, targetType ∈ {'campaign','keyword','product'}, `adTargetDailyId` → ChannelAdTargetDailySnapshot), ScrapeTarget, ExecutionTask, ExecutionLog, ExecutionWorker
 - **Shared**: `@kiditem/shared/schemas/ads` — listingId-primary, nested masterProduct{code,name} + option{sku,optionName}
 
 ## Data Flow

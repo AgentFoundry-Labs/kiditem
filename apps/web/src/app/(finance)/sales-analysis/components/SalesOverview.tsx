@@ -14,7 +14,6 @@ import PageSkeleton from '@/components/ui/PageSkeleton';
 import { ErrorState } from '@/components/ui/EmptyState';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import ChannelTable from './ChannelTable';
-import DataSourceBanner from './DataSourceBanner';
 
 type SortField = 'totalOrders' | 'totalRevenue' | 'totalCost' | 'totalProfit' | 'avgOrderValue';
 type SortDir = 'asc' | 'desc' | null;
@@ -66,8 +65,6 @@ export default function SalesOverview() {
 
   return (
     <div className="space-y-6">
-      <DataSourceBanner />
-
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -91,7 +88,7 @@ export default function SalesOverview() {
             이 화면은 <code className="px-1 bg-slate-100 rounded">Order</code> 테이블을
             집계합니다. 현재 Drive 동기화 데이터에는 주문이 포함되지 않아
             대부분의 기간에서 비어 있습니다. 스크래퍼 기반 매출은
-            <strong> ‘Wing 일매출’</strong> / <strong>‘쿠팡 광고 KPI’</strong> 탭을 확인하세요.
+            <strong> ‘Wing 일매출’</strong> 탭을 확인하세요.
           </div>
         </div>
       ) : (

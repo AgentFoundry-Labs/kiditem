@@ -230,6 +230,49 @@ describe('AdCampaignsService', () => {
     expect(result[0].metrics.cvr).toBe(0);
   });
 
+  it('getProducts reads product target facts with provider descriptors, not raw snapshots', async () => {
+    prisma.$queryRaw.mockResolvedValue([
+      {
+        targetKey: 'product:VENDOR-1',
+        campaignId: null,
+        campaignName: null,
+        listingId: null,
+        listingOptionId: null,
+        optionId: null,
+        externalId: 'product::::VENDOR-1::상품명',
+        externalOptionId: 'VENDOR-1',
+        keyword: '키워드 보기',
+        status: '운영 중',
+        onOff: 'ON',
+        metaJson: {
+          'advertising.raw.target': {
+            productName: '감정 잔디 인형',
+            imageUrl: 'https://img.example/product.jpg',
+            productUrl: 'https://www.coupang.com/vp/products/1?vendorItemId=VENDOR-1',
+            saleType: '판매자배송',
+          },
+        },
+        spend: 8349,
+        revenue: 37600,
+        impressions: 14462,
+        clicks: 66,
+        conversions: 4,
+        orders: 4,
+      },
+    ]);
+
+    const result = await service.getProducts('14d', 'organization-1');
+
+    expect(result).toHaveLength(1);
+    expect(result[0].listing).toBeNull();
+    expect(result[0].externalOptionId).toBe('VENDOR-1');
+    expect(result[0].productName).toBe('감정 잔디 인형');
+    expect(result[0].imageUrl).toBe('https://img.example/product.jpg');
+    expect(result[0].onOff).toBe('ON');
+    expect(result[0].metrics.spend).toBe(8349);
+    expect(result[0].metrics.roas).toBeCloseTo(450.35);
+  });
+
   it('getTrends folds in coupang_ads_daily account KPI when present', async () => {
     prisma.channelListingDailySnapshot.findMany.mockResolvedValue([]);
     // First $queryRaw call is account KPI (getTrends doesn't call campaign rollup).

@@ -19,33 +19,8 @@ function renderWithProvider() {
   );
 }
 
-const dataSources = {
-  generatedAt: '2026-05-02T00:00:00.000Z',
-  wing: {
-    firstDate: '2026-04-18',
-    lastDate: '2026-05-02',
-    dateCount: 14,
-    rowCount: 14,
-    lastSyncedAt: '2026-05-02T00:00:00.000Z',
-  },
-  ads: {
-    firstDate: '2026-04-19',
-    lastDate: '2026-05-01',
-    dateCount: 13,
-    rowCount: 13,
-    lastSyncedAt: '2026-05-01T00:00:00.000Z',
-    missingDates: ['2026-04-18', '2026-05-02'],
-  },
-  orders: {
-    firstDate: null,
-    lastDate: null,
-    count: 0,
-  },
-};
-
 function mockSalesQuery(response: unknown) {
-  vi.spyOn(apiClient, 'getParsed').mockImplementation(async (url: string) => {
-    if (url === '/api/sales-analysis/data-sources') return dataSources as any;
+  vi.spyOn(apiClient, 'getParsed').mockImplementation(async () => {
     return response as any;
   });
 }
@@ -74,8 +49,7 @@ describe('<SalesOverview> 3-state (Plan D.3)', () => {
   });
 
   it('renders error on 502 rejection', async () => {
-    vi.spyOn(apiClient, 'getParsed').mockImplementation(async (url: string) => {
-      if (url === '/api/sales-analysis/data-sources') return dataSources as any;
+    vi.spyOn(apiClient, 'getParsed').mockImplementation(async () => {
       throw new Error('502 Bad Gateway');
     });
     renderWithProvider();
@@ -90,8 +64,7 @@ describe('<SalesOverview> 3-state (Plan D.3)', () => {
       code: 'invalid_type', expected: 'string', received: 'number',
       path: ['period'], message: 'bad',
     } as any]);
-    vi.spyOn(apiClient, 'getParsed').mockImplementation(async (url: string) => {
-      if (url === '/api/sales-analysis/data-sources') return dataSources as any;
+    vi.spyOn(apiClient, 'getParsed').mockImplementation(async () => {
       throw zErr;
     });
     renderWithProvider();

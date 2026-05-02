@@ -15,6 +15,7 @@ import KpiDashboard from "./components/KpiDashboard";
 import StatusContent from "./components/StatusContent";
 import StrategyContent from "./components/StrategyContent";
 import CampaignContent from "./components/CampaignContent";
+import AdProductsContent from "./components/AdProductsContent";
 import RegisterCampaignModal from "./components/RegisterCampaignModal";
 import ExposureAnalysis from "./components/ExposureAnalysis";
 import type { TabKey } from "./lib/types";
@@ -204,6 +205,10 @@ export default function AdOpsPage() {
 
           {tab === "campaign" && (
             <CampaignContent initialCampaign={initialCampaign} />
+          )}
+
+          {tab === "products" && (
+            <AdProductsContent period={period} />
           )}
 
           {tab === "exposure" && (

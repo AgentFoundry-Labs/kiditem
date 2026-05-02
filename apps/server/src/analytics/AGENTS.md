@@ -86,6 +86,9 @@ PR must record an explicit compatibility waypoint.
   `application/service/` orchestration shape. Raw SQL must go through
   `adapter/out/repository/`. New reports for the same sub-domain extend
   those adapters first.
+- `ChannelScrapeSnapshot` is audit/debug/replay evidence only. Reporting APIs
+  must read product/listing/account daily facts and join product schemas as
+  needed; do not derive dashboard/table rows directly from raw snapshot JSON.
 - Statistics / traffic / supplier-stats may stay flat until a concrete
   invariant or fat-service driver appears. When one does, follow the
   dashboard pattern (extract raw SQL / report hydration into

@@ -141,7 +141,7 @@ export function deriveAdTargetType(
   pageType: string,
   keyword: string | null,
 ): AdTargetType {
-  if (keyword) return 'keyword';
   if (pageType === 'product') return 'product';
+  if (keyword) return 'keyword';
   return 'campaign';
 }

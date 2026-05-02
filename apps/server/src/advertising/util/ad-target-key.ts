@@ -10,17 +10,12 @@
 // Patterns (single source of truth):
 //   campaign:<campaignId || campaignName>
 //   keyword:<campaignId || campaignName>:<adGroup>:<keyword>
-//   product:<externalId || listingId>:<campaignId || campaignName>
+//   product:<externalOptionId || externalId || listingId>
 //
 // Throws when no usable identifier is present so we never store
 // `unknown:unknown` rows. Two distinct payloads with different identifiers
 // produce different keys; two identical payloads produce identical keys.
 //
-// 2026-04-27 — ad-product variant removed. It had a full type/branch but
-// no production producer (`deriveTargetType` never returned it; the
-// `coupang_ads_daily` payload lands in account KPI, not target daily).
-// Re-add when a producer is wired (YAGNI).
-
 export type AdTargetType = 'campaign' | 'keyword' | 'product';
 
 interface BuildAdTargetKeyInput {
@@ -29,6 +24,7 @@ interface BuildAdTargetKeyInput {
   campaignName?: string | null;
   adGroup?: string | null;
   keyword?: string | null;
+  externalOptionId?: string | null;
   externalId?: string | null;
   listingId?: string | null;
 }
@@ -55,10 +51,11 @@ export function buildAdTargetKey(input: BuildAdTargetKeyInput): string {
   const campaignName = trimOrNull(input.campaignName);
   const adGroup = trimOrNull(input.adGroup);
   const keyword = trimOrNull(input.keyword);
+  const externalOptionId = trimOrNull(input.externalOptionId);
   const externalId = trimOrNull(input.externalId);
   const listingId = trimOrNull(input.listingId);
   const campaignAnchor = campaignId ?? campaignName;
-  const productAnchor = externalId ?? listingId;
+  const productAnchor = externalOptionId ?? externalId ?? listingId;
 
   switch (input.targetType) {
     case 'campaign': {
@@ -78,12 +75,12 @@ export function buildAdTargetKey(input: BuildAdTargetKeyInput): string {
       return `keyword:${campaignAnchor}:${adGroup ?? ''}:${keyword}`;
     }
     case 'product': {
-      if (!productAnchor || !campaignAnchor) {
+      if (!productAnchor) {
         throw new Error(
-          'buildAdTargetKey: product target requires (externalId|listingId) and (campaignId|campaignName)',
+          'buildAdTargetKey: product target requires externalOptionId, externalId, or listingId',
         );
       }
-      return `product:${productAnchor}:${campaignAnchor}`;
+      return `product:${productAnchor}`;
     }
     default: {
       // Defensive — TS already narrows targetType, but raw payloads may slip in.

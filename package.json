@@ -16,6 +16,7 @@
     "check:web-db-boundary": "./scripts/check-frontend-db-boundary.sh",
     "check:idor": "./scripts/check-queryraw-tenancy.sh",
     "check:tenant-scope": "./scripts/check-tenant-scope.sh",
+    "check:raw-snapshot-read-models": "bash scripts/check-raw-snapshot-read-models.sh",
     "check:shared-root-imports": "bash scripts/check-shared-root-imports.sh",
     "knip:report": "knip --no-exit-code --no-progress --reporter compact",
     "db:erd": "node scripts/generate-prisma-erd.mjs",
