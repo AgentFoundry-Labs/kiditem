@@ -38,9 +38,18 @@ export function toAdCampaignSnapshot(
       revenue: rollup.revenue,
       impressions: rollup.impressions,
       clicks: rollup.clicks,
-      conversions: rollup.conversions,
+      conversions: campaignConversionCount(rollup),
     }),
   } satisfies AdCampaignSnapshot;
+}
+
+function campaignConversionCount(rollup: CampaignRollup): number {
+  if (rollup.orders > 0) return rollup.orders;
+  // Older Coupang campaign scraper payloads could map "광고 전환 매출" into
+  // `conversions` when an order-count column was absent. That value is revenue
+  // in KRW, not a conversion count, so surfacing it creates impossible CVR.
+  if (rollup.revenue > 0 && rollup.conversions === rollup.revenue) return 0;
+  return rollup.conversions;
 }
 
 /**

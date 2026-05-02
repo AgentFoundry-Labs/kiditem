@@ -38,6 +38,7 @@ describe('AdCampaignsService', () => {
         impressions: 1000,
         clicks: 50,
         conversions: 5,
+        orders: 5,
       },
     ]);
     prisma.channelListing.findMany.mockResolvedValue([
@@ -192,6 +193,7 @@ describe('AdCampaignsService', () => {
         impressions: 48000,
         clicks: 110,
         conversions: 5,
+        orders: 5,
       },
     ]);
 
@@ -202,6 +204,30 @@ describe('AdCampaignsService', () => {
     expect(result[0].campaignName).toBe('매출 TOP 제품');
     expect(result[0].metrics.spend).toBe(30000);
     expect(result[0].metrics.roas).toBe(290); // 87000/30000*100
+  });
+
+  it('getCampaigns treats legacy conversions=revenue campaign rows as unknown conversion count', async () => {
+    prisma.$queryRaw.mockResolvedValue([
+      {
+        targetKey: 'campaign:매출 TOP 제품',
+        campaignId: null,
+        campaignName: '매출 TOP 제품',
+        listingId: null,
+        spend: 40002,
+        revenue: 232990,
+        impressions: 119303,
+        clicks: 247,
+        conversions: 232990,
+        orders: 0,
+      },
+    ]);
+
+    const result = await service.getCampaigns('7d', undefined, 'organization-1');
+
+    expect(result).toHaveLength(1);
+    expect(result[0].metrics.revenue).toBe(232990);
+    expect(result[0].metrics.conversions).toBe(0);
+    expect(result[0].metrics.cvr).toBe(0);
   });
 
   it('getTrends folds in coupang_ads_daily account KPI when present', async () => {

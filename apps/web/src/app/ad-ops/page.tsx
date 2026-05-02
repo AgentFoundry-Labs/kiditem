@@ -56,6 +56,7 @@ export default function AdOpsPage() {
   const wingAdData = dashboardQuery.data?.wingAdData ?? null;
   const trends = trendsQuery.data ?? null;
   const exposureData = exposureQuery.data ?? null;
+  const accountSummary = trends?.accountSummary ?? strategy?.accountSummary ?? null;
 
   const roas = totalKpi.roas || 0;
   const urgentCount = rules.filter((r) => r.priority === "urgent").length;
@@ -146,6 +147,7 @@ export default function AdOpsPage() {
           period={period}
           roas={roas}
           trendsDaily={trendsDaily}
+          accountSummary={accountSummary}
         />
 
         <div className="rounded-2xl px-3 py-3 flex items-center gap-1.5" style={{ background: "var(--primary)" }}>

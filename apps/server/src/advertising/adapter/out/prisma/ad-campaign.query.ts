@@ -14,6 +14,7 @@ export type CampaignRollup = {
   impressions: number;
   clicks: number;
   conversions: number;
+  orders: number;
 };
 
 export type AdTrendDailyAggregate = {
@@ -53,7 +54,8 @@ export async function findCampaignRollups(
       SUM(revenue)::int           AS revenue,
       SUM(impressions)::int       AS impressions,
       SUM(clicks)::int            AS clicks,
-      SUM(conversions)::int       AS conversions
+      SUM(conversions)::int       AS conversions,
+      SUM(orders)::int            AS orders
     FROM channel_ad_target_daily_snapshots
     WHERE organization_id = ${organizationId}::uuid
       AND target_type = 'campaign'
