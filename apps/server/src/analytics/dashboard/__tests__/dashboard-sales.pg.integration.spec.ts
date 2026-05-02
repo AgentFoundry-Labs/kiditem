@@ -170,6 +170,36 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     expect(result.lastSyncAt).toBeNull();
   });
 
+  it('T4b: Wing-only monthlyTrend does not synthesize profit without settlement data', async () => {
+    const { listingId } = await seedTestListing('4B');
+    const now = new Date();
+    const businessDate = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 15));
+    await prisma.channelListingDailySnapshot.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId,
+        channel: 'coupang',
+        externalId: 'EXT-T-4B',
+        businessDate,
+        trafficVisitors: 30,
+        trafficOrders: 6,
+        trafficSalesQty: 6,
+        trafficRevenue: 120_000,
+      },
+    });
+
+    const ctx = buildDashboardContext();
+    const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
+    const currentPeriod = `${ctx.year}-${String(ctx.month).padStart(2, '0')}`;
+    const currentTrend = result.monthlyTrend.find((row) => row.period === currentPeriod);
+
+    expect(result.effectivePeriod?.revenueSource).toBe('wing');
+    expect(currentTrend).toMatchObject({
+      revenue: 120_000,
+      profit: 0,
+    });
+  });
+
   it('T5: Wing override flows through trafficKpi.adSummary + lastSyncAt', async () => {
     // Hard rewrite Phase H3b — wing dashboard ad-summary now lives in
     // ChannelAccountDailyKpiSnapshot(source='wing', kpiType='wing_dashboard').

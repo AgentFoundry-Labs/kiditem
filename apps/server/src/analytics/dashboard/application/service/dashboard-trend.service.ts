@@ -63,7 +63,7 @@ export class DashboardTrendService {
         );
         const profit = orderRev !== 0
           ? Math.round(orderRev * avgProfitRate)
-          : Math.max(0, wingRev - adCost);
+          : 0;
         return { date, revenue, profit, adCost } satisfies DashboardTrendItem;
       });
 

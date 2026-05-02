@@ -38,6 +38,9 @@ interface Props {
   hasTrend: boolean;
 }
 
+const CHART_HEIGHT = 360;
+const CHART_INITIAL_DIMENSION = { width: 800, height: CHART_HEIGHT };
+
 export function DashboardCharts({ chartTab, dailyTrend, adChartData, benchmarkData, hasTrend }: Props) {
   return (
     <>
@@ -49,7 +52,7 @@ export function DashboardCharts({ chartTab, dailyTrend, adChartData, benchmarkDa
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" />이익률</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-400 opacity-70" />광고비율</span>
           </div>
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height={CHART_HEIGHT} initialDimension={CHART_INITIAL_DIMENSION}>
             <AreaChart data={dailyTrend}>
               <defs>
                 <linearGradient id="gRevenue" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.12} /><stop offset="95%" stopColor="#3b82f6" stopOpacity={0} /></linearGradient>
@@ -84,7 +87,7 @@ export function DashboardCharts({ chartTab, dailyTrend, adChartData, benchmarkDa
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-violet-500" />매출</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-indigo-500 inline-block" /> 광고비율</span>
           </div>
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height={CHART_HEIGHT} initialDimension={CHART_INITIAL_DIMENSION}>
             <AreaChart data={adChartData}>
               <defs>
                 <linearGradient id="gAdCost" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#f43f5e" stopOpacity={0.12} /><stop offset="95%" stopColor="#f43f5e" stopOpacity={0} /></linearGradient>
@@ -118,7 +121,7 @@ export function DashboardCharts({ chartTab, dailyTrend, adChartData, benchmarkDa
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-orange-500" />업계 평균</span>
           </div>
           <div className="flex-1 min-h-0">
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height={CHART_HEIGHT} initialDimension={CHART_INITIAL_DIMENSION}>
             <BarChart data={benchmarkData} barGap={4} barCategoryGap="25%">
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
               <XAxis dataKey="name" fontSize={13} tickLine={false} axisLine={false} tick={{ fill: '#64748b' }} fontWeight={600} />

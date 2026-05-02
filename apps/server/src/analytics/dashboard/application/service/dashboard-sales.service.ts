@@ -298,7 +298,7 @@ export class DashboardSalesService {
       ]);
       const period = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}`;
       const revenue = m.revenue > 0 ? m.revenue : wing.revenue;
-      const profit = m.revenue > 0 ? m.netProfit : Math.max(0, revenue - m.adCost);
+      const profit = m.revenue > 0 ? m.netProfit : 0;
       return { period, revenue, profit, adCost: m.adCost } satisfies MonthlyTrendItem;
     }));
     return trends;
