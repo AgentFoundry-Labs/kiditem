@@ -9,6 +9,8 @@ interface DateRangeContext {
 
 export interface DashboardContext {
   now: Date;
+  /** Effective anchor — equals `now` unless we shifted onto Drive replay data. */
+  anchor: Date;
   todayStart: Date;
   todayEnd: Date;
   year: number;
@@ -20,27 +22,40 @@ export interface DashboardContext {
   prevMonthNum: number;
   dateRange: DateRangeContext;
   effectiveRange: string; // 'day' | 'week' | 'month' | 'custom' | original string
+  /** Set when the anchor was shifted away from `now` because the calendar period had no data. */
+  anchorShifted: boolean;
 }
 
 /**
  * Build the full set of date boundaries the dashboard services need.
+ *
  * `range`/`from`/`to` mirror the query-string contract:
  * - no args (or range='month')         → current calendar month vs previous month
  * - range='week'                        → last 7 days vs 7-14 days ago
  * - range='day'                         → today vs yesterday
  * - range='custom' + from + to (ISO)    → [from, to+1d) vs the preceding same-length window
+ *
+ * `effectiveAnchor` overrides the "today" the month/week/day windows are
+ * computed against. We use this to fall back onto the latest Drive replay
+ * date when the calendar month has no Order or Wing/Drive data, so the
+ * dashboard surfaces the latest available month instead of an empty current
+ * month.
  */
 export function buildDashboardContext(
   range?: string,
   from?: string,
   to?: string,
+  effectiveAnchor?: Date,
 ): DashboardContext {
   const now = new Date();
-  const todayStart = kstDayStart(now);
+  const anchor = effectiveAnchor ?? now;
+  const anchorShifted = effectiveAnchor !== undefined && effectiveAnchor.getTime() !== now.getTime();
+
+  const todayStart = kstDayStart(anchor);
   const todayEnd = new Date(todayStart.getTime() + 86400000);
 
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1;
+  const year = anchor.getFullYear();
+  const month = anchor.getMonth() + 1;
   const monthStart = new Date(year, month - 1, 1);
   const monthEnd = new Date(year, month, 1);
   const prevMonthDate = new Date(year, month - 2, 1);
@@ -67,7 +82,7 @@ export function buildDashboardContext(
       prevEnd: new Date(from),
     };
   } else if (effectiveRange === 'week') {
-    dateRange = { start: weekStart, end: now, prevStart: prevWeekStart, prevEnd: weekStart };
+    dateRange = { start: weekStart, end: anchor, prevStart: prevWeekStart, prevEnd: weekStart };
   } else if (effectiveRange === 'day') {
     dateRange = { start: todayStart, end: todayEnd, prevStart: yesterdayStart, prevEnd: todayStart };
   } else {
@@ -75,9 +90,12 @@ export function buildDashboardContext(
   }
 
   return {
-    now, todayStart, todayEnd,
+    now,
+    anchor,
+    todayStart, todayEnd,
     year, month, monthStart, monthEnd,
     prevMonthDate, prevYear, prevMonthNum,
     dateRange, effectiveRange,
+    anchorShifted,
   } satisfies DashboardContext;
 }

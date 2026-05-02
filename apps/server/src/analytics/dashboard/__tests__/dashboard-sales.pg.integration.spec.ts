@@ -4,6 +4,7 @@ import type { PrismaClient } from '@prisma/client';
 import { DashboardSalesService } from '../application/service/dashboard-sales.service';
 import { buildDashboardContext } from '../application/service/context';
 import { DashboardSalesRepositoryAdapter } from '../adapter/out/repository/dashboard-sales.repository.adapter';
+import { WingTrafficAggregationRepositoryAdapter } from '../adapter/out/repository/wing-traffic-aggregation.repository.adapter';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   makeTestPrisma,
@@ -31,6 +32,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       providers: [
         DashboardSalesService,
         DashboardSalesRepositoryAdapter,
+        WingTrafficAggregationRepositoryAdapter,
         { provide: PrismaService, useValue: prisma },
       ],
     }).compile();

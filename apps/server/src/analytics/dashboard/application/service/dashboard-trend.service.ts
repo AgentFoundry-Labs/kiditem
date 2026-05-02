@@ -3,6 +3,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import type { DashboardTrendItem } from '@kiditem/shared/dashboard';
 import { calculateProfitForRange } from '../../adapter/out/repository/profit-calculation.repository.adapter';
 import { DashboardTrendRepositoryAdapter } from '../../adapter/out/repository/dashboard-trend.repository.adapter';
+import { WingTrafficAggregationRepositoryAdapter } from '../../adapter/out/repository/wing-traffic-aggregation.repository.adapter';
 import { kstInclusiveDaysStart } from '../../../../common/kst';
 
 @Injectable()
@@ -12,40 +13,59 @@ export class DashboardTrendService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly trendRepository: DashboardTrendRepositoryAdapter,
+    private readonly wingTrafficRepository: WingTrafficAggregationRepositoryAdapter,
   ) {}
 
   async getTrend(organizationId: string, range: string): Promise<DashboardTrendItem[]> {
     const startedAt = Date.now();
     const days = range === '7d' ? 7 : range === '90d' ? 90 : 30;
-    // KST-anchored cutoff so the day grouping aligns with daily-fact
-    // `business_date` (KST date column) and order rows tagged at KST.
     const since = kstInclusiveDaysStart(days);
 
-    // Plan F1 T4 — avgProfitRate via calculateProfitForRange (replaces profitLoss.aggregate, ADR-0016).
-    // Returns ratio (e.g. 0.3 for 30%) — used as a per-day multiplier downstream.
     const profitMetrics = await calculateProfitForRange(this.prisma, organizationId, since, new Date());
     const avgProfitRate =
       profitMetrics.revenue > 0 ? profitMetrics.netProfit / profitMetrics.revenue : 0;
 
-    // ADR-0018 Rule 2 + Plan F1 T4 — I3 fix: SUM(oli.total_price), NOT SUM(o.total_price).
-    // Both queries bind ${organizationId}::uuid via Prisma tagged template (ADR-0009).
-    const [orderRows, adRows] = await Promise.all([
+    const [orderRows, listingAdRows, wingDailyRows, coupangAdsRows] = await Promise.all([
       this.trendRepository.fetchTrendRevenueRows(organizationId, since),
       this.trendRepository.fetchTrendAdCostRows(organizationId, since),
+      this.wingTrafficRepository.fetchDailyTrend(organizationId, since),
+      this.wingTrafficRepository.fetchDailyAds(organizationId, since),
     ]);
 
-    const adMap = new Map(adRows.map((r) => [r.date, Number(r.ad_cost)]));
+    const orderRevByDate = new Map(orderRows.map((r) => [r.date, Number(r.revenue)]));
+    const wingRevByDate = new Map(wingDailyRows.map((r) => [r.date, Number(r.revenue)]));
+    const listingAdByDate = new Map(listingAdRows.map((r) => [r.date, Number(r.ad_cost)]));
+    const coupangAdsByDate = new Map(coupangAdsRows.map((r) => [r.date, Number(r.ad_cost)]));
 
-    const result = orderRows.map((r) => {
-      const revenue = Number(r.revenue);
-      const profit = Math.round(revenue * avgProfitRate);
-      return {
-        date: r.date,
-        revenue,
-        profit,
-        adCost: adMap.get(r.date) ?? 0,
-      } satisfies DashboardTrendItem;
-    });
+    const allDates = new Set<string>([
+      ...orderRevByDate.keys(),
+      ...wingRevByDate.keys(),
+      ...listingAdByDate.keys(),
+      ...coupangAdsByDate.keys(),
+    ]);
+
+    const result: DashboardTrendItem[] = [...allDates]
+      .sort()
+      .map((date) => {
+        const orderRev = orderRevByDate.get(date) ?? 0;
+        const wingRev = wingRevByDate.get(date) ?? 0;
+        // Prefer order revenue when present; otherwise the Wing/Drive
+        // daily fact. Wing rows can be negative (returns spike) which we
+        // preserve so the trend line reflects reality.
+        const revenue = orderRev !== 0 ? orderRev : wingRev;
+
+        // Ad cost: prefer the larger of the two sources for the same day.
+        // Drive replay populates `coupang_ads_daily`; live workspaces
+        // populate `channel_listing_daily_snapshots.ad_*`.
+        const adCost = Math.max(
+          listingAdByDate.get(date) ?? 0,
+          coupangAdsByDate.get(date) ?? 0,
+        );
+        const profit = orderRev !== 0
+          ? Math.round(orderRev * avgProfitRate)
+          : Math.max(0, wingRev - adCost);
+        return { date, revenue, profit, adCost } satisfies DashboardTrendItem;
+      });
 
     this.logger.debug({
       msg: 'dashboard-trend.getTrend',

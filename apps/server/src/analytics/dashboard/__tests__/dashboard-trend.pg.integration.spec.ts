@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
 import { DashboardTrendService } from '../application/service/dashboard-trend.service';
 import { DashboardTrendRepositoryAdapter } from '../adapter/out/repository/dashboard-trend.repository.adapter';
+import { WingTrafficAggregationRepositoryAdapter } from '../adapter/out/repository/wing-traffic-aggregation.repository.adapter';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   makeTestPrisma,
@@ -31,6 +32,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       providers: [
         DashboardTrendService,
         DashboardTrendRepositoryAdapter,
+        WingTrafficAggregationRepositoryAdapter,
         { provide: PrismaService, useValue: prisma },
       ],
     }).compile();

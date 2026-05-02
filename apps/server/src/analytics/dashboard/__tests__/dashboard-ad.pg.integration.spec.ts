@@ -4,6 +4,7 @@ import type { PrismaClient } from '@prisma/client';
 import { DashboardAdService } from '../application/service/dashboard-ad.service';
 import { buildDashboardContext } from '../application/service/context';
 import { DashboardAdRepositoryAdapter } from '../adapter/out/repository/dashboard-ad.repository.adapter';
+import { WingTrafficAggregationRepositoryAdapter } from '../adapter/out/repository/wing-traffic-aggregation.repository.adapter';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   makeTestPrisma,
@@ -26,6 +27,7 @@ describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows'
       providers: [
         DashboardAdService,
         DashboardAdRepositoryAdapter,
+        WingTrafficAggregationRepositoryAdapter,
         { provide: PrismaService, useValue: prisma },
       ],
     }).compile();

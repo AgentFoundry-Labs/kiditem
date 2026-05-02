@@ -1,6 +1,7 @@
 import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
+  DashboardEffectivePeriod,
   DashboardSalesSummary,
   ProfitBreakdown,
   MonthlyTrendItem,
@@ -16,25 +17,31 @@ import {
   type WingAdSummaryResult,
 } from '../../adapter/out/repository/wing-ad-summary.repository.adapter';
 import { DashboardSalesRepositoryAdapter } from '../../adapter/out/repository/dashboard-sales.repository.adapter';
+import {
+  WingTrafficAggregationRepositoryAdapter,
+  type CoupangAdsMetrics,
+  type WingTrafficMetrics,
+} from '../../adapter/out/repository/wing-traffic-aggregation.repository.adapter';
 import { pct1 } from '../../helpers/percent';
 
 /**
- * Plan F1 T2 — full implementation (replaces Plan B2c-deferred stub).
+ * Dashboard sales summary.
  *
- * 9 parallel reads (Promise.all):
- *   1-2. cur/prev month profit  (calculateProfitForRange)
- *   3-4. range cur/prev profit  (calculateProfitForRange)
- *   5.   today raw KPIs         (DashboardSalesRepositoryAdapter, KST boundary)
- *   6.   topProducts N=10       (DashboardSalesRepositoryAdapter, JOIN listing+master+option, LIMIT 10)
- *   7.   dailyRevenue           (DashboardSalesRepositoryAdapter, current month per-day)
- *   8.   monthlyTrend × 6       (calculateProfitForRange loop, Q2 decision)
- *   9.   wing override          (fetchWingAdSummary, null when no snapshot)
+ * Drive replay support (Plan F2):
+ *  - When the calendar window has zero Order rows but the same window has
+ *    Wing daily-fact rows in `channel_listing_daily_snapshots.traffic_*`, the
+ *    Wing aggregate is what we surface on `monthly.revenue`,
+ *    `rangeKpi.revenue`, and `trafficKpi.{visitors,views,orders,salesQty,
+ *    revenue,cartAdds,conversionRate}`. This avoids the all-zero dashboard
+ *    on operator workspaces that only loaded Drive replay data.
+ *  - The Order-based path is still preferred when orders exist (live
+ *    workspaces). The fallback only activates when the order-based revenue
+ *    is zero for the requested period.
+ *  - `effectivePeriod` reports which period and which source fed the
+ *    monthly numbers so the dashboard UI can label "주문 기준" /
+ *    "Wing 매출 기준" without guessing.
  *
- * Wing override scope (I8): only `trafficKpi.adSummary` + `lastSyncAt`. monthly.revenue
- * stays Order-based (Wing override of monthly metrics is the dashboard-ad service's
- * responsibility per spec § A.6).
- *
- * Per ADR-0006 + ADR-0018: every Prisma call binds organizationId via parameter / ${organizationId}::uuid.
+ * Per ADR-0006 + ADR-0018: every Prisma call binds organizationId.
  */
 @Injectable()
 export class DashboardSalesService {
@@ -43,6 +50,7 @@ export class DashboardSalesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly salesRepository: DashboardSalesRepositoryAdapter,
+    private readonly wingTrafficRepository: WingTrafficAggregationRepositoryAdapter,
   ) {}
 
   async getSummary(
@@ -63,6 +71,14 @@ export class DashboardSalesService {
         dailyRevenueRows,
         monthlyTrend,
         wing,
+        wingTrafficMonth,
+        wingTrafficPrevMonth,
+        wingTrafficRange,
+        wingTrafficPrevRange,
+        wingTrafficToday,
+        coupangAdsMonth,
+        coupangAdsPrevMonth,
+        latestDataDate,
       ] = await Promise.all([
         calculateProfitForRange(this.prisma, organizationId, monthStart, monthEnd),
         calculateProfitForRange(this.prisma, organizationId, prevMonthDate, monthStart),
@@ -73,29 +89,84 @@ export class DashboardSalesService {
         this.salesRepository.fetchDailyRevenue(organizationId, monthStart, monthEnd),
         this.fetchMonthlyTrend(organizationId, monthStart),
         fetchWingAdSummary(this.prisma, organizationId, year, month, monthStart),
+        this.wingTrafficRepository.aggregateTraffic(organizationId, monthStart, monthEnd),
+        this.wingTrafficRepository.aggregateTraffic(organizationId, prevMonthDate, monthStart),
+        this.wingTrafficRepository.aggregateTraffic(organizationId, dateRange.start, dateRange.end),
+        this.wingTrafficRepository.aggregateTraffic(organizationId, dateRange.prevStart, dateRange.prevEnd),
+        this.wingTrafficRepository.aggregateTraffic(organizationId, todayStart, todayEnd),
+        this.wingTrafficRepository.aggregateCoupangAds(organizationId, monthStart, monthEnd),
+        this.wingTrafficRepository.aggregateCoupangAds(organizationId, prevMonthDate, monthStart),
+        this.wingTrafficRepository.findLatestDataDate(organizationId),
       ]);
+
+      const useWingMonthly = curMonth.revenue === 0 && wingTrafficMonth.hasData;
+      const useWingRange = rangeCur.revenue === 0 && wingTrafficRange.hasData;
+      const useWingToday = todayRows.revenue === 0 && wingTrafficToday.hasData;
+      const useCoupangAdsForMonth =
+        coupangAdsMonth.hasData &&
+        coupangAdsMonth.spend > curMonth.adCost;
+
+      const today = useWingToday
+        ? { revenue: wingTrafficToday.revenue, orders: wingTrafficToday.orders }
+        : todayRows;
+
+      const wingLastSync = pickLatest(wing?.lastSyncAt ?? null, wingTrafficMonth.lastObservedAt);
+      const lastSyncAt = wingLastSync ?? coupangAdsMonth.lastObservedAt;
 
       this.logger.debug({
         msg: 'dashboard-sales.getSummary',
         organizationId,
         range: ctx.effectiveRange,
+        anchorShifted: ctx.anchorShifted,
         latencyMs: Date.now() - startedAt,
         topProductsCount: topProductRows.length,
         monthlyTrendMonths: monthlyTrend.length,
         hasWingOverride: wing !== null,
+        useWingMonthly,
+        useWingRange,
       });
 
+      const [coupangAdsForRange, coupangAdsForPrevRange] = await Promise.all([
+        this.wingTrafficRepository.aggregateCoupangAds(organizationId, dateRange.start, dateRange.end),
+        this.wingTrafficRepository.aggregateCoupangAds(organizationId, dateRange.prevStart, dateRange.prevEnd),
+      ]);
+
       return {
-        today: todayRows,
-        monthly: this.buildMonthly(curMonth, prevMonth),
+        today,
+        monthly: this.buildMonthly(
+          curMonth,
+          prevMonth,
+          wingTrafficMonth,
+          wingTrafficPrevMonth,
+          coupangAdsMonth,
+          coupangAdsPrevMonth,
+          useWingMonthly,
+          useCoupangAdsForMonth,
+        ),
         topProducts: topProductRows,
         monthlyTrend,
-        profitDetail: this.buildProfitDetail(curMonth),
-        rangeKpi: this.buildRangeKpi(ctx.effectiveRange, rangeCur, rangePrev),
+        profitDetail: this.buildProfitDetail(curMonth, wingTrafficMonth, coupangAdsMonth, useWingMonthly, useCoupangAdsForMonth),
+        rangeKpi: this.buildRangeKpi(
+          ctx.effectiveRange,
+          rangeCur,
+          rangePrev,
+          wingTrafficRange,
+          wingTrafficPrevRange,
+          coupangAdsForRange,
+          coupangAdsForPrevRange,
+          useWingRange,
+        ),
         dailyRevenue: dailyRevenueRows,
-        planAchievement: null, // F1 out-of-scope (D.3b will wire)
-        trafficKpi: this.buildTrafficKpi(curMonth, wing),
-        lastSyncAt: wing?.lastSyncAt?.toISOString() ?? null,
+        planAchievement: null,
+        trafficKpi: this.buildTrafficKpi(rangeCur, wingTrafficRange, coupangAdsForRange, wing, useWingRange),
+        lastSyncAt: lastSyncAt?.toISOString() ?? null,
+        effectivePeriod: this.buildEffectivePeriod(
+          ctx,
+          latestDataDate,
+          curMonth,
+          wingTrafficMonth,
+          coupangAdsMonth,
+        ),
       } satisfies DashboardSalesSummary;
     } catch (error) {
       this.logger.error('Failed to get sales summary', error);
@@ -103,32 +174,64 @@ export class DashboardSalesService {
     }
   }
 
-  // ── monthly mapping (R-01 explicit) ──────────────────────────────────────
+  // ── monthly mapping ─────────────────────────────────────────────────────
+  //
+  // Drive replay only carries Wing revenue + Coupang ad spend; settlement
+  // metrics (commission, shipping, COGS) are absent. Net profit therefore
+  // cannot be derived from Wing alone — synthesizing `revenue - adSpend`
+  // would be misleading because it ignores cost-of-goods and platform fees.
+  // We surface revenue + adRate (both well-defined when their inputs are
+  // real), and leave `profit`/`profitChange`/`prevProfit` at zero. The UI
+  // reads `effectivePeriod.revenueSource` to hide the profit card when the
+  // value isn't trustworthy.
   private buildMonthly(
     cur: RangeProfitMetrics,
     prev: RangeProfitMetrics,
+    wingCur: WingTrafficMetrics,
+    wingPrev: WingTrafficMetrics,
+    coupangAdsCur: CoupangAdsMetrics,
+    coupangAdsPrev: CoupangAdsMetrics,
+    useWing: boolean,
+    useCoupangAds: boolean,
   ): DashboardSalesSummary['monthly'] {
-    const adRate = pct1(cur.adCost, cur.revenue);
-    const prevAdRate = pct1(prev.adCost, prev.revenue);
-    const revenueChange = pct1(cur.revenue - prev.revenue, prev.revenue);
-    // abs-guarded: prev.netProfit can be negative; pct1 doc notes this exact pattern.
-    // Math.abs(prev.netProfit) > 0 ⟺ prev.netProfit !== 0, so guard semantics match.
-    const profitChange = pct1(cur.netProfit - prev.netProfit, Math.abs(prev.netProfit));
+    const revenue = useWing ? wingCur.revenue : cur.revenue;
+    const prevRevenue = useWing ? wingPrev.revenue : prev.revenue;
+
+    const adCost = useCoupangAds ? coupangAdsCur.spend : cur.adCost;
+    const prevAdCost = useCoupangAds ? coupangAdsPrev.spend : prev.adCost;
+    const profit = useWing ? 0 : cur.netProfit;
+    const prevProfit = useWing ? 0 : prev.netProfit;
+
+    const adRate = pct1(adCost, revenue);
+    const prevAdRate = pct1(prevAdCost, prevRevenue);
+    const revenueChange = pct1(revenue - prevRevenue, prevRevenue);
+    const profitChange = useWing ? 0 : pct1(profit - prevProfit, Math.abs(prevProfit));
 
     return {
-      revenue: cur.revenue,
-      profit: cur.netProfit,
+      revenue,
+      profit,
       adRate,
-      prevRevenue: prev.revenue,
-      prevProfit: prev.netProfit,
+      prevRevenue,
+      prevProfit,
       revenueChange,
       profitChange,
       prevAdRate,
     } satisfies DashboardSalesSummary['monthly'];
   }
 
-  // ── profitDetail: 8-field subset of RangeProfitMetrics (R-05 explicit) ───
-  private buildProfitDetail(cur: RangeProfitMetrics): ProfitBreakdown {
+  // ── profitDetail ────────────────────────────────────────────────────────
+  //
+  // For the Wing fallback path we don't have settlement data, so the profit
+  // breakdown isn't trustworthy. Returning the Order-based zero is *less*
+  // misleading than half-filling it with synthesized numbers. The UI hides
+  // the breakdown on Wing-source periods.
+  private buildProfitDetail(
+    cur: RangeProfitMetrics,
+    _wingCur: WingTrafficMetrics,
+    _coupangAds: CoupangAdsMetrics,
+    _useWing: boolean,
+    _useCoupangAds: boolean,
+  ): ProfitBreakdown {
     return {
       revenue: cur.revenue,
       costOfGoods: cur.costOfGoods,
@@ -141,34 +244,46 @@ export class DashboardSalesService {
     } satisfies ProfitBreakdown;
   }
 
-  // ── rangeKpi (mirrors monthly shape, range-aware) ────────────────────────
+  // ── rangeKpi ────────────────────────────────────────────────────────────
+  //
+  // When `useWing` is true the order-based profit math is unreliable
+  // (no settlement data on Drive replay), so we report Wing revenue but
+  // leave profit / profitRate at zero. The UI is responsible for hiding
+  // those metric tiles when `effectivePeriod.revenueSource === 'wing'`.
   private buildRangeKpi(
     range: string,
     cur: RangeProfitMetrics,
     prev: RangeProfitMetrics,
+    wingCur: WingTrafficMetrics,
+    wingPrev: WingTrafficMetrics,
+    _coupangAdsCur: CoupangAdsMetrics,
+    _coupangAdsPrev: CoupangAdsMetrics,
+    useWing: boolean,
   ): NonNullable<DashboardSalesSummary['rangeKpi']> {
-    const profitRate = pct1(cur.netProfit, cur.revenue);
-    const prevProfitRate = pct1(prev.netProfit, prev.revenue);
-    const revenueChange = pct1(cur.revenue - prev.revenue, prev.revenue);
-    // abs-guarded: prev.netProfit can be negative; pct1 doc notes this exact pattern.
-    // Math.abs(prev.netProfit) > 0 ⟺ prev.netProfit !== 0, so guard semantics match.
-    const profitChange = pct1(cur.netProfit - prev.netProfit, Math.abs(prev.netProfit));
+    const revenue = useWing ? wingCur.revenue : cur.revenue;
+    const prevRevenue = useWing ? wingPrev.revenue : prev.revenue;
+    const profit = useWing ? 0 : cur.netProfit;
+    const prevProfit = useWing ? 0 : prev.netProfit;
+
+    const profitRate = useWing ? 0 : pct1(profit, revenue);
+    const prevProfitRate = useWing ? 0 : pct1(prevProfit, prevRevenue);
+    const revenueChange = pct1(revenue - prevRevenue, prevRevenue);
+    const profitChange = useWing ? 0 : pct1(profit - prevProfit, Math.abs(prevProfit));
     return {
       range,
-      revenue: cur.revenue,
-      profit: cur.netProfit,
-      prevRevenue: prev.revenue,
-      prevProfit: prev.netProfit,
+      revenue,
+      profit,
+      prevRevenue,
+      prevProfit,
       revenueChange,
       profitChange,
       profitRate,
       prevProfitRate,
-      // Delta of two already-rounded 1dp percents (not a ratio) — pct1 doesn't apply.
-      profitRateChange: Math.round((profitRate - prevProfitRate) * 10) / 10,
+      profitRateChange: useWing ? 0 : Math.round((profitRate - prevProfitRate) * 10) / 10,
     } satisfies NonNullable<DashboardSalesSummary['rangeKpi']>;
   }
 
-  // ── monthlyTrend = loop × 6 calculateProfitForRange (Q2 decision) ────────
+  // ── monthlyTrend = loop × 6 calculateProfitForRange ─────────────────────
   private async fetchMonthlyTrend(
     organizationId: string,
     currentMonthStart: Date,
@@ -177,29 +292,103 @@ export class DashboardSalesService {
     const trends = await Promise.all(offsets.map(async (offset) => {
       const start = new Date(currentMonthStart.getFullYear(), currentMonthStart.getMonth() - offset, 1);
       const end = new Date(start.getFullYear(), start.getMonth() + 1, 1);
-      const m = await calculateProfitForRange(this.prisma, organizationId, start, end);
+      const [m, wing] = await Promise.all([
+        calculateProfitForRange(this.prisma, organizationId, start, end),
+        this.wingTrafficRepository.aggregateTraffic(organizationId, start, end),
+      ]);
       const period = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}`;
-      return { period, revenue: m.revenue, profit: m.netProfit, adCost: m.adCost } satisfies MonthlyTrendItem;
+      const revenue = m.revenue > 0 ? m.revenue : wing.revenue;
+      const profit = m.revenue > 0 ? m.netProfit : Math.max(0, revenue - m.adCost);
+      return { period, revenue, profit, adCost: m.adCost } satisfies MonthlyTrendItem;
     }));
     return trends;
   }
 
-  // ── trafficKpi: Wing override only for adSummary (R-03 explicit) ─────────
+  // ── trafficKpi ──────────────────────────────────────────────────────────
+  //
+  // Wing path: surface clean Wing/Drive metrics (visitors, views, orders,
+  // salesQty, revenue, cartAdds, conversionRate). `netProfit`/`profitRate`
+  // are left at zero — Drive replay does not carry the settlement data
+  // needed to derive net profit. Synthesizing "revenue minus ad spend"
+  // would mislead users into thinking the dashboard knows COGS/commission/
+  // shipping. The UI hides profit-rate metrics when `revenueSource ===
+  // 'wing'`.
   private buildTrafficKpi(
     cur: RangeProfitMetrics,
+    wingCur: WingTrafficMetrics,
+    _coupangAdsCur: CoupangAdsMetrics,
     wing: WingAdSummaryResult | null,
+    useWing: boolean,
   ): TrafficKpi {
+    if (useWing) {
+      return {
+        visitors: wingCur.visitors,
+        views: wingCur.views,
+        orders: wingCur.orders,
+        salesQty: wingCur.salesQty,
+        revenue: wingCur.revenue,
+        cartAdds: wingCur.cartAdds,
+        conversionRate: wingCur.conversionRate,
+        adSummary: wing?.rawAdSummary ?? null,
+        source: wing ? 'wing' : 'drive_replay',
+        netProfit: 0,
+        profitRate: 0,
+        needsScrape: false,
+      } satisfies TrafficKpi;
+    }
     return {
-      visitors: 0,
-      views: 0,
-      orders: cur.orderCount,
-      salesQty: 0,
+      visitors: wingCur.visitors,
+      views: wingCur.views,
+      orders: cur.orderCount > 0 ? cur.orderCount : wingCur.orders,
+      salesQty: wingCur.salesQty,
       revenue: cur.revenue,
-      cartAdds: 0,
+      cartAdds: wingCur.cartAdds,
+      conversionRate: wingCur.conversionRate,
       adSummary: wing?.rawAdSummary ?? null,
       source: wing ? 'wing' : undefined,
       netProfit: cur.netProfit,
       profitRate: pct1(cur.netProfit, cur.revenue),
     } satisfies TrafficKpi;
   }
+
+  // ── effectivePeriod ─────────────────────────────────────────────────────
+  private buildEffectivePeriod(
+    ctx: DashboardContext,
+    latestDataDate: Date | null,
+    cur: RangeProfitMetrics,
+    wingCur: WingTrafficMetrics,
+    coupangAds: CoupangAdsMetrics,
+  ): DashboardEffectivePeriod {
+    const orderActive = cur.revenue !== 0 || cur.orderCount > 0;
+    const wingActive = wingCur.hasData;
+    const adsActive = coupangAds.hasData;
+
+    let revenueSource: DashboardEffectivePeriod['revenueSource'] = 'none';
+    if (orderActive && wingActive) revenueSource = 'mixed';
+    else if (orderActive) revenueSource = 'orders';
+    else if (wingActive) revenueSource = 'wing';
+
+    let adSource: DashboardEffectivePeriod['adSource'] = 'none';
+    if (cur.adCost > 0 && adsActive) adSource = 'mixed';
+    else if (cur.adCost > 0) adSource = 'orders';
+    else if (adsActive) adSource = 'coupang_ads';
+
+    return {
+      year: ctx.year,
+      month: ctx.month,
+      label: `${ctx.year}-${String(ctx.month).padStart(2, '0')}`,
+      shifted: ctx.anchorShifted,
+      latestDataDate: latestDataDate
+        ? latestDataDate.toISOString().slice(0, 10)
+        : null,
+      revenueSource,
+      adSource,
+    } satisfies DashboardEffectivePeriod;
+  }
+}
+
+function pickLatest(a: Date | null, b: Date | null): Date | null {
+  if (!a) return b;
+  if (!b) return a;
+  return a.getTime() >= b.getTime() ? a : b;
 }
