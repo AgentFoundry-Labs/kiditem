@@ -45,6 +45,9 @@ function makePrisma() {
     channelListing: {
       findMany: vi.fn(async () => [{ id: 'listing-1', externalId: 'EXT-1' }]),
     },
+    channelListingDailySnapshot: {
+      groupBy: vi.fn(async () => []),
+    },
     channelScrapeRun: {
       create: vi.fn(async () => ({ id: 'run-1' })),
       update: vi.fn(async () => ({})),
@@ -107,5 +110,24 @@ describe('TrafficService — scrape-run tenant-scoped writes', () => {
     await expect(
       service.uploadTrafficStats(makeUploadFile(), ORGANIZATION_ID),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('queries monthly traffic with exact @db.Date calendar boundaries', async () => {
+    const { prisma } = makePrisma();
+    const service = new TrafficService(prisma as never);
+
+    await service.getMonthlyRevenue(2026, 5, ORGANIZATION_ID);
+
+    expect(prisma.channelListingDailySnapshot.groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          organizationId: ORGANIZATION_ID,
+          businessDate: {
+            gte: new Date('2026-05-01T00:00:00.000Z'),
+            lt: new Date('2026-06-01T00:00:00.000Z'),
+          },
+        },
+      }),
+    );
   });
 });

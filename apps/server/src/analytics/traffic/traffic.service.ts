@@ -579,11 +579,11 @@ export class TrafficService {
   }
 
   async getMonthlyRevenue(year: number, month: number, organizationId: string) {
-    // KST month boundaries via `kstDayStart` of month-first / next-month-first.
-    const startUtc = new Date(Date.UTC(year, month - 1, 1));
-    const endUtcExclusive = new Date(Date.UTC(year, month, 1));
-    const start = kstDayStart(startUtc);
-    const endExclusive = kstDayStart(endUtcExclusive);
+    // `businessDate` is a Postgres date column. Prisma compares it as a
+    // calendar date, so use DB date midnights instead of KST instants; otherwise
+    // the month window shifts one date backward at both boundaries.
+    const start = new Date(Date.UTC(year, month - 1, 1));
+    const endExclusive = new Date(Date.UTC(year, month, 1));
 
     const [rows, listingRows] = await Promise.all([
       this.prisma.channelListingDailySnapshot.groupBy({
