@@ -37,7 +37,8 @@ export class ReadinessService {
       yesterdayKstStart.getTime() - (ReadinessService.LOOKBACK_DAYS - 1) * 86400000,
     );
     const rangeStartKstStr = toKstDateStr(lookbackStart);
-    const rangeStartDate = parseKstDate(rangeStartKstStr);
+    const rangeStartDate = parseDbDate(rangeStartKstStr);
+    const rangeEndDate = parseDbDate(yesterdayKstStr);
     const expectedDates = enumerateDates(rangeStartKstStr, yesterdayKstStr);
 
     const [
@@ -54,7 +55,7 @@ export class ReadinessService {
           channel: 'coupang',
           source: 'wing',
           kpiType: 'wing_dashboard',
-          businessDate: { gte: rangeStartDate, lte: yesterdayKstStart },
+          businessDate: { gte: rangeStartDate, lte: rangeEndDate },
         },
         select: { businessDate: true, lastObservedAt: true },
         orderBy: { businessDate: 'desc' },
@@ -66,7 +67,7 @@ export class ReadinessService {
           channel: 'coupang',
           source: 'coupang_ads',
           kpiType: 'coupang_ads_daily',
-          businessDate: { gte: rangeStartDate, lte: yesterdayKstStart },
+          businessDate: { gte: rangeStartDate, lte: rangeEndDate },
         },
         select: { businessDate: true, lastObservedAt: true },
         orderBy: { businessDate: 'desc' },
@@ -212,14 +213,20 @@ function toKstDateStr(d: Date): string {
   return kst.toISOString().slice(0, 10);
 }
 
-/** YYYY-MM-DD (KST) → UTC Date 객체 (KST 자정의 UTC instant) */
-function parseKstDate(ymd: string): Date {
-  return new Date(`${ymd}T00:00:00+09:00`);
+/**
+ * YYYY-MM-DD → Prisma @db.Date comparison value.
+ *
+ * Postgres `date` values come back from Prisma as UTC-midnight Date objects.
+ * Using a KST-midnight instant here would exclude the end date, e.g.
+ * 2026-05-01 becomes 2026-04-30T15:00Z and misses DB date 2026-05-01.
+ */
+function parseDbDate(ymd: string): Date {
+  return new Date(`${ymd}T00:00:00.000Z`);
 }
 
 function enumerateDates(startYmd: string, endYmd: string): string[] {
-  const start = parseKstDate(startYmd);
-  const end = parseKstDate(endYmd);
+  const start = parseDbDate(startYmd);
+  const end = parseDbDate(endYmd);
   const out: string[] = [];
   for (let t = start.getTime(); t <= end.getTime(); t += 86400000) {
     out.push(toKstDateStr(new Date(t)));
