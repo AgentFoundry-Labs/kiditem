@@ -7,6 +7,7 @@ import { DashboardTrendService } from './application/service/dashboard-trend.ser
 import { DashboardSalesRepositoryAdapter } from './adapter/out/repository/dashboard-sales.repository.adapter';
 import { DashboardAdRepositoryAdapter } from './adapter/out/repository/dashboard-ad.repository.adapter';
 import { DashboardTrendRepositoryAdapter } from './adapter/out/repository/dashboard-trend.repository.adapter';
+import { WingTrafficAggregationRepositoryAdapter } from './adapter/out/repository/wing-traffic-aggregation.repository.adapter';
 
 @Module({
   controllers: [DashboardController],
@@ -18,6 +19,7 @@ import { DashboardTrendRepositoryAdapter } from './adapter/out/repository/dashbo
     DashboardSalesRepositoryAdapter,
     DashboardAdRepositoryAdapter,
     DashboardTrendRepositoryAdapter,
+    WingTrafficAggregationRepositoryAdapter,
   ],
 })
 export class DashboardModule {}

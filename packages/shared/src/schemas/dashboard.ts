@@ -151,6 +151,26 @@ export const WingAdSummarySchema = z.object({
   rawAdSummary: z.record(z.any()).nullable().optional(),
 });
 
+/**
+ * Effective period the dashboard is displaying. Equals the calendar month
+ * containing "now" by default. When the calendar month has no Order, Wing,
+ * or Coupang ads activity (e.g. a Drive replay snapshot only carries data
+ * for an earlier month), the backend shifts the period onto the latest data
+ * month so the UI doesn't render as all-zero. `revenueSource` records which
+ * data lane fed the period's monetary numbers so the UI can label
+ * "Wing 매출", "Coupang 광고", "주문 기준" etc. without guessing.
+ */
+export const DashboardEffectivePeriodSchema = z.object({
+  year: z.number(),
+  month: z.number(),
+  label: z.string(),
+  shifted: z.boolean(),
+  latestDataDate: z.string().nullable(),
+  revenueSource: z.enum(['orders', 'wing', 'mixed', 'none']),
+  adSource: z.enum(['orders', 'coupang_ads', 'wing', 'mixed', 'none']).optional(),
+});
+export type DashboardEffectivePeriod = z.infer<typeof DashboardEffectivePeriodSchema>;
+
 // ─── Sales endpoint: GET /api/dashboard/sales ─────────────────────────────
 export const DashboardSalesSummarySchema = z.object({
   today: z.object({
@@ -186,6 +206,7 @@ export const DashboardSalesSummarySchema = z.object({
   planAchievement: PlanAchievementSchema.nullable().optional(),
   trafficKpi: TrafficKpiSchema.optional(),
   lastSyncAt: zIsoDate.nullable().optional(),
+  effectivePeriod: DashboardEffectivePeriodSchema.optional(),
 });
 
 // ─── Ad endpoint: GET /api/dashboard/ad ───────────────────────────────────
@@ -228,6 +249,7 @@ export const DashboardAdSummarySchema = z.object({
   }).optional(),
   // A9: ad-ops consumer needs Wing adSummary that used to live in trafficKpi.adSummary
   wingAdData: WingAdSummarySchema.nullable().optional(),
+  effectivePeriod: DashboardEffectivePeriodSchema.optional(),
 });
 
 // ─── Inventory endpoint: GET /api/dashboard/inventory ─────────────────────

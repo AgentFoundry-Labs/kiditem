@@ -179,9 +179,12 @@ export default function Dashboard() {
 
   const aiActions = actionTasks.filter(t => t.type === 'ai');
 
-  // 트래픽 데이터가 없으면 Wing 매출분석 페이지를 자동으로 열어 익스텐션 동기화 유도
+  // 트래픽 데이터가 없으면 Wing 매출분석 페이지를 자동으로 열어 익스텐션 동기화 유도.
+  // Drive replay 또는 Wing 동기화 데이터가 이미 있으면 트리거하지 않는다.
   useEffect(() => {
     if (!salesBaseline?.trafficKpi?.needsScrape) return;
+    const source = salesBaseline?.effectivePeriod?.revenueSource;
+    if (source === 'wing' || source === 'mixed' || source === 'orders') return;
     const COOLDOWN_KEY = 'kiditem_wing_scrape_triggered';
     const lastTrigger = localStorage.getItem(COOLDOWN_KEY);
     if (lastTrigger && Date.now() - Number(lastTrigger) < 30 * 60 * 1000) return; // 30분 쿨다운
@@ -192,7 +195,7 @@ export default function Dashboard() {
     window.open(wingUrl, '_blank');
     localStorage.setItem(COOLDOWN_KEY, String(Date.now()));
     toast.info('Wing 매출분석 페이지를 열어 데이터를 수집합니다. 잠시 후 새로고침하세요.', { duration: 8000 });
-  }, [salesBaseline?.trafficKpi?.needsScrape]);
+  }, [salesBaseline?.trafficKpi?.needsScrape, salesBaseline?.effectivePeriod?.revenueSource]);
 
   // Gate initial render on inventoryData (totalProducts in header blocks layout)
   const loading = inventoryLoading || salesBaselineLoading || adBaselineLoading;
@@ -211,21 +214,21 @@ export default function Dashboard() {
   // Range label derived from local state (not server)
   const rangeLabel = kpiRange !== 'month' ? (rangeLabelMap[kpiRange] ?? '월') : '월';
 
-  const trafficKpi = effectiveSales?.trafficKpi;
-  // trafficKpi(Wing daily fact 기반) 우선 사용 — rangeKpi(Order 기반)는 주문 확정분만
-  // 포함해 Wing 매출 대비 적게 잡힘. 월/주/일 전부 동일 규칙, trafficKpi 없으면 rangeKpi 폴백.
-  const useTrafficSource = !!trafficKpi && (trafficKpi.revenue ?? 0) > 0;
-
-  // KPI: rangeKpi 서버 값 우선, 없으면 baseline 폴백 (주/일은 trafficKpi 폴백)
+  // 서버가 effectivePeriod.revenueSource 에 맞춰 monthly/rangeKpi 를 이미
+  // (Order 또는 Wing daily-fact) 출처로 채워준다. UI 에서는 source 별 분기 없이
+  // rangeKpi 우선, baseline 폴백.
   const rk = effectiveSales?.rangeKpi;
   const rkAd = effectiveAd?.rangeKpi;
-  const kpiRevenue = useTrafficSource ? (trafficKpi?.revenue ?? 0) : (rk?.revenue ?? salesBaseline.monthly.revenue);
-  const kpiProfit = useTrafficSource ? (trafficKpi?.netProfit ?? 0) : (rk?.profit ?? salesBaseline.monthly.profit);
+  // 매출은 server 가 source 별 fallback 을 이미 마쳤으니 그대로 사용.
+  const kpiRevenue = rk?.revenue ?? salesBaseline.monthly.revenue;
+  // 순이익은 정산 데이터 없을 때(Wing fallback) 서버가 0 을 반환한다 — UI 가
+  // `profitMetricsAvailable` 로 카드를 placeholder 로 바꿔 0 이 노출되지 않게 한다.
+  const kpiProfit = rk?.profit ?? salesBaseline.monthly.profit;
   const kpiPrevRevenue = rk?.prevRevenue ?? salesBaseline.monthly.prevRevenue;
   const kpiPrevProfit = rk?.prevProfit ?? salesBaseline.monthly.prevProfit;
-  const revenueChange = useTrafficSource ? 0 : (rk?.revenueChange ?? (kpiPrevRevenue > 0 ? ((kpiRevenue - kpiPrevRevenue) / kpiPrevRevenue) * 100 : 0));
-  const profitChange = useTrafficSource ? 0 : (rk?.profitChange ?? (kpiPrevProfit > 0 ? ((kpiProfit - kpiPrevProfit) / kpiPrevProfit) * 100 : 0));
-  const profitRate = useTrafficSource ? (trafficKpi?.profitRate ?? 0) : (rk?.profitRate ?? (salesBaseline.monthly.revenue > 0 ? (salesBaseline.monthly.profit / salesBaseline.monthly.revenue) * 100 : 0));
+  const revenueChange = rk?.revenueChange ?? salesBaseline.monthly.revenueChange ?? 0;
+  const profitChange = rk?.profitChange ?? salesBaseline.monthly.profitChange ?? 0;
+  const profitRate = rk?.profitRate ?? (salesBaseline.monthly.revenue > 0 ? (salesBaseline.monthly.profit / salesBaseline.monthly.revenue) * 100 : 0);
   const prevProfitRate = rk?.prevProfitRate ?? (salesBaseline.monthly.prevRevenue > 0 ? (salesBaseline.monthly.prevProfit / salesBaseline.monthly.prevRevenue) * 100 : 0);
   const kpiAdRate = rkAd?.adRate ?? salesBaseline.monthly.adRate;
   const kpiPrevAdRate = rkAd?.prevAdRate ?? salesBaseline.monthly.prevAdRate;
@@ -248,6 +251,31 @@ export default function Dashboard() {
     adRate: d.revenue > 0 ? Math.round((d.adCost / d.revenue) * 1000) / 10 : 0,
   }));
 
+  // 데이터 출처 라벨 — Drive replay / Wing / 쿠팡 광고 / 주문 기준 등을 한 곳에서 결정
+  const effectivePeriod = effectiveSales?.effectivePeriod ?? salesBaseline.effectivePeriod;
+  const periodLabel = effectivePeriod
+    ? `${effectivePeriod.year}년 ${effectivePeriod.month}월`
+    : new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long' });
+  const periodShifted = effectivePeriod?.shifted ?? false;
+  const latestDataDate = effectivePeriod?.latestDataDate ?? null;
+  const revenueSource = effectivePeriod?.revenueSource ?? 'orders';
+  const adSource = effectivePeriod?.adSource ?? adBaseline.effectivePeriod?.adSource ?? 'orders';
+  const revenueSourceLabel =
+    revenueSource === 'wing' ? 'Wing 매출 기준'
+    : revenueSource === 'mixed' ? '주문 + Wing'
+    : revenueSource === 'orders' ? '주문 기준'
+    : '데이터 대기';
+  const adSourceLabel =
+    adSource === 'coupang_ads' ? '쿠팡 광고 기준'
+    : adSource === 'mixed' ? '쿠팡 광고 + 주문'
+    : adSource === 'orders' ? '주문 기준'
+    : '데이터 대기';
+  // 정산 데이터가 있어야 산출 가능한 지표 (순이익/이익률/매입가/수수료/배송비) 는
+  // Wing/Drive 단독 데이터로는 신뢰할 수 없다. 그 카드는 "—" 로 표시한다.
+  const profitMetricsAvailable = revenueSource === 'orders' || revenueSource === 'mixed';
+  // 광고비/매출 비율은 두 sources 모두 실측값이 있으면 정의가 깨끗.
+  const adRateAvailable = (kpiAdRate ?? 0) > 0 || profitMetricsAvailable;
+
   return (
     <div className="space-y-4 w-full pb-12">
       {/* Header */}
@@ -258,11 +286,27 @@ export default function Dashboard() {
           </div>
           <div>
             <h1 className="text-lg font-bold tracking-tight text-slate-900">Kiditem Foundry</h1>
-            <div className="flex items-center gap-3 mt-0.5">
+            <div className="flex items-center gap-2 mt-0.5">
               <span className="text-xs font-mono text-slate-400">{inventoryData.totalProducts} products</span>
               <span className="text-xs font-mono text-slate-400">|</span>
-              <span className="text-xs font-mono text-slate-400">{new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long' })}</span>
+              <span className="text-xs font-mono text-slate-400">{periodLabel}</span>
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              {periodShifted && latestDataDate && (
+                <span
+                  className="ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200"
+                  title={`현재 월에 데이터가 없어 최신 데이터 기준 (${latestDataDate})로 표시 중`}
+                >
+                  최신 데이터 기준 · {latestDataDate}
+                </span>
+              )}
+              {!periodShifted && revenueSource === 'wing' && (
+                <span
+                  className="ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-sky-50 text-sky-700 border border-sky-200"
+                  title="이번 달 주문 데이터가 없어 Wing 매출분석을 기준으로 표시 중"
+                >
+                  Wing 기준
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -312,7 +356,7 @@ export default function Dashboard() {
         {/* 월 매출 */}
         <div className="lg:row-span-2 rounded-2xl px-5 py-3 flex flex-col justify-between bg-white border border-slate-100 shadow-sm">
           <div>
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex items-center gap-2 mb-1">
               <Wallet size={18} className="text-blue-600" />
               <span className="text-sm font-bold uppercase tracking-wider text-blue-600">{rangeLabel} 매출</span>
               <span className={cn('flex items-center gap-0.5 px-2 py-0.5 rounded-full text-sm font-mono', revenueChange >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600')}>
@@ -320,6 +364,7 @@ export default function Dashboard() {
                 <span>{revenueChange > 0 ? '+' : ''}{revenueChange.toFixed(1)}%</span>
               </span>
             </div>
+            <div className="text-[10px] font-mono text-slate-400 mb-1.5">{revenueSourceLabel}</div>
             <div className="flex items-baseline gap-1.5 mb-1">
               <span className="text-xl sm:text-3xl font-extrabold tabular-nums tracking-tight text-blue-600">{formatKRW(kpiRevenue)}</span>
               <span className="text-lg font-semibold text-blue-600/60">원</span>
@@ -340,14 +385,16 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="mt-2 pt-2 space-y-1.5 border-t border-blue-100">
-            {(kpiRevenue - (rkAd?.adConvRevenue ?? 0)) > 0 && (
+            {/* 광고외매출 = Wing 매출 - 쿠팡 광고전환매출 — 두 source 가 같은 정의(매출)로 측정될 때만 의미.
+                Order 기반(주문기준)에서는 동일 source 내 derivation 이라 항상 표시. Wing 단독에서는 측정원이 다르니 숨김. */}
+            {profitMetricsAvailable && (kpiRevenue - (rkAd?.adConvRevenue ?? 0)) > 0 && (
               <div className="flex justify-between text-sm">
                 <span className="text-slate-500">광고외매출</span>
                 <span className="font-bold tabular-nums text-slate-900">{formatKRW(kpiRevenue - (rkAd?.adConvRevenue ?? 0))}원</span>
               </div>
             )}
             <div className="flex justify-between text-sm">
-              <span className="text-slate-500">광고전환매출</span>
+              <span className="text-slate-500">광고전환매출 <span className="text-[10px] text-slate-400">쿠팡</span></span>
               <span className="font-bold tabular-nums text-slate-900">{formatKRW(rkAd?.adConvRevenue ?? adBaseline.monthly.adRevenue)}원</span>
             </div>
             <div className="flex justify-between text-sm">
@@ -358,6 +405,18 @@ export default function Dashboard() {
               <span className="text-slate-500">판매량</span>
               <span className="font-bold tabular-nums text-slate-900">{formatNumber(effectiveSales?.trafficKpi?.salesQty ?? 0)}개</span>
             </div>
+            {(effectiveSales?.trafficKpi?.visitors ?? 0) > 0 && (
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-500">방문자</span>
+                <span className="font-bold tabular-nums text-slate-900">{formatNumber(effectiveSales?.trafficKpi?.visitors ?? 0)}명</span>
+              </div>
+            )}
+            {(effectiveSales?.trafficKpi?.views ?? 0) > 0 && (
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-500">조회</span>
+                <span className="font-bold tabular-nums text-slate-900">{formatNumber(effectiveSales?.trafficKpi?.views ?? 0)}회</span>
+              </div>
+            )}
             {salesBaseline.lastSyncAt && (
               <div className="text-[11px] text-slate-400 mt-1">
                 Wing 마지막 동기화 · {formatDateTime(salesBaseline.lastSyncAt)}
@@ -369,73 +428,121 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* 월 순이익 */}
-        <div
-          className="lg:row-span-2 rounded-2xl px-5 py-3 flex flex-col justify-between cursor-pointer hover:shadow-md transition-shadow bg-white border border-slate-100 shadow-sm"
-          onClick={() => setShowProfitDetail(true)}
-        >
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <TrendingUp size={18} className="text-emerald-600" />
-              <span className="text-sm font-bold uppercase tracking-wider text-emerald-600">{rangeLabel} 순이익</span>
-              <span className={cn('flex items-center gap-0.5 px-2 py-0.5 rounded-full text-sm font-mono', profitChange >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600')}>
-                {profitChange >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
-                <span>{profitChange > 0 ? '+' : ''}{profitChange.toFixed(1)}%</span>
-              </span>
-            </div>
-            <div className="flex items-baseline gap-1.5 mb-1">
-              <span className="text-xl sm:text-3xl font-extrabold tabular-nums tracking-tight text-emerald-600">{formatKRW(kpiProfit)}</span>
-              <span className="text-lg font-semibold text-emerald-600/60">원</span>
-            </div>
-            <div className="text-sm text-slate-500">이전 {formatKRW(kpiPrevProfit)}원</div>
-            <div className="mt-2 pt-2 border-t border-emerald-100">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[12px] font-medium text-emerald-400">목표 {formatKRW(profitGoal)}원</span>
-                <span className={cn('text-[13px] font-bold tabular-nums', profitAchieve >= 100 ? 'text-emerald-600' : 'text-emerald-700')}>{profitAchieve}%</span>
+        {/* 월 순이익 — 정합성 결여(Wing 단독)면 placeholder, 그 외엔 기존 breakdown */}
+        {profitMetricsAvailable ? (
+          <div
+            className="lg:row-span-2 rounded-2xl px-5 py-3 flex flex-col justify-between cursor-pointer hover:shadow-md transition-shadow bg-white border border-slate-100 shadow-sm"
+            onClick={() => setShowProfitDetail(true)}
+          >
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <TrendingUp size={18} className="text-emerald-600" />
+                <span className="text-sm font-bold uppercase tracking-wider text-emerald-600">{rangeLabel} 순이익</span>
+                <span className={cn('flex items-center gap-0.5 px-2 py-0.5 rounded-full text-sm font-mono', profitChange >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600')}>
+                  {profitChange >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+                  <span>{profitChange > 0 ? '+' : ''}{profitChange.toFixed(1)}%</span>
+                </span>
               </div>
-              <div className="h-2 rounded-full overflow-hidden bg-emerald-50">
-                <div className="h-full rounded-full transition-all duration-500 bg-emerald-600" style={{ width: `${profitPct}%` }} />
+              <div className="text-[10px] font-mono text-slate-400 mb-1.5">주문 기준</div>
+              <div className="flex items-baseline gap-1.5 mb-1">
+                <span className="text-xl sm:text-3xl font-extrabold tabular-nums tracking-tight text-emerald-600">{formatKRW(kpiProfit)}</span>
+                <span className="text-lg font-semibold text-emerald-600/60">원</span>
               </div>
-              {profitAchieve >= 100
-                ? <div className="text-[11px] mt-1 font-semibold text-emerald-600">목표 달성!</div>
-                : <div className="text-[11px] mt-1 text-emerald-400">{formatKRW(profitGoal - kpiProfit)}원 남음</div>
-              }
+              <div className="text-sm text-slate-500">이전 {formatKRW(kpiPrevProfit)}원</div>
+              <div className="mt-2 pt-2 border-t border-emerald-100">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[12px] font-medium text-emerald-400">목표 {formatKRW(profitGoal)}원</span>
+                  <span className={cn('text-[13px] font-bold tabular-nums', profitAchieve >= 100 ? 'text-emerald-600' : 'text-emerald-700')}>{profitAchieve}%</span>
+                </div>
+                <div className="h-2 rounded-full overflow-hidden bg-emerald-50">
+                  <div className="h-full rounded-full transition-all duration-500 bg-emerald-600" style={{ width: `${profitPct}%` }} />
+                </div>
+                {profitAchieve >= 100
+                  ? <div className="text-[11px] mt-1 font-semibold text-emerald-600">목표 달성!</div>
+                  : <div className="text-[11px] mt-1 text-emerald-400">{formatKRW(profitGoal - kpiProfit)}원 남음</div>
+                }
+              </div>
+            </div>
+            <div className="mt-2 pt-2 space-y-1.5 border-t border-emerald-100">
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-500">집행광고비</span>
+                <span className="font-bold tabular-nums text-slate-900">{formatKRW(rkAd?.adSpend ?? adBaseline.monthly.totalAdSpend)}원</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-500">수수료</span>
+                <span className="font-bold tabular-nums text-slate-900">{formatKRW(salesBaseline.profitDetail?.commission ?? 0)}원</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-500">배송비</span>
+                <span className="font-bold tabular-nums text-slate-900">{formatKRW(salesBaseline.profitDetail?.shippingCost ?? 0)}원</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-500">매입가</span>
+                <span className="font-bold tabular-nums text-slate-900">{formatKRW(salesBaseline.profitDetail?.costOfGoods ?? 0)}원</span>
+              </div>
             </div>
           </div>
-          <div className="mt-2 pt-2 space-y-1.5 border-t border-emerald-100">
-            <div className="flex justify-between text-sm">
-              <span className="text-slate-500">집행광고비</span>
-              <span className="font-bold tabular-nums text-slate-900">{formatKRW(rkAd?.adSpend ?? adBaseline.monthly.totalAdSpend)}원</span>
+        ) : (
+          // Wing/Drive 단독 — 매입가/수수료/배송비 source 가 없어 순이익 산출 불가.
+          // 광고비는 쿠팡 광고에서 측정값으로 표시.
+          <div className="lg:row-span-2 rounded-2xl px-5 py-3 flex flex-col justify-between bg-white border border-slate-100 shadow-sm">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <TrendingUp size={18} className="text-emerald-600" />
+                <span className="text-sm font-bold uppercase tracking-wider text-emerald-600">{rangeLabel} 순이익</span>
+              </div>
+              <div className="text-[10px] font-mono text-slate-400 mb-1.5">정산 데이터 없음</div>
+              <div className="flex items-baseline gap-1.5 mb-1">
+                <span className="text-xl sm:text-3xl font-extrabold tabular-nums tracking-tight text-slate-300">—</span>
+              </div>
+              <div className="text-xs text-slate-400 mt-1">
+                Wing/Drive 데이터에는 매입가·수수료·배송비가 없어 순이익을 산출할 수 없습니다.
+              </div>
             </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-slate-500">수수료</span>
-              <span className="font-bold tabular-nums text-slate-900">{formatKRW(salesBaseline.profitDetail?.commission ?? 0)}원</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-slate-500">배송비</span>
-              <span className="font-bold tabular-nums text-slate-900">{formatKRW(salesBaseline.profitDetail?.shippingCost ?? 0)}원</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-slate-500">매입가</span>
-              <span className="font-bold tabular-nums text-slate-900">{formatKRW(salesBaseline.profitDetail?.costOfGoods ?? 0)}원</span>
+            <div className="mt-2 pt-2 space-y-1.5 border-t border-emerald-100">
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-500">집행광고비 <span className="text-[10px] text-slate-400">쿠팡</span></span>
+                <span className="font-bold tabular-nums text-slate-900">{formatKRW(rkAd?.adSpend ?? adBaseline.monthly.totalAdSpend)}원</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-500">수수료</span>
+                <span className="font-mono tabular-nums text-slate-300">—</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-500">배송비</span>
+                <span className="font-mono tabular-nums text-slate-300">—</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-500">매입가</span>
+                <span className="font-mono tabular-nums text-slate-300">—</span>
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
-        {/* 이익률 */}
-        <MetricCard
-          label="이익률"
-          value={profitRate.toFixed(1)}
-          unit="%"
-          change={profitRate - prevProfitRate}
-          prevLabel={`이전 ${prevProfitRate.toFixed(1)}%`}
-          accentColor="#733de5"
-          icon={Target}
-          goal={15}
-          current={profitRate}
-          goalUnit="%"
-          goalLabel="목표 15%"
-        />
+        {/* 이익률 — 순이익을 못 구하면 정의가 없으니 placeholder 로 */}
+        {profitMetricsAvailable ? (
+          <MetricCard
+            label="이익률"
+            value={profitRate.toFixed(1)}
+            unit="%"
+            change={profitRate - prevProfitRate}
+            prevLabel={`이전 ${prevProfitRate.toFixed(1)}%`}
+            accentColor="#733de5"
+            icon={Target}
+            goal={15}
+            current={profitRate}
+            goalUnit="%"
+            goalLabel="목표 15%"
+          />
+        ) : (
+          <UnavailableMetricCard
+            label="이익률"
+            icon={Target}
+            accentColor="#733de5"
+            note="정산 데이터 필요"
+          />
+        )}
 
         {/* 광고비율 */}
         <MetricCard
@@ -739,6 +846,32 @@ function MetricCard({ label, value, unit, change, prevLabel, accentColor, icon: 
             {goalMet && <div className="text-[10px] mt-0.5 font-semibold" style={{ color: accentColor }}>목표 달성!</div>}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ===== 산출 불가 지표 카드 =====
+// 정합성 깨지는 데이터(예: Wing 단독 상태에서 순이익/이익률)는 fake number 대신
+// 명시적인 "—" 와 사유를 보여주기 위한 카드. 레이아웃은 MetricCard 와 같음.
+function UnavailableMetricCard({ label, icon: Icon, accentColor, note }: {
+  label: string; icon: typeof TrendingUp; accentColor: string; note: string;
+}) {
+  return (
+    <div className="rounded-2xl transition-all h-full bg-white border border-slate-100 shadow-sm">
+      <div className="px-4 py-3 h-full flex flex-col">
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center gap-2">
+              <Icon size={16} style={{ color: accentColor, opacity: 0.5 }} />
+              <span className="text-xs font-bold uppercase tracking-wider" style={{ color: accentColor, opacity: 0.6 }}>{label}</span>
+            </div>
+          </div>
+          <div className="flex items-baseline gap-1">
+            <span className="text-lg sm:text-2xl font-extrabold tabular-nums tracking-tight text-slate-300">—</span>
+          </div>
+          <div className="text-xs mt-1 text-slate-400">{note}</div>
+        </div>
       </div>
     </div>
   );

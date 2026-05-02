@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
 import { DashboardTrendService } from '../application/service/dashboard-trend.service';
 import { DashboardTrendRepositoryAdapter } from '../adapter/out/repository/dashboard-trend.repository.adapter';
+import { WingTrafficAggregationRepositoryAdapter } from '../adapter/out/repository/wing-traffic-aggregation.repository.adapter';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   makeTestPrisma,
@@ -31,6 +32,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       providers: [
         DashboardTrendService,
         DashboardTrendRepositoryAdapter,
+        WingTrafficAggregationRepositoryAdapter,
         { provide: PrismaService, useValue: prisma },
       ],
     }).compile();
@@ -196,5 +198,72 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
     for (const row of result) {
       expect(row.revenue).not.toBe(999_999_999);
     }
+  });
+
+  it('T5: Wing-only trend keeps profit at 0 instead of synthesizing revenue minus ad cost', async () => {
+    const businessDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const businessDateOnly = new Date(Date.UTC(
+      businessDate.getFullYear(),
+      businessDate.getMonth(),
+      businessDate.getDate(),
+    ));
+    const dateKey = businessDateOnly.toISOString().slice(0, 10);
+    const { id: masterId } = await setupMaster(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      code: 'M-T-WING',
+      name: 'Wing-only Master',
+    });
+    const { id: optionId } = await setupProductOption(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      masterId,
+      sku: 'SKU-T-WING',
+    });
+    const { listingId } = await setupChannelListing(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      masterId,
+      channel: 'coupang',
+      externalId: 'EXT-T-WING',
+      optionId,
+      externalOptionId: 'VI-T-WING',
+    });
+
+    await prisma.channelListingDailySnapshot.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId,
+        channel: 'coupang',
+        externalId: 'EXT-T-WING',
+        businessDate: businessDateOnly,
+        trafficVisitors: 20,
+        trafficOrders: 4,
+        trafficSalesQty: 4,
+        trafficRevenue: 120_000,
+      },
+    });
+    await prisma.channelAccountDailyKpiSnapshot.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        source: 'advertising',
+        kpiType: 'coupang_ads_daily',
+        businessDate: businessDateOnly,
+        normalizedJson: {
+          adSpend: 30_000,
+          adRevenue: 90_000,
+          impressions: 1000,
+          clicks: 50,
+          conversions: 3,
+        },
+      },
+    });
+
+    const result = await service.getTrend(TEST_ORGANIZATION_ID, '30d');
+    const wingRow = result.find((r) => r.date === dateKey);
+
+    expect(wingRow).toMatchObject({
+      revenue: 120_000,
+      adCost: 30_000,
+      profit: 0,
+    });
   });
 });
