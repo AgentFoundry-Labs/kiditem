@@ -3,6 +3,7 @@ import { ProfitLossController } from './controllers/profit-loss.controller';
 import { ProfitLossService } from './services/profit-loss.service';
 import { SalesAnalysisController } from './controllers/sales-analysis.controller';
 import { SalesAnalysisService } from './services/sales-analysis.service';
+import { SalesAnalysisScraperService } from './services/sales-analysis-scraper.service';
 import { ManualLedgerController } from './manual-ledger/manual-ledger.controller';
 import { ManualLedgerService } from './manual-ledger/manual-ledger.service';
 import { ProcessingCostsController } from './processing-costs/processing-costs.controller';
@@ -27,6 +28,7 @@ import { SettlementsService } from './settlements/settlements.service';
   providers: [
     ProfitLossService,
     SalesAnalysisService,
+    SalesAnalysisScraperService,
     ManualLedgerService,
     ProcessingCostsService,
     SupplierPaymentsService,

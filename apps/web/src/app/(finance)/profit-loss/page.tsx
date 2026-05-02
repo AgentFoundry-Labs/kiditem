@@ -1,15 +1,16 @@
 'use client';
 
+import Link from "next/link";
 import { useMemo, useState, useEffect } from "react";
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
-import { Download } from "lucide-react";
+import { Download, Info, TrendingUp } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { z } from 'zod';
-import { PLDataSchema } from '@kiditem/shared/finance';
+import { PLDataSchema, SalesAnalysisDataSourcesSchema } from '@kiditem/shared/finance';
 import { ChannelDashboardSummarySchema } from '@kiditem/shared/channel-dashboard';
 import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import PeriodSelector from '@/components/ui/PeriodSelector';
-import { cn, timeAgo } from "@/lib/utils";
+import { cn, formatNumber, timeAgo } from "@/lib/utils";
 import { apiClient } from "@/lib/api-client";
 import { friendlyError } from "@/lib/api-error";
 import { queryKeys } from "@/lib/query-keys";
@@ -63,7 +64,17 @@ export default function ProfitLossPage() {
     queryKey: queryKeys.profitLoss.list(period),
     queryFn: () => apiClient.getParsed(`/api/profit-loss?period=${period}`, z.array(PLDataSchema)),
   });
+  const { data: dataSources } = useQuery({
+    queryKey: queryKeys.salesAnalysis.dataSources(),
+    queryFn: () =>
+      apiClient.getParsed(
+        '/api/sales-analysis/data-sources',
+        SalesAnalysisDataSourcesSchema,
+      ),
+    staleTime: 30_000,
+  });
   const error = friendlyError(queryError);
+  const ordersEmpty = dataSources?.orders?.count === 0;
 
   const filtered = useMemo(() => data.filter((d) => {
     const matchesProfitFilter =
@@ -149,6 +160,47 @@ export default function ProfitLossPage() {
           </div>
         )}
       </div>
+
+      {ordersEmpty && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 flex items-start gap-3">
+          <Info size={18} className="mt-0.5 shrink-0 text-amber-600" />
+          <div className="space-y-1.5 flex-1">
+            <div className="font-semibold">
+              현재 DB 에 주문 데이터가 0건이라 손익표가 비어 있습니다.
+            </div>
+            <div className="text-amber-800 text-xs">
+              이 화면은 <code className="px-1 bg-white/70 rounded">Order</code> +
+              <code className="px-1 bg-white/70 rounded">OrderLineItem</code> +
+              <code className="px-1 bg-white/70 rounded">ChannelListingDailySnapshot.adSpend</code>
+              집계입니다. Drive replay 데이터에는 주문이 포함되지 않으므로 정상
+              상태입니다.
+              {dataSources && (
+                <>
+                  {' '}
+                  Wing 트래픽은{' '}
+                  <strong className="tabular-nums">
+                    {formatNumber(dataSources.wing.dateCount)}일
+                  </strong>
+                  , 쿠팡 광고 daily 는{' '}
+                  <strong className="tabular-nums">
+                    {formatNumber(dataSources.ads.dateCount)}일
+                  </strong>{' '}
+                  수집되어 있습니다.
+                </>
+              )}
+            </div>
+            <div className="pt-1">
+              <Link
+                href="/sales-analysis"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-900 hover:text-amber-700 underline underline-offset-2"
+              >
+                <TrendingUp size={14} /> 매출 분석 → Wing 일매출 / 쿠팡 광고 KPI
+                탭으로 이동
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <PageSkeleton variant="table" />

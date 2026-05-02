@@ -139,6 +139,9 @@ export const queryKeys = {
     data: (period: string) => [...queryKeys.salesAnalysis.all, 'data', period] as const,
     statistics: (tab: string, period: string) =>
       [...queryKeys.salesAnalysis.all, 'statistics', tab, period] as const,
+    dataSources: () => [...queryKeys.salesAnalysis.all, 'dataSources'] as const,
+    adsMonthly: (year: number, month: number) =>
+      [...queryKeys.salesAnalysis.all, 'adsMonthly', year, month] as const,
   },
   thumbnails: {
     all: ['thumbnails'] as const,

@@ -22,6 +22,37 @@ function renderWithProvider() {
   );
 }
 
+const dataSources = {
+  generatedAt: '2026-05-02T00:00:00.000Z',
+  wing: {
+    firstDate: '2026-04-18',
+    lastDate: '2026-05-02',
+    dateCount: 14,
+    rowCount: 14,
+    lastSyncedAt: '2026-05-02T00:00:00.000Z',
+  },
+  ads: {
+    firstDate: '2026-04-19',
+    lastDate: '2026-05-01',
+    dateCount: 13,
+    rowCount: 13,
+    lastSyncedAt: '2026-05-01T00:00:00.000Z',
+    missingDates: ['2026-04-18', '2026-05-02'],
+  },
+  orders: {
+    firstDate: null,
+    lastDate: null,
+    count: 0,
+  },
+};
+
+function mockProfitLossQuery(response: unknown) {
+  vi.spyOn(apiClient, 'getParsed').mockImplementation(async (url: string) => {
+    if (url === '/api/sales-analysis/data-sources') return dataSources as any;
+    return response as any;
+  });
+}
+
 describe('<ProfitLossPage> 3-state', () => {
   beforeEach(() => {
     vi.spyOn(apiClient, 'getParsed').mockReset();
@@ -38,7 +69,7 @@ describe('<ProfitLossPage> 3-state', () => {
   });
 
   it('renders empty state on [] response', async () => {
-    vi.spyOn(apiClient, 'getParsed').mockResolvedValue([]);
+    mockProfitLossQuery([]);
     renderWithProvider();
     // ProfitLossTable empty-state cell: "해당 기간 데이터가 없습니다."
     await waitFor(() => {
@@ -47,7 +78,10 @@ describe('<ProfitLossPage> 3-state', () => {
   });
 
   it('renders error state on rejected promise', async () => {
-    vi.spyOn(apiClient, 'getParsed').mockRejectedValue(new Error('502 Bad Gateway'));
+    vi.spyOn(apiClient, 'getParsed').mockImplementation(async (url: string) => {
+      if (url === '/api/sales-analysis/data-sources') return dataSources as any;
+      throw new Error('502 Bad Gateway');
+    });
     renderWithProvider();
     await waitFor(() => {
       expect(screen.getByText(/502 Bad Gateway/)).toBeTruthy();
@@ -67,7 +101,10 @@ describe('<ProfitLossPage> 3-state', () => {
         message: 'expected string',
       } as Parameters<typeof ZodError.create>[0][0],
     ]);
-    vi.spyOn(apiClient, 'getParsed').mockRejectedValue(zodErr);
+    vi.spyOn(apiClient, 'getParsed').mockImplementation(async (url: string) => {
+      if (url === '/api/sales-analysis/data-sources') return dataSources as any;
+      throw zodErr;
+    });
     renderWithProvider();
     await waitFor(() => {
       expect(screen.getByText(/응답 형식 오류/)).toBeTruthy();
