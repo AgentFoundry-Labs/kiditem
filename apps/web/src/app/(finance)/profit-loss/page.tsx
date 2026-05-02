@@ -74,7 +74,7 @@ export default function ProfitLossPage() {
     staleTime: 30_000,
   });
   const error = friendlyError(queryError);
-  const ordersEmpty = (dataSources?.orders.count ?? 0) === 0;
+  const ordersEmpty = dataSources?.orders?.count === 0;
 
   const filtered = useMemo(() => data.filter((d) => {
     const matchesProfitFilter =

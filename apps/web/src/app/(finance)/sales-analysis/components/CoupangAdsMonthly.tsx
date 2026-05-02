@@ -6,7 +6,7 @@ import { Megaphone, RefreshCw, AlertTriangle } from 'lucide-react';
 import { SalesAnalysisAdsMonthlySchema } from '@kiditem/shared/finance';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatKRW, formatNumber, formatPercent } from '@/lib/utils';
+import { cn, formatKRW, formatNumber, formatPercent } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import DataSourceBanner from './DataSourceBanner';
 
@@ -344,7 +344,7 @@ function SummaryCard({
   return (
     <div className="card">
       <div className="card-label">{label}</div>
-      <div className={`card-value ${valueClass}`}>{value}</div>
+      <div className={cn('card-value', valueClass)}>{value}</div>
       {subtext && (
         <div className="text-[11px] text-slate-400 mt-1">{subtext}</div>
       )}
