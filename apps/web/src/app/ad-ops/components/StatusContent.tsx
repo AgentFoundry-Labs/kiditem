@@ -45,26 +45,30 @@ function CampaignSummary({ campaigns, onSelect }: { campaigns: AdCampaignSnapsho
         </button>
       </div>
       <div className="divide-y" style={{ borderColor: "var(--border-subtle)" }}>
-        {top.map((c) => (
-          <button
-            key={`${c.campaignName ?? c.campaignId ?? c.listing.listingId}`}
-            onClick={() => onSelect(c.campaignName ?? undefined)}
-            className="w-full flex items-center justify-between px-5 py-3 transition-colors text-left hover:bg-[var(--surface-sunken)]"
-          >
-            <div>
-              <div className="text-[13px] font-semibold" style={{ color: "var(--text-primary)" }}>{c.campaignName ?? c.listing.masterProduct.name}</div>
-              <div className="text-[11px] mt-0.5" style={{ color: "var(--text-tertiary)" }}>
-                클릭 {formatNumber(c.metrics.clicks)} · 전환 {c.metrics.conversions}
+        {top.map((c) => {
+          const rowKey = `${c.campaignName ?? c.campaignId ?? c.listing?.listingId ?? "unknown"}`;
+          const displayName = c.campaignName ?? c.listing?.masterProduct.name ?? "알 수 없는 캠페인";
+          return (
+            <button
+              key={rowKey}
+              onClick={() => onSelect(c.campaignName ?? undefined)}
+              className="w-full flex items-center justify-between px-5 py-3 transition-colors text-left hover:bg-[var(--surface-sunken)]"
+            >
+              <div>
+                <div className="text-[13px] font-semibold" style={{ color: "var(--text-primary)" }}>{displayName}</div>
+                <div className="text-[11px] mt-0.5" style={{ color: "var(--text-tertiary)" }}>
+                  클릭 {formatNumber(c.metrics.clicks)} · 전환 {c.metrics.conversions}
+                </div>
               </div>
-            </div>
-            <div className="text-right">
-              <div className="text-[13px] font-semibold tabular-nums" style={{ color: "var(--text-primary)" }}>{formatKRW(c.metrics.revenue)}원</div>
-              <div className={cn("text-[11px] font-semibold tabular-nums", roasColor(c.metrics.roas ?? 0, roasT))}>
-                ROAS {c.metrics.roas ?? 0}%
+              <div className="text-right">
+                <div className="text-[13px] font-semibold tabular-nums" style={{ color: "var(--text-primary)" }}>{formatKRW(c.metrics.revenue)}원</div>
+                <div className={cn("text-[11px] font-semibold tabular-nums", roasColor(c.metrics.roas ?? 0, roasT))}>
+                  ROAS {c.metrics.roas ?? 0}%
+                </div>
               </div>
-            </div>
-          </button>
-        ))}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -94,6 +98,24 @@ export default function StatusContent({
   onGoToCampaign,
   extensionStatus,
 }: StatusContentProps) {
+  const listingDaily = trends?.daily ?? [];
+  const accountDaily = trends?.accountDaily ?? [];
+  const listingDailyHasSignal = listingDaily.some((d) =>
+    d.metrics.spend > 0 ||
+    d.metrics.revenue > 0 ||
+    d.metrics.impressions > 0 ||
+    d.metrics.clicks > 0 ||
+    d.metrics.conversions > 0,
+  );
+  const useAccountDailyChart = !listingDailyHasSignal && accountDaily.length > 0;
+  const chartDaily = useAccountDailyChart ? accountDaily : listingDaily;
+  const chartTitle = useAccountDailyChart
+    ? "계정 광고비 · 전환매출 · ROAS"
+    : "광고비 · 전환매출 · ROAS";
+  const chartSourceLabel = useAccountDailyChart
+    ? "쿠팡 광고센터 계정 일별"
+    : "listing daily fact";
+
   return (
     <div className="space-y-5">
       {/* 차트 + 할일/알림 */}
@@ -101,7 +123,10 @@ export default function StatusContent({
         {/* 왼쪽 3칸: 광고비 · 전환매출 · ROAS 통합 차트 */}
         <div className="lg:col-span-3 rounded-2xl flex flex-col overflow-hidden h-full" style={{ background: "var(--card-bg)", boxShadow: "var(--shadow-md)", border: "1px solid var(--border-subtle)" }}>
           <div className="flex items-center justify-between px-5 pt-4 pb-0">
-            <h3 className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>광고비 · 전환매출 · ROAS</h3>
+            <div>
+              <h3 className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{chartTitle}</h3>
+              <div className="text-[10px] mt-0.5" style={{ color: "var(--text-tertiary)" }}>{chartSourceLabel}</div>
+            </div>
             <div className="flex items-center gap-5 text-[11px] font-medium" style={{ color: "var(--text-tertiary)" }}>
               <span className="flex items-center gap-1.5"><span className="w-2 h-[10px] rounded-[3px]" style={{ background: "#d1d6db" }} />광고비</span>
               <span className="flex items-center gap-1.5"><span className="w-2 h-[10px] rounded-[3px]" style={{ background: "#3182f6" }} />전환매출</span>
@@ -110,9 +135,9 @@ export default function StatusContent({
             </div>
           </div>
           <div className="flex-1 p-4" style={{ minHeight: 280 }}>
-            {trends?.daily && trends.daily.length > 0 ? (() => {
-              const maxRoas = Math.max(...trends.daily.map((d) => d.metrics.roas || 0), 1);
-              const chartData = trends.daily.map((d) => ({
+            {chartDaily.length > 0 ? (() => {
+              const maxRoas = Math.max(...chartDaily.map((d) => d.metrics.roas || 0), 1);
+              const chartData = chartDaily.map((d) => ({
                 label: d.date.slice(5),
                 spend: d.metrics.spend,
                 revenue: d.metrics.revenue,

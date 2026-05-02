@@ -68,8 +68,12 @@ export type FindAllAdsResponse = z.infer<typeof FindAllAdsResponseSchema>;
 
 // ───── Campaigns / Trends ─────
 
+// `listing` becomes nullable — campaign-grain rollups in `ChannelAdTargetDailySnapshot`
+// are not always tied to a specific listing (Coupang campaigns frequently span many
+// products). Drive replay only has campaign- and account-level ad data, so listing-less
+// rows must surface to operators instead of being dropped.
 export const AdCampaignSnapshotSchema = z.object({
-  listing: AdListingSummarySchema,
+  listing: AdListingSummarySchema.nullable(),
   campaignId: z.string().nullable(),
   campaignName: z.string().nullable(),
   period: z.string(),
@@ -84,6 +88,26 @@ export const AdProductSnapshotSchema = z.object({
 });
 export type AdProductSnapshot = z.infer<typeof AdProductSnapshotSchema>;
 
+// Account-level period summary derived from `ChannelAccountDailyKpiSnapshot`
+// (`source='coupang_ads'`, `kpiType='coupang_ads_daily'`). Surfaces real ad
+// totals from the Coupang ads dashboard when per-listing ad attribution is
+// unavailable (campaign source provides only campaign-level identity).
+export const AdAccountKpiSchema = z.object({
+  metrics: AdMetricsSchema,
+  orders: z.number().int(),
+  periodDayCount: z.number().int(),
+  latestBusinessDate: z.string().nullable(),
+  source: z.literal('coupang_ads_daily'),
+});
+export type AdAccountKpi = z.infer<typeof AdAccountKpiSchema>;
+
+export const AdAccountKpiDayPointSchema = z.object({
+  date: z.string(),
+  metrics: AdMetricsSchema,
+  orders: z.number().int(),
+});
+export type AdAccountKpiDayPoint = z.infer<typeof AdAccountKpiDayPointSchema>;
+
 export const AdTrendsDataSchema = z.object({
   daily: z.array(z.object({
     date: z.string(),
@@ -92,6 +116,11 @@ export const AdTrendsDataSchema = z.object({
   firstHalf: AdMetricsSchema,
   secondHalf: AdMetricsSchema,
   gradeBudget: z.record(z.enum(['A', 'B', 'C']), z.number().int()),
+  // Optional account-level series + summary derived from `coupang_ads_daily`.
+  // When per-listing ad metrics are absent, the account series carries the
+  // real spend/revenue surface for the period.
+  accountDaily: z.array(AdAccountKpiDayPointSchema),
+  accountSummary: AdAccountKpiSchema.nullable(),
 });
 export type AdTrendsData = z.infer<typeof AdTrendsDataSchema>;
 
@@ -155,11 +184,22 @@ export const AdStrategyActionSchema = z.object({
 });
 export type AdStrategyAction = z.infer<typeof AdStrategyActionSchema>;
 
+// Per-listing traffic side-channel surfaced on Top 20 plan items so the
+// strategy view stays informative when only Wing traffic data is matched.
+export const AdListingTrafficSchema = z.object({
+  revenue: z.number().int(),
+  orders: z.number().int(),
+});
+export type AdListingTraffic = z.infer<typeof AdListingTrafficSchema>;
+
 export const AdTop20ItemSchema = z.object({
   listing: AdListingSummarySchema,
   grade: z.enum(['A', 'B', 'C']).nullable(),
   rank: z.number().int(),
   metrics: AdMetricsSchema,
+  // Wing traffic for the same window (revenue + orders). Null when no
+  // traffic snapshot landed for the listing in the period.
+  traffic: AdListingTrafficSchema.nullable(),
 });
 export type AdTop20Item = z.infer<typeof AdTop20ItemSchema>;
 
@@ -193,6 +233,9 @@ export const AdStrategyPlanSchema = z.object({
   issues: AdIssuesSchema,
   tierAnalysis: z.array(AdTierAnalysisSchema),
   top20: z.array(AdTop20ItemSchema),
+  // Account-level ad summary (`coupang_ads_daily`) for the same period —
+  // separate from per-listing data, never substituted into per-listing fields.
+  accountSummary: AdAccountKpiSchema.nullable(),
 });
 export type AdStrategyPlan = z.infer<typeof AdStrategyPlanSchema>;
 

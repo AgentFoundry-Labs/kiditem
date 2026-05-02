@@ -29,10 +29,12 @@ import {
   loadLeadTimeByListing,
   loadStrategyContext,
 } from '../../adapter/out/prisma/ad-strategy-context.query';
+import { findCoupangAdsDailyAccountKpi } from '../../adapter/out/prisma/ad-account-kpi.query';
 import {
   toAdRulesData,
   toRecommendationCards,
 } from '../../mapper/ad-strategy.mapper';
+import { toAdAccountKpi } from '../../mapper/ad-campaign.mapper';
 import type {
   AdRulesData,
   AdStrategyAction,
@@ -87,13 +89,16 @@ export class AdStrategyService {
     organizationId: string,
   ): Promise<AdWeeklyPlan> {
     const { year, month } = getCurrentPeriod();
-    const ctx = await loadStrategyContext(
-      this.prisma,
-      this.adConfigService,
-      organizationId,
-      year,
-      month,
-    );
+    const [ctx, accountKpiRows] = await Promise.all([
+      loadStrategyContext(
+        this.prisma,
+        this.adConfigService,
+        organizationId,
+        year,
+        month,
+      ),
+      findCoupangAdsDailyAccountKpi(this.prisma, organizationId, period),
+    ]);
 
     // calcBudgetAllocation 은 AdWeeklyPlan shape 에 노출되진 않지만
     // adConfig.getConfig 부작용 (seed) 보존을 위해 호출해 둔다.
@@ -103,6 +108,13 @@ export class AdStrategyService {
       listings: ctx.listings,
       gradeMap: toGradeMapStrict(ctx.gradeMap),
     });
+
+    const top20 = this.adBudgetAllocator.calcTop20({
+      listings: ctx.listings,
+      adGroups: ctx.adGroups,
+      trafficByListing: ctx.trafficByListing,
+    });
+    const account = toAdAccountKpi(accountKpiRows);
 
     return {
       actions: this.adGradeRules.calcActions({
@@ -121,10 +133,8 @@ export class AdStrategyService {
         listings: ctx.listings,
         adGroups: ctx.adGroups,
       }),
-      top20: this.adBudgetAllocator.calcTop20({
-        listings: ctx.listings,
-        adGroups: ctx.adGroups,
-      }),
+      top20,
+      accountSummary: account.summary,
       week: getWeekRange(period),
     } satisfies AdWeeklyPlan;
   }

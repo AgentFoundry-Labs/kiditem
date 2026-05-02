@@ -3,8 +3,9 @@
 import {
   TrendingUp, Megaphone, BarChart3, Zap,
 } from "lucide-react";
-import { formatKRW } from "@/lib/utils";
+import { formatKRW, formatNumber } from "@/lib/utils";
 import type { WingAdSummary } from "@kiditem/shared/dashboard";
+import type { AdAccountKpi } from "@kiditem/shared/advertising";
 
 interface DailyPoint {
   spend: number;
@@ -23,33 +24,55 @@ interface KpiDashboardProps {
   period: string;
   roas: number;
   trendsDaily?: DailyPoint[] | null;
+  accountSummary?: AdAccountKpi | null;
 }
 
-export default function KpiDashboard({ totalKpi, wingAdData, period, roas, trendsDaily }: KpiDashboardProps) {
-  // trends daily 집계 (coupang_ads_daily 스냅샷 기반 — 기간별 정확한 값)
-  const hasTrends = trendsDaily && trendsDaily.length > 0;
-  const adSpend = hasTrends
+export default function KpiDashboard({ totalKpi, wingAdData, period, roas, trendsDaily, accountSummary }: KpiDashboardProps) {
+  // `accountSummary` is explicitly account-grain Coupang ads data. It is not
+  // substituted into per-listing rows; the top KPI cards are account-level by
+  // design when this source is present.
+  const hasAccountSummary = accountSummary !== null && accountSummary !== undefined;
+  const hasListingTrendSignal = !!trendsDaily?.some((d) =>
+    d.spend > 0 || d.revenue > 0 || d.impressions > 0 || d.clicks > 0 || d.conversions > 0,
+  );
+  const adSpend = hasAccountSummary
+    ? accountSummary.metrics.spend
+    : hasListingTrendSignal
     ? trendsDaily!.reduce((s, d) => s + d.spend, 0)
     : (wingAdData?.adSpend ? wingAdData.adSpend : (totalKpi.adSpend || 0));
-  const adRevenue = hasTrends
+  const adRevenue = hasAccountSummary
+    ? accountSummary.metrics.revenue
+    : hasListingTrendSignal
     ? trendsDaily!.reduce((s, d) => s + d.revenue, 0)
     : (wingAdData?.adRevenue ? wingAdData.adRevenue : (totalKpi.adRevenue || 0));
-  const impressions = hasTrends
+  const impressions = hasAccountSummary
+    ? accountSummary.metrics.impressions
+    : hasListingTrendSignal
     ? trendsDaily!.reduce((s, d) => s + d.impressions, 0)
     : (totalKpi.impressions || 0);
-  const clicks = hasTrends
+  const clicks = hasAccountSummary
+    ? accountSummary.metrics.clicks
+    : hasListingTrendSignal
     ? trendsDaily!.reduce((s, d) => s + d.clicks, 0)
     : (totalKpi.clicks || 0);
-  const conversions = hasTrends
+  const conversions = hasAccountSummary
+    ? accountSummary.metrics.conversions
+    : hasListingTrendSignal
     ? trendsDaily!.reduce((s, d) => s + d.conversions, 0)
     : (totalKpi.conversions || 0);
-  const wingRoas = hasTrends
+  const wingRoas = hasAccountSummary
+    ? (accountSummary.metrics.roas ?? 0)
+    : hasListingTrendSignal
     ? (adSpend > 0 ? Math.round((adRevenue / adSpend) * 100) : 0)
     : (wingAdData?.adRoas ? wingAdData.adRoas : roas);
-  const ctr = hasTrends
+  const ctr = hasAccountSummary
+    ? (accountSummary.metrics.ctr ?? 0)
+    : hasListingTrendSignal
     ? (impressions > 0 ? Math.round((clicks / impressions) * 10000) / 100 : 0)
     : (totalKpi.ctr || 0);
-  const cvr = clicks > 0 ? Math.round((conversions / clicks) * 10000) / 100 : 0;
+  const cvr = hasAccountSummary
+    ? (accountSummary.metrics.cvr ?? 0)
+    : clicks > 0 ? Math.round((conversions / clicks) * 10000) / 100 : 0;
   const cpc = clicks > 0 ? Math.round(adSpend / clicks) : 0;
   const adRate = adRevenue > 0 ? Math.round((adSpend / adRevenue) * 10000) / 100 : 0;
 
@@ -60,8 +83,17 @@ export default function KpiDashboard({ totalKpi, wingAdData, period, roas, trend
   const spendPct = Math.min((adSpend / spendGoal) * 100, 100);
   const spendOver = adSpend > spendGoal;
 
-  const periodDays = period === 'month' ? new Date().getDate() : period === '14d' ? 14 : 7;
+  const periodDays = hasAccountSummary && accountSummary.periodDayCount > 0
+    ? accountSummary.periodDayCount
+    : period === 'month' ? new Date().getDate() : period === '14d' ? 14 : 7;
   const periodLabel = period === "month" ? "이번달" : period === "14d" ? "14일" : "7일";
+  const sourceLabel = hasAccountSummary
+    ? `쿠팡 광고 계정 기준 · 최근 ${accountSummary.latestBusinessDate ?? "-"}`
+    : hasListingTrendSignal
+      ? "listing 광고 기준"
+      : wingAdData
+        ? "Wing 대시보드 기준"
+        : "캠페인 합산 기준";
 
   const renderSmallCard = (kpi: { label: string; value: string; unit: string; current: number; goal: number; goalLabel: string; invertGoal: boolean; accentColor: string; icon: typeof BarChart3; avg: number | null }) => {
     const pct = kpi.invertGoal
@@ -121,7 +153,7 @@ export default function KpiDashboard({ totalKpi, wingAdData, period, roas, trend
             <span className="text-3xl font-extrabold tabular-nums tracking-tight" style={{ color: "#2563eb" }}>{formatKRW(adRevenue)}</span>
             <span className="text-base font-semibold" style={{ color: "#2563eb", opacity: 0.6 }}>원</span>
           </div>
-          <div className="text-xs" style={{ color: "var(--text-tertiary)" }}>{periodLabel} 누적</div>
+          <div className="text-xs" style={{ color: "var(--text-tertiary)" }}>{periodLabel} 누적 · {sourceLabel}</div>
           <div className="mt-3 pt-3" style={{ borderTop: "1px solid rgba(37,99,235,0.15)" }}>
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-[11px]" style={{ color: "rgba(37,99,235,0.6)" }}>목표 {formatKRW(revenueGoal)}원</span>
@@ -135,15 +167,15 @@ export default function KpiDashboard({ totalKpi, wingAdData, period, roas, trend
         <div className="mt-3 pt-3 space-y-1.5" style={{ borderTop: "1px solid rgba(37,99,235,0.15)" }}>
           <div className="flex justify-between text-[13px]">
             <span style={{ color: "var(--text-secondary)" }}>노출수</span>
-            <span className="font-bold tabular-nums" style={{ color: "var(--text-primary)" }}>{impressions.toLocaleString()}</span>
+            <span className="font-bold tabular-nums" style={{ color: "var(--text-primary)" }}>{formatNumber(impressions)}</span>
           </div>
           <div className="flex justify-between text-[13px]">
             <span style={{ color: "var(--text-secondary)" }}>클릭수</span>
-            <span className="font-bold tabular-nums" style={{ color: "var(--text-primary)" }}>{clicks.toLocaleString()}</span>
+            <span className="font-bold tabular-nums" style={{ color: "var(--text-primary)" }}>{formatNumber(clicks)}</span>
           </div>
           <div className="flex justify-between text-[13px]">
             <span style={{ color: "var(--text-secondary)" }}>전환수</span>
-            <span className="font-bold tabular-nums" style={{ color: "var(--text-primary)" }}>{conversions.toLocaleString()}건</span>
+            <span className="font-bold tabular-nums" style={{ color: "var(--text-primary)" }}>{formatNumber(conversions)}건</span>
           </div>
         </div>
       </div>
@@ -159,7 +191,7 @@ export default function KpiDashboard({ totalKpi, wingAdData, period, roas, trend
             <span className="text-3xl font-extrabold tabular-nums tracking-tight" style={{ color: "#059669" }}>{formatKRW(adSpend)}</span>
             <span className="text-base font-semibold" style={{ color: "#059669", opacity: 0.6 }}>원</span>
           </div>
-          <div className="text-xs" style={{ color: "var(--text-tertiary)" }}>{periodLabel} 누적</div>
+          <div className="text-xs" style={{ color: "var(--text-tertiary)" }}>{periodLabel} 누적 · {sourceLabel}</div>
           <div className="mt-3 pt-3" style={{ borderTop: "1px solid rgba(5,150,105,0.15)" }}>
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-[11px]" style={{ color: "rgba(5,150,105,0.6)" }}>예산 {formatKRW(spendGoal)}원 이하</span>

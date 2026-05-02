@@ -456,9 +456,39 @@ export default function StrategyContent({
   const actions = strategy?.actions ?? [];
   const urgentRules = rules.filter((r) => r.priority === "urgent").slice(0, 5);
   const issueSummary = strategy?.issues;
+  const accountSummary = strategy?.accountSummary ?? null;
+  const top20 = strategy?.top20 ?? [];
 
   return (
     <div className="space-y-4">
+      {accountSummary && (
+        <div
+          className="rounded-2xl px-5 py-3"
+          style={{ background: "var(--card-bg)", boxShadow: "var(--shadow-sm)", border: "1px solid var(--border-subtle)" }}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                계정 광고 합계 (쿠팡 광고센터 일별 집계)
+              </span>
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold" style={{ background: "var(--surface-sunken)", color: "var(--text-secondary)" }}>
+                Drive · {accountSummary.source}
+              </span>
+            </div>
+            <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+              {accountSummary.periodDayCount}일 · 최근 {accountSummary.latestBusinessDate ?? "-"}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+            <SummaryStat label="광고비" value={`${formatNumber(accountSummary.metrics.spend)}원`} />
+            <SummaryStat label="광고매출" value={`${formatNumber(accountSummary.metrics.revenue)}원`} />
+            <SummaryStat label="ROAS" value={accountSummary.metrics.roas != null ? `${accountSummary.metrics.roas}%` : "-"} accent />
+            <SummaryStat label="노출/클릭" value={`${formatNumber(accountSummary.metrics.impressions)} / ${formatNumber(accountSummary.metrics.clicks)}`} />
+            <SummaryStat label="CTR / CVR" value={`${(accountSummary.metrics.ctr ?? 0).toFixed(2)}% / ${(accountSummary.metrics.cvr ?? 0).toFixed(2)}%`} />
+            <SummaryStat label="주문/전환" value={`${formatNumber(accountSummary.orders)} / ${formatNumber(accountSummary.metrics.conversions)}`} />
+          </div>
+        </div>
+      )}
       <div className="rounded-2xl px-5 py-3 flex items-center gap-5" style={{ background: "var(--card-bg)", boxShadow: "var(--shadow-sm)", border: "1px solid var(--border-subtle)" }}>
         <div className="flex items-center gap-2.5 shrink-0">
           <Wallet size={16} style={{ color: "var(--primary)" }} />
@@ -550,9 +580,72 @@ export default function StrategyContent({
         );
       })()}
 
+      {top20.length > 0 && (
+        <div
+          className="rounded-2xl overflow-hidden"
+          style={{ background: "var(--card-bg)", boxShadow: "var(--shadow-sm)", border: "1px solid var(--border-subtle)" }}
+        >
+          <div className="px-5 py-3 flex items-center justify-between border-b" style={{ borderColor: "var(--border-subtle)" }}>
+            <div>
+              <h3 className="text-[14px] font-bold" style={{ color: "var(--text-primary)" }}>
+                Top 20 상품 (광고비 → 광고매출 → Wing 매출 → Wing 주문 순)
+              </h3>
+              <p className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+                각 listing 의 실제 ad metrics 와 Wing traffic 을 그대로 노출합니다. 0 은 0 — 다른 출처로 대체하지 않습니다.
+              </p>
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table>
+              <thead>
+                <tr>
+                  <th className="text-left">#</th>
+                  <th className="text-left">상품</th>
+                  <th className="text-right">광고비</th>
+                  <th className="text-right">광고매출</th>
+                  <th className="text-right">ROAS</th>
+                  <th className="text-right">Wing 매출</th>
+                  <th className="text-right">Wing 주문</th>
+                </tr>
+              </thead>
+              <tbody>
+                {top20.slice(0, 20).map((item) => (
+                  <tr key={item.listing.listingId}>
+                    <td className="font-semibold" style={{ color: "var(--text-tertiary)" }}>{item.rank}</td>
+                    <td className="font-medium max-w-[280px] truncate" style={{ color: "var(--text-primary)" }}>
+                      {item.listing.channelName ?? item.listing.masterProduct.name}
+                    </td>
+                    <td className="text-right tabular-nums">{formatNumber(item.metrics.spend)}</td>
+                    <td className="text-right tabular-nums">{formatNumber(item.metrics.revenue)}</td>
+                    <td className="text-right tabular-nums">{item.metrics.roas != null ? `${item.metrics.roas}%` : "-"}</td>
+                    <td className="text-right tabular-nums">{item.traffic ? formatNumber(item.traffic.revenue) : "-"}</td>
+                    <td className="text-right tabular-nums">{item.traffic ? formatNumber(item.traffic.orders) : "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       <div className="rounded-xl px-4 py-3 text-xs flex items-center gap-2" style={{ background: "var(--surface-sunken)", color: "var(--text-tertiary)", border: "1px solid var(--border-subtle)" }}>
         <ChevronDown size={14} />
         AI agent 실행/결과 병합은 후속 이슈로 분리했습니다. 현재 화면은 daily fact 기반 규칙 계산과 채널 상태 근거만 표시합니다.
+        listing 단위 광고 매핑이 들어오기 전까지 ROAS/CTR/CVR 는 계정 합계 카드 (위) 에서만 의미 있는 값을 갖습니다.
+      </div>
+    </div>
+  );
+}
+
+function SummaryStat({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <div className="rounded-lg px-3 py-2" style={{ background: "var(--surface-sunken)" }}>
+      <div className="text-[10px] font-semibold uppercase tracking-wider mb-0.5" style={{ color: "var(--text-tertiary)" }}>{label}</div>
+      <div
+        className="text-[15px] font-black tabular-nums leading-tight"
+        style={{ color: accent ? "var(--primary)" : "var(--text-primary)" }}
+      >
+        {value}
       </div>
     </div>
   );
