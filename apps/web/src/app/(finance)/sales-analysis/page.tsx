@@ -16,6 +16,7 @@ export default function SalesAnalysisPage() {
     <TabLayout
       title="매출 분석"
       titleIcon={LineChart}
+      defaultTab="wing-daily"
       tabs={[
         { id: 'overview', label: '매출 분석', icon: LineChart, content: <SalesOverviewPage /> },
         { id: 'wing-daily', label: 'Wing 일매출', icon: TrendingUp, content: <WingDailySalesPage /> },

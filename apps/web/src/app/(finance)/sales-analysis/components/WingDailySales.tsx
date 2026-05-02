@@ -33,6 +33,10 @@ export default function WingDailySales() {
     queryKey: ['traffic', 'monthly', year, month],
     queryFn: () =>
       apiClient.get<MonthlyData>(`/api/traffic/monthly?year=${year}&month=${month}`),
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+    refetchInterval: 15_000,
   });
 
   const maxRevenue = Math.max(1, ...(data?.days.map((d) => d.revenue) ?? []));
