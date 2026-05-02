@@ -31,6 +31,7 @@ export default defineConfig({
     'src/return-summary.ts',
     'src/feature-gate.ts',
     'src/inspection.ts',
+    'src/readiness.ts',
   ],
   format: ['esm', 'cjs'],
   dts: true,

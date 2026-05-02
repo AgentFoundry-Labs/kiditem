@@ -407,9 +407,52 @@
     }
   }
 
+  // Vue SPA lazy load 대비 — grid 가 데이터로 채워질 때까지 polling.
+  // 페이지 진입 직후 / pageSize 변경 후 / page 이동 후 호출.
+  async function waitForGridData(maxMs, minProducts) {
+    if (typeof maxMs !== "number") maxMs = 15000;
+    if (typeof minProducts !== "number") minProducts = 1;
+    const minChildren = HEADER_COUNT + minProducts * COLS_PER_PRODUCT;
+    const start = Date.now();
+    let lastCount = -1;
+    let stableTicks = 0;
+    while (Date.now() - start < maxMs) {
+      const container = document.querySelector('[class*="container_1pewv"]');
+      if (container) {
+        const childCount = container.children.length;
+        if (childCount >= minChildren) {
+          // child count 가 2 tick (= 1초) 동안 변동 없으면 안정 → 진행
+          if (childCount === lastCount) {
+            stableTicks += 1;
+            if (stableTicks >= 2) return true;
+          } else {
+            lastCount = childCount;
+            stableTicks = 0;
+          }
+        }
+      }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    console.log(
+      "[KIDITEM] waitForGridData 타임아웃 — 진행은 함, last childCount:",
+      lastCount,
+    );
+    return false;
+  }
+
   // 전체 페이지 순회하며 상품 수집
   async function parseAllProductsWithPagination() {
+    // (1) 페이지 진입 직후 row table 이 lazy load 중일 수 있음 → wait.
+    //     row 안 채워진 상태에서 parseProductGrid 호출하면 0건 또는 부분만 잡힘.
+    await waitForGridData(15000, 1);
+
     await setMaxPageSize();
+
+    // (2) setMaxPageSize 가 pageSize 버튼 click → 데이터 다시 fetch + render.
+    //     setMaxPageSize 내부 setTimeout 2000ms 만으로는 부족한 경우 많음.
+    //     row 안정 wait 까지 한 번 더.
+    await waitForGridData(15000, 1);
+
     const allProducts = parseProductGrid();
     const totalPages = getTotalPages();
     console.log("[KIDITEM] 총 페이지:", totalPages, "/ 1페이지 상품:", allProducts.length);
@@ -421,6 +464,9 @@
         break;
       }
       await waitForPage(page, 12000);
+      // (3) page click 후에도 row 안정 wait — waitForPage 가 페이지 indicator 만 체크해서
+      //     row table 자체가 채워지기 전에 return 할 수 있음.
+      await waitForGridData(10000, 1);
       const pageProducts = parseProductGrid();
       console.log("[KIDITEM] 페이지", page, "상품:", pageProducts.length);
       for (const p of pageProducts) allProducts.push(p);
@@ -512,8 +558,6 @@
   }
 
   function syncTrafficToServer(products, kpis, adSummary) {
-    if (products.length === 0) return Promise.resolve({ success: false, error: "no data" });
-
     const { startDate, endDate } = getDateRangeFromUrl();
 
     let periodDays = 7;
@@ -576,7 +620,7 @@
   // showBadge is loaded from utils/dom.js via manifest
 
   // ===== 메인 동기화 =====
-  // paginate: true 면 전체 페이지 순회, false 면 현재 페이지만 (sales-analysis 자동 트리거 폴백).
+  // paginate: true면 전체 페이지 순회, false면 현재 페이지만 (sales-analysis)
   async function doSync({ paginate = false } = {}) {
     const pageType = detectPageType();
     console.log("[KIDITEM] 페이지 타입:", pageType, "URL:", location.href, "paginate:", paginate);
@@ -587,17 +631,19 @@
       const adSummary = parseAdSummary();
       console.log("[KIDITEM] 광고 요약:", JSON.stringify(adSummary));
 
-      // 팝업/배치에서 수동 트리거 시만 전체 페이지 순회, 자동 부트는 현재 페이지만 빠르게.
+      // 팝업에서 수동 트리거 시만 전체 페이지 순회, 자동은 현재 페이지만
       const products = paginate
         ? await parseAllProductsWithPagination()
         : parseProductGrid();
 
       console.log("[KIDITEM] 파싱 결과:", products.length, "상품, KPI:", Object.keys(kpis).length);
 
-      if (products.length > 0) {
+      const hasSummarySignal = Object.keys(kpis).length > 0 || adSummary !== null;
+
+      if (products.length > 0 || hasSummarySignal) {
         const { startDate, endDate } = getDateRangeFromUrl();
         const periodInfo = startDate && endDate ? `${startDate} ~ ${endDate}` : "";
-        showBadge(`📊 매출분석 ${products.length}개 상품 감지 — 동기화 중... ${periodInfo}`, "#60a5fa");
+        showBadge(`📊 매출분석 ${products.length}개 상품 + 요약 감지 — 동기화 중... ${periodInfo}`, "#60a5fa");
 
         const json = await syncTrafficToServer(products, kpis, adSummary);
         if (json?.success) {
@@ -651,28 +697,41 @@
     }
   }
 
-  // URL 해시에 #kiditemBatch=1 이 있으면 batch 모드 — paginate:true + 완료 후 service-worker 에 신호.
-  // 일별 백필 URL 에 이 마커를 부여해 주면 service-worker 가 탭을 자동으로 닫는다.
+  // URL 해시에 #kiditemBatch=1 이 있으면 batch 모드 — paginate:true + 완료 후 탭 자가 종료.
+  // ReadinessModal "지금 받기" 가 누락 일자별 URL 에 이 마커 부여.
   const isBatchMode = /#kiditemBatch=1/.test(window.location.hash || "");
 
-  async function batchSyncWithRetry() {
+  async function syncSalesAnalysisWithRetry(options) {
+    const syncOptions = options || { paginate: true };
     let result = null;
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      result = await doSync({ paginate: true });
+    // Vue SPA lazy load + pageSize 변경 reload 대응: 시도 간 간격을 길게 (3s → 6s).
+    // doSync 내부 waitForGridData 가 이미 polling 하지만, 첫 시도가 빈 페이지 case 였다면
+    // 다음 시도 전 추가 시간을 줘서 페이지가 "어제 데이터 공개 12:30" 같은 상태가 풀릴 때까지 대기.
+    const RETRY_DELAY_MS = 6000;
+    const MAX_ATTEMPTS = 3;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      result = await doSync(syncOptions);
       if (result?.success) break;
       if (detectPageType() !== "sales-analysis") break;
-      console.log(`[KIDITEM] batch 재시도 ${attempt}/3 (3초 후)...`);
-      await new Promise((r) => setTimeout(r, 3000));
+      if (attempt < MAX_ATTEMPTS) {
+        console.log(
+          `[KIDITEM] 매출분석 재시도 ${attempt}/${MAX_ATTEMPTS} (${RETRY_DELAY_MS / 1000}초 후)...`,
+        );
+        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+      }
     }
+    return result;
+  }
+
+  async function batchSyncWithRetry() {
+    const result = await syncSalesAnalysisWithRetry({ paginate: true });
     try {
       chrome.runtime.sendMessage({
         action: "reportBatchScrapeDone",
         success: !!result?.success,
         url: window.location.href,
       });
-    } catch {
-      /* service-worker idle 종료 etc. — 신호만 fire-and-forget */
-    }
+    } catch {}
   }
 
   setTimeout(() => {
@@ -683,10 +742,10 @@
     }
   }, 4000);
 
-  // 수동 동기화 — 서버 응답까지 대기 후 결과 반환 (sales-analysis 는 전체 페이지 순회)
+  // 수동 동기화 — 서버 응답까지 대기 후 결과 반환 (sales-analysis는 전체 페이지 순회)
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.action === "manualSync") {
-      doSync({ paginate: true }).then((result) => sendResponse(result));
+      syncSalesAnalysisWithRetry({ paginate: true }).then((result) => sendResponse(result));
       return true;
     }
   });

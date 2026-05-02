@@ -150,6 +150,11 @@
       "import": "./dist/inspection.js",
       "require": "./dist/inspection.cjs"
     },
+    "./readiness": {
+      "types": "./dist/readiness.d.ts",
+      "import": "./dist/readiness.js",
+      "require": "./dist/readiness.cjs"
+    },
     "./internal/*": null
   },
   "types": "./dist/index.d.ts",
@@ -182,7 +187,8 @@
       "alerts": ["dist/alerts.d.ts"],
       "return-summary": ["dist/return-summary.d.ts"],
       "feature-gate": ["dist/feature-gate.d.ts"],
-      "inspection": ["dist/inspection.d.ts"]
+      "inspection": ["dist/inspection.d.ts"],
+      "readiness": ["dist/readiness.d.ts"]
     }
   },
   "main": "./dist/index.cjs",
