@@ -6,6 +6,7 @@ import { BarChart3, RefreshCw } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { formatKRW, formatNumber } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
+import DataSourceBanner from './DataSourceBanner';
 
 interface DayRevenue {
   date: string;
@@ -43,6 +44,8 @@ export default function WingDailySales() {
 
   return (
     <div className="space-y-6">
+      <DataSourceBanner />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">

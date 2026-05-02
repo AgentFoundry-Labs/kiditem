@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { BarChart3 } from 'lucide-react';
+import { BarChart3, Info } from 'lucide-react';
 import { SalesAnalysisDataSchema } from '@kiditem/shared/finance';
 import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import PeriodSelector from '@/components/ui/PeriodSelector';
@@ -14,6 +14,7 @@ import PageSkeleton from '@/components/ui/PageSkeleton';
 import { ErrorState } from '@/components/ui/EmptyState';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import ChannelTable from './ChannelTable';
+import DataSourceBanner from './DataSourceBanner';
 
 type SortField = 'totalOrders' | 'totalRevenue' | 'totalCost' | 'totalProfit' | 'avgOrderValue';
 type SortDir = 'asc' | 'desc' | null;
@@ -65,11 +66,13 @@ export default function SalesOverview() {
 
   return (
     <div className="space-y-6">
+      <DataSourceBanner />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <BarChart3 size={20} className="text-purple-600" />
-          <h1 className="page-title">통합매출분석</h1>
+          <h1 className="page-title">통합매출분석 (주문 기반)</h1>
         </div>
         <PeriodSelector value={period} onChange={setPeriod} options={periodOptions} />
       </div>
@@ -79,7 +82,18 @@ export default function SalesOverview() {
       ) : error ? (
         <ErrorState message={error} />
       ) : !data || data.channels.length === 0 ? (
-        <div className="flex items-center justify-center h-64 text-slate-500">해당 기간 데이터가 없습니다.</div>
+        <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-slate-500 space-y-2">
+          <Info size={20} className="mx-auto text-slate-400" />
+          <div className="text-sm font-medium text-slate-600">
+            해당 기간 주문 기반 매출 데이터가 없습니다.
+          </div>
+          <div className="text-xs text-slate-500 max-w-md mx-auto">
+            이 화면은 <code className="px-1 bg-slate-100 rounded">Order</code> 테이블을
+            집계합니다. 현재 Drive 동기화 데이터에는 주문이 포함되지 않아
+            대부분의 기간에서 비어 있습니다. 스크래퍼 기반 매출은
+            <strong> ‘Wing 일매출’</strong> / <strong>‘쿠팡 광고 KPI’</strong> 탭을 확인하세요.
+          </div>
+        </div>
       ) : (
         <>
           <div className="grid grid-cols-4 gap-4">
