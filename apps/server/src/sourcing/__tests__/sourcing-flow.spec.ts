@@ -18,32 +18,33 @@ function makePrisma() {
   };
 }
 
-function makeMasters() {
+function makeProductsCatalog() {
   return {
-    create: vi.fn().mockResolvedValue({ id: 'prod-created' }),
+    createMaster: vi.fn().mockResolvedValue({ id: 'prod-created' }),
   };
 }
 
 function makeAgentGateway() {
   return {
     scrapeUrl: vi.fn().mockResolvedValue({ taskId: 'task-1' }),
+    generateDetailPage: vi.fn().mockResolvedValue({ taskId: 'detail-1' }),
   };
 }
 
 describe('SourcingService — extension data ingestion', () => {
   let service: SourcingService;
   let prisma: ReturnType<typeof makePrisma>;
-  let masters: ReturnType<typeof makeMasters>;
+  let productsCatalog: ReturnType<typeof makeProductsCatalog>;
   let agentGateway: ReturnType<typeof makeAgentGateway>;
 
   beforeEach(() => {
     prisma = makePrisma();
-    masters = makeMasters();
+    productsCatalog = makeProductsCatalog();
     agentGateway = makeAgentGateway();
-    service = new SourcingService(prisma as any, masters as any, agentGateway as any);
+    service = new SourcingService(prisma as any, productsCatalog as any, agentGateway as any);
   });
 
-  it('receiveExtensionData with new source_url → creates a master product through MastersService', async () => {
+  it('receiveExtensionData with new source_url → creates a master through SOURCING_PRODUCTS_CATALOG_PORT', async () => {
     prisma.masterProduct.findFirst.mockResolvedValue(null);
 
     const result = await service.receiveExtensionData(
@@ -62,7 +63,7 @@ describe('SourcingService — extension data ingestion', () => {
       where: { sourceUrl: 'https://1688.com/item/12345', organizationId: 'organization-1', isDeleted: false },
       select: { id: true, rawData: true },
     });
-    expect(masters.create).toHaveBeenCalledWith(
+    expect(productsCatalog.createMaster).toHaveBeenCalledWith(
       'organization-1',
       expect.objectContaining({
         name: '아동용 스니커즈',
@@ -102,7 +103,7 @@ describe('SourcingService — extension data ingestion', () => {
         }),
       }),
     );
-    expect(masters.create).not.toHaveBeenCalled();
+    expect(productsCatalog.createMaster).not.toHaveBeenCalled();
     expect(result.ok).toBe(true);
   });
 
@@ -159,7 +160,7 @@ describe('SourcingService — extension data ingestion', () => {
         }),
       }),
     );
-    expect(masters.create).not.toHaveBeenCalled();
+    expect(productsCatalog.createMaster).not.toHaveBeenCalled();
   });
 
   it('search page type → returns product_count from total_found, does not create product', async () => {
@@ -173,7 +174,7 @@ describe('SourcingService — extension data ingestion', () => {
     );
 
     expect(prisma.masterProduct.findFirst).not.toHaveBeenCalled();
-    expect(masters.create).not.toHaveBeenCalled();
+    expect(productsCatalog.createMaster).not.toHaveBeenCalled();
     expect(result.product_count).toBe(42);
     expect(result.ok).toBe(true);
   });
@@ -223,5 +224,37 @@ describe('SourcingService — extension data ingestion', () => {
     });
     expect(result.taskId).toBe('task-1');
     expect(result.ok).toBe(true);
+  });
+
+  it('generateDetailPage → delegates to agent gateway with sourcing-specific shape', async () => {
+    prisma.masterProduct.findFirst.mockResolvedValue({
+      id: 'prod-1',
+      rawData: { title: '상품' },
+    });
+
+    const result = await service.generateDetailPage(
+      'prod-1',
+      { mode: 'draft', templateId: 'bold-vertical', seed_hook_text: 'hello' },
+      'organization-1',
+    );
+
+    expect(agentGateway.generateDetailPage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: 'organization-1',
+        productId: 'prod-1',
+        mode: 'draft',
+        templateId: 'bold-vertical',
+        seed_hook_text: 'hello',
+      }),
+    );
+    expect(result.ok).toBe(true);
+    expect(result.taskId).toBe('detail-1');
+  });
+
+  it('generateDetailPage throws when product missing', async () => {
+    prisma.masterProduct.findFirst.mockResolvedValue(null);
+    await expect(
+      service.generateDetailPage('missing', {}, 'organization-1'),
+    ).rejects.toThrow('Product not found');
   });
 });

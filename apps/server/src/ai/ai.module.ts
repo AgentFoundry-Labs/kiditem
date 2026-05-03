@@ -15,6 +15,7 @@ import { CoupangImageSyncController } from './adapter/in/http/coupang-image-sync
 
 // adapter/out
 import { CoupangInventoryScrapeAdapter } from './adapter/out/coupang/coupang-inventory-scrape.adapter';
+import { GeminiTextCompletionAdapter } from './adapter/out/gemini/gemini-text-completion.adapter';
 import { GeminiThumbnailVisionAdapter } from './adapter/out/gemini/gemini-thumbnail-vision.adapter';
 import { ThumbnailReferenceImagesService } from './adapter/out/gemini/thumbnail-reference-images.adapter';
 import { ThumbnailImageFetcherService } from './adapter/out/image-fetch/thumbnail-image-fetcher.adapter';
@@ -42,6 +43,7 @@ import { COUPANG_INVENTORY_SCRAPE_PORT } from './application/port/out/coupang-in
 import { IMAGE_FETCH_PORT } from './application/port/out/image-fetch.port';
 import { IMAGE_STORAGE_PORT } from './application/port/out/image-storage.port';
 import { MASTER_CATALOG_PORT } from './application/port/out/master-catalog.port';
+import { TEXT_COMPLETION_PORT } from './application/port/out/text-completion.port';
 import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.port';
 
 @Module({
@@ -75,6 +77,7 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
 
     // outgoing adapters
     CoupangInventoryScrapeAdapter,
+    GeminiTextCompletionAdapter,
     GeminiThumbnailVisionAdapter,
     MasterCatalogAdapter,
     ThumbnailImageFetcherService,
@@ -88,6 +91,7 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     { provide: IMAGE_FETCH_PORT, useExisting: ThumbnailImageFetcherService },
     { provide: IMAGE_STORAGE_PORT, useExisting: StorageService },
     { provide: MASTER_CATALOG_PORT, useExisting: MasterCatalogAdapter },
+    { provide: TEXT_COMPLETION_PORT, useExisting: GeminiTextCompletionAdapter },
   ],
 })
 export class AiModule {}

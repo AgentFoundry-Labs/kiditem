@@ -12,7 +12,9 @@ import { ProcurementService } from './application/service/procurement.service';
 import { SuppliersService } from './application/service/suppliers.service';
 
 import { SourcingAgentGatewayAdapter } from './adapter/out/agent/sourcing-agent.gateway.adapter';
+import { SourcingProductsCatalogAdapter } from './adapter/out/products/products-catalog.adapter';
 import { SOURCING_AGENT_GATEWAY_PORT } from './application/port/out/sourcing-agent.gateway.port';
+import { SOURCING_PRODUCTS_CATALOG_PORT } from './application/port/out/products-catalog.port';
 
 /**
  * Sourcing is the canonical owner root for sourcing / procurement / suppliers.
@@ -35,9 +37,14 @@ import { SOURCING_AGENT_GATEWAY_PORT } from './application/port/out/sourcing-age
     ProcurementService,
     SuppliersService,
     SourcingAgentGatewayAdapter,
+    SourcingProductsCatalogAdapter,
     {
       provide: SOURCING_AGENT_GATEWAY_PORT,
       useExisting: SourcingAgentGatewayAdapter,
+    },
+    {
+      provide: SOURCING_PRODUCTS_CATALOG_PORT,
+      useExisting: SourcingProductsCatalogAdapter,
     },
   ],
 })

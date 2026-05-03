@@ -1,10 +1,10 @@
 import { Controller, Get, Post, Body, Param, Query } from '@nestjs/common';
 import { SourcingService } from '../../../application/service/sourcing.service';
 import {
-  type ReceiveExtensionDataBody,
   GenerateDetailPageBodyDto,
-  ScrapeUrlBodyDto,
   ListExtensionProductsQueryDto,
+  ReceiveExtensionDataDto,
+  ScrapeUrlBodyDto,
 } from './dto';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 
@@ -16,10 +16,13 @@ export class SourcingController {
 
   @Post('extension/product-data')
   async receiveExtensionData(
-    @Body() data: ReceiveExtensionDataBody,
+    @Body() body: ReceiveExtensionDataDto,
     @CurrentOrganization() organizationId: string,
   ) {
-    return this.sourcingService.receiveExtensionData(data, organizationId);
+    // DTO 의 known field + extra escape hatch 를 평탄화. service 는 known
+    // field 는 DTO 타입에서, vendor-specific 키는 extra 에서 읽는다.
+    const flat = { ...body, ...(body.extra ?? {}) };
+    return this.sourcingService.receiveExtensionData(flat, organizationId);
   }
 
   @Post('scrape-url')

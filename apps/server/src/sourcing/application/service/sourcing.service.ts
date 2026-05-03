@@ -1,11 +1,15 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { paginationParams } from '../../../common/pagination';
-import { MastersService } from '../../../products/application/service/masters.service';
 import {
   SOURCING_AGENT_GATEWAY_PORT,
   type SourcingAgentGatewayPort,
 } from '../port/out/sourcing-agent.gateway.port';
+import {
+  SOURCING_PRODUCTS_CATALOG_PORT,
+  type SourcingProductsCatalogPort,
+} from '../port/out/products-catalog.port';
+import type { ReceiveExtensionDataDto } from '../../adapter/in/http/dto/receive-extension-data.dto';
 
 const PLATFORM_MAP: Record<string, string> = {
   '1688': 'ALIBABA_1688',
@@ -27,16 +31,23 @@ const IMAGE_FIELD_KEYS = [
   'detail_images',
 ] as const;
 
+/**
+ * Service-internal flat shape — DTO 의 known field + `extra` 가 평탄화된 형태.
+ * controller 에서 build 후 service 로 넘어온다.
+ */
+type FlatExtensionData = ReceiveExtensionDataDto & Record<string, unknown>;
+
 @Injectable()
 export class SourcingService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly masters: MastersService,
+    @Inject(SOURCING_PRODUCTS_CATALOG_PORT)
+    private readonly productsCatalog: SourcingProductsCatalogPort,
     @Inject(SOURCING_AGENT_GATEWAY_PORT)
     private readonly agentGateway: SourcingAgentGatewayPort,
   ) {}
 
-  private extractCostCny(data: any): number | null {
+  private extractCostCny(data: FlatExtensionData): number | null {
     if (data.price != null) {
       const p = typeof data.price === 'number' ? data.price : parseFloat(String(data.price));
       if (!isNaN(p) && p > 0) return p;
@@ -45,18 +56,20 @@ export class SourcingService {
       const min = parseFloat(data.priceRange.split('-')[0]);
       if (!isNaN(min) && min > 0) return min;
     }
-    if (data.offer?.price != null) {
-      const p = parseFloat(String(data.offer.price));
+    const offer = data.offer as Record<string, unknown> | undefined;
+    if (offer?.price != null) {
+      const p = parseFloat(String(offer.price));
       if (!isNaN(p) && p > 0) return p;
     }
     if (Array.isArray(data.skuProps)) {
-      const prices = data.skuProps
-        .map((s: any) => parseFloat(String(s.price)))
-        .filter((p: number) => !isNaN(p) && p > 0);
+      const prices = (data.skuProps as Array<Record<string, unknown>>)
+        .map((s) => parseFloat(String(s?.price)))
+        .filter((p) => !isNaN(p) && p > 0);
       if (prices.length > 0) return Math.min(...prices);
     }
     if (Array.isArray(data.priceRanges) && data.priceRanges.length > 0) {
-      const p = parseFloat(String(data.priceRanges[0].price));
+      const first = (data.priceRanges as Array<Record<string, unknown>>)[0];
+      const p = parseFloat(String(first?.price));
       if (!isNaN(p) && p > 0) return p;
     }
     return null;
@@ -123,7 +136,7 @@ export class SourcingService {
     return merged;
   }
 
-  private sourceUrlFrom(data: Record<string, unknown>): string | null {
+  private sourceUrlFrom(data: FlatExtensionData): string | null {
     return typeof data.source_url === 'string' && data.source_url.trim() ? data.source_url.trim() : null;
   }
 
@@ -147,13 +160,18 @@ export class SourcingService {
     });
   }
 
-  async receiveExtensionData(data: any, organizationId: string): Promise<{
+  async receiveExtensionData(
+    data: FlatExtensionData,
+    organizationId: string,
+  ): Promise<{
     ok: boolean;
     message: string;
     product_count: number;
   }> {
     const pageType = data.page_type || 'detail';
-    let productCount = pageType === 'search' ? (data.total_found || 0) : (data.title ? 1 : 0);
+    let productCount = pageType === 'search'
+      ? Number(data.total_found || 0)
+      : (data.title ? 1 : 0);
     const sourceUrl = this.sourceUrlFrom(data);
 
     if (pageType === 'detail' && data.title) {
@@ -186,16 +204,19 @@ export class SourcingService {
           where: { id: existing.id, organizationId, isDeleted: false },
           data: {
             ...productData,
-            rawData: normalizedRawData as any,
+            rawData: normalizedRawData as object,
             thumbnailUrl: images[0] || productData.thumbnailUrl,
             imageUrl: images[0] || productData.imageUrl,
           },
         });
         await this.ensureImageRows(organizationId, existing.id, images);
       } else {
+        // sourcing/AGENTS.md: master_products 의 새 write 는 products 도메인의
+        // MastersService (MasterCodeService 통합) 를 SOURCING_PRODUCTS_CATALOG_PORT
+        // 로 우회해야 한다. cross-domain 직접 import 금지.
         const normalizedRawData = this.mergeRawData(null, data);
         const images = this.extractImageUrls(normalizedRawData);
-        const created = await this.masters.create(organizationId, {
+        const created = await this.productsCatalog.createMaster(organizationId, {
           name: productData.name,
           description: productData.description,
           thumbnailUrl: images[0] ?? productData.thumbnailUrl ?? undefined,
@@ -217,7 +238,7 @@ export class SourcingService {
         });
         await this.prisma.masterProduct.updateMany({
           where: { id: created.id, organizationId },
-          data: { rawData: normalizedRawData as any },
+          data: { rawData: normalizedRawData as object },
         });
       }
     }
@@ -236,7 +257,7 @@ export class SourcingService {
         await this.prisma.masterProduct.updateMany({
           where: { id: existing.id, organizationId, isDeleted: false },
           data: {
-            rawData: normalizedRawData as any,
+            rawData: normalizedRawData as object,
             description: typeof data.description_text === 'string' && data.description_text.trim()
               ? data.description_text
               : existing.description,

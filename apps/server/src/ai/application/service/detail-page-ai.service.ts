@@ -3,6 +3,7 @@ import {
   BadRequestException,
   HttpException,
   HttpStatus,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -20,12 +21,10 @@ import {
   type SimpleVerticalGeneration,
 } from '../../domain/prompts/simple-vertical/single-call';
 import type { GenerateDetailPageBodyDto } from '../../adapter/in/http/dto';
-
-interface GeminiResponse {
-  candidates?: Array<{
-    content?: { parts?: Array<{ text?: string }> };
-  }>;
-}
+import {
+  TEXT_COMPLETION_PORT,
+  type TextCompletionPort,
+} from '../port/out/text-completion.port';
 
 export interface DetailPageGenerationDto {
   id: string;
@@ -43,19 +42,16 @@ export interface DetailPageGenerationDto {
 
 @Injectable()
 export class DetailPageAiService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(TEXT_COMPLETION_PORT)
+    private readonly textCompletion: TextCompletionPort,
+  ) {}
 
   async generate(
     dto: GenerateDetailPageBodyDto,
     organizationId: string,
   ): Promise<DetailPageGenerationDto> {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      throw new HttpException(
-        'GEMINI_API_KEY가 설정되지 않았습니다.',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
     const model = process.env.AI_TEXT_MODEL;
     if (!model) {
       throw new HttpException(
@@ -85,8 +81,6 @@ export class DetailPageAiService {
     };
 
     const isSimpleVertical = templateId === 'simple-vertical';
-    const geminiUrl =
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
     if (dto.productId) {
       const row = await this.prisma.contentGeneration.create({
@@ -112,7 +106,7 @@ export class DetailPageAiService {
         heroImageMode,
         templateId,
         fallbackTitle: dto.rawTitle,
-        geminiUrl,
+        model,
         isSimpleVertical,
       });
 
@@ -123,7 +117,7 @@ export class DetailPageAiService {
       rawInput,
       heroImageMode,
       templateId,
-      geminiUrl,
+      model,
       isSimpleVertical,
     });
     const productName = this.pickProductName(parsed, templateId, dto.rawTitle);
@@ -298,7 +292,7 @@ export class DetailPageAiService {
     heroImageMode: 'first' | 'llm-pick';
     templateId: 'kids-playful' | 'simple-vertical';
     fallbackTitle: string;
-    geminiUrl: string;
+    model: string;
     isSimpleVertical: boolean;
   }): Promise<void> {
     try {
@@ -341,51 +335,20 @@ export class DetailPageAiService {
     };
     heroImageMode: 'first' | 'llm-pick';
     templateId: 'kids-playful' | 'simple-vertical';
-    geminiUrl: string;
+    model: string;
     isSimpleVertical: boolean;
   }): Promise<DetailPageGeneration | SimpleVerticalGeneration> {
-    const rawText = await this.callGemini(
-      input.geminiUrl,
-      input.isSimpleVertical ? SIMPLE_VERTICAL_SYSTEM : SINGLE_CALL_SYSTEM,
-      input.isSimpleVertical
+    const { text: rawText } = await this.textCompletion.complete({
+      system: input.isSimpleVertical ? SIMPLE_VERTICAL_SYSTEM : SINGLE_CALL_SYSTEM,
+      user: input.isSimpleVertical
         ? buildSimpleVerticalUser({ raw: input.rawInput, heroImageMode: input.heroImageMode })
         : buildSingleCallUser({ raw: input.rawInput, heroImageMode: input.heroImageMode }),
-    );
+      temperature: 0.8,
+      responseMimeType: 'application/json',
+      model: input.model,
+    });
     return (input.isSimpleVertical ? SimpleVerticalGenerationSchema : DetailPageGenerationSchema)
       .parse(this.extractJson(rawText));
-  }
-
-  private async callGemini(url: string, system: string, user: string): Promise<string> {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: user }] }],
-        systemInstruction: { parts: [{ text: system }] },
-        generationConfig: {
-          temperature: 0.8,
-          responseMimeType: 'application/json',
-        },
-      }),
-    });
-
-    if (!res.ok) {
-      const body = await res.text();
-      throw new HttpException(
-        `Gemini API 오류: ${res.status} ${body.slice(0, 500)}`,
-        res.status,
-      );
-    }
-
-    const data = (await res.json()) as GeminiResponse;
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) {
-      throw new HttpException(
-        `Gemini 응답이 비어있습니다: ${JSON.stringify(data).slice(0, 500)}`,
-        HttpStatus.BAD_GATEWAY,
-      );
-    }
-    return text;
   }
 
   private extractJson(raw: string): unknown {

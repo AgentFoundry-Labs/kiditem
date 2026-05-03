@@ -1,5 +1,4 @@
-import { Body, Controller, Delete, Get, Header, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
-import { IsString } from 'class-validator';
+import { Controller, Get, Header, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { ProductCatalogService } from '../../../application/service/product-catalog.service';
 import { MastersService } from '../../../application/service/masters.service';
@@ -7,11 +6,6 @@ import { ListProductCatalogQuery } from '../../../dto/list-product-catalog.query
 
 const DEPRECATION_HEADER = 'true';
 const SUNSET_HEADER = 'Mon, 15 Jun 2026 00:00:00 GMT';
-
-class SaveEditedHtmlDto {
-  @IsString()
-  html!: string;
-}
 
 /**
  * @deprecated Use /api/products/catalog for reads, /api/products/masters for master writes,
@@ -84,57 +78,9 @@ export class ProductsLegacyController {
     return this.masters.originalImageBase64(organizationId, id);
   }
 
-  @Get(':id/preview')
-  @Header('Deprecation', DEPRECATION_HEADER)
-  @Header('Sunset', SUNSET_HEADER)
-  async preview(
-    @CurrentOrganization() organizationId: string,
-    @Param('id', new ParseUUIDPipe()) id: string,
-  ) {
-    return this.masters.getPreview(organizationId, id);
-  }
-
-  @Get(':id/history')
-  @Header('Deprecation', DEPRECATION_HEADER)
-  @Header('Sunset', SUNSET_HEADER)
-  async history(
-    @CurrentOrganization() organizationId: string,
-    @Param('id', new ParseUUIDPipe()) id: string,
-  ) {
-    return this.masters.getGenerationHistory(organizationId, id);
-  }
-
-  @Post(':id/edited-html')
-  @Header('Deprecation', DEPRECATION_HEADER)
-  @Header('Sunset', SUNSET_HEADER)
-  async saveEditedHtml(
-    @CurrentOrganization() organizationId: string,
-    @Param('id', new ParseUUIDPipe()) id: string,
-    @Body() body: SaveEditedHtmlDto,
-  ) {
-    return this.masters.saveEditedHtml(organizationId, id, body.html);
-  }
-
-  @Get(':id/edited-html')
-  @Header('Deprecation', DEPRECATION_HEADER)
-  @Header('Sunset', SUNSET_HEADER)
-  async getEditedHtml(
-    @CurrentOrganization() organizationId: string,
-    @Param('id', new ParseUUIDPipe()) id: string,
-  ) {
-    return this.masters.getEditedHtml(organizationId, id);
-  }
-
-  @Delete(':id/history/:generationId')
-  @Header('Deprecation', DEPRECATION_HEADER)
-  @Header('Sunset', SUNSET_HEADER)
-  async deleteHistory(
-    @CurrentOrganization() organizationId: string,
-    @Param('id', new ParseUUIDPipe()) id: string,
-    @Param('generationId', new ParseUUIDPipe()) generationId: string,
-  ) {
-    return this.masters.deleteGenerationHistory(organizationId, id, generationId);
-  }
+  // NOTE: Detail-page content routes (`:id/preview`, `:id/history`,
+  // `:id/edited-html`, `:id/history/:generationId`) are served by
+  // ProductContentController (non-deprecated). Do not re-add them here.
 
   @Get(':id')
   @Header('Deprecation', DEPRECATION_HEADER)
