@@ -28,6 +28,7 @@ import {
   Heading2,
   Image as ImageIcon,
   ImagePlus,
+  Layout,
   Loader2,
   Palette,
 
@@ -49,7 +50,10 @@ import {
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import TemplateSelectionModal from '../../components/TemplateSelectionModal';
+import { useGenerateDetailPage, type GenerateMode } from '../../hooks/useGenerateDetailPage';
 import { cn } from '@/lib/utils';
+import { useStore } from '@/store/useStore';
 import { AIImageEditPanel } from './AIImageEditPanel';
 import { AITextEditPanel } from './AITextEditPanel';
 import { ImagePickerModal } from './ImagePickerModal';
@@ -66,7 +70,11 @@ interface DetailPageEditorProps {
 }
 
 interface ParsedHtml {
+  headHtml: string;
   bodyHtml: string;
+  bodyAttrs: string;
+  viewportContent: string;
+  viewportWidth: number;
   scriptUrls: string[];
   stylesheetUrls: string[];
   inlineStyles: string[];
@@ -231,7 +239,19 @@ const GRAPESJS_OPTIONS: Parameters<typeof GjsEditor>[0]['options'] = {
         id: 'image',
         label: '이미지',
         category: '기본',
-        content: { type: 'image', style: { width: '100%', 'max-width': '600px', padding: '10px' } },
+        // display:block + margin auto 로 가운데 정렬. 이전엔 default img (inline) 라
+        // canvas 의 좌측에 쏠려 보이던 문제 (사용자: "왼쪽이 쏠려있더라").
+        content: {
+          type: 'image',
+          style: {
+            display: 'block',
+            'margin-left': 'auto',
+            'margin-right': 'auto',
+            width: '100%',
+            'max-width': '600px',
+            padding: '10px',
+          },
+        },
       },
       {
         id: 'line',
@@ -277,13 +297,99 @@ const GRAPESJS_OPTIONS: Parameters<typeof GjsEditor>[0]['options'] = {
   canvasCss: CANVAS_CSS,
   undoManager: { maximumStackLength: 50 },
   deviceManager: {
-    devices: [{ id: 'coupang', name: '쿠팡 상세페이지', width: '860px' }],
+    devices: [
+      { id: 'detail-720', name: '상세페이지 720', width: '720px' },
+      { id: 'detail-860', name: '상세페이지 860', width: '860px' },
+    ],
   },
 };
+
+function inferViewportWidth(source: string, viewportContent: string): number {
+  if (/\bmax-w-\[720px\]\b|찐 사용 후기|KeyPoint/i.test(source)) return 720;
+  const match = viewportContent.match(/width\s*=\s*(\d+)/i);
+  if (match) return Number(match[1]);
+  return 860;
+}
+
+function serializeAttrs(el: Element): string {
+  return Array.from(el.attributes)
+    .filter((attr) => !(attr.name === 'id' && /^i[\w-]+$/.test(attr.value)))
+    .map((attr) => `${attr.name}="${attr.value.replace(/"/g, '&quot;')}"`)
+    .join(' ');
+}
+
+function sanitizeEditorCss(css: string): string {
+  return css
+    .replace(/#[\w-]+\{background-color:#ffffff;min-height:\d+px;\}/g, '')
+    .replace(/#[\w-]+\{min-height:\d+px;background-color:#ffffff;\}/g, '')
+    .trim();
+}
+
+function sanitizePersistedHead(headHtml: string, viewportContent: string): string {
+  const doc = new DOMParser().parseFromString(`<head>${headHtml}</head>`, 'text/html');
+  const head = doc.head;
+  const hasTailwindRuntime = !!head.querySelector('script[src*="cdn.tailwindcss.com"]');
+
+  head.querySelectorAll('meta[name="viewport"]').forEach((el) => el.remove());
+  head.insertAdjacentHTML(
+    'afterbegin',
+    `<meta name="viewport" content="${viewportContent.replace(/"/g, '&quot;')}" />`,
+  );
+
+  head.querySelectorAll('style').forEach((style) => {
+    const text = style.textContent ?? '';
+    const isCompiledTailwind = /tailwindcss v/i.test(text);
+    const isEditorWrapperStyle = /#[\w-]+\{[^}]*min-height:\d+px[^}]*\}/.test(text);
+    const isEditorCanvasStyle =
+      /\.gjs-selected|\.gjs-hovered|scrollbar-width:\s*none/i.test(text);
+
+    if ((hasTailwindRuntime && isCompiledTailwind) || isEditorWrapperStyle || isEditorCanvasStyle) {
+      style.remove();
+      return;
+    }
+
+    style.removeAttribute('data-gjs-injected');
+  });
+
+  return head.innerHTML.trim();
+}
+
+function normalizeBodyMarkup(rawHtml: string, bodyAttrs: string): string {
+  const source = rawHtml.trim();
+  if (!/^<body[\s>]/i.test(source)) return `<body${bodyAttrs ? ` ${bodyAttrs}` : ''}>${source}</body>`;
+
+  const doc = new DOMParser().parseFromString(source, 'text/html');
+  return `<body${bodyAttrs ? ` ${bodyAttrs}` : ''}>${doc.body.innerHTML}</body>`;
+}
+
+function buildPersistedEditorHtml(editor: Editor, parsed: ParsedHtml): string {
+  const html = editor.getHtml();
+  const css = sanitizeEditorCss(editor.getCss({ avoidProtected: true }) ?? '');
+  const headResources = sanitizePersistedHead(parsed.headHtml, parsed.viewportContent);
+  const bodyMarkup = normalizeBodyMarkup(html, parsed.bodyAttrs);
+
+  return `<!DOCTYPE html>
+<html lang="ko">
+<head>
+  ${headResources}
+  ${css ? `<style>${css}</style>` : ''}
+  <style>body { margin: 0; padding: 0; }</style>
+</head>
+${bodyMarkup}
+</html>`;
+}
 
 function parseFullHtml(fullHtml: string): ParsedHtml {
   const parser = new DOMParser();
   const doc = parser.parseFromString(fullHtml, 'text/html');
+  const viewportContent =
+    doc.head.querySelector<HTMLMetaElement>('meta[name="viewport"]')?.content ||
+    `width=${inferViewportWidth(fullHtml, '')}, initial-scale=1`;
+  const viewportWidth = inferViewportWidth(fullHtml, viewportContent);
+  const normalizedViewportContent = viewportContent.replace(
+    /width\s*=\s*(?:device-width|\d+)/i,
+    `width=${viewportWidth}`,
+  );
 
   const scriptUrls: string[] = [];
   const stylesheetUrls: string[] = [];
@@ -309,12 +415,31 @@ function parseFullHtml(fullHtml: string): ParsedHtml {
     }
   }
 
-  return { bodyHtml: doc.body.innerHTML, scriptUrls, stylesheetUrls, inlineStyles, inlineScripts };
+  return {
+    headHtml: doc.head.innerHTML,
+    bodyHtml: doc.body.innerHTML,
+    bodyAttrs: serializeAttrs(doc.body),
+    viewportContent: normalizedViewportContent,
+    viewportWidth,
+    scriptUrls,
+    stylesheetUrls,
+    inlineStyles,
+    inlineScripts,
+  };
 }
 
 function injectHeadResources(iframeWindow: Window, parsed: ParsedHtml) {
   const doc = iframeWindow.document;
   const head = doc.head;
+  const existingViewport = head.querySelector('meta[name="viewport"]');
+  if (existingViewport) {
+    existingViewport.setAttribute('content', parsed.viewportContent);
+  } else {
+    const meta = doc.createElement('meta');
+    meta.name = 'viewport';
+    meta.content = parsed.viewportContent;
+    head.prepend(meta);
+  }
 
   // Stylesheet links: skip if href already present in head
   for (const url of parsed.stylesheetUrls) {
@@ -419,16 +544,21 @@ function ToolBtn({
 
 function EditorToolbar({
   productName,
+  productId,
   templateCss,
+  parsed,
   onSave,
   onClose,
 }: {
   productName: string;
+  productId?: string;
   templateCss: string;
+  parsed: ParsedHtml;
   onSave: (html: string) => void;
   onClose: () => void;
 }) {
   const editor = useEditor();
+  const setEditorDirty = useStore((s) => s.setEditorDirty);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const [hasSelection, setHasSelection] = useState(false);
@@ -436,11 +566,38 @@ function EditorToolbar({
   const [isExporting, setIsExporting] = useState(false);
   const [activeTool, setActiveTool] = useState('cursor');
   const [selectedVisible, setSelectedVisible] = useState(true);
+  const [templateModalOpen, setTemplateModalOpen] = useState(false);
+
+  // 템플릿 변경 — confirm 시 useGenerateDetailPage mutate (productId 기반).
+  // 완료되면 새 draft_content 적재 → router.refresh 또는 사용자가 닫고 다시 진입해 확인.
+  const { mutate: runRegenerate, isPending: regenerating } = useGenerateDetailPage(
+    productId ?? '',
+  );
+
+  const handleTemplateChange = (templateId: string, mode: GenerateMode) => {
+    if (!productId) {
+      toast.error('productId 가 없어 템플릿 변경을 실행할 수 없습니다');
+      return;
+    }
+    runRegenerate(
+      { mode, templateId },
+      {
+        onSuccess: () => {
+          toast.success('템플릿 적용 완료 — 닫고 다시 들어오면 반영된 미리보기를 볼 수 있습니다');
+        },
+      },
+    );
+  };
 
   useEffect(() => {
     const updateHistory = () => {
-      setCanUndo(editor.UndoManager.hasUndo());
+      const hasUndo = editor.UndoManager.hasUndo();
+      setCanUndo(hasUndo);
       setCanRedo(editor.UndoManager.hasRedo());
+      // dirty 신호는 getDirtyCount() 우선 (UndoManager.hasUndo 보다 안정적).
+      // 둘 중 하나라도 변경 감지하면 dirty=true.
+      const dirty = hasUndo || (editor.getDirtyCount?.() ?? 0) > 0;
+      setEditorDirty(dirty);
     };
     const onSelect = () => {
       setHasSelection(true);
@@ -461,15 +618,45 @@ function EditorToolbar({
       editor.off('update', updateHistory);
       editor.off('component:selected', onSelect);
       editor.off('component:deselected', onDeselect);
+      // 에디터 unmount 시 dirty 초기화 (다음 진입 때 false-positive 방지).
+      setEditorDirty(false);
     };
+  }, [editor, setEditorDirty]);
+
+  // 탭 닫기 / 새로고침 / 외부 URL 입력 방어 — dirty 일 때만 활성.
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      const dirty = editor.UndoManager.hasUndo() || (editor.getDirtyCount?.() ?? 0) > 0;
+      if (!dirty) return;
+      e.preventDefault();
+      // 최신 브라우저는 returnValue 무시하고 자체 confirm 다이얼로그 표시.
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
   }, [editor]);
 
   const handleSave = useCallback(() => {
-    const html = editor.getHtml();
-    const css = editor.getCss({ avoidProtected: true });
-    const fullHtml = css ? `${html}\n<style>${css}</style>` : html;
+    const fullHtml = buildPersistedEditorHtml(editor, parsed);
+    // Save 후 dirty 해제 + UndoManager 클리어 → "방금 저장된 상태" 가 새 베이스.
+    setEditorDirty(false);
+    editor.UndoManager.clear();
     onSave(fullHtml);
-  }, [editor, onSave]);
+  }, [editor, onSave, parsed, setEditorDirty]);
+
+  // 닫기 버튼 — Sidebar 가 아니라 toolbar 의 "닫기" 도 dirty 체크 필요.
+  // (Sidebar 는 handleNavClick 이 가로채지만, onClose 는 editor 내부 router.push 라 별도 가드.)
+  const handleClose = useCallback(() => {
+    const dirty = editor.UndoManager.hasUndo() || (editor.getDirtyCount?.() ?? 0) > 0;
+    if (!dirty) {
+      onClose();
+      return;
+    }
+    if (!window.confirm('저장하지 않은 변경사항이 있습니다. 정말 닫으시겠습니까?')) return;
+    setEditorDirty(false);
+    editor.UndoManager.clear();
+    onClose();
+  }, [editor, onClose, setEditorDirty]);
 
   const handleExportPng = useCallback(async () => {
     setIsExporting(true);
@@ -644,7 +831,7 @@ function EditorToolbar({
       <div className="flex items-center gap-1">
         <button
           type="button"
-          onClick={onClose}
+          onClick={handleClose}
           className="flex items-center gap-1 px-2 py-1.5 text-sm text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
         >
           <ArrowLeft size={16} />
@@ -739,6 +926,15 @@ function EditorToolbar({
         <div className="w-px h-5 bg-slate-200 mx-1.5" />
         <button
           type="button"
+          onClick={() => setTemplateModalOpen(true)}
+          className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-violet-700 hover:bg-violet-50 border border-violet-200 rounded-lg transition-colors"
+          title="다른 템플릿으로 미리보기 + 적용"
+        >
+          <Layout size={14} />
+          템플릿 변경
+        </button>
+        <button
+          type="button"
           onClick={handleSave}
           className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors"
         >
@@ -755,6 +951,19 @@ function EditorToolbar({
           Export PNG
         </button>
       </div>
+
+      {/* 템플릿 변경 모달 — confirm 시 useGenerateDetailPage 로 새 templateId 적용. */}
+      <TemplateSelectionModal
+        isOpen={templateModalOpen}
+        onClose={() => setTemplateModalOpen(false)}
+        onConfirm={handleTemplateChange}
+      />
+      {regenerating && (
+        <div className="fixed top-14 right-3 z-50 flex items-center gap-2 rounded-lg bg-violet-600 px-3 py-2 text-xs font-semibold text-white shadow-lg">
+          <Loader2 size={12} className="animate-spin" />
+          템플릿 적용 중...
+        </div>
+      )}
     </div>
   );
 }
@@ -1502,7 +1711,7 @@ export default function DetailPageEditor({
   const handleEditorInit = useCallback(
     (editor: Editor) => {
       setEditorRef(editor);
-      editor.setDevice('coupang');
+      editor.setDevice(parsed.viewportWidth <= 720 ? 'detail-720' : 'detail-860');
 
       editor.on('canvas:frame:load:body', ({ window: iframeWindow }: { window: Window }) => {
         injectHeadResources(iframeWindow, parsed);
@@ -1583,7 +1792,8 @@ export default function DetailPageEditor({
         editor.Blocks.add(`raw-image-${i}`, {
           label: `원본 ${i + 1}`,
           category: '원본 이미지',
-          content: `<img src="${url}" style="width:100%;max-width:600px;" />`,
+          // display:block + margin auto 로 가운데 정렬 — 기본 img inline 동작이 좌측 쏠림 유발
+          content: `<img src="${url}" style="display:block;width:100%;max-width:600px;margin-left:auto;margin-right:auto;" />`,
           media: `<img src="${url}" style="width:60px;height:60px;object-fit:cover;" />`,
         });
       });
@@ -1596,12 +1806,11 @@ export default function DetailPageEditor({
 
       const wrapper = editor.getWrapper();
       if (wrapper) {
-        wrapper.addStyle({ 'background-color': '#ffffff' });
         requestAnimationFrame(() => {
           const iframe = editor.Canvas.getFrameEl();
           const contentHeight = iframe?.contentDocument?.body.scrollHeight ?? 800;
           const autoHeight = Math.max(contentHeight + 300, 800);
-          wrapper.addStyle({ 'min-height': `${autoHeight}px` });
+          iframe?.contentDocument?.body.style.setProperty('min-height', `${autoHeight}px`);
         });
       }
     },
@@ -1653,7 +1862,14 @@ export default function DetailPageEditor({
     <GjsEditor grapesjs={grapesjs} options={GRAPESJS_OPTIONS} onEditor={handleEditorInit}>
       <div className="flex flex-col h-screen bg-[#F5F7F8]">
         <WithEditor>
-          <EditorToolbar productName={productName} templateCss={templateCss} onSave={onSave} onClose={onClose} />
+          <EditorToolbar
+            productName={productName}
+            productId={productId}
+            templateCss={templateCss}
+            parsed={parsed}
+            onSave={onSave}
+            onClose={onClose}
+          />
         </WithEditor>
 
         <div className="flex flex-1 overflow-hidden">

@@ -1,7 +1,7 @@
 'use client';
 
 import Link from "next/link";
-import { useMemo, useState, useEffect } from "react";
+import { Suspense, useMemo, useState, useEffect } from "react";
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { Download, Info, TrendingUp } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
@@ -22,6 +22,14 @@ import ProfitLossTable from "./components/ProfitLossTable";
 import type { SortField } from "./components/ProfitLossTable";
 
 export default function ProfitLossPage() {
+  return (
+    <Suspense fallback={<PageSkeleton variant="table" />}>
+      <ProfitLossContent />
+    </Suspense>
+  );
+}
+
+function ProfitLossContent() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();

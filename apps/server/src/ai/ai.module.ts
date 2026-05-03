@@ -4,6 +4,7 @@ import { StorageService } from '../common/storage/storage.service';
 
 // adapter/in/http
 import { ImageAiController } from './adapter/in/http/image-ai.controller';
+import { DetailPageAiController } from './adapter/in/http/detail-page-ai.controller';
 import { RenderImageController } from './adapter/in/http/render-image.controller';
 import { TextAiController } from './adapter/in/http/text-ai.controller';
 import { ThumbnailAnalysisController } from './adapter/in/http/thumbnail-analysis.controller';
@@ -27,6 +28,7 @@ import { TextAiService } from './application/service/text-ai.service';
 import { ThumbnailAnalysisService } from './application/service/thumbnail-analysis.service';
 import { ThumbnailAutoService } from './application/service/thumbnail-auto.service';
 import { CoupangImageSyncService } from './application/service/coupang-image-sync.service';
+import { DetailPageAiService } from './application/service/detail-page-ai.service';
 import { ThumbnailComplianceVerifierService } from './application/service/thumbnail-compliance-verifier.service';
 import { ThumbnailEditorAiService } from './application/service/thumbnail-editor-ai.service';
 import { ThumbnailGenerationService } from './application/service/thumbnail-generation.service';
@@ -46,6 +48,7 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
   imports: [ProductsModule],
   controllers: [
     CoupangImageSyncController,
+    DetailPageAiController,
     ImageAiController,
     RenderImageController,
     TextAiController,
@@ -58,6 +61,7 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     // application services
     ImageAiService,
     CoupangImageSyncService,
+    DetailPageAiService,
     TextAiService,
     ThumbnailAnalysisService,
     ThumbnailAutoService,

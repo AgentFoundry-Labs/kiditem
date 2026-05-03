@@ -2,26 +2,21 @@
 
 import { useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { getTemplate, parseDetailPageData, placeholderDetailPageData } from '@kiditem/templates';
-import { API_BASE } from '@/lib/api';
-import { apiClient } from '@/lib/api-client';
+import { useQueryClient } from '@tanstack/react-query';
+import { getTemplate, placeholderDetailPageData } from '@kiditem/templates';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
-import { productsApi } from '../lib/sourcing-api';
+import MobilePreview from '../components/detail/MobilePreview';
+import ProductEditHeader from '../components/detail/ProductEditHeader';
+import ProductEditTabs, { type EditTabType } from '../components/detail/ProductEditTabs';
 import { renderTemplateToHtml } from '../lib/template-html';
-import MobilePreview from './components/MobilePreview';
-import ProductEditHeader from './components/ProductEditHeader';
-import ProductEditTabs, { type EditTabType } from './components/ProductEditTabs';
-import ProductLoadingView from './components/ProductLoadingView';
 import ProductErrorView from './components/ProductErrorView';
+import ProductLoadingView from './components/ProductLoadingView';
 import ProductTabContent from './components/ProductTabContent';
-import {
-  type ProductEditState,
-  PLACEHOLDER_DATA,
-  mapProcessedData,
-} from './lib/types';
-import type { DetailPageData } from '@kiditem/templates';
+import { GenerationProgressBannerStack } from './components/GenerationProgressBanner';
+import { useAllGenerationsInProgress } from '@/app/(media-ai)/generate/hooks/useKidsPlayfulGenerate';
+import { useProductDetail } from './hooks/useProductDetail';
+import { PLACEHOLDER_DATA, type ProductEditState } from './lib/types';
 
 export default function ProductDetailPage() {
   const params = useParams();
@@ -34,60 +29,40 @@ export default function ProductDetailPage() {
   const [isLocked, setIsLocked] = useState(false);
   const [editData, setEditData] = useState<ProductEditState>(PLACEHOLDER_DATA);
   const [editInitialized, setEditInitialized] = useState(false);
+  /**
+   * 사용자가 생성 이력 탭에서 선택해서 상세페이지 탭에 띄우려는 항목.
+   * null = 자동 (이 product 의 최신 KP/SV 이력 우선).
+   * 한 번에 한 종류만 active — KP / SV / Agent.
+   */
+  const [selectedKidsPlayfulId, setSelectedKidsPlayfulId] = useState<string | null>(null);
+  const [selectedSimpleVerticalId, setSelectedSimpleVerticalId] = useState<string | null>(null);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
 
   const goBack = () => router.push('/sourcing');
 
-  const { data: fetchedData, isLoading: isLoadingProduct, error: queryError } = useQuery({
-    queryKey: queryKeys.sourcing.detail(productId),
-    queryFn: async () => {
-      const [data, previewRes, css] = await Promise.all([
-        productsApi.getDetail(productId),
-        apiClient.get<{ template: string | null; data: Record<string, unknown> }>(`/api/products/${productId}/preview`)
-          .catch(() => null),
-        fetch('/templates-styles.css')
-          .then((r) => (r.ok ? r.text() : ''))
-          .catch(() => ''),
-      ]);
-
-      let detailPageData: DetailPageData = placeholderDetailPageData;
-      if (previewRes?.template && previewRes?.data) {
-        try {
-          const parsed = parseDetailPageData(previewRes.data);
-          const resolve = (url: string) => url.startsWith('/processed/') ? `${API_BASE}${url}` : url;
-          parsed.images = Array.isArray(parsed.images) ? parsed.images.map(resolve) : [];
-          parsed.sizeImages = Array.isArray(parsed.sizeImages) ? parsed.sizeImages.map(resolve) : [];
-          parsed.detailImages = Array.isArray(parsed.detailImages) ? parsed.detailImages.map(resolve) : [];
-          if (parsed.heroBanner) parsed.heroBanner = resolve(parsed.heroBanner);
-          detailPageData = parsed;
-        } catch {
-          // keep placeholder
-        }
-      }
-
-      const editState = data.processed_data
-        ? mapProcessedData(data.processed_data)
-        : {
-            ...PLACEHOLDER_DATA,
-            name: data.name,
-            salePrice: data.price_krw ?? 0,
-            thumbnails: data.thumbnail_url ? [data.thumbnail_url] : [],
-          };
-
-      return { product: data, detailPageData, templateCss: css, editState };
-    },
-  });
+  const { data: fetchedData, isLoading: isLoadingProduct, error: queryError } =
+    useProductDetail(productId);
 
   const product = fetchedData?.product ?? null;
   const detailPageData = fetchedData?.detailPageData ?? placeholderDetailPageData;
+  const editedHtml = fetchedData?.editedHtml ?? null;
   const templateCss = fetchedData?.templateCss ?? '';
-  const loadError = queryError ? (isApiError(queryError) ? queryError.detail : '상품 정보를 불러올 수 없습니다.') : null;
+  const inProgressEntries = useAllGenerationsInProgress(productId);
+  const loadError = queryError
+    ? isApiError(queryError)
+      ? queryError.detail
+      : '상품 정보를 불러올 수 없습니다.'
+    : null;
 
   if (fetchedData && !editInitialized) {
     setEditData(fetchedData.editState);
     setEditInitialized(true);
   }
 
-  const updateField = <K extends keyof ProductEditState>(field: K, value: ProductEditState[K]) => {
+  const updateField = <K extends keyof ProductEditState>(
+    field: K,
+    value: ProductEditState[K],
+  ) => {
     setEditData((prev) => ({ ...prev, [field]: value }));
   };
 
@@ -111,7 +86,9 @@ export default function ProductDetailPage() {
         productId={productId}
         error={loadError}
         onBack={goBack}
-        onRetry={() => queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(productId) })}
+        onRetry={() =>
+          queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(productId) })
+        }
       />
     );
   }
@@ -128,10 +105,25 @@ export default function ProductDetailPage() {
         onToggleEditComplete={() => setIsEditComplete((v) => !v)}
         onToggleLocked={() => setIsLocked((v) => !v)}
         onBack={goBack}
+        rawData={product?.raw_data ?? null}
+        imageUrls={product?.image_urls ?? []}
       />
 
+      {inProgressEntries.length > 0 && (
+        <GenerationProgressBannerStack
+          entries={inProgressEntries.map((e) => ({
+            id: e.id,
+            templateId: e.templateId,
+            status: e.imageProcessingStatus,
+            processedCount: Object.keys(e.processedImages || {}).length,
+            totalCount: e.imageUrls?.length ?? 0,
+            // detail 페이지는 product 단일이라 productName 생략 — 헤더에 이미 표시
+          }))}
+        />
+      )}
+
       <div className="flex flex-1 overflow-hidden">
-        <div className="w-[65%] flex flex-col overflow-hidden border-r border-slate-200">
+        <div className="w-[72%] flex flex-col overflow-hidden border-r border-slate-200">
           <ProductEditTabs activeTab={activeTab} onTabChange={setActiveTab} />
           <div className="flex-1 overflow-y-auto bg-slate-50">
             <ProductTabContent
@@ -141,15 +133,46 @@ export default function ProductDetailPage() {
               nameLength={nameLength}
               productId={productId}
               detailPreviewHtml={detailPreviewHtml}
+              editedHtml={editedHtml}
+              templateCss={templateCss}
               rawData={product?.raw_data ?? null}
+              selectedKidsPlayfulId={selectedKidsPlayfulId}
+              selectedSimpleVerticalId={selectedSimpleVerticalId}
+              selectedAgentId={selectedAgentId}
+              onSelectKidsPlayful={(id) => {
+                setSelectedKidsPlayfulId(id);
+                if (id) {
+                  setSelectedSimpleVerticalId(null);
+                  setSelectedAgentId(null);
+                }
+                setActiveTab('detail');
+              }}
+              onSelectSimpleVertical={(id) => {
+                setSelectedSimpleVerticalId(id);
+                if (id) {
+                  setSelectedKidsPlayfulId(null);
+                  setSelectedAgentId(null);
+                }
+                setActiveTab('detail');
+              }}
+              onSelectAgent={(id) => {
+                setSelectedAgentId(id);
+                if (id) {
+                  setSelectedKidsPlayfulId(null);
+                  setSelectedSimpleVerticalId(null);
+                }
+                setActiveTab('detail');
+              }}
             />
           </div>
         </div>
 
-        <div className="w-[35%] overflow-y-auto bg-slate-50/50 p-6">
+        <div className="w-[28%] overflow-y-auto bg-slate-50/50 p-5">
           <MobilePreview
             name={editData.name}
-            mainImage={editData.thumbnails[0] ?? 'https://placehold.co/400x400/e2e8f0/64748b?text=No+Image'}
+            mainImage={
+              editData.thumbnails[0] ?? 'https://placehold.co/400x400/e2e8f0/64748b?text=No+Image'
+            }
             salePrice={editData.salePrice}
             originalPrice={editData.originalPrice}
             discountRate={editData.discountRate}

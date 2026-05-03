@@ -1,4 +1,3 @@
-import { NotImplementedException } from '@nestjs/common';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SourcingService } from '../application/service/sourcing.service';
 
@@ -7,10 +6,21 @@ function makePrisma() {
     masterProduct: {
       findFirst: vi.fn(),
       create: vi.fn(),
+      updateMany: vi.fn(),
       update: vi.fn(),
       findMany: vi.fn().mockResolvedValue([]),
       count: vi.fn().mockResolvedValue(0),
     },
+    masterProductImage: {
+      count: vi.fn().mockResolvedValue(0),
+      createMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
+  };
+}
+
+function makeMasters() {
+  return {
+    create: vi.fn().mockResolvedValue({ id: 'prod-created' }),
   };
 }
 
@@ -23,18 +33,20 @@ function makeAgentGateway() {
 describe('SourcingService — extension data ingestion', () => {
   let service: SourcingService;
   let prisma: ReturnType<typeof makePrisma>;
+  let masters: ReturnType<typeof makeMasters>;
   let agentGateway: ReturnType<typeof makeAgentGateway>;
 
   beforeEach(() => {
     prisma = makePrisma();
+    masters = makeMasters();
     agentGateway = makeAgentGateway();
-    service = new SourcingService(prisma as any, agentGateway as any);
+    service = new SourcingService(prisma as any, masters as any, agentGateway as any);
   });
 
-  it('receiveExtensionData with new source_url → rejects create path until MasterCodeService integration', async () => {
+  it('receiveExtensionData with new source_url → creates a master product through MastersService', async () => {
     prisma.masterProduct.findFirst.mockResolvedValue(null);
 
-    await expect(service.receiveExtensionData(
+    const result = await service.receiveExtensionData(
       {
         page_type: 'detail',
         title: '아동용 스니커즈',
@@ -44,19 +56,31 @@ describe('SourcingService — extension data ingestion', () => {
         images: ['https://img1.jpg'],
       },
       'organization-1',
-    )).rejects.toThrow(NotImplementedException);
+    );
 
     expect(prisma.masterProduct.findFirst).toHaveBeenCalledWith({
-      where: { sourceUrl: 'https://1688.com/item/12345', organizationId: 'organization-1' },
+      where: { sourceUrl: 'https://1688.com/item/12345', organizationId: 'organization-1', isDeleted: false },
+      select: { id: true, rawData: true },
     });
-    expect(prisma.masterProduct.create).not.toHaveBeenCalled();
-    expect(prisma.masterProduct.update).not.toHaveBeenCalled();
+    expect(masters.create).toHaveBeenCalledWith(
+      'organization-1',
+      expect.objectContaining({
+        name: '아동용 스니커즈',
+        sourceUrl: 'https://1688.com/item/12345',
+        images: [expect.objectContaining({ url: 'https://img1.jpg', isPrimary: true })],
+      }),
+    );
+    expect(prisma.masterProduct.updateMany).toHaveBeenCalledWith({
+      where: { id: 'prod-created', organizationId: 'organization-1' },
+      data: { rawData: expect.objectContaining({ images: ['https://img1.jpg'] }) },
+    });
+    expect(result.ok).toBe(true);
   });
 
   it('receiveExtensionData with existing source_url → updates existing product', async () => {
     const existing = { id: 'prod-existing' };
     prisma.masterProduct.findFirst.mockResolvedValue(existing);
-    prisma.masterProduct.update.mockResolvedValue({ id: 'prod-existing' });
+    prisma.masterProduct.updateMany.mockResolvedValue({ count: 1 });
 
     const result = await service.receiveExtensionData(
       {
@@ -69,22 +93,22 @@ describe('SourcingService — extension data ingestion', () => {
       'organization-1',
     );
 
-    expect(prisma.masterProduct.update).toHaveBeenCalledWith(
+    expect(prisma.masterProduct.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'prod-existing' },
+        where: { id: 'prod-existing', organizationId: 'organization-1', isDeleted: false },
         data: expect.objectContaining({
           name: '아동용 스니커즈 (업데이트)',
           costCny: 18.0,
         }),
       }),
     );
-    expect(prisma.masterProduct.create).not.toHaveBeenCalled();
+    expect(masters.create).not.toHaveBeenCalled();
     expect(result.ok).toBe(true);
   });
 
   it('price parsing: priceRange "¥12.5-¥25.0" format → extracts minimum cost', async () => {
     prisma.masterProduct.findFirst.mockResolvedValue({ id: 'prod-existing' });
-    prisma.masterProduct.update.mockResolvedValue({ id: 'prod-existing' });
+    prisma.masterProduct.updateMany.mockResolvedValue({ count: 1 });
 
     await service.receiveExtensionData(
       {
@@ -97,9 +121,9 @@ describe('SourcingService — extension data ingestion', () => {
       'organization-1',
     );
 
-    expect(prisma.masterProduct.update).toHaveBeenCalledWith(
+    expect(prisma.masterProduct.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'prod-existing' },
+        where: { id: 'prod-existing', organizationId: 'organization-1', isDeleted: false },
         data: expect.objectContaining({
           costCny: 12.5,
         }),
@@ -109,7 +133,7 @@ describe('SourcingService — extension data ingestion', () => {
 
   it('organizationId scopes source_url lookup before updating a matched product', async () => {
     prisma.masterProduct.findFirst.mockResolvedValue({ id: 'prod-3' });
-    prisma.masterProduct.update.mockResolvedValue({ id: 'prod-3' });
+    prisma.masterProduct.updateMany.mockResolvedValue({ count: 1 });
 
     await service.receiveExtensionData(
       {
@@ -123,18 +147,19 @@ describe('SourcingService — extension data ingestion', () => {
     );
 
     expect(prisma.masterProduct.findFirst).toHaveBeenCalledWith({
-      where: { sourceUrl: 'https://alibaba.com/product/abc', organizationId: 'organization-A' },
+      where: { sourceUrl: 'https://alibaba.com/product/abc', organizationId: 'organization-A', isDeleted: false },
+      select: { id: true, rawData: true },
     });
-    expect(prisma.masterProduct.update).toHaveBeenCalledWith(
+    expect(prisma.masterProduct.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'prod-3' },
+        where: { id: 'prod-3', organizationId: 'organization-A', isDeleted: false },
         data: expect.objectContaining({
           name: '유아 모자',
           costCny: 8.0,
         }),
       }),
     );
-    expect(prisma.masterProduct.create).not.toHaveBeenCalled();
+    expect(masters.create).not.toHaveBeenCalled();
   });
 
   it('search page type → returns product_count from total_found, does not create product', async () => {
@@ -148,9 +173,45 @@ describe('SourcingService — extension data ingestion', () => {
     );
 
     expect(prisma.masterProduct.findFirst).not.toHaveBeenCalled();
-    expect(prisma.masterProduct.create).not.toHaveBeenCalled();
+    expect(masters.create).not.toHaveBeenCalled();
     expect(result.product_count).toBe(42);
     expect(result.ok).toBe(true);
+  });
+
+  it('description page type → merges description images into existing rawData', async () => {
+    prisma.masterProduct.findFirst.mockResolvedValue({
+      id: 'prod-existing',
+      rawData: { title: '기존 상품', images: ['https://main.jpg'] },
+      description: '',
+      thumbnailUrl: null,
+      imageUrl: null,
+    });
+    prisma.masterProduct.updateMany.mockResolvedValue({ count: 1 });
+
+    const result = await service.receiveExtensionData(
+      {
+        page_type: 'description',
+        source_url: 'https://1688.com/item/12345',
+        source_platform: '1688',
+        description_text: '상세 설명',
+        description_images: ['//desc.jpg'],
+      },
+      'organization-1',
+    );
+
+    expect(prisma.masterProduct.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'prod-existing', organizationId: 'organization-1', isDeleted: false },
+        data: expect.objectContaining({
+          description: '상세 설명',
+          rawData: expect.objectContaining({
+            images: ['https://main.jpg', 'https://desc.jpg'],
+            description_images: ['https://desc.jpg'],
+          }),
+        }),
+      }),
+    );
+    expect(result.product_count).toBe(1);
   });
 
   it('scrapeUrl → delegates to SourcingAgentGatewayPort with organizationId scope', async () => {

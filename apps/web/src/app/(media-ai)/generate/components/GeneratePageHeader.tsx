@@ -3,7 +3,7 @@ import { Sparkles } from 'lucide-react';
 export default function GeneratePageHeader() {
   return (
     <div className="bg-white border-b border-slate-200 px-8 py-10">
-      <div className="max-w-4xl mx-auto flex items-start justify-between">
+      <div className="flex w-full items-start justify-between">
         <div>
           <div className="flex items-center gap-3 mb-3">
             <div className="p-2 bg-blue-100 rounded-lg">

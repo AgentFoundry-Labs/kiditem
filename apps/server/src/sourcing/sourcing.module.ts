@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AgentRegistryModule } from '../agent-registry/agent-registry.module';
+import { ProductsModule } from '../products/products.module';
 
 import { SourcingController } from './adapter/in/http/sourcing.controller';
 import { ProcurementController } from './adapter/in/http/procurement.controller';
@@ -23,7 +24,7 @@ import { SOURCING_AGENT_GATEWAY_PORT } from './application/port/out/sourcing-age
  * `supplier-payments` is a finance capability and stays out of this module.
  */
 @Module({
-  imports: [PrismaModule, AgentRegistryModule],
+  imports: [PrismaModule, AgentRegistryModule, ProductsModule],
   controllers: [
     SourcingController,
     ProcurementController,

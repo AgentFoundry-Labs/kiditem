@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { FolderOpen, Save, Loader2, Wand2, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
@@ -27,6 +27,14 @@ interface SelectedProduct {
 }
 
 export default function ImageHubPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-slate-50" />}>
+      <ImageHubContent />
+    </Suspense>
+  );
+}
+
+function ImageHubContent() {
   const searchParams = useSearchParams();
   const initialProductId = searchParams.get('productId');
 

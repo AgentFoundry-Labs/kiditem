@@ -3,7 +3,7 @@
 import { AlertCircle } from 'lucide-react';
 import SkeletonCard from './SkeletonCard';
 import ProductCard from './ProductCard';
-import type { SourcedProduct } from '../../lib/sourcing-api';
+import { isInProgress, type SourcedProduct } from '../../lib/sourcing-api';
 
 interface Props {
   isLoading: boolean;
@@ -26,14 +26,14 @@ export default function ProductList({
 }: Props) {
   return (
     <>
-      <div className="flex items-center gap-2 mb-4">
-        <input type="checkbox" className="w-4 h-4 rounded border-slate-300" />
-        <span className="text-sm font-medium text-slate-500">전체 선택</span>
-      </div>
+      <label className="inline-flex items-center gap-1.5 mb-3 cursor-pointer">
+        <input type="checkbox" className="w-3.5 h-3.5 rounded border-slate-300 text-emerald-500 focus:ring-emerald-500" />
+        <span className="text-xs font-medium text-slate-500">전체 선택</span>
+      </label>
 
       {isLoading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {Array.from({ length: 4 }).map((_, i) => (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+          {Array.from({ length: 6 }).map((_, i) => (
             <SkeletonCard key={i} />
           ))}
         </div>
@@ -46,12 +46,12 @@ export default function ProductList({
           <p className="text-sm">URL 수집이나 상세페이지 생성을 통해 첫 상품을 등록해 보세요!</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
           {products.map((product) => (
             <ProductCard
               key={product.id}
               product={product}
-              isProcessing={processingIds.has(product.id) || product.status === 'PROCESSING'}
+              isProcessing={processingIds.has(product.id) || isInProgress(product.status)}
               isDeleting={deletingId === product.id}
               onDelete={onDelete}
               onNavigate={onNavigate}

@@ -6,7 +6,8 @@ import { CopilotSidebar } from '@copilotkit/react-ui';
 import '@copilotkit/react-ui/styles.css';
 
 interface CopilotChatProps {
-  children: React.ReactNode;
+  children?: React.ReactNode;
+  defaultOpen?: boolean;
   onChatOpenChange?: (open: boolean) => void;
 }
 
@@ -16,8 +17,8 @@ interface CopilotChatProps {
 const DEV_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID;
 const COPILOT_HEADERS = DEV_USER_ID ? { 'x-dev-user-id': DEV_USER_ID } : undefined;
 
-export default function CopilotChat({ children, onChatOpenChange }: CopilotChatProps) {
-  const [chatOpen, setChatOpen] = useState(false);
+export default function CopilotChat({ children, defaultOpen = false, onChatOpenChange }: CopilotChatProps) {
+  const [chatOpen, setChatOpen] = useState(defaultOpen);
 
   const handleSetOpen = useCallback((open: boolean) => {
     setChatOpen(open);
@@ -31,7 +32,7 @@ export default function CopilotChat({ children, onChatOpenChange }: CopilotChatP
     >
       {children}
       <CopilotSidebar
-        defaultOpen={false}
+        defaultOpen={defaultOpen}
         clickOutsideToClose
         hitEscapeToClose
         onSetOpen={handleSetOpen}

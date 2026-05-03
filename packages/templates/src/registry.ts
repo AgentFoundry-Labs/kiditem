@@ -6,6 +6,8 @@ import { boldVerticalConfig } from './bold-vertical/config';
 import { BoldVertical } from './bold-vertical/index';
 import { simpleVerticalConfig } from './simple-vertical/config';
 import { SimpleVertical } from './simple-vertical/index';
+import { kidsPlayfulConfig } from './kids-playful/config';
+import { KidsPlayful } from './kids-playful/index';
 import type { DetailPageData } from './types';
 
 export interface TemplateConfig {
@@ -35,10 +37,14 @@ export const templates: Record<string, TemplateConfig> = {
     ...simpleVerticalConfig,
     component: SimpleVertical,
   },
+  'kids-playful': {
+    ...kidsPlayfulConfig,
+    component: KidsPlayful,
+  },
 };
 
 /** Ordered list of template IDs for UI display. */
-export const templateIds = ['bold-vertical', 'simple-vertical'] as const;
+export const templateIds = ['bold-vertical', 'simple-vertical', 'kids-playful'] as const;
 
 export type TemplateId = (typeof templateIds)[number];
 

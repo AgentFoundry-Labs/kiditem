@@ -9,6 +9,10 @@ import Sidebar from './Sidebar';
 import { PanelSheet } from '@/components/panel/PanelSheet';
 import { PanelErrorBoundary } from '@/components/panel/PanelErrorBoundary';
 import { usePanelStream } from '@/components/panel/hooks/usePanelStream';
+import ReadinessModal from '@/components/ReadinessModal';
+import GlobalConfirmDialog from '@/components/GlobalConfirmDialog';
+import GenerationStatusFloater from '@/components/GenerationStatusFloater';
+import GenerationCompletionWatcher from '@/components/GenerationCompletionWatcher';
 
 const CopilotChat = dynamic(() => import('./CopilotChat'), { ssr: false });
 
@@ -20,37 +24,51 @@ function PanelMount() {
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { sidebarOpen } = useStore();
   const pathname = usePathname();
+  const [chatMounted, setChatMounted] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
 
   const toggleChat = useCallback(() => {
+    if (!chatMounted) {
+      setChatMounted(true);
+      setChatOpen(true);
+      return;
+    }
     const btn = document.querySelector('.copilotKitButton') as HTMLButtonElement | null;
     if (btn) btn.click();
-  }, []);
+  }, [chatMounted]);
 
-  if (pathname.includes('/editor')) {
-    return <>{children}</>;
-  }
+  const isEditorRoute = pathname.includes('/editor');
+  const collapsedForEditor = isEditorRoute || !sidebarOpen;
 
   const content = (
-    <div className="min-h-screen bg-slate-50">
-      <Sidebar onChatToggle={toggleChat} chatOpen={chatOpen} />
+    <div className="min-h-screen bg-[var(--background)]">
+      <Sidebar onChatToggle={toggleChat} chatOpen={chatOpen} lockCollapsed={isEditorRoute} />
       <div
         className={cn(
           'transition-all duration-300',
-          sidebarOpen ? 'md:ml-60' : 'md:ml-[68px]'
+          collapsedForEditor ? 'md:ml-[68px]' : 'md:ml-60'
         )}
       >
-        <main className="p-6">{children}</main>
+        <main className={cn(isEditorRoute ? 'p-0' : 'p-6')}>{children}</main>
       </div>
-      <PanelErrorBoundary>
-        <PanelMount />
-      </PanelErrorBoundary>
+      {!isEditorRoute && (
+        <PanelErrorBoundary>
+          <PanelMount />
+        </PanelErrorBoundary>
+      )}
+      <ReadinessModal />
+      <GlobalConfirmDialog />
+      {!isEditorRoute && <GenerationStatusFloater />}
+      <GenerationCompletionWatcher />
     </div>
   );
 
+  if (isEditorRoute || !chatMounted) return content;
+
   return (
-    <CopilotChat onChatOpenChange={setChatOpen}>
+    <>
       {content}
-    </CopilotChat>
+      <CopilotChat defaultOpen onChatOpenChange={setChatOpen} />
+    </>
   );
 }

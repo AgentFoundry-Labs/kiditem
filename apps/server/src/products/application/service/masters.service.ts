@@ -278,6 +278,142 @@ export class MastersService {
     return { dataUrl: `data:${contentType};base64,${buffer.toString('base64')}` };
   }
 
+  async getPreview(
+    organizationId: string,
+    id: string,
+  ): Promise<{ template: string | null; data: Record<string, unknown> }> {
+    const row = await this.prisma.masterProduct.findFirst({
+      where: { id, organizationId, isDeleted: false },
+      select: { processedData: true, draftContent: true },
+    });
+    if (!row) throw new NotFoundException('master not found');
+    const data = (row.processedData ?? row.draftContent) as Record<string, unknown> | null;
+    if (!data || typeof data !== 'object') return { template: null, data: {} };
+    return { template: 'bold-vertical', data };
+  }
+
+  async saveEditedHtml(
+    organizationId: string,
+    id: string,
+    html: string,
+  ): Promise<{ ok: true }> {
+    const row = await this.prisma.masterProduct.findFirst({
+      where: { id, organizationId, isDeleted: false },
+      select: { draftContent: true },
+    });
+    if (!row) throw new NotFoundException('master not found');
+    const existing = (row.draftContent ?? {}) as Record<string, unknown>;
+    const next = {
+      ...existing,
+      editedHtml: html,
+      editedHtmlSavedAt: new Date().toISOString(),
+    };
+    const { count } = await this.prisma.masterProduct.updateMany({
+      where: { id, organizationId, isDeleted: false },
+      data: { draftContent: next as Prisma.InputJsonValue },
+    });
+    if (count === 0) throw new NotFoundException('master not found');
+    return { ok: true };
+  }
+
+  async getEditedHtml(
+    organizationId: string,
+    id: string,
+  ): Promise<{ html: string | null; savedAt: string | null }> {
+    const row = await this.prisma.masterProduct.findFirst({
+      where: { id, organizationId, isDeleted: false },
+      select: { draftContent: true },
+    });
+    if (!row) throw new NotFoundException('master not found');
+    const draftContent = (row.draftContent ?? {}) as Record<string, unknown>;
+    return {
+      html: typeof draftContent.editedHtml === 'string' ? draftContent.editedHtml : null,
+      savedAt: typeof draftContent.editedHtmlSavedAt === 'string'
+        ? draftContent.editedHtmlSavedAt
+        : null,
+    };
+  }
+
+  async getGenerationHistory(
+    organizationId: string,
+    id: string,
+    limit = 20,
+  ): Promise<Array<{
+    id: string;
+    generatedTitle: string | null;
+    status: string;
+    detailPageData: Record<string, unknown> | null;
+    errorMessage: string | null;
+    createdAt: Date;
+  }>> {
+    await this.findById(organizationId, id, {});
+    const rows = await this.prisma.contentGeneration.findMany({
+      where: { masterId: id, organizationId },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      select: {
+        id: true,
+        generatedTitle: true,
+        status: true,
+        detailPageHtml: true,
+        errorMessage: true,
+        createdAt: true,
+      },
+    });
+
+    return rows
+      .filter((row) => !this.isAiDetailGeneration(row.detailPageHtml))
+      .map((row) => ({
+        id: row.id,
+        generatedTitle: row.generatedTitle,
+        status: row.status,
+        detailPageData: this.parseDetailPageData(row.detailPageHtml),
+        errorMessage: row.errorMessage,
+        createdAt: row.createdAt,
+      }));
+  }
+
+  async deleteGenerationHistory(
+    organizationId: string,
+    masterId: string,
+    generationId: string,
+  ): Promise<{ ok: true }> {
+    const { count } = await this.prisma.contentGeneration.deleteMany({
+      where: { id: generationId, masterId, organizationId },
+    });
+    if (count === 0) throw new NotFoundException('generation history row not found');
+    return { ok: true };
+  }
+
+  private parseDetailPageData(raw: string | null): Record<string, unknown> | null {
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return null;
+      const record = parsed as Record<string, unknown>;
+      const result = record.result;
+      if (result && typeof result === 'object') {
+        return {
+          ...record,
+          ...(result as Record<string, unknown>),
+        };
+      }
+      return record;
+    } catch {
+      return null;
+    }
+  }
+
+  private isAiDetailGeneration(raw: string | null): boolean {
+    if (!raw) return false;
+    try {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      return parsed.templateId === 'kids-playful' || parsed.templateId === 'simple-vertical';
+    } catch {
+      return false;
+    }
+  }
+
   private async createImageRowsTx(
     tx: Prisma.TransactionClient,
     organizationId: string,

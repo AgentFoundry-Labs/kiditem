@@ -1,7 +1,7 @@
 'use client';
 
 import { Loader2 } from 'lucide-react';
-import ProductEditHeader from './ProductEditHeader';
+import ProductEditHeader from '../../components/detail/ProductEditHeader';
 
 interface Props {
   productId: string;
