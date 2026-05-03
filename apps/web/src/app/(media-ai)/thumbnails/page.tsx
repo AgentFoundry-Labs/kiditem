@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import type { ThumbnailAnalysisResult, ThumbnailGenerationItem } from '@kiditem/shared/ai';
 
@@ -15,6 +15,7 @@ import { useGenerationList } from '../_shared/hooks/useThumbnailGenerations';
 import { useTrackingList } from './hooks/useThumbnailTracking';
 import { useBatchAnalysis } from './hooks/useBatchAnalysis';
 import { useThumbnailActions } from './hooks/useThumbnailActions';
+import { useCoupangImageSync } from './hooks/useCoupangImageSync';
 
 import { DetailModal } from '../_shared/components/thumbnails/DetailModal';
 import { InspectionDrawer } from './components/InspectionDrawer';
@@ -69,6 +70,37 @@ export default function ThumbnailsPage() {
   });
 
   const batch = useBatchAnalysis();
+  const sync = useCoupangImageSync();
+  const syncStatus = sync.status;
+  const lastSyncRefreshAt = useRef(0);
+
+  useEffect(() => {
+    if (!syncStatus || syncStatus.status === 'running') return;
+    if (syncStatus.status === 'failed') {
+      toast.error(`이미지 동기화 실패: ${syncStatus.error ?? '알 수 없는 오류'}`);
+    } else if (syncStatus.total === 0) {
+      toast.info('동기화할 이미지가 없습니다 (모든 상품에 이미지가 이미 있음)');
+    } else {
+      toast.success(
+        `이미지 동기화 완료 — 성공 ${syncStatus.succeeded}건${syncStatus.failed ? ` / 실패 ${syncStatus.failed}건` : ''}`,
+      );
+      analysisQuery.refetch();
+    }
+    const t = setTimeout(() => sync.reset(), 2000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncStatus?.status, syncStatus?.jobId]);
+
+  useEffect(() => {
+    if (!syncStatus || syncStatus.status !== 'running') return;
+    if (syncStatus.phase !== 'downloading' || syncStatus.processed <= 0) return;
+
+    const now = Date.now();
+    if (now - lastSyncRefreshAt.current < 5000) return;
+    lastSyncRefreshAt.current = now;
+    void analysisQuery.refetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncStatus?.processed, syncStatus?.phase, syncStatus?.status]);
 
   const runBatch = async (
     items: ThumbnailAnalysisResult[],
@@ -338,6 +370,10 @@ export default function ThumbnailsPage() {
           analysisQuery.refetch();
           generationQuery.refetch();
         }}
+        onSyncImages={() => sync.start()}
+        syncRunning={sync.isRunning}
+        syncPhase={syncStatus?.phase ?? null}
+        syncProgress={syncStatus ? { processed: syncStatus.processed, total: syncStatus.total } : null}
       />
 
       {batch.isBatchRunning && (

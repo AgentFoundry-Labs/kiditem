@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ProductsModule } from '../products/products.module';
 
 // adapter/in/http
 import { ImageAiController } from './adapter/in/http/image-ai.controller';
@@ -8,6 +9,7 @@ import { ThumbnailAnalysisController } from './adapter/in/http/thumbnail-analysi
 import { ThumbnailAutoController } from './adapter/in/http/thumbnail-auto.controller';
 import { ThumbnailEditorController } from './adapter/in/http/thumbnail-editor.controller';
 import { ThumbnailTrackingController } from './adapter/in/http/thumbnail-tracking.controller';
+import { CoupangImageSyncController } from './adapter/in/http/coupang-image-sync.controller';
 
 // adapter/out
 import { GeminiThumbnailVisionAdapter } from './adapter/out/gemini/gemini-thumbnail-vision.adapter';
@@ -21,6 +23,7 @@ import { ImageAiService } from './application/service/image-ai.service';
 import { TextAiService } from './application/service/text-ai.service';
 import { ThumbnailAnalysisService } from './application/service/thumbnail-analysis.service';
 import { ThumbnailAutoService } from './application/service/thumbnail-auto.service';
+import { CoupangImageSyncService } from './application/service/coupang-image-sync.service';
 import { ThumbnailComplianceVerifierService } from './application/service/thumbnail-compliance-verifier.service';
 import { ThumbnailEditorAiService } from './application/service/thumbnail-editor-ai.service';
 import { ThumbnailGenerationService } from './application/service/thumbnail-generation.service';
@@ -33,7 +36,9 @@ import { ThumbnailWingService } from './application/service/thumbnail-wing.servi
 import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.port';
 
 @Module({
+  imports: [ProductsModule],
   controllers: [
+    CoupangImageSyncController,
     ImageAiController,
     RenderImageController,
     TextAiController,
@@ -45,6 +50,7 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
   providers: [
     // application services
     ImageAiService,
+    CoupangImageSyncService,
     TextAiService,
     ThumbnailAnalysisService,
     ThumbnailAutoService,
