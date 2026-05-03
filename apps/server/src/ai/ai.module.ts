@@ -12,10 +12,12 @@ import { ThumbnailTrackingController } from './adapter/in/http/thumbnail-trackin
 import { CoupangImageSyncController } from './adapter/in/http/coupang-image-sync.controller';
 
 // adapter/out
+import { CoupangInventoryScrapeAdapter } from './adapter/out/coupang/coupang-inventory-scrape.adapter';
 import { GeminiThumbnailVisionAdapter } from './adapter/out/gemini/gemini-thumbnail-vision.adapter';
 import { ThumbnailReferenceImagesService } from './adapter/out/gemini/thumbnail-reference-images.adapter';
 import { ThumbnailImageFetcherService } from './adapter/out/image-fetch/thumbnail-image-fetcher.adapter';
 import { ThumbnailWingPersistence } from './adapter/out/prisma/thumbnail-wing.persistence';
+import { MasterCatalogAdapter } from './adapter/out/products/master-catalog.adapter';
 import { WingAutomationRunner } from './adapter/out/wing/wing-automation-runner';
 
 // application/service
@@ -33,6 +35,8 @@ import { ThumbnailVisionAiService } from './application/service/thumbnail-vision
 import { ThumbnailWingService } from './application/service/thumbnail-wing.service';
 
 // application/port — out
+import { COUPANG_INVENTORY_SCRAPE_PORT } from './application/port/out/coupang-inventory-scrape.port';
+import { MASTER_CATALOG_PORT } from './application/port/out/master-catalog.port';
 import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.port';
 
 @Module({
@@ -63,17 +67,18 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     ThumbnailWingService,
 
     // outgoing adapters
+    CoupangInventoryScrapeAdapter,
     GeminiThumbnailVisionAdapter,
+    MasterCatalogAdapter,
     ThumbnailImageFetcherService,
     ThumbnailReferenceImagesService,
     ThumbnailWingPersistence,
     WingAutomationRunner,
 
-    // port bindings — Wing automation port → Playwriter runner adapter
-    {
-      provide: WING_AUTOMATION_PORT,
-      useExisting: WingAutomationRunner,
-    },
+    // port bindings
+    { provide: WING_AUTOMATION_PORT, useExisting: WingAutomationRunner },
+    { provide: COUPANG_INVENTORY_SCRAPE_PORT, useExisting: CoupangInventoryScrapeAdapter },
+    { provide: MASTER_CATALOG_PORT, useExisting: MasterCatalogAdapter },
   ],
 })
 export class AiModule {}

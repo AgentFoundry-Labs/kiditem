@@ -153,6 +153,11 @@ export const queryKeys = {
     generations: (params?: Record<string, string>) => [...queryKeys.thumbnailAnalysis.all, 'generations', params] as const,
     tracking: () => [...queryKeys.thumbnailAnalysis.all, 'tracking'] as const,
   },
+  coupangImageSync: {
+    all: ['coupangImageSync'] as const,
+    current: () => [...queryKeys.coupangImageSync.all, 'current'] as const,
+    job: (jobId: string) => [...queryKeys.coupangImageSync.all, 'job', jobId] as const,
+  },
   stockMovement: {
     all: ['stockMovement'] as const,
     data: (params: Record<string, string>) => [...queryKeys.stockMovement.all, 'data', params] as const,

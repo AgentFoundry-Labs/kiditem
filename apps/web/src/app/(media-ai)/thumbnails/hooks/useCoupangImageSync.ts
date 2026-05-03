@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-keys';
 
 export interface CoupangSyncStatus {
   jobId: string;
@@ -48,7 +49,7 @@ export function useCoupangImageSync() {
   });
 
   const currentQuery = useQuery({
-    queryKey: ['coupang-image-sync', 'current'],
+    queryKey: queryKeys.coupangImageSync.current(),
     queryFn: () => apiClient.get<CoupangSyncCurrentResponse>('/api/coupang-image-sync'),
     enabled: !jobId,
     refetchInterval: (query) => {
@@ -58,7 +59,7 @@ export function useCoupangImageSync() {
   });
 
   const statusQuery = useQuery({
-    queryKey: ['coupang-image-sync', jobId],
+    queryKey: queryKeys.coupangImageSync.job(jobId ?? ''),
     queryFn: () => apiClient.get<CoupangSyncStatus>(`/api/coupang-image-sync/${jobId}`),
     enabled: !!jobId,
     retry: false,
