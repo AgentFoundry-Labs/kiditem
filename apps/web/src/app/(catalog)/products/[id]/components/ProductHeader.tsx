@@ -7,7 +7,7 @@ import {
   ChevronDown,
   BarChart3,
 } from 'lucide-react';
-import type { Workflow } from '../page';
+import type { Workflow } from '../hooks/useProductActions';
 
 interface ProductHeaderProps {
   workflows: Workflow[];
@@ -30,7 +30,7 @@ export default function ProductHeader({
     <>
       <div className="flex items-center justify-between">
         <Link
-          href="/products"
+          href="/product-hub"
           className="flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700"
         >
           <ArrowLeft size={16} /> 상품 관리

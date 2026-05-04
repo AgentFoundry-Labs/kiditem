@@ -14,19 +14,17 @@ import {
   updateProductOption,
   type ProductOptionEditableFields,
   type ProductOptionListParams,
-} from './lib/product-options-api';
+} from '@/app/(catalog)/products/options/lib/product-options-api';
 import ProductOptionFilters, {
   type ProductOptionFilterState,
-} from './components/ProductOptionFilters';
-import ProductOptionTable from './components/ProductOptionTable';
-import ProductOptionEditModal from './components/ProductOptionEditModal';
+} from '@/app/(catalog)/products/options/components/ProductOptionFilters';
+import ProductOptionTable from '@/app/(catalog)/products/options/components/ProductOptionTable';
+import ProductOptionEditModal from '@/app/(catalog)/products/options/components/ProductOptionEditModal';
 import type { ProductOption } from '@kiditem/shared/product';
 
 const PAGE_LIMIT = 100;
 
-function buildListParams(
-  state: ProductOptionFilterState,
-): ProductOptionListParams {
+function buildListParams(state: ProductOptionFilterState): ProductOptionListParams {
   const params: ProductOptionListParams = { limit: PAGE_LIMIT };
   if (state.search) params.search = state.search;
   if (state.bundleScope === 'bundle') params.isBundle = true;
@@ -44,7 +42,7 @@ function describeApiError(err: unknown): string {
   return '알 수 없는 오류가 발생했습니다.';
 }
 
-export default function ProductOptionsPage() {
+export default function ProductHubOptionsPage() {
   const queryClient = useQueryClient();
   const [filterState, setFilterState] = useState<ProductOptionFilterState>({
     search: '',
@@ -109,9 +107,7 @@ export default function ProductOptionsPage() {
   });
 
   const handleSoftDelete = (item: ProductOption) => {
-    const ok = window.confirm(
-      `옵션 "${item.optionName ?? item.sku}" 을(를) 삭제할까요? (soft-delete)`,
-    );
+    const ok = window.confirm(`옵션 "${item.optionName ?? item.sku}" 을(를) 삭제할까요? (soft-delete)`);
     if (!ok) return;
     deleteMutation.mutate(item.id);
   };
@@ -124,14 +120,14 @@ export default function ProductOptionsPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-purple-600">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-600">
             <Layers size={20} className="text-white" />
           </div>
           <div>
             <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">
               상품 옵션 관리
             </h1>
-            <p className="text-xs text-slate-500 mt-0.5">
+            <p className="mt-0.5 text-xs text-slate-500">
               ProductOption 단위 — SKU / 옵션명 / 판매자 상품코드 / 활성·삭제 관리
             </p>
           </div>
@@ -140,7 +136,7 @@ export default function ProductOptionsPage() {
           type="button"
           onClick={() => refetch()}
           disabled={isFetching}
-          className="flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg disabled:opacity-50"
+          className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-50"
         >
           <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} />
           새로고침
@@ -151,13 +147,11 @@ export default function ProductOptionsPage() {
         draftSearch={draftSearch}
         state={filterState}
         onSearchInputChange={setDraftSearch}
-        onSearchSubmit={() =>
-          setFilterState((prev) => ({ ...prev, search: draftSearch.trim() }))
-        }
+        onSearchSubmit={() => setFilterState((prev) => ({ ...prev, search: draftSearch.trim() }))}
         onChange={(next) => setFilterState((prev) => ({ ...prev, ...next }))}
       />
 
-      <div className="text-xs text-slate-500 px-1">
+      <div className="px-1 text-xs text-slate-500">
         {showLoading
           ? '불러오는 중...'
           : `${items.length}개 표시${data?.nextCursor ? ' (추가 페이지 있음 — 필터로 좁히세요)' : ''}`}
@@ -189,9 +183,7 @@ export default function ProductOptionsPage() {
             setEditing(null);
             setEditError(null);
           }}
-          onSave={(patch) =>
-            updateMutation.mutate({ id: editing.id, patch })
-          }
+          onSave={(patch) => updateMutation.mutate({ id: editing.id, patch })}
         />
       )}
     </div>

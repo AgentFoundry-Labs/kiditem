@@ -12,11 +12,26 @@ export class ListMastersQuery {
   @IsOptional() @IsString()
   category?: string;
 
+  @IsOptional() @IsIn(['season', 'stationery', 'toy', 'bag', 'music-art-sports', 'learning', 'fancy', 'craft', 'kindergarten', 'snack'])
+  categoryGroup?: 'season' | 'stationery' | 'toy' | 'bag' | 'music-art-sports' | 'learning' | 'fancy' | 'craft' | 'kindergarten' | 'snack';
+
   @IsOptional() @IsString()
   brand?: string;
 
   @IsOptional() @IsIn(['A', 'B', 'C'])
   abcGrade?: 'A' | 'B' | 'C';
+
+  @IsOptional() @IsIn(['A', 'B', 'C', 'minus', 'low'])
+  grade?: 'A' | 'B' | 'C' | 'minus' | 'low';
+
+  @IsOptional() @IsIn(['active', 'inactive', 'cleanup', 'unknown'])
+  status?: 'active' | 'inactive' | 'cleanup' | 'unknown';
+
+  @IsOptional() @IsIn(['ad', 'noad'])
+  ad?: 'ad' | 'noad';
+
+  @IsOptional() @IsIn(['risk', 'zero', 'ok'])
+  stock?: 'risk' | 'zero' | 'ok';
 
   @IsOptional() @IsString()
   pipelineStep?: string;
@@ -24,8 +39,17 @@ export class ListMastersQuery {
   @IsOptional() @IsString()
   search?: string;
 
-  @IsOptional() @Transform(({ value }) => parseInt(value, 10)) @IsInt() @Min(1) @Max(200)
+  @IsOptional() @Transform(({ value }) => parseInt(value, 10)) @IsInt() @Min(1) @Max(10000)
   limit?: number;
+
+  @IsOptional() @Transform(({ value }) => parseInt(value, 10)) @IsInt() @Min(1)
+  page?: number;
+
+  @IsOptional() @Transform(({ value }) => parseInt(value, 10)) @IsInt() @IsIn([7, 14, 30, 365])
+  period?: 7 | 14 | 30 | 365;
+
+  @IsOptional() @Transform(({ value }) => value === 'true') @IsBoolean()
+  enriched?: boolean;
 
   @IsOptional() @IsString()
   cursor?: string;

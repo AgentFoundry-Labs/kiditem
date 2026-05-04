@@ -31,7 +31,8 @@ export const queryKeys = {
     list: (params: Record<string, string>) => [...queryKeys.products.all, 'list', params] as const,
     detail: (id: string) => [...queryKeys.products.all, 'detail', id] as const,
     images: (masterId: string) => [...queryKeys.products.all, 'images', masterId] as const,
-    pipelineStats: (status?: string) => [...queryKeys.products.all, 'pipelineStats', status] as const,
+    pipelineStats: (status?: string, period?: number) =>
+      [...queryKeys.products.all, 'pipelineStats', status, period] as const,
     inspection: (id: string) => [...queryKeys.products.all, 'inspection', id] as const,
     catalog: {
       all: ['products', 'catalog'] as const,

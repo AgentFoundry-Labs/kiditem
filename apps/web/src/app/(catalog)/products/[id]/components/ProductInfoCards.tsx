@@ -97,7 +97,7 @@ export default function ProductInfoCards({ product, inventory }: ProductInfoCard
               label="발주 필요"
               value={
                 needsReorder ? (
-                  <span className="text-red-600 font-semibold">⚠ 필요</span>
+                  <span className="text-red-600 font-semibold">필요</span>
                 ) : (
                   <span className="text-green-600">충분</span>
                 )

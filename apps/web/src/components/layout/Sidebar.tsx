@@ -85,7 +85,7 @@ const menuSections: MenuSection[] = [
         icon: MessageSquare,
       },
       {
-        href: '/products/options',
+        href: '/product-hub/options',
         label: '상품 옵션 관리',
         icon: Layers,
       },

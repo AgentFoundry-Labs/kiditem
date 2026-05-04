@@ -119,6 +119,8 @@ export function getProductStatusBadge(status: string): { label: string; color: s
     case 'active': return { label: '판매중', color: 'bg-green-100 text-green-800' };
     case 'inactive': return { label: '중지', color: 'bg-gray-100 text-gray-800' };
     case 'discontinued': return { label: '정리', color: 'bg-red-100 text-red-800' };
+    case 'cleanup': return { label: '정리', color: 'bg-red-100 text-red-800' };
+    case 'unknown': return { label: '상태미수집', color: 'bg-slate-100 text-slate-700' };
     default: return { label: status, color: 'bg-gray-100 text-gray-800' };
   }
 }

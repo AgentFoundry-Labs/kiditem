@@ -6,6 +6,7 @@ import { OptionsService } from './application/service/options.service';
 import { BundleStockService } from './application/service/bundle-stock.service';
 import { BundleComponentsService } from './application/service/bundle-components.service';
 import { ProductCatalogService } from './application/service/product-catalog.service';
+import { ProductManagementService } from './application/service/product-management.service';
 import { MastersController } from './adapter/in/http/masters.controller';
 import { OptionsController } from './adapter/in/http/options.controller';
 import { BundleComponentsController } from './adapter/in/http/bundle-components.controller';
@@ -27,11 +28,11 @@ import { CategoriesModule } from './categories/categories.module';
   providers: [
     MasterCodeService, MastersService, OptionsService,
     BundleStockService, BundleComponentsService,
-    ProductCatalogService,
+    ProductCatalogService, ProductManagementService,
   ],
   exports: [
     MastersService, OptionsService, BundleComponentsService,
-    BundleStockService, ProductCatalogService,
+    BundleStockService, ProductCatalogService, ProductManagementService,
   ],
 })
 export class ProductsModule {}

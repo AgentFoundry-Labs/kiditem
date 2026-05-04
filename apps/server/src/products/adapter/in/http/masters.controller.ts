@@ -24,6 +24,7 @@ import type { MulterFile } from '../../../../common/types';
 import { toSerializable } from '../../../util/serialize';
 import { MastersService } from '../../../application/service/masters.service';
 import { OptionsService } from '../../../application/service/options.service';
+import { ProductManagementService, type ProductManagementListItem } from '../../../application/service/product-management.service';
 import { CreateMasterDto } from '../../../dto/create-master.dto';
 import { UpdateMasterDto } from '../../../dto/update-master.dto';
 import { UpdateMasterImagesDto } from '../../../dto/update-master-images.dto';
@@ -39,6 +40,7 @@ export class MastersController {
   constructor(
     private readonly svc: MastersService,
     private readonly optionsSvc: OptionsService,
+    private readonly managementSvc: ProductManagementService,
   ) {}
 
   @Post()
@@ -54,7 +56,16 @@ export class MastersController {
   async list(
     @CurrentOrganization() organizationId: string,
     @Query() q: ListMastersQuery,
-  ): Promise<{ items: Master[]; nextCursor: string | null }> {
+  ): Promise<{
+    items: Master[] | ProductManagementListItem[];
+    total?: number;
+    page?: number;
+    limit?: number;
+    nextCursor: string | null;
+  }> {
+    if (q.enriched) {
+      return this.managementSvc.list(organizationId, q);
+    }
     const { items, nextCursor } = await this.svc.list(organizationId, q);
     return {
       items: items.map(r => MasterSchema.parse(toSerializable(r))),

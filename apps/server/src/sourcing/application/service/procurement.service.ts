@@ -102,6 +102,7 @@ export class ProcurementService {
     items: {
       productName: string;
       productId?: string;
+      optionId?: string;
       quantity: number;
       unitPriceCny: number;
     }[];
@@ -126,7 +127,7 @@ export class ProcurementService {
         items: {
           create: data.items.map((item) => ({
             productName: item.productName,
-            productId: item.productId || null,
+            optionId: item.optionId || null,
             quantity: item.quantity,
             unitPriceCny: item.unitPriceCny,
           })),
