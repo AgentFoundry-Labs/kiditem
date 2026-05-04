@@ -1,4 +1,4 @@
-import { RefreshCw, ScanSearch, Search, Sparkles } from 'lucide-react';
+import { Image as ImageIcon, Loader2, RefreshCw, ScanSearch, Search, Sparkles } from 'lucide-react';
 
 interface ThumbnailHeaderProps {
   totalCount: number;
@@ -8,6 +8,10 @@ interface ThumbnailHeaderProps {
   onSearch: (q: string) => void;
   onInspect: () => void;
   onRefresh: () => void;
+  onSyncImages: () => void;
+  syncRunning: boolean;
+  syncPhase: 'starting' | 'scraping' | 'downloading' | 'finished' | null;
+  syncProgress: { processed: number; total: number } | null;
 }
 
 export function ThumbnailHeader({
@@ -18,7 +22,19 @@ export function ThumbnailHeader({
   onSearch,
   onInspect,
   onRefresh,
+  onSyncImages,
+  syncRunning,
+  syncPhase,
+  syncProgress,
 }: ThumbnailHeaderProps) {
+  const syncLabel = !syncRunning
+    ? '이미지 동기화'
+    : syncPhase === 'scraping'
+      ? 'Wing 스크레이프 중...'
+      : syncPhase === 'downloading' && syncProgress
+        ? `다운로드 중 ${syncProgress.processed}/${syncProgress.total}`
+        : '이미지 동기화 중...';
+
   return (
     <div className="flex items-center justify-between">
       <div className="flex items-center gap-3">
@@ -65,6 +81,15 @@ export function ThumbnailHeader({
             }}
           />
         </div>
+        <button
+          onClick={onSyncImages}
+          disabled={syncRunning}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-colors disabled:opacity-60"
+          style={{ background: 'var(--thumb-surface-sunken)', color: 'var(--thumb-text-secondary)' }}
+        >
+          {syncRunning ? <Loader2 size={14} className="animate-spin" /> : <ImageIcon size={14} />}
+          {syncLabel}
+        </button>
         <button
           onClick={onInspect}
           className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
