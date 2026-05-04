@@ -59,7 +59,7 @@ const menuSections: MenuSection[] = [
     label: '',
     collapsible: false,
     items: [
-      { href: '/', label: '대시보드', icon: LayoutDashboard },
+      { href: '/dashboard', label: '대시보드', icon: LayoutDashboard },
       { href: '/ad-ops', label: '광고전략 AI', icon: Zap },
       { href: '/action-board', label: '액션 보드', icon: ClipboardList },
     ],
@@ -149,7 +149,7 @@ const menuSections: MenuSection[] = [
 const adsSubPaths = ['/ads/campaigns', '/ads/strategy', '/ads/benchmark', '/ads/collect'];
 
 function isItemActive(href: string, pathname: string): boolean {
-  if (href === '/') return pathname === '/';
+  if (href === '/dashboard') return pathname === '/dashboard';
   if (href === '/agents') return pathname.startsWith('/agents') || pathname.startsWith('/workflows') || pathname.startsWith('/marketplace');
   if (href === '/ads') {
     return pathname === '/ads' ||

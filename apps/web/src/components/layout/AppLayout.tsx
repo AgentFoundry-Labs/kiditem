@@ -37,9 +37,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     if (btn) btn.click();
   }, [chatMounted]);
 
+  if (pathname === '/' || pathname.startsWith('/agent-os')) {
+    return <>{children}</>;
+  }
+
   const isEditorRoute = pathname.includes('/editor');
   const collapsedForEditor = isEditorRoute || !sidebarOpen;
-  const showAutoReadinessModal = pathname === '/';
+  const showAutoReadinessModal = pathname === '/dashboard';
 
   const content = (
     <div className="min-h-screen bg-[var(--background)]">
@@ -57,7 +61,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <PanelMount />
         </PanelErrorBoundary>
       )}
-      {showAutoReadinessModal && <ReadinessModal />}
+      {showAutoReadinessModal && <ReadinessModal autoOpenWhen="collectionIssue" />}
       <GlobalConfirmDialog />
       {!isEditorRoute && <GenerationStatusFloater />}
       <GenerationCompletionWatcher />

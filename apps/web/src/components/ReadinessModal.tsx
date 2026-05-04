@@ -413,14 +413,32 @@ function fallbackOpenTabs(urls: string[]) {
   }
 }
 
+type AutoOpenWhen = 'anyIssue' | 'collectionIssue';
+
+function shouldAutoOpen(data: ReadinessResponse, mode: AutoOpenWhen): boolean {
+  if (data.allOk) return false;
+  if (mode === 'anyIssue') return true;
+
+  return data.checks.some((check) => {
+    const missingDateCount = check.missingDates?.length ?? 0;
+    return check.collector === 'extension' && (check.status !== 'ok' || missingDateCount > 0);
+  });
+}
+
 interface ReadinessModalProps {
-  /** 외부 controlled open. undefined 면 자동 열림 (allOk=false + 미dismissed). */
+  /** 외부 controlled open. undefined 면 autoOpenWhen 기준으로 자동 열림. */
   open?: boolean;
   /** 외부 controlled close handler. */
   onClose?: () => void;
+  /** uncontrolled 자동 오픈 기준. 기본값은 기존 동작과 같은 anyIssue. */
+  autoOpenWhen?: AutoOpenWhen;
 }
 
-export default function ReadinessModal({ open: controlledOpen, onClose }: ReadinessModalProps = {}) {
+export default function ReadinessModal({
+  open: controlledOpen,
+  onClose,
+  autoOpenWhen = 'anyIssue',
+}: ReadinessModalProps = {}) {
   const [internalOpen, setInternalOpen] = useState(false);
   const isControlled = controlledOpen !== undefined;
   const open = isControlled ? controlledOpen : internalOpen;
@@ -452,11 +470,11 @@ export default function ReadinessModal({ open: controlledOpen, onClose }: Readin
   useEffect(() => {
     if (isControlled) return; // 외부 controlled 면 auto-open 비활성화
     if (!query.data) return;
-    if (query.data.allOk) return;
+    if (!shouldAutoOpen(query.data, autoOpenWhen)) return;
     const dismissed = sessionStorage.getItem(SESSION_DISMISSED_KEY);
-    if (dismissed) return;
+    if (autoOpenWhen === 'anyIssue' && dismissed) return;
     setInternalOpen(true);
-  }, [query.data, isControlled]);
+  }, [query.data, isControlled, autoOpenWhen]);
 
   const close = () => {
     if (!isControlled) {
