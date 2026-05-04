@@ -47,6 +47,10 @@ import {
   adaptSimpleVerticalToDetailPageData,
   type SimpleVerticalGeneration,
 } from '@/app/(media-ai)/generate/lib/simple-vertical-types';
+import {
+  SAME_ORIGIN_SCRIPTLESS_SANDBOX,
+  stripSrcDocScripts,
+} from '../lib/preview-sandbox';
 
 interface Props {
   productId: string;
@@ -283,6 +287,30 @@ export default function GenerationHistoryTab({
       return styledCurrentPreviewHtml;
     }
   }, [selected, styledCurrentPreviewHtml, templateCss]);
+
+  const safePreviewHtml = useMemo(
+    () => stripSrcDocScripts(previewHtml),
+    [previewHtml],
+  );
+
+  const safeSelectedSvPreviewHtml = useMemo(() => {
+    if (!selected || selected.kind !== 'sv') return null;
+    try {
+      return stripSrcDocScripts(buildSelectedHtml(selected));
+    } catch {
+      return '<html><body>SV preview error</body></html>';
+    }
+  }, [selected, buildSelectedHtml]);
+
+  const safePlaceholderPreviewHtml = useMemo(
+    () => stripSrcDocScripts(renderTemplateToHtml(
+      getTemplate('bold-vertical').component as React.ComponentType<unknown>,
+      placeholderDetailPageData,
+      getTemplate('bold-vertical'),
+      templateCss,
+    )),
+    [templateCss],
+  );
 
   if (isLoading) {
     return (
@@ -561,44 +589,17 @@ export default function GenerationHistoryTab({
             <KidsPlayfulRenderer data={rowToRendererData(selected.entry)} />
           ) : selected?.kind === 'sv' ? (
             <iframe
-              srcDoc={(() => {
-                try {
-                  const adapted = adaptSimpleVerticalToDetailPageData(
-                    selected.entry.result as unknown as SimpleVerticalGeneration,
-                    selected.entry.imageUrls,
-                    selected.entry.processedImages,
-                    API_BASE,
-                  );
-                  // SV → BoldVertical 템플릿 (사용자 요청).
-                  const data = parseDetailPageData(adapted);
-                  const config = getTemplate('bold-vertical');
-                  return renderTemplateToHtml(
-                    config.component as React.ComponentType<unknown>,
-                    data,
-                    config,
-                    templateCss,
-                  );
-                } catch {
-                  return '<html><body>SV preview error</body></html>';
-                }
-              })()}
+              srcDoc={safeSelectedSvPreviewHtml ?? '<html><body>SV preview error</body></html>'}
               className="h-full w-full border-0"
               title="sv-preview"
-              sandbox="allow-same-origin allow-scripts"
+              sandbox={SAME_ORIGIN_SCRIPTLESS_SANDBOX}
             />
           ) : (
             <iframe
-              srcDoc={
-                previewHtml ||
-                renderTemplateToHtml(
-                  getTemplate('bold-vertical').component as React.ComponentType<unknown>,
-                  placeholderDetailPageData,
-                  getTemplate('bold-vertical'),
-                  templateCss,
-                )
-              }
+              srcDoc={safePreviewHtml || safePlaceholderPreviewHtml}
               className="h-full w-full border-0"
               title="history-preview"
+              sandbox={SAME_ORIGIN_SCRIPTLESS_SANDBOX}
             />
           )}
         </div>

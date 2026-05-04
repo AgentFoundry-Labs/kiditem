@@ -33,6 +33,14 @@ import {
   type SimpleVerticalGeneration,
 } from '@/app/(media-ai)/generate/lib/simple-vertical-types';
 import { ensureStyledDetailHtml, renderTemplateToHtml } from '../../lib/template-html';
+import {
+  DETAIL_PREVIEW_SCROLL_MESSAGE,
+  SAME_ORIGIN_SCRIPTLESS_SANDBOX,
+  SCRIPTED_PREVIEW_SANDBOX,
+  isDetailPreviewMetricsMessage,
+  stripSrcDocScripts,
+  withDetailPreviewBridge,
+} from '../lib/preview-sandbox';
 import { useGenerationHistory } from '../hooks/useGenerationHistory';
 
 interface Props {
@@ -54,6 +62,64 @@ interface Props {
 const MAX_MINIMAP_WIDTH = 200; // px — 우선 가로 200px 시도, 페이지가 길면 더 좁게
 const VIEWPORT_HEIGHT_VH = 82; // vh — 우측 iframe 높이
 
+async function createScriptlessCaptureFrame(html: string): Promise<{
+  frame: HTMLIFrameElement;
+  document: Document;
+}> {
+  const frame = document.createElement('iframe');
+  frame.setAttribute('sandbox', SAME_ORIGIN_SCRIPTLESS_SANDBOX);
+  frame.style.position = 'fixed';
+  frame.style.left = '-10000px';
+  frame.style.top = '0';
+  frame.style.width = '720px';
+  frame.style.height = '1000px';
+  frame.style.opacity = '0';
+  frame.style.pointerEvents = 'none';
+  frame.srcdoc = stripSrcDocScripts(html);
+  document.body.appendChild(frame);
+
+  try {
+    await waitForFrameLoad(frame);
+    const frameDocument = frame.contentDocument;
+    if (!frameDocument?.body) {
+      throw new Error('PDF 캡처 문서를 준비하지 못했어요');
+    }
+    await waitForImages(frameDocument);
+    return { frame, document: frameDocument };
+  } catch (err) {
+    frame.remove();
+    throw err;
+  }
+}
+
+function waitForFrameLoad(frame: HTMLIFrameElement): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error('PDF 캡처 준비 시간이 초과됐어요')), 10_000);
+    const finish = () => {
+      window.clearTimeout(timer);
+      resolve();
+    };
+
+    frame.addEventListener('load', finish, { once: true });
+    if (frame.contentDocument?.readyState === 'complete') {
+      window.setTimeout(finish, 0);
+    }
+  });
+}
+
+function waitForImages(doc: Document): Promise<void> {
+  const waits = Array.from(doc.images).map((image) => {
+    if (image.complete) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      const finish = () => resolve();
+      image.addEventListener('load', finish, { once: true });
+      image.addEventListener('error', finish, { once: true });
+      window.setTimeout(finish, 3_000);
+    });
+  });
+  return Promise.all(waits).then(() => undefined);
+}
+
 export default function DetailPagePreview({
   productId,
   detailPreviewHtml,
@@ -65,7 +131,6 @@ export default function DetailPagePreview({
 }: Props) {
   const fullIframeRef = useRef<HTMLIFrameElement>(null);
   const minimapContainerRef = useRef<HTMLDivElement>(null);
-  const rafRef = useRef<number | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
 
   // 이 product 의 KP / SV / Agent 이력 — server DB 에서 조회.
@@ -178,8 +243,10 @@ export default function DetailPagePreview({
     return ensureStyledDetailHtml(detailPreviewHtml, templateCss);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewKey, detailPreviewHtml, agentSelectedHtml, svHtml, editedHtml, hasExplicitSelection, templateCss]);
-  const iframeSandbox =
-    effectivePreviewHtml.includes('<script') ? 'allow-scripts allow-same-origin' : 'allow-same-origin';
+  const sandboxedPreviewHtml = useMemo(
+    () => withDetailPreviewBridge(effectivePreviewHtml),
+    [effectivePreviewHtml],
+  );
 
   // 미니맵 scale: width-fit 와 height-fit 둘 다 충족하는 값 (작은 쪽 채택).
   // 이전엔 width 만 fit → 페이지가 길면 미니맵 아래쪽 잘림. 사용자 "밑부분이 잘려있어".
@@ -188,18 +255,16 @@ export default function DetailPagePreview({
   const [contentHeight, setContentHeight] = useState(2000);
   const [viewportPx, setViewportPx] = useState({ top: 0, height: 0 });
 
-  const measureContent = useCallback(() => {
-    const full = fullIframeRef.current;
+  const applyPreviewMetrics = useCallback((data: {
+    scrollY: number;
+    innerHeight: number;
+    scrollHeight: number;
+    scrollWidth: number;
+  }) => {
     const container = minimapContainerRef.current;
-    let doc: Document | null = null;
-    try {
-      doc = full?.contentDocument ?? null;
-    } catch {
-      doc = null;
-    }
-    if (!doc || !container) return;
-    const docHeight = doc.documentElement.scrollHeight;
-    const fullWidth = doc.documentElement.scrollWidth || 720;
+    if (!container) return;
+    const docHeight = Math.max(1, data.scrollHeight);
+    const fullWidth = Math.max(1, data.scrollWidth || 720);
     const containerHeight = container.clientHeight;
 
     // width-fit scale: 200/720 = 0.28
@@ -212,88 +277,20 @@ export default function DetailPagePreview({
     setContentHeight(docHeight);
     setScale(finalScale);
     setMinimapWidth(fullWidth * finalScale);
+    setViewportPx({ top: data.scrollY, height: data.innerHeight });
   }, []);
 
-  // 실제 y축 값 측정 — 사용자 요구 "스크롤 따라가는 게 아니라 y축 값 계산해서"
-  // scrollY 와 innerHeight 그대로 픽셀로 보존. 미니맵 box 위치 = scrollY * scale.
-  // (이전엔 ratio 로 환산해서 transition 으로 부드럽게 했는데 사용자가 부정확하다고 인식 →
-  //  px 값 그대로 적용. 박스 정확히 콘텐츠 한 영역에 고정.)
-  const updateViewport = useCallback(() => {
-    const full = fullIframeRef.current;
-    try {
-      if (!full?.contentDocument || !full.contentWindow) return;
-    } catch {
-      return;
-    }
-    const win = full.contentWindow;
-    const top = win.scrollY;
-    const height = win.innerHeight;
-    setViewportPx({ top, height });
-  }, []);
-
-  // requestAnimationFrame loop — iframe scroll 이벤트가 누락되는 경우 대비.
-  // 60fps 폴링으로 어떤 scroll 방식이든 정확히 따라감 (휠 / drag scrollbar / 키보드 모두).
   useEffect(() => {
-    const tick = () => {
-      updateViewport();
-      rafRef.current = requestAnimationFrame(tick);
-    };
-    rafRef.current = requestAnimationFrame(tick);
-    return () => {
-      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
-    };
-  }, [updateViewport]);
-
-  useEffect(() => {
-    const full = fullIframeRef.current;
-    if (!full) return;
-    const onLoad = () => {
-      measureContent();
-      updateViewport();
-    };
-    full.addEventListener('load', onLoad);
-    if (full.contentDocument?.readyState === 'complete') onLoad();
-    // iframe content 가 동적으로 변할 수 있으니 5초 간 한 번씩 재측정 (이미지 lazy-load 등)
-    const remeasure = setInterval(measureContent, 1000);
-    return () => {
-      full.removeEventListener('load', onLoad);
-      clearInterval(remeasure);
-    };
-  }, [effectivePreviewHtml, measureContent, updateViewport]);
-
-  useEffect(() => {
-    if (!kpData) return;
     const onMessage = (event: MessageEvent) => {
       if (event.source !== fullIframeRef.current?.contentWindow) return;
-      const data = event.data as
-        | {
-            type?: string;
-            scrollY?: number;
-            innerHeight?: number;
-            scrollHeight?: number;
-            scrollWidth?: number;
-          }
-        | null;
-      if (data?.type !== 'kiditem:detail-preview-metrics') return;
-
-      const docHeight = Math.max(1, data.scrollHeight ?? 0);
-      const fullWidth = Math.max(1, data.scrollWidth ?? 720);
-      const containerHeight = minimapContainerRef.current?.clientHeight ?? 1;
-      const widthScale = MAX_MINIMAP_WIDTH / fullWidth;
-      const heightScale = containerHeight / docHeight;
-      const finalScale = Math.min(widthScale, heightScale);
-
-      setContentHeight(docHeight);
-      setScale(finalScale);
-      setMinimapWidth(fullWidth * finalScale);
-      setViewportPx({
-        top: data.scrollY ?? 0,
-        height: data.innerHeight ?? 0,
-      });
+      if (!isDetailPreviewMetricsMessage(event.data)) return;
+      applyPreviewMetrics(event.data);
     };
     window.addEventListener('message', onMessage);
-    return () => window.removeEventListener('message', onMessage);
-  }, [kpData]);
+    return () => {
+      window.removeEventListener('message', onMessage);
+    };
+  }, [applyPreviewMetrics]);
 
   // 미니맵 클릭 → 풀 iframe 해당 위치로 jump
   const handleMinimapClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -303,29 +300,21 @@ export default function DetailPagePreview({
     if (!full?.contentWindow) return;
     const viewportHeight = viewportPx.height || 0;
     const targetY = clickRatio * contentHeight - viewportHeight / 2;
-    if (kpData) {
-      full.contentWindow.postMessage(
-        {
-          type: 'kiditem:detail-preview-scroll',
-          y: Math.max(0, targetY),
-          behavior: 'smooth',
-        },
-        '*',
-      );
-      return;
-    }
-    full.contentWindow.scrollTo({ top: Math.max(0, targetY), behavior: 'smooth' });
+    full.contentWindow.postMessage(
+      {
+        type: DETAIL_PREVIEW_SCROLL_MESSAGE,
+        y: Math.max(0, targetY),
+        behavior: 'smooth',
+      },
+      '*',
+    );
   };
 
-  // 이미지 다운로드 — 풀 iframe 캡처 → 단일 이미지 → PDF 1쪽 다운로드.
+  // 이미지 다운로드 — 스크립트를 제거한 임시 문서 캡처 → 단일 이미지 → PDF 1쪽 다운로드.
   // 사용자 요청: "PDF 로 해서 다운로드, 이미지 하나로".
   const handleDownloadPdf = useCallback(async () => {
     if (isDownloading) return;
-    const full = fullIframeRef.current;
-    if (!full?.contentDocument?.body) {
-      toast.error('미리보기가 아직 준비되지 않았어요');
-      return;
-    }
+    let captureFrame: HTMLIFrameElement | null = null;
     setIsDownloading(true);
     try {
       // dynamic import — 번들 크기 절약 (다운로드 클릭 시에만 로드)
@@ -334,7 +323,9 @@ export default function DetailPagePreview({
         import('jspdf'),
       ]);
 
-      const body = full.contentDocument.body;
+      const capture = await createScriptlessCaptureFrame(effectivePreviewHtml);
+      captureFrame = capture.frame;
+      const body = capture.document.body;
       const target = (body.querySelector('main, #root, [data-detail-root]') as HTMLElement) || body;
       // 실제 컨텐츠 높이로 캡처 (스크롤 영역 포함)
       const rect = target.getBoundingClientRect();
@@ -373,9 +364,10 @@ export default function DetailPagePreview({
       const msg = err instanceof Error ? err.message : 'PDF 다운로드 실패';
       toast.error(msg);
     } finally {
+      captureFrame?.remove();
       setIsDownloading(false);
     }
-  }, [isDownloading, productId]);
+  }, [effectivePreviewHtml, isDownloading, productId]);
 
   return (
     <div className="p-5 space-y-3">
@@ -437,7 +429,7 @@ export default function DetailPagePreview({
         >
           {/* 축소된 iframe — pointer-events-none 으로 자체 스크롤 차단 (외부 div 클릭만 받음) */}
           <iframe
-            srcDoc={effectivePreviewHtml}
+            srcDoc={sandboxedPreviewHtml}
             className="absolute top-0 left-0 border-0 pointer-events-none"
             style={{
               width: `${minimapWidth / scale}px`,
@@ -446,7 +438,7 @@ export default function DetailPagePreview({
               transformOrigin: 'top left',
             }}
             title="detail-minimap"
-            sandbox={iframeSandbox}
+            sandbox={SCRIPTED_PREVIEW_SANDBOX}
           />
           {/* 현재 viewport 위치 박스 — y축 픽셀값 × scale 로 정확히 계산.
               scrollY 가 800px, scale 0.25 면 박스 top 200px. transition 없이 즉시 반영. */}
@@ -463,10 +455,10 @@ export default function DetailPagePreview({
         <div className="flex-1 rounded-xl border border-slate-200 bg-white overflow-hidden">
           <iframe
             ref={fullIframeRef}
-            srcDoc={effectivePreviewHtml}
+            srcDoc={sandboxedPreviewHtml}
             className="w-full h-full border-0"
             title="detail-page-preview"
-            sandbox={iframeSandbox}
+            sandbox={SCRIPTED_PREVIEW_SANDBOX}
           />
         </div>
       </div>
