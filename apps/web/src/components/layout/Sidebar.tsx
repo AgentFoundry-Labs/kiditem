@@ -140,7 +140,11 @@ const menuSections: MenuSection[] = [
     label: '',
     collapsible: false,
     items: [
-      { href: '/agents', label: 'Agent OS', icon: Bot },
+      // `/agent-os` (top-level fullscreen launcher view) 는 별도 entry point —
+      // landing page (`/`) 의 launcher 카드 또는 직접 URL 진입. 사이드바의
+      // "에이전트 관리" 는 `/agents` 도메인의 list/marketplace/workflow admin
+      // 콘솔이라 라벨을 분리해서 두 surface 의 의미 충돌을 막는다.
+      { href: '/agents', label: '에이전트 관리', icon: Bot },
       { href: '/settings', label: '설정', icon: Settings },
     ],
   },

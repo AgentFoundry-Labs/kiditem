@@ -32,7 +32,7 @@ export default function AgentOSPage() {
   const [activityMinimized, setActivityMinimized] = useState(false);
 
   const { data: orgNodes = [] } = useQuery({
-    queryKey: ['agent-registry', 'org'],
+    queryKey: queryKeys.agents.org(),
     queryFn: () => apiClient.get<OrgNode[]>('/api/agent-registry/org'),
     refetchInterval: 15_000,
   });
@@ -61,7 +61,7 @@ export default function AgentOSPage() {
   });
 
   const handleRefresh = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ['agent-registry', 'org'] });
+    queryClient.invalidateQueries({ queryKey: queryKeys.agents.org() });
     queryClient.invalidateQueries({ queryKey: queryKeys.actionTasks.list() });
     queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
   }, [queryClient]);
