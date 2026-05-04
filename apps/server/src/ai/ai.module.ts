@@ -27,6 +27,7 @@ import { WingAutomationRunner } from './adapter/out/wing/wing-automation-runner'
 import { ImageAiService } from './application/service/image-ai.service';
 import { TextAiService } from './application/service/text-ai.service';
 import { ThumbnailAnalysisService } from './application/service/thumbnail-analysis.service';
+import { ThumbnailAnalysisBatchService } from './application/service/thumbnail-analysis-batch.service';
 import { ThumbnailAutoService } from './application/service/thumbnail-auto.service';
 import { CoupangImageSyncService } from './application/service/coupang-image-sync.service';
 import { DetailPageAiService } from './application/service/detail-page-ai.service';
@@ -66,6 +67,7 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     DetailPageAiService,
     TextAiService,
     ThumbnailAnalysisService,
+    ThumbnailAnalysisBatchService,
     ThumbnailAutoService,
     ThumbnailComplianceVerifierService,
     ThumbnailEditorAiService,

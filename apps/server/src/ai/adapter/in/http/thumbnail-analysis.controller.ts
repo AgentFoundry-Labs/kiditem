@@ -24,6 +24,7 @@ import {
   WingRegisterBatchDto,
 } from './dto/thumbnail-edit.dto';
 import { ThumbnailAnalysisService } from '../../../application/service/thumbnail-analysis.service';
+import { ThumbnailAnalysisBatchService } from '../../../application/service/thumbnail-analysis-batch.service';
 import { ThumbnailGenerationService } from '../../../application/service/thumbnail-generation.service';
 import { ThumbnailRecomposeService } from '../../../application/service/thumbnail-recompose.service';
 import { ThumbnailWingService } from '../../../application/service/thumbnail-wing.service';
@@ -32,6 +33,7 @@ import { ThumbnailWingService } from '../../../application/service/thumbnail-win
 export class ThumbnailAnalysisController {
   constructor(
     private readonly analysisService: ThumbnailAnalysisService,
+    private readonly batchService: ThumbnailAnalysisBatchService,
     private readonly generationService: ThumbnailGenerationService,
     private readonly recomposeService: ThumbnailRecomposeService,
     private readonly wingService: ThumbnailWingService,
@@ -116,6 +118,39 @@ export class ThumbnailAnalysisController {
   @Delete('analyze-batch')
   cancelBatch(@CurrentOrganization() organizationId: string) {
     return this.analysisService.cancelBatch(organizationId);
+  }
+
+  // ─── Batch job tracker (resumable) ─────────────────────────────
+  // 새로고침/탭 닫음 후에도 진행 상태를 유지하기 위해 backend 가 organization
+  // 별 in-memory 1잡을 추적한다. frontend 가 jobId 를 localStorage 에 저장.
+
+  @Post('batch')
+  startBatch(
+    @Body() body: AnalyzeBatchDto,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return this.batchService.start(organizationId, body.productIds, body.scope ?? 'all');
+  }
+
+  @Get('batch')
+  currentBatch(@CurrentOrganization() organizationId: string) {
+    return { job: this.batchService.getCurrent(organizationId) };
+  }
+
+  @Get('batch/:jobId')
+  batchStatus(
+    @Param('jobId') jobId: string,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return this.batchService.getStatus(jobId, organizationId);
+  }
+
+  @Delete('batch/:jobId')
+  cancelBatchJob(
+    @Param('jobId') jobId: string,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return this.batchService.cancel(jobId, organizationId);
   }
 
   // ─── 편집 jobs (현재 main 에서는 unavailable) ────────────────────

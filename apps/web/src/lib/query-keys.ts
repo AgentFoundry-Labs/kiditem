@@ -153,6 +153,8 @@ export const queryKeys = {
     summary: () => [...queryKeys.thumbnailAnalysis.all, 'summary'] as const,
     generations: (params?: Record<string, string>) => [...queryKeys.thumbnailAnalysis.all, 'generations', params] as const,
     tracking: () => [...queryKeys.thumbnailAnalysis.all, 'tracking'] as const,
+    batchCurrent: () => [...queryKeys.thumbnailAnalysis.all, 'batch', 'current'] as const,
+    batchJob: (jobId: string) => [...queryKeys.thumbnailAnalysis.all, 'batch', 'job', jobId] as const,
   },
   coupangImageSync: {
     all: ['coupangImageSync'] as const,

@@ -141,6 +141,7 @@ Agent OS path 는 sourced candidate 와 `MasterProduct` 의 lifecycle 이 분리
 | `adapter/in/http/render-image.controller.ts` 의 inline puppeteer + fs 비즈니스 로직 | `render-image.controller.ts` | controller 가 비즈니스 룰을 가짐. 별도 application service 추출 + `RenderImagePort`(headless browser) 도입 필요. |
 | `adapter/out/coupang/coupang-inventory-scrape.adapter` 의 `spawn('playwriter')` + tmp 파일 IO | `coupang-inventory-scrape.adapter.ts` | dev/local 환경 전용 (NODE_ENV=production 이면 ServiceUnavailableException). 향후 headless `playwright` npm 의존으로 대체. |
 | `application/service/coupang-image-sync.service` 의 in-memory `jobs` Map | `coupang-image-sync.service.ts` | 단일 백엔드 인스턴스 가정. 멀티 인스턴스/재시작 시 잡 상태 손실 (frontend 가 graceful 회복). prod 멀티 인스턴스 도입 시 `ChannelScrapeRun` 같은 DB-backed job table 로 마이그레이션. |
+| `application/service/thumbnail-analysis-batch.service` 의 in-memory `jobs` Map | `thumbnail-analysis-batch.service.ts` | 같은 패턴. 단일 백엔드 인스턴스 가정. frontend 가 `localStorage` 에 jobId 저장 → 새로고침 시 `GET /api/thumbnail-analysis/batch/:jobId` 로 진행 상태 복원. backend GC 후 404 → frontend localStorage cleanup. prod 멀티 인스턴스 도입 시 DB-backed job table 로 마이그레이션. |
 
 원칙: 위 shortcut 들은 모두 same-direction 위반(application→adapter)이고 cross-domain 침범이 아니므로, 후속 lane 들에서 한 번에 한 포트씩 도입 가능하다.
 
