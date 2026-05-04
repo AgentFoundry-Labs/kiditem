@@ -5,6 +5,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { Bell, X } from 'lucide-react';
 import { usePanelStore } from './lib/panel-store';
 import { PanelItemRow } from './PanelItemRow';
+import { useAuth } from '@/hooks/useAuth';
 import type { PanelItem } from '@kiditem/shared/panel';
 
 export function PanelSheet() {
@@ -13,8 +14,8 @@ export function PanelSheet() {
   const byId = usePanelStore((s) => s.byId);
   const connectionStatus = usePanelStore((s) => s.connectionStatus);
 
-  // Read at render time so test env stubs (vi.stubEnv) are picked up.
-  const currentUserId = process.env.NEXT_PUBLIC_DEV_USER_ID ?? null;
+  const { user } = useAuth();
+  const currentUserId = user?.id ?? null;
 
   // byId ref만 의존하면 안정적 — Object.values()를 selector 안에서 호출하면
   // 매 렌더 새 배열 레퍼런스로 infinite loop (useSyncExternalStore getSnapshot 경고).

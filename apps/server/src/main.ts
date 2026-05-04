@@ -10,6 +10,8 @@ import { NestExpressApplication, ExpressAdapter } from '@nestjs/platform-express
 import type { Request, Response } from 'express';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const express = require('express') as () => import('express').Express;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const cookieParser = require('cookie-parser') as () => import('express').RequestHandler;
 import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { ChatService } from './chat/chat.service';
@@ -53,8 +55,13 @@ async function bootstrap() {
           'http://localhost:3002',
           /^http:\/\/localhost:\d+$/,
         ],
+    // apiClient 가 `credentials: 'include'` 로 fetch 하므로 cross-origin (web:3000 →
+    // server:4000) 에서 cookie 전송이 허용되도록 credentials 활성화 필수.
+    credentials: true,
   });
   app.useBodyParser('json', { limit: '5mb' });
+  // SupabaseAuthMiddleware 가 `req.cookies['sb-access-token']` 을 읽기 위해 필요.
+  app.use(cookieParser());
   app.setGlobalPrefix('api');
   app.useGlobalPipes(new ValidationPipe({
     whitelist: true,

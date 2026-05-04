@@ -140,8 +140,9 @@ Route-group private shared directories contain ONLY code shared by 2+ routes ins
 - **Zustand selector 주의**: `(s) => s.method()` 가 배열/객체를 반환하면 매 렌더 새 레퍼런스 → `useSyncExternalStore` infinite loop. byId 같은 stable ref를 구독하고 `useMemo`로 파생. primitive 반환 메서드는 안전.
 
 ### SSE (Server-Sent Events)
-- **기본 금지** — `EventSource`는 헤더 전송 불가 → DevAuthMiddleware 의 header/query auth contract 와 맞지 않음. agents/thumbnails 도메인은 polling 유지.
+- **기본은 polling** — agents/thumbnails 도메인은 polling 유지. 새 SSE 채널은 reconnect/backfill 운영 부담을 동반하므로 명백한 필요가 있을 때만 도입한다.
 - **Panel 도메인 예외** — `@microsoft/fetch-event-source` 사용. 격리된 `PanelSseClient` (`src/components/panel/lib/panel-sse-client.ts`) 래퍼 경유만 허용. 다른 도메인이 SSE 원하면 scoped plan + 해당 instruction update 가 필요하다.
+- **인증** — fetchEventSource 는 `credentials: 'include'` 옵션으로 Supabase 의 `sb-access-token` 쿠키를 자동 전송. backend `SupabaseAuthMiddleware` 가 cookie 에서 토큰을 읽어 검증. URL query 토큰 첨부 패턴(`?devUserId=` 등)은 금지.
 
 ## Domain Guides — 서브 페이지 작업 전 scoped instruction 먼저 Read
 

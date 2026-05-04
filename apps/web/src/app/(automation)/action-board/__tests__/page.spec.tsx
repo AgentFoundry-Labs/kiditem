@@ -40,6 +40,12 @@ vi.mock('@/lib/api-error', () => ({
     typeof err === 'object' && err !== null && 'status' in err,
 }));
 
+// ── useAuth mock — currentUserId 주입 (env stub 폐기 후) ─────────────────────
+const mockUser = vi.hoisted(() => ({ value: null as { id: string } | null }));
+vi.mock('@/hooks/useAuth', () => ({
+  useAuth: () => ({ user: mockUser.value, isLoading: false, logout: vi.fn() }),
+}));
+
 import { apiClient } from '@/lib/api-client';
 import { toast } from 'sonner';
 
@@ -89,12 +95,12 @@ describe('ActionBoardPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSearchParamsGet = vi.fn().mockReturnValue(null);
-    vi.unstubAllEnvs();
+    mockUser.value = null;
     vi.mocked(apiClient.get).mockResolvedValue([]);
   });
 
   afterEach(() => {
-    vi.unstubAllEnvs();
+    mockUser.value = null;
   });
 
   // ── 1. Scope URL param ────────────────────────────────────────────────────
@@ -158,7 +164,7 @@ describe('ActionBoardPage', () => {
   // ── 5. isMine → "해제" 버튼 렌더 ─────────────────────────────────────────
 
   it('isMine → "해제" 버튼 존재', async () => {
-    vi.stubEnv('NEXT_PUBLIC_DEV_USER_ID', MY_USER_ID);
+    mockUser.value = { id: MY_USER_ID };
     vi.mocked(apiClient.get).mockResolvedValue([
       makeTask({ assigneeUserId: MY_USER_ID, assigneeUser: { id: MY_USER_ID, name: '나' } }),
     ]);
@@ -169,7 +175,7 @@ describe('ActionBoardPage', () => {
   // ── 6. 타인 담당 → 버튼 없음, 이름 텍스트만 ──────────────────────────────
 
   it('타인 담당 → "내가 맡기"/"해제" 버튼 없음', async () => {
-    vi.stubEnv('NEXT_PUBLIC_DEV_USER_ID', MY_USER_ID);
+    mockUser.value = { id: MY_USER_ID };
     vi.mocked(apiClient.get).mockResolvedValue([
       makeTask({ assigneeUserId: OTHER_USER_ID, assigneeUser: { id: OTHER_USER_ID, name: 'Bob' } }),
     ]);
@@ -212,7 +218,7 @@ describe('ActionBoardPage', () => {
   // ── 8. claim mutation onSuccess → invalidate + toast ─────────────────────
 
   it('claim mutation onSuccess → toast.success("맡았습니다")', async () => {
-    vi.stubEnv('NEXT_PUBLIC_DEV_USER_ID', MY_USER_ID);
+    mockUser.value = { id: MY_USER_ID };
     vi.mocked(apiClient.get).mockResolvedValue([makeTask({ id: 'task-claim-1', assigneeUserId: null })]);
     vi.mocked(apiClient.patch).mockResolvedValue(makeTask({ assigneeUserId: MY_USER_ID }));
 
@@ -229,7 +235,7 @@ describe('ActionBoardPage', () => {
   // ── 9. claim 409 → toast.error("이미 다른 사람이...") ────────────────────
 
   it('claim 409 → toast.error("이미 다른 사람이 맡았습니다")', async () => {
-    vi.stubEnv('NEXT_PUBLIC_DEV_USER_ID', MY_USER_ID);
+    mockUser.value = { id: MY_USER_ID };
     vi.mocked(apiClient.get).mockResolvedValue([makeTask({ id: 'task-409', assigneeUserId: null })]);
     vi.mocked(apiClient.patch).mockRejectedValue({ status: 409, detail: '이미 담당자가 있습니다' });
 

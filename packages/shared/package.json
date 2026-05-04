@@ -155,6 +155,11 @@
       "import": "./dist/readiness.js",
       "require": "./dist/readiness.cjs"
     },
+    "./auth": {
+      "types": "./dist/auth.d.ts",
+      "import": "./dist/auth.js",
+      "require": "./dist/auth.cjs"
+    },
     "./internal/*": null
   },
   "types": "./dist/index.d.ts",
@@ -188,7 +193,8 @@
       "return-summary": ["dist/return-summary.d.ts"],
       "feature-gate": ["dist/feature-gate.d.ts"],
       "inspection": ["dist/inspection.d.ts"],
-      "readiness": ["dist/readiness.d.ts"]
+      "readiness": ["dist/readiness.d.ts"],
+      "auth": ["dist/auth.d.ts"]
     }
   },
   "main": "./dist/index.cjs",

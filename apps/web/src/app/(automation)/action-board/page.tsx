@@ -15,6 +15,7 @@ import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/hooks/useAuth';
 import { parseActionResult, type ActionResult } from './lib/actions';
 import type { ActionTask } from '@kiditem/shared/action-task';
 
@@ -123,7 +124,8 @@ function ActionBoardContent() {
     router.push(qs ? `${pathname}?${qs}` : pathname);
   };
 
-  const currentUserId = process.env.NEXT_PUBLIC_DEV_USER_ID ?? null;
+  const { user } = useAuth();
+  const currentUserId = user?.id ?? null;
 
   // ── Data fetching ──
   const { data: tasks = [], isLoading } = useQuery({

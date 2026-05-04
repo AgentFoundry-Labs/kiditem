@@ -3,10 +3,15 @@
  *
  * ADR-0010: fetch-event-source is authorized for Panel domain only.
  * Raw fetch() is otherwise prohibited in apps/web (see apps/web/AGENTS.md).
+ *
+ * Auth: connect 시점에 Supabase 세션의 access token 을 `Authorization: Bearer` 헤더로 첨부.
+ * `credentials: 'include'` 도 같이 보내 추후 cookie-only 백엔드와 호환. fetchEventSource 는
+ * 표준 EventSource API 와 달리 fetch() 옵션을 받으므로 헤더/credentials 둘 다 가능.
  */
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { PanelEvent } from '@kiditem/shared/panel';
 import { API_BASE } from '@/lib/api';
+import { createSupabaseBrowserClient } from '@/lib/supabase/client';
 
 export interface PanelSseClientOptions {
   onMessage: (event: PanelEvent) => void;
@@ -47,16 +52,30 @@ export class PanelSseClient {
     this.controller = controller;
     this.retryCount = 0;
 
-    // Read env at connect time so tests can stub env before connecting (Option A).
-    const devUserId = process.env.NEXT_PUBLIC_DEV_USER_ID;
+    void Promise.resolve(this.buildHeaders()).then((headers) =>
+      this.openStream(controller, headers),
+    );
+  }
 
+  private async buildHeaders(): Promise<Record<string, string>> {
     const headers: Record<string, string> = { Accept: 'text/event-stream' };
-    if (devUserId) headers['x-dev-user-id'] = devUserId;
     if (this.lastEventId) headers['last-event-id'] = this.lastEventId;
+    try {
+      const supabase = createSupabaseBrowserClient();
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+    } catch {
+      // Supabase 키 미설정 환경 — 백엔드가 401 후 polling fallback 으로 떨어짐.
+    }
+    return headers;
+  }
 
+  private openStream(controller: AbortController, headers: Record<string, string>) {
     void Promise.resolve(
       fetchEventSource(`${API_BASE}/api/panel/stream`, {
         signal: controller.signal,
+        credentials: 'include',
         headers,
         // visibility 변경 시 재연결 유도 (IMPORTANT #7)
         openWhenHidden: false,
@@ -90,6 +109,7 @@ export class PanelSseClient {
       this.options.onError?.(err);
     });
   }
+
 
   disconnect() {
     if (!this.controller.signal.aborted) this.controller.abort();

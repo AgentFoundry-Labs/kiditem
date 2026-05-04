@@ -1,23 +1,38 @@
 import { ZodType, ZodError } from 'zod';
 import { API_BASE } from './api';
 import { ApiError } from './api-error';
+import { createSupabaseBrowserClient } from './supabase/client';
 
-// Dev 전용 — DevAuthMiddleware(ADR-0006)가 x-dev-user-id 헤더로 req.authUser 를 채움.
-// 프로덕션 인증 전환 시 실제 토큰 로직으로 교체. EventSource 는 헤더를 못 보내서
-// SSE URL 만 `?devUserId=` 쿼리로 대체.
-const DEV_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID;
-
-function withAuthHeaders(init?: RequestInit): RequestInit | undefined {
-  if (!DEV_USER_ID) return init;
-  const headers = new Headers(init?.headers);
-  if (!headers.has('x-dev-user-id')) {
-    headers.set('x-dev-user-id', DEV_USER_ID);
+/**
+ * Supabase 세션 access token 을 `Authorization: Bearer <token>` 헤더로 첨부.
+ * 토큰이 없으면 헤더 없이 요청 → 백엔드에서 401, 미들웨어가 `/login` 리다이렉트.
+ *
+ * `credentials: 'include'` 는 cross-origin (web:3000 → server:4000) 에서 cookie
+ * 전달을 허용한다 — Authorization 헤더가 없는 SSE/EventSource 요청도 같은 cookie
+ * 를 사용해 인증한다 (SupabaseAuthMiddleware 가 `sb-access-token` 쿠키를 읽음).
+ */
+async function getAccessToken(): Promise<string | null> {
+  if (typeof window === 'undefined') return null;
+  try {
+    const supabase = createSupabaseBrowserClient();
+    const { data } = await supabase.auth.getSession();
+    return data.session?.access_token ?? null;
+  } catch {
+    return null;
   }
-  return { ...init, headers };
+}
+
+async function withAuthHeaders(init?: RequestInit): Promise<RequestInit> {
+  const headers = new Headers(init?.headers);
+  const token = await getAccessToken();
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+  return { credentials: 'include', ...init, headers };
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, withAuthHeaders(init));
+  const res = await fetch(`${API_BASE}${path}`, await withAuthHeaders(init));
   if (!res.ok) {
     let code: string | null = null;
     let detail = `API error: ${res.status}`;
@@ -116,6 +131,6 @@ export const apiClient = {
   upload: <T>(path: string, formData: FormData) =>
     request<T>(path, { method: 'POST', body: formData }),
   /** Response 객체 직접 반환 (blob, stream 등 non-JSON 응답용) */
-  fetchRaw: (path: string, init?: RequestInit): Promise<Response> =>
-    fetch(`${API_BASE}${path}`, withAuthHeaders(init)),
+  fetchRaw: async (path: string, init?: RequestInit): Promise<Response> =>
+    fetch(`${API_BASE}${path}`, await withAuthHeaders(init)),
 };
