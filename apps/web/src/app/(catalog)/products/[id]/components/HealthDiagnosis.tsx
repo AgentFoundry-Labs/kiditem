@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { cn, timeAgo } from '@/lib/utils';
 import type { ProductCatalogDetail as Product } from '@kiditem/shared/product';
-import type { ActivityEvent } from '../page';
+import type { ActivityEvent } from '../hooks/useProductActions';
 
 interface HealthDiagnosisProps {
   product: Product;

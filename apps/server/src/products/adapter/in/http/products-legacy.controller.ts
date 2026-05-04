@@ -2,7 +2,9 @@ import { Controller, Get, Header, HttpCode, Param, ParseUUIDPipe, Post, Query } 
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { ProductCatalogService } from '../../../application/service/product-catalog.service';
 import { MastersService } from '../../../application/service/masters.service';
+import { ProductManagementService } from '../../../application/service/product-management.service';
 import { ListProductCatalogQuery } from '../../../dto/list-product-catalog.query';
+import { ListMastersQuery } from '../../../dto/list-masters.query';
 
 const DEPRECATION_HEADER = 'true';
 const SUNSET_HEADER = 'Mon, 15 Jun 2026 00:00:00 GMT';
@@ -19,6 +21,7 @@ export class ProductsLegacyController {
   constructor(
     private readonly catalog: ProductCatalogService,
     private readonly masters: MastersService,
+    private readonly management: ProductManagementService,
   ) {}
 
   @Get()
@@ -36,9 +39,9 @@ export class ProductsLegacyController {
   @Header('Sunset', SUNSET_HEADER)
   async pipelineStats(
     @CurrentOrganization() organizationId: string,
-    @Query() q: ListProductCatalogQuery,
+    @Query() q: ListMastersQuery,
   ) {
-    return this.catalog.counts(organizationId, q);
+    return this.management.pipelineStats(organizationId, q);
   }
 
   // Both GET and POST supported for calculate-grades: action-board.service.ts

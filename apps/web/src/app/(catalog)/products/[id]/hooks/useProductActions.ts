@@ -149,7 +149,7 @@ export function useProductActions({ productId, product, workflows }: UseProductA
       const wf = workflows.find((w) => w.module === actionParams.workflowModule);
       if (wf) runWorkflow(wf);
     } else if (type === "product.view_detail") {
-      window.location.href = `/products/${actionParams.productId}`;
+      window.location.href = `/product-hub/${actionParams.productId}`;
     } else if (type.startsWith("product.")) {
       // Write path (adjust_price / stop_ads / discontinue / change_grade) is unwired
       // in this slice. UI action triggers stay rendered; backend wiring lands with

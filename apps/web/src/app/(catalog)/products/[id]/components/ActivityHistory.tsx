@@ -8,7 +8,7 @@ import {
   Box,
 } from 'lucide-react';
 import { timeAgo } from '@/lib/utils';
-import type { ActivityEvent } from '../page';
+import type { ActivityEvent } from '../hooks/useProductActions';
 
 interface ActivityHistoryProps {
   activities: ActivityEvent[];

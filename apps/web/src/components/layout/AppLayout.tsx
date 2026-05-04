@@ -39,6 +39,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   const isEditorRoute = pathname.includes('/editor');
   const collapsedForEditor = isEditorRoute || !sidebarOpen;
+  const showAutoReadinessModal = pathname === '/';
 
   const content = (
     <div className="min-h-screen bg-[var(--background)]">
@@ -56,7 +57,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <PanelMount />
         </PanelErrorBoundary>
       )}
-      <ReadinessModal />
+      {showAutoReadinessModal && <ReadinessModal />}
       <GlobalConfirmDialog />
       {!isEditorRoute && <GenerationStatusFloater />}
       <GenerationCompletionWatcher />

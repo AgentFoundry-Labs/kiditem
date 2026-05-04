@@ -131,12 +131,21 @@ interface HistoryCardProps {
 
 function HistoryCard({ entry, onOpen, onDelete }: HistoryCardProps) {
   const thumb = rowThumbnail(entry);
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      onOpen();
+    }
+  };
+
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onOpen}
+      onKeyDown={handleKeyDown}
       className={cn(
-        'group relative flex flex-col overflow-hidden rounded-xl border-2 border-slate-200 bg-white text-left',
+        'group relative flex cursor-pointer flex-col overflow-hidden rounded-xl border-2 border-slate-200 bg-white text-left',
         'hover:border-violet-400 hover:shadow-lg transition-all',
       )}
     >
@@ -172,7 +181,7 @@ function HistoryCard({ entry, onOpen, onDelete }: HistoryCardProps) {
           {formatTs(entry.createdAt)}
         </div>
       </div>
-    </button>
+    </div>
   );
 }
 

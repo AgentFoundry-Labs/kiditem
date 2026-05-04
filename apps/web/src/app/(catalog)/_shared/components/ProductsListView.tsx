@@ -188,7 +188,7 @@ export default function ProductsListView() {
             )}
           </div>
           <div className="min-w-0 pt-0.5">
-            <a href={`/products/${p.id}`} className="text-[16px] font-bold text-slate-900 leading-snug line-clamp-2 hover:underline">{p.name}</a>
+            <a href={`/product-hub/${p.id}`} className="text-[16px] font-bold text-slate-900 leading-snug line-clamp-2 hover:underline">{p.name}</a>
             <div className="text-[11px] text-slate-400 mt-1.5 space-x-1">
               <span>코드: {p.code}</span>
               {p.representativeSku && <span>&#183; SKU: {p.representativeSku}</span>}

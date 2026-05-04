@@ -102,6 +102,7 @@ export class ProcurementService {
     items: {
       productName: string;
       productId?: string;
+      optionId?: string;
       quantity: number;
       unitPriceCny: number;
     }[];
@@ -111,6 +112,31 @@ export class ProcurementService {
       (sum, item) => sum + item.quantity * item.unitPriceCny,
       0,
     );
+
+    // tenant boundary 검증 — optionId 가 client input 그대로 흘러오므로
+    // ProductOption 의 organizationId 일치 여부를 사전 확인하지 않으면
+    // foreign-key 만으로는 cross-organization 침범이 막히지 않는다 (IDOR).
+    // PR #193 review #2 (yhc125) 후속 fix.
+    const optionIds = Array.from(
+      new Set(
+        data.items
+          .map((item) => item.optionId)
+          .filter((id): id is string => typeof id === 'string' && id.length > 0),
+      ),
+    );
+    if (optionIds.length > 0) {
+      const owned = await this.prisma.productOption.findMany({
+        where: { id: { in: optionIds }, organizationId, isDeleted: false },
+        select: { id: true },
+      });
+      if (owned.length !== optionIds.length) {
+        const ownedSet = new Set(owned.map((row) => row.id));
+        const missing = optionIds.filter((id) => !ownedSet.has(id));
+        throw new BadRequestException(
+          `발주 항목의 옵션을 찾을 수 없거나 권한이 없습니다: ${missing.join(', ')}`,
+        );
+      }
+    }
 
     return this.prisma.purchaseOrder.create({
       data: {
@@ -126,7 +152,7 @@ export class ProcurementService {
         items: {
           create: data.items.map((item) => ({
             productName: item.productName,
-            productId: item.productId || null,
+            optionId: item.optionId || null,
             quantity: item.quantity,
             unitPriceCny: item.unitPriceCny,
           })),

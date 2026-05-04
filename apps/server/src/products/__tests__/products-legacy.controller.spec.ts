@@ -5,6 +5,7 @@ import request from 'supertest';
 import { ProductsLegacyController } from '../adapter/in/http/products-legacy.controller';
 import { ProductCatalogService } from '../application/service/product-catalog.service';
 import { MastersService } from '../application/service/masters.service';
+import { ProductManagementService } from '../application/service/product-management.service';
 
 describe('ProductsLegacyController (GET-only alias, e2e)', () => {
   let app: INestApplication;
@@ -20,6 +21,20 @@ describe('ProductsLegacyController (GET-only alias, e2e)', () => {
   const masters = {
     originalImageBase64: vi.fn().mockResolvedValue({ dataUrl: 'data:image/jpeg;base64,AAAA' }),
   };
+  // pipeline-stats now delegates to ProductManagementService.pipelineStats
+  // (read-only — no write side-effects, see review #193 P1).
+  const management = {
+    pipelineStats: vi.fn().mockResolvedValue({
+      total: 0, gradeA: 0, gradeB: 0, gradeC: 0,
+      active: 0, inactive: 0, cleanup: 0, unknown: 0,
+      minus: 0, low: 0, zeroStock: 0, lowStock: 0, stockRisk: 0, adLoss: 0,
+      gradeChangeA: 0, gradeChangeB: 0, gradeChangeC: 0,
+      adCount: 0, noAdCount: 0,
+      totalRev: 0, totalAd: 0,
+      gradeRevA: 0, gradeRevB: 0, gradeRevC: 0,
+      gradeAdA: 0, gradeAdB: 0, gradeAdC: 0,
+    }),
+  };
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -27,6 +42,7 @@ describe('ProductsLegacyController (GET-only alias, e2e)', () => {
       providers: [
         { provide: ProductCatalogService, useValue: catalog },
         { provide: MastersService, useValue: masters },
+        { provide: ProductManagementService, useValue: management },
       ],
     }).compile();
     app = moduleRef.createNestApplication();
@@ -48,10 +64,10 @@ describe('ProductsLegacyController (GET-only alias, e2e)', () => {
     expect(catalog.list).toHaveBeenCalled();
   });
 
-  it('GET /products/pipeline-stats delegates to catalog.counts', async () => {
+  it('GET /products/pipeline-stats delegates to management.pipelineStats (read-only)', async () => {
     const res = await request(app.getHttpServer()).get('/products/pipeline-stats');
     expect(res.status).toBe(200);
-    expect(catalog.counts).toHaveBeenCalled();
+    expect(management.pipelineStats).toHaveBeenCalled();
   });
 
   it('GET /products/calculate-grades returns counts with no write', async () => {
