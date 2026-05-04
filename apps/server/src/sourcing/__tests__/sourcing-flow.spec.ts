@@ -226,35 +226,12 @@ describe('SourcingService — extension data ingestion', () => {
     expect(result.ok).toBe(true);
   });
 
-  it('generateDetailPage → delegates to agent gateway with sourcing-specific shape', async () => {
-    prisma.masterProduct.findFirst.mockResolvedValue({
-      id: 'prod-1',
-      rawData: { title: '상품' },
-    });
-
-    const result = await service.generateDetailPage(
-      'prod-1',
-      { mode: 'draft', templateId: 'bold-vertical', seed_hook_text: 'hello' },
-      'organization-1',
-    );
-
-    expect(agentGateway.generateDetailPage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        organizationId: 'organization-1',
-        productId: 'prod-1',
-        mode: 'draft',
-        templateId: 'bold-vertical',
-        seed_hook_text: 'hello',
-      }),
-    );
-    expect(result.ok).toBe(true);
-    expect(result.taskId).toBe('detail-1');
-  });
-
-  it('generateDetailPage throws when product missing', async () => {
-    prisma.masterProduct.findFirst.mockResolvedValue(null);
+  it('generateDetailPage is disabled until sourced candidates can be promoted to masters', async () => {
     await expect(
-      service.generateDetailPage('missing', {}, 'organization-1'),
-    ).rejects.toThrow('Product not found');
+      service.generateDetailPage('prod-1', { mode: 'draft' }, 'organization-1'),
+    ).rejects.toThrow('Sourcing detail-page Agent OS generation is disabled');
+
+    expect(prisma.masterProduct.findFirst).not.toHaveBeenCalled();
+    expect(agentGateway.generateDetailPage).not.toHaveBeenCalled();
   });
 });

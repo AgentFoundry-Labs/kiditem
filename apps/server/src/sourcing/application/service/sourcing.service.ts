@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, NotImplementedException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { paginationParams } from '../../../common/pagination';
 import {
@@ -278,45 +278,24 @@ export class SourcingService {
   }
 
   async generateDetailPage(
-    productId: string,
-    body: {
+    _productId: string,
+    _body: {
       mode?: 'draft' | 'image' | 'full';
       templateId?: string;
       seed_hook_text?: string;
       seed_hook_title_sub?: string;
       seed_hero_image?: string;
     },
-    organizationId: string,
+    _organizationId: string,
   ): Promise<{
     ok: true;
     taskId: string;
     mode: 'draft' | 'image' | 'full';
     templateId: string;
   }> {
-    const master = await this.prisma.masterProduct.findFirst({
-      where: { id: productId, organizationId, isDeleted: false },
-      select: { id: true, rawData: true },
-    });
-    if (!master) throw new NotFoundException('Product not found');
-    if (!master.rawData) {
-      throw new NotFoundException(
-        '상세페이지 생성을 위한 raw 데이터가 없습니다. 먼저 소싱 데이터를 수집해주세요.',
-      );
-    }
-
-    const mode = body.mode ?? 'draft';
-    const templateId = body.templateId ?? 'bold-vertical';
-    const result = await this.agentGateway.generateDetailPage({
-      organizationId,
-      productId,
-      mode,
-      templateId,
-      ...(body.seed_hook_text && { seed_hook_text: body.seed_hook_text }),
-      ...(body.seed_hook_title_sub && { seed_hook_title_sub: body.seed_hook_title_sub }),
-      ...(body.seed_hero_image && { seed_hero_image: body.seed_hero_image }),
-    });
-
-    return { ok: true, taskId: result.taskId, mode, templateId };
+    throw new NotImplementedException(
+      'Sourcing detail-page Agent OS generation is disabled until sourcing candidates are modeled separately from MasterProduct.',
+    );
   }
 
   async scrapeUrl(url: string, organizationId: string): Promise<{ ok: boolean; message: string; taskId: string }> {

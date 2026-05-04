@@ -102,6 +102,7 @@ export class DetailPageAiService {
 
       void this.completeStoredGeneration({
         rowId: row.id,
+        organizationId,
         rawInput,
         heroImageMode,
         templateId,
@@ -280,6 +281,7 @@ export class DetailPageAiService {
 
   private async completeStoredGeneration(input: {
     rowId: string;
+    organizationId: string;
     rawInput: {
       rawTitle: string;
       rawCategory: string;
@@ -298,8 +300,8 @@ export class DetailPageAiService {
     try {
       const parsed = await this.generateParsed(input);
       const productName = this.pickProductName(parsed, input.templateId, input.fallbackTitle);
-      await this.prisma.contentGeneration.update({
-        where: { id: input.rowId },
+      await this.prisma.contentGeneration.updateMany({
+        where: { id: input.rowId, organizationId: input.organizationId },
         data: {
           generatedTitle: productName,
           detailPageHtml: JSON.stringify({
@@ -313,8 +315,8 @@ export class DetailPageAiService {
         },
       });
     } catch (err) {
-      await this.prisma.contentGeneration.update({
-        where: { id: input.rowId },
+      await this.prisma.contentGeneration.updateMany({
+        where: { id: input.rowId, organizationId: input.organizationId },
         data: {
           status: 'FAILED',
           errorMessage: err instanceof Error ? err.message : '상세페이지 생성 실패',

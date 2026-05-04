@@ -64,11 +64,12 @@ sourcing/
 The Wave H1 Lane S fold introduced hexagonal boundaries only where behavior
 justifies them. The rest stays transitional flat CRUD by design:
 
-- **AgentRegistry delegation** (`/api/sourcing/scrape-url`,
-  `/api/sourcing/:id/generate`) is mandatory port per the architecture
-  contract. `SourcingService` depends on `SOURCING_AGENT_GATEWAY_PORT`;
-  `SourcingAgentGatewayAdapter` is the only call site of
-  `AgentRegistryService.runByType('sourcing'|'content', ...)` for sourcing.
+- **AgentRegistry delegation** (`/api/sourcing/scrape-url`) is mandatory port
+  per the architecture contract. `SourcingService` depends on
+  `SOURCING_AGENT_GATEWAY_PORT`; `SourcingAgentGatewayAdapter` is the only
+  call site of `AgentRegistryService.runByType('sourcing', ...)` for sourcing.
+  `POST /api/sourcing/:id/generate` is intentionally disabled until sourced
+  candidates are modeled separately from `MasterProduct`.
 - **Cross-domain MasterProduct create** (extension ingest creating new family)
   flows through `SOURCING_PRODUCTS_CATALOG_PORT`. `SourcingService` does not
   import `MastersService` directly; the port adapter
@@ -103,12 +104,11 @@ justifies them. The rest stays transitional flat CRUD by design:
   (with images) gated by `pipelineStep IS NOT NULL` and
   `findFirst({ id, organizationId })`. 404 on miss; never expose
   cross-organization rows.
-- `POST /api/sourcing/:id/generate` enqueues a detail-page generation Agent
-  OS task via `runByType('content', …)` with body shape
-  `{ mode: 'draft'|'image'|'full', templateId, seed_hook_text?,
-  seed_hook_title_sub?, seed_hero_image? }`. `templateId` defaults to
-  `bold-vertical`. Distinct from `/api/ai/detail-page/generate` (sync inline
-  Gemini for kids-playful / simple-vertical templates).
+- `POST /api/sourcing/:id/generate` is disabled and returns
+  `NotImplementedException` (HTTP 501). Do not re-enable the Agent OS content
+  path until the sourcing candidate → `MasterProduct` promotion model exists;
+  otherwise a sourced-but-not-approved candidate is incorrectly treated as an
+  operational master product.
 - `/api/purchase-orders` action body (`create | updateStatus | delete`)
   preserves the legacy single-endpoint POST shape. Status transitions follow
   `draft → pending → ordered → shipped → received` exactly; deletion is

@@ -91,18 +91,22 @@ ai/
 
 Gemini text generation 호출은 `TEXT_COMPLETION_PORT` 한 곳에 모인다. `text-ai.service` (preset 변환) 와 `detail-page-ai.service` (kids-playful / simple-vertical 상세페이지 single-call generation) 가 모두 이 port 만 의존하므로 application layer 는 HTTP / API key / Gemini URL 을 알지 않는다. Adapter (`adapter/out/gemini/gemini-text-completion.adapter.ts`) 는 system/user/temperature/responseMimeType/model 을 받아 `generateContent` 엔드포인트를 호출한다. caller 는 `model` 을 항상 명시적으로 ENV 에서 읽어 전달 (silent fallback 금지).
 
-### 7. Detail page generation — Dual path (의도된 분리)
+### 7. Detail page generation — active sync path, disabled sourcing async path
 
-상세페이지 생성은 두 진입점이 공존하며 서로 책임이 다르다:
+상세페이지 생성은 현재 sync AI path 만 활성화되어 있다. sourcing async
+Agent OS path 는 sourced candidate 와 `MasterProduct` 의 lifecycle 이 분리될
+때까지 비활성화한다.
 
 | 진입점 | 모드 | 호출 경로 | 결과 저장 | 사용처 |
 |---|---|---|---|---|
-| `POST /api/sourcing/:id/generate` | **async** (Agent OS) | sourcing 도메인의 `SourcingService.generateDetailPage` → `agentGateway.generateDetailPage` → `runByType('content', …)` | Agent task → 후속 polling | sourcing detail page 작업 (bold-vertical 등) |
+| `POST /api/sourcing/:id/generate` | **disabled** | `SourcingService.generateDetailPage` → `NotImplementedException` | 없음 | candidate → master promotion model 도입 전까지 사용 금지 |
 | `POST /api/ai/detail-page/generate` | **sync** (inline Gemini) | ai 도메인의 `DetailPageAiService.generate` → `TEXT_COMPLETION_PORT` | `ContentGeneration` row + `detailPageHtml` JSON column | media-ai generate 페이지 (kids-playful / simple-vertical) |
 
 규칙:
-- ai sync path 는 Gemini 응답이 즉시 schema-valid (Zod) 일 때만 사용. heavy 이미지 후처리가 필요한 케이스는 sourcing async path.
-- 두 path 의 templateId enum 은 의도적으로 서로 분리: `bold-vertical` (sourcing/content agent 전용) vs `kids-playful | simple-vertical` (ai sync). 한쪽 enum 을 다른 path 로 전달하지 않는다.
+- ai sync path 는 Gemini 응답이 즉시 schema-valid (Zod) 일 때만 사용.
+- `bold-vertical` sourcing/content-agent path 는 disabled 상태다. 다시 활성화하려면
+  sourced candidate 저장소, approval/promotion workflow, 그리고 content
+  generation target model 을 먼저 설계한다.
 - `ContentGeneration.detailPageHtml` 은 sync path 의 polymorphic JSON store 다. `templateId` 키로 분기하며 schema-level discriminator column 화는 후속 lane.
 
 ## Rules
