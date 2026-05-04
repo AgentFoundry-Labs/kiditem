@@ -41,7 +41,7 @@ vi.mock('@/lib/api-client', async () => {
   };
 });
 
-import Dashboard from '../page';
+import Dashboard from '../dashboard/page';
 
 function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } } });
@@ -121,7 +121,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe('Root dashboard page (RTL)', () => {
+describe('Dashboard page (RTL)', () => {
   it('T1: hides content while baseline queries pending (PageSkeleton in place)', () => {
     getParsedMock.mockImplementation(() => new Promise(() => {})); // never resolves
     const { container } = renderPage();
