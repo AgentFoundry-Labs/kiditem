@@ -967,7 +967,7 @@ function DashboardChart({
   const queryClient = useQueryClient();
 
   const { data: orgNodes = [] } = useQuery({
-    queryKey: ['agent-registry', 'org'],
+    queryKey: queryKeys.agents.org(),
     queryFn: () => apiClient.get<OrgNode[]>('/api/agent-registry/org'),
     refetchInterval: 30_000,
     enabled: chartTab === 'agents',

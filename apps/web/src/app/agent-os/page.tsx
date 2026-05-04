@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import {
   ChevronLeft, Layers, MoreHorizontal, Radio,
 } from 'lucide-react';
-import type { ActionTask } from '@kiditem/shared/action-task';
+import { ActionTaskSchema, type ActionTask } from '@kiditem/shared/action-task';
 import type { DashboardAdSummary, DashboardSalesSummary } from '@kiditem/shared/dashboard';
 import type { PanelItem } from '@kiditem/shared/panel';
 import { apiClient } from '@/lib/api-client';
@@ -52,7 +52,10 @@ export default function AgentOSPage() {
     refetchInterval: 60_000,
   });
   const { mutate: executeAction, variables: executingId } = useMutation({
-    mutationFn: (id: string) => apiClient.post<{ ok: boolean }>(`/api/action-tasks/${id}/execute`, {}),
+    mutationFn: async (id: string) => {
+      const raw = await apiClient.post<unknown>(`/api/action-tasks/${id}/execute`, {});
+      return ActionTaskSchema.parse(raw);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.actionTasks.list() });
       toast.success('실행 완료');
