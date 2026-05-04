@@ -52,9 +52,24 @@ describe('coupang-image-sync helpers', () => {
 });
 
 describe('CoupangImageSyncService — orchestration via ports', () => {
+  type ExistingListing = {
+    externalId: string;
+    master: {
+      imageUrl: string | null;
+      thumbnailUrl: string | null;
+      images: Array<{ id: string }>;
+    };
+  };
+
+  async function waitForJob(): Promise<void> {
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+  }
+
   function buildService(overrides?: {
     scrapeRows?: CoupangInventoryRow[];
-    rowsNeedingImage?: CoupangInventoryRow[];
+    existingListings?: ExistingListing[];
     attachResults?: boolean[]; // per-row result of catalog.attachPrimaryImage
     attachThrowsOnce?: boolean; // first call throws → failure path
   }) {
@@ -62,7 +77,7 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
       { inventoryId: 'INV-1', name: 'P1', url: 'https://wing.coupang.com/img/1.jpg' },
       { inventoryId: 'INV-2', name: 'P2', url: 'https://wing.coupang.com/img/2.jpg' },
     ];
-    const rowsNeedingImage = overrides?.rowsNeedingImage ?? scrapeRows;
+    const existingListings = overrides?.existingListings ?? [];
 
     const scraper: CoupangInventoryScrapePort = {
       scrapeAll: vi.fn().mockResolvedValue(scrapeRows),
@@ -91,11 +106,17 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
       }),
     };
 
-    // PrismaService stub — filterRowsNeedingImage 가 사용. listing 은 모두
-    // null 반환해서 모든 row 가 needing image 로 분류.
+    // PrismaService stub — filterRowsNeedingImage 가 기존 listing 존재 여부를 조회.
+    // 기본값은 빈 목록이라 모든 row 가 needing image 로 분류된다.
     const prisma = {
       channelListing: {
-        findFirst: vi.fn(async () => null),
+        findMany: vi.fn(async () => existingListings),
+        findFirst: vi.fn(async (args: { where: { externalId: string } }) => {
+          return (
+            existingListings.find((listing) => listing.externalId === args.where.externalId) ??
+            null
+          );
+        }),
       },
     } as unknown as ConstructorParameters<typeof CoupangImageSyncService>[0];
 
@@ -140,9 +161,7 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
     const { jobId } = service.start(ORG_A);
 
     // 잡 실행은 fire-and-forget. 다음 microtask 까지 대기.
-    await new Promise((r) => setImmediate(r));
-    await new Promise((r) => setImmediate(r));
-    await new Promise((r) => setImmediate(r));
+    await waitForJob();
 
     const status = service.getStatus(jobId, ORG_A);
     expect(status.status).toBe('done');
@@ -164,14 +183,57 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
     const { service } = buildService({ attachThrowsOnce: true });
     const { jobId } = service.start(ORG_A);
 
-    await new Promise((r) => setImmediate(r));
-    await new Promise((r) => setImmediate(r));
-    await new Promise((r) => setImmediate(r));
+    await waitForJob();
 
     const status = service.getStatus(jobId, ORG_A);
     expect(status.status).toBe('done');
     expect(status.processed).toBe(2);
     expect(status.failed).toBe(1);
     expect(status.succeeded).toBe(1);
+  });
+
+  it('batches existing listing lookup before filtering rows needing images', async () => {
+    const scrapeRows: CoupangInventoryRow[] = [
+      { inventoryId: 'INV-1', name: 'P1', url: 'https://wing.coupang.com/img/1.jpg' },
+      { inventoryId: 'INV-2', name: 'P2', url: 'https://wing.coupang.com/img/2.jpg' },
+      { inventoryId: 'INV-3', name: 'P3', url: 'https://wing.coupang.com/img/3.jpg' },
+    ];
+    const { service, prisma, ensureCalls } = buildService({
+      scrapeRows,
+      existingListings: [
+        {
+          externalId: 'INV-1',
+          master: { imageUrl: 'https://cdn/existing.jpg', thumbnailUrl: null, images: [] },
+        },
+        {
+          externalId: 'INV-2',
+          master: { imageUrl: null, thumbnailUrl: null, images: [] },
+        },
+      ],
+    });
+
+    const { jobId } = service.start(ORG_A);
+    await waitForJob();
+
+    const channelListing = prisma.channelListing as unknown as {
+      findMany: ReturnType<typeof vi.fn>;
+      findFirst: ReturnType<typeof vi.fn>;
+    };
+    expect(channelListing.findMany).toHaveBeenCalledOnce();
+    expect(channelListing.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          organizationId: ORG_A,
+          channel: 'coupang',
+          externalId: { in: ['INV-1', 'INV-2', 'INV-3'] },
+          isDeleted: false,
+        }),
+      }),
+    );
+    expect(channelListing.findFirst).not.toHaveBeenCalled();
+
+    const status = service.getStatus(jobId, ORG_A);
+    expect(status.total).toBe(2);
+    expect(ensureCalls.map((call) => call.inventoryId)).toEqual(['INV-2', 'INV-3']);
   });
 });

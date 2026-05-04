@@ -171,32 +171,40 @@ export class CoupangImageSyncService {
     organizationId: string,
     rows: CoupangInventoryRow[],
   ): Promise<CoupangInventoryRow[]> {
-    const targets: CoupangInventoryRow[] = [];
-    for (const row of rows) {
-      const listing = await this.prisma.channelListing.findFirst({
-        where: {
-          organizationId,
-          channel: 'coupang',
-          externalId: row.inventoryId,
-          isDeleted: false,
-        },
-        select: {
-          master: {
-            select: {
-              imageUrl: true,
-              thumbnailUrl: true,
-              images: {
-                where: { organizationId, isDeleted: false },
-                select: { id: true },
-                take: 1,
-              },
+    if (rows.length === 0) return [];
+
+    const inventoryIds = rows.map((row) => row.inventoryId);
+    const listings = await this.prisma.channelListing.findMany({
+      where: {
+        organizationId,
+        channel: 'coupang',
+        externalId: { in: inventoryIds },
+        isDeleted: false,
+      },
+      select: {
+        externalId: true,
+        master: {
+          select: {
+            imageUrl: true,
+            thumbnailUrl: true,
+            images: {
+              where: { organizationId, isDeleted: false },
+              select: { id: true },
+              take: 1,
             },
           },
         },
-      });
-      if (!listing || !hasDisplayImage(listing.master)) targets.push(row);
-    }
-    return targets;
+      },
+    });
+
+    const listingByInventoryId = new Map(
+      listings.map((listing) => [listing.externalId, listing]),
+    );
+
+    return rows.filter((row) => {
+      const listing = listingByInventoryId.get(row.inventoryId);
+      return !listing || !hasDisplayImage(listing.master);
+    });
   }
 
   private async syncOne(organizationId: string, row: CoupangInventoryRow): Promise<boolean> {
