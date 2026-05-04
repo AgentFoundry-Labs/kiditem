@@ -6,6 +6,7 @@ import type {
   ProductManagementPipelineCounts,
 } from '@kiditem/shared/product';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { buildPerListingMetrics } from '../../../common/per-listing-profit';
 import { ListMastersQuery } from '../../dto/list-masters.query';
 import { MASTER_WITH_IMAGES, type MasterWithImageRows } from '../../adapter/out/prisma/master-product.query';
 import { withImageRows } from '../../mapper/master-product.mapper';
@@ -330,7 +331,7 @@ export class ProductManagementService {
     }
 
     if (q.grade === 'minus' || q.grade === 'low') {
-      const profits = await this.profitByMaster(organizationId);
+      const profits = await this.profitByMaster(organizationId, undefined, q.period ?? 14);
       const allIds = await this.allMasterIds(organizationId);
       sets.push(new Set(allIds.filter((id) => {
         const rate = profits.get(id)?.profitRate ?? 0;
@@ -616,7 +617,7 @@ export class ProductManagementService {
       this.metricsByListing(organizationId, listingIds, daysAgo(period)),
       this.metricsByListing(organizationId, listingIds, daysAgo(14)),
       this.metricsByListing(organizationId, listingIds, previousWindowStart(14), daysAgo(14)),
-      this.profitByMaster(organizationId, masterIds),
+      this.profitByMaster(organizationId, masterIds, period),
       this.reviewCountByMaster(organizationId, listingByMaster),
     ]);
 
@@ -898,28 +899,55 @@ export class ProductManagementService {
   }
 
   /**
-   * Master 별 손익 (revenue / netProfit / profitRate / orderCount).
+   * Master 별 손익 (revenue / netProfit / profitRate / orderCount) — 최근 `period` 일.
    *
-   * PR #193 review #4 (yhc125) — `prisma.profitLoss.*` 를 통한 source-of-truth
-   * 읽기는 `apps/server/src/finance/AGENTS.md` 의 "Plan D.1" 에서 명시적으로
-   * 금지된다 (`ProfitLoss` 는 writer 가 없는 legacy/future cache 라 stale).
+   * PR #193 review #4 (yhc125, 2차) — `prisma.profitLoss.*` 직접 read 는
+   * `apps/server/src/finance/AGENTS.md` Plan D.1 가 명시적으로 금지한다
+   * (`ProfitLoss` 는 writer 없는 legacy/future cache → 항상 stale).
    *
-   * 올바른 source 는 finance 의 live aggregation (`profit-loss.service.ts`)
-   * 인데, 그건 finance 도메인 service 라 cross-domain 직접 import 금지.
-   * products 가 master 별 profit 시그널을 쓰려면 finance-owned port (예:
-   * `FINANCE_PROFIT_PORT.profitByMaster(organizationId, masterIds, period)`)
-   * 가 도입되어야 하고 그건 별도 scoped plan 이 필요하다.
+   * 대신 `apps/server/src/common/per-listing-profit.ts` 의
+   * `buildPerListingMetrics(prisma, organizationId, from, to)` 를 호출한다.
+   * 이 helper 는 finance 의 `profit-loss.service.ts:findAll` 에서 추출된
+   * shared live aggregator 이고, advertising/dashboard 도 같은 helper 를
+   * 통해 listing 별 손익을 계산한다 (Plan F1 T1, ADR-0016/I7/I8 준수).
    *
-   * 그 전까지는 빈 Map 반환 — 모든 caller 가 `?? { revenue:0, netProfit:0,
-   * profitRate:0, orderCount:0 }` 로 null-safe fallback 을 가지고 있어,
-   * pipelineStats 의 `counts.minus / counts.low / counts.adLoss` 와 enriched
-   * row 의 profit 시그널이 0 으로 표시된다 (틀린 stale 값보다 0 이 안전).
+   * 여기서는 listing 별 결과를 master 별로 합산:
+   *   - revenue / netProfit / orderCount = sum across listings of same master
+   *   - profitRate = revenue > 0 ? (netProfit / revenue) * 100 : 0
+   *
+   * `masterIds` 가 주어지면 해당 master 만 남겨서 반환 (pipelineStats / enrich
+   * 양쪽에서 재사용). 호출자는 해당 master 가 결과 Map 에 없을 수 있고, 그건
+   * "최근 `period` 일 동안 매출 0" 을 의미한다 (caller 의 `?? { revenue:0,
+   * netProfit:0, profitRate:0 }` fallback 이 그대로 동작).
    */
   private async profitByMaster(
-    _organizationId: string,
-    _masterIds?: string[],
+    organizationId: string,
+    masterIds?: string[],
+    period: number = 14,
   ): Promise<Map<string, { revenue: number; netProfit: number; profitRate: number; orderCount: number }>> {
-    return new Map();
+    const from = daysAgo(period);
+    const to = new Date();
+    const liveMetrics = await buildPerListingMetrics(this.prisma, organizationId, from, to);
+
+    const out = new Map<string, { revenue: number; netProfit: number; profitRate: number; orderCount: number }>();
+    const filterSet = masterIds ? new Set(masterIds) : null;
+
+    for (const metric of liveMetrics) {
+      if (filterSet && !filterSet.has(metric.masterId)) continue;
+      const current = out.get(metric.masterId) ?? { revenue: 0, netProfit: 0, profitRate: 0, orderCount: 0 };
+      current.revenue += metric.revenue;
+      current.netProfit += metric.netProfit;
+      current.orderCount += metric.orderCount;
+      out.set(metric.masterId, current);
+    }
+
+    for (const value of out.values()) {
+      value.profitRate = value.revenue > 0
+        ? Math.round((value.netProfit / value.revenue) * 1000) / 10
+        : 0;
+    }
+
+    return out;
   }
 
   private async reviewCountByMaster(
