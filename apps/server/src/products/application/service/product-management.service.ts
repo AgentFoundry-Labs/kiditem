@@ -107,7 +107,10 @@ export class ProductManagementService {
   ): Promise<ProductManagementPipelineCounts> {
     const period = q.period ?? 14;
     const gradeByMaster = await this.gradeByMaster(organizationId, period);
-    await this.syncGradeChanges(organizationId, gradeByMaster);
+    // NOTE: PR #193 review #1 (yhc125) — pipeline-stats 는 frontend polling
+    // read endpoint 이므로 hidden write (`syncGradeChanges` 의 abcGrade
+    // update + Alert insert) 를 트리거하지 않는다. grade 동기화는 explicit
+    // command/job 경로에서만 호출해야 한다 (후속 lane).
 
     const query = q as ListMastersQuery;
     const matchingIds = await this.resolveAdvancedFilterMasterIds(organizationId, query);
@@ -894,52 +897,29 @@ export class ProductManagementService {
     return map;
   }
 
+  /**
+   * Master 별 손익 (revenue / netProfit / profitRate / orderCount).
+   *
+   * PR #193 review #4 (yhc125) — `prisma.profitLoss.*` 를 통한 source-of-truth
+   * 읽기는 `apps/server/src/finance/AGENTS.md` 의 "Plan D.1" 에서 명시적으로
+   * 금지된다 (`ProfitLoss` 는 writer 가 없는 legacy/future cache 라 stale).
+   *
+   * 올바른 source 는 finance 의 live aggregation (`profit-loss.service.ts`)
+   * 인데, 그건 finance 도메인 service 라 cross-domain 직접 import 금지.
+   * products 가 master 별 profit 시그널을 쓰려면 finance-owned port (예:
+   * `FINANCE_PROFIT_PORT.profitByMaster(organizationId, masterIds, period)`)
+   * 가 도입되어야 하고 그건 별도 scoped plan 이 필요하다.
+   *
+   * 그 전까지는 빈 Map 반환 — 모든 caller 가 `?? { revenue:0, netProfit:0,
+   * profitRate:0, orderCount:0 }` 로 null-safe fallback 을 가지고 있어,
+   * pipelineStats 의 `counts.minus / counts.low / counts.adLoss` 와 enriched
+   * row 의 profit 시그널이 0 으로 표시된다 (틀린 stale 값보다 0 이 안전).
+   */
   private async profitByMaster(
-    organizationId: string,
-    masterIds?: string[],
+    _organizationId: string,
+    _masterIds?: string[],
   ): Promise<Map<string, { revenue: number; netProfit: number; profitRate: number; orderCount: number }>> {
-    const listings = await this.prisma.channelListing.findMany({
-      where: {
-        organizationId,
-        isDeleted: false,
-        ...(masterIds ? { masterId: { in: masterIds } } : {}),
-      },
-      select: { id: true, masterId: true },
-    });
-    const listingIds = listings.map((listing) => listing.id);
-    if (listingIds.length === 0) return new Map();
-    const rows = await this.prisma.profitLoss.findMany({
-      where: { organizationId, listingId: { in: listingIds } },
-      orderBy: [{ listingId: 'asc' }, { year: 'desc' }, { month: 'desc' }],
-      select: {
-        listingId: true,
-        revenue: true,
-        netProfit: true,
-        profitRate: true,
-        orderCount: true,
-      },
-    });
-    const latestByListing = new Map<string, typeof rows[number]>();
-    for (const row of rows) {
-      if (!latestByListing.has(row.listingId)) latestByListing.set(row.listingId, row);
-    }
-    const masterByListing = new Map(listings.map((listing) => [listing.id, listing.masterId]));
-    const out = new Map<string, { revenue: number; netProfit: number; profitRate: number; orderCount: number }>();
-    for (const row of latestByListing.values()) {
-      const masterId = masterByListing.get(row.listingId);
-      if (!masterId) continue;
-      const current = out.get(masterId) ?? { revenue: 0, netProfit: 0, profitRate: 0, orderCount: 0 };
-      current.revenue += row.revenue;
-      current.netProfit += row.netProfit;
-      current.orderCount += row.orderCount;
-      out.set(masterId, current);
-    }
-    for (const [masterId, value] of out) {
-      value.profitRate = value.revenue > 0 ? (value.netProfit / value.revenue) * 100 : ratioToPercent(
-        latestByListing.get([...masterByListing.entries()].find(([, m]) => m === masterId)?.[0] ?? '')?.profitRate,
-      );
-    }
-    return out;
+    return new Map();
   }
 
   private async reviewCountByMaster(
