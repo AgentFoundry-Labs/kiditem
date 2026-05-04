@@ -404,12 +404,14 @@ async function postToServer(
   payload: Record<string, unknown>,
 ): Promise<unknown> {
   const apiUrl = value(args, 'api-url') ?? process.env.KIDITEM_API_URL ?? 'http://localhost:4000';
-  const devUserId =
-    value(args, 'dev-user-id') ??
-    process.env.KIDITEM_DEV_USER_ID ??
-    process.env.DEV_DEFAULT_USER_ID;
+  const accessToken = value(args, 'access-token') ?? process.env.KIDITEM_API_ACCESS_TOKEN;
   const headers: Record<string, string> = { 'content-type': 'application/json' };
-  if (devUserId) headers['x-dev-user-id'] = devUserId;
+  if (!accessToken) {
+    throw new Error(
+      'API replay requires --access-token or KIDITEM_API_ACCESS_TOKEN. Dev header auth is removed.',
+    );
+  }
+  headers.Authorization = accessToken.startsWith('Bearer ') ? accessToken : `Bearer ${accessToken}`;
 
   const response = await fetch(`${apiUrl.replace(/\/$/, '')}/api/ads/extension/sync`, {
     method: 'POST',

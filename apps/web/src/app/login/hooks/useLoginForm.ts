@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
+import { sanitizeInternalRedirectPath } from '@/lib/auth-redirect';
 import { createSupabaseBrowserClient } from '@/lib/supabase/client';
 
 const REMEMBERED_EMAIL_KEY = 'kiditem.login.rememberedEmail';
@@ -10,7 +11,7 @@ const REMEMBERED_EMAIL_KEY = 'kiditem.login.rememberedEmail';
 export function useLoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = searchParams.get('next') ?? '/';
+  const next = sanitizeInternalRedirectPath(searchParams.get('next'));
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

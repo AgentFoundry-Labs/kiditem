@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import { sanitizeInternalRedirectPath } from '@/lib/auth-redirect';
 
 /**
  * Auth callback — 두 흐름 지원:
@@ -16,7 +17,7 @@ export async function GET(req: NextRequest) {
   const tokenHash = req.nextUrl.searchParams.get('token_hash');
   const type = req.nextUrl.searchParams.get('type');
   const code = req.nextUrl.searchParams.get('code');
-  const next = req.nextUrl.searchParams.get('next') ?? '/';
+  const next = sanitizeInternalRedirectPath(req.nextUrl.searchParams.get('next'));
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
