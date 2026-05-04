@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ProductsModule } from '../products/products.module';
+import { StorageService } from '../common/storage/storage.service';
 
 // adapter/in/http
 import { ImageAiController } from './adapter/in/http/image-ai.controller';
@@ -36,6 +37,8 @@ import { ThumbnailWingService } from './application/service/thumbnail-wing.servi
 
 // application/port — out
 import { COUPANG_INVENTORY_SCRAPE_PORT } from './application/port/out/coupang-inventory-scrape.port';
+import { IMAGE_FETCH_PORT } from './application/port/out/image-fetch.port';
+import { IMAGE_STORAGE_PORT } from './application/port/out/image-storage.port';
 import { MASTER_CATALOG_PORT } from './application/port/out/master-catalog.port';
 import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.port';
 
@@ -78,6 +81,8 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     // port bindings
     { provide: WING_AUTOMATION_PORT, useExisting: WingAutomationRunner },
     { provide: COUPANG_INVENTORY_SCRAPE_PORT, useExisting: CoupangInventoryScrapeAdapter },
+    { provide: IMAGE_FETCH_PORT, useExisting: ThumbnailImageFetcherService },
+    { provide: IMAGE_STORAGE_PORT, useExisting: StorageService },
     { provide: MASTER_CATALOG_PORT, useExisting: MasterCatalogAdapter },
   ],
 })

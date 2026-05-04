@@ -87,6 +87,14 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
     const attachCalls: AttachPrimaryImageInput[] = [];
     let attachIndex = 0;
     const catalog: MasterCatalogPort = {
+      findCoupangListingImageStates: vi.fn(async (input) => {
+        return existingListings
+          .filter((listing) => input.inventoryIds.includes(listing.externalId))
+          .map((listing) => ({
+            inventoryId: listing.externalId,
+            hasImage: hasDisplayImage(listing.master),
+          }));
+      }),
       ensureCoupangMaster: vi.fn(async (input) => {
         ensureCalls.push(input);
         const handle: CoupangListingHandle = {
@@ -106,31 +114,17 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
       }),
     };
 
-    // PrismaService stub — filterRowsNeedingImage 가 기존 listing 존재 여부를 조회.
-    // 기본값은 빈 목록이라 모든 row 가 needing image 로 분류된다.
-    const prisma = {
-      channelListing: {
-        findMany: vi.fn(async () => existingListings),
-        findFirst: vi.fn(async (args: { where: { externalId: string } }) => {
-          return (
-            existingListings.find((listing) => listing.externalId === args.where.externalId) ??
-            null
-          );
-        }),
-      },
-    } as unknown as ConstructorParameters<typeof CoupangImageSyncService>[0];
-
     const storage = {
       save: vi.fn(async (key: string) => `https://storage/${key}`),
-    } as unknown as ConstructorParameters<typeof CoupangImageSyncService>[1];
+    };
 
     const imageFetcher = {
       fetchImage: vi.fn(async () => ({ buffer: Buffer.from('img'), mimeType: 'image/jpeg' })),
       extForMime: vi.fn(() => 'jpg'),
-    } as unknown as ConstructorParameters<typeof CoupangImageSyncService>[2];
+    };
 
-    const service = new CoupangImageSyncService(prisma, storage, imageFetcher, scraper, catalog);
-    return { service, scraper, catalog, prisma, storage, imageFetcher, ensureCalls, attachCalls };
+    const service = new CoupangImageSyncService(scraper, catalog, imageFetcher, storage);
+    return { service, scraper, catalog, storage, imageFetcher, ensureCalls, attachCalls };
   }
 
   it('start() throws ConflictException when same org has running job', async () => {
@@ -198,7 +192,7 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
       { inventoryId: 'INV-2', name: 'P2', url: 'https://wing.coupang.com/img/2.jpg' },
       { inventoryId: 'INV-3', name: 'P3', url: 'https://wing.coupang.com/img/3.jpg' },
     ];
-    const { service, prisma, ensureCalls } = buildService({
+    const { service, catalog, ensureCalls } = buildService({
       scrapeRows,
       existingListings: [
         {
@@ -215,22 +209,13 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
     const { jobId } = service.start(ORG_A);
     await waitForJob();
 
-    const channelListing = prisma.channelListing as unknown as {
-      findMany: ReturnType<typeof vi.fn>;
-      findFirst: ReturnType<typeof vi.fn>;
-    };
-    expect(channelListing.findMany).toHaveBeenCalledOnce();
-    expect(channelListing.findMany).toHaveBeenCalledWith(
+    expect(catalog.findCoupangListingImageStates).toHaveBeenCalledOnce();
+    expect(catalog.findCoupangListingImageStates).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({
-          organizationId: ORG_A,
-          channel: 'coupang',
-          externalId: { in: ['INV-1', 'INV-2', 'INV-3'] },
-          isDeleted: false,
-        }),
+        organizationId: ORG_A,
+        inventoryIds: ['INV-1', 'INV-2', 'INV-3'],
       }),
     );
-    expect(channelListing.findFirst).not.toHaveBeenCalled();
 
     const status = service.getStatus(jobId, ORG_A);
     expect(status.total).toBe(2);

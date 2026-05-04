@@ -23,6 +23,13 @@ export interface CoupangListingHandle {
   hasImage: boolean;
 }
 
+export interface CoupangListingImageState {
+  /** Coupang Wing inventory id (= ChannelListing.externalId). */
+  inventoryId: string;
+  /** master 가 이미 product/thumbnail/image 중 하나라도 있는지 */
+  hasImage: boolean;
+}
+
 export interface AttachPrimaryImageInput {
   organizationId: string;
   masterId: string;
@@ -35,6 +42,15 @@ export interface AttachPrimaryImageInput {
 }
 
 export interface MasterCatalogPort {
+  /**
+   * 여러 Coupang inventoryId 에 대응하는 active ChannelListing 들의 이미지 보유
+   * 상태를 한 번에 조회. 없는 listing 은 결과에서 빠진다.
+   */
+  findCoupangListingImageStates(input: {
+    organizationId: string;
+    inventoryIds: string[];
+  }): Promise<CoupangListingImageState[]>;
+
   /**
    * Coupang inventoryId 에 대응하는 ChannelListing 이 있으면 그 master 반환,
    * 없으면 새 master + listing 1쌍 생성. 조직 스코프 enforce 는 adapter 책임.

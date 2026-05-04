@@ -4,6 +4,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import { MastersService } from '../../../../products/application/service/masters.service';
 import type {
   AttachPrimaryImageInput,
+  CoupangListingImageState,
   CoupangListingHandle,
   MasterCatalogPort,
 } from '../../../application/port/out/master-catalog.port';
@@ -25,6 +26,42 @@ export class MasterCatalogAdapter implements MasterCatalogPort {
     private readonly prisma: PrismaService,
     private readonly masters: MastersService,
   ) {}
+
+  async findCoupangListingImageStates(input: {
+    organizationId: string;
+    inventoryIds: string[];
+  }): Promise<CoupangListingImageState[]> {
+    const { organizationId, inventoryIds } = input;
+    if (inventoryIds.length === 0) return [];
+
+    const listings = await this.prisma.channelListing.findMany({
+      where: {
+        organizationId,
+        channel: 'coupang',
+        externalId: { in: inventoryIds },
+        isDeleted: false,
+      },
+      select: {
+        externalId: true,
+        master: {
+          select: {
+            imageUrl: true,
+            thumbnailUrl: true,
+            images: {
+              where: { organizationId, isDeleted: false },
+              select: { id: true },
+              take: 1,
+            },
+          },
+        },
+      },
+    });
+
+    return listings.map((listing) => ({
+      inventoryId: listing.externalId,
+      hasImage: hasDisplayImage(listing.master),
+    }));
+  }
 
   async ensureCoupangMaster(input: {
     organizationId: string;

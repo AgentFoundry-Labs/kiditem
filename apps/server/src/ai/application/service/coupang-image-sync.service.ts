@@ -7,14 +7,19 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { PrismaService } from '../../../prisma/prisma.service';
-import { StorageService } from '../../../common/storage/storage.service';
-import { ThumbnailImageFetcherService } from '../../adapter/out/image-fetch/thumbnail-image-fetcher.adapter';
 import {
   COUPANG_INVENTORY_SCRAPE_PORT,
   type CoupangInventoryRow,
   type CoupangInventoryScrapePort,
 } from '../port/out/coupang-inventory-scrape.port';
+import {
+  IMAGE_FETCH_PORT,
+  type ImageFetchPort,
+} from '../port/out/image-fetch.port';
+import {
+  IMAGE_STORAGE_PORT,
+  type ImageStoragePort,
+} from '../port/out/image-storage.port';
 import {
   MASTER_CATALOG_PORT,
   type MasterCatalogPort,
@@ -46,7 +51,8 @@ const JOB_TTL_MS = 30 * 60 * 1000;
  *  - cross-domain `products` 접근은 `MASTER_CATALOG_PORT` 를 통해서만.
  *  - playwriter subprocess + filesystem 의존은 `COUPANG_INVENTORY_SCRAPE_PORT`
  *    뒤에 격리.
- *  - 이 service 는 use-case orchestration 만 담당 — 외부 의존 없음.
+ *  - image fetch/storage/prisma reads 는 outbound port 뒤에 격리.
+ *  - 이 service 는 use-case orchestration 만 담당.
  *
  * Single-instance assumption:
  *  - in-memory `jobs` Map 으로 상태 관리. 멀티 인스턴스 환경에서는 잡 상태가
@@ -62,13 +68,14 @@ export class CoupangImageSyncService {
   private readonly jobs = new Map<string, CoupangImageSyncJobState>();
 
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly storage: StorageService,
-    private readonly imageFetcher: ThumbnailImageFetcherService,
     @Inject(COUPANG_INVENTORY_SCRAPE_PORT)
     private readonly scraper: CoupangInventoryScrapePort,
     @Inject(MASTER_CATALOG_PORT)
     private readonly catalog: MasterCatalogPort,
+    @Inject(IMAGE_FETCH_PORT)
+    private readonly imageFetcher: ImageFetchPort,
+    @Inject(IMAGE_STORAGE_PORT)
+    private readonly storage: ImageStoragePort,
   ) {}
 
   start(organizationId: string): { jobId: string } {
@@ -174,36 +181,18 @@ export class CoupangImageSyncService {
     if (rows.length === 0) return [];
 
     const inventoryIds = rows.map((row) => row.inventoryId);
-    const listings = await this.prisma.channelListing.findMany({
-      where: {
-        organizationId,
-        channel: 'coupang',
-        externalId: { in: inventoryIds },
-        isDeleted: false,
-      },
-      select: {
-        externalId: true,
-        master: {
-          select: {
-            imageUrl: true,
-            thumbnailUrl: true,
-            images: {
-              where: { organizationId, isDeleted: false },
-              select: { id: true },
-              take: 1,
-            },
-          },
-        },
-      },
+    const imageStates = await this.catalog.findCoupangListingImageStates({
+      organizationId,
+      inventoryIds,
     });
 
-    const listingByInventoryId = new Map(
-      listings.map((listing) => [listing.externalId, listing]),
+    const imageStateByInventoryId = new Map(
+      imageStates.map((state) => [state.inventoryId, state]),
     );
 
     return rows.filter((row) => {
-      const listing = listingByInventoryId.get(row.inventoryId);
-      return !listing || !hasDisplayImage(listing.master);
+      const imageState = imageStateByInventoryId.get(row.inventoryId);
+      return !imageState || !imageState.hasImage;
     });
   }
 
