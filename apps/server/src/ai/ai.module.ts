@@ -4,6 +4,7 @@ import { StorageService } from '../common/storage/storage.service';
 
 // adapter/in/http
 import { ImageAiController } from './adapter/in/http/image-ai.controller';
+import { DetailPageAiController } from './adapter/in/http/detail-page-ai.controller';
 import { RenderImageController } from './adapter/in/http/render-image.controller';
 import { TextAiController } from './adapter/in/http/text-ai.controller';
 import { ThumbnailAnalysisController } from './adapter/in/http/thumbnail-analysis.controller';
@@ -14,6 +15,7 @@ import { CoupangImageSyncController } from './adapter/in/http/coupang-image-sync
 
 // adapter/out
 import { CoupangInventoryScrapeAdapter } from './adapter/out/coupang/coupang-inventory-scrape.adapter';
+import { GeminiTextCompletionAdapter } from './adapter/out/gemini/gemini-text-completion.adapter';
 import { GeminiThumbnailVisionAdapter } from './adapter/out/gemini/gemini-thumbnail-vision.adapter';
 import { ThumbnailReferenceImagesService } from './adapter/out/gemini/thumbnail-reference-images.adapter';
 import { ThumbnailImageFetcherService } from './adapter/out/image-fetch/thumbnail-image-fetcher.adapter';
@@ -27,6 +29,7 @@ import { TextAiService } from './application/service/text-ai.service';
 import { ThumbnailAnalysisService } from './application/service/thumbnail-analysis.service';
 import { ThumbnailAutoService } from './application/service/thumbnail-auto.service';
 import { CoupangImageSyncService } from './application/service/coupang-image-sync.service';
+import { DetailPageAiService } from './application/service/detail-page-ai.service';
 import { ThumbnailComplianceVerifierService } from './application/service/thumbnail-compliance-verifier.service';
 import { ThumbnailEditorAiService } from './application/service/thumbnail-editor-ai.service';
 import { ThumbnailGenerationService } from './application/service/thumbnail-generation.service';
@@ -40,12 +43,14 @@ import { COUPANG_INVENTORY_SCRAPE_PORT } from './application/port/out/coupang-in
 import { IMAGE_FETCH_PORT } from './application/port/out/image-fetch.port';
 import { IMAGE_STORAGE_PORT } from './application/port/out/image-storage.port';
 import { MASTER_CATALOG_PORT } from './application/port/out/master-catalog.port';
+import { TEXT_COMPLETION_PORT } from './application/port/out/text-completion.port';
 import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.port';
 
 @Module({
   imports: [ProductsModule],
   controllers: [
     CoupangImageSyncController,
+    DetailPageAiController,
     ImageAiController,
     RenderImageController,
     TextAiController,
@@ -58,6 +63,7 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     // application services
     ImageAiService,
     CoupangImageSyncService,
+    DetailPageAiService,
     TextAiService,
     ThumbnailAnalysisService,
     ThumbnailAutoService,
@@ -71,6 +77,7 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
 
     // outgoing adapters
     CoupangInventoryScrapeAdapter,
+    GeminiTextCompletionAdapter,
     GeminiThumbnailVisionAdapter,
     MasterCatalogAdapter,
     ThumbnailImageFetcherService,
@@ -84,6 +91,7 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     { provide: IMAGE_FETCH_PORT, useExisting: ThumbnailImageFetcherService },
     { provide: IMAGE_STORAGE_PORT, useExisting: StorageService },
     { provide: MASTER_CATALOG_PORT, useExisting: MasterCatalogAdapter },
+    { provide: TEXT_COMPLETION_PORT, useExisting: GeminiTextCompletionAdapter },
   ],
 })
 export class AiModule {}

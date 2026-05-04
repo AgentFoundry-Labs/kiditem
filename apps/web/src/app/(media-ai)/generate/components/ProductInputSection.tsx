@@ -1,5 +1,6 @@
 'use client';
 
+import type { Dispatch, SetStateAction } from 'react';
 import {
   CheckCircle2,
   Globe,
@@ -17,7 +18,7 @@ interface ProductInputSectionProps {
   url: string;
   setUrl: (url: string) => void;
   images: string[];
-  setImages: (images: string[]) => void;
+  setImages: Dispatch<SetStateAction<string[]>>;
   imagesLoading?: boolean;
 }
 
@@ -25,17 +26,23 @@ export default function ProductInputSection({ mode, setMode, url, setUrl, images
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
-    Array.from(files).forEach((file: File) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImages([...images, reader.result as string]);
-      };
-      reader.readAsDataURL(file);
+    const readers = Array.from(files).map(
+      (file) =>
+        new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        }),
+    );
+    Promise.all(readers).then((nextImages) => {
+      setImages((prev) => [...prev, ...nextImages]);
     });
+    e.currentTarget.value = '';
   };
 
   const removeImage = (index: number) => {
-    setImages(images.filter((_, i) => i !== index));
+    setImages((prev) => prev.filter((_, i) => i !== index));
   };
 
   return (

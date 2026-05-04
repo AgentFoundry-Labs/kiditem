@@ -3,36 +3,21 @@
 interface Props {
   draftCount: number;
   totalCount: number;
-  firstThumbnailUrl?: string | null;
 }
 
-export default function SourcingStats({ draftCount, totalCount, firstThumbnailUrl }: Props) {
+export default function SourcingStats({ draftCount, totalCount }: Props) {
   return (
-    <div className="flex gap-4 mb-6">
-      <div className="flex-1 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-        <span className="text-slate-600 font-medium text-sm">
-          등록을 기다리는 상품{' '}
-          <span className="font-extrabold text-slate-900 ml-1 text-base">
-            {draftCount}개
-          </span>
-        </span>
+    <div className="flex items-center gap-6 px-5 h-11 border-b border-slate-200 text-xs">
+      <div className="flex items-baseline gap-1.5">
+        <span className="text-slate-500">등록 대기</span>
+        <span className="font-bold text-slate-900 text-sm tabular-nums">{draftCount}</span>
+        <span className="text-slate-400">개</span>
       </div>
-      <div className="flex-1 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-        <div className="flex items-center gap-3">
-          <span className="text-slate-600 font-medium text-sm">
-            전체 상품{' '}
-            <span className="font-extrabold text-slate-900 ml-1 text-base">
-              {totalCount}개
-            </span>
-          </span>
-          {totalCount > 0 && firstThumbnailUrl && (
-            <img
-              src={firstThumbnailUrl}
-              alt="Thumb"
-              className="w-8 h-8 rounded border object-cover"
-            />
-          )}
-        </div>
+      <div className="w-px h-3 bg-slate-200" />
+      <div className="flex items-baseline gap-1.5">
+        <span className="text-slate-500">전체</span>
+        <span className="font-bold text-slate-900 text-sm tabular-nums">{totalCount}</span>
+        <span className="text-slate-400">개</span>
       </div>
     </div>
   );

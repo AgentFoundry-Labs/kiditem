@@ -42,47 +42,75 @@ function HookSection({
   d,
   disabled,
 }: { d: DetailPageData; disabled: Set<string> }) {
-  const hookLines = (d.hookText || d.title).split('\n');
+  const bannerSrc = d.heroBanner || '';
 
   return (
-    <section className="pt-24 pb-16 px-8 md:px-12 text-center relative overflow-hidden">
-      {d.hookSubtext && (
-        <span className="inline-block px-4 py-1.5 bg-[var(--theme-main)] text-white text-xs font-bold tracking-widest rounded-full mb-6 shadow-sm">
-          {d.hookSubtext}
-        </span>
+    <>
+      {/* 상단: 히어로 배너 (lavender 톤) — 없으면 영역 자체 hidden */}
+      {bannerSrc && (
+        <section className="bg-[var(--theme-bg-light)]">
+          <div className="w-full aspect-[21/9] relative overflow-hidden">
+            <img
+              data-field="heroBanner"
+              src={bannerSrc}
+              alt={d.title}
+              className="w-full h-full object-cover"
+            />
+          </div>
+        </section>
       )}
 
-      <h1 className="text-5xl md:text-6xl font-black text-[var(--theme-text-primary)] mb-6 tracking-tight leading-[1.2] break-keep">
-        <span className="text-[var(--theme-main)]">{hookLines[0]}</span>
-        {hookLines.slice(1).map((line, i) => (
-          <span key={i}>
-            <br />
-            {line}
+      {/* 본문 hero — cream bg, hookText / hookTitleSub 2-색 H1 */}
+      <section className="bg-[var(--theme-section-bg)] py-16 px-8 md:px-12 text-center relative overflow-hidden">
+        {d.hookSubtext && (
+          <span className="inline-block px-4 py-1.5 bg-[var(--theme-main)] text-white text-xs font-bold tracking-widest rounded-full mb-6 shadow-sm">
+            {d.hookSubtext}
           </span>
-        ))}
-      </h1>
+        )}
 
-      {d.description.length > 0 && (
-        <p className="text-lg text-[var(--theme-text-secondary)] mb-12 font-medium tracking-wide break-keep">
-          {d.description.map((line, i) => (
-            <span key={i}>
-              {line}
-              {i < d.description.length - 1 && <br />}
+        <div className="flex flex-col items-center">
+          <div className="w-48 h-0.5 bg-[var(--theme-main)] opacity-40 mb-6" />
+          <h1 className="font-black text-5xl md:text-6xl tracking-tight leading-[1.2] break-keep">
+            <span data-field="hookText" className="text-[var(--theme-badge-2)]">
+              {d.hookText || d.title}
             </span>
-          ))}
-        </p>
-      )}
-
-      {d.images.length > 0 && !disabled.has('product_images') && (
-        <div className="bg-[var(--theme-bg-light)] w-full rounded-[var(--theme-radius)] overflow-hidden shadow-lg">
-          <img
-            src={d.images[0]}
-            alt={d.title}
-            className="w-full h-auto block"
-          />
+            {d.hookTitleSub && (
+              <>
+                <br />
+                <span data-field="hookTitleSub" className="text-[var(--theme-main)]">
+                  {d.hookTitleSub}
+                </span>
+              </>
+            )}
+          </h1>
+          <div className="w-64 h-0.5 bg-[var(--theme-main)] opacity-40 mt-6" />
         </div>
-      )}
-    </section>
+
+        {d.description.length > 0 && (
+          <p
+            data-field="description"
+            className="mt-6 text-lg md:text-xl font-bold text-[var(--theme-text-primary)] mb-12 break-keep"
+          >
+            {d.description.map((line, i) => (
+              <span key={i}>
+                {line}
+                {i < d.description.length - 1 && <br />}
+              </span>
+            ))}
+          </p>
+        )}
+
+        {d.images.length > 0 && !disabled.has('product_images') && (
+          <div className="bg-[var(--theme-bg-light)] w-full rounded-[var(--theme-radius)] overflow-hidden shadow-lg">
+            <img
+              src={d.images[0]}
+              alt={d.title}
+              className="w-full h-auto block"
+            />
+          </div>
+        )}
+      </section>
+    </>
   );
 }
 

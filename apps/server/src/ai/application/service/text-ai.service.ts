@@ -1,47 +1,37 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
+import {
+  TEXT_COMPLETION_PORT,
+  type TextCompletionPort,
+} from '../port/out/text-completion.port';
 
 @Injectable()
 export class TextAiService {
+  constructor(
+    @Inject(TEXT_COMPLETION_PORT)
+    private readonly textCompletion: TextCompletionPort,
+  ) {}
+
   async transform(dto: {
     text: string;
     preset: string;
     custom_prompt?: string;
   }): Promise<{ result: string }> {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
+    const model = process.env.AI_TEXT_MODEL;
+    if (!model) {
       throw new HttpException(
-        'GEMINI_API_KEY가 설정되지 않았습니다.',
+        'AI_TEXT_MODEL이 설정되지 않았습니다.',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
 
-    const model = process.env.AI_TEXT_MODEL ?? 'gemini-2.5-flash';
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-
     const systemPrompt = this.buildSystemPrompt(dto.preset, dto.custom_prompt);
-
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: dto.text }] }],
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        generationConfig: { temperature: 0.7 },
-      }),
+    const { text } = await this.textCompletion.complete({
+      system: systemPrompt,
+      user: dto.text,
+      temperature: 0.7,
+      model,
     });
-
-    if (!res.ok) {
-      const body = await res.text();
-      throw new HttpException(
-        `Gemini API 오류: ${res.status} ${body.slice(0, 200)}`,
-        res.status,
-      );
-    }
-
-    const data = await res.json();
-    const result =
-      data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-    return { result: result.trim() };
+    return { result: text };
   }
 
   private buildSystemPrompt(

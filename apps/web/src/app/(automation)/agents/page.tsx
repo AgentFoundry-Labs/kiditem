@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { Suspense, useState, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { Bot, Activity, Coins, Puzzle, GitBranch, Store, ListTree } from 'lucide-react';
@@ -17,6 +17,14 @@ const MarketplacePage = dynamic(() => import('@/app/(automation)/marketplace/pag
 const VALID_TABS = ['agents', 'activity', 'tasks', 'costs', 'skills', 'workflows', 'marketplace'];
 
 export default function AgentOSPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-slate-50" />}>
+      <AgentOSContent />
+    </Suspense>
+  );
+}
+
+function AgentOSContent() {
   const searchParams = useSearchParams();
   const initialTab = VALID_TABS.includes(searchParams.get('tab') ?? '') ? searchParams.get('tab')! : 'agents';
   const [activeTab, setActiveTab] = useState(initialTab);

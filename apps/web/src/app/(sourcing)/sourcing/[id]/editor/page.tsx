@@ -1,123 +1,233 @@
 'use client';
 
-import { Suspense } from 'react';
-import { getTemplate, parseDetailPageData, placeholderDetailPageData } from '@kiditem/templates';
+import { Suspense, useMemo } from 'react';
 import { Loader2 } from 'lucide-react';
-import { useParams, useRouter } from 'next/navigation';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { API_BASE } from '@/lib/api';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useQueryClient, useQuery } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
+import {
+  getTemplate,
+  parseDetailPageData,
+} from '@kiditem/templates';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
-import { renderTemplateToHtml } from '../../lib/template-html';
-import EditorLoadingScreen from './components/EditorLoadingScreen';
-import EditorErrorScreen from './components/EditorErrorScreen';
+import { ensureStyledDetailHtml, renderTemplateToHtml } from '../../lib/template-html';
 import DetailPageEditor from './components/DetailPageEditor';
-import type { DetailPageData } from '@kiditem/templates';
-
-function extractImageUrls(data: Record<string, unknown> | null | undefined): string[] {
-  if (!data) return [];
-  const urls: string[] = [];
-  for (const key of ['images', 'description_images', 'detail_images', 'size_images']) {
-    const val = data[key];
-    if (Array.isArray(val)) {
-      for (const v of val) {
-        if (typeof v === 'string' && v) urls.push(v);
-      }
-    }
-  }
-  return urls;
-}
-
-interface ProductDetail {
-  rawData: Record<string, unknown> | null;
-  processedData: Record<string, unknown> | null;
-  draftContent: Record<string, unknown> | null;
-  pipelineStep: string | null;
-  raw_data?: Record<string, unknown> | null;
-  processed_data?: Record<string, unknown> | null;
-}
-
-interface PreviewResponse {
-  data: Record<string, unknown>;
-  template: string | null;
-  images?: string[];
-}
+import EditorErrorScreen from './components/EditorErrorScreen';
+import EditorLoadingScreen from './components/EditorLoadingScreen';
+import { useEditorData } from './hooks/useEditorData';
+import { API_BASE } from '@/lib/api';
+import {
+  rowToRendererData,
+  useKidsPlayfulGenerationList,
+  useKidsPlayfulOne,
+  useSimpleVerticalGenerationList,
+} from '@/app/(media-ai)/generate/hooks/useKidsPlayfulGenerate';
+import { buildKidsPlayfulHtml } from '@/app/(media-ai)/generate/lib/build-kids-playful-html';
+import {
+  adaptSimpleVerticalToDetailPageData,
+  type SimpleVerticalGeneration,
+} from '@/app/(media-ai)/generate/lib/simple-vertical-types';
+import { useGenerationHistory } from '../hooks/useGenerationHistory';
 
 export default function EditorPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-screen items-center justify-center bg-slate-50">
+          <Loader2 size={32} className="animate-spin text-slate-400" />
+        </div>
+      }
+    >
+      <EditorPageContent />
+    </Suspense>
+  );
+}
+
+function EditorPageContent() {
   const params = useParams();
   const router = useRouter();
+  const search = useSearchParams();
   const queryClient = useQueryClient();
   const productId = params.id as string;
 
-  const { data: editorData, isLoading, error: queryError } = useQuery({
-    queryKey: queryKeys.sourcing.preview(productId),
-    queryFn: async () => {
-      const [detail, preview, cssRes] = await Promise.all([
-        apiClient.get<ProductDetail>(`/api/products/${productId}`),
-        apiClient.get<PreviewResponse>(`/api/products/${productId}/preview`),
-        fetch('/templates-styles.css').then((r) => (r.ok ? r.text() : '')).catch(() => ''),
-      ]);
+  // ?kpId=... / ?svId=... / ?agentId=... 로 진입 시 해당 이력을 에디터에 load.
+  const kpId = search.get('kpId');
+  const svId = search.get('svId');
+  const agentId = search.get('agentId');
+  const hasExplicitSource = !!(kpId || svId || agentId);
+  const { data: editorData, isLoading, error: queryError } = useEditorData(productId);
+  const { data: kpEntry, isLoading: isKpLoading, error: kpError } = useKidsPlayfulOne(kpId);
+  const { data: svEntry, isLoading: isSvLoading, error: svError } = useKidsPlayfulOne(svId);
+  const { data: kpEntries = [], isLoading: isKpListLoading } =
+    useKidsPlayfulGenerationList(productId);
+  const { data: svEntries = [], isLoading: isSvListLoading } =
+    useSimpleVerticalGenerationList(productId);
+  const { data: agentHistory = [], isLoading: isAgentHistoryLoading } =
+    useGenerationHistory(productId);
 
-      const rawDataValue = detail.rawData ?? detail.raw_data ?? null;
-      const processedDataValue = detail.processedData ?? detail.processed_data ?? null;
-
-      const productName =
-        processedDataValue && typeof processedDataValue.title === 'string'
-          ? processedDataValue.title
-          : '상품명 미지정';
-
-      const rawImages = extractImageUrls(rawDataValue);
-      const processedImages = extractImageUrls(processedDataValue);
-
-      let previewData: DetailPageData = placeholderDetailPageData;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let templateConfig: any = getTemplate('bold-vertical');
-
-      if (preview.template !== null && preview.data) {
-        const parsed = parseDetailPageData(preview.data);
-        const resolve = (url: string) => url.startsWith('/processed/') ? `${API_BASE}${url}` : url;
-        parsed.images = parsed.images.map(resolve);
-        parsed.sizeImages = parsed.sizeImages.map(resolve);
-        parsed.detailImages = parsed.detailImages.map(resolve);
-        if (parsed.heroBanner) parsed.heroBanner = resolve(parsed.heroBanner);
-        const templateId = preview.template.replace(/_/g, '-');
-        templateConfig = getTemplate(templateId);
-        previewData = parsed;
-      }
-
-      return { productName, previewData, rawImages, processedImages, templateConfig, templateCss: cssRes };
-    },
-  });
-
-  const productName = editorData?.productName ?? '';
   const previewData = editorData?.previewData ?? null;
-  const rawImages = editorData?.rawImages ?? [];
-  const processedImages = editorData?.processedImages ?? [];
   const templateConfig = editorData?.templateConfig ?? null;
   const templateCss = editorData?.templateCss ?? '';
-  const error = queryError ? (isApiError(queryError) ? queryError.detail : '에디터 데이터를 불러올 수 없습니다.') : null;
+
+  // 저장본은 직접 이력을 찍고 들어온 경우가 아닐 때만 기본 시작점으로 쓴다.
+  const { data: editedHtmlRow, isLoading: isEditedHtmlLoading } = useQuery({
+    queryKey: ['edited-html', productId],
+    queryFn: () =>
+      apiClient.get<{ html: string | null; savedAt: string | null }>(
+        `/api/products/${productId}/edited-html`,
+      ),
+    enabled: !hasExplicitSource,
+  });
+  const selectedAgentEntry = useMemo(
+    () => (agentId ? agentHistory.find((item) => item.id === agentId) ?? null : null),
+    [agentId, agentHistory],
+  );
+
+  const error = queryError
+    ? isApiError(queryError)
+      ? queryError.detail
+      : '에디터 데이터를 불러올 수 없습니다.'
+    : kpError
+      ? isApiError(kpError)
+        ? kpError.detail
+        : 'Trend Vertical 이력을 불러올 수 없습니다.'
+      : svError
+        ? isApiError(svError)
+          ? svError.detail
+          : 'Simple Vertical 이력을 불러올 수 없습니다.'
+        : agentId && !isAgentHistoryLoading && !selectedAgentEntry
+          ? '선택한 생성 이력을 찾을 수 없습니다.'
+          : agentId && selectedAgentEntry && !selectedAgentEntry.detailPageData
+            ? '선택한 생성 이력에 상세페이지 데이터가 없습니다.'
+    : null;
+
+  const realKpEntries = useMemo(
+    () => kpEntries.filter((e) => !e.id.startsWith('optimistic-')),
+    [kpEntries],
+  );
+  const realSvEntries = useMemo(
+    () => svEntries.filter((e) => !e.id.startsWith('optimistic-')),
+    [svEntries],
+  );
+  const defaultKpEntry = !hasExplicitSource && !editedHtmlRow?.html
+    ? realKpEntries[0] ?? null
+    : null;
+  const defaultSvEntry = !hasExplicitSource && !editedHtmlRow?.html && !defaultKpEntry
+    ? realSvEntries[0] ?? null
+    : null;
+  const activeKpEntry = kpEntry ?? defaultKpEntry;
+  const activeSvEntry = svEntry ?? defaultSvEntry;
+
+  // 우선순위: 명시 선택 이력 → 저장된 edits → 최신 생성 이력 → preview default.
+  const editorHtml = useMemo(() => {
+    if (!hasExplicitSource && editedHtmlRow?.html) {
+      return ensureStyledDetailHtml(editedHtmlRow.html, templateCss);
+    }
+    if (activeKpEntry) {
+      return buildKidsPlayfulHtml(rowToRendererData(activeKpEntry));
+    }
+    if (activeSvEntry) {
+      // SV → BoldVertical 템플릿 (사용자 요청: AGENT row 같은 디자인).
+      try {
+        const adapted = adaptSimpleVerticalToDetailPageData(
+          activeSvEntry.result as unknown as SimpleVerticalGeneration,
+          activeSvEntry.imageUrls,
+          activeSvEntry.processedImages,
+          API_BASE,
+        );
+        const data = parseDetailPageData(adapted);
+        const config = getTemplate('bold-vertical');
+        return renderTemplateToHtml(
+          config.component as React.ComponentType<unknown>,
+          data,
+          config,
+          templateCss,
+        );
+      } catch {
+        return '';
+      }
+    }
+    if (agentId) {
+      if (!selectedAgentEntry?.detailPageData) return '';
+      try {
+        const data = parseDetailPageData(selectedAgentEntry.detailPageData);
+        const config = getTemplate('bold-vertical');
+        return renderTemplateToHtml(
+          config.component as React.ComponentType<unknown>,
+          data,
+          config,
+          templateCss,
+        );
+      } catch {
+        return '';
+      }
+    }
+    if (previewData && templateConfig) {
+      return renderTemplateToHtml(
+        templateConfig.component as React.ComponentType<unknown>,
+        previewData,
+        templateConfig,
+        templateCss,
+      );
+    }
+    return '';
+  }, [
+    agentId,
+    activeKpEntry,
+    activeSvEntry,
+    previewData,
+    selectedAgentEntry,
+    templateConfig,
+    templateCss,
+    editedHtmlRow?.html,
+    hasExplicitSource,
+  ]);
 
   const handleClose = () => router.push(`/sourcing/${productId}`);
-  const handleSave = (_html: string) => router.push(`/sourcing/${productId}`);
+  const handleSave = async (html: string) => {
+    try {
+      await apiClient.post<{ ok: true }>(
+        `/api/products/${productId}/edited-html`,
+        { html },
+      );
+      toast.success('상세페이지 저장 완료');
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['edited-html', productId] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(productId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.preview(productId) }),
+      ]);
+      router.push(`/sourcing/${productId}`);
+    } catch (err) {
+      const msg = isApiError(err) ? err.detail : '저장 실패';
+      toast.error(msg);
+    }
+  };
 
-  if (isLoading) {
+  // KP/SV 모드는 templateConfig 없어도 동작 가능.
+  if (
+    isLoading ||
+    (!hasExplicitSource && isEditedHtmlLoading) ||
+    (!hasExplicitSource && !editedHtmlRow?.html && (isKpListLoading || isSvListLoading)) ||
+    (!!kpId && isKpLoading) ||
+    (!!svId && isSvLoading) ||
+    (!!agentId && isAgentHistoryLoading)
+  ) {
     return <EditorLoadingScreen />;
   }
 
-  if (error || !templateConfig) {
+  if (error || (!templateConfig && !kpEntry && !svEntry && !selectedAgentEntry)) {
     return (
       <EditorErrorScreen
         error={error}
-        onRetry={() => queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.preview(productId) })}
+        onRetry={() =>
+          queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.preview(productId) })
+        }
         onClose={handleClose}
       />
     );
   }
-
-  const editorHtml = previewData
-    ? renderTemplateToHtml(templateConfig.component as React.ComponentType<unknown>, previewData, templateConfig, templateCss)
-    : '';
 
   return (
     <div className="h-screen flex flex-col">
@@ -135,10 +245,10 @@ export default function EditorPage() {
           <DetailPageEditor
             html={editorHtml}
             templateCss={templateCss}
-            productName={productName}
+            productName={editorData?.productName ?? ''}
             productId={productId}
-            rawImages={rawImages}
-            processedImages={processedImages}
+            rawImages={editorData?.rawImages ?? []}
+            processedImages={editorData?.processedImages ?? []}
             onSave={handleSave}
             onClose={handleClose}
           />

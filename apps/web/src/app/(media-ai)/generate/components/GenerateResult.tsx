@@ -3,14 +3,22 @@
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, CheckCircle2, Sparkles } from 'lucide-react';
 
+type GenerateResultData = {
+  html?: string;
+  templateId?: string;
+  productName?: string;
+  raw?: unknown;
+};
+
 interface GenerateResultProps {
-  result: Record<string, unknown>;
+  result: GenerateResultData;
   onReset: () => void;
   onNewCreate: () => void;
 }
 
 export default function GenerateResult({ result, onReset, onNewCreate }: GenerateResultProps) {
   const router = useRouter();
+  const html = typeof result.html === 'string' ? result.html : null;
 
   return (
     <div className="flex flex-col h-full bg-slate-50">
@@ -29,7 +37,41 @@ export default function GenerateResult({ result, onReset, onNewCreate }: Generat
       </div>
 
       <div className="flex-1 overflow-y-auto p-8">
-        <div className="max-w-3xl mx-auto card shadow-sm p-8">
+        {html ? (
+          <div className="flex h-full min-h-[720px] flex-col gap-4">
+            <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-emerald-600 font-bold text-sm">
+                  <CheckCircle2 size={18} />
+                  상세페이지 생성 완료
+                </div>
+                <p className="mt-1 truncate text-sm text-slate-500">
+                  {String(result.productName ?? '직접 생성 상세페이지')} · {String(result.templateId ?? 'simple-vertical')}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={onNewCreate}
+                  className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg font-bold text-xs hover:bg-slate-50 transition-colors"
+                >
+                  새로 만들기
+                </button>
+                <button
+                  onClick={() => router.push('/sourcing')}
+                  className="px-4 py-2 bg-emerald-500 text-white rounded-lg font-bold text-xs hover:bg-emerald-600 transition-colors"
+                >
+                  수집상품 목록
+                </button>
+              </div>
+            </div>
+            <iframe
+              title="생성된 상세페이지 미리보기"
+              srcDoc={html}
+              className="h-full min-h-[720px] w-full rounded-2xl border border-slate-200 bg-white shadow-sm"
+            />
+          </div>
+        ) : (
+        <div className="mx-auto card max-w-3xl p-8 shadow-sm">
           <div className="flex items-center gap-3 mb-6">
             <CheckCircle2 className="text-emerald-500" size={24} />
             <h2 className="text-xl font-bold text-slate-900">
@@ -57,6 +99,7 @@ export default function GenerateResult({ result, onReset, onNewCreate }: Generat
             </button>
           </div>
         </div>
+        )}
       </div>
     </div>
   );

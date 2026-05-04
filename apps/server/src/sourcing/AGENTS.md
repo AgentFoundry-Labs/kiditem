@@ -16,7 +16,8 @@ this module — do not pull it in here.
 
 | Capability | Public route (frozen) |
 |---|---|
-| Sourcing extension ingest + scrape | `/api/sourcing/*` |
+| Sourcing extension ingest + scrape | `/api/sourcing/extension/*`, `/api/sourcing/scrape-url` |
+| Sourcing product detail / detail-page generate | `GET /api/sourcing/:id`, `POST /api/sourcing/:id/generate` |
 | Purchase orders state machine | `/api/purchase-orders/*` |
 | Supplier CRUD | `/api/suppliers/*` |
 
@@ -36,14 +37,17 @@ sourcing/
 │   │   ├── suppliers.controller.ts                 (@Controller('suppliers'))
 │   │   └── dto/                                    ← every class-validator DTO
 │   └── out/
-│       └── agent/
-│           └── sourcing-agent.gateway.adapter.ts   ← AgentRegistry delegation seam
+│       ├── agent/
+│       │   └── sourcing-agent.gateway.adapter.ts   ← AgentRegistry delegation seam
+│       └── products/
+│           └── products-catalog.adapter.ts         ← MastersService cross-domain seam
 ├── application/
 │   ├── port/
 │   │   └── out/
-│   │       └── sourcing-agent.gateway.port.ts      (SOURCING_AGENT_GATEWAY_PORT)
+│   │       ├── sourcing-agent.gateway.port.ts      (SOURCING_AGENT_GATEWAY_PORT)
+│   │       └── products-catalog.port.ts            (SOURCING_PRODUCTS_CATALOG_PORT)
 │   └── service/
-│       ├── sourcing.service.ts                     (uses gateway port + Prisma)
+│       ├── sourcing.service.ts                     (uses gateway port + products catalog port + Prisma)
 │       ├── procurement.service.ts                  (uses domain policy + Prisma)
 │       └── suppliers.service.ts                    (transitional flat CRUD + Prisma)
 ├── domain/
@@ -63,17 +67,28 @@ justifies them. The rest stays transitional flat CRUD by design:
 - **AgentRegistry delegation** (`/api/sourcing/scrape-url`) is mandatory port
   per the architecture contract. `SourcingService` depends on
   `SOURCING_AGENT_GATEWAY_PORT`; `SourcingAgentGatewayAdapter` is the only
-  call site of `AgentRegistryService.runByType('sourcing', ...)`.
+  call site of `AgentRegistryService.runByType('sourcing', ...)` for sourcing.
+  `POST /api/sourcing/:id/generate` is intentionally disabled until sourced
+  candidates are modeled separately from `MasterProduct`.
+- **Cross-domain MasterProduct create** (extension ingest creating new family)
+  flows through `SOURCING_PRODUCTS_CATALOG_PORT`. `SourcingService` does not
+  import `MastersService` directly; the port adapter
+  (`adapter/out/products/products-catalog.adapter.ts`) is the only call site
+  of products' `MastersService.create` from sourcing. `MastersService.create`
+  internally invokes `MasterCodeService` to issue the `M-00000001` family
+  code in transaction, so the historical "Plan B3 prerequisite" for
+  MasterCodeService integration is satisfied through this seam.
 - **Purchase order state transitions** are extracted as a pure domain policy
   (`domain/policy/purchase-order-status.ts`). `ProcurementService` consults
   the policy; the state machine has no Nest, no Prisma, no IO.
 - **Suppliers** is intentionally left as transitional flat CRUD. The
   architecture contract permits this for tiny CRUD surfaces that are not
   being reconstructed in the same PR.
-- `MasterProduct` writes still live inline in `SourcingService.receiveExtensionData`
-  because the create path is gated by `NotImplementedException` until Plan B3
-  (MasterCodeService integration) wires the family code. Do not add new
-  master-product writes here without that plan.
+- **MasterProduct update path** (existing master matched by
+  `{ sourceUrl, organizationId }`) lives inline in
+  `SourcingService.receiveExtensionData` and writes via Prisma. Updates do
+  not require code issuance and stay inside sourcing's transaction
+  boundary.
 
 ## Public contracts that must not regress
 
@@ -85,6 +100,15 @@ justifies them. The rest stays transitional flat CRUD by design:
   `AgentRegistryService` directly.
 - `/api/sourcing/extension/products` returns paginated `MasterProduct`
   rows scoped to the caller's organization and platform filter.
+- `GET /api/sourcing/:id` returns a single sourcing-scope `MasterProduct`
+  (with images) gated by `pipelineStep IS NOT NULL` and
+  `findFirst({ id, organizationId })`. 404 on miss; never expose
+  cross-organization rows.
+- `POST /api/sourcing/:id/generate` is disabled and returns
+  `NotImplementedException` (HTTP 501). Do not re-enable the Agent OS content
+  path until the sourcing candidate → `MasterProduct` promotion model exists;
+  otherwise a sourced-but-not-approved candidate is incorrectly treated as an
+  operational master product.
 - `/api/purchase-orders` action body (`create | updateStatus | delete`)
   preserves the legacy single-endpoint POST shape. Status transitions follow
   `draft → pending → ordered → shipped → received` exactly; deletion is
@@ -113,8 +137,12 @@ other module imports sourcing/procurement/supplier services.
 - `findUnique({ where: { id } })` 으로 supplier/PO 조회 — IDOR. 항상
   `findFirst({ where: { id, organizationId } })`.
 - `supplier-payments` 의 import 또는 회로 추가 — finance owner domain 소관.
-- `master_products` 의 새 write 경로 추가 (현재는 `NotImplementedException`
-  guarded). 변경하려면 Plan B3 (MasterCodeService) 가 선행되어야 한다.
+- `application/service/**` 에서 `MastersService` (또는 다른 owner domain 의
+  service) 를 직접 import — cross-domain 침범. 새 master 생성은
+  `SOURCING_PRODUCTS_CATALOG_PORT` 를 통해서만, 그 외 cross-domain dependency
+  도 동일하게 새 port 를 도입한다.
+- `master_products` 에 직접 raw INSERT (`prisma.masterProduct.create`) 추가 —
+  code 발급은 `MastersService` 만 책임진다. update 만 inline 허용.
 - `apps/server/src/{suppliers,procurement}` 폴더 부활 — capability 는
   sourcing 안의 `adapter/in/http/<capability>.controller.ts` +
   `application/service/<capability>.service.ts` 로만 존재한다.

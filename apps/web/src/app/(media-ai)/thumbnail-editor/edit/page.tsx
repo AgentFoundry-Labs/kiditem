@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -33,6 +33,14 @@ import { EditorPageHeader } from './components/EditorPageHeader';
 export type { EditorMode, HistoryCandidate } from './lib/edit-page-types';
 
 export default function ThumbnailEditorWorkspacePage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-slate-50" />}>
+      <ThumbnailEditorWorkspaceContent />
+    </Suspense>
+  );
+}
+
+function ThumbnailEditorWorkspaceContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const productId = searchParams.get('productId');

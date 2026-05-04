@@ -3,29 +3,71 @@
 @tailwind utilities;
 
 :root {
-  --background: #f8fafc; /* gray-50 */
-  --foreground: #0f172a; /* slate-900 */
-  --card: #ffffff; /* white */
-  --card-foreground: #0f172a;
-  --border: #e2e8f0; /* slate-200 */
-  --accent: #2563eb; /* blue-600 */
-  --muted: #64748b; /* slate-500 */
-
-  /* Product page design tokens */
-  --primary: #7c3aed;
-  --card-bg: #ffffff;
+  color-scheme: light;
+  --background: #f8fafc;
+  --surface: #ffffff;
   --surface-sunken: #f1f5f9;
+  --surface-raised: #ffffff;
+  --foreground: #0f172a;
+  --card: var(--surface);
+  --card-foreground: #0f172a;
+  --card-bg: var(--surface);
+  --border: #e2e8f0;
+  --border-subtle: #f1f5f9;
+  --border-strong: #cbd5e1;
+  --accent: #2563eb;
+  --muted: #64748b;
+  --primary: #7c3aed;
+  --primary-hover: #6d28d9;
+  --primary-soft: #f5f3ff;
+  --primary-contrast: #ffffff;
   --text-primary: #0f172a;
   --text-secondary: #334155;
   --text-tertiary: #64748b;
-  --text-quaternary: #94a3b8;
-  --border-subtle: #e2e8f0;
-  --border-strong: #94a3b8;
+  --text-muted: #94a3b8;
+  --text-quaternary: var(--text-muted);
   --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.05);
   --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.06);
   --success: #10b981;
   --danger: #ef4444;
   --warning: #f59e0b;
+  --overlay: rgba(0, 0, 0, 0.5);
+  --scrollbar-thumb: #cbd5e1;
+  --scrollbar-thumb-hover: #94a3b8;
+}
+
+.dark {
+  color-scheme: dark;
+  --background: #0b0f17;
+  --surface: #111827;
+  --surface-sunken: #0f172a;
+  --surface-raised: #1f2937;
+  --foreground: #f1f5f9;
+  --card: var(--surface);
+  --card-foreground: #f1f5f9;
+  --card-bg: var(--surface);
+  --border: #1f2937;
+  --border-subtle: #111827;
+  --border-strong: #374151;
+  --accent: #60a5fa;
+  --muted: #94a3b8;
+  --primary: #a78bfa;
+  --primary-hover: #c4b5fd;
+  --primary-soft: rgba(167, 139, 250, 0.14);
+  --primary-contrast: #0b0f17;
+  --text-primary: #f1f5f9;
+  --text-secondary: #cbd5e1;
+  --text-tertiary: #94a3b8;
+  --text-muted: #64748b;
+  --text-quaternary: var(--text-muted);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+  --success: #34d399;
+  --danger: #f87171;
+  --warning: #fbbf24;
+  --overlay: rgba(0, 0, 0, 0.72);
+  --scrollbar-thumb: #374151;
+  --scrollbar-thumb-hover: #4b5563;
 }
 
 /* Thumbnail AI page theme tokens — scoped to .thumb-theme to avoid affecting other pages */
@@ -78,12 +120,12 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1; /* slate-300 */
+  background: var(--scrollbar-thumb);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8; /* slate-400 */
+  background: var(--scrollbar-thumb-hover);
 }
 
 /* React Flow Light Theme Overrides */

@@ -4,29 +4,24 @@ import { Search } from 'lucide-react';
 
 export default function SourcingHeader() {
   return (
-    <header className="px-6 py-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 bg-white">
-      <div className="flex items-baseline gap-4">
-        <h1 className="page-title">
-          수집상품
-        </h1>
-        <div className="flex items-center gap-2 text-xs text-slate-500">
-          <span>수집 서버 속도</span>
-          <span className="flex items-center gap-1 text-emerald-600 px-2 py-0.5 font-medium">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-            아주 원활
-          </span>
+    <header className="px-5 h-14 flex items-center justify-between gap-4 border-b border-slate-200">
+      <div className="flex items-baseline gap-3">
+        <h1 className="text-lg font-bold text-slate-900">수집상품</h1>
+        <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+          <span>수집 서버 · 아주 원활</span>
         </div>
       </div>
 
-      <div className="relative w-full sm:w-80">
+      <div className="relative w-72">
         <Search
           className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-          size={16}
+          size={14}
         />
         <input
           type="text"
           placeholder="상품명 · 상품코드 · 메모 검색"
-          className="w-full pl-9 pr-4 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 bg-white"
+          className="w-full pl-8 pr-3 h-8 text-xs border border-slate-200 rounded-md focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 bg-white placeholder:text-slate-400"
         />
       </div>
     </header>

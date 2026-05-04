@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import {
@@ -95,6 +95,14 @@ export function severityBgColor(severity: string): string {
 }
 
 export default function ActionBoardPage() {
+  return (
+    <Suspense fallback={<PageSkeleton variant="table" />}>
+      <ActionBoardContent />
+    </Suspense>
+  );
+}
+
+function ActionBoardContent() {
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const router = useRouter();

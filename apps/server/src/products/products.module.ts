@@ -10,6 +10,7 @@ import { MastersController } from './adapter/in/http/masters.controller';
 import { OptionsController } from './adapter/in/http/options.controller';
 import { BundleComponentsController } from './adapter/in/http/bundle-components.controller';
 import { ProductCatalogController } from './adapter/in/http/product-catalog.controller';
+import { ProductContentController } from './adapter/in/http/product-content.controller';
 import { ProductsLegacyController } from './adapter/in/http/products-legacy.controller';
 import { CategoriesModule } from './categories/categories.module';
 
@@ -20,6 +21,7 @@ import { CategoriesModule } from './categories/categories.module';
     OptionsController,
     BundleComponentsController,
     ProductCatalogController,
+    ProductContentController, // detail-page preview/history/edited-html
     ProductsLegacyController, // last — resolves after sibling /products/* controllers
   ],
   providers: [

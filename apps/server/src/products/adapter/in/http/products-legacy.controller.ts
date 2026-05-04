@@ -78,6 +78,10 @@ export class ProductsLegacyController {
     return this.masters.originalImageBase64(organizationId, id);
   }
 
+  // NOTE: Detail-page content routes (`:id/preview`, `:id/history`,
+  // `:id/edited-html`, `:id/history/:generationId`) are served by
+  // ProductContentController (non-deprecated). Do not re-add them here.
+
   @Get(':id')
   @Header('Deprecation', DEPRECATION_HEADER)
   @Header('Sunset', SUNSET_HEADER)

@@ -1,13 +1,16 @@
 'use client';
 
-import Link from 'next/link';
-import { ChevronDown, Download, Pencil, Settings } from 'lucide-react';
+import { ChevronDown, Settings } from 'lucide-react';
+import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import ThumbnailGrid from './ThumbnailGrid';
-import TagEditor from './TagEditor';
-import RawDataTab from './RawDataTab';
+import ThumbnailGrid from '../../components/detail/ThumbnailGrid';
+import TagEditor from '../../components/detail/TagEditor';
+import RawDataTab from '../../components/detail/RawDataTab';
+import { useGenerateSourcingThumbnail } from '../hooks/useGenerateSourcingThumbnail';
 import { CATEGORIES } from '../lib/types';
-import type { EditTabType } from './ProductEditTabs';
+import GenerationHistoryTab from './GenerationHistoryTab';
+import DetailPagePreview from './DetailPagePreview';
+import type { EditTabType } from '../../components/detail/ProductEditTabs';
 import type { ProductEditState } from '../lib/types';
 
 interface Props {
@@ -17,7 +20,18 @@ interface Props {
   nameLength: number;
   productId: string;
   detailPreviewHtml: string;
+  editedHtml: string | null;
+  templateCss: string;
   rawData: Record<string, unknown> | null;
+  /** 사용자가 생성 이력에서 고른 KP entry id. null = 최신 자동. */
+  selectedKidsPlayfulId: string | null;
+  /** 사용자가 생성 이력에서 고른 simple-vertical entry id. */
+  selectedSimpleVerticalId: string | null;
+  /** 사용자가 생성 이력에서 고른 ContentAgent entry id. */
+  selectedAgentId: string | null;
+  onSelectKidsPlayful: (id: string | null) => void;
+  onSelectSimpleVertical: (id: string | null) => void;
+  onSelectAgent: (id: string | null) => void;
 }
 
 export default function ProductTabContent({
@@ -27,27 +41,68 @@ export default function ProductTabContent({
   nameLength,
   productId,
   detailPreviewHtml,
+  editedHtml,
+  templateCss,
   rawData,
+  selectedKidsPlayfulId,
+  selectedSimpleVerticalId,
+  selectedAgentId,
+  onSelectKidsPlayful,
+  onSelectSimpleVertical,
+  onSelectAgent,
 }: Props) {
+  const generateThumbnail = useGenerateSourcingThumbnail();
+
+  const handleGenerateThumbnail = async () => {
+    const productImage = editData.thumbnails[0];
+    if (!productImage) {
+      toast.error('먼저 원본 썸네일 이미지를 추가해주세요');
+      return;
+    }
+
+    try {
+      const result = await generateThumbnail.mutateAsync({
+        productImage,
+        productDescription: editData.name,
+      });
+      const generatedUrls = result.candidates.map((candidate) => candidate.url).filter(Boolean);
+      if (generatedUrls.length === 0) {
+        toast.error('생성된 썸네일이 없습니다');
+        return;
+      }
+
+      const nextThumbnails = [
+        ...generatedUrls,
+        ...editData.thumbnails.filter((url) => !generatedUrls.includes(url)),
+      ].slice(0, 10);
+      updateField('thumbnails', nextThumbnails);
+      toast.success(`AI 썸네일 ${generatedUrls.length}장 생성 완료`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'AI 썸네일 생성 실패');
+    }
+  };
+
   switch (activeTab) {
     case 'basic':
       return (
-        <div className="space-y-6 p-6">
+        <div className="space-y-4 p-5">
           <div className="card p-5">
             <ThumbnailGrid
               thumbnails={editData.thumbnails}
               onThumbnailsChange={(v) => updateField('thumbnails', v)}
+              onGenerateThumbnail={handleGenerateThumbnail}
+              isGeneratingThumbnail={generateThumbnail.isPending}
             />
           </div>
 
           <div className="card p-5">
             <div className="space-y-3">
-              <label className="text-sm font-semibold text-slate-700">카테고리</label>
+              <label className="text-base font-semibold text-slate-800">카테고리</label>
               <div className="relative">
                 <select
                   value={editData.category}
                   onChange={(e) => updateField('category', e.target.value)}
-                  className="w-full appearance-none px-4 py-2.5 pr-10 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 transition-colors cursor-pointer"
+                  className="w-full appearance-none px-4 py-3 pr-10 bg-slate-50 border border-slate-200 rounded-lg text-base text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 transition-colors cursor-pointer"
                 >
                   <option value="">카테고리 선택</option>
                   {CATEGORIES.map((cat) => (
@@ -65,8 +120,8 @@ export default function ProductTabContent({
           <div className="card p-5">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <label className="text-sm font-semibold text-slate-700">상품명</label>
-                <span className={cn('text-xs font-medium', nameLength > 100 ? 'text-red-500' : 'text-slate-400')}>
+                <label className="text-base font-semibold text-slate-800">상품명</label>
+                <span className={cn('text-sm font-medium', nameLength > 100 ? 'text-red-500' : 'text-slate-400')}>
                   {nameLength}/100자
                 </span>
               </div>
@@ -74,7 +129,7 @@ export default function ProductTabContent({
                 type="text"
                 value={editData.name}
                 onChange={(e) => updateField('name', e.target.value)}
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 transition-colors"
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg text-base text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 transition-colors"
                 placeholder="상품명을 입력하세요"
                 maxLength={100}
               />
@@ -92,7 +147,7 @@ export default function ProductTabContent({
             <div className="card p-5">
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <label className="text-sm font-semibold text-slate-700">상품정보제공공시</label>
+                  <label className="text-base font-semibold text-slate-800">상품정보제공공시</label>
                   <button className="text-xs text-emerald-600 hover:text-emerald-700 font-medium transition-colors">
                     편집
                   </button>
@@ -116,7 +171,7 @@ export default function ProductTabContent({
 
     case 'options':
       return (
-        <div className="p-6">
+        <div className="p-5">
           <div className="card p-8">
             <div className="flex flex-col items-center justify-center py-12 text-slate-400">
               <Settings size={40} className="mb-3 text-slate-300" />
@@ -129,32 +184,30 @@ export default function ProductTabContent({
 
     case 'detail':
       return (
-        <div className="p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-slate-700">생성된 상세페이지</h3>
-            <div className="flex items-center gap-2">
-              <Link
-                href={`/sourcing/${productId}/editor`}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
-              >
-                <Pencil size={12} />
-                에디터에서 편집
-              </Link>
-              <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-emerald-500 rounded-lg hover:bg-emerald-600 transition-colors">
-                <Download size={12} />
-                이미지 다운로드
-              </button>
-            </div>
-          </div>
+        <DetailPagePreview
+          productId={productId}
+          detailPreviewHtml={detailPreviewHtml}
+          editedHtml={editedHtml}
+          templateCss={templateCss}
+          selectedKidsPlayfulId={selectedKidsPlayfulId}
+          selectedSimpleVerticalId={selectedSimpleVerticalId}
+          selectedAgentId={selectedAgentId}
+        />
+      );
 
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden" style={{ height: '80vh' }}>
-            <iframe
-              srcDoc={detailPreviewHtml}
-              className="w-full h-full border-0"
-              title="detail-page-preview"
-            />
-          </div>
-        </div>
+    case 'history':
+      return (
+        <GenerationHistoryTab
+          productId={productId}
+          currentPreviewHtml={editedHtml ?? detailPreviewHtml}
+          templateCss={templateCss}
+          selectedKidsPlayfulId={selectedKidsPlayfulId}
+          selectedSimpleVerticalId={selectedSimpleVerticalId}
+          selectedAgentId={selectedAgentId}
+          onSelectKidsPlayful={onSelectKidsPlayful}
+          onSelectSimpleVertical={onSelectSimpleVertical}
+          onSelectAgent={onSelectAgent}
+        />
       );
 
     case 'raw':

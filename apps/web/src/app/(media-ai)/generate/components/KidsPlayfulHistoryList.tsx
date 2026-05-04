@@ -1,0 +1,211 @@
+'use client';
+
+/**
+ * /generate 하단 + sourcing 상세 — KidsPlayful 생성 이력 카드 리스트.
+ *
+ * Server DB 기반 (companyId scope) — react-query useQuery 로 fetch.
+ * 카드 = 썸네일 + 상품명 + 메인헤드라인 + 생성 시각.
+ * 클릭 시 풀스크린 KidsPlayfulRenderer 모달.
+ * filterProductId 옵션 — sourcing 상세 페이지에서 그 product 만.
+ */
+import { useMemo, useState } from 'react';
+import { Calendar, History, Sparkles, Trash2, X } from 'lucide-react';
+import { toast } from 'sonner';
+import { isApiError } from '@/lib/api-error';
+import { cn } from '@/lib/utils';
+import {
+  rowThumbnail,
+  rowToRendererData,
+  useKidsPlayfulGenerationDelete,
+  useKidsPlayfulGenerationList,
+  type KidsPlayfulGenerationItem,
+} from '../hooks/useKidsPlayfulGenerate';
+import KidsPlayfulRenderer from './KidsPlayfulRenderer';
+
+/** 'YYYY-MM-DD HH:mm' */
+function formatTs(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+interface KidsPlayfulHistoryListProps {
+  /** 있으면 이 productId 의 이력만 필터링. sourcing/[id] 의 상세페이지 탭에서 사용. */
+  filterProductId?: string;
+  /** sourcing 탭에 임베드 시 padding/헤더 작게. */
+  compact?: boolean;
+}
+
+export default function KidsPlayfulHistoryList({
+  filterProductId,
+  compact = false,
+}: KidsPlayfulHistoryListProps = {}) {
+  const { data: entries = [], isLoading } = useKidsPlayfulGenerationList(filterProductId);
+  const deleteMut = useKidsPlayfulGenerationDelete();
+  const [openId, setOpenId] = useState<string | null>(null);
+
+  const openEntry = useMemo(
+    () => (openId ? entries.find((e) => e.id === openId) ?? null : null),
+    [openId, entries],
+  );
+
+  const handleDelete = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm('이 생성 이력을 삭제할까요?')) return;
+    deleteMut.mutate(id, {
+      onError: (err) => {
+        toast.error(isApiError(err) ? err.detail : '삭제 실패');
+      },
+    });
+  };
+
+  return (
+    <section className={cn(compact ? '' : 'border-t border-slate-200 bg-white')}>
+      <div className={cn(compact ? '' : 'px-8 py-8')}>
+        <div className={cn('flex items-center justify-between', compact ? 'mb-3' : 'mb-5')}>
+          <div>
+            <h2
+              className={cn(
+                'font-bold text-slate-900 inline-flex items-center gap-2',
+                compact ? 'text-sm' : 'text-lg',
+              )}
+            >
+              <History size={compact ? 14 : 18} className="text-violet-500" />
+              {compact ? 'Trend Vertical 생성 이력' : '상세페이지 생성 이력'}
+            </h2>
+            {!compact && (
+              <p className="text-xs text-slate-500 mt-1">
+                Trend Vertical 로 생성한 결과 — 카드 클릭하면 다시 볼 수 있어요.{' '}
+                <span className="text-slate-400">(DB 영구 저장, 회사 단위)</span>
+              </p>
+            )}
+          </div>
+        </div>
+
+        {isLoading ? (
+          <div
+            className={cn(
+              'rounded-lg border border-dashed border-slate-300 bg-slate-50 text-center text-slate-400',
+              compact ? 'py-6 text-xs' : 'py-12 text-sm',
+            )}
+          >
+            이력 불러오는 중...
+          </div>
+        ) : entries.length === 0 ? (
+          <div
+            className={cn(
+              'rounded-lg border border-dashed border-slate-300 bg-slate-50 text-center text-slate-400',
+              compact ? 'py-6 text-xs' : 'py-12 text-sm',
+            )}
+          >
+            {filterProductId
+              ? '이 상품의 Trend Vertical 이력이 없어요. 위에서 "상세페이지 생성" → Trend Vertical 로 만들면 여기에 쌓여요.'
+              : '아직 생성 이력이 없어요. /sourcing 에서 상품 선택 → "상세페이지 생성" → Trend Vertical 로 만들면 여기에 쌓여요.'}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+            {entries.map((entry) => (
+              <HistoryCard
+                key={entry.id}
+                entry={entry}
+                onOpen={() => setOpenId(entry.id)}
+                onDelete={(e) => handleDelete(entry.id, e)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {openEntry && (
+        <FullscreenViewer entry={openEntry} onClose={() => setOpenId(null)} />
+      )}
+    </section>
+  );
+}
+
+interface HistoryCardProps {
+  entry: KidsPlayfulGenerationItem;
+  onOpen: () => void;
+  onDelete: (e: React.MouseEvent) => void;
+}
+
+function HistoryCard({ entry, onOpen, onDelete }: HistoryCardProps) {
+  const thumb = rowThumbnail(entry);
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className={cn(
+        'group relative flex flex-col overflow-hidden rounded-xl border-2 border-slate-200 bg-white text-left',
+        'hover:border-violet-400 hover:shadow-lg transition-all',
+      )}
+    >
+      <div className="relative aspect-[4/3] bg-slate-100">
+        {thumb ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={thumb} alt={entry.productName} className="w-full h-full object-cover" />
+        ) : (
+          <div className="flex h-full items-center justify-center text-slate-400">
+            <Sparkles size={32} />
+          </div>
+        )}
+        <div className="absolute top-2 right-2 inline-flex items-center gap-1 rounded-full bg-violet-600/90 backdrop-blur-sm px-2.5 py-1 text-[10px] font-bold tracking-wider text-white">
+          TREND VERTICAL
+        </div>
+        <button
+          type="button"
+          onClick={onDelete}
+          className="absolute top-2 left-2 rounded-md bg-white/80 backdrop-blur-sm p-1.5 text-slate-500 hover:bg-white hover:text-rose-600 opacity-0 group-hover:opacity-100 transition-opacity"
+          aria-label="삭제"
+        >
+          <Trash2 size={14} />
+        </button>
+      </div>
+      <div className="p-3 space-y-1">
+        <p className="text-[11px] text-slate-400 truncate">{entry.productName}</p>
+        <h3 className="text-sm font-bold text-slate-900 truncate">
+          {entry.result.section1.mainHeadline}
+        </h3>
+        <p className="text-[11px] text-slate-500 truncate">{entry.result.section1.subhead}</p>
+        <div className="flex items-center gap-1 text-[10px] text-slate-400 pt-1">
+          <Calendar size={10} />
+          {formatTs(entry.createdAt)}
+        </div>
+      </div>
+    </button>
+  );
+}
+
+interface FullscreenViewerProps {
+  entry: KidsPlayfulGenerationItem;
+  onClose: () => void;
+}
+
+function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
+  const data = useMemo(() => rowToRendererData(entry), [entry]);
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-2">
+      <div className="relative flex h-[98vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-slate-100 shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-3 shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <Sparkles size={18} className="text-violet-600 shrink-0" />
+            <h3 className="text-base font-bold text-slate-900 truncate">
+              {entry.result.section1.mainHeadline}
+            </h3>
+            <span className="text-xs text-slate-400 font-mono truncate">{entry.productName}</span>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-md p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 shrink-0"
+            aria-label="닫기"
+          >
+            <X size={20} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto bg-white">
+          <KidsPlayfulRenderer data={data} />
+        </div>
+      </div>
+    </div>
+  );
+}

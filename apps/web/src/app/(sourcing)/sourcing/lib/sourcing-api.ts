@@ -1,6 +1,25 @@
 import { apiClient } from '@/lib/api-client';
 
-export type ProductStatus = 'DRAFT' | 'PROCESSING' | 'LISTED' | 'DISCONTINUED';
+// pipeline_step 직접 매핑 — Python ContentAgent 가 박는 값들 + 옛날 대문자 ('LISTED' 등) 호환
+export type ProductStatus =
+  | 'DRAFT'
+  | 'PROCESSING'         // legacy uppercase
+  | 'LISTED'
+  | 'DISCONTINUED'
+  | 'draft'              // 초기 scrape 완료
+  | 'processing'         // Step1 진행 중 (AI 카피 생성)
+  | 'content_ready'      // Step1 완료 (draft_content 적재)
+  | 'images_generating'  // Step2 진행 중 (이미지 생성)
+  | 'processed';         // Step2 완료 (processed_data 적재)
+
+/** 진행 중 상태 — 카드 spinner overlay + 폴링 트리거 조건. */
+export const IN_PROGRESS_STATUSES: ProductStatus[] = [
+  'PROCESSING',
+  'processing',
+  'images_generating',
+];
+export const isInProgress = (s: ProductStatus | undefined | null): boolean =>
+  !!s && IN_PROGRESS_STATUSES.includes(s);
 
 export interface SourcedProduct {
   id: string;
@@ -22,7 +41,7 @@ interface ProductListResponse {
   total: number;
 }
 
-interface ProductDetailResponse {
+export interface ProductDetailResponse {
   id: string;
   name: string;
   status: ProductStatus;
@@ -35,6 +54,7 @@ interface ProductDetailResponse {
   is_processed: boolean;
   raw_data: Record<string, unknown> | null;
   processed_data: Record<string, unknown> | null;
+  image_urls: string[];
   created_at: string;
   updated_at: string;
 }
@@ -52,6 +72,53 @@ interface ScrapeUrlResponse {
   product_id: string | null;
 }
 
+function normalizeImageUrl(value: unknown): string | null {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (trimmed.startsWith('//')) return `https:${trimmed}`;
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
+    return null;
+  }
+  if (value && typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    for (const key of ['url', 'src', 'imageUrl', 'image_url', 'fullPathImageURI', 'fullPathImageUrl']) {
+      const url = normalizeImageUrl(obj[key]);
+      if (url) return url;
+    }
+  }
+  return null;
+}
+
+function collectImageUrls(...sources: unknown[]): string[] {
+  const urls: string[] = [];
+  const visit = (value: unknown) => {
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    const url = normalizeImageUrl(value);
+    if (url) urls.push(url);
+  };
+  sources.forEach(visit);
+  return [...new Set(urls)];
+}
+
+function rawImageCandidates(rawData: Record<string, unknown>): string[] {
+  return collectImageUrls(
+    rawData.images,
+    rawData.imageUrls,
+    rawData.image_urls,
+    rawData.mainImages,
+    rawData.main_images,
+    rawData.mainImage,
+    rawData.main_image,
+    rawData.offerImgList,
+    rawData.description_images,
+    rawData.detail_images,
+    rawData.thumbnails,
+  );
+}
 
 export const productsApi = {
   async list(params?: {
@@ -70,14 +137,23 @@ export const productsApi = {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const items: SourcedProduct[] = data.items.map((p: any) => {
       const rawData = p.rawData || {};
-      const images = rawData.images || [];
+      const images = collectImageUrls(
+        rawImageCandidates(rawData),
+        p.images,
+        p.imageUrl,
+        p.thumbnailUrl,
+      );
+      // status: pipelineStep 직접 매핑. 진행 중 / 완료 상태가 카드에서 시각적으로 구분되어야 함.
+      // 이전엔 (p.status || 'DRAFT').toUpperCase() 로 정상 fallback 됐는데 백엔드는 pipelineStep 만
+      // 보내고 status 컬럼이 없어서 무조건 'DRAFT' 였음 → AI 생성 중인 카드도 'DRAFT' 표시.
+      const rawStatus: string = p.pipelineStep || p.status || 'DRAFT';
       return {
         id: p.id,
         name: p.name || rawData.title || '',
-        status: (p.status || 'DRAFT').toUpperCase() as ProductStatus,
+        status: rawStatus as ProductStatus,
         source_platform: p.sourcePlatform || rawData.source_platform || '',
         source_url: p.sourceUrl || rawData.source_url || null,
-        thumbnail_url: p.thumbnailUrl || images[0] || null,
+        thumbnail_url: p.thumbnailUrl || p.imageUrl || images[0] || null,
         price_krw: p.sellPrice || null,
         cost_cny: p.costCny ? Number(p.costCny) : (rawData.price ? parseFloat(rawData.price) : null),
         image_count: images.length,
@@ -91,29 +167,35 @@ export const productsApi = {
 
   async getDetail(id: string): Promise<ProductDetailResponse> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const p = await apiClient.get<any>(`/api/products/${id}`);
+    const p = await apiClient.get<any>(`/api/sourcing/${id}`);
     const rawData = p.rawData || p.raw_data || {};
-    const images = rawData.images || [];
+    const images = collectImageUrls(
+      rawImageCandidates(rawData),
+      p.images,
+      p.imageUrl,
+      p.thumbnailUrl,
+    );
     return {
       id: p.id,
       name: p.name || rawData.title || '',
-      status: (p.status || 'DRAFT').toUpperCase() as ProductStatus,
+      status: (p.pipelineStep || p.status || 'DRAFT') as ProductStatus,
       source_platform: p.sourcePlatform || rawData.source_platform || '',
       source_url: p.sourceUrl || rawData.source_url || null,
-      thumbnail_url: p.thumbnailUrl || images[0] || null,
+      thumbnail_url: p.thumbnailUrl || p.imageUrl || images[0] || null,
       price_krw: p.sellPrice || null,
       cost_cny: p.costCny ? Number(p.costCny) : (rawData.price ? parseFloat(rawData.price) : null),
       image_count: images.length,
       is_processed: p.processedData != null,
       raw_data: rawData,
       processed_data: p.processedData || p.processed_data || null,
+      image_urls: images,
       created_at: p.createdAt || '',
       updated_at: p.updatedAt || '',
     };
   },
 
   async delete(id: string): Promise<{ ok: boolean }> {
-    return apiClient.delete<{ ok: boolean }>(`/api/products/${id}`);
+    return apiClient.delete<{ ok: boolean }>(`/api/products/masters/${id}`);
   },
 
   async process(

@@ -87,6 +87,28 @@ ai/
 
 `ThumbnailWingService` (application) 는 `WING_AUTOMATION_PORT` 만 의존. Nest 모듈에서 `WingAutomationRunner` (Playwright spawn) 어댑터를 바인딩한다. 다른 환경(테스트/CI)에서는 같은 포트에 다른 어댑터를 꽂아 register/verify 흐름을 isolate 가능.
 
+### 6. Text 호출 — 포트로 캡슐화
+
+Gemini text generation 호출은 `TEXT_COMPLETION_PORT` 한 곳에 모인다. `text-ai.service` (preset 변환) 와 `detail-page-ai.service` (kids-playful / simple-vertical 상세페이지 single-call generation) 가 모두 이 port 만 의존하므로 application layer 는 HTTP / API key / Gemini URL 을 알지 않는다. Adapter (`adapter/out/gemini/gemini-text-completion.adapter.ts`) 는 system/user/temperature/responseMimeType/model 을 받아 `generateContent` 엔드포인트를 호출한다. caller 는 `model` 을 항상 명시적으로 ENV 에서 읽어 전달 (silent fallback 금지).
+
+### 7. Detail page generation — active sync path, disabled sourcing async path
+
+상세페이지 생성은 현재 sync AI path 만 활성화되어 있다. sourcing async
+Agent OS path 는 sourced candidate 와 `MasterProduct` 의 lifecycle 이 분리될
+때까지 비활성화한다.
+
+| 진입점 | 모드 | 호출 경로 | 결과 저장 | 사용처 |
+|---|---|---|---|---|
+| `POST /api/sourcing/:id/generate` | **disabled** | `SourcingService.generateDetailPage` → `NotImplementedException` | 없음 | candidate → master promotion model 도입 전까지 사용 금지 |
+| `POST /api/ai/detail-page/generate` | **sync** (inline Gemini) | ai 도메인의 `DetailPageAiService.generate` → `TEXT_COMPLETION_PORT` | `ContentGeneration` row + `detailPageHtml` JSON column | media-ai generate 페이지 (kids-playful / simple-vertical) |
+
+규칙:
+- ai sync path 는 Gemini 응답이 즉시 schema-valid (Zod) 일 때만 사용.
+- `bold-vertical` sourcing/content-agent path 는 disabled 상태다. 다시 활성화하려면
+  sourced candidate 저장소, approval/promotion workflow, 그리고 content
+  generation target model 을 먼저 설계한다.
+- `ContentGeneration.detailPageHtml` 은 sync path 의 polymorphic JSON store 다. `templateId` 키로 분기하며 schema-level discriminator column 화는 후속 lane.
+
 ## Rules
 
 - Image 는 **반드시 agent 위임**, text 만 직접 호출 허용.
@@ -115,7 +137,6 @@ ai/
 | application/service → `adapter/out/gemini/gemini-thumbnail-vision.adapter` 직접 의존 | `thumbnail-vision-ai.service`, `thumbnail-compliance-verifier.service` | `VisionInferencePort` 추가 + Gemini 어댑터를 그 포트에 바인딩. compliance verifier 의 Gemini 호출 메서드 분리 필요. |
 | application/service → `adapter/out/gemini/thumbnail-reference-images.adapter` 직접 의존 | `thumbnail-vision-ai.service`, `thumbnail-editor-ai.service` | reference asset 로딩은 부팅-warm-up이라 포트화 가치가 낮음. 유지. |
 | application/service → `adapter/out/image-fetch/thumbnail-image-fetcher.adapter` 직접 의존 | `thumbnail-editor-ai.service`, `thumbnail-wing.service` | `ImageFetcherPort` 추가하면 SSRF guard 도 인터페이스 위로 노출. 후속에서 처리. |
-| `application/service/text-ai.service` 의 inline `fetch(...)` Gemini 호출 | `text-ai.service.ts` | `TextCompletionPort` + Gemini text 어댑터 분리 필요. 60줄짜리 서비스라 high-risk churn 회피. |
 | `application/service/thumbnail-editor-ai.service` 의 inline `GoogleGenAI` 사용 | `thumbnail-editor-ai.service.ts` | `ImageGenerationPort` 추가 + Gemini image 어댑터 분리. 본 서비스는 380줄 + storage·prompt·layout 결합으로 churn 비용 큼. |
 | `adapter/in/http/render-image.controller.ts` 의 inline puppeteer + fs 비즈니스 로직 | `render-image.controller.ts` | controller 가 비즈니스 룰을 가짐. 별도 application service 추출 + `RenderImagePort`(headless browser) 도입 필요. |
 | `adapter/out/coupang/coupang-inventory-scrape.adapter` 의 `spawn('playwriter')` + tmp 파일 IO | `coupang-inventory-scrape.adapter.ts` | dev/local 환경 전용 (NODE_ENV=production 이면 ServiceUnavailableException). 향후 headless `playwright` npm 의존으로 대체. |
