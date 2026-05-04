@@ -27,7 +27,7 @@ describe('apiClient.get', () => {
     expect(result).toEqual({ data: 'ok' })
     expect(mockFetch).toHaveBeenCalledWith(
       'http://localhost:4000/api/products',
-      undefined,
+      expect.objectContaining({ credentials: 'include' }),
     )
   })
 })
@@ -39,7 +39,8 @@ describe('apiClient.post', () => {
     expect(result).toEqual({ id: 1 })
     const [, init] = mockFetch.mock.calls[0]
     expect(init.method).toBe('POST')
-    expect(init.headers['Content-Type']).toBe('application/json')
+    // withAuthHeaders 가 plain object header 를 Headers 객체로 normalize.
+    expect(init.headers.get('Content-Type')).toBe('application/json')
     expect(init.body).toBe(JSON.stringify({ item: 'a' }))
   })
 

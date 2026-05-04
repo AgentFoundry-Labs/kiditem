@@ -34,11 +34,13 @@ import {
   Bell,
   Zap,
   Wand2,
+  LogOut,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useStore } from '@/store/useStore';
 import { usePanelStore } from '@/components/panel/lib/panel-store';
+import { useAuth } from '@/hooks/useAuth';
 import ThemeToggle from './ThemeToggle';
 
 interface MenuItem {
@@ -195,6 +197,7 @@ export default function Sidebar({
     (s) => Object.values(s.byId).filter((i) => i.kind === 'run' && i.status === 'failed').length
   );
   const runningCount = usePanelStore((s) => s.runningCount());
+  const { user, logout } = useAuth();
 
   const handleNavClick = useCallback(
     (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
@@ -522,6 +525,24 @@ export default function Sidebar({
             )}
             <ThemeToggle collapsed={!sidebarOpen} />
           </div>
+          {user && (
+            <button
+              onClick={logout}
+              className={cn(
+                'group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-sunken)] hover:text-[var(--danger)] transition-colors',
+                !sidebarOpen && 'justify-center px-0',
+              )}
+              title={!sidebarOpen ? `${user.email} — 로그아웃` : undefined}
+            >
+              <LogOut size={18} strokeWidth={1.75} className="shrink-0 text-[var(--text-muted)] group-hover:text-[var(--danger)] transition-colors" />
+              {sidebarOpen && (
+                <span className="flex-1 min-w-0 text-left">
+                  <span className="block truncate text-[11px] font-normal text-[var(--text-muted)]">{user.email}</span>
+                  <span>로그아웃</span>
+                </span>
+              )}
+            </button>
+          )}
         </div>
       </aside>
     </>

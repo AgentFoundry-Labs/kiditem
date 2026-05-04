@@ -2,6 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PanelSseClient } from '../panel-sse-client';
 
 vi.mock('@microsoft/fetch-event-source', () => ({ fetchEventSource: vi.fn() }));
+vi.mock('@/lib/supabase/client', () => ({
+  createSupabaseBrowserClient: () => ({
+    auth: { getSession: () => Promise.resolve({ data: { session: null } }) },
+  }),
+}));
 
 describe('PanelSseClient', () => {
   let fetchEventSource: any;
@@ -11,27 +16,20 @@ describe('PanelSseClient', () => {
     vi.clearAllMocks();
   });
 
-  afterEach(() => {
-    vi.unstubAllEnvs();
-  });
-
-  it('includes x-dev-user-id header when env set', async () => {
-    vi.stubEnv('NEXT_PUBLIC_DEV_USER_ID', 'dev-user-uuid');
+  it('uses cookie-based auth (credentials: include) — Authorization header은 EventSource API 표준 한계로 첨부 못 함', async () => {
     const client = new PanelSseClient({ onMessage: vi.fn() });
     client.connect();
     await new Promise((r) => setTimeout(r, 5));
     expect(fetchEventSource).toHaveBeenCalledWith(
       expect.stringContaining('/api/panel/stream'),
       expect.objectContaining({
-        headers: expect.objectContaining({ 'x-dev-user-id': 'dev-user-uuid' }),
+        credentials: 'include',
+        headers: expect.objectContaining({ Accept: 'text/event-stream' }),
       }),
     );
-    // dev auth 는 헤더 기반이므로 credentials 필드는 보내지 않아야 한다
-    // (서버 CORS 미지원 + 쿠키 불필요). 재발 방지 회귀 테스트.
-    expect(fetchEventSource).not.toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ credentials: expect.anything() }),
-    );
+    // 헤더 기반 인증 패턴(`x-dev-user-id`) 회귀 방지 — Supabase 쿠키만 사용.
+    const callArgs = fetchEventSource.mock.calls[0][1];
+    expect(callArgs.headers).not.toHaveProperty('x-dev-user-id');
   });
 
   it('includes Last-Event-ID on reconnect', async () => {

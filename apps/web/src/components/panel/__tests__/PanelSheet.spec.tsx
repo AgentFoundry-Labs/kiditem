@@ -9,6 +9,12 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
 }));
 
+// useAuth mock — currentUserId 주입 패턴 (`x-dev-user-id` env stub 폐기 후).
+const mockUser = vi.hoisted(() => ({ value: null as { id: string } | null }));
+vi.mock('@/hooks/useAuth', () => ({
+  useAuth: () => ({ user: mockUser.value, isLoading: false, logout: vi.fn() }),
+}));
+
 // Radix UI Dialog renders into a portal — need a DOM container
 // @radix-ui/react-dialog uses document.body as portal target by default in jsdom
 
@@ -53,12 +59,12 @@ function seedStore(items: PanelItem[]) {
 
 describe('PanelSheet my/team split', () => {
   beforeEach(() => {
-    vi.stubEnv('NEXT_PUBLIC_DEV_USER_ID', MY_USER_ID);
+    mockUser.value = { id: MY_USER_ID };
     usePanelStore.setState({ byId: {}, isOpen: true, connectionStatus: 'connected' });
   });
 
   afterEach(() => {
-    vi.unstubAllEnvs();
+    mockUser.value = null;
     usePanelStore.setState({ byId: {}, isOpen: false });
   });
 

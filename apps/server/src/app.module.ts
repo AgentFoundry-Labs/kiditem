@@ -5,7 +5,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { PrismaModule } from './prisma/prisma.module';
 import { CommonModule } from './common/common.module';
 import { AuthModule } from './auth/auth.module';
-import { DevAuthMiddleware } from './auth/middleware/dev-auth.middleware';
+import { SupabaseAuthMiddleware } from './auth/middleware/supabase-auth.middleware';
 import { OrganizationScopeGuard } from './auth/guards/organization-scope.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { StorageModule } from './common/storage/storage.module';
@@ -71,7 +71,9 @@ import { ReadinessModule } from './readiness/readiness.module';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    // SSE (`/api/agent-registry/events`) 도 DevAuth 통과 필요 — 쿼리 파라미터 fallback 사용 (dev 전용).
-    consumer.apply(DevAuthMiddleware).forRoutes('*');
+    // Supabase JWT 검증 — `Authorization: Bearer` 또는 `sb-access-token` 쿠키.
+    // SSE (`/api/agent-registry/events`, `/api/panel/*`) 는 EventSource 가 헤더를 못
+    // 보내므로 쿠키 기반으로 통과한다 (frontend 가 `withCredentials: true`).
+    consumer.apply(SupabaseAuthMiddleware).forRoutes('*');
   }
 }

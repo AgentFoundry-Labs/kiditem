@@ -37,7 +37,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     if (btn) btn.click();
   }, [chatMounted]);
 
-  if (pathname === '/' || pathname.startsWith('/agent-os')) {
+  // 풀스크린 surface — sidebar/panel/copilot 없이 children 만 렌더.
+  // - `/` (launcher) 와 `/agent-os` 는 자체 레이아웃 (main).
+  // - `/login` 은 인증 진입점 (이 PR).
+  if (pathname === '/' || pathname.startsWith('/agent-os') || pathname.startsWith('/login')) {
     return <>{children}</>;
   }
 

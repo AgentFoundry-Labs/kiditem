@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { CopilotKit } from '@copilotkit/react-core';
 import { CopilotSidebar } from '@copilotkit/react-ui';
 import '@copilotkit/react-ui/styles.css';
+import { createSupabaseBrowserClient } from '@/lib/supabase/client';
 
 interface CopilotChatProps {
   children?: React.ReactNode;
@@ -11,24 +12,46 @@ interface CopilotChatProps {
   onChatOpenChange?: (open: boolean) => void;
 }
 
-// CopilotKit 은 자체 GraphQL runtime client 를 사용해 apiClient 우회.
-// Phase 0.1 DevAuthMiddleware 연동을 위해 x-dev-user-id 헤더 명시 주입.
-// prod 인증 전환 시 실제 토큰으로 교체.
-const DEV_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID;
-const COPILOT_HEADERS = DEV_USER_ID ? { 'x-dev-user-id': DEV_USER_ID } : undefined;
-
+/**
+ * CopilotKit 은 자체 GraphQL runtime client 를 사용해 apiClient 우회.
+ * Supabase 세션 access token 을 dynamic 하게 헤더에 주입.
+ */
 export default function CopilotChat({ children, defaultOpen = false, onChatOpenChange }: CopilotChatProps) {
   const [chatOpen, setChatOpen] = useState(defaultOpen);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    let unsubscribe: (() => void) | null = null;
+    try {
+      const supabase = createSupabaseBrowserClient();
+      supabase.auth.getSession().then(({ data }) => {
+        if (mounted) setAccessToken(data.session?.access_token ?? null);
+      });
+      const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (mounted) setAccessToken(session?.access_token ?? null);
+      });
+      unsubscribe = () => data.subscription.unsubscribe();
+    } catch {
+      // Supabase 키 미설정 — 토큰 없는 상태로 진행. CopilotKit 호출 시 401.
+    }
+    return () => {
+      mounted = false;
+      unsubscribe?.();
+    };
+  }, []);
 
   const handleSetOpen = useCallback((open: boolean) => {
     setChatOpen(open);
     onChatOpenChange?.(open);
   }, [onChatOpenChange]);
 
+  const headers = accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined;
+
   return (
     <CopilotKit
       runtimeUrl="http://localhost:4000/api/chat/copilot"
-      headers={COPILOT_HEADERS}
+      headers={headers}
     >
       {children}
       <CopilotSidebar
