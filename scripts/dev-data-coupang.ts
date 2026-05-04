@@ -293,13 +293,21 @@ async function resolveOrganizationId(
   if (userId) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { organizationId: true },
+      include: {
+        memberships: {
+          where: { status: 'active' },
+          orderBy: [{ lastSelectedAt: 'desc' }, { joinedAt: 'asc' }],
+          take: 1,
+          select: { organizationId: true },
+        },
+      },
     });
-    if (user?.organizationId) return user.organizationId;
+    const orgId = user?.memberships[0]?.organizationId;
+    if (orgId) return orgId;
   }
 
   throw new Error(
-    'Organization scope is required. Pass --organization-id, set KIDITEM_DEV_ORGANIZATION_ID, or set a dev user env.',
+    'Organization scope is required. Pass --organization-id, set KIDITEM_DEV_ORGANIZATION_ID, or set a dev user env that resolves to an active OrganizationMembership.',
   );
 }
 
