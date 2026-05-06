@@ -49,7 +49,7 @@ npx tsx scripts/sync-supabase-user.ts \
 
 ```
 [Browser]  supabase.auth.signInWithPassword({ email, password })
-  → sb-access-token / sb-refresh-token 쿠키 자동 세팅 (1h, refresh token 으로 자동 갱신)
+  → Supabase SSR auth-token 쿠키 자동 세팅 (`sb-<project-ref>-auth-token`, 필요 시 `.0/.1` chunk)
   → @tanstack/react-query useAuth() → GET /api/auth/me
 [Next proxy] `supabase.auth.getClaims()` 로 서명 검증된 claims 없으면 /login 으로 리다이렉트
 [API 요청] apiClient → Authorization: Bearer <access_token> + credentials: include
@@ -71,4 +71,4 @@ Sidebar 하단 로그아웃 버튼 → `supabase.auth.signOut()` → 쿠키 제�
 
 - `SUPABASE_SECRET_KEY` 는 절대 프론트 환경변수에 두지 말 것 (`NEXT_PUBLIC_` prefix 금지).
 - 헤더 기반 user impersonation 패턴 (`x-dev-user-id` / `?devUserId=`) 는 폐기됨 — 도입 금지.
-- SSE 인증은 Supabase 의 `sb-access-token` 쿠키 + `credentials: 'include'` 로 통과 (URL query 토큰 첨부 금지).
+- SSE 인증은 Supabase SSR auth-token 쿠키 + `credentials: 'include'` 로 통과 (URL query 토큰 첨부 금지).

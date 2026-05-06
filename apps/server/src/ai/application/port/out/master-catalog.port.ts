@@ -6,7 +6,7 @@
  * port, or existing platform/runtime boundary."
  *
  * 이 port 는 ai 도메인의 application service (예: CoupangImageSyncService) 가
- * MasterProduct + ChannelListing + MasterProductImage 를 조회/생성/이미지 첨부
+ * MasterProduct + ChannelListing + MasterProductImage 를 조회/이미지 첨부
  * 할 수 있도록 한정된 메서드만 노출한다. products domain 의 service 를 직접
  * import 하는 cross-domain 침범을 차단.
  *
@@ -21,6 +21,13 @@ export interface CoupangListingHandle {
   masterId: string;
   /** master 가 이미 product/thumbnail/image 중 하나라도 있는지 */
   hasImage: boolean;
+}
+
+export interface FindCoupangMasterInput {
+  organizationId: string;
+  inventoryId: string;
+  legacyCode?: string | null;
+  name: string;
 }
 
 export interface CoupangListingImageState {
@@ -52,15 +59,12 @@ export interface MasterCatalogPort {
   }): Promise<CoupangListingImageState[]>;
 
   /**
-   * Coupang inventoryId 에 대응하는 ChannelListing 이 있으면 그 master 반환,
-   * 없으면 새 master + listing 1쌍 생성. 조직 스코프 enforce 는 adapter 책임.
+   * Coupang inventoryId 에 대응하는 ChannelListing 이 있으면 그 master 반환.
+   * 없으면 legacyCode 로 기존 ProductOption 을 찾아 ChannelListing 만 연결한다.
+   * 둘 다 실패하면 매칭 화면에서 사용자가 연결해야 하므로 null 을 반환한다.
+   * 새 MasterProduct 는 자동 생성하지 않는다.
    */
-  ensureCoupangMaster(input: {
-    organizationId: string;
-    inventoryId: string;
-    name: string;
-    sourceUrl: string;
-  }): Promise<CoupangListingHandle>;
+  findCoupangMaster(input: FindCoupangMasterInput): Promise<CoupangListingHandle | null>;
 
   /**
    * master 가 아직 어떤 image 도 없으면 primary image 첨부 + master.imageUrl

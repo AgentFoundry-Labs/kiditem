@@ -9,7 +9,7 @@ import { createSupabaseBrowserClient } from './supabase/client';
  *
  * `credentials: 'include'` 는 cross-origin (web:3000 → server:4000) 에서 cookie
  * 전달을 허용한다 — Authorization 헤더가 없는 SSE/EventSource 요청도 같은 cookie
- * 를 사용해 인증한다 (SupabaseAuthMiddleware 가 `sb-access-token` 쿠키를 읽음).
+ * 를 사용해 인증한다 (SupabaseAuthMiddleware 가 SSR auth-token cookie session 을 읽음).
  */
 async function getAccessToken(): Promise<string | null> {
   if (typeof window === 'undefined') return null;

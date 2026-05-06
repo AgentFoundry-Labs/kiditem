@@ -78,7 +78,10 @@ interface AuthUser {
 
 토큰 추출 우선순위:
 1. `Authorization: Bearer <token>` 헤더 (apiClient → fetch 표준)
-2. `sb-access-token` 쿠키 (EventSource SSE 용 — 헤더 못 보냄, `withCredentials: true` 로 자동 전송)
+2. legacy `sb-access-token` 쿠키 (raw JWT, 과거 호환)
+3. Supabase SSR 표준 auth-token 쿠키 (`sb-<project-ref>-auth-token`, chunked `.0/.1` 포함)
+   의 `access_token` 값. EventSource/SSE 처럼 헤더를 못 보내는 요청은
+   `credentials: 'include'` 로 이 쿠키를 자동 전송한다.
 
 검증:
 - `SUPABASE_URL/auth/v1/.well-known/jwks.json` 의 JWKS 로 `jose.jwtVerify` (issuer + audience 검증)
@@ -97,7 +100,7 @@ interface AuthUser {
 
 `jose@6.x` 는 ESM-only 이므로 dynamic import 로 lazy load 하고 첫 호출 시 JWKS 캐시.
 
-`req.cookies['sb-access-token']` 을 읽으려면 `main.ts` 가 `cookie-parser` 미들웨어를 등록해야 한다.
+Supabase SSR auth-token 쿠키를 읽으려면 `main.ts` 가 `cookie-parser` 미들웨어를 등록해야 한다.
 
 ## AuthController — `auth.controller.ts`
 

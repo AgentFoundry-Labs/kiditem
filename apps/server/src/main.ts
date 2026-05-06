@@ -86,7 +86,7 @@ async function bootstrap() {
     credentials: true,
   });
   app.useBodyParser('json', { limit: '5mb' });
-  // SupabaseAuthMiddleware 가 `req.cookies['sb-access-token']` 을 읽기 위해 필요.
+  // SupabaseAuthMiddleware 가 Supabase SSR auth-token 쿠키를 읽기 위해 필요.
   app.use(cookieParser());
   app.setGlobalPrefix('api');
   app.useGlobalPipes(new ValidationPipe({

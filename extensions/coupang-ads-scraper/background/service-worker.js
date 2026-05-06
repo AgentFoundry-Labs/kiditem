@@ -3,6 +3,11 @@
 const API_URL = "http://localhost:4000";
 const AUTH_TOKEN_KEY = "kiditem_auth_token";
 const AD_ACTION_URL = "https://advertising.coupang.com/dashboard?kiditemExecuteActions=1#kiditemExecuteActions=1";
+const WING_IMAGE_SYNC_URL =
+  "https://wing.coupang.com/vendor-inventory/list?searchKeywordType=ALL&searchKeywords=&salesMethod=ALL&productStatus=ALL&stockSearchType=ALL&shippingFeeSearchType=ALL&displayCategoryCodes=&listingStartTime=null&listingEndTime=null&saleEndDateSearchType=ALL&bundledShippingSearchType=ALL&upBundling=ALL&displayDeletedProduct=false&shippingMethod=ALL&exposureStatus=ALL&locale=ko_KR&sortMethod=SORT_BY_REGISTRATION_DATE&countPerPage=50&page=1";
+const WING_IMAGE_SYNC_MAX_PAGES = 50;
+const WING_IMAGE_SYNC_TAB_KEY = "kiditem_image_sync_tab_id";
+const WING_IMAGE_SYNC_WINDOW_KEY = "kiditem_image_sync_window_id";
 
 function getAuthToken() {
   return new Promise((resolve) => {
@@ -186,6 +191,13 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return;
   }
 
+  if (msg.action === "scrapeCoupangImageRows") {
+    scrapeCoupangImageRows()
+      .then((result) => sendResponse(result))
+      .catch((e) => sendResponse({ success: false, error: e?.message || "쿠팡 이미지 목록 수집 실패" }));
+    return true;
+  }
+
   if (msg.action === "setAuthToken") {
     const token = typeof msg.token === "string" ? msg.token : null;
     if (!token) {
@@ -298,6 +310,237 @@ function openAndExecuteAdActions(url = AD_ACTION_URL) {
       chrome.tabs.onUpdated.addListener(onUpdated);
     });
   });
+}
+
+async function scrapeCoupangImageRows() {
+  const tab = await getOrCreateWingInventoryTab();
+  const tabId = tab?.id;
+  if (!tabId) return { success: false, error: "Wing 탭을 열 수 없습니다" };
+
+  const allRows = [];
+  let totalPages = 1;
+
+  for (let page = 1; page <= Math.min(totalPages, WING_IMAGE_SYNC_MAX_PAGES); page++) {
+    const pageUrl = buildWingImageSyncPageUrl(page);
+    const loaded = await updateTabAndWait(tabId, pageUrl, { active: false });
+    if (!loaded.url?.startsWith("https://wing.coupang.com/")) {
+      activateTab(tabId);
+      return {
+        success: false,
+        pendingLogin: true,
+        opened: true,
+        tabId,
+        error: "쿠팡 Wing 로그인 필요 — 열린 Wing 이미지 동기화 창에서 로그인 후 다시 실행하세요.",
+      };
+    }
+
+    await sleep(1500);
+    const response = await sendTabMessage(tabId, { action: "scrapeInventoryImagePage" });
+    if (!response?.success) {
+      if (response?.pendingLogin) activateTab(tabId);
+      return {
+        success: false,
+        pendingLogin: !!response?.pendingLogin,
+        opened: true,
+        tabId,
+        error: response?.error || "Wing 상품목록 수집 실패",
+      };
+    }
+
+    if (Array.isArray(response.rows)) allRows.push(...response.rows);
+    const nextTotalPages = Number(response.totalPages || 1);
+    totalPages = Math.max(1, Math.min(nextTotalPages, WING_IMAGE_SYNC_MAX_PAGES));
+  }
+
+  return {
+    success: true,
+    opened: true,
+    tabId,
+    rows: allRows,
+    total: allRows.length,
+  };
+}
+
+function buildWingImageSyncPageUrl(page) {
+  const url = new URL(WING_IMAGE_SYNC_URL);
+  url.searchParams.set("page", String(page));
+  return url.toString();
+}
+
+async function getOrCreateWingInventoryTab() {
+  const managed = await getManagedImageSyncTab();
+  if (managed?.id) return managed;
+
+  const syncWindow = await createWindow({
+    url: WING_IMAGE_SYNC_URL,
+    focused: false,
+    type: "normal",
+  });
+  const tab = getFirstWindowTab(syncWindow) || await getFirstTabInWindow(syncWindow.id);
+  if (tab?.id && syncWindow?.id) {
+    await chrome.storage.local.set({
+      [WING_IMAGE_SYNC_TAB_KEY]: tab.id,
+      [WING_IMAGE_SYNC_WINDOW_KEY]: syncWindow.id,
+    });
+  }
+  return tab;
+}
+
+async function getManagedImageSyncTab() {
+  const data = await getStorage([WING_IMAGE_SYNC_TAB_KEY, WING_IMAGE_SYNC_WINDOW_KEY]);
+  const tabId = data[WING_IMAGE_SYNC_TAB_KEY];
+  const windowId = data[WING_IMAGE_SYNC_WINDOW_KEY];
+
+  if (!tabId || !windowId) {
+    if (tabId || windowId) await clearManagedImageSyncWindow();
+    return null;
+  }
+
+  const tab = await getTab(tabId).catch(() => null);
+  if (!tab?.id || tab.windowId !== windowId) {
+    await clearManagedImageSyncWindow();
+    return null;
+  }
+
+  const syncWindow = await getWindow(windowId).catch(() => null);
+  if (!syncWindow?.id) {
+    await clearManagedImageSyncWindow();
+    return null;
+  }
+
+  return tab;
+}
+
+function clearManagedImageSyncWindow() {
+  return chrome.storage.local.remove([WING_IMAGE_SYNC_TAB_KEY, WING_IMAGE_SYNC_WINDOW_KEY]);
+}
+
+function getStorage(keys) {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(keys, (data) => resolve(data || {}));
+  });
+}
+
+function getTab(tabId) {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.get(tabId, (tab) => {
+      if (chrome.runtime.lastError || !tab?.id) {
+        reject(new Error(chrome.runtime.lastError?.message || "탭 조회 실패"));
+        return;
+      }
+      resolve(tab);
+    });
+  });
+}
+
+function getWindow(windowId) {
+  return new Promise((resolve, reject) => {
+    chrome.windows.get(windowId, (syncWindow) => {
+      if (chrome.runtime.lastError || !syncWindow?.id) {
+        reject(new Error(chrome.runtime.lastError?.message || "창 조회 실패"));
+        return;
+      }
+      resolve(syncWindow);
+    });
+  });
+}
+
+function queryTabs(queryInfo) {
+  return new Promise((resolve) => {
+    chrome.tabs.query(queryInfo, (tabs) => resolve(tabs || []));
+  });
+}
+
+function createWindow(createProperties) {
+  return new Promise((resolve, reject) => {
+    chrome.windows.create(createProperties, (syncWindow) => {
+      if (chrome.runtime.lastError || !syncWindow?.id) {
+        reject(new Error(chrome.runtime.lastError?.message || "Wing 이미지 동기화 창 생성 실패"));
+        return;
+      }
+      resolve(syncWindow);
+    });
+  });
+}
+
+function getFirstWindowTab(syncWindow) {
+  const tabs = Array.isArray(syncWindow?.tabs) ? syncWindow.tabs : [];
+  return tabs.find((tab) => tab?.id) || null;
+}
+
+async function getFirstTabInWindow(windowId) {
+  const tabs = await queryTabs({ windowId });
+  return tabs.find((tab) => tab?.id) || null;
+}
+
+function updateTabAndWait(tabId, url, options = {}) {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.update(tabId, { url, active: !!options.active }, () => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      waitForTabComplete(tabId).then(resolve).catch(reject);
+    });
+  });
+}
+
+function activateTab(tabId) {
+  try {
+    chrome.tabs.update(tabId, { active: true }, (tab) => {
+      if (chrome.runtime.lastError || !tab?.windowId) return;
+      chrome.windows.update(tab.windowId, { focused: true }, () => {});
+    });
+  } catch {
+    /* noop */
+  }
+}
+
+function waitForTabComplete(tabId, timeoutMs = 45000) {
+  return new Promise((resolve, reject) => {
+    let done = false;
+    const cleanup = () => {
+      chrome.tabs.onUpdated.removeListener(onUpdated);
+      clearTimeout(timeout);
+    };
+    const finish = (tab) => {
+      if (done) return;
+      done = true;
+      cleanup();
+      resolve(tab || {});
+    };
+    const timeout = setTimeout(() => {
+      if (done) return;
+      done = true;
+      chrome.tabs.onUpdated.removeListener(onUpdated);
+      reject(new Error("Wing 탭 로딩 타임아웃"));
+    }, timeoutMs);
+    const onUpdated = (updatedTabId, changeInfo, updatedTab) => {
+      if (updatedTabId === tabId && changeInfo.status === "complete") finish(updatedTab);
+    };
+
+    chrome.tabs.onUpdated.addListener(onUpdated);
+    chrome.tabs.get(tabId, (tab) => {
+      if (chrome.runtime.lastError) return;
+      if (tab?.status === "complete") finish(tab);
+    });
+  });
+}
+
+function sendTabMessage(tabId, message) {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.sendMessage(tabId, message, (response) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message || "content script 미응답"));
+        return;
+      }
+      resolve(response);
+    });
+  });
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**

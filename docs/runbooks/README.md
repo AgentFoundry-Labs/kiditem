@@ -16,6 +16,9 @@ Runbooks are different from concept docs:
 
 Current runbooks:
 
+- [Playwriter Wing Image Sync](playwriter-wing-image-sync.md) — set up the
+  local Playwriter CLI/session required by `/thumbnails` image sync and Wing
+  thumbnail registration.
 - [Google Drive Dev Data](google-drive-dev-data.md) — set up `KidItem Dev Data`
   through Google Drive Desktop for profile sync and Coupang bundle replay.
 - [Import Drive Reference Data](import-drive-reference-data.md) — load Drive

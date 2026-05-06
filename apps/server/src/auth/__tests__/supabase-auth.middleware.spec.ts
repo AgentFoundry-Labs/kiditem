@@ -122,6 +122,67 @@ describe('SupabaseAuthMiddleware', () => {
     expect(next).toHaveBeenCalledTimes(1);
   });
 
+  it('reads access_token from the standard Supabase SSR auth-token cookie', async () => {
+    const jose = await import('jose');
+    (jose.jwtVerify as any).mockResolvedValue({ payload: { sub: TEST_USER.id } });
+
+    const { SupabaseAuthMiddleware } = await import('../middleware/supabase-auth.middleware');
+    const findUnique = vi.fn().mockResolvedValue(TEST_USER);
+    const mw = new SupabaseAuthMiddleware(makePrisma(findUnique));
+    const req = {
+      headers: {},
+      cookies: {
+        'sb-test-auth-token': Buffer.from(
+          JSON.stringify({ access_token: 'standard.cookie.jwt' }),
+          'utf8',
+        ).toString('base64url').replace(/^/, 'base64-'),
+      },
+    } as any;
+    const next = vi.fn();
+    await mw.use(req, {} as any, next);
+
+    expect(jose.jwtVerify).toHaveBeenCalledWith(
+      'standard.cookie.jwt',
+      expect.anything(),
+      expect.objectContaining({ audience: 'authenticated' }),
+    );
+    expect(findUnique).toHaveBeenCalledTimes(1);
+    expect(req.authUser).toEqual(EXPECTED_AUTH_USER);
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it('reassembles chunked Supabase SSR auth-token cookies before reading access_token', async () => {
+    const jose = await import('jose');
+    (jose.jwtVerify as any).mockResolvedValue({ payload: { sub: TEST_USER.id } });
+
+    const encoded = `base64-${Buffer.from(
+      JSON.stringify({ access_token: 'chunked.cookie.jwt' }),
+      'utf8',
+    ).toString('base64url')}`;
+
+    const { SupabaseAuthMiddleware } = await import('../middleware/supabase-auth.middleware');
+    const findUnique = vi.fn().mockResolvedValue(TEST_USER);
+    const mw = new SupabaseAuthMiddleware(makePrisma(findUnique));
+    const req = {
+      headers: {},
+      cookies: {
+        'sb-test-auth-token.0': encoded.slice(0, 18),
+        'sb-test-auth-token.1': encoded.slice(18),
+      },
+    } as any;
+    const next = vi.fn();
+    await mw.use(req, {} as any, next);
+
+    expect(jose.jwtVerify).toHaveBeenCalledWith(
+      'chunked.cookie.jwt',
+      expect.anything(),
+      expect.objectContaining({ audience: 'authenticated' }),
+    );
+    expect(findUnique).toHaveBeenCalledTimes(1);
+    expect(req.authUser).toEqual(EXPECTED_AUTH_USER);
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
   it('passes through silently when JWT verify throws (invalid token)', async () => {
     const jose = await import('jose');
     (jose.jwtVerify as any).mockRejectedValue(new Error('invalid signature'));

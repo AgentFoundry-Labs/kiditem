@@ -1,5 +1,5 @@
 /**
- * SupabaseAuthMiddleware — Bearer JWT 또는 `sb-access-token` 쿠키를 Supabase JWKS(ES256) 로 검증하고,
+ * SupabaseAuthMiddleware — Bearer JWT 또는 Supabase SSR auth-token 쿠키를 Supabase JWKS(ES256) 로 검증하고,
  * `payload.sub` (= Supabase auth.users.id) 로 local `users` 테이블을 조회해
  * `req.authUser` 를 채운다. 토큰 없거나 검증 실패 시 silent pass → Guard 가 401.
  *
@@ -96,5 +96,63 @@ function extractBearerToken(req: Request): string | null {
   if (cookie && typeof cookie['sb-access-token'] === 'string') {
     return cookie['sb-access-token'];
   }
+  if (cookie) {
+    return extractSupabaseSsrCookieToken(cookie);
+  }
   return null;
+}
+
+function extractSupabaseSsrCookieToken(cookies: Record<string, string>): string | null {
+  for (const baseName of findSupabaseAuthCookieBaseNames(cookies)) {
+    const encodedSession = combineCookieChunks(cookies, baseName);
+    if (!encodedSession) continue;
+    const sessionJson = decodeSupabaseCookieValue(encodedSession);
+    if (!sessionJson) continue;
+    try {
+      const session = JSON.parse(sessionJson) as unknown;
+      if (
+        session &&
+        typeof session === 'object' &&
+        typeof (session as Record<string, unknown>).access_token === 'string'
+      ) {
+        return (session as { access_token: string }).access_token;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+function findSupabaseAuthCookieBaseNames(cookies: Record<string, string>): string[] {
+  const baseNames = new Set<string>();
+  for (const name of Object.keys(cookies)) {
+    const baseName = name.replace(/\.[0-9]+$/, '');
+    if (baseName === 'supabase.auth.token' || /^sb-.+-auth-token$/.test(baseName)) {
+      baseNames.add(baseName);
+    }
+  }
+  return [...baseNames].sort();
+}
+
+function combineCookieChunks(cookies: Record<string, string>, baseName: string): string | null {
+  if (cookies[baseName]) return cookies[baseName];
+
+  const chunks: string[] = [];
+  for (let index = 0; ; index += 1) {
+    const chunk = cookies[`${baseName}.${index}`];
+    if (!chunk) break;
+    chunks.push(chunk);
+  }
+  return chunks.length > 0 ? chunks.join('') : null;
+}
+
+function decodeSupabaseCookieValue(value: string): string | null {
+  const base64Prefix = 'base64-';
+  if (!value.startsWith(base64Prefix)) return value;
+  try {
+    return Buffer.from(value.slice(base64Prefix.length), 'base64url').toString('utf8');
+  } catch {
+    return null;
+  }
 }

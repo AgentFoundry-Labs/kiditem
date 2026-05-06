@@ -70,6 +70,7 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
   function buildService(overrides?: {
     scrapeRows?: CoupangInventoryRow[];
     existingListings?: ExistingListing[];
+    unmatchedInventoryIds?: string[];
     attachResults?: boolean[]; // per-row result of catalog.attachPrimaryImage
     attachThrowsOnce?: boolean; // first call throws → failure path
   }) {
@@ -95,8 +96,11 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
             hasImage: hasDisplayImage(listing.master),
           }));
       }),
-      ensureCoupangMaster: vi.fn(async (input) => {
+      findCoupangMaster: vi.fn(async (input) => {
         ensureCalls.push(input);
+        if (overrides?.unmatchedInventoryIds?.includes(input.inventoryId)) {
+          return null as unknown as CoupangListingHandle;
+        }
         const handle: CoupangListingHandle = {
           masterId: `master-${input.inventoryId}`,
           // 모든 master 가 image 없는 상태로 가정 (이미 있으면 syncOne 이 일찍 return)
@@ -150,7 +154,7 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
     expect(() => service.getStatus(jobId, ORG_B)).toThrow(ForbiddenException);
   });
 
-  it('completes job: scraper → catalog.ensureCoupangMaster + attachPrimaryImage per row', async () => {
+  it('completes job: scraper → catalog.findCoupangMaster + attachPrimaryImage per row', async () => {
     const { service, scraper, catalog, ensureCalls, attachCalls } = buildService();
     const { jobId } = service.start(ORG_A);
 
@@ -166,11 +170,30 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
     expect(status.failed).toBe(0);
 
     expect(scraper.scrapeAll).toHaveBeenCalledTimes(1);
-    expect(catalog.ensureCoupangMaster).toHaveBeenCalledTimes(2);
+    expect(catalog.findCoupangMaster).toHaveBeenCalledTimes(2);
     expect(catalog.attachPrimaryImage).toHaveBeenCalledTimes(2);
     expect(ensureCalls.map((c) => c.inventoryId)).toEqual(['INV-1', 'INV-2']);
     expect(attachCalls.every((c) => c.organizationId === ORG_A)).toBe(true);
     expect(attachCalls.every((c) => c.url.startsWith('https://storage/'))).toBe(true);
+  });
+
+  it('startFromRows() uses extension-provided rows without invoking the scraper', async () => {
+    const { service, scraper, catalog } = buildService({
+      scrapeRows: [{ inventoryId: 'SCRAPER', name: 'unused', url: 'https://wing.coupang.com/img/unused.jpg' }],
+    });
+
+    const { jobId } = service.startFromRows(ORG_A, [
+      { inventoryId: 'EXT-1', name: 'Extension P1', url: 'https://wing.coupang.com/img/ext-1.jpg' },
+    ]);
+    await waitForJob();
+
+    const status = service.getStatus(jobId, ORG_A);
+    expect(status.status).toBe('done');
+    expect(status.total).toBe(1);
+    expect(scraper.scrapeAll).not.toHaveBeenCalled();
+    expect(catalog.findCoupangMaster).toHaveBeenCalledWith(
+      expect.objectContaining({ inventoryId: 'EXT-1', organizationId: ORG_A }),
+    );
   });
 
   it('per-row failure does not abort the loop — counts failed and continues', async () => {
@@ -184,6 +207,24 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
     expect(status.processed).toBe(2);
     expect(status.failed).toBe(1);
     expect(status.succeeded).toBe(1);
+  });
+
+  it('counts unmatched Coupang rows separately from failures', async () => {
+    const { service, catalog, imageFetcher } = buildService({
+      unmatchedInventoryIds: ['INV-1'],
+    });
+    const { jobId } = service.start(ORG_A);
+
+    await waitForJob();
+
+    const status = service.getStatus(jobId, ORG_A);
+    expect(status.status).toBe('done');
+    expect(status.processed).toBe(2);
+    expect(status.succeeded).toBe(1);
+    expect(status.failed).toBe(0);
+    expect(status.unmatched).toBe(1);
+    expect(catalog.attachPrimaryImage).toHaveBeenCalledTimes(1);
+    expect(imageFetcher.fetchImage).toHaveBeenCalledTimes(1);
   });
 
   it('batches existing listing lookup before filtering rows needing images', async () => {
