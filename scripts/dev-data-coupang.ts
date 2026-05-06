@@ -82,6 +82,53 @@ type CoupangImageSyncRow = {
   url: string;
 };
 
+type CoupangImageSyncListingSource = {
+  externalId: string;
+  channelName?: string | null;
+  master: {
+    name: string;
+    legacyCode?: string | null;
+    sourceUrl?: string | null;
+    options?: Array<{ legacyCode?: string | null }>;
+  };
+};
+
+export function buildCoupangImageSyncRowsForListings(listings: CoupangImageSyncListingSource[]): {
+  rows: CoupangImageSyncRow[];
+  skippedDuplicateInventoryId: number;
+  skippedMissingSourceUrl: number;
+} {
+  const rows: CoupangImageSyncRow[] = [];
+  const seenInventoryIds = new Set<string>();
+  let skippedDuplicateInventoryId = 0;
+  let skippedMissingSourceUrl = 0;
+
+  for (const listing of listings) {
+    const inventoryId = listing.externalId.trim();
+    if (!inventoryId || seenInventoryIds.has(inventoryId)) {
+      skippedDuplicateInventoryId += 1;
+      continue;
+    }
+
+    const sourceUrl = listing.master.sourceUrl?.trim();
+    if (!sourceUrl) {
+      skippedMissingSourceUrl += 1;
+      continue;
+    }
+
+    seenInventoryIds.add(inventoryId);
+    rows.push({
+      inventoryId,
+      legacyCode: listing.master.legacyCode ?? listing.master.options?.[0]?.legacyCode ?? null,
+      name: listing.channelName ?? listing.master.name,
+      url: sourceUrl,
+    });
+  }
+
+  rows.sort((a, b) => a.inventoryId.localeCompare(b.inventoryId));
+  return { rows, skippedDuplicateInventoryId, skippedMissingSourceUrl };
+}
+
 function parseArgs(raw = process.argv.slice(2)): Args {
   const command = (raw.shift() ?? 'replay') as Command;
   if (!['replay', 'sanitize', 'export'].includes(command)) {
@@ -655,8 +702,8 @@ async function commandSanitize(args: Args): Promise<unknown> {
 async function exportCoupangImageSyncRowsFromDb(args: Args): Promise<{
   body: Record<string, unknown>;
   rowCount: number;
-  imageCount: number;
-  skippedMissingListing: number;
+  sourceListingCount: number;
+  skippedDuplicateInventoryId: number;
   skippedMissingSourceUrl: number;
 }> {
   const prisma = await createPrisma();
@@ -669,35 +716,34 @@ async function exportCoupangImageSyncRowsFromDb(args: Args): Promise<{
       payloads: [],
     });
 
-    const images = await prisma.masterProductImage.findMany({
+    const listings = await prisma.channelListing.findMany({
       where: {
         organizationId,
-        source: 'coupang-wing',
+        channel: 'coupang',
         isDeleted: false,
         master: {
           organizationId,
           isDeleted: false,
           sourcePlatform: 'coupang',
           sourceUrl: { not: null },
+          images: {
+            some: {
+              organizationId,
+              source: 'coupang-wing',
+              isDeleted: false,
+            },
+          },
         },
       },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      orderBy: [{ externalId: 'asc' }, { id: 'asc' }],
       select: {
-        id: true,
+        externalId: true,
+        channelName: true,
         master: {
           select: {
             name: true,
             legacyCode: true,
             sourceUrl: true,
-            listings: {
-              where: { organizationId, channel: 'coupang', isDeleted: false },
-              orderBy: { updatedAt: 'desc' },
-              take: 1,
-              select: {
-                externalId: true,
-                channelName: true,
-              },
-            },
             options: {
               where: {
                 organizationId,
@@ -714,33 +760,8 @@ async function exportCoupangImageSyncRowsFromDb(args: Args): Promise<{
       },
     });
 
-    const rows: CoupangImageSyncRow[] = [];
-    const seenInventoryIds = new Set<string>();
-    let skippedMissingListing = 0;
-    let skippedMissingSourceUrl = 0;
-
-    for (const image of images) {
-      const listing = image.master.listings[0];
-      if (!listing?.externalId) {
-        skippedMissingListing += 1;
-        continue;
-      }
-      const sourceUrl = image.master.sourceUrl?.trim();
-      if (!sourceUrl) {
-        skippedMissingSourceUrl += 1;
-        continue;
-      }
-      if (seenInventoryIds.has(listing.externalId)) continue;
-      seenInventoryIds.add(listing.externalId);
-      rows.push({
-        inventoryId: listing.externalId,
-        legacyCode: image.master.legacyCode ?? image.master.options[0]?.legacyCode ?? null,
-        name: listing.channelName ?? image.master.name,
-        url: sourceUrl,
-      });
-    }
-
-    rows.sort((a, b) => a.inventoryId.localeCompare(b.inventoryId));
+    const { rows, skippedDuplicateInventoryId, skippedMissingSourceUrl } =
+      buildCoupangImageSyncRowsForListings(listings);
     if (rows.length === 0 && !bool(args, 'allow-empty-image-sync')) {
       throw new Error('No replayable Coupang image sync rows found. Pass --allow-empty-image-sync to export an empty payload.');
     }
@@ -752,17 +773,17 @@ async function exportCoupangImageSyncRowsFromDb(args: Args): Promise<{
         timestamp: new Date().toISOString(),
         data: rows,
         meta: {
-          exportedFrom: 'master_product_images',
+          exportedFrom: 'channel_listings',
           source: 'coupang-wing',
-          imageCount: images.length,
+          sourceListingCount: listings.length,
           rowCount: rows.length,
-          skippedMissingListing,
+          skippedDuplicateInventoryId,
           skippedMissingSourceUrl,
         },
       },
       rowCount: rows.length,
-      imageCount: images.length,
-      skippedMissingListing,
+      sourceListingCount: listings.length,
+      skippedDuplicateInventoryId,
       skippedMissingSourceUrl,
     };
   } finally {
@@ -795,7 +816,7 @@ async function commandExport(args: Args): Promise<unknown> {
       fileName: 'coupang-image-sync-from-db.json',
       body: exported.body,
       rowCount: exported.rowCount,
-      description: `Replay rows derived from ${exported.imageCount} coupang-wing MasterProductImage rows`,
+      description: `Replay rows derived from ${exported.sourceListingCount} image-ready Coupang ChannelListing rows`,
     });
   }
   const referenceFiles = [

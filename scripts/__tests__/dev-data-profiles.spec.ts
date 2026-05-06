@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { buildCoupangImageSyncRowsForListings } from '../dev-data-coupang';
 
 const repoRoot = join(__dirname, '..', '..');
 
@@ -17,6 +18,47 @@ function runDevData(args: string[], env: Record<string, string> = {}) {
 }
 
 describe('profile-based dev data workflow', () => {
+  it('exports image sync replay rows for every active Coupang listing sharing a master image', () => {
+    const result = buildCoupangImageSyncRowsForListings([
+      {
+        externalId: '200',
+        channelName: '쿠팡 옵션 B',
+        master: {
+          name: '공유 마스터',
+          legacyCode: null,
+          sourceUrl: 'https://image.example/shared.jpg',
+          options: [{ legacyCode: 'KIDITEM-1' }],
+        },
+      },
+      {
+        externalId: '100',
+        channelName: '쿠팡 옵션 A',
+        master: {
+          name: '공유 마스터',
+          legacyCode: null,
+          sourceUrl: 'https://image.example/shared.jpg',
+          options: [{ legacyCode: 'KIDITEM-1' }],
+        },
+      },
+    ]);
+
+    expect(result.rows).toEqual([
+      {
+        inventoryId: '100',
+        legacyCode: 'KIDITEM-1',
+        name: '쿠팡 옵션 A',
+        url: 'https://image.example/shared.jpg',
+      },
+      {
+        inventoryId: '200',
+        legacyCode: 'KIDITEM-1',
+        name: '쿠팡 옵션 B',
+        url: 'https://image.example/shared.jpg',
+      },
+    ]);
+    expect(result.skippedMissingSourceUrl).toBe(0);
+  });
+
   it('exposes generic dev data scripts', () => {
     const packageJson = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as {
       scripts?: Record<string, string>;
