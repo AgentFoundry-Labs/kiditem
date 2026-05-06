@@ -6,8 +6,6 @@ import { CoupangProviderAdapter } from './adapter/out/coupang/coupang-provider.a
 import { ChannelSyncService } from './application/service/channel-sync.service';
 import { ChannelDashboardService } from './application/service/channel-dashboard.service';
 import { ChannelReconciliationService } from './application/service/channel-reconciliation.service';
-import { ChannelReconciliationSnapshotService } from './application/service/channel-reconciliation-snapshot.service';
-import { ChannelReconciliationCatalogService } from './application/service/channel-reconciliation-catalog.service';
 import { COUPANG_PROVIDER_PORT } from './application/port/out/coupang-provider.port';
 
 @Module({
@@ -20,10 +18,9 @@ import { COUPANG_PROVIDER_PORT } from './application/port/out/coupang-provider.p
     ChannelSyncService,
     ChannelDashboardService,
     ChannelReconciliationService,
-    ChannelReconciliationSnapshotService,
-    ChannelReconciliationCatalogService,
     CoupangProviderAdapter,
     { provide: COUPANG_PROVIDER_PORT, useExisting: CoupangProviderAdapter },
   ],
+  exports: [ChannelReconciliationService],
 })
 export class ChannelsModule {}

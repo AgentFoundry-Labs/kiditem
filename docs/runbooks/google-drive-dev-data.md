@@ -58,7 +58,9 @@ binaries or local object-storage URLs.
    test -f docs/runbooks/google-drive-dev-data.md
    ```
 
-2. Find the local Google Drive Desktop folder.
+2. Find the local Google Drive Desktop folder. The CLI also auto-discovers this
+   path on macOS by scanning `~/Library/CloudStorage/**/KidItem Dev Data` and
+   ignores Google Drive Desktop `.Encrypted` mirrors.
 
    ```bash
    find "$HOME/Library/CloudStorage" -maxdepth 5 -type d -name "KidItem Dev Data" -print 2>/dev/null
@@ -73,8 +75,8 @@ binaries or local object-storage URLs.
    On Windows or Linux, search the local Google Drive Desktop mount/sync path
    for the same folder name.
 
-3. Set the repo `.env` value. Do not print the full `.env`; it may contain
-   secrets.
+3. Set the repo `.env` value only when auto-discovery cannot choose a single
+   visible folder. Do not print the full `.env`; it may contain secrets.
 
    ```bash
    KIDITEM_DEV_DATA_DRIVE_DIR="/absolute/path/to/KidItem Dev Data"
@@ -85,7 +87,7 @@ binaries or local object-storage URLs.
    reference files from the repo root into Drive when Drive is missing them.
 
    ```bash
-   npm run data:dev:setup -- --drive-root "$KIDITEM_DEV_DATA_DRIVE_DIR"
+   npm run data:dev:setup
    ```
 
    If the reference files live somewhere other than the repo root, pass that
@@ -93,9 +95,12 @@ binaries or local object-storage URLs.
 
    ```bash
    npm run data:dev:setup -- \
-     --drive-root "$KIDITEM_DEV_DATA_DRIVE_DIR" \
      --reference-source-root "/absolute/path/to/reference/files"
    ```
+
+   If auto-discovery is ambiguous or unavailable, pass
+   `--drive-root "$KIDITEM_DEV_DATA_DRIVE_DIR"` to the setup/sync/status
+   commands.
 
 5. If setup reports blockers, handle them before continuing. The manual
    structure below is the expected result of the setup command.
@@ -144,7 +149,8 @@ binaries or local object-storage URLs.
    If a file exists in the repo root but not in Drive, copy it into Drive. If it
    is missing in both places, ask the human for the latest source file.
 
-9. Verify the CLI sees Drive.
+9. Verify the CLI sees Drive. This should work without `--drive-root` on a
+   normal macOS Google Drive Desktop install.
 
    ```bash
    npm run data:dev:status

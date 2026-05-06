@@ -7,9 +7,10 @@ import { join } from 'node:path';
 
 const repoRoot = join(__dirname, '..', '..');
 
-function runDevData(args: string[]) {
+function runDevData(args: string[], env: Record<string, string> = {}) {
   return execFileSync(join(repoRoot, 'node_modules/.bin/tsx'), ['scripts/dev-data.ts', ...args], {
     cwd: repoRoot,
+    env: { ...process.env, ...env },
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -251,5 +252,52 @@ describe('profile-based dev data workflow', () => {
     expect(existsSync(join(driveRoot, 'references', 'kiditem_list.xlsx'))).toBe(true);
     expect(existsSync(join(driveRoot, 'references', 'wing-inventory-matched.xlsx'))).toBe(true);
     expect(existsSync(join(driveRoot, 'coupang', 'bundles'))).toBe(true);
+  }, 30000);
+
+  it('auto-discovers the visible Google Drive root and ignores Drive Desktop .Encrypted mirrors', async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), 'kiditem-drive-autodiscover-'));
+    const cloudStorageRoot = join(tempRoot, 'CloudStorage');
+    const visibleDriveRoot = join(
+      cloudStorageRoot,
+      'GoogleDrive-test@example.com',
+      'My Drive',
+      'KidItem Dev Data',
+    );
+    const encryptedMirrorRoot = join(
+      cloudStorageRoot,
+      'GoogleDrive-test@example.com',
+      '.Encrypted',
+      'My Drive',
+      'KidItem Dev Data',
+    );
+    const sourceRoot = join(tempRoot, 'source');
+
+    mkdirSync(visibleDriveRoot, { recursive: true });
+    mkdirSync(encryptedMirrorRoot, { recursive: true });
+    mkdirSync(sourceRoot, { recursive: true });
+    writeFileSync(join(sourceRoot, 'kiditem_list.xlsx'), 'kiditem project inventory reference');
+    writeFileSync(join(sourceRoot, 'wing-inventory-matched.xlsx'), 'matched project inventory reference');
+
+    const setupOutput = JSON.parse(runDevData([
+      'setup',
+      '--reference-source-root', sourceRoot,
+    ], {
+      KIDITEM_DEV_DATA_CLOUD_STORAGE_ROOT: cloudStorageRoot,
+      KIDITEM_DEV_DATA_DRIVE_DIR: '',
+    })) as { driveRoot: string; ok: boolean };
+
+    expect(setupOutput).toMatchObject({
+      driveRoot: visibleDriveRoot,
+      ok: true,
+    });
+
+    const statusOutput = JSON.parse(runDevData([
+      'status',
+    ], {
+      KIDITEM_DEV_DATA_CLOUD_STORAGE_ROOT: cloudStorageRoot,
+      KIDITEM_DEV_DATA_DRIVE_DIR: '',
+    })) as { configuredDriveRoot: string | null };
+
+    expect(statusOutput.configuredDriveRoot).toBe(visibleDriveRoot);
   }, 30000);
 });

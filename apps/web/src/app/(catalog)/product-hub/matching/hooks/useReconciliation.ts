@@ -5,7 +5,6 @@ import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import type {
   ReconciliationItemListResponse,
-  ReconciliationScanRequest,
   ReconciliationScanResponse,
   ReconciliationSummary,
   ReconciliationItem,
@@ -60,33 +59,11 @@ export function useReconciliationItems(params: UseReconciliationItemsParams) {
   });
 }
 
-export function useScanReconciliation() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (body: ReconciliationScanRequest) =>
-      apiClient.post<ReconciliationScanResponse>(`${BASE}/scan-from-rows`, body),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.channelReconciliation.all });
-    },
-  });
-}
-
-export function useSyncReconciliationSnapshots() {
+export function useSyncReconciliationImageListings() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () =>
-      apiClient.post<ReconciliationScanResponse>(`${BASE}/sync-from-snapshots`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.channelReconciliation.all });
-    },
-  });
-}
-
-export function useSyncReconciliationCatalog() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: () =>
-      apiClient.post<ReconciliationScanResponse>(`${BASE}/sync-catalog`),
+      apiClient.post<ReconciliationScanResponse>(`${BASE}/sync-from-image-listings`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.channelReconciliation.all });
     },

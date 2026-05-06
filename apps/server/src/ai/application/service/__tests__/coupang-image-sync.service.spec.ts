@@ -9,6 +9,7 @@ import type {
   CoupangInventoryRow,
   CoupangInventoryScrapePort,
 } from '../../port/out/coupang-inventory-scrape.port';
+import type { CoupangImageReconciliationPort } from '../../port/out/coupang-image-reconciliation.port';
 import type {
   AttachPrimaryImageInput,
   CoupangListingHandle,
@@ -127,8 +128,26 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
       extForMime: vi.fn(() => 'jpg'),
     };
 
-    const service = new CoupangImageSyncService(scraper, catalog, imageFetcher, storage);
-    return { service, scraper, catalog, storage, imageFetcher, ensureCalls, attachCalls };
+    const reconciliation: CoupangImageReconciliationPort = {
+      recordRows: vi.fn(async () => undefined),
+    };
+    const service = new CoupangImageSyncService(
+      scraper,
+      catalog,
+      imageFetcher,
+      storage,
+      reconciliation,
+    );
+    return {
+      service,
+      scraper,
+      catalog,
+      storage,
+      imageFetcher,
+      reconciliation,
+      ensureCalls,
+      attachCalls,
+    };
   }
 
   it('start() throws ConflictException when same org has running job', async () => {
@@ -194,6 +213,26 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
     expect(catalog.findCoupangMaster).toHaveBeenCalledWith(
       expect.objectContaining({ inventoryId: 'EXT-1', organizationId: ORG_A }),
     );
+  });
+
+  it('records extension rows in the matching queue for image-sync reconciliation', async () => {
+    const { service, reconciliation } = buildService();
+
+    const { jobId } = service.startFromRows(ORG_A, [
+      { inventoryId: 'EXT-1', name: 'Extension P1', url: 'https://wing.coupang.com/img/ext-1.jpg' },
+      { inventoryId: 'EXT-1', name: 'Duplicate', url: 'https://wing.coupang.com/img/ext-1b.jpg' },
+      { inventoryId: 'EXT-2', legacyCode: 'LC-2', name: 'Extension P2', url: 'https://wing.coupang.com/img/ext-2.jpg' },
+    ]);
+    await waitForJob();
+
+    expect(service.getStatus(jobId, ORG_A).status).toBe('done');
+    expect(reconciliation.recordRows).toHaveBeenCalledWith({
+      organizationId: ORG_A,
+      rows: [
+        { inventoryId: 'EXT-1', name: 'Extension P1', url: 'https://wing.coupang.com/img/ext-1.jpg' },
+        { inventoryId: 'EXT-2', legacyCode: 'LC-2', name: 'Extension P2', url: 'https://wing.coupang.com/img/ext-2.jpg' },
+      ],
+    });
   });
 
   it('per-row failure does not abort the loop — counts failed and continues', async () => {

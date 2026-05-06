@@ -60,8 +60,8 @@ export class CoupangReconciliationRowDto {
 
 export class CoupangReconciliationScanDto {
   @IsOptional()
-  @IsIn(['wing_inventory', 'seller_products', 'manual'])
-  source?: 'wing_inventory' | 'seller_products' | 'manual';
+  @IsIn(['coupang_image_sync', 'wing_inventory', 'seller_products', 'manual'])
+  source?: 'coupang_image_sync' | 'wing_inventory' | 'seller_products' | 'manual';
 
   @IsArray()
   @ArrayMinSize(1)

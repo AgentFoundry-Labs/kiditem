@@ -15,16 +15,10 @@ import {
   CoupangReconciliationListQueryDto,
   CoupangReconciliationScanDto,
 } from './dto';
-import { ChannelReconciliationSnapshotService } from '../../../application/service/channel-reconciliation-snapshot.service';
-import { ChannelReconciliationCatalogService } from '../../../application/service/channel-reconciliation-catalog.service';
 
 @Controller('channels/reconciliation/coupang')
 export class ChannelReconciliationController {
-  constructor(
-    private readonly service: ChannelReconciliationService,
-    private readonly snapshotService: ChannelReconciliationSnapshotService,
-    private readonly catalogService: ChannelReconciliationCatalogService,
-  ) {}
+  constructor(private readonly service: ChannelReconciliationService) {}
 
   @Post('scan-from-rows')
   async scanFromRows(
@@ -34,18 +28,13 @@ export class ChannelReconciliationController {
     return this.service.scanFromRows(
       organizationId,
       body.rows,
-      body.source ?? 'wing_inventory',
+      body.source ?? 'coupang_image_sync',
     );
   }
 
-  @Post('sync-from-snapshots')
-  async syncFromSnapshots(@CurrentOrganization() organizationId: string) {
-    return this.snapshotService.syncFromSnapshots(organizationId);
-  }
-
-  @Post('sync-catalog')
-  async syncCatalog(@CurrentOrganization() organizationId: string) {
-    return this.catalogService.syncCatalogCoverage(organizationId);
+  @Post('sync-from-image-listings')
+  async syncFromImageListings(@CurrentOrganization() organizationId: string) {
+    return this.service.syncFromImageSyncedListings(organizationId);
   }
 
   @Get('summary')

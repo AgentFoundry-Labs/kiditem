@@ -12,9 +12,10 @@ the channels backend hasn't auto-linked to a `MasterProduct` /
 - Tabs (`자동 연결`, `확인 필요`, `충돌`, `처리 완료`, `제외`) map to backend
   status filters. The `자동 연결` tab is a client-side slice over `linked`
   with `resolutionSource = auto_legacy_code`.
-- `Wing 스캔` button reuses the kiditem Chrome extension via
-  `lib/coupang-scrape.ts` (mirrors the thumbnails image-sync flow). Rows
-  are POSTed to `scan-from-rows`, never persisted client-side.
+- `이미지 동기화 데이터 점검` button rebuilds the queue from active Coupang
+  listings that have `coupang-wing` master images via
+  `sync-from-image-listings`. It must not pull ad, traffic, raw snapshot, or
+  catalog-coverage rows into the queue.
 - Manual link picks an active `ProductOption` from
   `/api/products/options` (existing endpoint). The backend creates the
   missing `ChannelListing` (and option) on confirm — no `MasterProduct`

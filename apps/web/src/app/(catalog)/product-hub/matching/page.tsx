@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Database, Loader2, RefreshCw, ScanLine } from 'lucide-react';
+import { Loader2, RefreshCw, ScanLine } from 'lucide-react';
 import { toast } from 'sonner';
 import { friendlyError } from '@/lib/api-error';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -10,21 +10,15 @@ import { SummaryCards } from './components/SummaryCards';
 import { StatusTabs } from './components/StatusTabs';
 import { ItemsTable } from './components/ItemsTable';
 import { LinkProductOptionModal } from './components/LinkProductOptionModal';
-import { scrapeReconciliationRows } from './lib/coupang-scrape';
 import {
   type ReconciliationStatusFilter,
   useReconciliationSummary,
   useReconciliationItems,
-  useScanReconciliation,
-  useSyncReconciliationSnapshots,
-  useSyncReconciliationCatalog,
+  useSyncReconciliationImageListings,
   useLinkReconciliationItem,
   useIgnoreReconciliationItem,
 } from './hooks/useReconciliation';
-import type {
-  ReconciliationItem,
-  ReconciliationScanResponse,
-} from '@kiditem/shared/channel-reconciliation';
+import type { ReconciliationItem } from '@kiditem/shared/channel-reconciliation';
 
 const PAGE_LIMIT = 50;
 
@@ -40,9 +34,7 @@ export default function MatchingPage() {
     limit: PAGE_LIMIT,
   });
 
-  const scan = useScanReconciliation();
-  const snapshotSync = useSyncReconciliationSnapshots();
-  const catalogSync = useSyncReconciliationCatalog();
+  const syncImageListings = useSyncReconciliationImageListings();
   const linkMutation = useLinkReconciliationItem();
   const ignoreMutation = useIgnoreReconciliationItem();
 
@@ -73,53 +65,19 @@ export default function MatchingPage() {
 
   const handleScan = async () => {
     try {
-      const rows = await scrapeReconciliationRows();
-      if (rows.length === 0) {
-        toast.error('Wing 페이지에서 row 를 찾지 못했습니다');
-        return;
-      }
-      const result = await scan.mutateAsync({ source: 'wing_inventory', rows });
+      const result = await syncImageListings.mutateAsync();
       toast.success(
-        `매칭 완료 — 자동 ${formatNumber(result.autoLinkedCount)} / 확인 ${formatNumber(
-          result.needsReviewCount,
-        )} / 충돌 ${formatNumber(result.conflictCount)} 건`,
-      );
-      setPage(1);
-    } catch (error) {
-      toast.error(friendlyError(error) ?? 'Wing 스캔 실패');
-    }
-  };
-
-  const handleDatabaseSync = async () => {
-    try {
-      let snapshotResult: ReconciliationScanResponse | null = null;
-      try {
-        snapshotResult = await snapshotSync.mutateAsync();
-      } catch (error) {
-        const message = friendlyError(error) ?? '';
-        if (!message.includes('동기화할 미매칭 쿠팡 데이터가 없습니다')) {
-          throw error;
-        }
-      }
-      const catalogResult = await catalogSync.mutateAsync();
-      const autoLinkedCount =
-        (snapshotResult?.autoLinkedCount ?? 0) + catalogResult.autoLinkedCount;
-      const needsReviewCount =
-        (snapshotResult?.needsReviewCount ?? 0) + catalogResult.needsReviewCount;
-      const conflictCount =
-        (snapshotResult?.conflictCount ?? 0) + catalogResult.conflictCount;
-      const totalCount =
-        (snapshotResult?.totalCount ?? 0) + catalogResult.totalCount;
-      toast.success(
-        `전체 DB 점검 완료 — 대상 ${formatNumber(totalCount)} / 자동 ${formatNumber(
-          autoLinkedCount,
+        `점검 완료 — 기존연결 ${formatNumber(result.alreadyLinkedCount)} / 자동 ${formatNumber(
+          result.autoLinkedCount,
         )} / 확인 ${formatNumber(
-          needsReviewCount,
-        )} / 충돌 ${formatNumber(conflictCount)} 건`,
+          result.needsReviewCount,
+        )} / 옵션연결 ${formatNumber(result.optionLinkedCount)} / 충돌 ${formatNumber(
+          result.conflictCount,
+        )} 건`,
       );
       setPage(1);
     } catch (error) {
-      toast.error(friendlyError(error) ?? '전체 DB 점검 실패');
+      toast.error(friendlyError(error) ?? '이미지 동기화 데이터 점검 실패');
     }
   };
 
@@ -187,9 +145,7 @@ export default function MatchingPage() {
             }}
             disabled={
               itemsQuery.isFetching ||
-              scan.isPending ||
-              snapshotSync.isPending ||
-              catalogSync.isPending
+              syncImageListings.isPending
             }
             className="px-3 py-2 rounded-lg text-sm border border-slate-200 text-slate-600 hover:bg-slate-50 inline-flex items-center gap-1.5 disabled:opacity-50"
           >
@@ -198,29 +154,16 @@ export default function MatchingPage() {
           </button>
           <button
             type="button"
-            onClick={handleDatabaseSync}
-            disabled={snapshotSync.isPending || catalogSync.isPending || scan.isPending}
-            className="px-3 py-2 rounded-lg text-sm border border-slate-200 text-slate-600 hover:bg-slate-50 inline-flex items-center gap-1.5 disabled:opacity-50"
-          >
-            {snapshotSync.isPending || catalogSync.isPending ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : (
-              <Database size={14} />
-            )}
-            전체 DB 점검
-          </button>
-          <button
-            type="button"
             onClick={handleScan}
-            disabled={scan.isPending || snapshotSync.isPending || catalogSync.isPending}
+            disabled={syncImageListings.isPending}
             className="px-3 py-2 rounded-lg text-sm bg-purple-600 text-white hover:bg-purple-700 inline-flex items-center gap-1.5 disabled:opacity-50"
           >
-            {scan.isPending ? (
+            {syncImageListings.isPending ? (
               <Loader2 size={14} className="animate-spin" />
             ) : (
               <ScanLine size={14} />
             )}
-            Wing 스캔
+            이미지 동기화 데이터 점검
           </button>
         </div>
       </div>
@@ -298,6 +241,6 @@ function emptyMessageFor(filter: ReconciliationStatusFilter): string {
     case 'ignored':
       return '제외된 row 가 없습니다.';
     default:
-      return '아직 매칭 row 가 없습니다. 전체 DB 점검으로 시작하세요.';
+      return '아직 매칭 row 가 없습니다. 썸네일 AI의 쿠팡 이미지 동기화 또는 이미지 동기화 데이터 점검으로 시작하세요.';
   }
 }

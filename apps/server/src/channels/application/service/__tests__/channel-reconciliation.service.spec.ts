@@ -28,6 +28,10 @@ interface ListingRow {
   masterId: string;
   isDeleted: boolean;
   status: string | null;
+  channelName?: string | null;
+  masterName?: string;
+  masterLegacyCode?: string | null;
+  coupangWingImageUrl?: string | null;
 }
 
 interface ListingOptionRow {
@@ -35,6 +39,7 @@ interface ListingOptionRow {
   organizationId: string;
   listingId: string;
   externalOptionId: string;
+  itemName?: string | null;
   optionId: string | null;
   isActive: boolean;
 }
@@ -49,6 +54,7 @@ interface ProductOptionRow {
   masterIsDeleted: boolean;
   optionName: string | null;
   sku: string;
+  hasInventory?: boolean;
 }
 
 interface MasterProductRow {
@@ -361,9 +367,48 @@ function makeFakePrisma(seed: {
         masterId: data.masterId ?? '',
         isDeleted: false,
         status: data.status ?? null,
+        channelName: data.channelName ?? null,
       };
       listings.push(row);
       return row;
+    },
+    findMany: async ({
+      where,
+      orderBy: _orderBy,
+      select: _select,
+    }: {
+      where: {
+        organizationId: string;
+        channel: string;
+        isDeleted: boolean;
+        master?: {
+          isDeleted?: boolean;
+          images?: { some?: { organizationId: string; isDeleted: boolean; source: string } };
+        };
+      };
+      orderBy?: unknown;
+      select?: unknown;
+    }) => {
+      return listings
+        .filter(
+          (l) =>
+            l.organizationId === where.organizationId &&
+            l.channel === where.channel &&
+            l.isDeleted === where.isDeleted &&
+            (!where.master?.images?.some || !!l.coupangWingImageUrl),
+        )
+        .map((l) => ({
+          id: l.id,
+          masterId: l.masterId,
+          externalId: l.externalId,
+          channelName: l.channelName ?? null,
+          status: l.status,
+          master: {
+            name: l.masterName ?? l.channelName ?? l.externalId,
+            legacyCode: l.masterLegacyCode ?? null,
+            images: l.coupangWingImageUrl ? [{ url: l.coupangWingImageUrl }] : [],
+          },
+        }));
     },
     updateMany: async ({
       where,
@@ -391,6 +436,19 @@ function makeFakePrisma(seed: {
   };
 
   const channelListingOption = {
+    findMany: async ({ where }: { where: Record<string, unknown> }) => {
+      const listingId = where.listingId as { in?: string[] } | string | undefined;
+      const listingIds = typeof listingId === 'object' ? listingId.in ?? [] : null;
+      return listingOptions.filter(
+        (o) =>
+          o.organizationId === where.organizationId &&
+          (listingIds === null ||
+            listingIds.length === 0 ||
+            listingIds.includes(o.listingId)) &&
+          (where.optionId === undefined || o.optionId === where.optionId) &&
+          (where.isActive === undefined || o.isActive === where.isActive),
+      );
+    },
     findFirst: async ({ where }: { where: Record<string, unknown> }) => {
       return (
         listingOptions.find(
@@ -408,6 +466,7 @@ function makeFakePrisma(seed: {
         organizationId: data.organizationId ?? '',
         listingId: data.listingId ?? '',
         externalOptionId: data.externalOptionId ?? '',
+        itemName: data.itemName ?? null,
         optionId: data.optionId ?? null,
         isActive: data.isActive ?? true,
       };
@@ -453,12 +512,16 @@ function makeFakePrisma(seed: {
 
   const productOption = {
     findMany: async ({ where }: { where: Record<string, unknown> }) => {
+      const masterId = where.masterId as { in?: string[] } | string | undefined;
+      const masterIds = typeof masterId === 'object' ? masterId.in ?? [] : null;
       return productOptions.filter(
         (p) =>
           p.organizationId === where.organizationId &&
-          p.legacyCode === where.legacyCode &&
+          (where.legacyCode === undefined || p.legacyCode === where.legacyCode) &&
+          (masterIds === null || masterIds.length === 0 || masterIds.includes(p.masterId)) &&
           (where.isActive === undefined || p.isActive === where.isActive) &&
           (where.isDeleted === undefined || p.isDeleted === where.isDeleted) &&
+          (where.inventory === undefined || p.hasInventory === true) &&
           (where.master === undefined || !p.masterIsDeleted),
       );
     },
@@ -534,6 +597,183 @@ describe('ChannelReconciliationService — matching rules', () => {
     expect(state.items[0].linkedMasterProductId).toBe('M1');
     // Crucial: no MasterProduct auto-creation — listings table unchanged.
     expect(state.listings).toHaveLength(1);
+  });
+
+  it('rebuilds only Coupang image-sync listings into the active queue source', async () => {
+    const { fakePrisma, state } = makeFakePrisma({
+      listings: [
+        {
+          id: 'L1',
+          organizationId: ORG,
+          channel: 'coupang',
+          externalId: 'E1',
+          masterId: 'M1',
+          isDeleted: false,
+          status: 'active',
+          channelName: 'Coupang image product',
+          masterName: 'KidItem product',
+          masterLegacyCode: 'LEG-1',
+          coupangWingImageUrl: 'https://cdn.example.com/coupang.jpg',
+        },
+        {
+          id: 'L2',
+          organizationId: ORG,
+          channel: 'coupang',
+          externalId: 'E2',
+          masterId: 'M2',
+          isDeleted: false,
+          status: 'active',
+          channelName: 'No image product',
+          masterName: 'No image master',
+        },
+      ],
+    });
+    const service = new ChannelReconciliationService(fakePrisma);
+
+    const result = await service.syncFromImageSyncedListings(ORG);
+
+    expect(result.totalCount).toBe(1);
+    expect(result.alreadyLinkedCount).toBe(1);
+    expect(state.items).toHaveLength(1);
+    expect(state.items[0]).toMatchObject({
+      source: 'coupang_image_sync',
+      externalId: 'E1',
+      channelProductName: 'Coupang image product',
+      channelImageUrl: 'https://cdn.example.com/coupang.jpg',
+      linkedListingId: 'L1',
+      linkedMasterProductId: 'M1',
+      status: 'linked',
+    });
+  });
+
+  it('backfills listing option links from the listing master single inventory option', async () => {
+    const { fakePrisma, state } = makeFakePrisma({
+      listings: [
+        {
+          id: 'L1',
+          organizationId: ORG,
+          channel: 'coupang',
+          externalId: 'E1',
+          masterId: 'M1',
+          isDeleted: false,
+          status: 'active',
+          channelName: 'Coupang image product',
+          masterName: 'KidItem product',
+          coupangWingImageUrl: 'https://cdn.example.com/coupang.jpg',
+        },
+      ],
+      listingOptions: [
+        {
+          id: 'CLO1',
+          organizationId: ORG,
+          listingId: 'L1',
+          externalOptionId: 'V1',
+          itemName: 'Coupang unresolved option',
+          optionId: null,
+          isActive: true,
+        },
+      ],
+      productOptions: [
+        {
+          id: 'PO1',
+          organizationId: ORG,
+          masterId: 'M1',
+          legacyCode: 'LEG-1',
+          isActive: true,
+          isDeleted: false,
+          masterIsDeleted: false,
+          optionName: 'Default',
+          sku: 'SKU-1',
+          hasInventory: true,
+        },
+      ],
+    });
+    const service = new ChannelReconciliationService(fakePrisma);
+
+    const result = await service.syncFromImageSyncedListings(ORG);
+
+    expect(state.listingOptions[0].optionId).toBe('PO1');
+    expect(result.optionLinkedCount).toBe(1);
+    expect(result.optionLinkAmbiguousCount).toBe(0);
+    expect(result.optionLinkNoCandidateCount).toBe(0);
+  });
+
+  it('does not guess listing option links when the listing master has multiple inventory options', async () => {
+    const { fakePrisma, state } = makeFakePrisma({
+      listings: [
+        {
+          id: 'L1',
+          organizationId: ORG,
+          channel: 'coupang',
+          externalId: 'E1',
+          masterId: 'M1',
+          isDeleted: false,
+          status: 'active',
+          coupangWingImageUrl: 'https://cdn.example.com/coupang.jpg',
+        },
+      ],
+      listingOptions: [
+        {
+          id: 'CLO1',
+          organizationId: ORG,
+          listingId: 'L1',
+          externalOptionId: 'V1',
+          itemName: 'Coupang unresolved option',
+          optionId: null,
+          isActive: true,
+        },
+      ],
+      productOptions: [
+        {
+          id: 'PO1',
+          organizationId: ORG,
+          masterId: 'M1',
+          legacyCode: 'LEG-1',
+          isActive: true,
+          isDeleted: false,
+          masterIsDeleted: false,
+          optionName: 'Blue',
+          sku: 'SKU-1',
+          hasInventory: true,
+        },
+        {
+          id: 'PO2',
+          organizationId: ORG,
+          masterId: 'M1',
+          legacyCode: 'LEG-2',
+          isActive: true,
+          isDeleted: false,
+          masterIsDeleted: false,
+          optionName: 'Red',
+          sku: 'SKU-2',
+          hasInventory: true,
+        },
+      ],
+    });
+    const service = new ChannelReconciliationService(fakePrisma);
+
+    const result = await service.syncFromImageSyncedListings(ORG);
+
+    expect(state.listingOptions[0].optionId).toBeNull();
+    expect(result.totalCount).toBe(2);
+    expect(result.needsReviewCount).toBe(1);
+    expect(result.optionLinkedCount).toBe(0);
+    expect(result.optionLinkAmbiguousCount).toBe(1);
+    expect(result.optionLinkNoCandidateCount).toBe(0);
+
+    const optionItem = state.items.find((item) => item.itemKey === 'option:E1:V1');
+    expect(optionItem).toMatchObject({
+      source: 'coupang_image_sync',
+      itemType: 'channel_option',
+      status: 'needs_review',
+      externalId: 'E1',
+      externalOptionId: 'V1',
+      channelOptionName: 'Coupang unresolved option',
+      linkedListingId: 'L1',
+      linkedListingOptionId: 'CLO1',
+      linkedMasterProductId: 'M1',
+      linkedProductOptionId: null,
+    });
   });
 
   it('Rule 2: no listing + exactly one active ProductOption by legacyCode → auto-create listing', async () => {

@@ -167,7 +167,7 @@ await this.prisma.$transaction(async (tx) => {
 `channel-reconciliation.service.ts` — 쿠팡 row 를 KidItem `MasterProduct` /
 `ProductOption` 에 연결하는 사용자 처리 queue. 모델: `ChannelReconciliationRun` +
 `ChannelReconciliationItem`. HTTP surface:
-`/api/channels/reconciliation/coupang/{scan-from-rows,sync-from-snapshots,sync-catalog,summary,items,items/:id/link,items/:id/ignore}`.
+`/api/channels/reconciliation/coupang/{scan-from-rows,sync-from-image-listings,summary,items,items/:id/link,items/:id/ignore}`.
 
 Hard contracts:
 
@@ -182,16 +182,11 @@ Hard contracts:
   (6) 사용자 link → `manual` / 사용자 ignore → `ignored` (재스캔에서 유지).
 - **Tenant scope** — 모든 read/write 가 `@CurrentOrganization()` 의 `organizationId`
   를 WHERE/INSERT 에 포함. 단일 리소스는 `findFirst({ where: { id, organizationId } })`.
-- **Source values** — `wing_inventory | seller_products | manual`. 쿠팡 Wing
-- **Catalog coverage source** — `catalog_inventory` 는 내부 `ProductOption` +
-  `Inventory` 중 이미지가 준비된 상품 기준으로 쿠팡
-  `ChannelListingOption.optionId` 매핑 누락을 표시한다. 이미지가 없는 상품은
-  아직 쿠팡 상장 대상이 아니므로 reconciliation queue 에 올리지 않는다.
-  `itemType='kiditem_option'`, `itemKey='kiditem_option:<ProductOption.id>'` 를 사용한다.
-  이 source 는 상품/재고 점검용이며 Coupang row replay 입력으로 사용하지 않는다.
-- **Source values** — `wing_inventory | seller_products | manual` 는 쿠팡 Wing
-  스크래퍼 row replay 용 (web 의 Wing 스캔이 호출). 내부 DB 점검은
-  `catalog_inventory` 를 별도 API로 생성한다.
+- **Source values** — `coupang_image_sync` is the active UI/default source.
+  It records rows gathered by the thumbnail AI Coupang image sync flow and by
+  the matching page's image-synced listing rebuild. `wing_inventory |
+  seller_products | manual` are legacy/manual replay sources; do not backfill
+  unrelated ad, traffic, or catalog-coverage rows into the matching queue.
 
 ## 외부 의존
 

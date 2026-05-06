@@ -12,10 +12,9 @@ interface UnmatchedReconciliationBannerProps {
 /**
  * Shown after the Coupang image sync finishes with `unmatched > 0`.
  *
- * The image sync exposes "이미지 없음 / 매칭 필요" rows but does not write to
- * the channel reconciliation queue itself. The CTA navigates the user to
- * `/product-hub/matching` where they can run a Wing scan and triage the
- * unmatched rows under a proper queue.
+ * The image sync records gathered Wing rows in the channel reconciliation
+ * queue. The CTA navigates the user to `/product-hub/matching` where they can
+ * triage unmatched rows under the proper queue.
  */
 export function UnmatchedReconciliationBanner({
   unmatchedCount,

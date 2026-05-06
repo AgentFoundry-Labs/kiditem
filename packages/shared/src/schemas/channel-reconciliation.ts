@@ -66,7 +66,9 @@ export const ReconciliationRowSchema = z.object({
 export type ReconciliationRow = z.infer<typeof ReconciliationRowSchema>;
 
 export const ReconciliationScanRequestSchema = z.object({
-  source: z.enum(['wing_inventory', 'seller_products', 'manual']).default('wing_inventory'),
+  source: z
+    .enum(['coupang_image_sync', 'wing_inventory', 'seller_products', 'manual'])
+    .default('coupang_image_sync'),
   rows: z.array(ReconciliationRowSchema).min(1).max(5_000),
 });
 export type ReconciliationScanRequest = z.infer<typeof ReconciliationScanRequestSchema>;
@@ -166,5 +168,8 @@ export const ReconciliationScanResponseSchema = z.object({
   needsReviewCount: z.number().int().nonnegative(),
   conflictCount: z.number().int().nonnegative(),
   errorCount: z.number().int().nonnegative(),
+  optionLinkedCount: z.number().int().nonnegative().default(0),
+  optionLinkAmbiguousCount: z.number().int().nonnegative().default(0),
+  optionLinkNoCandidateCount: z.number().int().nonnegative().default(0),
 });
 export type ReconciliationScanResponse = z.infer<typeof ReconciliationScanResponseSchema>;

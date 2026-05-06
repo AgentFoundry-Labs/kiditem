@@ -2,7 +2,7 @@ import 'dotenv/config';
 
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import {
   cp,
   mkdir,
@@ -519,16 +519,61 @@ function appendFlag(target: string[], args: Args, key: string): void {
 
 function configuredDriveRoot(args: Args): string | null {
   const root = value(args, 'drive-root') ?? process.env.KIDITEM_DEV_DATA_DRIVE_DIR;
-  return root ? path.resolve(expandHome(root)) : null;
+  if (root) return path.resolve(expandHome(root));
+  const candidates = findDriveRootCandidatesSync();
+  return candidates.length === 1 ? candidates[0]! : null;
+}
+
+function cloudStorageRoot(): string {
+  return path.resolve(
+    expandHome(
+      process.env.KIDITEM_DEV_DATA_CLOUD_STORAGE_ROOT ??
+        path.join(os.homedir(), 'Library', 'CloudStorage'),
+    ),
+  );
+}
+
+function isIgnoredDriveCandidatePath(candidate: string): boolean {
+  return candidate.split(path.sep).includes('.Encrypted');
+}
+
+function findDriveRootCandidatesSync(): string[] {
+  const cloudStorage = cloudStorageRoot();
+  if (!existsSync(cloudStorage)) return [];
+
+  const candidates: string[] = [];
+  function walk(dir: string, depth: number): void {
+    if (depth < 0 || isIgnoredDriveCandidatePath(dir)) return;
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const child = path.join(dir, entry.name);
+      if (isIgnoredDriveCandidatePath(child)) continue;
+      if (entry.name === 'KidItem Dev Data') {
+        candidates.push(child);
+        continue;
+      }
+      walk(child, depth - 1);
+    }
+  }
+
+  walk(cloudStorage, 6);
+  return candidates.sort();
 }
 
 async function findDriveRootCandidates(): Promise<string[]> {
-  const cloudStorage = path.join(os.homedir(), 'Library', 'CloudStorage');
+  const cloudStorage = cloudStorageRoot();
   if (!existsSync(cloudStorage)) return [];
 
   const candidates: string[] = [];
   async function walk(dir: string, depth: number): Promise<void> {
-    if (depth < 0) return;
+    if (depth < 0 || isIgnoredDriveCandidatePath(dir)) return;
     let entries;
     try {
       entries = await readdir(dir, { withFileTypes: true });
@@ -539,6 +584,7 @@ async function findDriveRootCandidates(): Promise<string[]> {
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       const child = path.join(dir, entry.name);
+      if (isIgnoredDriveCandidatePath(child)) continue;
       if (entry.name === 'KidItem Dev Data') {
         candidates.push(child);
         continue;

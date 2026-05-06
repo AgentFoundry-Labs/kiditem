@@ -54,6 +54,12 @@ interface ChannelListingOptionHandle {
   optionId: string | null;
 }
 
+interface OptionLinkBackfillResult {
+  optionLinkedCount: number;
+  optionLinkAmbiguousCount: number;
+  optionLinkNoCandidateCount: number;
+}
+
 type Tx = Prisma.TransactionClient;
 
 type PrismaLike = PrismaClient | PrismaService;
@@ -108,7 +114,11 @@ export class ChannelReconciliationService {
   async scanFromRows(
     organizationId: string,
     rows: ReconciliationRowInput[],
-    source: 'wing_inventory' | 'seller_products' | 'manual' = 'wing_inventory',
+    source:
+      | 'coupang_image_sync'
+      | 'wing_inventory'
+      | 'seller_products'
+      | 'manual' = 'coupang_image_sync',
   ): Promise<ReconciliationScanResponse> {
     if (rows.length === 0) {
       throw new BadRequestException('rows must contain at least one entry');
@@ -171,7 +181,209 @@ export class ChannelReconciliationService {
       needsReviewCount,
       conflictCount,
       errorCount,
+      optionLinkedCount: 0,
+      optionLinkAmbiguousCount: 0,
+      optionLinkNoCandidateCount: 0,
     } satisfies ReconciliationScanResponse;
+  }
+
+  /**
+   * Rebuild the queue from the source we intentionally keep after cleanup:
+   * active Coupang listings whose master has an image imported by Coupang image
+   * sync (`MasterProductImage.source = 'coupang-wing'`).
+   */
+  async syncFromImageSyncedListings(
+    organizationId: string,
+  ): Promise<ReconciliationScanResponse> {
+    const listings = await this.prisma.channelListing.findMany({
+      where: {
+        organizationId,
+        channel: RECONCILIATION_CHANNEL,
+        isDeleted: false,
+        master: {
+          isDeleted: false,
+          images: {
+            some: {
+              organizationId,
+              isDeleted: false,
+              source: 'coupang-wing',
+            },
+          },
+        },
+      },
+      select: {
+        id: true,
+        masterId: true,
+        externalId: true,
+        channelName: true,
+        status: true,
+        master: {
+          select: {
+            name: true,
+            legacyCode: true,
+            images: {
+              where: {
+                organizationId,
+                isDeleted: false,
+                source: 'coupang-wing',
+              },
+              orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
+              select: { url: true },
+              take: 1,
+            },
+          },
+        },
+      },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+    });
+
+    const optionBackfill = await this.backfillListingOptionLinksFromSingleInventoryOption(
+      organizationId,
+      listings.map((listing) => ({ id: listing.id, masterId: listing.masterId })),
+    );
+
+    const rows: ReconciliationRowInput[] = listings
+      .filter((listing) => listing.externalId.trim())
+      .map((listing) => ({
+        externalId: listing.externalId,
+        legacyCode: listing.master.legacyCode,
+        channelProductName: listing.channelName ?? listing.master.name,
+        channelImageUrl: listing.master.images[0]?.url ?? null,
+        channelStatus: listing.status,
+      }));
+    const unresolvedOptionRows =
+      await this.buildUnresolvedImageSyncedListingOptionRows(organizationId, listings);
+    rows.push(...unresolvedOptionRows);
+
+    if (rows.length === 0) {
+      throw new BadRequestException('coupang image-synced listings not found');
+    }
+
+    const scan = await this.scanFromRows(organizationId, rows, 'coupang_image_sync');
+    return { ...scan, ...optionBackfill } satisfies ReconciliationScanResponse;
+  }
+
+  private async buildUnresolvedImageSyncedListingOptionRows(
+    organizationId: string,
+    listings: Array<{
+      id: string;
+      externalId: string;
+      channelName: string | null;
+      status: string | null;
+      master: {
+        name: string;
+        images: Array<{ url: string }>;
+      };
+    }>,
+  ): Promise<ReconciliationRowInput[]> {
+    if (listings.length === 0) return [];
+
+    const listingById = new Map(listings.map((listing) => [listing.id, listing]));
+    const listingOptions = await this.prisma.channelListingOption.findMany({
+      where: {
+        organizationId,
+        listingId: { in: [...listingById.keys()] },
+        optionId: null,
+        isActive: true,
+      },
+      select: {
+        listingId: true,
+        externalOptionId: true,
+        itemName: true,
+      },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+    });
+
+    const rows: ReconciliationRowInput[] = [];
+    for (const listingOption of listingOptions) {
+      const listing = listingById.get(listingOption.listingId);
+      if (!listing?.externalId.trim() || !listingOption.externalOptionId.trim()) continue;
+      rows.push({
+        externalId: listing.externalId,
+        externalOptionId: listingOption.externalOptionId,
+        // Product-level legacyCode is not a safe option-level discriminator.
+        legacyCode: null,
+        channelProductName: listing.channelName ?? listing.master.name,
+        channelOptionName: listingOption.itemName,
+        channelImageUrl: listing.master.images[0]?.url ?? null,
+        channelStatus: listing.status,
+      });
+    }
+    return rows;
+  }
+
+  private async backfillListingOptionLinksFromSingleInventoryOption(
+    organizationId: string,
+    listings: Array<{ id: string; masterId: string }>,
+  ): Promise<OptionLinkBackfillResult> {
+    const result: OptionLinkBackfillResult = {
+      optionLinkedCount: 0,
+      optionLinkAmbiguousCount: 0,
+      optionLinkNoCandidateCount: 0,
+    };
+    if (listings.length === 0) return result;
+
+    const listingById = new Map(listings.map((listing) => [listing.id, listing]));
+    const listingOptions = await this.prisma.channelListingOption.findMany({
+      where: {
+        organizationId,
+        listingId: { in: [...listingById.keys()] },
+        optionId: null,
+        isActive: true,
+      },
+      select: { id: true, listingId: true },
+    });
+    if (listingOptions.length === 0) return result;
+
+    const mastersWithMissingOptions = new Set(
+      listingOptions
+        .map((listingOption) => listingById.get(listingOption.listingId)?.masterId)
+        .filter((masterId): masterId is string => Boolean(masterId)),
+    );
+    const productOptions = await this.prisma.productOption.findMany({
+      where: {
+        organizationId,
+        masterId: { in: [...mastersWithMissingOptions] },
+        isActive: true,
+        isDeleted: false,
+        inventory: { isNot: null },
+      },
+      select: { id: true, masterId: true },
+    });
+
+    const optionsByMasterId = new Map<string, Array<{ id: string; masterId: string }>>();
+    for (const option of productOptions) {
+      const bucket = optionsByMasterId.get(option.masterId) ?? [];
+      bucket.push(option);
+      optionsByMasterId.set(option.masterId, bucket);
+    }
+
+    for (const listingOption of listingOptions) {
+      const listing = listingById.get(listingOption.listingId);
+      if (!listing) continue;
+      const candidates = optionsByMasterId.get(listing.masterId) ?? [];
+      if (candidates.length === 0) {
+        result.optionLinkNoCandidateCount += 1;
+        continue;
+      }
+      if (candidates.length > 1) {
+        result.optionLinkAmbiguousCount += 1;
+        continue;
+      }
+
+      const updated = await this.prisma.channelListingOption.updateMany({
+        where: {
+          id: listingOption.id,
+          organizationId,
+          listingId: listingOption.listingId,
+          optionId: null,
+        },
+        data: { optionId: candidates[0].id, isUnmatched: false },
+      });
+      result.optionLinkedCount += updated.count;
+    }
+
+    return result;
   }
 
   private async processRow(
@@ -361,6 +573,57 @@ export class ChannelReconciliationService {
           candidate?.id ?? null,
         );
         linkedProductOptionId = listingOption.optionId;
+      }
+
+      if (externalOptionId && listingOption && !linkedProductOptionId) {
+        const candidate =
+          legacyCandidates.length === 1 && legacyCandidates[0].masterId === listing.masterId
+            ? legacyCandidates[0]
+            : null;
+        if (candidate) {
+          const updated = await tx.channelListingOption.updateMany({
+            where: {
+              id: listingOption.id,
+              organizationId,
+              listingId: listing.id,
+              optionId: null,
+            },
+            data: { optionId: candidate.id, isUnmatched: false },
+          });
+          if (updated.count > 0) {
+            linkedProductOptionId = candidate.id;
+          }
+        } else if (legacyCandidates.length > 1) {
+          return {
+            status: 'conflict',
+            matchReason: 'conflict',
+            resolutionSource: null,
+            confidence: 40,
+            linkedListingId: listing.id,
+            linkedListingOptionId: listingOption.id,
+            linkedMasterProductId: listing.masterId,
+            linkedProductOptionId: null,
+            conflictJson: {
+              kind: 'multiple_legacy_code_matches_for_existing_listing_option',
+              listingMasterId: listing.masterId,
+              legacyCode,
+              candidateOptionIds: legacyCandidates.map((c) => c.id),
+              candidateMasterIds: legacyCandidates.map((c) => c.masterId),
+            } satisfies Prisma.InputJsonValue,
+          };
+        } else {
+          return {
+            status: 'needs_review',
+            matchReason: 'none',
+            resolutionSource: null,
+            confidence: null,
+            linkedListingId: listing.id,
+            linkedListingOptionId: listingOption.id,
+            linkedMasterProductId: listing.masterId,
+            linkedProductOptionId: null,
+            conflictJson: null,
+          };
+        }
       }
 
       return {

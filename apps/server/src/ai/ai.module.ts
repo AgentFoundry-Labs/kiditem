@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { StorageService } from '../common/storage/storage.service';
+import { ChannelsModule } from '../channels/channels.module';
 
 // adapter/in/http
 import { ImageAiController } from './adapter/in/http/image-ai.controller';
@@ -14,6 +15,7 @@ import { CoupangImageSyncController } from './adapter/in/http/coupang-image-sync
 
 // adapter/out
 import { CoupangInventoryScrapeAdapter } from './adapter/out/coupang/coupang-inventory-scrape.adapter';
+import { CoupangImageReconciliationAdapter } from './adapter/out/channels/coupang-image-reconciliation.adapter';
 import { GeminiTextCompletionAdapter } from './adapter/out/gemini/gemini-text-completion.adapter';
 import { GeminiThumbnailVisionAdapter } from './adapter/out/gemini/gemini-thumbnail-vision.adapter';
 import { ThumbnailReferenceImagesService } from './adapter/out/gemini/thumbnail-reference-images.adapter';
@@ -39,6 +41,7 @@ import { ThumbnailWingService } from './application/service/thumbnail-wing.servi
 
 // application/port — out
 import { COUPANG_INVENTORY_SCRAPE_PORT } from './application/port/out/coupang-inventory-scrape.port';
+import { COUPANG_IMAGE_RECONCILIATION_PORT } from './application/port/out/coupang-image-reconciliation.port';
 import { IMAGE_FETCH_PORT } from './application/port/out/image-fetch.port';
 import { IMAGE_STORAGE_PORT } from './application/port/out/image-storage.port';
 import { MASTER_CATALOG_PORT } from './application/port/out/master-catalog.port';
@@ -46,6 +49,7 @@ import { TEXT_COMPLETION_PORT } from './application/port/out/text-completion.por
 import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.port';
 
 @Module({
+  imports: [ChannelsModule],
   controllers: [
     CoupangImageSyncController,
     DetailPageAiController,
@@ -74,6 +78,7 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     ThumbnailWingService,
 
     // outgoing adapters
+    CoupangImageReconciliationAdapter,
     CoupangInventoryScrapeAdapter,
     GeminiTextCompletionAdapter,
     GeminiThumbnailVisionAdapter,
@@ -85,6 +90,7 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
 
     // port bindings
     { provide: WING_AUTOMATION_PORT, useExisting: WingAutomationRunner },
+    { provide: COUPANG_IMAGE_RECONCILIATION_PORT, useExisting: CoupangImageReconciliationAdapter },
     { provide: COUPANG_INVENTORY_SCRAPE_PORT, useExisting: CoupangInventoryScrapeAdapter },
     { provide: IMAGE_FETCH_PORT, useExisting: ThumbnailImageFetcherService },
     { provide: IMAGE_STORAGE_PORT, useExisting: StorageService },
