@@ -81,6 +81,7 @@ export function ItemsTable({
             ) : (
               items.map((row) => {
                 const isBusy = pendingActionId === row.id;
+                const isCatalogOption = row.itemType === 'kiditem_option';
                 const kidItemPrimary =
                   row.linked.masterProductName ??
                   (row.linked.masterProductId
@@ -123,11 +124,21 @@ export function ItemsTable({
                         )}
                         <div className="min-w-0">
                           <div className="text-sm text-slate-900 max-w-[260px] truncate">
-                            {row.channelProductName ?? '(이름 없음)'}
+                            {row.channelProductName ??
+                              (isCatalogOption ? '쿠팡 상품 없음' : '(이름 없음)')}
                           </div>
                           <div className="text-xs text-slate-500 mt-0.5 tabular-nums truncate max-w-[260px]">
-                            ext: {row.externalId}
-                            {row.externalOptionId ? ` / ${row.externalOptionId}` : ''}
+                            {row.externalId
+                              ? `ext: ${row.externalId}${
+                                  row.externalOptionId
+                                    ? ` / ${row.externalOptionId}`
+                                    : isCatalogOption
+                                      ? ' / 옵션 매핑 없음'
+                                      : ''
+                                }`
+                              : isCatalogOption
+                                ? '쿠팡 listing/옵션 매핑 없음'
+                                : 'ext: —'}
                           </div>
                           {row.channelUrl && (
                             <a
@@ -171,7 +182,21 @@ export function ItemsTable({
                       )}
                     </td>
                     <td className="px-4 py-3 align-top text-right whitespace-nowrap">
-                      {row.status === 'ignored' ? (
+                      {isCatalogOption && row.status === 'linked' ? (
+                        <span className="text-xs text-slate-400">연결됨</span>
+                      ) : isCatalogOption && row.status === 'ignored' ? (
+                        <span className="text-xs text-slate-400">제외됨</span>
+                      ) : isCatalogOption ? (
+                        <button
+                          type="button"
+                          onClick={() => onIgnore(row)}
+                          disabled={isBusy}
+                          className="px-3 py-1.5 text-xs font-medium rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 inline-flex items-center gap-1"
+                        >
+                          <Slash size={12} />
+                          제외
+                        </button>
+                      ) : row.status === 'ignored' ? (
                         <button
                           type="button"
                           onClick={() => onLink(row)}

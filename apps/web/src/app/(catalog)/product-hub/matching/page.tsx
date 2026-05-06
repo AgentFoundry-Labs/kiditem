@@ -17,10 +17,14 @@ import {
   useReconciliationItems,
   useScanReconciliation,
   useSyncReconciliationSnapshots,
+  useSyncReconciliationCatalog,
   useLinkReconciliationItem,
   useIgnoreReconciliationItem,
 } from './hooks/useReconciliation';
-import type { ReconciliationItem } from '@kiditem/shared/channel-reconciliation';
+import type {
+  ReconciliationItem,
+  ReconciliationScanResponse,
+} from '@kiditem/shared/channel-reconciliation';
 
 const PAGE_LIMIT = 50;
 
@@ -38,6 +42,7 @@ export default function MatchingPage() {
 
   const scan = useScanReconciliation();
   const snapshotSync = useSyncReconciliationSnapshots();
+  const catalogSync = useSyncReconciliationCatalog();
   const linkMutation = useLinkReconciliationItem();
   const ignoreMutation = useIgnoreReconciliationItem();
 
@@ -85,17 +90,36 @@ export default function MatchingPage() {
     }
   };
 
-  const handleSnapshotSync = async () => {
+  const handleDatabaseSync = async () => {
     try {
-      const result = await snapshotSync.mutateAsync();
+      let snapshotResult: ReconciliationScanResponse | null = null;
+      try {
+        snapshotResult = await snapshotSync.mutateAsync();
+      } catch (error) {
+        const message = friendlyError(error) ?? '';
+        if (!message.includes('동기화할 미매칭 쿠팡 데이터가 없습니다')) {
+          throw error;
+        }
+      }
+      const catalogResult = await catalogSync.mutateAsync();
+      const autoLinkedCount =
+        (snapshotResult?.autoLinkedCount ?? 0) + catalogResult.autoLinkedCount;
+      const needsReviewCount =
+        (snapshotResult?.needsReviewCount ?? 0) + catalogResult.needsReviewCount;
+      const conflictCount =
+        (snapshotResult?.conflictCount ?? 0) + catalogResult.conflictCount;
+      const totalCount =
+        (snapshotResult?.totalCount ?? 0) + catalogResult.totalCount;
       toast.success(
-        `DB 동기화 완료 — 자동 ${formatNumber(result.autoLinkedCount)} / 확인 ${formatNumber(
-          result.needsReviewCount,
-        )} / 충돌 ${formatNumber(result.conflictCount)} 건`,
+        `전체 DB 점검 완료 — 대상 ${formatNumber(totalCount)} / 자동 ${formatNumber(
+          autoLinkedCount,
+        )} / 확인 ${formatNumber(
+          needsReviewCount,
+        )} / 충돌 ${formatNumber(conflictCount)} 건`,
       );
       setPage(1);
     } catch (error) {
-      toast.error(friendlyError(error) ?? 'DB 동기화 실패');
+      toast.error(friendlyError(error) ?? '전체 DB 점검 실패');
     }
   };
 
@@ -135,13 +159,22 @@ export default function MatchingPage() {
         ? ignoreMutation.variables.id
         : null;
 
+  const ignoreLabel = ignoreTarget
+    ? ignoreTarget.itemType === 'kiditem_option'
+      ? ignoreTarget.linked.productOptionName ??
+        ignoreTarget.linked.productOptionSku ??
+        ignoreTarget.linked.masterProductName ??
+        ''
+      : ignoreTarget.channelProductName ?? ignoreTarget.externalId ?? ''
+    : '';
+
   return (
     <div className="space-y-6 animate-in pb-12">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">상품 매칭 센터</h1>
           <p className="text-sm text-slate-500 mt-1">
-            쿠팡 상품을 KidItem 옵션에 연결합니다. 자동 매칭은 legacyCode 정확 일치만 적용되며, 충돌·미매칭은 수동 검토가 필요합니다.
+            쿠팡 상품과 KidItem 상품·재고 옵션의 연결 상태를 점검합니다. 자동 매칭은 legacyCode 정확 일치만 적용되며, 충돌·미매칭은 수동 검토가 필요합니다.
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -152,7 +185,12 @@ export default function MatchingPage() {
               summaryQuery.refetch();
               itemsQuery.refetch();
             }}
-            disabled={itemsQuery.isFetching || scan.isPending || snapshotSync.isPending}
+            disabled={
+              itemsQuery.isFetching ||
+              scan.isPending ||
+              snapshotSync.isPending ||
+              catalogSync.isPending
+            }
             className="px-3 py-2 rounded-lg text-sm border border-slate-200 text-slate-600 hover:bg-slate-50 inline-flex items-center gap-1.5 disabled:opacity-50"
           >
             <RefreshCw size={14} className={itemsQuery.isFetching ? 'animate-spin' : ''} />
@@ -160,21 +198,21 @@ export default function MatchingPage() {
           </button>
           <button
             type="button"
-            onClick={handleSnapshotSync}
-            disabled={snapshotSync.isPending || scan.isPending}
+            onClick={handleDatabaseSync}
+            disabled={snapshotSync.isPending || catalogSync.isPending || scan.isPending}
             className="px-3 py-2 rounded-lg text-sm border border-slate-200 text-slate-600 hover:bg-slate-50 inline-flex items-center gap-1.5 disabled:opacity-50"
           >
-            {snapshotSync.isPending ? (
+            {snapshotSync.isPending || catalogSync.isPending ? (
               <Loader2 size={14} className="animate-spin" />
             ) : (
               <Database size={14} />
             )}
-            DB 동기화
+            전체 DB 점검
           </button>
           <button
             type="button"
             onClick={handleScan}
-            disabled={scan.isPending || snapshotSync.isPending}
+            disabled={scan.isPending || snapshotSync.isPending || catalogSync.isPending}
             className="px-3 py-2 rounded-lg text-sm bg-purple-600 text-white hover:bg-purple-700 inline-flex items-center gap-1.5 disabled:opacity-50"
           >
             {scan.isPending ? (
@@ -234,9 +272,9 @@ export default function MatchingPage() {
         description={
           <>
             <span className="font-medium text-slate-700">
-              {ignoreTarget?.channelProductName ?? ignoreTarget?.externalId ?? ''}
+              {ignoreLabel}
             </span>{' '}
-            를 향후 스캔에서도 자동으로 무시합니다. 다시 매칭하려면 같은 화면에서 “다시 연결” 을 누르세요.
+            를 향후 점검에서도 자동으로 무시합니다.
           </>
         }
         confirmText="제외"
@@ -250,7 +288,7 @@ export default function MatchingPage() {
 function emptyMessageFor(filter: ReconciliationStatusFilter): string {
   switch (filter) {
     case 'auto_linked':
-      return '자동으로 연결된 row 가 없습니다. Wing 스캔을 실행해 보세요.';
+      return '자동으로 연결된 row 가 없습니다.';
     case 'needs_review':
       return '확인이 필요한 row 가 없습니다.';
     case 'conflict':
@@ -260,6 +298,6 @@ function emptyMessageFor(filter: ReconciliationStatusFilter): string {
     case 'ignored':
       return '제외된 row 가 없습니다.';
     default:
-      return '아직 매칭 row 가 없습니다. Wing 스캔으로 시작하세요.';
+      return '아직 매칭 row 가 없습니다. 전체 DB 점검으로 시작하세요.';
   }
 }

@@ -4,10 +4,12 @@ import { zIsoDate } from './common.js';
 /**
  * `/api/channels/reconciliation/coupang/*` shared contracts.
  *
- * Reconciliation queue tracks Coupang Wing rows that have not been linked to
- * an internal `MasterProduct` / `ProductOption`. The queue is the user-visible
- * surface for unmatched / conflict / manual-link decisions. `MasterProduct`
- * is never auto-created from a Coupang row (issue #199 acceptance criteria).
+ * Reconciliation queue tracks both Coupang Wing rows that have not been linked
+ * to an internal `MasterProduct` / `ProductOption`, and KidItem catalog options
+ * that do not yet have complete Coupang option mappings. The queue is the
+ * user-visible surface for unmatched / conflict / manual-link decisions.
+ * `MasterProduct` is never auto-created from a Coupang row (issue #199
+ * acceptance criteria).
  */
 
 export const ReconciliationItemStatusSchema = z.enum([
@@ -22,6 +24,8 @@ export type ReconciliationItemStatus = z.infer<typeof ReconciliationItemStatusSc
 export const ReconciliationItemTypeSchema = z.enum([
   'channel_listing',
   'channel_option',
+  'kiditem_master',
+  'kiditem_option',
 ]);
 export type ReconciliationItemType = z.infer<typeof ReconciliationItemTypeSchema>;
 

@@ -82,6 +82,17 @@ export function useSyncReconciliationSnapshots() {
   });
 }
 
+export function useSyncReconciliationCatalog() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiClient.post<ReconciliationScanResponse>(`${BASE}/sync-catalog`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.channelReconciliation.all });
+    },
+  });
+}
+
 export function useLinkReconciliationItem() {
   const qc = useQueryClient();
   return useMutation({

@@ -16,12 +16,14 @@ import {
   CoupangReconciliationScanDto,
 } from './dto';
 import { ChannelReconciliationSnapshotService } from '../../../application/service/channel-reconciliation-snapshot.service';
+import { ChannelReconciliationCatalogService } from '../../../application/service/channel-reconciliation-catalog.service';
 
 @Controller('channels/reconciliation/coupang')
 export class ChannelReconciliationController {
   constructor(
     private readonly service: ChannelReconciliationService,
     private readonly snapshotService: ChannelReconciliationSnapshotService,
+    private readonly catalogService: ChannelReconciliationCatalogService,
   ) {}
 
   @Post('scan-from-rows')
@@ -39,6 +41,11 @@ export class ChannelReconciliationController {
   @Post('sync-from-snapshots')
   async syncFromSnapshots(@CurrentOrganization() organizationId: string) {
     return this.snapshotService.syncFromSnapshots(organizationId);
+  }
+
+  @Post('sync-catalog')
+  async syncCatalog(@CurrentOrganization() organizationId: string) {
+    return this.catalogService.syncCatalogCoverage(organizationId);
   }
 
   @Get('summary')
