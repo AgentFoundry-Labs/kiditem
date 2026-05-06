@@ -17,7 +17,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsup && pnpm build:css",
+    "build": "tsup && npm run build:css",
     "build:css": "tailwindcss -i src/styles.css -o dist/styles.css --minify",
     "dev": "tsup --watch",
     "clean": "rm -rf dist",

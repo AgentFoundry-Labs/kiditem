@@ -75,6 +75,15 @@ export default function ThumbnailsPage() {
   const lastSyncRefreshAt = useRef(0);
 
   useEffect(() => {
+    if (!sync.startError) return;
+    toast.error(
+      `이미지 동기화 실패: ${
+        sync.startError instanceof Error ? sync.startError.message : '알 수 없는 오류'
+      }`,
+    );
+  }, [sync.startError]);
+
+  useEffect(() => {
     if (!syncStatus || syncStatus.status === 'running') return;
     if (syncStatus.status === 'failed') {
       toast.error(`이미지 동기화 실패: ${syncStatus.error ?? '알 수 없는 오류'}`);
@@ -82,7 +91,9 @@ export default function ThumbnailsPage() {
       toast.info('동기화할 이미지가 없습니다 (모든 상품에 이미지가 이미 있음)');
     } else {
       toast.success(
-        `이미지 동기화 완료 — 성공 ${syncStatus.succeeded}건${syncStatus.failed ? ` / 실패 ${syncStatus.failed}건` : ''}`,
+        `이미지 동기화 완료 — 성공 ${syncStatus.succeeded}건${
+          syncStatus.unmatched ? ` / 매칭 필요 ${syncStatus.unmatched}건` : ''
+        }${syncStatus.failed ? ` / 실패 ${syncStatus.failed}건` : ''}`,
       );
       analysisQuery.refetch();
     }

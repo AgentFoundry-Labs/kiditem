@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { ProductsModule } from '../products/products.module';
 import { StorageService } from '../common/storage/storage.service';
 
 // adapter/in/http
@@ -47,7 +46,6 @@ import { TEXT_COMPLETION_PORT } from './application/port/out/text-completion.por
 import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.port';
 
 @Module({
-  imports: [ProductsModule],
   controllers: [
     CoupangImageSyncController,
     DetailPageAiController,

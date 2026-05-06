@@ -133,7 +133,7 @@ export function useThumbnailActions(
         );
         if (!status.connected) {
           toast.error(
-            status.error ?? '활성 Playwriter 세션이 없습니다. 터미널에서 `playwriter session new` 실행 후 쿠팡 Wing 에 로그인하세요.',
+            status.error ?? 'Playwriter 브라우저 연결이 없습니다. 열린 Chrome 에서 쿠팡 Wing 로그인 상태를 확인하세요.',
             { duration: 8000 },
           );
           return;

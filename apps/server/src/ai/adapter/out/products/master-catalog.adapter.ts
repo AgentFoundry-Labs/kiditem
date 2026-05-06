@@ -1,9 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { MastersService } from '../../../../products/application/service/masters.service';
 import type {
   AttachPrimaryImageInput,
+  FindCoupangMasterInput,
   CoupangListingImageState,
   CoupangListingHandle,
   MasterCatalogPort,
@@ -12,20 +12,15 @@ import type {
 /**
  * `MASTER_CATALOG_PORT` 의 concrete adapter.
  *
- * products domain 의 `MastersService.create` (master + image rows + code 발급
- * 트랜잭션) 와 `prisma.channelListing` / `prisma.masterProduct` /
- * `prisma.masterProductImage` 직접 mutation 을 ai domain 으로부터 격리한다.
+ * products/channelListing query 와 `prisma.masterProductImage` 직접 mutation 을
+ * ai domain 으로부터 격리한다.
  *
- * 이 adapter 만 products domain 의 service 를 import 하므로, 향후 products
- * 도메인이 자체 port 를 노출하거나 mutation API 를 다듬으면 이 adapter 만
- * 영향받고 ai 의 application service 는 그대로.
+ * 매칭되지 않은 Coupang row 는 MasterProduct 를 자동 생성하지 않는다. 사용자가
+ * 매칭 화면에서 기존 ProductOption/MasterProduct 와 연결해야 한다.
  */
 @Injectable()
 export class MasterCatalogAdapter implements MasterCatalogPort {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly masters: MastersService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async findCoupangListingImageStates(input: {
     organizationId: string;
@@ -63,13 +58,8 @@ export class MasterCatalogAdapter implements MasterCatalogPort {
     }));
   }
 
-  async ensureCoupangMaster(input: {
-    organizationId: string;
-    inventoryId: string;
-    name: string;
-    sourceUrl: string;
-  }): Promise<CoupangListingHandle> {
-    const { organizationId, inventoryId, name, sourceUrl } = input;
+  async findCoupangMaster(input: FindCoupangMasterInput): Promise<CoupangListingHandle | null> {
+    const { organizationId, inventoryId, legacyCode, name } = input;
 
     const listing = await this.prisma.channelListing.findFirst({
       where: {
@@ -107,33 +97,73 @@ export class MasterCatalogAdapter implements MasterCatalogPort {
       };
     }
 
-    // 새 master + listing 1쌍 생성. MastersService.create 가 code 발급 + image
-    // row 정규화를 트랜잭션 안에서 수행하므로 outerTx 로 묶음.
-    return this.prisma.$transaction(
-      async (tx: Prisma.TransactionClient) => {
-        const master = await this.masters.create(
-          organizationId,
-          {
-            name: name || `쿠팡 인벤토리 ${inventoryId}`,
-            sourcePlatform: 'coupang',
-            sourceUrl,
-          },
-          tx,
-        );
-        await tx.channelListing.create({
-          data: {
-            organizationId,
-            masterId: master.id,
-            channel: 'coupang',
-            externalId: inventoryId,
-            channelName: name || null,
-            status: 'active',
-          } satisfies Prisma.ChannelListingUncheckedCreateInput,
-        });
-        return { masterId: master.id, hasImage: false };
+    const normalizedLegacyCode = legacyCode?.trim();
+    if (!normalizedLegacyCode) return null;
+
+    const option = await this.prisma.productOption.findFirst({
+      where: {
+        organizationId,
+        legacyCode: normalizedLegacyCode,
+        isDeleted: false,
+        isActive: true,
+        master: { isDeleted: false },
       },
-      { timeout: 15_000 },
-    );
+      select: {
+        masterId: true,
+        master: {
+          select: {
+            imageUrl: true,
+            thumbnailUrl: true,
+            images: {
+              where: { organizationId, isDeleted: false },
+              select: { id: true },
+              take: 1,
+            },
+          },
+        },
+      },
+    });
+
+    if (!option) return null;
+
+    await this.createCoupangListingFromLegacyMatch({
+      organizationId,
+      masterId: option.masterId,
+      inventoryId,
+      name,
+    });
+
+    return {
+      masterId: option.masterId,
+      hasImage: hasDisplayImage(option.master),
+    };
+  }
+
+  private async createCoupangListingFromLegacyMatch(input: {
+    organizationId: string;
+    masterId: string;
+    inventoryId: string;
+    name: string;
+  }): Promise<void> {
+    const { organizationId, masterId, inventoryId, name } = input;
+    try {
+      await this.prisma.channelListing.create({
+        data: {
+          organizationId,
+          masterId,
+          channel: 'coupang',
+          externalId: inventoryId,
+          channelName: name || null,
+          status: 'active',
+        } satisfies Prisma.ChannelListingUncheckedCreateInput,
+      });
+    } catch (error: unknown) {
+      if (!isUniqueConstraintError(error)) throw error;
+      await this.prisma.channelListing.updateMany({
+        where: { organizationId, channel: 'coupang', externalId: inventoryId, isDeleted: false },
+        data: { channelName: name || undefined },
+      });
+    }
   }
 
   async attachPrimaryImage(input: AttachPrimaryImageInput): Promise<boolean> {
@@ -185,6 +215,10 @@ export class MasterCatalogAdapter implements MasterCatalogPort {
       { timeout: 15_000 },
     );
   }
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return Boolean(error && typeof error === 'object' && (error as { code?: unknown }).code === 'P2002');
 }
 
 function hasDisplayImage(master: {

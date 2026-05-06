@@ -35,6 +35,7 @@ export interface CoupangImageSyncJobState {
   total: number;
   processed: number;
   succeeded: number;
+  unmatched: number;
   failed: number;
   startedAt: number;
   finishedAt: number | null;
@@ -79,6 +80,26 @@ export class CoupangImageSyncService {
   ) {}
 
   start(organizationId: string): { jobId: string } {
+    const job = this.createJob(organizationId);
+
+    void this.runFromScraper(job).catch((error: unknown) => {
+      this.failJob(job, error);
+    });
+
+    return { jobId: job.jobId };
+  }
+
+  startFromRows(organizationId: string, rows: CoupangInventoryRow[]): { jobId: string } {
+    const job = this.createJob(organizationId);
+
+    void this.runFromRows(job, rows).catch((error: unknown) => {
+      this.failJob(job, error);
+    });
+
+    return { jobId: job.jobId };
+  }
+
+  private createJob(organizationId: string): CoupangImageSyncJobState {
     for (const job of this.jobs.values()) {
       if (job.organizationId === organizationId && job.status === 'running') {
         throw new ConflictException('이미 진행 중인 동기화 잡이 있습니다');
@@ -94,6 +115,7 @@ export class CoupangImageSyncService {
       total: 0,
       processed: 0,
       succeeded: 0,
+      unmatched: 0,
       failed: 0,
       startedAt: Date.now(),
       finishedAt: null,
@@ -101,15 +123,7 @@ export class CoupangImageSyncService {
     };
     this.jobs.set(jobId, job);
 
-    void this.run(job).catch((error: unknown) => {
-      job.status = 'failed';
-      job.phase = 'finished';
-      job.error = error instanceof Error ? error.message : String(error);
-      job.finishedAt = Date.now();
-      this.logger.error(`Coupang image sync job ${jobId} failed: ${job.error}`);
-    });
-
-    return { jobId };
+    return job;
   }
 
   getStatus(jobId: string, organizationId: string): CoupangImageSyncJobState {
@@ -138,12 +152,27 @@ export class CoupangImageSyncService {
     }
   }
 
-  private async run(job: CoupangImageSyncJobState): Promise<void> {
-    const { organizationId } = job;
+  private failJob(job: CoupangImageSyncJobState, error: unknown): void {
+    job.status = 'failed';
+    job.phase = 'finished';
+    job.error = error instanceof Error ? error.message : String(error);
+    job.finishedAt = Date.now();
+    this.logger.error(`Coupang image sync job ${job.jobId} failed: ${job.error}`);
+  }
+
+  private async runFromScraper(job: CoupangImageSyncJobState): Promise<void> {
     job.phase = 'scraping';
 
     const scrapedRows = await this.scraper.scrapeAll();
-    const uniqueRows = dedupeRows(scrapedRows);
+    await this.runFromRows(job, scrapedRows);
+  }
+
+  private async runFromRows(
+    job: CoupangImageSyncJobState,
+    rows: CoupangInventoryRow[],
+  ): Promise<void> {
+    const { organizationId } = job;
+    const uniqueRows = dedupeRows(rows);
     const targets = await this.filterRowsNeedingImage(organizationId, uniqueRows);
 
     job.total = targets.length;
@@ -158,12 +187,13 @@ export class CoupangImageSyncService {
 
     for (const row of targets) {
       try {
-        const synced = await this.syncOne(organizationId, row);
-        if (synced) job.succeeded += 1;
+        const result = await this.syncOne(organizationId, row);
+        if (result === 'synced') job.succeeded += 1;
+        if (result === 'unmatched') job.unmatched += 1;
       } catch (error: unknown) {
         job.failed += 1;
         const message = error instanceof Error ? error.message : String(error);
-        this.logger.warn(`Wing inventory ${row.inventoryId} image sync failed: ${message}`);
+        this.logger.warn(`Wing inventory ${row.inventoryId} image sync skipped: ${message}`);
       } finally {
         job.processed += 1;
       }
@@ -196,21 +226,25 @@ export class CoupangImageSyncService {
     });
   }
 
-  private async syncOne(organizationId: string, row: CoupangInventoryRow): Promise<boolean> {
-    const handle = await this.catalog.ensureCoupangMaster({
+  private async syncOne(
+    organizationId: string,
+    row: CoupangInventoryRow,
+  ): Promise<'synced' | 'unchanged' | 'unmatched'> {
+    const handle = await this.catalog.findCoupangMaster({
       organizationId,
       inventoryId: row.inventoryId,
+      legacyCode: row.legacyCode,
       name: row.name,
-      sourceUrl: row.url,
     });
-    if (handle.hasImage) return false;
+    if (!handle) return 'unmatched';
+    if (handle.hasImage) return 'unchanged';
 
     const fetched = await this.imageFetcher.fetchImage(row.url);
     const ext = this.imageFetcher.extForMime(fetched.mimeType);
     const key = `product-images/${handle.masterId}/coupang-${Date.now()}.${ext}`;
     const publicUrl = await this.storage.save(key, fetched.buffer, fetched.mimeType);
 
-    return this.catalog.attachPrimaryImage({
+    const attached = await this.catalog.attachPrimaryImage({
       organizationId,
       masterId: handle.masterId,
       storageKey: key,
@@ -219,6 +253,7 @@ export class CoupangImageSyncService {
       fileSize: fetched.buffer.length,
       sourceUrl: row.url,
     });
+    return attached ? 'synced' : 'unchanged';
   }
 }
 

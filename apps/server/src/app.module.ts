@@ -71,7 +71,7 @@ import { ReadinessModule } from './readiness/readiness.module';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    // Supabase JWT 검증 — `Authorization: Bearer` 또는 `sb-access-token` 쿠키.
+    // Supabase JWT 검증 — `Authorization: Bearer` 또는 Supabase SSR auth-token 쿠키.
     // SSE (`/api/agent-registry/events`, `/api/panel/*`) 는 EventSource 가 헤더를 못
     // 보내므로 쿠키 기반으로 통과한다 (frontend 가 `withCredentials: true`).
     consumer.apply(SupabaseAuthMiddleware).forRoutes('*');

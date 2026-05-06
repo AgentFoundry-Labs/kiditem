@@ -150,7 +150,8 @@ npm run dev:all
 1. `http://localhost:3000` 접근 → `/login?next=/` 리다이렉트
 2. 이메일 + 비밀번호 입력 → 제출
 3. `/` (대시보드) 로 리다이렉트 성공
-4. DevTools → Application → Cookies: `sb-access-token`, `sb-refresh-token` 존재
+4. DevTools → Application → Cookies: `sb-<project-ref>-auth-token` 존재
+   - 쿠키가 크면 `.0`, `.1` chunk 로 나뉠 수 있다.
 5. DevTools → Network: `GET /api/auth/me` 200 + `{ id, email, name, role, organizationId, membershipId }` 반환
 
 성공 기준: 5단계 전부 통과.
@@ -180,7 +181,7 @@ Supabase Auth 셋업 완료.
 - Backend: dev:server boot OK (Nest started, port 4000)
 - Frontend: build OK + /login 페이지 정상 렌더
 - Sync 스크립트: user <uuid> + membership <uuid> mirrored
-- Login flow: cookies set + /api/auth/me 200
+- Login flow: Supabase SSR auth-token cookie set + /api/auth/me 200
 ```
 
 ## 보안 경고

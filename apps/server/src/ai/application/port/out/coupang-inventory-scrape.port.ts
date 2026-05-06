@@ -13,6 +13,7 @@ export const COUPANG_INVENTORY_SCRAPE_PORT = Symbol('COUPANG_INVENTORY_SCRAPE_PO
 
 export interface CoupangInventoryRow {
   inventoryId: string;
+  legacyCode?: string | null;
   name: string;
   url: string;
 }

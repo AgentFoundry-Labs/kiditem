@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { spawn } from 'node:child_process';
+import { spawnPlaywriter } from './playwriter-cli';
 
 const WING_BASE =
   'https://wing.coupang.com/vendor-inventory/list?salesMethod=ALL&productStatus=ALL&stockSearchType=ALL&locale=ko_KR&sortMethod=SORT_BY_ITEM_LEVEL_UNIT_SOLD&countPerPage=50&page=1';
@@ -40,7 +40,7 @@ export class WingAutomationRunner {
     const { productName, imagePath, screenshotPath } = input;
     return new Promise((resolve) => {
       const code = this.buildScript(productName, imagePath, screenshotPath);
-      const proc = spawn('playwriter', ['-s', '1', '--timeout', String(PLAYWRITER_RUN_TIMEOUT_MS), '-e', code], {
+      const proc = spawnPlaywriter(['-s', '1', '--timeout', String(PLAYWRITER_RUN_TIMEOUT_MS), '-e', code], {
         timeout: PLAYWRITER_TIMEOUT_MS,
       });
 
@@ -72,7 +72,7 @@ export class WingAutomationRunner {
 
   checkPlaywriterStatus(): Promise<PlaywriterStatus> {
     return new Promise((resolve) => {
-      const proc = spawn('playwriter', ['session', 'list'], { timeout: PLAYWRITER_STATUS_TIMEOUT_MS });
+      const proc = spawnPlaywriter(['session', 'list'], { timeout: PLAYWRITER_STATUS_TIMEOUT_MS });
       let stdout = '';
       let stderr = '';
       proc.stdout?.on('data', (chunk: Buffer) => {

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import dynamic from 'next/dynamic';
+import { shouldRenderQueryDevtools } from './query-devtools';
 import { makeQueryClient } from './query-client';
 
 const ReactQueryDevtools = dynamic(
@@ -18,7 +19,7 @@ export default function QueryProvider({ children }: { children: React.ReactNode 
   return (
     <QueryClientProvider client={queryClient}>
       {safeChildren}
-      {process.env.NODE_ENV === 'development' && <ReactQueryDevtools initialIsOpen={false} />}
+      {shouldRenderQueryDevtools() && <ReactQueryDevtools initialIsOpen={false} />}
     </QueryClientProvider>
   );
 }
