@@ -1,6 +1,6 @@
 /**
  * 1회용 magic link 생성 — 검증/디버깅 전용.
- * `service_role` 키로 Supabase admin.generateLink 를 호출해 `hashed_token` 만 받고,
+ * secret key 로 Supabase admin.generateLink 를 호출해 `hashed_token` 만 받고,
  * 우리 `/auth/callback?token_hash=...&type=magiclink&next=/` 로 직접 redirect 가능한
  * URL 을 출력한다.
  *
@@ -15,7 +15,12 @@ import { resolve } from 'path';
 
 config({ path: resolve(process.cwd(), '.env') });
 
-const c = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
+if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SECRET_KEY) {
+  console.error('SUPABASE_URL + SUPABASE_SECRET_KEY 가 .env 에 필요합니다.');
+  process.exit(1);
+}
+
+const c = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
 

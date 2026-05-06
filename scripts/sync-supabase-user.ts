@@ -10,7 +10,7 @@
  *
  * 필요 env (루트 `.env`):
  *   SUPABASE_URL
- *   SUPABASE_SERVICE_ROLE_KEY    (Settings → API → service_role, 절대 커밋 금지)
+ *   SUPABASE_SECRET_KEY          (Settings → API Keys → secret key, 절대 커밋 금지)
  *   DATABASE_URL                 (local Postgres)
  *
  * 역할:
@@ -55,13 +55,13 @@ function parseArgs(): Args {
 
 async function main(): Promise<void> {
   const url = process.env.SUPABASE_URL;
-  const serviceRole = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !serviceRole) {
-    throw new Error('SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY 가 .env 에 필요합니다.');
+  const secretKey = process.env.SUPABASE_SECRET_KEY;
+  if (!url || !secretKey) {
+    throw new Error('SUPABASE_URL + SUPABASE_SECRET_KEY 가 .env 에 필요합니다.');
   }
   const { email, organizationId, role, name } = parseArgs();
 
-  const supabase = createClient(url, serviceRole, {
+  const supabase = createClient(url, secretKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
