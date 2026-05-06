@@ -327,6 +327,62 @@ describe('ThumbnailAnalysisService AI flow', () => {
     expect(result.unclassified[0].imageSpec?.issues[0]?.type).toBe('low_resolution');
   });
 
+  it('scopes thumbnail analysis list to masters with Coupang listings', async () => {
+    const prisma = makePrismaListMock([makeMaster()], []);
+    const service = new ThumbnailAnalysisService(
+      prisma as never,
+      makeVisionMock({}) as never,
+      makeRecomposeMock() as never,
+    );
+
+    await service.findAllWithAnalysis(ORGANIZATION_ID);
+
+    expect(prisma.masterProduct.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          organizationId: ORGANIZATION_ID,
+          isDeleted: false,
+          pipelineStep: null,
+          listings: {
+            some: {
+              organizationId: ORGANIZATION_ID,
+              channel: 'coupang',
+              isDeleted: false,
+            },
+          },
+        }),
+      }),
+    );
+  });
+
+  it('scopes thumbnail analysis summary to masters with Coupang listings', async () => {
+    const prisma = makePrismaListMock([], []);
+    const service = new ThumbnailAnalysisService(
+      prisma as never,
+      makeVisionMock({}) as never,
+      makeRecomposeMock() as never,
+    );
+
+    await service.getSummary(ORGANIZATION_ID);
+
+    expect(prisma.masterProduct.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          organizationId: ORGANIZATION_ID,
+          isDeleted: false,
+          pipelineStep: null,
+          listings: {
+            some: {
+              organizationId: ORGANIZATION_ID,
+              channel: 'coupang',
+              isDeleted: false,
+            },
+          },
+        }),
+      }),
+    );
+  });
+
   it('does not render analysis rows whose master is not owned by the caller organization', async () => {
     const crossTenantAnalysis = makeAnalysisRow({
       master: {

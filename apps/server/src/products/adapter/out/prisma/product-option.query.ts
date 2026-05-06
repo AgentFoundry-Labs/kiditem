@@ -1,5 +1,6 @@
 import { NotFoundException } from '@nestjs/common';
 import { Prisma, type ProductOption } from '@prisma/client';
+import type { ProductOptionListItem } from '@kiditem/shared/product';
 import type { PrismaService } from '../../../../prisma/prisma.service';
 import type { ListOptionsQuery } from '../../../dto/list-options.query';
 import { decodeCursor, encodeCursor } from '../../../util/cursor';
@@ -17,8 +18,13 @@ import { decodeCursor, encodeCursor } from '../../../util/cursor';
  */
 
 export interface OptionsListPage {
-  items: ProductOption[];
+  items: ProductOptionListItem[];
   nextCursor: string | null;
+}
+
+function decimalToNumber(value: Prisma.Decimal | number | null): number | null {
+  if (value === null) return null;
+  return typeof value === 'number' ? value : value.toNumber();
 }
 
 /**
@@ -69,10 +75,17 @@ export async function listOptions(
 
   const rows = await prisma.productOption.findMany({
     where,
+    include: {
+      master: { select: { name: true } },
+    },
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     take: limit + 1,
   });
-  const items = rows.slice(0, limit);
+  const items = rows.slice(0, limit).map(({ master, commissionRate, ...row }) => ({
+    ...row,
+    commissionRate: decimalToNumber(commissionRate),
+    masterName: master.name,
+  } satisfies ProductOptionListItem));
   const nextCursor = rows.length > limit
     ? encodeCursor({
         createdAt: items[items.length - 1].createdAt.toISOString(),

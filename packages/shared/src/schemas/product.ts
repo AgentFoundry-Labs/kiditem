@@ -122,6 +122,11 @@ export const ProductOptionSchema = z.object({
 });
 export type ProductOption = z.infer<typeof ProductOptionSchema>;
 
+export const ProductOptionListItemSchema = ProductOptionSchema.extend({
+  masterName: z.string(),
+});
+export type ProductOptionListItem = z.infer<typeof ProductOptionListItemSchema>;
+
 export const BundleComponentSchema = z.object({
   id: z.string().uuid(),
   bundleOptionId: z.string().uuid(),
@@ -249,6 +254,8 @@ export type ProductManagementListItem = z.infer<typeof ProductManagementListItem
 
 export const ProductManagementPipelineCountsSchema = z.object({
   total: z.number().int().nonnegative(),
+  channelLinkedProducts: z.number().int().nonnegative(),
+  channelUnlinkedProducts: z.number().int().nonnegative(),
   gradeA: z.number().int().nonnegative(),
   gradeB: z.number().int().nonnegative(),
   gradeC: z.number().int().nonnegative(),

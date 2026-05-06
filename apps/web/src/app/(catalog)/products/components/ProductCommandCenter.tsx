@@ -1,13 +1,12 @@
 'use client';
 
 import {
+  AlertTriangle,
   Bell,
   ClipboardList,
-  ExternalLink,
   PackageX,
   type LucideIcon,
 } from 'lucide-react';
-import { openCoupangWingInventory } from '@/lib/coupang-wing';
 import { cn, formatNumber } from '@/lib/utils';
 import { usePanelStore } from '@/components/panel/lib/panel-store';
 import type { PipelineCounts } from '../lib/product-types';
@@ -18,6 +17,7 @@ export type ProductSegment =
   | 'core'
   | 'loss'
   | 'low-margin'
+  | 'zero-stock'
   | 'stock-risk'
   | 'custom';
 
@@ -118,6 +118,8 @@ export function ProductCommandCenter({
   const zeroStock = pipelineCounts.zeroStock ?? 0;
   const lowStock = pipelineCounts.lowStock ?? 0;
   const stockRisk = pipelineCounts.stockRisk ?? zeroStock;
+  const channelLinkedProducts = pipelineCounts.channelLinkedProducts ?? 0;
+  const channelUnlinkedProducts = pipelineCounts.channelUnlinkedProducts ?? Math.max(pipelineCounts.total - channelLinkedProducts, 0);
   const profitRisk = pipelineCounts.minus + pipelineCounts.low;
   const urgentAlerts = productAlerts.filter((alert) => alert.severity === 'critical' || alert.severity === 'error').length;
   const warningAlerts = productAlerts.filter((alert) => alert.severity === 'warning').length;
@@ -129,10 +131,24 @@ export function ProductCommandCenter({
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-5">
         <article className="flex min-h-[270px] min-w-0 flex-col rounded-xl border border-[var(--border-subtle)] bg-[var(--card-bg)] px-5 pb-2.5 pt-5 shadow-sm">
           <div>
-            <p className="text-xs font-bold text-[var(--text-tertiary)]">전체상품 영역</p>
+            <p className="text-xs font-bold text-[var(--text-tertiary)]">카탈로그 상품 전체</p>
             <p className="mt-2 text-3xl font-extrabold tabular-nums tracking-tight text-[var(--text-primary)]">
                 {formatNumber(pipelineCounts.total)}
             </p>
+            <div className="mt-3 grid grid-cols-2 gap-2 rounded-lg bg-[var(--surface-sunken)] p-2">
+              <div className="min-w-0">
+                <p className="text-[11px] font-bold text-[var(--text-tertiary)]">채널 연결</p>
+                <p className="mt-0.5 text-lg font-extrabold tabular-nums text-[var(--primary)]">
+                  {formatNumber(channelLinkedProducts)}
+                </p>
+              </div>
+              <div className="min-w-0">
+                <p className="text-[11px] font-bold text-[var(--text-tertiary)]">채널 미연결</p>
+                <p className="mt-0.5 text-lg font-extrabold tabular-nums text-amber-600">
+                  {formatNumber(channelUnlinkedProducts)}
+                </p>
+              </div>
+            </div>
           </div>
           <div className="mt-auto">
             <BreakdownItem label="신상품" value={newProductCount} tone="text-emerald-600" />
@@ -145,11 +161,11 @@ export function ProductCommandCenter({
         <article className="min-h-[270px] min-w-0 overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--card-bg)] shadow-sm">
           <div className="flex h-full flex-col divide-y divide-[var(--border-subtle)]">
             <QuickActionButton
-              icon={ExternalLink}
-              label="쿠팡 품절"
+              icon={PackageX}
+              label="품절 상품"
               count={zeroStock}
               tone="blue"
-              onClick={() => openCoupangWingInventory()}
+              onClick={() => onSelectSegment('zero-stock')}
             />
             <QuickActionButton
               icon={ClipboardList}
@@ -161,8 +177,8 @@ export function ProductCommandCenter({
               }}
             />
             <QuickActionButton
-              icon={PackageX}
-              label="위험상품"
+              icon={AlertTriangle}
+              label="재고위험"
               count={stockRisk}
               tone="orange"
               onClick={() => onSelectSegment('stock-risk')}

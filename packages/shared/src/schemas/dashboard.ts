@@ -255,6 +255,8 @@ export const DashboardAdSummarySchema = z.object({
 // ─── Inventory endpoint: GET /api/dashboard/inventory ─────────────────────
 export const DashboardInventorySummarySchema = z.object({
   totalProducts: z.number(),
+  channelLinkedProducts: z.number().int().nonnegative(),
+  channelUnlinkedProducts: z.number().int().nonnegative(),
   gradeCount: z.record(z.number()),
   alerts: z.array(DashboardAlertItemSchema),
   warnings: WarningsSchema,

@@ -32,6 +32,23 @@ import {
 } from '../../adapter/out/prisma/thumbnail-analysis.query';
 import { toAnalysisResult } from '../../mapper/thumbnail-analysis.mapper';
 
+const THUMBNAIL_ANALYSIS_CHANNEL = 'coupang';
+
+function thumbnailAnalysisMasterWhere(organizationId: string): Prisma.MasterProductWhereInput {
+  return {
+    organizationId,
+    isDeleted: false,
+    pipelineStep: null,
+    listings: {
+      some: {
+        organizationId,
+        channel: THUMBNAIL_ANALYSIS_CHANNEL,
+        isDeleted: false,
+      },
+    },
+  };
+}
+
 @Injectable()
 export class ThumbnailAnalysisService {
   private readonly logger = new Logger(ThumbnailAnalysisService.name);
@@ -48,7 +65,7 @@ export class ThumbnailAnalysisService {
   async findAllWithAnalysis(organizationId: string): Promise<ThumbnailAnalysisListResponse> {
     const [masters, analyses] = await Promise.all([
       this.prisma.masterProduct.findMany({
-        where: { organizationId, isDeleted: false, pipelineStep: null },
+        where: thumbnailAnalysisMasterWhere(organizationId),
         select: {
           id: true,
           name: true,
@@ -73,7 +90,7 @@ export class ThumbnailAnalysisService {
 
   async getSummary(organizationId: string): Promise<ThumbnailAnalysisSummary> {
     const masters = await this.prisma.masterProduct.findMany({
-      where: { organizationId, isDeleted: false, pipelineStep: null },
+      where: thumbnailAnalysisMasterWhere(organizationId),
       select: { id: true },
     });
     const analyses = masters.length

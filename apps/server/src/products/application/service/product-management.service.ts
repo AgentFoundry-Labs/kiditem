@@ -122,13 +122,21 @@ export class ProductManagementService {
     const masterIds = masters.map((master) => master.id);
     if (masterIds.length === 0) return this.emptyPipelineCounts();
 
-    const facts = await this.managementFacts(organizationId, masterIds, period);
+    const [facts, channelLinkedMasterIds] = await Promise.all([
+      this.managementFacts(organizationId, masterIds, period),
+      this.channelLinkedMasterIds(organizationId, masterIds),
+    ]);
     const counts = this.emptyPipelineCounts();
     counts.total = masterIds.length;
+    counts.channelLinkedProducts = channelLinkedMasterIds.size;
+    counts.channelUnlinkedProducts = Math.max(masterIds.length - channelLinkedMasterIds.size, 0);
 
     for (const masterId of masterIds) {
+      const isChannelLinked = channelLinkedMasterIds.has(masterId);
       const grade = gradeByMaster.get(masterId)?.grade ?? 'C';
-      counts[`grade${grade}` as 'gradeA' | 'gradeB' | 'gradeC'] += 1;
+      if (isChannelLinked) {
+        counts[`grade${grade}` as 'gradeA' | 'gradeB' | 'gradeC'] += 1;
+      }
 
       const status = facts.statusByMaster.get(masterId) ?? 'unknown';
       counts[status] += 1;
@@ -145,8 +153,10 @@ export class ProductManagementService {
         profitRate: 0,
         orderCount: metrics.orders,
       };
-      if (profit.profitRate < 0) counts.minus += 1;
-      if (profit.profitRate >= 0 && profit.profitRate <= 3) counts.low += 1;
+      if (isChannelLinked && facts.profitByMaster.has(masterId)) {
+        if (profit.profitRate < 0) counts.minus += 1;
+        if (profit.profitRate >= 0 && profit.profitRate <= 3) counts.low += 1;
+      }
 
       const isAdvertising = facts.activeAdMasterIds.has(masterId);
       if (isAdvertising) counts.adCount += 1;
@@ -157,8 +167,10 @@ export class ProductManagementService {
       const adSpend = metrics.adSpend;
       counts.totalRev += revenue;
       counts.totalAd += adSpend;
-      counts[`gradeRev${grade}` as 'gradeRevA' | 'gradeRevB' | 'gradeRevC'] += revenue;
-      counts[`gradeAd${grade}` as 'gradeAdA' | 'gradeAdB' | 'gradeAdC'] += adSpend;
+      if (isChannelLinked) {
+        counts[`gradeRev${grade}` as 'gradeRevA' | 'gradeRevB' | 'gradeRevC'] += revenue;
+        counts[`gradeAd${grade}` as 'gradeAdA' | 'gradeAdB' | 'gradeAdC'] += adSpend;
+      }
     }
 
     return counts satisfies ProductManagementPipelineCounts;
@@ -167,6 +179,8 @@ export class ProductManagementService {
   private emptyPipelineCounts(): ProductManagementPipelineCounts {
     return {
       total: 0,
+      channelLinkedProducts: 0,
+      channelUnlinkedProducts: 0,
       gradeA: 0,
       gradeB: 0,
       gradeC: 0,
@@ -331,10 +345,15 @@ export class ProductManagementService {
     }
 
     if (q.grade === 'minus' || q.grade === 'low') {
-      const profits = await this.profitByMaster(organizationId, undefined, q.period ?? 14);
       const allIds = await this.allMasterIds(organizationId);
+      const [profits, channelLinkedMasterIds] = await Promise.all([
+        this.profitByMaster(organizationId, allIds, q.period ?? 14),
+        this.channelLinkedMasterIds(organizationId, allIds),
+      ]);
       sets.push(new Set(allIds.filter((id) => {
-        const rate = profits.get(id)?.profitRate ?? 0;
+        const profit = profits.get(id);
+        if (!channelLinkedMasterIds.has(id) || !profit) return false;
+        const rate = profit.profitRate;
         return q.grade === 'minus' ? rate < 0 : rate >= 0 && rate <= 3;
       })));
     }
@@ -447,10 +466,7 @@ export class ProductManagementService {
       where: {
         organizationId,
         isDeleted: false,
-        OR: [
-          { options: { some: { organizationId, isDeleted: false } } },
-          { listings: { some: { organizationId, isDeleted: false } } },
-        ],
+        listings: { some: { organizationId, isDeleted: false } },
       },
       select: { id: true, createdAt: true },
     });
@@ -649,6 +665,15 @@ export class ProductManagementService {
       select: { id: true },
     });
     return rows.map((row) => row.id);
+  }
+
+  private async channelLinkedMasterIds(organizationId: string, masterIds: string[]): Promise<Set<string>> {
+    if (masterIds.length === 0) return new Set();
+    const rows = await this.prisma.channelListing.findMany({
+      where: { organizationId, masterId: { in: masterIds }, isDeleted: false },
+      select: { masterId: true },
+    });
+    return new Set(rows.map((row) => row.masterId));
   }
 
   private async stockByMaster(organizationId: string, masterIds?: string[]): Promise<Map<string, number>> {

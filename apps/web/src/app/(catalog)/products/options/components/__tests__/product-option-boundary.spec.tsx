@@ -30,6 +30,11 @@ const option: ProductOption = {
   updatedAt: '2026-04-26T00:00:00.000Z',
 };
 
+const optionWithMasterName = {
+  ...option,
+  masterName: '아동 우산',
+} satisfies ProductOption & { masterName: string };
+
 const filterState: ProductOptionFilterState = {
   search: '',
   bundleScope: 'all',
@@ -39,6 +44,21 @@ const filterState: ProductOptionFilterState = {
 };
 
 describe('product option management barcode boundary', () => {
+  it('shows the owning product name in the option list table', () => {
+    render(
+      <ProductOptionTable
+        items={[optionWithMasterName]}
+        isLoading={false}
+        onEdit={vi.fn()}
+        onSoftDelete={vi.fn()}
+        onRestore={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('columnheader', { name: '상품명' })).toBeInTheDocument();
+    expect(screen.getByText('아동 우산')).toBeInTheDocument();
+  });
+
   it('keeps barcode data out of the option list table', () => {
     render(
       <ProductOptionTable

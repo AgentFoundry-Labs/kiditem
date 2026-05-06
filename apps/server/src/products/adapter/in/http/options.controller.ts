@@ -3,7 +3,16 @@ import {
   Body, Controller, Delete, Get, Param, Patch, Post, Query,
 } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
-import { BundleComponentSchema, OptionWithComponentsSchema, ProductOptionSchema, type BundleComponent, type OptionWithComponents, type ProductOption } from '@kiditem/shared/product';
+import {
+  BundleComponentSchema,
+  OptionWithComponentsSchema,
+  ProductOptionListItemSchema,
+  ProductOptionSchema,
+  type BundleComponent,
+  type OptionWithComponents,
+  type ProductOption,
+  type ProductOptionListItem,
+} from '@kiditem/shared/product';
 import { toSerializable } from '../../../util/serialize';
 import { OptionsService } from '../../../application/service/options.service';
 import { BundleComponentsService } from '../../../application/service/bundle-components.service';
@@ -37,10 +46,10 @@ export class OptionsController {
   async list(
     @CurrentOrganization() organizationId: string,
     @Query() q: ListOptionsQuery,
-  ): Promise<{ items: ProductOption[]; nextCursor: string | null }> {
+  ): Promise<{ items: ProductOptionListItem[]; nextCursor: string | null }> {
     const { items, nextCursor } = await this.svc.list(organizationId, q);
     return {
-      items: items.map(r => ProductOptionSchema.parse(toSerializable(r))),
+      items: items.map(r => ProductOptionListItemSchema.parse(toSerializable(r))),
       nextCursor,
     };
   }

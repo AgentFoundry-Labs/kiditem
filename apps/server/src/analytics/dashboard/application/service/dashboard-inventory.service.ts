@@ -28,6 +28,7 @@ export class DashboardInventoryService {
         gradeRows,
         unreadAlerts,
         totalActiveProducts,
+        channelLinkedProducts,
         perListingMetrics,
         inventoryRows,
         gradeChangesRows,
@@ -38,7 +39,12 @@ export class DashboardInventoryService {
         this.prisma.masterProduct.groupBy({
           by: ['abcGrade'],
           _count: true,
-          where: { organizationId, isDeleted: false },
+          where: {
+            organizationId,
+            isDeleted: false,
+            abcGrade: { in: ['A', 'B', 'C'] },
+            listings: { some: { organizationId, isDeleted: false } },
+          },
         }),
 
         // alerts — top-10 unread, newest first (legacy)
@@ -51,6 +57,14 @@ export class DashboardInventoryService {
         // totalProducts — active product count (legacy)
         this.prisma.masterProduct.count({
           where: { organizationId, isDeleted: false },
+        }),
+
+        this.prisma.masterProduct.count({
+          where: {
+            organizationId,
+            isDeleted: false,
+            listings: { some: { organizationId, isDeleted: false } },
+          },
         }),
 
         // Plan F1 T3 — replaces profitLoss.findMany; live aggregation via shared helper.
@@ -149,6 +163,8 @@ export class DashboardInventoryService {
 
       return {
         totalProducts: totalActiveProducts,
+        channelLinkedProducts,
+        channelUnlinkedProducts: Math.max(totalActiveProducts - channelLinkedProducts, 0),
         gradeCount,
         alerts,
         warnings,

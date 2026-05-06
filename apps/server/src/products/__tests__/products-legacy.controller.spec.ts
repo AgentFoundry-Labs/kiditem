@@ -26,6 +26,7 @@ describe('ProductsLegacyController (GET-only alias, e2e)', () => {
   const management = {
     pipelineStats: vi.fn().mockResolvedValue({
       total: 0, gradeA: 0, gradeB: 0, gradeC: 0,
+      channelLinkedProducts: 0, channelUnlinkedProducts: 0,
       active: 0, inactive: 0, cleanup: 0, unknown: 0,
       minus: 0, low: 0, zeroStock: 0, lowStock: 0, stockRisk: 0, adLoss: 0,
       gradeChangeA: 0, gradeChangeB: 0, gradeChangeC: 0,

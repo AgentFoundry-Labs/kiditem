@@ -2,6 +2,7 @@ import 'dotenv/config';
 
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { createClient } from '@supabase/supabase-js';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import {
@@ -92,6 +93,8 @@ type CoupangImageSyncListingSource = {
     options?: Array<{ legacyCode?: string | null }>;
   };
 };
+
+let cachedGeneratedApiAccessToken: string | null = null;
 
 export function buildCoupangImageSyncRowsForListings(listings: CoupangImageSyncListingSource[]): {
   rows: CoupangImageSyncRow[];
@@ -469,15 +472,128 @@ function apiUrl(args: Args): string {
   return value(args, 'api-url') ?? process.env.KIDITEM_API_URL ?? 'http://localhost:4000';
 }
 
-function apiHeaders(args: Args): Record<string, string> {
-  const accessToken = value(args, 'access-token') ?? process.env.KIDITEM_API_ACCESS_TOKEN;
-  const headers: Record<string, string> = { 'content-type': 'application/json' };
-  if (!accessToken) {
-    throw new Error(
-      'API replay requires --access-token or KIDITEM_API_ACCESS_TOKEN. Dev header auth is removed.',
-    );
+function decodeJwtSub(token: string): string {
+  const encodedPayload = token.split('.')[1];
+  if (!encodedPayload) throw new Error('Generated Supabase access token is malformed.');
+  const payload = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8')) as {
+    sub?: unknown;
+  };
+  if (typeof payload.sub !== 'string' || !payload.sub) {
+    throw new Error('Generated Supabase access token has no subject.');
   }
-  headers.Authorization = accessToken.startsWith('Bearer ') ? accessToken : `Bearer ${accessToken}`;
+  return payload.sub;
+}
+
+async function generateDevApiAccessToken(args: Args): Promise<string> {
+  if (cachedGeneratedApiAccessToken) return cachedGeneratedApiAccessToken;
+
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY;
+  if (!supabaseUrl || !supabaseSecretKey) {
+    throw new Error('API replay requires SUPABASE_URL and SUPABASE_SECRET_KEY for automatic dev auth.');
+  }
+
+  const devUserId =
+    value(args, 'dev-user-id') ??
+    process.env.KIDITEM_DEV_USER_ID ??
+    process.env.DEV_DEFAULT_USER_ID;
+  if (!devUserId) {
+    throw new Error('API replay requires --dev-user-id, KIDITEM_DEV_USER_ID, or DEV_DEFAULT_USER_ID.');
+  }
+
+  const prisma = await createPrisma();
+  try {
+    const devUser = await prisma.user.findUnique({
+      where: { id: devUserId },
+      include: {
+        memberships: {
+          where: { status: 'active' },
+          orderBy: [{ lastSelectedAt: 'desc' }, { joinedAt: 'asc' }],
+          take: 1,
+        },
+      },
+    });
+    if (!devUser?.email) {
+      throw new Error(`Dev user ${devUserId} does not exist locally or has no email.`);
+    }
+
+    const organizationId =
+      value(args, 'organization-id') ??
+      devUser.memberships[0]?.organizationId ??
+      process.env.KIDITEM_DEV_ORGANIZATION_ID;
+    if (!organizationId) {
+      throw new Error(
+        'API replay requires an organization scope from --organization-id, KIDITEM_DEV_ORGANIZATION_ID, or the dev user active membership.',
+      );
+    }
+
+    const role = devUser.memberships[0]?.role ?? devUser.role;
+    const supabase = createClient(supabaseUrl, supabaseSecretKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+    const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
+      type: 'magiclink',
+      email: devUser.email,
+    });
+    if (linkError) throw linkError;
+
+    const emailOtp = linkData.properties?.email_otp;
+    if (!emailOtp) throw new Error('Supabase did not return a dev auth email OTP.');
+
+    const { data: sessionData, error: verifyError } = await supabase.auth.verifyOtp({
+      email: devUser.email,
+      token: emailOtp,
+      type: 'email',
+    });
+    if (verifyError) throw verifyError;
+
+    const accessToken = sessionData.session?.access_token;
+    if (!accessToken) throw new Error('Supabase did not return a dev auth access token.');
+
+    const supabaseUserId = decodeJwtSub(accessToken);
+    const existingEmailOwner = await prisma.user.findUnique({
+      where: { email: devUser.email },
+      select: { id: true },
+    });
+    const mirrorEmail =
+      existingEmailOwner && existingEmailOwner.id !== supabaseUserId
+        ? `supabase-${supabaseUserId.slice(0, 8)}@local.kiditem.dev`
+        : devUser.email;
+
+    await prisma.user.upsert({
+      where: { id: supabaseUserId },
+      update: {
+        name: devUser.name,
+        role: devUser.role,
+        type: devUser.type,
+        isActive: true,
+      },
+      create: {
+        id: supabaseUserId,
+        email: mirrorEmail,
+        name: devUser.name,
+        role: devUser.role,
+        type: devUser.type,
+        isActive: true,
+      },
+    });
+    await prisma.organizationMembership.upsert({
+      where: { organizationId_userId: { organizationId, userId: supabaseUserId } },
+      update: { role, status: 'active', lastSelectedAt: new Date() },
+      create: { organizationId, userId: supabaseUserId, role, status: 'active', lastSelectedAt: new Date() },
+    });
+
+    cachedGeneratedApiAccessToken = accessToken;
+    return accessToken;
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+async function apiHeaders(args: Args): Promise<Record<string, string>> {
+  const accessToken = await generateDevApiAccessToken(args);
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  headers.Authorization = `Bearer ${accessToken}`;
   return headers;
 }
 
@@ -489,7 +605,7 @@ async function requestApi(
   const response = await fetch(`${apiUrl(args).replace(/\/$/, '')}${route}`, {
     ...init,
     headers: {
-      ...apiHeaders(args),
+      ...(await apiHeaders(args)),
       ...(init.headers ?? {}),
     },
   });

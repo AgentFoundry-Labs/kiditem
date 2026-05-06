@@ -275,6 +275,8 @@ export default function Dashboard() {
   const profitMetricsAvailable = revenueSource === 'orders' || revenueSource === 'mixed';
   // 광고비/매출 비율은 두 sources 모두 실측값이 있으면 정의가 깨끗.
   const adRateAvailable = (kpiAdRate ?? 0) > 0 || profitMetricsAvailable;
+  const channelLinkedProducts = inventoryData.channelLinkedProducts ?? 0;
+  const channelUnlinkedProducts = inventoryData.channelUnlinkedProducts ?? Math.max(inventoryData.totalProducts - channelLinkedProducts, 0);
 
   return (
     <div className="space-y-4 w-full pb-12">
@@ -287,7 +289,15 @@ export default function Dashboard() {
           <div>
             <h1 className="text-lg font-bold tracking-tight text-slate-900">Kiditem Foundry</h1>
             <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-xs font-mono text-slate-400">{inventoryData.totalProducts} products</span>
+              <span className="text-xs font-mono text-slate-400">카탈로그 전체 {formatNumber(inventoryData.totalProducts)}</span>
+              <span className="text-xs font-mono text-slate-400">·</span>
+              <span className="text-xs font-mono text-slate-400">채널 연결 {formatNumber(channelLinkedProducts)}</span>
+              {channelUnlinkedProducts > 0 && (
+                <>
+                  <span className="text-xs font-mono text-slate-400">·</span>
+                  <span className="text-xs font-mono text-amber-500">미연결 {formatNumber(channelUnlinkedProducts)}</span>
+                </>
+              )}
               <span className="text-xs font-mono text-slate-400">|</span>
               <span className="text-xs font-mono text-slate-400">{periodLabel}</span>
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -621,7 +631,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {(['A', 'B', 'C'] as const).map(g => {
           const count = inventoryData.gradeCount[g] ?? 0;
-          const total = inventoryData.totalProducts;
+          const total = channelLinkedProducts;
           const pct = total > 0 ? Math.round((count / total) * 100) : 0;
           const barColor = g === 'C' ? 'bg-red-500' : 'bg-purple-600';
           const labelMap = { A: '핵심상품', B: '성장상품', C: '정리대상' };
@@ -635,7 +645,7 @@ export default function Dashboard() {
               <div className="mt-2 h-1.5 rounded-full overflow-hidden bg-slate-100">
                 <div className={cn('h-full rounded-full', barColor)} style={{ width: `${pct}%` }} />
               </div>
-              <div className="text-xs mt-1 text-slate-400">{pct}% of {total}</div>
+              <div className="text-xs mt-1 text-slate-400">평가대상 중 {pct}%</div>
             </Link>
           );
         })}

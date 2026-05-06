@@ -1,5 +1,9 @@
 import { z } from 'zod';
-import { ProductOptionSchema, type ProductOption } from '@kiditem/shared/product';
+import {
+  ProductOptionListItemSchema,
+  ProductOptionSchema,
+  type ProductOption,
+} from '@kiditem/shared/product';
 import { apiClient } from '@/lib/api-client';
 
 export interface ProductOptionListParams {
@@ -15,7 +19,7 @@ export interface ProductOptionListParams {
 }
 
 const ProductOptionListResponseSchema = z.object({
-  items: z.array(ProductOptionSchema),
+  items: z.array(ProductOptionListItemSchema),
   nextCursor: z.string().nullable(),
 });
 type ProductOptionListResponse = z.infer<typeof ProductOptionListResponseSchema>;

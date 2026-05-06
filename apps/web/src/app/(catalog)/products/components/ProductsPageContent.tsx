@@ -23,7 +23,8 @@ import { downloadProductsExcel } from '../lib/products-export';
 import { useProductGradeChanges } from '../hooks/useProductGradeChanges';
 
 const DEFAULT_PIPELINE: PipelineCounts = {
-  total: 0, gradeA: 0, gradeB: 0, gradeC: 0,
+  total: 0, channelLinkedProducts: 0, channelUnlinkedProducts: 0,
+  gradeA: 0, gradeB: 0, gradeC: 0,
   active: 0, inactive: 0, cleanup: 0, unknown: 0,
   minus: 0, low: 0, gradeChangeA: 0, gradeChangeB: 0, gradeChangeC: 0,
   zeroStock: 0, lowStock: 0, stockRisk: 0, adLoss: 0,
@@ -292,6 +293,7 @@ export default function ProductsPageContent() {
       setGradeFilter('minus');
     }
     if (segment === 'low-margin') setGradeFilter('low');
+    if (segment === 'zero-stock') setStockFilter('zero');
     if (segment === 'stock-risk') setStockFilter('risk');
   };
 

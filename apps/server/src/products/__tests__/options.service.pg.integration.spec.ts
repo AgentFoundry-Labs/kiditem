@@ -101,6 +101,19 @@ describe('OptionsService integration', () => {
     expect(items.map((item) => item.id)).toEqual([match.id]);
   });
 
+  it('includes the owning master product name in option list rows', async () => {
+    const master = await mastersSvc.create(TEST_ORGANIZATION_ID, { name: '옵션 목록 상품명' } as any);
+    const option = await svc.create(TEST_ORGANIZATION_ID, {
+      masterId: master.id,
+      optionName: '블루 / S',
+    } as any);
+
+    const { items } = await svc.list(TEST_ORGANIZATION_ID, { limit: 10 } as any);
+
+    const row = items.find((item) => item.id === option.id) as any;
+    expect(row?.masterName).toBe('옵션 목록 상품명');
+  });
+
   it('does not search option-management rows by barcode data', async () => {
     const master = await mastersSvc.create(TEST_ORGANIZATION_ID, { name: 'Barcode Boundary Master' } as any);
     const barcode = '8801234567890';

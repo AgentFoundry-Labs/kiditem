@@ -320,7 +320,10 @@ export default function Sidebar({
         </div>
 
         {/* Scrollable nav — collapsible sections */}
-        <nav className="flex-1 py-2 overflow-y-auto" style={{ scrollbarWidth: 'none' }}>
+        <nav
+          className="flex-1 py-2 overflow-y-auto"
+          style={{ scrollbarWidth: 'none', overscrollBehaviorY: 'contain' }}
+        >
           {menuSections.slice(0, -1).map((section, si) => {
             const isOpen = !section.collapsible || openGroups.has(section.label);
             const hasActiveChild = section.items.some(item =>

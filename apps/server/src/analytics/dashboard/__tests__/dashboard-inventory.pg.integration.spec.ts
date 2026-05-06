@@ -104,10 +104,54 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
 
     expect(result.totalProducts).toBe(2);
-    expect(result.gradeCount.A).toBe(1);
-    expect(result.gradeCount.B).toBe(1);
+    expect(result.channelLinkedProducts).toBe(0);
+    expect(result.channelUnlinkedProducts).toBe(2);
+    expect(result.gradeCount.A ?? 0).toBe(0);
+    expect(result.gradeCount.B ?? 0).toBe(0);
     expect(result.alerts.length).toBe(1);
     expect(result.alerts[0].title).toBe('Test alert');
+  });
+
+  it('separates active products from channel-linked products', async () => {
+    const masterLinked = await setupMaster(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, code: 'M-T-LINKED', name: 'Linked Master', abcGrade: 'A',
+    });
+    const optionLinked = await setupProductOption(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, masterId: masterLinked.id, sku: 'SKU-T-LINKED',
+    });
+    await setupChannelListing(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      masterId: masterLinked.id,
+      channel: 'coupang',
+      externalId: 'EXT-T-LINKED',
+      optionId: optionLinked.id,
+      externalOptionId: 'VI-T-LINKED',
+    });
+    await setupMaster(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, code: 'M-T-ONLY', name: 'Inventory Only Master', abcGrade: 'B',
+    });
+    const otherMaster = await setupMaster(prisma, {
+      organizationId: OTHER_ORGANIZATION_ID, code: 'M-O-LINKED', name: 'Other Linked Master', abcGrade: 'A',
+    });
+    const otherOption = await setupProductOption(prisma, {
+      organizationId: OTHER_ORGANIZATION_ID, masterId: otherMaster.id, sku: 'SKU-O-LINKED',
+    });
+    await setupChannelListing(prisma, {
+      organizationId: OTHER_ORGANIZATION_ID,
+      masterId: otherMaster.id,
+      channel: 'coupang',
+      externalId: 'EXT-O-LINKED',
+      optionId: otherOption.id,
+      externalOptionId: 'VI-O-LINKED',
+    });
+
+    const result = await service.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
+
+    expect(result.totalProducts).toBe(2);
+    expect(result.channelLinkedProducts).toBe(1);
+    expect(result.channelUnlinkedProducts).toBe(1);
+    expect(result.gradeCount.A).toBe(1);
+    expect(result.gradeCount.B ?? 0).toBe(0);
   });
 
   it('T2: OTHER sees only OTHER — TEST does not leak', async () => {
@@ -116,8 +160,8 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     const result = await service.getSummary(ctx, OTHER_ORGANIZATION_ID);
 
     expect(result.totalProducts).toBe(5);
-    expect(result.gradeCount.A).toBe(3);
-    expect(result.gradeCount.B).toBe(2);
+    expect(result.gradeCount.A ?? 0).toBe(0);
+    expect(result.gradeCount.B ?? 0).toBe(0);
     expect(result.alerts.length).toBe(3);
   });
 

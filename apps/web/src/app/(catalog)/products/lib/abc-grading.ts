@@ -10,14 +10,19 @@ export interface GradeInfo {
 
 export type GradeMap = Map<string, GradeInfo>;
 
+function isGradeEligible(product: Product): boolean {
+  return Boolean(product.listingId);
+}
+
 /**
  * Compute ABC grades + ranks + strategy notes from t14/t14prev traffic data.
  * Pure function — no React, no side effects.
  */
 export function computeGradeMap(products: Product[]): GradeMap {
   const map: GradeMap = new Map();
+  const evaluableProducts = products.filter(isGradeEligible);
 
-  const withRev = products
+  const withRev = evaluableProducts
     .map(p => ({ id: p.id, rev: p.t14?.revenue || 0 }))
     .filter(p => p.rev > 0)
     .sort((a, b) => b.rev - a.rev);
@@ -30,14 +35,14 @@ export function computeGradeMap(products: Product[]): GradeMap {
     revenueScoreMap.set(p.id, pct <= 70 ? 50 : pct <= 90 ? 30 : 10);
   }
 
-  const prevWithRev = products
+  const prevWithRev = evaluableProducts
     .map(p => ({ id: p.id, rev: p.t14prev?.revenue || 0 }))
     .filter(p => p.rev > 0)
     .sort((a, b) => b.rev - a.rev);
   const prevRankMap = new Map<string, number>();
   prevWithRev.forEach((p, i) => prevRankMap.set(p.id, i + 1));
 
-  const scored = products.map(p => {
+  const scored = evaluableProducts.map(p => {
     const createdAt = p.createdAt ? new Date(p.createdAt).getTime() : 0;
     const isNewProduct = createdAt > 0 && Date.now() - createdAt <= 30 * 24 * 60 * 60 * 1000;
     const revScore = revenueScoreMap.get(p.id) || (isNewProduct ? 15 : 0);
@@ -96,12 +101,15 @@ export function computeGradeMap(products: Product[]): GradeMap {
 }
 
 export function gradeOf(p: Product, m: GradeMap): string {
+  if (!isGradeEligible(p)) return '평가대기';
   return p.abcGrade || m.get(p.id)?.grade || 'C';
 }
 export function rankOf(p: Product, m: GradeMap): number {
+  if (!isGradeEligible(p)) return 0;
   return p.gradeRank || m.get(p.id)?.rank || 0;
 }
 export function rankChangeOf(p: Product, m: GradeMap): number | null {
+  if (!isGradeEligible(p)) return null;
   if (p.gradeRank !== undefined) {
     return p.gradeRank && p.prevGradeRank ? p.prevGradeRank - p.gradeRank : null;
   }
@@ -110,8 +118,10 @@ export function rankChangeOf(p: Product, m: GradeMap): number | null {
   return info.prevRank - info.rank;
 }
 export function strategyOf(p: Product, m: GradeMap): string {
+  if (!isGradeEligible(p)) return '채널 연결 후 성과 평가 가능';
   return p.gradeStrategy || m.get(p.id)?.strategy || '';
 }
 export function scoreOf(p: Product, m: GradeMap): number {
+  if (!isGradeEligible(p)) return 0;
   return p.gradeScore ?? m.get(p.id)?.score ?? 0;
 }

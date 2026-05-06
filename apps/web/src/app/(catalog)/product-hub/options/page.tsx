@@ -128,7 +128,7 @@ export default function ProductHubOptionsPage() {
               상품 옵션 관리
             </h1>
             <p className="mt-0.5 text-xs text-slate-500">
-              ProductOption 단위 — SKU / 옵션명 / 판매자 상품코드 / 활성·삭제 관리
+              ProductOption 단위 — 상품명 / SKU / 옵션명 / 판매자 상품코드 / 활성·삭제 관리
             </p>
           </div>
         </div>

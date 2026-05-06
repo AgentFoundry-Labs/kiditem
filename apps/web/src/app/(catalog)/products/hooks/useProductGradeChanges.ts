@@ -41,6 +41,7 @@ export function useProductGradeChanges(products: Product[], gradeMap: GradeMap) 
   useEffect(() => {
     const current = new Map<string, GradeSnapshot>();
     for (const product of products) {
+      if (!product.listingId) continue;
       current.set(product.id, {
         grade: normalizeGrade(gradeOf(product, gradeMap)),
         score: scoreOf(product, gradeMap),

@@ -72,6 +72,14 @@ describe('profile-based dev data workflow', () => {
     expect(packageJson.scripts).toHaveProperty('data:dev:publish');
   });
 
+  it('does not expose the removed manual API token replay fallback', () => {
+    for (const file of ['scripts/dev-data.ts', 'scripts/dev-data-coupang.ts']) {
+      const source = readFileSync(join(repoRoot, file), 'utf8');
+      expect(source).not.toContain('KIDITEM_API_ACCESS_TOKEN');
+      expect(source).not.toContain('access-token');
+    }
+  });
+
   it('publishes a domain bundle and syncs it through a profile dry run', async () => {
     const tempRoot = mkdtempSync(join(tmpdir(), 'kiditem-profile-data-'));
     const producerRoot = join(tempRoot, 'producer');

@@ -70,7 +70,10 @@ const successAd = {
   industryBenchmark: { avgAdRate: 10, avgProfitRate: 8, avgRoas: 350, avgCtr: 0.3 },
 };
 const successInv = {
-  totalProducts: 5, gradeCount: { A: 2, B: 2, C: 1 },
+  totalProducts: 5,
+  channelLinkedProducts: 3,
+  channelUnlinkedProducts: 2,
+  gradeCount: { A: 2, B: 2, C: 1 },
   alerts: [],
   warnings: { minusProducts: 0, lowProfitProducts: 0, highAdProducts: 0, needReorder: 0 },
 };
@@ -143,7 +146,8 @@ describe('Dashboard page (RTL)', () => {
     renderPage();
     await waitFor(() => {
       expect(screen.getByText('Kiditem Foundry')).toBeTruthy();
-      expect(screen.getByText(/products$/)).toBeTruthy();
+      expect(screen.getByText(/카탈로그 전체 5/)).toBeTruthy();
+      expect(screen.getByText(/채널 연결 3/)).toBeTruthy();
     });
   });
 

@@ -2,14 +2,14 @@
 
 import { Pencil, RotateCcw, Trash2 } from 'lucide-react';
 import { cn, formatKRW } from '@/lib/utils';
-import type { ProductOption } from '@kiditem/shared/product';
+import type { ProductOptionListItem } from '@kiditem/shared/product';
 
 interface Props {
-  items: ProductOption[];
+  items: ProductOptionListItem[];
   isLoading: boolean;
-  onEdit: (item: ProductOption) => void;
-  onSoftDelete: (item: ProductOption) => void;
-  onRestore: (item: ProductOption) => void;
+  onEdit: (item: ProductOptionListItem) => void;
+  onSoftDelete: (item: ProductOptionListItem) => void;
+  onRestore: (item: ProductOptionListItem) => void;
 }
 
 export default function ProductOptionTable({
@@ -26,6 +26,7 @@ export default function ProductOptionTable({
           <thead className="bg-slate-50 text-xs text-slate-500 uppercase">
             <tr>
               <th className="text-left px-4 py-3">SKU</th>
+              <th className="text-left px-4 py-3">상품명</th>
               <th className="text-left px-4 py-3">옵션명</th>
               <th className="text-left px-4 py-3">판매자 상품코드</th>
               <th className="text-right px-4 py-3">매입가</th>
@@ -38,13 +39,13 @@ export default function ProductOptionTable({
           <tbody>
             {isLoading ? (
               <tr>
-                <td colSpan={8} className="py-12 text-center text-slate-400">
+                <td colSpan={9} className="py-12 text-center text-slate-400">
                   로딩 중...
                 </td>
               </tr>
             ) : items.length === 0 ? (
               <tr>
-                <td colSpan={8} className="py-12 text-center text-slate-400">
+                <td colSpan={9} className="py-12 text-center text-slate-400">
                   조건에 맞는 옵션이 없습니다.
                 </td>
               </tr>
@@ -60,6 +61,11 @@ export default function ProductOptionTable({
                     )}
                   >
                     <td className="px-4 py-3 font-mono text-xs">{item.sku}</td>
+                    <td className="px-4 py-3 min-w-[180px] max-w-[280px]">
+                      <span className="block truncate font-medium text-slate-700" title={item.masterName}>
+                        {item.masterName}
+                      </span>
+                    </td>
                     <td className="px-4 py-3">{item.optionName ?? '-'}</td>
                     <td className="px-4 py-3 font-mono text-xs">
                       {item.legacyCode ?? '-'}

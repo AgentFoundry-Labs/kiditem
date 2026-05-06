@@ -6,6 +6,9 @@ import {
   MasterSchema,
   ProductCatalogDetailSchema,
   ProductCatalogListItemSchema,
+  ProductManagementPipelineCountsSchema,
+  ProductOptionListItemSchema,
+  ProductOptionSchema,
   UpdateMasterImagesRequestSchema,
   UploadMasterImageResponseSchema,
 } from './product.js';
@@ -13,6 +16,36 @@ import {
 const iso = '2026-04-24T00:00:00.000Z';
 
 describe('product schemas', () => {
+  it('keeps master product name on option list rows', () => {
+    const row = ProductOptionListItemSchema.parse({
+      id: '11111111-1111-4111-8111-111111111111',
+      masterId: '22222222-2222-4222-8222-222222222222',
+      organizationId: '33333333-3333-4333-8333-333333333333',
+      masterName: '아동 우산',
+      sku: 'M-00000001-01',
+      barcode: null,
+      legacyCode: '10349-1',
+      optionName: '블루',
+      sortOrder: 0,
+      costPrice: 1000,
+      sellPrice: 2000,
+      commissionRate: null,
+      shippingCost: null,
+      otherCost: 0,
+      isBundle: false,
+      availableStock: null,
+      isDeleted: false,
+      deletedAt: null,
+      isTemporary: false,
+      temporaryReason: null,
+      isActive: true,
+      createdAt: iso,
+      updatedAt: iso,
+    });
+
+    expect(row.masterName).toBe('아동 우산');
+  });
+
   it('accepts structured master image items', () => {
     expect(MasterImageItemSchema.parse({
       url: 'https://cdn.example.com/p.png',
@@ -156,6 +189,43 @@ describe('product schemas', () => {
       totalAvailableStock: 0,
     });
     expect(ProductCatalogDetailSchema.parse({ ...base, options: [] }).options).toEqual([]);
+  });
+
+  it('keeps product management channel coverage counts', () => {
+    const counts = ProductManagementPipelineCountsSchema.parse({
+      total: 5,
+      channelLinkedProducts: 3,
+      channelUnlinkedProducts: 2,
+      gradeA: 1,
+      gradeB: 2,
+      gradeC: 2,
+      active: 3,
+      inactive: 1,
+      cleanup: 0,
+      unknown: 1,
+      minus: 0,
+      low: 1,
+      zeroStock: 0,
+      lowStock: 1,
+      stockRisk: 1,
+      adLoss: 0,
+      gradeChangeA: 0,
+      gradeChangeB: 0,
+      gradeChangeC: 0,
+      adCount: 2,
+      noAdCount: 3,
+      totalRev: 1000,
+      totalAd: 100,
+      gradeRevA: 500,
+      gradeRevB: 300,
+      gradeRevC: 200,
+      gradeAdA: 50,
+      gradeAdB: 30,
+      gradeAdC: 20,
+    });
+
+    expect(counts.channelLinkedProducts).toBe(3);
+    expect(counts.channelUnlinkedProducts).toBe(2);
   });
 });
 

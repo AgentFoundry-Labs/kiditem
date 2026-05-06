@@ -687,7 +687,7 @@ async function runCoupangReplay(
   const replayArgs = ['--dataset', datasetId, '--mode', mode];
   appendFlag(replayArgs, args, 'dry-run');
   appendFlag(replayArgs, args, 'yes');
-  for (const option of ['organization-id', 'dev-user-id', 'api-url', 'access-token']) {
+  for (const option of ['organization-id', 'dev-user-id', 'api-url']) {
     appendOption(replayArgs, args, option);
   }
   return runCoupangAdapter(args, 'replay', replayArgs);
@@ -951,7 +951,6 @@ async function commandReplay(args: Args): Promise<void> {
     'organization-id',
     'dev-user-id',
     'api-url',
-    'access-token',
     'image-sync-timeout-ms',
     'image-sync-poll-ms',
   ]) {
