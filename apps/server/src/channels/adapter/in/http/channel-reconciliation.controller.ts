@@ -46,6 +46,7 @@ export class ChannelReconciliationController {
       page: query.page,
       limit: query.limit,
       status: query.status,
+      resolutionSource: query.resolutionSource,
       search: query.search,
     });
   }

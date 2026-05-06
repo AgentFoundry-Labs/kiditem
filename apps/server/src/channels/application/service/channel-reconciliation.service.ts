@@ -61,6 +61,12 @@ type PrismaLike = PrismaClient | PrismaService;
 const RECONCILIATION_CHANNEL = 'coupang';
 const DEFAULT_LIMIT = 50;
 const MAX_PAGE = 200;
+const LINKED_RESOLUTION_SOURCES = [
+  'existing_external_id',
+  'auto_legacy_code',
+  'manual',
+  'ignored',
+] as const satisfies ReconciliationResolutionSource[];
 
 /**
  * Coupang ↔ KidItem catalog reconciliation queue (issue #199).
@@ -200,7 +206,14 @@ export class ChannelReconciliationService {
     // observation timestamps so the user sees the run as covering it.
     if (existing?.status === 'ignored') {
       await tx.channelReconciliationItem.update({
-        where: { id: existing.id },
+        where: {
+          organizationId_channel_source_itemKey: {
+            organizationId,
+            channel: RECONCILIATION_CHANNEL,
+            source,
+            itemKey,
+          },
+        },
         data: {
           lastSeenRunId: runId,
           lastObservedAt: new Date(),
@@ -251,7 +264,14 @@ export class ChannelReconciliationService {
 
     if (existing) {
       await tx.channelReconciliationItem.update({
-        where: { id: existing.id },
+        where: {
+          organizationId_channel_source_itemKey: {
+            organizationId,
+            channel: RECONCILIATION_CHANNEL,
+            source,
+            itemKey,
+          },
+        },
         data,
       });
     } else {
@@ -304,9 +324,10 @@ export class ChannelReconciliationService {
       }
 
       // Rule 4: existing listing master vs legacyCode candidate disagreement.
+      let legacyCandidates: ProductOptionCandidate[] = [];
       if (legacyCode) {
-        const candidates = await this.findActiveOptionsByLegacyCode(tx, organizationId, legacyCode);
-        const masterMismatch = candidates.find((c) => c.masterId !== listing.masterId);
+        legacyCandidates = await this.findActiveOptionsByLegacyCode(tx, organizationId, legacyCode);
+        const masterMismatch = legacyCandidates.find((c) => c.masterId !== listing.masterId);
         if (masterMismatch) {
           return {
             status: 'conflict',
@@ -320,11 +341,26 @@ export class ChannelReconciliationService {
             conflictJson: {
               kind: 'existing_listing_vs_legacy_code',
               listingMasterId: listing.masterId,
-              legacyCodeCandidateMasterIds: candidates.map((c) => c.masterId),
-              candidateOptionIds: candidates.map((c) => c.id),
+              legacyCodeCandidateMasterIds: legacyCandidates.map((c) => c.masterId),
+              candidateOptionIds: legacyCandidates.map((c) => c.id),
             } satisfies Prisma.InputJsonValue,
           };
         }
+      }
+
+      if (externalOptionId && !listingOption) {
+        const candidate =
+          legacyCandidates.length === 1 && legacyCandidates[0].masterId === listing.masterId
+            ? legacyCandidates[0]
+            : null;
+        listingOption = await this.createListingOption(
+          tx,
+          organizationId,
+          listing.id,
+          externalOptionId,
+          candidate?.id ?? null,
+        );
+        linkedProductOptionId = listingOption.optionId;
       }
 
       return {
@@ -451,19 +487,36 @@ export class ChannelReconciliationService {
     });
     let listingOptionId: string | null = null;
     if (externalOptionId) {
-      const option = await tx.channelListingOption.create({
-        data: {
-          organizationId,
-          listingId: listing.id,
-          externalOptionId,
-          optionId: candidate.id,
-          isActive: true,
-        },
-        select: { id: true },
-      });
+      const option = await this.createListingOption(
+        tx,
+        organizationId,
+        listing.id,
+        externalOptionId,
+        candidate.id,
+      );
       listingOptionId = option.id;
     }
     return { listingId: listing.id, listingOptionId };
+  }
+
+  private async createListingOption(
+    tx: Tx,
+    organizationId: string,
+    listingId: string,
+    externalOptionId: string,
+    optionId: string | null,
+  ): Promise<ChannelListingOptionHandle> {
+    const option = await tx.channelListingOption.create({
+      data: {
+        organizationId,
+        listingId,
+        externalOptionId,
+        optionId,
+        isActive: true,
+      },
+      select: { id: true, optionId: true },
+    });
+    return option;
   }
 
   /**
@@ -544,7 +597,13 @@ export class ChannelReconciliationService {
 
   async listItems(
     organizationId: string,
-    params: { page?: number; limit?: number; status?: string; search?: string },
+    params: {
+      page?: number;
+      limit?: number;
+      status?: string;
+      resolutionSource?: string;
+      search?: string;
+    },
   ): Promise<ReconciliationItemListResponse> {
     const page = Math.max(1, params.page ?? 1);
     const limit = Math.min(MAX_PAGE, Math.max(1, params.limit ?? DEFAULT_LIMIT));
@@ -555,6 +614,14 @@ export class ChannelReconciliationService {
     };
     if (params.status && params.status !== 'all') {
       where.status = params.status;
+    }
+    if (
+      params.resolutionSource &&
+      LINKED_RESOLUTION_SOURCES.includes(
+        params.resolutionSource as ReconciliationResolutionSource,
+      )
+    ) {
+      where.resolutionSource = params.resolutionSource;
     }
     if (params.search) {
       const trimmed = params.search.trim();
@@ -718,6 +785,21 @@ export class ChannelReconciliationService {
 
         if (existingListing) {
           listingId = existingListing.id;
+          if (existingListing.masterId !== option.masterId) {
+            const retargeted = await tx.channelListing.updateMany({
+              where: {
+                id: existingListing.id,
+                organizationId,
+                channel: RECONCILIATION_CHANNEL,
+                externalId: item.externalId,
+                isDeleted: false,
+              },
+              data: { masterId: option.masterId },
+            });
+            if (retargeted.count !== 1) {
+              throw new BadRequestException('existing ChannelListing disappeared during relink');
+            }
+          }
         } else {
           const created = await tx.channelListing.create({
             data: {
@@ -742,10 +824,18 @@ export class ChannelReconciliationService {
             select: { id: true },
           });
           if (existingOpt) {
-            await tx.channelListingOption.update({
-              where: { id: existingOpt.id },
+            const updatedOpt = await tx.channelListingOption.updateMany({
+              where: {
+                id: existingOpt.id,
+                organizationId,
+                listingId,
+                externalOptionId: item.externalOptionId,
+              },
               data: { optionId: option.id, isActive: true },
             });
+            if (updatedOpt.count !== 1) {
+              throw new BadRequestException('existing ChannelListingOption disappeared during relink');
+            }
             listingOptionId = existingOpt.id;
           } else {
             const createdOpt = await tx.channelListingOption.create({
@@ -763,7 +853,14 @@ export class ChannelReconciliationService {
         }
 
         return tx.channelReconciliationItem.update({
-          where: { id: item.id },
+          where: {
+            organizationId_channel_source_itemKey: {
+              organizationId,
+              channel: RECONCILIATION_CHANNEL,
+              source: item.source,
+              itemKey: item.itemKey,
+            },
+          },
           data: {
             status: 'linked',
             matchReason: 'manual',
@@ -793,12 +890,19 @@ export class ChannelReconciliationService {
   ): Promise<ReconciliationItem> {
     const item = await this.prisma.channelReconciliationItem.findFirst({
       where: { id: itemId, organizationId, channel: RECONCILIATION_CHANNEL },
-      select: { id: true },
+      select: { id: true, source: true, itemKey: true },
     });
     if (!item) throw new NotFoundException('reconciliation item not found');
 
     const updated = await this.prisma.channelReconciliationItem.update({
-      where: { id: item.id },
+      where: {
+        organizationId_channel_source_itemKey: {
+          organizationId,
+          channel: RECONCILIATION_CHANNEL,
+          source: item.source,
+          itemKey: item.itemKey,
+        },
+      },
       data: {
         status: 'ignored',
         resolutionSource: 'ignored',

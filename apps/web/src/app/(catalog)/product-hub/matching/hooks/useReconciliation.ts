@@ -36,10 +36,8 @@ export function useReconciliationSummary() {
 }
 
 export function useReconciliationItems(params: UseReconciliationItemsParams) {
-  // The "auto_linked" tab on the UI is a server-side `linked` slice with
-  // `resolutionSource = auto_legacy_code`. The backend list endpoint serves
-  // raw status — we fetch `linked` and let the page filter client-side for
-  // that tab. All other tabs map 1:1.
+  // The "auto_linked" tab is a server-side `linked` slice with
+  // `resolutionSource = auto_legacy_code` so pagination remains accurate.
   const serverStatus =
     params.statusFilter === 'auto_linked' ? 'linked' : params.statusFilter;
 
@@ -48,6 +46,9 @@ export function useReconciliationItems(params: UseReconciliationItemsParams) {
     limit: String(params.limit),
   };
   if (serverStatus !== 'all') query.status = serverStatus;
+  if (params.statusFilter === 'auto_linked') {
+    query.resolutionSource = 'auto_legacy_code';
+  }
   if (params.search?.trim()) query.search = params.search.trim();
 
   return useQuery({

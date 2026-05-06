@@ -54,9 +54,8 @@ export default function MatchingPage() {
     [summary],
   );
 
-  // Server returns the raw `linked` slice for both "linked" and "auto_linked" tabs.
-  // Filter the auto-linked client-side using `resolutionSource` so the user sees
-  // only the cohort that the backend just auto-resolved by legacyCode.
+  // Keep a defensive client-side slice for the auto-linked tab; the backend also
+  // receives `resolutionSource=auto_legacy_code` so pagination stays accurate.
   const tableItems = useMemo(() => {
     const rows = itemsQuery.data?.items ?? [];
     if (statusFilter === 'auto_linked') {

@@ -113,6 +113,7 @@ function makeFakePrisma(seed: {
   listingOptions?: ListingOptionRow[];
   productOptions?: ProductOptionRow[];
   masterProducts?: MasterProductRow[];
+  reconciliationItems?: Partial<ReconciliationItemRow>[];
 }) {
   let idCounter = 0;
   const newId = (prefix: string) => `${prefix}-${++idCounter}`;
@@ -122,7 +123,38 @@ function makeFakePrisma(seed: {
   const productOptions: ProductOptionRow[] = [...(seed.productOptions ?? [])];
   const masterProducts: MasterProductRow[] = [...(seed.masterProducts ?? [])];
   const runs: ReconciliationRunRow[] = [];
-  const items: ReconciliationItemRow[] = [];
+  const items: ReconciliationItemRow[] = (seed.reconciliationItems ?? []).map((data) => ({
+    id: data.id ?? newId('item'),
+    organizationId: data.organizationId ?? ORG,
+    channel: data.channel ?? 'coupang',
+    source: data.source ?? 'wing_inventory',
+    itemType: data.itemType ?? 'channel_listing',
+    itemKey: data.itemKey ?? '',
+    status: data.status ?? 'needs_review',
+    externalId: data.externalId ?? null,
+    externalOptionId: data.externalOptionId ?? null,
+    legacyCode: data.legacyCode ?? null,
+    channelProductName: data.channelProductName ?? null,
+    channelOptionName: data.channelOptionName ?? null,
+    channelImageUrl: data.channelImageUrl ?? null,
+    channelUrl: data.channelUrl ?? null,
+    channelStatus: data.channelStatus ?? null,
+    matchReason: data.matchReason ?? null,
+    resolutionSource: data.resolutionSource ?? null,
+    confidence: data.confidence ?? null,
+    linkedListingId: data.linkedListingId ?? null,
+    linkedListingOptionId: data.linkedListingOptionId ?? null,
+    linkedMasterProductId: data.linkedMasterProductId ?? null,
+    linkedProductOptionId: data.linkedProductOptionId ?? null,
+    ignoredReason: data.ignoredReason ?? null,
+    resolvedAt: data.resolvedAt ?? null,
+    firstObservedAt: data.firstObservedAt ?? new Date(),
+    lastObservedAt: data.lastObservedAt ?? new Date(),
+    updatedAt: data.updatedAt ?? new Date(),
+    rawJson: data.rawJson ?? null,
+    conflictJson: data.conflictJson ?? null,
+    lastSeenRunId: data.lastSeenRunId ?? null,
+  }));
 
   const channelReconciliationRun = {
     create: async ({ data }: { data: Partial<ReconciliationRunRow> }) => {
@@ -200,7 +232,12 @@ function makeFakePrisma(seed: {
       );
     },
     findMany: async ({ where, orderBy: _orderBy, skip, take }: {
-      where: { organizationId: string; channel: string; status?: string };
+      where: {
+        organizationId: string;
+        channel: string;
+        status?: string;
+        resolutionSource?: string;
+      };
       orderBy?: unknown;
       skip?: number;
       take?: number;
@@ -209,7 +246,9 @@ function makeFakePrisma(seed: {
         (i) =>
           i.organizationId === where.organizationId &&
           i.channel === where.channel &&
-          (where.status === undefined || i.status === where.status),
+          (where.status === undefined || i.status === where.status) &&
+          (where.resolutionSource === undefined ||
+            i.resolutionSource === where.resolutionSource),
       );
       return matching.slice(skip ?? 0, (skip ?? 0) + (take ?? matching.length));
     },
@@ -272,10 +311,28 @@ function makeFakePrisma(seed: {
       where,
       data,
     }: {
-      where: { id: string };
+      where:
+        | { id: string }
+        | {
+            organizationId_channel_source_itemKey: {
+              organizationId: string;
+              channel: string;
+              source: string;
+              itemKey: string;
+            };
+          };
       data: Partial<ReconciliationItemRow>;
     }) => {
-      const idx = items.findIndex((i) => i.id === where.id);
+      const idx =
+        'id' in where
+          ? items.findIndex((i) => i.id === where.id)
+          : items.findIndex(
+              (i) =>
+                i.organizationId === where.organizationId_channel_source_itemKey.organizationId &&
+                i.channel === where.organizationId_channel_source_itemKey.channel &&
+                i.source === where.organizationId_channel_source_itemKey.source &&
+                i.itemKey === where.organizationId_channel_source_itemKey.itemKey,
+            );
       if (idx === -1) throw new Error('item not found');
       items[idx] = { ...items[idx], ...data, updatedAt: new Date() };
       return items[idx];
@@ -307,6 +364,29 @@ function makeFakePrisma(seed: {
       };
       listings.push(row);
       return row;
+    },
+    updateMany: async ({
+      where,
+      data,
+    }: {
+      where: Record<string, unknown>;
+      data: Partial<ListingRow>;
+    }) => {
+      let count = 0;
+      for (let idx = 0; idx < listings.length; idx++) {
+        const row = listings[idx];
+        if (
+          row.organizationId === where.organizationId &&
+          (where.id === undefined || row.id === where.id) &&
+          (where.channel === undefined || row.channel === where.channel) &&
+          (where.externalId === undefined || row.externalId === where.externalId) &&
+          (where.isDeleted === undefined || row.isDeleted === where.isDeleted)
+        ) {
+          listings[idx] = { ...row, ...data };
+          count += 1;
+        }
+      }
+      return { count };
     },
   };
 
@@ -345,6 +425,29 @@ function makeFakePrisma(seed: {
       if (idx === -1) throw new Error('listing option not found');
       listingOptions[idx] = { ...listingOptions[idx], ...data };
       return listingOptions[idx];
+    },
+    updateMany: async ({
+      where,
+      data,
+    }: {
+      where: Record<string, unknown>;
+      data: Partial<ListingOptionRow>;
+    }) => {
+      let count = 0;
+      for (let idx = 0; idx < listingOptions.length; idx++) {
+        const row = listingOptions[idx];
+        if (
+          row.organizationId === where.organizationId &&
+          (where.id === undefined || row.id === where.id) &&
+          (where.listingId === undefined || row.listingId === where.listingId) &&
+          (where.externalOptionId === undefined ||
+            row.externalOptionId === where.externalOptionId)
+        ) {
+          listingOptions[idx] = { ...row, ...data };
+          count += 1;
+        }
+      }
+      return { count };
     },
   };
 
@@ -473,6 +576,52 @@ describe('ChannelReconciliationService — matching rules', () => {
     expect(state.listingOptions).toHaveLength(1);
     expect(state.listingOptions[0].optionId).toBe('PO1');
     expect(state.listingOptions[0].externalOptionId).toBe('V1');
+  });
+
+  it('Rule 2b: existing listing + missing external option creates ChannelListingOption by legacyCode', async () => {
+    const { fakePrisma, state } = makeFakePrisma({
+      listings: [
+        {
+          id: 'L1',
+          organizationId: ORG,
+          channel: 'coupang',
+          externalId: 'E1',
+          masterId: 'M1',
+          isDeleted: false,
+          status: 'active',
+        },
+      ],
+      productOptions: [
+        {
+          id: 'PO1',
+          organizationId: ORG,
+          masterId: 'M1',
+          legacyCode: 'LEG-1',
+          isActive: true,
+          isDeleted: false,
+          masterIsDeleted: false,
+          optionName: 'Default',
+          sku: 'SKU-1',
+        },
+      ],
+    });
+    const service = new ChannelReconciliationService(fakePrisma);
+
+    const result = await service.scanFromRows(ORG, [
+      { externalId: 'E1', externalOptionId: 'V1', legacyCode: 'LEG-1' },
+    ]);
+
+    expect(result.alreadyLinkedCount).toBe(1);
+    expect(state.listingOptions).toHaveLength(1);
+    expect(state.listingOptions[0]).toMatchObject({
+      organizationId: ORG,
+      listingId: 'L1',
+      externalOptionId: 'V1',
+      optionId: 'PO1',
+      isActive: true,
+    });
+    expect(state.items[0].linkedListingOptionId).toBe(state.listingOptions[0].id);
+    expect(state.items[0].linkedProductOptionId).toBe('PO1');
   });
 
   it('Rule 3: existing listing master vs legacyCode candidate disagree → conflict (no auto-fix)', async () => {
@@ -657,5 +806,73 @@ describe('ChannelReconciliationService — matching rules', () => {
     expect(state.listings).toHaveLength(1);
     expect(state.listingOptions).toHaveLength(1);
     expect(state.listingOptions[0].optionId).toBe('PO1');
+  });
+
+  it('manual relink: existing listing masterId follows the selected option master', async () => {
+    const { fakePrisma, state } = makeFakePrisma({
+      listings: [
+        {
+          id: 'L1',
+          organizationId: ORG,
+          channel: 'coupang',
+          externalId: 'E1',
+          masterId: 'OLD-MASTER',
+          isDeleted: false,
+          status: 'active',
+        },
+      ],
+      productOptions: [
+        {
+          id: 'PO1',
+          organizationId: ORG,
+          masterId: 'NEW-MASTER',
+          legacyCode: null,
+          isActive: true,
+          isDeleted: false,
+          masterIsDeleted: false,
+          optionName: 'Correct option',
+          sku: 'SKU-1',
+        },
+      ],
+    });
+    const service = new ChannelReconciliationService(fakePrisma);
+
+    await service.scanFromRows(ORG, [{ externalId: 'E1' }]);
+    const itemId = state.items[0].id;
+
+    const updated = await service.linkItem(itemId, ORG, { productOptionId: 'PO1' });
+
+    expect(updated.linked.masterProductId).toBe('NEW-MASTER');
+    expect(state.listings[0].masterId).toBe('NEW-MASTER');
+  });
+
+  it('listItems can filter linked rows by resolutionSource before pagination', async () => {
+    const { fakePrisma } = makeFakePrisma({
+      reconciliationItems: [
+        {
+          id: 'manual-1',
+          itemKey: 'listing:E-manual',
+          status: 'linked',
+          resolutionSource: 'manual',
+        },
+        {
+          id: 'auto-1',
+          itemKey: 'listing:E-auto',
+          status: 'linked',
+          resolutionSource: 'auto_legacy_code',
+        },
+      ],
+    });
+    const service = new ChannelReconciliationService(fakePrisma);
+
+    const result = await service.listItems(ORG, {
+      page: 1,
+      limit: 1,
+      status: 'linked',
+      resolutionSource: 'auto_legacy_code',
+    });
+
+    expect(result.total).toBe(1);
+    expect(result.items.map((item) => item.id)).toEqual(['auto-1']);
   });
 });
