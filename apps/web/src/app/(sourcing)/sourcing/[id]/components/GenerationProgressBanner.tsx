@@ -12,7 +12,7 @@ import { Loader2 } from 'lucide-react';
 export interface GenerationEntry {
   /** entry 식별자 — React key */
   id: string;
-  /** 'kids-playful' | 'simple-vertical' | ... */
+  /** 'kids-playful' | 'bold-vertical' | ... */
   templateId: string;
   /** 'pending' | 'processing' | 'completed' | 'failed' */
   status: string;
@@ -31,8 +31,7 @@ interface GenerationProgressBannerProps extends GenerationEntry {
 
 const TEMPLATE_LABEL: Record<string, string> = {
   'kids-playful': 'Trend Vertical',
-  'simple-vertical': 'Simple Vertical',
-  'bold-vertical': 'Bold Vertical',
+  'bold-vertical': 'KIDITEM DESIGN',
 };
 
 export function GenerationProgressBanner({

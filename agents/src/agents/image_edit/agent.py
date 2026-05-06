@@ -5,7 +5,12 @@ from src.core.ai_client import AIClient
 from src.config import AI_IMAGE_EDIT_MODEL, AI_IMAGE_EDIT_SIZE_MODEL
 
 PRESET_PROMPTS = {
-    "remove_background": "Remove the background completely, keep only the main subject on a transparent/white background",
+    "remove_background": (
+        "Remove the entire background and return a clean product cutout as a transparent PNG "
+        "with an alpha channel. Keep only the visible main subject, preserve the original product "
+        "shape and edges, do not redraw the product, do not add text, and do not replace the "
+        "background with white, gray, color, studio, or shadow-only scenery."
+    ),
     "remove_text": "Remove all text and watermarks from the image, inpaint the areas cleanly",
     "replace_background": "",  # Uses user_prompt directly
     "enhance": "Enhance the image quality, improve clarity and sharpness while preserving the original content",

@@ -2,18 +2,19 @@ import { Sparkles } from 'lucide-react';
 
 export default function GenerateLoadingOverlay() {
   return (
-    <div className="fixed inset-0 bg-white/90 z-50 flex flex-col items-center justify-center">
-      <div className="w-12 h-12 border-3 border-violet-600 border-t-transparent rounded-full animate-spin mb-4" />
-      <p className="text-violet-700 font-bold text-xl mb-3 flex items-center gap-2">
-        <Sparkles size={24} />
-        AI OCR 텍스트 번역 및 이미지 재생성 중...
-      </p>
-      <p className="text-slate-500 text-sm">
-        중국어 등 외국어를 스캔하여 지우고 한국어로 재생성하고 있습니다.
-      </p>
-      <p className="text-slate-400 text-sm mt-1">
-        이 작업은 약 20~40초가 소요될 수 있습니다.
-      </p>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/10 p-6 backdrop-blur-[2px]">
+      <div className="flex w-full max-w-[460px] flex-col items-center rounded-2xl border border-slate-200 bg-white/95 px-8 py-8 text-center shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
+        <div className="mb-5 h-14 w-14 animate-spin rounded-full border-[6px] border-violet-500/20 border-t-violet-600" />
+        <p className="mb-3 flex items-center gap-2 text-xl font-black text-violet-700">
+          <Sparkles size={24} />
+          AI 상세페이지 초안 생성 중
+        </p>
+        <p className="text-sm font-bold leading-6 text-slate-700">
+          카피, 구성, 섹션별 이미지를 만들고 있어요.
+          <br />
+          이미지가 적으면 구도 변경 컷까지 만들어 약 60~90초 정도 걸립니다.
+        </p>
+      </div>
     </div>
   );
 }

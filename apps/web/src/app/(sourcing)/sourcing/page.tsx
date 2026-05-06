@@ -4,9 +4,11 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { useAllGenerationsInProgress } from '@/app/(media-ai)/generate/hooks/useKidsPlayfulGenerate';
 import { Pagination } from '@/components/ui/Pagination';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
+import { GenerationProgressBannerStack } from './[id]/components/GenerationProgressBanner';
 import ProductList from './components/list/ProductList';
 import ScrapeUrlInput from './components/list/ScrapeUrlInput';
 import SourcingHeader from './components/list/SourcingHeader';
@@ -15,8 +17,6 @@ import SourcingToolbar from './components/list/SourcingToolbar';
 import { useProcessingIds } from './hooks/useProcessingIds';
 import { useScrapeUrl } from './hooks/useScrapeUrl';
 import { isInProgress, productsApi } from './lib/sourcing-api';
-import { GenerationProgressBannerStack } from './[id]/components/GenerationProgressBanner';
-import { useAllGenerationsInProgress } from '@/app/(media-ai)/generate/hooks/useKidsPlayfulGenerate';
 
 const PAGE_SIZE = 50;
 
@@ -56,11 +56,11 @@ export default function SourcingPage() {
     <div className="flex flex-col h-full bg-slate-50">
       <SourcingHeader />
 
-      {/* productId 없이 호출 — KP/SV 전체에서 진행 중인 첫 entry 반환 */}
+      {/* productId 없이 호출 — Trend/KIDITEM 전체에서 진행 중인 첫 entry 반환 */}
       <GenerationInProgressBannerSlot products={products} />
 
       <SourcingStats
-        draftCount={products.filter((p) => p.status === 'DRAFT').length}
+        draftCount={products.filter((p) => p.status === 'DRAFT' || p.status === 'draft').length}
         totalCount={products.length}
       />
 
@@ -105,7 +105,7 @@ export default function SourcingPage() {
 /**
  * 리스트 페이지 상단 진행 배너 슬롯.
  *
- * `useAllGenerationsInProgress(null)` 는 productId 필터 없이 KP+SV 전체 list polling
+ * `useAllGenerationsInProgress(null)` 는 productId 필터 없이 Trend+KIDITEM 전체 list polling
  * → 진행 중인 모든 entry 반환 → 다건이면 stacked 배너로 모두 표시.
  */
 function GenerationInProgressBannerSlot({

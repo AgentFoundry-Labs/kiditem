@@ -85,7 +85,7 @@ async function bootstrap() {
     // server:4000) 에서 cookie 전송이 허용되도록 credentials 활성화 필수.
     credentials: true,
   });
-  app.useBodyParser('json', { limit: '5mb' });
+  app.useBodyParser('json', { limit: '25mb' });
   // SupabaseAuthMiddleware 가 Supabase SSR auth-token 쿠키를 읽기 위해 필요.
   app.use(cookieParser());
   app.setGlobalPrefix('api');

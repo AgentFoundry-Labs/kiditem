@@ -22,21 +22,34 @@
 }
 
 .gjs-cv-canvas {
-    background-color: #1e293b !important;
+    background-color: #e5e7eb !important;
     overflow: auto !important;
     scrollbar-width: none !important;
     -ms-overflow-style: none !important;
+    width: 100% !important;
+    height: 100% !important;
 }
 
 .gjs-cv-canvas::-webkit-scrollbar {
     display: none !important;
 }
 
+.gjs-cv-canvas__frames {
+    transform-origin: top center !important;
+}
+
 .gjs-frame-wrapper {
     background: #fff !important;
-    box-shadow: 0 8px 48px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.08) !important;
-    border-radius: 6px !important;
+    box-shadow: 0 18px 60px rgba(15, 23, 42, 0.18), 0 0 0 1px rgba(148, 163, 184, 0.24) !important;
+    border-radius: 8px !important;
     overflow: hidden !important;
+    top: 24px !important;
+    bottom: auto !important;
+}
+
+.gjs-frame {
+    top: 0 !important;
+    bottom: auto !important;
 }
 
 .gjs-highlighter {

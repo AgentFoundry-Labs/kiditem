@@ -2,11 +2,12 @@ import { Body, Controller, HttpCode, Logger, Post, Res } from '@nestjs/common';
 import { Response } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
-import puppeteer from 'puppeteer';
+import puppeteer, { type Page } from 'puppeteer';
 import { RenderImageBodyDto } from './dto';
 
 const STATIC_ROOT = '/data/products';
 const PROCESSED_PREFIX = '/processed/';
+const RENDER_TIMEOUT_MS = 120_000;
 
 function mimeFromExt(ext: string): string {
   const map: Record<string, string> = {
@@ -22,6 +23,10 @@ function mimeFromExt(ext: string): string {
 
 async function toDataUri(src: string): Promise<string | null> {
   try {
+    if (src.startsWith('data:')) {
+      return src;
+    }
+
     // 로컬 /processed/ 경로 → 파일시스템에서 직접 읽기
     const url = new URL(src, 'http://localhost');
     if (url.pathname.startsWith(PROCESSED_PREFIX)) {
@@ -32,6 +37,17 @@ async function toDataUri(src: string): Promise<string | null> {
         const mime = mimeFromExt(path.extname(filePath));
         return `data:${mime};base64,${buf.toString('base64')}`;
       }
+    }
+
+    if (src.startsWith('/')) {
+      const port = Number(process.env.PORT) || 4000;
+      const resp = await fetch(`http://localhost:${port}${url.pathname}${url.search}`, {
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!resp.ok) return null;
+      const contentType = resp.headers.get('content-type') || 'image/png';
+      const buf = Buffer.from(await resp.arrayBuffer());
+      return `data:${contentType.split(';')[0]};base64,${buf.toString('base64')}`;
     }
 
     // 외부 URL → HTTP fetch
@@ -69,6 +85,27 @@ async function inlineImages(html: string): Promise<string> {
   });
 }
 
+async function waitForPageAssets(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const imageTasks = Array.from(document.images).map((img) => {
+      if (img.complete) return Promise.resolve();
+      return new Promise<void>((resolve) => {
+        img.onload = () => resolve();
+        img.onerror = () => resolve();
+      });
+    });
+
+    const fontTask =
+      'fonts' in document
+        ? (document.fonts.ready as Promise<FontFaceSet>)
+            .then(() => undefined)
+            .catch(() => undefined)
+        : Promise.resolve();
+
+    await Promise.all([...imageTasks, fontTask]);
+  });
+}
+
 @Controller('render-image')
 export class RenderImageController {
   private readonly logger = new Logger(RenderImageController.name);
@@ -86,11 +123,22 @@ export class RenderImageController {
       this.logger.log(`Inlined images in HTML (${body.html.length} → ${inlinedHtml.length} bytes)`);
 
       const page = await browser.newPage();
+      page.setDefaultNavigationTimeout(RENDER_TIMEOUT_MS);
+      page.setDefaultTimeout(RENDER_TIMEOUT_MS);
       await page.setViewport({ width: 860, height: 1200 });
-      await page.setContent(inlinedHtml, { waitUntil: 'networkidle0' });
-      const pngBuffer = await page.screenshot({ fullPage: true });
-      res.setHeader('Content-Type', 'image/png');
-      res.send(pngBuffer);
+      await page.setContent(inlinedHtml, {
+        waitUntil: 'domcontentloaded',
+        timeout: RENDER_TIMEOUT_MS,
+      });
+      await waitForPageAssets(page);
+      const format = body.format ?? 'png';
+      const buffer = await page.screenshot({
+        fullPage: true,
+        type: format,
+        quality: format === 'jpeg' ? body.quality ?? 92 : undefined,
+      });
+      res.setHeader('Content-Type', format === 'jpeg' ? 'image/jpeg' : 'image/png');
+      res.send(buffer);
     } finally {
       await browser.close();
     }

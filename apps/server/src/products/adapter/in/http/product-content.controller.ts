@@ -10,6 +10,17 @@ class SaveEditedHtmlDto {
   html!: string;
 }
 
+class AddRawDataFieldDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(80)
+  key!: string;
+
+  @IsString()
+  @MaxLength(10_000)
+  value!: string;
+}
+
 /**
  * Detail-page content surface for a single MasterProduct.
  *
@@ -59,6 +70,15 @@ export class ProductContentController {
     @Param('id', new ParseUUIDPipe()) id: string,
   ) {
     return this.masters.getEditedHtml(organizationId, id);
+  }
+
+  @Post(':id/raw-data')
+  async addRawDataField(
+    @CurrentOrganization() organizationId: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: AddRawDataFieldDto,
+  ) {
+    return this.masters.addRawDataField(organizationId, id, body.key, body.value);
   }
 
   @Delete(':id/history/:generationId')

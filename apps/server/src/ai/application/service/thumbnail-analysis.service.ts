@@ -316,8 +316,19 @@ export class ThumbnailAnalysisService {
   }
 
   /**
-   * Organization-scoped batch analysis. AbortController 가 회사별로 1개 유지되어
-   * 같은 회사가 새 batch 를 시작하면 이전 inflight 는 cancel.
+   * Organization-scoped batch analysis.
+   *
+   * **Chunk-batched**: chunk 의 모든 product 를 한 번의 Gemini multi-image
+   * batch 호출로 처리한다. for-loop sequential 패턴은 product 1개당 ~30s ×
+   * 15 = 7~8분 이 걸려서 사용 불가. chunk batch 로 ~30~60s/chunk 로 단축.
+   *
+   * Per-chunk parallel:
+   *   - vision.analyzeQuality(chunk)        — quality 한 번
+   *   - vision.checkCompliance(chunk)       — compliance 한 번
+   *   - recomposeChunk(chunk) (Promise.all) — recompose 는 multi-image batch
+   *     안정성이 떨어져서 individual call × Promise.all 로 chunk 내 병렬.
+   *
+   * AbortController 는 organization 별 1개 — 새 batch 시작 시 이전 abort.
    */
   async analyzeBatch(
     productIds: string[],
@@ -329,18 +340,108 @@ export class ThumbnailAnalysisService {
     if (previous) previous.abort();
     const controller = new AbortController();
     this.batchAborts.set(organizationId, controller);
+    const signal = controller.signal;
 
+    const BATCH_SIZE = 15;
+    const CHUNK_DELAY_MS = 1500;
+    const wantsQuality = scope === 'all' || scope === 'quality';
+    const wantsCompliance = scope === 'all' || scope === 'compliance';
     const results: ThumbnailAnalysisResult[] = [];
+
     try {
-      for (const id of productIds) {
-        if (controller.signal.aborted) break;
+      const masters = await this.prisma.masterProduct.findMany({
+        where: { id: { in: productIds }, organizationId, isDeleted: false },
+        select: {
+          id: true,
+          name: true,
+          imageUrl: true,
+          thumbnailUrl: true,
+          category: true,
+          images: thumbnailMasterImageSelect(organizationId),
+          createdAt: true,
+        },
+      });
+      const masterMap = new Map(masters.map((m) => [m.id, m]));
+
+      // 표시 가능한 이미지가 있는 product 만 vision batch 대상.
+      const items: ThumbnailAiItem[] = [];
+      for (const productId of productIds) {
+        const master = masterMap.get(productId);
+        if (!master) continue;
+        const imageUrl = resolveMasterThumbnailImage(master);
+        if (!imageUrl) continue;
+        items.push({
+          productId: master.id,
+          productName: master.name,
+          imageUrl,
+          category: master.category ?? null,
+        });
+      }
+
+      for (let i = 0; i < items.length; i += BATCH_SIZE) {
+        if (signal.aborted) break;
+        if (i > 0) {
+          await new Promise<void>((resolve) => setTimeout(resolve, CHUNK_DELAY_MS));
+          if (signal.aborted) break;
+        }
+
+        const chunk = items.slice(i, i + BATCH_SIZE);
         try {
-          results.push(await this.analyzeProduct(id, organizationId, scope, controller.signal));
+          const [qualityMap, complianceMap, recomposeMap] = await Promise.all([
+            wantsQuality
+              ? this.vision.analyzeQuality(chunk, signal)
+              : Promise.resolve(new Map()),
+            wantsCompliance
+              ? this.vision.checkCompliance(chunk, signal)
+              : Promise.resolve(new Map()),
+            wantsQuality
+              ? this.recomposeChunk(chunk, signal)
+              : Promise.resolve(new Map<string, RecomposeVariantClassification>()),
+          ]);
+
+          // imageSpec 은 chunk 내 product 별로 sequential 처리해도 부담 적음.
+          // (sharp pixel mask + 작은 Gemini call). chunk 내 병렬화 가능하지만
+          // verifier 쪽이 동시 호출 부담 — 안정성 우선 sequential.
+          for (const item of chunk) {
+            if (signal.aborted) break;
+            const master = masterMap.get(item.productId);
+            if (!master) continue;
+            try {
+              const saved = await this.persistChunkResult({
+                master,
+                imageUrl: item.imageUrl,
+                scope,
+                qualityResult: qualityMap.get(item.productId),
+                complianceResult: complianceMap.get(item.productId),
+                recompose: recomposeMap.get(item.productId),
+                organizationId,
+                signal,
+              });
+              if (saved) results.push(saved);
+            } catch (err) {
+              if (signal.aborted || this.isAbortError(err)) break;
+              this.logger.warn(
+                `analyzeBatch skip ${item.productId}: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
+          }
         } catch (err) {
-          if (controller.signal.aborted || this.isAbortError(err)) break;
+          if (signal.aborted || this.isAbortError(err)) break;
+          // chunk 전체 batch 호출 실패 → 개별 fallback. (Gemini 일시 quota 등)
           this.logger.warn(
-            `analyzeBatch skip ${id}: ${err instanceof Error ? err.message : String(err)}`,
+            `analyzeBatch chunk ${i}-${i + chunk.length} batch 실패, individual fallback: ${err instanceof Error ? err.message : String(err)}`,
           );
+          for (const item of chunk) {
+            if (signal.aborted) break;
+            try {
+              results.push(await this.analyzeProduct(item.productId, organizationId, scope, signal));
+            } catch (innerErr) {
+              if (signal.aborted || this.isAbortError(innerErr)) break;
+              this.logger.warn(
+                `analyzeBatch fallback skip ${item.productId}: ${innerErr instanceof Error ? innerErr.message : String(innerErr)}`,
+              );
+            }
+          }
         }
       }
     } finally {
@@ -351,6 +452,140 @@ export class ThumbnailAnalysisService {
       }
     }
     return results;
+  }
+
+  /**
+   * recompose 는 chunk-batch 가 안정성 떨어져서 individual call × Promise.all.
+   * chunk 내 병렬은 OK (Gemini Flash 동시 요청 수십개 받음).
+   */
+  private async recomposeChunk(
+    chunk: ThumbnailAiItem[],
+    signal?: AbortSignal,
+  ): Promise<Map<string, RecomposeVariantClassification>> {
+    const map = new Map<string, RecomposeVariantClassification>();
+    if (chunk.length === 0) return map;
+    const results = await Promise.all(
+      chunk.map(async (item) => {
+        if (signal?.aborted) return null;
+        try {
+          const r = await this.recomposeService.classifyByImage(item.imageUrl, {
+            productName: item.productName,
+            category: item.category ?? null,
+          });
+          return { productId: item.productId, recompose: r };
+        } catch (err) {
+          if (signal?.aborted || this.isAbortError(err)) return null;
+          this.logger.warn(
+            `recompose chunk skip ${item.productId}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+          return null;
+        }
+      }),
+    );
+    for (const r of results) {
+      if (r) map.set(r.productId, r.recompose);
+    }
+    return map;
+  }
+
+  /**
+   * chunk batch 결과를 ThumbnailAnalysis 에 persist. quality / compliance /
+   * recompose 가 부분 누락돼도 가능한 부분만 upsert. analyzeProduct 와 같은
+   * shape 의 row 반환.
+   */
+  private async persistChunkResult(input: {
+    master: MasterRow & { name: string; category: string | null; createdAt: Date };
+    imageUrl: string;
+    scope: AnalysisScope;
+    qualityResult: {
+      overallScore: number;
+      grade: 'S' | 'A' | 'B' | 'C' | 'F';
+      scores: ThumbnailScores | null;
+      issues: ThumbnailAnalysisResult['issues'];
+      suggestions: string[];
+      method: string;
+    } | undefined;
+    complianceResult: { complianceGrade: string; complianceScores: ComplianceScores } | undefined;
+    recompose: RecomposeVariantClassification | undefined;
+    organizationId: string;
+    signal?: AbortSignal;
+  }): Promise<ThumbnailAnalysisResult | null> {
+    const { master, imageUrl, scope, qualityResult, complianceResult, recompose, organizationId, signal } = input;
+    const wantsQuality = scope === 'all' || scope === 'quality';
+    const wantsCompliance = scope === 'all' || scope === 'compliance';
+
+    if (wantsQuality && !qualityResult) {
+      // quality 결과 누락은 partial-success. 다른 chunk product 영향 없음.
+      this.logger.warn(`persistChunkResult: quality result missing for ${master.id}`);
+    }
+    if (wantsCompliance && !complianceResult) {
+      this.logger.warn(`persistChunkResult: compliance result missing for ${master.id}`);
+    }
+
+    const now = new Date();
+    const update: Prisma.ThumbnailAnalysisUpdateInput = { imageUrl };
+    const create: Prisma.ThumbnailAnalysisCreateInput = {
+      master: { connect: { id: master.id } },
+      organization: { connect: { id: organizationId } },
+      imageUrl,
+      overallScore: 0,
+      grade: 'F',
+      issues: [] as Prisma.InputJsonValue,
+      suggestions: [] as Prisma.InputJsonValue,
+      method: 'ai',
+    };
+
+    if (qualityResult) {
+      update.overallScore = qualityResult.overallScore;
+      update.grade = qualityResult.grade;
+      update.scores = (qualityResult.scores ?? Prisma.JsonNull) as Prisma.InputJsonValue;
+      update.issues = (qualityResult.issues as unknown as Prisma.InputJsonValue) ?? [];
+      update.suggestions = qualityResult.suggestions as Prisma.InputJsonValue;
+      update.method = qualityResult.method;
+      update.qualityAnalyzedAt = now;
+      create.overallScore = qualityResult.overallScore;
+      create.grade = qualityResult.grade;
+      create.scores = (qualityResult.scores ?? undefined) as Prisma.InputJsonValue;
+      create.issues = qualityResult.issues as unknown as Prisma.InputJsonValue;
+      create.suggestions = qualityResult.suggestions as Prisma.InputJsonValue;
+      create.method = qualityResult.method;
+      create.qualityAnalyzedAt = now;
+    }
+
+    if (complianceResult) {
+      update.complianceGrade = complianceResult.complianceGrade;
+      update.complianceScores = complianceResult.complianceScores as unknown as Prisma.InputJsonValue;
+      update.complianceAnalyzedAt = now;
+      create.complianceGrade = complianceResult.complianceGrade;
+      create.complianceScores = complianceResult.complianceScores as unknown as Prisma.InputJsonValue;
+      create.complianceAnalyzedAt = now;
+
+      // imageSpec 은 chunk batch 결과에 없음 — sharp pixel mask 가 별도라
+      // sequential 처리. 부담 적음 (1초 내).
+      if (!signal?.aborted) {
+        try {
+          const imageSpec = await this.vision.checkImageSpec(imageUrl);
+          if (imageSpec) {
+            update.imageSpec = imageSpec as unknown as Prisma.InputJsonValue;
+            create.imageSpec = imageSpec as unknown as Prisma.InputJsonValue;
+          }
+        } catch (err) {
+          this.logger.warn(`imageSpec skip ${master.id}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    }
+
+    if (recompose !== undefined) {
+      update.recompose = recompose as unknown as Prisma.InputJsonValue;
+      create.recompose = recompose as unknown as Prisma.InputJsonValue;
+    }
+
+    const upserted = await this.prisma.thumbnailAnalysis.upsert({
+      where: { masterId: master.id },
+      create,
+      update,
+    });
+    return toAnalysisResult(upserted as AnalysisRow, master);
   }
 
   cancelBatch(organizationId: string): { cancelled: boolean } {

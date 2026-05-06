@@ -6,6 +6,12 @@
  *
  * 나중에 packages/shared 로 옮길 수 있지만 일단 web 도메인 내부 타입.
  */
+import {
+  isSafetyLabelImageUrl,
+  moveSafetyLabelImagesToEnd,
+} from './detail-page-image-order';
+
+const GENERATED_HERO_BANNER_KEY = '__heroBanner';
 
 export interface KidsPlayfulData {
   section1: {
@@ -96,6 +102,7 @@ export interface KidsPlayfulData {
       headline: [string, string];
     };
   };
+  safetyLabelImageUrls: string[];
 }
 
 /** Server endpoint 의 raw 응답 형. Index 기반. */
@@ -194,20 +201,29 @@ export function adaptToKidsPlayful(
   processedImages: Record<string, string> = {},
   apiBase: string = '',
 ): KidsPlayfulData {
+  const orderedImageUrls = moveSafetyLabelImagesToEnd(imageUrls);
+  const safetyLabelImageUrls = orderedImageUrls.filter(isSafetyLabelImageUrl);
   const resolve = (idx: number | null): string | null => {
     if (idx === null || idx < 0) return null;
     const processed = processedImages[String(idx)];
-    if (processed) {
-      return processed.startsWith('http') ? processed : `${apiBase}${processed}`;
-    }
-    return idx < imageUrls.length ? imageUrls[idx] : null;
+    const url = processed
+      ? (processed.startsWith('http') ? processed : `${apiBase}${processed}`)
+      : (idx < orderedImageUrls.length ? orderedImageUrls[idx] : null);
+    if (!url || isSafetyLabelImageUrl(url)) return null;
+    return url;
   };
+  const resolveGenerated = (key: string): string | null => {
+    const url = processedImages[key];
+    if (!url) return null;
+    return url.startsWith('http') ? url : `${apiBase}${url}`;
+  };
+  const generatedHeroBanner = resolveGenerated(GENERATED_HERO_BANNER_KEY);
 
   return {
     section1: {
       subhead: raw.section1.subhead,
       mainHeadline: raw.section1.mainHeadline,
-      heroImageUrl: resolve(raw.section1.heroImageIndex),
+      heroImageUrl: generatedHeroBanner ?? resolve(raw.section1.heroImageIndex),
     },
     section2: { reviews: raw.section2.reviews },
     section3: {
@@ -279,5 +295,6 @@ export function adaptToKidsPlayful(
       symbolCard: raw.section11.symbolCard,
       closing: raw.section11.closing,
     },
+    safetyLabelImageUrls,
   };
 }

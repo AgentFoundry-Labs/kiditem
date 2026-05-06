@@ -20,8 +20,6 @@ export {
   parseDetailPageData,
   SpecItemSchema,
 } from './schemas';
-export { simpleVerticalConfig } from './simple-vertical/config';
-export { SimpleVertical } from './simple-vertical/index';
 export { kidsPlayfulConfig } from './kids-playful/config';
 export { KidsPlayful } from './kids-playful/index';
 // ─── Types ──────────────────────────────────────────────────────────────────

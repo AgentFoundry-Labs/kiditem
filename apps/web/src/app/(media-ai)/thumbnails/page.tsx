@@ -133,11 +133,17 @@ export default function ThumbnailsPage() {
       onResults: actions.mergeAiResults,
       onComplete: (results, targets) => {
         // 개별 "AI 분석" 버튼과 동일 — 탭/필터 변경 없이 토스트만.
+        // ⚠ 카운트는 `results.length` (실제 backend 가 돌려준 분석 결과) 기준
+        // — `targets.length` 를 쓰면 백엔드가 silent skip 한 케이스에 거짓
+        // 성공처럼 보임 (이전 버전 버그). hook 단계에서 partial-failure 토스트
+        // 가 별도로 나가므로 여기서는 성공 케이스만 다룬다.
+        if (results.length === 0) return;
         const needsFix = results.filter(needsThumbnailFix);
+        const head = `${results.length}/${targets.length}개 분석 완료`;
         if (needsFix.length > 0) {
-          toast.success(`${targets.length}개 재분석 완료 — 개선 필요 ${needsFix.length}개`);
+          toast.success(`${head} — 개선 필요 ${needsFix.length}개`);
         } else {
-          toast.success(`${targets.length}개 재분석 완료 — DB 저장됨`);
+          toast.success(`${head} — DB 저장됨`);
         }
       },
     });
@@ -632,11 +638,22 @@ export default function ThumbnailsPage() {
           }}
           onEditCompliance={(variantKey) => {
             const pid = selectedProduct?.productId ?? selectedGen?.productId;
-            if (pid) actions.editSingle(pid, 'compliance', variantKey);
+            if (pid) {
+              actions.editSingle(pid, 'compliance', variantKey);
+              // picker 클릭 시 모달 닫고 AI 편집 탭으로 자동 전환 — 사용자가 진행 상태 즉시 볼 수 있게.
+              setSelectedProduct(null);
+              setSelectedGen(null);
+              setActiveTab('ai-edit');
+            }
           }}
           onEditQuality={(variantKey) => {
             const pid = selectedProduct?.productId ?? selectedGen?.productId;
-            if (pid) actions.editSingle(pid, 'quality', variantKey);
+            if (pid) {
+              actions.editSingle(pid, 'quality', variantKey);
+              setSelectedProduct(null);
+              setSelectedGen(null);
+              setActiveTab('ai-edit');
+            }
           }}
           onSelectCandidate={(url) => {
             const g = selectedGen || activeGenForProduct;

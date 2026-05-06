@@ -10,6 +10,7 @@ import {
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import {
+  collectProductImageUrls,
   extractImageUrls,
   resolveProcessedUrl,
   type PreviewResponse,
@@ -38,7 +39,10 @@ export function useEditorData(productId: string) {
           ? processedDataValue.title
           : detail.name ?? '상품명 미지정';
 
-      const rawImages = extractImageUrls(rawDataValue);
+      const rawImages = Array.from(new Set([
+        ...extractImageUrls(rawDataValue),
+        ...collectProductImageUrls(detail.images, detail.imageUrl, detail.thumbnailUrl),
+      ]));
       const processedImages = extractImageUrls(processedDataValue);
 
       let previewData: DetailPageData = placeholderDetailPageData;

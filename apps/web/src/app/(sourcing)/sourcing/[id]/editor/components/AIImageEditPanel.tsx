@@ -60,15 +60,72 @@ async function submitImageEdit(params: {
   return apiClient.post<{ taskId: string }>('/api/image-ai/edit', params);
 }
 
+function parseJsonMaybe(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function readPath(source: unknown, path: string[]): unknown {
+  let cursor = parseJsonMaybe(source);
+  for (const key of path) {
+    if (!cursor || typeof cursor !== 'object' || !(key in cursor)) return null;
+    cursor = parseJsonMaybe((cursor as Record<string, unknown>)[key]);
+  }
+  return cursor;
+}
+
+function readStringPath(source: unknown, path: string[]): string | null {
+  const cursor = readPath(source, path);
+  return typeof cursor === 'string' && cursor.trim() ? cursor : null;
+}
+
+function firstStringFromArray(source: unknown, path: string[]): string | null {
+  const value = path.length === 0 ? parseJsonMaybe(source) : readPath(source, path);
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const first = parseJsonMaybe(value[0]);
+  if (typeof first === 'string' && first.trim()) return first;
+  if (first && typeof first === 'object') {
+    return readStringPath(first, ['url'])
+      ?? readStringPath(first, ['image_url'])
+      ?? readStringPath(first, ['imageUrl']);
+  }
+  return null;
+}
+
+function extractEditedImageUrl(output: unknown): string | null {
+  const parsed = parseJsonMaybe(output);
+  return (
+    readStringPath(parsed, ['image_url'])
+    ?? readStringPath(parsed, ['imageUrl'])
+    ?? readStringPath(parsed, ['url'])
+    ?? readStringPath(parsed, ['result_url'])
+    ?? readStringPath(parsed, ['resultUrl'])
+    ?? readStringPath(parsed, ['output', 'image_url'])
+    ?? readStringPath(parsed, ['output', 'imageUrl'])
+    ?? readStringPath(parsed, ['output', 'url'])
+    ?? readStringPath(parsed, ['result', 'image_url'])
+    ?? readStringPath(parsed, ['result', 'imageUrl'])
+    ?? readStringPath(parsed, ['result', 'url'])
+    ?? firstStringFromArray(parsed, ['images'])
+    ?? firstStringFromArray(parsed, ['image_urls'])
+    ?? firstStringFromArray(parsed, ['imageUrls'])
+    ?? firstStringFromArray(parsed, ['output', 'images'])
+  );
+}
+
 async function pollTaskResult(taskId: string): Promise<{ image_url: string }> {
   const maxAttempts = 60; // 60 * 2s = 120s max
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise(r => setTimeout(r, 2000));
     const task = await apiClient.get<{ status: string; output: unknown; error?: string }>(`/api/agent-tasks/${taskId}`);
     if (task.status === 'completed') {
-      const output = typeof task.output === 'string' ? JSON.parse(task.output) : task.output;
-      if (!output?.image_url) throw new Error('결과 이미지가 없습니다');
-      return { image_url: output.image_url };
+      const imageUrl = extractEditedImageUrl(task.output);
+      if (!imageUrl) throw new Error('AI 결과 이미지 URL을 찾지 못했습니다');
+      return { image_url: imageUrl };
     }
     if (task.status === 'failed') {
       throw new Error(task.error || '이미지 편집에 실패했습니다');
@@ -143,7 +200,7 @@ export function AIImageEditPanel({ imageUrl, isBusy, onEditComplete, onReplace, 
         {loading && (
           <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 rounded-lg border border-emerald-100">
             <Loader2 size={14} className="animate-spin text-emerald-600" />
-            <span className="text-xs font-medium text-emerald-700">AI 이미지 처리 중... (최대 40초)</span>
+            <span className="text-xs font-medium text-emerald-700">AI 이미지 처리 중... (최대 120초)</span>
           </div>
         )}
 

@@ -16,6 +16,10 @@ import {
   placeholderDetailPageData,
 } from '@kiditem/templates';
 import { cn } from '@/lib/utils';
+import {
+  SAME_ORIGIN_SCRIPTLESS_SANDBOX,
+  stripSrcDocScripts,
+} from '@/app/(sourcing)/sourcing/[id]/lib/preview-sandbox';
 import { renderTemplateToHtml } from '@/app/(sourcing)/sourcing/lib/template-html';
 
 // 카드 슬롯 정의 — 사용자 요구로 명시적 순서 + 브랜드명 + 일부 슬롯은 placeholder.
@@ -84,7 +88,7 @@ interface Props {
 
 export default function TemplatePickStep({
   onPick,
-  defaultTemplateId = 'simple-vertical',
+  defaultTemplateId = 'bold-vertical',
 }: Props) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
@@ -253,6 +257,7 @@ interface PreviewModalProps {
 }
 
 function PreviewModal({ templateId, onClose }: PreviewModalProps) {
+  const [templateCss, setTemplateCss] = useState<string | null>(null);
   const config = useMemo(() => {
     try {
       return getTemplate(templateId);
@@ -261,21 +266,31 @@ function PreviewModal({ templateId, onClose }: PreviewModalProps) {
     }
   }, [templateId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/templates-styles.css', { cache: 'no-store' })
+      .then((res) => (res.ok ? res.text() : ''))
+      .then((css) => {
+        if (!cancelled) setTemplateCss(css);
+      })
+      .catch(() => {
+        if (!cancelled) setTemplateCss('');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const html = useMemo(() => {
-    if (!config) return '';
-    const raw = renderTemplateToHtml(
+    if (!config || templateCss == null) return '';
+    return renderTemplateToHtml(
       config.component as React.ComponentType<unknown>,
       placeholderDetailPageData,
       config,
-      '',
+      templateCss,
     );
-    // iframe 안에 Tailwind CSS 가 없으면 utility class 가 작동 안 함 (사용자 reference 와
-    // 다르게 보이던 원인). Tailwind v4 browser CDN 을 head 에 주입 → 1:1 매칭 렌더.
-    return raw.replace(
-      '</head>',
-      `<script src="https://cdn.tailwindcss.com"></script></head>`,
-    );
-  }, [config]);
+  }, [config, templateCss]);
+  const sandboxedHtml = useMemo(() => stripSrcDocScripts(html), [html]);
 
   // iframe 실제 콘텐츠 높이 측정 → iframe 자체를 그 만큼 크게 만들어 모달 wrapper 가 스크롤.
   // 이렇게 해야 사용자가 모달을 풀-스크롤하면서 전체 템플릿 한눈에 봄.
@@ -309,7 +324,7 @@ function PreviewModal({ templateId, onClose }: PreviewModalProps) {
       clearTimeout(t1);
       clearTimeout(t2);
     };
-  }, [html]);
+  }, [sandboxedHtml]);
 
   if (!config) return null;
 
@@ -344,11 +359,11 @@ function PreviewModal({ templateId, onClose }: PreviewModalProps) {
         <div className="flex-1 overflow-y-auto bg-white">
           <iframe
             ref={iframeRef}
-            srcDoc={html}
+            srcDoc={sandboxedHtml}
             className="block w-full border-0 bg-white"
             style={{ height: `${iframeHeight}px` }}
             title={`${templateId}-preview-modal`}
-            sandbox="allow-scripts"
+            sandbox={SAME_ORIGIN_SCRIPTLESS_SANDBOX}
           />
         </div>
       </div>

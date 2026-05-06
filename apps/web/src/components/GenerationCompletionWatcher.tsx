@@ -4,8 +4,8 @@ import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import {
+  useBoldVerticalGenerationList,
   useKidsPlayfulGenerationList,
-  useSimpleVerticalGenerationList,
   type KidsPlayfulGenerationItem,
 } from '@/app/(media-ai)/generate/hooks/useKidsPlayfulGenerate';
 
@@ -15,12 +15,12 @@ const TERMINAL_STATUSES = new Set(['completed', 'failed']);
 export default function GenerationCompletionWatcher() {
   const router = useRouter();
   const { data: kpList = [] } = useKidsPlayfulGenerationList(null);
-  const { data: svList = [] } = useSimpleVerticalGenerationList(null);
+  const { data: boldList = [] } = useBoldVerticalGenerationList(null);
   const prevStatusRef = useRef<Map<string, string>>(new Map());
   const initializedRef = useRef(false);
 
   useEffect(() => {
-    const all: KidsPlayfulGenerationItem[] = [...kpList, ...svList].filter(
+    const all: KidsPlayfulGenerationItem[] = [...kpList, ...boldList].filter(
       (entry) => !entry.id.startsWith('optimistic-'),
     );
     const currentStatus = new Map<string, string>();
@@ -41,8 +41,8 @@ export default function GenerationCompletionWatcher() {
         IN_PROGRESS_STATUSES.has(prevStatus) &&
         TERMINAL_STATUSES.has(current)
       ) {
-        const isSimpleVertical = entry.templateId === 'simple-vertical';
-        const queryKey = isSimpleVertical ? 'svId' : 'kpId';
+        const isBoldVertical = entry.templateId === 'bold-vertical';
+        const queryKey = isBoldVertical ? 'boldId' : 'kpId';
         const editorUrl = entry.productId
           ? `/sourcing/${entry.productId}/editor?${queryKey}=${entry.id}`
           : null;
@@ -51,7 +51,7 @@ export default function GenerationCompletionWatcher() {
         if (current === 'completed') {
           toast.success(`${productLabel} 생성 완료`, {
             description: `${
-              isSimpleVertical ? 'Simple Vertical' : 'Trend Vertical'
+              isBoldVertical ? 'KIDITEM DESIGN' : 'Trend Vertical'
             } - 상세페이지로 이동하시겠습니까?`,
             duration: Infinity,
             action: editorUrl
@@ -71,7 +71,7 @@ export default function GenerationCompletionWatcher() {
     }
 
     prevStatusRef.current = currentStatus;
-  }, [kpList, svList, router]);
+  }, [kpList, boldList, router]);
 
   return null;
 }

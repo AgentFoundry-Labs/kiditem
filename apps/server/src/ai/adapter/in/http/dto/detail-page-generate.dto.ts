@@ -38,6 +38,18 @@ export class GenerateDetailPageBodyDto {
   productId?: string;
 
   @IsOptional()
-  @IsIn(['kids-playful', 'simple-vertical'])
-  templateId?: 'kids-playful' | 'simple-vertical';
+  @IsIn(['kids-playful', 'bold-vertical'])
+  templateId?: 'kids-playful' | 'bold-vertical';
+}
+
+export class PrefillDetailPageBodyDto {
+  @IsString()
+  @MinLength(1)
+  rawTitle!: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(15)
+  @IsString({ each: true })
+  imageUrls?: string[];
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import { renderToStaticMarkup } from 'react-dom/server';
+import { API_BASE } from '@/lib/api';
 
 interface TemplateData {
   title?: string;
@@ -14,6 +15,61 @@ interface TemplateConfigLike {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyComponent = React.ComponentType<any>;
+
+const API_BASE_ROOT = API_BASE.replace(/\/$/, '');
+
+function getWebOrigin(): string {
+  if (typeof window === 'undefined') return '';
+  return window.location.origin;
+}
+
+function absolutizeFontUrls(css: string): string {
+  const webOrigin = getWebOrigin();
+  if (!webOrigin) return css;
+  return css.replace(/url\(\s*(['"]?)\/fonts\//g, `url($1${webOrigin}/fonts/`);
+}
+
+function toApiAssetUrl(value: string): string {
+  const url = value.trim();
+  if (!url || /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(url)) return value;
+  if (/^\/(?:processed|uploads|api)\//i.test(url)) return `${API_BASE_ROOT}${url}`;
+  return value;
+}
+
+function normalizeElementUrl(el: Element, attr: string): void {
+  const value = el.getAttribute(attr);
+  if (!value) return;
+  el.setAttribute(attr, toApiAssetUrl(value));
+}
+
+function normalizeDocumentAssetUrls(doc: Document): void {
+  doc.querySelectorAll('img[src], source[src], video[src]').forEach((el) => {
+    normalizeElementUrl(el, 'src');
+  });
+  doc.querySelectorAll('img[srcset], source[srcset]').forEach((el) => {
+    normalizeElementUrl(el, 'srcset');
+  });
+  doc.querySelectorAll('video[poster]').forEach((el) => {
+    normalizeElementUrl(el, 'poster');
+  });
+}
+
+function normalizeEditedHtmlAssets(html: string): string {
+  const source = absolutizeFontUrls(html);
+  const isFullDocument = /<html[\s>]/i.test(source);
+  const startsWithBody = /^<body[\s>]/i.test(source.trim());
+  const doc = new DOMParser().parseFromString(source, 'text/html');
+
+  doc.head.querySelectorAll('base').forEach((el) => el.remove());
+  doc.head.querySelectorAll('style').forEach((style) => {
+    style.textContent = absolutizeFontUrls(style.textContent ?? '');
+  });
+  normalizeDocumentAssetUrls(doc);
+
+  if (isFullDocument) return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+  if (startsWithBody) return doc.body.outerHTML;
+  return doc.body.innerHTML;
+}
 
 function buildThemeVarsCss(data: TemplateData): string {
   const vars: Record<string, string | undefined> = {
@@ -52,7 +108,7 @@ export function renderTemplateToHtml(
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${data.title ?? '상세페이지'}</title>
-  <style>${templateCss}</style>
+  <style>${absolutizeFontUrls(templateCss)}</style>
   ${fontLinks}
   <style>
     ${themeVarsCss}
@@ -214,12 +270,118 @@ const EDITED_HTML_FALLBACK_CSS = `
   }
 `;
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function escapeAttr(value: string): string {
+  return escapeHtml(value).replace(/"/g, '&quot;');
+}
+
+function buildSizeGuideFrameHtml(input: {
+  src: string;
+  alt: string;
+  heightLabel?: string;
+  widthLabel?: string;
+}): string {
+  const src = escapeAttr(input.src);
+  const alt = escapeAttr(input.alt);
+  const heightLabel = escapeHtml((input.heightLabel ?? '').trim());
+  const widthLabel = escapeHtml((input.widthLabel ?? '').trim());
+  const hasHeightGuide = heightLabel !== '';
+  const hasWidthGuide = widthLabel !== '';
+  const imageColumn = hasHeightGuide ? 2 : 1;
+  const gridColumns = hasHeightGuide ? '82px minmax(0, max-content)' : 'minmax(0, max-content)';
+  const gridRows = hasWidthGuide ? 'auto 78px' : 'auto';
+  const heightGuide = hasHeightGuide ? `
+        <div aria-hidden="true" style="position:relative;grid-column:1;grid-row:1;align-self:stretch;width:82px;min-height:330px;">
+          <span style="position:absolute;top:0;bottom:0;right:8px;width:1.5px;background:#111827;">
+            <span style="position:absolute;top:0;left:-13px;width:28px;height:1.5px;background:#111827;display:block;"></span>
+            <span style="position:absolute;bottom:0;left:-13px;width:28px;height:1.5px;background:#111827;display:block;"></span>
+          </span>
+          <span data-field="sizeHeightLabel" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-90deg);transform-origin:center;color:#111827;font-size:42px;line-height:1;font-weight:900;white-space:nowrap;">${heightLabel}</span>
+        </div>` : '';
+  const widthGuide = hasWidthGuide ? `
+        <div aria-hidden="true" style="position:relative;grid-column:${imageColumn};grid-row:2;align-self:start;width:100%;min-width:180px;height:72px;margin-top:18px;">
+          <span style="position:absolute;left:0;right:0;top:0;height:1.5px;background:#111827;">
+            <span style="position:absolute;left:0;top:-13px;width:1.5px;height:28px;background:#111827;display:block;"></span>
+            <span style="position:absolute;right:0;top:-13px;width:1.5px;height:28px;background:#111827;display:block;"></span>
+          </span>
+          <span data-field="sizeWidthLabel" style="position:absolute;left:50%;top:18px;transform:translateX(-50%);color:#111827;font-size:46px;line-height:1;font-weight:900;white-space:nowrap;">${widthLabel}</span>
+        </div>` : '';
+
+  return `
+    <div data-role="size-guide-frame" style="border-radius:34px;background:#fff;border:1px solid #f1f1f1;box-shadow:0 8px 24px rgba(15,23,42,.08);overflow:hidden;padding:48px 30px 38px;">
+      <div style="min-height:520px;display:grid;place-items:center;">
+        <div style="display:inline-grid;grid-template-columns:${gridColumns};grid-template-rows:${gridRows};column-gap:${hasHeightGuide ? 22 : 0}px;align-items:stretch;justify-content:center;justify-items:center;max-width:100%;">
+          ${heightGuide}
+          <img data-field="sizeGuideImage" src="${src}" alt="${alt}" style="grid-column:${imageColumn};grid-row:1;position:relative;z-index:10;display:block;width:auto;max-width:${hasHeightGuide ? 430 : 540}px;max-height:500px;object-fit:contain;" />
+          ${widthGuide}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function repairSizeGuideFrameHtml(html: string): string {
+  if (!html.includes('data-container="sizeImages"')) {
+    return html;
+  }
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const container = doc.querySelector<HTMLElement>('[data-container="sizeImages"]');
+  const frame = container?.querySelector<HTMLElement>('[data-role="size-guide-frame"]');
+  const img = (frame ?? container)?.querySelector<HTMLImageElement>('img');
+  if (!container || !img) return html;
+  const heightLabel = (frame ?? container)
+    .querySelector<HTMLElement>('[data-field="sizeHeightLabel"]')
+    ?.textContent?.trim() ?? '';
+  const widthLabel = (frame ?? container)
+    .querySelector<HTMLElement>('[data-field="sizeWidthLabel"]')
+    ?.textContent?.trim() ?? '';
+  const repairedFrame = buildSizeGuideFrameHtml({
+    src: img.getAttribute('src') ?? '',
+    alt: img.getAttribute('alt') ?? '제품 사이즈',
+    heightLabel,
+    widthLabel,
+  });
+  if (frame) {
+    frame.outerHTML = repairedFrame;
+  } else {
+    container.innerHTML = repairedFrame;
+  }
+  return /<html[\s>]/i.test(html) ? `<!DOCTYPE html>\n${doc.documentElement.outerHTML}` : doc.body.innerHTML;
+}
+
+function repairProductInfoTableWidthHtml(html: string): string {
+  if (!html.includes('data-container="productInfo"')) return html;
+
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const container = doc.querySelector<HTMLElement>('[data-container="productInfo"]');
+  if (!container) return html;
+  const safetyLabelContainer = doc.querySelector<HTMLElement>('[data-container="safetyLabelImages"]');
+  if (safetyLabelContainer?.querySelector('img')) {
+    container.remove();
+    return /<html[\s>]/i.test(html) ? `<!DOCTYPE html>\n${doc.documentElement.outerHTML}` : doc.body.innerHTML;
+  }
+
+  container.style.width = '82%';
+  container.style.maxWidth = '500px';
+  container.style.marginLeft = 'auto';
+  container.style.marginRight = 'auto';
+  return /<html[\s>]/i.test(html) ? `<!DOCTYPE html>\n${doc.documentElement.outerHTML}` : doc.body.innerHTML;
+}
+
 /**
  * GrapesJS 저장본은 body fragment 만 남을 수 있다. 그 경우 Tailwind/template CSS 를
  * 다시 붙여 상세 미리보기와 다음 에디터 진입에서 원래 디자인을 유지한다.
  */
 export function ensureStyledDetailHtml(html: string, templateCss = ''): string {
-  const source = html.trim();
+  const source = normalizeEditedHtmlAssets(
+    repairProductInfoTableWidthHtml(repairSizeGuideFrameHtml(html.trim())),
+  );
   if (!source) return html;
 
   const profile = inferEditedHtmlStyleProfile(source);
@@ -236,7 +398,7 @@ export function ensureStyledDetailHtml(html: string, templateCss = ''): string {
   <meta name="viewport" content="width=${profile.viewportWidth}, initial-scale=1" />
   ${needsTailwindRuntime ? '<script src="https://cdn.tailwindcss.com"></script>' : ''}
   ${fontLinks}
-  ${templateCss ? `<style>${templateCss}</style>` : ''}
+  ${templateCss ? `<style>${absolutizeFontUrls(templateCss)}</style>` : ''}
   <style>${EDITED_HTML_FALLBACK_CSS}</style>
   <style>
     body {

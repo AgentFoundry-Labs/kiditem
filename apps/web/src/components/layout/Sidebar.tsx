@@ -36,6 +36,7 @@ import {
   Wand2,
   Link2,
   LogOut,
+  FolderOpen,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -70,7 +71,8 @@ const menuSections: MenuSection[] = [
     label: '상품 파이프라인',
     collapsible: true,
     items: [
-      { href: '/sourcing', label: '소싱 AI', icon: Search },
+      { href: '/sourcing-ai', label: '소싱 AI', icon: Search },
+      { href: '/sourcing', label: '상품 콘텐츠 관리', icon: FolderOpen },
       { href: '/generate', label: '상세페이지 생성', icon: Sparkles },
       { href: '/thumbnails', label: '썸네일 AI', icon: ImageIcon },
       { href: '/thumbnail-editor', label: '썸네일 편집기', icon: Wand2 },

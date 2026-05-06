@@ -13,7 +13,7 @@ export default function SourcingToolbar({ showScrapeInput, onToggleScrapeInput }
     <div className="flex items-center justify-between gap-3 px-5 h-12 border-b border-slate-200">
       <div className="flex items-center text-xs">
         <button className="px-3 h-7 font-semibold text-slate-900 border-b-2 border-emerald-500 -mb-[calc(0.75rem+1px)] pb-3">
-          수집 목록
+          콘텐츠 보관함
         </button>
         <button className="px-3 h-7 font-medium text-slate-400 hover:text-slate-600">
           간단 편집

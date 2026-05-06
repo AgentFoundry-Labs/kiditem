@@ -23,14 +23,16 @@ interface Props {
   editedHtml: string | null;
   templateCss: string;
   rawData: Record<string, unknown> | null;
+  imageUrls: string[];
+  thumbnailUrl: string | null;
   /** 사용자가 생성 이력에서 고른 KP entry id. null = 최신 자동. */
   selectedKidsPlayfulId: string | null;
-  /** 사용자가 생성 이력에서 고른 simple-vertical entry id. */
-  selectedSimpleVerticalId: string | null;
+  /** 사용자가 생성 이력에서 고른 KIDITEM DESIGN entry id. */
+  selectedBoldVerticalId: string | null;
   /** 사용자가 생성 이력에서 고른 ContentAgent entry id. */
   selectedAgentId: string | null;
   onSelectKidsPlayful: (id: string | null) => void;
-  onSelectSimpleVertical: (id: string | null) => void;
+  onSelectBoldVertical: (id: string | null) => void;
   onSelectAgent: (id: string | null) => void;
 }
 
@@ -44,11 +46,13 @@ export default function ProductTabContent({
   editedHtml,
   templateCss,
   rawData,
+  imageUrls,
+  thumbnailUrl,
   selectedKidsPlayfulId,
-  selectedSimpleVerticalId,
+  selectedBoldVerticalId,
   selectedAgentId,
   onSelectKidsPlayful,
-  onSelectSimpleVertical,
+  onSelectBoldVertical,
   onSelectAgent,
 }: Props) {
   const generateThumbnail = useGenerateSourcingThumbnail();
@@ -190,7 +194,7 @@ export default function ProductTabContent({
           editedHtml={editedHtml}
           templateCss={templateCss}
           selectedKidsPlayfulId={selectedKidsPlayfulId}
-          selectedSimpleVerticalId={selectedSimpleVerticalId}
+          selectedBoldVerticalId={selectedBoldVerticalId}
           selectedAgentId={selectedAgentId}
         />
       );
@@ -202,16 +206,23 @@ export default function ProductTabContent({
           currentPreviewHtml={editedHtml ?? detailPreviewHtml}
           templateCss={templateCss}
           selectedKidsPlayfulId={selectedKidsPlayfulId}
-          selectedSimpleVerticalId={selectedSimpleVerticalId}
+          selectedBoldVerticalId={selectedBoldVerticalId}
           selectedAgentId={selectedAgentId}
           onSelectKidsPlayful={onSelectKidsPlayful}
-          onSelectSimpleVertical={onSelectSimpleVertical}
+          onSelectBoldVertical={onSelectBoldVertical}
           onSelectAgent={onSelectAgent}
         />
       );
 
     case 'raw':
-      return <RawDataTab rawData={rawData} />;
+      return (
+        <RawDataTab
+          productId={productId}
+          rawData={rawData}
+          imageUrls={imageUrls}
+          thumbnailUrl={thumbnailUrl}
+        />
+      );
 
     default:
       return null;

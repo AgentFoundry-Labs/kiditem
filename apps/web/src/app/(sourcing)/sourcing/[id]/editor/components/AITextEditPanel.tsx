@@ -28,12 +28,66 @@ async function transformText(params: {
 }
 
 function applyTextToComponent(component: any, newText: string): void {
+  const textLeaves = collectTextLeaves(component);
+  if (textLeaves.length > 1) {
+    const lines = newText
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (lines.length >= textLeaves.length) {
+      textLeaves.forEach((leaf, index) => {
+        leaf.set('content', lines[index] ?? '');
+      });
+      return;
+    }
+  }
+
+  const textLeaf = textLeaves[0];
+  if (textLeaf) {
+    textLeaf.set('content', newText);
+    return;
+  }
+
   const children = component.components();
   if (children && children.length > 0) {
     children.reset([{ type: 'textnode', content: newText }]);
   } else {
     component.set('content', newText);
   }
+}
+
+function getChildComponents(component: any): any[] {
+  const children = component.components?.();
+  if (!children) return [];
+  if (Array.isArray(children)) return children;
+  if (Array.isArray(children.models)) return children.models;
+  if (typeof children.toArray === 'function') return children.toArray();
+  return [];
+}
+
+function isTextNode(component: any): boolean {
+  return component?.get?.('type') === 'textnode';
+}
+
+function collectTextLeaves(component: any): any[] {
+  const children = getChildComponents(component);
+  if (children.length === 0) return isTextNode(component) ? [component] : [];
+
+  const preferredChildren = [...children].sort((a, b) => {
+    const aAttrs = a.getAttributes?.() ?? {};
+    const bAttrs = b.getAttributes?.() ?? {};
+    const aPriority = aAttrs['data-field'] ? 0 : 1;
+    const bPriority = bAttrs['data-field'] ? 0 : 1;
+    return aPriority - bPriority;
+  });
+
+  return preferredChildren.flatMap((child) => {
+    if (isTextNode(child)) {
+      const content = String(child.get?.('content') ?? '').trim();
+      return content ? [child] : [];
+    }
+    return collectTextLeaves(child);
+  });
 }
 
 const PRESETS = [

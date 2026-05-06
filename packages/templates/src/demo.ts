@@ -29,8 +29,13 @@ export const demoDetailPageData: DetailPageData = {
   heroBanner: photo('water-gun-hero', 1200, 900),
   sizeImages: [],
   sizeDisplayMode: 'normal',
-  colorImages: [],
+  sizeGuideOverlay: true,
+  sizeHeightLabel: '32cm',
+  sizeWidthLabel: '18cm',
+  colorImages: [photo('water-gun-color-pink-white', 900, 760)],
   colorDisplayMode: 'normal',
+  usageImages: [photo('water-gun-usage-steps', 900, 760)],
+  usageSubtitle: '사용 전 물통을 채우고 펌프를 당겨 주세요.',
   // 14장 — 각 섹션이 detailImages 인덱스로 사진 가져감
   detailImages: [
     photo('wg-side-1', 1200, 900),       // [0] Reviews lifestyle
@@ -48,6 +53,9 @@ export const demoDetailPageData: DetailPageData = {
     photo('wg-gal-1', 1200, 800),         // [12] Gallery 1
     photo('wg-gal-2', 1200, 700),         // [13] Gallery 2
   ],
+  detailPackageImages: [],
+  detailPackageLabel: '',
+  safetyLabelImages: [],
 
   keyPoints: [
     {
@@ -103,11 +111,11 @@ export const demoDetailPageData: DetailPageData = {
     '소용량 물통 주의...·물 금방 떨어져요',
   ],
 
-  sectionName: '여름 물놀이 필수템',
-  sectionTitle: '물놀이참사',
+  sectionName: '더블샷슈퍼워터건',
+  sectionTitle: '여름 물총 게임!',
   sectionSubtitle: ['이런 점이 다르고', '이래서 더 좋아요'],
   detailTitle: 'DETAIL',
-  sizeTitle: '사이즈 안내',
+  sizeTitle: '제품 사이즈',
   sizeSubtitle: '실측 기준 ±1cm',
   colorTitle: '색상 안내',
   colorSubtitle: '실제 색상은 다를 수 있습니다',
