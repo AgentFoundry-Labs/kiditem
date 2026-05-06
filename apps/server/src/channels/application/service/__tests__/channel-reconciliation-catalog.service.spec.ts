@@ -42,6 +42,7 @@ describe('ChannelReconciliationCatalogService', () => {
       findFirst: ReturnType<typeof vi.fn>;
       upsert: ReturnType<typeof vi.fn>;
       update: ReturnType<typeof vi.fn>;
+      deleteMany: ReturnType<typeof vi.fn>;
     };
   };
 
@@ -89,11 +90,12 @@ describe('ChannelReconciliationCatalogService', () => {
         findFirst: vi.fn(async () => null),
         upsert: vi.fn(async ({ create }) => ({ id: `item-${create.itemKey}`, ...create })),
         update: vi.fn(async ({ data }) => data),
+        deleteMany: vi.fn(async () => ({ count: 0 })),
       },
     };
   });
 
-  it('creates catalog rows for linked and missing product options', async () => {
+  it('creates catalog rows only for image-ready linked and missing product options', async () => {
     const service = new ChannelReconciliationCatalogService(
       prisma as unknown as PrismaService,
     );
@@ -106,10 +108,31 @@ describe('ChannelReconciliationCatalogService', () => {
           organizationId: ORG,
           isDeleted: false,
           isActive: true,
-          master: { isDeleted: false, pipelineStep: null },
+          master: {
+            isDeleted: false,
+            pipelineStep: null,
+            OR: [
+              { thumbnailUrl: { not: null } },
+              { imageUrl: { not: null } },
+              { images: { some: { isDeleted: false } } },
+            ],
+          },
         },
       }),
     );
+    expect(prisma.channelReconciliationItem.deleteMany).toHaveBeenCalledWith({
+      where: {
+        organizationId: ORG,
+        channel: 'coupang',
+        source: 'catalog_inventory',
+        itemKey: {
+          notIn: [
+            'kiditem_option:option-linked',
+            'kiditem_option:option-missing',
+          ],
+        },
+      },
+    });
     expect(prisma.channelReconciliationItem.upsert).toHaveBeenCalledTimes(2);
 
     const linkedCreate = prisma.channelReconciliationItem.upsert.mock.calls[0][0].create;

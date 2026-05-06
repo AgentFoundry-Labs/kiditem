@@ -97,7 +97,15 @@ export class ChannelReconciliationCatalogService {
           organizationId,
           isDeleted: false,
           isActive: true,
-          master: { isDeleted: false, pipelineStep: null },
+          master: {
+            isDeleted: false,
+            pipelineStep: null,
+            OR: [
+              { thumbnailUrl: { not: null } },
+              { imageUrl: { not: null } },
+              { images: { some: { isDeleted: false } } },
+            ],
+          },
         },
         orderBy: [{ createdAt: 'desc' }],
         take: CATALOG_SYNC_LIMIT,
@@ -152,6 +160,15 @@ export class ChannelReconciliationCatalogService {
       })) as CatalogOption[];
 
       totalCount = options.length;
+      const eligibleItemKeys = options.map((option) => `kiditem_option:${option.id}`);
+      await this.prisma.channelReconciliationItem.deleteMany({
+        where: {
+          organizationId,
+          channel: RECONCILIATION_CHANNEL,
+          source: CATALOG_RECONCILIATION_SOURCE,
+          itemKey: { notIn: eligibleItemKeys },
+        },
+      });
 
       for (const option of options) {
         const data = toCatalogItemData(option);
