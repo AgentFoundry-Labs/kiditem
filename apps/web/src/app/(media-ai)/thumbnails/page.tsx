@@ -81,12 +81,16 @@ export default function ThumbnailsPage() {
 
   useEffect(() => {
     if (!sync.startError) return;
+    if (sync.isCancelledError) {
+      toast.info('이미지 수집을 중단했습니다');
+      return;
+    }
     toast.error(
       `이미지 동기화 실패: ${
         sync.startError instanceof Error ? sync.startError.message : '알 수 없는 오류'
       }`,
     );
-  }, [sync.startError]);
+  }, [sync.startError, sync.isCancelledError]);
 
   useEffect(() => {
     if (!syncStatus || syncStatus.status === 'running') return;
@@ -390,9 +394,21 @@ export default function ThumbnailsPage() {
           generationQuery.refetch();
         }}
         onSyncImages={() => sync.start()}
+        onCancelSyncImages={sync.cancel}
         syncRunning={sync.isRunning}
-        syncPhase={syncStatus?.phase ?? null}
-        syncProgress={syncStatus ? { processed: syncStatus.processed, total: syncStatus.total } : null}
+        syncCanCancel={!!sync.extensionRunId}
+        syncCancelling={sync.extensionStatus?.status === 'cancelled'}
+        syncPhase={sync.extensionStatus?.status === 'running' ? 'scraping' : syncStatus?.phase ?? null}
+        syncProgress={
+          sync.extensionStatus?.status === 'running'
+            ? {
+                processed: sync.extensionStatus.currentPage ?? 0,
+                total: sync.extensionStatus.totalPages ?? 0,
+              }
+            : syncStatus
+              ? { processed: syncStatus.processed, total: syncStatus.total }
+              : null
+        }
       />
 
       {batch.isBatchRunning && (

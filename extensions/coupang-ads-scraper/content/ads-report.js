@@ -593,6 +593,19 @@
   // 쿠팡 광고 대시보드는 AntD range calendar. 트리거 → popup → 좌측 패널 월 네비 → 날짜 셀 두 번 클릭 → 적용.
   async function setDateRange(ymd) {
     const [targetY, targetM, targetD] = ymd.split("-").map((v) => parseInt(v, 10));
+    if (
+      !Number.isInteger(targetY) ||
+      !Number.isInteger(targetM) ||
+      !Number.isInteger(targetD) ||
+      targetM < 1 ||
+      targetM > 12 ||
+      targetD < 1 ||
+      targetD > 31
+    ) {
+      console.warn(`[KIDITEM] setDateRange: invalid date ${ymd}`);
+      return false;
+    }
+    const targetMonthIndex = targetY * 12 + targetM;
 
     // 1) 트리거 버튼 클릭 — SPA mount 가 늦으면 즉시 못 잡으므로 최대 15초 폴링
     const triggerSelector = "button.dashboard-metric-widget-date-indicator-revamp.ant-dropdown-trigger";
@@ -610,10 +623,20 @@
     await sleep(600);
 
     // 2) popup 찾기 — antd dropdown mount 도 한 박자 늦을 수 있어 폴링
+    const findVisiblePopup = () => {
+      const popups = Array.from(
+        document.querySelectorAll(".ant-dropdown.dashboard-metric-widget-calendar-dropdown")
+      );
+      return popups.find((el) => {
+        const rect = el.getBoundingClientRect();
+        return !el.classList.contains("ant-dropdown-hidden") && rect.width > 0 && rect.height > 0;
+      }) || null;
+    };
+
     let popup = null;
     for (let i = 0; i < 15; i++) {
-      popup = document.querySelector(".ant-dropdown.dashboard-metric-widget-calendar-dropdown");
-      if (popup && !popup.classList.contains("ant-dropdown-hidden")) break;
+      popup = findVisiblePopup();
+      if (popup) break;
       await sleep(200);
     }
     if (!popup) {
@@ -627,54 +650,107 @@
       return false;
     }
 
-    // 3) 좌측 패널 year/month를 타겟으로 네비게이션
-    const readHeader = () => {
-      const y = parseInt(left.querySelector(".ant-calendar-year-select")?.textContent?.replace(/[^\d]/g, "") || "0", 10);
-      const m = parseInt(left.querySelector(".ant-calendar-month-select")?.textContent?.replace(/[^\d]/g, "") || "0", 10);
-      return { y, m };
+    // 3) 좌/우 패널 중 타겟 월이 보일 때까지 네비게이션
+    const readPanel = (panel, name) => {
+      if (!panel) return null;
+      const yearText = panel.querySelector(".ant-calendar-year-select")?.textContent || "";
+      const monthText = panel.querySelector(".ant-calendar-month-select")?.textContent || "";
+      const y = parseInt(yearText.replace(/[^\d]/g, ""), 10);
+      const m = parseInt(monthText.replace(/[^\d]/g, ""), 10);
+      if (!Number.isInteger(y) || !Number.isInteger(m) || y <= 0 || m < 1 || m > 12) {
+        return null;
+      }
+      return { panel, name, y, m, monthIndex: y * 12 + m };
+    };
+    const readPanels = () => [readPanel(left, "left"), readPanel(right, "right")].filter(Boolean);
+    const findTargetPanel = () => readPanels().find((panel) => panel.monthIndex === targetMonthIndex) || null;
+    const panelKey = (panels) => panels.map((panel) => `${panel.name}:${panel.monthIndex}`).join("|");
+
+    let targetPanel = findTargetPanel();
+    if (!targetPanel) {
+      let guard = 0;
+      while (guard++ < 60) {
+        const panels = readPanels();
+        if (panels.length === 0) {
+          console.warn("[KIDITEM] setDateRange: calendar header unreadable");
+          return false;
+        }
+
+        const first = panels[0];
+        const last = panels[panels.length - 1];
+        const direction = targetMonthIndex < first.monthIndex ? "prev" : "next";
+        const beforeKey = panelKey(panels);
+        const btn = direction === "prev"
+          ? left.querySelector(".ant-calendar-prev-month-btn")
+          : (right && right.querySelector(".ant-calendar-next-month-btn"))
+            || left.querySelector(".ant-calendar-next-month-btn");
+
+        if (!btn) {
+          console.warn(`[KIDITEM] setDateRange: month nav btn not found (direction=${direction})`);
+          return false;
+        }
+
+        btn.click();
+        await sleep(220);
+
+        targetPanel = findTargetPanel();
+        if (targetPanel) break;
+
+        let afterPanels = readPanels();
+        let afterKey = panelKey(afterPanels);
+        for (let wait = 0; wait < 5 && afterPanels.length > 0 && afterKey === beforeKey; wait++) {
+          await sleep(200);
+          targetPanel = findTargetPanel();
+          if (targetPanel) break;
+          afterPanels = readPanels();
+          afterKey = panelKey(afterPanels);
+        }
+        if (targetPanel) break;
+
+        if (afterPanels.length === 0 || afterKey === beforeKey) {
+          console.warn(`[KIDITEM] setDateRange: month nav stalled at ${beforeKey}`);
+          return false;
+        }
+
+        const afterFirst = afterPanels[0];
+        const afterLast = afterPanels[afterPanels.length - 1];
+        if (
+          (direction === "next" && afterLast.monthIndex <= last.monthIndex) ||
+          (direction === "prev" && afterFirst.monthIndex >= first.monthIndex)
+        ) {
+          console.warn(`[KIDITEM] setDateRange: month nav moved unexpectedly (${beforeKey} -> ${afterKey})`);
+          return false;
+        }
+      }
+    }
+
+    if (!targetPanel) {
+      console.warn(`[KIDITEM] setDateRange: target month ${targetY}-${String(targetM).padStart(2, "0")} not visible`);
+      return false;
+    }
+
+    const findTargetCell = () => {
+      const cells = targetPanel.panel.querySelectorAll("td.ant-calendar-cell:not(.ant-calendar-last-month-cell):not(.ant-calendar-next-month-cell)");
+      for (const c of cells) {
+        const txt = c.querySelector(".ant-calendar-date")?.textContent?.trim();
+        if (txt === String(targetD)) {
+          return c.querySelector(".ant-calendar-date");
+        }
+      }
+      return null;
     };
 
-    let guard = 0;
-    while (guard++ < 60) {
-      const { y, m } = readHeader();
-      if (y === targetY && m === targetM) break;
-      // diff = (targetY*12+targetM) - (y*12+m). 음수면 과거로 이동 (prev-month), 양수면 미래 (next-month).
-      // AntD range calendar 는 좌측=prev-only, 우측=next-only 라 미래로 갈 때 우측의 next 버튼을 클릭해야 함.
-      const diff = (targetY * 12 + targetM) - (y * 12 + m);
-      if (diff === 0) break;
-      let btn = null;
-      if (diff < 0) {
-        btn = left.querySelector(".ant-calendar-prev-month-btn");
-      } else {
-        btn = (right && right.querySelector(".ant-calendar-next-month-btn"))
-          || left.querySelector(".ant-calendar-next-month-btn");
-      }
-      if (!btn) {
-        console.warn(`[KIDITEM] setDateRange: month nav btn not found (diff=${diff})`);
-        return false;
-      }
-      btn.click();
-      await sleep(180);
-    }
-
     // 4) 날짜 셀 찾기 (이전/다음 달 셀 제외)
-    const cells = left.querySelectorAll("td.ant-calendar-cell:not(.ant-calendar-last-month-cell):not(.ant-calendar-next-month-cell)");
-    let targetCell = null;
-    for (const c of cells) {
-      const txt = c.querySelector(".ant-calendar-date")?.textContent?.trim();
-      if (txt === String(targetD)) {
-        targetCell = c.querySelector(".ant-calendar-date");
-        break;
-      }
-    }
+    let targetCell = findTargetCell();
     if (!targetCell) {
-      console.warn(`[KIDITEM] setDateRange: target cell ${targetD} not found in left panel`);
+      console.warn(`[KIDITEM] setDateRange: target cell ${targetD} not found in ${targetPanel.name} panel`);
       return false;
     }
 
     // 5) 같은 날짜 두 번 클릭 → range start=end=ymd
     targetCell.click();
     await sleep(200);
+    targetCell = findTargetCell() || targetCell;
     targetCell.click();
     await sleep(300);
 

@@ -44,7 +44,18 @@ function getChrome(): ChromeRuntime | undefined {
 function sendToExtension(
   id: string,
   message: unknown,
-): Promise<{ success?: boolean; results?: unknown[]; error?: string }> {
+): Promise<{
+  success?: boolean;
+  results?: unknown[];
+  error?: string;
+  status?: string;
+  runId?: string;
+  completed?: number;
+  failed?: number;
+  total?: number;
+  current?: number;
+  currentLabel?: string;
+}> {
   return new Promise((resolve, reject) => {
     try {
       const c = getChrome();
@@ -544,10 +555,24 @@ export default function ReadinessModal({
       if (startResp?.success === false) {
         throw new Error(startResp.error ?? '익스텐션 수집 시작 실패');
       }
+      const runId = typeof startResp.runId === 'string' ? startResp.runId : undefined;
+      const cancelCollect = async () => {
+        if (!runId) return;
+        await sendToExtension(eid, { action: 'cancelBatchScrape', runId });
+        toast.info('데이터 수집 중단 요청을 보냈습니다');
+      };
 
       const totalUrls = check.scrapeUrls.length;
       toast.info(`${totalUrls}일치 순차 수집 시작 — 한 탭씩 자동으로 처리됩니다`, {
-        duration: 4000,
+        duration: 6000,
+        action: runId
+          ? {
+              label: '중단',
+              onClick: () => {
+                void cancelCollect();
+              },
+            }
+          : undefined,
       });
 
       // 진행률 폴링 (chrome.storage.kiditem_batch_scrape) — 일자당 최대 3분 + 여유
@@ -559,6 +584,7 @@ export default function ReadinessModal({
           try {
             const status = (await sendToExtension(eid, {
               action: 'getBatchScrapeStatus',
+              runId,
             })) as {
               status?: string;
               completed?: number;
@@ -577,11 +603,14 @@ export default function ReadinessModal({
             if (
               status?.status === 'done' ||
               status?.status === 'error' ||
+              status?.status === 'cancelled' ||
               status?.status === 'idle'
             ) {
               const ok = status?.completed ?? 0;
               const fail = status?.failed ?? 0;
-              if (fail === 0) {
+              if (status?.status === 'cancelled') {
+                toast.info(`수집 중단: 성공 ${ok} / 실패 ${fail} / 전체 ${status?.total ?? totalUrls}`);
+              } else if (fail === 0) {
                 toast.success(`${ok}/${status?.total ?? totalUrls}일 수집 완료`);
               } else {
                 toast.warning(
@@ -618,6 +647,23 @@ export default function ReadinessModal({
             urls: [{ id: 'ad-sync-sweep', url: sweepUrl, label: '광고 동기화 (캠페인별 상품)' }],
           });
           if (sweepResp?.success !== false) {
+            const sweepRunId = typeof sweepResp.runId === 'string' ? sweepResp.runId : undefined;
+            const cancelSweep = async () => {
+              if (!sweepRunId) return;
+              await sendToExtension(eid, { action: 'cancelBatchScrape', runId: sweepRunId });
+              toast.info('광고 동기화 중단 요청을 보냈습니다');
+            };
+            if (sweepRunId) {
+              toast.info('캠페인별 상품 수집 중...', {
+                duration: 6000,
+                action: {
+                  label: '중단',
+                  onClick: () => {
+                    void cancelSweep();
+                  },
+                },
+              });
+            }
             // 캠페인 N개 × ~30s. 최대 8분.
             await new Promise<void>((resolve) => {
               const sStart = Date.now();
@@ -626,13 +672,16 @@ export default function ReadinessModal({
                 try {
                   const st = (await sendToExtension(eid, {
                     action: 'getBatchScrapeStatus',
+                    runId: sweepRunId,
                   })) as { status?: string; failed?: number };
                   if (
                     st?.status === 'done' ||
                     st?.status === 'error' ||
+                    st?.status === 'cancelled' ||
                     st?.status === 'idle'
                   ) {
-                    if (st?.status === 'error') toast.error('광고 동기화 실패');
+                    if (st?.status === 'cancelled') toast.info('광고 동기화 중단됨');
+                    else if (st?.status === 'error') toast.error('광고 동기화 실패');
                     else if ((st?.failed ?? 0) > 0) toast.warning('광고 동기화 일부 실패');
                     else toast.success('광고 동기화 완료');
                     resolve();

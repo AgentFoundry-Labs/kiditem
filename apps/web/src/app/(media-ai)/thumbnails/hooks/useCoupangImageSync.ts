@@ -34,8 +34,21 @@ interface ExtensionMessageResponse {
   success?: boolean;
   error?: string;
   pendingLogin?: boolean;
+  cancelled?: boolean;
   rows?: CoupangInventoryImageRow[];
   total?: number;
+  runId?: string;
+}
+
+interface CoupangImageRowsExtensionStatus {
+  runId?: string;
+  status?: 'idle' | 'running' | 'done' | 'error' | 'cancelled';
+  phase?: 'opening' | 'loading' | 'scraping' | 'login' | 'finished';
+  currentPage?: number;
+  totalPages?: number;
+  rows?: number;
+  error?: string;
+  cancelled?: boolean;
 }
 
 type ChromeRuntime = {
@@ -47,6 +60,7 @@ type ChromeRuntime = {
 
 const STORAGE_KEY = 'kiditem:coupang-image-sync:job-id';
 const EXTENSION_ID_KEY = 'kiditem-ext-id';
+const CANCELLED_MESSAGE = '이미지 수집이 중단되었습니다';
 
 function readStoredJobId(): string | null {
   if (typeof window === 'undefined') return null;
@@ -61,6 +75,13 @@ function writeStoredJobId(jobId: string | null) {
 
 function getChrome(): ChromeRuntime | undefined {
   return (window as unknown as { chrome?: ChromeRuntime }).chrome;
+}
+
+function makeRunId(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 function sendToExtension(id: string, message: unknown): Promise<ExtensionMessageResponse> {
@@ -125,12 +146,15 @@ async function detectExtensionId(): Promise<string | null> {
   return null;
 }
 
-async function scrapeRowsWithExtension(): Promise<CoupangInventoryImageRow[] | null> {
-  const extensionId = await detectExtensionId();
-  if (!extensionId) return null;
-
-  const response = await sendToExtension(extensionId, { action: 'scrapeCoupangImageRows' });
+async function scrapeRowsWithExtension(
+  extensionId: string,
+  runId: string,
+): Promise<CoupangInventoryImageRow[]> {
+  const response = await sendToExtension(extensionId, { action: 'scrapeCoupangImageRows', runId });
   if (!response?.success) {
+    if (response?.cancelled) {
+      throw new Error(CANCELLED_MESSAGE);
+    }
     throw new Error(
       response?.error ??
         (response?.pendingLogin
@@ -144,14 +168,24 @@ async function scrapeRowsWithExtension(): Promise<CoupangInventoryImageRow[] | n
 
 export function useCoupangImageSync() {
   const [jobId, setJobId] = useState<string | null>(() => readStoredJobId());
+  const [extensionId, setExtensionId] = useState<string | null>(null);
+  const [extensionRunId, setExtensionRunId] = useState<string | null>(null);
 
   const startMutation = useMutation({
     mutationFn: async () => {
-      const extensionRows = await scrapeRowsWithExtension();
-      if (extensionRows) {
-        return apiClient.post<{ jobId: string }>('/api/coupang-image-sync/from-rows', {
-          rows: extensionRows,
-        });
+      const detectedExtensionId = await detectExtensionId();
+      if (detectedExtensionId) {
+        const runId = makeRunId();
+        setExtensionId(detectedExtensionId);
+        setExtensionRunId(runId);
+        try {
+          const extensionRows = await scrapeRowsWithExtension(detectedExtensionId, runId);
+          return apiClient.post<{ jobId: string }>('/api/coupang-image-sync/from-rows', {
+            rows: extensionRows,
+          });
+        } finally {
+          setExtensionRunId(null);
+        }
       }
       return apiClient.post<{ jobId: string }>('/api/coupang-image-sync', {});
     },
@@ -160,6 +194,22 @@ export function useCoupangImageSync() {
         writeStoredJobId(data.jobId);
         setJobId(data.jobId);
       }
+    },
+  });
+
+  const extensionStatusQuery = useQuery({
+    queryKey: [...queryKeys.coupangImageSync.all, 'extension', extensionRunId],
+    queryFn: async () => {
+      if (!extensionId || !extensionRunId) return null;
+      return sendToExtension(extensionId, {
+        action: 'getCoupangImageRowsStatus',
+        runId: extensionRunId,
+      }) as Promise<CoupangImageRowsExtensionStatus | null>;
+    },
+    enabled: !!extensionId && !!extensionRunId,
+    refetchInterval: (query) => {
+      const data = query.state.data as CoupangImageRowsExtensionStatus | null | undefined;
+      return data?.status === 'running' ? 1000 : false;
     },
   });
 
@@ -203,8 +253,18 @@ export function useCoupangImageSync() {
   const reset = useCallback(() => {
     writeStoredJobId(null);
     setJobId(null);
+    setExtensionRunId(null);
     startMutation.reset();
   }, [startMutation]);
+
+  const cancel = useCallback(async () => {
+    const activeExtensionId = extensionId ?? await detectExtensionId();
+    if (!activeExtensionId || !extensionRunId) return;
+    await sendToExtension(activeExtensionId, {
+      action: 'cancelCoupangImageRows',
+      runId: extensionRunId,
+    });
+  }, [extensionId, extensionRunId]);
 
   const status = statusQuery.data ?? currentQuery.data?.job ?? null;
   const isRunning = startMutation.isPending || status?.status === 'running';
@@ -212,11 +272,15 @@ export function useCoupangImageSync() {
 
   return {
     start: () => startMutation.mutate(),
+    cancel,
     startError: startMutation.error,
     jobId,
     status,
+    extensionStatus: extensionStatusQuery.data ?? null,
+    extensionRunId,
     isRunning,
     isFinished,
     reset,
+    isCancelledError: startMutation.error instanceof Error && startMutation.error.message === CANCELLED_MESSAGE,
   };
 }

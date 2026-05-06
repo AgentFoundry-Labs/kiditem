@@ -3,7 +3,7 @@
 // 광고동기화 실행 훅 — 운영중 캠페인 자동 순회 + 어제 단일일자 일별 적재.
 // AdSyncButton(헤더 단독 버튼) 과 ReadinessModal 의 인라인 row 가 공유.
 
-import { useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
@@ -29,6 +29,7 @@ function sendToExtension(
   success?: boolean;
   error?: string;
   status?: string;
+  cancelled?: boolean;
   total?: number;
   current?: number;
   completed?: number;
@@ -56,6 +57,19 @@ function sendToExtension(
       reject(e instanceof Error ? e : new Error(String(e)));
     }
   });
+}
+
+interface BatchScrapeStatus {
+  status?: 'starting' | 'running' | 'done' | 'error' | 'idle' | 'cancelled';
+  total?: number;
+  current?: number;
+  completed?: number;
+  failed?: number;
+  currentLabel?: string;
+  runId?: string;
+  startedAt?: number;
+  endedAt?: number;
+  cancelled?: boolean;
 }
 
 async function detectExtensionId(): Promise<string | null> {
@@ -112,7 +126,14 @@ interface UseAdSyncOptions {
 
 export function useAdSync({ onComplete }: UseAdSyncOptions = {}) {
   const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState<BatchScrapeStatus | null>(null);
+  const cancelRef = useRef<(() => Promise<void>) | null>(null);
   const queryClient = useQueryClient();
+
+  const cancel = useCallback(async () => {
+    if (!cancelRef.current) return;
+    await cancelRef.current();
+  }, []);
 
   const run = async () => {
     const runId =
@@ -122,6 +143,7 @@ export function useAdSync({ onComplete }: UseAdSyncOptions = {}) {
     const runStartedAt = Date.now();
     let sawCurrentRun = false;
     setLoading(true);
+    setStatus({ status: 'starting', runId, total: 1, current: 0, completed: 0, failed: 0 });
     try {
       const eid = await detectExtensionId();
       if (!eid) {
@@ -134,6 +156,12 @@ export function useAdSync({ onComplete }: UseAdSyncOptions = {}) {
         return;
       }
 
+      cancelRef.current = async () => {
+        await sendToExtension(eid, { action: 'cancelBatchScrape', runId });
+        setStatus((prev) => ({ ...(prev ?? {}), runId, status: 'cancelled', cancelled: true }));
+        toast.info('광고 동기화 중단 요청을 보냈습니다');
+      };
+
       const startResp = await sendToExtension(eid, {
         action: 'scrapeTargets',
         runId,
@@ -143,7 +171,15 @@ export function useAdSync({ onComplete }: UseAdSyncOptions = {}) {
         throw new Error(startResp.error ?? '익스텐션 동기화 시작 실패');
       }
 
-      toast.info('운영중 캠페인 자동 수집 시작 — 새 탭에서 처리됩니다', { duration: 4000 });
+      toast.info('운영중 캠페인 자동 수집 시작 — 새 탭에서 처리됩니다', {
+        duration: 6000,
+        action: {
+          label: '중단',
+          onClick: () => {
+            void cancelRef.current?.();
+          },
+        },
+      });
 
       await new Promise<void>((resolve) => {
         const start = Date.now();
@@ -151,11 +187,12 @@ export function useAdSync({ onComplete }: UseAdSyncOptions = {}) {
         const startGraceMs = 15_000;
         const tick = async () => {
           try {
-            const status = await sendToExtension(eid, { action: 'getBatchScrapeStatus' });
-            const statusStartedAt = status?.startedAt ?? 0;
+            const nextStatus = await sendToExtension(eid, { action: 'getBatchScrapeStatus', runId });
+            setStatus(nextStatus as BatchScrapeStatus);
+            const statusStartedAt = nextStatus?.startedAt ?? 0;
             const isCurrentRun =
-              status?.runId === runId ||
-              (!status?.runId && statusStartedAt >= runStartedAt - 1000);
+              nextStatus?.runId === runId ||
+              (!nextStatus?.runId && statusStartedAt >= runStartedAt - 1000);
 
             if (isCurrentRun) sawCurrentRun = true;
 
@@ -176,13 +213,16 @@ export function useAdSync({ onComplete }: UseAdSyncOptions = {}) {
 
             if (
               isCurrentRun &&
-              (status?.status === 'done' ||
-                status?.status === 'error' ||
-                status?.status === 'idle')
+              (nextStatus?.status === 'done' ||
+                nextStatus?.status === 'error' ||
+                nextStatus?.status === 'cancelled' ||
+                nextStatus?.status === 'idle')
             ) {
-              const ok = status?.completed ?? 0;
-              const fail = status?.failed ?? 0;
-              if (status?.status === 'error') {
+              const ok = nextStatus?.completed ?? 0;
+              const fail = nextStatus?.failed ?? 0;
+              if (nextStatus?.status === 'cancelled') {
+                toast.info(`광고 동기화 중단 — 성공 ${ok} / 실패 ${fail}`);
+              } else if (nextStatus?.status === 'error') {
                 toast.error('광고 동기화 실패');
               } else if (fail > 0) {
                 toast.warning(`광고 동기화 종료 — 성공 ${ok} / 실패 ${fail}`);
@@ -213,9 +253,10 @@ export function useAdSync({ onComplete }: UseAdSyncOptions = {}) {
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '광고 동기화 실패');
     } finally {
+      cancelRef.current = null;
       setLoading(false);
     }
   };
 
-  return { loading, run };
+  return { loading, run, cancel, status };
 }

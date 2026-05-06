@@ -8,6 +8,10 @@ const WING_IMAGE_SYNC_URL =
 const WING_IMAGE_SYNC_MAX_PAGES = 50;
 const WING_IMAGE_SYNC_TAB_KEY = "kiditem_image_sync_tab_id";
 const WING_IMAGE_SYNC_WINDOW_KEY = "kiditem_image_sync_window_id";
+const BATCH_SCRAPE_STATUS_KEY = "kiditem_batch_scrape";
+const BATCH_SCRAPE_CANCEL_KEY = "kiditem_batch_scrape_cancel";
+const IMAGE_SYNC_STATUS_KEY = "kiditem_image_sync_status";
+const IMAGE_SYNC_CANCEL_KEY = "kiditem_image_sync_cancel";
 
 function getAuthToken() {
   return new Promise((resolve) => {
@@ -159,8 +163,9 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     const urls = msg.urls || [];
     const runId = typeof msg.runId === "string" ? msg.runId : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const startedAt = Date.now();
+    chrome.storage.local.remove(BATCH_SCRAPE_CANCEL_KEY);
     chrome.storage.local.set({
-      kiditem_batch_scrape: {
+      [BATCH_SCRAPE_STATUS_KEY]: {
         runId,
         total: urls.length,
         completed: 0,
@@ -172,7 +177,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     });
     handleScrapeTargets(urls, runId, startedAt).catch((e) => {
       chrome.storage.local.set({
-        kiditem_batch_scrape: { runId, status: "error", error: e.message, startedAt, endedAt: Date.now() },
+        [BATCH_SCRAPE_STATUS_KEY]: { runId, status: "error", error: e.message, startedAt, endedAt: Date.now() },
       });
     });
     sendResponse({ success: true, started: true, total: urls.length, runId, startedAt });
@@ -180,9 +185,22 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.action === "getBatchScrapeStatus") {
-    chrome.storage.local.get("kiditem_batch_scrape", (data) => {
-      sendResponse(data.kiditem_batch_scrape || { status: "idle" });
+    chrome.storage.local.get(BATCH_SCRAPE_STATUS_KEY, (data) => {
+      const status = data[BATCH_SCRAPE_STATUS_KEY] || { status: "idle" };
+      const runId = typeof msg.runId === "string" ? msg.runId : null;
+      if (runId && status.runId && status.runId !== runId) {
+        sendResponse({ status: "idle", runId, staleRunId: status.runId });
+        return;
+      }
+      sendResponse(status);
     });
+    return true;
+  }
+
+  if (msg.action === "cancelBatchScrape") {
+    cancelBatchScrape(typeof msg.runId === "string" ? msg.runId : null)
+      .then((result) => sendResponse(result))
+      .catch((e) => sendResponse({ success: false, error: e?.message || "수집 중단 실패" }));
     return true;
   }
 
@@ -192,9 +210,29 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.action === "scrapeCoupangImageRows") {
-    scrapeCoupangImageRows()
+    scrapeCoupangImageRows(typeof msg.runId === "string" ? msg.runId : null)
       .then((result) => sendResponse(result))
       .catch((e) => sendResponse({ success: false, error: e?.message || "쿠팡 이미지 목록 수집 실패" }));
+    return true;
+  }
+
+  if (msg.action === "getCoupangImageRowsStatus") {
+    chrome.storage.local.get(IMAGE_SYNC_STATUS_KEY, (data) => {
+      const status = data[IMAGE_SYNC_STATUS_KEY] || { status: "idle" };
+      const runId = typeof msg.runId === "string" ? msg.runId : null;
+      if (runId && status.runId && status.runId !== runId) {
+        sendResponse({ status: "idle", runId, staleRunId: status.runId });
+        return;
+      }
+      sendResponse(status);
+    });
+    return true;
+  }
+
+  if (msg.action === "cancelCoupangImageRows") {
+    cancelCoupangImageRows(typeof msg.runId === "string" ? msg.runId : null)
+      .then((result) => sendResponse(result))
+      .catch((e) => sendResponse({ success: false, error: e?.message || "이미지 수집 중단 실패" }));
     return true;
   }
 
@@ -312,59 +350,261 @@ function openAndExecuteAdActions(url = AD_ACTION_URL) {
   });
 }
 
-async function scrapeCoupangImageRows() {
+async function scrapeCoupangImageRows(runId = null) {
+  const imageRunId = runId || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const startedAt = Date.now();
+  await chrome.storage.local.remove(IMAGE_SYNC_CANCEL_KEY);
+
   const tab = await getOrCreateWingInventoryTab();
   const tabId = tab?.id;
   if (!tabId) return { success: false, error: "Wing 탭을 열 수 없습니다" };
 
+  await setImageSyncStatus({
+    runId: imageRunId,
+    status: "running",
+    phase: "opening",
+    currentPage: 0,
+    totalPages: 1,
+    rows: 0,
+    tabId,
+    startedAt,
+  });
+
   const allRows = [];
+  const seenPageSignatures = new Set();
   let totalPages = 1;
 
-  for (let page = 1; page <= Math.min(totalPages, WING_IMAGE_SYNC_MAX_PAGES); page++) {
-    const pageUrl = buildWingImageSyncPageUrl(page);
-    const loaded = await updateTabAndWait(tabId, pageUrl, { active: false });
-    if (!loaded.url?.startsWith("https://wing.coupang.com/")) {
-      activateTab(tabId);
-      return {
-        success: false,
-        pendingLogin: true,
-        opened: true,
+  try {
+    for (let page = 1; page <= Math.min(totalPages, WING_IMAGE_SYNC_MAX_PAGES); page++) {
+      if (await isImageSyncCancelled(imageRunId)) {
+        return finishImageSyncCancelled(imageRunId, { tabId, rows: allRows.length, totalPages, currentPage: page - 1 });
+      }
+
+      const pageUrl = buildWingImageSyncPageUrl(page);
+      await setImageSyncStatus({
+        runId: imageRunId,
+        status: "running",
+        phase: "loading",
+        currentPage: page,
+        totalPages,
+        rows: allRows.length,
         tabId,
-        error: "쿠팡 Wing 로그인 필요 — 열린 Wing 이미지 동기화 창에서 로그인 후 다시 실행하세요.",
-      };
+        startedAt,
+      });
+
+      let loaded;
+      try {
+        loaded = await updateTabAndWait(tabId, pageUrl, { active: false });
+      } catch (error) {
+        if (await isImageSyncCancelled(imageRunId)) {
+          return finishImageSyncCancelled(imageRunId, { tabId, rows: allRows.length, totalPages, currentPage: page });
+        }
+        throw error;
+      }
+      if (!isWingInventoryUrl(loaded.url)) {
+        activateTab(tabId);
+        await setImageSyncStatus({
+          runId: imageRunId,
+          status: "error",
+          phase: "login",
+          currentPage: page,
+          totalPages,
+          rows: allRows.length,
+          tabId,
+          startedAt,
+          endedAt: Date.now(),
+          error: "쿠팡 Wing 로그인 필요",
+        });
+        return {
+          success: false,
+          pendingLogin: true,
+          opened: true,
+          tabId,
+          error: "쿠팡 Wing 로그인 필요 — 열린 Wing 이미지 동기화 창에서 로그인 후 다시 실행하세요.",
+        };
+      }
+
+      if (await isImageSyncCancelled(imageRunId)) {
+        return finishImageSyncCancelled(imageRunId, { tabId, rows: allRows.length, totalPages, currentPage: page });
+      }
+
+      await setImageSyncStatus({
+        runId: imageRunId,
+        status: "running",
+        phase: "scraping",
+        currentPage: page,
+        totalPages,
+        rows: allRows.length,
+        tabId,
+        startedAt,
+      });
+
+      await sleep(1500);
+      let response;
+      try {
+        response = await sendTabMessage(tabId, { action: "scrapeInventoryImagePage" });
+      } catch (error) {
+        if (await isImageSyncCancelled(imageRunId)) {
+          return finishImageSyncCancelled(imageRunId, { tabId, rows: allRows.length, totalPages, currentPage: page });
+        }
+        throw error;
+      }
+      if (!response?.success) {
+        if (response?.pendingLogin) activateTab(tabId);
+        await setImageSyncStatus({
+          runId: imageRunId,
+          status: "error",
+          phase: "scraping",
+          currentPage: page,
+          totalPages,
+          rows: allRows.length,
+          tabId,
+          startedAt,
+          endedAt: Date.now(),
+          error: response?.error || "Wing 상품목록 수집 실패",
+        });
+        return {
+          success: false,
+          pendingLogin: !!response?.pendingLogin,
+          opened: true,
+          tabId,
+          error: response?.error || "Wing 상품목록 수집 실패",
+        };
+      }
+
+      const rows = Array.isArray(response.rows) ? response.rows : [];
+      if (rows.length === 0) break;
+      const pageSignature = buildInventoryRowsSignature(rows);
+      if (seenPageSignatures.has(pageSignature)) {
+        console.warn(`[KIDITEM] Wing image sync duplicate page detected at page ${page}; stopping pagination`);
+        break;
+      }
+      seenPageSignatures.add(pageSignature);
+      allRows.push(...rows);
+      const nextTotalPages = Number(response.totalPages || 1);
+      totalPages = Math.max(1, Math.min(nextTotalPages, WING_IMAGE_SYNC_MAX_PAGES));
+
+      await setImageSyncStatus({
+        runId: imageRunId,
+        status: "running",
+        phase: "scraping",
+        currentPage: page,
+        totalPages,
+        rows: allRows.length,
+        tabId,
+        startedAt,
+      });
     }
 
-    await sleep(1500);
-    const response = await sendTabMessage(tabId, { action: "scrapeInventoryImagePage" });
-    if (!response?.success) {
-      if (response?.pendingLogin) activateTab(tabId);
-      return {
-        success: false,
-        pendingLogin: !!response?.pendingLogin,
-        opened: true,
-        tabId,
-        error: response?.error || "Wing 상품목록 수집 실패",
-      };
-    }
+    await setImageSyncStatus({
+      runId: imageRunId,
+      status: "done",
+      phase: "finished",
+      currentPage: Math.min(totalPages, WING_IMAGE_SYNC_MAX_PAGES),
+      totalPages,
+      rows: allRows.length,
+      tabId,
+      startedAt,
+      endedAt: Date.now(),
+    });
 
-    if (Array.isArray(response.rows)) allRows.push(...response.rows);
-    const nextTotalPages = Number(response.totalPages || 1);
-    totalPages = Math.max(1, Math.min(nextTotalPages, WING_IMAGE_SYNC_MAX_PAGES));
+    return {
+      success: true,
+      opened: true,
+      tabId,
+      rows: allRows,
+      total: allRows.length,
+      runId: imageRunId,
+    };
+  } catch (error) {
+    await setImageSyncStatus({
+      runId: imageRunId,
+      status: "error",
+      phase: "finished",
+      currentPage: 0,
+      totalPages,
+      rows: allRows.length,
+      tabId,
+      startedAt,
+      endedAt: Date.now(),
+      error: error?.message || String(error),
+    });
+    throw error;
   }
+}
 
+async function setImageSyncStatus(status) {
+  await chrome.storage.local.set({ [IMAGE_SYNC_STATUS_KEY]: status });
+}
+
+async function isImageSyncCancelled(runId) {
+  const data = await getStorage(IMAGE_SYNC_CANCEL_KEY);
+  const cancel = data[IMAGE_SYNC_CANCEL_KEY];
+  return !!cancel?.cancelled && (!cancel.runId || cancel.runId === runId);
+}
+
+async function finishImageSyncCancelled(runId, status = {}) {
+  await setImageSyncStatus({
+    ...status,
+    runId,
+    status: "cancelled",
+    phase: "finished",
+    endedAt: Date.now(),
+    cancelled: true,
+  });
   return {
-    success: true,
-    opened: true,
-    tabId,
-    rows: allRows,
-    total: allRows.length,
+    success: false,
+    cancelled: true,
+    error: "이미지 수집이 중단되었습니다",
+    runId,
   };
+}
+
+async function cancelCoupangImageRows(runId = null) {
+  await chrome.storage.local.set({
+    [IMAGE_SYNC_CANCEL_KEY]: { cancelled: true, runId, requestedAt: Date.now() },
+  });
+  const data = await getStorage(IMAGE_SYNC_STATUS_KEY);
+  const status = data[IMAGE_SYNC_STATUS_KEY] || {};
+  if (runId && status.runId && status.runId !== runId) {
+    return { success: true, cancelled: false, staleRunId: status.runId };
+  }
+  if (status.windowId) {
+    await removeWindow(status.windowId).catch(() => {});
+    await clearManagedImageSyncWindow();
+  } else if (status.tabId) {
+    await removeTab(status.tabId).catch(() => {});
+    await clearManagedImageSyncWindow();
+  }
+  await setImageSyncStatus({
+    ...status,
+    runId: status.runId || runId,
+    status: "cancelled",
+    phase: "finished",
+    cancelled: true,
+    endedAt: Date.now(),
+  });
+  return { success: true, cancelled: true, runId: status.runId || runId };
 }
 
 function buildWingImageSyncPageUrl(page) {
   const url = new URL(WING_IMAGE_SYNC_URL);
   url.searchParams.set("page", String(page));
   return url.toString();
+}
+
+function buildInventoryRowsSignature(rows) {
+  return rows.map((row) => `${row?.inventoryId || ""}:${row?.url || ""}`).join("|");
+}
+
+function isWingInventoryUrl(url) {
+  if (typeof url !== "string") return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname === "wing.coupang.com" && parsed.pathname.includes("vendor-inventory/list");
+  } catch {
+    return false;
+  }
 }
 
 async function getOrCreateWingInventoryTab() {
@@ -445,6 +685,26 @@ function getWindow(windowId) {
   });
 }
 
+function removeTab(tabId) {
+  return new Promise((resolve) => {
+    try {
+      chrome.tabs.remove(tabId, () => resolve({ success: !chrome.runtime.lastError }));
+    } catch {
+      resolve({ success: false });
+    }
+  });
+}
+
+function removeWindow(windowId) {
+  return new Promise((resolve) => {
+    try {
+      chrome.windows.remove(windowId, () => resolve({ success: !chrome.runtime.lastError }));
+    } catch {
+      resolve({ success: false });
+    }
+  });
+}
+
 function queryTabs(queryInfo) {
   return new Promise((resolve) => {
     chrome.tabs.query(queryInfo, (tabs) => resolve(tabs || []));
@@ -473,14 +733,18 @@ async function getFirstTabInWindow(windowId) {
   return tabs.find((tab) => tab?.id) || null;
 }
 
-function updateTabAndWait(tabId, url, options = {}) {
+async function updateTabAndWait(tabId, url, options = {}) {
+  const before = await getTab(tabId).catch(() => null);
   return new Promise((resolve, reject) => {
     chrome.tabs.update(tabId, { url, active: !!options.active }, () => {
       if (chrome.runtime.lastError) {
         reject(new Error(chrome.runtime.lastError.message));
         return;
       }
-      waitForTabComplete(tabId).then(resolve).catch(reject);
+      waitForTabComplete(tabId, {
+        expectedUrl: url,
+        previousUrl: before?.url || null,
+      }).then(resolve).catch(reject);
     });
   });
 }
@@ -496,11 +760,14 @@ function activateTab(tabId) {
   }
 }
 
-function waitForTabComplete(tabId, timeoutMs = 45000) {
+function waitForTabComplete(tabId, options = {}) {
+  const timeoutMs = options.timeoutMs || 45000;
   return new Promise((resolve, reject) => {
     let done = false;
+    let sawNavigation = false;
     const cleanup = () => {
       chrome.tabs.onUpdated.removeListener(onUpdated);
+      chrome.tabs.onRemoved.removeListener(onRemoved);
       clearTimeout(timeout);
     };
     const finish = (tab) => {
@@ -512,19 +779,57 @@ function waitForTabComplete(tabId, timeoutMs = 45000) {
     const timeout = setTimeout(() => {
       if (done) return;
       done = true;
-      chrome.tabs.onUpdated.removeListener(onUpdated);
+      cleanup();
       reject(new Error("Wing 탭 로딩 타임아웃"));
     }, timeoutMs);
+    const onRemoved = (removedTabId) => {
+      if (removedTabId !== tabId || done) return;
+      done = true;
+      cleanup();
+      reject(new Error("Wing 탭이 닫혔습니다"));
+    };
     const onUpdated = (updatedTabId, changeInfo, updatedTab) => {
-      if (updatedTabId === tabId && changeInfo.status === "complete") finish(updatedTab);
+      if (updatedTabId !== tabId) return;
+      if (changeInfo.status === "loading") {
+        sawNavigation = true;
+        return;
+      }
+      if (changeInfo.status === "complete" && isExpectedTab(updatedTab, { ...options, sawNavigation })) {
+        finish(updatedTab);
+      }
     };
 
     chrome.tabs.onUpdated.addListener(onUpdated);
+    chrome.tabs.onRemoved.addListener(onRemoved);
     chrome.tabs.get(tabId, (tab) => {
       if (chrome.runtime.lastError) return;
-      if (tab?.status === "complete") finish(tab);
+      if (isExpectedTab(tab, options)) finish(tab);
     });
   });
+}
+
+function isExpectedTab(tab, options = {}) {
+  if (tab?.status !== "complete") return false;
+  if (!options.expectedUrl) return true;
+  const currentUrl = tab.url || "";
+  if (matchesExpectedWingPage(currentUrl, options.expectedUrl)) return true;
+  if (options.sawNavigation && isWingInventoryUrl(currentUrl)) return true;
+  if (options.previousUrl && currentUrl === options.previousUrl) return false;
+  return Boolean(currentUrl && !isWingInventoryUrl(currentUrl));
+}
+
+function matchesExpectedWingPage(currentUrl, expectedUrl) {
+  try {
+    const current = new URL(currentUrl);
+    const expected = new URL(expectedUrl);
+    if (current.hostname !== expected.hostname) return false;
+    if (!current.pathname.includes("vendor-inventory/list")) return false;
+    const currentPage = current.searchParams.get("page") || "1";
+    const expectedPage = expected.searchParams.get("page") || "1";
+    return currentPage === expectedPage;
+  } catch {
+    return false;
+  }
 }
 
 function sendTabMessage(tabId, message) {
@@ -555,14 +860,17 @@ async function handleScrapeTargets(urls, runId = `${Date.now()}-${Math.random().
     return { success: false, error: "수집 대상 URL이 없습니다" };
   }
 
+  await chrome.storage.local.remove(BATCH_SCRAPE_CANCEL_KEY);
+
   const total = urls.length;
   console.log(`[KIDITEM] 순차 배치 스크랩 시작 — ${total}개 URL`);
 
   let completed = 0;
   let failed = 0;
+  let cancelled = false;
 
   await chrome.storage.local.set({
-    kiditem_batch_scrape: {
+    [BATCH_SCRAPE_STATUS_KEY]: {
       runId,
       total,
       completed,
@@ -574,11 +882,16 @@ async function handleScrapeTargets(urls, runId = `${Date.now()}-${Math.random().
   });
 
   for (let i = 0; i < urls.length; i++) {
+    if (await isBatchScrapeCancelled(runId)) {
+      cancelled = true;
+      break;
+    }
+
     const item = urls[i];
     console.log(`[KIDITEM] 순차 스크랩 ${i + 1}/${total}: ${item.url}`);
 
     await chrome.storage.local.set({
-      kiditem_batch_scrape: {
+      [BATCH_SCRAPE_STATUS_KEY]: {
         runId,
         total,
         completed,
@@ -586,37 +899,96 @@ async function handleScrapeTargets(urls, runId = `${Date.now()}-${Math.random().
         current: i + 1,
         currentUrl: item.url,
         currentLabel: item.label,
+        currentTabId: null,
         status: "running",
         startedAt,
       },
     });
 
     try {
-      const result = await scrapeUrl(item.url, item.id || null, item.label);
+      const result = await scrapeUrl(item.url, item.id || null, item.label, {
+        onTabCreated: async (tabId) => {
+          await chrome.storage.local.set({
+            [BATCH_SCRAPE_STATUS_KEY]: {
+              runId,
+              total,
+              completed,
+              failed,
+              current: i + 1,
+              currentUrl: item.url,
+              currentLabel: item.label,
+              currentTabId: tabId,
+              status: "running",
+              startedAt,
+            },
+          });
+        },
+      });
+      if (result?.cancelled || await isBatchScrapeCancelled(runId)) {
+        cancelled = true;
+        break;
+      }
       if (result?.success) completed++;
       else failed++;
     } catch (e) {
+      if (await isBatchScrapeCancelled(runId)) {
+        cancelled = true;
+        break;
+      }
       failed++;
       console.error(`[KIDITEM] 스크랩 실패 (${item.url}):`, e?.message || e);
     }
   }
 
   await chrome.storage.local.set({
-    kiditem_batch_scrape: {
+    [BATCH_SCRAPE_STATUS_KEY]: {
       runId,
       total,
       completed,
       failed,
-      current: total,
-      status: "done",
+      current: cancelled ? completed + failed : total,
+      currentTabId: null,
+      status: cancelled ? "cancelled" : "done",
       startedAt,
       endedAt: Date.now(),
+      cancelled,
     },
   });
   notifyDashboard();
 
-  console.log(`[KIDITEM] 순차 배치 완료: ${completed}/${total} 성공, ${failed} 실패`);
-  return { success: true, completed, failed, total };
+  console.log(`[KIDITEM] 순차 배치 ${cancelled ? "중단" : "완료"}: ${completed}/${total} 성공, ${failed} 실패`);
+  return { success: !cancelled, completed, failed, total, cancelled };
+}
+
+async function isBatchScrapeCancelled(runId) {
+  const data = await getStorage(BATCH_SCRAPE_CANCEL_KEY);
+  const cancel = data[BATCH_SCRAPE_CANCEL_KEY];
+  return !!cancel?.cancelled && (!cancel.runId || cancel.runId === runId);
+}
+
+async function cancelBatchScrape(runId = null) {
+  await chrome.storage.local.set({
+    [BATCH_SCRAPE_CANCEL_KEY]: { cancelled: true, runId, requestedAt: Date.now() },
+  });
+  const data = await getStorage(BATCH_SCRAPE_STATUS_KEY);
+  const status = data[BATCH_SCRAPE_STATUS_KEY] || {};
+  if (runId && status.runId && status.runId !== runId) {
+    return { success: true, cancelled: false, staleRunId: status.runId };
+  }
+  if (status.currentTabId) {
+    await removeTab(status.currentTabId).catch(() => {});
+  }
+  await chrome.storage.local.set({
+    [BATCH_SCRAPE_STATUS_KEY]: {
+      ...status,
+      runId: status.runId || runId,
+      status: "cancelled",
+      cancelled: true,
+      endedAt: Date.now(),
+    },
+  });
+  notifyDashboard();
+  return { success: true, cancelled: true, runId: status.runId || runId };
 }
 
 /**
@@ -716,7 +1088,7 @@ async function doMonthlyScrape(year, month) {
   notifyDashboard();
 }
 
-function scrapeUrl(url, targetId, label) {
+function scrapeUrl(url, targetId, label, options = {}) {
   return new Promise((resolve) => {
     // The #kiditemBatch marker is for fallback window.open flows where the
     // content script has to self-start. In service-worker driven scraping we
@@ -733,15 +1105,32 @@ function scrapeUrl(url, targetId, label) {
 
       const tabId = tab.id;
       let resolved = false;
+      if (typeof options.onTabCreated === "function") {
+        Promise.resolve(options.onTabCreated(tabId)).catch(() => {});
+      }
+
+      const cleanup = () => {
+        chrome.tabs.onUpdated.removeListener(onUpdated);
+        chrome.tabs.onRemoved.removeListener(onRemoved);
+      };
+      const finish = (result) => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(timeout);
+        cleanup();
+        resolve(result);
+      };
 
       // 타임아웃 180초 — 달력 UI 조작(~5s) + 테이블 리로드(~3.5s) + 페이지네이션(다수 페이지 × 2s)
       const timeout = setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          try { chrome.tabs.remove(tabId); } catch {}
-          resolve({ url, success: false, error: "타임아웃 (180초)" });
-        }
+        try { chrome.tabs.remove(tabId); } catch {}
+        finish({ url, success: false, error: "타임아웃 (180초)" });
       }, 180000);
+
+      const onRemoved = (removedTabId) => {
+        if (removedTabId !== tabId) return;
+        finish({ url, label, success: false, cancelled: true, error: "수집이 중단되었습니다" });
+      };
 
       // 탭 로딩 완료 감지
       const onUpdated = (updatedTabId, changeInfo) => {
@@ -753,8 +1142,6 @@ function scrapeUrl(url, targetId, label) {
         setTimeout(() => {
           chrome.tabs.sendMessage(tabId, { action: "manualSync" }, (response) => {
             if (resolved) return;
-            resolved = true;
-            clearTimeout(timeout);
 
             // 수집 완료 알림을 서버로 전송
             if (targetId) {
@@ -771,11 +1158,11 @@ function scrapeUrl(url, targetId, label) {
             }, 3000);
 
             if (chrome.runtime.lastError) {
-              resolve({ url, label, success: false, error: "content script 미응답 (페이지가 지원 대상이 아닐 수 있음)" });
+              finish({ url, label, success: false, error: "content script 미응답 (페이지가 지원 대상이 아닐 수 있음)" });
               return;
             }
 
-            resolve({
+            finish({
               url,
               label,
               success: response?.success || false,
@@ -787,6 +1174,7 @@ function scrapeUrl(url, targetId, label) {
       };
 
       chrome.tabs.onUpdated.addListener(onUpdated);
+      chrome.tabs.onRemoved.addListener(onRemoved);
     });
   });
 }
