@@ -21,9 +21,13 @@ channels/
 │   │   └── http/
 │   │       ├── channel-sync.controller.ts                  (@Controller('coupang-sync'))
 │   │       ├── channel-dashboard.controller.ts             (@Controller('coupang-dashboard'))
+│   │       ├── channel-reconciliation.controller.ts        (@Controller('channels/reconciliation/coupang'))
 │   │       └── dto/
 │   │           ├── coupang-date-range.dto.ts
 │   │           ├── sync-orders.dto.ts
+│   │           ├── reconciliation-row.dto.ts
+│   │           ├── reconciliation-query.dto.ts
+│   │           ├── reconciliation-action.dto.ts
 │   │           └── index.ts
 │   └── out/
 │       └── coupang/
@@ -38,6 +42,7 @@ channels/
 │   └── service/
 │       ├── channel-sync.service.ts                         (syncProducts/syncOrders/syncInventory; uses @Inject(COUPANG_PROVIDER_PORT))
 │       ├── channel-dashboard.service.ts                    (6 dashboard aggregation methods; PrismaService direct — transitional)
+│       ├── channel-reconciliation.service.ts               (Coupang ↔ KidItem matching queue — issue #199)
 │       └── types.ts                                        (SyncResult, HealthResult, CoupangSyncOrderPayload, CoupangSyncReturnPayload)
 └── adapters/coupang/
     └── orders.ts                                            ← COMPAT SHIM ONLY — re-exports from adapter/out/coupang/orders.ts
@@ -156,6 +161,32 @@ await this.prisma.$transaction(async (tx) => {
 - `this.coupang.getSellerProducts(maxPerPage: 1)` 호출로 자격증명 검증
 - 에러 catch → `{ connected: false, error }` 반환 (throw 안 함)
 - 외부 API 다운 시 시스템 전체 fall-through 방지
+
+### 7. Reconciliation Queue (issue #199)
+
+`channel-reconciliation.service.ts` — 쿠팡 row 를 KidItem `MasterProduct` /
+`ProductOption` 에 연결하는 사용자 처리 queue. 모델: `ChannelReconciliationRun` +
+`ChannelReconciliationItem`. HTTP surface:
+`/api/channels/reconciliation/coupang/{scan-from-rows,sync-from-image-listings,summary,items,items/:id/link,items/:id/ignore}`.
+
+Hard contracts:
+
+- **No `MasterProduct` auto-create** — Coupang row 만 보고 새 KidItem master 를
+  만들지 않는다. `legacyCode` 정확 매치(active `ProductOption` 1건) 일 때만
+  `ChannelListing` (필요 시 `ChannelListingOption`) 을 자동 생성한다.
+- **Matching rule order** — (1) active `ChannelListing` (org, channel='coupang',
+  externalId, isDeleted=false) → linked / `existing_external_id`. (2) 없으면
+  `legacyCode` 정확 1건 → linked / `auto_legacy_code` + 자동 listing 생성.
+  (3) 기존 listing master 와 legacyCode 후보 master 가 다르면 → `conflict`
+  (자동 수정 금지). (4) 다중 `legacyCode` 후보 → `conflict`. (5) 그 외 → `needs_review`.
+  (6) 사용자 link → `manual` / 사용자 ignore → `ignored` (재스캔에서 유지).
+- **Tenant scope** — 모든 read/write 가 `@CurrentOrganization()` 의 `organizationId`
+  를 WHERE/INSERT 에 포함. 단일 리소스는 `findFirst({ where: { id, organizationId } })`.
+- **Source values** — `coupang_image_sync` is the active UI/default source.
+  It records rows gathered by the thumbnail AI Coupang image sync flow and by
+  the matching page's image-synced listing rebuild. `wing_inventory |
+  seller_products | manual` are legacy/manual replay sources; do not backfill
+  unrelated ad, traffic, or catalog-coverage rows into the matching queue.
 
 ## 외부 의존
 

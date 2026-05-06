@@ -21,6 +21,7 @@ import { DetailModal } from '../_shared/components/thumbnails/DetailModal';
 import { InspectionDrawer } from './components/InspectionDrawer';
 import { ThumbnailHeader } from './components/ThumbnailHeader';
 import { BatchProgressBanner } from './components/BatchProgressBanner';
+import { UnmatchedReconciliationBanner } from './components/UnmatchedReconciliationBanner';
 import { GradeDistributionDonut } from './components/GradeDistributionDonut';
 import { AiActionCenter } from './components/AiActionCenter';
 import { ComplianceCard } from './components/ComplianceCard';
@@ -74,6 +75,10 @@ export default function ThumbnailsPage() {
   const syncStatus = sync.status;
   const lastSyncRefreshAt = useRef(0);
 
+  // 매칭 센터 CTA 배너 — 이미지 동기화가 끝났을 때 unmatched > 0 이면 표시.
+  // sync.reset() 이 status 를 비워도 사용자가 명시적으로 닫기 전까지 유지.
+  const [unmatchedBanner, setUnmatchedBanner] = useState<{ count: number } | null>(null);
+
   useEffect(() => {
     if (!sync.startError) return;
     toast.error(
@@ -96,6 +101,9 @@ export default function ThumbnailsPage() {
         }${syncStatus.failed ? ` / 실패 ${syncStatus.failed}건` : ''}`,
       );
       analysisQuery.refetch();
+      if (syncStatus.unmatched > 0) {
+        setUnmatchedBanner({ count: syncStatus.unmatched });
+      }
     }
     const t = setTimeout(() => sync.reset(), 2000);
     return () => clearTimeout(t);
@@ -393,6 +401,13 @@ export default function ThumbnailsPage() {
           total={batch.batchTotal}
           elapsed={batch.elapsed}
           onCancel={batch.cancel}
+        />
+      )}
+
+      {unmatchedBanner && (
+        <UnmatchedReconciliationBanner
+          unmatchedCount={unmatchedBanner.count}
+          onDismiss={() => setUnmatchedBanner(null)}
         />
       )}
 

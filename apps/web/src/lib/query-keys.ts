@@ -159,6 +159,12 @@ export const queryKeys = {
     current: () => [...queryKeys.coupangImageSync.all, 'current'] as const,
     job: (jobId: string) => [...queryKeys.coupangImageSync.all, 'job', jobId] as const,
   },
+  channelReconciliation: {
+    all: ['channelReconciliation'] as const,
+    summary: () => [...queryKeys.channelReconciliation.all, 'summary'] as const,
+    items: (params: Record<string, string>) =>
+      [...queryKeys.channelReconciliation.all, 'items', params] as const,
+  },
   stockMovement: {
     all: ['stockMovement'] as const,
     data: (params: Record<string, string>) => [...queryKeys.stockMovement.all, 'data', params] as const,

@@ -24,6 +24,10 @@ import {
   MASTER_CATALOG_PORT,
   type MasterCatalogPort,
 } from '../port/out/master-catalog.port';
+import {
+  COUPANG_IMAGE_RECONCILIATION_PORT,
+  type CoupangImageReconciliationPort,
+} from '../port/out/coupang-image-reconciliation.port';
 
 export type CoupangImageSyncJobStatus = 'running' | 'done' | 'failed';
 
@@ -77,6 +81,8 @@ export class CoupangImageSyncService {
     private readonly imageFetcher: ImageFetchPort,
     @Inject(IMAGE_STORAGE_PORT)
     private readonly storage: ImageStoragePort,
+    @Inject(COUPANG_IMAGE_RECONCILIATION_PORT)
+    private readonly reconciliation: CoupangImageReconciliationPort,
   ) {}
 
   start(organizationId: string): { jobId: string } {
@@ -173,6 +179,7 @@ export class CoupangImageSyncService {
   ): Promise<void> {
     const { organizationId } = job;
     const uniqueRows = dedupeRows(rows);
+    await this.reconciliation.recordRows({ organizationId, rows: uniqueRows });
     const targets = await this.filterRowsNeedingImage(organizationId, uniqueRows);
 
     job.total = targets.length;
