@@ -95,6 +95,11 @@
       "import": "./dist/channel-dashboard.js",
       "require": "./dist/channel-dashboard.cjs"
     },
+    "./channel-reconciliation": {
+      "types": "./dist/channel-reconciliation.d.ts",
+      "import": "./dist/channel-reconciliation.js",
+      "require": "./dist/channel-reconciliation.cjs"
+    },
     "./agent": {
       "types": "./dist/agent.d.ts",
       "import": "./dist/agent.js",
@@ -182,6 +187,7 @@
       "action-task": ["dist/action-task.d.ts"],
       "supplier-stats": ["dist/supplier-stats.d.ts"],
       "channel-dashboard": ["dist/channel-dashboard.d.ts"],
+      "channel-reconciliation": ["dist/channel-reconciliation.d.ts"],
       "agent": ["dist/agent.d.ts"],
       "agent-trace": ["dist/agent-trace.d.ts"],
       "workflow": ["dist/workflow.d.ts"],

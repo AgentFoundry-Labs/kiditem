@@ -20,6 +20,7 @@ export default defineConfig({
     'src/action-task.ts',
     'src/supplier-stats.ts',
     'src/channel-dashboard.ts',
+    'src/channel-reconciliation.ts',
     'src/agent.ts',
     'src/agent-trace.ts',
     'src/workflow.ts',
