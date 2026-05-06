@@ -236,6 +236,11 @@ export class CoupangInventoryScrapeAdapter implements CoupangInventoryScrapePort
   const MAX_PAGES = ${MAX_PAGES};
   const OUTPUT = ${JSON.stringify(outputPath)};
   const ALL = [];
+  const SEEN_PAGE_KEYS = new Set();
+
+  function buildPageKey(rows) {
+    return rows.map(row => String(row.inventoryId || '') + ':' + String(row.url || '')).join('|');
+  }
 
   let page = context.pages().find(p => p.url().includes('vendor-inventory/list'))
     ?? context.pages().find(p => p.url() === 'about:blank')
@@ -281,6 +286,12 @@ export class CoupangInventoryScrapeAdapter implements CoupangInventoryScrapePort
     });
 
     if (rows.length === 0) break;
+    const pageKey = buildPageKey(rows);
+    if (SEEN_PAGE_KEYS.has(pageKey)) {
+      console.log('DUPLICATE PAGE ' + p + ' detected; stopping pagination');
+      break;
+    }
+    SEEN_PAGE_KEYS.add(pageKey);
     ALL.push(...rows);
     console.log('PAGE ' + p + ': ' + rows.length + ' rows (total ' + ALL.length + ')');
     if (rows.length < 50) break;
