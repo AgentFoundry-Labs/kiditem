@@ -3,11 +3,11 @@
 /// @namespace Agents
 /// @describe 에이전트 정의. rt_* 필드로 런타임 상태 내장 (별도 테이블 없음). reportsTo 자기참조 (매니저→전문가 계층).
 model AgentDefinition {
-  id          String  @id @default(uuid()) @db.Uuid
-  organizationId   String? @map("organization_id") @db.Uuid
-  name        String
-  type        String  @unique
-  description String?
+  id             String  @id @default(uuid()) @db.Uuid
+  organizationId String? @map("organization_id") @db.Uuid
+  name           String
+  type           String  @unique
+  description    String?
 
   // Adapter (런타임 추상화)
   adapterType   String @default("claude_local") @map("adapter_type")
@@ -37,7 +37,7 @@ model AgentDefinition {
   trustLevel Int  @default(0) @map("trust_level")
 
   // Prompt & Tools (기존)
-  promptTemplate String @map("prompt_template") @db.Text
+  promptTemplate String   @map("prompt_template") @db.Text
   allowedTools   String   @default("Read Grep") @map("allowed_tools")
   permissionMode String   @default("bypassPermissions") @map("permission_mode")
   fallbackChain  String[] @default(["claude_local"]) @map("fallback_chain")
@@ -61,16 +61,16 @@ model AgentDefinition {
   metadata        Json?
 
   // Runtime State (AgentRuntimeState 흡수 — Phase 3)
-  rtSessionId          String?   @map("rt_session_id")
-  rtStateJson          Json      @default("{}") @map("rt_state_json") @db.JsonB
-  rtLastRunId          String?   @map("rt_last_run_id") @db.Uuid
-  rtLastRunStatus      String?   @map("rt_last_run_status")
-  rtTotalInputTokens   Int       @default(0) @map("rt_total_input_tokens")
-  rtTotalOutputTokens  Int       @default(0) @map("rt_total_output_tokens")
-  rtTotalCostCents     Int       @default(0) @map("rt_total_cost_cents")
-  rtLastError          String?   @map("rt_last_error")
-  rtConsecutiveFailCount Int     @default(0) @map("rt_consecutive_fail_count")
-  rtLastFailedAt       DateTime? @map("rt_last_failed_at") @db.Timestamptz
+  rtSessionId            String?   @map("rt_session_id")
+  rtStateJson            Json      @default("{}") @map("rt_state_json") @db.JsonB
+  rtLastRunId            String?   @map("rt_last_run_id") @db.Uuid
+  rtLastRunStatus        String?   @map("rt_last_run_status")
+  rtTotalInputTokens     Int       @default(0) @map("rt_total_input_tokens")
+  rtTotalOutputTokens    Int       @default(0) @map("rt_total_output_tokens")
+  rtTotalCostCents       Int       @default(0) @map("rt_total_cost_cents")
+  rtLastError            String?   @map("rt_last_error")
+  rtConsecutiveFailCount Int       @default(0) @map("rt_consecutive_fail_count")
+  rtLastFailedAt         DateTime? @map("rt_last_failed_at") @db.Timestamptz
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
@@ -78,31 +78,32 @@ model AgentDefinition {
   marketplaceId String? @map("marketplace_id") @db.Uuid
 
   // Relations
-  organization        Organization?     @relation(fields: [organizationId], references: [id])
-  marketplace    Marketplace? @relation(fields: [marketplaceId], references: [id])
-  parent         AgentDefinition?  @relation("AgentHierarchy", fields: [reportsTo], references: [id])
-  children       AgentDefinition[] @relation("AgentHierarchy")
+  organization   Organization?        @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  marketplace    Marketplace?         @relation(fields: [marketplaceId], references: [id], onDelete: SetNull)
+  parent         AgentDefinition?     @relation("AgentHierarchy", fields: [reportsTo], references: [id], onDelete: SetNull)
+  children       AgentDefinition[]    @relation("AgentHierarchy")
   heartbeatRuns  HeartbeatRun[]
   wakeupRequests AgentWakeupRequest[]
   agentEvents    AgentEvent[]
-  users             User[]
+  users          User[]
 
   @@index([organizationId])
   @@index([type])
   @@index([isActive])
   @@index([organizationId, status])
   @@index([organizationId, reportsTo])
+  @@index([reportsTo])
   @@index([marketplaceId])
   @@map("agent_definitions")
 }
 
 /// @namespace Agents
 model AgentTask {
-  id        String  @id @default(uuid()) @db.Uuid
+  id             String  @id @default(uuid()) @db.Uuid
   organizationId String? @map("organization_id") @db.Uuid
-  agentType String  @map("agent_type")
-  status    String  @default("pending")
-  priority  Int     @default(0)
+  agentType      String  @map("agent_type")
+  status         String  @default("pending")
+  priority       Int     @default(0)
 
   workflowRunId  String? @map("workflow_run_id") @db.Uuid
   workflowNodeId String? @map("workflow_node_id")
@@ -131,14 +132,14 @@ model AgentTask {
 /// @namespace Agents
 /// @describe eventType 으로 permission_denied / action_snapshot 통합.
 model AgentEvent {
-  id          String    @id @default(uuid()) @db.Uuid
-  organizationId   String    @map("organization_id") @db.Uuid
-  agentId     String    @map("agent_id") @db.Uuid
-  runId       String?   @map("run_id") @db.Uuid
-  eventType   String    @map("event_type")             // permission_denied | action_snapshot
-  category    String?                                   // denial: dangerous_tool | budget_exceeded | feature_gate | skill_denied
-  detail      String?
-  action      String?                                   // blocked | warned | restored
+  id             String  @id @default(uuid()) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  agentId        String  @map("agent_id") @db.Uuid
+  runId          String? @map("run_id") @db.Uuid
+  eventType      String  @map("event_type") // permission_denied | action_snapshot
+  category       String? // denial: dangerous_tool | budget_exceeded | feature_gate | skill_denied
+  detail         String?
+  action         String? // blocked | warned | restored
 
   // Snapshot fields (eventType=action_snapshot)
   tableName   String?   @map("table_name")
@@ -148,24 +149,25 @@ model AgentEvent {
   valueAfter  Json?     @map("value_after")
   restoredAt  DateTime? @map("restored_at") @db.Timestamptz
 
-  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  agent   AgentDefinition @relation(fields: [agentId], references: [id])
-  organization Organization         @relation(fields: [organizationId], references: [id])
+  agent        AgentDefinition @relation(fields: [agentId], references: [id])
+  organization Organization    @relation(fields: [organizationId], references: [id])
 
   @@index([organizationId, agentId, createdAt])
   @@index([organizationId, eventType, createdAt])
+  @@index([agentId])
   @@index([runId])
   @@map("agent_events")
 }
 
 /// @namespace Agents
 model AgentLog {
-  id     String @id @default(uuid()) @db.Uuid
-  taskId String @map("task_id") @db.Uuid
-  level  String @default("info")
+  id      String @id @default(uuid()) @db.Uuid
+  taskId  String @map("task_id") @db.Uuid
+  level   String @default("info")
   message String
-  data   Json?
+  data    Json?
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
@@ -177,20 +179,20 @@ model AgentLog {
 
 /// @namespace Agents
 model AgentWakeupRequest {
-  id              String  @id @default(uuid()) @db.Uuid
-  organizationId       String  @map("organization_id") @db.Uuid
-  agentId         String  @map("agent_id") @db.Uuid
+  id              String    @id @default(uuid()) @db.Uuid
+  organizationId  String    @map("organization_id") @db.Uuid
+  agentId         String    @map("agent_id") @db.Uuid
   source          String
-  triggerDetail   String? @map("trigger_detail")
+  triggerDetail   String?   @map("trigger_detail")
   reason          String?
-  legacyTaskId    String? @map("legacy_task_id") @db.Uuid
-  payload         Json?   @db.JsonB
-  status          String  @default("queued")
-  coalescedCount  Int     @default(0) @map("coalesced_count")
-  requestedByType String? @map("requested_by_type")
-  requestedById   String? @map("requested_by_id")
-  runId           String? @map("run_id") @db.Uuid
-  requestedAt     DateTime @default(now()) @map("requested_at") @db.Timestamptz
+  legacyTaskId    String?   @map("legacy_task_id") @db.Uuid
+  payload         Json?     @db.JsonB
+  status          String    @default("queued")
+  coalescedCount  Int       @default(0) @map("coalesced_count")
+  requestedByType String?   @map("requested_by_type")
+  requestedById   String?   @map("requested_by_id")
+  runId           String?   @map("run_id") @db.Uuid
+  requestedAt     DateTime  @default(now()) @map("requested_at") @db.Timestamptz
   claimedAt       DateTime? @map("claimed_at") @db.Timestamptz
   finishedAt      DateTime? @map("finished_at") @db.Timestamptz
   error           String?
@@ -199,7 +201,7 @@ model AgentWakeupRequest {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   agent         AgentDefinition @relation(fields: [agentId], references: [id])
-  organization       Organization         @relation(fields: [organizationId], references: [id])
+  organization  Organization    @relation(fields: [organizationId], references: [id])
   heartbeatRuns HeartbeatRun[]
 
   @@index([organizationId, agentId, status])
@@ -211,41 +213,44 @@ model AgentWakeupRequest {
 /// @namespace Agents
 /// @describe 에이전트 안전 파이프라인 (Budget/Cap/DryRun). AgentDefinition 과 함께 agent runtime state 구성.
 model HeartbeatRun {
-  id               String  @id @default(uuid()) @db.Uuid
-  organizationId        String  @map("organization_id") @db.Uuid
-  agentId          String  @map("agent_id") @db.Uuid
-  invocationSource String  @default("on_demand") @map("invocation_source")
-  triggerDetail    String? @map("trigger_detail")
-  status           String  @default("pending")
-  failureType      String? @map("failure_type")
-  startedAt        DateTime? @map("started_at") @db.Timestamptz
-  finishedAt       DateTime? @map("finished_at") @db.Timestamptz
-  error            String?
-  exitCode         Int?    @map("exit_code")
-  signal           String?
-  usageJson        Json?   @map("usage_json") @db.JsonB
-  resultJson       Json?   @map("result_json") @db.JsonB
-  sessionIdBefore  String? @map("session_id_before")
-  sessionIdAfter   String? @map("session_id_after")
-  stdoutExcerpt    String? @map("stdout_excerpt") @db.Text
-  stderrExcerpt    String? @map("stderr_excerpt") @db.Text
-  errorCode        String? @map("error_code")
-  processPid       Int?    @map("process_pid")
-  wakeupRequestId  String? @map("wakeup_request_id") @db.Uuid
-  nextSchedule      String? @map("next_schedule")
-  isSummarized      Boolean @default(false) @map("is_summarized")
-  summary           String? @db.Text
-  triggeredByUserId String? @map("triggered_by_user_id") @db.Uuid
+  id                String    @id @default(uuid()) @db.Uuid
+  organizationId    String    @map("organization_id") @db.Uuid
+  agentId           String    @map("agent_id") @db.Uuid
+  invocationSource  String    @default("on_demand") @map("invocation_source")
+  triggerDetail     String?   @map("trigger_detail")
+  status            String    @default("pending")
+  failureType       String?   @map("failure_type")
+  startedAt         DateTime? @map("started_at") @db.Timestamptz
+  finishedAt        DateTime? @map("finished_at") @db.Timestamptz
+  error             String?
+  exitCode          Int?      @map("exit_code")
+  signal            String?
+  usageJson         Json?     @map("usage_json") @db.JsonB
+  resultJson        Json?     @map("result_json") @db.JsonB
+  sessionIdBefore   String?   @map("session_id_before")
+  sessionIdAfter    String?   @map("session_id_after")
+  stdoutExcerpt     String?   @map("stdout_excerpt") @db.Text
+  stderrExcerpt     String?   @map("stderr_excerpt") @db.Text
+  errorCode         String?   @map("error_code")
+  processPid        Int?      @map("process_pid")
+  wakeupRequestId   String?   @map("wakeup_request_id") @db.Uuid
+  nextSchedule      String?   @map("next_schedule")
+  isSummarized      Boolean   @default(false) @map("is_summarized")
+  summary           String?   @db.Text
+  triggeredByUserId String?   @map("triggered_by_user_id") @db.Uuid
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   agent           AgentDefinition     @relation(fields: [agentId], references: [id])
-  organization         Organization             @relation(fields: [organizationId], references: [id])
-  wakeupRequest   AgentWakeupRequest? @relation(fields: [wakeupRequestId], references: [id])
+  organization    Organization        @relation(fields: [organizationId], references: [id])
+  wakeupRequest   AgentWakeupRequest? @relation(fields: [wakeupRequestId], references: [id], onDelete: SetNull)
   triggeredByUser User?               @relation("HeartbeatRunTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
 
   @@index([organizationId, agentId, startedAt])
+  @@index([agentId])
+  @@index([wakeupRequestId])
+  @@index([triggeredByUserId])
   @@index([status])
   @@index([organizationId, triggeredByUserId])
   @@map("heartbeat_runs")
@@ -254,52 +259,53 @@ model HeartbeatRun {
 /// @namespace Agents
 /// @describe steps Json 으로 단계별 결과 흡수 (별도 StepRun 없음).
 model WorkflowRun {
-  id                 String    @id @default(uuid()) @db.Uuid
-  organizationId          String?   @map("organization_id") @db.Uuid
-  templateId         String    @map("template_id") @db.Uuid
-  status             String    @default("pending")
-  triggeredBy        String    @default("manual") @map("triggered_by")
-  triggeredByUserId  String?   @map("triggered_by_user_id") @db.Uuid
-  contextData        Json?     @map("context_data")
-  steps              Json      @default("[]") @db.JsonB
-  error              String?
-  startedAt          DateTime? @map("started_at") @db.Timestamptz
-  completedAt        DateTime? @map("completed_at") @db.Timestamptz
-  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  id                String    @id @default(uuid()) @db.Uuid
+  organizationId    String?   @map("organization_id") @db.Uuid
+  templateId        String    @map("template_id") @db.Uuid
+  status            String    @default("pending")
+  triggeredBy       String    @default("manual") @map("triggered_by")
+  triggeredByUserId String?   @map("triggered_by_user_id") @db.Uuid
+  contextData       Json?     @map("context_data")
+  steps             Json      @default("[]") @db.JsonB
+  error             String?
+  startedAt         DateTime? @map("started_at") @db.Timestamptz
+  completedAt       DateTime? @map("completed_at") @db.Timestamptz
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  template          WorkflowTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  triggeredByUser   User?            @relation("WorkflowRunTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
+  template        WorkflowTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  triggeredByUser User?            @relation("WorkflowRunTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
 
   @@index([organizationId])
   @@index([templateId])
   @@index([status])
   @@index([createdAt])
   @@index([organizationId, triggeredByUserId])
+  @@index([triggeredByUserId])
   @@map("workflow_runs")
 }
 
 /// @namespace Agents
 model WorkflowTemplate {
-  id          String   @id @default(uuid()) @db.Uuid
-  organizationId   String   @map("organization_id") @db.Uuid
-  name        String
-  description String   @default("")
-  module      String   @default("order")
-  isActive    Boolean  @default(false) @map("is_active")
-  triggerType String   @default("manual") @map("trigger_type")
-  schedule    String?
-  nodesJson   Json     @map("nodes_json")
-  edgesJson   Json     @map("edges_json")
-  version     Int      @default(1)
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  name           String
+  description    String   @default("")
+  module         String   @default("order")
+  isActive       Boolean  @default(false) @map("is_active")
+  triggerType    String   @default("manual") @map("trigger_type")
+  schedule       String?
+  nodesJson      Json     @map("nodes_json")
+  edgesJson      Json     @map("edges_json")
+  version        Int      @default(1)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   marketplaceId String? @map("marketplace_id") @db.Uuid
 
-  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  marketplace Marketplace? @relation(fields: [marketplaceId], references: [id])
-  runs        WorkflowRun[]
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  marketplace  Marketplace?  @relation(fields: [marketplaceId], references: [id], onDelete: SetNull)
+  runs         WorkflowRun[]
 
   @@index([organizationId])
   @@index([isActive])

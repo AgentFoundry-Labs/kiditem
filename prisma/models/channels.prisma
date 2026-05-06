@@ -12,20 +12,20 @@
 /// @namespace Channels
 /// @describe 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장.
 model ChannelScrapeRun {
-  id          String   @id @default(uuid()) @db.Uuid
-  organizationId   String   @map("organization_id") @db.Uuid
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
 
-  channel       String
-  source        String
-  pageType      String   @map("page_type")
-  businessDate  DateTime? @map("business_date") @db.Date
-  periodStart   DateTime? @map("period_start") @db.Date
-  periodEnd     DateTime? @map("period_end") @db.Date
+  channel      String
+  source       String
+  pageType     String    @map("page_type")
+  businessDate DateTime? @map("business_date") @db.Date
+  periodStart  DateTime? @map("period_start") @db.Date
+  periodEnd    DateTime? @map("period_end") @db.Date
 
-  status        String   @default("running")
-  targetUrl     String?  @map("target_url")
+  status        String  @default("running")
+  targetUrl     String? @map("target_url")
   period        String?
-  parserVersion String?  @map("parser_version")
+  parserVersion String? @map("parser_version")
 
   rowCount       Int @default(0) @map("row_count")
   matchedCount   Int @default(0) @map("matched_count")
@@ -40,8 +40,8 @@ model ChannelScrapeRun {
   metaJson  Json? @map("meta_json")
   errorJson Json? @map("error_json")
 
-  organization   Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  snapshots ChannelScrapeSnapshot[]
+  organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  snapshots    ChannelScrapeSnapshot[]
 
   @@index([organizationId, channel, source, businessDate])
   @@index([organizationId, status, startedAt])
@@ -52,13 +52,13 @@ model ChannelScrapeRun {
 /// @namespace Channels
 /// @describe 채널 스크래퍼/API 가 본 원본 row. 매칭 실패/파서 변경 대비 rawJson 을 보존.
 model ChannelScrapeSnapshot {
-  id          String  @id @default(uuid()) @db.Uuid
-  organizationId   String  @map("organization_id") @db.Uuid
-  scrapeRunId String? @map("scrape_run_id") @db.Uuid
+  id             String  @id @default(uuid()) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  scrapeRunId    String? @map("scrape_run_id") @db.Uuid
 
   channel      String
   source       String
-  pageType     String   @map("page_type")
+  pageType     String    @map("page_type")
   businessDate DateTime? @map("business_date") @db.Date
   observedAt   DateTime  @default(now()) @map("observed_at") @db.Timestamptz
 
@@ -77,16 +77,16 @@ model ChannelScrapeSnapshot {
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  organization       Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization  Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   scrapeRun     ChannelScrapeRun?     @relation(fields: [scrapeRunId], references: [id], onDelete: SetNull)
   listing       ChannelListing?       @relation(fields: [listingId], references: [id], onDelete: SetNull)
   listingOption ChannelListingOption? @relation(fields: [listingOptionId], references: [id], onDelete: SetNull)
   option        ProductOption?        @relation(fields: [optionId], references: [id], onDelete: SetNull)
 
-  listingDailySnapshots ChannelListingDailySnapshot[]       @relation("ListingDailyRawSnapshot")
-  optionDailySnapshots  ChannelListingOptionDailySnapshot[] @relation("OptionDailyRawSnapshot")
-  adTargetDailySnapshots ChannelAdTargetDailySnapshot[]    @relation("AdTargetDailyRawSnapshot")
-  accountKpiSnapshots    ChannelAccountDailyKpiSnapshot[]  @relation("AccountKpiRawSnapshot")
+  listingDailySnapshots  ChannelListingDailySnapshot[]       @relation("ListingDailyRawSnapshot")
+  optionDailySnapshots   ChannelListingOptionDailySnapshot[] @relation("OptionDailyRawSnapshot")
+  adTargetDailySnapshots ChannelAdTargetDailySnapshot[]      @relation("AdTargetDailyRawSnapshot")
+  accountKpiSnapshots    ChannelAccountDailyKpiSnapshot[]    @relation("AccountKpiRawSnapshot")
 
   @@index([organizationId, channel, source, businessDate])
   @@index([organizationId, channel, pageType, businessDate])
@@ -104,9 +104,9 @@ model ChannelScrapeSnapshot {
 /// @namespace Channels
 /// @describe 채널 listing 의 일별 정규화 상태. 반복 scrape 는 businessDate row 를 upsert.
 model ChannelListingDailySnapshot {
-  id        String @id @default(uuid()) @db.Uuid
+  id             String @id @default(uuid()) @db.Uuid
   organizationId String @map("organization_id") @db.Uuid
-  listingId String @map("listing_id") @db.Uuid
+  listingId      String @map("listing_id") @db.Uuid
 
   channel      String
   externalId   String   @map("external_id")
@@ -130,26 +130,26 @@ model ChannelListingDailySnapshot {
   categoryRank Int? @map("category_rank")
 
   // Ad additive metrics (Hard rewrite H1) — sums only, ratios recompute in reads.
-  adSpend             Int @default(0) @map("ad_spend")
-  adRevenue           Int @default(0) @map("ad_revenue")
-  adImpressions       Int @default(0) @map("ad_impressions")
-  adClicks            Int @default(0) @map("ad_clicks")
-  adConversions       Int @default(0) @map("ad_conversions")
-  adOrders            Int @default(0) @map("ad_orders")
-  adDirectOrders1d    Int @default(0) @map("ad_direct_orders_1d")
-  adIndirectOrders1d  Int @default(0) @map("ad_indirect_orders_1d")
-  adDirectQty1d       Int @default(0) @map("ad_direct_qty_1d")
-  adIndirectQty1d     Int @default(0) @map("ad_indirect_qty_1d")
-  adDirectRevenue1d   Int @default(0) @map("ad_direct_revenue_1d")
-  adIndirectRevenue1d Int @default(0) @map("ad_indirect_revenue_1d")
-  adTotalOrders14d    Int @default(0) @map("ad_total_orders_14d")
-  adDirectOrders14d   Int @default(0) @map("ad_direct_orders_14d")
-  adIndirectOrders14d Int @default(0) @map("ad_indirect_orders_14d")
-  adTotalQty14d       Int @default(0) @map("ad_total_qty_14d")
-  adDirectQty14d      Int @default(0) @map("ad_direct_qty_14d")
-  adIndirectQty14d    Int @default(0) @map("ad_indirect_qty_14d")
-  adTotalRevenue14d   Int @default(0) @map("ad_total_revenue_14d")
-  adDirectRevenue14d  Int @default(0) @map("ad_direct_revenue_14d")
+  adSpend              Int @default(0) @map("ad_spend")
+  adRevenue            Int @default(0) @map("ad_revenue")
+  adImpressions        Int @default(0) @map("ad_impressions")
+  adClicks             Int @default(0) @map("ad_clicks")
+  adConversions        Int @default(0) @map("ad_conversions")
+  adOrders             Int @default(0) @map("ad_orders")
+  adDirectOrders1d     Int @default(0) @map("ad_direct_orders_1d")
+  adIndirectOrders1d   Int @default(0) @map("ad_indirect_orders_1d")
+  adDirectQty1d        Int @default(0) @map("ad_direct_qty_1d")
+  adIndirectQty1d      Int @default(0) @map("ad_indirect_qty_1d")
+  adDirectRevenue1d    Int @default(0) @map("ad_direct_revenue_1d")
+  adIndirectRevenue1d  Int @default(0) @map("ad_indirect_revenue_1d")
+  adTotalOrders14d     Int @default(0) @map("ad_total_orders_14d")
+  adDirectOrders14d    Int @default(0) @map("ad_direct_orders_14d")
+  adIndirectOrders14d  Int @default(0) @map("ad_indirect_orders_14d")
+  adTotalQty14d        Int @default(0) @map("ad_total_qty_14d")
+  adDirectQty14d       Int @default(0) @map("ad_direct_qty_14d")
+  adIndirectQty14d     Int @default(0) @map("ad_indirect_qty_14d")
+  adTotalRevenue14d    Int @default(0) @map("ad_total_revenue_14d")
+  adDirectRevenue14d   Int @default(0) @map("ad_direct_revenue_14d")
   adIndirectRevenue14d Int @default(0) @map("ad_indirect_revenue_14d")
 
   // Traffic additive metrics (Hard rewrite H1)
@@ -169,9 +169,9 @@ model ChannelListingDailySnapshot {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization     Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  listing     ChannelListing          @relation(fields: [listingId], references: [id], onDelete: Cascade)
-  rawSnapshot ChannelScrapeSnapshot?  @relation("ListingDailyRawSnapshot", fields: [rawSnapshotId], references: [id], onDelete: SetNull)
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  listing      ChannelListing         @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  rawSnapshot  ChannelScrapeSnapshot? @relation("ListingDailyRawSnapshot", fields: [rawSnapshotId], references: [id], onDelete: SetNull)
 
   @@unique([organizationId, listingId, businessDate])
   @@index([organizationId, channel, externalId, businessDate])
@@ -187,7 +187,7 @@ model ChannelListingDailySnapshot {
 /// @describe 채널 listing option/vendor item 의 일별 정규화 상태.
 model ChannelListingOptionDailySnapshot {
   id              String  @id @default(uuid()) @db.Uuid
-  organizationId       String  @map("organization_id") @db.Uuid
+  organizationId  String  @map("organization_id") @db.Uuid
   listingId       String  @map("listing_id") @db.Uuid
   listingOptionId String  @map("listing_option_id") @db.Uuid
   optionId        String? @map("option_id") @db.Uuid
@@ -217,7 +217,7 @@ model ChannelListingOptionDailySnapshot {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization       Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization  Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   listing       ChannelListing         @relation(fields: [listingId], references: [id], onDelete: Cascade)
   listingOption ChannelListingOption   @relation(fields: [listingOptionId], references: [id], onDelete: Cascade)
   option        ProductOption?         @relation(fields: [optionId], references: [id], onDelete: SetNull)
@@ -237,10 +237,10 @@ model ChannelListingOptionDailySnapshot {
 /// @namespace Channels
 /// @describe 채널 광고 타겟(캠페인/키워드/상품)의 일별 정규화 fact. 기간 view 는 SUM 으로 derive.
 model ChannelAdTargetDailySnapshot {
-  id           String   @id @default(uuid()) @db.Uuid
-  organizationId    String   @map("organization_id") @db.Uuid
-  channel      String
-  businessDate DateTime @map("business_date") @db.Date
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  channel        String
+  businessDate   DateTime @map("business_date") @db.Date
 
   listingId        String? @map("listing_id") @db.Uuid
   listingOptionId  String? @map("listing_option_id") @db.Uuid
@@ -249,7 +249,7 @@ model ChannelAdTargetDailySnapshot {
   externalOptionId String? @map("external_option_id")
 
   targetType   String  @map("target_type") // 'campaign' | 'keyword' | 'product'
-  targetKey    String  @map("target_key")  // deterministic canonical key, NOT NULL
+  targetKey    String  @map("target_key") // deterministic canonical key, NOT NULL
   campaignId   String? @map("campaign_id")
   campaignName String? @map("campaign_name")
   adGroup      String? @map("ad_group")
@@ -278,7 +278,7 @@ model ChannelAdTargetDailySnapshot {
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization       Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization  Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   listing       ChannelListing?        @relation(fields: [listingId], references: [id], onDelete: SetNull)
   listingOption ChannelListingOption?  @relation(fields: [listingOptionId], references: [id], onDelete: SetNull)
   option        ProductOption?         @relation(fields: [optionId], references: [id], onDelete: SetNull)
@@ -299,14 +299,14 @@ model ChannelAdTargetDailySnapshot {
 /// @namespace Channels
 /// @describe 채널 계정/스토어 단위 KPI 일별 정규화 fact (listing 에 귀속되지 않는 dashboard KPI 용).
 model ChannelAccountDailyKpiSnapshot {
-  id           String    @id @default(uuid()) @db.Uuid
-  organizationId    String    @map("organization_id") @db.Uuid
-  channel      String
-  source       String                              // 'wing' | 'advertising' | ...
-  kpiType      String    @map("kpi_type")          // e.g. 'wing_dashboard' | 'wing_itemwinner_kpi'
-  businessDate DateTime  @map("business_date") @db.Date
-  periodStart  DateTime? @map("period_start") @db.Date
-  periodEnd    DateTime? @map("period_end") @db.Date
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  channel        String
+  source         String // 'wing' | 'advertising' | ...
+  kpiType        String    @map("kpi_type") // e.g. 'wing_dashboard' | 'wing_itemwinner_kpi'
+  businessDate   DateTime  @map("business_date") @db.Date
+  periodStart    DateTime? @map("period_start") @db.Date
+  periodEnd      DateTime? @map("period_end") @db.Date
 
   normalizedJson Json    @map("normalized_json")
   rawJson        Json?   @map("raw_json")
@@ -318,11 +318,107 @@ model ChannelAccountDailyKpiSnapshot {
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization     Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  rawSnapshot ChannelScrapeSnapshot? @relation("AccountKpiRawSnapshot", fields: [rawSnapshotId], references: [id], onDelete: SetNull)
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  rawSnapshot  ChannelScrapeSnapshot? @relation("AccountKpiRawSnapshot", fields: [rawSnapshotId], references: [id], onDelete: SetNull)
 
   @@unique([organizationId, channel, source, businessDate, kpiType])
   @@index([organizationId, channel, businessDate])
   @@index([rawSnapshotId])
   @@map("channel_account_daily_kpi_snapshots")
+}
+
+/// @namespace Channels
+/// @describe 채널-KidItem 상품 매칭 스캔 실행 이력. 실제 연결 source of truth 는 ChannelListing / ChannelListingOption.
+model ChannelReconciliationRun {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  channel String // 'coupang'
+  source  String // 'wing_inventory' | 'seller_products' | 'manual'
+
+  status String @default("running") // running | completed | failed
+
+  totalCount         Int @default(0) @map("total_count")
+  alreadyLinkedCount Int @default(0) @map("already_linked_count")
+  autoLinkedCount    Int @default(0) @map("auto_linked_count")
+  needsReviewCount   Int @default(0) @map("needs_review_count")
+  conflictCount      Int @default(0) @map("conflict_count")
+  ignoredCount       Int @default(0) @map("ignored_count")
+  errorCount         Int @default(0) @map("error_count")
+
+  startedAt  DateTime  @default(now()) @map("started_at") @db.Timestamptz
+  finishedAt DateTime? @map("finished_at") @db.Timestamptz
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  metaJson  Json? @map("meta_json")
+  errorJson Json? @map("error_json")
+
+  organization Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  items        ChannelReconciliationItem[]
+
+  @@index([organizationId, channel, source, startedAt])
+  @@index([organizationId, status, startedAt])
+  @@index([startedAt])
+  @@map("channel_reconciliation_runs")
+}
+
+/// @namespace Channels
+/// @describe 사용자가 처리하는 채널-내부 상품 매칭 queue. MasterProduct 자동 생성 없이 기존 ProductOption/ChannelListing 연결만 추적.
+model ChannelReconciliationItem {
+  id             String  @id @default(uuid()) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  lastSeenRunId  String? @map("last_seen_run_id") @db.Uuid
+
+  channel  String // 'coupang'
+  source   String // 'wing_inventory' | 'seller_products'
+  itemType String @map("item_type") // channel_listing | channel_option | kiditem_master | kiditem_option
+  itemKey  String @map("item_key") // listing:<externalId>, option:<externalId>:<externalOptionId>
+
+  status String @default("needs_review") // linked | needs_review | conflict | ignored | stale
+
+  externalId       String? @map("external_id")
+  externalOptionId String? @map("external_option_id")
+  legacyCode       String? @map("legacy_code")
+
+  channelProductName String? @map("channel_product_name")
+  channelOptionName  String? @map("channel_option_name")
+  channelImageUrl    String? @map("channel_image_url")
+  channelUrl         String? @map("channel_url")
+  channelStatus      String? @map("channel_status")
+
+  linkedListingId       String? @map("linked_listing_id") @db.Uuid
+  linkedListingOptionId String? @map("linked_listing_option_id") @db.Uuid
+  linkedMasterProductId String? @map("linked_master_product_id") @db.Uuid
+  linkedProductOptionId String? @map("linked_product_option_id") @db.Uuid
+
+  matchReason      String? @map("match_reason") // external_id | legacy_code_exact | manual | none | conflict
+  resolutionSource String? @map("resolution_source") // existing_external_id | auto_legacy_code | manual | ignored
+  confidence       Int?
+
+  rawJson        Json? @map("raw_json")
+  normalizedJson Json? @map("normalized_json")
+  conflictJson   Json? @map("conflict_json")
+
+  resolvedAt       DateTime? @map("resolved_at") @db.Timestamptz
+  resolvedByUserId String?   @map("resolved_by_user_id") @db.Uuid
+  ignoredReason    String?   @map("ignored_reason")
+
+  firstObservedAt DateTime @default(now()) @map("first_observed_at") @db.Timestamptz
+  lastObservedAt  DateTime @default(now()) @map("last_observed_at") @db.Timestamptz
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lastSeenRun  ChannelReconciliationRun? @relation(fields: [lastSeenRunId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, channel, source, itemKey])
+  @@index([organizationId, channel, status])
+  @@index([organizationId, channel, itemType, status])
+  @@index([organizationId, channel, externalId], map: "channel_reconciliation_items_org_channel_ext_id_idx")
+  @@index([organizationId, channel, externalOptionId], map: "channel_reconciliation_items_org_channel_ext_option_idx")
+  @@index([organizationId, legacyCode])
+  @@index([lastSeenRunId])
+  @@index([lastObservedAt])
+  @@map("channel_reconciliation_items")
 }

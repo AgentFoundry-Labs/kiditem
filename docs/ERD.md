@@ -26,7 +26,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Advertising](erd/advertising.md) | 5 |
 | [Agents](erd/agents.md) | 8 |
 | [AI](erd/ai.md) | 8 |
-| [Channels](erd/channels.md) | 6 |
+| [Channels](erd/channels.md) | 8 |
 | [Core](erd/core.md) | 13 |
 | [Finance](erd/finance.md) | 5 |
 | [Inventory](erd/inventory.md) | 8 |
@@ -63,6 +63,8 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ChannelAdTargetDailySnapshot | Channels | `channel_ad_target_daily_snapshots` | 채널 광고 타겟(캠페인/키워드/상품)의 일별 정규화 fact. 기간 view 는 SUM 으로 derive. |
 | ChannelListingDailySnapshot | Channels | `channel_listing_daily_snapshots` | 채널 listing 의 일별 정규화 상태. 반복 scrape 는 businessDate row 를 upsert. |
 | ChannelListingOptionDailySnapshot | Channels | `channel_listing_option_daily_snapshots` | 채널 listing option/vendor item 의 일별 정규화 상태. |
+| ChannelReconciliationItem | Channels | `channel_reconciliation_items` | 사용자가 처리하는 채널-내부 상품 매칭 queue. MasterProduct 자동 생성 없이 기존 ProductOption/ChannelListing 연결만 추적. |
+| ChannelReconciliationRun | Channels | `channel_reconciliation_runs` | 채널-KidItem 상품 매칭 스캔 실행 이력. 실제 연결 source of truth 는 ChannelListing / ChannelListingOption. |
 | ChannelScrapeRun | Channels | `channel_scrape_runs` | 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장. |
 | ChannelScrapeSnapshot | Channels | `channel_scrape_snapshots` | 채널 스크래퍼/API 가 본 원본 row. 매칭 실패/파서 변경 대비 rawJson 을 보존. |
 | BundleComponent | Core | `bundle_components` | 세트 옵션의 구성품 관계. bundleOption(isBundle=true) ↔ componentOption. Cross-master 허용, cross-organization 금지. |
@@ -526,6 +528,61 @@ erDiagram
     Json metaJson
     DateTime createdAt
     DateTime updatedAt
+  }
+  ChannelReconciliationItem {
+    String id PK
+    String organizationId FK
+    String lastSeenRunId FK
+    String channel
+    String source
+    String itemType
+    String itemKey
+    String status
+    String externalId
+    String externalOptionId
+    String legacyCode
+    String channelProductName
+    String channelOptionName
+    String channelImageUrl
+    String channelUrl
+    String channelStatus
+    String linkedListingId
+    String linkedListingOptionId
+    String linkedMasterProductId
+    String linkedProductOptionId
+    String matchReason
+    String resolutionSource
+    Int confidence
+    Json rawJson
+    Json normalizedJson
+    Json conflictJson
+    DateTime resolvedAt
+    String resolvedByUserId
+    String ignoredReason
+    DateTime firstObservedAt
+    DateTime lastObservedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ChannelReconciliationRun {
+    String id PK
+    String organizationId FK
+    String channel
+    String source
+    String status
+    Int totalCount
+    Int alreadyLinkedCount
+    Int autoLinkedCount
+    Int needsReviewCount
+    Int conflictCount
+    Int ignoredCount
+    Int errorCount
+    DateTime startedAt
+    DateTime finishedAt
+    DateTime createdAt
+    DateTime updatedAt
+    Json metaJson
+    Json errorJson
   }
   ChannelScrapeRun {
     String id PK
@@ -1453,6 +1510,7 @@ erDiagram
   ChannelListingOption ||--o{ ChannelListingOptionDailySnapshot : "listingOption"
   ChannelListingOption o|--o{ ChannelScrapeSnapshot : "listingOption"
   ChannelListingOption o|--o{ OrderLineItem : "listingOption"
+  ChannelReconciliationRun o|--o{ ChannelReconciliationItem : "lastSeenRun"
   ChannelScrapeRun o|--o{ ChannelScrapeSnapshot : "scrapeRun"
   ChannelScrapeSnapshot o|--o{ ChannelAccountDailyKpiSnapshot : "rawSnapshot"
   ChannelScrapeSnapshot o|--o{ ChannelAdTargetDailySnapshot : "rawSnapshot"
@@ -1495,6 +1553,8 @@ erDiagram
   Organization ||--o{ ChannelListingDailySnapshot : "organization"
   Organization ||--o{ ChannelListingOption : "organization"
   Organization ||--o{ ChannelListingOptionDailySnapshot : "organization"
+  Organization ||--o{ ChannelReconciliationItem : "organization"
+  Organization ||--o{ ChannelReconciliationRun : "organization"
   Organization ||--o{ ChannelScrapeRun : "organization"
   Organization ||--o{ ChannelScrapeSnapshot : "organization"
   Organization ||--o{ ContentGeneration : "organization"

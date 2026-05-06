@@ -4,7 +4,7 @@
 /// @describe 광고 자동 실행 큐. ChannelAdTargetDailySnapshot→AdAction→ExecutionTask→ExecutionLog 파이프라인.
 model AdAction {
   id              String    @id @default(uuid()) @db.Uuid
-  organizationId       String    @map("organization_id") @db.Uuid
+  organizationId  String    @map("organization_id") @db.Uuid
   listingId       String?   @map("listing_id") @db.Uuid
   adTargetDailyId String?   @map("ad_target_daily_id") @db.Uuid
   actionType      String    @map("action_type")
@@ -25,10 +25,10 @@ model AdAction {
   executedAt      DateTime? @map("executed_at") @db.Timestamptz
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
-  organization         Organization                       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  listing         ChannelListing?               @relation(fields: [listingId], references: [id], onDelete: SetNull)
-  adTargetDaily   ChannelAdTargetDailySnapshot? @relation(fields: [adTargetDailyId], references: [id], onDelete: SetNull)
-  executionTasks  ExecutionTask[]
+  organization   Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  listing        ChannelListing?               @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  adTargetDaily  ChannelAdTargetDailySnapshot? @relation(fields: [adTargetDailyId], references: [id], onDelete: SetNull)
+  executionTasks ExecutionTask[]
 
   @@index([organizationId, approvalStatus])
   @@index([executeStatus])
@@ -41,16 +41,16 @@ model AdAction {
 
 /// @namespace Advertising
 model ScrapeTarget {
-  id            String    @id @default(uuid()) @db.Uuid
-  organizationId     String    @map("organization_id") @db.Uuid
-  url           String
-  label         String
-  category      String    @default("advertising")
-  isActive      Boolean   @default(true) @map("is_active")
-  lastScrapedAt DateTime? @map("last_scraped_at") @db.Timestamptz
-  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  url            String
+  label          String
+  category       String    @default("advertising")
+  isActive       Boolean   @default(true) @map("is_active")
+  lastScrapedAt  DateTime? @map("last_scraped_at") @db.Timestamptz
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
-  organization       Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId, isActive])
   @@map("scrape_targets")
@@ -72,9 +72,9 @@ model ExecutionTask {
   screenshotPath String?   @map("screenshot_path")
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
-  action         AdAction          @relation(fields: [actionId], references: [id], onDelete: Cascade)
-  worker         ExecutionWorker?  @relation(fields: [workerId], references: [id], onDelete: SetNull)
-  logs           ExecutionLog[]
+  action AdAction         @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  worker ExecutionWorker? @relation(fields: [workerId], references: [id], onDelete: SetNull)
+  logs   ExecutionLog[]
 
   @@index([actionId, status, createdAt])
   @@index([workerId])
@@ -92,7 +92,7 @@ model ExecutionLog {
   payloadJson Json?    @map("payload_json")
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  task        ExecutionTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  task ExecutionTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   @@index([taskId])
   @@index([createdAt])
@@ -101,23 +101,23 @@ model ExecutionLog {
 
 /// @namespace Advertising
 model ExecutionWorker {
-  id              String    @id @default(uuid()) @db.Uuid
-  organizationId       String    @map("organization_id") @db.Uuid
-  workerKey       String    @unique @map("worker_key")
+  id              String   @id @default(uuid()) @db.Uuid
+  organizationId  String   @map("organization_id") @db.Uuid
+  workerKey       String   @unique @map("worker_key")
   label           String?
-  status          String    @default("online")
-  currentTaskRef  String?   @map("current_task_ref")
-  currentUrl      String?   @map("current_url")
-  currentPageType String?   @map("current_page_type")
-  metaJson        Json?     @map("meta_json")
-  lastHeartbeatAt DateTime  @default(now()) @map("last_heartbeat_at") @db.Timestamptz
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  status          String   @default("online")
+  currentTaskRef  String?  @map("current_task_ref")
+  currentUrl      String?  @map("current_url")
+  currentPageType String?  @map("current_page_type")
+  metaJson        Json?    @map("meta_json")
+  lastHeartbeatAt DateTime @default(now()) @map("last_heartbeat_at") @db.Timestamptz
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  organization         Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  tasks           ExecutionTask[]
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  tasks        ExecutionTask[]
 
+  @@index([organizationId])
   @@index([status])
   @@index([lastHeartbeatAt])
   @@map("execution_workers")
 }
-

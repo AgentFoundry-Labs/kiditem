@@ -136,7 +136,7 @@ docker exec kiditem-postgres pg_dump -U kiditem --data-only --column-inserts \
 - After schema changes: always run the schema-change checklist above (`db:push` + `prisma generate` + generated ERD/Graphify artifacts)
 - Keep Zod schemas in sync: use `satisfies z.infer<typeof Schema>` pattern in services
 - Json 흡수 패턴은 일회성 raw payload 보존용으로만 사용한다. 운영 쿼리·집계·IDOR guard 가 필요한 child row 는 `OrderReturnLineItem` 처럼 정규화한다.
-- **FK 컬럼에 `@@index` 명시 필수** — Prisma 는 FK 에 자동 인덱스를 만들지 **않는다**. JOIN/역방향 조회가 있는 FK (대부분) 는 명시적 `@@index([foreignKey])` 추가. 복합이 자주 쓰이면 `@@index([organizationId, foreignKey])` 등 조합 인덱스도 함께.
+- **FK 컬럼에 leading `@@index` 명시 필수** — Prisma 는 FK 에 자동 인덱스를 만들지 **않는다**. JOIN/역방향 조회/부모 delete-cascade 점검이 있는 FK 는 `@@index([foreignKey])` 처럼 FK 컬럼이 첫 번째인 index 를 추가한다. `@@index([organizationId, foreignKey])` 는 organization-scoped list query 에는 유용하지만 FK 유지보수용 leading index 를 대체하지 않는다. 둘 다 필요한 read path 면 둘 다 둔다.
 - **Optional FK (`Foo?`) 에도 `onDelete` 명시** — default 동작에 의존하지 말 것. 부모 삭제 시 동작(`SetNull` / `Restrict` / `Cascade`)을 의도에 맞게 기입해 리뷰어가 정책을 바로 읽을 수 있게.
 
 ## 통합 모델 규칙
@@ -215,3 +215,11 @@ DB schema 는 Prisma-only 다. RLS, CHECK constraint, expression index, standalo
 - Chatbot/agent: DB role 로 직접 접속하지 않는다. 서버가 제공한 organization-scoped context 또는 application port 를 통해서만 데이터에 접근한다.
 - Value constraints: native enum/CHECK 대신 DTO validation, Zod/shared schemas, domain policy 로 검증한다.
 - Computed lookup needs: JSONB expression index 대신 정규 컬럼 + Prisma `@@index` 로 승격한다.
+
+### Supabase/Postgres guidance alignment
+
+Supabase 의 일반 multi-tenant 권장사항은 RLS 방어층을 선호하지만, KidItem 의 현재 runtime 은 browser → NestJS API → Prisma server client 경로이며 frontend direct DB/PostgREST 접근을 금지한다. 따라서 현 단계의 source of truth 는 app-level `organizationId` scope 다. RLS 를 도입하려면 Prisma schema 밖 SQL policy/runtime `current_setting`/role model 이 필요하므로, ad-hoc overlay 로 추가하지 않는다.
+
+향후 Supabase direct DB/PostgREST 접근을 제품 surface 로 열거나 DB-enforced defense-in-depth 가 필요해지면 별도 platform migration 으로 다룬다. 그 migration 은 RLS policy 생성/검증/성능 index/runbook 을 포함해야 하며, 그때까지 “RLS 미의존” 규칙은 유지한다.
+
+Native PG enum 도 현 단계에서는 유지하지 않는다. 운영 status/type 값은 Coupang/API/parser 변화에 따라 빠르게 늘어나며, enum 변경은 production cast/migration 실패 경험을 만들기 쉽다. `String` 컬럼 + DTO/Zod/domain validation 이 KidItem 의 Prisma-only 운영 모델과 맞는다.

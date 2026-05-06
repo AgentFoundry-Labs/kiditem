@@ -296,6 +296,8 @@ erDiagram
 | Organization | organization | referenced by external | Channels | ChannelAdTargetDailySnapshot |
 | Organization | organization | referenced by external | Channels | ChannelListingDailySnapshot |
 | Organization | organization | referenced by external | Channels | ChannelListingOptionDailySnapshot |
+| Organization | organization | referenced by external | Channels | ChannelReconciliationItem |
+| Organization | organization | referenced by external | Channels | ChannelReconciliationRun |
 | Organization | organization | referenced by external | Channels | ChannelScrapeRun |
 | Organization | organization | referenced by external | Channels | ChannelScrapeSnapshot |
 | Organization | organization | referenced by external | Finance | GradeHistory |

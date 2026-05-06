@@ -3,24 +3,24 @@
 /// @namespace AI
 /// @describe CTR 기반 썸네일 트래킹 (ThumbnailAnalysis 와 별도 시스템).
 model Thumbnail {
-  id        String @id @default(uuid()) @db.Uuid
+  id             String @id @default(uuid()) @db.Uuid
   organizationId String @map("organization_id") @db.Uuid
-  listingId String @map("listing_id") @db.Uuid
+  listingId      String @map("listing_id") @db.Uuid
 
-  imageUrl      String  @map("image_url")
-  strategy      String  @default("standard")
-  status        String  @default("active")
+  imageUrl      String   @map("image_url")
+  strategy      String   @default("standard")
+  status        String   @default("active")
   ctr           Decimal? @db.Decimal(5, 4)
   prevClickRate Decimal? @default(0) @map("prev_click_rate") @db.Decimal(5, 4)
-  impressions   Int     @default(0)
-  clicks        Int     @default(0)
+  impressions   Int      @default(0)
+  clicks        Int      @default(0)
 
   measuredAt DateTime? @map("measured_at") @db.Timestamptz
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  listing ChannelListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  listing      ChannelListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
   @@index([listingId])
@@ -30,22 +30,22 @@ model Thumbnail {
 /// @namespace AI
 /// @describe 5차원 scores(heroShot·composition·branding·mobile·differentiation) + complianceGrade(PASS/WARN/FAIL) + imageSpec(사전검수). 스펙 FAIL 시 AI 호출 생략.
 model ThumbnailAnalysis {
-  id        String @id @default(uuid()) @db.Uuid
+  id             String @id @default(uuid()) @db.Uuid
   organizationId String @map("organization_id") @db.Uuid
-  masterId  String @unique @map("master_id") @db.Uuid
+  masterId       String @unique @map("master_id") @db.Uuid
 
-  imageUrl     String  @map("image_url")
-  overallScore Int     @default(0) @map("overall_score")
-  grade        String  @default("F")
-  scores       Json?   // { heroShot, composition, branding, mobile, differentiation }
-  issues       Json    @default("[]")
-  suggestions  Json    @default("[]")
-  method       String  @default("ai") // "ai" | "rule"
+  imageUrl     String @map("image_url")
+  overallScore Int    @default(0) @map("overall_score")
+  grade        String @default("F")
+  scores       Json? // { heroShot, composition, branding, mobile, differentiation }
+  issues       Json   @default("[]")
+  suggestions  Json   @default("[]")
+  method       String @default("ai") // "ai" | "rule"
 
-  complianceGrade  String? @map("compliance_grade")   // PASS | WARN | FAIL
-  complianceScores Json?   @map("compliance_scores")  // { violations, confidence, quality, violationCount }
-  imageSpec        Json?   @map("image_spec")          // { width, height, aspectRatio, fileSizeKB, format, issues }
-  recompose        Json?   // { kind, requiresChoice, options, recommended, reasoning }
+  complianceGrade  String? @map("compliance_grade") // PASS | WARN | FAIL
+  complianceScores Json?   @map("compliance_scores") // { violations, confidence, quality, violationCount }
+  imageSpec        Json?   @map("image_spec") // { width, height, aspectRatio, fileSizeKB, format, issues }
+  recompose        Json? // { kind, requiresChoice, options, recommended, reasoning }
 
   qualityAnalyzedAt    DateTime? @map("quality_analyzed_at") @db.Timestamptz
   complianceAnalyzedAt DateTime? @map("compliance_analyzed_at") @db.Timestamptz
@@ -53,8 +53,8 @@ model ThumbnailAnalysis {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  master  MasterProduct @relation(fields: [masterId], references: [id], onDelete: Cascade)
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  master       MasterProduct @relation(fields: [masterId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
   @@index([grade])
@@ -65,33 +65,33 @@ model ThumbnailAnalysis {
 /// @namespace AI
 /// @describe 상태: pending→generating→ready/failed→applied/skipped. method=edit 만 사용 (generate Imagen 방식 삭제됨).
 model ThumbnailGeneration {
-  id        String @id @default(uuid()) @db.Uuid
+  id             String @id @default(uuid()) @db.Uuid
   organizationId String @map("organization_id") @db.Uuid
-  masterId  String @map("master_id") @db.Uuid
+  masterId       String @map("master_id") @db.Uuid
 
-  originalUrl String? @map("original_url")
-  candidates  ThumbnailGenerationCandidate[]
-  inputImages ThumbnailGenerationInputImage[]
+  originalUrl          String?                         @map("original_url")
+  candidates           ThumbnailGenerationCandidate[]
+  inputImages          ThumbnailGenerationInputImage[]
   registrationAttempts ThumbnailRegistrationAttempt[]
-  selectedUrl String? @map("selected_url")
-  status      String  @default("pending")
-  phase       String? @map("phase")
-  grade       String  @default("F")
-  score       Int     @default(0)
-  prompt       String?
-  method       String  @default("edit") @map("method")
-  editAnalysis Json?   @map("edit_analysis")
-  inputMeta    Json?   @map("input_meta")
-  inputMetaVersion Int @default(1) @map("input_meta_version")
-  errorMessage String? @map("error_message")
-  attemptCount Int     @default(0) @map("attempt_count")
+  selectedUrl          String?                         @map("selected_url")
+  status               String                          @default("pending")
+  phase                String?                         @map("phase")
+  grade                String                          @default("F")
+  score                Int                             @default(0)
+  prompt               String?
+  method               String                          @default("edit") @map("method")
+  editAnalysis         Json?                           @map("edit_analysis")
+  inputMeta            Json?                           @map("input_meta")
+  inputMetaVersion     Int                             @default(1) @map("input_meta_version")
+  errorMessage         String?                         @map("error_message")
+  attemptCount         Int                             @default(0) @map("attempt_count")
 
   triggeredByUserId String? @map("triggered_by_user_id") @db.Uuid
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization         Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization    Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   master          MasterProduct       @relation(fields: [masterId], references: [id], onDelete: Cascade)
   trackings       ThumbnailTracking[]
   triggeredByUser User?               @relation("ThumbnailGenerationTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
@@ -101,15 +101,16 @@ model ThumbnailGeneration {
   @@index([status])
   @@index([method])
   @@index([organizationId, triggeredByUserId])
+  @@index([triggeredByUserId])
   @@map("thumbnail_generations")
 }
 
 /// @namespace AI
 /// @describe 썸네일 생성 후보 이미지. 바이너리는 object storage 에 저장하고 DB 는 URL/key 메타데이터만 보관한다.
 model ThumbnailGenerationCandidate {
-  id           String @id @default(uuid()) @db.Uuid
-  organizationId    String @map("organization_id") @db.Uuid
-  generationId String @map("generation_id") @db.Uuid
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  generationId   String @map("generation_id") @db.Uuid
 
   url        String
   storageKey String? @map("storage_key")
@@ -124,8 +125,8 @@ model ThumbnailGenerationCandidate {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization    Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  generation ThumbnailGeneration @relation(fields: [generationId], references: [id], onDelete: Cascade)
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  generation   ThumbnailGeneration @relation(fields: [generationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
   @@index([generationId])
@@ -137,9 +138,9 @@ model ThumbnailGenerationCandidate {
 /// @namespace AI
 /// @describe 썸네일 편집/생성 입력 이미지. base64 원문 대신 object storage 참조와 역할 메타데이터만 저장한다.
 model ThumbnailGenerationInputImage {
-  id           String @id @default(uuid()) @db.Uuid
-  organizationId    String @map("organization_id") @db.Uuid
-  generationId String @map("generation_id") @db.Uuid
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  generationId   String @map("generation_id") @db.Uuid
 
   url        String
   storageKey String? @map("storage_key")
@@ -156,8 +157,8 @@ model ThumbnailGenerationInputImage {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization    Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  generation ThumbnailGeneration @relation(fields: [generationId], references: [id], onDelete: Cascade)
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  generation   ThumbnailGeneration @relation(fields: [generationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
   @@index([generationId])
@@ -169,22 +170,22 @@ model ThumbnailGenerationInputImage {
 /// @namespace AI
 /// @describe Wing 등 외부 채널 등록 시도 이력. 마지막 상태만 덮어쓰지 않고 재시도/실패 원인을 보존한다.
 model ThumbnailRegistrationAttempt {
-  id           String @id @default(uuid()) @db.Uuid
-  organizationId    String @map("organization_id") @db.Uuid
-  generationId String @map("generation_id") @db.Uuid
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  generationId   String @map("generation_id") @db.Uuid
 
-  status       String  @default("uploaded")
-  errorMessage String? @map("error_message")
+  status        String  @default("uploaded")
+  errorMessage  String? @map("error_message")
   screenshotUrl String? @map("screenshot_url")
-  externalId   String? @map("external_id")
+  externalId    String? @map("external_id")
 
   startedAt  DateTime? @map("started_at") @db.Timestamptz
   finishedAt DateTime? @map("finished_at") @db.Timestamptz
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization    Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  generation ThumbnailGeneration @relation(fields: [generationId], references: [id], onDelete: Cascade)
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  generation   ThumbnailGeneration @relation(fields: [generationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
   @@index([generationId])
@@ -195,35 +196,36 @@ model ThumbnailRegistrationAttempt {
 
 /// @namespace AI
 model ThumbnailTracking {
-  id           String @id @default(uuid()) @db.Uuid
-  organizationId    String @map("organization_id") @db.Uuid
-  listingId    String @map("listing_id") @db.Uuid
-  generationId String @map("generation_id") @db.Uuid
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  listingId      String @map("listing_id") @db.Uuid
+  generationId   String @map("generation_id") @db.Uuid
 
-  originalGrade String @map("original_grade") // S|A|B|C|F
-  originalScore Int    @default(0) @map("original_score")
+  originalGrade String   @map("original_grade") // S|A|B|C|F
+  originalScore Int      @default(0) @map("original_score")
   appliedAt     DateTime @default(now()) @map("applied_at") @db.Timestamptz
 
   // 성과 지표 (나중에 채워짐)
-  ctrBefore    Float? @map("ctr_before")
-  ctrAfter     Float? @map("ctr_after")
-  reviewsBefore Int?  @map("reviews_before")
-  reviewsAfter  Int?  @map("reviews_after")
-  salesBefore   Int?  @map("sales_before")
-  salesAfter    Int?  @map("sales_after")
+  ctrBefore     Float? @map("ctr_before")
+  ctrAfter      Float? @map("ctr_after")
+  reviewsBefore Int?   @map("reviews_before")
+  reviewsAfter  Int?   @map("reviews_after")
+  salesBefore   Int?   @map("sales_before")
+  salesAfter    Int?   @map("sales_after")
 
   status String @default("tracking") // tracking|measured|inconclusive
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization    Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  listing    ChannelListing      @relation(fields: [listingId], references: [id], onDelete: Cascade)
-  generation ThumbnailGeneration @relation(fields: [generationId], references: [id], onDelete: Cascade)
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  listing      ChannelListing      @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  generation   ThumbnailGeneration @relation(fields: [generationId], references: [id], onDelete: Cascade)
 
   @@unique([listingId, generationId])
   @@index([organizationId])
   @@index([listingId])
+  @@index([generationId])
   @@index([status])
   @@map("thumbnail_trackings")
 }
@@ -231,7 +233,7 @@ model ThumbnailTracking {
 /// @namespace AI
 model ContentGeneration {
   id                   String   @id @default(uuid()) @db.Uuid
-  organizationId            String   @map("organization_id") @db.Uuid
+  organizationId       String   @map("organization_id") @db.Uuid
   masterId             String   @map("master_id") @db.Uuid
   originalImages       Json?    @map("original_images")
   processedImages      Json?    @map("processed_images")
@@ -245,8 +247,8 @@ model ContentGeneration {
   createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt            DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  master  MasterProduct @relation(fields: [masterId], references: [id], onDelete: Cascade)
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  master       MasterProduct @relation(fields: [masterId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
   @@index([masterId])

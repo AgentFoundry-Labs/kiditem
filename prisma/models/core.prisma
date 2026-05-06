@@ -2,29 +2,29 @@
 
 /// @namespace Core
 model Organization {
-  id             String   @id @default(uuid()) @db.Uuid
-  name           String
-  slug           String   @unique
-  isActive       Boolean  @default(true) @map("is_active")
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  slug      String   @unique
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   // Core
-  memberships    OrganizationMembership[]
-  legalEntities  LegalEntity[]
-  channelAccounts ChannelAccount[]
-  orders         Order[]
-  purchaseOrders PurchaseOrder[]
-  profitLoss     ProfitLoss[]
-  thumbnails            Thumbnail[]
-  thumbnailAnalyses     ThumbnailAnalysis[]
-  thumbnailGenerations  ThumbnailGeneration[]
-  thumbnailGenerationCandidates ThumbnailGenerationCandidate[]
+  memberships                    OrganizationMembership[]
+  legalEntities                  LegalEntity[]
+  channelAccounts                ChannelAccount[]
+  orders                         Order[]
+  purchaseOrders                 PurchaseOrder[]
+  profitLoss                     ProfitLoss[]
+  thumbnails                     Thumbnail[]
+  thumbnailAnalyses              ThumbnailAnalysis[]
+  thumbnailGenerations           ThumbnailGeneration[]
+  thumbnailGenerationCandidates  ThumbnailGenerationCandidate[]
   thumbnailGenerationInputImages ThumbnailGenerationInputImage[]
   thumbnailRegistrationAttempts  ThumbnailRegistrationAttempt[]
-  thumbnailTrackings    ThumbnailTracking[]
-  reviews               Review[]
-  alerts         Alert[]
+  thumbnailTrackings             ThumbnailTracking[]
+  reviews                        Review[]
+  alerts                         Alert[]
 
   // Sourcing & Content
   contentGenerations ContentGeneration[]
@@ -35,70 +35,69 @@ model Organization {
   agentDefinitions  AgentDefinition[]
 
   // Order domain (Plan A.5)
-  orderLineItems        OrderLineItem[]
-  orderReturns          OrderReturn[]
-  orderReturnLineItems  OrderReturnLineItem[]
+  orderLineItems       OrderLineItem[]
+  orderReturns         OrderReturn[]
+  orderReturnLineItems OrderReturnLineItem[]
 
   // Supplier & Procurement
   suppliers        Supplier[]
   supplierPayments SupplierPayment[]
 
   // Warehouse & Inventory Ops
-  warehouses           Warehouse[]
-  stockTransfers       StockTransfer[]
-  stockTransactions    StockTransaction[]
-  stockAudits          StockAudit[]
+  warehouses        Warehouse[]
+  stockTransfers    StockTransfer[]
+  stockTransactions StockTransaction[]
+  stockAudits       StockAudit[]
 
   // Logistics
-  shipments    Shipment[]
-  unshippedItems UnshippedItem[]
-  pickingLists   PickingList[]
+  shipments       Shipment[]
+  unshippedItems  UnshippedItem[]
+  pickingLists    PickingList[]
   returnTransfers ReturnTransfer[]
 
   // Product Extensions
-  processingCosts     ProcessingCost[]
+  processingCosts ProcessingCost[]
 
   // Finance
-  settlements    Settlement[]
-  manualLedgers  ManualLedger[]
+  settlements   Settlement[]
+  manualLedgers ManualLedger[]
 
   // Operations & Config
-  csRecords          CSRecord[]
-  categoryMappings   CategoryMapping[]
+  csRecords        CSRecord[]
+  categoryMappings CategoryMapping[]
 
   // Analytics
-  salesPlans             SalesPlan[]
-
+  salesPlans SalesPlan[]
 
   // Ontology
-  businessRules   BusinessRule[]
-  systemSettings  SystemSetting[]
+  businessRules  BusinessRule[]
+  systemSettings SystemSetting[]
 
   // Agent Platform
 
-  heartbeatRuns         HeartbeatRun[]
-  agentWakeupRequests   AgentWakeupRequest[]
+  heartbeatRuns       HeartbeatRun[]
+  agentWakeupRequests AgentWakeupRequest[]
 
-  agentEvents            AgentEvent[]
+  agentEvents AgentEvent[]
 
   // Ad Scrape Targets
-  scrapeTargets        ScrapeTarget[]
+  scrapeTargets ScrapeTarget[]
 
   // Ad Execution
-  adActions            AdAction[]
-  executionWorkers     ExecutionWorker[]
+  adActions        AdAction[]
+  executionWorkers ExecutionWorker[]
 
   // Action Board
-  actionTasks          ActionTask[]
+  actionTasks ActionTask[]
 
   // 3-layer product schema (new)
-  masterProducts          MasterProduct[]
-  masterProductImages     MasterProductImage[]
-  productOptions          ProductOption[]
-  channelListings         ChannelListing[]
-  channelListingOptions   ChannelListingOption[]
-  bundleComponents        BundleComponent[]
-  inventory               Inventory[]
+  masterProducts        MasterProduct[]
+  masterProductImages   MasterProductImage[]
+  productOptions        ProductOption[]
+  channelListings       ChannelListing[]
+  channelListingOptions ChannelListingOption[]
+  bundleComponents      BundleComponent[]
+  inventory             Inventory[]
 
   // Channels — market-data snapshots (Wave C0)
   channelScrapeRuns                  ChannelScrapeRun[]
@@ -109,9 +108,11 @@ model Organization {
   // Channels — daily fact extensions (Hard rewrite H1)
   channelAdTargetDailySnapshots   ChannelAdTargetDailySnapshot[]
   channelAccountDailyKpiSnapshots ChannelAccountDailyKpiSnapshot[]
+  channelReconciliationRuns       ChannelReconciliationRun[]
+  channelReconciliationItems      ChannelReconciliationItem[]
 
   // Additional back-relations for FK rename additions
-  gradeHistory            GradeHistory[]            // Task 8 Step 2 adds organizationId to GradeHistory
+  gradeHistory GradeHistory[] // Task 8 Step 2 adds organizationId to GradeHistory
 
   @@map("organizations")
 }
@@ -133,30 +134,31 @@ model User {
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  agentDefinition           AgentDefinition? @relation(fields: [agentDefinitionId], references: [id])
-  memberships               OrganizationMembership[]
+  agentDefinition                AgentDefinition?         @relation(fields: [agentDefinitionId], references: [id], onDelete: SetNull)
+  memberships                    OrganizationMembership[]
   invitedOrganizationMemberships OrganizationMembership[] @relation("OrganizationMembershipInviter")
-  triggeredWorkflowRuns     WorkflowRun[]    @relation("WorkflowRunTriggeredBy")
-  triggeredHeartbeatRuns        HeartbeatRun[]        @relation("HeartbeatRunTriggeredBy")
-  triggeredThumbnailGenerations ThumbnailGeneration[] @relation("ThumbnailGenerationTriggeredBy")
-  assignedActionTasks           ActionTask[]          @relation("ActionTaskAssignee")
+  triggeredWorkflowRuns          WorkflowRun[]            @relation("WorkflowRunTriggeredBy")
+  triggeredHeartbeatRuns         HeartbeatRun[]           @relation("HeartbeatRunTriggeredBy")
+  triggeredThumbnailGenerations  ThumbnailGeneration[]    @relation("ThumbnailGenerationTriggeredBy")
+  assignedActionTasks            ActionTask[]             @relation("ActionTaskAssignee")
 
+  @@index([agentDefinitionId])
   @@map("users")
 }
 
 /// @namespace Core
 /// @describe B2B customer/workspace membership. A user may belong to multiple organizations; this row supplies request organization and role.
 model OrganizationMembership {
-  id             String   @id @default(uuid()) @db.Uuid
-  organizationId String   @map("organization_id") @db.Uuid
-  userId         String   @map("user_id") @db.Uuid
-  role           String   @default("member")
-  status         String   @default("active")
-  invitedById    String?  @map("invited_by_id") @db.Uuid
-  joinedAt       DateTime @default(now()) @map("joined_at") @db.Timestamptz
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  userId         String    @map("user_id") @db.Uuid
+  role           String    @default("member")
+  status         String    @default("active")
+  invitedById    String?   @map("invited_by_id") @db.Uuid
+  joinedAt       DateTime  @default(now()) @map("joined_at") @db.Timestamptz
   lastSelectedAt DateTime? @map("last_selected_at") @db.Timestamptz
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -165,23 +167,24 @@ model OrganizationMembership {
   @@unique([organizationId, userId])
   @@index([userId, status])
   @@index([organizationId, role])
+  @@index([invitedById])
   @@map("organization_memberships")
 }
 
 /// @namespace Core
 /// @describe Legal/business entity under an organization. This stores tax, invoice, and settlement identity separately from the SaaS organization boundary.
 model LegalEntity {
-  id             String   @id @default(uuid()) @db.Uuid
-  organizationId String   @map("organization_id") @db.Uuid
-  name           String
-  businessNumber String?  @map("business_number")
-  countryCode    String   @default("KR") @map("country_code")
-  representativeName String? @map("representative_name")
-  address        String?
-  isPrimary      Boolean  @default(false) @map("is_primary")
-  metadata       Json?    @db.JsonB
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  id                 String   @id @default(uuid()) @db.Uuid
+  organizationId     String   @map("organization_id") @db.Uuid
+  name               String
+  businessNumber     String?  @map("business_number")
+  countryCode        String   @default("KR") @map("country_code")
+  representativeName String?  @map("representative_name")
+  address            String?
+  isPrimary          Boolean  @default(false) @map("is_primary")
+  metadata           Json?    @db.JsonB
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
@@ -193,18 +196,18 @@ model LegalEntity {
 /// @namespace Core
 /// @describe Marketplace/store account such as Coupang Wing or Naver SmartStore. Operational channel ownership is distinct from the SaaS organization.
 model ChannelAccount {
-  id             String   @id @default(uuid()) @db.Uuid
-  organizationId String   @map("organization_id") @db.Uuid
-  channel        String
-  name           String
-  externalAccountId String? @map("external_account_id")
-  sellerId       String?  @map("seller_id")
-  vendorId       String?  @map("vendor_id")
-  status         String   @default("active")
-  isPrimary      Boolean  @default(false) @map("is_primary")
-  config         Json?    @db.JsonB
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  id                String   @id @default(uuid()) @db.Uuid
+  organizationId    String   @map("organization_id") @db.Uuid
+  channel           String
+  name              String
+  externalAccountId String?  @map("external_account_id")
+  sellerId          String?  @map("seller_id")
+  vendorId          String?  @map("vendor_id")
+  status            String   @default("active")
+  isPrimary         Boolean  @default(false) @map("is_primary")
+  config            Json?    @db.JsonB
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
@@ -217,7 +220,7 @@ model ChannelAccount {
 /// @namespace Core
 model CategoryMapping {
   id                  String   @id @default(uuid()) @db.Uuid
-  organizationId           String   @map("organization_id") @db.Uuid
+  organizationId      String   @map("organization_id") @db.Uuid
   internalCategory    String   @map("internal_category")
   coupangCategoryId   String?  @map("coupang_category_id")
   coupangCategoryName String?  @map("coupang_category_name")
@@ -235,61 +238,61 @@ model CategoryMapping {
 /// @namespace Core
 /// @describe 기획상품 family. 같은 컨셉의 옵션들을 묶는 entity. 운영/광고/전략 단위.
 model MasterProduct {
-  id          String   @id @default(uuid()) @db.Uuid
-  organizationId   String   @map("organization_id") @db.Uuid
-  code        String   @unique
-  legacyCode  String?  @map("legacy_code")
+  id             String  @id @default(uuid()) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  code           String  @unique
+  legacyCode     String? @map("legacy_code")
   /// Source barcode/EAN (ADR-0022). 비어있을 수 있고 (organizationId, barcode) 가
   /// **non-unique** — 한 EAN 이 여러 product family 에 걸칠 수 있는 외부 데이터를
   /// 그대로 보존한다. 실제 옵션/스캐너 단위 unique 는 ProductOption.barcode 가 담당.
-  barcode     String?
-  name        String
-  description String   @default("")
-  category    String?
-  brand       String?
-  tags        Json     @default("[]")
-  optionCounter Int    @default(0) @map("option_counter")
+  barcode        String?
+  name           String
+  description    String  @default("")
+  category       String?
+  brand          String?
+  tags           Json    @default("[]")
+  optionCounter  Int     @default(0) @map("option_counter")
 
-  thumbnailUrl String?  @map("thumbnail_url")
+  thumbnailUrl String?              @map("thumbnail_url")
   images       MasterProductImage[]
-  imageUrl     String?  @map("image_url")
+  imageUrl     String?              @map("image_url")
 
-  abcGrade       String?  @map("abc_grade")
-  profitTag      String?  @map("profit_tag")
-  adTier         String?  @map("ad_tier")
-  adBudgetLimit  Int?     @map("ad_budget_limit")
-  healthScore    Int?     @map("health_score")
+  abcGrade        String?   @map("abc_grade")
+  profitTag       String?   @map("profit_tag")
+  adTier          String?   @map("ad_tier")
+  adBudgetLimit   Int?      @map("ad_budget_limit")
+  healthScore     Int?      @map("health_score")
   healthUpdatedAt DateTime? @map("health_updated_at") @db.Timestamptz
 
-  sourceUrl       String?  @map("source_url")
-  sourcePlatform  String?  @map("source_platform")
-  costCny         Decimal? @map("cost_cny") @db.Decimal(12, 2)
-  marginRate      Decimal? @map("margin_rate") @db.Decimal(5, 4)
-  rawData         Json?    @map("raw_data")
-  processedData   Json?    @map("processed_data")
-  draftContent    Json?    @map("draft_content")
-  pipelineStep    String?  @map("pipeline_step")
-  detailPageUrl   String?  @map("detail_page_url")
-  thumbnailStrategy String @default("standard") @map("thumbnail_strategy")
+  sourceUrl         String?  @map("source_url")
+  sourcePlatform    String?  @map("source_platform")
+  costCny           Decimal? @map("cost_cny") @db.Decimal(12, 2)
+  marginRate        Decimal? @map("margin_rate") @db.Decimal(5, 4)
+  rawData           Json?    @map("raw_data")
+  processedData     Json?    @map("processed_data")
+  draftContent      Json?    @map("draft_content")
+  pipelineStep      String?  @map("pipeline_step")
+  detailPageUrl     String?  @map("detail_page_url")
+  thumbnailStrategy String   @default("standard") @map("thumbnail_strategy")
 
-  isDeleted    Boolean   @default(false) @map("is_deleted")
-  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz
-  isTemporary  Boolean   @default(false) @map("is_temporary")
-  temporaryReason String? @map("temporary_reason")
-  memo         String?
+  isDeleted       Boolean   @default(false) @map("is_deleted")
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz
+  isTemporary     Boolean   @default(false) @map("is_temporary")
+  temporaryReason String?   @map("temporary_reason")
+  memo            String?
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization  Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  options  ProductOption[]
-  listings ChannelListing[]
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  options      ProductOption[]
+  listings     ChannelListing[]
 
-  contentGenerations    ContentGeneration[]
-  thumbnailAnalyses     ThumbnailAnalysis[]
-  thumbnailGenerations  ThumbnailGeneration[]
-  gradeHistory          GradeHistory[]
-  processingCosts       ProcessingCost[]
+  contentGenerations     ContentGeneration[]
+  thumbnailAnalyses      ThumbnailAnalysis[]
+  thumbnailGenerations   ThumbnailGeneration[]
+  gradeHistory           GradeHistory[]
+  processingCosts        ProcessingCost[]
   masterSupplierProducts MasterSupplierProduct[]
 
   @@unique([organizationId, legacyCode], map: "master_products_organization_id_legacy_code_key", where: raw("is_deleted = false AND legacy_code IS NOT NULL"))
@@ -318,9 +321,9 @@ model MasterCodeCounter {
 /// @namespace Core
 /// @describe MasterProduct 이미지 갤러리. Source of truth 이며 MasterProduct.imageUrl 은 대표 이미지 캐시로만 동기화된다.
 model MasterProductImage {
-  id        String @id @default(uuid()) @db.Uuid
+  id             String @id @default(uuid()) @db.Uuid
   organizationId String @map("organization_id") @db.Uuid
-  masterId  String @map("master_id") @db.Uuid
+  masterId       String @map("master_id") @db.Uuid
 
   url        String
   storageKey String? @map("storage_key")
@@ -341,8 +344,8 @@ model MasterProductImage {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  master  MasterProduct @relation(fields: [masterId], references: [id], onDelete: Cascade)
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  master       MasterProduct @relation(fields: [masterId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
   @@index([masterId])
@@ -356,55 +359,55 @@ model MasterProductImage {
 /// @namespace Core
 /// @describe 물리 SKU. 바코드 1:1. 재고/매입/창고 단위. isBundle 이면 구성품 기반 계산.
 model ProductOption {
-  id          String   @id @default(uuid()) @db.Uuid
-  masterId    String   @map("master_id") @db.Uuid
-  organizationId   String   @map("organization_id") @db.Uuid
+  id             String @id @default(uuid()) @db.Uuid
+  masterId       String @map("master_id") @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
 
-  sku         String   @unique
-  barcode     String?
-  legacyCode  String?  @map("legacy_code")
-  optionName  String?  @map("option_name")
-  sortOrder   Int      @default(0) @map("sort_order")
+  sku        String  @unique
+  barcode    String?
+  legacyCode String? @map("legacy_code")
+  optionName String? @map("option_name")
+  sortOrder  Int     @default(0) @map("sort_order")
 
-  costPrice       Int?     @map("cost_price")
-  sellPrice       Int?     @map("sell_price")
-  commissionRate  Decimal? @map("commission_rate") @db.Decimal(5, 4)
-  shippingCost    Int?     @map("shipping_cost")
-  otherCost       Int?     @default(0) @map("other_cost")
+  costPrice      Int?     @map("cost_price")
+  sellPrice      Int?     @map("sell_price")
+  commissionRate Decimal? @map("commission_rate") @db.Decimal(5, 4)
+  shippingCost   Int?     @map("shipping_cost")
+  otherCost      Int?     @default(0) @map("other_cost")
 
-  isBundle       Boolean  @default(false) @map("is_bundle")
-  availableStock Int?     @map("available_stock")
+  isBundle       Boolean @default(false) @map("is_bundle")
+  availableStock Int?    @map("available_stock")
 
-  isDeleted    Boolean   @default(false) @map("is_deleted")
-  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz
-  isTemporary  Boolean   @default(false) @map("is_temporary")
-  temporaryReason String? @map("temporary_reason")
-  isActive     Boolean   @default(true) @map("is_active")
+  isDeleted       Boolean   @default(false) @map("is_deleted")
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz
+  isTemporary     Boolean   @default(false) @map("is_temporary")
+  temporaryReason String?   @map("temporary_reason")
+  isActive        Boolean   @default(true) @map("is_active")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  master      MasterProduct @relation(fields: [masterId], references: [id], onDelete: Restrict)
-  organization     Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  inventory   Inventory?
+  master       MasterProduct @relation(fields: [masterId], references: [id], onDelete: Restrict)
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  inventory    Inventory?
 
   components  BundleComponent[] @relation("BundleOption")
   containedIn BundleComponent[] @relation("ComponentOption")
 
   channelListingOptions ChannelListingOption[]
 
-  stockTransactions   StockTransaction[]
-  stockTransfers      StockTransfer[]
-  pickingItems        PickingItem[]
-  returnTransfers     ReturnTransfer[]
-  purchaseOrderItems  PurchaseOrderItem[]
-  supplierProducts    SupplierProduct[]
-  shipments           Shipment[]
-  unshippedItems      UnshippedItem[]
+  stockTransactions  StockTransaction[]
+  stockTransfers     StockTransfer[]
+  pickingItems       PickingItem[]
+  returnTransfers    ReturnTransfer[]
+  purchaseOrderItems PurchaseOrderItem[]
+  supplierProducts   SupplierProduct[]
+  shipments          Shipment[]
+  unshippedItems     UnshippedItem[]
 
   // Order domain (Plan A.5)
-  orderLineItems        OrderLineItem[]
-  orderReturnLineItems  OrderReturnLineItem[]
+  orderLineItems       OrderLineItem[]
+  orderReturnLineItems OrderReturnLineItem[]
 
   // Channels — market-data snapshots (Wave C0)
   channelScrapeSnapshots             ChannelScrapeSnapshot[]
@@ -429,33 +432,33 @@ model ProductOption {
 /// @namespace Core
 /// @describe 채널에 올라간 판매 등록상품. 쿠팡 등록상품ID, 네이버 상품번호 등.
 model ChannelListing {
-  id          String   @id @default(uuid()) @db.Uuid
-  masterId    String   @map("master_id") @db.Uuid
-  organizationId   String   @map("organization_id") @db.Uuid
+  id             String @id @default(uuid()) @db.Uuid
+  masterId       String @map("master_id") @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
 
-  channel     String
-  externalId  String   @map("external_id")
+  channel    String
+  externalId String @map("external_id")
 
-  channelName String?  @map("channel_name")
+  channelName  String? @map("channel_name")
   channelPrice Int?    @map("channel_price")
 
   status         String?
   exposureStatus String? @map("exposure_status")
 
-  deliveryChargeType  String?  @map("delivery_charge_type")
-  freeShipOverAmount  Int?     @map("free_ship_over_amount")
-  returnCharge        Int?     @map("return_charge")
-  deliveryInfo        Json?    @map("delivery_info")
+  deliveryChargeType String? @map("delivery_charge_type")
+  freeShipOverAmount Int?    @map("free_ship_over_amount")
+  returnCharge       Int?    @map("return_charge")
+  deliveryInfo       Json?   @map("delivery_info")
 
-  isDeleted  Boolean   @default(false) @map("is_deleted")
-  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz
+  isDeleted Boolean   @default(false) @map("is_deleted")
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  master  MasterProduct @relation(fields: [masterId], references: [id], onDelete: Restrict)
-  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  options ChannelListingOption[]
+  master       MasterProduct          @relation(fields: [masterId], references: [id], onDelete: Restrict)
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  options      ChannelListingOption[]
 
   reviews            Review[]
   thumbnails         Thumbnail[]
@@ -487,25 +490,25 @@ model ChannelListing {
 /// @namespace Core
 /// @describe 채널 listing 내 옵션 externalOptionId 와 내부 ProductOption 매핑.
 model ChannelListingOption {
-  id               String   @id @default(uuid()) @db.Uuid
-  listingId        String   @map("listing_id") @db.Uuid
-  optionId         String?  @map("option_id") @db.Uuid
-  organizationId        String   @map("organization_id") @db.Uuid
+  id             String  @id @default(uuid()) @db.Uuid
+  listingId      String  @map("listing_id") @db.Uuid
+  optionId       String? @map("option_id") @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
 
-  externalOptionId String   @map("external_option_id") @db.VarChar(60)
-  itemName         String?  @map("item_name")
-  salePrice        Int?     @map("sale_price")
+  externalOptionId String  @map("external_option_id") @db.VarChar(60)
+  itemName         String? @map("item_name")
+  salePrice        Int?    @map("sale_price")
 
-  isActive     Boolean  @default(true) @map("is_active")
-  isUnmatched  Boolean  @default(false) @map("is_unmatched")
+  isActive    Boolean @default(true) @map("is_active")
+  isUnmatched Boolean @default(false) @map("is_unmatched")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  listing ChannelListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
-  option  ProductOption? @relation(fields: [optionId], references: [id], onDelete: SetNull)
-  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  orderLineItems    OrderLineItem[]
+  listing        ChannelListing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  option         ProductOption?  @relation(fields: [optionId], references: [id], onDelete: SetNull)
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  orderLineItems OrderLineItem[]
 
   // Channels — market-data snapshots (Wave C0)
   channelScrapeSnapshots             ChannelScrapeSnapshot[]
@@ -528,7 +531,7 @@ model BundleComponent {
   id                String @id @default(uuid()) @db.Uuid
   bundleOptionId    String @map("bundle_option_id") @db.Uuid
   componentOptionId String @map("component_option_id") @db.Uuid
-  organizationId         String @map("organization_id") @db.Uuid
+  organizationId    String @map("organization_id") @db.Uuid
   qty               Int    @default(1)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
@@ -536,7 +539,7 @@ model BundleComponent {
 
   bundleOption    ProductOption @relation("BundleOption", fields: [bundleOptionId], references: [id], onDelete: Cascade)
   componentOption ProductOption @relation("ComponentOption", fields: [componentOptionId], references: [id], onDelete: Restrict)
-  organization         Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([bundleOptionId, componentOptionId])
   @@index([componentOptionId])

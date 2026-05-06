@@ -3,45 +3,45 @@
 /// @namespace Orders
 /// @describe 채널-agnostic 주문 aggregate. Coupang 등 채널별 raw payload 는 metadata Json. 라인 아이템은 OrderLineItem.
 model Order {
-  id              String    @id @default(uuid()) @db.Uuid
-  organizationId       String    @map("organization_id") @db.Uuid
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
 
-  platform        String    @db.VarChar(20)
-  externalOrderId String    @map("external_order_id") @db.VarChar(60)
-  externalNumber  String?   @map("external_number") @db.VarChar(60)
+  platform        String  @db.VarChar(20)
+  externalOrderId String  @map("external_order_id") @db.VarChar(60)
+  externalNumber  String? @map("external_number") @db.VarChar(60)
 
-  customerName    String    @default("") @map("customer_name")
-  receiverName    String?   @map("receiver_name")
-  receiverPhone   String?   @map("receiver_phone")
-  receiverAddr    String?   @map("receiver_addr")
-  memo            String?
+  customerName  String  @default("") @map("customer_name")
+  receiverName  String? @map("receiver_name")
+  receiverPhone String? @map("receiver_phone")
+  receiverAddr  String? @map("receiver_addr")
+  memo          String?
 
-  status          String    @default("pending")
-  orderedAt       DateTime  @default(now()) @map("ordered_at") @db.Timestamptz
-  paidAt          DateTime? @map("paid_at") @db.Timestamptz
-  shippedAt       DateTime? @map("shipped_at") @db.Timestamptz
-  deliveredAt     DateTime? @map("delivered_at") @db.Timestamptz
+  status      String    @default("pending")
+  orderedAt   DateTime  @default(now()) @map("ordered_at") @db.Timestamptz
+  paidAt      DateTime? @map("paid_at") @db.Timestamptz
+  shippedAt   DateTime? @map("shipped_at") @db.Timestamptz
+  deliveredAt DateTime? @map("delivered_at") @db.Timestamptz
 
-  trackingNumber  String?   @map("tracking_number")
-  shippingCompany String?   @map("shipping_company")
-  shippingPrice   Int       @default(0) @map("shipping_price")
+  trackingNumber  String? @map("tracking_number")
+  shippingCompany String? @map("shipping_company")
+  shippingPrice   Int     @default(0) @map("shipping_price")
 
-  totalPrice      Int       @default(0) @map("total_price")
+  totalPrice Int @default(0) @map("total_price")
 
-  listingId       String?   @map("listing_id") @db.Uuid
+  listingId String? @map("listing_id") @db.Uuid
 
-  metadata        Json?
+  metadata Json?
 
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization         Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  listing         ChannelListing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
-  lineItems       OrderLineItem[]
-  shipments       Shipment[]
-  returns         OrderReturn[]
-  unshippedItems  UnshippedItem[]
-  csRecords       CSRecord[]
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  listing        ChannelListing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  lineItems      OrderLineItem[]
+  shipments      Shipment[]
+  returns        OrderReturn[]
+  unshippedItems UnshippedItem[]
+  csRecords      CSRecord[]
 
   @@unique([id, organizationId])
   @@unique([organizationId, platform, externalOrderId])
@@ -56,34 +56,34 @@ model Order {
 /// @namespace Orders
 /// @describe 주문 라인 아이템 — 1 SKU 단위. listingOption → option 으로 SKU 해상도. order FK 는 organizationId 를 함께 참조해 cross-organization mismatch 를 DB 가 차단한다.
 model OrderLineItem {
-  id              String   @id @default(uuid()) @db.Uuid
-  organizationId       String   @map("organization_id") @db.Uuid
-  orderId         String   @map("order_id") @db.Uuid
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  orderId        String @map("order_id") @db.Uuid
 
-  listingOptionId String?  @map("listing_option_id") @db.Uuid
-  optionId        String?  @map("option_id") @db.Uuid
+  listingOptionId String? @map("listing_option_id") @db.Uuid
+  optionId        String? @map("option_id") @db.Uuid
 
-  productName     String   @default("") @map("product_name")
-  optionName      String?  @map("option_name")
-  sku             String?
+  productName String  @default("") @map("product_name")
+  optionName  String? @map("option_name")
+  sku         String?
 
-  quantity        Int      @default(1)
-  unitPrice       Int      @default(0) @map("unit_price")
-  totalPrice      Int      @default(0) @map("total_price")
+  quantity   Int @default(1)
+  unitPrice  Int @default(0) @map("unit_price")
+  totalPrice Int @default(0) @map("total_price")
 
-  status          String   @default("pending")
+  status String @default("pending")
 
-  externalLineId  String?  @map("external_line_id") @db.VarChar(60)
+  externalLineId String? @map("external_line_id") @db.VarChar(60)
 
-  metadata        Json?
+  metadata Json?
 
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization         Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  order           Order          @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  organization    Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  order           Order                 @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Cascade)
   listingOption   ChannelListingOption? @relation(fields: [listingOptionId], references: [id], onDelete: SetNull)
-  option          ProductOption? @relation(fields: [optionId], references: [id], onDelete: SetNull)
+  option          ProductOption?        @relation(fields: [optionId], references: [id], onDelete: SetNull)
   returnLineItems OrderReturnLineItem[]
 
   @@unique([id, organizationId])
@@ -98,39 +98,40 @@ model OrderLineItem {
 /// @namespace Orders
 /// @describe 채널-agnostic 반품 aggregate. 반품 item 은 OrderReturnLineItem 으로 정규화. type=RETURN/EXCHANGE 구분 first-class.
 model OrderReturn {
-  id              String    @id @default(uuid()) @db.Uuid
-  organizationId       String    @map("organization_id") @db.Uuid
-  orderId         String?   @map("order_id") @db.Uuid
+  id             String  @id @default(uuid()) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  orderId        String? @map("order_id") @db.Uuid
 
-  platform        String    @db.VarChar(20)
-  externalReturnId String   @map("external_return_id") @db.VarChar(60)
+  platform         String @db.VarChar(20)
+  externalReturnId String @map("external_return_id") @db.VarChar(60)
 
-  type            String    @default("RETURN") @db.VarChar(20)
+  type String @default("RETURN") @db.VarChar(20)
 
-  status          String    @default("pending")
-  reason          String    @default("")
-  reasonCategory1 String?   @map("reason_category1")
-  reasonCategory2 String?   @map("reason_category2")
-  faultBy         String    @default("CUSTOMER") @map("fault_by") @db.VarChar(20)
+  status          String  @default("pending")
+  reason          String  @default("")
+  reasonCategory1 String? @map("reason_category1")
+  reasonCategory2 String? @map("reason_category2")
+  faultBy         String  @default("CUSTOMER") @map("fault_by") @db.VarChar(20)
 
-  requesterName   String    @default("") @map("requester_name")
-  enclosePrice    Int?      @map("enclose_price")
+  requesterName String @default("") @map("requester_name")
+  enclosePrice  Int?   @map("enclose_price")
 
-  requestedAt     DateTime  @map("requested_at") @db.Timestamptz
-  completedAt     DateTime? @map("completed_at") @db.Timestamptz
+  requestedAt DateTime  @map("requested_at") @db.Timestamptz
+  completedAt DateTime? @map("completed_at") @db.Timestamptz
 
-  metadata        Json?
+  metadata Json?
 
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization         Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  order           Order?              @relation(fields: [orderId], references: [id], onDelete: SetNull)
-  lineItems       OrderReturnLineItem[]
+  organization Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  order        Order?                @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  lineItems    OrderReturnLineItem[]
 
   @@unique([id, organizationId])
   @@unique([organizationId, platform, externalReturnId])
   @@index([organizationId])
+  @@index([orderId])
   @@index([status])
   @@index([type])
   @@index([requestedAt])
@@ -140,82 +141,84 @@ model OrderReturn {
 /// @namespace Orders
 /// @describe 반품 라인 아이템 — 반품 건 내 SKU 단위 상세. return FK 는 organizationId 를 함께 참조해 cross-organization mismatch 를 DB 가 차단한다.
 model OrderReturnLineItem {
-  id              String    @id @default(uuid()) @db.Uuid
-  organizationId       String    @map("organization_id") @db.Uuid
-  returnId        String    @map("return_id") @db.Uuid
-  orderLineItemId String?   @map("order_line_item_id") @db.Uuid
-  optionId        String?   @map("option_id") @db.Uuid
+  id              String  @id @default(uuid()) @db.Uuid
+  organizationId  String  @map("organization_id") @db.Uuid
+  returnId        String  @map("return_id") @db.Uuid
+  orderLineItemId String? @map("order_line_item_id") @db.Uuid
+  optionId        String? @map("option_id") @db.Uuid
 
-  productName     String    @default("") @map("product_name")
-  quantity        Int
+  productName String @default("") @map("product_name")
+  quantity    Int
 
-  metadata        Json?
+  metadata Json?
 
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  organization         Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  return          OrderReturn    @relation(fields: [returnId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  orderLineItem   OrderLineItem? @relation(fields: [orderLineItemId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  option          ProductOption? @relation(fields: [optionId], references: [id], onDelete: SetNull)
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  return        OrderReturn    @relation(fields: [returnId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  orderLineItem OrderLineItem? @relation(fields: [orderLineItemId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  option        ProductOption? @relation(fields: [optionId], references: [id], onDelete: SetNull)
 
   @@index([organizationId])
   @@index([returnId])
+  @@index([orderLineItemId])
   @@index([optionId])
   @@map("order_return_line_items")
 }
 
 /// @namespace Orders
 model Shipment {
-  id           String    @id @default(uuid()) @db.Uuid
-  organizationId    String    @map("organization_id") @db.Uuid
-  orderId      String?   @map("order_id") @db.Uuid
-  listingId    String?   @map("listing_id") @db.Uuid
-  optionId     String?   @map("option_id") @db.Uuid
-  trackingNo   String?   @map("tracking_no")
-  courierCode  String?   @map("courier_code")
-  courierName  String?   @map("courier_name")
-  status       String    @default("ready")
-  shippedAt    DateTime? @map("shipped_at") @db.Timestamptz
-  deliveredAt  DateTime? @map("delivered_at") @db.Timestamptz
-  deliveryDays Int?      @map("delivery_days")
-  warehouseId  String?   @map("warehouse_id") @db.Uuid
-  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  orderId        String?   @map("order_id") @db.Uuid
+  listingId      String?   @map("listing_id") @db.Uuid
+  optionId       String?   @map("option_id") @db.Uuid
+  trackingNo     String?   @map("tracking_no")
+  courierCode    String?   @map("courier_code")
+  courierName    String?   @map("courier_name")
+  status         String    @default("ready")
+  shippedAt      DateTime? @map("shipped_at") @db.Timestamptz
+  deliveredAt    DateTime? @map("delivered_at") @db.Timestamptz
+  deliveryDays   Int?      @map("delivery_days")
+  warehouseId    String?   @map("warehouse_id") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  order     Order?          @relation(fields: [orderId], references: [id], onDelete: SetNull)
-  listing   ChannelListing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
-  option    ProductOption?  @relation(fields: [optionId], references: [id], onDelete: SetNull)
-  warehouse Warehouse?      @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  order        Order?          @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  listing      ChannelListing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  option       ProductOption?  @relation(fields: [optionId], references: [id], onDelete: SetNull)
+  warehouse    Warehouse?      @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
 
   @@index([organizationId])
   @@index([organizationId, status])
   @@index([orderId])
   @@index([listingId])
   @@index([optionId])
+  @@index([warehouseId])
   @@map("shipments")
 }
 
 /// @namespace Orders
 model UnshippedItem {
-  id          String    @id @default(uuid()) @db.Uuid
-  organizationId   String    @map("organization_id") @db.Uuid
-  orderId     String    @map("order_id") @db.Uuid
-  listingId   String?   @map("listing_id") @db.Uuid
-  optionId    String?   @map("option_id") @db.Uuid
-  productName String    @map("product_name")
-  quantity    Int
-  orderDate   DateTime  @map("order_date") @db.Timestamptz
-  delayDays   Int       @default(0) @map("delay_days")
-  reason      String?
-  isNotified  Boolean   @default(false) @map("is_notified")
-  notifiedAt  DateTime? @map("notified_at") @db.Timestamptz
-  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  orderId        String    @map("order_id") @db.Uuid
+  listingId      String?   @map("listing_id") @db.Uuid
+  optionId       String?   @map("option_id") @db.Uuid
+  productName    String    @map("product_name")
+  quantity       Int
+  orderDate      DateTime  @map("order_date") @db.Timestamptz
+  delayDays      Int       @default(0) @map("delay_days")
+  reason         String?
+  isNotified     Boolean   @default(false) @map("is_notified")
+  notifiedAt     DateTime? @map("notified_at") @db.Timestamptz
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
-  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  order   Order          @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  listing ChannelListing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
-  option  ProductOption?  @relation(fields: [optionId], references: [id], onDelete: SetNull)
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  order        Order           @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  listing      ChannelListing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  option       ProductOption?  @relation(fields: [optionId], references: [id], onDelete: SetNull)
 
   @@index([organizationId])
   @@index([orderId])
@@ -230,7 +233,7 @@ model UnshippedItem {
 /// @describe 월별 정산 (예상 vs 실제 비교).
 model Settlement {
   id             String    @id @default(uuid()) @db.Uuid
-  organizationId      String    @map("organization_id") @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
   period         String
   expectedAmount Int       @default(0) @map("expected_amount")
   actualAmount   Int       @default(0) @map("actual_amount")
@@ -255,23 +258,23 @@ model Settlement {
 
 /// @namespace Orders
 model CSRecord {
-  id          String   @id @default(uuid()) @db.Uuid
-  organizationId   String   @map("organization_id") @db.Uuid
-  orderId     String?  @map("order_id") @db.Uuid
-  listingId   String?  @map("listing_id") @db.Uuid
-  csType      String   @map("cs_type")
-  csStatus    String   @default("접수") @map("cs_status")
-  priority    String   @default("normal")
-  assignee    String?
-  content     String
-  resolution  String?
-  createdBy   String?  @map("created_by")
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  orderId        String?  @map("order_id") @db.Uuid
+  listingId      String?  @map("listing_id") @db.Uuid
+  csType         String   @map("cs_type")
+  csStatus       String   @default("접수") @map("cs_status")
+  priority       String   @default("normal")
+  assignee       String?
+  content        String
+  resolution     String?
+  createdBy      String?  @map("created_by")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  order   Order?         @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  listing ChannelListing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  order        Order?          @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  listing      ChannelListing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
 
   @@index([organizationId])
   @@index([organizationId, csStatus, createdAt])
@@ -285,20 +288,20 @@ model CSRecord {
 
 /// @namespace Orders
 model Review {
-  id        String  @id @default(uuid()) @db.Uuid
+  id             String  @id @default(uuid()) @db.Uuid
   organizationId String  @map("organization_id") @db.Uuid
-  listingId String? @map("listing_id") @db.Uuid
+  listingId      String? @map("listing_id") @db.Uuid
 
-  platform     String   @default("coupang")
+  platform     String  @default("coupang")
   rating       Int
   content      String?
-  reviewerName String?  @map("reviewer_name")
+  reviewerName String? @map("reviewer_name")
 
   reviewedAt DateTime @default(now()) @map("reviewed_at") @db.Timestamptz
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  listing ChannelListing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  listing      ChannelListing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
 
   @@index([organizationId])
   @@index([listingId])

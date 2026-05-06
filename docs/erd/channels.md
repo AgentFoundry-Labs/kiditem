@@ -13,6 +13,8 @@
 | ChannelAdTargetDailySnapshot | `channel_ad_target_daily_snapshots` | 채널 광고 타겟(캠페인/키워드/상품)의 일별 정규화 fact. 기간 view 는 SUM 으로 derive. |
 | ChannelListingDailySnapshot | `channel_listing_daily_snapshots` | 채널 listing 의 일별 정규화 상태. 반복 scrape 는 businessDate row 를 upsert. |
 | ChannelListingOptionDailySnapshot | `channel_listing_option_daily_snapshots` | 채널 listing option/vendor item 의 일별 정규화 상태. |
+| ChannelReconciliationItem | `channel_reconciliation_items` | 사용자가 처리하는 채널-내부 상품 매칭 queue. MasterProduct 자동 생성 없이 기존 ProductOption/ChannelListing 연결만 추적. |
+| ChannelReconciliationRun | `channel_reconciliation_runs` | 채널-KidItem 상품 매칭 스캔 실행 이력. 실제 연결 source of truth 는 ChannelListing / ChannelListingOption. |
 | ChannelScrapeRun | `channel_scrape_runs` | 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장. |
 | ChannelScrapeSnapshot | `channel_scrape_snapshots` | 채널 스크래퍼/API 가 본 원본 row. 매칭 실패/파서 변경 대비 rawJson 을 보존. |
 
@@ -157,6 +159,61 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  ChannelReconciliationItem {
+    String id PK
+    String organizationId FK
+    String lastSeenRunId FK
+    String channel
+    String source
+    String itemType
+    String itemKey
+    String status
+    String externalId
+    String externalOptionId
+    String legacyCode
+    String channelProductName
+    String channelOptionName
+    String channelImageUrl
+    String channelUrl
+    String channelStatus
+    String linkedListingId
+    String linkedListingOptionId
+    String linkedMasterProductId
+    String linkedProductOptionId
+    String matchReason
+    String resolutionSource
+    Int confidence
+    Json rawJson
+    Json normalizedJson
+    Json conflictJson
+    DateTime resolvedAt
+    String resolvedByUserId
+    String ignoredReason
+    DateTime firstObservedAt
+    DateTime lastObservedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ChannelReconciliationRun {
+    String id PK
+    String organizationId FK
+    String channel
+    String source
+    String status
+    Int totalCount
+    Int alreadyLinkedCount
+    Int autoLinkedCount
+    Int needsReviewCount
+    Int conflictCount
+    Int ignoredCount
+    Int errorCount
+    DateTime startedAt
+    DateTime finishedAt
+    DateTime createdAt
+    DateTime updatedAt
+    Json metaJson
+    Json errorJson
+  }
   ChannelScrapeRun {
     String id PK
     String organizationId FK
@@ -202,6 +259,7 @@ erDiagram
     Json normalizedJson
     DateTime createdAt
   }
+  ChannelReconciliationRun o|--o{ ChannelReconciliationItem : "lastSeenRun"
   ChannelScrapeRun o|--o{ ChannelScrapeSnapshot : "scrapeRun"
   ChannelScrapeSnapshot o|--o{ ChannelAccountDailyKpiSnapshot : "rawSnapshot"
   ChannelScrapeSnapshot o|--o{ ChannelAdTargetDailySnapshot : "rawSnapshot"
@@ -225,6 +283,8 @@ erDiagram
 | ChannelListingOptionDailySnapshot | listingOption | references external | Core | ChannelListingOption |
 | ChannelListingOptionDailySnapshot | option | references external | Core | ProductOption |
 | ChannelListingOptionDailySnapshot | organization | references external | Core | Organization |
+| ChannelReconciliationItem | organization | references external | Core | Organization |
+| ChannelReconciliationRun | organization | references external | Core | Organization |
 | ChannelScrapeRun | organization | references external | Core | Organization |
 | ChannelScrapeSnapshot | listing | references external | Core | ChannelListing |
 | ChannelScrapeSnapshot | listingOption | references external | Core | ChannelListingOption |
