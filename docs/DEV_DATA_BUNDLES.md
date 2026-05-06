@@ -46,6 +46,7 @@ payloads/
   wing-traffic.json
   itemwinner.json
   coupang-ads-daily.json
+  coupang-image-sync-from-db.json
 references/
   kiditem_list.xlsx
   wing-inventory-matched.xlsx
@@ -231,6 +232,24 @@ zip 내부의 `manifest.json` 은 replay scope 를 반드시 포함한다. `scop
 
 Payload 파일은 기존 `POST /api/ads/extension/sync` body 와 같은 JSON object 를 권장한다. JSON array 만 있으면 manifest 의 `type`/`source` 로 `{ type, source, data }` 형태를 만들어 replay 한다.
 
+`coupang_image_sync` payload 는 예외적으로 `POST /api/coupang-image-sync/from-rows` 로 replay 된다. 이 payload 는 Wing 이미지 동기화 입력 row 를 저장한다. 이미지 바이너리 자체나 로컬 MinIO URL 을 Drive 에 백업하지 않고, replay 시 기존 서버 경로가 원본 `url` 을 다시 다운로드해서 각 개발자의 로컬 object storage 에 저장한다.
+
+```json
+{
+  "type": "coupang_image_sync",
+  "source": "wing_image_sync",
+  "timestamp": "2026-05-06T04:02:40.584Z",
+  "data": [
+    {
+      "inventoryId": "123456789",
+      "legacyCode": "LEGACY-001",
+      "name": "쿠팡 Wing 상품명",
+      "url": "https://..."
+    }
+  ]
+}
+```
+
 ## Latest JSON
 
 Drive 의 `coupang/latest.json` 이 현재 기준 bundle 을 가리킨다.
@@ -297,6 +316,23 @@ coupang/bundles/kiditem-coupang-2026-05-01-v1.zip.sha256
 
 Drive 루트 reference 와 다른 파일을 명시해야 하는 예외 상황에서는 `--kiditem-list`, `--wing-inventory-matched` 로 직접 지정할 수 있다. 추가 비교 파일을 한 번에 넣으려면 `--reference-dir ./somewhere/references` 를 사용한다. reference 파일은 scraper replay 에서 직접 저장되지 않지만 zip checksum 검증 대상이며, consumer 의 `.data/dev/coupang/<datasetId>/references/` 에 풀린다.
 
+이미지 동기화만 새로 공유할 때도 같은 `coupang` domain bundle 로 publish 한다. `--image-sync-from-db` 는 현재 DB 의 `source='coupang-wing'` 이미지 결과에서 replay 가능한 Wing row 를 만들어 `payloads/coupang-image-sync-from-db.json` 에 넣는다. 다른 개발자는 `data:dev:sync` 로 같은 row 를 받아 기존 `/api/coupang-image-sync/from-rows` 경로를 통해 이미지를 다시 채운다.
+
+```bash
+npm run data:dev:export -- \
+  --domain coupang \
+  --dataset coupang-image-sync-2026-05-06-v1 \
+  --image-sync-from-db \
+  --from 2026-05-06 \
+  --to 2026-05-06 \
+  --data-root .data/dev
+
+npm run data:dev:publish -- \
+  --domain coupang \
+  --dataset coupang-image-sync-2026-05-06-v1 \
+  --data-root .data/dev
+```
+
 ## Consumer 플로우
 
 위 Drive folder 를 Google Drive for Desktop 으로 로컬에 동기화하고, 각자 머신의 동기화 경로를 env 로 지정한다. CLI 는 Drive URL 을 직접 다운로드하지 않고 로컬 동기화 폴더의 profile, `latest.json`, zip archive 를 읽는다.
@@ -321,6 +357,8 @@ npm run dev:server
 ```
 
 `scoped-replace` 는 manifest 의 `scope.businessDateFrom`/`businessDateTo` 범위에 있는 쿠팡 daily fact 와 raw scrape row 를 지운 뒤 같은 payload 를 `/api/ads/extension/sync` 로 다시 넣는다. 따라서 UI 에 보이는 데이터는 실제 서버 ingest 경로와 동일하다.
+
+`coupang_image_sync` payload 는 daily fact 를 삭제하지 않고 `/api/coupang-image-sync/from-rows` 로 별도 replay 된다. 이 경로는 이미 이미지가 있는 MasterProduct 를 건너뛰므로 image sync replay 는 idempotent upsert 로 취급한다.
 
 특정 도메인만 직접 확인할 수도 있다.
 

@@ -76,6 +76,11 @@ Rules:
      --data-root .data/dev
    ```
 
+   If the same local DB also contains Wing image sync results that should be
+   shared, add `--image-sync-from-db`. The script exports replayable rows from
+   `source='coupang-wing'` `MasterProductImage` records into
+   `payloads/coupang-image-sync-from-db.json`.
+
    `data:dev:export` automatically snapshots the project reference files from
    Drive root into the bundle when `KIDITEM_DEV_DATA_DRIVE_DIR` is configured:
 
@@ -95,6 +100,7 @@ Rules:
    - `scope.businessDateFrom` matches `DATE_FROM`.
    - `scope.businessDateTo` matches `DATE_TO`.
    - `payloads` is non-empty.
+   - If `--image-sync-from-db` was used, `payloads` includes `coupang_image_sync`.
    - `references` includes `kiditem_list` and `wing_inventory_matched`.
 
 5. Publish to Google Drive.
@@ -163,6 +169,7 @@ Coupang scraper publish
 - date range: YYYY-MM-DD..YYYY-MM-DD
 - payload dir: ...
 - payload count: N
+- image sync payload: present or absent
 - references: kiditem_list.xlsx, wing-inventory-matched.xlsx
 - published files: latest.json, latest.txt, bundle zip, sha256, bundle metadata
 - pull verification: passed or failed

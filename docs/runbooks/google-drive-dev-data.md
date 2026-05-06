@@ -43,6 +43,10 @@ KidItem Dev Data/
 `latest.json` and `latest.txt` may be absent until the first scraper bundle is
 published.
 
+Bundles may include `payloads/coupang-image-sync-from-db.json` when a publisher
+has run Wing image sync. That file stores replayable Wing image rows, not image
+binaries or local object-storage URLs.
+
 ## Agent Setup Steps
 
 1. Confirm the repo root.

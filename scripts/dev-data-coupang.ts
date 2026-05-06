@@ -15,6 +15,7 @@ import {
 } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 
 const SCHEMA_VERSION = 'kiditem.dev-data.coupang.v1';
 const LOCAL_DATA_ROOT = path.join('.data', 'coupang');
@@ -72,6 +73,13 @@ type ReplayResult = {
   ok: boolean;
   response?: unknown;
   error?: string;
+};
+
+type CoupangImageSyncRow = {
+  inventoryId: string;
+  legacyCode?: string | null;
+  name: string;
+  url: string;
 };
 
 function parseArgs(raw = process.argv.slice(2)): Args {
@@ -240,6 +248,7 @@ function sourceForPayload(payload: BundlePayload, body: Record<string, unknown>)
   if (payload.type === 'ad_campaign') return 'advertising';
   if (payload.type === 'traffic') return 'wing';
   if (payload.type === 'coupang_ads_daily') return 'coupang_ads';
+  if (payload.type === 'coupang_image_sync') return 'wing_image_sync';
   if (payload.type === 'raw_scrape') {
     return String(payload.source ?? body.source ?? 'unknown');
   }
@@ -403,7 +412,17 @@ async function postToServer(
   args: Args,
   payload: Record<string, unknown>,
 ): Promise<unknown> {
-  const apiUrl = value(args, 'api-url') ?? process.env.KIDITEM_API_URL ?? 'http://localhost:4000';
+  return requestApi(args, '/api/ads/extension/sync', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+function apiUrl(args: Args): string {
+  return value(args, 'api-url') ?? process.env.KIDITEM_API_URL ?? 'http://localhost:4000';
+}
+
+function apiHeaders(args: Args): Record<string, string> {
   const accessToken = value(args, 'access-token') ?? process.env.KIDITEM_API_ACCESS_TOKEN;
   const headers: Record<string, string> = { 'content-type': 'application/json' };
   if (!accessToken) {
@@ -412,17 +431,92 @@ async function postToServer(
     );
   }
   headers.Authorization = accessToken.startsWith('Bearer ') ? accessToken : `Bearer ${accessToken}`;
+  return headers;
+}
 
-  const response = await fetch(`${apiUrl.replace(/\/$/, '')}/api/ads/extension/sync`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(payload),
+async function requestApi(
+  args: Args,
+  route: string,
+  init: RequestInit,
+): Promise<unknown> {
+  const response = await fetch(`${apiUrl(args).replace(/\/$/, '')}${route}`, {
+    ...init,
+    headers: {
+      ...apiHeaders(args),
+      ...(init.headers ?? {}),
+    },
   });
   const json = await response.json().catch(() => null);
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}: ${JSON.stringify(json)}`);
   }
   return json;
+}
+
+function coupangImageSyncRowsFromPayload(body: Record<string, unknown>): CoupangImageSyncRow[] {
+  const rawRows = Array.isArray(body.rows)
+    ? body.rows
+    : Array.isArray(body.data)
+      ? body.data
+      : null;
+  if (!rawRows) {
+    throw new Error('coupang_image_sync payload requires rows or data array.');
+  }
+
+  return rawRows.map((item, index) => {
+    if (!item || typeof item !== 'object') {
+      throw new Error(`coupang_image_sync row ${index} must be an object.`);
+    }
+    const row = item as Record<string, unknown>;
+    const inventoryId = typeof row.inventoryId === 'string' ? row.inventoryId.trim() : '';
+    const name = typeof row.name === 'string' ? row.name.trim() : '';
+    const url = typeof row.url === 'string' ? row.url.trim() : '';
+    const legacyCode =
+      typeof row.legacyCode === 'string'
+        ? row.legacyCode.trim()
+        : row.legacyCode === null
+          ? null
+          : undefined;
+    if (!inventoryId) throw new Error(`coupang_image_sync row ${index} is missing inventoryId.`);
+    if (!name) throw new Error(`coupang_image_sync row ${index} is missing name.`);
+    if (!url) throw new Error(`coupang_image_sync row ${index} is missing url.`);
+    return { inventoryId, legacyCode, name, url };
+  });
+}
+
+async function postCoupangImageSyncToServer(
+  args: Args,
+  body: Record<string, unknown>,
+): Promise<unknown> {
+  const rows = coupangImageSyncRowsFromPayload(body);
+  const started = await requestApi(args, '/api/coupang-image-sync/from-rows', {
+    method: 'POST',
+    body: JSON.stringify({ rows }),
+  }) as { jobId?: unknown };
+
+  const jobId = typeof started.jobId === 'string' ? started.jobId : '';
+  if (!jobId) return { started, rows: rows.length };
+  if (bool(args, 'no-wait')) return { jobId, rows: rows.length, queued: true };
+
+  const timeoutMs = Number(value(args, 'image-sync-timeout-ms') ?? 15 * 60 * 1000);
+  const pollMs = Number(value(args, 'image-sync-poll-ms') ?? 1000);
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    await sleep(pollMs);
+    const status = await requestApi(
+      args,
+      `/api/coupang-image-sync/${encodeURIComponent(jobId)}`,
+      { method: 'GET' },
+    ) as { status?: unknown; error?: unknown };
+
+    if (status.status === 'done') return { jobId, rows: rows.length, status };
+    if (status.status === 'failed') {
+      throw new Error(`Coupang image sync job failed: ${String(status.error ?? 'unknown')}`);
+    }
+  }
+
+  throw new Error(`Coupang image sync job ${jobId} did not finish within ${timeoutMs}ms.`);
 }
 
 async function commandReplay(args: Args): Promise<unknown> {
@@ -471,7 +565,10 @@ async function commandReplay(args: Args): Promise<unknown> {
   const results: ReplayResult[] = [];
   for (const { payload, body } of bodies) {
     try {
-      const response = await postToServer(args, body);
+      const response =
+        payload.type === 'coupang_image_sync'
+          ? await postCoupangImageSyncToServer(args, body)
+          : await postToServer(args, body);
       results.push({ payload: payload.path, type: payload.type, ok: true, response });
     } catch (error) {
       results.push({
@@ -555,18 +652,151 @@ async function commandSanitize(args: Args): Promise<unknown> {
   return { sanitized: datasetId, targetDataset, targetDir };
 }
 
+async function exportCoupangImageSyncRowsFromDb(args: Args): Promise<{
+  body: Record<string, unknown>;
+  rowCount: number;
+  imageCount: number;
+  skippedMissingListing: number;
+  skippedMissingSourceUrl: number;
+}> {
+  const prisma = await createPrisma();
+  try {
+    const organizationId = await resolveOrganizationId(prisma, args, {
+      schemaVersion: SCHEMA_VERSION,
+      datasetId: value(args, 'dataset') ?? 'image-sync-export',
+      lane: lane(args),
+      createdAt: new Date().toISOString(),
+      payloads: [],
+    });
+
+    const images = await prisma.masterProductImage.findMany({
+      where: {
+        organizationId,
+        source: 'coupang-wing',
+        isDeleted: false,
+        master: {
+          organizationId,
+          isDeleted: false,
+          sourcePlatform: 'coupang',
+          sourceUrl: { not: null },
+        },
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: {
+        id: true,
+        master: {
+          select: {
+            name: true,
+            legacyCode: true,
+            sourceUrl: true,
+            listings: {
+              where: { organizationId, channel: 'coupang', isDeleted: false },
+              orderBy: { updatedAt: 'desc' },
+              take: 1,
+              select: {
+                externalId: true,
+                channelName: true,
+              },
+            },
+            options: {
+              where: {
+                organizationId,
+                isDeleted: false,
+                isActive: true,
+                legacyCode: { not: null },
+              },
+              orderBy: { updatedAt: 'desc' },
+              take: 1,
+              select: { legacyCode: true },
+            },
+          },
+        },
+      },
+    });
+
+    const rows: CoupangImageSyncRow[] = [];
+    const seenInventoryIds = new Set<string>();
+    let skippedMissingListing = 0;
+    let skippedMissingSourceUrl = 0;
+
+    for (const image of images) {
+      const listing = image.master.listings[0];
+      if (!listing?.externalId) {
+        skippedMissingListing += 1;
+        continue;
+      }
+      const sourceUrl = image.master.sourceUrl?.trim();
+      if (!sourceUrl) {
+        skippedMissingSourceUrl += 1;
+        continue;
+      }
+      if (seenInventoryIds.has(listing.externalId)) continue;
+      seenInventoryIds.add(listing.externalId);
+      rows.push({
+        inventoryId: listing.externalId,
+        legacyCode: image.master.legacyCode ?? image.master.options[0]?.legacyCode ?? null,
+        name: listing.channelName ?? image.master.name,
+        url: sourceUrl,
+      });
+    }
+
+    rows.sort((a, b) => a.inventoryId.localeCompare(b.inventoryId));
+    if (rows.length === 0 && !bool(args, 'allow-empty-image-sync')) {
+      throw new Error('No replayable Coupang image sync rows found. Pass --allow-empty-image-sync to export an empty payload.');
+    }
+
+    return {
+      body: {
+        type: 'coupang_image_sync',
+        source: 'wing_image_sync',
+        timestamp: new Date().toISOString(),
+        data: rows,
+        meta: {
+          exportedFrom: 'master_product_images',
+          source: 'coupang-wing',
+          imageCount: images.length,
+          rowCount: rows.length,
+          skippedMissingListing,
+          skippedMissingSourceUrl,
+        },
+      },
+      rowCount: rows.length,
+      imageCount: images.length,
+      skippedMissingListing,
+      skippedMissingSourceUrl,
+    };
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
 async function commandExport(args: Args): Promise<unknown> {
   const datasetId = value(args, 'dataset');
   if (!datasetId) throw new Error('export requires --dataset');
   assertSafeDatasetId(datasetId);
   const laneValue = lane(args);
   const payloadFiles = [...values(args, 'payload')];
+  const generatedPayloads: Array<{
+    fileName: string;
+    body: Record<string, unknown>;
+    rowCount: number;
+    description: string;
+  }> = [];
   const payloadDir = value(args, 'payload-dir');
   if (payloadDir) {
     const entries = await readdir(expandHome(payloadDir));
     for (const entry of entries) {
       if (entry.endsWith('.json')) payloadFiles.push(path.join(expandHome(payloadDir), entry));
     }
+  }
+  if (bool(args, 'image-sync-from-db') || bool(args, 'include-image-sync-from-db')) {
+    const exported = await exportCoupangImageSyncRowsFromDb(args);
+    generatedPayloads.push({
+      fileName: 'coupang-image-sync-from-db.json',
+      body: exported.body,
+      rowCount: exported.rowCount,
+      description: `Replay rows derived from ${exported.imageCount} coupang-wing MasterProductImage rows`,
+    });
   }
   const referenceFiles = [
     ...values(args, 'reference'),
@@ -584,7 +814,7 @@ async function commandExport(args: Args): Promise<unknown> {
       referenceFiles.push(path.join(expandedReferenceDir, entry));
     }
   }
-  if (payloadFiles.length === 0) {
+  if (payloadFiles.length === 0 && generatedPayloads.length === 0) {
     throw new Error('export requires --payload or --payload-dir with JSON files.');
   }
 
@@ -614,6 +844,22 @@ async function commandExport(args: Args): Promise<unknown> {
         ? ((body as { data: unknown[] }).data.length)
         : undefined;
     payloads.push({ path: targetPayload, type, sha256: digest, rowCount });
+    checksums[targetPayload] = digest;
+  }
+  for (const generated of generatedPayloads) {
+    const targetPayload = path.join('payloads', generated.fileName);
+    if (artifactPaths.has(targetPayload)) throw new Error(`Duplicate bundle path: ${targetPayload}`);
+    artifactPaths.add(targetPayload);
+    await writeJson(path.join(targetDir, targetPayload), generated.body);
+    const digest = await sha256(path.join(targetDir, targetPayload));
+    payloads.push({
+      path: targetPayload,
+      type: String(generated.body.type),
+      source: String(generated.body.source),
+      description: generated.description,
+      sha256: digest,
+      rowCount: generated.rowCount,
+    });
     checksums[targetPayload] = digest;
   }
   if (referenceFiles.length > 0) {

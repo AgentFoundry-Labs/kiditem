@@ -91,6 +91,33 @@ npm run build --workspace=apps/web
 3. **이미지 동기화** 클릭.
 4. 결과 확인.
 
+## Google Drive dev-data 공유
+
+이미지 동기화가 로컬 DB 에 성공적으로 반영되면 같은 결과를 팀원이 재현할 수
+있도록 Drive dev-data bundle 로 publish 한다. 이 bundle 은 로컬 MinIO/S3 의
+이미지 바이너리를 복사하지 않고, replay 가능한 Wing row 를 저장한다.
+
+```bash
+export DATASET_ID="coupang-image-sync-YYYY-MM-DD-v1"
+
+npm run data:dev:export -- \
+  --domain coupang \
+  --dataset "$DATASET_ID" \
+  --image-sync-from-db \
+  --from YYYY-MM-DD \
+  --to YYYY-MM-DD \
+  --data-root .data/dev
+
+npm run data:dev:publish -- \
+  --domain coupang \
+  --dataset "$DATASET_ID" \
+  --data-root .data/dev
+```
+
+Consumer 는 `npm run data:dev:sync -- --profile workspace --yes` 를 실행하면
+`payloads/coupang-image-sync-from-db.json` 이 `/api/coupang-image-sync/from-rows`
+로 replay 되고, 각자 로컬 object storage 에 이미지가 다시 저장된다.
+
 ## 성공 기준
 
 - `node_modules/.bin/playwriter --help` exit 0.

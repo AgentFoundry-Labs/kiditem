@@ -38,6 +38,7 @@ describe('profile-based dev data workflow', () => {
     const datasetId = '2026-04-28-real-v1';
     const bundleDir = join(domainRoot, datasetId);
     const payloadPath = join(bundleDir, 'payloads', 'wing-traffic.json');
+    const imageSyncPayloadPath = join(bundleDir, 'payloads', 'coupang-image-sync.json');
     const kiditemListPath = join(bundleDir, 'references', 'kiditem_list.xlsx');
     const wingInventoryMatchedPath = join(bundleDir, 'references', 'wing-inventory-matched.xlsx');
     const archiveFileName = 'kiditem-coupang-2026-04-28-real-v1.zip';
@@ -48,6 +49,11 @@ describe('profile-based dev data workflow', () => {
       type: 'traffic',
       source: 'wing',
       data: [{ businessDate: '2026-04-28', visitors: 11 }],
+    }));
+    writeFileSync(imageSyncPayloadPath, JSON.stringify({
+      type: 'coupang_image_sync',
+      source: 'wing_image_sync',
+      data: [{ inventoryId: '123456', legacyCode: 'LEG-1', name: '테스트 상품', url: 'https://image.example/item.jpg' }],
     }));
     writeFileSync(kiditemListPath, 'kiditem inventory reference');
     writeFileSync(wingInventoryMatchedPath, 'matched wing inventory reference');
@@ -67,6 +73,11 @@ describe('profile-based dev data workflow', () => {
           path: 'payloads/wing-traffic.json',
           type: 'traffic',
           source: 'wing',
+        },
+        {
+          path: 'payloads/coupang-image-sync.json',
+          type: 'coupang_image_sync',
+          source: 'wing_image_sync',
         },
       ],
       references: [
@@ -152,8 +163,9 @@ describe('profile-based dev data workflow', () => {
         },
       ],
     });
-    expect(syncOutput.steps[0]?.replay).toMatchObject({ payloads: 1 });
+    expect(syncOutput.steps[0]?.replay).toMatchObject({ payloads: 2 });
     expect(syncOutput.steps[0]?.replay?.sources).toContain('wing');
+    expect(syncOutput.steps[0]?.replay?.sources).toContain('wing_image_sync');
     expect(existsSync(join(consumerRoot, 'coupang', datasetId, 'manifest.json'))).toBe(true);
     expect(existsSync(join(consumerRoot, 'coupang', datasetId, 'references', 'kiditem_list.xlsx'))).toBe(true);
     expect(existsSync(join(consumerRoot, 'coupang', datasetId, 'references', 'wing-inventory-matched.xlsx'))).toBe(true);
