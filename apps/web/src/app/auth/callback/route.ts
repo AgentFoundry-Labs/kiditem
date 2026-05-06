@@ -20,17 +20,17 @@ export async function GET(req: NextRequest) {
   const next = sanitizeInternalRedirectPath(req.nextUrl.searchParams.get('next'));
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
   if ((!tokenHash || !type) && !code) {
     return NextResponse.redirect(new URL(next, req.url));
   }
-  if (!url || !anon) {
+  if (!url || !publishableKey) {
     return NextResponse.redirect(new URL(next, req.url));
   }
 
   const res = NextResponse.redirect(new URL(next, req.url));
-  const supabase = createServerClient(url, anon, {
+  const supabase = createServerClient(url, publishableKey, {
     cookies: {
       getAll() {
         return req.cookies.getAll();

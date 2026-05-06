@@ -41,7 +41,6 @@ import { cn } from '@/lib/utils';
 import { useStore } from '@/store/useStore';
 import { usePanelStore } from '@/components/panel/lib/panel-store';
 import { useAuth } from '@/hooks/useAuth';
-import ThemeToggle from './ThemeToggle';
 
 interface MenuItem {
   href: string;
@@ -161,7 +160,18 @@ function isItemActive(href: string, pathname: string): boolean {
     return pathname === '/ads' ||
       (pathname.startsWith('/ads/') && !adsSubPaths.some(sub => pathname.startsWith(sub)));
   }
-  return pathname === href || pathname.startsWith(href + '/');
+  const matchesRoute = pathname === href || pathname.startsWith(href + '/');
+  if (!matchesRoute) return false;
+
+  const hasMoreSpecificActiveItem = menuSections
+    .flatMap((section) => section.items)
+    .some((item) => (
+      item.href !== href &&
+      item.href.startsWith(href + '/') &&
+      (pathname === item.href || pathname.startsWith(item.href + '/'))
+    ));
+
+  return !hasMoreSpecificActiveItem;
 }
 
 function findActiveSection(pathname: string): string | null {
@@ -329,15 +339,15 @@ export default function Sidebar({
                     className="w-full flex items-center justify-between px-5 pt-5 pb-1.5 group transition-colors"
                   >
                     <span className={cn(
-                      'text-[11px] font-semibold uppercase tracking-wider transition-colors',
-                      hasActiveChild ? 'text-[var(--primary)]' : 'text-[var(--text-muted)] group-hover:text-[var(--text-tertiary)]'
+                      'text-[15px] font-semibold leading-5 tracking-normal transition-colors',
+                      hasActiveChild ? 'text-[var(--text-secondary)]' : 'text-[var(--text-tertiary)] group-hover:text-[var(--text-secondary)]'
                     )}>
                       {section.label}
                     </span>
                     <ChevronDown
                       size={12}
                       className={cn(
-                        'text-[var(--text-muted)] group-hover:text-[var(--text-tertiary)] transition-all duration-200',
+                        'text-[var(--text-tertiary)] group-hover:text-[var(--text-secondary)] transition-all duration-200',
                         isOpen ? '' : '-rotate-90'
                       )}
                     />
@@ -393,7 +403,7 @@ export default function Sidebar({
                           data-sidebar-gated-route={item.href}
                           aria-label={`${item.label} — 준비 중`}
                           className={cn(
-                            'group flex w-full cursor-not-allowed items-center gap-3 rounded-lg px-3 py-2 text-left text-[14px] text-slate-300 opacity-75 relative',
+                            'group flex w-full cursor-not-allowed items-center gap-3 rounded-lg px-3 py-2 text-left text-[15px] leading-5 text-slate-300 opacity-75 relative',
                             !sidebarOpen && 'justify-center px-0'
                           )}
                           title={item.gatedReason}
@@ -409,7 +419,7 @@ export default function Sidebar({
                         href={item.href}
                         onClick={(e) => handleNavClick(e, item.href)}
                         className={cn(
-                          'group flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors relative',
+                          'group flex items-center gap-3 px-3 py-2 rounded-lg text-[15px] leading-5 transition-colors relative',
                           active
                             ? 'bg-[var(--primary-soft)] text-[var(--primary)]'
                             : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-sunken)]',
@@ -439,7 +449,7 @@ export default function Sidebar({
                 href={item.href}
                 onClick={(e) => handleNavClick(e, item.href)}
                 className={cn(
-                  'group flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors relative',
+                  'group flex items-center gap-3 px-3 py-2 rounded-lg text-[15px] leading-5 transition-colors relative',
                   active
                     ? 'bg-[var(--primary-soft)] text-[var(--primary)]'
                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-sunken)]',
@@ -470,7 +480,7 @@ export default function Sidebar({
           <button
             onClick={() => setPanelOpen(true)}
             className={cn(
-              'w-full group flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-sunken)] hover:text-[var(--text-primary)] transition-colors',
+              'w-full group flex items-center gap-3 px-3 py-2 rounded-lg text-[15px] leading-5 font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-sunken)] hover:text-[var(--text-primary)] transition-colors',
               !sidebarOpen && 'justify-center px-0'
             )}
             title={!sidebarOpen ? '알림' : undefined}
@@ -493,7 +503,7 @@ export default function Sidebar({
             <button
               onClick={onChatToggle}
               className={cn(
-                'group flex items-center gap-3 px-3 py-2 rounded-lg text-[14px] transition-all duration-100 relative w-full',
+                'group flex items-center gap-3 px-3 py-2 rounded-lg text-[15px] leading-5 transition-all duration-100 relative w-full',
                 chatOpen
                   ? 'bg-[var(--primary-soft)] text-[var(--primary)]'
                   : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-sunken)]',
@@ -512,24 +522,11 @@ export default function Sidebar({
               {sidebarOpen && <span className={chatOpen ? 'font-semibold' : 'font-medium'}>AI 챗</span>}
             </button>
           )}
-          <div
-            className={cn(
-              'flex items-center px-3 py-2',
-              sidebarOpen ? 'justify-between gap-2' : 'justify-center',
-            )}
-          >
-            {sidebarOpen && (
-              <span className="text-xs font-medium text-[var(--text-tertiary)] whitespace-nowrap">
-                테마
-              </span>
-            )}
-            <ThemeToggle collapsed={!sidebarOpen} />
-          </div>
           {user && (
             <button
               onClick={logout}
               className={cn(
-                'group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-sunken)] hover:text-[var(--danger)] transition-colors',
+                'group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[15px] leading-5 font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-sunken)] hover:text-[var(--danger)] transition-colors',
                 !sidebarOpen && 'justify-center px-0',
               )}
               title={!sidebarOpen ? `${user.email} — 로그아웃` : undefined}

@@ -8,11 +8,11 @@ import { createBrowserClient } from '@supabase/ssr';
  */
 export function createSupabaseBrowserClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anon) {
+  const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  if (!url || !publishableKey) {
     throw new Error(
-      'NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY 가 .env.local 에 필요합니다.',
+      'NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY 가 .env.local 에 필요합니다.',
     );
   }
-  return createBrowserClient(url, anon);
+  return createBrowserClient(url, publishableKey);
 }

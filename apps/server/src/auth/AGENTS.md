@@ -82,6 +82,8 @@ interface AuthUser {
 
 검증:
 - `SUPABASE_URL/auth/v1/.well-known/jwks.json` 의 JWKS 로 `jose.jwtVerify` (issuer + audience 검증)
+- Supabase Auth 는 asymmetric JWT signing key 를 사용한다. Legacy `JWT Secret` / `SUPABASE_JWT_SECRET`
+  env 로 서버 검증을 구성하지 않는다.
 - `payload.sub` = Supabase `auth.users.id` 와 동일 UUID 로 local `users` 조회
 - 활성 `OrganizationMembership` 1개 자동 선택 (status='active', orderBy `lastSelectedAt desc, joinedAt asc`, take 1)
 - `req.authUser` 채움. 멤버십이 없으면 `organizationId=null`, `membershipId=null` → `OrganizationScopeGuard` 가 도메인 라우트 차단.
