@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Loader2, RefreshCw, ScanLine } from 'lucide-react';
+import { Database, Loader2, RefreshCw, ScanLine } from 'lucide-react';
 import { toast } from 'sonner';
 import { friendlyError } from '@/lib/api-error';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -16,6 +16,7 @@ import {
   useReconciliationSummary,
   useReconciliationItems,
   useScanReconciliation,
+  useSyncReconciliationSnapshots,
   useLinkReconciliationItem,
   useIgnoreReconciliationItem,
 } from './hooks/useReconciliation';
@@ -36,6 +37,7 @@ export default function MatchingPage() {
   });
 
   const scan = useScanReconciliation();
+  const snapshotSync = useSyncReconciliationSnapshots();
   const linkMutation = useLinkReconciliationItem();
   const ignoreMutation = useIgnoreReconciliationItem();
 
@@ -80,6 +82,20 @@ export default function MatchingPage() {
       setPage(1);
     } catch (error) {
       toast.error(friendlyError(error) ?? 'Wing 스캔 실패');
+    }
+  };
+
+  const handleSnapshotSync = async () => {
+    try {
+      const result = await snapshotSync.mutateAsync();
+      toast.success(
+        `DB 동기화 완료 — 자동 ${formatNumber(result.autoLinkedCount)} / 확인 ${formatNumber(
+          result.needsReviewCount,
+        )} / 충돌 ${formatNumber(result.conflictCount)} 건`,
+      );
+      setPage(1);
+    } catch (error) {
+      toast.error(friendlyError(error) ?? 'DB 동기화 실패');
     }
   };
 
@@ -136,7 +152,7 @@ export default function MatchingPage() {
               summaryQuery.refetch();
               itemsQuery.refetch();
             }}
-            disabled={itemsQuery.isFetching || scan.isPending}
+            disabled={itemsQuery.isFetching || scan.isPending || snapshotSync.isPending}
             className="px-3 py-2 rounded-lg text-sm border border-slate-200 text-slate-600 hover:bg-slate-50 inline-flex items-center gap-1.5 disabled:opacity-50"
           >
             <RefreshCw size={14} className={itemsQuery.isFetching ? 'animate-spin' : ''} />
@@ -144,8 +160,21 @@ export default function MatchingPage() {
           </button>
           <button
             type="button"
+            onClick={handleSnapshotSync}
+            disabled={snapshotSync.isPending || scan.isPending}
+            className="px-3 py-2 rounded-lg text-sm border border-slate-200 text-slate-600 hover:bg-slate-50 inline-flex items-center gap-1.5 disabled:opacity-50"
+          >
+            {snapshotSync.isPending ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <Database size={14} />
+            )}
+            DB 동기화
+          </button>
+          <button
+            type="button"
             onClick={handleScan}
-            disabled={scan.isPending}
+            disabled={scan.isPending || snapshotSync.isPending}
             className="px-3 py-2 rounded-lg text-sm bg-purple-600 text-white hover:bg-purple-700 inline-flex items-center gap-1.5 disabled:opacity-50"
           >
             {scan.isPending ? (

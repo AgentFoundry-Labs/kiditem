@@ -71,6 +71,17 @@ export function useScanReconciliation() {
   });
 }
 
+export function useSyncReconciliationSnapshots() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiClient.post<ReconciliationScanResponse>(`${BASE}/sync-from-snapshots`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.channelReconciliation.all });
+    },
+  });
+}
+
 export function useLinkReconciliationItem() {
   const qc = useQueryClient();
   return useMutation({
