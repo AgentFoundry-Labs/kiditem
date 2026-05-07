@@ -1,3 +1,4 @@
+import { Type } from 'class-transformer';
 import {
   IsBoolean,
   IsInt,
@@ -95,6 +96,7 @@ export class ListRunRequestsQueryDto {
   cursor?: string;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(200)
@@ -115,6 +117,7 @@ export class ListRunsQueryDto {
   cursor?: string;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(200)
@@ -123,11 +126,13 @@ export class ListRunsQueryDto {
 
 export class ListRunEventsQueryDto {
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(0)
   cursorSeq?: number;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(500)
@@ -160,6 +165,7 @@ export class ListCostEventsQueryDto {
   cursor?: string;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(500)
@@ -180,6 +186,7 @@ export class ListAuthorizationEventsQueryDto {
   cursor?: string;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(500)
