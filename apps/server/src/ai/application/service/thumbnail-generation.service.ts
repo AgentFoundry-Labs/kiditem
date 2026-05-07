@@ -252,25 +252,24 @@ export class ThumbnailGenerationService {
         editAnalysis,
       });
 
-      // Per-generation alert for user-triggered runs only. Auto-batch
-      // (`method === 'auto'`) gets a single cohort alert from
-      // `ThumbnailAutoService.runBatch`; emitting one alert per generation
-      // there would flood the panel with up to 30 entries per cohort.
-      if (method !== 'auto') {
-        await this.operationAlerts.start({
-          organizationId,
-          operationKey: this.editJobOperationKey(generation.id),
-          type: 'thumbnail_edit_job',
-          title: `썸네일 편집: ${product.name}`,
-          sourceType: 'thumbnail_generation',
-          sourceId: generation.id,
-          actorUserId: triggeredByUserId,
-          targetType: 'master',
-          targetId: product.id,
-          href: `/thumbnails/${generation.id}`,
-          metadata: { method, purpose, variantKey: variantKey ?? 'auto' },
-        });
-      }
+      // Per-generation alert for every method, including auto-batch. The
+      // earlier "method === 'auto'" gate was dropped because the cohort alert
+      // it relied on was being marked succeeded before background jobs
+      // finished — see review feedback on PR #209. Per-generation alerts are
+      // the source of truth for actual edit-job completion.
+      await this.operationAlerts.start({
+        organizationId,
+        operationKey: this.editJobOperationKey(generation.id),
+        type: 'thumbnail_edit_job',
+        title: `${method === 'auto' ? '썸네일 자동 재편집' : '썸네일 편집'}: ${product.name}`,
+        sourceType: 'thumbnail_generation',
+        sourceId: generation.id,
+        actorUserId: triggeredByUserId,
+        targetType: 'master',
+        targetId: product.id,
+        href: `/thumbnails/${generation.id}`,
+        metadata: { method, purpose, variantKey: variantKey ?? 'auto' },
+      });
 
       this.scheduleEditJob(generation.id, organizationId, purpose, variantKey);
       items.push(toThumbnailGenerationItem(generation, product));
@@ -449,6 +448,7 @@ export class ThumbnailGenerationService {
   async createAutoBatch(
     organizationId: string,
     limit = 30,
+    triggeredByUserId: string | null = null,
   ): Promise<{
     attempted: number;
     succeeded: number;
@@ -475,7 +475,7 @@ export class ThumbnailGenerationService {
           organizationId,
           'compliance',
           'auto',
-          null, // auto-batch: no per-generation alert (cohort alert covers it)
+          triggeredByUserId,
           'auto',
         );
         runs.push({ ok: true, productId: product.id, generationId: item?.id ?? null });
