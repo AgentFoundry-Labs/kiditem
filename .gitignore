@@ -20,6 +20,10 @@ graphify-out/.graphify_*
 .env.local
 *.pem
 
+# Dev preview auth — magic-link callback URLs minted by bin/dev-bootstrap.sh.
+# Contains short-lived (~1h) Supabase tokens. Never commit.
+.dev-auth/
+
 # Database
 *.db
 
