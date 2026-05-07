@@ -10,6 +10,7 @@ import { WorkflowsController, WorkflowRunsController } from './adapter/in/http/w
 import { PrismaMarketplaceInstallStoreAdapter } from './adapter/out/prisma/marketplace-install-store.adapter';
 import { MARKETPLACE_INSTALL_STORE_PORT } from './application/port/out/marketplace-install-store.port';
 import { ActionBoardService } from './application/service/action-board.service';
+import { AgentRunOperationAlertBridge } from './application/service/agent-run-operation-alert.bridge';
 import { AlertsService } from './application/service/alerts.service';
 import { OperationAlertService } from './application/service/operation-alert.service';
 import { PanelService } from './adapter/out/panel-event/panel.service';
@@ -65,6 +66,7 @@ import { WorkflowRunnerService } from './application/service/workflow-runner.ser
       useClass: PrismaMarketplaceInstallStoreAdapter,
     },
     ActionBoardService,
+    AgentRunOperationAlertBridge,
     AlertsService,
     OperationAlertService,
     MarketplaceCatalogService,

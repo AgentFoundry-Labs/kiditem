@@ -160,6 +160,36 @@ export class OperationAlertService {
     });
   }
 
+  /**
+   * Close any operation alert linked to a specific (sourceType, sourceId)
+   * tuple. Used by cross-domain bridges (eg. AgentRun finalize) that know the
+   * upstream identity but not which producer set up the operationKey.
+   *
+   * Returns null when no matching alert exists or when the matched alert has
+   * no `operationKey` (defensive: closes only target rows the producer
+   * intended as operations).
+   */
+  async closeBySource(
+    organizationId: string,
+    sourceType: string,
+    sourceId: string,
+    status: 'succeeded' | 'failed' | 'cancelled',
+    patch: OperationLifecyclePatch = {},
+  ): Promise<Alert | null> {
+    const existing = await this.prisma.alert.findFirst({
+      where: { organizationId, sourceType, sourceId, kind: 'operation' },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!existing || !existing.operationKey) return null;
+    if (status === 'succeeded') {
+      return this.succeed(organizationId, existing.operationKey, patch);
+    }
+    if (status === 'failed') {
+      return this.fail(organizationId, existing.operationKey, patch);
+    }
+    return this.cancel(organizationId, existing.operationKey, patch);
+  }
+
   // ── internals ──────────────────────────────────────────────────────────
 
   private async transition(
