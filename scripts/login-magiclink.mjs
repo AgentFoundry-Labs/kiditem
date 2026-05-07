@@ -7,7 +7,7 @@
  * 이 흐름은 PKCE code_verifier 가 필요 없어 admin-generated link 와 호환된다.
  *
  * 사용법:
- *   node scripts/login-magiclink.mjs <email> [next]
+ *   node scripts/login-magiclink.mjs <email> [next] [web-origin]
  */
 import { createClient } from '@supabase/supabase-js';
 import { config } from 'dotenv';
@@ -26,15 +26,18 @@ const c = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY
 
 const email = process.argv[2];
 const next = process.argv[3] ?? '/';
+const webOrigin = normalizeWebOrigin(
+  process.argv[4] ?? process.env.DEV_WEB_ORIGIN ?? 'http://localhost:3000',
+);
 if (!email) {
-  console.error('usage: node scripts/login-magiclink.mjs <email> [next]');
+  console.error('usage: node scripts/login-magiclink.mjs <email> [next] [web-origin]');
   process.exit(1);
 }
 
 const r = await c.auth.admin.generateLink({
   type: 'magiclink',
   email,
-  options: { redirectTo: 'http://localhost:3000/auth/callback' },
+  options: { redirectTo: `${webOrigin}/auth/callback` },
 });
 if (r.error) {
   console.error(r.error);
@@ -42,5 +45,22 @@ if (r.error) {
 }
 
 const tokenHash = r.data.properties.hashed_token;
-const callbackUrl = `http://localhost:3000/auth/callback?token_hash=${encodeURIComponent(tokenHash)}&type=magiclink&next=${encodeURIComponent(next)}`;
+const callbackUrl = `${webOrigin}/auth/callback?token_hash=${encodeURIComponent(tokenHash)}&type=magiclink&next=${encodeURIComponent(next)}`;
 console.log(`CALLBACK_URL=${callbackUrl}`);
+
+function normalizeWebOrigin(input) {
+  const origin = String(input ?? '').trim().replace(/\/+$/, '');
+  try {
+    const parsed = new URL(origin);
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      throw new Error('unsupported protocol');
+    }
+    if (parsed.pathname !== '/' || parsed.search || parsed.hash) {
+      throw new Error('origin must not include path, query, or hash');
+    }
+    return parsed.origin;
+  } catch {
+    console.error(`invalid web origin: ${input}`);
+    process.exit(1);
+  }
+}

@@ -41,8 +41,9 @@ Done once per developer:
 
 What this does, in order:
 
-1. Detects whether we're inside `.claude/worktrees/<name>` and, if so,
-   copies `.env` and `apps/web/.env.local` from the canonical checkout.
+1. Detects whether we're inside a tool-created worktree and copies `.env`
+   and `apps/web/.env.local` from a sibling checkout that already has them.
+   This covers `.claude/worktrees/*` and `.codex/worktrees/*`.
 2. Runs `npm install --legacy-peer-deps` if `node_modules/` is missing.
 3. Verifies `SUPABASE_URL` and `SUPABASE_SECRET_KEY` are present.
 4. Calls `scripts/login-magiclink.mjs <dev-user-email>` and writes the
@@ -57,6 +58,21 @@ What this does, in order:
 
 The user must already exist in the dev Supabase project's `auth.users`. The
 script will not create users.
+
+### Custom preview/web origin
+
+Use the exact origin where the isolated browser opens the web app:
+
+```bash
+./bin/dev-bootstrap.sh --web-origin http://localhost:3001
+# or
+DEV_WEB_ORIGIN=http://127.0.0.1:3000 ./bin/dev-bootstrap.sh
+```
+
+The callback URL and Supabase `redirectTo` must match the browser origin.
+If the callback opens on `localhost:3000` but the preview is using
+`127.0.0.1:3000` or `localhost:3001`, the cookie lands on the wrong origin and
+the app reports a missing login session.
 
 ### Fresh clone (no canonical checkout to copy from)
 
@@ -102,7 +118,7 @@ curl -s -o /dev/null -w '%{http_code}\n' \
 ## Success criteria
 
 - `.dev-auth/callback.url` contains a single URL on the form
-  `http://localhost:3000/auth/callback?token_hash=…&type=magiclink&next=/`.
+  `<DEV_WEB_ORIGIN>/auth/callback?token_hash=…&type=magiclink&next=/`.
 - Navigating the preview to that URL leaves you on `/` (or the configured
   `next`) without any login form interaction.
 - `GET /api/auth/me` returns the dev user JSON.
@@ -114,6 +130,7 @@ curl -s -o /dev/null -w '%{http_code}\n' \
 | `SUPABASE_URL or SUPABASE_SECRET_KEY missing` | `.env` empty or pointing at a different file | Re-run with `--canonical /path/to/canonical` |
 | `login-magiclink.mjs` errors with `User with this email not found` | Dev user not in Supabase | Add via Supabase Dashboard → Authentication → Users |
 | Cookie set but `/api/auth/me` still 401 | Local `users` row missing for that Supabase user | Run `scripts/sync-supabase-user.ts` |
+| Browser reports missing session after callback | Callback URL host/port does not match preview origin | Re-run with `--web-origin <actual preview origin>` |
 | Cookie expires mid-session | Supabase access token TTL ~1h | Re-run `bin/dev-bootstrap.sh` to mint a fresh callback URL |
 
 ## Stripe model alignment

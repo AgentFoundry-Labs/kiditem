@@ -17,6 +17,7 @@
 #   ./bin/dev-bootstrap.sh
 #   ./bin/dev-bootstrap.sh --email someone-else@example.com
 #   ./bin/dev-bootstrap.sh --canonical /Users/yhc125/workspace/kiditem
+#   ./bin/dev-bootstrap.sh --web-origin http://localhost:3001
 #
 # Hard rules:
 #   - No password storage; service_role key in .env is the only credential.
@@ -30,6 +31,7 @@ set -euo pipefail
 
 DEV_EMAIL="${DEV_USER_EMAIL:-kiditem@naver.com}"
 CANONICAL=""
+WEB_ORIGIN="${DEV_WEB_ORIGIN:-http://localhost:3000}"
 SKIP_INSTALL=0
 
 while [[ $# -gt 0 ]]; do
@@ -40,6 +42,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --canonical)
       CANONICAL="$2"
+      shift 2
+      ;;
+    --web-origin)
+      WEB_ORIGIN="$2"
       shift 2
       ;;
     --skip-install)
@@ -63,24 +69,41 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
 # ---------- detect canonical checkout for env propagation --------------------
-# If we're inside .claude/worktrees/<name>/ and the env files are missing,
-# walk up to the canonical checkout (the one outside the worktrees dir).
+# If we're inside a tool-created worktree and the env files are missing, find a
+# sibling checkout that already has the env files. Claude worktrees encode the
+# canonical checkout in the path; Codex worktrees do not, so fall back to
+# `git worktree list`.
 
 resolve_canonical() {
   if [[ -n "$CANONICAL" ]]; then
     echo "$CANONICAL"
     return
   fi
+
+  local path_guess=""
+  local candidate=""
+
   # Heuristic: REPO_ROOT looks like .../<canonical>/.claude/worktrees/<name>
   case "$REPO_ROOT" in
     */.claude/worktrees/*)
-      echo "$REPO_ROOT" | sed -E 's|/\.claude/worktrees/[^/]+$||'
-      ;;
-    *)
-      # Not in a worktree → no canonical to copy from.
-      echo ""
+      path_guess="$(echo "$REPO_ROOT" | sed -E 's|/\.claude/worktrees/[^/]+$||')"
+      if [[ -f "$path_guess/.env" || -f "$path_guess/apps/web/.env.local" ]]; then
+        echo "$path_guess"
+        return
+      fi
       ;;
   esac
+
+  while IFS= read -r candidate; do
+    [[ "$candidate" == "$REPO_ROOT" ]] && continue
+    if [[ -f "$candidate/.env" || -f "$candidate/apps/web/.env.local" ]]; then
+      echo "$candidate"
+      return
+    fi
+  done < <(git worktree list --porcelain | sed -n 's/^worktree //p')
+
+  # Not in a worktree, or no sibling checkout has env files.
+  echo ""
 }
 
 CANONICAL="$(resolve_canonical)"
@@ -92,7 +115,11 @@ link_env_if_missing() {
   if [[ -e "$target" ]]; then
     return 0
   fi
-  if [[ -z "$CANONICAL" || ! -f "$source" ]]; then
+  if [[ -z "$CANONICAL" ]]; then
+    echo "  · $target  (skipped — no canonical checkout with env files found)"
+    return 0
+  fi
+  if [[ ! -f "$source" ]]; then
     echo "  · $target  (skipped — no canonical source at $source)"
     return 0
   fi
@@ -123,11 +150,21 @@ if [[ ! -f .env ]]; then
   exit 1
 fi
 
-# Source .env safely (only KEY=VALUE pairs, no command substitution).
-set -a
-# shellcheck disable=SC1091
-source <(grep -E '^[A-Z_][A-Z0-9_]*=' .env | sed 's/^/export /')
-set +a
+read_env_value() {
+  local key="$1"
+  local line value
+  line="$(grep -E "^${key}=" .env | tail -1 || true)"
+  value="${line#*=}"
+  value="${value%$'\r'}"
+  value="${value%\"}"
+  value="${value#\"}"
+  value="${value%\'}"
+  value="${value#\'}"
+  printf '%s' "$value"
+}
+
+SUPABASE_URL="${SUPABASE_URL:-$(read_env_value SUPABASE_URL)}"
+SUPABASE_SECRET_KEY="${SUPABASE_SECRET_KEY:-$(read_env_value SUPABASE_SECRET_KEY)}"
 
 if [[ -z "${SUPABASE_URL:-}" || -z "${SUPABASE_SECRET_KEY:-}" ]]; then
   echo "  ✗ SUPABASE_URL or SUPABASE_SECRET_KEY missing in .env."
@@ -137,14 +174,21 @@ fi
 echo "  · SUPABASE_URL=${SUPABASE_URL}"
 echo "  · SUPABASE_SECRET_KEY=*** (set)"
 
+WEB_ORIGIN="${WEB_ORIGIN%/}"
+if [[ ! "$WEB_ORIGIN" =~ ^https?://[^/]+(:[0-9]+)?$ ]]; then
+  echo "  ✗ DEV_WEB_ORIGIN / --web-origin must be an http(s) origin, got: ${WEB_ORIGIN}"
+  exit 1
+fi
+echo "  · DEV_WEB_ORIGIN=${WEB_ORIGIN}"
+
 # ---------- step 4: mint a magic-link callback URL --------------------------
 
 echo "==> step 4: magic-link callback for ${DEV_EMAIL}"
 mkdir -p .dev-auth
 
-CALLBACK_OUTPUT="$(node scripts/login-magiclink.mjs "$DEV_EMAIL" "/" 2>&1 || true)"
+CALLBACK_OUTPUT="$(SUPABASE_URL="$SUPABASE_URL" SUPABASE_SECRET_KEY="$SUPABASE_SECRET_KEY" DEV_WEB_ORIGIN="$WEB_ORIGIN" node scripts/login-magiclink.mjs "$DEV_EMAIL" "/" 2>&1 || true)"
 
-CALLBACK_URL="$(printf '%s\n' "$CALLBACK_OUTPUT" | grep '^CALLBACK_URL=' | head -1 | sed 's/^CALLBACK_URL=//')"
+CALLBACK_URL="$(printf '%s\n' "$CALLBACK_OUTPUT" | sed -n 's/^CALLBACK_URL=//p' | head -1)"
 if [[ -z "$CALLBACK_URL" ]]; then
   echo "  ✗ login-magiclink.mjs did not produce a CALLBACK_URL."
   echo "$CALLBACK_OUTPUT"
