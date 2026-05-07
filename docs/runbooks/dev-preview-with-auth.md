@@ -61,18 +61,20 @@ script will not create users.
 
 ### Custom preview/web origin
 
-Use the exact origin where the isolated browser opens the web app:
+Use the exact origin where the isolated browser opens the web app. The values
+below are examples; replace them with the host and port shown in your preview
+browser address bar:
 
 ```bash
-./bin/dev-bootstrap.sh --web-origin http://localhost:3001
+./bin/dev-bootstrap.sh --web-origin <actual-preview-origin>
 # or
-DEV_WEB_ORIGIN=http://127.0.0.1:3000 ./bin/dev-bootstrap.sh
+DEV_WEB_ORIGIN=<actual-preview-origin> ./bin/dev-bootstrap.sh
 ```
 
 The callback URL and Supabase `redirectTo` must match the browser origin.
-If the callback opens on `localhost:3000` but the preview is using
-`127.0.0.1:3000` or `localhost:3001`, the cookie lands on the wrong origin and
-the app reports a missing login session.
+For example, `localhost` and `127.0.0.1` are different cookie origins, and so
+are two different ports on the same host. If they do not match exactly, the
+cookie lands on the wrong origin and the app reports a missing login session.
 
 ### Fresh clone (no canonical checkout to copy from)
 
