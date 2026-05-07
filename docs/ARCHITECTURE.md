@@ -66,11 +66,15 @@ sourcing         test-helpers types           uploads
 
 Important ownership decisions:
 
-- `automation/` owns Agent OS application services, workflow HTTP routes,
-  action-board/action-task routes, marketplace install, manager routes, and
-  panel event projection.
-- `agent-registry/` remains the compatibility/facade surface for Agent OS
-  registry, lifecycle, heartbeat, wakeup, safety, trace, and delegation.
+- `agent-os/` is the target owner platform for Agent OS v2: agent catalog,
+  organization-owned instances, run requests, accepted runs, runtime state,
+  tool policy, approvals, authorization audit, cost ledger, run events, and log
+  references. See [Agent OS v2 Schema Design](agent-os-v2-schema.md).
+- `automation/` owns workflow orchestration, action-board/action-task routes,
+  marketplace install/catalog surfaces, manager routes, alerts, and panel event
+  projection. Workflows delegate AI execution into `agent-os/`.
+- `agent-registry/` is legacy Agent OS compatibility. The v2 replacement track
+  deletes it or leaves only thin route compatibility if a transition requires it.
 - `rules/` owns business policy definitions and rule evaluation results, but
   delegates Agent OS execution through automation ports.
 - `sourcing/` folds supplier and purchase-order/procurement capabilities while
@@ -114,7 +118,9 @@ are still shared or not yet folded into a group, for example `ad-ops`,
 
 ## Agent OS
 
-Agent OS is a backend platform capability:
+Agent OS is a backend platform capability. The v2 target is documented in
+[Agent OS v2 Schema Design](agent-os-v2-schema.md). The current runtime still
+uses legacy compatibility paths until that replacement lands:
 
 - Public workflow routes live under
   `apps/server/src/automation/adapter/in/http/workflows.controller.ts`.
@@ -122,9 +128,9 @@ Agent OS is a backend platform capability:
   `apps/server/src/automation/adapter/in/http/action-task.controller.ts`.
 - Manager routes live under
   `apps/server/src/automation/adapter/in/http/manager.controller.ts`.
-- Agent execution ultimately passes through the Agent Registry compatibility
-  boundary, but reconstructed business domains should depend on automation
-  ports such as `AGENT_RUNNER_PORT`, not import runtime services directly.
+- Agent execution currently passes through the Agent Registry compatibility
+  boundary, but reconstructed business domains should depend on Agent OS ports
+  such as `AgentRunnerPort`, not import runtime services directly.
 
 Workflow nodes must not call LLMs directly. AI work is delegated through
 `agent_task.create` into Agent OS.
