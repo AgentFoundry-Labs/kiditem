@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { CopilotKit } from '@copilotkit/react-core';
 import { CopilotSidebar } from '@copilotkit/react-ui';
 import '@copilotkit/react-ui/styles.css';
+import { API_BASE } from '@/lib/api';
 import { createSupabaseBrowserClient } from '@/lib/supabase/client';
 
 interface CopilotChatProps {
@@ -50,7 +51,8 @@ export default function CopilotChat({ children, defaultOpen = false, onChatOpenC
 
   return (
     <CopilotKit
-      runtimeUrl="http://localhost:4000/api/chat/copilot"
+      runtimeUrl={`${API_BASE}/api/chat/copilot`}
+      credentials="include"
       headers={headers}
     >
       {children}

@@ -16,12 +16,16 @@ import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { ChatService } from './chat/chat.service';
 import { SupabaseAuthMiddleware } from './auth/middleware/supabase-auth.middleware';
+import { handleChatCorsPreflight } from './chat/chat-cors';
 
 async function bootstrap() {
   // Express instance 를 먼저 만들어 Nest router 앞에 CopilotKit 미들웨어를 등록.
   // NestFactory 가 만든 default ExpressAdapter 를 쓰면 미들웨어가 Nest router
   // 뒤에 쌓여 `/api/chat/copilot/...` 이 Nest 의 404 에 먼저 잡힘.
   const expressApp = express();
+  // CopilotKit raw route is registered before Nest middleware, so cookie auth
+  // must be parsed on the underlying Express app before the chat handler.
+  expressApp.use(cookieParser());
 
   // ChatService / SupabaseAuthMiddleware 는 Nest 초기화 후에만 resolve 가능 — lazy ref.
   // 이 raw express handler 는 Nest router 앞에 있어 AppModule middleware 와
@@ -31,6 +35,11 @@ async function bootstrap() {
   let chatServiceRef: ChatService | null = null;
   let supabaseAuthRef: SupabaseAuthMiddleware | null = null;
   expressApp.use('/api/chat/copilot', async (req: Request, res: Response) => {
+    // This raw Express handler is registered before Nest's `enableCors`, so it
+    // must handle CopilotKit browser preflight itself.
+    if (handleChatCorsPreflight(req, res)) {
+      return;
+    }
     if (!chatServiceRef || !supabaseAuthRef) {
       res.status(503).json({ error: 'service_not_ready' });
       return;
@@ -87,7 +96,7 @@ async function bootstrap() {
   });
   app.useBodyParser('json', { limit: '25mb' });
   // SupabaseAuthMiddleware 가 Supabase SSR auth-token 쿠키를 읽기 위해 필요.
-  app.use(cookieParser());
+  // `expressApp.use(cookieParser())` above covers both raw chat and Nest routes.
   app.setGlobalPrefix('api');
   app.useGlobalPipes(new ValidationPipe({
     whitelist: true,
