@@ -124,12 +124,20 @@ export const agentRunRequestSummarySchema = z.object({
   createdAt: z.string(),
 });
 
+// AgentRunSummary mirrors the server's GET /agent-os/runs/:id response
+// (apps/server/src/agent-os/adapter/out/repository/agent-os.repository.adapter.ts
+// → toRunRecord). agentType/costMicros are not stored on AgentRun directly —
+// `agentType` is derived via the parent instance, `costMicros` aggregated from
+// the cost-event ledger. Both are optional here so the schema admits the
+// raw run-row response without forcing the server to do extra joins on every
+// list call. Consumers that need them should fetch through the dedicated cost
+// endpoint or instance lookup.
 export const agentRunSummarySchema = z.object({
   id: z.string(),
   organizationId: z.string(),
   requestId: z.string(),
   agentInstanceId: z.string(),
-  agentType: z.string(),
+  agentType: z.string().optional(),
   taskKey: z.string().nullable(),
   status: agentRunStatusSchema,
   attempt: z.number().int(),
@@ -141,7 +149,10 @@ export const agentRunSummarySchema = z.object({
   finishedAt: z.string().nullable(),
   errorCode: z.string().nullable(),
   errorMessage: z.string().nullable(),
-  costMicros: z.string().nullable(),
+  // Raw runtime output JSON. Web consumers (sourcing color-guide, image edit,
+  // detail-page generator) read fields like `image_url` / `step` from here.
+  output: z.record(z.string(), z.unknown()).nullable().optional(),
+  costMicros: z.string().nullable().optional(),
 });
 
 export const agentRunEventSummarySchema = z.object({

@@ -135,6 +135,7 @@ export interface AgentRunRequestRecord {
   taskKey: string;
   agentType: string;
   adapterType: string;
+  latestRunId: string | null;
 }
 
 export interface AgentRunRecord {

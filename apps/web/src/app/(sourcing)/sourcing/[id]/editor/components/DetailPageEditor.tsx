@@ -1839,18 +1839,31 @@ function RightPanel({
       setAiFillTaskId(taskId);
       setAiFillStep('카피 생성 중...');
 
+      // Agent OS v2: trigger-content-draft returns AgentRunRequest.id as taskId.
+      // Poll the request, pivot to the run via latestRunId once executor claims.
       let lastStep = '';
+      let latestRunId: string | null = null;
       const maxAttempts = 120;
       for (let i = 0; i < maxAttempts; i++) {
         await new Promise(r => setTimeout(r, 2000));
-        let run: any;
+
+        let request: any;
         try {
-          run = await apiClient.get(`/api/agent-os/runs/${taskId}`);
+          request = await apiClient.get(`/api/agent-os/requests/${taskId}`);
         } catch { continue; }
 
-        if (run.status === 'failed' || run.status === 'cancelled') {
-          throw new Error(run.errorMessage || run.errorCode || 'AI 생성에 실패했습니다');
+        if (request.status === 'failed' || request.status === 'cancelled' || request.status === 'skipped') {
+          throw new Error(request.lastErrorMessage || request.lastErrorCode || 'AI 생성에 실패했습니다');
         }
+
+        latestRunId = request.latestRunId ?? latestRunId;
+        if (!latestRunId) continue; // pre-claim: no run yet
+
+        // Read run for output progress + final state.
+        let run: any;
+        try {
+          run = await apiClient.get(`/api/agent-os/runs/${latestRunId}`);
+        } catch { continue; }
 
         let output: Record<string, unknown> | null = null;
         try {
@@ -1874,7 +1887,7 @@ function RightPanel({
           }
         }
 
-        if (run.status === 'succeeded') {
+        if (run.status === 'succeeded' || request.status === 'succeeded') {
           setHasGenerated(true);
           onAiFillComplete?.();
           return;
@@ -1916,21 +1929,29 @@ function RightPanel({
         sourceId: productId,
         payload: { preset: 'color_guide', image_urls: colorImageUrls, productId },
       });
-      const runId = data.runId;
-      if (!runId) throw new Error('이미지 작업을 시작하지 못했습니다.');
+      // Agent OS v2: POST returns requestId synchronously; runId materializes
+      // when the executor claims the request.
+      const requestId = data.requestId;
+      if (!requestId) throw new Error('이미지 작업을 시작하지 못했습니다.');
 
+      let latestRunId: string | null = null;
       for (let i = 0; i < 120; i++) {
         await new Promise(r => setTimeout(r, 2000));
-        let run: any;
+
+        let request: any;
         try {
-          run = await apiClient.get(`/api/agent-os/runs/${runId}`);
+          request = await apiClient.get(`/api/agent-os/requests/${requestId}`);
         } catch { continue; }
 
-        if (run.status === 'failed' || run.status === 'cancelled') {
-          throw new Error(run.errorMessage || run.errorCode || '색상 안내 생성 실패');
+        if (request.status === 'failed' || request.status === 'cancelled' || request.status === 'skipped') {
+          throw new Error(request.lastErrorMessage || request.lastErrorCode || '색상 안내 생성 실패');
         }
 
-        if (run.status === 'succeeded') {
+        latestRunId = request.latestRunId ?? latestRunId;
+        if (request.status !== 'succeeded' || !latestRunId) continue;
+
+        const run = await apiClient.get<{ output?: unknown }>(`/api/agent-os/runs/${latestRunId}`);
+        {
           let output: Record<string, unknown> | null = null;
           try {
             output = typeof run.output === 'string' ? JSON.parse(run.output) : run.output;

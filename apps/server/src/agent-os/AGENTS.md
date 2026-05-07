@@ -62,3 +62,31 @@ AgentRun:
 - No silent model fallback (`model = model || default`).
 - No frontend direct DB access.
 - No `tenantId` naming. Use `Organization` / `organizationId`.
+
+## Runtime adapter contract
+
+`AGENT_RUNTIME_PORT` is the only path the executor uses to invoke a real
+provider. Until a provider adapter (Claude CLI / Python HTTP / hosted
+gateway) replaces the default `LocalRuntimeAdapter`, every claimed request
+fails fast with `runtime_not_configured`:
+
+- `AgentRun.errorCode = 'runtime_not_configured'`
+- `AgentRunRequest.lastErrorCode = 'runtime_not_configured'`
+
+This is intentional — silent stub success would mask a deployment gap and
+let consumers (sourcing detail-page generator, image edit, ad-strategy)
+poll forever on empty output. Real adapters must be wired before consumer
+HTTP routes are reopened beyond their current draft state.
+
+For isolated unit/integration runs that need the queue path exercised
+without a provider, set `AGENT_RUNTIME_ALLOW_NOOP=1` in `.env`. Never set
+this in shared environments.
+
+## Bootstrap
+
+Fresh DBs need at least one `AgentBlueprint` per shipped agent type and one
+`AgentInstance` per organization, otherwise every consumer hits
+`agent_instance_not_found`. Run `npm run seed:agent-os` after `db:push`.
+The seed reads default model from `AGENT_<TYPE>_MODEL` per blueprint with
+`AGENT_DEFAULT_MODEL` as a single shared fallback (and throws if neither
+is set — no silent default).

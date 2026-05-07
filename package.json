@@ -35,6 +35,7 @@
     "data:dev:replay": "tsx scripts/dev-data.ts replay",
     "data:dev:pack": "tsx scripts/dev-data.ts pack",
     "data:dev:publish": "tsx scripts/dev-data.ts publish",
+    "seed:agent-os": "tsx scripts/seed-agent-os.ts",
     "db:test:up": "docker compose -f docker-compose.test.yml up -d --wait",
     "db:test:down": "docker compose -f docker-compose.test.yml down -v",
     "db:test:prepare": "bash prisma/test-db-setup.sh",

@@ -507,6 +507,17 @@ export class AgentOsRepositoryAdapter implements AgentOsRepositoryPort {
   }
 
   async markRequestStatus(input: MarkRequestStatusInput) {
+    const isTerminal =
+      input.status === 'failed' ||
+      input.status === 'succeeded' ||
+      input.status === 'cancelled' ||
+      input.status === 'skipped';
+    // failed → pending requeue: prior claim/finish stamps must be cleared so the
+    // FOR UPDATE SKIP LOCKED scan treats this row like a fresh pending request
+    // again. Without this, a retryable failure leaves stale claimedAt/claimedBy/
+    // finishedAt and looks finished to readers.
+    const isRequeue = input.status === 'pending';
+
     const updated = await this.prisma.agentRunRequest.updateMany({
       where: {
         id: input.requestId,
@@ -517,10 +528,9 @@ export class AgentOsRepositoryAdapter implements AgentOsRepositoryPort {
         coalescedIntoRequestId: input.coalescedIntoRequestId ?? undefined,
         lastErrorCode: input.errorCode ?? undefined,
         lastErrorMessage: input.errorMessage ?? undefined,
-        finishedAt:
-          input.status === 'failed' || input.status === 'succeeded' || input.status === 'cancelled' || input.status === 'skipped'
-            ? new Date()
-            : undefined,
+        finishedAt: isTerminal ? new Date() : isRequeue ? null : undefined,
+        claimedAt: isRequeue ? null : undefined,
+        claimedBy: isRequeue ? null : undefined,
       },
     });
     if (updated.count === 0) {
@@ -925,18 +935,30 @@ export class AgentOsRepositoryAdapter implements AgentOsRepositoryPort {
 
   // ---- helpers ------------------------------------------------------------
   private async attachRunRequestContext(row: Prisma.AgentRunRequestGetPayload<{}>): Promise<AgentRunRequestRecord> {
-    const session = await this.prisma.agentTaskSession.findFirst({
-      where: { id: row.taskSessionId, organizationId: row.organizationId },
-      select: { taskKey: true, adapterType: true },
-    });
-    const instance = await this.prisma.agentInstance.findFirst({
-      where: { id: row.agentInstanceId, organizationId: row.organizationId },
-      select: { type: true, adapterType: true },
-    });
+    const [session, instance, latestRun] = await Promise.all([
+      this.prisma.agentTaskSession.findFirst({
+        where: { id: row.taskSessionId, organizationId: row.organizationId },
+        select: { taskKey: true, adapterType: true },
+      }),
+      this.prisma.agentInstance.findFirst({
+        where: { id: row.agentInstanceId, organizationId: row.organizationId },
+        select: { type: true, adapterType: true },
+      }),
+      // Latest run under this request — web consumers (sourcing color-guide,
+      // AIImageEditPanel, detail-page generator) poll the request and pivot to
+      // the run once it exists. Without latestRunId they would 404 on
+      // /agent-os/runs/:requestId.
+      this.prisma.agentRun.findFirst({
+        where: { requestId: row.id, organizationId: row.organizationId },
+        orderBy: { startedAt: 'desc' },
+        select: { id: true },
+      }),
+    ]);
     return toRunRequestRecord(row, {
       taskKey: session?.taskKey ?? 'default',
       adapterType: session?.adapterType ?? instance?.adapterType ?? 'claude_local',
       agentType: instance?.type ?? 'unknown',
+      latestRunId: latestRun?.id ?? null,
     });
   }
 }
@@ -1001,9 +1023,18 @@ function toTaskSessionRecord(
   };
 }
 
+type RunRequestContext = {
+  taskKey: string;
+  adapterType: string;
+  agentType: string;
+  // Optional — newly-created requests have no run yet, fresh-claim raw SQL
+  // path also predates the run insert. Set to null in those cases.
+  latestRunId?: string | null;
+};
+
 function toRunRequestRecord(
   row: Prisma.AgentRunRequestGetPayload<{}>,
-  context: { taskKey: string; adapterType: string; agentType: string },
+  context: RunRequestContext,
 ): AgentRunRequestRecord {
   return {
     id: row.id,
@@ -1038,12 +1069,13 @@ function toRunRequestRecord(
     taskKey: context.taskKey,
     agentType: context.agentType,
     adapterType: context.adapterType,
+    latestRunId: context.latestRunId ?? null,
   };
 }
 
 function rawRowToRunRequestRecord(
   row: RunRequestRow,
-  context: { taskKey: string; adapterType: string; agentType: string },
+  context: RunRequestContext,
 ): AgentRunRequestRecord {
   return {
     id: row.id,
@@ -1078,6 +1110,7 @@ function rawRowToRunRequestRecord(
     taskKey: context.taskKey,
     agentType: context.agentType,
     adapterType: context.adapterType,
+    latestRunId: context.latestRunId ?? null,
   };
 }
 

@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
+import { Roles } from '../../../../auth/decorators/roles.decorator';
 import type { AuthUser } from '../../../../auth/auth.types';
 import { AgentCatalogService } from '../../../application/service/agent-catalog.service';
 import {
@@ -28,6 +29,9 @@ export class AgentCatalogController {
     return this.catalog.listBlueprints();
   }
 
+  // Global catalog mutation. Restricted to admin/owner — blueprints span
+  // every organization and define default models / prompts / tool policy.
+  @Roles('admin', 'owner')
   @Post('blueprints')
   upsertBlueprint(@Body() body: UpsertBlueprintDto) {
     return this.catalog.upsertBlueprint(body);
@@ -38,6 +42,10 @@ export class AgentCatalogController {
     return this.catalog.listInstances({ organizationId });
   }
 
+  // Organization-scoped but high-trust mutation: creating an AgentInstance
+  // sets adapterType / modelOverride / runtimeConfig / promptPathOverride and
+  // implicitly elevates anyone in the org who can call it. Admin/owner only.
+  @Roles('admin', 'owner')
   @Post('instances')
   createInstance(
     @CurrentOrganization() organizationId: string,
@@ -59,6 +67,9 @@ export class AgentCatalogController {
     });
   }
 
+  // Same elevation surface as createInstance — modelOverride, trustLevel,
+  // runtimeConfig, promptPathOverride are all admin-tier configuration.
+  @Roles('admin', 'owner')
   @Patch('instances/:id')
   async updateInstance(
     @CurrentOrganization() organizationId: string,
@@ -79,6 +90,10 @@ export class AgentCatalogController {
     }
   }
 
+  // Tool policy widening (deny → allow / approval_required → allow) is
+  // explicitly an admin-tier action per docs/agent-os-v2-schema.md and is
+  // audited via AgentAuthorizationEvent.
+  @Roles('admin', 'owner')
   @Put('instances/:id/tool-policies/:toolKey')
   async upsertInstanceToolPolicy(
     @CurrentOrganization() organizationId: string,

@@ -2,7 +2,11 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import type { AgentRunSummary, AgentRunnerResult } from '@kiditem/shared/agent-os';
+import type {
+  AgentRunRequestSummary,
+  AgentRunSummary,
+  AgentRunnerResult,
+} from '@kiditem/shared/agent-os';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
@@ -22,20 +26,45 @@ const POLL_TIMEOUTS_MS: Record<GenerateMode, number> = {
   full: 240_000,
 };
 
-async function pollAgentRun(runId: string, mode: GenerateMode): Promise<AgentRunSummary> {
+/**
+ * Agent OS v2 polling: `POST /api/agent-os/runs` returns `requestId` only —
+ * the actual run is created when the executor claims the request. Pivot from
+ * request → run via `latestRunId` so we never 404 on a not-yet-existing run.
+ */
+async function pollAgentResult(
+  requestId: string,
+  mode: GenerateMode,
+): Promise<AgentRunSummary> {
   const maxAttempts = Math.ceil(POLL_TIMEOUTS_MS[mode] / POLL_INTERVAL_MS);
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-    let run: AgentRunSummary;
+
+    let request: AgentRunRequestSummary;
     try {
-      run = await apiClient.get<AgentRunSummary>(`/api/agent-os/runs/${runId}`);
+      request = await apiClient.get<AgentRunRequestSummary>(
+        `/api/agent-os/requests/${requestId}`,
+      );
     } catch {
       continue;
     }
-    if (run.status === 'succeeded') return run;
-    if (run.status === 'failed' || run.status === 'cancelled') {
-      throw new Error(run.errorMessage || run.errorCode || '상세페이지 생성 실패');
+
+    // Pre-claim states — no run yet, keep polling.
+    if (request.status === 'pending' || request.status === 'claimed' || request.status === 'requires_approval') {
+      continue;
     }
+
+    if (request.status === 'failed' || request.status === 'cancelled' || request.status === 'skipped') {
+      throw new Error(request.lastErrorMessage || request.lastErrorCode || '상세페이지 생성 실패');
+    }
+
+    if (request.status === 'succeeded' && request.latestRunId) {
+      const run = await apiClient.get<AgentRunSummary>(
+        `/api/agent-os/runs/${request.latestRunId}`,
+      );
+      return run;
+    }
+    // 'coalesced' or unexpected — keep polling; the coalesced-into request
+    // is the real owner and will eventually finalize.
   }
   throw new Error('상세페이지 생성 시간 초과 — 백그라운드에서 계속 진행 중일 수 있습니다');
 }
@@ -62,13 +91,15 @@ export function useGenerateDetailPage(productId: string) {
         mode: params.mode,
         ...(params.templateId && { templateId: params.templateId }),
       });
-      const runId = start.runId;
-      if (!runId) {
+      // Agent OS v2 returns requestId synchronously; runId materializes when
+      // the executor claims the request. Polling pivots via latestRunId.
+      const requestId = start.requestId;
+      if (!requestId) {
         throw new Error(start.reason || '상세페이지 생성 작업을 시작하지 못했습니다');
       }
       toast.info(`${MODE_LABEL[params.mode]} 시작 — 완료까지 잠시 걸려요`, { duration: 4000 });
-      const run = await pollAgentRun(runId, params.mode);
-      return { runId, requestId: start.requestId, mode: params.mode, run };
+      const run = await pollAgentResult(requestId, params.mode);
+      return { runId: run.id, requestId, mode: params.mode, run };
     },
     onSuccess: (_data, params) => {
       toast.success(`${MODE_LABEL[params.mode]} 완료`);
