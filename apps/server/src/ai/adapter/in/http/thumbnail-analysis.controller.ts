@@ -10,6 +10,8 @@ import {
   Query,
 } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
+import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
+import type { AuthUser } from '../../../../auth/auth.types';
 import {
   AnalyzeBatchDto,
   AnalyzeThumbnailDto,
@@ -121,12 +123,17 @@ export class ThumbnailAnalysisController {
   // ─── 편집 jobs (현재 main 에서는 unavailable) ────────────────────
 
   @Post('edit-jobs')
-  createEditJobs(@Body() body: EditJobsDto, @CurrentOrganization() organizationId: string) {
+  createEditJobs(
+    @Body() body: EditJobsDto,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.generationService.createEditJobs(
       body.productIds,
       organizationId,
       body.purpose ?? 'compliance',
       body.variantKey ?? null,
+      user.id,
     );
   }
 
@@ -135,12 +142,14 @@ export class ThumbnailAnalysisController {
     @Param('id') id: string,
     @Body() body: ReEditDto,
     @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
   ) {
     return this.generationService.reEditJob(
       id,
       organizationId,
       body?.purpose ?? 'compliance',
       body?.variantKey ?? null,
+      user.id,
     );
   }
 

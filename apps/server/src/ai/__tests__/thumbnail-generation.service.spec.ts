@@ -46,6 +46,16 @@ function makeInputImage(over: Partial<ThumbnailEditorInputImage> = {}): Thumbnai
   };
 }
 
+function makeOperationAlertsStub() {
+  return {
+    start: vi.fn(async () => ({})),
+    succeed: vi.fn(async () => ({})),
+    fail: vi.fn(async () => ({})),
+    progress: vi.fn(async () => ({})),
+    cancel: vi.fn(async () => ({})),
+  };
+}
+
 function makeFullGenerationRow(over: Record<string, unknown> = {}) {
   return {
     id: GENERATION_ID,
@@ -147,6 +157,7 @@ describe('ThumbnailGenerationService normalized persistence', () => {
       prisma as never,
       { resolveInputImage: vi.fn(), generateEdit: vi.fn() } as never,
       { create: vi.fn() } as never,
+      makeOperationAlertsStub() as never,
     );
     const id = await service.saveEditorResult({
       productId: PRODUCT_ID,
@@ -191,6 +202,7 @@ describe('ThumbnailGenerationService normalized persistence', () => {
       prisma as never,
       { resolveInputImage: vi.fn(), generateEdit: vi.fn() } as never,
       { create: vi.fn() } as never,
+      makeOperationAlertsStub() as never,
     );
 
     await expect(
@@ -241,6 +253,7 @@ describe('ThumbnailGenerationService normalized persistence', () => {
       prisma as never,
       { resolveInputImage: vi.fn(), generateEdit: vi.fn() } as never,
       { create: vi.fn() } as never,
+      makeOperationAlertsStub() as never,
     );
 
     const result = await service.findAll(ORGANIZATION_ID);
@@ -281,11 +294,19 @@ describe('ThumbnailGenerationService normalized persistence', () => {
       prisma as never,
       editorAi as never,
       { create: vi.fn() } as never,
+      makeOperationAlertsStub() as never,
     );
     const schedule = vi
       .spyOn(service as unknown as { scheduleEditJob: () => void }, 'scheduleEditJob')
       .mockImplementation(() => {});
-    const [created] = await service.createEditJobs([PRODUCT_ID], ORGANIZATION_ID, 'compliance', 'auto', 'generate');
+    const [created] = await service.createEditJobs(
+      [PRODUCT_ID],
+      ORGANIZATION_ID,
+      'compliance',
+      'auto',
+      null,
+      'generate',
+    );
 
     expect(created.status).toBe('pending');
     expect(editorAi.generateEdit).not.toHaveBeenCalled();
@@ -337,6 +358,7 @@ describe('ThumbnailGenerationService normalized persistence', () => {
       prisma as never,
       editorAi as never,
       { create: vi.fn() } as never,
+      makeOperationAlertsStub() as never,
     );
 
     await (service as unknown as {
@@ -395,6 +417,7 @@ describe('ThumbnailGenerationService normalized persistence', () => {
       prisma as never,
       editorAi as never,
       { create: vi.fn() } as never,
+      makeOperationAlertsStub() as never,
     );
     vi
       .spyOn(service as unknown as { scheduleEditJob: () => void }, 'scheduleEditJob')

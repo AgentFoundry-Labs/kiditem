@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   Inject,
   Injectable,
@@ -9,6 +10,7 @@ import {
   type AgentRunnerPort,
   type AgentRunnerResult,
 } from '../../../agent-os/application/port/in/agent-runner.port';
+import { OperationAlertService } from '../../../automation/application/service/operation-alert.service';
 import { ThumbnailGenerationService } from './thumbnail-generation.service';
 
 const AGENT_TYPE = 'thumbnail_auto_edit';
@@ -41,28 +43,64 @@ export class ThumbnailAutoService {
     private readonly generationService: ThumbnailGenerationService,
     @Inject(AGENT_RUNNER_PORT)
     private readonly agentRunner: AgentRunnerPort,
+    private readonly operationAlerts: OperationAlertService,
   ) {}
 
   async runBatch(
     organizationId: string,
+    triggeredByUserId: string | null,
     limit = 30,
   ): Promise<AutoBatchResult & { requestId?: string; runId?: string; status?: string }> {
-    const runner = await this.agentRunner.runByType(AGENT_TYPE, {
+    // One cohort-level alert covers the auto-batch run. Per-generation alerts
+    // inside the batch are intentionally suppressed
+    // (`ThumbnailGenerationService.createEditJobs` skips them when
+    // method='auto') to keep the panel readable.
+    const operationKey = `thumbnail-auto-batch:${randomUUID()}`;
+    await this.operationAlerts.start({
       organizationId,
+      operationKey,
+      type: 'thumbnail_auto_batch',
+      title: `썸네일 자동 재편집 (${limit}건)`,
       sourceType: 'ai.thumbnail_auto_edit',
-      reason: `thumbnail-auto batch limit=${limit}`,
-      payload: { limit },
+      actorUserId: triggeredByUserId,
+      href: '/thumbnails',
+      metadata: { limit },
     });
 
-    this.requireRunnerOk(runner, 'ai.thumbnail_auto_edit');
+    try {
+      const runner = await this.agentRunner.runByType(AGENT_TYPE, {
+        organizationId,
+        sourceType: 'ai.thumbnail_auto_edit',
+        reason: `thumbnail-auto batch limit=${limit}`,
+        payload: { limit },
+      });
 
-    const result = await this.generationService.createAutoBatch(organizationId, limit);
-    return {
-      ...result,
-      requestId: runner.requestId,
-      runId: runner.runId,
-      status: runner.status,
-    };
+      this.requireRunnerOk(runner, 'ai.thumbnail_auto_edit');
+
+      const result = await this.generationService.createAutoBatch(organizationId, limit);
+
+      await this.operationAlerts.succeed(organizationId, operationKey, {
+        metadata: {
+          attempted: result.attempted,
+          succeeded: result.succeeded,
+          failed: result.failed,
+          skipped: result.skipped,
+          requestId: runner.requestId,
+          runId: runner.runId,
+        },
+      });
+
+      return {
+        ...result,
+        requestId: runner.requestId,
+        runId: runner.runId,
+        status: runner.status,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await this.operationAlerts.fail(organizationId, operationKey, { message });
+      throw err;
+    }
   }
 
   /**
