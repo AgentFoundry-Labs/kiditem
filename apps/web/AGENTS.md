@@ -1,6 +1,14 @@
 # apps/web — Next.js Frontend
 
-Frontend only. No API Routes. All data fetched from NestJS (`localhost:4000`).
+Frontend only. No API Routes / Route Handlers. All data fetched from NestJS (`localhost:4000`).
+
+**AI chat transport exception** — the CopilotKit browser runtime calls
+same-origin `/api/chat/copilot` only. `apps/web/next.config.mjs` rewrites
+both `/api/chat/copilot` and `/api/chat/copilot/:path*` to the Nest chat
+runtime. This is a rewrite (transport), not an API Route — there is no
+`app/api/.../route.ts` handler and there must not be one. Any other
+domain that needs server proxying must go through Nest directly via
+`apiClient`, not via a new rewrite/Route Handler.
 
 ## Run
 
@@ -42,7 +50,7 @@ Routes outside any group (`ad-ops`, `agent-os`, `cs-management`, `dashboard`, `o
 ### API Calls
 - Use **`apiClient.get/post/patch/delete`** from `@/lib/api-client` (no raw fetch)
 - For blob responses: `apiClient.fetchRaw()`
-- Direct `API_BASE` usage only for non-fetch purposes (e.g., image URL resolution)
+- Direct `API_BASE` usage only for non-fetch purposes (e.g., image URL resolution). **Never** use `API_BASE` for the CopilotKit `runtimeUrl` — chat must hit same-origin `/api/chat/copilot`, which the Next rewrite forwards to Nest.
 - Frontend code must not import Prisma, `pg`, server-only DB adapters, or direct database clients. All data comes from NestJS APIs.
 - **Tenant scope is server-owned.** Never send `organizationId` in a query string or request body. Backend resolves the tenant from the authenticated session via `@CurrentOrganization()`; any client-supplied `organizationId` is untrusted and silently dropped by the controller DTO whitelist. Query params carry **business filters only** (status, dateRange, module, etc.). Helpers like `getOrganizationId()` for client-side tenant resolution are forbidden — if you find yourself reaching for one, the backend contract is wrong.
 

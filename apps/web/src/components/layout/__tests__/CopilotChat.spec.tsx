@@ -2,39 +2,21 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import CopilotChat from '../CopilotChat';
 
-vi.mock('@/lib/api', () => ({
-  API_BASE: 'http://localhost:4100',
-}));
-
-vi.mock('@/lib/supabase/client', () => ({
-  createSupabaseBrowserClient: () => ({
-    auth: {
-      getSession: vi.fn().mockResolvedValue({ data: { session: null } }),
-      onAuthStateChange: vi.fn().mockReturnValue({
-        data: { subscription: { unsubscribe: vi.fn() } },
-      }),
-    },
-  }),
-}));
+const copilotKitProps = vi.hoisted(() => ({ value: null as Record<string, unknown> | null }));
 
 vi.mock('@copilotkit/react-core', () => ({
-  CopilotKit: ({
-    runtimeUrl,
-    credentials,
-    children,
-  }: {
-    runtimeUrl: string;
-    credentials?: RequestCredentials;
-    children: React.ReactNode;
-  }) => (
-    <div
-      data-testid="copilot-runtime"
-      data-runtime-url={runtimeUrl}
-      data-credentials={credentials}
-    >
-      {children}
-    </div>
-  ),
+  CopilotKit: (props: Record<string, unknown>) => {
+    copilotKitProps.value = props;
+    return (
+      <div
+        data-testid="copilot-runtime"
+        data-runtime-url={String(props.runtimeUrl ?? '')}
+        data-credentials={typeof props.credentials === 'string' ? props.credentials : ''}
+      >
+        {props.children as React.ReactNode}
+      </div>
+    );
+  },
 }));
 
 vi.mock('@copilotkit/react-ui', () => ({
@@ -42,16 +24,29 @@ vi.mock('@copilotkit/react-ui', () => ({
 }));
 
 describe('CopilotChat', () => {
-  it('uses the configured API base for the Copilot runtime URL', () => {
+  it('routes the runtime through the same-origin /api/chat/copilot rewrite', () => {
     render(<CopilotChat />);
 
     expect(screen.getByTestId('copilot-runtime')).toHaveAttribute(
       'data-runtime-url',
-      'http://localhost:4100/api/chat/copilot',
+      '/api/chat/copilot',
     );
+  });
+
+  it('keeps Supabase SSR cookie attached via credentials="include"', () => {
+    render(<CopilotChat />);
     expect(screen.getByTestId('copilot-runtime')).toHaveAttribute(
       'data-credentials',
       'include',
     );
+  });
+
+  it('does not forward an Authorization header — SSR cookie is the only auth path', () => {
+    render(<CopilotChat />);
+    const props = copilotKitProps.value ?? {};
+    // Browser must not synthesise a Bearer token; auth flows from the
+    // sb-<project-ref>-auth-token cookie that Supabase SSR set, which the
+    // same-origin rewrite forwards untouched.
+    expect(props).not.toHaveProperty('headers');
   });
 });

@@ -16,7 +16,6 @@ import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { ChatService } from './chat/chat.service';
 import { SupabaseAuthMiddleware } from './auth/middleware/supabase-auth.middleware';
-import { handleChatCorsPreflight } from './chat/chat-cors';
 
 async function bootstrap() {
   // Express instance 를 먼저 만들어 Nest router 앞에 CopilotKit 미들웨어를 등록.
@@ -35,11 +34,10 @@ async function bootstrap() {
   let chatServiceRef: ChatService | null = null;
   let supabaseAuthRef: SupabaseAuthMiddleware | null = null;
   expressApp.use('/api/chat/copilot', async (req: Request, res: Response) => {
-    // This raw Express handler is registered before Nest's `enableCors`, so it
-    // must handle CopilotKit browser preflight itself.
-    if (handleChatCorsPreflight(req, res)) {
-      return;
-    }
+    // Browsers reach this route through Next's same-origin rewrite (see
+    // `apps/web/next.config.mjs`). There is no cross-origin browser caller,
+    // so chat-specific CORS preflight handling is intentionally absent —
+    // `app.enableCors` below covers the remaining server→server callers.
     if (!chatServiceRef || !supabaseAuthRef) {
       res.status(503).json({ error: 'service_not_ready' });
       return;
