@@ -8,6 +8,17 @@ vi.mock('../PromoteToTaskModal', () => ({
     open ? <div data-testid="promote-modal" onClick={onClose}>모달</div> : null,
 }));
 
+vi.mock('next/link', () => ({
+  default: ({ href, children, onClick, className }: {
+    href: string;
+    children: React.ReactNode;
+    onClick?: (e: React.MouseEvent) => void;
+    className?: string;
+  }) => (
+    <a href={href} className={className} onClick={onClick}>{children}</a>
+  ),
+}));
+
 const makeAlert = (overrides: Partial<PanelAlertItem> = {}): PanelAlertItem => ({
   kind: 'alert',
   id: '00000000-0000-0000-0000-000000000001',
@@ -113,5 +124,79 @@ describe('PanelAlertRow', () => {
     const btn = screen.getByRole('button', { name: '할 일로 만들기' });
     expect(btn).toHaveAttribute('aria-label', '할 일로 만들기');
     expect(btn.tabIndex).not.toBe(-1);
+  });
+
+  describe('operation alerts (alertKind = "operation")', () => {
+    it.each([
+      ['running', '진행 중'],
+      ['pending', '대기 중'],
+      ['succeeded', '완료'],
+      ['failed', '실패'],
+      ['cancelled', '취소'],
+    ] as const)('renders status badge "%s" → "%s"', (status, label) => {
+      render(
+        <PanelAlertRow
+          item={makeAlert({ alertKind: 'operation', status, sourceType: 'thumbnail_generation' })}
+        />,
+      );
+      expect(screen.getByLabelText(`상태: ${label}`)).toBeInTheDocument();
+    });
+
+    it('skips status badge for signal alerts', () => {
+      render(<PanelAlertRow item={makeAlert({ alertKind: 'signal', status: 'open' })} />);
+      // No `상태: …` badge for signals.
+      expect(screen.queryByLabelText(/^상태:/)).not.toBeInTheDocument();
+    });
+
+    it('renders progress bar when running with a numeric progress', () => {
+      render(
+        <PanelAlertRow
+          item={makeAlert({ alertKind: 'operation', status: 'running', progress: 0.42 })}
+        />,
+      );
+      const bar = screen.getByRole('progressbar');
+      expect(bar).toHaveAttribute('aria-valuenow', '42');
+    });
+
+    it('hides progress bar after the operation finishes', () => {
+      render(
+        <PanelAlertRow
+          item={makeAlert({ alertKind: 'operation', status: 'succeeded', progress: 1 })}
+        />,
+      );
+      expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    });
+
+    it('renders an href link when provided', () => {
+      render(
+        <PanelAlertRow
+          item={makeAlert({
+            alertKind: 'operation',
+            status: 'succeeded',
+            href: '/products/abc',
+          })}
+        />,
+      );
+      const link = screen.getByRole('link', { name: /이동/ });
+      expect(link).toHaveAttribute('href', '/products/abc');
+    });
+
+    it('hides promote button while a running operation is in flight', () => {
+      render(
+        <PanelAlertRow
+          item={makeAlert({ alertKind: 'operation', status: 'running', actionTaskId: null })}
+        />,
+      );
+      expect(screen.queryByRole('button', { name: '할 일로 만들기' })).not.toBeInTheDocument();
+    });
+
+    it('shows promote button after a failed operation finishes', () => {
+      render(
+        <PanelAlertRow
+          item={makeAlert({ alertKind: 'operation', status: 'failed', actionTaskId: null })}
+        />,
+      );
+      expect(screen.getByRole('button', { name: '할 일로 만들기' })).toBeInTheDocument();
+    });
   });
 });
