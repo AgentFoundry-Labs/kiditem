@@ -13,6 +13,8 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
+import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
+import type { AuthUser } from '../../../../auth/auth.types';
 import type { MulterFile } from '../../../../common/types';
 import { DetailPageAiService } from '../../../application/service/detail-page-ai.service';
 import { GenerateDetailPageBodyDto, PrefillDetailPageBodyDto } from './dto';
@@ -52,8 +54,9 @@ export class DetailPageAiController {
   generate(
     @Body() body: GenerateDetailPageBodyDto,
     @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.service.generate(body, organizationId);
+    return this.service.generate(body, organizationId, user.id);
   }
 
   @Post('prefill')
