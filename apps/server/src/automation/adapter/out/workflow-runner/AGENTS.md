@@ -15,7 +15,7 @@ agent-os topology 에 직접 보존한다.
 1. DAG runner (`automation/application/service/workflow-runner.service.ts`)
 2. WorkflowRun 감사 기록 (`(id, organizationId)` 스코프 read/write)
 3. Panel event projection (`PANEL_EVENTS.UPSERT` via `automation/mapper/panel-event/workflow-run.mapper`)
-4. Agent delegation boundary (`agent_task.create` → `AgentRegistryService.runByType`)
+4. Agent delegation boundary (`agent_task.create` → `AgentRunnerPort.runByType` provided by `agent-os/`)
 
 ## Layout
 
@@ -47,10 +47,11 @@ automation/
   `data_transform` / `action` 처럼 표준 contract 없이 임의 로직을 실행하는
   generic 노드는 두지 않는다.
 - ❌ **Workflow executor 는 LLM/Claude/OpenAI/Gemini SDK 를 직접 호출하지
-  않는다** — AI 작업은 **반드시** `agent_task.create` 로 `AgentRegistry` 에
-  위임한다 (`AgentRegistryService.runByType`). compatibility alias 도 두지
-  않는다 — 옛 template 이 `ai_process` 를 가리키면 unknown executor 로 실패
-  하고 그 실패가 `WorkflowRun.error` 에 남는다.
+  않는다** — AI 작업은 **반드시** `agent_task.create` 로 Agent OS 의
+  `AgentRunnerPort` 에 위임한다 (`apps/server/src/agent-os/application/port/in/agent-runner.port.ts`,
+  `runByType(type, AgentRunnerInput)`). compatibility alias 도 두지 않는다 —
+  옛 template 이 `ai_process` 를 가리키면 unknown executor 로 실패하고 그
+  실패가 `WorkflowRun.error` 에 남는다.
 - Executors must not trust `organization_id`, `_context`, `_workflow_run_id`, or
   `_workflow_node_id` from template/client JSON. The runner strips those keys
   and injects trusted values immediately before execution.
@@ -68,7 +69,7 @@ automation/
 | `trigger.schedule` | cron 트리거 진입점. side-effect 없음 |
 | `condition.evaluate` | 단일 numeric 비교 (`lt/gt/eq/gte/lte`) → branch 분기 |
 | `notification.alert` | `Alert` row 생성 + `ActivityEvent` 기록. **runner 가 주입한 `organization_id` 만** 사용 |
-| `agent_task.create` | `AgentRegistryService.runByType` 으로 agent 위임. AI/LLM 진입점은 이것 하나뿐 |
+| `agent_task.create` | `AgentRunnerPort.runByType` (Agent OS) 로 agent 위임. AI/LLM 진입점은 이것 하나뿐. Output: `{ requestId, runId?, agentType, status }` |
 
 ## 제거된 executor (재도입 금지)
 

@@ -7,6 +7,7 @@ import {
   ChevronLeft, Layers, MoreHorizontal, Radio,
 } from 'lucide-react';
 import { ActionTaskSchema, type ActionTask } from '@kiditem/shared/action-task';
+import type { AgentInstanceSummary, AgentRunSummary } from '@kiditem/shared/agent-os';
 import type { DashboardAdSummary, DashboardSalesSummary } from '@kiditem/shared/dashboard';
 import type { PanelItem } from '@kiditem/shared/panel';
 import { apiClient } from '@/lib/api-client';
@@ -23,6 +24,35 @@ import { LiveActivityPanel, type RecentLog } from './components/LiveActivityPane
 import { classifyAction, classifyAgentCategory, flattenNodes } from './lib/agent-os-helpers';
 import { type OrgNode, useTeamStyle } from './lib/agent-os-types';
 
+// Synthesize the org tree the canvas expects from Agent OS v2 instances.
+// `reports` is built from `reportsToId`; running runs flag instances as `running`.
+function buildOrgNodes(
+  instances: AgentInstanceSummary[],
+  runningInstanceIds: Set<string>,
+): OrgNode[] {
+  const childrenByParent = new Map<string | null, AgentInstanceSummary[]>();
+  for (const inst of instances) {
+    const parentId = inst.reportsToId ?? null;
+    const list = childrenByParent.get(parentId) ?? [];
+    list.push(inst);
+    childrenByParent.set(parentId, list);
+  }
+  const buildNode = (inst: AgentInstanceSummary): OrgNode => {
+    const reports = (childrenByParent.get(inst.id) ?? []).map(buildNode);
+    return {
+      id: inst.id,
+      name: inst.name,
+      type: inst.role === 'ceo' ? 'manager' : reports.length > 0 ? 'manager' : 'specialist',
+      role: inst.role,
+      title: inst.title ?? inst.role,
+      status: runningInstanceIds.has(inst.id) ? 'running' : 'idle',
+      lastHeartbeatAt: inst.lifecycleStatus === 'active' ? new Date().toISOString() : null,
+      reports: reports.length > 0 ? reports : undefined,
+    };
+  };
+  return (childrenByParent.get(null) ?? []).map(buildNode);
+}
+
 export default function AgentOSPage() {
   const queryClient = useQueryClient();
   const teamStyle = useTeamStyle();
@@ -31,11 +61,20 @@ export default function AgentOSPage() {
   const [agentsMinimized, setAgentsMinimized] = useState(false);
   const [activityMinimized, setActivityMinimized] = useState(false);
 
-  const { data: orgNodes = [] } = useQuery({
-    queryKey: queryKeys.agents.org(),
-    queryFn: () => apiClient.get<OrgNode[]>('/api/agent-registry/org'),
+  const { data: instances = [] } = useQuery({
+    queryKey: ['agent-os', 'instances'],
+    queryFn: () => apiClient.get<AgentInstanceSummary[]>('/api/agent-os/instances'),
+    refetchInterval: 30_000,
+  });
+  const { data: runningRuns = { items: [] as AgentRunSummary[] } } = useQuery({
+    queryKey: ['agent-os', 'runs', 'running'],
+    queryFn: () => apiClient.get<{ items: AgentRunSummary[] }>('/api/agent-os/runs?status=running&limit=100'),
     refetchInterval: 15_000,
   });
+  const orgNodes = useMemo(() => {
+    const runningIds = new Set(runningRuns.items.map((r) => r.agentInstanceId));
+    return buildOrgNodes(instances, runningIds);
+  }, [instances, runningRuns]);
   const { data: actionTasks = [] } = useQuery({
     queryKey: queryKeys.actionTasks.list(),
     queryFn: () => apiClient.get<ActionTask[]>('/api/action-tasks'),
@@ -64,7 +103,7 @@ export default function AgentOSPage() {
   });
 
   const handleRefresh = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: queryKeys.agents.org() });
+    queryClient.invalidateQueries({ queryKey: ['agent-os'] });
     queryClient.invalidateQueries({ queryKey: queryKeys.actionTasks.list() });
     queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
   }, [queryClient]);

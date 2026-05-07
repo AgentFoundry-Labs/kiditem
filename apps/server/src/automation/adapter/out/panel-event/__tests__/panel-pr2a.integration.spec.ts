@@ -1,13 +1,17 @@
 /**
- * PR2a integration test — Panel SSE pipeline end-to-end (Task 20)
+ * PR2a integration test — Panel SSE pipeline end-to-end.
  *
- * Verifies that all 3 sources (workflow + agent + image) flow through the
- * real EventEmitter2 global bus to PanelSseService without mocking the bus.
+ * Verifies that workflow + image sources flow through the real
+ * EventEmitter2 global bus to PanelSseService without mocking the bus.
+ * (The legacy `HeartbeatRun + AgentDefinition` agent projection was
+ * retired in the Agent OS v2 migration; live agent run events come
+ * from Agent OS directly and are not yet wired into the panel — see
+ * `panel-event/AGENTS.md` "Not yet wired".)
  *
- * 6 scenarios:
- *   1. 3-source simultaneous emit → single stream, monotonically increasing seq
+ * 5 scenarios:
+ *   1. 2-source simultaneous emit → single stream, monotonically increasing seq
  *   2. Canonical status pass-through (ADR-0011 Rule 4 regression)
- *   3. EventEmitter wiring smoke — shared global bus across modules (CRITICAL)
+ *   3. EventEmitter wiring smoke — shared global bus across modules
  *   4. Actor-null fallback — actorUserId: null propagates as-is
  *   5. Phase change emit — two phase transitions arrive as separate seq
  *   6. Subscriber leak count — compile+init+close × 3 iterations, no listener growth
@@ -56,13 +60,6 @@ function workflowPayload(overrides: Partial<RunItem> = {}): PanelUpsertInternal 
   };
 }
 
-function agentPayload(overrides: Partial<RunItem> = {}): PanelUpsertInternal {
-  return {
-    organizationId: 'co-1',
-    item: baseItem({ id: 'agent:run-1', source: 'agent', sourceId: 'run-1', title: 'Ad strategy agent', deepLink: '/agents/agent-1/runs/run-1', ...overrides }),
-  };
-}
-
 function imagePayload(overrides: Partial<RunItem> = {}): PanelUpsertInternal {
   return {
     organizationId: 'co-1',
@@ -87,7 +84,7 @@ async function buildModule(): Promise<TestingModule> {
 
 // ── tests ──────────────────────────────────────────────────────────────────
 
-describe('Panel PR2a integration — 3 source + canonical + EventEmitter wiring + leak (Task 20)', () => {
+describe('Panel PR2a integration — workflow + image + canonical + EventEmitter wiring + leak', () => {
   let moduleRef: TestingModule;
   let sseService: PanelSseService;
   let emitter: EventEmitter2;
@@ -102,39 +99,35 @@ describe('Panel PR2a integration — 3 source + canonical + EventEmitter wiring 
     await moduleRef.close();
   });
 
-  // ── Scenario 1: 3-source simultaneous emit → single stream ───────────────
+  // ── Scenario 1: 2-source simultaneous emit → single stream ───────────────
 
-  it('Scenario 1: workflow + agent + image emit arrive on same stream with monotonically increasing seq', async () => {
-    const stream$ = sseService.getStream('co-1').pipe(take(3), toArray());
+  it('Scenario 1: workflow + image emit arrive on same stream with monotonically increasing seq', async () => {
+    const stream$ = sseService.getStream('co-1').pipe(take(2), toArray());
 
     // Subscribe first, then emit (Subject is hot)
     const collectPromise = lastValueFrom(stream$);
 
     emitter.emit(PANEL_EVENTS.UPSERT, workflowPayload());
-    emitter.emit(PANEL_EVENTS.UPSERT, agentPayload());
     emitter.emit(PANEL_EVENTS.UPSERT, imagePayload());
 
     const events = await collectPromise;
 
-    expect(events).toHaveLength(3);
+    expect(events).toHaveLength(2);
 
     // Extract MessageEvent data (PanelEvent)
     const panelEvents = events.map((e) => (e as any).data);
 
     expect(panelEvents[0].type).toBe('upsert');
     expect(panelEvents[1].type).toBe('upsert');
-    expect(panelEvents[2].type).toBe('upsert');
 
-    // Sources all present
+    // Both sources present
     const sources = panelEvents.map((e: any) => e.item.source);
     expect(sources).toContain('workflow');
-    expect(sources).toContain('agent');
     expect(sources).toContain('image');
 
     // Monotonically increasing seq
     const seqs = panelEvents.map((e: any) => e.seq);
     expect(seqs[0]).toBeLessThan(seqs[1]);
-    expect(seqs[1]).toBeLessThan(seqs[2]);
   });
 
   // ── Scenario 2: Canonical status pass-through (ADR-0011 Rule 4) ───────────
@@ -143,8 +136,8 @@ describe('Panel PR2a integration — 3 source + canonical + EventEmitter wiring 
     const stream$ = sseService.getStream('co-1').pipe(take(2), toArray());
     const collectPromise = lastValueFrom(stream$);
 
-    // heartbeat item with status: 'succeeded'
-    emitter.emit(PANEL_EVENTS.UPSERT, agentPayload({ status: 'succeeded' }));
+    // workflow item with status: 'succeeded'
+    emitter.emit(PANEL_EVENTS.UPSERT, workflowPayload({ status: 'succeeded' }));
 
     // thumbnail item with status: 'running', phase: 'generating'
     emitter.emit(PANEL_EVENTS.UPSERT, imagePayload({ status: 'running', phase: 'generating' } as any));
@@ -152,53 +145,46 @@ describe('Panel PR2a integration — 3 source + canonical + EventEmitter wiring 
     const events = await collectPromise;
     const panelEvents = events.map((e) => (e as any).data);
 
-    const agentEvent = panelEvents.find((e: any) => e.item.source === 'agent');
+    const workflowEvent = panelEvents.find((e: any) => e.item.source === 'workflow');
     const imageEvent = panelEvents.find((e: any) => e.item.source === 'image');
 
-    expect(agentEvent).toBeDefined();
-    expect(agentEvent.item.status).toBe('succeeded');
+    expect(workflowEvent).toBeDefined();
+    expect(workflowEvent.item.status).toBe('succeeded');
 
     expect(imageEvent).toBeDefined();
     expect(imageEvent.item.status).toBe('running');
     expect(imageEvent.item.phase).toBe('generating');
   });
 
-  // ── Scenario 3: EventEmitter wiring smoke (CRITICAL) ─────────────────────
+  // ── Scenario 3: EventEmitter wiring smoke ────────────────────────────────
 
   it('Scenario 3: EventEmitter2 global bus — emitting from a second provider in same module reaches PanelSseService', async () => {
     /**
-     * This test verifies the critical wiring requirement from Task 17:
-     * after EventEmitterModule.forRoot() is removed from agent-registry.module.ts,
-     * all emitters in the app share the same EventEmitter2 instance.
-     *
-     * Simulation: create a second independent provider that receives the same
-     * EventEmitter2 token (as AgentRegistryModule's services do) and emit from it.
-     * PanelSseService must observe the event.
+     * This test verifies the global bus invariant: every module that
+     * injects EventEmitter2 from AppModule's `EventEmitterModule.forRoot()`
+     * shares the same instance, so a workflow upsert emitted from one
+     * application service is observed by PanelSseService elsewhere.
      */
 
-    // Get the global EventEmitter2 instance from the module (same instance
-    // that would be injected into HeartbeatService via AgentRegistryModule)
     const globalEmitter = moduleRef.get(EventEmitter2);
 
     const stream$ = sseService.getStream('co-1').pipe(take(1), toArray());
     const collectPromise = lastValueFrom(stream$);
 
-    // Emit from globalEmitter — simulates HeartbeatService emitting on its
+    // Emit from globalEmitter — simulates a workflow service emitting on its
     // injected EventEmitter2 (same token, same instance in a single forRoot() setup)
-    globalEmitter.emit(PANEL_EVENTS.UPSERT, agentPayload({ status: 'running' }));
+    globalEmitter.emit(PANEL_EVENTS.UPSERT, workflowPayload({ status: 'running' }));
 
     const events = await collectPromise;
     const panelEvent = (events[0] as any).data;
 
     expect(panelEvent.type).toBe('upsert');
-    expect(panelEvent.item.source).toBe('agent');
+    expect(panelEvent.item.source).toBe('workflow');
     expect(panelEvent.item.status).toBe('running');
 
     // Verify sseService has the same emitter instance — single bus invariant
     const sseEmitter = (sseService as any)['subject'];
     expect(sseEmitter).toBeDefined();
-    // The key assertion: if globalEmitter === the one PanelSseService listens on,
-    // then the event above was received (guaranteed by events.length === 1 above).
   });
 
   // ── Scenario 4: Actor-null fallback ──────────────────────────────────────

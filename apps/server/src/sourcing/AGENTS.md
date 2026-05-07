@@ -38,7 +38,7 @@ sourcing/
 │   │   └── dto/                                    ← every class-validator DTO
 │   └── out/
 │       ├── agent/
-│       │   └── sourcing-agent.gateway.adapter.ts   ← AgentRegistry delegation seam
+│       │   └── sourcing-agent.gateway.adapter.ts   ← Agent OS v2 delegation seam
 │       └── products/
 │           └── products-catalog.adapter.ts         ← MastersService cross-domain seam
 ├── application/
@@ -64,12 +64,15 @@ sourcing/
 The Wave H1 Lane S fold introduced hexagonal boundaries only where behavior
 justifies them. The rest stays transitional flat CRUD by design:
 
-- **AgentRegistry delegation** (`/api/sourcing/scrape-url`) is mandatory port
+- **Agent OS v2 delegation** (`/api/sourcing/scrape-url`) is mandatory port
   per the architecture contract. `SourcingService` depends on
   `SOURCING_AGENT_GATEWAY_PORT`; `SourcingAgentGatewayAdapter` is the only
-  call site of `AgentRegistryService.runByType('sourcing', ...)` for sourcing.
-  `POST /api/sourcing/:id/generate` is intentionally disabled until sourced
-  candidates are modeled separately from `MasterProduct`.
+  call site of Agent OS v2's `AGENT_RUNNER_PORT.runByType('sourcing', ...)`
+  for sourcing. The adapter maps the runner result onto the legacy
+  `{ taskId }` contract using `runId` (preferred) or `requestId` (deferred-run
+  fallback); it never invents a task id silently. `POST /api/sourcing/:id/generate`
+  is intentionally disabled until sourced candidates are modeled separately
+  from `MasterProduct`.
 - **Cross-domain MasterProduct create** (extension ingest creating new family)
   flows through `SOURCING_PRODUCTS_CATALOG_PORT`. `SourcingService` does not
   import `MastersService` directly; the port adapter
@@ -95,9 +98,10 @@ justifies them. The rest stays transitional flat CRUD by design:
 - `/api/sourcing/extension/product-data` accepts pushes from the 1688 / Alibaba
   browser extension. `MasterProduct` upsert keys on
   `{ sourceUrl, organizationId }` (idempotency).
-- `/api/sourcing/scrape-url` enqueues an Agent OS task via `runByType('sourcing', …)`.
-  The adapter is the only seam; `SourcingService` does not import
-  `AgentRegistryService` directly.
+- `/api/sourcing/scrape-url` enqueues an Agent OS v2 run via
+  `AGENT_RUNNER_PORT.runByType('sourcing', …)`. The adapter is the only seam;
+  `SourcingService` does not import any Agent OS service directly and never
+  reaches the runtime adapters.
 - `/api/sourcing/extension/products` returns paginated `MasterProduct`
   rows scoped to the caller's organization and platform filter.
 - `GET /api/sourcing/:id` returns a single sourcing-scope `MasterProduct`
@@ -132,8 +136,9 @@ other module imports sourcing/procurement/supplier services.
 
 ## 금지 패턴
 
-- `AgentRegistryService` 를 `application/service/**` 에서 직접 inject — adapter
-  를 우회한다. Use the gateway port.
+- Agent OS 의 `AGENT_RUNNER_PORT`(또는 그 구현체) 를 `application/service/**`
+  에서 직접 inject — adapter 를 우회한다. Use the gateway port
+  (`SOURCING_AGENT_GATEWAY_PORT`); 런타임 hop 변경은 adapter 안에서 처리한다.
 - `findUnique({ where: { id } })` 으로 supplier/PO 조회 — IDOR. 항상
   `findFirst({ where: { id, organizationId } })`.
 - `supplier-payments` 의 import 또는 회로 추가 — finance owner domain 소관.

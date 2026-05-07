@@ -115,7 +115,7 @@ beforeEach(() => {
     return Promise.resolve(null);
   });
   getMock.mockImplementation((path: string) => {
-    if (path === '/api/agent-registry/org') return Promise.resolve([]);
+    if (path === '/api/agent-os/instances') return Promise.resolve([]);
     return Promise.resolve([]);
   });
 });

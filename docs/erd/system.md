@@ -152,6 +152,6 @@ erDiagram
 | ActivityEvent | organization | references external | Core | Organization |
 | Alert | organization | references external | Core | Organization |
 | BusinessRule | organization | references external | Core | Organization |
-| Marketplace | marketplace | referenced by external | Agents | AgentDefinition |
-| Marketplace | marketplace | referenced by external | Agents | WorkflowTemplate |
+| Marketplace | marketplace | referenced by external | AgentOS | AgentBlueprint |
+| Marketplace | marketplace | referenced by external | AgentOS | WorkflowTemplate |
 | SystemSetting | organization | references external | Core | Organization |

@@ -1,263 +1,476 @@
-// agents.prisma — Agents domain
+// agents.prisma — Agent OS v2 + Workflows
+//
+// Agent OS owns the catalog/instance/runtime/policy/cost surface.
+// Workflow models live alongside because the workflow runner triggers
+// Agent OS through `AgentRunnerPort` and shares related FK columns.
 
-/// @namespace Agents
-/// @describe 에이전트 정의. rt_* 필드로 런타임 상태 내장 (별도 테이블 없음). reportsTo 자기참조 (매니저→전문가 계층).
-model AgentDefinition {
-  id             String  @id @default(uuid()) @db.Uuid
-  organizationId String? @map("organization_id") @db.Uuid
-  name           String
-  type           String  @unique
-  description    String?
+/// @namespace AgentOS
+/// @describe Global catalog template for an agent kind. Replaces the global side of the legacy AgentDefinition.
+model AgentBlueprint {
+  id                   String   @id @default(uuid()) @db.Uuid
+  type                 String   @unique
+  name                 String
+  description          String?
+  promptPath           String   @map("prompt_path")
+  defaultAdapterType   String   @map("default_adapter_type")
+  defaultModel         String   @map("default_model")
+  defaultRuntimeConfig Json     @default("{}") @map("default_runtime_config") @db.JsonB
+  defaultCapabilities  Json     @default("{}") @map("default_capabilities") @db.JsonB
+  catalogStatus        String   @default("active") @map("catalog_status")
+  marketplaceId        String?  @map("marketplace_id") @db.Uuid
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  // Adapter (런타임 추상화)
-  adapterType   String @default("claude_local") @map("adapter_type")
-  adapterConfig Json   @default("{}") @map("adapter_config")
+  marketplace  Marketplace?               @relation(fields: [marketplaceId], references: [id], onDelete: SetNull)
+  instances    AgentInstance[]
+  toolPolicies AgentBlueprintToolPolicy[]
 
-  // Heartbeat (실행 모델)
-  runtimeConfig Json @default("{}") @map("runtime_config")
-
-  // Hierarchy (조직 구조)
-  role      String  @default("specialist")
-  title     String?
-  icon      String?
-  reportsTo String? @map("reports_to") @db.Uuid
-  status    String  @default("idle")
-
-  // Pause/Resume
-  pauseReason String?   @map("pause_reason")
-  pausedAt    DateTime? @map("paused_at") @db.Timestamptz
-
-  // Permissions & Skills
-  permissions  Json     @default("{}") @db.JsonB
-  skills       String[] @default([])
-  deniedSkills String[] @default([]) @map("denied_skills")
-
-  // Business Safety
-  actionCap  Json @default("{}") @map("action_cap") @db.JsonB
-  trustLevel Int  @default(0) @map("trust_level")
-
-  // Prompt & Tools (기존)
-  promptTemplate String   @map("prompt_template") @db.Text
-  allowedTools   String   @default("Read Grep") @map("allowed_tools")
-  permissionMode String   @default("bypassPermissions") @map("permission_mode")
-  fallbackChain  String[] @default(["claude_local"]) @map("fallback_chain")
-
-  // Budget (기존)
-  monthlyTokenBudget Int       @default(0) @map("monthly_token_budget")
-  tokensUsed         Int       @default(0) @map("tokens_used")
-  budgetResetAt      DateTime? @map("budget_reset_at") @db.Timestamptz
-
-  // Schedule & Timeout (기존)
-  schedule            String?
-  timeoutSeconds      Int     @default(300) @map("timeout_seconds")
-  maxOutputTokens     Int     @default(16000) @map("max_output_tokens")
-  requiresApproval    Boolean @default(true) @map("requires_approval")
-  isActive            Boolean @default(true) @map("is_active")
-  resultRetentionDays Int     @default(30) @map("result_retention_days")
-  contextStrategy     String  @default("single-shot") @map("context_strategy")
-
-  // Runtime tracking
-  lastHeartbeatAt DateTime? @map("last_heartbeat_at") @db.Timestamptz
-  metadata        Json?
-
-  // Runtime State (AgentRuntimeState 흡수 — Phase 3)
-  rtSessionId            String?   @map("rt_session_id")
-  rtStateJson            Json      @default("{}") @map("rt_state_json") @db.JsonB
-  rtLastRunId            String?   @map("rt_last_run_id") @db.Uuid
-  rtLastRunStatus        String?   @map("rt_last_run_status")
-  rtTotalInputTokens     Int       @default(0) @map("rt_total_input_tokens")
-  rtTotalOutputTokens    Int       @default(0) @map("rt_total_output_tokens")
-  rtTotalCostCents       Int       @default(0) @map("rt_total_cost_cents")
-  rtLastError            String?   @map("rt_last_error")
-  rtConsecutiveFailCount Int       @default(0) @map("rt_consecutive_fail_count")
-  rtLastFailedAt         DateTime? @map("rt_last_failed_at") @db.Timestamptz
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  marketplaceId String? @map("marketplace_id") @db.Uuid
-
-  // Relations
-  organization   Organization?        @relation(fields: [organizationId], references: [id], onDelete: SetNull)
-  marketplace    Marketplace?         @relation(fields: [marketplaceId], references: [id], onDelete: SetNull)
-  parent         AgentDefinition?     @relation("AgentHierarchy", fields: [reportsTo], references: [id], onDelete: SetNull)
-  children       AgentDefinition[]    @relation("AgentHierarchy")
-  heartbeatRuns  HeartbeatRun[]
-  wakeupRequests AgentWakeupRequest[]
-  agentEvents    AgentEvent[]
-  users          User[]
-
-  @@index([organizationId])
-  @@index([type])
-  @@index([isActive])
-  @@index([organizationId, status])
-  @@index([organizationId, reportsTo])
-  @@index([reportsTo])
+  @@index([catalogStatus])
   @@index([marketplaceId])
-  @@map("agent_definitions")
+  @@map("agent_blueprints")
 }
 
-/// @namespace Agents
-model AgentTask {
-  id             String  @id @default(uuid()) @db.Uuid
-  organizationId String? @map("organization_id") @db.Uuid
-  agentType      String  @map("agent_type")
-  status         String  @default("pending")
-  priority       Int     @default(0)
+/// @namespace AgentOS
+/// @describe Organization-owned runnable subject. Replaces the tenant-owned side of legacy AgentDefinition.
+model AgentInstance {
+  id                 String    @id @default(uuid()) @db.Uuid
+  organizationId     String    @map("organization_id") @db.Uuid
+  blueprintId        String    @map("blueprint_id") @db.Uuid
+  type               String
+  name               String
+  role               String    @default("specialist")
+  title              String?
+  icon               String?
+  reportsToId        String?   @map("reports_to_id") @db.Uuid
+  lifecycleStatus    String    @default("active") @map("lifecycle_status")
+  pauseReason        String?   @map("pause_reason")
+  pausedAt           DateTime? @map("paused_at") @db.Timestamptz
+  trustLevel         Int       @default(0) @map("trust_level")
+  adapterType        String    @map("adapter_type")
+  modelOverride      String?   @map("model_override")
+  adapterConfig      Json      @default("{}") @map("adapter_config") @db.JsonB
+  runtimeConfig      Json      @default("{}") @map("runtime_config") @db.JsonB
+  promptPathOverride String?   @map("prompt_path_override")
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  workflowRunId  String? @map("workflow_run_id") @db.Uuid
-  workflowNodeId String? @map("workflow_node_id")
-  sourceDataId   String? @map("source_data_id")
+  organization         Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  blueprint            AgentBlueprint            @relation(fields: [blueprintId], references: [id], onDelete: Restrict)
+  parent               AgentInstance?            @relation("AgentInstanceHierarchy", fields: [reportsToId], references: [id], onDelete: SetNull)
+  children             AgentInstance[]           @relation("AgentInstanceHierarchy")
+  runtimeState         AgentRuntimeState?
+  requests             AgentRunRequest[]
+  runs                 AgentRun[]
+  events               AgentRunEvent[]
+  taskSessions         AgentTaskSession[]
+  instanceToolPolicies AgentInstanceToolPolicy[]
+  authorizationEvents  AgentAuthorizationEvent[]
+  approvalRequests     AgentApprovalRequest[]
+  costEvents           AgentCostEvent[]
+  agentUsers           User[]
 
-  input  Json?
-  output Json?
-  error  String?
+  @@unique([organizationId, type])
+  @@index([organizationId])
+  @@index([blueprintId])
+  @@index([reportsToId])
+  @@index([organizationId, lifecycleStatus])
+  @@index([organizationId, reportsToId])
+  @@map("agent_instances")
+}
 
-  scheduledAt DateTime? @map("scheduled_at") @db.Timestamptz
-  startedAt   DateTime? @map("started_at") @db.Timestamptz
-  completedAt DateTime? @map("completed_at") @db.Timestamptz
-  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+/// @namespace AgentOS
+/// @describe Frequently-changing per-instance runtime state (last run, totals, cached aggregates). 1:1 with AgentInstance.
+model AgentRuntimeState {
+  id                      String    @id @default(uuid()) @db.Uuid
+  organizationId          String    @map("organization_id") @db.Uuid
+  agentInstanceId         String    @unique @map("agent_instance_id") @db.Uuid
+  lastRunId               String?   @map("last_run_id") @db.Uuid
+  lastRunStatus           String?   @map("last_run_status")
+  lastError               String?   @map("last_error") @db.Text
+  lastHeartbeatAt         DateTime? @map("last_heartbeat_at") @db.Timestamptz
+  consecutiveFailureCount Int       @default(0) @map("consecutive_failure_count")
+  totalRuns               Int       @default(0) @map("total_runs")
+  totalInputTokens        Int       @default(0) @map("total_input_tokens")
+  totalOutputTokens       Int       @default(0) @map("total_output_tokens")
+  totalCostMicros         BigInt    @default(0) @map("total_cost_micros")
+  stateJson               Json      @default("{}") @map("state_json") @db.JsonB
+  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt               DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  logs AgentLog[]
+  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agentInstance AgentInstance @relation(fields: [agentInstanceId], references: [id], onDelete: Cascade)
+  lastRun       AgentRun?     @relation("AgentRuntimeStateLastRun", fields: [lastRunId], references: [id], onDelete: SetNull)
 
   @@index([organizationId])
-  @@index([status])
-  @@index([agentType])
-  @@index([workflowRunId])
-  @@index([createdAt])
-  @@map("agent_tasks")
+  @@index([lastRunId])
+  @@map("agent_runtime_states")
 }
 
-/// @namespace Agents
-/// @describe eventType 으로 permission_denied / action_snapshot 통합.
-model AgentEvent {
-  id             String  @id @default(uuid()) @db.Uuid
-  organizationId String  @map("organization_id") @db.Uuid
-  agentId        String  @map("agent_id") @db.Uuid
-  runId          String? @map("run_id") @db.Uuid
-  eventType      String  @map("event_type") // permission_denied | action_snapshot
-  category       String? // denial: dangerous_tool | budget_exceeded | feature_gate | skill_denied
-  detail         String?
-  action         String? // blocked | warned | restored
+/// @namespace AgentOS
+/// @describe Per-task durable session. taskKey defaults to "default" only at API boundary.
+model AgentTaskSession {
+  id              String   @id @default(uuid()) @db.Uuid
+  organizationId  String   @map("organization_id") @db.Uuid
+  agentInstanceId String   @map("agent_instance_id") @db.Uuid
+  adapterType     String   @map("adapter_type")
+  taskKey         String   @map("task_key")
+  title           String?
+  metadata        Json     @default("{}") @db.JsonB
+  sessionParams   Json?    @map("session_params") @db.JsonB
+  sessionDisplay  String?  @map("session_display")
+  lastRunId       String?  @map("last_run_id") @db.Uuid
+  lastError       String?  @map("last_error") @db.Text
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  // Snapshot fields (eventType=action_snapshot)
-  tableName   String?   @map("table_name")
-  recordId    String?   @map("record_id")
-  fieldName   String?   @map("field_name")
-  valueBefore Json?     @map("value_before")
-  valueAfter  Json?     @map("value_after")
-  restoredAt  DateTime? @map("restored_at") @db.Timestamptz
+  organization  Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agentInstance AgentInstance     @relation(fields: [agentInstanceId], references: [id], onDelete: Cascade)
+  lastRun       AgentRun?         @relation("AgentTaskSessionLastRun", fields: [lastRunId], references: [id], onDelete: SetNull)
+  requests      AgentRunRequest[]
+  runs          AgentRun[]
 
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  @@unique([organizationId, agentInstanceId, adapterType, taskKey])
+  @@index([organizationId, agentInstanceId, updatedAt])
+  @@index([agentInstanceId])
+  @@index([lastRunId])
+  @@map("agent_task_sessions")
+}
 
-  agent        AgentDefinition @relation(fields: [agentId], references: [id])
-  organization Organization    @relation(fields: [organizationId], references: [id])
+/// @namespace AgentOS
+/// @describe Durable request inbox + queue + dedupe + audit. Replaces AgentWakeupRequest. Queue state lives here, not on AgentRun.
+model AgentRunRequest {
+  id                     String    @id @default(uuid()) @db.Uuid
+  organizationId         String    @map("organization_id") @db.Uuid
+  agentInstanceId        String    @map("agent_instance_id") @db.Uuid
+  taskSessionId          String    @map("task_session_id") @db.Uuid
+  source                 String
+  triggerDetail          String?   @map("trigger_detail")
+  reason                 String?
+  idempotencyKey         String?   @map("idempotency_key")
+  priority               Int       @default(0)
+  sourceWorkflowRunId    String?   @map("source_workflow_run_id") @db.Uuid
+  sourceWorkflowNodeId   String?   @map("source_workflow_node_id")
+  sourceResourceType     String?   @map("source_resource_type")
+  sourceResourceId       String?   @map("source_resource_id")
+  requestedByUserId      String?   @map("requested_by_user_id") @db.Uuid
+  requestedByActorType   String?   @map("requested_by_actor_type")
+  requestedByActorId     String?   @map("requested_by_actor_id")
+  payload                Json      @default("{}") @db.JsonB
+  status                 String    @default("pending")
+  scheduledFor           DateTime  @default(now()) @map("scheduled_for") @db.Timestamptz
+  claimedAt              DateTime? @map("claimed_at") @db.Timestamptz
+  claimedBy              String?   @map("claimed_by")
+  attempts               Int       @default(0)
+  maxAttempts            Int       @default(3) @map("max_attempts")
+  finishedAt             DateTime? @map("finished_at") @db.Timestamptz
+  coalescedIntoRequestId String?   @map("coalesced_into_request_id") @db.Uuid
+  lastErrorCode          String?   @map("last_error_code")
+  lastErrorMessage       String?   @map("last_error_message") @db.Text
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  @@index([organizationId, agentId, createdAt])
-  @@index([organizationId, eventType, createdAt])
-  @@index([agentId])
+  organization         Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agentInstance        AgentInstance             @relation(fields: [agentInstanceId], references: [id], onDelete: Cascade)
+  taskSession          AgentTaskSession          @relation(fields: [taskSessionId], references: [id], onDelete: Restrict)
+  sourceWorkflowRun    WorkflowRun?              @relation(fields: [sourceWorkflowRunId], references: [id], onDelete: SetNull)
+  requestedBy          User?                     @relation("AgentRunRequestRequestedBy", fields: [requestedByUserId], references: [id], onDelete: SetNull)
+  coalescedIntoRequest AgentRunRequest?          @relation("AgentRunRequestCoalescing", fields: [coalescedIntoRequestId], references: [id], onDelete: SetNull)
+  coalescedRequests    AgentRunRequest[]         @relation("AgentRunRequestCoalescing")
+  runs                 AgentRun[]
+  authorizationEvents  AgentAuthorizationEvent[]
+  approvalRequests     AgentApprovalRequest[]
+  costEvents           AgentCostEvent[]
+
+  @@unique([organizationId, agentInstanceId, idempotencyKey], map: "agent_run_request_org_agent_idempotency_unique", where: raw("idempotency_key IS NOT NULL"))
+  @@index([organizationId, status, scheduledFor, priority])
+  @@index([organizationId, agentInstanceId, status, requestedByUserId])
+  @@index([agentInstanceId, status, scheduledFor])
+  @@index([organizationId, sourceResourceType, sourceResourceId])
+  @@index([sourceWorkflowRunId])
+  @@index([coalescedIntoRequestId])
+  @@index([taskSessionId])
+  @@index([requestedByUserId])
+  @@map("agent_run_requests")
+}
+
+/// @namespace AgentOS
+/// @describe Accepted execution attempt. Replaces HeartbeatRun. Always starts at status="running"; queue state lives on AgentRunRequest.
+model AgentRun {
+  id                     String    @id @default(uuid()) @db.Uuid
+  organizationId         String    @map("organization_id") @db.Uuid
+  agentInstanceId        String    @map("agent_instance_id") @db.Uuid
+  requestId              String    @map("request_id") @db.Uuid
+  taskSessionId          String    @map("task_session_id") @db.Uuid
+  retryOfRunId           String?   @map("retry_of_run_id") @db.Uuid
+  status                 String    @default("running")
+  attempt                Int       @default(1)
+  invocationSource       String    @map("invocation_source")
+  adapterType            String    @map("adapter_type")
+  model                  String
+  provider               String?
+  taskKey                String?   @map("task_key")
+  sessionDisplayBefore   String?   @map("session_display_before")
+  sessionDisplayAfter    String?   @map("session_display_after")
+  input                  Json      @default("{}") @db.JsonB
+  output                 Json?     @db.JsonB
+  startedAt              DateTime  @default(now()) @map("started_at") @db.Timestamptz
+  finishedAt             DateTime? @map("finished_at") @db.Timestamptz
+  heartbeatAt            DateTime? @map("heartbeat_at") @db.Timestamptz
+  exitCode               Int?      @map("exit_code")
+  signal                 String?
+  errorCode              String?   @map("error_code")
+  errorMessage           String?   @map("error_message") @db.Text
+  usageJson              Json?     @map("usage_json") @db.JsonB
+  resultJson             Json?     @map("result_json") @db.JsonB
+  logStore               String?   @map("log_store")
+  logRef                 String?   @map("log_ref")
+  logSha256              String?   @map("log_sha256")
+  logBytes               BigInt?   @map("log_bytes")
+  logCompressed          Boolean   @default(false) @map("log_compressed")
+  stdoutExcerpt          String?   @map("stdout_excerpt") @db.Text
+  stderrExcerpt          String?   @map("stderr_excerpt") @db.Text
+  lastEventSeq           Int       @default(0) @map("last_event_seq")
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization        Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agentInstance       AgentInstance             @relation(fields: [agentInstanceId], references: [id], onDelete: Cascade)
+  request             AgentRunRequest           @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  taskSession         AgentTaskSession          @relation(fields: [taskSessionId], references: [id], onDelete: Restrict)
+  retryOfRun          AgentRun?                 @relation("AgentRunRetry", fields: [retryOfRunId], references: [id], onDelete: SetNull)
+  retries             AgentRun[]                @relation("AgentRunRetry")
+  events              AgentRunEvent[]
+  costEvents          AgentCostEvent[]
+  authorizationEvents AgentAuthorizationEvent[]
+  approvalRequests    AgentApprovalRequest[]
+  runtimeStateLastRun AgentRuntimeState[]       @relation("AgentRuntimeStateLastRun")
+  taskSessionLastRun  AgentTaskSession[]        @relation("AgentTaskSessionLastRun")
+
+  @@unique([requestId, attempt])
+  @@index([organizationId, agentInstanceId, startedAt])
+  @@index([organizationId, status, startedAt])
+  @@index([requestId])
+  @@index([taskSessionId])
+  @@index([agentInstanceId])
+  @@index([retryOfRunId])
+  @@map("agent_runs")
+}
+
+/// @namespace AgentOS
+/// @describe Run-local event timeline (status, tool, model, safety, fallback). Bulk logs go to external store via logRef.
+model AgentRunEvent {
+  id              String   @id @default(uuid()) @db.Uuid
+  organizationId  String   @map("organization_id") @db.Uuid
+  runId           String   @map("run_id") @db.Uuid
+  agentInstanceId String   @map("agent_instance_id") @db.Uuid
+  seq             Int
+  type            String
+  level           String   @default("info")
+  stream          String?
+  message         String?  @db.Text
+  data            Json     @default("{}") @db.JsonB
+  logRef          String?  @map("log_ref")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  run           AgentRun      @relation(fields: [runId], references: [id], onDelete: Cascade)
+  agentInstance AgentInstance @relation(fields: [agentInstanceId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, seq])
+  @@index([organizationId, runId, seq])
+  @@index([organizationId, type, createdAt])
+  @@index([agentInstanceId])
+  @@map("agent_run_events")
+}
+
+/// @namespace AgentOS
+/// @describe Catalog of business tools agents may invoke. KidItem ships a curated set; not a generic HTTP/DB tool marketplace.
+model AgentToolDefinition {
+  id              String   @id @default(uuid()) @db.Uuid
+  key             String   @unique
+  name            String
+  description     String?
+  riskLevel       String   @default("low") @map("risk_level")
+  credentialKind  String   @default("none") @map("credential_kind")
+  inputSchemaJson Json?    @map("input_schema_json") @db.JsonB
+  outputSchemaJson Json?   @map("output_schema_json") @db.JsonB
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  blueprintPolicies   AgentBlueprintToolPolicy[]
+  instancePolicies    AgentInstanceToolPolicy[]
+  authorizationEvents AgentAuthorizationEvent[]
+
+  @@index([riskLevel])
+  @@index([isActive])
+  @@map("agent_tool_definitions")
+}
+
+/// @namespace AgentOS
+/// @describe Default tool policy at the blueprint level (allow / deny / approval_required).
+model AgentBlueprintToolPolicy {
+  id           String   @id @default(uuid()) @db.Uuid
+  blueprintId  String   @map("blueprint_id") @db.Uuid
+  toolId       String   @map("tool_id") @db.Uuid
+  effect       String
+  approvalMode String   @default("none") @map("approval_mode")
+  dryRunMode   String   @default("optional") @map("dry_run_mode")
+  constraints  Json     @default("{}") @db.JsonB
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  blueprint AgentBlueprint      @relation(fields: [blueprintId], references: [id], onDelete: Cascade)
+  tool      AgentToolDefinition @relation(fields: [toolId], references: [id], onDelete: Cascade)
+
+  @@unique([blueprintId, toolId])
+  @@index([toolId, effect])
+  @@map("agent_blueprint_tool_policies")
+}
+
+/// @namespace AgentOS
+/// @describe Per-instance override for tool policy. Resolution: instance overrides blueprint, deny wins.
+model AgentInstanceToolPolicy {
+  id              String   @id @default(uuid()) @db.Uuid
+  organizationId  String   @map("organization_id") @db.Uuid
+  agentInstanceId String   @map("agent_instance_id") @db.Uuid
+  toolId          String   @map("tool_id") @db.Uuid
+  effect          String
+  approvalMode    String   @default("none") @map("approval_mode")
+  dryRunMode      String   @default("optional") @map("dry_run_mode")
+  constraints     Json     @default("{}") @db.JsonB
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization  Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agentInstance AgentInstance       @relation(fields: [agentInstanceId], references: [id], onDelete: Cascade)
+  tool          AgentToolDefinition @relation(fields: [toolId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, agentInstanceId, toolId])
+  @@index([agentInstanceId])
+  @@index([toolId])
+  @@index([organizationId, effect])
+  @@map("agent_instance_tool_policies")
+}
+
+/// @namespace AgentOS
+/// @describe Authorization audit. Logged before, during, and outside runs (eg. admin policy widening).
+model AgentAuthorizationEvent {
+  id                String   @id @default(uuid()) @db.Uuid
+  organizationId    String   @map("organization_id") @db.Uuid
+  agentInstanceId   String   @map("agent_instance_id") @db.Uuid
+  requestId         String?  @map("request_id") @db.Uuid
+  runId             String?  @map("run_id") @db.Uuid
+  toolId            String?  @map("tool_id") @db.Uuid
+  actorType         String?  @map("actor_type")
+  actorId           String?  @map("actor_id")
+  action            String
+  decision          String
+  reasonCode        String?  @map("reason_code")
+  reason            String?
+  resourceType      String?  @map("resource_type")
+  resourceId        String?  @map("resource_id")
+  policySnapshot    Json     @default("{}") @map("policy_snapshot") @db.JsonB
+  requestedByUserId String?  @map("requested_by_user_id") @db.Uuid
+  decidedByUserId   String?  @map("decided_by_user_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization  Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agentInstance AgentInstance        @relation(fields: [agentInstanceId], references: [id], onDelete: Cascade)
+  request       AgentRunRequest?     @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  run           AgentRun?            @relation(fields: [runId], references: [id], onDelete: SetNull)
+  tool          AgentToolDefinition? @relation(fields: [toolId], references: [id], onDelete: SetNull)
+  requestedBy   User?                @relation("AgentAuthorizationRequestedBy", fields: [requestedByUserId], references: [id], onDelete: SetNull)
+  decidedBy     User?                @relation("AgentAuthorizationDecidedBy", fields: [decidedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, agentInstanceId, createdAt])
+  @@index([organizationId, decision, createdAt])
+  @@index([requestId])
   @@index([runId])
-  @@map("agent_events")
+  @@index([toolId])
+  @@index([requestedByUserId])
+  @@index([decidedByUserId])
+  @@map("agent_authorization_events")
 }
 
-/// @namespace Agents
-model AgentLog {
-  id      String @id @default(uuid()) @db.Uuid
-  taskId  String @map("task_id") @db.Uuid
-  level   String @default("info")
-  message String
-  data    Json?
+/// @namespace AgentOS
+/// @describe Human approval state. While pending, AgentRunRequest.status = requires_approval.
+model AgentApprovalRequest {
+  id                   String    @id @default(uuid()) @db.Uuid
+  organizationId       String    @map("organization_id") @db.Uuid
+  agentInstanceId      String    @map("agent_instance_id") @db.Uuid
+  requestId            String    @map("request_id") @db.Uuid
+  runId                String?   @map("run_id") @db.Uuid
+  status               String    @default("pending")
+  reasonCode           String?   @map("reason_code")
+  reason               String?
+  prompt               String?   @db.Text
+  payload              Json      @default("{}") @db.JsonB
+  actionSnapshot       Json?     @map("action_snapshot") @db.JsonB
+  requestedByActorType String?   @map("requested_by_actor_type")
+  requestedByActorId   String?   @map("requested_by_actor_id")
+  requestedByUserId    String?   @map("requested_by_user_id") @db.Uuid
+  approverUserId       String?   @map("approver_user_id") @db.Uuid
+  decidedByUserId      String?   @map("decided_by_user_id") @db.Uuid
+  decidedAt            DateTime? @map("decided_at") @db.Timestamptz
+  decisionReason       String?   @map("decision_reason") @db.Text
+  expiresAt            DateTime? @map("expires_at") @db.Timestamptz
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  organization  Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agentInstance AgentInstance   @relation(fields: [agentInstanceId], references: [id], onDelete: Cascade)
+  request       AgentRunRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  run           AgentRun?       @relation(fields: [runId], references: [id], onDelete: SetNull)
+  requestedBy   User?           @relation("AgentApprovalRequestedBy", fields: [requestedByUserId], references: [id], onDelete: SetNull)
+  approver      User?           @relation("AgentApprovalApprover", fields: [approverUserId], references: [id], onDelete: SetNull)
+  decidedBy     User?           @relation("AgentApprovalDecidedBy", fields: [decidedByUserId], references: [id], onDelete: SetNull)
 
-  task AgentTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
-
-  @@index([taskId])
-  @@map("agent_logs")
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, approverUserId, status])
+  @@index([requestId])
+  @@index([runId])
+  @@index([agentInstanceId])
+  @@index([approverUserId])
+  @@index([requestedByUserId])
+  @@index([decidedByUserId])
+  @@map("agent_approval_requests")
 }
 
-/// @namespace Agents
-model AgentWakeupRequest {
-  id              String    @id @default(uuid()) @db.Uuid
-  organizationId  String    @map("organization_id") @db.Uuid
-  agentId         String    @map("agent_id") @db.Uuid
-  source          String
-  triggerDetail   String?   @map("trigger_detail")
-  reason          String?
-  legacyTaskId    String?   @map("legacy_task_id") @db.Uuid
-  payload         Json?     @db.JsonB
-  status          String    @default("queued")
-  coalescedCount  Int       @default(0) @map("coalesced_count")
-  requestedByType String?   @map("requested_by_type")
-  requestedById   String?   @map("requested_by_id")
-  runId           String?   @map("run_id") @db.Uuid
-  requestedAt     DateTime  @default(now()) @map("requested_at") @db.Timestamptz
-  claimedAt       DateTime? @map("claimed_at") @db.Timestamptz
-  finishedAt      DateTime? @map("finished_at") @db.Timestamptz
-  error           String?
+/// @namespace AgentOS
+/// @describe Cost ledger source of truth. Insert + AgentRuntimeState aggregate update share one transaction.
+model AgentCostEvent {
+  id                String   @id @default(uuid()) @db.Uuid
+  organizationId    String   @map("organization_id") @db.Uuid
+  agentInstanceId   String   @map("agent_instance_id") @db.Uuid
+  requestId         String   @map("request_id") @db.Uuid
+  runId             String   @map("run_id") @db.Uuid
+  provider          String
+  model             String
+  biller            String?
+  billingType       String?  @map("billing_type")
+  inputTokens       Int      @default(0) @map("input_tokens")
+  outputTokens      Int      @default(0) @map("output_tokens")
+  cachedInputTokens Int      @default(0) @map("cached_input_tokens")
+  costMicros        BigInt   @default(0) @map("cost_micros")
+  metadata          Json     @default("{}") @db.JsonB
+  occurredAt        DateTime @default(now()) @map("occurred_at") @db.Timestamptz
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  organization  Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agentInstance AgentInstance   @relation(fields: [agentInstanceId], references: [id], onDelete: Cascade)
+  request       AgentRunRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  run           AgentRun        @relation(fields: [runId], references: [id], onDelete: Cascade)
 
-  agent         AgentDefinition @relation(fields: [agentId], references: [id])
-  organization  Organization    @relation(fields: [organizationId], references: [id])
-  heartbeatRuns HeartbeatRun[]
-
-  @@index([organizationId, agentId, status])
-  @@index([organizationId, legacyTaskId])
-  @@index([agentId, requestedAt])
-  @@map("agent_wakeup_requests")
+  @@index([organizationId, agentInstanceId, occurredAt])
+  @@index([organizationId, provider, model, occurredAt])
+  @@index([requestId])
+  @@index([runId])
+  @@map("agent_cost_events")
 }
 
-/// @namespace Agents
-/// @describe 에이전트 안전 파이프라인 (Budget/Cap/DryRun). AgentDefinition 과 함께 agent runtime state 구성.
-model HeartbeatRun {
-  id                String    @id @default(uuid()) @db.Uuid
-  organizationId    String    @map("organization_id") @db.Uuid
-  agentId           String    @map("agent_id") @db.Uuid
-  invocationSource  String    @default("on_demand") @map("invocation_source")
-  triggerDetail     String?   @map("trigger_detail")
-  status            String    @default("pending")
-  failureType       String?   @map("failure_type")
-  startedAt         DateTime? @map("started_at") @db.Timestamptz
-  finishedAt        DateTime? @map("finished_at") @db.Timestamptz
-  error             String?
-  exitCode          Int?      @map("exit_code")
-  signal            String?
-  usageJson         Json?     @map("usage_json") @db.JsonB
-  resultJson        Json?     @map("result_json") @db.JsonB
-  sessionIdBefore   String?   @map("session_id_before")
-  sessionIdAfter    String?   @map("session_id_after")
-  stdoutExcerpt     String?   @map("stdout_excerpt") @db.Text
-  stderrExcerpt     String?   @map("stderr_excerpt") @db.Text
-  errorCode         String?   @map("error_code")
-  processPid        Int?      @map("process_pid")
-  wakeupRequestId   String?   @map("wakeup_request_id") @db.Uuid
-  nextSchedule      String?   @map("next_schedule")
-  isSummarized      Boolean   @default(false) @map("is_summarized")
-  summary           String?   @db.Text
-  triggeredByUserId String?   @map("triggered_by_user_id") @db.Uuid
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  agent           AgentDefinition     @relation(fields: [agentId], references: [id])
-  organization    Organization        @relation(fields: [organizationId], references: [id])
-  wakeupRequest   AgentWakeupRequest? @relation(fields: [wakeupRequestId], references: [id], onDelete: SetNull)
-  triggeredByUser User?               @relation("HeartbeatRunTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
-
-  @@index([organizationId, agentId, startedAt])
-  @@index([agentId])
-  @@index([wakeupRequestId])
-  @@index([triggeredByUserId])
-  @@index([status])
-  @@index([organizationId, triggeredByUserId])
-  @@map("heartbeat_runs")
-}
-
-/// @namespace Agents
-/// @describe steps Json 으로 단계별 결과 흡수 (별도 StepRun 없음).
+/// @namespace AgentOS
+/// @describe Workflow run record. Workflow runner triggers Agent OS via AgentRunnerPort with sourceWorkflowRunId.
 model WorkflowRun {
   id                String    @id @default(uuid()) @db.Uuid
   organizationId    String?   @map("organization_id") @db.Uuid
@@ -273,8 +486,9 @@ model WorkflowRun {
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  template        WorkflowTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  triggeredByUser User?            @relation("WorkflowRunTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
+  template         WorkflowTemplate  @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  triggeredByUser  User?             @relation("WorkflowRunTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
+  agentRunRequests AgentRunRequest[]
 
   @@index([organizationId])
   @@index([templateId])
@@ -285,7 +499,8 @@ model WorkflowRun {
   @@map("workflow_runs")
 }
 
-/// @namespace Agents
+/// @namespace AgentOS
+/// @describe Workflow definition. Trigger config + nodes/edges.
 model WorkflowTemplate {
   id             String   @id @default(uuid()) @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid

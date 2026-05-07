@@ -1843,18 +1843,18 @@ function RightPanel({
       const maxAttempts = 120;
       for (let i = 0; i < maxAttempts; i++) {
         await new Promise(r => setTimeout(r, 2000));
-        let task: any;
+        let run: any;
         try {
-          task = await apiClient.get(`/api/agent-tasks/${taskId}`);
+          run = await apiClient.get(`/api/agent-os/runs/${taskId}`);
         } catch { continue; }
 
-        if (task.status === 'failed') {
-          throw new Error(task.error || 'AI 생성에 실패했습니다');
+        if (run.status === 'failed' || run.status === 'cancelled') {
+          throw new Error(run.errorMessage || run.errorCode || 'AI 생성에 실패했습니다');
         }
 
         let output: Record<string, unknown> | null = null;
         try {
-          output = typeof task.output === 'string' ? JSON.parse(task.output) : task.output;
+          output = typeof run.output === 'string' ? JSON.parse(run.output) : run.output;
         } catch {
           continue;
         }
@@ -1874,7 +1874,7 @@ function RightPanel({
           }
         }
 
-        if (task.status === 'completed') {
+        if (run.status === 'succeeded') {
           setHasGenerated(true);
           onAiFillComplete?.();
           return;
@@ -1894,8 +1894,13 @@ function RightPanel({
 
   const handleAiFillCancel = useCallback(async () => {
     if (!aiFillTaskId) return;
+    // Agent OS v2 does not currently expose a per-run cancel endpoint; the
+    // run will exit on its own once it observes a cancellation signal or
+    // finishes. We keep this action available so the UI feedback (closing
+    // the busy indicator) still triggers reliably.
     try {
-      await apiClient.post(`/api/agent-tasks/${aiFillTaskId}/cancel`);
+      // No-op for the moment; eventual `/api/agent-os/runs/:id/cancel` once
+      // the runner adapter supports it.
     } catch (err) {
       toast.error('AI 작업 취소에 실패했습니다.');
     }
@@ -1905,27 +1910,30 @@ function RightPanel({
     if (!productId || colorImageUrls.length < 2) return;
     setColorGuideLoading(true);
     try {
-      const data = await apiClient.post<{ id?: string; taskId?: string }>('/api/agent-tasks', {
+      const data = await apiClient.post<{ ok: boolean; runId?: string; requestId?: string }>('/api/agent-os/runs', {
         agentType: 'image_edit',
-        input: { preset: 'color_guide', image_urls: colorImageUrls, productId },
+        sourceType: 'sourcing',
+        sourceId: productId,
+        payload: { preset: 'color_guide', image_urls: colorImageUrls, productId },
       });
-      const taskId = data.id ?? data.taskId;
+      const runId = data.runId;
+      if (!runId) throw new Error('이미지 작업을 시작하지 못했습니다.');
 
       for (let i = 0; i < 120; i++) {
         await new Promise(r => setTimeout(r, 2000));
-        let task: any;
+        let run: any;
         try {
-          task = await apiClient.get(`/api/agent-tasks/${taskId}`);
+          run = await apiClient.get(`/api/agent-os/runs/${runId}`);
         } catch { continue; }
 
-        if (task.status === 'failed') {
-          throw new Error(task.error || '색상 안내 생성 실패');
+        if (run.status === 'failed' || run.status === 'cancelled') {
+          throw new Error(run.errorMessage || run.errorCode || '색상 안내 생성 실패');
         }
 
-        if (task.status === 'completed') {
+        if (run.status === 'succeeded') {
           let output: Record<string, unknown> | null = null;
           try {
-            output = typeof task.output === 'string' ? JSON.parse(task.output) : task.output;
+            output = typeof run.output === 'string' ? JSON.parse(run.output) : run.output;
           } catch {
             break;
           }

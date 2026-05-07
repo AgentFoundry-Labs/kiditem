@@ -1,18 +1,22 @@
 import { Module } from '@nestjs/common';
 import { RulesController } from './controllers/rules.controller';
 import { RulesService } from './services/rules.service';
-import { AutomationModule } from '../automation/automation.module';
+import { AgentOsModule } from '../agent-os/agent-os.module';
 
 // EventEmitter2 is injected globally — do NOT import EventEmitterModule.forRoot() here.
-// Schedule control of the tenant-owned `rules_evaluation` agent goes through
-// `AgentScheduleControlPort` (provided by AutomationModule); RulesController no
-// longer injects AgentRegistryService/HeartbeatService directly.
+//
+// Agent OS v2 wiring (post-`agent-registry` deletion):
+// - `AGENT_RUNNER_PORT` (kicks off `rules_evaluation` / `rules_suggest`) and
+//   `AgentObservabilityService` (run-request / run status reads) are both
+//   provided by `AgentOsModule`. The legacy `AgentScheduleControlPort` was
+//   deleted; the schedule GET/PATCH endpoints now return 503 with a
+//   migration-in-progress notice until Agent OS v2 ships the replacement.
 //
 // The /api/alerts/* HTTP surface and `AlertsService` were folded into the
 // `automation/` owner domain in Wave H3 AO-2 — they are no longer registered
-// here. Rules now owns only `/api/rules/*` evaluation + schedule + rule CRUD.
+// here. Rules now owns only `/api/rules/*` evaluation + rule CRUD.
 @Module({
-  imports: [AutomationModule],
+  imports: [AgentOsModule],
   controllers: [RulesController],
   providers: [RulesService],
 })

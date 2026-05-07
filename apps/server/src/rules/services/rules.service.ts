@@ -1,17 +1,36 @@
 import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { OnEvent } from '@nestjs/event-emitter';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
-import { AGENT_EVENTS, AgentResultReadyEvent } from '../../agent-registry/events/agent-events';
 import {
   AGENT_RUNNER_PORT,
   type AgentRunnerPort,
-} from '../../automation/application/port/in/agent-runner.port';
+} from '../../agent-os/application/port/in/agent-runner.port';
+import { AgentObservabilityService } from '../../agent-os/application/service/agent-observability.service';
 import { PANEL_EVENTS } from '../../automation/adapter/out/panel-event/panel-events';
 import { alertPanelMapper } from '../../automation/mapper/panel-event/alert.mapper';
 import type { RuleItem } from '@kiditem/shared/rules';
 import type { EvaluationResult, ProductEvalResult } from './types';
+
+const RULES_EVALUATION_AGENT_TYPE = 'rules_evaluation';
+const RULES_SUGGEST_AGENT_TYPE = 'rules_suggest';
+const RULES_EVALUATION_SOURCE = 'rules.evaluation';
+const RULES_SUGGEST_SOURCE = 'rules.suggest';
+
+/**
+ * Public payload describing a rules-evaluation result that the rules domain
+ * post-processes (healthScore bulk update + activity events + critical
+ * alerts + panel emission).
+ *
+ * Under Agent OS v2 the run runtime writes its `resultJson` to the
+ * `AgentRun` row. Adapters that bridge Agent OS run completion back to the
+ * rules domain pass this shape into `RulesService.processEvaluationResult`.
+ */
+export interface RulesEvaluationResultPayload {
+  organizationId: string;
+  runId: string;
+  products: ProductEvalResult[];
+}
 
 @Injectable()
 export class RulesService {
@@ -23,42 +42,54 @@ export class RulesService {
     private readonly prisma: PrismaService,
     @Inject(AGENT_RUNNER_PORT)
     private readonly agentRunner: AgentRunnerPort,
+    private readonly observability: AgentObservabilityService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async evaluateAll(organizationId: string): Promise<EvaluationResult> {
-    const result = await this.agentRunner.runByType('rules_evaluation', {
+    const result = await this.agentRunner.runByType(RULES_EVALUATION_AGENT_TYPE, {
       organizationId,
-      extra: { organization_id: organizationId },
+      sourceType: RULES_EVALUATION_SOURCE,
+      payload: { organization_id: organizationId },
     });
 
-    this.logger.log(`Rules evaluation spawned: ${result.taskId}`);
-    return { taskId: result.taskId, status: 'running' };
+    if (!result.ok) {
+      this.logger.warn(
+        `Rules evaluation could not be queued (reason=${result.reason ?? 'unknown'})`,
+      );
+      return { requestId: undefined, status: result.status ?? 'unavailable' };
+    }
+
+    this.logger.log(`Rules evaluation queued: requestId=${result.requestId}`);
+    return { requestId: result.requestId, status: result.status ?? 'pending' };
   }
 
-  @OnEvent(AGENT_EVENTS.RESULT_READY)
-  async onResultReady(event: AgentResultReadyEvent): Promise<void> {
-    if (event.agentType !== 'rules_evaluation') return;
-
-    const organizationId = event.organizationId;
-    const products = (event.resultJson.products as ProductEvalResult[]) || [];
+  /**
+   * Post-process a rules-evaluation run result. Replaces the legacy
+   * `@OnEvent(AGENT_EVENTS.RESULT_READY)` callback. Agent OS v2 writes the
+   * result to `AgentRun.resultJson` on completion; the bridging adapter
+   * invokes this method with the parsed product list.
+   */
+  async processEvaluationResult(payload: RulesEvaluationResultPayload): Promise<void> {
+    const { organizationId, runId, products } = payload;
+    if (!organizationId || products.length === 0) {
+      return;
+    }
 
     try {
-      // 2-1. healthScore 일괄 업데이트 — Prisma updateMany + $transaction.
-      // event.organizationId 가 신뢰 경계. 각 update 는 (id, organizationId) 로 스코프 → 다른 회사 master 가 섞일 수 없음.
-      if (products.length > 0) {
-        const now = new Date();
-        await this.prisma.$transaction(
-          products.map((r) =>
-            this.prisma.masterProduct.updateMany({
-              where: { id: r.masterId, organizationId },
-              data: { healthScore: r.healthScore, healthUpdatedAt: now },
-            }),
-          ),
-        );
-      }
+      // 1. healthScore 일괄 업데이트 — Prisma updateMany + $transaction.
+      // organizationId 가 신뢰 경계. 각 update 는 (id, organizationId) 로 스코프 → 다른 회사 master 가 섞일 수 없음.
+      const now = new Date();
+      await this.prisma.$transaction(
+        products.map((r) =>
+          this.prisma.masterProduct.updateMany({
+            where: { id: r.masterId, organizationId },
+            data: { healthScore: r.healthScore, healthUpdatedAt: now },
+          }),
+        ),
+      );
 
-      // 2-2. activity_events 기록
+      // 2. activity_events 기록
       const events = products.flatMap((r) =>
         r.violations.map((v) => ({
           organizationId,
@@ -80,7 +111,7 @@ export class RulesService {
         await this.prisma.activityEvent.createMany({ data: events });
       }
 
-      // 2-3. critical alerts 생성
+      // 3. critical alerts 생성
       // Alert.targetType='master' 규약 (alert.mapper spec + drift spec 참조): rule_violation 은 MasterProduct 단위.
       const criticals = products.flatMap((r) =>
         r.violations
@@ -126,11 +157,13 @@ export class RulesService {
             }
           }
         } catch (err) {
-          this.logger.warn(`Panel emit failed after alert createManyAndReturn (count=${inserted.length}): ${err}`);
+          this.logger.warn(
+            `Panel emit failed after alert createManyAndReturn (count=${inserted.length}): ${err}`,
+          );
         }
       }
     } catch (err) {
-      this.logger.error(`Rules post-processing failed for run ${event.runId}: ${err}`);
+      this.logger.error(`Rules post-processing failed for run ${runId}: ${err}`);
     }
 
     const violationCount = products.reduce((sum, r) => sum + r.violations.length, 0);
@@ -139,11 +172,16 @@ export class RulesService {
     );
   }
 
-  async getEvaluationStatus(taskId: string) {
-    return this.prisma.agentTask.findUnique({
-      where: { id: taskId },
-      include: { logs: { orderBy: { createdAt: 'desc' }, take: 10 } },
-    });
+  /**
+   * Read run-request status from Agent OS observability. Replaces the legacy
+   * `prisma.agentTask.findUnique({ where: { id: taskId } })` lookup.
+   */
+  async getEvaluationStatus(organizationId: string, requestId: string) {
+    const request = await this.observability.findRequest({ organizationId, requestId });
+    if (!request) {
+      throw new NotFoundException('Rules evaluation request not found');
+    }
+    return request;
   }
 
   async getSummary(organizationId: string): Promise<{
@@ -248,14 +286,18 @@ export class RulesService {
     });
   }
 
-  async suggestThresholds(organizationId: string): Promise<{ taskId: string | undefined; status: string }> {
-    const result = await this.agentRunner.runByType('rules_suggest', {
+  async suggestThresholds(
+    organizationId: string,
+  ): Promise<{ requestId: string | undefined; status: string }> {
+    const result = await this.agentRunner.runByType(RULES_SUGGEST_AGENT_TYPE, {
       organizationId,
-      extra: { organization_id: organizationId },
+      sourceType: RULES_SUGGEST_SOURCE,
+      payload: { organization_id: organizationId },
     });
 
-    return { taskId: result.taskId, status: 'running' };
+    if (!result.ok) {
+      return { requestId: undefined, status: result.status ?? 'unavailable' };
+    }
+    return { requestId: result.requestId, status: result.status ?? 'pending' };
   }
-
-  // ── Private ──
 }

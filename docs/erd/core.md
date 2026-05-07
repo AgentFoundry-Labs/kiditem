@@ -222,7 +222,7 @@ erDiagram
     String type
     String team
     String avatarUrl
-    String agentDefinitionId FK
+    String agentInstanceId FK
     Boolean isActive
     DateTime lastLoginAt
     DateTime createdAt
@@ -279,11 +279,17 @@ erDiagram
 | Organization | organization | referenced by external | Advertising | AdAction |
 | Organization | organization | referenced by external | Advertising | ExecutionWorker |
 | Organization | organization | referenced by external | Advertising | ScrapeTarget |
-| Organization | organization | referenced by external | Agents | AgentDefinition |
-| Organization | organization | referenced by external | Agents | AgentEvent |
-| Organization | organization | referenced by external | Agents | AgentWakeupRequest |
-| Organization | organization | referenced by external | Agents | HeartbeatRun |
-| Organization | organization | referenced by external | Agents | WorkflowTemplate |
+| Organization | organization | referenced by external | AgentOS | AgentApprovalRequest |
+| Organization | organization | referenced by external | AgentOS | AgentAuthorizationEvent |
+| Organization | organization | referenced by external | AgentOS | AgentCostEvent |
+| Organization | organization | referenced by external | AgentOS | AgentInstance |
+| Organization | organization | referenced by external | AgentOS | AgentInstanceToolPolicy |
+| Organization | organization | referenced by external | AgentOS | AgentRun |
+| Organization | organization | referenced by external | AgentOS | AgentRunEvent |
+| Organization | organization | referenced by external | AgentOS | AgentRunRequest |
+| Organization | organization | referenced by external | AgentOS | AgentRuntimeState |
+| Organization | organization | referenced by external | AgentOS | AgentTaskSession |
+| Organization | organization | referenced by external | AgentOS | WorkflowTemplate |
 | Organization | organization | referenced by external | AI | ContentGeneration |
 | Organization | organization | referenced by external | AI | Thumbnail |
 | Organization | organization | referenced by external | AI | ThumbnailAnalysis |
@@ -343,8 +349,13 @@ erDiagram
 | ProductOption | option | referenced by external | Orders | UnshippedItem |
 | ProductOption | option | referenced by external | Supply | PurchaseOrderItem |
 | ProductOption | option | referenced by external | Supply | SupplierProduct |
-| User | agentDefinition | references external | Agents | AgentDefinition |
+| User | agentInstance | references external | AgentOS | AgentInstance |
+| User | approver | referenced by external | AgentOS | AgentApprovalRequest |
 | User | assigneeUser | referenced by external | System | ActionTask |
-| User | triggeredByUser | referenced by external | Agents | HeartbeatRun |
-| User | triggeredByUser | referenced by external | Agents | WorkflowRun |
+| User | decidedBy | referenced by external | AgentOS | AgentApprovalRequest |
+| User | decidedBy | referenced by external | AgentOS | AgentAuthorizationEvent |
+| User | requestedBy | referenced by external | AgentOS | AgentApprovalRequest |
+| User | requestedBy | referenced by external | AgentOS | AgentAuthorizationEvent |
+| User | requestedBy | referenced by external | AgentOS | AgentRunRequest |
+| User | triggeredByUser | referenced by external | AgentOS | WorkflowRun |
 | User | triggeredByUser | referenced by external | AI | ThumbnailGeneration |

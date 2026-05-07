@@ -31,7 +31,7 @@ model Marketplace {
   updatedAt          DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   installedWorkflows WorkflowTemplate[]
-  installedAgents    AgentDefinition[]
+  agentBlueprints    AgentBlueprint[]
 
   @@index([type])
   @@index([category])

@@ -9,15 +9,9 @@ import { MarketplaceInstallService } from '../marketplace-install.service';
 function makeStore(): MarketplaceInstallStorePort {
   return {
     findWorkflowCatalog: vi.fn(),
-    findAgentCatalog: vi.fn(),
     createWorkflowInstallation: vi.fn(),
-    createAgentInstallation: vi.fn(),
-    findTenantManager: vi.fn(),
-    assignAgentReportsTo: vi.fn(),
     findInstalledWorkflow: vi.fn(),
     deleteInstalledWorkflow: vi.fn(),
-    findInstalledAgent: vi.fn(),
-    deleteInstalledAgent: vi.fn(),
     decrementInstallCountIfPositive: vi.fn(),
   };
 }
@@ -166,143 +160,6 @@ describe('MarketplaceInstallService', () => {
     });
   });
 
-  describe('installAgent', () => {
-    it('throws NotFoundException when catalog row does not exist', async () => {
-      const { service, store } = makeService();
-      vi.mocked(store.findAgentCatalog).mockResolvedValue(null);
-
-      await expect(service.installAgent('m-1', 'organization-1')).rejects.toBeInstanceOf(
-        NotFoundException,
-      );
-    });
-
-    it('creates a tenant agent installation and auto-wires specialists to the tenant manager', async () => {
-      const { service, store } = makeService();
-      vi.mocked(store.findAgentCatalog).mockResolvedValue({
-        id: 'm-1',
-        type: 'agent',
-        name: 'Rules Bot',
-        description: 'evaluates rules',
-        adapterType: 'claude_local',
-        role: 'specialist',
-        skills: ['db'],
-        permissions: { agentType: {} },
-        promptTemplate: 'agent-config/prompts/rules.md',
-        icon: 'brain',
-      });
-      vi.mocked(store.createAgentInstallation).mockResolvedValue({
-        id: 'agent-1',
-        role: 'specialist',
-      });
-      vi.mocked(store.findTenantManager).mockResolvedValue({ id: 'manager-1' });
-
-      await service.installAgent('m-1', 'organization-1');
-
-      expect(store.createAgentInstallation).toHaveBeenCalledWith(
-        expect.objectContaining({
-          organizationId: 'organization-1',
-          name: 'Rules Bot',
-          marketplaceId: 'm-1',
-          role: 'specialist',
-        }),
-      );
-      expect(store.findTenantManager).toHaveBeenCalledWith('organization-1');
-      expect(store.assignAgentReportsTo).toHaveBeenCalledWith(
-        'agent-1',
-        'organization-1',
-        'manager-1',
-      );
-    });
-
-    it('skips reportsTo wiring when no manager exists in the tenant', async () => {
-      const { service, store } = makeService();
-      vi.mocked(store.findAgentCatalog).mockResolvedValue({
-        id: 'm-1',
-        type: 'agent',
-        name: 'Rules Bot',
-        description: null,
-        adapterType: null,
-        role: 'specialist',
-        skills: [],
-        permissions: null,
-        promptTemplate: null,
-        icon: null,
-      });
-      vi.mocked(store.createAgentInstallation).mockResolvedValue({
-        id: 'agent-1',
-        role: 'specialist',
-      });
-      vi.mocked(store.findTenantManager).mockResolvedValue(null);
-
-      await service.installAgent('m-1', 'organization-1');
-
-      expect(store.assignAgentReportsTo).not.toHaveBeenCalled();
-    });
-
-    it('does not auto-wire reportsTo for non-specialist roles', async () => {
-      const { service, store } = makeService();
-      vi.mocked(store.findAgentCatalog).mockResolvedValue({
-        id: 'm-1',
-        type: 'agent',
-        name: 'Boss Bot',
-        description: null,
-        adapterType: null,
-        role: 'manager',
-        skills: [],
-        permissions: null,
-        promptTemplate: null,
-        icon: null,
-      });
-      vi.mocked(store.createAgentInstallation).mockResolvedValue({
-        id: 'agent-2',
-        role: 'manager',
-      });
-
-      await service.installAgent('m-1', 'organization-1');
-
-      expect(store.findTenantManager).not.toHaveBeenCalled();
-      expect(store.assignAgentReportsTo).not.toHaveBeenCalled();
-    });
-
-    it('applies typed params and ignores wrongly typed values', async () => {
-      const { service, store } = makeService();
-      vi.mocked(store.findAgentCatalog).mockResolvedValue({
-        id: 'm-1',
-        type: 'agent',
-        name: 'Rules Bot',
-        description: null,
-        adapterType: null,
-        role: 'manager',
-        skills: [],
-        permissions: null,
-        promptTemplate: null,
-        icon: null,
-      });
-      vi.mocked(store.createAgentInstallation).mockResolvedValue({
-        id: 'agent-1',
-        role: 'manager',
-      });
-
-      await service.installAgent('m-1', 'organization-1', {
-        schedule: '0 9 * * *',
-        monthlyTokenBudget: 100000,
-        requiresApproval: true,
-        timeoutSeconds: 'not-a-number',
-      });
-
-      expect(store.createAgentInstallation).toHaveBeenCalledWith(
-        expect.objectContaining({
-          schedule: '0 9 * * *',
-          monthlyTokenBudget: 100000,
-          requiresApproval: true,
-        }),
-      );
-      expect(store.createAgentInstallation).toHaveBeenCalledWith(
-        expect.not.objectContaining({ timeoutSeconds: expect.anything() }),
-      );
-    });
-  });
-
   describe('uninstallWorkflow', () => {
     it('throws NotFoundException when no installed template exists for the tenant', async () => {
       const { service, store } = makeService();
@@ -328,40 +185,6 @@ describe('MarketplaceInstallService', () => {
       expect(store.findInstalledWorkflow).toHaveBeenCalledWith('m-1', 'organization-1');
       expect(store.deleteInstalledWorkflow).toHaveBeenCalledWith(
         'tpl-1',
-        'organization-1',
-      );
-      expect(store.decrementInstallCountIfPositive).toHaveBeenCalledWith('m-1');
-    });
-  });
-
-  describe('uninstallAgent', () => {
-    it('throws NotFoundException when no installed agent exists for the tenant', async () => {
-      const { service, store } = makeService();
-      vi.mocked(store.findInstalledAgent).mockResolvedValue(null);
-
-      await expect(service.uninstallAgent('m-1', 'organization-1')).rejects.toBeInstanceOf(
-        NotFoundException,
-      );
-
-      expect(store.deleteInstalledAgent).not.toHaveBeenCalled();
-      expect(store.decrementInstallCountIfPositive).not.toHaveBeenCalled();
-    });
-
-    it('removes the tenant-scoped agent and decrements installCount', async () => {
-      const { service, store } = makeService();
-      vi.mocked(store.findInstalledAgent).mockResolvedValue({
-        id: 'agent-1',
-        role: 'specialist',
-      });
-      vi.mocked(store.deleteInstalledAgent).mockResolvedValue(true);
-
-      await expect(service.uninstallAgent('m-1', 'organization-1')).resolves.toEqual({
-        ok: true,
-      });
-
-      expect(store.findInstalledAgent).toHaveBeenCalledWith('m-1', 'organization-1');
-      expect(store.deleteInstalledAgent).toHaveBeenCalledWith(
-        'agent-1',
         'organization-1',
       );
       expect(store.decrementInstallCountIfPositive).toHaveBeenCalledWith('m-1');

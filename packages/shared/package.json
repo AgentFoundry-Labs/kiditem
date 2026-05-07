@@ -100,15 +100,10 @@
       "import": "./dist/channel-reconciliation.js",
       "require": "./dist/channel-reconciliation.cjs"
     },
-    "./agent": {
-      "types": "./dist/agent.d.ts",
-      "import": "./dist/agent.js",
-      "require": "./dist/agent.cjs"
-    },
-    "./agent-trace": {
-      "types": "./dist/agent-trace.d.ts",
-      "import": "./dist/agent-trace.js",
-      "require": "./dist/agent-trace.cjs"
+    "./agent-os": {
+      "types": "./dist/agent-os.d.ts",
+      "import": "./dist/agent-os.js",
+      "require": "./dist/agent-os.cjs"
     },
     "./workflow": {
       "types": "./dist/workflow.d.ts",
@@ -188,8 +183,7 @@
       "supplier-stats": ["dist/supplier-stats.d.ts"],
       "channel-dashboard": ["dist/channel-dashboard.d.ts"],
       "channel-reconciliation": ["dist/channel-reconciliation.d.ts"],
-      "agent": ["dist/agent.d.ts"],
-      "agent-trace": ["dist/agent-trace.d.ts"],
+      "agent-os": ["dist/agent-os.d.ts"],
       "workflow": ["dist/workflow.d.ts"],
       "common": ["dist/common.d.ts"],
       "reviews": ["dist/reviews.d.ts"],

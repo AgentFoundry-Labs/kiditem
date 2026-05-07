@@ -20,7 +20,7 @@ import { ChannelsModule } from './channels/channels.module';
 import { AiModule } from './ai/ai.module';
 import { FinanceModule } from './finance/finance.module';
 import { RulesModule } from './rules/rules.module';
-import { AgentRegistryModule } from './agent-registry/agent-registry.module';
+import { AgentOsModule } from './agent-os/agent-os.module';
 import { AutomationModule } from './automation/automation.module';
 import { AdvertisingModule } from './advertising/advertising.module';
 import { FeatureGateModule } from './feature-gate/feature-gate.module';
@@ -54,7 +54,7 @@ import { ReadinessModule } from './readiness/readiness.module';
     AiModule,
     FinanceModule,
     RulesModule,
-    AgentRegistryModule,
+    AgentOsModule,
     AutomationModule,
     AdvertisingModule,
     ChatModule,

@@ -3,7 +3,8 @@ import { registerNode, recordActivity } from './index';
 // ─── Workflow executor surface (slim core) ───────────────────────────────
 // The workflow engine is a DAG runner + run/panel recorder + Agent
 // delegation shell. It is NOT a generic database, HTTP, transform, or LLM
-// engine. AI/LLM work goes through `agent_task.create` → AgentRegistry.
+// engine. AI/LLM work goes through `agent_task.create` → Agent OS via
+// `AgentRunnerPort`.
 //
 // Removed (intentionally): internal.db_query, api_call, action,
 // data.filter, data_transform, ai_process, and the legacy aliases
@@ -76,24 +77,43 @@ registerNode('notification.alert', async (prisma, config, context) => {
 });
 
 registerNode('agent_task.create', async (_prisma, config, _context, services) => {
-  if (!services?.agentRegistry) {
-    throw new Error('AgentRegistryService is required for agent_task.create');
+  if (!services?.agentRunner) {
+    throw new Error('AgentRunnerPort is required for agent_task.create');
   }
   const organizationId = config.organization_id as string | undefined;
   if (!organizationId) {
     throw new Error('agent_task.create requires runner-injected organization_id');
   }
-  const result = await services.agentRegistry.runByType(config.agent_type as string, {
+  const agentType = config.agent_type as string;
+  if (!agentType || typeof agentType !== 'string') {
+    throw new Error('agent_task.create requires agent_type');
+  }
+
+  const workflowRunId = config._workflow_run_id as string | undefined;
+  const workflowNodeId = config._workflow_node_id as string | undefined;
+  const sourceDataId = config.source_data_id as string | undefined;
+  const inputPayload = (config.input as Record<string, unknown> | undefined) ?? {};
+
+  const result = await services.agentRunner.runByType(agentType, {
     organizationId,
-    workflowRunId: config._workflow_run_id as string | undefined,
-    workflowNodeId: config._workflow_node_id as string | undefined,
-    sourceDataId: config.source_data_id as string | undefined,
-    extra: {
-      ...(config.input as any) ?? {},
-      _workflow_run_id: config._workflow_run_id,
-      _workflow_node_id: config._workflow_node_id,
-      source_data_id: config.source_data_id,
+    sourceType: 'workflow',
+    sourceId: workflowRunId,
+    sourceWorkflowRunId: workflowRunId,
+    sourceWorkflowNodeId: workflowNodeId,
+    sourceResourceType: sourceDataId ? 'data' : undefined,
+    sourceResourceId: sourceDataId,
+    payload: {
+      ...inputPayload,
+      _workflow_run_id: workflowRunId,
+      _workflow_node_id: workflowNodeId,
+      source_data_id: sourceDataId,
     },
   });
-  return { taskId: result.taskId, agentType: config.agent_type };
+
+  return {
+    requestId: result.requestId,
+    runId: result.runId,
+    agentType,
+    status: result.status,
+  };
 });

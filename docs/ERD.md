@@ -24,7 +24,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | Domain | Models |
 |---|---:|
 | [Advertising](erd/advertising.md) | 5 |
-| [Agents](erd/agents.md) | 8 |
+| [AgentOS](erd/agentos.md) | 15 |
 | [AI](erd/ai.md) | 8 |
 | [Channels](erd/channels.md) | 8 |
 | [Core](erd/core.md) | 13 |
@@ -43,14 +43,21 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ExecutionTask | Advertising | `execution_tasks` | - |
 | ExecutionWorker | Advertising | `execution_workers` | - |
 | ScrapeTarget | Advertising | `scrape_targets` | - |
-| AgentDefinition | Agents | `agent_definitions` | 에이전트 정의. rt_* 필드로 런타임 상태 내장 (별도 테이블 없음). reportsTo 자기참조 (매니저→전문가 계층). |
-| AgentEvent | Agents | `agent_events` | eventType 으로 permission_denied / action_snapshot 통합. |
-| AgentLog | Agents | `agent_logs` | - |
-| AgentTask | Agents | `agent_tasks` | - |
-| AgentWakeupRequest | Agents | `agent_wakeup_requests` | - |
-| HeartbeatRun | Agents | `heartbeat_runs` | 에이전트 안전 파이프라인 (Budget/Cap/DryRun). AgentDefinition 과 함께 agent runtime state 구성. |
-| WorkflowRun | Agents | `workflow_runs` | steps Json 으로 단계별 결과 흡수 (별도 StepRun 없음). |
-| WorkflowTemplate | Agents | `workflow_templates` | - |
+| AgentApprovalRequest | AgentOS | `agent_approval_requests` | Human approval state. While pending, AgentRunRequest.status = requires_approval. |
+| AgentAuthorizationEvent | AgentOS | `agent_authorization_events` | Authorization audit. Logged before, during, and outside runs (eg. admin policy widening). |
+| AgentBlueprint | AgentOS | `agent_blueprints` | Global catalog template for an agent kind. Replaces the global side of the legacy AgentDefinition. |
+| AgentBlueprintToolPolicy | AgentOS | `agent_blueprint_tool_policies` | Default tool policy at the blueprint level (allow / deny / approval_required). |
+| AgentCostEvent | AgentOS | `agent_cost_events` | Cost ledger source of truth. Insert + AgentRuntimeState aggregate update share one transaction. |
+| AgentInstance | AgentOS | `agent_instances` | Organization-owned runnable subject. Replaces the tenant-owned side of legacy AgentDefinition. |
+| AgentInstanceToolPolicy | AgentOS | `agent_instance_tool_policies` | Per-instance override for tool policy. Resolution: instance overrides blueprint, deny wins. |
+| AgentRun | AgentOS | `agent_runs` | Accepted execution attempt. Replaces HeartbeatRun. Always starts at status="running"; queue state lives on AgentRunRequest. |
+| AgentRunEvent | AgentOS | `agent_run_events` | Run-local event timeline (status, tool, model, safety, fallback). Bulk logs go to external store via logRef. |
+| AgentRunRequest | AgentOS | `agent_run_requests` | Durable request inbox + queue + dedupe + audit. Replaces AgentWakeupRequest. Queue state lives here, not on AgentRun. |
+| AgentRuntimeState | AgentOS | `agent_runtime_states` | Frequently-changing per-instance runtime state (last run, totals, cached aggregates). 1:1 with AgentInstance. |
+| AgentTaskSession | AgentOS | `agent_task_sessions` | Per-task durable session. taskKey defaults to "default" only at API boundary. |
+| AgentToolDefinition | AgentOS | `agent_tool_definitions` | Catalog of business tools agents may invoke. KidItem ships a curated set; not a generic HTTP/DB tool marketplace. |
+| WorkflowRun | AgentOS | `workflow_runs` | Workflow run record. Workflow runner triggers Agent OS via AgentRunnerPort with sourceWorkflowRunId. |
+| WorkflowTemplate | AgentOS | `workflow_templates` | Workflow definition. Trigger config + nodes/edges. |
 | ContentGeneration | AI | `content_generations` | - |
 | Thumbnail | AI | `thumbnails` | CTR 기반 썸네일 트래킹 (ThumbnailAnalysis 와 별도 시스템). |
 | ThumbnailAnalysis | AI | `thumbnail_analyses` | 5차원 scores(heroShot·composition·branding·mobile·differentiation) + complianceGrade(PASS/WARN/FAIL) + imageSpec(사전검수). 스펙 FAIL 시 AI 호출 생략. |
@@ -178,118 +185,252 @@ erDiagram
     DateTime executedAt
     DateTime createdAt
   }
-  AgentDefinition {
+  AgentApprovalRequest {
     String id PK
     String organizationId FK
-    String name
+    String agentInstanceId FK
+    String requestId FK
+    String runId FK
+    String status
+    String reasonCode
+    String reason
+    String prompt
+    Json payload
+    Json actionSnapshot
+    String requestedByActorType
+    String requestedByActorId
+    String requestedByUserId FK
+    String approverUserId FK
+    String decidedByUserId FK
+    DateTime decidedAt
+    String decisionReason
+    DateTime expiresAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  AgentAuthorizationEvent {
+    String id PK
+    String organizationId FK
+    String agentInstanceId FK
+    String requestId FK
+    String runId FK
+    String toolId FK
+    String actorType
+    String actorId
+    String action
+    String decision
+    String reasonCode
+    String reason
+    String resourceType
+    String resourceId
+    Json policySnapshot
+    String requestedByUserId FK
+    String decidedByUserId FK
+    DateTime createdAt
+  }
+  AgentBlueprint {
+    String id PK
     String type UK
+    String name
     String description
-    String adapterType
-    Json adapterConfig
-    Json runtimeConfig
+    String promptPath
+    String defaultAdapterType
+    String defaultModel
+    Json defaultRuntimeConfig
+    Json defaultCapabilities
+    String catalogStatus
+    String marketplaceId FK
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  AgentBlueprintToolPolicy {
+    String id PK
+    String blueprintId FK
+    String toolId FK
+    String effect
+    String approvalMode
+    String dryRunMode
+    Json constraints
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  AgentCostEvent {
+    String id PK
+    String organizationId FK
+    String agentInstanceId FK
+    String requestId FK
+    String runId FK
+    String provider
+    String model
+    String biller
+    String billingType
+    Int inputTokens
+    Int outputTokens
+    Int cachedInputTokens
+    BigInt costMicros
+    Json metadata
+    DateTime occurredAt
+    DateTime createdAt
+  }
+  AgentInstance {
+    String id PK
+    String organizationId FK
+    String blueprintId FK
+    String type
+    String name
     String role
     String title
     String icon
-    String reportsTo FK
-    String status
+    String reportsToId FK
+    String lifecycleStatus
     String pauseReason
     DateTime pausedAt
-    Json permissions
-    StringArray skills
-    StringArray deniedSkills
-    Json actionCap
     Int trustLevel
-    String promptTemplate
-    String allowedTools
-    String permissionMode
-    StringArray fallbackChain
-    Int monthlyTokenBudget
-    Int tokensUsed
-    DateTime budgetResetAt
-    String schedule
-    Int timeoutSeconds
-    Int maxOutputTokens
-    Boolean requiresApproval
-    Boolean isActive
-    Int resultRetentionDays
-    String contextStrategy
-    DateTime lastHeartbeatAt
-    Json metadata
-    String rtSessionId
-    Json rtStateJson
-    String rtLastRunId
-    String rtLastRunStatus
-    Int rtTotalInputTokens
-    Int rtTotalOutputTokens
-    Int rtTotalCostCents
-    String rtLastError
-    Int rtConsecutiveFailCount
-    DateTime rtLastFailedAt
+    String adapterType
+    String modelOverride
+    Json adapterConfig
+    Json runtimeConfig
+    String promptPathOverride
     DateTime createdAt
     DateTime updatedAt
-    String marketplaceId FK
   }
-  AgentEvent {
+  AgentInstanceToolPolicy {
     String id PK
     String organizationId FK
-    String agentId FK
-    String runId
-    String eventType
-    String category
-    String detail
-    String action
-    String tableName
-    String recordId
-    String fieldName
-    Json valueBefore
-    Json valueAfter
-    DateTime restoredAt
+    String agentInstanceId FK
+    String toolId FK
+    String effect
+    String approvalMode
+    String dryRunMode
+    Json constraints
     DateTime createdAt
+    DateTime updatedAt
   }
-  AgentLog {
+  AgentRun {
     String id PK
-    String taskId FK
-    String level
-    String message
-    Json data
-    DateTime createdAt
-  }
-  AgentTask {
-    String id PK
-    String organizationId
-    String agentType
+    String organizationId FK
+    String agentInstanceId FK
+    String requestId FK
+    String taskSessionId FK
+    String retryOfRunId FK
     String status
-    Int priority
-    String workflowRunId
-    String workflowNodeId
-    String sourceDataId
+    Int attempt
+    String invocationSource
+    String adapterType
+    String model
+    String provider
+    String taskKey
+    String sessionDisplayBefore
+    String sessionDisplayAfter
     Json input
     Json output
-    String error
-    DateTime scheduledAt
     DateTime startedAt
-    DateTime completedAt
+    DateTime finishedAt
+    DateTime heartbeatAt
+    Int exitCode
+    String signal
+    String errorCode
+    String errorMessage
+    Json usageJson
+    Json resultJson
+    String logStore
+    String logRef
+    String logSha256
+    BigInt logBytes
+    Boolean logCompressed
+    String stdoutExcerpt
+    String stderrExcerpt
+    Int lastEventSeq
     DateTime createdAt
     DateTime updatedAt
   }
-  AgentWakeupRequest {
+  AgentRunEvent {
     String id PK
     String organizationId FK
-    String agentId FK
+    String runId FK
+    String agentInstanceId FK
+    Int seq
+    String type
+    String level
+    String stream
+    String message
+    Json data
+    String logRef
+    DateTime createdAt
+  }
+  AgentRunRequest {
+    String id PK
+    String organizationId FK
+    String agentInstanceId FK
+    String taskSessionId FK
     String source
     String triggerDetail
     String reason
-    String legacyTaskId
+    String idempotencyKey
+    Int priority
+    String sourceWorkflowRunId FK
+    String sourceWorkflowNodeId
+    String sourceResourceType
+    String sourceResourceId
+    String requestedByUserId FK
+    String requestedByActorType
+    String requestedByActorId
     Json payload
     String status
-    Int coalescedCount
-    String requestedByType
-    String requestedById
-    String runId
-    DateTime requestedAt
+    DateTime scheduledFor
     DateTime claimedAt
+    String claimedBy
+    Int attempts
+    Int maxAttempts
     DateTime finishedAt
-    String error
+    String coalescedIntoRequestId FK
+    String lastErrorCode
+    String lastErrorMessage
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  AgentRuntimeState {
+    String id PK
+    String organizationId FK
+    String agentInstanceId FK,UK
+    String lastRunId FK
+    String lastRunStatus
+    String lastError
+    DateTime lastHeartbeatAt
+    Int consecutiveFailureCount
+    Int totalRuns
+    Int totalInputTokens
+    Int totalOutputTokens
+    BigInt totalCostMicros
+    Json stateJson
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  AgentTaskSession {
+    String id PK
+    String organizationId FK
+    String agentInstanceId FK
+    String adapterType
+    String taskKey
+    String title
+    Json metadata
+    Json sessionParams
+    String sessionDisplay
+    String lastRunId FK
+    String lastError
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  AgentToolDefinition {
+    String id PK
+    String key UK
+    String name
+    String description
+    String riskLevel
+    String credentialKind
+    Json inputSchemaJson
+    Json outputSchemaJson
+    Boolean isActive
     DateTime createdAt
     DateTime updatedAt
   }
@@ -719,35 +860,6 @@ erDiagram
     Decimal velocityScore
     String reason
     DateTime calculatedAt
-  }
-  HeartbeatRun {
-    String id PK
-    String organizationId FK
-    String agentId FK
-    String invocationSource
-    String triggerDetail
-    String status
-    String failureType
-    DateTime startedAt
-    DateTime finishedAt
-    String error
-    Int exitCode
-    String signal
-    Json usageJson
-    Json resultJson
-    String sessionIdBefore
-    String sessionIdAfter
-    String stdoutExcerpt
-    String stderrExcerpt
-    String errorCode
-    Int processPid
-    String wakeupRequestId FK
-    String nextSchedule
-    Boolean isSummarized
-    String summary
-    String triggeredByUserId FK
-    DateTime createdAt
-    DateTime updatedAt
   }
   Inventory {
     String id PK
@@ -1432,7 +1544,7 @@ erDiagram
     String type
     String team
     String avatarUrl
-    String agentDefinitionId FK
+    String agentInstanceId FK
     Boolean isActive
     DateTime lastLoginAt
     DateTime createdAt
@@ -1484,13 +1596,36 @@ erDiagram
   }
   ActionTask o|--o{ Alert : "actionTask"
   AdAction ||--o{ ExecutionTask : "action"
-  AgentDefinition o|--o{ AgentDefinition : "parent"
-  AgentDefinition ||--o{ AgentEvent : "agent"
-  AgentDefinition ||--o{ AgentWakeupRequest : "agent"
-  AgentDefinition ||--o{ HeartbeatRun : "agent"
-  AgentDefinition o|--o{ User : "agentDefinition"
-  AgentTask ||--o{ AgentLog : "task"
-  AgentWakeupRequest o|--o{ HeartbeatRun : "wakeupRequest"
+  AgentBlueprint ||--o{ AgentBlueprintToolPolicy : "blueprint"
+  AgentBlueprint ||--o{ AgentInstance : "blueprint"
+  AgentInstance ||--o{ AgentApprovalRequest : "agentInstance"
+  AgentInstance ||--o{ AgentAuthorizationEvent : "agentInstance"
+  AgentInstance ||--o{ AgentCostEvent : "agentInstance"
+  AgentInstance o|--o{ AgentInstance : "parent"
+  AgentInstance ||--o{ AgentInstanceToolPolicy : "agentInstance"
+  AgentInstance ||--o{ AgentRun : "agentInstance"
+  AgentInstance ||--o{ AgentRunEvent : "agentInstance"
+  AgentInstance ||--o{ AgentRunRequest : "agentInstance"
+  AgentInstance ||--|| AgentRuntimeState : "agentInstance"
+  AgentInstance ||--o{ AgentTaskSession : "agentInstance"
+  AgentInstance o|--o{ User : "agentInstance"
+  AgentRun o|--o{ AgentApprovalRequest : "run"
+  AgentRun o|--o{ AgentAuthorizationEvent : "run"
+  AgentRun ||--o{ AgentCostEvent : "run"
+  AgentRun o|--o{ AgentRun : "retryOfRun"
+  AgentRun ||--o{ AgentRunEvent : "run"
+  AgentRun o|--o{ AgentRuntimeState : "lastRun"
+  AgentRun o|--o{ AgentTaskSession : "lastRun"
+  AgentRunRequest ||--o{ AgentApprovalRequest : "request"
+  AgentRunRequest o|--o{ AgentAuthorizationEvent : "request"
+  AgentRunRequest ||--o{ AgentCostEvent : "request"
+  AgentRunRequest ||--o{ AgentRun : "request"
+  AgentRunRequest o|--o{ AgentRunRequest : "coalescedIntoRequest"
+  AgentTaskSession ||--o{ AgentRun : "taskSession"
+  AgentTaskSession ||--o{ AgentRunRequest : "taskSession"
+  AgentToolDefinition o|--o{ AgentAuthorizationEvent : "tool"
+  AgentToolDefinition ||--o{ AgentBlueprintToolPolicy : "tool"
+  AgentToolDefinition ||--o{ AgentInstanceToolPolicy : "tool"
   ChannelAdTargetDailySnapshot o|--o{ AdAction : "adTargetDaily"
   ChannelListing o|--o{ AdAction : "listing"
   ChannelListing o|--o{ ChannelAdTargetDailySnapshot : "listing"
@@ -1518,7 +1653,7 @@ erDiagram
   ChannelScrapeSnapshot o|--o{ ChannelListingOptionDailySnapshot : "rawSnapshot"
   ExecutionTask ||--o{ ExecutionLog : "task"
   ExecutionWorker o|--o{ ExecutionTask : "worker"
-  Marketplace o|--o{ AgentDefinition : "marketplace"
+  Marketplace o|--o{ AgentBlueprint : "marketplace"
   Marketplace o|--o{ WorkflowTemplate : "marketplace"
   MasterProduct ||--o{ ChannelListing : "master"
   MasterProduct ||--o{ ContentGeneration : "master"
@@ -1539,9 +1674,16 @@ erDiagram
   Organization ||--o{ ActionTask : "organization"
   Organization ||--o{ ActivityEvent : "organization"
   Organization ||--o{ AdAction : "organization"
-  Organization o|--o{ AgentDefinition : "organization"
-  Organization ||--o{ AgentEvent : "organization"
-  Organization ||--o{ AgentWakeupRequest : "organization"
+  Organization ||--o{ AgentApprovalRequest : "organization"
+  Organization ||--o{ AgentAuthorizationEvent : "organization"
+  Organization ||--o{ AgentCostEvent : "organization"
+  Organization ||--o{ AgentInstance : "organization"
+  Organization ||--o{ AgentInstanceToolPolicy : "organization"
+  Organization ||--o{ AgentRun : "organization"
+  Organization ||--o{ AgentRunEvent : "organization"
+  Organization ||--o{ AgentRunRequest : "organization"
+  Organization ||--o{ AgentRuntimeState : "organization"
+  Organization ||--o{ AgentTaskSession : "organization"
   Organization ||--o{ Alert : "organization"
   Organization ||--o{ BundleComponent : "organization"
   Organization ||--o{ BusinessRule : "organization"
@@ -1561,7 +1703,6 @@ erDiagram
   Organization ||--o{ CSRecord : "organization"
   Organization ||--o{ ExecutionWorker : "organization"
   Organization ||--o{ GradeHistory : "organization"
-  Organization ||--o{ HeartbeatRun : "organization"
   Organization ||--o{ Inventory : "organization"
   Organization ||--o{ LegalEntity : "organization"
   Organization ||--o{ ManualLedger : "organization"
@@ -1628,7 +1769,12 @@ erDiagram
   ThumbnailGeneration ||--o{ ThumbnailRegistrationAttempt : "generation"
   ThumbnailGeneration ||--o{ ThumbnailTracking : "generation"
   User o|--o{ ActionTask : "assigneeUser"
-  User o|--o{ HeartbeatRun : "triggeredByUser"
+  User o|--o{ AgentApprovalRequest : "approver"
+  User o|--o{ AgentApprovalRequest : "decidedBy"
+  User o|--o{ AgentApprovalRequest : "requestedBy"
+  User o|--o{ AgentAuthorizationEvent : "decidedBy"
+  User o|--o{ AgentAuthorizationEvent : "requestedBy"
+  User o|--o{ AgentRunRequest : "requestedBy"
   User o|--o{ OrganizationMembership : "invitedBy"
   User ||--o{ OrganizationMembership : "user"
   User o|--o{ ThumbnailGeneration : "triggeredByUser"
@@ -1637,5 +1783,6 @@ erDiagram
   Warehouse o|--o{ StockTransaction : "warehouse"
   Warehouse ||--o{ StockTransfer : "fromWarehouse"
   Warehouse ||--o{ StockTransfer : "toWarehouse"
+  WorkflowRun o|--o{ AgentRunRequest : "sourceWorkflowRun"
   WorkflowTemplate ||--o{ WorkflowRun : "template"
 ```

@@ -117,18 +117,26 @@ function extractEditedImageUrl(output: unknown): string | null {
   );
 }
 
+// Agent OS v2 returns `taskId` from `/api/image-ai/edit` that maps to an
+// `AgentRun.id`. We poll `/api/agent-os/runs/:id` and read the `output` JSON
+// (the row-level field is exposed on the GET-by-id response).
 async function pollTaskResult(taskId: string): Promise<{ image_url: string }> {
   const maxAttempts = 60; // 60 * 2s = 120s max
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise(r => setTimeout(r, 2000));
-    const task = await apiClient.get<{ status: string; output: unknown; error?: string }>(`/api/agent-tasks/${taskId}`);
-    if (task.status === 'completed') {
-      const imageUrl = extractEditedImageUrl(task.output);
+    let run: { status: string; output?: unknown; errorMessage?: string | null; errorCode?: string | null };
+    try {
+      run = await apiClient.get<typeof run>(`/api/agent-os/runs/${taskId}`);
+    } catch {
+      continue;
+    }
+    if (run.status === 'succeeded') {
+      const imageUrl = extractEditedImageUrl(run.output ?? null);
       if (!imageUrl) throw new Error('AI 결과 이미지 URL을 찾지 못했습니다');
       return { image_url: imageUrl };
     }
-    if (task.status === 'failed') {
-      throw new Error(task.error || '이미지 편집에 실패했습니다');
+    if (run.status === 'failed' || run.status === 'cancelled') {
+      throw new Error(run.errorMessage || run.errorCode || '이미지 편집에 실패했습니다');
     }
   }
   throw new Error('시간 초과: 이미지 편집이 너무 오래 걸립니다');

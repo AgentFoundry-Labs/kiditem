@@ -44,6 +44,11 @@ function toCatalogItem(item: Marketplace, installed: boolean): MarketplaceCatalo
  * folding the read-side into Automation removes the table-shaped
  * `marketplace/` top-level module while preserving the
  * `/api/marketplace/*` route shape and slim-core allowlist behavior.
+ *
+ * Workflow listings join `WorkflowTemplate` to compute per-tenant
+ * `installed` flags. Agent listings always return `installed: false`
+ * because the legacy `AgentDefinition` table was retired and agent
+ * install is no longer wired (see `MarketplaceInstallService`).
  */
 @Injectable()
 export class MarketplaceCatalogService {
@@ -110,7 +115,7 @@ export class MarketplaceCatalogService {
   // ─── Agent Catalog ───
 
   async listAgents(
-    organizationId: string,
+    _organizationId: string,
     query: { role?: string; category?: string } = {},
   ): Promise<MarketplaceCatalogItem[]> {
     const items = await this.prisma.marketplace.findMany({
@@ -123,13 +128,10 @@ export class MarketplaceCatalogService {
       orderBy: { installCount: 'desc' },
     });
 
-    const installed = await this.prisma.agentDefinition.findMany({
-      where: { organizationId, marketplaceId: { not: null } },
-      select: { marketplaceId: true },
-    });
-    const installedSet = new Set(installed.map((i) => i.marketplaceId));
-
-    return items.map((item) => toCatalogItem(item, installedSet.has(item.id)));
+    // Agent install path is not wired (legacy AgentDefinition retired).
+    // Always report `installed: false`; install requests are rejected by
+    // `MarketplaceController` until a real Agent OS catalog wiring lands.
+    return items.map((item) => toCatalogItem(item, false));
   }
 
   async getAgent(id: string) {

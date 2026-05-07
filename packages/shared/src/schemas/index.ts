@@ -123,49 +123,8 @@ export type {
 export { WorkflowTemplateSchema, WorkflowRunSchema, WorkflowStepRunSchema } from './workflow.js';
 export type { WorkflowTemplate, WorkflowRun, WorkflowStepRun } from './workflow.js';
 
-// Agent
-export {
-  AgentSchema,
-  AgentListItemSchema,
-  HeartbeatRunSchema,
-  AgentRuntimeStateSchema,
-  DailyCostSchema,
-  AgentCostSummarySchema,
-  CostAnalyticsSchema,
-} from './agent.js';
-export type {
-  Agent,
-  AgentListItem,
-  HeartbeatRun,
-  AgentRuntimeState,
-  DailyCost,
-  AgentCostSummary,
-  CostAnalytics,
-} from './agent.js';
-
-// Agent Trace
-export {
-  AgentTaskSchema,
-  WorkflowRunTraceSchema,
-  AgentWakeupRequestSchema,
-  AgentEventSchema,
-  AgentLogSchema,
-  TraceabilitySchema,
-  TracePaginationSchema,
-  AgentTraceSchema,
-  AgentTaskListResponseSchema,
-} from './agent-trace.js';
-export type {
-  AgentTask,
-  WorkflowRunTrace,
-  AgentWakeupRequest,
-  AgentEvent,
-  AgentLog,
-  Traceability,
-  TracePagination,
-  AgentTrace,
-  AgentTaskListResponse,
-} from './agent-trace.js';
+// Agent OS v2 — see `@kiditem/shared/agent-os` subpath. Legacy Agent +
+// AgentTrace schemas have been removed.
 
 // Marketplace
 export { ConfigurableParamSchema, MarketplaceCatalogItemSchema } from './marketplace.js';

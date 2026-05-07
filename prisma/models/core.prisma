@@ -32,7 +32,18 @@ model Organization {
   // Workflow & Agent
   workflowTemplates WorkflowTemplate[]
   activityEvents    ActivityEvent[]
-  agentDefinitions  AgentDefinition[]
+
+  // Agent OS v2
+  agentInstances            AgentInstance[]
+  agentRuntimeStates        AgentRuntimeState[]
+  agentTaskSessions         AgentTaskSession[]
+  agentRunRequests          AgentRunRequest[]
+  agentRuns                 AgentRun[]
+  agentRunEvents            AgentRunEvent[]
+  agentInstanceToolPolicies AgentInstanceToolPolicy[]
+  agentAuthorizationEvents  AgentAuthorizationEvent[]
+  agentApprovalRequests     AgentApprovalRequest[]
+  agentCostEvents           AgentCostEvent[]
 
   // Order domain (Plan A.5)
   orderLineItems       OrderLineItem[]
@@ -72,13 +83,6 @@ model Organization {
   // Ontology
   businessRules  BusinessRule[]
   systemSettings SystemSetting[]
-
-  // Agent Platform
-
-  heartbeatRuns       HeartbeatRun[]
-  agentWakeupRequests AgentWakeupRequest[]
-
-  agentEvents AgentEvent[]
 
   // Ad Scrape Targets
   scrapeTargets ScrapeTarget[]
@@ -128,21 +132,28 @@ model User {
   type              String    @default("human")
   team              String?
   avatarUrl         String?   @map("avatar_url")
-  agentDefinitionId String?   @map("agent_definition_id") @db.Uuid
+  agentInstanceId   String?   @map("agent_instance_id") @db.Uuid
   isActive          Boolean   @default(true) @map("is_active")
   lastLoginAt       DateTime? @map("last_login_at") @db.Timestamptz
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  agentDefinition                AgentDefinition?         @relation(fields: [agentDefinitionId], references: [id], onDelete: SetNull)
+  agentInstance                  AgentInstance?           @relation(fields: [agentInstanceId], references: [id], onDelete: SetNull)
   memberships                    OrganizationMembership[]
   invitedOrganizationMemberships OrganizationMembership[] @relation("OrganizationMembershipInviter")
   triggeredWorkflowRuns          WorkflowRun[]            @relation("WorkflowRunTriggeredBy")
-  triggeredHeartbeatRuns         HeartbeatRun[]           @relation("HeartbeatRunTriggeredBy")
   triggeredThumbnailGenerations  ThumbnailGeneration[]    @relation("ThumbnailGenerationTriggeredBy")
   assignedActionTasks            ActionTask[]             @relation("ActionTaskAssignee")
 
-  @@index([agentDefinitionId])
+  // Agent OS v2 — actor relations
+  requestedAgentRunRequests         AgentRunRequest[]         @relation("AgentRunRequestRequestedBy")
+  requestedAgentAuthorizationEvents AgentAuthorizationEvent[] @relation("AgentAuthorizationRequestedBy")
+  decidedAgentAuthorizationEvents   AgentAuthorizationEvent[] @relation("AgentAuthorizationDecidedBy")
+  requestedAgentApprovalRequests    AgentApprovalRequest[]    @relation("AgentApprovalRequestedBy")
+  approverAgentApprovalRequests     AgentApprovalRequest[]    @relation("AgentApprovalApprover")
+  decidedAgentApprovalRequests      AgentApprovalRequest[]    @relation("AgentApprovalDecidedBy")
+
+  @@index([agentInstanceId])
   @@map("users")
 }
 
