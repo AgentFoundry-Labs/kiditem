@@ -30,13 +30,14 @@ owner domain 으로 이동했다. 새 위치:
 `automation/adapter/in/http/dto/alerts/`. `rules/` 는 더 이상 alerts
 컨트롤러/서비스를 보유하지 않는다.
 
-## Schedule routes — Agent OS v2 migration in flight
+## Schedule routes — removed with the legacy port
 
-`GET/PATCH /api/rules/schedule` 은 legacy `AgentScheduleControlPort` 가
-`agent-registry` 와 함께 삭제되면서 임시로 503 을 반환한다. Agent OS v2 가
-schedule 표면 (`AgentInstance.runtimeConfig` / `AgentRunRequest.scheduledFor`)
-을 노출하면 그 시점에 다시 실배선한다. Controller / 컨트롤러 spec 의
-`// TODO(agent-os v2): rewrite for new contracts` 주석을 따라간다.
+`GET/PATCH /api/rules/schedule` 은 Agent OS v2 마이그레이션과 함께 삭제됐다.
+legacy `AgentScheduleControlPort` 도 함께 사라졌고, 프론트 consumer 도 없다.
+Agent OS v2 가 schedule 표면 (`AgentInstance.runtimeConfig` /
+`AgentRunRequest.scheduledFor`) 을 도입하면 그 시점에 새 endpoint 로
+재공개한다 (별도 plan + scoped instruction 갱신 필수). 임시 503 stub 은
+contract drift 위험 때문에 두지 않는다.
 
 ## Directory
 
@@ -44,7 +45,7 @@ schedule 표면 (`AgentInstance.runtimeConfig` / `AgentRunRequest.scheduledFor`)
 rules/
 ├── controllers/   # rules (1개)
 ├── services/      # rules, types (1 service + types)
-├── dto/           # 3 DTO (list-rules, update-rule, update-schedule)
+├── dto/           # 2 DTO (list-rules, update-rule)
 ├── __tests__/     # rules.service.spec, rules-flow.spec, rules.controller.spec
 └── rules.module.ts
 ```
@@ -56,7 +57,6 @@ rules/
 | `POST /api/rules/evaluate` | Agent OS v2 spawn + return `{ requestId, status }` |
 | `GET /api/rules/evaluate/status/:requestId` | `AgentObservabilityService.findRequest` 폴링 |
 | `GET /api/rules` | 회사+카테고리별 룰 리스트 |
-| `GET/PATCH /api/rules/schedule` | (Agent OS v2 마이그레이션 중 — 503) |
 | `PATCH /api/rules/:id` | 룰 정의 update (tenant-scoped read 후 write) |
 | `GET /api/rules/suggest-thresholds` | rules_suggest agent spawn |
 | `GET /api/rules/summary` | 회사 healthScore distribution + topCritical |
@@ -124,4 +124,4 @@ batch_summary item 을 emit. emit throw 는 catch 해 alert 생성 흐름은 깨
 | Agent result 형식 변경 | `agent-config/prompts/agents/rules-evaluation.md` + `services/rules.service.ts` (`processEvaluationResult`) + `__tests__/rules-flow.spec.ts` + Agent OS bridging 어댑터 |
 | 새 룰 카테고리 | DB seed (BusinessRule INSERT 마이그레이션) + `rules.service.ts:list filter` + 프론트 카테고리 enum |
 | Bulk update 변경 | `services/rules.service.ts` healthScore $transaction 블록 — `(id, organizationId)` 스코프 유지 + unsafe raw SQL 금지 + `__tests__/rules-flow.spec.ts` & `rules.service.spec.ts` 의 $transaction/updateMany 모킹 동기화 |
-| Schedule 재배선 | Agent OS v2 schedule 표면 (`AgentInstance.runtimeConfig` /  `AgentRunRequest.scheduledFor`) 도입 시점에 controller 의 `// TODO(agent-os v2)` 가드를 풀고 service 메서드 추가 |
+| Schedule 재도입 | Agent OS v2 schedule 표면 (`AgentInstance.runtimeConfig` / `AgentRunRequest.scheduledFor`) plan 작성 → 새 controller route + service method + DTO + frontend consumer 일괄 추가. 이 PR 에서 503 stub 은 제거됐다. |

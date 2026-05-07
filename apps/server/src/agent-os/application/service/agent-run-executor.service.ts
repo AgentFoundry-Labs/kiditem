@@ -31,10 +31,17 @@ export class AgentRunExecutor {
     private readonly runtime: AgentRuntimePort,
   ) {}
 
-  async executeNext(workerId: string): Promise<AgentRunExecutorResult> {
+  async executeNext(
+    workerId: string,
+    organizationId: string,
+  ): Promise<AgentRunExecutorResult> {
+    if (!organizationId) {
+      return { executed: false, reason: 'organization_required' };
+    }
     const claimed = await this.repository.claimNextRunRequest({
       workerId,
       now: new Date(),
+      organizationId,
     });
 
     if (!claimed) {

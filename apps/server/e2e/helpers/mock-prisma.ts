@@ -7,6 +7,7 @@ function createModelMock() {
     findUnique: vi.fn().mockResolvedValue(null),
     create: vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'test-id', ...data })),
     update: vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'test-id', ...data })),
+    updateMany: vi.fn().mockResolvedValue({ count: 0 }),
     upsert: vi.fn().mockImplementation(({ create }) => Promise.resolve({ id: 'test-id', ...create })),
     delete: vi.fn().mockResolvedValue({ id: 'test-id' }),
     deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
@@ -24,7 +25,12 @@ const models = [
   'order', 'coupangOrderItem', 'inventory', 'review',
   'organization', 'supplier', 'warehouse', 'ad', 'profitLoss',
   'workflowTemplate', 'workflowRun', 'activityEvent', 'alert',
-  'agentDefinition', 'agentTask', 'agentLog', 'agentEvent',
+  // Agent OS v2
+  'agentBlueprint', 'agentInstance', 'agentRuntimeState',
+  'agentTaskSession', 'agentRunRequest', 'agentRun', 'agentRunEvent',
+  'agentToolDefinition', 'agentBlueprintToolPolicy',
+  'agentInstanceToolPolicy', 'agentAuthorizationEvent',
+  'agentApprovalRequest', 'agentCostEvent',
   'marketplace', 'businessRule', 'featureGate', 'thumbnailAnalysis',
   'thumbnailGeneration', 'thumbnail', 'category', 'optionMaster',
   'purchaseOrder', 'purchaseOrderItem', 'stockTransfer', 'stockTransaction',
@@ -34,7 +40,7 @@ const models = [
   'supplierProduct', 'supplierPayment', 'salesPlan', 'trafficStats',
   'gradeHistory', 'actionTask', 'systemSetting', 'csRecord',
   'adSnapshot', 'adCampaignSnapshot', 'scrapeTarget', 'contentGeneration',
-  'itemWinner', 'agentWakeupRequest', 'agentDenialRecord',
+  'itemWinner',
 ] as const;
 
 /**
@@ -53,7 +59,7 @@ export const TEST_DEFAULT_USER = {
   type: 'human',
   team: null,
   avatarUrl: null,
-  agentDefinitionId: null,
+  agentInstanceId: null,
   isActive: true,
   lastLoginAt: null,
   password: null,

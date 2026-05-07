@@ -1,4 +1,3 @@
-import { ServiceUnavailableException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { RulesController } from '../controllers/rules.controller';
 
@@ -43,27 +42,6 @@ describe('RulesController evaluation routes', () => {
     // service; the controller must scope by both organizationId (IDOR-safe)
     // and the v2 requestId path param.
     expect(rulesService.getEvaluationStatus).toHaveBeenCalledWith(ORGANIZATION_ID, 'request-1');
-  });
-});
-
-describe('RulesController schedule routes — Agent OS v2 migration stub', () => {
-  // TODO(agent-os v2): rewrite for new contracts.
-  // Legacy `AgentScheduleControlPort` (and its tenant-owned `rules_evaluation`
-  // cron contract) was deleted with `agent-registry`. Until Agent OS v2 ships
-  // the replacement schedule surface (`AgentInstance.runtimeConfig` /
-  // `AgentRunRequest.scheduledFor`), the rules controller returns 503.
-  it('GET /schedule throws ServiceUnavailable while v2 migration is in flight', () => {
-    const { controller } = makeController();
-
-    expect(() => controller.getSchedule()).toThrow(ServiceUnavailableException);
-  });
-
-  it('PATCH /schedule throws ServiceUnavailable while v2 migration is in flight', () => {
-    const { controller } = makeController();
-
-    expect(() => controller.updateSchedule({ schedule: '0 9 * * *' } as never)).toThrow(
-      ServiceUnavailableException,
-    );
   });
 });
 

@@ -72,10 +72,10 @@ export class AgentRunsController {
 
   @Post('executor/claim-and-run')
   async claimAndRun(
-    @CurrentOrganization() _organizationId: string,
+    @CurrentOrganization() organizationId: string,
     @Body() body: ClaimAndRunDto,
   ) {
-    return this.executor.executeNext(body.workerId);
+    return this.executor.executeNext(body.workerId, organizationId);
   }
 
   @Get('requests')

@@ -6,7 +6,6 @@ let prisma: Awaited<ReturnType<typeof createApp>>['prisma'];
 
 const MARKETPLACE_AGENT_ID = 'b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e';
 const MARKETPLACE_WF_ID = 'c3d4e5f6-a7b8-4c9d-0e1f-2a3b4c5d6e7f';
-const INSTALLED_AGENT_ID = 'd4e5f6a7-b8c9-4d0e-1f2a-3b4c5d6e7f80';
 
 const sampleAgentCatalog = {
   id: MARKETPLACE_AGENT_ID,
@@ -52,9 +51,6 @@ const sampleWorkflowCatalog = {
   ],
 };
 
-// Catalog row that still references removed slim-core executors. Used to
-// prove the marketplace hides + rejects them after the workflow surface
-// shrank to the registered node types.
 const legacyWorkflowCatalog = {
   ...sampleWorkflowCatalog,
   id: 'e5f6a7b8-c9d0-4e1f-2a3b-4c5d6e7f8091',
@@ -76,71 +72,51 @@ afterAll(async () => {
   await closeApp();
 });
 
-describe('Marketplace Agent CRUD — /api/marketplace/agents', () => {
+// Agent OS v2 marketplace contract:
+// - Agent blueprints are a GLOBAL catalog (no per-organization install/clone).
+//   `GET /api/marketplace/agents` lists what's available; the per-tenant
+//   "installed" flag is always false because cloning into a tenant is no
+//   longer the install model.
+// - Agent install/uninstall HTTP routes are stable surfaces but return 400
+//   in v2 — they are kept so callers fail loudly, not silently. Tenants pick
+//   blueprints up by creating an `AgentInstance` through Agent OS APIs.
+// - Workflow install/uninstall remain organization-scoped CRUD on
+//   `WorkflowTemplate`. The slim-core executor allowlist still rejects
+//   catalog rows that reference removed node types.
+
+describe('Marketplace — /api/marketplace/agents (Agent OS v2)', () => {
   describe('GET /api/marketplace/agents', () => {
     beforeEach(() => {
       (prisma.marketplace.findMany as any).mockResolvedValue([sampleAgentCatalog]);
-      (prisma.agentDefinition.findMany as any).mockResolvedValue([]);
     });
 
-    it('lists available agents with installed status', async () => {
-      // organizationId 는 DevAuthMiddleware + @CurrentOrganization() 로 자동 주입 — 쿼리 불필요
+    it('lists agent catalog rows with installed=false (v2 has no per-tenant clone)', async () => {
       const res = await api().get('/api/marketplace/agents');
 
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
       expect(res.body[0].name).toBe('매니저 에이전트');
       expect(res.body[0].installed).toBe(false);
-
-      // installed 판정에 사용되는 agentDefinition 조회가 organizationId 로 스코프되는지 확인 (multitenancy)
-      expect(prisma.agentDefinition.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({ organizationId: TEST_ORGANIZATION_ID }),
-        }),
-      );
-    });
-
-    it('marks agent as installed when definition exists', async () => {
-      (prisma.agentDefinition.findMany as any).mockResolvedValue([
-        { marketplaceId: MARKETPLACE_AGENT_ID },
-      ]);
-
-      const res = await api().get('/api/marketplace/agents');
-
-      expect(res.body[0].installed).toBe(true);
     });
   });
 
   describe('POST /api/marketplace/agents/:id/install', () => {
-    beforeEach(() => {
-      (prisma.marketplace.findUnique as any).mockResolvedValue(sampleAgentCatalog);
-      (prisma.agentDefinition.create as any).mockImplementation(({ data }: any) =>
-        Promise.resolve({ id: INSTALLED_AGENT_ID, ...data }),
-      );
-      (prisma.agentDefinition.findFirst as any).mockResolvedValue(null);
-      (prisma.marketplace.update as any).mockResolvedValue({ ...sampleAgentCatalog, installCount: 4 });
-    });
-
-    it('installs agent and returns created definition', async () => {
-      // body 는 비어 있어도 되고 — organizationId 는 auth context 에서 주입
+    it('returns 400 — blueprints are global; tenants create AgentInstance via Agent OS', async () => {
       const res = await api()
         .post(`/api/marketplace/agents/${MARKETPLACE_AGENT_ID}/install`)
         .send({});
 
-      expect(res.status).toBe(201);
-      expect(res.body).toHaveProperty('id');
-      expect(prisma.agentDefinition.create).toHaveBeenCalled();
-      expect(prisma.marketplace.update).toHaveBeenCalled();
+      expect(res.status).toBe(400);
     });
+  });
 
-    it('returns 404 for non-existent catalog item', async () => {
-      (prisma.marketplace.findUnique as any).mockResolvedValue(null);
-
+  describe('POST /api/marketplace/agents/:id/uninstall', () => {
+    it('returns 400 — see install rationale', async () => {
       const res = await api()
-        .post('/api/marketplace/agents/non-existent-id/install')
+        .post(`/api/marketplace/agents/${MARKETPLACE_AGENT_ID}/uninstall`)
         .send({});
 
-      expect(res.status).toBe(404);
+      expect(res.status).toBe(400);
     });
   });
 });
@@ -185,7 +161,7 @@ describe('Marketplace Workflow CRUD — /api/marketplace/workflows', () => {
 
   describe('GET /api/marketplace/workflows/:id', () => {
     it('returns 404 for catalog rows that reference removed executors', async () => {
-      (prisma.marketplace.findUnique as any).mockResolvedValue(legacyWorkflowCatalog);
+      (prisma.marketplace.findFirst as any).mockResolvedValue(legacyWorkflowCatalog);
 
       const res = await api().get(`/api/marketplace/workflows/${legacyWorkflowCatalog.id}`);
 
@@ -195,7 +171,8 @@ describe('Marketplace Workflow CRUD — /api/marketplace/workflows', () => {
 
   describe('POST /api/marketplace/workflows/:id/install', () => {
     beforeEach(() => {
-      (prisma.marketplace.findUnique as any).mockResolvedValue(sampleWorkflowCatalog);
+      // The install adapter calls `prisma.marketplace.findFirst({ where: { id, type: 'workflow' } })`.
+      (prisma.marketplace.findFirst as any).mockResolvedValue(sampleWorkflowCatalog);
       (prisma.workflowTemplate.create as any).mockImplementation(({ data }: any) =>
         Promise.resolve({ id: 'wf-installed-id', ...data }),
       );
@@ -212,7 +189,7 @@ describe('Marketplace Workflow CRUD — /api/marketplace/workflows', () => {
     });
 
     it('rejects install for catalog rows that reference removed executors', async () => {
-      (prisma.marketplace.findUnique as any).mockResolvedValue(legacyWorkflowCatalog);
+      (prisma.marketplace.findFirst as any).mockResolvedValue(legacyWorkflowCatalog);
       (prisma.workflowTemplate.create as any).mockClear();
       (prisma.marketplace.update as any).mockClear();
 
@@ -229,10 +206,12 @@ describe('Marketplace Workflow CRUD — /api/marketplace/workflows', () => {
 
   describe('POST /api/marketplace/workflows/:id/uninstall', () => {
     beforeEach(() => {
-      (prisma.workflowTemplate.findFirst as any).mockResolvedValue({ id: 'wf-installed-id', marketplaceId: MARKETPLACE_WF_ID });
-      (prisma.workflowTemplate.delete as any).mockResolvedValue({ id: 'wf-installed-id' });
-      (prisma.marketplace.findUnique as any).mockResolvedValue({ ...sampleWorkflowCatalog, installCount: 3 });
-      (prisma.marketplace.update as any).mockResolvedValue({ ...sampleWorkflowCatalog, installCount: 2 });
+      // findInstalledWorkflow → workflowTemplate.findFirst({ marketplaceId, organizationId })
+      (prisma.workflowTemplate.findFirst as any).mockResolvedValue({ id: 'wf-installed-id' });
+      // deleteInstalledWorkflow → workflowTemplate.deleteMany({ id, organizationId })
+      (prisma.workflowTemplate.deleteMany as any).mockResolvedValue({ count: 1 });
+      // decrementInstallCountIfPositive → marketplace.updateMany({ id, installCount > 0 })
+      (prisma.marketplace.updateMany as any).mockResolvedValue({ count: 1 });
     });
 
     it('uninstalls workflow and decrements install count', async () => {
@@ -242,7 +221,8 @@ describe('Marketplace Workflow CRUD — /api/marketplace/workflows', () => {
 
       expect(res.status).toBe(201);
       expect(res.body).toEqual({ ok: true });
-      expect(prisma.workflowTemplate.delete).toHaveBeenCalled();
+      expect(prisma.workflowTemplate.deleteMany).toHaveBeenCalled();
+      expect(prisma.marketplace.updateMany).toHaveBeenCalled();
     });
 
     it('returns 404 when not installed', async () => {
