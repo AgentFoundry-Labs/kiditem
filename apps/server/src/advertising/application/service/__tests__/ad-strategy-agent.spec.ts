@@ -1,112 +1,69 @@
 import { describe, it, expect, vi } from 'vitest';
 import { AdStrategyAgentService } from '../ad-strategy-agent.service';
-import { AgentResultReadyEvent } from '../../../../agent-registry/events/agent-events';
+import type { AgentRunnerPort } from '../../../../agent-os/application/port/in/agent-runner.port';
 
-function makePrisma() {
-  return {
-    agentTask: { findFirst: vi.fn(), findMany: vi.fn() },
-    activityEvent: { create: vi.fn() },
-  };
-}
-
-function makeAgentRunner() {
+function makeAgentRunner(): { runByType: ReturnType<typeof vi.fn> } & AgentRunnerPort {
   return {
     runByType: vi.fn(),
-  };
+  } as unknown as { runByType: ReturnType<typeof vi.fn> } & AgentRunnerPort;
 }
 
 function makeService() {
-  const prisma = makePrisma();
   const agentRunner = makeAgentRunner();
   return {
-    service: new AdStrategyAgentService(prisma as any, agentRunner as any),
-    prisma,
+    service: new AdStrategyAgentService(agentRunner),
     agentRunner,
   };
 }
 
 describe('AdStrategyAgentService', () => {
   describe('run', () => {
-    it('delegates to agent runner port for ad_strategy', async () => {
+    it('delegates to AGENT_RUNNER_PORT.runByType for ad_strategy with sourceType', async () => {
       const { service, agentRunner } = makeService();
-      agentRunner.runByType.mockResolvedValue({ ok: true, taskId: 'task-1', agentType: 'ad_strategy' });
+      agentRunner.runByType.mockResolvedValue({
+        ok: true,
+        requestId: 'req-1',
+        agentInstanceId: 'inst-1',
+        agentType: 'ad_strategy',
+        status: 'pending',
+      });
 
-      const result = await service.run({ organizationId: 'c-1', dryRun: true });
+      const result = await service.run({ organizationId: 'org-1', dryRun: true });
 
       expect(agentRunner.runByType).toHaveBeenCalledWith('ad_strategy', {
-        organizationId: 'c-1',
+        organizationId: 'org-1',
+        sourceType: 'advertising.ad_strategy.manual',
+        reason: 'manual_trigger',
         dryRun: true,
       });
       expect(result.ok).toBe(true);
+      expect(result.agentType).toBe('ad_strategy');
     });
-  });
 
-  describe('getStatus', () => {
-    it('scopes task lookup to the current organization', async () => {
-      const { service, prisma } = makeService();
-      prisma.agentTask.findFirst.mockResolvedValue({ id: 'task-1', organizationId: 'c-1' });
+    it('passes dryRun=false through to the port', async () => {
+      const { service, agentRunner } = makeService();
+      agentRunner.runByType.mockResolvedValue({ ok: true, agentType: 'ad_strategy' });
 
-      await service.getStatus('task-1', 'c-1');
+      await service.run({ organizationId: 'org-1', dryRun: false });
 
-      expect(prisma.agentTask.findFirst).toHaveBeenCalledWith({
-        where: { id: 'task-1', organizationId: 'c-1' },
-        include: { logs: { orderBy: { createdAt: 'desc' }, take: 10 } },
+      expect(agentRunner.runByType).toHaveBeenCalledWith(
+        'ad_strategy',
+        expect.objectContaining({ organizationId: 'org-1', dryRun: false }),
+      );
+    });
+
+    it('returns the port result when the agent instance is missing', async () => {
+      const { service, agentRunner } = makeService();
+      agentRunner.runByType.mockResolvedValue({
+        ok: false,
+        agentType: 'ad_strategy',
+        reason: 'agent_instance_not_found',
       });
-    });
-  });
 
-  describe('onResultReady', () => {
-    it('creates domain activity event for ad_strategy results', async () => {
-      const { service, prisma } = makeService();
-      prisma.activityEvent.create.mockResolvedValue({});
+      const result = await service.run({ organizationId: 'org-2' });
 
-      const event = new AgentResultReadyEvent(
-        'ad_strategy', 'agent-1', 'run-1',
-        {
-          actions: [
-            { action: 'stop_ad', product_id: 'p1' },
-            { action: 'increase_budget', product_id: 'p2' },
-            { action: 'stop_ad', product_id: 'p3' },
-          ],
-          summary: { total: 3 },
-        },
-        'c-1',
-      );
-
-      await service.onResultReady(event);
-
-      expect(prisma.activityEvent.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          title: '광고 전략 실행: 3건 (중단 2)',
-          eventType: 'ad_strategy',
-        }),
-      });
-    });
-
-    it('ignores non-ad_strategy events', async () => {
-      const { service, prisma } = makeService();
-
-      const event = new AgentResultReadyEvent(
-        'rules_evaluation', 'agent-2', 'run-2', {}, 'c-1',
-      );
-
-      await service.onResultReady(event);
-
-      expect(prisma.activityEvent.create).not.toHaveBeenCalled();
-    });
-
-    it('does not throw when post-processing fails', async () => {
-      const { service, prisma } = makeService();
-      prisma.activityEvent.create.mockRejectedValue(new Error('DB error'));
-
-      const event = new AgentResultReadyEvent(
-        'ad_strategy', 'agent-1', 'run-1',
-        { actions: [] },
-        'c-1',
-      );
-
-      // Should not throw
-      await service.onResultReady(event);
+      expect(result.ok).toBe(false);
+      expect(result.reason).toBe('agent_instance_not_found');
     });
   });
 });

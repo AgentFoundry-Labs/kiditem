@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
-import { AgentRegistryModule } from '../agent-registry/agent-registry.module';
+import { AgentOsModule } from '../agent-os/agent-os.module';
 import { ProductsModule } from '../products/products.module';
 
 import { SourcingController } from './adapter/in/http/sourcing.controller';
@@ -19,14 +19,18 @@ import { SOURCING_PRODUCTS_CATALOG_PORT } from './application/port/out/products-
 /**
  * Sourcing is the canonical owner root for sourcing / procurement / suppliers.
  * Capabilities folded under this module:
- *   - sourcing extension ingest + scrape (Agent OS delegated) — `/api/sourcing/*`
+ *   - sourcing extension ingest + scrape (Agent OS v2 delegated) — `/api/sourcing/*`
  *   - purchase orders state machine — `/api/purchase-orders/*`
  *   - supplier CRUD (transitional flat) — `/api/suppliers/*`
+ *
+ * Agent delegation goes through `AGENT_RUNNER_PORT` (exported by
+ * `AgentOsModule`). `SourcingAgentGatewayAdapter` is the only seam that calls
+ * the runner; `SourcingService` consumes `SOURCING_AGENT_GATEWAY_PORT`.
  *
  * `supplier-payments` is a finance capability and stays out of this module.
  */
 @Module({
-  imports: [PrismaModule, AgentRegistryModule, ProductsModule],
+  imports: [PrismaModule, AgentOsModule, ProductsModule],
   controllers: [
     SourcingController,
     ProcurementController,

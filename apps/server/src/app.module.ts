@@ -20,7 +20,7 @@ import { ChannelsModule } from './channels/channels.module';
 import { AiModule } from './ai/ai.module';
 import { FinanceModule } from './finance/finance.module';
 import { RulesModule } from './rules/rules.module';
-import { AgentRegistryModule } from './agent-registry/agent-registry.module';
+import { AgentOsModule } from './agent-os/agent-os.module';
 import { AutomationModule } from './automation/automation.module';
 import { AdvertisingModule } from './advertising/advertising.module';
 import { FeatureGateModule } from './feature-gate/feature-gate.module';
@@ -54,7 +54,7 @@ import { ReadinessModule } from './readiness/readiness.module';
     AiModule,
     FinanceModule,
     RulesModule,
-    AgentRegistryModule,
+    AgentOsModule,
     AutomationModule,
     AdvertisingModule,
     ChatModule,
@@ -72,8 +72,8 @@ import { ReadinessModule } from './readiness/readiness.module';
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
     // Supabase JWT 검증 — `Authorization: Bearer` 또는 Supabase SSR auth-token 쿠키.
-    // SSE (`/api/agent-registry/events`, `/api/panel/*`) 는 EventSource 가 헤더를 못
-    // 보내므로 쿠키 기반으로 통과한다 (frontend 가 `withCredentials: true`).
+    // SSE (`/api/panel/*`) 는 EventSource 가 헤더를 못 보내므로 쿠키 기반으로
+    // 통과한다 (frontend 가 `withCredentials: true`).
     consumer.apply(SupabaseAuthMiddleware).forRoutes('*');
   }
 }

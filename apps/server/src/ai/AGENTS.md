@@ -63,7 +63,7 @@ ai/
 
 ### 1. Dual-path: Image=Agent / Text=Direct
 
-**Image (`application/service/image-ai.service.ts`)**: `agentRegistry.runByType('image_edit', payload)` → taskId 반환. 클라이언트가 별도 폴링.
+**Image (`application/service/image-ai.service.ts`)**: `AGENT_RUNNER_PORT.runByType('image_edit', { organizationId, sourceType, payload })` → `runId` (또는 deferred 시 `requestId`) 를 legacy `taskId` 계약으로 매핑해 반환. 클라이언트가 별도 폴링.
 
 **Text (`application/service/text-ai.service.ts`)**: `fetch('https://generativelanguage.googleapis.com/...')` 직접. 즉시 응답.
 
@@ -146,7 +146,7 @@ Agent OS path 는 sourced candidate 와 `MasterProduct` 의 lifecycle 이 분리
 
 ## Cross-domain deps
 
-- **agent-registry** — `AgentRegistry.runByType('image_edit')`, `AgentRegistry.runByType('thumbnail_auto_edit')` (auto cohort)
+- **agent-os** — `AGENT_RUNNER_PORT.runByType('image_edit', ...)`, `AGENT_RUNNER_PORT.runByType('thumbnail_auto_edit', ...)` (auto cohort). Wired via `AgentOsModule` import; never inject `AgentRunCoordinator` directly. `runBatch` is the only AI service that delegates to Agent OS for run accounting + then runs `ThumbnailGenerationService.createAutoBatch` inline; legacy `AgentDefinition` upsert + `HeartbeatRun` lifecycle is gone (Agent OS owns run accounting).
 - **prisma** — `PrismaService` global module (legacy/transitional adapter import path)
 - **common/storage** — `StorageService` (이미지 저장)
 - **Gemini API** (외부) — `https://generativelanguage.googleapis.com/v1beta` (text + image + vision + verify 모델 4 종)
@@ -157,7 +157,8 @@ Agent OS path 는 sourced candidate 와 `MasterProduct` 의 lifecycle 이 분리
 | 수정 시 | 같이 봐야 할 파일 |
 |---|---|
 | Text preset 추가 | `application/service/text-ai.service.ts` (system prompt) + `adapter/in/http/dto/text-transform.dto.ts` (enum) |
-| Image preset 추가 | `agent-config/prompts/agents/image-edit.md` + `adapter/in/http/dto/image-edit.dto.ts` |
+| Image preset 추가 | `adapter/in/http/dto/image-edit.dto.ts` (preset enum) + Agent OS `image_edit` blueprint prompt (Agent OS 도메인 소관 — `apps/server/src/agent-os/`). AI 도메인은 prompt 텍스트를 보유하지 않는다. |
+| Image edit / Auto re-edit cohort delegation | `application/service/image-ai.service.ts`, `application/service/thumbnail-auto.service.ts` — 둘 다 `AGENT_RUNNER_PORT.runByType(type, { organizationId, sourceType, payload })` 만 호출. Agent OS 가 `AgentRunRequest` / `AgentRun` lifecycle 을 소유하므로 AI 측 DB 기록 없음. |
 | Gemini 모델 변경 | ENV `AI_TEXT_MODEL` / `AI_IMAGE_MODEL` / `AI_IMAGE_ANALYSIS_MODEL` / `AI_IMAGE_ANALYSIS_VERIFY_MODEL` + `adapter/out/gemini/thumbnail-gemini-config.ts` |
 | 새 Gemini 호출 추가 | `adapter/out/gemini/gemini-thumbnail-vision.adapter.ts` (envelope 처리 통일) |
 | 새 LLM 도입 | scoped plan 필요 + 새 `adapter/out/{provider}/` + 포트 |

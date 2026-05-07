@@ -206,7 +206,11 @@ export default function ChatBot() {
 
   const handleRunAgent = async (agentType: string) => {
     try {
-      await apiClient.post('/api/agent-registry/run-by-type', { type: agentType });
+      await apiClient.post('/api/agent-os/runs', {
+        agentType,
+        sourceType: 'chat',
+        payload: {},
+      });
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: `${agentType} 에이전트 실행이 시작되었습니다. 잠시 후 결과를 확인할 수 있습니다.`,

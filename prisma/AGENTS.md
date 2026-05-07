@@ -10,7 +10,7 @@ prisma/
 ├── migrations/         # 마이그레이션 이력
 └── models/             # 도메인별 모델 (10 파일, alphabetical)
     ├── advertising.prisma      (AdAction, ScrapeTarget, ExecutionTask, ExecutionLog, ExecutionWorker)
-    ├── agents.prisma           (AgentDefinition, AgentTask, AgentEvent, AgentLog, AgentWakeupRequest, HeartbeatRun, WorkflowRun, WorkflowTemplate)
+    ├── agents.prisma           (AgentBlueprint, AgentInstance, AgentRuntimeState, AgentTaskSession, AgentRunRequest, AgentRun, AgentRunEvent, AgentToolDefinition, AgentInstanceToolPolicy, AgentAuthorizationEvent, AgentApprovalRequest, AgentCostEvent, WorkflowRun, WorkflowTemplate)
     ├── ai.prisma               (Thumbnail*, ContentGeneration)
     ├── channels.prisma         (ChannelScrapeRun, ChannelScrapeSnapshot, ChannelListingDailySnapshot, ChannelListingOptionDailySnapshot, ChannelAdTargetDailySnapshot, ChannelAccountDailyKpiSnapshot — daily facts are source-of-truth for listing/option/day market data)
     ├── core.prisma             (Organization, OrganizationMembership, LegalEntity, ChannelAccount, User, MasterProduct, ProductOption, ChannelListing, ChannelListingOption, BundleComponent, CategoryMapping)
@@ -141,9 +141,10 @@ docker exec kiditem-postgres pg_dump -U kiditem --data-only --column-inserts \
 
 ## 통합 모델 규칙
 
-- `AgentDefinition.rt_*` 필드: 런타임 상태 (sessionId, lastRunStatus, 토큰 사용량 등). 별도 테이블 없음.
-- `AgentEvent`: eventType(`permission_denied`|`action_snapshot`)으로 구분. snapshot 필드는 해당 타입만 사용.
-- `Marketplace`: type(`agent`|`workflow`)으로 구분.
+- Agent OS v2 는 `AgentBlueprint`(global catalog) + `AgentInstance`(organization-owned runnable subject) + `AgentRuntimeState`(runtime state) + `AgentRunRequest`(durable queue/request) + `AgentRun`(accepted execution attempt) 로 분리한다.
+- Queue/dedupe/audit state 는 `AgentRunRequest` 에 둔다. `AgentRun` 은 executor 가 claim 한 실제 attempt 만 기록한다.
+- Agent 사용자 연결은 `User.agentInstanceId` 를 사용한다. Legacy AgentDefinition foreign-key links and the `AgentDefinition` / `AgentTask` / `HeartbeatRun` / `AgentWakeupRequest` / `AgentEvent` / `AgentLog` models must not be reintroduced.
+- `Marketplace`: type(`agent`|`workflow`)으로 구분. Agent install 은 legacy clone 이 아니라 Agent OS v2 catalog/bootstrap path 를 통해 처리한다.
 
 ## Partial unique index 패턴
 
@@ -181,24 +182,18 @@ npm run graphify:schema
 
 산출물 (`docs/ERD.md`, `docs/erd/**`, `graphify-out/schema/**`, `graphify-out/schema-consumers/**`) 는 navigation aid 일 뿐 source of truth 가 아님 — Graphify `INFERRED`/`AMBIGUOUS` edge 는 review 힌트로만 사용하고 중요한 주장은 source 파일로 검증한다.
 
-## Phase 3+4 스키마 필드 (2026-04-13)
+## Agent OS v2 스키마 필드
 
-AgentDefinition 추가 필드:
-- `maxOutputTokens Int @default(16000)` — #21 Token Escalation. 출력 잘림 시 자동 확장.
-- `fallbackChain String[] @default(["claude_local"])` — #6 Model Fallback. 어댑터 실패 시 체인 실행.
-- `resultRetentionDays Int @default(30)` — #10 Selective Clearing. 오래된 결과 요약 기한.
-- `contextStrategy String @default("single-shot")` — #3 Message Compression. 미래 멀티턴 전환용.
-
-HeartbeatRun 추가 필드:
-- `nextSchedule String?` — #30 Dynamic Cron. 에이전트가 설정한 다음 스케줄.
-- `isSummarized Boolean @default(false)` — #10 요약 완료 여부.
-- `summary String? @db.Text` — #10 규칙 기반 실행 요약.
+- Runtime config/capability 기본값은 `AgentBlueprint.defaultRuntimeConfig`, organization override 는 `AgentInstance.runtimeConfig` 에 둔다.
+- 실행 상태/세션 지표는 `AgentRuntimeState` 와 `AgentTaskSession` 에 둔다.
+- 출력/요약/log reference 는 `AgentRun.resultJson`, `AgentRun.summary`, `AgentRun.logRef` 에 둔다.
+- 비용은 `AgentCostEvent` ledger 로 누적한다. `AgentRun` row 에 비용 집계를 중복 저장하지 않는다.
 
 ## User Types
 
 `User.type` 필드로 사람과 AI를 통합 관리:
 - `human` — 사람 직원
-- `agent` — AI 에이전트 (`agentDefinitionId` 연결)
+- `agent` — AI 에이전트 (`agentInstanceId` 연결)
 - `system` — 챗봇/시스템 사용자. `User` 에 직접 organization FK 를 두지 않으며, 활성 `OrganizationMembership` 이 없으면 HTTP 도메인 라우트에서는 organization context 가 없는 사용자로 취급한다.
 
 ## Organization Boundary

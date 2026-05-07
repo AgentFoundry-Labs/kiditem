@@ -942,7 +942,6 @@ function SidePanel({ alerts, router, queryClient }: {
 }
 
 // ===== Agent OS =====
-type OrgNode = { id: string; name: string; type: string; role: string; title: string; status: string; reports?: OrgNode[] };
 type AgentDisplay = { role: string; name: string; title: string; status: string; color: string; currentTask: string | null };
 
 const ROLE_COLORS: Record<string, string> = {
@@ -950,15 +949,6 @@ const ROLE_COLORS: Record<string, string> = {
   finance: 'rose', cs: 'amber',
   data_ad: 'blue', data_inv: 'emerald', data_fin: 'rose', data_cs: 'amber',
 };
-
-function flattenOrgNodes(nodes: OrgNode[]): AgentDisplay[] {
-  const result: AgentDisplay[] = [];
-  for (const n of nodes) {
-    result.push({ role: n.role, name: n.name, title: n.title, status: n.status, color: ROLE_COLORS[n.role] ?? 'violet', currentTask: null });
-    if (n.reports?.length) result.push(...flattenOrgNodes(n.reports));
-  }
-  return result;
-}
 
 // ===== 대시보드 차트 =====
 function DashboardChart({
@@ -976,14 +966,29 @@ function DashboardChart({
 
   const queryClient = useQueryClient();
 
-  const { data: orgNodes = [] } = useQuery({
-    queryKey: queryKeys.agents.org(),
-    queryFn: () => apiClient.get<OrgNode[]>('/api/agent-registry/org'),
+  const { data: instances = [] } = useQuery({
+    queryKey: ['agent-os', 'instances'],
+    queryFn: () => apiClient.get<Array<{
+      id: string;
+      type: string;
+      name: string;
+      role: string;
+      title: string | null;
+      reportsToId: string | null;
+      lifecycleStatus: string;
+    }>>('/api/agent-os/instances'),
     refetchInterval: 30_000,
     enabled: chartTab === 'agents',
   });
 
-  const agents: AgentDisplay[] = flattenOrgNodes(orgNodes);
+  const agents: AgentDisplay[] = instances.map((inst) => ({
+    role: inst.role,
+    name: inst.name,
+    title: inst.title ?? inst.role,
+    status: inst.lifecycleStatus === 'active' ? 'idle' : inst.lifecycleStatus,
+    color: ROLE_COLORS[inst.role] ?? 'violet',
+    currentTask: null,
+  }));
 
   const { mutate: executeAction, variables: executingId } = useMutation({
     mutationFn: async (id: string) => {

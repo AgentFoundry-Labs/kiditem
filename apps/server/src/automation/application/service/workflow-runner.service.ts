@@ -1,7 +1,10 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { AgentRegistryService } from '../../../agent-registry/agent-registry.service';
+import {
+  AGENT_RUNNER_PORT,
+  type AgentRunnerPort,
+} from '../../../agent-os/application/port/in/agent-runner.port';
 import { DAG } from '../../domain/service/workflow-dag';
 import { WorkflowContext } from '../../domain/service/workflow-context';
 import {
@@ -34,6 +37,12 @@ type WorkflowRunContext = Record<string, unknown>;
  *
  * Do NOT call the runner from a controller, MQ consumer, or cron handler
  * without first re-verifying tenant scope of the run + template.
+ *
+ * Agent delegation contract: `agent_task.create` nodes are executed by
+ * the slim-core builtin executor, which calls `AgentRunnerPort.runByType`
+ * (provided by Agent OS). The runner injects the trusted `organizationId`
+ * and the workflow trace into the call so blueprint authors cannot forge
+ * a foreign tenant or run id by editing template JSON.
  */
 @Injectable()
 export class WorkflowRunnerService {
@@ -43,9 +52,11 @@ export class WorkflowRunnerService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
-    @Optional() private readonly agentRegistry?: AgentRegistryService,
+    @Optional()
+    @Inject(AGENT_RUNNER_PORT)
+    private readonly agentRunner?: AgentRunnerPort,
   ) {
-    this.executorServices = { agentRegistry: this.agentRegistry };
+    this.executorServices = { agentRunner: this.agentRunner };
   }
 
   private async emitPanelUpsert(runId: string, organizationId: string): Promise<void> {

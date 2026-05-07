@@ -684,18 +684,19 @@ describe('WorkflowRunnerService', () => {
     });
 
     it('agent_task.create delegates with runner-trusted organization and workflow metadata', async () => {
-      const agentRegistry = {
+      const agentRunner = {
         runByType: vi.fn().mockResolvedValue({
           ok: true,
-          taskId: 'task-1',
+          requestId: 'req-1',
+          runId: 'run-agent-1',
           agentType: 'rules_evaluation',
-          dryRun: false,
+          status: 'pending',
         }),
       };
-      const runnerWithAgentRegistry = new WorkflowRunnerService(
+      const runnerWithAgentRunner = new WorkflowRunnerService(
         prisma as any,
         { emit: vi.fn() } as any,
-        agentRegistry as any,
+        agentRunner as any,
       );
 
       const nodesJson = [
@@ -725,14 +726,17 @@ describe('WorkflowRunnerService', () => {
       prisma.workflowTemplate.findFirst.mockResolvedValue(template);
       setupRunTracking('run-agent', {}, 'organization-owned');
 
-      await runnerWithAgentRegistry.runWorkflow('run-agent', 'tmpl-1', 'organization-owned');
+      await runnerWithAgentRunner.runWorkflow('run-agent', 'tmpl-1', 'organization-owned');
 
-      expect(agentRegistry.runByType).toHaveBeenCalledWith('rules_evaluation', {
+      expect(agentRunner.runByType).toHaveBeenCalledWith('rules_evaluation', {
         organizationId: 'organization-owned',
-        workflowRunId: 'run-agent',
-        workflowNodeId: 'agent-node',
-        sourceDataId: '00000000-0000-0000-0000-000000000001',
-        extra: {
+        sourceType: 'workflow',
+        sourceId: 'run-agent',
+        sourceWorkflowRunId: 'run-agent',
+        sourceWorkflowNodeId: 'agent-node',
+        sourceResourceType: 'data',
+        sourceResourceId: '00000000-0000-0000-0000-000000000001',
+        payload: {
           prompt: 'check this',
           _workflow_run_id: 'run-agent',
           _workflow_node_id: 'agent-node',

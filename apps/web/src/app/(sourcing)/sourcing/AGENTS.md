@@ -78,9 +78,11 @@ sourcing/
 - 5 preset: `remove_background`, `remove_text`, `replace_background` (사용자 입력), `enhance`, `full_regenerate`
 - Custom prompt textarea
 - **Async API + polling**:
-  - POST `/api/image-ai/edit` → `{ taskId }`
-  - GET `/api/agent-tasks/{taskId}` 매 2s × max 60회 (120s timeout)
-  - status='completed' 시 `output.image_url` 추출 → component.src 업데이트
+  - POST `/api/image-ai/edit` → `{ taskId }` (`AgentRunRequest.id`)
+  - GET `/api/agent-os/requests/{taskId}` 매 2s × max 60회 (120s timeout)
+  - request `status='succeeded'` + `latestRunId` 확인 후
+    GET `/api/agent-os/runs/{latestRunId}`
+  - `run.output.image_url` 추출 → component.src 업데이트
 - `isBusy.current` (ref) 로 동시 편집 차단
 
 ### 5. AI Text Edit Panel
@@ -123,7 +125,7 @@ um.start();                           // 재개
 
 - `grapesjs`, `@grapesjs/react`
 - `@kiditem/templates` (template component + getTemplate + parseDetailPageData)
-- `apiClient` (`/api/image-ai/edit`, `/api/text-ai/transform`, `/api/agent-tasks/{id}`, `/api/sourcing/...`, `/api/products/{id}`)
+- `apiClient` (`/api/image-ai/edit`, `/api/text-ai/transform`, `/api/agent-os/requests/{id}`, `/api/agent-os/runs/{id}`, `/api/sourcing/...`, `/api/products/{id}`)
 - `API_BASE` (image URL resolution: `/processed/...` → full URL)
 - `queryKeys.sourcing` (list/detail/preview)
 

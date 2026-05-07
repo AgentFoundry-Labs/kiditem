@@ -37,18 +37,18 @@ export default function HubPage() {
 
         {/* Two cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 w-full max-w-2xl">
-          {/* Agent OS */}
+          {/* Agent management */}
           <button
-            onClick={() => router.push('/agent-os')}
+            onClick={() => router.push('/agents')}
             className="group relative rounded-2xl border border-cyan-500/20 bg-slate-900/80 backdrop-blur-xl p-8 text-left transition-all duration-300 hover:border-cyan-400/40 hover:shadow-[0_0_40px_rgba(6,182,212,0.15)] hover:scale-[1.02]"
           >
             <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent opacity-0 group-hover:opacity-100 transition-opacity rounded-t-2xl" />
             <div className="w-14 h-14 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center mb-5">
               <Bot size={28} className="text-cyan-400" />
             </div>
-            <h2 className="text-xl font-bold text-white mb-2">Agent OS</h2>
+            <h2 className="text-xl font-bold text-white mb-2">에이전트 관리</h2>
             <p className="text-sm text-slate-400 leading-relaxed mb-6">
-              AI 에이전트 조직도, 실시간 상태 모니터링, 태스크 관리
+              Agent OS 인스턴스, 실행 요청, 운영 상태 관리
             </p>
             <div className="flex items-center gap-2 text-cyan-400 text-sm font-semibold">
               <span>진입</span>

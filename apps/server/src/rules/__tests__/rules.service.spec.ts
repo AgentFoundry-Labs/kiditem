@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { NotFoundException } from '@nestjs/common';
 import { RulesService } from '../services/rules.service';
-import { AgentResultReadyEvent } from '../../agent-registry/events/agent-events';
 import { PANEL_EVENTS } from '../../automation/adapter/out/panel-event/panel-events';
 
 const ORGANIZATION_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
@@ -11,10 +10,14 @@ const OTHER_ORGANIZATION_ID = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee';
 
 function makePrisma() {
   return {
-    agentTask: { findUnique: vi.fn(), update: vi.fn() },
     activityEvent: { create: vi.fn(), createMany: vi.fn() },
     alert: { createManyAndReturn: vi.fn() },
-    masterProduct: { count: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+    masterProduct: {
+      count: vi.fn(),
+      findFirst: vi.fn(),
+      findMany: vi.fn(),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    },
     businessRule: { findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn(), count: vi.fn() },
     organization: { findFirst: vi.fn() },
     $transaction: vi.fn().mockResolvedValue([]),
@@ -27,6 +30,18 @@ function makeAgentRunner() {
   };
 }
 
+function makeObservability() {
+  return {
+    findRequest: vi.fn(),
+    listRequests: vi.fn(),
+    findRun: vi.fn(),
+    listRuns: vi.fn(),
+    listRunEvents: vi.fn(),
+    listCostEvents: vi.fn(),
+    listAuthorizationEvents: vi.fn(),
+  };
+}
+
 function makeEventEmitter() {
   return { emit: vi.fn() };
 }
@@ -34,92 +49,115 @@ function makeEventEmitter() {
 function makeService() {
   const prisma = makePrisma();
   const agentRunner = makeAgentRunner();
+  const observability = makeObservability();
   const eventEmitter = makeEventEmitter();
   return {
-    service: new RulesService(prisma as any, agentRunner as any, eventEmitter as any),
+    service: new RulesService(
+      prisma as never,
+      agentRunner as never,
+      observability as never,
+      eventEmitter as never,
+    ),
     prisma,
     agentRunner,
+    observability,
     eventEmitter,
   };
 }
 
 describe('RulesService', () => {
   describe('evaluateAll', () => {
-    it('delegates rules_evaluation through the automation agent runner port', async () => {
+    it('delegates rules_evaluation through AGENT_RUNNER_PORT and surfaces the requestId', async () => {
       const { service, agentRunner } = makeService();
-      agentRunner.runByType.mockResolvedValue({ ok: true, taskId: 'task-1', agentType: 'rules_evaluation' });
+      agentRunner.runByType.mockResolvedValue({
+        ok: true,
+        requestId: 'request-1',
+        agentType: 'rules_evaluation',
+        status: 'pending',
+      });
 
       const result = await service.evaluateAll('organization-1');
 
       expect(agentRunner.runByType).toHaveBeenCalledWith('rules_evaluation', {
         organizationId: 'organization-1',
-        extra: { organization_id: 'organization-1' },
+        sourceType: 'rules.evaluation',
+        payload: { organization_id: 'organization-1' },
       });
-      expect(result).toEqual({ taskId: 'task-1', status: 'running' });
+      expect(result).toEqual({ requestId: 'request-1', status: 'pending' });
+    });
+
+    it('returns an unavailable status when the agent instance is missing', async () => {
+      const { service, agentRunner } = makeService();
+      agentRunner.runByType.mockResolvedValue({
+        ok: false,
+        agentType: 'rules_evaluation',
+        reason: 'agent_instance_not_found',
+      });
+
+      const result = await service.evaluateAll('organization-2');
+
+      expect(result).toEqual({ requestId: undefined, status: 'unavailable' });
     });
   });
 
-  describe('onResultReady', () => {
+  describe('processEvaluationResult', () => {
     it('updates healthScores, creates events, and creates critical alerts', async () => {
       const { service, prisma, eventEmitter } = makeService();
       prisma.$transaction.mockResolvedValue([]);
       prisma.activityEvent.createMany.mockResolvedValue({ count: 2 });
-      const insertedAlerts = [{
-        id: '11111111-1111-1111-1111-111111111111',
-        organizationId: ORGANIZATION_ID,
-        targetType: 'master',
-        targetId: PRODUCT_ID,
-        type: 'rule_violation',
-        severity: 'critical',
-        title: '순이익률 -10%',
-        message: 'review_pricing',
-        isRead: false,
-        actionTaskId: null,
-        createdAt: new Date('2026-04-15T00:00:00Z'),
-      }];
+      const insertedAlerts = [
+        {
+          id: '11111111-1111-1111-1111-111111111111',
+          organizationId: ORGANIZATION_ID,
+          targetType: 'master',
+          targetId: PRODUCT_ID,
+          type: 'rule_violation',
+          severity: 'critical',
+          title: '순이익률 -10%',
+          message: 'review_pricing',
+          isRead: false,
+          actionTaskId: null,
+          createdAt: new Date('2026-04-15T00:00:00Z'),
+        },
+      ];
       prisma.alert.createManyAndReturn.mockResolvedValue(insertedAlerts);
 
-      const event = new AgentResultReadyEvent(
-        'rules_evaluation', 'agent-rules', 'run-1',
-        {
-          products: [
-            {
-              masterId: 'p1',
-              healthScore: 85,
-              violations: [
-                {
-                  ruleName: '리뷰 부족',
-                  field: 'reviewCount',
-                  severity: 'warning',
-                  category: 'reviews',
-                  message: '리뷰 5개 미만',
-                  actionType: null,
-                  value: 3,
-                },
-              ],
-            },
-            {
-              masterId: PRODUCT_ID,
-              healthScore: 25,
-              violations: [
-                {
-                  ruleName: '적자 상품',
-                  field: 'profitRate',
-                  severity: 'critical',
-                  category: 'profitability',
-                  message: '순이익률 -10%',
-                  actionType: 'review_pricing',
-                  value: -10,
-                },
-              ],
-            },
-          ],
-          summary: { total: 2 },
-        },
-        ORGANIZATION_ID,
-      );
-
-      await service.onResultReady(event);
+      await service.processEvaluationResult({
+        organizationId: ORGANIZATION_ID,
+        runId: 'run-1',
+        products: [
+          {
+            masterId: 'p1',
+            healthScore: 85,
+            violations: [
+              {
+                ruleName: '리뷰 부족',
+                field: 'reviewCount',
+                severity: 'warning',
+                category: 'reviews',
+                message: '리뷰 5개 미만',
+                actionType: null,
+                value: 3,
+              },
+            ],
+          },
+          {
+            masterId: PRODUCT_ID,
+            healthScore: 25,
+            violations: [
+              {
+                ruleName: '적자 상품',
+                field: 'profitRate',
+                severity: 'critical',
+                category: 'profitability',
+                message: '순이익률 -10%',
+                actionType: 'review_pricing',
+                value: -10,
+              },
+            ],
+          },
+        ],
+      });
 
       // healthScore bulk update — Prisma updateMany scoped by (id, organizationId), wrapped in $transaction.
       expect(prisma.$transaction).toHaveBeenCalledTimes(1);
@@ -140,14 +178,16 @@ describe('RulesService', () => {
         ]),
       });
 
-      // critical alerts — now uses createManyAndReturn
+      // critical alerts — uses createManyAndReturn
       expect(prisma.alert.createManyAndReturn).toHaveBeenCalledWith({
-        data: [expect.objectContaining({
-          targetType: 'master',
-          targetId: PRODUCT_ID,
-          severity: 'critical',
-          title: '순이익률 -10%',
-        })],
+        data: [
+          expect.objectContaining({
+            targetType: 'master',
+            targetId: PRODUCT_ID,
+            severity: 'critical',
+            title: '순이익률 -10%',
+          }),
+        ],
       });
 
       // Panel emit called with correct payload
@@ -167,13 +207,11 @@ describe('RulesService', () => {
     it('handles empty products array gracefully', async () => {
       const { service, prisma, eventEmitter } = makeService();
 
-      const event = new AgentResultReadyEvent(
-        'rules_evaluation', 'agent-rules', 'run-2',
-        { products: [], summary: { total: 0 } },
-        ORGANIZATION_ID,
-      );
-
-      await service.onResultReady(event);
+      await service.processEvaluationResult({
+        organizationId: ORGANIZATION_ID,
+        runId: 'run-2',
+        products: [],
+      });
 
       expect(prisma.$transaction).not.toHaveBeenCalled();
       expect(prisma.activityEvent.createMany).not.toHaveBeenCalled();
@@ -181,36 +219,23 @@ describe('RulesService', () => {
       expect(eventEmitter.emit).not.toHaveBeenCalled();
     });
 
-    it('ignores non-rules_evaluation events', async () => {
-      const { service, prisma } = makeService();
-
-      const event = new AgentResultReadyEvent(
-        'ad_strategy', 'agent-ad', 'run-3', {}, 'c-1',
-      );
-
-      await service.onResultReady(event);
-
-      expect(prisma.$transaction).not.toHaveBeenCalled();
-    });
-
     it('does not throw when post-processing fails', async () => {
       const { service, prisma } = makeService();
       prisma.$transaction.mockRejectedValue(new Error('SQL error'));
 
-      const event = new AgentResultReadyEvent(
-        'rules_evaluation', 'agent-rules', 'run-4',
-        {
-          products: [{
-            masterId: 'p1',
-            healthScore: 50,
-            violations: [],
-          }],
-        },
-        ORGANIZATION_ID,
-      );
-
-      // Should not throw
-      await service.onResultReady(event);
+      await expect(
+        service.processEvaluationResult({
+          organizationId: ORGANIZATION_ID,
+          runId: 'run-4',
+          products: [
+            {
+              masterId: 'p1',
+              healthScore: 50,
+              violations: [],
+            },
+          ],
+        }),
+      ).resolves.not.toThrow();
     });
 
     it('batch cap: 51+ alerts emit single summary item instead of individual emits', async () => {
@@ -222,15 +247,17 @@ describe('RulesService', () => {
       const violations = Array.from({ length: 51 }, (_, i) => ({
         masterId: `prod-${i}`,
         healthScore: 10,
-        violations: [{
-          ruleName: `rule-${i}`,
-          field: 'profitRate',
-          severity: 'critical',
-          category: 'profitability',
-          message: `violation-${i}`,
-          actionType: null,
-          value: -1,
-        }],
+        violations: [
+          {
+            ruleName: `rule-${i}`,
+            field: 'profitRate',
+            severity: 'critical',
+            category: 'profitability',
+            message: `violation-${i}`,
+            actionType: null,
+            value: -1,
+          },
+        ],
       }));
 
       const insertedAlerts = Array.from({ length: 51 }, (_, i) => ({
@@ -248,13 +275,11 @@ describe('RulesService', () => {
       }));
       prisma.alert.createManyAndReturn.mockResolvedValue(insertedAlerts);
 
-      const event = new AgentResultReadyEvent(
-        'rules_evaluation', 'agent-rules', 'run-batch',
-        { products: violations, summary: { total: 51 } },
-        ORGANIZATION_ID,
-      );
-
-      await service.onResultReady(event);
+      await service.processEvaluationResult({
+        organizationId: ORGANIZATION_ID,
+        runId: 'run-batch',
+        products: violations,
+      });
 
       // Should emit exactly once — summary item
       expect(eventEmitter.emit).toHaveBeenCalledTimes(1);
@@ -284,47 +309,86 @@ describe('RulesService', () => {
         createdAt: new Date(),
       };
       prisma.alert.createManyAndReturn.mockResolvedValue([insertedAlert]);
-      eventEmitter.emit.mockImplementation(() => { throw new Error('SSE bus down'); });
+      eventEmitter.emit.mockImplementation(() => {
+        throw new Error('SSE bus down');
+      });
 
-      const event = new AgentResultReadyEvent(
-        'rules_evaluation', 'agent-rules', 'run-emit-err',
-        {
-          products: [{
-            masterId: PRODUCT_ID,
-            healthScore: 20,
-            violations: [{
-              ruleName: 'profitability',
-              field: 'profitRate',
-              severity: 'critical',
-              category: 'profitability',
-              message: '적자 상품',
-              actionType: null,
-              value: -5,
-            }],
-          }],
-        },
-        ORGANIZATION_ID,
-      );
+      await expect(
+        service.processEvaluationResult({
+          organizationId: ORGANIZATION_ID,
+          runId: 'run-emit-err',
+          products: [
+            {
+              masterId: PRODUCT_ID,
+              healthScore: 20,
+              violations: [
+                {
+                  ruleName: 'profitability',
+                  field: 'profitRate',
+                  severity: 'critical',
+                  category: 'profitability',
+                  message: '적자 상품',
+                  actionType: null,
+                  value: -5,
+                },
+              ],
+            },
+          ],
+        }),
+      ).resolves.not.toThrow();
 
-      // Should not throw even when emit throws
-      await expect(service.onResultReady(event)).resolves.not.toThrow();
       // createManyAndReturn was still called (alert creation succeeded)
       expect(prisma.alert.createManyAndReturn).toHaveBeenCalled();
     });
   });
 
+  describe('getEvaluationStatus', () => {
+    it('reads through AgentObservabilityService scoped by (organizationId, requestId)', async () => {
+      const { service, observability } = makeService();
+      const stored = {
+        id: 'request-1',
+        organizationId: ORGANIZATION_ID,
+        status: 'pending',
+      } as never;
+      observability.findRequest.mockResolvedValue(stored);
+
+      const result = await service.getEvaluationStatus(ORGANIZATION_ID, 'request-1');
+
+      expect(observability.findRequest).toHaveBeenCalledWith({
+        organizationId: ORGANIZATION_ID,
+        requestId: 'request-1',
+      });
+      expect(result).toBe(stored);
+    });
+
+    it('throws NotFoundException when the request does not belong to the organization', async () => {
+      const { service, observability } = makeService();
+      observability.findRequest.mockResolvedValue(null);
+
+      await expect(
+        service.getEvaluationStatus(ORGANIZATION_ID, 'missing'),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
   describe('suggestThresholds', () => {
-    it('delegates rules_suggest through the automation agent runner port', async () => {
+    it('delegates rules_suggest through AGENT_RUNNER_PORT and surfaces the requestId', async () => {
       const { service, agentRunner } = makeService();
-      agentRunner.runByType.mockResolvedValue({ ok: true, taskId: 'task-s1' });
+      agentRunner.runByType.mockResolvedValue({
+        ok: true,
+        requestId: 'request-s1',
+        agentType: 'rules_suggest',
+        status: 'pending',
+      });
 
       const result = await service.suggestThresholds('organization-1');
 
       expect(agentRunner.runByType).toHaveBeenCalledWith('rules_suggest', {
         organizationId: 'organization-1',
-        extra: { organization_id: 'organization-1' },
+        sourceType: 'rules.suggest',
+        payload: { organization_id: 'organization-1' },
       });
-      expect(result).toEqual({ taskId: 'task-s1', status: 'running' });
+      expect(result).toEqual({ requestId: 'request-s1', status: 'pending' });
     });
   });
 

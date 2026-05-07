@@ -2,7 +2,6 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type { PanelItem } from '@kiditem/shared/panel';
 import { workflowPanelMapper } from '../../../mapper/panel-event/workflow.mapper';
-import { agentPanelMapper } from '../../../mapper/panel-event/agent.mapper';
 import { imagePanelMapper } from '../../../mapper/panel-event/image.mapper';
 import { alertPanelMapper } from '../../../mapper/panel-event/alert.mapper';
 
@@ -15,7 +14,15 @@ export class PanelService {
    * 현재 Panel에 표시되어야 할 아이템 전체.
    * - 진행 중 run (pending/running)
    * - 최근 24h terminal run
-   * Sources: workflow run, agent heartbeat run, thumbnail generation, alert.
+   * Sources: workflow run, thumbnail generation, alert.
+   *
+   * Agent run projection (formerly `HeartbeatRun + AgentDefinition`) was
+   * removed in the Agent OS v2 migration. Live agent run events should be
+   * emitted by Agent OS itself (`AgentRun.status` transitions on
+   * `AgentRunCoordinator` / `AgentRunExecutor`) — that wiring is not yet
+   * in place. Until it lands, the snapshot only contains the three
+   * remaining sources. See
+   * `automation/adapter/out/panel-event/AGENTS.md` "Not yet wired".
    */
   async snapshot(organizationId: string, currentUserId: string): Promise<Array<Omit<PanelItem, 'seq' | 'updatedAt'>>> {
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 3600 * 1000);
@@ -57,33 +64,6 @@ export class PanelService {
           organizationId,
         ),
       );
-    }
-
-    // ── Agent source (HeartbeatRun + AgentDefinition.name join) ──
-    try {
-      const heartbeatRuns = await this.prisma.heartbeatRun.findMany({
-        where: {
-          organizationId,
-          OR: [
-            { status: { in: ['pending', 'running'] } },
-            { updatedAt: { gte: twentyFourHoursAgo } },
-          ],
-        },
-        include: { agent: { select: { id: true, name: true } } },
-        orderBy: { createdAt: 'desc' },
-        take: 100,
-      });
-
-      for (const run of heartbeatRuns) {
-        items.push(
-          agentPanelMapper.mapToItem(
-            { run, agent: { id: run.agent.id, name: run.agent.name } },
-            organizationId,
-          ),
-        );
-      }
-    } catch (err) {
-      this.logger.warn('Agent source backfill failed', err);
     }
 
     // ── Image source (ThumbnailGeneration + Product.title join) ──

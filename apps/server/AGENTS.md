@@ -110,10 +110,7 @@ explicitly retires the compatibility surface.
 - Errors → throw HttpException (no `ok: false` in 200 responses)
 - Types → import from focused `@kiditem/shared/*` subpaths where available, use `satisfies` pattern in services
 - Application-internal command/result types → 해당 `application/service/*` 또는 `application/port/*` 근처에 둔다 (interface/type, not class). API DTOs(`adapter/in/http/dto/`)와 분리. `@kiditem/shared`에 넣지 않음.
-- Agent trigger boundary: reconstructed domains inject automation ports such as
-  `AGENT_RUNNER_PORT`; the compatibility implementation delegates to
-  `AgentRegistryService.runByType()` → HeartbeatService → adapter execution
-  (Claude CLI or Python HTTP).
+- Agent trigger boundary: reconstructed domains inject Agent OS port `AGENT_RUNNER_PORT` (`apps/server/src/agent-os/application/port/in/agent-runner.port.ts`). The Agent OS module owns agent catalog, run requests, run execution, and runtime adapters. No domain may import a runtime adapter or executor directly.
 - Agent data access: agents do not receive database URLs and must not query PostgreSQL directly. Data access goes through backend application services/ports that already bind `organizationId`.
 - Agent prompts: stored in `agent-config/prompts/`, NOT in DB. DB `prompt_template` field holds file path.
 - Agent prompts may receive bounded, organization-scoped context from the backend. Do not expose raw DB credentials or tell agents to use `psql`.
@@ -213,8 +210,9 @@ domain instead of growing as standalone bounded contexts:
 | `advertising` | advertising operations and ad-action execution surfaces |
 | `channels` | channel listings, channel sync, external marketplace spine |
 | `ai` / `media-ai` | thumbnail/image AI, generation, provider adapters |
-| `rules` | business policy definitions, thresholds, rule evaluation result handling; delegates Agent OS work through automation ports |
-| `automation` / `agent-os` | `agent-registry`, `workflows`, `action-task`, `marketplace`, `panel`, Agent OS runtime entrypoints/adapters; `rules` is a business policy domain that depends on automation ports. Keep/delete/rewrite contracts live in this table and the scoped `automation`, `agent-registry`, `rules`, and `marketplace` `AGENTS.md` files. |
+| `rules` | business policy definitions, thresholds, rule evaluation result handling; delegates Agent OS work through `AGENT_RUNNER_PORT` |
+| `agent-os` | Agent OS v2 platform — agent blueprints, organization-scoped instances, durable run requests, run execution, runtime adapter orchestration, tool policy, approvals, cost ledger, run observability. Business domains call Agent OS through `AgentRunnerPort`. See [`src/agent-os/AGENTS.md`](src/agent-os/AGENTS.md). |
+| `automation` | Workflow runner (`WorkflowRun`/`WorkflowTemplate`), action board, alerts, marketplace install/catalog, panel projection. `Alert` is the user-facing notification surface, including Agent-related notifications; `ActionTask` owns "my work" assignment after alert promotion. Calls Agent OS via `AGENT_RUNNER_PORT` for agent execution; never owns agent runtime adapters or run execution. |
 | `analytics` | `dashboard`, `statistics`, `traffic`, `supplier-stats` |
 | `platform` | `auth`, `organizations`, `feature-gate`, `common`, `prisma`, uploads/platform infra |
 
@@ -260,7 +258,7 @@ async getProduct(id: string, organizationId: string) {
 | 경로 | 핵심 포인트 |
 |---|---|
 | [`src/advertising/AGENTS.md`](src/advertising/AGENTS.md) | Ad Operations — `/api/ads/*`, daily-fact ingest, AdAction 5 target-daily rules, extension sync matching (`vendorItemId` > `externalId`), multi-tenant scope. |
-| [`src/agent-registry/AGENTS.md`](src/agent-registry/AGENTS.md) | Agent OS compatibility/capability surface — facade, heartbeat, safety, delegation, trace, wakeup. New AgentRegistry implementation work lives in automation application services. |
+| [`src/agent-os/AGENTS.md`](src/agent-os/AGENTS.md) | Agent OS v2 — owner platform for agent blueprints, organization-scoped instances, durable run requests (`AgentRunRequest`), run execution (`AgentRun`), tool policy, approvals, cost ledger, run observability. Business domains depend on `AgentRunnerPort` only. |
 | [`src/ai/AGENTS.md`](src/ai/AGENTS.md) | Dual-path AI — image work delegates to Agent OS, text transform calls Gemini directly, thumbnail/Wing automation uses explicit application ports where already reconstructed. |
 | [`src/analytics/AGENTS.md`](src/analytics/AGENTS.md) | Reporting/read-model owner — `dashboard`, `statistics`, `traffic`, `supplier-stats`; dashboard is reconstructed, the rest stay flat until a concrete driver appears. |
 | [`src/auth/AGENTS.md`](src/auth/AGENTS.md) | 인증/권한 인프라 — `@CurrentUser`, `@CurrentOrganization`, `@Roles`, `@SkipAuth`, OrganizationScopeGuard, DevAuthMiddleware. |
@@ -270,10 +268,9 @@ async getProduct(id: string, organizationId: string) {
 | [`src/inventory/AGENTS.md`](src/inventory/AGENTS.md) | Inventory owner — capabilities = inventory + unshipped + warehouses + stock-transfers + stock-audits + picking; repository adapters are the only Prisma lane; `InventoryService` is the single writer. |
 | [`src/orders/AGENTS.md`](src/orders/AGENTS.md) | Orders owner — order/return/CS/review/return-transfer surfaces, channel-agnostic schema, external channel adapter delegation, IDOR-safe single-resource access. |
 | [`src/automation/adapter/out/panel-event/AGENTS.md`](src/automation/adapter/out/panel-event/AGENTS.md) | Live Ops SSE projection adapter — `/api/panel/*` HTTP adapter, EventEmitter2 ring buffer, workflow/agent/image/alert read-only projection. |
-| [`src/automation/adapter/out/agent-runtime/AGENTS.md`](src/automation/adapter/out/agent-runtime/AGENTS.md) | Agent OS runtime adapter — Claude CLI / Python HTTP execution adapters, immutable ExecutionContext, observable adapter fallback. |
 | [`src/automation/adapter/out/workflow-runner/AGENTS.md`](src/automation/adapter/out/workflow-runner/AGENTS.md) | Workflow runner adapter — slim-core executor registry, trusted tenant injection, output/error contracts, no generic DB/HTTP/LLM executors. Public route owner = `automation/adapter/in/http/workflows.controller.ts`. |
 | [`src/products/AGENTS.md`](src/products/AGENTS.md) | Products/catalog owner — MasterProduct, ProductOption, BundleComponent, categories compatibility, bundle stock recompute as sole availableStock writer. |
-| [`src/rules/AGENTS.md`](src/rules/AGENTS.md) | Business rules owner — rules evaluation delegates to automation `AgentRunnerPort`; rules handles result callback and alert creation, while alerts HTTP surface lives in automation. |
+| [`src/rules/AGENTS.md`](src/rules/AGENTS.md) | Business rules owner — rules evaluation delegates to Agent OS `AgentRunnerPort`; rules handles result callback and alert creation, while alerts HTTP surface lives in automation. |
 | [`src/sourcing/AGENTS.md`](src/sourcing/AGENTS.md) | Sourcing owner — sourcing ingest/scrape, supplier CRUD, purchase-order/procurement state machine; Agent OS delegation goes through `SOURCING_AGENT_GATEWAY_PORT`. |
 
 ### Panel — Live Ops SSE
@@ -300,7 +297,7 @@ Observable<MessageEvent> 내보냄. Automation workflow application services 가
   orchestration 은 `automation/application/service/action-board.service.ts`,
   seed 임계값은 pure `automation/domain/policy/action-seeds.ts` 가 소유한다.
   룰 임계 변경은 여전히 hardcode 정책 변경이며 DB 설정이 아니다.
-- **`src/feature-gate/`** — Feature flag 도메인. `allowedOrganizations: string[]` array 로 조직별 enable. 멀티-레벨 enable 로직 (global / per-organization). agent-registry 의 FeatureGateService 와 별개 (이건 endpoint, 그건 runtime 평가).
+- **`src/feature-gate/`** — Feature flag 도메인. `allowedOrganizations: string[]` array 로 조직별 enable. 멀티-레벨 enable 로직 (global / per-organization). Runtime/provider policy checks stay in their owner domains; this folder owns only feature-gate endpoint/config behavior.
 
 각 도메인 작업 시 위 특이점만 의식하면 부모 NestJS 패턴으로 충분.
 

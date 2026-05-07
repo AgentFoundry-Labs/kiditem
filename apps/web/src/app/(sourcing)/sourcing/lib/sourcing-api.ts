@@ -276,9 +276,11 @@ export const productsApi = {
     id: string,
     opts?: { generation_mode?: string }
   ): Promise<{ ok: boolean; message: string }> {
-    await apiClient.post<any>('/api/agent-tasks', {
+    await apiClient.post<{ ok: boolean }>('/api/agent-os/runs', {
       agentType: 'content',
-      input: { productId: id, ...(opts || {}) },
+      sourceType: 'sourcing',
+      sourceId: id,
+      payload: { productId: id, ...(opts || {}) },
     });
     return { ok: true, message: 'AI 가공 작업이 시작되었습니다.' };
   },

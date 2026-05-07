@@ -6,12 +6,12 @@ import type { RecommendInput } from '../../domain/model/strategy-types';
  * Recommendation shaping for `/api/ads/strategy/*`.
  *
  * Pure calculator — no Agent OS coupling. Live `/api/ad-agent/*` execution
- * is owned by `AdStrategyAgentService` through the automation
+ * is owned by `AdStrategyAgentService` through the Agent OS
  * `AGENT_RUNNER_PORT`; this service only:
  *   - leaves `enhanceActionsWithAi(actions)` as a graceful no-op that
  *     returns the input actions unchanged (preserves the orchestrator
  *     contract from `AdStrategyService.getAiEnhancedPlan`),
- *   - and converts an agent task's `resultJson` into the
+ *   - and converts an agent run's output JSON into the
  *     `AdStrategyRecommendation[]` API shape via `toRecommendations`.
  */
 @Injectable()
@@ -30,12 +30,13 @@ export class AdRecommendService {
   }
 
   /**
-   * Convert a latest agent task's result JSON into recommendation cards.
+   * Convert a latest agent run's output JSON into recommendation cards.
    *
-   * Orchestrator reads `agentTask.resultJson` (from `AdStrategyAgentService`
-   * runs) and hands it to this method.
+   * Orchestrator reads `AgentRun.output` (from `AdStrategyAgentService`
+   * runs, observable via `/api/agent-os/runs*`) and hands it to this
+   * method.
    *
-   * resultJson 예상 shape:
+   * output 예상 shape:
    *   { recommendations: AdStrategyRecommendation[] }
    *
    * null / 객체 아님 / recommendations 키 부재 / array 아님 → 빈 배열 반환 (no throw).

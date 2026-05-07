@@ -117,18 +117,36 @@ function extractEditedImageUrl(output: unknown): string | null {
   );
 }
 
+// Agent OS v2: `/api/image-ai/edit` returns `{ taskId }` where taskId is the
+// `AgentRunRequest.id` (no AgentRun yet — the run materializes when the
+// executor claims the request). We poll `/api/agent-os/requests/:id` and
+// pivot to the run via `latestRunId` once status leaves the pre-claim phase.
 async function pollTaskResult(taskId: string): Promise<{ image_url: string }> {
   const maxAttempts = 60; // 60 * 2s = 120s max
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise(r => setTimeout(r, 2000));
-    const task = await apiClient.get<{ status: string; output: unknown; error?: string }>(`/api/agent-tasks/${taskId}`);
-    if (task.status === 'completed') {
-      const imageUrl = extractEditedImageUrl(task.output);
+    let request: {
+      status: string;
+      latestRunId: string | null;
+      lastErrorCode: string | null;
+      lastErrorMessage: string | null;
+    };
+    try {
+      request = await apiClient.get<typeof request>(`/api/agent-os/requests/${taskId}`);
+    } catch {
+      continue;
+    }
+    if (request.status === 'pending' || request.status === 'claimed' || request.status === 'requires_approval') {
+      continue;
+    }
+    if (request.status === 'failed' || request.status === 'cancelled' || request.status === 'skipped') {
+      throw new Error(request.lastErrorMessage || request.lastErrorCode || '이미지 편집에 실패했습니다');
+    }
+    if (request.status === 'succeeded' && request.latestRunId) {
+      const run = await apiClient.get<{ output?: unknown }>(`/api/agent-os/runs/${request.latestRunId}`);
+      const imageUrl = extractEditedImageUrl(run.output ?? null);
       if (!imageUrl) throw new Error('AI 결과 이미지 URL을 찾지 못했습니다');
       return { image_url: imageUrl };
-    }
-    if (task.status === 'failed') {
-      throw new Error(task.error || '이미지 편집에 실패했습니다');
     }
   }
   throw new Error('시간 초과: 이미지 편집이 너무 오래 걸립니다');

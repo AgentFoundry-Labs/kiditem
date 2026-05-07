@@ -1,24 +1,62 @@
-import { Injectable } from '@nestjs/common';
-import { AgentRegistryService } from '../../../agent-registry/agent-registry.service';
+import { Inject, Injectable, InternalServerErrorException } from '@nestjs/common';
+import {
+  AGENT_RUNNER_PORT,
+  type AgentRunnerPort,
+  type AgentRunnerResult,
+} from '../../../agent-os/application/port/in/agent-runner.port';
 
+/**
+ * Image edit entry point.
+ *
+ * Image edits are async by design — heavy/slow work that runs through
+ * Agent OS. The legacy `AgentRegistryService.runByType('image_edit', ...)`
+ * call site is replaced with a direct dependency on Agent OS v2's
+ * {@link AgentRunnerPort} (`AGENT_RUNNER_PORT`).
+ *
+ * The legacy `{ taskId }` HTTP contract is preserved for clients that
+ * already poll on `taskId`, but the value is now the Agent OS request id.
+ * Clients poll `/api/agent-os/requests/:id` and pivot to the run through
+ * `latestRunId`. When the runner produces no request/run id the runner's
+ * `reason` is surfaced rather than a fabricated id — the "no silent
+ * fallback" rule extends to identifier invention.
+ */
 @Injectable()
 export class ImageAiService {
-  constructor(private readonly agentRegistry: AgentRegistryService) {}
+  constructor(
+    @Inject(AGENT_RUNNER_PORT)
+    private readonly agentRunner: AgentRunnerPort,
+  ) {}
 
-  async createEditTask(params: {
-    image_url: string;
-    preset: string;
-    user_prompt?: string;
-  }, organizationId: string) {
-    const result = await this.agentRegistry.runByType('image_edit', {
+  async createEditTask(
+    params: {
+      image_url: string;
+      preset: string;
+      user_prompt?: string;
+    },
+    organizationId: string,
+  ) {
+    const result = await this.agentRunner.runByType('image_edit', {
       organizationId,
-      extra: {
+      sourceType: 'ai.image_edit',
+      reason: 'image-ai edit',
+      payload: {
         image_url: params.image_url,
         preset: params.preset,
         user_prompt: params.user_prompt ?? '',
       },
     });
 
-    return { taskId: result.taskId };
+    return { taskId: this.requireTaskId(result, 'ai.image_edit') };
+  }
+
+  private requireTaskId(result: AgentRunnerResult, sourceType: string): string {
+    const taskId = result.requestId ?? result.runId;
+    if (!taskId) {
+      throw new InternalServerErrorException(
+        `Agent OS runner returned no runId/requestId for ${sourceType}` +
+          (result.reason ? ` (${result.reason})` : ''),
+      );
+    }
+    return taskId;
   }
 }

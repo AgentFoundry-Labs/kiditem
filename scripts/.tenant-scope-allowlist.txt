@@ -23,3 +23,11 @@ apps/server/src/auth/middleware/supabase-auth.middleware.ts findUnique
 # principal from `@CurrentUser()` and is intentionally available to users without
 # an active organization membership.
 apps/server/src/auth/auth.controller.ts findUnique
+
+# Agent OS v2 global catalog tables (`agent_tool_definitions`,
+# `agent_blueprints`, `agent_blueprint_tool_policies`) have no `organization_id`
+# column — they are the global catalog side of the schema in
+# `prisma/models/agents.prisma`. Per-organization scoping happens on
+# `agent_instances` and `agent_instance_tool_policies`, which the same adapter
+# already accesses via `findFirst({ where: { id, organizationId } })`.
+apps/server/src/agent-os/adapter/out/repository/agent-os.repository.adapter.ts findUnique

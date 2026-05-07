@@ -1,129 +1,81 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import type { AgentDefinition } from '@prisma/client';
-import { Prisma } from '@prisma/client';
-import { AGENT_EVENTS, AgentStatusChangedEvent } from '../../../agent-registry/events/agent-events';
-import { PrismaService } from '../../../prisma/prisma.service';
+import {
+  Inject,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
+import {
+  AGENT_RUNNER_PORT,
+  type AgentRunnerPort,
+  type AgentRunnerResult,
+} from '../../../agent-os/application/port/in/agent-runner.port';
 import { ThumbnailGenerationService } from './thumbnail-generation.service';
 
 const AGENT_TYPE = 'thumbnail_auto_edit';
-const AGENT_NAME = 'Thumbnail Auto Edit';
 
 type AutoBatchResult = Awaited<ReturnType<ThumbnailGenerationService['createAutoBatch']>>;
 
+/**
+ * A-grade thumbnail auto re-edit cohort entrypoint.
+ *
+ * Legacy (pre-Agent-OS-v2) implementation owned its own `AgentDefinition`
+ * upsert, opened a `HeartbeatRun`, ran the batch synchronously, and closed
+ * the `HeartbeatRun`. Those Prisma models are gone.
+ *
+ * Agent OS v2 owns durable run accounting end-to-end (request inbox →
+ * `AgentRun` → run events). We delegate via {@link AgentRunnerPort} so the
+ * Agent OS catalog/run history is the single source of truth, then run the
+ * inline batch work — the actual business logic still belongs to the AI
+ * domain. The returned `runId` (or `requestId` if the runner deferred) is
+ * surfaced so HTTP callers can correlate with the Agent OS run timeline.
+ *
+ * If the runner returns no run/request id (e.g. agent instance is
+ * `paused`/`disabled`), we surface its `reason` instead of fabricating an
+ * id — silent fallback rule.
+ */
 @Injectable()
-export class ThumbnailAutoService implements OnModuleInit {
+export class ThumbnailAutoService {
   private readonly logger = new Logger(ThumbnailAutoService.name);
-  private cachedAgentId: string | null = null;
 
   constructor(
-    private readonly prisma: PrismaService,
     private readonly generationService: ThumbnailGenerationService,
-    private readonly eventEmitter: EventEmitter2,
+    @Inject(AGENT_RUNNER_PORT)
+    private readonly agentRunner: AgentRunnerPort,
   ) {}
 
-  async onModuleInit(): Promise<void> {
-    try {
-      await this.ensureAgentDefinition();
-    } catch (err) {
-      this.logger.warn(
-        `AgentDefinition upsert 실패 (부팅 중): ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-  }
-
-  async runBatch(organizationId: string, limit = 30): Promise<AutoBatchResult & { runId: string }> {
-    const agentId = await this.ensureAgentDefinition();
-    const run = await this.prisma.heartbeatRun.create({
-      data: {
-        agentId,
-        organizationId,
-        invocationSource: 'on_demand',
-        triggerDetail: `thumbnail-auto batch limit=${limit}`,
-        status: 'running',
-        startedAt: new Date(),
-      },
-      select: { id: true },
-    });
-
-    this.emitStatus(agentId, 'running', organizationId, run.id, { limit });
-
-    try {
-      const result = await this.generationService.createAutoBatch(organizationId, limit);
-      await this.prisma.heartbeatRun.update({
-        where: { id: run.id },
-        data: {
-          status: 'succeeded',
-          finishedAt: new Date(),
-          resultJson: result as unknown as Prisma.InputJsonValue,
-        },
-      });
-      this.emitStatus(agentId, 'succeeded', organizationId, run.id, {
-        attempted: result.attempted,
-        succeeded: result.succeeded,
-        failed: result.failed,
-        skipped: result.skipped,
-      });
-      return { ...result, runId: run.id };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      await this.prisma.heartbeatRun.update({
-        where: { id: run.id },
-        data: {
-          status: 'failed',
-          finishedAt: new Date(),
-          error: message,
-          resultJson: { limit } as Prisma.InputJsonValue,
-        },
-      });
-      this.emitStatus(agentId, 'failed', organizationId, run.id, { error: message });
-      throw err;
-    }
-  }
-
-  private async ensureAgentDefinition(): Promise<string> {
-    if (this.cachedAgentId) return this.cachedAgentId;
-
-    const existing = await this.prisma.agentDefinition.findUnique({
-      where: { type: AGENT_TYPE },
-    });
-    if (existing) {
-      this.cachedAgentId = existing.id;
-      return existing.id;
-    }
-
-    const created: AgentDefinition = await this.prisma.agentDefinition.create({
-      data: {
-        type: AGENT_TYPE,
-        name: AGENT_NAME,
-        description: 'A등급 상품 썸네일 자동 재편집. 현재 스키마의 generation job을 예약하고 결과를 에이전트 실행 이력으로 남긴다.',
-        adapterType: 'claude_local',
-        role: 'specialist',
-        title: 'A등급 자동 재편집',
-        icon: 'image',
-        promptTemplate: 'agent-config/prompts/agents/thumbnail-auto-edit.md',
-        isActive: true,
-        requiresApproval: false,
-        skills: [],
-        permissions: {},
-        fallbackChain: ['claude_local'],
-      },
-    });
-    this.cachedAgentId = created.id;
-    this.logger.log(`AgentDefinition(${AGENT_TYPE}) 생성됨: ${created.id}`);
-    return created.id;
-  }
-
-  private emitStatus(
-    agentId: string,
-    status: 'running' | 'succeeded' | 'failed',
+  async runBatch(
     organizationId: string,
-    runId: string,
-    data: Record<string, unknown>,
-  ): void {
-    this.eventEmitter.emit(
-      AGENT_EVENTS.STATUS_CHANGED,
-      new AgentStatusChangedEvent(agentId, AGENT_NAME, status, organizationId, runId, data),
+    limit = 30,
+  ): Promise<AutoBatchResult & { requestId?: string; runId?: string; status?: string }> {
+    const runner = await this.agentRunner.runByType(AGENT_TYPE, {
+      organizationId,
+      sourceType: 'ai.thumbnail_auto_edit',
+      reason: `thumbnail-auto batch limit=${limit}`,
+      payload: { limit },
+    });
+
+    this.requireRunnerOk(runner, 'ai.thumbnail_auto_edit');
+
+    const result = await this.generationService.createAutoBatch(organizationId, limit);
+    return {
+      ...result,
+      requestId: runner.requestId,
+      runId: runner.runId,
+      status: runner.status,
+    };
+  }
+
+  /**
+   * Refuse to invent a request/run id. If the Agent OS runner could not
+   * produce one (e.g. blueprint missing, instance disabled), we surface
+   * the runner's reason rather than silently proceeding with no audit
+   * trail. This keeps `runByType` results visible end-to-end.
+   */
+  private requireRunnerOk(result: AgentRunnerResult, sourceType: string): void {
+    if (result.runId || result.requestId) return;
+    throw new InternalServerErrorException(
+      `Agent OS runner returned no runId/requestId for ${sourceType}` +
+        (result.reason ? ` (${result.reason})` : ''),
     );
   }
 }

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -15,14 +16,17 @@ import { ListMarketplaceQueryDto, InstallMarketplaceBodyDto } from './dto';
 /**
  * Inbound HTTP adapter for the Marketplace surface, owned by the
  * Automation owner-domain. Catalog read/list go to
- * `MarketplaceCatalogService` (read-side projection); install +
+ * `MarketplaceCatalogService` (read-side projection); workflow install +
  * uninstall (the side-effecting paths) go through the
  * `MarketplaceInstallService` application service. Both live under
  * `automation/application/service/`.
  *
- * Route shape, DTOs, and response payloads are unchanged from the
- * pre-fold controller — this is a structural move, not a behavior
- * change.
+ * Agent install/uninstall endpoints respond with `BadRequestException`
+ * because the legacy `AgentDefinition` table was retired in favor of
+ * Agent OS `AgentBlueprint` (global) + `AgentInstance` (tenant). The
+ * marketplace agent install path has not been re-wired yet — see
+ * `apps/server/src/automation/adapter/out/panel-event/AGENTS.md`
+ * "Not yet wired" subsection.
  */
 @Controller('marketplace')
 export class MarketplaceController {
@@ -82,20 +86,24 @@ export class MarketplaceController {
     return item;
   }
 
+  /**
+   * Agent install is not wired against the new Agent OS catalog.
+   * `AgentBlueprint` rows are global to Agent OS and are not cloned
+   * per-tenant from marketplace rows. The endpoint is preserved as a
+   * stable surface but explicitly rejects requests instead of silently
+   * succeeding or returning a partial result.
+   */
   @Post('agents/:id/install')
-  installAgent(
-    @Param('id') id: string,
-    @Body() body: InstallMarketplaceBodyDto,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return this.install.installAgent(id, organizationId, body.params);
+  installAgent(@Param('id') _id: string) {
+    throw new BadRequestException(
+      'Marketplace agent install is not available. Agent blueprints are managed by Agent OS directly.',
+    );
   }
 
   @Post('agents/:id/uninstall')
-  uninstallAgent(
-    @Param('id') id: string,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return this.install.uninstallAgent(id, organizationId);
+  uninstallAgent(@Param('id') _id: string) {
+    throw new BadRequestException(
+      'Marketplace agent uninstall is not available. Agent blueprints are managed by Agent OS directly.',
+    );
   }
 }

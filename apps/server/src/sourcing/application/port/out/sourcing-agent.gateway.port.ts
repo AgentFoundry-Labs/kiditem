@@ -1,10 +1,10 @@
 /**
- * Outgoing port for sourcing → Agent OS delegation.
+ * Outgoing port for sourcing → Agent OS v2 delegation.
  *
  * The sole reason this port exists is the architecture contract rule that
  * Agent OS / runtime delegation must sit behind an application-owned port
- * (see apps/server/AGENTS.md "Application port rule"). The adapter binds this port to
- * `AgentRegistryService.runByType('sourcing', ...)`.
+ * (see apps/server/AGENTS.md "Application port rule"). The adapter binds this
+ * port to Agent OS v2's `AGENT_RUNNER_PORT.runByType('sourcing', ...)` hop.
  */
 export const SOURCING_AGENT_GATEWAY_PORT = Symbol('SOURCING_AGENT_GATEWAY_PORT');
 
