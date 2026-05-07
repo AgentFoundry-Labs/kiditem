@@ -35,7 +35,7 @@ Top-level routes are organized into Next.js App Router route groups (`(name)`). 
 | `(finance)` | finance-hub, profit-loss, sales-analysis, supplier-hub |
 | `(media-ai)` | thumbnails, thumbnail-editor, image-hub, generate |
 
-Routes outside any group (`ad-ops`, `agent-os`, `cs-management`, `dashboard`, `outbound`, `purchase-orders`, `reports`, `settings`, `__tests__`, `components`) remain at `src/app/{name}/`. `/` 는 두 풀스크린 surface (`/agent-os`, `/dashboard`) 로 분기하는 launcher.
+Routes outside any group (`ad-ops`, `agent-os`, `cs-management`, `dashboard`, `outbound`, `purchase-orders`, `reports`, `settings`, `__tests__`, `components`) remain at `src/app/{name}/`. `/` 는 제품 작업 표면 (`/agents`, `/dashboard`) 으로 분기하는 launcher 이며, `/agent-os` 는 현재 Agent 관리/알림 UX 범위가 아닌 별도 풀스크린 시각화 surface 다.
 
 ## Rules
 
@@ -148,11 +148,10 @@ Route-group private shared directories contain ONLY code shared by 2+ routes ins
 
 **규칙**: `src/app/(group-name)/{domain}/` 하위 파일을 Edit 하기 전, 아래 표의 해당 행이 가리키는 scoped `AGENTS.md` 를 먼저 Read 한다.
 
-### 전용 AGENTS.md 가 있는 서브 페이지 (6)
+### 전용 AGENTS.md 가 있는 서브 페이지 (5)
 
 | 경로 | 핵심 포인트 |
 |---|---|
-| [`src/app/(automation)/agents/AGENTS.md`](<src/app/(automation)/agents/AGENTS.md>) | Agent Lifecycle/Trace/Org/Cost UI — conditional polling, thin compositor pages, trace timeline, queryKeys hierarchy. |
 | [`src/app/(orders)/return-scan/AGENTS.md`](<src/app/(orders)/return-scan/AGENTS.md>) | Barcode Input + Local-Only Logging — stateless scan flow, local sync exception, no server mutation. |
 | [`src/app/(sourcing)/sourcing/AGENTS.md`](<src/app/(sourcing)/sourcing/AGENTS.md>) | Product Sourcing + GrapesJS WYSIWYG Editor + AI Edit Panels — custom blocks, iframe injection, UndoManager pause. |
 | [`src/app/(media-ai)/thumbnail-editor/AGENTS.md`](<src/app/(media-ai)/thumbnail-editor/AGENTS.md>) | Use-Case-Driven Generation — use-case card branching, mutation workflow, image hub import. |
@@ -163,15 +162,21 @@ Route-group private shared directories contain ONLY code shared by 2+ routes ins
 
 부모 Next.js 패턴(이 문서)으로 거의 커버되지만, 아래 도메인은 한 가지 특이점이 있다.
 
-- **`app/agent-os/`** — Top-level 풀스크린 Agent OS surface. `AppLayout` 의
+- **`app/(automation)/agents/`** — 제품상 Agent OS 관리 화면. Agent OS v2
+  인스턴스, run, request 운영 콘솔이며 사이드바의 "에이전트 관리"가 이 route 를
+  가리킨다. Agent 관련 사용자 알림 관리는 여기서 별도 inbox 를 만들지 않고
+  dashboard Alerts tab / `Alert -> ActionTask` 흐름을 따른다.
+- **`app/agent-os/`** — 현재 Agent 관리/알림 UX 범위 밖의 풀스크린 시각화
+  surface. `AppLayout` 의
   `pathname === '/' || pathname.startsWith('/agent-os')` 가드로 sidebar/panel
   /chat 모두 bypass 하고 자체 헤더/캔버스/바텀 대시보드를 렌더한다. dark
   cyberpunk 미학을 위해 surface 토큰 대신 hard-coded 슬레이트/시안 컬러
   (`bg-[#0a0f1a]`, `bg-[#0d1321]`, `bg-[#111827]`, `text-cyan-400` 등) 사용을
-  의도적으로 허용 — Styling 룰의 시맨틱 토큰 권고 예외. `/api/agent-registry/org`
-  +`/api/action-tasks` polling (15s/30s) + dashboard sales/ad summary +
-  `usePanelStream` 으로 live ops view. 사이드바의 "에이전트 관리"
-  (`/agents`) 는 별개의 admin/marketplace 콘솔이라 의미 분리.
+  의도적으로 허용 — Styling 룰의 시맨틱 토큰 권고 예외.
+  `/api/agent-os/instances` + `/api/agent-os/runs?status=running` +
+  `/api/action-tasks` polling (15s/30s) + dashboard sales/ad summary +
+  `usePanelStream` 으로 live ops view. 이 route 를 제품상 Agent OS 관리 화면으로
+  확장하지 않는다.
 - **`app/(inventory)/inventory/`** — `lib/barcode-print.ts` 의 `printBarcodeWindow()` (window.open + `<style>` 인쇄) + xlsx import/export. 브라우저 print API 직접 사용 케이스.
 - **`app/settings/`** — 다양한 file upload (CSV/Image), printer 연결 (`PrinterSettings` 컴포넌트), health check + sync 운영 액션. system-level operations 가 한 페이지에 모임.
 - **`app/(finance)/sales-analysis/`** — `Settlements` 탭이 streaming 패턴 (스트림 chunked download). xlsx export 도 함.

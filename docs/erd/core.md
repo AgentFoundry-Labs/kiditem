@@ -21,7 +21,7 @@
 | Organization | `organizations` | - |
 | OrganizationMembership | `organization_memberships` | B2B customer/workspace membership. A user may belong to multiple organizations; this row supplies request organization and role. |
 | ProductOption | `product_options` | 물리 SKU. 바코드 1:1. 재고/매입/창고 단위. isBundle 이면 구성품 기반 계산. |
-| User | `users` | human(직원) / agent(AI, agentDefinitionId 연결) / system(챗봇). 조직 소속은 OrganizationMembership 이 source of truth. |
+| User | `users` | human(직원) / agent(AI, agentInstanceId 연결) / system(챗봇). 조직 소속은 OrganizationMembership 이 source of truth. |
 
 ## Mermaid ER Diagram
 

@@ -76,8 +76,9 @@ Ownership:
   ports, not concrete services.
 - `automation/` keeps workflow orchestration, action board, alerts, marketplace
   install/catalog surfaces, and panel projection.
-- Legacy `agent-registry/` is a deletion candidate. If a temporary route
-  compatibility surface is needed, keep it thin and delegate into `agent-os`.
+- Legacy `agent-registry/` is removed. Do not reintroduce an agent-registry
+  compatibility surface; public agent execution/admin routes delegate into
+  `agent-os` contracts directly.
 
 `apps/server/AGENTS.md` must be updated in the implementation PR so the backend
 owner-domain table lists `agent-os` as its own platform owner.

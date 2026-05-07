@@ -126,7 +126,7 @@ Request
 
 ## 사용 패턴 (실 컨트롤러 예)
 
-`agent-registry.controller.ts:35-78` 등:
+예: `agent-os` / `rules` / `alerts` 같은 organization-owned controllers:
 
 ```typescript
 // Public within organization (default — guard 자동 적용)

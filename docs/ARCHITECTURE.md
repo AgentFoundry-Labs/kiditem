@@ -57,8 +57,8 @@ shape above.
 Current top-level backend owners/platforms:
 
 ```
-activity-events  advertising  agent-registry  ai  analytics  auth
-automation       channels     chat            common
+activity-events  advertising  agent-os       ai  analytics  auth
+automation       channels     chat           common
 organizations        feature-gate finance         inventory
 orders           prisma       products        rules
 sourcing         test-helpers types           uploads
@@ -72,11 +72,11 @@ Important ownership decisions:
   references. See [Agent OS v2 Schema Design](agent-os-v2-schema.md).
 - `automation/` owns workflow orchestration, action-board/action-task routes,
   marketplace install/catalog surfaces, manager routes, alerts, and panel event
-  projection. Workflows delegate AI execution into `agent-os/`.
-- `agent-registry/` is legacy Agent OS compatibility. The v2 replacement track
-  deletes it or leaves only thin route compatibility if a transition requires it.
+  projection. `Alert` is the single user-facing notification ledger, including
+  Agent-related notifications. "My work" is modeled by promoting alerts into
+  assigned `ActionTask` rows. Workflows delegate AI execution into `agent-os/`.
 - `rules/` owns business policy definitions and rule evaluation results, but
-  delegates Agent OS execution through automation ports.
+  delegates Agent OS execution through `AGENT_RUNNER_PORT`.
 - `sourcing/` folds supplier and purchase-order/procurement capabilities while
   preserving public routes `/api/suppliers/*` and `/api/purchase-orders/*`.
 - `analytics/` folds dashboard, statistics, traffic, and supplier-stats
@@ -100,7 +100,10 @@ apps/web/src/app/(media-ai)/    thumbnails, thumbnail-editor, image-hub, generat
 
 Ungrouped operational routes remain at `apps/web/src/app/{route}` when they
 are still shared or not yet folded into a group, for example `ad-ops`,
-`cs-management`, `purchase-orders`, `reports`, and `settings`.
+`cs-management`, `purchase-orders`, `reports`, and `settings`. The product
+Agent OS management surface is `/agents` under the automation route group;
+the top-level `/agent-os` route is a separate fullscreen visualization surface,
+not the dashboard notification or agent-management contract.
 
 ## Data And Tenant Rules
 
@@ -119,8 +122,8 @@ are still shared or not yet folded into a group, for example `ad-ops`,
 ## Agent OS
 
 Agent OS is a backend platform capability. The v2 target is documented in
-[Agent OS v2 Schema Design](agent-os-v2-schema.md). The current runtime still
-uses legacy compatibility paths until that replacement lands:
+[Agent OS v2 Schema Design](agent-os-v2-schema.md). Runtime execution and run
+accounting live under `apps/server/src/agent-os/`:
 
 - Public workflow routes live under
   `apps/server/src/automation/adapter/in/http/workflows.controller.ts`.
@@ -128,9 +131,8 @@ uses legacy compatibility paths until that replacement lands:
   `apps/server/src/automation/adapter/in/http/action-task.controller.ts`.
 - Manager routes live under
   `apps/server/src/automation/adapter/in/http/manager.controller.ts`.
-- Agent execution currently passes through the Agent Registry compatibility
-  boundary, but reconstructed business domains should depend on Agent OS ports
-  such as `AgentRunnerPort`, not import runtime services directly.
+- Business domains depend on Agent OS ports such as `AgentRunnerPort`; they do
+  not import runtime services or adapters directly.
 
 Workflow nodes must not call LLMs directly. AI work is delegated through
 `agent_task.create` into Agent OS.

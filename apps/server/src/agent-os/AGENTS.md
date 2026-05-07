@@ -22,6 +22,13 @@ AgentWakeupRequest + HeartbeatRun + AgentEvent` runtime.
 - `AgentRun` starts at `running`; queue state belongs to `AgentRunRequest`.
 - `AgentRunEvent`, `AgentAuthorizationEvent`, and `AgentCostEvent` remain
   separate ledgers.
+- Agent OS ledgers are not a user-facing notification inbox. Runtime telemetry,
+  approvals, policy audit, and cost events stay in Agent OS observability.
+- User-facing Agent notifications must be projected into `Alert`; the dashboard
+  Alerts tab is the single management surface for all alerts.
+- `Alert` rows are organization-scoped. Personal work is represented by
+  promoting an alert into an `ActionTask`, then using `ActionTask.assigneeUserId`
+  / assigned-to filters for "my work" vs organization-wide visibility.
 - Tool permission uses blueprint default policy plus instance override.
 - Bulk runtime logs are external; database rows store structured events,
   excerpts, and log references only.

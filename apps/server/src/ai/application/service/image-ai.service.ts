@@ -14,11 +14,11 @@ import {
  * {@link AgentRunnerPort} (`AGENT_RUNNER_PORT`).
  *
  * The legacy `{ taskId }` HTTP contract is preserved for clients that
- * already poll on `taskId`. We map `AgentRunnerResult.runId` (live
- * `AgentRun.id`) onto it; if the runner deferred execution (no run yet),
- * we fall back to `requestId` (`AgentRunRequest.id`). When neither is
- * present the runner's `reason` is surfaced rather than a fabricated id —
- * the "no silent fallback" rule extends to identifier invention.
+ * already poll on `taskId`, but the value is now the Agent OS request id.
+ * Clients poll `/api/agent-os/requests/:id` and pivot to the run through
+ * `latestRunId`. When the runner produces no request/run id the runner's
+ * `reason` is surfaced rather than a fabricated id — the "no silent
+ * fallback" rule extends to identifier invention.
  */
 @Injectable()
 export class ImageAiService {
@@ -50,7 +50,7 @@ export class ImageAiService {
   }
 
   private requireTaskId(result: AgentRunnerResult, sourceType: string): string {
-    const taskId = result.runId ?? result.requestId;
+    const taskId = result.requestId ?? result.runId;
     if (!taskId) {
       throw new InternalServerErrorException(
         `Agent OS runner returned no runId/requestId for ${sourceType}` +

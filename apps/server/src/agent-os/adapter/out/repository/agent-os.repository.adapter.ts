@@ -599,6 +599,23 @@ export class AgentOsRepositoryAdapter implements AgentOsRepositoryPort {
 
   async appendRunEvent(input: AppendRunEventInput): Promise<AgentRunEventRecord> {
     return this.prisma.$transaction(async (tx) => {
+      const run = await tx.agentRun.findFirst({
+        where: { id: input.runId, organizationId: input.organizationId },
+        select: { id: true, agentInstanceId: true },
+      });
+      if (!run) {
+        throw new AgentOsBoundaryError(
+          'run_organization_mismatch',
+          `AgentRun ${input.runId} does not belong to organization ${input.organizationId}.`,
+        );
+      }
+      if (run.agentInstanceId !== input.agentInstanceId) {
+        throw new AgentOsBoundaryError(
+          'agent_instance_mismatch',
+          `AgentRun ${input.runId} does not belong to agent instance ${input.agentInstanceId}.`,
+        );
+      }
+
       const updated = await tx.agentRun.update({
         where: { id: input.runId },
         data: { lastEventSeq: { increment: 1 } },
@@ -610,18 +627,11 @@ export class AgentOsRepositoryAdapter implements AgentOsRepositoryPort {
         },
       });
 
-      if (updated.organizationId !== input.organizationId) {
-        throw new AgentOsBoundaryError(
-          'run_organization_mismatch',
-          `AgentRun ${input.runId} does not belong to organization ${input.organizationId}.`,
-        );
-      }
-
       const event = await tx.agentRunEvent.create({
         data: {
           organizationId: input.organizationId,
           runId: input.runId,
-          agentInstanceId: input.agentInstanceId,
+          agentInstanceId: run.agentInstanceId,
           seq: updated.lastEventSeq,
           type: input.type,
           level: input.level ?? 'info',
@@ -652,6 +662,21 @@ export class AgentOsRepositoryAdapter implements AgentOsRepositoryPort {
 
   async finalizeRun(input: FinalizeRunInput) {
     return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.agentRun.findFirst({
+        where: {
+          id: input.runId,
+          organizationId: input.organizationId,
+          requestId: input.requestId,
+        },
+        select: { id: true },
+      });
+      if (!existing) {
+        throw new AgentOsBoundaryError(
+          'run_organization_mismatch',
+          `AgentRun ${input.runId} does not belong to organization ${input.organizationId}.`,
+        );
+      }
+
       const run = await tx.agentRun.update({
         where: { id: input.runId },
         data: {
@@ -664,15 +689,8 @@ export class AgentOsRepositoryAdapter implements AgentOsRepositoryPort {
         },
       });
 
-      if (run.organizationId !== input.organizationId) {
-        throw new AgentOsBoundaryError(
-          'run_organization_mismatch',
-          `AgentRun ${input.runId} does not belong to organization ${input.organizationId}.`,
-        );
-      }
-
-      await tx.agentRunRequest.update({
-        where: { id: input.requestId },
+      const requestUpdate = await tx.agentRunRequest.updateMany({
+        where: { id: input.requestId, organizationId: input.organizationId },
         data: {
           status: input.status === 'succeeded' ? 'succeeded' : input.status === 'failed' ? 'failed' : input.status === 'cancelled' ? 'cancelled' : 'skipped',
           finishedAt: new Date(),
@@ -680,6 +698,12 @@ export class AgentOsRepositoryAdapter implements AgentOsRepositoryPort {
           lastErrorMessage: input.errorMessage ?? null,
         },
       });
+      if (requestUpdate.count !== 1) {
+        throw new AgentOsBoundaryError(
+          'request_organization_mismatch',
+          `AgentRunRequest ${input.requestId} does not belong to organization ${input.organizationId}.`,
+        );
+      }
 
       if (input.cost) {
         await tx.agentCostEvent.create({
@@ -871,36 +895,83 @@ export class AgentOsRepositoryAdapter implements AgentOsRepositoryPort {
 
   // ---- Approvals ----------------------------------------------------------
   async createApprovalRequest(input: CreateApprovalRequestInput) {
-    const row = await this.prisma.agentApprovalRequest.create({
-      data: {
-        organizationId: input.organizationId,
-        agentInstanceId: input.agentInstanceId,
-        requestId: input.requestId,
-        runId: input.runId ?? null,
-        prompt: input.prompt ?? null,
-        reasonCode: input.reasonCode ?? null,
-        reason: input.reason ?? null,
-        payload: (input.payload ?? {}) as Prisma.InputJsonValue,
-        actionSnapshot:
-          input.actionSnapshot === null || input.actionSnapshot === undefined
-            ? Prisma.JsonNull
-            : (input.actionSnapshot as Prisma.InputJsonValue),
-        requestedByActorType: input.requestedByActorType ?? null,
-        requestedByActorId: input.requestedByActorId ?? null,
-        requestedByUserId: input.requestedByUserId ?? null,
-        approverUserId: input.approverUserId ?? null,
-        expiresAt: input.expiresAt ?? null,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const request = await tx.agentRunRequest.findFirst({
+        where: { id: input.requestId, organizationId: input.organizationId },
+        select: { id: true, agentInstanceId: true },
+      });
+      if (!request) {
+        throw new AgentOsBoundaryError(
+          'request_organization_mismatch',
+          `AgentRunRequest ${input.requestId} does not belong to organization ${input.organizationId}.`,
+        );
+      }
+      if (request.agentInstanceId !== input.agentInstanceId) {
+        throw new AgentOsBoundaryError(
+          'agent_instance_mismatch',
+          `AgentRunRequest ${input.requestId} does not belong to agent instance ${input.agentInstanceId}.`,
+        );
+      }
+      if (input.runId) {
+        const run = await tx.agentRun.findFirst({
+          where: {
+            id: input.runId,
+            organizationId: input.organizationId,
+            requestId: input.requestId,
+            agentInstanceId: request.agentInstanceId,
+          },
+          select: { id: true },
+        });
+        if (!run) {
+          throw new AgentOsBoundaryError(
+            'run_organization_mismatch',
+            `AgentRun ${input.runId} does not belong to request ${input.requestId}.`,
+          );
+        }
+      }
+
+      const row = await tx.agentApprovalRequest.create({
+        data: {
+          organizationId: input.organizationId,
+          agentInstanceId: request.agentInstanceId,
+          requestId: input.requestId,
+          runId: input.runId ?? null,
+          prompt: input.prompt ?? null,
+          reasonCode: input.reasonCode ?? null,
+          reason: input.reason ?? null,
+          payload: (input.payload ?? {}) as Prisma.InputJsonValue,
+          actionSnapshot:
+            input.actionSnapshot === null || input.actionSnapshot === undefined
+              ? Prisma.JsonNull
+              : (input.actionSnapshot as Prisma.InputJsonValue),
+          requestedByActorType: input.requestedByActorType ?? null,
+          requestedByActorId: input.requestedByActorId ?? null,
+          requestedByUserId: input.requestedByUserId ?? null,
+          approverUserId: input.approverUserId ?? null,
+          expiresAt: input.expiresAt ?? null,
+        },
+      });
+      await tx.agentRunRequest.update({
+        where: { id: input.requestId },
+        data: { status: 'requires_approval' },
+      });
+      return { id: row.id, status: row.status as AgentApprovalStatus };
     });
-    await this.prisma.agentRunRequest.update({
-      where: { id: input.requestId },
-      data: { status: 'requires_approval' },
-    });
-    return { id: row.id, status: row.status as AgentApprovalStatus };
   }
 
   async resolveApprovalRequest(input: ResolveApprovalRequestInput) {
     await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.agentApprovalRequest.findFirst({
+        where: { id: input.approvalRequestId, organizationId: input.organizationId },
+        select: { id: true },
+      });
+      if (!existing) {
+        throw new AgentOsBoundaryError(
+          'approval_organization_mismatch',
+          `AgentApprovalRequest ${input.approvalRequestId} does not belong to organization ${input.organizationId}.`,
+        );
+      }
+
       const approval = await tx.agentApprovalRequest.update({
         where: { id: input.approvalRequestId },
         data: {
@@ -910,26 +981,26 @@ export class AgentOsRepositoryAdapter implements AgentOsRepositoryPort {
           decidedAt: new Date(),
         },
       });
-      if (approval.organizationId !== input.organizationId) {
-        throw new AgentOsBoundaryError(
-          'approval_organization_mismatch',
-          `AgentApprovalRequest ${approval.id} does not belong to organization ${input.organizationId}.`,
-        );
-      }
       const nextRequestStatus =
         input.status === 'approved'
           ? 'pending'
           : input.status === 'rejected'
             ? 'failed'
             : 'cancelled';
-      await tx.agentRunRequest.update({
-        where: { id: approval.requestId },
+      const requestUpdate = await tx.agentRunRequest.updateMany({
+        where: { id: approval.requestId, organizationId: input.organizationId },
         data: {
           status: nextRequestStatus,
           lastErrorCode: input.status === 'rejected' ? 'approval_rejected' : null,
           lastErrorMessage: input.decisionReason ?? null,
         },
       });
+      if (requestUpdate.count !== 1) {
+        throw new AgentOsBoundaryError(
+          'request_organization_mismatch',
+          `AgentRunRequest ${approval.requestId} does not belong to organization ${input.organizationId}.`,
+        );
+      }
     });
   }
 

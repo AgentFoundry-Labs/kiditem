@@ -77,12 +77,16 @@ automation/
   모두 `organizationId` 스코프.
 - LLM/provider 없음. 외부 fetch 없음. 파일시스템 없음.
 
-## Visibility
+## Alert / Work Visibility
 
 `User-WorkflowRun` 관계 + `Run.actorUserId === currentUserId` 조합으로 panel
 스트림 필터링. 같은 회사 안에서도 사용자별로 보이는 run 이 다를 수 있음.
-`alert` 는 visibility 필드 없이 항상 회사 단위로 보인다 (`PanelService.snapshot`
-의 마지막 filter 참조).
+`Alert` 는 사용자용 알림 원장이지만 row 자체는 organization 범위다
+(`PanelService.snapshot` 의 마지막 filter 참조). "내 작업" 구분은
+`Alert.actionTaskId -> ActionTask.assigneeUserId` 로 승격된 뒤 action-board /
+dashboard 작업 큐에서 처리한다. Agent OS 관련 사용자 알림도 별도 agent inbox
+나 panel source 를 만들지 말고 `Alert` 로 투영한 뒤 필요 시 `ActionTask` 로
+승격한다.
 
 ## Single-instance assumption
 

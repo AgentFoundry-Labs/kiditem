@@ -174,7 +174,7 @@ export class RulesService {
 
   /**
    * Read run-request status from Agent OS observability. Replaces the legacy
-   * `prisma.agentTask.findUnique({ where: { id: taskId } })` lookup.
+   * direct AgentTask row lookup.
    */
   async getEvaluationStatus(organizationId: string, requestId: string) {
     const request = await this.observability.findRequest({ organizationId, requestId });

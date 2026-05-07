@@ -126,7 +126,7 @@ Observable → `MessageEvent` per token → `res.write('data: ' + JSON + '\n\n')
 - **agent-config/prompts/agents/chat.md** (런타임 prompt 로드)
 - **CopilotKit runtime** (`@copilotkit/runtime`)
 
-**agent-registry/ 와 독립** — 둘 다 DB 직접 조회를 금지하고 backend-provided context 를 사용한다. chat 은 self-contained.
+**Agent OS 와 독립** — 둘 다 DB 직접 조회를 금지하고 backend-provided context 를 사용한다. chat 은 self-contained.
 
 ## 금지 (Hard bans)
 

@@ -23,7 +23,7 @@ IMPORTANT_FIELD_NAMES = {
     'externalId', 'externalOptionId', 'vendorItemId', 'sellerProductId',
     'legacyCode', 'barcode', 'isDeleted', 'isActive', 'isUnmatched',
     'orderId', 'orderLineItemId', 'returnId', 'warehouseId', 'supplierId',
-    'targetType', 'targetId', 'actionTaskId', 'agentDefinitionId',
+    'targetType', 'targetId', 'actionTaskId', 'agentInstanceId',
 }
 
 IGNORE_DIR_PARTS = {'node_modules', '.git', '.next', 'dist', 'build', 'coverage', 'graphify-out', '.omc', '.omx'}

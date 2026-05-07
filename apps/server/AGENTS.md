@@ -210,9 +210,9 @@ domain instead of growing as standalone bounded contexts:
 | `advertising` | advertising operations and ad-action execution surfaces |
 | `channels` | channel listings, channel sync, external marketplace spine |
 | `ai` / `media-ai` | thumbnail/image AI, generation, provider adapters |
-| `rules` | business policy definitions, thresholds, rule evaluation result handling; delegates Agent OS work through automation ports |
+| `rules` | business policy definitions, thresholds, rule evaluation result handling; delegates Agent OS work through `AGENT_RUNNER_PORT` |
 | `agent-os` | Agent OS v2 platform — agent blueprints, organization-scoped instances, durable run requests, run execution, runtime adapter orchestration, tool policy, approvals, cost ledger, run observability. Business domains call Agent OS through `AgentRunnerPort`. See [`src/agent-os/AGENTS.md`](src/agent-os/AGENTS.md). |
-| `automation` | Workflow runner (`WorkflowRun`/`WorkflowTemplate`), action board, alerts, marketplace install/catalog, panel projection. Calls Agent OS via `AGENT_RUNNER_PORT` for agent execution; never owns agent runtime adapters or run execution. |
+| `automation` | Workflow runner (`WorkflowRun`/`WorkflowTemplate`), action board, alerts, marketplace install/catalog, panel projection. `Alert` is the user-facing notification surface, including Agent-related notifications; `ActionTask` owns "my work" assignment after alert promotion. Calls Agent OS via `AGENT_RUNNER_PORT` for agent execution; never owns agent runtime adapters or run execution. |
 | `analytics` | `dashboard`, `statistics`, `traffic`, `supplier-stats` |
 | `platform` | `auth`, `organizations`, `feature-gate`, `common`, `prisma`, uploads/platform infra |
 
@@ -270,7 +270,7 @@ async getProduct(id: string, organizationId: string) {
 | [`src/automation/adapter/out/panel-event/AGENTS.md`](src/automation/adapter/out/panel-event/AGENTS.md) | Live Ops SSE projection adapter — `/api/panel/*` HTTP adapter, EventEmitter2 ring buffer, workflow/agent/image/alert read-only projection. |
 | [`src/automation/adapter/out/workflow-runner/AGENTS.md`](src/automation/adapter/out/workflow-runner/AGENTS.md) | Workflow runner adapter — slim-core executor registry, trusted tenant injection, output/error contracts, no generic DB/HTTP/LLM executors. Public route owner = `automation/adapter/in/http/workflows.controller.ts`. |
 | [`src/products/AGENTS.md`](src/products/AGENTS.md) | Products/catalog owner — MasterProduct, ProductOption, BundleComponent, categories compatibility, bundle stock recompute as sole availableStock writer. |
-| [`src/rules/AGENTS.md`](src/rules/AGENTS.md) | Business rules owner — rules evaluation delegates to automation `AgentRunnerPort`; rules handles result callback and alert creation, while alerts HTTP surface lives in automation. |
+| [`src/rules/AGENTS.md`](src/rules/AGENTS.md) | Business rules owner — rules evaluation delegates to Agent OS `AgentRunnerPort`; rules handles result callback and alert creation, while alerts HTTP surface lives in automation. |
 | [`src/sourcing/AGENTS.md`](src/sourcing/AGENTS.md) | Sourcing owner — sourcing ingest/scrape, supplier CRUD, purchase-order/procurement state machine; Agent OS delegation goes through `SOURCING_AGENT_GATEWAY_PORT`. |
 
 ### Panel — Live Ops SSE
@@ -297,7 +297,7 @@ Observable<MessageEvent> 내보냄. Automation workflow application services 가
   orchestration 은 `automation/application/service/action-board.service.ts`,
   seed 임계값은 pure `automation/domain/policy/action-seeds.ts` 가 소유한다.
   룰 임계 변경은 여전히 hardcode 정책 변경이며 DB 설정이 아니다.
-- **`src/feature-gate/`** — Feature flag 도메인. `allowedOrganizations: string[]` array 로 조직별 enable. 멀티-레벨 enable 로직 (global / per-organization). agent-registry 의 FeatureGateService 와 별개 (이건 endpoint, 그건 runtime 평가).
+- **`src/feature-gate/`** — Feature flag 도메인. `allowedOrganizations: string[]` array 로 조직별 enable. 멀티-레벨 enable 로직 (global / per-organization). Runtime/provider policy checks stay in their owner domains; this folder owns only feature-gate endpoint/config behavior.
 
 각 도메인 작업 시 위 특이점만 의식하면 부모 NestJS 패턴으로 충분.
 
