@@ -3,10 +3,18 @@ import type { AdapterModule, ExecutionContext, ExecutionResult, EnvironmentTestR
 
 const logger = new Logger('PythonHttpAdapter');
 
+function hasPayloadInput(
+  payload: Readonly<Record<string, unknown>> | undefined,
+): payload is Readonly<Record<string, unknown>> {
+  return !!payload && Object.keys(payload).length > 0;
+}
+
 async function* execute(ctx: ExecutionContext): AsyncGenerator<StreamEvent, ExecutionResult> {
   const baseUrl = (ctx.config.baseUrl as string) || 'http://localhost:8001';
   const timeoutMs = ctx.timeoutSec * 1000;
-  const input = ctx.payload ?? (ctx.config.input as Record<string, unknown> | undefined) ?? {};
+  const input = hasPayloadInput(ctx.payload)
+    ? ctx.payload
+    : (ctx.config.input as Record<string, unknown> | undefined) ?? {};
 
   try {
     const response = await fetch(`${baseUrl}/run`, {

@@ -97,4 +97,44 @@ describe('MastersService tenant boundary internals', () => {
       }),
     });
   });
+
+  it('excludes AI detail-page generations from legacy history', async () => {
+    const prisma = {
+      masterProduct: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'master-1',
+          code: 'M-00000001',
+          organizationId: 'organization-1',
+          name: 'History master',
+          optionCounter: 0,
+          images: [],
+        }),
+      },
+      contentGeneration: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'bold-1',
+            generatedTitle: 'KIDITEM DESIGN',
+            status: 'READY',
+            detailPageHtml: JSON.stringify({ templateId: 'bold-vertical', result: {} }),
+            errorMessage: null,
+            createdAt: new Date('2026-05-07T00:00:00.000Z'),
+          },
+          {
+            id: 'legacy-1',
+            generatedTitle: 'CA result',
+            status: 'READY',
+            detailPageHtml: JSON.stringify({ title: 'legacy detail page' }),
+            errorMessage: null,
+            createdAt: new Date('2026-05-06T00:00:00.000Z'),
+          },
+        ]),
+      },
+    };
+    const svc = new MastersService(prisma as any, {} as any, {} as any);
+
+    await expect(svc.getGenerationHistory('organization-1', 'master-1', 10)).resolves.toEqual([
+      expect.objectContaining({ id: 'legacy-1' }),
+    ]);
+  });
 });

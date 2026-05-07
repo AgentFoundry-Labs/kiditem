@@ -445,7 +445,9 @@ export class MastersService {
     if (!raw) return false;
     try {
       const parsed = JSON.parse(raw) as Record<string, unknown>;
-      return parsed.templateId === 'kids-playful' || parsed.templateId === 'simple-vertical';
+      return parsed.templateId === 'kids-playful' ||
+        parsed.templateId === 'bold-vertical' ||
+        parsed.templateId === 'simple-vertical';
     } catch {
       return false;
     }
