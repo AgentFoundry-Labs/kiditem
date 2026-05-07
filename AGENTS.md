@@ -37,6 +37,14 @@ Precedence: the most-specific `AGENTS.md` wins, then parent `AGENTS.md` files.
 
 ## Core Workflow (작업 시작 ~ 완료)
 
+### 0. 환경 부트스트랩 — 새 워크트리 / 새 머신 / preview 인증 필요할 때
+
+```bash
+./bin/dev-bootstrap.sh
+```
+
+env 파일 (`.env`, `apps/web/.env.local`) 동기화 + `npm install` + Supabase magic-link 세션 발급. 출력의 콜백 URL 을 AI 프리뷰가 navigate 하면 로그인 폼 없이 인증된 세션 진입. 토큰 만료 (~1h) 시 재실행. 자세히: [`docs/runbooks/dev-preview-with-auth.md`](docs/runbooks/dev-preview-with-auth.md). 처음 셋업이면 [`docs/runbooks/auth-supabase.md`](docs/runbooks/auth-supabase.md) 먼저.
+
 ### 1. 시작 전 — scope-local instruction 필독
 
 **파일을 Edit 하기 전 반드시** 해당 경로의 가장 구체적인 `AGENTS.md` 를 먼저 Read.
