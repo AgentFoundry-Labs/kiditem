@@ -48,22 +48,35 @@ function makeEventEmitter() {
   return { emit: vi.fn() };
 }
 
+function makeOperationAlerts() {
+  return {
+    start: vi.fn().mockResolvedValue({}),
+    succeed: vi.fn().mockResolvedValue({}),
+    fail: vi.fn().mockResolvedValue({}),
+    progress: vi.fn().mockResolvedValue({}),
+    cancel: vi.fn().mockResolvedValue({}),
+  };
+}
+
 function makeService() {
   const prisma = makePrisma();
   const agentRunner = makeAgentRunner();
   const observability = makeObservability();
   const eventEmitter = makeEventEmitter();
+  const operationAlerts = makeOperationAlerts();
   return {
     service: new RulesService(
       prisma as never,
       agentRunner as never,
       observability as never,
       eventEmitter as never,
+      operationAlerts as never,
     ),
     prisma,
     agentRunner,
     observability,
     eventEmitter,
+    operationAlerts,
   };
 }
 
@@ -78,7 +91,7 @@ describe('RulesService — full evaluation flow', () => {
         status: 'pending',
       });
 
-      const result = await service.evaluateAll('organization-1');
+      const result = await service.evaluateAll('organization-1', null);
 
       expect(agentRunner.runByType).toHaveBeenCalledWith('rules_evaluation', {
         organizationId: 'organization-1',
@@ -97,7 +110,7 @@ describe('RulesService — full evaluation flow', () => {
         status: 'pending',
       });
 
-      const result = await service.evaluateAll('organization-2');
+      const result = await service.evaluateAll('organization-2', null);
 
       expect(result.requestId).toBe('request-xyz');
       expect(result.status).toBe('pending');
@@ -386,7 +399,7 @@ describe('RulesService — full evaluation flow', () => {
         status: 'pending',
       });
 
-      const result = await service.suggestThresholds('organization-1');
+      const result = await service.suggestThresholds('organization-1', null);
 
       expect(agentRunner.runByType).toHaveBeenCalledWith('rules_suggest', {
         organizationId: 'organization-1',

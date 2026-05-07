@@ -20,17 +20,26 @@ function makeController() {
   };
 }
 
+const USER: { id: string; organizationId: string; membershipId: string | null; role: string; type: string; email: string } = {
+  id: '00000000-0000-0000-0000-000000000099',
+  organizationId: ORGANIZATION_ID,
+  membershipId: null,
+  role: 'admin',
+  type: 'human',
+  email: 'tester@example.com',
+};
+
 describe('RulesController evaluation routes', () => {
-  it('forwards evaluate to RulesService.evaluateAll with @CurrentOrganization scope', async () => {
+  it('forwards evaluate to RulesService.evaluateAll with @CurrentOrganization + actor', async () => {
     const { controller, rulesService } = makeController();
     rulesService.evaluateAll.mockResolvedValue({ requestId: 'request-1', status: 'pending' });
 
-    await expect(controller.evaluate(ORGANIZATION_ID)).resolves.toEqual({
+    await expect(controller.evaluate(ORGANIZATION_ID, USER)).resolves.toEqual({
       requestId: 'request-1',
       status: 'pending',
     });
 
-    expect(rulesService.evaluateAll).toHaveBeenCalledWith(ORGANIZATION_ID);
+    expect(rulesService.evaluateAll).toHaveBeenCalledWith(ORGANIZATION_ID, USER.id);
   });
 
   it('forwards getEvaluationStatus to RulesService with (organizationId, requestId)', () => {

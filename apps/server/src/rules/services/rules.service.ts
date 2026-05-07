@@ -9,6 +9,7 @@ import {
 import { AgentObservabilityService } from '../../agent-os/application/service/agent-observability.service';
 import { PANEL_EVENTS } from '../../automation/adapter/out/panel-event/panel-events';
 import { alertPanelMapper } from '../../automation/mapper/panel-event/alert.mapper';
+import { OperationAlertService } from '../../automation/application/service/operation-alert.service';
 import type { RuleItem } from '@kiditem/shared/rules';
 import type { EvaluationResult, ProductEvalResult } from './types';
 
@@ -29,6 +30,12 @@ const RULES_SUGGEST_SOURCE = 'rules.suggest';
 export interface RulesEvaluationResultPayload {
   organizationId: string;
   runId: string;
+  /**
+   * Optional identity of the originating `AgentRunRequest`. When the bridging
+   * adapter passes this, the rules domain closes the user-triggered operation
+   * alert keyed by `rules.evaluation:<requestId>`.
+   */
+  requestId?: string;
   products: ProductEvalResult[];
 }
 
@@ -44,9 +51,13 @@ export class RulesService {
     private readonly agentRunner: AgentRunnerPort,
     private readonly observability: AgentObservabilityService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly operationAlerts: OperationAlertService,
   ) {}
 
-  async evaluateAll(organizationId: string): Promise<EvaluationResult> {
+  async evaluateAll(
+    organizationId: string,
+    triggeredByUserId: string | null,
+  ): Promise<EvaluationResult> {
     const result = await this.agentRunner.runByType(RULES_EVALUATION_AGENT_TYPE, {
       organizationId,
       sourceType: RULES_EVALUATION_SOURCE,
@@ -60,6 +71,23 @@ export class RulesService {
       return { requestId: undefined, status: result.status ?? 'unavailable' };
     }
 
+    // Operation alert: surface the queued evaluation in the dashboard
+    // notification ledger. The closing transition (succeed/fail) lands when
+    // the bridging adapter calls `processEvaluationResult` with `requestId`.
+    if (result.requestId) {
+      await this.operationAlerts.start({
+        organizationId,
+        operationKey: `rules.evaluation:${result.requestId}`,
+        type: 'rules_evaluation',
+        title: '룰 평가 진행 중',
+        sourceType: 'agent_run_request',
+        sourceId: result.requestId,
+        actorUserId: triggeredByUserId,
+        href: '/dashboard',
+        metadata: { agentType: RULES_EVALUATION_AGENT_TYPE },
+      });
+    }
+
     this.logger.log(`Rules evaluation queued: requestId=${result.requestId}`);
     return { requestId: result.requestId, status: result.status ?? 'pending' };
   }
@@ -71,7 +99,7 @@ export class RulesService {
    * invokes this method with the parsed product list.
    */
   async processEvaluationResult(payload: RulesEvaluationResultPayload): Promise<void> {
-    const { organizationId, runId, products } = payload;
+    const { organizationId, runId, requestId, products } = payload;
     if (!organizationId || products.length === 0) {
       return;
     }
@@ -177,9 +205,38 @@ export class RulesService {
       }
     } catch (err) {
       this.logger.error(`Rules post-processing failed for run ${runId}: ${err}`);
+      if (requestId) {
+        await this.operationAlerts.fail(
+          organizationId,
+          `rules.evaluation:${requestId}`,
+          { message: err instanceof Error ? err.message : String(err) },
+        );
+      }
+      const violationCount = products.reduce((sum, r) => sum + r.violations.length, 0);
+      this.logger.log(
+        `Rules evaluation complete: ${products.length} products, ${violationCount} violations`,
+      );
+      return;
     }
 
     const violationCount = products.reduce((sum, r) => sum + r.violations.length, 0);
+    if (requestId) {
+      await this.operationAlerts.succeed(
+        organizationId,
+        `rules.evaluation:${requestId}`,
+        {
+          metadata: {
+            productCount: products.length,
+            violationCount,
+            criticalCount: products.reduce(
+              (sum, r) => sum + r.violations.filter((v) => v.severity === 'critical').length,
+              0,
+            ),
+            runId,
+          },
+        },
+      );
+    }
     this.logger.log(
       `Rules evaluation complete: ${products.length} products, ${violationCount} violations`,
     );
@@ -301,6 +358,7 @@ export class RulesService {
 
   async suggestThresholds(
     organizationId: string,
+    triggeredByUserId: string | null,
   ): Promise<{ requestId: string | undefined; status: string }> {
     const result = await this.agentRunner.runByType(RULES_SUGGEST_AGENT_TYPE, {
       organizationId,
@@ -311,6 +369,21 @@ export class RulesService {
     if (!result.ok) {
       return { requestId: undefined, status: result.status ?? 'unavailable' };
     }
+
+    if (result.requestId) {
+      await this.operationAlerts.start({
+        organizationId,
+        operationKey: `rules.suggest:${result.requestId}`,
+        type: 'rules_suggest',
+        title: '룰 임계값 제안 진행 중',
+        sourceType: 'agent_run_request',
+        sourceId: result.requestId,
+        actorUserId: triggeredByUserId,
+        href: '/dashboard',
+        metadata: { agentType: RULES_SUGGEST_AGENT_TYPE },
+      });
+    }
+
     return { requestId: result.requestId, status: result.status ?? 'pending' };
   }
 }

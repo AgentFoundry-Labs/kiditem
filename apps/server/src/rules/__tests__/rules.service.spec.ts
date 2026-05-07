@@ -46,22 +46,35 @@ function makeEventEmitter() {
   return { emit: vi.fn() };
 }
 
+function makeOperationAlerts() {
+  return {
+    start: vi.fn().mockResolvedValue({}),
+    succeed: vi.fn().mockResolvedValue({}),
+    fail: vi.fn().mockResolvedValue({}),
+    progress: vi.fn().mockResolvedValue({}),
+    cancel: vi.fn().mockResolvedValue({}),
+  };
+}
+
 function makeService() {
   const prisma = makePrisma();
   const agentRunner = makeAgentRunner();
   const observability = makeObservability();
   const eventEmitter = makeEventEmitter();
+  const operationAlerts = makeOperationAlerts();
   return {
     service: new RulesService(
       prisma as never,
       agentRunner as never,
       observability as never,
       eventEmitter as never,
+      operationAlerts as never,
     ),
     prisma,
     agentRunner,
     observability,
     eventEmitter,
+    operationAlerts,
   };
 }
 
@@ -76,7 +89,7 @@ describe('RulesService', () => {
         status: 'pending',
       });
 
-      const result = await service.evaluateAll('organization-1');
+      const result = await service.evaluateAll('organization-1', null);
 
       expect(agentRunner.runByType).toHaveBeenCalledWith('rules_evaluation', {
         organizationId: 'organization-1',
@@ -87,16 +100,41 @@ describe('RulesService', () => {
     });
 
     it('returns an unavailable status when the agent instance is missing', async () => {
-      const { service, agentRunner } = makeService();
+      const { service, agentRunner, operationAlerts } = makeService();
       agentRunner.runByType.mockResolvedValue({
         ok: false,
         agentType: 'rules_evaluation',
         reason: 'agent_instance_not_found',
       });
 
-      const result = await service.evaluateAll('organization-2');
+      const result = await service.evaluateAll('organization-2', null);
 
       expect(result).toEqual({ requestId: undefined, status: 'unavailable' });
+      // No operation alert when the agent run was never queued.
+      expect(operationAlerts.start).not.toHaveBeenCalled();
+    });
+
+    it('opens a running operation alert keyed by the requestId on successful queue', async () => {
+      const { service, agentRunner, operationAlerts } = makeService();
+      agentRunner.runByType.mockResolvedValue({
+        ok: true,
+        requestId: 'request-42',
+        agentType: 'rules_evaluation',
+        status: 'pending',
+      });
+
+      await service.evaluateAll(ORGANIZATION_ID, 'user-7');
+
+      expect(operationAlerts.start).toHaveBeenCalledWith(
+        expect.objectContaining({
+          organizationId: ORGANIZATION_ID,
+          operationKey: 'rules.evaluation:request-42',
+          type: 'rules_evaluation',
+          sourceType: 'agent_run_request',
+          sourceId: 'request-42',
+          actorUserId: 'user-7',
+        }),
+      );
     });
   });
 
@@ -215,6 +253,88 @@ describe('RulesService', () => {
           }),
         }),
       );
+    });
+
+    it('closes the operation alert with succeed when requestId is supplied', async () => {
+      const { service, prisma, operationAlerts } = makeService();
+      prisma.$transaction.mockResolvedValue([]);
+      prisma.activityEvent.createMany.mockResolvedValue({ count: 1 });
+      prisma.alert.createManyAndReturn.mockResolvedValue([]);
+
+      await service.processEvaluationResult({
+        organizationId: ORGANIZATION_ID,
+        runId: 'run-x',
+        requestId: 'request-99',
+        products: [
+          {
+            masterId: 'p1',
+            healthScore: 80,
+            violations: [
+              {
+                ruleName: 'r',
+                field: 'reviewCount',
+                severity: 'warning',
+                category: 'reviews',
+                message: 'msg',
+                actionType: null,
+                value: 1,
+              },
+            ],
+          },
+        ],
+      });
+
+      expect(operationAlerts.succeed).toHaveBeenCalledWith(
+        ORGANIZATION_ID,
+        'rules.evaluation:request-99',
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            productCount: 1,
+            violationCount: 1,
+            runId: 'run-x',
+          }),
+        }),
+      );
+      expect(operationAlerts.fail).not.toHaveBeenCalled();
+    });
+
+    it('closes the operation alert with fail when post-processing throws', async () => {
+      const { service, prisma, operationAlerts } = makeService();
+      prisma.$transaction.mockRejectedValue(new Error('SQL boom'));
+
+      await service.processEvaluationResult({
+        organizationId: ORGANIZATION_ID,
+        runId: 'run-x',
+        requestId: 'request-99',
+        products: [
+          { masterId: 'p1', healthScore: 50, violations: [] },
+        ],
+      });
+
+      expect(operationAlerts.fail).toHaveBeenCalledWith(
+        ORGANIZATION_ID,
+        'rules.evaluation:request-99',
+        expect.objectContaining({ message: 'SQL boom' }),
+      );
+      expect(operationAlerts.succeed).not.toHaveBeenCalled();
+    });
+
+    it('skips operation alert close when no requestId in payload', async () => {
+      const { service, prisma, operationAlerts } = makeService();
+      prisma.$transaction.mockResolvedValue([]);
+      prisma.activityEvent.createMany.mockResolvedValue({ count: 0 });
+      prisma.alert.createManyAndReturn.mockResolvedValue([]);
+
+      await service.processEvaluationResult({
+        organizationId: ORGANIZATION_ID,
+        runId: 'run-y',
+        products: [
+          { masterId: 'p1', healthScore: 90, violations: [] },
+        ],
+      });
+
+      expect(operationAlerts.succeed).not.toHaveBeenCalled();
+      expect(operationAlerts.fail).not.toHaveBeenCalled();
     });
 
     it('handles empty products array gracefully', async () => {

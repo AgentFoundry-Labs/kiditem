@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { RulesController } from './controllers/rules.controller';
 import { RulesService } from './services/rules.service';
 import { AgentOsModule } from '../agent-os/agent-os.module';
+import { AutomationModule } from '../automation/automation.module';
 
 // EventEmitter2 is injected globally — do NOT import EventEmitterModule.forRoot() here.
 //
@@ -16,7 +17,7 @@ import { AgentOsModule } from '../agent-os/agent-os.module';
 // `automation/` owner domain in Wave H3 AO-2 — they are no longer registered
 // here. Rules now owns only `/api/rules/*` evaluation + rule CRUD.
 @Module({
-  imports: [AgentOsModule],
+  imports: [AgentOsModule, AutomationModule],
   controllers: [RulesController],
   providers: [RulesService],
 })
