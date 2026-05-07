@@ -1,11 +1,7 @@
 'use client';
 
-import { toast } from 'sonner';
-import grapesjs, { type Editor } from 'grapesjs';
-import { API_BASE } from '@/lib/api';
-import { apiClient } from '@/lib/api-client';
-import 'grapesjs/dist/css/grapes.min.css';
-import './grapesjs-editor.css';
+import type { ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import GjsEditor, {
   AssetsProvider,
   BlocksProvider,
@@ -14,6 +10,7 @@ import GjsEditor, {
   useEditor,
   WithEditor,
 } from '@grapesjs/react';
+import grapesjs, { type Editor } from 'grapesjs';
 import {
   AlignLeft,
   ArrowDown,
@@ -48,15 +45,21 @@ import {
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
-import type { ReactNode } from 'react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import TemplateSelectionModal from '../../components/TemplateSelectionModal';
-import { useGenerateDetailPage, type GenerateMode } from '../../hooks/useGenerateDetailPage';
+import { toast } from 'sonner';
+import { API_BASE } from '@/lib/api';
+import { apiClient } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { useStore } from '@/store/useStore';
-import { AIImageEditPanel } from './AIImageEditPanel';
+import 'grapesjs/dist/css/grapes.min.css';
+import './grapesjs-editor.css';
+import TemplateSelectionModal from '../../components/TemplateSelectionModal';
+import { useGenerateDetailPage, type GenerateMode } from '../../hooks/useGenerateDetailPage';
 import { AITextEditPanel } from './AITextEditPanel';
+import EditorDetailMinimap from './EditorDetailMinimap';
+import EditorPagePanel from './EditorPagePanel';
+import EditorToolRail, { type EditorToolId } from './EditorToolRail';
 import { ImagePickerModal } from './ImagePickerModal';
+import { ImageSelectionPanel } from './ImageSelectionPanel';
 
 interface DetailPageEditorProps {
   html: string;
@@ -298,6 +301,7 @@ const GRAPESJS_OPTIONS: Parameters<typeof GjsEditor>[0]['options'] = {
   undoManager: { maximumStackLength: 50 },
   deviceManager: {
     devices: [
+      { id: 'detail-640', name: '상세페이지 640', width: '640px' },
       { id: 'detail-720', name: '상세페이지 720', width: '720px' },
       { id: 'detail-860', name: '상세페이지 860', width: '860px' },
     ],
@@ -325,30 +329,97 @@ function sanitizeEditorCss(css: string): string {
     .trim();
 }
 
+const API_BASE_ROOT = API_BASE.replace(/\/$/, '');
+
+function getWebOrigin(): string {
+  if (typeof window === 'undefined') return '';
+  return window.location.origin;
+}
+
+function absolutizeFontUrls(css: string): string {
+  const webOrigin = getWebOrigin();
+  if (!webOrigin) return css;
+  return css.replace(/url\(\s*(['"]?)\/fonts\//g, `url($1${webOrigin}/fonts/`);
+}
+
+function toApiAssetUrl(value: string): string {
+  const url = value.trim();
+  if (!url || /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(url)) return value;
+  if (/^\/(?:processed|uploads|api)\//i.test(url)) return `${API_BASE_ROOT}${url}`;
+  return value;
+}
+
+function normalizeElementUrl(el: Element, attr: string): void {
+  const value = el.getAttribute(attr);
+  if (!value) return;
+  el.setAttribute(attr, toApiAssetUrl(value));
+}
+
+function normalizeBodyAssetUrls(doc: Document): void {
+  doc.body.querySelectorAll('img[src], source[src], video[src]').forEach((el) => {
+    normalizeElementUrl(el, 'src');
+  });
+  doc.body.querySelectorAll('img[srcset], source[srcset]').forEach((el) => {
+    normalizeElementUrl(el, 'srcset');
+  });
+  doc.body.querySelectorAll('video[poster]').forEach((el) => {
+    normalizeElementUrl(el, 'poster');
+  });
+}
+
 function sanitizePersistedHead(headHtml: string, viewportContent: string): string {
   const doc = new DOMParser().parseFromString(`<head>${headHtml}</head>`, 'text/html');
   const head = doc.head;
-  const hasTailwindRuntime = !!head.querySelector('script[src*="cdn.tailwindcss.com"]');
 
-  head.querySelectorAll('meta[name="viewport"]').forEach((el) => el.remove());
+  head.querySelectorAll('meta[charset], base, meta[name="viewport"]').forEach((el) => el.remove());
   head.insertAdjacentHTML(
     'afterbegin',
-    `<meta name="viewport" content="${viewportContent.replace(/"/g, '&quot;')}" />`,
+    `<meta charset="UTF-8" />
+<meta name="viewport" content="${viewportContent.replace(/"/g, '&quot;')}" />`,
   );
 
+  const seenScripts = new Set<string>();
+  head.querySelectorAll('script[src]').forEach((script) => {
+    const src = script.getAttribute('src');
+    if (!src) return;
+    if (seenScripts.has(src)) {
+      script.remove();
+      return;
+    }
+    seenScripts.add(src);
+  });
+
+  const seenStylesheets = new Set<string>();
+  head.querySelectorAll('link[rel="stylesheet"]').forEach((link) => {
+    const href = link.getAttribute('href');
+    if (!href) return;
+    if (seenStylesheets.has(href)) {
+      link.remove();
+      return;
+    }
+    seenStylesheets.add(href);
+  });
+
+  const seenStyleText = new Set<string>();
   head.querySelectorAll('style').forEach((style) => {
     const text = style.textContent ?? '';
-    const isCompiledTailwind = /tailwindcss v/i.test(text);
     const isEditorWrapperStyle = /#[\w-]+\{[^}]*min-height:\d+px[^}]*\}/.test(text);
     const isEditorCanvasStyle =
-      /\.gjs-selected|\.gjs-hovered|scrollbar-width:\s*none/i.test(text);
+      /\.gjs-|\.gjs-selected|\.gjs-hovered|scrollbar-width:\s*none/i.test(text);
+    const normalizedText = absolutizeFontUrls(text).trim();
 
-    if ((hasTailwindRuntime && isCompiledTailwind) || isEditorWrapperStyle || isEditorCanvasStyle) {
+    if (
+      isEditorWrapperStyle ||
+      isEditorCanvasStyle ||
+      (normalizedText && seenStyleText.has(normalizedText))
+    ) {
       style.remove();
       return;
     }
 
     style.removeAttribute('data-gjs-injected');
+    style.textContent = normalizedText;
+    if (normalizedText) seenStyleText.add(normalizedText);
   });
 
   return head.innerHTML.trim();
@@ -356,16 +427,133 @@ function sanitizePersistedHead(headHtml: string, viewportContent: string): strin
 
 function normalizeBodyMarkup(rawHtml: string, bodyAttrs: string): string {
   const source = rawHtml.trim();
-  if (!/^<body[\s>]/i.test(source)) return `<body${bodyAttrs ? ` ${bodyAttrs}` : ''}>${source}</body>`;
-
-  const doc = new DOMParser().parseFromString(source, 'text/html');
+  const bodySource = /^<body[\s>]/i.test(source) ? source : `<body>${source}</body>`;
+  const doc = new DOMParser().parseFromString(bodySource, 'text/html');
+  normalizeBodyAssetUrls(doc);
   return `<body${bodyAttrs ? ` ${bodyAttrs}` : ''}>${doc.body.innerHTML}</body>`;
 }
 
-function buildPersistedEditorHtml(editor: Editor, parsed: ParsedHtml): string {
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function escapeAttr(value: string): string {
+  return escapeHtml(value).replace(/"/g, '&quot;');
+}
+
+function buildSizeGuideFrameHtml(input: {
+  src: string;
+  alt: string;
+  heightLabel?: string;
+  widthLabel?: string;
+}): string {
+  const src = escapeAttr(input.src);
+  const alt = escapeAttr(input.alt);
+  const heightLabel = escapeHtml((input.heightLabel ?? '').trim());
+  const widthLabel = escapeHtml((input.widthLabel ?? '').trim());
+  const hasHeightGuide = heightLabel !== '';
+  const hasWidthGuide = widthLabel !== '';
+  const imageColumn = hasHeightGuide ? 2 : 1;
+  const gridColumns = hasHeightGuide ? '82px minmax(0, max-content)' : 'minmax(0, max-content)';
+  const gridRows = hasWidthGuide ? 'auto 78px' : 'auto';
+  const heightGuide = hasHeightGuide ? `
+        <div aria-hidden="true" style="position:relative;grid-column:1;grid-row:1;align-self:stretch;width:82px;min-height:330px;">
+          <span style="position:absolute;top:0;bottom:0;right:8px;width:1.5px;background:#111827;">
+            <span style="position:absolute;top:0;left:-13px;width:28px;height:1.5px;background:#111827;display:block;"></span>
+            <span style="position:absolute;bottom:0;left:-13px;width:28px;height:1.5px;background:#111827;display:block;"></span>
+          </span>
+          <span data-field="sizeHeightLabel" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-90deg);transform-origin:center;color:#111827;font-size:42px;line-height:1;font-weight:900;white-space:nowrap;">${heightLabel}</span>
+        </div>` : '';
+  const widthGuide = hasWidthGuide ? `
+        <div aria-hidden="true" style="position:relative;grid-column:${imageColumn};grid-row:2;align-self:start;width:100%;min-width:180px;height:72px;margin-top:18px;">
+          <span style="position:absolute;left:0;right:0;top:0;height:1.5px;background:#111827;">
+            <span style="position:absolute;left:0;top:-13px;width:1.5px;height:28px;background:#111827;display:block;"></span>
+            <span style="position:absolute;right:0;top:-13px;width:1.5px;height:28px;background:#111827;display:block;"></span>
+          </span>
+          <span data-field="sizeWidthLabel" style="position:absolute;left:50%;top:18px;transform:translateX(-50%);color:#111827;font-size:46px;line-height:1;font-weight:900;white-space:nowrap;">${widthLabel}</span>
+        </div>` : '';
+
+  return `
+    <div data-role="size-guide-frame" style="border-radius:34px;background:#fff;border:1px solid #f1f1f1;box-shadow:0 8px 24px rgba(15,23,42,.08);overflow:hidden;padding:48px 30px 38px;">
+      <div style="min-height:520px;display:grid;place-items:center;">
+        <div style="display:inline-grid;grid-template-columns:${gridColumns};grid-template-rows:${gridRows};column-gap:${hasHeightGuide ? 22 : 0}px;align-items:stretch;justify-content:center;justify-items:center;max-width:100%;">
+          ${heightGuide}
+          <img data-field="sizeGuideImage" src="${src}" alt="${alt}" style="grid-column:${imageColumn};grid-row:1;position:relative;z-index:10;display:block;width:auto;max-width:${hasHeightGuide ? 430 : 540}px;max-height:500px;object-fit:contain;" />
+          ${widthGuide}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function repairSizeGuideFrameInDocument(doc: Document) {
+  const container = doc.querySelector<HTMLElement>('[data-container="sizeImages"]');
+  if (!container) return;
+  const frame = container.querySelector<HTMLElement>('[data-role="size-guide-frame"]');
+  const img = (frame ?? container).querySelector<HTMLImageElement>('img');
+  if (!img) return;
+  const heightLabel = (frame ?? container)
+    .querySelector<HTMLElement>('[data-field="sizeHeightLabel"]')
+    ?.textContent?.trim() ?? '';
+  const widthLabel = (frame ?? container)
+    .querySelector<HTMLElement>('[data-field="sizeWidthLabel"]')
+    ?.textContent?.trim() ?? '';
+  const repairedFrame = buildSizeGuideFrameHtml({
+    src: img.getAttribute('src') ?? '',
+    alt: img.getAttribute('alt') ?? '제품 사이즈',
+    heightLabel,
+    widthLabel,
+  });
+  if (frame) {
+    frame.outerHTML = repairedFrame;
+    return;
+  }
+  container.innerHTML = repairedFrame;
+}
+
+function repairProductInfoTableWidthInDocument(doc: Document) {
+  const container = doc.querySelector<HTMLElement>('[data-container="productInfo"]');
+  if (!container) return;
+  const safetyLabelContainer = doc.querySelector<HTMLElement>('[data-container="safetyLabelImages"]');
+  if (safetyLabelContainer?.querySelector('img')) {
+    container.remove();
+    return;
+  }
+
+  container.style.width = '82%';
+  container.style.maxWidth = '500px';
+  container.style.marginLeft = 'auto';
+  container.style.marginRight = 'auto';
+}
+
+function getEditorFrameEl(
+  editor: Editor | ReturnType<typeof useEditor> | null | undefined,
+): HTMLIFrameElement | null {
+  const canvas = editor?.Canvas;
+  if (!canvas || typeof canvas.getFrameEl !== 'function') return null;
+  return canvas.getFrameEl() ?? null;
+}
+
+function getLiveEditorHeadHtml(editor: Editor): string {
+  const iframeDoc = getEditorFrameEl(editor)?.contentDocument;
+  return iframeDoc?.head.innerHTML ?? '';
+}
+
+function buildPersistedEditorHtml(
+  editor: Editor,
+  parsed: ParsedHtml,
+  templateCss: string,
+): string {
   const html = editor.getHtml();
   const css = sanitizeEditorCss(editor.getCss({ avoidProtected: true }) ?? '');
-  const headResources = sanitizePersistedHead(parsed.headHtml, parsed.viewportContent);
+  const liveHeadHtml = getLiveEditorHeadHtml(editor);
+  const headResources = sanitizePersistedHead(
+    `${parsed.headHtml}\n${liveHeadHtml}\n${templateCss ? `<style>${templateCss}</style>` : ''}`,
+    parsed.viewportContent,
+  );
   const bodyMarkup = normalizeBodyMarkup(html, parsed.bodyAttrs);
 
   return `<!DOCTYPE html>
@@ -382,6 +570,8 @@ ${bodyMarkup}
 function parseFullHtml(fullHtml: string): ParsedHtml {
   const parser = new DOMParser();
   const doc = parser.parseFromString(fullHtml, 'text/html');
+  repairSizeGuideFrameInDocument(doc);
+  repairProductInfoTableWidthInDocument(doc);
   const viewportContent =
     doc.head.querySelector<HTMLMetaElement>('meta[name="viewport"]')?.content ||
     `width=${inferViewportWidth(fullHtml, '')}, initial-scale=1`;
@@ -488,6 +678,46 @@ function injectHeadResources(iframeWindow: Window, parsed: ParsedHtml) {
     script.onerror = done;
     head.appendChild(script);
   }
+}
+
+function syncEditorFrameHeight(editor: Editor) {
+  const canvas = editor.Canvas;
+  if (!canvas || typeof canvas.getFrameEl !== 'function') return;
+
+  const iframe = getEditorFrameEl(editor);
+  const doc = iframe?.contentDocument;
+  if (!iframe || !doc?.body) return;
+
+  const framesEl = canvas.getFramesEl();
+  const frameWrapper = iframe.closest<HTMLElement>('.gjs-frame-wrapper');
+  const viewportHeight = canvas.getElement()?.clientHeight ?? 800;
+  const contentHeight = Math.max(
+    doc.documentElement.scrollHeight,
+    doc.body.scrollHeight,
+    doc.documentElement.offsetHeight,
+    doc.body.offsetHeight,
+    viewportHeight,
+    800,
+  );
+  const frameHeight = Math.ceil(contentHeight);
+  const heightPx = `${frameHeight}px`;
+  const zoom = Math.max(0.2, (canvas.getZoom?.() ?? 100) / 100);
+
+  canvas.getFrame()?.set({ height: heightPx }, { noUndo: 1 });
+  framesEl?.style.setProperty('transform-origin', 'top center');
+  iframe.style.height = heightPx;
+  iframe.style.top = '0px';
+  iframe.style.bottom = 'auto';
+  iframe.parentElement?.style.setProperty('height', heightPx);
+  frameWrapper?.style.setProperty('height', heightPx);
+  frameWrapper?.style.setProperty('top', '24px');
+  frameWrapper?.style.setProperty('bottom', 'auto');
+  frameWrapper?.style.setProperty('margin-top', '0');
+  frameWrapper?.style.setProperty('margin-bottom', '0');
+  framesEl?.style.setProperty('min-height', `${Math.ceil(frameHeight * zoom + 48)}px`);
+  const coords = canvas.getCoords?.() ?? { x: 0, y: 0 };
+  canvas.setCoords(coords.x ?? 0, 0);
+  editor.refresh();
 }
 
 function getBlockIcon(blockId: string): ReactNode {
@@ -637,12 +867,12 @@ function EditorToolbar({
   }, [editor]);
 
   const handleSave = useCallback(() => {
-    const fullHtml = buildPersistedEditorHtml(editor, parsed);
+    const fullHtml = buildPersistedEditorHtml(editor, parsed, templateCss);
     // Save 후 dirty 해제 + UndoManager 클리어 → "방금 저장된 상태" 가 새 베이스.
     setEditorDirty(false);
     editor.UndoManager.clear();
     onSave(fullHtml);
-  }, [editor, onSave, parsed, setEditorDirty]);
+  }, [editor, onSave, parsed, setEditorDirty, templateCss]);
 
   // 닫기 버튼 — Sidebar 가 아니라 toolbar 의 "닫기" 도 dirty 체크 필요.
   // (Sidebar 는 handleNavClick 이 가로채지만, onClose 는 editor 내부 router.push 라 별도 가드.)
@@ -663,7 +893,7 @@ function EditorToolbar({
     try {
       const htmlStr = editor.getHtml();
       const cssStr = editor.getCss({ avoidProtected: true }) ?? '';
-      const iframeDoc = editor.Canvas.getFrameEl()?.contentDocument;
+      const iframeDoc = getEditorFrameEl(editor)?.contentDocument;
       const fontLinks = iframeDoc
         ? Array.from(iframeDoc.head.querySelectorAll('link[rel="stylesheet"]'))
             .map((l) => l.outerHTML).join('\n')
@@ -798,13 +1028,16 @@ function EditorToolbar({
     }
   }, [editor]);
 
-  const applyContentZoom = useCallback(
+  const applyCanvasZoom = useCallback(
     (level: number) => {
-      const iframe = editor.Canvas.getFrameEl();
+      const iframe = getEditorFrameEl(editor);
       const doc = iframe?.contentDocument;
       if (doc) {
-        doc.documentElement.style.zoom = `${level / 100}`;
+        doc.documentElement.style.removeProperty('zoom');
+        doc.body.style.removeProperty('zoom');
       }
+      editor.Canvas.setZoom(level);
+      requestAnimationFrame(() => syncEditorFrameHeight(editor));
     },
     [editor],
   );
@@ -812,19 +1045,19 @@ function EditorToolbar({
   const handleZoomIn = useCallback(() => {
     const next = Math.min(zoom + 10, 200);
     setZoom(next);
-    applyContentZoom(next);
-  }, [zoom, applyContentZoom]);
+    applyCanvasZoom(next);
+  }, [zoom, applyCanvasZoom]);
 
   const handleZoomOut = useCallback(() => {
     const next = Math.max(zoom - 10, 20);
     setZoom(next);
-    applyContentZoom(next);
-  }, [zoom, applyContentZoom]);
+    applyCanvasZoom(next);
+  }, [zoom, applyCanvasZoom]);
 
   const handleZoomReset = useCallback(() => {
     setZoom(100);
-    applyContentZoom(100);
-  }, [applyContentZoom]);
+    applyCanvasZoom(100);
+  }, [applyCanvasZoom]);
 
   return (
     <div className="flex items-center justify-between px-3 py-1.5 bg-white border-b border-slate-200">
@@ -968,109 +1201,540 @@ function EditorToolbar({
   );
 }
 
-function LeftPanel({ onClose, rawImages = [] }: { onClose?: () => void; rawImages?: string[] }) {
+const LEFT_TOOL_LABELS: Record<EditorToolId, string> = {
+  pages: '페이지',
+  text: '텍스트',
+  image: '사진',
+  ai: 'AI 생성',
+  ads: '광고 소재',
+  shape: '도형',
+  layers: '레이어',
+  color: '색상',
+};
+
+function LeftPanel({
+  activeTool,
+  onClose,
+  onOpenAiPanel,
+  rawImages = [],
+}: {
+  activeTool: EditorToolId;
+  onClose?: () => void;
+  onOpenAiPanel: () => void;
+  rawImages?: string[];
+}) {
   const editor = useEditor();
   return (
-    <aside className="w-[280px] bg-white border-r border-slate-200 flex flex-col overflow-hidden shrink-0">
+    <aside className="flex h-full w-[320px] shrink-0 flex-col overflow-hidden border-r border-slate-200 bg-white">
+      <div className="flex h-12 items-center justify-between border-b border-slate-100 px-4">
+        <div className="text-sm font-black text-slate-800">{LEFT_TOOL_LABELS[activeTool]}</div>
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+            title="페이지 패널 닫기"
+          >
+            <X size={14} />
+          </button>
+        )}
+      </div>
+
+      <LeftToolPanel
+        activeTool={activeTool}
+        editor={editor}
+        onOpenAiPanel={onOpenAiPanel}
+        rawImages={rawImages}
+      />
+    </aside>
+  );
+}
+
+function LeftToolPanel({
+  activeTool,
+  editor,
+  onOpenAiPanel,
+  rawImages,
+}: {
+  activeTool: EditorToolId;
+  editor: ReturnType<typeof useEditor>;
+  onOpenAiPanel: () => void;
+  rawImages: string[];
+}) {
+  if (activeTool === 'pages') return <EditorPagePanel />;
+  if (activeTool === 'text') return <TextToolPanel editor={editor} />;
+  if (activeTool === 'image') return <ImageToolPanel editor={editor} rawImages={rawImages} />;
+  if (activeTool === 'ai') return <AiToolPanel onOpenAiPanel={onOpenAiPanel} />;
+  if (activeTool === 'ads') return <AdsToolPanel editor={editor} />;
+  if (activeTool === 'shape') return <ShapeToolPanel editor={editor} />;
+  if (activeTool === 'layers') return <LayersToolPanel />;
+  return <ColorToolPanel editor={editor} />;
+}
+
+function TextToolPanel({ editor }: { editor: ReturnType<typeof useEditor> }) {
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      <div className="mb-4 grid grid-cols-2 rounded-lg border border-slate-200 bg-slate-50 p-1">
+        <button type="button" className="rounded-md bg-white py-2 text-xs font-black text-slate-900 shadow-sm">
+          텍스트
+        </button>
+        <button type="button" className="rounded-md py-2 text-xs font-bold text-slate-500">
+          폰트
+        </button>
+      </div>
+
+      <div className="space-y-2">
+        <QuickInsertButton
+          label="메인 카피 텍스트 추가"
+          onClick={() =>
+            insertEditorHtml(
+              editor,
+              '<h2 style="font-size:42px;font-weight:900;line-height:1.16;letter-spacing:0;color:#111827;text-align:center;margin:24px 0;">메인 카피를 입력하세요</h2>',
+            )
+          }
+        />
+        <QuickInsertButton
+          label="서브 카피 텍스트 추가"
+          onClick={() =>
+            insertEditorHtml(
+              editor,
+              '<p style="font-size:24px;font-weight:800;line-height:1.45;color:#374151;text-align:center;margin:18px 0;">서브 카피를 입력하세요</p>',
+            )
+          }
+        />
+        <QuickInsertButton
+          label="본문 텍스트 추가"
+          onClick={() =>
+            insertEditorHtml(
+              editor,
+              '<p style="font-size:18px;font-weight:500;line-height:1.75;color:#4b5563;text-align:center;margin:16px 0;">본문 내용을 입력하세요.</p>',
+            )
+          }
+        />
+      </div>
+
+      <ToolSection title="리뷰/옵션/Q&A 카드">
+        <PresetGrid
+          items={[
+            { label: '리뷰 카드', sub: '별점 + 짧은 후기' },
+            { label: 'Q&A 카드', sub: '질문과 답변' },
+          ]}
+          onSelect={(label) =>
+            insertEditorHtml(
+              editor,
+              `<div style="margin:22px auto;padding:20px;border-radius:16px;background:#f8fafc;color:#111827;max-width:520px;"><strong>${label}</strong><p style="margin:8px 0 0;color:#64748b;">내용을 입력하세요.</p></div>`,
+            )
+          }
+        />
+      </ToolSection>
+
+      <ToolSection title="레이아웃">
+        <PresetGrid
+          items={[
+            { label: '중앙 제목', sub: '짧고 강한 문구' },
+            { label: '좌우 카피', sub: '비교형 문단' },
+          ]}
+          onSelect={(label) =>
+            insertEditorHtml(
+              editor,
+              `<div style="margin:24px auto;padding:28px;background:#ffffff;text-align:center;"><h3 style="font-size:30px;font-weight:900;margin:0 0 10px;">${label}</h3><p style="font-size:17px;color:#64748b;margin:0;">내용을 입력해 주세요.</p></div>`,
+            )
+          }
+        />
+      </ToolSection>
+    </div>
+  );
+}
+
+function ImageToolPanel({
+  editor,
+  rawImages,
+}: {
+  editor: ReturnType<typeof useEditor>;
+  rawImages: string[];
+}) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageDragActiveRef = useRef(false);
+
+  const handleFiles = useCallback(
+    async (files: FileList | null) => {
+      if (!files?.length) return;
+      for (const file of Array.from(files)) {
+        const url = await readFileAsDataUrl(file);
+        editor.AssetManager.add({ type: 'image', src: url });
+        insertImageIntoEditor(editor, url);
+      }
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    },
+    [editor],
+  );
+
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      <label className="mb-2 block text-xs font-bold text-slate-500">배경 색상</label>
+      <div className="mb-4 flex items-center gap-2">
+        <input
+          type="color"
+          defaultValue="#ffffff"
+          className="h-9 w-10 rounded border border-slate-200 bg-white p-1"
+          onChange={(event) => applySelectedStyle(editor, { backgroundColor: event.target.value })}
+        />
+        <input
+          type="text"
+          defaultValue="#FFFFFF"
+          className="h-9 flex-1 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700"
+          onBlur={(event) => applySelectedStyle(editor, { backgroundColor: event.target.value })}
+        />
+      </div>
+
+      <button
+        type="button"
+        onClick={() => fileInputRef.current?.click()}
+        className="mb-3 flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white text-xs font-black text-slate-700 transition-colors hover:border-emerald-300 hover:text-emerald-600"
+      >
+        <ImagePlus size={14} />
+        이미지 업로드
+      </button>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={(event) => handleFiles(event.target.files)}
+      />
+
       <BlocksProvider>
         {({ blocks, dragStart, dragStop }) => {
-          const standardBlocks = blocks.filter((b) => !b.getId().startsWith('raw-image-'));
-          const imageBlocks = blocks.filter((b) => b.getId().startsWith('raw-image-'));
+          const imageBlocks = blocks.filter((block) => block.getId().startsWith('raw-image-'));
+          const blockUrls = imageBlocks
+            .map((block) => String(block.get('content') ?? '').match(/src="([^"]+)"/)?.[1])
+            .filter(Boolean) as string[];
+          const images = Array.from(new Set([...rawImages, ...blockUrls]));
+          const rawOnlyImages = images.filter((url) => !blockUrls.includes(url));
 
           return (
-            <>
-              <div className="p-3 border-b border-slate-100">
-                <div className="flex items-center justify-between mb-2.5">
-                  <h3 className="text-xs font-bold text-slate-700">요소 추가</h3>
-                  {onClose && (
-                    <button
-                      type="button"
-                      onClick={onClose}
-                      className="p-0.5 text-slate-400 hover:text-slate-600 rounded transition-colors"
-                    >
-                      <X size={12} />
-                    </button>
-                  )}
-                </div>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {standardBlocks.map((block) => (
-                    <div
-                      key={block.getId()}
-                      draggable
-                      className="flex flex-col items-center gap-1 p-2.5 bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 rounded-lg cursor-grab active:cursor-grabbing transition-colors group"
-                      onDragStart={(e) => dragStart(block, e.nativeEvent)}
-                      onDragEnd={() => dragStop(false)}
-                    >
-                      <span className="text-emerald-500 group-hover:text-emerald-600 transition-colors">
-                        {getBlockIcon(block.getId())}
-                      </span>
-                      <span className="text-[10px] font-medium text-slate-500 group-hover:text-slate-700">
-                        {block.getLabel()}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {imageBlocks.length > 0 && (
-                <div className="border-t border-slate-100 p-3">
-                  <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
-                    <ImageIcon size={12} />
-                    원본 이미지
-                    <span className="text-slate-400 font-normal">({imageBlocks.length})</span>
-                  </h3>
-                  <div className="grid grid-cols-3 gap-1.5 max-h-[320px] overflow-y-auto">
-                    {imageBlocks.map((block) => {
-                      const blockContent = block.get('content') as string;
-                      const srcMatch = blockContent.match(/src="([^"]+)"/);
-                      const thumbUrl = srcMatch?.[1] ?? '';
-
-                      return (
-                        <div
-                          key={block.getId()}
-                          draggable
-                          className="aspect-square rounded border border-slate-200 hover:border-emerald-400 overflow-hidden cursor-grab active:cursor-grabbing transition-colors group"
-                          title="드래그하여 배치 · 클릭하여 선택된 이미지 교체"
-                          onDragStart={(e) => dragStart(block, e.nativeEvent)}
-                          onDragEnd={() => dragStop(false)}
-                          onClick={() => {
-                            const selected = editor.getSelected();
-                            const type = (selected?.get('type') as string) ?? '';
-                            const tag = ((selected?.get('tagName') as string) ?? '').toLowerCase();
-                            if (selected && (type === 'image' || tag === 'img')) {
-                              selected.setAttributes({ src: thumbUrl });
-                            }
-                          }}
-                        >
-                          <img
-                            src={thumbUrl}
-                            alt=""
-                            className="w-full h-full object-cover group-hover:opacity-80 transition-opacity pointer-events-none"
-                          />
-                        </div>
-                      );
-                    })}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="flex aspect-square flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 text-xs font-bold text-slate-400 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-600"
+              >
+                <ImagePlus size={23} />
+                업로드
+              </button>
+              {imageBlocks.map((block) => {
+                const blockContent = String(block.get('content') ?? '');
+                const thumbUrl = blockContent.match(/src="([^"]+)"/)?.[1] ?? '';
+                return (
+                  <div
+                    key={block.getId()}
+                    draggable
+                    className="aspect-square cursor-grab overflow-hidden rounded-xl border border-slate-200 bg-slate-50"
+                    title="드래그하여 배치 · 클릭하여 배치"
+                    onDragStart={(event) => {
+                      imageDragActiveRef.current = true;
+                      event.stopPropagation();
+                      dragStart(block, event.nativeEvent);
+                    }}
+                    onDragEnd={() => {
+                      dragStop(false);
+                      window.setTimeout(() => {
+                        imageDragActiveRef.current = false;
+                      }, 0);
+                    }}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      if (imageDragActiveRef.current) return;
+                      insertImageIntoEditor(editor, thumbUrl);
+                    }}
+                  >
+                    <img src={thumbUrl} alt="" className="h-full w-full object-cover" />
                   </div>
-                </div>
-              )}
-            </>
+                );
+              })}
+              {rawOnlyImages.map((url) => (
+                <button
+                  key={url}
+                  type="button"
+                  className="group relative aspect-square overflow-hidden rounded-xl border border-slate-200 bg-slate-50"
+                  title="클릭하여 배치"
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    insertImageIntoEditor(editor, url);
+                  }}
+                >
+                  <img src={url} alt="" className="h-full w-full object-cover transition group-hover:scale-105" />
+                </button>
+              ))}
+            </div>
           );
         }}
       </BlocksProvider>
-
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <h3 className="text-xs font-bold text-slate-700 px-3 pt-3 pb-2">레이어</h3>
-        <div className="flex-1 overflow-y-auto px-1">
-          <LayersProvider>{({ Container }) => <Container>{null}</Container>}</LayersProvider>
-        </div>
-      </div>
-    </aside>
+    </div>
   );
+}
+
+function AiToolPanel({ onOpenAiPanel }: { onOpenAiPanel: () => void }) {
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      <div className="mb-4 grid grid-cols-2 rounded-lg bg-slate-100 p-1">
+        <button type="button" className="rounded-md bg-white py-2 text-xs font-black text-slate-900 shadow-sm">
+          이미지
+        </button>
+        <button type="button" className="rounded-md py-2 text-xs font-bold text-slate-500">
+          GIF
+        </button>
+      </div>
+      <label className="mb-2 block text-xs font-bold text-slate-500">참조 이미지 (선택)</label>
+      <div className="mb-4 flex h-36 flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 text-xs font-bold text-slate-400">
+        <ImageIcon size={28} className="mb-2" />
+        클릭 또는 드래그하여 이미지 첨부
+      </div>
+      <label className="mb-2 block text-xs font-bold text-slate-500">
+        프롬프트 <span className="text-rose-500">*</span>
+      </label>
+      <textarea
+        className="h-40 w-full resize-none rounded-xl border border-slate-200 p-3 text-sm outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
+        placeholder="생성하고 싶은 이미지를 자세히 묘사해주세요..."
+      />
+      <button
+        type="button"
+        onClick={onOpenAiPanel}
+        className="mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-slate-900 text-sm font-black text-white shadow-sm transition hover:bg-slate-800"
+      >
+        <Sparkles size={15} />
+        AI 어시스턴트로 생성
+      </button>
+    </div>
+  );
+}
+
+function AdsToolPanel({ editor }: { editor: ReturnType<typeof useEditor> }) {
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      <ToolSection title="광고 카피">
+        <PresetGrid
+          items={[
+            { label: '후킹 배너', sub: '첫 화면 강조 문구' },
+            { label: '쿠폰 카드', sub: '혜택/할인 노출' },
+            { label: '리뷰 강조', sub: '구매 전환 문구' },
+            { label: '긴급 소구', sub: '한정/마감 문구' },
+          ]}
+          onSelect={(label) =>
+            insertEditorHtml(
+              editor,
+              `<div style="margin:20px auto;padding:22px;border-radius:18px;background:#111827;color:#ffffff;text-align:center;max-width:560px;"><strong style="font-size:28px;">${label}</strong><p style="margin:8px 0 0;color:#e5e7eb;">광고 문구를 입력하세요.</p></div>`,
+            )
+          }
+        />
+      </ToolSection>
+    </div>
+  );
+}
+
+function ShapeToolPanel({ editor }: { editor: ReturnType<typeof useEditor> }) {
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      <div className="grid grid-cols-2 gap-2">
+        <QuickShapeButton
+          icon={<Square size={18} />}
+          label="사각형"
+          onClick={() => insertEditorHtml(editor, '<div style="width:180px;height:90px;background:#f1f5f9;border-radius:16px;margin:20px auto;"></div>')}
+        />
+        <QuickShapeButton
+          icon={<Circle size={18} />}
+          label="원형"
+          onClick={() => insertEditorHtml(editor, '<div style="width:120px;height:120px;background:#e0f2fe;border-radius:999px;margin:20px auto;"></div>')}
+        />
+        <QuickShapeButton
+          icon={<Minus size={18} />}
+          label="선"
+          onClick={() => insertEditorHtml(editor, '<div style="height:3px;width:240px;background:#cbd5e1;margin:24px auto;"></div>')}
+        />
+        <QuickShapeButton
+          icon={<Layout size={18} />}
+          label="카드"
+          onClick={() => insertEditorHtml(editor, '<div style="margin:24px auto;padding:28px;border-radius:20px;background:#ffffff;box-shadow:0 10px 24px rgba(15,23,42,.08);max-width:520px;">내용을 입력하세요.</div>')}
+        />
+      </div>
+    </div>
+  );
+}
+
+function LayersToolPanel() {
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
+      <LayersProvider>{({ Container }) => <Container>{null}</Container>}</LayersProvider>
+    </div>
+  );
+}
+
+function ColorToolPanel({ editor }: { editor: ReturnType<typeof useEditor> }) {
+  const colors = ['#111827', '#ffffff', '#60a5fa', '#fb7185', '#fbbf24', '#34d399', '#a78bfa', '#fb923c'];
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      <ToolSection title="텍스트 색상">
+        <div className="grid grid-cols-4 gap-2">
+          {colors.map((color) => (
+            <button
+              key={`text-${color}`}
+              type="button"
+              className="h-12 rounded-xl border border-slate-200 shadow-sm"
+              style={{ backgroundColor: color }}
+              title={color}
+              onClick={() => applySelectedStyle(editor, { color })}
+            />
+          ))}
+        </div>
+      </ToolSection>
+      <ToolSection title="배경 색상">
+        <div className="grid grid-cols-4 gap-2">
+          {colors.map((color) => (
+            <button
+              key={`bg-${color}`}
+              type="button"
+              className="h-12 rounded-xl border border-slate-200 shadow-sm"
+              style={{ backgroundColor: color }}
+              title={color}
+              onClick={() => applySelectedStyle(editor, { backgroundColor: color })}
+            />
+          ))}
+        </div>
+      </ToolSection>
+    </div>
+  );
+}
+
+function ToolSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="mt-5">
+      <div className="mb-2 flex items-center justify-between">
+        <h3 className="text-xs font-black text-slate-600">{title}</h3>
+        <span className="text-[11px] font-bold text-blue-500">더보기</span>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function QuickInsertButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex h-12 w-full items-center justify-between rounded-xl bg-slate-50 px-4 text-left text-sm font-black text-slate-800 transition hover:bg-slate-100"
+    >
+      {label}
+      <span className="text-xl font-light text-slate-400">+</span>
+    </button>
+  );
+}
+
+function QuickShapeButton({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex h-20 flex-col items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-black text-slate-600 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-600"
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+function PresetGrid({
+  items,
+  onSelect,
+}: {
+  items: Array<{ label: string; sub: string }>;
+  onSelect: (label: string) => void;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {items.map((item) => (
+        <button
+          key={item.label}
+          type="button"
+          onClick={() => onSelect(item.label)}
+          className="h-24 rounded-xl bg-slate-50 p-3 text-left transition hover:bg-slate-100"
+        >
+          <div className="text-sm font-black text-slate-800">{item.label}</div>
+          <div className="mt-1 text-[11px] font-medium leading-4 text-slate-400">{item.sub}</div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function insertEditorHtml(editor: ReturnType<typeof useEditor>, html: string) {
+  const added = editor.addComponents(html);
+  const component = Array.isArray(added) ? added[0] : added;
+  if (component) {
+    editor.select(component);
+    requestAnimationFrame(() => scrollComponentIntoCanvasView(editor, component));
+  }
+}
+
+function scrollComponentIntoCanvasView(editor: ReturnType<typeof useEditor>, component: any) {
+  const frame = getEditorFrameEl(editor);
+  const frameWindow = frame?.contentWindow;
+  const element = component?.getEl?.();
+  if (!frameWindow || !element) return;
+
+  const rect = element.getBoundingClientRect();
+  const viewportHeight = frameWindow.innerHeight || frame?.clientHeight || 900;
+  const nextTop = Math.max(
+    0,
+    frameWindow.scrollY + rect.top - viewportHeight / 2 + rect.height / 2,
+  );
+  frameWindow.scrollTo({ top: nextTop, behavior: 'auto' });
+}
+
+function insertImageIntoEditor(editor: ReturnType<typeof useEditor>, url: string) {
+  const selected = editor.getSelected();
+  const type = (selected?.get('type') as string) ?? '';
+  const tag = ((selected?.get('tagName') as string) ?? '').toLowerCase();
+  if (selected && (type === 'image' || tag === 'img')) {
+    selected.setAttributes({ src: url });
+    return;
+  }
+  insertEditorHtml(
+    editor,
+    `<img src="${url}" style="display:block;width:100%;max-width:640px;margin:0 auto;object-fit:cover;" />`,
+  );
+}
+
+function applySelectedStyle(editor: ReturnType<typeof useEditor>, style: Record<string, string>) {
+  const target = editor.getSelected() ?? editor.getWrapper();
+  target?.addStyle?.(style);
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ''));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
 }
 
 function RightPanel({
   onClose,
   selectedTextComponent,
+  selectedImageComponent,
   isBusy,
   selectedImageSrc,
   onImageEdited,
@@ -1084,6 +1748,7 @@ function RightPanel({
 }: {
   onClose?: () => void;
   selectedTextComponent: any;
+  selectedImageComponent: any;
   isBusy: React.MutableRefObject<boolean>;
   selectedImageSrc: string | null;
   onImageEdited: (newUrl: string) => void;
@@ -1122,6 +1787,10 @@ function RightPanel({
       const comps = wrapper.find(`[data-field="${field}"]`);
       if (comps.length > 0 && url) comps[0].setAttributes({ src: resolve(url) });
     };
+    const getFieldText = (field: string) => {
+      const comp = wrapper.find(`[data-field="${field}"]`)[0];
+      return (comp?.getEl() as HTMLElement | undefined)?.textContent?.trim() ?? '';
+    };
 
     const fillContainer = (name: string, urls: string[], alt: string) => {
       const sections = wrapper.find(`[data-section="${name}"]`);
@@ -1129,6 +1798,15 @@ function RightPanel({
       sections[0].removeClass('hidden');
       const containers = wrapper.find(`[data-container="${name}"]`);
       if (containers.length === 0) return;
+      if (name === 'sizeImages') {
+        containers[0].components(buildSizeGuideFrameHtml({
+          src: resolve(urls[0]),
+          alt,
+          heightLabel: getFieldText('sizeHeightLabel'),
+          widthLabel: getFieldText('sizeWidthLabel'),
+        }));
+        return;
+      }
       containers[0].components(
         urls.map((u) => `<img src="${resolve(u)}" alt="${alt}" class="w-full h-auto rounded-[var(--theme-radius)] shadow-md" />`).join('')
       );
@@ -1288,7 +1966,7 @@ function RightPanel({
   const selectionType = selectedTextComponent ? 'text' : selectedImageSrc ? 'image' : null;
 
   return (
-    <aside className="w-[320px] bg-white border-l border-slate-200 flex flex-col overflow-hidden shrink-0">
+    <aside className="flex h-full w-[320px] shrink-0 flex-col overflow-hidden border-l border-slate-200 bg-white">
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-200 shrink-0">
         <div className="flex items-center gap-2 min-w-0">
           <Sparkles size={14} className="text-emerald-500 shrink-0" />
@@ -1322,8 +2000,10 @@ function RightPanel({
             isBusy={isBusy}
             onClose={() => {/* deselect handled by parent */}}
           />
-        ) : selectedImageSrc ? (
-          <AIImageEditPanel
+        ) : selectedImageSrc && selectedImageComponent ? (
+          <ImageSelectionPanel
+            component={selectedImageComponent}
+            editor={editor}
             imageUrl={selectedImageSrc}
             isBusy={isBusy}
             onEditComplete={onImageEdited}
@@ -1620,6 +2300,7 @@ export default function DetailPageEditor({
 }: DetailPageEditorProps) {
   const parsed = useMemo(() => parseFullHtml(html), [html]);
   const [selectedImageSrc, setSelectedImageSrc] = useState<string | null>(null);
+  const [selectedImageComponent, setSelectedImageComponent] = useState<any>(null);
   const [selectedTextComponent, setSelectedTextComponent] = useState<any>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const isBusyRef = useRef(false);
@@ -1627,6 +2308,7 @@ export default function DetailPageEditor({
   const [editorRef, setEditorRef] = useState<Editor | null>(null);
   const [showLeftPanel, setShowLeftPanel] = useState(true);
   const [showRightPanel, setShowRightPanel] = useState(true);
+  const [activeLeftTool, setActiveLeftTool] = useState<EditorToolId>('pages');
 
   useEffect(() => {
     const style = document.createElement('style');
@@ -1690,6 +2372,15 @@ export default function DetailPageEditor({
         section.removeClass('hidden');
         const containers = wrapper.find(`[data-container="${sectionName}"]`);
         if (containers.length === 0) return;
+        if (sectionName === 'sizeImages') {
+          containers[0].components(buildSizeGuideFrameHtml({
+            src: resolveUrl(urls[0]),
+            alt,
+            heightLabel: d.size_height_label ?? d.sizeHeightLabel ?? '',
+            widthLabel: d.size_width_label ?? d.sizeWidthLabel ?? '',
+          }));
+          return;
+        }
         containers[0].components(
           urls.map((url) => `<img src="${resolveUrl(url)}" alt="${alt}" class="w-full h-auto rounded-[var(--theme-radius)] shadow-md" />`).join('')
         );
@@ -1697,6 +2388,8 @@ export default function DetailPageEditor({
 
       const sizeImgs = d.size_images ?? d.sizeImages ?? [];
       fillSection('sizeImages', sizeImgs, '사이즈 안내');
+      setText('sizeHeightLabel', d.size_height_label ?? d.sizeHeightLabel ?? '');
+      setText('sizeWidthLabel', d.size_width_label ?? d.sizeWidthLabel ?? '');
 
       const detailImgs = d.detail_images ?? d.detailImages ?? [];
       fillSection('detailImages', detailImgs, '디테일 이미지');
@@ -1711,10 +2404,22 @@ export default function DetailPageEditor({
   const handleEditorInit = useCallback(
     (editor: Editor) => {
       setEditorRef(editor);
-      editor.setDevice(parsed.viewportWidth <= 720 ? 'detail-720' : 'detail-860');
+      editor.setDevice(parsed.viewportWidth <= 720 ? 'detail-640' : 'detail-720');
+      let frameHeightSyncTimer: number | null = null;
+      const scheduleFrameHeightSync = () => {
+        if (frameHeightSyncTimer !== null) window.clearTimeout(frameHeightSyncTimer);
+        frameHeightSyncTimer = window.setTimeout(() => {
+          frameHeightSyncTimer = null;
+          syncEditorFrameHeight(editor);
+        }, 80);
+      };
 
       editor.on('canvas:frame:load:body', ({ window: iframeWindow }: { window: Window }) => {
         injectHeadResources(iframeWindow, parsed);
+        iframeWindow.document.querySelectorAll('img').forEach((image) => {
+          image.addEventListener('load', scheduleFrameHeightSync, { once: true });
+        });
+        scheduleFrameHeightSync();
       });
 
       editor.on('component:selected', (component: any) => {
@@ -1724,6 +2429,7 @@ export default function DetailPageEditor({
         const BLOCK_TAGS = new Set(['div', 'section', 'article', 'header', 'footer', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'table', 'blockquote', 'figure']);
 
         if (type === 'image' || tagName === 'img') {
+          setSelectedImageComponent(component);
           setSelectedImageSrc(component.getAttributes().src ?? '');
           setSelectedTextComponent(null);
         } else if (type === 'text' || type === 'text-ext' || TEXT_TAGS.includes(tagName)) {
@@ -1733,18 +2439,22 @@ export default function DetailPageEditor({
             return BLOCK_TAGS.has(childTag);
           });
           if (hasBlockChild) {
+            setSelectedImageComponent(null);
             setSelectedImageSrc(null);
             setSelectedTextComponent(null);
           } else {
             setSelectedTextComponent(component);
+            setSelectedImageComponent(null);
             setSelectedImageSrc(null);
           }
         } else {
+          setSelectedImageComponent(null);
           setSelectedImageSrc(null);
           setSelectedTextComponent(null);
         }
       });
       editor.on('component:deselected', () => {
+        setSelectedImageComponent(null);
         setSelectedImageSrc(null);
         setSelectedTextComponent(null);
       });
@@ -1787,6 +2497,9 @@ export default function DetailPageEditor({
           }
         }
       });
+      editor.on('component:update', scheduleFrameHeightSync);
+      editor.on('component:remove', scheduleFrameHeightSync);
+      editor.on('component:add', scheduleFrameHeightSync);
 
       rawImages.forEach((url, i) => {
         editor.Blocks.add(`raw-image-${i}`, {
@@ -1807,56 +2520,61 @@ export default function DetailPageEditor({
       const wrapper = editor.getWrapper();
       if (wrapper) {
         requestAnimationFrame(() => {
-          const iframe = editor.Canvas.getFrameEl();
-          const contentHeight = iframe?.contentDocument?.body.scrollHeight ?? 800;
-          const autoHeight = Math.max(contentHeight + 300, 800);
-          iframe?.contentDocument?.body.style.setProperty('min-height', `${autoHeight}px`);
+          syncEditorFrameHeight(editor);
         });
       }
     },
     [parsed, rawImages],
   );
 
+  const applyImageSrcToComponent = useCallback(
+    (newUrl: string) => {
+      if (!editorRef) return null;
+      const selected = selectedImageComponent ?? editorRef.getSelected();
+      if (!selected) return null;
+
+      const attrs = selected.getAttributes?.() ?? {};
+      selected.setAttributes?.({ ...attrs, src: newUrl });
+      selected.view?.el?.setAttribute?.('src', newUrl);
+      selected.view?.render?.();
+      editorRef.trigger('component:update', selected);
+      editorRef.refresh();
+
+      requestAnimationFrame(() => {
+        selected.view?.el?.setAttribute?.('src', newUrl);
+        editorRef.select(selected);
+        editorRef.refresh();
+      });
+
+      return selected;
+    },
+    [editorRef, selectedImageComponent],
+  );
+
   const handleImageEdited = useCallback(
     (newUrl: string) => {
-      if (!editorRef) return;
-      const selected = editorRef.getSelected();
-      if (selected) {
-        selected.setAttributes({ src: newUrl });
-      }
-      setSelectedImageSrc(null);
+      const selected = applyImageSrcToComponent(newUrl);
+      if (!selected) return;
+      setSelectedImageComponent(selected);
+      setSelectedImageSrc(newUrl);
     },
-    [editorRef],
+    [applyImageSrcToComponent],
   );
 
   const handleImageReplaced = useCallback(
     (newUrl: string) => {
-      if (!editorRef) return;
-      const selected = editorRef.getSelected();
-      if (selected) {
-        selected.setAttributes({ src: newUrl });
-      }
+      const selected = applyImageSrcToComponent(newUrl);
       setShowImagePicker(false);
-      setSelectedImageSrc(null);
+      if (!selected) return;
+      setSelectedImageComponent(selected);
+      setSelectedImageSrc(newUrl);
     },
-    [editorRef],
+    [applyImageSrcToComponent],
   );
 
   const refreshCanvas = useCallback(() => {
     if (editorRef) requestAnimationFrame(() => editorRef.refresh());
   }, [editorRef]);
-
-  const canvasWrapperRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = canvasWrapperRef.current;
-    if (!el) return;
-    const onWheel = (e: WheelEvent) => {
-      const iframe = el.querySelector<HTMLIFrameElement>('iframe');
-      iframe?.contentWindow?.scrollBy(0, e.deltaY);
-    };
-    el.addEventListener('wheel', onWheel, { passive: true });
-    return () => el.removeEventListener('wheel', onWheel);
-  }, []);
 
   return (
     <GjsEditor grapesjs={grapesjs} options={GRAPESJS_OPTIONS} onEditor={handleEditorInit}>
@@ -1872,13 +2590,22 @@ export default function DetailPageEditor({
           />
         </WithEditor>
 
-        <div className="flex flex-1 overflow-hidden">
-          <div className={cn('h-full', !showLeftPanel && 'hidden')}>
+        <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+          <div className={cn('flex h-full shrink-0', !showLeftPanel && 'hidden')}>
+            <EditorToolRail activeTool={activeLeftTool} onSelect={setActiveLeftTool} />
             <WithEditor>
-              <LeftPanel onClose={() => setShowLeftPanel(false)} rawImages={rawImages} />
+              <LeftPanel
+                activeTool={activeLeftTool}
+                onClose={() => setShowLeftPanel(false)}
+                onOpenAiPanel={() => {
+                  setShowRightPanel(true);
+                  refreshCanvas();
+                }}
+                rawImages={rawImages}
+              />
             </WithEditor>
           </div>
-          <div ref={canvasWrapperRef} className="flex-1 overflow-hidden bg-slate-100 relative">
+          <div className="relative min-w-0 flex-1 overflow-hidden bg-slate-100">
             <Canvas />
             {isGenerating && (
               <div className="absolute inset-0 bg-white/30 z-50 cursor-not-allowed" />
@@ -1911,7 +2638,10 @@ export default function DetailPageEditor({
               </button>
             )}
           </div>
-          <div className={cn('h-full', !showRightPanel && 'hidden')}>
+          <div className={cn('flex h-full shrink-0', !showRightPanel && 'hidden')}>
+            <WithEditor>
+              <EditorDetailMinimap />
+            </WithEditor>
             <WithEditor>
               <RightPanel
                 onClose={() => {
@@ -1919,11 +2649,15 @@ export default function DetailPageEditor({
                   refreshCanvas();
                 }}
                 selectedTextComponent={selectedTextComponent}
+                selectedImageComponent={selectedImageComponent}
                 isBusy={isBusyRef}
                 selectedImageSrc={selectedImageSrc}
                 onImageEdited={handleImageEdited}
                 onImageReplace={() => setShowImagePicker(true)}
-                onImageClose={() => setSelectedImageSrc(null)}
+                onImageClose={() => {
+                  setSelectedImageComponent(null);
+                  setSelectedImageSrc(null);
+                }}
                 productId={productId}
                 onAiFillComplete={handleAiFillComplete}
                 onGeneratingChange={setIsGenerating}

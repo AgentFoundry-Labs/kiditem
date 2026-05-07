@@ -89,7 +89,7 @@ ai/
 
 ### 6. Text 호출 — 포트로 캡슐화
 
-Gemini text generation 호출은 `TEXT_COMPLETION_PORT` 한 곳에 모인다. `text-ai.service` (preset 변환) 와 `detail-page-ai.service` (kids-playful / simple-vertical 상세페이지 single-call generation) 가 모두 이 port 만 의존하므로 application layer 는 HTTP / API key / Gemini URL 을 알지 않는다. Adapter (`adapter/out/gemini/gemini-text-completion.adapter.ts`) 는 system/user/temperature/responseMimeType/model 을 받아 `generateContent` 엔드포인트를 호출한다. caller 는 `model` 을 항상 명시적으로 ENV 에서 읽어 전달 (silent fallback 금지).
+Gemini text generation 호출은 `TEXT_COMPLETION_PORT` 한 곳에 모인다. `text-ai.service` (preset 변환) 와 `detail-page-ai.service` (kids-playful / bold-vertical 상세페이지 single-call generation) 가 모두 이 port 만 의존하므로 application layer 는 HTTP / API key / Gemini URL 을 알지 않는다. Adapter (`adapter/out/gemini/gemini-text-completion.adapter.ts`) 는 system/user/temperature/responseMimeType/model 을 받아 `generateContent` 엔드포인트를 호출한다. caller 는 `model` 을 항상 명시적으로 ENV 에서 읽어 전달 (silent fallback 금지).
 
 ### 7. Detail page generation — active sync path, disabled sourcing async path
 
@@ -100,7 +100,7 @@ Agent OS path 는 sourced candidate 와 `MasterProduct` 의 lifecycle 이 분리
 | 진입점 | 모드 | 호출 경로 | 결과 저장 | 사용처 |
 |---|---|---|---|---|
 | `POST /api/sourcing/:id/generate` | **disabled** | `SourcingService.generateDetailPage` → `NotImplementedException` | 없음 | candidate → master promotion model 도입 전까지 사용 금지 |
-| `POST /api/ai/detail-page/generate` | **sync** (inline Gemini) | ai 도메인의 `DetailPageAiService.generate` → `TEXT_COMPLETION_PORT` | `ContentGeneration` row + `detailPageHtml` JSON column | media-ai generate 페이지 (kids-playful / simple-vertical) |
+| `POST /api/ai/detail-page/generate` | **sync** (inline Gemini) | ai 도메인의 `DetailPageAiService.generate` → `TEXT_COMPLETION_PORT` | `ContentGeneration` row + `detailPageHtml` JSON column | media-ai generate 페이지 (kids-playful / bold-vertical) |
 
 규칙:
 - ai sync path 는 Gemini 응답이 즉시 schema-valid (Zod) 일 때만 사용.

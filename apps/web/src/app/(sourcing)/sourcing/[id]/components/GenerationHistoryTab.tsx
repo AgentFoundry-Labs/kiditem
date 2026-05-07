@@ -39,14 +39,14 @@ import {
   rowToRendererData,
   useKidsPlayfulGenerationDelete,
   useKidsPlayfulGenerationList,
-  useSimpleVerticalGenerationList,
+  useBoldVerticalGenerationList,
   type KidsPlayfulGenerationItem,
 } from '@/app/(media-ai)/generate/hooks/useKidsPlayfulGenerate';
 import { buildKidsPlayfulHtml } from '@/app/(media-ai)/generate/lib/build-kids-playful-html';
 import {
-  adaptSimpleVerticalToDetailPageData,
-  type SimpleVerticalGeneration,
-} from '@/app/(media-ai)/generate/lib/simple-vertical-types';
+  adaptBoldVerticalToDetailPageData,
+  type BoldVerticalGeneration,
+} from '@/app/(media-ai)/generate/lib/bold-vertical-types';
 import {
   SAME_ORIGIN_SCRIPTLESS_SANDBOX,
   stripSrcDocScripts,
@@ -57,18 +57,18 @@ interface Props {
   currentPreviewHtml: string;
   templateCss: string;
   selectedKidsPlayfulId: string | null;
-  selectedSimpleVerticalId: string | null;
+  selectedBoldVerticalId: string | null;
   selectedAgentId: string | null;
   onSelectKidsPlayful: (id: string | null) => void;
-  onSelectSimpleVertical: (id: string | null) => void;
+  onSelectBoldVertical: (id: string | null) => void;
   onSelectAgent: (id: string | null) => void;
 }
 
-/** 통합 리스트 row — ContentAgent / KP / SV 동일 인터페이스로 표시. */
+/** 통합 리스트 row — ContentAgent / Trend / KIDITEM 동일 인터페이스로 표시. */
 type UnifiedRow =
   | { kind: 'ca'; item: GenerationHistoryItem; createdAt: string }
   | { kind: 'kp'; entry: KidsPlayfulGenerationItem; createdAt: string }
-  | { kind: 'sv'; entry: KidsPlayfulGenerationItem; createdAt: string };
+  | { kind: 'bold'; entry: KidsPlayfulGenerationItem; createdAt: string };
 
 function StatusBadge({ status }: { status: string }) {
   if (status === 'COMPLETED') {
@@ -100,10 +100,10 @@ export default function GenerationHistoryTab({
   currentPreviewHtml,
   templateCss,
   selectedKidsPlayfulId,
-  selectedSimpleVerticalId,
+  selectedBoldVerticalId,
   selectedAgentId,
   onSelectKidsPlayful,
-  onSelectSimpleVertical,
+  onSelectBoldVertical,
   onSelectAgent,
 }: Props) {
   const queryClient = useQueryClient();
@@ -120,7 +120,9 @@ export default function GenerationHistoryTab({
     deleteKp.mutate(id, {
       onSuccess: () => {
         if (selectedKey === `kp:${id}`) setSelectedKey(null);
+        if (selectedKey === `bold:${id}`) setSelectedKey(null);
         if (selectedKidsPlayfulId === id) onSelectKidsPlayful(null);
+        if (selectedBoldVerticalId === id) onSelectBoldVertical(null);
       },
       onError: (err) => {
         toast.error(isApiError(err) ? err.detail : '삭제 실패');
@@ -141,9 +143,9 @@ export default function GenerationHistoryTab({
     });
   };
 
-  // KP / SV 이력 (이 product) — server DB 에서 조회.
+  // Trend / KIDITEM 이력 (이 product) — server DB 에서 조회.
   const { data: kpEntries = [] } = useKidsPlayfulGenerationList(productId);
-  const { data: svEntries = [] } = useSimpleVerticalGenerationList(productId);
+  const { data: boldEntries = [] } = useBoldVerticalGenerationList(productId);
 
   // 통합 리스트 — createdAt 내림차순.
   const rows: UnifiedRow[] = useMemo(() => {
@@ -158,14 +160,14 @@ export default function GenerationHistoryTab({
         entry,
         createdAt: entry.createdAt,
       })),
-      ...svEntries.map((entry) => ({
-        kind: 'sv' as const,
+      ...boldEntries.map((entry) => ({
+        kind: 'bold' as const,
         entry,
         createdAt: entry.createdAt,
       })),
     ];
     return all.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  }, [history, kpEntries, svEntries]);
+  }, [history, kpEntries, boldEntries]);
 
   const selected = useMemo(() => {
     if (!selectedKey) return null;
@@ -179,13 +181,13 @@ export default function GenerationHistoryTab({
       const entry = kpEntries.find((e) => e.id === id);
       return entry ? ({ kind: 'kp' as const, entry } as const) : null;
     }
-    if (selectedKey.startsWith('sv:')) {
-      const id = selectedKey.slice(3);
-      const entry = svEntries.find((e) => e.id === id);
-      return entry ? ({ kind: 'sv' as const, entry } as const) : null;
+    if (selectedKey.startsWith('bold:')) {
+      const id = selectedKey.slice(5);
+      const entry = boldEntries.find((e) => e.id === id);
+      return entry ? ({ kind: 'bold' as const, entry } as const) : null;
     }
     return null;
-  }, [selectedKey, history, kpEntries, svEntries]);
+  }, [selectedKey, history, kpEntries, boldEntries]);
 
   const styledCurrentPreviewHtml = useMemo(
     () => ensureStyledDetailHtml(currentPreviewHtml, templateCss),
@@ -197,9 +199,9 @@ export default function GenerationHistoryTab({
       if (target.kind === 'kp') {
         return buildKidsPlayfulHtml(rowToRendererData(target.entry));
       }
-      if (target.kind === 'sv') {
-        const adapted = adaptSimpleVerticalToDetailPageData(
-          target.entry.result as unknown as SimpleVerticalGeneration,
+      if (target.kind === 'bold') {
+        const adapted = adaptBoldVerticalToDetailPageData(
+          target.entry.result as unknown as BoldVerticalGeneration,
           target.entry.imageUrls,
           target.entry.processedImages,
           API_BASE,
@@ -244,7 +246,7 @@ export default function GenerationHistoryTab({
       ]);
 
       if (selected.kind === 'kp') onSelectKidsPlayful(selected.entry.id);
-      else if (selected.kind === 'sv') onSelectSimpleVertical(selected.entry.id);
+      else if (selected.kind === 'bold') onSelectBoldVertical(selected.entry.id);
       else onSelectAgent(selected.item.id);
 
       toast.success('선택한 상세페이지를 적용했습니다.');
@@ -263,7 +265,7 @@ export default function GenerationHistoryTab({
     buildSelectedHtml,
     onSelectAgent,
     onSelectKidsPlayful,
-    onSelectSimpleVertical,
+    onSelectBoldVertical,
     productId,
     queryClient,
     selected,
@@ -293,12 +295,12 @@ export default function GenerationHistoryTab({
     [previewHtml],
   );
 
-  const safeSelectedSvPreviewHtml = useMemo(() => {
-    if (!selected || selected.kind !== 'sv') return null;
+  const safeSelectedBoldPreviewHtml = useMemo(() => {
+    if (!selected || selected.kind !== 'bold') return null;
     try {
       return stripSrcDocScripts(buildSelectedHtml(selected));
     } catch {
-      return '<html><body>SV preview error</body></html>';
+      return '<html><body>KIDITEM preview error</body></html>';
     }
   }, [selected, buildSelectedHtml]);
 
@@ -450,12 +452,12 @@ export default function GenerationHistoryTab({
                 </li>
               );
             }
-            // SV row
+            // KIDITEM row
             const { entry } = row;
-            const key = `sv:${entry.id}`;
+            const key = `bold:${entry.id}`;
             const isSelected = selectedKey === key;
-            const isApplied = selectedSimpleVerticalId === entry.id;
-            const sv = entry.result as unknown as SimpleVerticalGeneration;
+            const isApplied = selectedBoldVerticalId === entry.id;
+            const bold = entry.result as unknown as BoldVerticalGeneration;
             return (
               <li key={key}>
                 <button
@@ -467,7 +469,7 @@ export default function GenerationHistoryTab({
                 >
                   <div className="mb-1 flex items-center justify-between gap-2">
                     <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold text-sky-700">
-                      SIMPLE VERTICAL
+                      KIDITEM DESIGN
                     </span>
                     <div className="flex items-center gap-1.5">
                       {isApplied && (
@@ -484,10 +486,10 @@ export default function GenerationHistoryTab({
                     </div>
                   </div>
                   <p className="line-clamp-2 text-xs font-semibold text-slate-900">
-                    {sv?.hook?.text}
+                    {bold?.hook?.text}
                   </p>
                   <p className="line-clamp-1 text-[10px] text-slate-500">
-                    {sv?.hook?.subtext}
+                    {bold?.hook?.subtext}
                   </p>
                   <p className="mt-1 text-[10px] text-slate-400">
                     {formatDateTime(new Date(entry.createdAt))}
@@ -508,23 +510,23 @@ export default function GenerationHistoryTab({
                 </p>
               );
             }
-            const kind: 'kp' | 'sv' | 'ca' = selectedKey.startsWith('kp:')
+            const kind: 'kp' | 'bold' | 'ca' = selectedKey.startsWith('kp:')
               ? 'kp'
-              : selectedKey.startsWith('sv:')
-                ? 'sv'
+              : selectedKey.startsWith('bold:')
+                ? 'bold'
                 : 'ca';
-            const id = selectedKey.slice(3);
+            const id = kind === 'bold' ? selectedKey.slice(5) : selectedKey.slice(3);
             const isApplied =
               kind === 'kp'
                 ? selectedKidsPlayfulId === id
-                : kind === 'sv'
-                  ? selectedSimpleVerticalId === id
+                : kind === 'bold'
+                  ? selectedBoldVerticalId === id
                   : selectedAgentId === id;
             const isApplying = applyingKey === selectedKey;
             const applyColor =
               kind === 'kp'
                 ? 'bg-violet-600 hover:bg-violet-700'
-                : kind === 'sv'
+                : kind === 'bold'
                   ? 'bg-sky-600 hover:bg-sky-700'
                   : 'bg-indigo-600 hover:bg-indigo-700';
             return (
@@ -558,7 +560,7 @@ export default function GenerationHistoryTab({
                 <button
                   type="button"
                   onClick={(e) => {
-                    if (kind === 'kp' || kind === 'sv') handleDeleteKp(id, e);
+                    if (kind === 'kp' || kind === 'bold') handleDeleteKp(id, e);
                     else handleDeleteCa(id, e);
                   }}
                   className="inline-flex items-center justify-center rounded-md border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition-colors"
@@ -572,26 +574,26 @@ export default function GenerationHistoryTab({
         </div>
       </div>
 
-      {/* 우측: 미리보기 — 선택된 row 가 KP 면 React 렌더, SV 는 SV iframe srcDoc, Agent 는 기존 iframe. */}
+      {/* 우측: 미리보기 — 선택된 row 가 Trend 면 React 렌더, KIDITEM 은 iframe srcDoc, Agent 는 기존 iframe. */}
       <div className="flex flex-col rounded-xl border border-slate-200 bg-white overflow-hidden">
         <div className="flex items-center gap-1.5 border-b border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-600">
           <Eye size={12} />
           {selected
             ? selected.kind === 'kp'
               ? `Trend Vertical — ${formatDateTime(new Date(selected.entry.createdAt))}`
-              : selected.kind === 'sv'
-                ? `Simple Vertical — ${formatDateTime(new Date(selected.entry.createdAt))}`
+              : selected.kind === 'bold'
+                ? `KIDITEM DESIGN — ${formatDateTime(new Date(selected.entry.createdAt))}`
                 : `Agent — ${formatDateTime(new Date(selected.item.createdAt))}`
             : '현재 상세페이지'}
         </div>
         <div className="flex-1 overflow-y-auto">
           {selected?.kind === 'kp' ? (
             <KidsPlayfulRenderer data={rowToRendererData(selected.entry)} />
-          ) : selected?.kind === 'sv' ? (
+          ) : selected?.kind === 'bold' ? (
             <iframe
-              srcDoc={safeSelectedSvPreviewHtml ?? '<html><body>SV preview error</body></html>'}
+              srcDoc={safeSelectedBoldPreviewHtml ?? '<html><body>KIDITEM preview error</body></html>'}
               className="h-full w-full border-0"
-              title="sv-preview"
+              title="bold-preview"
               sandbox={SAME_ORIGIN_SCRIPTLESS_SANDBOX}
             />
           ) : (

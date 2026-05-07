@@ -36,8 +36,8 @@ export default function ProductCard({
   const generateBusy = isGenerating || isProcessing || kp.isPending || !!kpInProgress;
 
   const handleConfirm = async (templateId: string, mode: GenerateMode) => {
-    if (templateId === 'kids-playful' || templateId === 'simple-vertical') {
-      // KP / SV 둘 다 fire-and-forget Gemini 직접 호출.
+    if (templateId === 'kids-playful' || templateId === 'bold-vertical') {
+      // Trend / KIDITEM 둘 다 fire-and-forget Gemini 직접 호출.
       try {
         const detail = await productsApi.getDetail(product.id);
         await kp.trigger({
@@ -56,9 +56,9 @@ export default function ProductCard({
   };
 
   // 진행 중 라벨 — pipeline_step 별 다른 메시지 (사용자 가시성 강화)
-  // KP/SV 누끼/배경합성 진행 중이면 그것 우선 (templateId 로 라벨 구분).
+  // Trend/KIDITEM 생성 진행 중이면 그것 우선 (templateId 로 라벨 구분).
   const inProgressTemplateLabel =
-    kpInProgress?.templateId === 'simple-vertical' ? 'Simple Vertical' : 'Trend Vertical';
+    kpInProgress?.templateId === 'bold-vertical' ? 'KIDITEM DESIGN' : 'Trend Vertical';
   const progressLabel = kpInProgress
     ? kpInProgress.imageProcessingStatus === 'pending'
       ? `${inProgressTemplateLabel} 카피 생성 중...`

@@ -9,8 +9,9 @@ export class ImageAiService {
     image_url: string;
     preset: string;
     user_prompt?: string;
-  }) {
+  }, organizationId: string) {
     const result = await this.agentRegistry.runByType('image_edit', {
+      organizationId,
       extra: {
         image_url: params.image_url,
         preset: params.preset,

@@ -8,19 +8,33 @@
  * 클릭 시 풀스크린 KidsPlayfulRenderer 모달.
  * filterProductId 옵션 — sourcing 상세 페이지에서 그 product 만.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Calendar, History, Sparkles, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { API_BASE } from '@/lib/api';
 import { isApiError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
 import {
+  SAME_ORIGIN_SCRIPTLESS_SANDBOX,
+  stripSrcDocScripts,
+} from '@/app/(sourcing)/sourcing/[id]/lib/preview-sandbox';
+import {
   rowThumbnail,
+  rowDisplaySubtitle,
+  rowDisplayTitle,
+  rowTemplateLabel,
   rowToRendererData,
+  useBoldVerticalGenerationList,
   useKidsPlayfulGenerationDelete,
   useKidsPlayfulGenerationList,
   type KidsPlayfulGenerationItem,
 } from '../hooks/useKidsPlayfulGenerate';
-import KidsPlayfulRenderer from './KidsPlayfulRenderer';
+import { buildKidsPlayfulHtml } from '../lib/build-kids-playful-html';
+import { buildBoldVerticalHtml } from '../lib/build-bold-vertical-html';
+import {
+  adaptBoldVerticalToDetailPageData,
+  type BoldVerticalGeneration,
+} from '../lib/bold-vertical-types';
 
 /** 'YYYY-MM-DD HH:mm' */
 function formatTs(iso: string): string {
@@ -40,9 +54,18 @@ export default function KidsPlayfulHistoryList({
   filterProductId,
   compact = false,
 }: KidsPlayfulHistoryListProps = {}) {
-  const { data: entries = [], isLoading } = useKidsPlayfulGenerationList(filterProductId);
+  const { data: kpEntries = [], isLoading: isKpLoading } = useKidsPlayfulGenerationList(filterProductId);
+  const { data: boldEntries = [], isLoading: isBoldLoading } = useBoldVerticalGenerationList(filterProductId);
   const deleteMut = useKidsPlayfulGenerationDelete();
   const [openId, setOpenId] = useState<string | null>(null);
+  const isLoading = isKpLoading || isBoldLoading;
+  const entries = useMemo(
+    () =>
+      [...kpEntries, ...boldEntries]
+        .filter((entry) => !entry.id.startsWith('optimistic-'))
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    [kpEntries, boldEntries],
+  );
 
   const openEntry = useMemo(
     () => (openId ? entries.find((e) => e.id === openId) ?? null : null),
@@ -71,11 +94,11 @@ export default function KidsPlayfulHistoryList({
               )}
             >
               <History size={compact ? 14 : 18} className="text-violet-500" />
-              {compact ? 'Trend Vertical 생성 이력' : '상세페이지 생성 이력'}
+              {compact ? '상세페이지 생성 이력' : '상세페이지 생성 이력'}
             </h2>
             {!compact && (
               <p className="text-xs text-slate-500 mt-1">
-                Trend Vertical 로 생성한 결과 — 카드 클릭하면 다시 볼 수 있어요.{' '}
+                KIDITEM DESIGN / Trend Vertical 생성 결과 — 카드 클릭하면 다시 볼 수 있어요.{' '}
                 <span className="text-slate-400">(DB 영구 저장, 회사 단위)</span>
               </p>
             )}
@@ -99,8 +122,8 @@ export default function KidsPlayfulHistoryList({
             )}
           >
             {filterProductId
-              ? '이 상품의 Trend Vertical 이력이 없어요. 위에서 "상세페이지 생성" → Trend Vertical 로 만들면 여기에 쌓여요.'
-              : '아직 생성 이력이 없어요. /sourcing 에서 상품 선택 → "상세페이지 생성" → Trend Vertical 로 만들면 여기에 쌓여요.'}
+              ? '이 상품의 상세페이지 생성 이력이 없어요. 위에서 생성하면 여기에 쌓여요.'
+              : '아직 생성 이력이 없어요. 상세페이지를 만들면 여기에 쌓여요.'}
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
@@ -159,7 +182,7 @@ function HistoryCard({ entry, onOpen, onDelete }: HistoryCardProps) {
           </div>
         )}
         <div className="absolute top-2 right-2 inline-flex items-center gap-1 rounded-full bg-violet-600/90 backdrop-blur-sm px-2.5 py-1 text-[10px] font-bold tracking-wider text-white">
-          TREND VERTICAL
+          {rowTemplateLabel(entry)}
         </div>
         <button
           type="button"
@@ -173,9 +196,9 @@ function HistoryCard({ entry, onOpen, onDelete }: HistoryCardProps) {
       <div className="p-3 space-y-1">
         <p className="text-[11px] text-slate-400 truncate">{entry.productName}</p>
         <h3 className="text-sm font-bold text-slate-900 truncate">
-          {entry.result.section1.mainHeadline}
+          {rowDisplayTitle(entry)}
         </h3>
-        <p className="text-[11px] text-slate-500 truncate">{entry.result.section1.subhead}</p>
+        <p className="text-[11px] text-slate-500 truncate">{rowDisplaySubtitle(entry)}</p>
         <div className="flex items-center gap-1 text-[10px] text-slate-400 pt-1">
           <Calendar size={10} />
           {formatTs(entry.createdAt)}
@@ -191,7 +214,34 @@ interface FullscreenViewerProps {
 }
 
 function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
-  const data = useMemo(() => rowToRendererData(entry), [entry]);
+  const [templateCss, setTemplateCss] = useState('');
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/templates-styles.css', { cache: 'no-store' })
+      .then((res) => (res.ok ? res.text() : ''))
+      .then((css) => {
+        if (!cancelled) setTemplateCss(css);
+      })
+      .catch(() => {
+        if (!cancelled) setTemplateCss('');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const html = useMemo(() => {
+    if (entry.templateId === 'bold-vertical') {
+      const adapted = adaptBoldVerticalToDetailPageData(
+        entry.result as unknown as BoldVerticalGeneration,
+        entry.imageUrls,
+        entry.processedImages,
+        API_BASE,
+      );
+      return buildBoldVerticalHtml(adapted, templateCss);
+    }
+    return buildKidsPlayfulHtml(rowToRendererData(entry));
+  }, [entry, templateCss]);
+  const sandboxedHtml = useMemo(() => stripSrcDocScripts(html), [html]);
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-2">
       <div className="relative flex h-[98vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-slate-100 shadow-2xl">
@@ -199,7 +249,7 @@ function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
           <div className="flex items-center gap-2 min-w-0">
             <Sparkles size={18} className="text-violet-600 shrink-0" />
             <h3 className="text-base font-bold text-slate-900 truncate">
-              {entry.result.section1.mainHeadline}
+              {rowDisplayTitle(entry)}
             </h3>
             <span className="text-xs text-slate-400 font-mono truncate">{entry.productName}</span>
           </div>
@@ -212,7 +262,12 @@ function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
           </button>
         </div>
         <div className="flex-1 overflow-y-auto bg-white">
-          <KidsPlayfulRenderer data={data} />
+          <iframe
+            title="상세페이지 생성 이력 미리보기"
+            srcDoc={sandboxedHtml}
+            className="h-full w-full border-0"
+            sandbox={SAME_ORIGIN_SCRIPTLESS_SANDBOX}
+          />
         </div>
       </div>
     </div>

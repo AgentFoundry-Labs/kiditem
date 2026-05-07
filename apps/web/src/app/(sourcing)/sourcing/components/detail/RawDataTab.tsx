@@ -1,15 +1,21 @@
 'use client';
 
-import type React from 'react';
 import { useState } from 'react';
-import { Database, ImageIcon, Package, Tag } from 'lucide-react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Database, ImageIcon, Package, Plus, Tag } from 'lucide-react';
+import { toast } from 'sonner';
 import { formatNumber } from '@/lib/utils';
+import { queryKeys } from '@/lib/query-keys';
+import { productsApi, selectBestThumbnailImage } from '../../lib/sourcing-api';
 
 interface RawDataTabProps {
+  productId: string;
   rawData: Record<string, unknown> | null;
+  imageUrls: string[];
+  thumbnailUrl: string | null;
 }
 
-const IMAGE_FIELD_KEYS = [
+const PRODUCT_IMAGE_FIELD_KEYS = [
   'images',
   'imageUrls',
   'image_urls',
@@ -18,6 +24,9 @@ const IMAGE_FIELD_KEYS = [
   'mainImage',
   'main_image',
   'offerImgList',
+] as const;
+
+const DESCRIPTION_IMAGE_FIELD_KEYS = [
   'description_images',
   'detail_images',
 ] as const;
@@ -56,37 +65,49 @@ function collectImages(values: unknown[]): string[] {
   return Array.from(new Set(urls));
 }
 
-export default function RawDataTab({ rawData }: RawDataTabProps) {
+export default function RawDataTab({ productId, rawData, imageUrls, thumbnailUrl }: RawDataTabProps) {
+  const queryClient = useQueryClient();
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
+  const [rawKey, setRawKey] = useState('');
+  const [rawValue, setRawValue] = useState('');
+  const [addedRows, setAddedRows] = useState<Array<{ key: string; value: string }>>([]);
 
-  if (!rawData) {
-    return (
-      <div className="p-5">
-        <div className="card p-6">
-          <div className="flex flex-col items-center justify-center py-10 text-slate-400">
-            <Database size={32} className="mb-2 text-slate-300" />
-            <p className="text-sm font-medium">원본 데이터 없음</p>
-            <p className="text-xs text-slate-400 mt-1">스크래핑된 원본 데이터가 없습니다</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const addRawData = useMutation({
+    mutationFn: () => productsApi.addRawDataField(productId, { key: rawKey.trim(), value: rawValue.trim() }),
+    onSuccess: () => {
+      setAddedRows((prev) => [{ key: rawKey.trim(), value: rawValue.trim() }, ...prev]);
+      setRawKey('');
+      setRawValue('');
+      queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(productId) });
+      toast.success('원본 데이터를 추가했습니다.');
+    },
+    onError: () => toast.error('원본 데이터 추가에 실패했습니다.'),
+  });
 
-  const images = collectImages(IMAGE_FIELD_KEYS.map((key) => rawData[key]));
-  const descriptionImages = collectImages([rawData.description_images, rawData.detail_images]);
-  const title = typeof rawData.title === 'string'
-    ? rawData.title
-    : typeof rawData.productName === 'string'
-      ? rawData.productName
-      : typeof rawData.name === 'string'
-        ? rawData.name
+  const safeRawData = rawData ?? {};
+  const productImages = collectImages([
+    ...PRODUCT_IMAGE_FIELD_KEYS.map((key) => safeRawData[key]),
+    imageUrls,
+  ]);
+  const descriptionImages = collectImages(DESCRIPTION_IMAGE_FIELD_KEYS.map((key) => safeRawData[key]));
+  const selectedThumbnail = selectBestThumbnailImage(safeRawData, productImages, thumbnailUrl);
+  const title = typeof safeRawData.title === 'string'
+    ? safeRawData.title
+    : typeof safeRawData.productName === 'string'
+      ? safeRawData.productName
+      : typeof safeRawData.name === 'string'
+        ? safeRawData.name
         : null;
-  const price = rawData.price as { min?: number; max?: number; unit?: string } | null;
-  const specs = Array.isArray(rawData.specs) ? (rawData.specs as Array<{ key: string; value: string }>) : [];
-  const moq = rawData.moq as number | null | undefined;
-  const unit = typeof rawData.unit === 'string' ? rawData.unit : null;
-  const category = typeof rawData.category_name === 'string' ? rawData.category_name : typeof rawData.category === 'string' ? rawData.category : null;
+  const price = safeRawData.price as { min?: number; max?: number; unit?: string } | null;
+  const specs = Array.isArray(safeRawData.specs) ? (safeRawData.specs as Array<{ key: string; value: string }>) : [];
+  const moq = safeRawData.moq as number | null | undefined;
+  const unit = typeof safeRawData.unit === 'string' ? safeRawData.unit : null;
+  const category = typeof safeRawData.category_name === 'string'
+    ? safeRawData.category_name
+    : typeof safeRawData.category === 'string'
+      ? safeRawData.category
+      : null;
+  const canAddRawData = rawKey.trim().length > 0 && rawValue.trim().length > 0 && !addRawData.isPending;
 
   return (
     <div className="space-y-4 p-5">
@@ -165,26 +186,116 @@ export default function RawDataTab({ rawData }: RawDataTabProps) {
       </div>
 
       <div className="card p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <ImageIcon size={14} className="text-blue-500" />
-          <h2 className="text-sm font-semibold text-slate-900">원본 썸네일 <span className="text-slate-400 font-medium">({images.length}장)</span></h2>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Plus size={14} className="text-sky-500" />
+            <h2 className="text-sm font-semibold text-slate-900">원본 데이터 추가</h2>
+          </div>
+          {!rawData && <span className="text-[11px] font-medium text-slate-400">저장 후 원본 데이터로 표시됩니다</span>}
         </div>
 
-        {images.length > 0 ? (
-          <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-7 lg:grid-cols-9 gap-2">
-            {images.map((url, idx) => (
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-[180px_1fr_auto]">
+          <input
+            value={rawKey}
+            onChange={(event) => setRawKey(event.target.value)}
+            className="h-9 rounded-md border border-slate-200 bg-slate-50 px-3 text-xs font-medium text-slate-800 outline-none transition-colors focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/10"
+            placeholder="항목명 예: 재질"
+            maxLength={80}
+          />
+          <input
+            value={rawValue}
+            onChange={(event) => setRawValue(event.target.value)}
+            className="h-9 rounded-md border border-slate-200 bg-slate-50 px-3 text-xs font-medium text-slate-800 outline-none transition-colors focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/10"
+            placeholder="값 예: ABS 플라스틱"
+            maxLength={10000}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && canAddRawData) addRawData.mutate();
+            }}
+          />
+          <button
+            type="button"
+            disabled={!canAddRawData}
+            onClick={() => addRawData.mutate()}
+            className="h-9 rounded-md bg-slate-900 px-4 text-xs font-bold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+          >
+            {addRawData.isPending ? '추가 중' : '추가'}
+          </button>
+        </div>
+
+        {addedRows.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {addedRows.map((row, index) => (
+              <span
+                key={`${row.key}-${index}`}
+                className="rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-[11px] font-semibold text-emerald-800"
+              >
+                {row.key}: {row.value}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="card p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <ImageIcon size={14} className="text-blue-500" />
+          <h2 className="text-sm font-semibold text-slate-900">원본 썸네일</h2>
+          {selectedThumbnail && (
+            <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-bold text-blue-600">
+              자동 선택
+            </span>
+          )}
+        </div>
+
+        {selectedThumbnail ? (
+          <div
+            className="group relative max-w-[220px] cursor-pointer overflow-hidden rounded-xl border border-blue-100 bg-slate-50 shadow-sm transition-all hover:border-blue-300 hover:ring-2 hover:ring-blue-200/60"
+            onClick={() => setEnlargedImage(selectedThumbnail)}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={selectedThumbnail}
+              alt="Selected raw thumbnail"
+              className="aspect-square w-full object-cover"
+              loading="lazy"
+            />
+            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/55 to-transparent px-3 py-2 text-[11px] font-bold text-white opacity-0 transition-opacity group-hover:opacity-100">
+              썸네일로 자동 선택됨
+            </div>
+          </div>
+        ) : (
+          <p className="text-xs text-slate-500 py-3 text-center bg-slate-50 rounded-md border border-slate-100">
+            선택할 썸네일 이미지가 없습니다.
+          </p>
+        )}
+      </div>
+
+      <div className="card p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <ImageIcon size={14} className="text-emerald-500" />
+          <h2 className="text-sm font-semibold text-slate-900">상품 이미지 <span className="text-slate-400 font-medium">({productImages.length}장)</span></h2>
+        </div>
+
+        {productImages.length > 0 ? (
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-5 md:grid-cols-7 lg:grid-cols-9">
+            {productImages.map((url, idx) => (
               <div
-                key={`raw-img-${idx}`}
+                key={`product-img-${idx}`}
                 className="aspect-square rounded-md border border-slate-200 overflow-hidden cursor-pointer hover:border-emerald-400 hover:ring-2 hover:ring-emerald-200/60 transition-all bg-slate-50 group relative"
                 onClick={() => setEnlargedImage(url)}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={url}
-                  alt={`Raw image ${idx + 1}`}
+                  alt={`Product image ${idx + 1}`}
                   className="w-full h-full object-cover"
                   loading="lazy"
                 />
+                {url === selectedThumbnail && (
+                  <span className="absolute left-1.5 top-1.5 rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold text-white shadow">
+                    썸네일
+                  </span>
+                )}
                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
                   <ImageIcon size={16} className="text-white opacity-0 group-hover:opacity-100 drop-shadow-md" />
                 </div>

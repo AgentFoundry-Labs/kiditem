@@ -31,11 +31,11 @@ export default function ProductDetailPage() {
   const [editInitialized, setEditInitialized] = useState(false);
   /**
    * 사용자가 생성 이력 탭에서 선택해서 상세페이지 탭에 띄우려는 항목.
-   * null = 자동 (이 product 의 최신 KP/SV 이력 우선).
-   * 한 번에 한 종류만 active — KP / SV / Agent.
+   * null = 자동 (이 product 의 최신 Trend/KIDITEM 이력 우선).
+   * 한 번에 한 종류만 active — Trend / KIDITEM / Agent.
    */
   const [selectedKidsPlayfulId, setSelectedKidsPlayfulId] = useState<string | null>(null);
-  const [selectedSimpleVerticalId, setSelectedSimpleVerticalId] = useState<string | null>(null);
+  const [selectedBoldVerticalId, setSelectedBoldVerticalId] = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
 
   const goBack = () => router.push('/sourcing');
@@ -94,6 +94,7 @@ export default function ProductDetailPage() {
   }
 
   const nameLength = Array.from(editData.name).length;
+  const usesWideContent = activeTab === 'detail' || activeTab === 'history';
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -123,7 +124,11 @@ export default function ProductDetailPage() {
       )}
 
       <div className="flex flex-1 overflow-hidden">
-        <div className="w-[72%] flex flex-col overflow-hidden border-r border-slate-200">
+        <div
+          className={`flex flex-col overflow-hidden ${
+            usesWideContent ? 'w-full' : 'w-[72%] border-r border-slate-200'
+          }`}
+        >
           <ProductEditTabs activeTab={activeTab} onTabChange={setActiveTab} />
           <div className="flex-1 overflow-y-auto bg-slate-50">
             <ProductTabContent
@@ -136,19 +141,21 @@ export default function ProductDetailPage() {
               editedHtml={editedHtml}
               templateCss={templateCss}
               rawData={product?.raw_data ?? null}
+              imageUrls={product?.image_urls ?? []}
+              thumbnailUrl={product?.thumbnail_url ?? null}
               selectedKidsPlayfulId={selectedKidsPlayfulId}
-              selectedSimpleVerticalId={selectedSimpleVerticalId}
+              selectedBoldVerticalId={selectedBoldVerticalId}
               selectedAgentId={selectedAgentId}
               onSelectKidsPlayful={(id) => {
                 setSelectedKidsPlayfulId(id);
                 if (id) {
-                  setSelectedSimpleVerticalId(null);
+                  setSelectedBoldVerticalId(null);
                   setSelectedAgentId(null);
                 }
                 setActiveTab('detail');
               }}
-              onSelectSimpleVertical={(id) => {
-                setSelectedSimpleVerticalId(id);
+              onSelectBoldVertical={(id) => {
+                setSelectedBoldVerticalId(id);
                 if (id) {
                   setSelectedKidsPlayfulId(null);
                   setSelectedAgentId(null);
@@ -159,7 +166,7 @@ export default function ProductDetailPage() {
                 setSelectedAgentId(id);
                 if (id) {
                   setSelectedKidsPlayfulId(null);
-                  setSelectedSimpleVerticalId(null);
+                  setSelectedBoldVerticalId(null);
                 }
                 setActiveTab('detail');
               }}
@@ -167,19 +174,21 @@ export default function ProductDetailPage() {
           </div>
         </div>
 
-        <div className="w-[28%] overflow-y-auto bg-slate-50/50 p-5">
-          <MobilePreview
-            name={editData.name}
-            mainImage={
-              editData.thumbnails[0] ?? 'https://placehold.co/400x400/e2e8f0/64748b?text=No+Image'
-            }
-            salePrice={editData.salePrice}
-            originalPrice={editData.originalPrice}
-            discountRate={editData.discountRate}
-            rating={editData.rating}
-            reviewCount={editData.reviewCount}
-          />
-        </div>
+        {!usesWideContent && (
+          <div className="w-[28%] overflow-y-auto bg-slate-50/50 p-5">
+            <MobilePreview
+              name={editData.name}
+              mainImage={
+                editData.thumbnails[0] ?? 'https://placehold.co/400x400/e2e8f0/64748b?text=No+Image'
+              }
+              salePrice={editData.salePrice}
+              originalPrice={editData.originalPrice}
+              discountRate={editData.discountRate}
+              rating={editData.rating}
+              reviewCount={editData.reviewCount}
+            />
+          </div>
+        )}
       </div>
     </div>
   );

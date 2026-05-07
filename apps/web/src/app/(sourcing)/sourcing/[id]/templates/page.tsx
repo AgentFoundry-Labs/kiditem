@@ -37,10 +37,6 @@ const TEMPLATE_META: Record<string, { tagline: string; suit: string }> = {
     tagline: '귀엽고 발랄한 톤 + 핑크 pain-point',
     suit: '유아·키즈·캐릭터 상품',
   },
-  'simple-vertical': {
-    tagline: '깔끔한 미니멀',
-    suit: '사양 위주 정보성 상품',
-  },
 };
 
 const MODE_OPTIONS: { mode: GenerateMode; label: string; duration: string }[] = [

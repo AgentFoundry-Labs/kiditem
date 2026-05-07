@@ -9,11 +9,19 @@ import { MasterSchema } from '@kiditem/shared/product';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { useStore } from '@/store/useStore';
-import { useSelectCandidate, useWingRegister, useDeleteCandidate } from '../../_shared/hooks/useThumbnailGenerations';
+import {
+  useCreateEditJobs,
+  useGenerationList,
+  useSelectCandidate,
+  useWingRegister,
+  useDeleteCandidate,
+} from '../../_shared/hooks/useThumbnailGenerations';
+import { useAnalysisList } from '../../thumbnails/hooks/useThumbnailAnalysis';
+import { RecomposeVariantPicker } from '../../_shared/components/thumbnails/RecomposeVariantPicker';
+import type { RecomposeVariantKey, ThumbnailGenerationItem } from '@kiditem/shared/ai';
 import { resolveImageUrl } from '@/lib/resolve-url';
 import { useProductImages } from '../../_shared/hooks/useProductImages';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
 
 import { useGenerateThumbnail } from '../hooks/useThumbnailEditor';
 import { EditorInputPanel } from '../components/EditorInputPanel';
@@ -29,6 +37,7 @@ import {
 import { type EditorMode, parseEditCaseParam } from './lib/edit-page-types';
 import { useEditorHistory } from './hooks/useEditorHistory';
 import { EditorPageHeader } from './components/EditorPageHeader';
+import { getThemeHint } from './lib/theme-hint';
 
 export type { EditorMode, HistoryCandidate } from './lib/edit-page-types';
 
@@ -48,6 +57,8 @@ function ThumbnailEditorWorkspaceContent() {
   const generationIdParam = searchParams.get('generationId');
   const modeParam = searchParams.get('mode');
   const editCaseParam = searchParams.get('editCase');
+  /** AI 편집하기 버튼이 productName 분석해서 자동 prefill 한 thematic hint. */
+  const hintParam = searchParams.get('hint');
   const queryClient = useQueryClient();
 
   const setSidebarOpen = useStore((s) => s.setSidebarOpen);
@@ -71,6 +82,23 @@ function ThumbnailEditorWorkspaceContent() {
 
   const productName = product?.name ?? '';
   const originalImageUrl = product?.imageUrl ?? null;
+
+  // 분석 결과 fetch — productId 의 recompose 분류 정보 (kind, options) 받아서 picker 노출.
+  const { data: analysisList } = useAnalysisList();
+  const productAnalysis = productId
+    ? analysisList?.allResults.find((r) => r.productId === productId)
+    : null;
+  const recomposeClassification = productAnalysis?.recompose ?? null;
+
+  // recompose flow (variant picker) 클릭 시 호출 — backend 의 recompose endpoint.
+  const editJobsMutation = useCreateEditJobs();
+
+  /**
+   * Picker 에서 사용자가 선택한 variantKey — 즉시 호출하지 않고 state 로만 보관.
+   * 우측 상단 "편집하기" 버튼 클릭 시 이 state 가 set 되어 있으면 recompose flow,
+   * 없으면 기존 generate flow.
+   */
+  const [selectedVariantKey, setSelectedVariantKey] = useState<RecomposeVariantKey | undefined>(undefined);
 
   const [mode, setMode] = useState<EditorMode>(modeParam === 'creative' ? 'creative' : 'edit');
   // edit 모드는 editCase 를 항상 'single' 로 기본값. UseCaseSelection 중간 단계 제거 — 사용자는 이미
@@ -96,7 +124,29 @@ function ThumbnailEditorWorkspaceContent() {
   const [supplementaryLabel, setSupplementaryLabel] = useState<SupplementaryLabel>('박스');
   const [pieceCount, setPieceCount] = useState<number | null>(null);
   const [layout, setLayout] = useState<import('./lib/slots').LayoutKindLite>('auto');
-  const [userPrompt, setUserPrompt] = useState('');
+  // hint query 가 있으면 자동 prefill — AI 편집하기 클릭 시 productName 기반 thematic hint.
+  const [userPrompt, setUserPrompt] = useState(hintParam ?? '');
+
+  /**
+   * 사용자가 textarea 를 한 번이라도 직접 수정했는지 추적 — true 면 자동 prefill 덮어쓰기 금지.
+   * productName fetch 완료 후 자동으로 thematic hint 가 채워지도록 하되, 사용자 입력 보호.
+   */
+  const userPromptDirtyRef = useRef(!!hintParam);
+  useEffect(() => {
+    if (userPromptDirtyRef.current) return;
+    if (userPrompt) {
+      userPromptDirtyRef.current = true;
+      return;
+    }
+    if (productName) {
+      const hint = getThemeHint(productName);
+      if (hint) {
+        setUserPrompt(hint);
+        userPromptDirtyRef.current = true;
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productName]);
 
   const [sceneType, setSceneType] = useState('white-studio');
   const [styleType, setStyleType] = useState('minimal');
@@ -112,6 +162,58 @@ function ThumbnailEditorWorkspaceContent() {
   const [result, setResult] = useState<Array<{ url: string; filename: string }>>([]);
   const [generationId, setGenerationId] = useState<string | null>(null);
   const [selectedCandidateUrl, setSelectedCandidateUrl] = useState<string | null>(null);
+
+  /**
+   * Recompose flow 진행 상태 — backend 가 큐만 등록하고 즉시 응답하므로 mutation.isPending
+   * 만으로는 부족. 폴링한 generation 의 status 를 확인해서 'pending' / 'running' 인 동안
+   * isGenerating 유지. 추가로 forcedAwaiting (mutation 직후 race window) 도 합산.
+   */
+  const { data: pollingGenerations = [] } = useGenerationList();
+  const targetGen = generationId
+    ? pollingGenerations.find((g) => g.id === generationId)
+    : null;
+  /** mutation 응답 ~ polling 첫 hit 사이의 race window 차단용. */
+  const [forcedAwaiting, setForcedAwaiting] = useState(false);
+  /** forcedAwaiting 시작 시각 — minimum hold 1.5초 보장 (Gemini 빠른 응답 시 모달 깜빡임 방지). */
+  const forcedStartRef = useRef(0);
+  const isAwaitingGen =
+    forcedAwaiting ||
+    (!!targetGen && (targetGen.status === 'pending' || targetGen.status === 'running'));
+
+  // generation 종결 상태를 boolean 으로 derived — useEffect deps 안정화 (length 변동 X).
+  const isGenComplete = !!(
+    targetGen &&
+    targetGen.status === 'succeeded' &&
+    Array.isArray(targetGen.candidates) &&
+    targetGen.candidates.length > 0
+  );
+  const isGenError = !!(
+    targetGen &&
+    (targetGen.status === 'failed' || targetGen.status === 'cancelled')
+  );
+
+  // polling 데이터에 generation 잡히고 종결 상태면 forcedAwaiting 해제 (3초 minimum hold).
+  // 사용자 의도: 모달은 generation 완료까지 유지. mutation 응답이 빠르게 와도 (큐 등록만)
+  // candidates 도착할 때까지 모달 유지 → 사장이 진행 상황 명확히 인지.
+  useEffect(() => {
+    if (!forcedAwaiting) return;
+    if (!isGenComplete && !isGenError) return;
+    const elapsed = Date.now() - forcedStartRef.current;
+    const wait = Math.max(0, 3000 - elapsed);
+    console.log('[edit-page] generation 종결 — hold', wait, 'ms 후 모달 해제');
+    const t = setTimeout(() => setForcedAwaiting(false), wait);
+    return () => clearTimeout(t);
+  }, [forcedAwaiting, isGenComplete, isGenError]);
+
+  // safety net — forcedAwaiting=true 가 90초 이상 지속되면 강제 해제 (Gemini timeout 대비).
+  useEffect(() => {
+    if (!forcedAwaiting) return;
+    const safety = setTimeout(() => {
+      console.log('[edit-page] safety timeout 90s — forcedAwaiting 강제 해제');
+      setForcedAwaiting(false);
+    }, 90000);
+    return () => clearTimeout(safety);
+  }, [forcedAwaiting]);
 
   const { data: initialGeneration } = useQuery({
     queryKey: ['thumbnail-generation', generationIdParam],
@@ -130,6 +232,29 @@ function ThumbnailEditorWorkspaceContent() {
     }
   }, [initialGeneration, generationId]);
 
+  /**
+   * 페이지 진입 시 productId 의 active (pending/running) generation 이 있으면
+   * generationId 자동 박기 → 모달 자연스럽게 복원. 새로고침해도 진행 상태 유지.
+   *
+   * 우선순위: URL ?generationId 가 있으면 그걸 사용. 없을 때만 자동 detect.
+   */
+  useEffect(() => {
+    if (generationId || generationIdParam) return; // 이미 있으면 skip
+    if (!productId) return;
+    const activeGen = pollingGenerations.find(
+      (g) =>
+        g.productId === productId &&
+        (g.status === 'pending' || g.status === 'running'),
+    );
+    if (activeGen) {
+      setGenerationId(activeGen.id);
+      const next = new URLSearchParams(searchParams.toString());
+      next.set('generationId', activeGen.id);
+      router.replace(`?${next.toString()}`, { scroll: false });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productId, pollingGenerations.length, generationId, generationIdParam]);
+
   const { historyCandidates, recommendedCandidateUrl } = useEditorHistory({
     productId, mode, result, generationId,
     selectedCandidateUrl, setSelectedCandidateUrl,
@@ -142,6 +267,36 @@ function ThumbnailEditorWorkspaceContent() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   const handleGenerate = async () => {
+    console.log('[edit-page] handleGenerate called', {
+      selectedVariantKey,
+      productId,
+      mode,
+      hasRecompose: !!recomposeClassification,
+      userPromptEmpty: !userPrompt.trim(),
+    });
+
+    // Path 결정 (top-down 우선순위):
+    // 1. Picker 명시 선택 → recompose flow (variant prompt)
+    // 2. AI 분류 결과 있고 + 사용자 textarea 비어있음 → recompose flow (auto variant)
+    //    (사용자가 그냥 편집하기 누른 경우 = AI 분류 따라가는 의도)
+    // 3. 그 외 (textarea 에 사용자 instruction 있음) → generate flow
+
+    if (selectedVariantKey) {
+      console.log('[edit-page] → recompose flow (variantKey 명시 선택)');
+      await handleRecomposeVariant(selectedVariantKey);
+      return;
+    }
+
+    if (recomposeClassification && !userPrompt.trim()) {
+      console.log('[edit-page] → recompose flow (AI 분류 + 빈 textarea — auto variant)');
+      await handleRecomposeVariant(undefined);
+      return;
+    }
+
+    // generate flow — textarea instruction 기반
+    console.log('[edit-page] → generate flow (textarea hint)');
+    forcedStartRef.current = Date.now();
+    setForcedAwaiting(true);
     try {
       // editCase 는 UI state 지만 실제 프롬프트 라우팅은 슬롯 구성 기준으로 재계산.
       // creative 는 그대로 editCase=null. edit 모드는 슬롯에 bundle/color/packaging 이 있으면
@@ -159,6 +314,8 @@ function ThumbnailEditorWorkspaceContent() {
       if (data?.candidates) {
         setResult(data.candidates);
         setGenerationId(data.generationId ?? null);
+        // generate flow 는 mutation 응답에 candidates 통째로 — polling 안 기다려도 됨. 즉시 해제.
+        setForcedAwaiting(false);
         queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.generations() });
         toast.success(`썸네일 ${data.candidates.length}장 생성 완료`);
         // 새로고침해도 기존 결과를 복원할 수 있도록 generationId 를 URL 에 박아둔다.
@@ -172,7 +329,76 @@ function ThumbnailEditorWorkspaceContent() {
       }
     } catch (err) {
       if (!mountedRef.current) return;
+      setForcedAwaiting(false); // 에러 시에만 해제. 정상 응답 시는 generationId 있어 useEffect 가 status 기반 해제.
       toast.error(err instanceof Error ? err.message : '썸네일 생성 실패');
+    }
+  };
+
+  /**
+   * RecomposeVariantPicker 클릭 시 — backend 의 recompose endpoint 호출.
+   * generation flow ("편집하기" 버튼) 와 별도 path. variantKey 별 다른 prompt 사용.
+   *
+   * 응답: ThumbnailGenerationItem[] — generationId 받아 URL 갱신 → 결과 폴링/표시.
+   */
+  const handleRecomposeVariant = async (variantKey: RecomposeVariantKey | undefined) => {
+    console.log('[edit-page] handleRecomposeVariant called', { variantKey, productId });
+    if (!productId) {
+      toast.error('상품 정보가 필요합니다');
+      return;
+    }
+    forcedStartRef.current = Date.now(); // minimum hold 시작 시각
+    setForcedAwaiting(true); // mutation 직후 race window 차단 — UI 즉시 loading
+    console.log('[edit-page] forcedAwaiting=true, calling editJobsMutation...');
+    try {
+      const created = await editJobsMutation.mutateAsync({
+        productIds: [productId],
+        purpose: 'compliance',
+        variantKey,
+      });
+      console.log('[edit-page] editJobsMutation response:', created);
+      const item = Array.isArray(created)
+        ? created.find((d) => d.productId === productId)
+        : null;
+      if (item) {
+        setGenerationId(item.id);
+        // mutation 응답 candidates 는 일반적으로 빈 배열 (status=pending). 결과 도착은 polling 으로.
+        // candidates 가 mutation 응답에 이미 채워져 있어도 setResult 안 함 — useEffect 가 status='succeeded' 잡고
+        // 모달 종료 후 자연스럽게 historyCandidates 통해 표시되도록.
+        const next = new URLSearchParams(searchParams.toString());
+        next.set('generationId', item.id);
+        router.replace(`?${next.toString()}`, { scroll: false });
+        // 명시적 refetch 강제 — invalidate 보다 빠르게 polling 데이터에 새 row 반영.
+        await queryClient.refetchQueries({
+          queryKey: queryKeys.thumbnailAnalysis.generations(),
+        });
+        toast.success('AI 편집 시작 — 잠시만 기다려주세요');
+      } else {
+        // mutation 응답 빈 array — 이미 진행 중인 같은 productId job 있음.
+        // 해당 active generation 을 폴링 데이터에서 찾아 generationId 박기 → 모달 유지.
+        const activeGen = pollingGenerations.find(
+          (g) =>
+            g.productId === productId &&
+            (g.status === 'pending' || g.status === 'running'),
+        );
+        if (activeGen) {
+          setGenerationId(activeGen.id);
+          if (Array.isArray(activeGen.candidates) && activeGen.candidates.length > 0) {
+            setResult(activeGen.candidates);
+          }
+          const next = new URLSearchParams(searchParams.toString());
+          next.set('generationId', activeGen.id);
+          router.replace(`?${next.toString()}`, { scroll: false });
+          // forcedAwaiting 유지 — useEffect 가 status 'succeeded/failed' 보고 자동 해제.
+          toast.info('이미 편집 진행 중 — 결과 기다리는 중...');
+        } else {
+          // active 못 찾으면 일반 경고
+          setForcedAwaiting(false);
+          toast.warning('이미 편집이 진행 중인 상품입니다');
+        }
+      }
+    } catch (err) {
+      setForcedAwaiting(false);
+      toast.error(err instanceof Error ? err.message : 'AI 편집 실패');
     }
   };
 
@@ -395,7 +621,12 @@ function ThumbnailEditorWorkspaceContent() {
             originalImage={originalImageUrl ?? productImage}
             candidates={historyCandidates}
             selectedCandidateUrl={selectedCandidateUrl}
-            isGenerating={generateMutation.isPending}
+            isGenerating={
+              generateMutation.isPending ||
+              editJobsMutation.isPending ||
+              isAwaitingGen ||
+              forcedAwaiting
+            }
             productName={productName}
             onSelectCandidate={handleSelectCandidate}
           />
@@ -409,20 +640,57 @@ function ThumbnailEditorWorkspaceContent() {
             sceneType={sceneType}
             styleType={styleType}
             productDescription={productDescription}
-            isPending={generateMutation.isPending}
+            isPending={
+              generateMutation.isPending ||
+              editJobsMutation.isPending ||
+              isAwaitingGen ||
+              forcedAwaiting
+            }
             hasInput={hasInput}
             selectedCandidateUrl={selectedCandidateUrl}
             generationId={generationId}
             isApplying={wingRegisterMutation.isPending}
             onPieceCountChange={setPieceCount}
             onLayoutChange={setLayout}
-            onUserPromptChange={setUserPrompt}
+            onUserPromptChange={(v) => {
+              userPromptDirtyRef.current = true;
+              setUserPrompt(v);
+            }}
             onSceneTypeChange={setSceneType}
             onStyleTypeChange={setStyleType}
             onProductDescriptionChange={setProductDescription}
             onGenerate={handleGenerate}
             onCoupang={handleCoupang}
             onReEditFromSelected={handleReEditFromSelected}
+            recomposeSlot={
+              recomposeClassification ? (
+                <div className="bg-violet-50/40 rounded-2xl p-4 border border-violet-200">
+                  <div className="text-[13px] font-bold text-violet-900 mb-1">
+                    AI 분류 — 변형 선택
+                  </div>
+                  <p className="text-[11px] text-violet-700 mb-2">
+                    {userPrompt.trim()
+                      ? '위쪽 텍스트가 있으면 자유 편집(generate flow). 변형 선택 시 분류 prompt 가 우선 적용됩니다.'
+                      : '편집 지시사항 비우고 편집하기 누르면 AI 분류 자동 적용. 변형 선택 시 그쪽이 우선.'}
+                  </p>
+                  <RecomposeVariantPicker
+                    classification={recomposeClassification}
+                    onSelect={(key) => setSelectedVariantKey(key)}
+                    layout="detail"
+                  />
+                  {selectedVariantKey && (
+                    <div className="mt-2 text-[11px] font-semibold text-violet-900">
+                      ✓ 선택됨:{' '}
+                      {selectedVariantKey === 'with-box'
+                        ? '박스+상품'
+                        : selectedVariantKey === 'no-box'
+                        ? '상품만'
+                        : '자동 (auto)'}
+                    </div>
+                  )}
+                </div>
+              ) : undefined
+            }
           />
       </div>
 

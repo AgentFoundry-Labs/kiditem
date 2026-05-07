@@ -23,25 +23,29 @@ import { API_BASE } from '@/lib/api';
 import {
   rowToRendererData,
   useKidsPlayfulGenerationList,
-  useSimpleVerticalGenerationList,
+  useBoldVerticalGenerationList,
   type KidsPlayfulGenerationItem,
 } from '@/app/(media-ai)/generate/hooks/useKidsPlayfulGenerate';
 import type { KidsPlayfulData } from '@/app/(media-ai)/generate/lib/kids-playful-types';
 import { buildKidsPlayfulHtml } from '@/app/(media-ai)/generate/lib/build-kids-playful-html';
 import {
-  adaptSimpleVerticalToDetailPageData,
-  type SimpleVerticalGeneration,
-} from '@/app/(media-ai)/generate/lib/simple-vertical-types';
+  adaptBoldVerticalToDetailPageData,
+  type BoldVerticalGeneration,
+} from '@/app/(media-ai)/generate/lib/bold-vertical-types';
 import { ensureStyledDetailHtml, renderTemplateToHtml } from '../../lib/template-html';
 import {
   DETAIL_PREVIEW_SCROLL_MESSAGE,
-  SAME_ORIGIN_SCRIPTLESS_SANDBOX,
   SCRIPTED_PREVIEW_SANDBOX,
+  buildDetailPreviewLayoutMetrics,
   isDetailPreviewMetricsMessage,
+  isSameDetailPreviewLayout,
   stripSrcDocScripts,
+  type DetailPreviewMetricsMessage,
+  type DetailPreviewLayoutMetrics,
   withDetailPreviewBridge,
 } from '../lib/preview-sandbox';
 import { useGenerationHistory } from '../hooks/useGenerationHistory';
+import { apiClient } from '@/lib/api-client';
 
 interface Props {
   productId: string;
@@ -53,71 +57,50 @@ interface Props {
    * null = 자동 (이 product 의 최신 KP 이력 사용).
    */
   selectedKidsPlayfulId?: string | null;
-  /** 사용자가 고른 simple-vertical entry id. */
-  selectedSimpleVerticalId?: string | null;
+  /** 사용자가 고른 KIDITEM DESIGN entry id. */
+  selectedBoldVerticalId?: string | null;
   /** 사용자가 고른 ContentAgent entry id. */
   selectedAgentId?: string | null;
 }
 
 const MAX_MINIMAP_WIDTH = 200; // px — 우선 가로 200px 시도, 페이지가 길면 더 좁게
 const VIEWPORT_HEIGHT_VH = 82; // vh — 우측 iframe 높이
+const INITIAL_PREVIEW_LAYOUT: DetailPreviewLayoutMetrics = {
+  scale: 0.25,
+  minimapWidth: MAX_MINIMAP_WIDTH,
+  contentHeight: 2000,
+  viewportTop: 0,
+  viewportHeight: 0,
+};
 
-async function createScriptlessCaptureFrame(html: string): Promise<{
-  frame: HTMLIFrameElement;
-  document: Document;
-}> {
-  const frame = document.createElement('iframe');
-  frame.setAttribute('sandbox', SAME_ORIGIN_SCRIPTLESS_SANDBOX);
-  frame.style.position = 'fixed';
-  frame.style.left = '-10000px';
-  frame.style.top = '0';
-  frame.style.width = '720px';
-  frame.style.height = '1000px';
-  frame.style.opacity = '0';
-  frame.style.pointerEvents = 'none';
-  frame.srcdoc = stripSrcDocScripts(html);
-  document.body.appendChild(frame);
+function downloadBlob(blob: Blob, fileName: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 2_000);
+}
 
-  try {
-    await waitForFrameLoad(frame);
-    const frameDocument = frame.contentDocument;
-    if (!frameDocument?.body) {
-      throw new Error('PDF 캡처 문서를 준비하지 못했어요');
-    }
-    await waitForImages(frameDocument);
-    return { frame, document: frameDocument };
-  } catch (err) {
-    frame.remove();
-    throw err;
+function buildServerRenderHtml(html: string): string {
+  const cleaned = stripSrcDocScripts(html);
+  const base = `<base href="${API_BASE}/" />`;
+  if (/<base\s/i.test(cleaned)) {
+    return cleaned;
   }
-}
-
-function waitForFrameLoad(frame: HTMLIFrameElement): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const timer = window.setTimeout(() => reject(new Error('PDF 캡처 준비 시간이 초과됐어요')), 10_000);
-    const finish = () => {
-      window.clearTimeout(timer);
-      resolve();
-    };
-
-    frame.addEventListener('load', finish, { once: true });
-    if (frame.contentDocument?.readyState === 'complete') {
-      window.setTimeout(finish, 0);
-    }
-  });
-}
-
-function waitForImages(doc: Document): Promise<void> {
-  const waits = Array.from(doc.images).map((image) => {
-    if (image.complete) return Promise.resolve();
-    return new Promise<void>((resolve) => {
-      const finish = () => resolve();
-      image.addEventListener('load', finish, { once: true });
-      image.addEventListener('error', finish, { once: true });
-      window.setTimeout(finish, 3_000);
-    });
-  });
-  return Promise.all(waits).then(() => undefined);
+  if (/<head(\s[^>]*)?>/i.test(cleaned)) {
+    return cleaned.replace(/<head(\s[^>]*)?>/i, (match) => `${match}\n${base}`);
+  }
+  return `<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  ${base}
+</head>
+<body>${cleaned}</body>
+</html>`;
 }
 
 export default function DetailPagePreview({
@@ -126,21 +109,21 @@ export default function DetailPagePreview({
   editedHtml = null,
   templateCss,
   selectedKidsPlayfulId = null,
-  selectedSimpleVerticalId = null,
+  selectedBoldVerticalId = null,
   selectedAgentId = null,
 }: Props) {
   const fullIframeRef = useRef<HTMLIFrameElement>(null);
   const minimapContainerRef = useRef<HTMLDivElement>(null);
   const [isDownloading, setIsDownloading] = useState(false);
 
-  // 이 product 의 KP / SV / Agent 이력 — server DB 에서 조회.
+  // 이 product 의 Trend / KIDITEM / Agent 이력 — server DB 에서 조회.
   const { data: kpEntries = [] } = useKidsPlayfulGenerationList(productId);
-  const { data: svEntries = [] } = useSimpleVerticalGenerationList(productId);
+  const { data: boldEntries = [] } = useBoldVerticalGenerationList(productId);
   const { data: agentHistory = [] } = useGenerationHistory(productId);
 
   // 우선순위: 사용자 명시 선택 > 자동 default
-  // selected{Agent|KP|SV}Id 있으면 그것 우선
-  // 셋 다 null 이면 최신 KP > 최신 SV > Agent default
+  // selected{Agent|Trend|KIDITEM}Id 있으면 그것 우선
+  // 셋 다 null 이면 최신 Trend > 최신 KIDITEM > Agent default
   const selectedAgentEntry = useMemo(
     () => (selectedAgentId ? agentHistory.find((h) => h.id === selectedAgentId) ?? null : null),
     [selectedAgentId, agentHistory],
@@ -151,45 +134,45 @@ export default function DetailPagePreview({
     () => kpEntries.filter((e) => !e.id.startsWith('optimistic-')),
     [kpEntries],
   );
-  const realSvEntries = useMemo(
-    () => svEntries.filter((e) => !e.id.startsWith('optimistic-')),
-    [svEntries],
+  const realBoldEntries = useMemo(
+    () => boldEntries.filter((e) => !e.id.startsWith('optimistic-')),
+    [boldEntries],
   );
 
-  const hasExplicitSelection = !!(selectedAgentId || selectedKidsPlayfulId || selectedSimpleVerticalId);
+  const hasExplicitSelection = !!(selectedAgentId || selectedKidsPlayfulId || selectedBoldVerticalId);
 
-  const svEntry = useMemo(() => {
+  const boldEntry = useMemo(() => {
     if (selectedAgentId || selectedKidsPlayfulId) return null; // 다른 게 명시 선택
-    if (selectedSimpleVerticalId) {
-      return realSvEntries.find((e) => e.id === selectedSimpleVerticalId) ?? null;
+    if (selectedBoldVerticalId) {
+      return realBoldEntries.find((e) => e.id === selectedBoldVerticalId) ?? null;
     }
     if (editedHtml) return null;
-    // 자동 default — KP 이력 없을 때만 SV default 적용
-    return realKpEntries.length === 0 ? realSvEntries[0] ?? null : null;
-  }, [realSvEntries, realKpEntries, selectedSimpleVerticalId, selectedKidsPlayfulId, selectedAgentId, editedHtml]);
+    // 자동 default — Trend 이력 없을 때만 KIDITEM default 적용
+    return realKpEntries.length === 0 ? realBoldEntries[0] ?? null : null;
+  }, [realBoldEntries, realKpEntries, selectedBoldVerticalId, selectedKidsPlayfulId, selectedAgentId, editedHtml]);
 
   const kpEntry: KidsPlayfulGenerationItem | null = useMemo(() => {
-    if (selectedAgentId || selectedSimpleVerticalId) return null;
+    if (selectedAgentId || selectedBoldVerticalId) return null;
     if (selectedKidsPlayfulId) {
       return realKpEntries.find((e) => e.id === selectedKidsPlayfulId) ?? null;
     }
     if (editedHtml) return null;
     return realKpEntries[0] ?? null;
-  }, [realKpEntries, selectedKidsPlayfulId, selectedSimpleVerticalId, selectedAgentId, editedHtml]);
+  }, [realKpEntries, selectedKidsPlayfulId, selectedBoldVerticalId, selectedAgentId, editedHtml]);
 
   const kpData: KidsPlayfulData | null = useMemo(
     () => (kpEntry ? rowToRendererData(kpEntry) : null),
     [kpEntry],
   );
 
-  // SV → BoldVertical 템플릿 (사용자 요청: AGENT row 같은 풍부한 디자인).
-  const svHtml = useMemo(() => {
-    if (!svEntry) return null;
+  // KIDITEM generation → BoldVertical 템플릿.
+  const boldHtml = useMemo(() => {
+    if (!boldEntry) return null;
     try {
-      const adapted = adaptSimpleVerticalToDetailPageData(
-        svEntry.result as unknown as SimpleVerticalGeneration,
-        svEntry.imageUrls,
-        svEntry.processedImages,
+      const adapted = adaptBoldVerticalToDetailPageData(
+        boldEntry.result as unknown as BoldVerticalGeneration,
+        boldEntry.imageUrls,
+        boldEntry.processedImages,
         API_BASE,
       );
       const data = parseDetailPageData(adapted);
@@ -203,7 +186,7 @@ export default function DetailPagePreview({
     } catch {
       return null;
     }
-  }, [svEntry, templateCss]);
+  }, [boldEntry, templateCss]);
 
   // selectedAgentId 가 있으면 그 row 의 detailPageData 로 HTML rebuild,
   // 아니면 KP 우선, 아니면 default (master_products) HTML.
@@ -228,21 +211,21 @@ export default function DetailPagePreview({
     ? `agent:${selectedAgentEntry.id}`
     : kpEntry
       ? `kp:${kpEntry.id}:${kpEntry.imageProcessingStatus}`
-      : svEntry
-        ? `sv:${svEntry.id}:${svEntry.imageProcessingStatus}`
+      : boldEntry
+        ? `bold:${boldEntry.id}:${boldEntry.imageProcessingStatus}`
         : editedHtml
           ? `edited:${editedHtml.length}`
           : 'default';
   const effectivePreviewHtml = useMemo(() => {
     if (agentSelectedHtml) return agentSelectedHtml;
     if (kpData) return buildKidsPlayfulHtml(kpData);
-    if (svHtml) return svHtml;
+    if (boldHtml) return boldHtml;
     if (!hasExplicitSelection && editedHtml) {
       return ensureStyledDetailHtml(editedHtml, templateCss);
     }
     return ensureStyledDetailHtml(detailPreviewHtml, templateCss);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewKey, detailPreviewHtml, agentSelectedHtml, svHtml, editedHtml, hasExplicitSelection, templateCss]);
+  }, [previewKey, detailPreviewHtml, agentSelectedHtml, boldHtml, editedHtml, hasExplicitSelection, templateCss]);
   const sandboxedPreviewHtml = useMemo(
     () => withDetailPreviewBridge(effectivePreviewHtml),
     [effectivePreviewHtml],
@@ -250,34 +233,20 @@ export default function DetailPagePreview({
 
   // 미니맵 scale: width-fit 와 height-fit 둘 다 충족하는 값 (작은 쪽 채택).
   // 이전엔 width 만 fit → 페이지가 길면 미니맵 아래쪽 잘림. 사용자 "밑부분이 잘려있어".
-  const [scale, setScale] = useState(0.25);
-  const [minimapWidth, setMinimapWidth] = useState(MAX_MINIMAP_WIDTH);
-  const [contentHeight, setContentHeight] = useState(2000);
-  const [viewportPx, setViewportPx] = useState({ top: 0, height: 0 });
+  const [previewLayout, setPreviewLayout] = useState(INITIAL_PREVIEW_LAYOUT);
+  const previewLayoutRef = useRef(INITIAL_PREVIEW_LAYOUT);
+  const { scale, minimapWidth, contentHeight, viewportTop, viewportHeight } = previewLayout;
 
-  const applyPreviewMetrics = useCallback((data: {
-    scrollY: number;
-    innerHeight: number;
-    scrollHeight: number;
-    scrollWidth: number;
-  }) => {
+  const applyPreviewMetrics = useCallback((data: DetailPreviewMetricsMessage) => {
     const container = minimapContainerRef.current;
     if (!container) return;
-    const docHeight = Math.max(1, data.scrollHeight);
-    const fullWidth = Math.max(1, data.scrollWidth || 720);
-    const containerHeight = container.clientHeight;
-
-    // width-fit scale: 200/720 = 0.28
-    // height-fit scale: containerH / docHeight (예: 700 / 4000 = 0.175)
-    // 둘 중 작은 쪽 채택 → 페이지 전체가 미니맵 한 화면에 정확히 맞음.
-    const widthScale = MAX_MINIMAP_WIDTH / fullWidth;
-    const heightScale = containerHeight / docHeight;
-    const finalScale = Math.min(widthScale, heightScale);
-
-    setContentHeight(docHeight);
-    setScale(finalScale);
-    setMinimapWidth(fullWidth * finalScale);
-    setViewportPx({ top: data.scrollY, height: data.innerHeight });
+    const next = buildDetailPreviewLayoutMetrics(data, {
+      containerHeight: container.clientHeight,
+      maxMinimapWidth: MAX_MINIMAP_WIDTH,
+    });
+    if (isSameDetailPreviewLayout(previewLayoutRef.current, next)) return;
+    previewLayoutRef.current = next;
+    setPreviewLayout(next);
   }, []);
 
   useEffect(() => {
@@ -292,13 +261,17 @@ export default function DetailPagePreview({
     };
   }, [applyPreviewMetrics]);
 
+  useEffect(() => {
+    previewLayoutRef.current = INITIAL_PREVIEW_LAYOUT;
+    setPreviewLayout(INITIAL_PREVIEW_LAYOUT);
+  }, [sandboxedPreviewHtml]);
+
   // 미니맵 클릭 → 풀 iframe 해당 위치로 jump
   const handleMinimapClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const minimap = e.currentTarget.getBoundingClientRect();
     const clickRatio = (e.clientY - minimap.top) / minimap.height;
     const full = fullIframeRef.current;
     if (!full?.contentWindow) return;
-    const viewportHeight = viewportPx.height || 0;
     const targetY = clickRatio * contentHeight - viewportHeight / 2;
     full.contentWindow.postMessage(
       {
@@ -310,61 +283,29 @@ export default function DetailPagePreview({
     );
   };
 
-  // 이미지 다운로드 — 스크립트를 제거한 임시 문서 캡처 → 단일 이미지 → PDF 1쪽 다운로드.
-  // 사용자 요청: "PDF 로 해서 다운로드, 이미지 하나로".
-  const handleDownloadPdf = useCallback(async () => {
+  // 이미지 다운로드 — 서버 Puppeteer 렌더러로 긴 JPEG 1장 저장.
+  // 클라이언트 html2canvas 는 긴 상세페이지에서 자주 멈춰서 서버 캡처 경로를 사용한다.
+  const handleDownloadJpeg = useCallback(async () => {
     if (isDownloading) return;
-    let captureFrame: HTMLIFrameElement | null = null;
     setIsDownloading(true);
     try {
-      // dynamic import — 번들 크기 절약 (다운로드 클릭 시에만 로드)
-      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
-        import('html2canvas'),
-        import('jspdf'),
-      ]);
-
-      const capture = await createScriptlessCaptureFrame(effectivePreviewHtml);
-      captureFrame = capture.frame;
-      const body = capture.document.body;
-      const target = (body.querySelector('main, #root, [data-detail-root]') as HTMLElement) || body;
-      // 실제 컨텐츠 높이로 캡처 (스크롤 영역 포함)
-      const rect = target.getBoundingClientRect();
-      const width = Math.max(target.scrollWidth, rect.width);
-      const height = Math.max(target.scrollHeight, rect.height);
-
-      const canvas = await html2canvas(target, {
-        useCORS: true,
-        allowTaint: false,
-        backgroundColor: '#ffffff',
-        scale: 2, // retina 품질
-        width,
-        height,
-        windowWidth: width,
-        windowHeight: height,
+      const renderHtml = buildServerRenderHtml(effectivePreviewHtml);
+      const res = await apiClient.fetchRaw('/api/render-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ html: renderHtml, format: 'jpeg', quality: 92 }),
       });
-
-      const imgData = canvas.toDataURL('image/png');
-
-      // 캔버스 비율 유지 — A4 폭 기준으로 한 페이지 1 이미지 (높이 자동)
-      const pdfWidthMm = 210; // A4 width
-      const pdfHeightMm = (canvas.height / canvas.width) * pdfWidthMm;
-      const orientation: 'p' | 'l' = pdfHeightMm >= pdfWidthMm ? 'p' : 'l';
-      const pdf = new jsPDF({
-        orientation,
-        unit: 'mm',
-        format: [pdfWidthMm, pdfHeightMm],
-        compress: true,
-      });
-      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidthMm, pdfHeightMm, undefined, 'FAST');
-
+      if (!res.ok) {
+        throw new Error(`JPEG 렌더링 실패: ${res.status}`);
+      }
       const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-      pdf.save(`detail-page-${productId.slice(0, 8)}-${ts}.pdf`);
-      toast.success('PDF 다운로드 완료');
+      const blob = await res.blob();
+      downloadBlob(blob, `detail-page-${productId.slice(0, 8)}-${ts}.jpg`);
+      toast.success('JPEG 다운로드 완료');
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'PDF 다운로드 실패';
+      const msg = err instanceof Error ? err.message : 'JPEG 다운로드 실패';
       toast.error(msg);
     } finally {
-      captureFrame?.remove();
       setIsDownloading(false);
     }
   }, [effectivePreviewHtml, isDownloading, productId]);
@@ -383,20 +324,20 @@ export default function DetailPagePreview({
               <Sparkles size={10} />
               TREND VERTICAL
             </span>
-          ) : svEntry ? (
+          ) : boldEntry ? (
             <span className="inline-flex items-center gap-1 rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-bold text-sky-700">
-              SIMPLE VERTICAL
+              KIDITEM DESIGN
             </span>
           ) : null}
         </h3>
         <div className="flex items-center gap-2">
-          {/* 에디터 진입 — KP 결과 표시 중이면 ?kpId 쿼리로 그 결과 load. Agent 면 ?agentId. */}
+          {/* 에디터 진입 — Trend 결과 표시 중이면 ?kpId, KIDITEM 결과면 ?boldId 로 load. */}
           <Link
             href={
               kpEntry
                 ? `/sourcing/${productId}/editor?kpId=${kpEntry.id}`
-                : svEntry
-                  ? `/sourcing/${productId}/editor?svId=${svEntry.id}`
+                : boldEntry
+                  ? `/sourcing/${productId}/editor?boldId=${boldEntry.id}`
                   : selectedAgentEntry
                     ? `/sourcing/${productId}/editor?agentId=${selectedAgentEntry.id}`
                     : `/sourcing/${productId}/editor`
@@ -408,12 +349,12 @@ export default function DetailPagePreview({
           </Link>
           <button
             type="button"
-            onClick={handleDownloadPdf}
+            onClick={handleDownloadJpeg}
             disabled={isDownloading}
             className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-white bg-emerald-500 rounded-lg hover:bg-emerald-600 transition-colors disabled:opacity-60 disabled:cursor-wait"
           >
             {isDownloading ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
-            {isDownloading ? 'PDF 생성 중...' : 'PDF 다운로드'}
+            {isDownloading ? 'JPEG 생성 중...' : 'JPEG 다운로드'}
           </button>
         </div>
       </div>
@@ -445,8 +386,8 @@ export default function DetailPagePreview({
           <div
             className="absolute left-0 right-0 border-2 border-indigo-500 bg-indigo-500/15 pointer-events-none"
             style={{
-              top: `${viewportPx.top * scale}px`,
-              height: `${viewportPx.height * scale}px`,
+              top: `${viewportTop * scale}px`,
+              height: `${viewportHeight * scale}px`,
             }}
           />
         </div>

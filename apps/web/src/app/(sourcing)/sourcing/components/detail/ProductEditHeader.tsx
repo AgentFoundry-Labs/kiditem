@@ -39,7 +39,7 @@ export default function ProductEditHeader({
   const generateBusy = isPending || kp.isPending || !!kpInProgress;
 
   const handleConfirm = (templateId: string, mode: GenerateMode) => {
-    if (templateId === 'kids-playful' || templateId === 'simple-vertical') {
+    if (templateId === 'kids-playful' || templateId === 'bold-vertical') {
       kp.trigger({ productId, productName, rawData, templateId, imageUrls });
       return;
     }
@@ -66,14 +66,14 @@ export default function ProductEditHeader({
       </div>
 
       <div className="flex items-center gap-3 shrink-0 ml-4 text-xs">
-        {/* KP/SV 진행 중 — 페이지 자유롭게 다닐 수 있도록 inline 진행 배지. templateId 별 라벨. */}
+        {/* Trend/KIDITEM 진행 중 — 페이지 자유롭게 다닐 수 있도록 inline 진행 배지. templateId 별 라벨. */}
         {kpInProgress && (
           <span className="inline-flex items-center gap-1.5 rounded-md bg-violet-50 border border-violet-200 px-2.5 py-1 text-[11px] font-semibold text-violet-700">
             <Loader2 size={11} className="animate-spin" />
             {(() => {
               const label =
-                kpInProgress.templateId === 'simple-vertical'
-                  ? 'Simple Vertical'
+                kpInProgress.templateId === 'bold-vertical'
+                  ? 'KIDITEM DESIGN'
                   : 'Trend Vertical';
               return kpInProgress.imageProcessingStatus === 'pending'
                 ? `${label} 카피 생성 중...`

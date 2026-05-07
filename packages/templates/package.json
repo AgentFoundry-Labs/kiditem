@@ -18,7 +18,7 @@
   ],
   "scripts": {
     "build": "tsup && npm run build:css",
-    "build:css": "tailwindcss -i src/styles.css -o dist/styles.css --minify",
+    "build:css": "tailwindcss -i src/styles.css -o dist/styles.css --minify && cp dist/styles.css ../../apps/web/public/templates-styles.css",
     "dev": "tsup --watch",
     "clean": "rm -rf dist",
     "type-check": "tsc --noEmit",

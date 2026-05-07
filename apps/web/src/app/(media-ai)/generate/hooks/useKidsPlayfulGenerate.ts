@@ -8,6 +8,9 @@ import type {
   KidsPlayfulData,
 } from '../lib/kids-playful-types';
 import { adaptToKidsPlayful } from '../lib/kids-playful-types';
+import { isSafetyLabelImageUrl } from '../lib/detail-page-image-order';
+
+const GENERATED_HERO_BANNER_KEY = '__heroBanner';
 
 export interface KidsPlayfulGenerateBody {
   rawTitle: string;
@@ -49,7 +52,7 @@ const QK = {
  * 생성 + DB 자동 저장 (companyId scope).
  *
  * **Optimistic insert** — 사용자 요청: "버튼 누르면 바로 생성 중 표시"
- *   onMutate 시점에 즉시 placeholder pending row 를 KP/SV cache 에 prepend → 배너 즉시 노출.
+ *   onMutate 시점에 즉시 placeholder pending row 를 Trend/KIDITEM cache 에 prepend → 배너 즉시 노출.
  *   onSuccess 시 invalidate 로 실제 row 와 교체. onError 시 placeholder 제거.
  */
 export function useKidsPlayfulGenerate() {
@@ -59,12 +62,12 @@ export function useKidsPlayfulGenerate() {
       apiClient.post<KidsPlayfulGenerationItem>('/api/ai/detail-page/generate', body),
     onMutate: async (vars) => {
       const tplId = vars.templateId ?? 'kids-playful';
-      const isSV = tplId === 'simple-vertical';
-      const listKey = isSV
-        ? (['sv-generations', { productId: vars.productId ?? null }] as const)
+      const isBoldVertical = tplId === 'bold-vertical';
+      const listKey = isBoldVertical
+        ? (['bold-generations', { productId: vars.productId ?? null }] as const)
         : QK.list(vars.productId);
-      const allKey = isSV
-        ? (['sv-generations', { productId: null }] as const)
+      const allKey = isBoldVertical
+        ? (['bold-generations', { productId: null }] as const)
         : (['kp-generations'] as const);
 
       // 진행 중 refetch 취소 후 placeholder 직접 삽입 (cache mutation)
@@ -99,7 +102,7 @@ export function useKidsPlayfulGenerate() {
     onSettled: () => {
       // 성공/실패 무관 — 최종 invalidate (success 시 실제 row 로 교체)
       qc.invalidateQueries({ queryKey: ['kp-generations'] });
-      qc.invalidateQueries({ queryKey: ['sv-generations'] });
+      qc.invalidateQueries({ queryKey: ['bold-generations'] });
     },
   });
 }
@@ -145,17 +148,17 @@ export function useKidsPlayfulGenerationList(productId?: string | null) {
 }
 
 /**
- * GET /api/ai/detail-page?templateId=simple-vertical&productId=...
- * simple-vertical 이력. 결과는 SimpleVerticalGeneration 형식 (result 필드).
+ * GET /api/ai/detail-page?templateId=bold-vertical&productId=...
+ * KIDITEM BoldVertical 이력. 결과는 BoldVertical generation 형식 (result 필드).
  */
-export function useSimpleVerticalGenerationList(productId?: string | null) {
+export function useBoldVerticalGenerationList(productId?: string | null) {
   return useQuery({
-    queryKey: ['sv-generations', { productId: productId ?? null }] as const,
+    queryKey: ['bold-generations', { productId: productId ?? null }] as const,
     queryFn: () =>
       apiClient.get<KidsPlayfulGenerationItem[]>(
         productId
-          ? `/api/ai/detail-page?templateId=simple-vertical&productId=${encodeURIComponent(productId)}`
-          : '/api/ai/detail-page?templateId=simple-vertical',
+          ? `/api/ai/detail-page?templateId=bold-vertical&productId=${encodeURIComponent(productId)}`
+          : '/api/ai/detail-page?templateId=bold-vertical',
       ),
     refetchInterval: (query) => {
       const data = query.state.data as KidsPlayfulGenerationItem[] | undefined;
@@ -170,7 +173,7 @@ export function useSimpleVerticalGenerationList(productId?: string | null) {
   });
 }
 
-/** DELETE /api/ai/detail-page/:id — soft delete. KP/SV 둘 다 invalidate. */
+/** DELETE /api/ai/detail-page/:id — soft delete. Trend/KIDITEM 둘 다 invalidate. */
 export function useKidsPlayfulGenerationDelete() {
   const qc = useQueryClient();
   return useMutation({
@@ -178,7 +181,7 @@ export function useKidsPlayfulGenerationDelete() {
       apiClient.delete<{ ok: true }>(`/api/ai/detail-page/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['kp-generations'] });
-      qc.invalidateQueries({ queryKey: ['sv-generations'] });
+      qc.invalidateQueries({ queryKey: ['bold-generations'] });
     },
   });
 }
@@ -190,7 +193,7 @@ export function rowToRendererData(item: KidsPlayfulGenerationItem): KidsPlayfulD
 
 /**
  * 특정 product 에 진행 중 (pending/processing) 생성 entry 가 있는지 — 첫 1건만.
- * KP + SV 모두 polling — 어느 templateId 든 진행 중이면 반환.
+ * Trend + KIDITEM 모두 polling — 어느 templateId 든 진행 중이면 반환.
  * (다건 모두 보고 싶으면 useAllGenerationsInProgress 사용)
  */
 export function useKidsPlayfulInProgress(productId?: string | null) {
@@ -199,7 +202,7 @@ export function useKidsPlayfulInProgress(productId?: string | null) {
 }
 
 /**
- * 진행 중 (pending/processing) entry 전부 반환. KP + SV merge.
+ * 진행 중 (pending/processing) entry 전부 반환. Trend + KIDITEM merge.
  * - productId omit → 모든 product (리스트 페이지용)
  * - productId given → 해당 product 만 (detail 페이지용)
  *
@@ -209,8 +212,8 @@ export function useAllGenerationsInProgress(
   productId?: string | null,
 ): KidsPlayfulGenerationItem[] {
   const { data: kpData = [] } = useKidsPlayfulGenerationList(productId);
-  const { data: svData = [] } = useSimpleVerticalGenerationList(productId);
-  return [...kpData, ...svData]
+  const { data: boldData = [] } = useBoldVerticalGenerationList(productId);
+  return [...kpData, ...boldData]
     .filter(
       (e) =>
         e.imageProcessingStatus === 'pending' ||
@@ -221,11 +224,42 @@ export function useAllGenerationsInProgress(
 
 /** 카드 썸네일에 쓸 첫 이미지. processed 우선, fallback raw. */
 export function rowThumbnail(item: KidsPlayfulGenerationItem): string | null {
-  const heroIdx = item.result.section1.heroImageIndex;
+  const generatedHero = item.processedImages[GENERATED_HERO_BANNER_KEY];
+  if (generatedHero) return generatedHero.startsWith('http') ? generatedHero : `${API_BASE}${generatedHero}`;
+
+  const result = item.result as unknown;
+  const heroIdx = item.templateId === 'bold-vertical'
+    ? (result as { hook?: { imageIndex?: number | null; bannerImageIndex?: number | null } }).hook?.imageIndex ??
+      (result as { hook?: { imageIndex?: number | null; bannerImageIndex?: number | null } }).hook?.bannerImageIndex ??
+      null
+    : item.result.section1?.heroImageIndex ?? null;
   if (heroIdx !== null) {
     const processed = item.processedImages[String(heroIdx)];
     if (processed) return processed.startsWith('http') ? processed : `${API_BASE}${processed}`;
-    if (item.imageUrls[heroIdx]) return item.imageUrls[heroIdx];
+    if (item.imageUrls[heroIdx] && !isSafetyLabelImageUrl(item.imageUrls[heroIdx])) {
+      return item.imageUrls[heroIdx];
+    }
   }
-  return item.imageUrls[0] ?? null;
+  return item.imageUrls.find((url) => !isSafetyLabelImageUrl(url)) ?? item.imageUrls[0] ?? null;
+}
+
+export function rowDisplayTitle(item: KidsPlayfulGenerationItem): string {
+  if (item.templateId === 'bold-vertical') {
+    const hookText = (item.result as unknown as { hook?: { text?: unknown } }).hook?.text;
+    return typeof hookText === 'string' && hookText.trim() ? hookText : item.productName;
+  }
+  return item.result.section1?.mainHeadline ?? item.productName;
+}
+
+export function rowDisplaySubtitle(item: KidsPlayfulGenerationItem): string {
+  if (item.templateId === 'bold-vertical') {
+    const hook = (item.result as unknown as { hook?: { subtext?: unknown; titleSub?: unknown } }).hook;
+    const value = hook?.titleSub ?? hook?.subtext;
+    return typeof value === 'string' ? value : 'KIDITEM DESIGN';
+  }
+  return item.result.section1?.subhead ?? 'TREND VERTICAL';
+}
+
+export function rowTemplateLabel(item: KidsPlayfulGenerationItem): string {
+  return item.templateId === 'bold-vertical' ? 'KIDITEM DESIGN' : 'TREND VERTICAL';
 }

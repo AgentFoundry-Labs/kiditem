@@ -276,6 +276,7 @@ export class HeartbeatService {
         permissions: (agent.permissions as Record<string, unknown>) || {},
       }),
       config: Object.freeze(adapterConfig),
+      payload: Object.freeze((wakeup.payload as Record<string, unknown>) ?? {}),
       prompt,
       skillPaths: Object.freeze(skillsDir ? [skillsDir] : []),
       sessionId: (agentWithRt as any)?.rtSessionId ?? undefined,
@@ -571,6 +572,7 @@ export class HeartbeatService {
           where: { id: legacyTaskId },
           data: {
             status: status === 'succeeded' ? 'completed' : 'failed',
+            output: status === 'succeeded' ? (resultJson as any) : undefined,
             error: errorCode ? scrubSecrets(result.stderr.slice(0, 1000)) : null,
             completedAt: new Date(),
           },

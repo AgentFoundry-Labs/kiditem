@@ -64,7 +64,7 @@ export function EditorResultPanel({
   }, [isGenerating]);
 
   if (isGenerating) {
-    // 실제 서버는 Gemini (`gemini-3.1-flash-image-preview`) 를 단일 호출로 돌린다.
+    // 실제 서버는 Gemini image model (`AI_IMAGE_MODEL`) 를 단일 호출로 돌린다.
     // 중간 진행 신호가 없으므로 가짜 단계 애니메이션 대신 정직한 단일 상태 + 경과시간만 보여준다.
     // ⚠ candidates 가 이미 있어도 (URL `?generationId=...` 진입 후 재편집) generating 오버레이를
     // 우선 노출 — 그렇지 않으면 사용자가 "편집 중" 신호를 못 받고 멈춰있는 것처럼 보인다.

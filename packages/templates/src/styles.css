@@ -1,7 +1,28 @@
 @import "tailwindcss";
 @source ".";
 
+@font-face {
+  font-family: "NanumSquareRoundLocal";
+  src: url("/fonts/nanum-square-round/NanumSquareRoundOTFL.otf") format("opentype");
+  font-weight: 300 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "NanumSquareRoundLocal";
+  src: url("/fonts/nanum-square-round/NanumSquareRoundOTFEB.otf") format("opentype");
+  font-weight: 700 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 @theme {
-  --font-display: "Black Han Sans", sans-serif;
-  --font-sans: "Noto Sans KR", "Pretendard", sans-serif;
+  --font-display: "NanumSquareRoundLocal", "NanumSquareNeoHeavy", "NanumSquareNeoExtraBold", sans-serif;
+  --font-hand: "NanumPen", cursive;
+  --font-sans: "NanumSquareRoundLocal", "Noto Sans KR", "Pretendard", sans-serif;
+}
+
+img[data-field="heroImage"] {
+  mix-blend-mode: multiply;
 }

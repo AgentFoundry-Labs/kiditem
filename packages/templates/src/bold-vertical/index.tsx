@@ -35,13 +35,26 @@ function themeVars(d: DetailPageData): CSSProperties {
   } as CSSProperties;
 }
 
+function titleGradientTextStyle(): CSSProperties {
+  return {
+    backgroundImage: 'linear-gradient(90deg, var(--theme-badge-2) 0%, #596783 52%, var(--theme-badge-1) 100%)',
+    backgroundClip: 'text',
+    WebkitBackgroundClip: 'text',
+    color: 'transparent',
+  };
+}
+
 // ─── Hero Section (heroes/bold_v1.html) ─────────────────────────────────────
 
 function HeroSection({ d }: { d: DetailPageData }) {
-  const bannerSrc = d.heroBanner || d.images[0] || '';
+  const bannerSrc = d.heroBanner || '';
+  const featureLines = d.description
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 2);
 
   return (
-    <section className="bg-[var(--theme-bg-light)] pb-20">
+    <section className="bg-[var(--theme-bg-light)]">
       {bannerSrc && (
         <div className="w-full aspect-[21/9] relative overflow-hidden">
           <img
@@ -54,33 +67,78 @@ function HeroSection({ d }: { d: DetailPageData }) {
       )}
 
       <div className="text-center mt-16 px-4 flex flex-col items-center">
-        <div className="w-48 h-0.5 bg-[var(--theme-main)] opacity-40 mb-6" />
-        <h1 className="font-display text-7xl md:text-8xl tracking-tight leading-[1.1]">
-          <span data-field="hookText" className="text-[var(--theme-badge-2)]">{d.hookText}</span>
+        {d.hookSubtext && (
+          <p
+            data-field="hookSubtext"
+            className="mb-4 text-2xl md:text-3xl text-[var(--theme-text-primary)]"
+            style={{
+              fontFamily: 'NanumPen, cursive',
+              transform: 'rotate(-4deg)',
+              textUnderlineOffset: 5,
+              textDecorationLine: 'underline',
+              textDecorationColor: 'var(--theme-main)',
+              textDecorationThickness: 2,
+            }}
+          >
+            <span className="inline-block px-2 leading-none">
+              {d.hookSubtext}
+            </span>
+          </p>
+        )}
+        <h1 className="font-display text-[80px] md:text-[96px] leading-[1.02]">
+          <span
+            data-field="hookText"
+            style={{ ...titleGradientTextStyle(), fontWeight: 900 }}
+          >
+            {d.hookText}
+          </span>
           {d.hookTitleSub && (
             <>
               <br />
-              <span data-field="hookTitleSub" className="text-[var(--theme-main)]">{d.hookTitleSub}</span>
+              <span
+                data-field="hookTitleSub"
+                className="text-[#111827]"
+                style={{ fontWeight: 900 }}
+              >
+                {d.hookTitleSub}
+              </span>
             </>
           )}
         </h1>
         <div className="w-64 h-0.5 bg-[var(--theme-main)] opacity-40 mt-6" />
 
-        {d.description.length > 0 && (
-          <p data-field="description" className="mt-6 text-lg md:text-xl font-bold text-[var(--theme-text-primary)]">
-            {d.description.map((line, i) => (
-              <span key={i}>
-                {line}
-                {i < d.description.length - 1 && <br />}
-              </span>
-            ))}
+        <div data-field="description" className="mt-6 flex flex-col items-center gap-3 text-lg md:text-xl font-bold text-[var(--theme-text-primary)]">
+          {featureLines.length > 0 && (
+            <p className="leading-relaxed">
+              {featureLines.map((line, i) => (
+                <span key={i}>
+                  {line}
+                  {i < featureLines.length - 1 && <br />}
+                </span>
+              ))}
+            </p>
+          )}
+          <p className="leading-relaxed text-[var(--theme-main)]">
+            <span className="font-black">
+              색상 및 디자인
+            </span>
+            <span>은 선택할 수 없으며 랜덤출고 됩니다.</span>
           </p>
-        )}
+          <p className="max-w-xl rounded-[var(--theme-radius)] bg-white/80 px-6 py-4 text-base md:text-lg leading-relaxed shadow-sm border border-white/80 text-[var(--theme-text-secondary)]">
+            이미지와 제품의 구성품은 실제와 다를 수 있습니다
+          </p>
+        </div>
       </div>
 
       {d.images.length > 0 && (
-        <div className="mt-16">
-          <img data-field="heroImage" src={d.images[0]} alt={d.title} className="w-full h-auto" />
+        <div className="mt-16 bg-[var(--theme-bg-light)] px-4 py-8">
+          <img
+            data-field="heroImage"
+            src={d.images[0]}
+            alt={d.title}
+            className="w-[70%] max-w-[70%] mx-auto h-auto"
+            style={{ mixBlendMode: 'multiply' }}
+          />
         </div>
       )}
     </section>
@@ -91,72 +149,264 @@ function HeroSection({ d }: { d: DetailPageData }) {
 
 function SubSectionBadge({ label }: { label: string }) {
   return (
-    <div className="inline-block bg-[#1e2d4d] text-white rounded-full px-12 py-2 font-bold text-xl tracking-widest shadow-md">
+    <div className="inline-block bg-[#1e2d4d] text-white rounded-full px-12 py-2 font-bold text-xl shadow-md">
       {label}
     </div>
   );
 }
 
+function productDisplayName(d: DetailPageData): string {
+  return [d.hookText, d.hookTitleSub]
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim() || d.title;
+}
+
+function productSentenceName(d: DetailPageData): string {
+  return productDisplayName(d).replace(/[!?.]+$/g, '');
+}
+
+function SizeGuideSection({ d }: { d: DetailPageData }) {
+  const [mainImage, ...restImages] = d.sizeImages;
+  if (!mainImage) return null;
+  const showHeightGuide = d.sizeGuideOverlay && d.sizeHeightLabel.trim() !== '';
+  const showWidthGuide = d.sizeGuideOverlay && d.sizeWidthLabel.trim() !== '';
+  const productName = productSentenceName(d);
+
+  return (
+    <div data-section="sizeImages">
+      <div className="text-center mt-16 px-4">
+        <SubSectionBadge label="제품 사이즈 및 구성품" />
+
+        <p className="mt-6 text-[var(--theme-text-primary)] font-bold text-lg md:text-xl">
+          {productName}의 사이즈 및 구성품 안내 입니다.
+        </p>
+
+        <div data-container="sizeImages" className="mt-10 max-w-2xl mx-auto">
+          <div
+            data-role="size-guide-frame"
+            style={{
+              borderRadius: 34,
+              background: '#eaf6ff',
+              border: '1px solid #d8ebf7',
+              boxShadow: 'none',
+              overflow: 'hidden',
+              padding: 'clamp(34px, 6vw, 62px) clamp(24px, 5vw, 48px) clamp(30px, 5vw, 48px)',
+            }}
+          >
+            <div
+              style={{
+                display: 'grid',
+                placeItems: 'center',
+              }}
+            >
+              <div
+                style={{
+                  display: 'inline-grid',
+                  gridTemplateColumns: showHeightGuide ? '82px minmax(0, max-content)' : 'minmax(0, max-content)',
+                  gridTemplateRows: showWidthGuide ? 'auto 78px' : 'auto',
+                  columnGap: showHeightGuide ? 22 : 0,
+                  alignItems: 'stretch',
+                  justifyContent: 'center',
+                  justifyItems: 'center',
+                  maxWidth: '100%',
+                }}
+              >
+                {showHeightGuide && (
+                  <div
+                    aria-hidden="true"
+                    style={{
+                      position: 'relative',
+                      gridColumn: 1,
+                      gridRow: 1,
+                      alignSelf: 'stretch',
+                      width: 78,
+                    }}
+                  >
+                    <span
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        bottom: 0,
+                        right: 8,
+                        width: 1.5,
+                        background: '#111827',
+                      }}
+                    >
+                      <span style={sizeGuideCap('top')} />
+                      <span style={sizeGuideCap('bottom')} />
+                    </span>
+                    <span
+                      data-field="sizeHeightLabel"
+                      style={{
+                        position: 'absolute',
+                        top: '50%',
+                        left: '50%',
+                        transform: 'translate(-50%, -50%) rotate(-90deg)',
+                        transformOrigin: 'center',
+                        color: '#111827',
+                        fontSize: 42,
+                        lineHeight: 1,
+                        fontWeight: 900,
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {d.sizeHeightLabel}
+                    </span>
+                  </div>
+                )}
+
+                <img
+                  data-field="sizeGuideImage"
+                  src={mainImage}
+                  alt="제품 사이즈"
+                  style={{
+                    gridColumn: showHeightGuide ? 2 : 1,
+                    gridRow: 1,
+                    position: 'relative',
+                    zIndex: 10,
+                    display: 'block',
+                    width: 'auto',
+                    maxWidth: showHeightGuide ? 'min(520px, 100%)' : 'min(620px, 100%)',
+                    maxHeight: 560,
+                    objectFit: 'contain',
+                  }}
+                />
+
+                {showWidthGuide && (
+                  <div
+                    aria-hidden="true"
+                    style={{
+                      position: 'relative',
+                      gridColumn: showHeightGuide ? 2 : 1,
+                      gridRow: 2,
+                      alignSelf: 'start',
+                      width: '100%',
+                      minWidth: 180,
+                      height: 72,
+                      marginTop: 18,
+                    }}
+                  >
+                    <span
+                      style={{
+                        position: 'absolute',
+                        left: 0,
+                        right: 0,
+                        top: 0,
+                        height: 1.5,
+                        background: '#111827',
+                      }}
+                    >
+                      <span style={sizeGuideCap('left')} />
+                      <span style={sizeGuideCap('right')} />
+                    </span>
+                    <span
+                      data-field="sizeWidthLabel"
+                      style={{
+                        position: 'absolute',
+                        left: '50%',
+                        top: 18,
+                        transform: 'translateX(-50%)',
+                        color: '#111827',
+                        fontSize: 46,
+                        lineHeight: 1,
+                        fontWeight: 900,
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {d.sizeWidthLabel}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {restImages.length > 0 && (
+            <div className="mt-6 flex flex-col gap-6">
+              {restImages.map((src, i) => (
+                <img
+                  key={i}
+                  src={src}
+                  alt="추가 사이즈 안내"
+                  className="w-full h-auto rounded-[var(--theme-radius)]"
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function sizeGuideCap(position: 'top' | 'bottom' | 'left' | 'right'): CSSProperties {
+  const isVerticalCap = position === 'top' || position === 'bottom';
+  return {
+    position: 'absolute',
+    ...(position === 'top' ? { top: 0, left: -13 } : {}),
+    ...(position === 'bottom' ? { bottom: 0, left: -13 } : {}),
+    ...(position === 'left' ? { left: 0, top: -13 } : {}),
+    ...(position === 'right' ? { right: 0, top: -13 } : {}),
+    width: isVerticalCap ? 28 : 1.5,
+    height: isVerticalCap ? 1.5 : 28,
+    background: '#111827',
+    content: '""',
+    display: 'block',
+  };
+}
+
 // ─── Point Section ──────────────────────────────────────────────────────────
 
 function PointSection({ d }: { d: DetailPageData }) {
+  const productName = productSentenceName(d);
+  const hasColorSection = d.colorImages.length > 0 || d.colorSubtitle.trim() !== '';
+  const hasUsageSection = d.usageImages.length > 0 || d.usageSubtitle.trim() !== '';
+  const sectionName = d.hookText || d.sectionName;
+  const sectionTitle = d.hookTitleSub || d.sectionTitle;
+
   return (
-    <section className="bg-white pb-20 relative">
-      <div className="absolute left-1/2 -translate-x-1/2 -top-7 w-14 h-14 bg-black text-white rounded-full flex flex-col items-center justify-center shadow-lg z-10">
+    <section className="bg-white pb-20 pt-28 relative">
+      <div className="absolute left-1/2 -translate-x-1/2 top-14 w-14 h-14 bg-black text-white rounded-full flex flex-col items-center justify-center shadow-lg z-10">
         <span className="text-[10px] font-bold leading-none mt-1 tracking-widest">POINT</span>
         <span className="text-2xl font-display leading-none mt-0.5">1</span>
       </div>
 
-      <div className="text-center pt-20 px-4">
-        <h2 className="font-display text-5xl md:text-6xl leading-tight">
-          {d.sectionName && (
+      <div className="text-center pt-24 px-4">
+        <h2 className="font-display text-[80px] md:text-[96px] leading-[1.02]">
+          {sectionName && (
             <>
-              <span data-field="sectionName" className="text-[var(--theme-badge-2)]">{d.sectionName}</span>
+              <span
+                data-field="sectionName"
+                style={{ ...titleGradientTextStyle(), fontWeight: 900 }}
+              >
+                {sectionName}
+              </span>
               <br />
             </>
           )}
-          <span data-field="sectionTitle" className="text-[var(--theme-main)] relative inline-block mt-2">
-            {d.sectionTitle}
+          <span
+            data-field="sectionTitle"
+            className="text-[#111827] relative inline-block mt-2"
+            style={{ fontWeight: 900 }}
+          >
+            {sectionTitle}
             <div className="absolute bottom-1 left-0 w-full h-3 bg-[var(--theme-main)] opacity-20" />
           </span>
         </h2>
 
-        {d.sectionSubtitle.length > 0 && (
-          <p data-field="sectionSubtitle" className="mt-8 text-[var(--theme-text-secondary)] font-bold text-lg md:text-xl">
-            {d.sectionSubtitle.map((line, i) => (
-              <span key={i}>
-                {line}
-                {i < d.sectionSubtitle.length - 1 && <br />}
-              </span>
-            ))}
-          </p>
-        )}
+        <p data-field="sectionSubtitle" className="mt-8 text-[var(--theme-text-secondary)] font-bold text-lg md:text-xl">
+          <span>{productName}의 상품정보 입니다.</span>
+          <br />
+          <span>아래의 제품정보를 확인해 주세요.</span>
+        </p>
       </div>
 
-      <div data-section="sizeImages" className={d.sizeImages.length > 0 ? '' : 'hidden'}>
-        <div className="text-center mt-16">
-          <SubSectionBadge label="사이즈 안내" />
+      <SizeGuideSection d={d} />
 
-          {d.sizeSubtitle && (
-            <p className="mt-6 text-[var(--theme-text-secondary)] font-bold text-lg">
-              {d.sizeSubtitle}
-            </p>
-          )}
-
-          <div data-container="sizeImages" className={`mt-10 flex flex-col gap-6 ${d.sizeDisplayMode === 'full' ? 'w-full px-4' : 'max-w-2xl mx-auto px-6'}`}>
-            {d.sizeImages.map((simg, i) => (
-              <img
-                key={i}
-                src={simg}
-                alt="사이즈 안내"
-                className="w-full h-auto rounded-[var(--theme-radius)] shadow-md"
-              />
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {d.colorImages.length > 0 && (
+      {hasColorSection && (
         <div data-section="colorImages">
           <div className="text-center mt-16">
             <div style={{ width: 384, height: 2 }} className="bg-[#2d3436] opacity-40 mx-auto mb-12" />
@@ -168,16 +418,46 @@ function PointSection({ d }: { d: DetailPageData }) {
               </p>
             )}
 
-            <div data-container="colorImages" className={`mt-10 flex flex-col gap-6 ${d.colorDisplayMode === 'full' ? 'w-full px-4' : 'max-w-2xl mx-auto px-6'}`}>
-              {d.colorImages.map((cimg, i) => (
-                <img
-                  key={i}
-                  src={cimg}
-                  alt="색상 안내"
-                  className="w-full h-auto rounded-[var(--theme-radius)] shadow-md"
-                />
-              ))}
-            </div>
+            {d.colorImages.length > 0 && (
+              <div data-container="colorImages" className={`mt-10 flex flex-col gap-6 ${d.colorDisplayMode === 'full' ? 'w-full px-4' : 'max-w-2xl mx-auto px-6'}`}>
+                {d.colorImages.map((cimg, i) => (
+                  <img
+                    key={i}
+                    src={cimg}
+                    alt="색상 안내"
+                    className="w-full h-auto rounded-[var(--theme-radius)]"
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {hasUsageSection && (
+        <div data-section="usageImages">
+          <div className="text-center mt-16">
+            <div style={{ width: 384, height: 2 }} className="bg-[#2d3436] opacity-40 mx-auto mb-12" />
+            <SubSectionBadge label="사용법 안내" />
+
+            {d.usageSubtitle && (
+              <p className="mt-6 text-[var(--theme-text-secondary)] font-bold text-lg">
+                {d.usageSubtitle}
+              </p>
+            )}
+
+            {d.usageImages.length > 0 && (
+              <div data-container="usageImages" className="mt-10 flex flex-col gap-6 px-6 max-w-2xl mx-auto">
+                {d.usageImages.map((uimg, i) => (
+                  <img
+                    key={i}
+                    src={uimg}
+                    alt="사용법 안내"
+                    className="w-full h-auto rounded-[var(--theme-radius)]"
+                  />
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -187,21 +467,29 @@ function PointSection({ d }: { d: DetailPageData }) {
           <div style={{ width: 384, height: 2 }} className="bg-[#2d3436] opacity-40 mx-auto mb-12" />
           <SubSectionBadge label="DETAIL" />
 
-          {d.detailText && (
-            <p data-field="detailText" className="mt-6 text-[var(--theme-text-secondary)] font-bold text-lg">
-              {d.detailText}
-            </p>
-          )}
-
           <div data-container="detailImages" className="mt-10 flex flex-col gap-6 px-6 max-w-2xl mx-auto">
-            {d.detailImages.map((dimg, i) => (
-              <img
-                key={i}
-                src={dimg}
-                alt="디테일 이미지"
-                className="w-full h-auto rounded-[var(--theme-radius)] shadow-md"
-              />
-            ))}
+            {d.detailImages.map((dimg, i) => {
+              const isPackageImage = d.detailPackageImages.includes(dimg);
+              const packageLabel = normalizePackageLabel(d.detailPackageLabel);
+              const packageBadge = packageHelperText(packageLabel);
+              return (
+              <div key={i}>
+                {isPackageImage && (
+                  <div className="mb-6 mt-12 text-center font-black text-[var(--theme-text-primary)]">
+                    <p className="text-2xl md:text-3xl">{packageLabel}</p>
+                    <p className="mt-3 inline-block rounded-full bg-sky-100 px-6 py-2 text-lg md:text-xl text-sky-700">
+                      {packageBadge}
+                    </p>
+                  </div>
+                )}
+                <img
+                  src={dimg}
+                  alt={isPackageImage ? packageLabel : '디테일 이미지'}
+                  className="w-full h-auto rounded-[var(--theme-radius)]"
+                />
+              </div>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -209,26 +497,82 @@ function PointSection({ d }: { d: DetailPageData }) {
   );
 }
 
+function normalizePackageLabel(label: string): string {
+  const trimmed = label.trim();
+  if (!trimmed) return '박스/세트 구성 이미지';
+  return trimmed
+    .replace(/^1\s*box\b/i, '1박스')
+    .replace(/\s*이미지$/u, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function packageHelperText(label: string): string {
+  if (/박스|box|BOX|개입/u.test(label)) return '박스 구성 확인';
+  if (/세트|구성품/u.test(label)) return '세트 구성 확인';
+  return '구성 확인';
+}
+
 // ─── Specs Section ──────────────────────────────────────────────────────────
 
 function SpecsSection({ d }: { d: DetailPageData }) {
+  const hasSafetyLabelImage = d.safetyLabelImages.length > 0;
+  const showProductInfoTable = !hasSafetyLabelImage && d.productInfo.length > 0;
+
   return (
     <section className="bg-[var(--theme-bg-light)] py-20 px-4">
       <div className="text-center">
-        <div className="inline-block bg-[#1A3668] text-white rounded-full px-10 py-4 font-bold text-xl shadow-lg">
-          제품 안전 특별법에 의한 품질표시
-        </div>
+        <SubSectionBadge label="INFO" />
       </div>
 
-      <div className="mt-12 max-w-md mx-auto bg-white/60 backdrop-blur-sm rounded-3xl p-10 text-center text-[var(--theme-text-primary)] font-bold text-lg leading-loose shadow-sm border border-white/50">
-        {d.productInfo.map((info, i) => (
-          <p key={i}>
-            *{info.key} : {info.value}
-          </p>
-        ))}
-      </div>
+      {showProductInfoTable && (
+        <div
+          data-container="productInfo"
+          className="mt-12 mx-auto overflow-hidden rounded-3xl bg-white shadow-sm border border-[#eadfce]"
+          style={{ width: '82%', maxWidth: 500 }}
+        >
+          <table className="w-full border-collapse text-left text-[var(--theme-text-primary)]">
+            <tbody>
+              {d.productInfo.map((info, i) => (
+                <tr key={i} className="border-b border-[#efe7dc] last:border-b-0">
+                  <th
+                    data-field="productInfoKey"
+                    className="w-[34%] bg-[#f8f2e9] px-6 py-4 text-base md:text-lg font-black text-[#1e2d4d]"
+                    scope="row"
+                  >
+                    {normalizeProductInfoKey(info.key)}
+                  </th>
+                  <td
+                    data-field="productInfoValue"
+                    className="px-6 py-4 text-base md:text-lg font-bold leading-relaxed text-[var(--theme-text-primary)]"
+                  >
+                    {info.value}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {hasSafetyLabelImage && (
+        <div data-container="safetyLabelImages" className="mt-10 max-w-2xl mx-auto flex flex-col gap-6">
+          {d.safetyLabelImages.map((src, i) => (
+            <img
+              key={i}
+              src={src}
+              alt="제품 안전 품질표시"
+              className="w-full h-auto rounded-2xl border border-white/70"
+            />
+          ))}
+        </div>
+      )}
     </section>
   );
+}
+
+function normalizeProductInfoKey(key: string): string {
+  return key.replace(/^[*\s]+/, '').trim();
 }
 
 // ─── Key Points Section ─────────────────────────────────────────────────────
@@ -256,7 +600,7 @@ function KeyPointsSection({ d }: { d: DetailPageData }) {
             </p>
             {kp.images.length > 0 && (
               <div className="mt-8">
-                <img src={kp.images[0]} alt={kp.title} className="w-full h-auto rounded-[var(--theme-radius)] shadow-md" />
+                <img src={kp.images[0]} alt={kp.title} className="w-full h-auto rounded-[var(--theme-radius)]" />
               </div>
             )}
           </div>
@@ -400,13 +744,24 @@ function CSRefundSection({ d }: { d: DetailPageData }) {
 export function BoldVertical({ data: d }: BoldVerticalProps) {
   const disabled = getDisabledSections(d);
 
-  const hasPointContent = d.sectionName || d.sectionTitle || d.sizeImages.length > 0 || d.colorImages.length > 0 || d.detailImages.length > 0;
+  const hasPointContent =
+    d.hookText ||
+    d.hookTitleSub ||
+    d.sectionName ||
+    d.sectionTitle ||
+    d.sizeImages.length > 0 ||
+    d.colorImages.length > 0 ||
+    d.colorSubtitle.trim() !== '' ||
+    d.usageImages.length > 0 ||
+    d.usageSubtitle.trim() !== '' ||
+    d.detailImages.length > 0;
+  const hasSpecsContent = d.productInfo.length > 0 || d.safetyLabelImages.length > 0;
 
   return (
     <div
       style={{
         ...themeVars(d),
-        fontFamily: "'Noto Sans KR', sans-serif",
+        fontFamily: "'NanumSquareRoundLocal', 'Noto Sans KR', sans-serif",
         wordBreak: 'keep-all',
         backgroundColor: 'var(--theme-section-bg)',
       }}
@@ -417,7 +772,7 @@ export function BoldVertical({ data: d }: BoldVerticalProps) {
 
           {hasPointContent && <PointSection d={d} />}
 
-          {d.productInfo.length > 0 && <SpecsSection d={d} />}
+          {hasSpecsContent && <SpecsSection d={d} />}
         </div>
       </div>
     </div>

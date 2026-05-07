@@ -51,6 +51,10 @@ function assertPublicHttpUrlForHttp(url: string): void {
   }
 }
 
+function isJsonObject(value: Prisma.JsonValue | null): value is Prisma.JsonObject {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
 @Injectable()
 export class MastersService {
   constructor(
@@ -74,6 +78,7 @@ export class MastersService {
       const normalizedImages = normalizeImagesForWrite(
         dto.images ?? (dto.imageUrl ? [{ url: dto.imageUrl, role: 'product', label: null, sortOrder: 0 }] : []),
       );
+      const rawData = this.rawDataForCreate(dto, normalizedImages);
       const createInTx = async (tx: Prisma.TransactionClient) => {
         const code = await this.codeSvc.generate(tx);
         const row = await tx.masterProduct.create({
@@ -82,6 +87,7 @@ export class MastersService {
             organizationId,
             code,
             imageUrl: representativeImageUrl(normalizedImages),
+            ...(rawData ? { rawData } : {}),
             healthUpdatedAt: dto.healthScore !== undefined ? new Date() : null,
           } as Prisma.MasterProductUncheckedCreateInput,
         });
@@ -164,6 +170,37 @@ export class MastersService {
       const row = outerTx ? await updateInTx(outerTx) : await this.prisma.$transaction(updateInTx);
       return withImageRows(row);
     } catch (e) { mapPrismaError(e, 'master update'); }
+  }
+
+  async addRawDataField(
+    organizationId: string,
+    id: string,
+    key: string,
+    value: string,
+  ): Promise<{ rawData: Prisma.JsonObject }> {
+    const trimmedKey = key.trim();
+    if (!trimmedKey) throw new BadRequestException('raw data key is required');
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.masterProduct.findFirst({
+        where: { id, organizationId, isDeleted: false },
+        select: { rawData: true },
+      });
+      if (!row) throw new NotFoundException('master not found or deleted');
+
+      const nextRawData: Prisma.JsonObject = {
+        ...(isJsonObject(row.rawData) ? row.rawData : {}),
+        [trimmedKey]: value,
+      };
+      const { count } = await tx.masterProduct.updateMany({
+        where: { id, organizationId, isDeleted: false },
+        data: { rawData: nextRawData },
+      });
+      if (count === 0) throw new NotFoundException('master not found or deleted');
+      return nextRawData;
+    });
+
+    return { rawData: updated };
   }
 
   /**
@@ -408,7 +445,9 @@ export class MastersService {
     if (!raw) return false;
     try {
       const parsed = JSON.parse(raw) as Record<string, unknown>;
-      return parsed.templateId === 'kids-playful' || parsed.templateId === 'simple-vertical';
+      return parsed.templateId === 'kids-playful' ||
+        parsed.templateId === 'bold-vertical' ||
+        parsed.templateId === 'simple-vertical';
     } catch {
       return false;
     }
@@ -439,6 +478,31 @@ export class MastersService {
         isPrimary: index === primary,
       })),
     });
+  }
+
+  private rawDataForCreate(
+    dto: CreateMasterDto,
+    images: MasterImageItem[],
+  ): Prisma.InputJsonValue | null {
+    if (dto.sourcePlatform !== 'detail-page-generator') return null;
+
+    const imageUrls = images.map((img) => img.url).filter((url) => url.trim() !== '');
+    return {
+      title: dto.name,
+      productName: dto.name,
+      name: dto.name,
+      description: dto.description ?? '',
+      category: dto.category ?? null,
+      category_name: dto.category ?? null,
+      images: imageUrls,
+      imageUrls,
+      image_urls: imageUrls,
+      source_platform: dto.sourcePlatform,
+      sourcePlatform: dto.sourcePlatform,
+      source_url: dto.sourceUrl ?? null,
+      sourceUrl: dto.sourceUrl ?? null,
+      collected_from: 'detail-page-generator',
+    };
   }
 
   private async replaceImagesTx(

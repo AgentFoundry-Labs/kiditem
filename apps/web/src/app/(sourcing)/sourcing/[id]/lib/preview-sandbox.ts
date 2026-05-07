@@ -15,10 +15,71 @@ export interface DetailPreviewMetricsMessage {
   scrollWidth: number;
 }
 
+export interface DetailPreviewLayoutMetrics {
+  scale: number;
+  minimapWidth: number;
+  contentHeight: number;
+  viewportTop: number;
+  viewportHeight: number;
+}
+
+export function buildDetailPreviewLayoutMetrics(
+  data: DetailPreviewMetricsMessage,
+  options: {
+    containerHeight: number;
+    maxMinimapWidth: number;
+  },
+): DetailPreviewLayoutMetrics {
+  const contentHeight = Math.max(1, Math.round(data.scrollHeight));
+  const fullWidth = Math.max(1, Math.round(data.scrollWidth || 720));
+  const containerHeight = Math.max(1, Math.round(options.containerHeight));
+  const widthScale = options.maxMinimapWidth / fullWidth;
+  const heightScale = containerHeight / contentHeight;
+  const scale = Number(Math.min(widthScale, heightScale).toFixed(5));
+
+  return {
+    scale,
+    minimapWidth: Math.max(1, Math.round(fullWidth * scale)),
+    contentHeight,
+    viewportTop: Math.max(0, Math.round(data.scrollY)),
+    viewportHeight: Math.max(0, Math.round(data.innerHeight)),
+  };
+}
+
+export function isSameDetailPreviewLayout(
+  prev: DetailPreviewLayoutMetrics,
+  next: DetailPreviewLayoutMetrics,
+): boolean {
+  return (
+    Math.abs(prev.scale - next.scale) < 0.001 &&
+    Math.abs(prev.minimapWidth - next.minimapWidth) < 1 &&
+    Math.abs(prev.contentHeight - next.contentHeight) < 2 &&
+    Math.abs(prev.viewportTop - next.viewportTop) < 1 &&
+    Math.abs(prev.viewportHeight - next.viewportHeight) < 1
+  );
+}
+
 export function stripSrcDocScripts(html: string): string {
   return html
     .replace(SCRIPT_TAG_PATTERN, '')
     .replace(SELF_CLOSING_SCRIPT_TAG_PATTERN, '');
+}
+
+export function stripDetailPreviewBridgeScripts(html: string): string {
+  return html
+    .replace(SCRIPT_TAG_PATTERN, (script) => (isDetailPreviewBridgeScript(script) ? '' : script))
+    .replace(SELF_CLOSING_SCRIPT_TAG_PATTERN, (script) =>
+      isDetailPreviewBridgeScript(script) ? '' : script,
+    );
+}
+
+function isDetailPreviewBridgeScript(script: string): boolean {
+  return (
+    script.includes(BRIDGE_MARKER) ||
+    script.includes(DETAIL_PREVIEW_METRICS_MESSAGE) ||
+    script.includes(DETAIL_PREVIEW_SCROLL_MESSAGE) ||
+    script.includes('__kiditemDetailPreviewBridgeInstalled')
+  );
 }
 
 export function isDetailPreviewMetricsMessage(value: unknown): value is DetailPreviewMetricsMessage {
@@ -34,13 +95,13 @@ export function isDetailPreviewMetricsMessage(value: unknown): value is DetailPr
 }
 
 export function withDetailPreviewBridge(html: string): string {
-  if (html.includes(BRIDGE_MARKER)) return html;
+  const source = stripDetailPreviewBridgeScripts(html);
 
   const bridge = buildBridgeScript();
-  if (/<\/body\s*>/i.test(html)) {
-    return html.replace(/<\/body\s*>/i, `${bridge}</body>`);
+  if (/<\/body\s*>/i.test(source)) {
+    return source.replace(/<\/body\s*>/i, `${bridge}</body>`);
   }
-  return `${html}${bridge}`;
+  return `${source}${bridge}`;
 }
 
 function buildBridgeScript(): string {
@@ -54,17 +115,94 @@ function buildBridgeScript(): string {
 
   var metricsType = ${metricsType};
   var scrollType = ${scrollType};
+  var lastMetrics = null;
+  var frameRequest = 0;
+  var extentCache = null;
+  var extentCacheAt = 0;
 
-  function postMetrics() {
+  function measureDocumentExtent() {
     var doc = document.documentElement;
     var body = document.body;
-    parent.postMessage({
+    var scrollX = window.scrollX || window.pageXOffset || 0;
+    var scrollY = window.scrollY || window.pageYOffset || 0;
+    var maxBottom = Math.max(
+      doc.scrollHeight || 0,
+      doc.offsetHeight || 0,
+      body ? body.scrollHeight || 0 : 0,
+      body ? body.offsetHeight || 0 : 0,
+      window.innerHeight || 0
+    );
+    var maxRight = Math.max(
+      doc.scrollWidth || 0,
+      doc.offsetWidth || 0,
+      body ? body.scrollWidth || 0 : 0,
+      body ? body.offsetWidth || 0 : 0,
+      window.innerWidth || 0,
+      720
+    );
+
+    if (body) {
+      var nodes = body.querySelectorAll('*');
+      for (var i = 0; i < nodes.length; i += 1) {
+        var el = nodes[i];
+        var tag = (el.tagName || '').toLowerCase();
+        if (tag === 'script' || tag === 'style' || tag === 'link' || tag === 'meta') continue;
+        var rect = el.getBoundingClientRect();
+        if (!rect || (!rect.width && !rect.height)) continue;
+        maxBottom = Math.max(maxBottom, rect.bottom + scrollY);
+        maxRight = Math.max(maxRight, rect.right + scrollX);
+      }
+    }
+
+    return {
+      height: Math.ceil(maxBottom),
+      width: Math.ceil(maxRight)
+    };
+  }
+
+  function getDocumentExtent() {
+    var now = Date.now();
+    if (extentCache && now - extentCacheAt < 180) return extentCache;
+    extentCache = measureDocumentExtent();
+    extentCacheAt = now;
+    return extentCache;
+  }
+
+  function readMetrics() {
+    var extent = getDocumentExtent();
+    return {
       type: metricsType,
-      scrollY: window.scrollY || 0,
-      innerHeight: window.innerHeight || 0,
-      scrollHeight: Math.max(doc.scrollHeight || 0, body ? body.scrollHeight || 0 : 0, 1),
-      scrollWidth: Math.max(doc.scrollWidth || 0, body ? body.scrollWidth || 0 : 0, 720)
-    }, '*');
+      scrollY: Math.round(window.scrollY || 0),
+      innerHeight: Math.round(window.innerHeight || 0),
+      scrollHeight: Math.round(Math.max(extent.height, 1)),
+      scrollWidth: Math.round(Math.max(extent.width, 720))
+    };
+  }
+
+  function hasMetricChanged(next) {
+    if (!lastMetrics) return true;
+    return (
+      Math.abs(next.scrollY - lastMetrics.scrollY) >= 1 ||
+      Math.abs(next.innerHeight - lastMetrics.innerHeight) >= 1 ||
+      Math.abs(next.scrollHeight - lastMetrics.scrollHeight) >= 2 ||
+      Math.abs(next.scrollWidth - lastMetrics.scrollWidth) >= 1
+    );
+  }
+
+  function postMetrics() {
+    var next = readMetrics();
+    if (!hasMetricChanged(next)) return;
+    lastMetrics = next;
+    parent.postMessage(next, '*');
+  }
+
+  function scheduleMetrics() {
+    if (frameRequest) return;
+    var raf = window.requestAnimationFrame || function (callback) { return window.setTimeout(callback, 16); };
+    frameRequest = raf(function () {
+      frameRequest = 0;
+      postMetrics();
+    });
   }
 
   window.addEventListener('message', function (event) {
@@ -76,23 +214,36 @@ function buildBridgeScript(): string {
     });
   });
 
-  window.addEventListener('scroll', postMetrics, { passive: true });
-  window.addEventListener('resize', postMetrics);
+  window.addEventListener('scroll', scheduleMetrics, { passive: true });
+  window.addEventListener('resize', scheduleMetrics);
   window.addEventListener('load', function () {
-    postMetrics();
-    setTimeout(postMetrics, 500);
-    setTimeout(postMetrics, 1500);
-    setTimeout(postMetrics, 3500);
+    scheduleMetrics();
+    setTimeout(scheduleMetrics, 250);
+    setTimeout(scheduleMetrics, 750);
+    setTimeout(scheduleMetrics, 1500);
+    setTimeout(scheduleMetrics, 3000);
   });
 
   if ('ResizeObserver' in window) {
-    new ResizeObserver(postMetrics).observe(document.documentElement);
+    var observer = new ResizeObserver(scheduleMetrics);
+    observer.observe(document.documentElement);
+    if (document.body) observer.observe(document.body);
+  }
+
+  Array.prototype.forEach.call(document.images || [], function (image) {
+    if (!image.complete) {
+      image.addEventListener('load', scheduleMetrics, { once: true });
+      image.addEventListener('error', scheduleMetrics, { once: true });
+    }
+  });
+
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(scheduleMetrics).catch(function () {});
   }
 
   if (document.readyState === 'interactive' || document.readyState === 'complete') {
-    setTimeout(postMetrics, 0);
+    setTimeout(scheduleMetrics, 0);
   }
-  setInterval(postMetrics, 1000);
 })();
 </script>`;
 }

@@ -21,6 +21,7 @@ export interface ExecutionContext {
     permissions: Record<string, unknown>;
   }>;
   readonly config: Readonly<Record<string, unknown>>;
+  readonly payload?: Readonly<Record<string, unknown>>;
   readonly prompt: string;
   readonly skillPaths: readonly string[];
   readonly sessionId?: string;

@@ -22,13 +22,13 @@ import {
   rowToRendererData,
   useKidsPlayfulGenerationList,
   useKidsPlayfulOne,
-  useSimpleVerticalGenerationList,
+  useBoldVerticalGenerationList,
 } from '@/app/(media-ai)/generate/hooks/useKidsPlayfulGenerate';
 import { buildKidsPlayfulHtml } from '@/app/(media-ai)/generate/lib/build-kids-playful-html';
 import {
-  adaptSimpleVerticalToDetailPageData,
-  type SimpleVerticalGeneration,
-} from '@/app/(media-ai)/generate/lib/simple-vertical-types';
+  adaptBoldVerticalToDetailPageData,
+  type BoldVerticalGeneration,
+} from '@/app/(media-ai)/generate/lib/bold-vertical-types';
 import { useGenerationHistory } from '../hooks/useGenerationHistory';
 
 export default function EditorPage() {
@@ -52,18 +52,18 @@ function EditorPageContent() {
   const queryClient = useQueryClient();
   const productId = params.id as string;
 
-  // ?kpId=... / ?svId=... / ?agentId=... 로 진입 시 해당 이력을 에디터에 load.
+  // ?kpId=... / ?boldId=... / ?agentId=... 로 진입 시 해당 이력을 에디터에 load.
   const kpId = search.get('kpId');
-  const svId = search.get('svId');
+  const boldId = search.get('boldId');
   const agentId = search.get('agentId');
-  const hasExplicitSource = !!(kpId || svId || agentId);
+  const hasExplicitSource = !!(kpId || boldId || agentId);
   const { data: editorData, isLoading, error: queryError } = useEditorData(productId);
   const { data: kpEntry, isLoading: isKpLoading, error: kpError } = useKidsPlayfulOne(kpId);
-  const { data: svEntry, isLoading: isSvLoading, error: svError } = useKidsPlayfulOne(svId);
+  const { data: boldEntry, isLoading: isBoldLoading, error: boldError } = useKidsPlayfulOne(boldId);
   const { data: kpEntries = [], isLoading: isKpListLoading } =
     useKidsPlayfulGenerationList(productId);
-  const { data: svEntries = [], isLoading: isSvListLoading } =
-    useSimpleVerticalGenerationList(productId);
+  const { data: boldEntries = [], isLoading: isBoldListLoading } =
+    useBoldVerticalGenerationList(productId);
   const { data: agentHistory = [], isLoading: isAgentHistoryLoading } =
     useGenerationHistory(productId);
 
@@ -93,10 +93,10 @@ function EditorPageContent() {
       ? isApiError(kpError)
         ? kpError.detail
         : 'Trend Vertical 이력을 불러올 수 없습니다.'
-      : svError
-        ? isApiError(svError)
-          ? svError.detail
-          : 'Simple Vertical 이력을 불러올 수 없습니다.'
+      : boldError
+        ? isApiError(boldError)
+          ? boldError.detail
+          : 'KIDITEM DESIGN 이력을 불러올 수 없습니다.'
         : agentId && !isAgentHistoryLoading && !selectedAgentEntry
           ? '선택한 생성 이력을 찾을 수 없습니다.'
           : agentId && selectedAgentEntry && !selectedAgentEntry.detailPageData
@@ -107,18 +107,18 @@ function EditorPageContent() {
     () => kpEntries.filter((e) => !e.id.startsWith('optimistic-')),
     [kpEntries],
   );
-  const realSvEntries = useMemo(
-    () => svEntries.filter((e) => !e.id.startsWith('optimistic-')),
-    [svEntries],
+  const realBoldEntries = useMemo(
+    () => boldEntries.filter((e) => !e.id.startsWith('optimistic-')),
+    [boldEntries],
   );
   const defaultKpEntry = !hasExplicitSource && !editedHtmlRow?.html
     ? realKpEntries[0] ?? null
     : null;
-  const defaultSvEntry = !hasExplicitSource && !editedHtmlRow?.html && !defaultKpEntry
-    ? realSvEntries[0] ?? null
+  const defaultBoldEntry = !hasExplicitSource && !editedHtmlRow?.html && !defaultKpEntry
+    ? realBoldEntries[0] ?? null
     : null;
   const activeKpEntry = kpEntry ?? defaultKpEntry;
-  const activeSvEntry = svEntry ?? defaultSvEntry;
+  const activeBoldEntry = boldEntry ?? defaultBoldEntry;
 
   // 우선순위: 명시 선택 이력 → 저장된 edits → 최신 생성 이력 → preview default.
   const editorHtml = useMemo(() => {
@@ -128,13 +128,13 @@ function EditorPageContent() {
     if (activeKpEntry) {
       return buildKidsPlayfulHtml(rowToRendererData(activeKpEntry));
     }
-    if (activeSvEntry) {
-      // SV → BoldVertical 템플릿 (사용자 요청: AGENT row 같은 디자인).
+    if (activeBoldEntry) {
+      // KIDITEM generation → BoldVertical 템플릿.
       try {
-        const adapted = adaptSimpleVerticalToDetailPageData(
-          activeSvEntry.result as unknown as SimpleVerticalGeneration,
-          activeSvEntry.imageUrls,
-          activeSvEntry.processedImages,
+        const adapted = adaptBoldVerticalToDetailPageData(
+          activeBoldEntry.result as unknown as BoldVerticalGeneration,
+          activeBoldEntry.imageUrls,
+          activeBoldEntry.processedImages,
           API_BASE,
         );
         const data = parseDetailPageData(adapted);
@@ -176,7 +176,7 @@ function EditorPageContent() {
   }, [
     agentId,
     activeKpEntry,
-    activeSvEntry,
+    activeBoldEntry,
     previewData,
     selectedAgentEntry,
     templateConfig,
@@ -205,19 +205,19 @@ function EditorPageContent() {
     }
   };
 
-  // KP/SV 모드는 templateConfig 없어도 동작 가능.
+  // Trend/KIDITEM 모드는 templateConfig 없어도 동작 가능.
   if (
     isLoading ||
     (!hasExplicitSource && isEditedHtmlLoading) ||
-    (!hasExplicitSource && !editedHtmlRow?.html && (isKpListLoading || isSvListLoading)) ||
+    (!hasExplicitSource && !editedHtmlRow?.html && (isKpListLoading || isBoldListLoading)) ||
     (!!kpId && isKpLoading) ||
-    (!!svId && isSvLoading) ||
+    (!!boldId && isBoldLoading) ||
     (!!agentId && isAgentHistoryLoading)
   ) {
     return <EditorLoadingScreen />;
   }
 
-  if (error || (!templateConfig && !kpEntry && !svEntry && !selectedAgentEntry)) {
+  if (error || (!templateConfig && !kpEntry && !boldEntry && !selectedAgentEntry)) {
     return (
       <EditorErrorScreen
         error={error}

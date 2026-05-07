@@ -4,13 +4,13 @@
 //
 // 흐름:
 //   "상세페이지 생성" 버튼 클릭 → 모달 열림
-//   → 템플릿 카드 (bold-vertical / simple-vertical) 선택
+//   → 템플릿 카드 (bold-vertical / kids-playful) 선택
 //   → 모드 선택 (draft / image / full) 선택
 //   → 생성 시작 버튼 → onConfirm(templateId, mode) 호출
 //   → 부모가 useGenerateDetailPage(productId).mutate({ templateId, mode })
 //
 // 향후 Python ContentAgent 가 template_id 별로 다른 prompt/조립 로직 분기.
-// 현재는 bold-vertical 만 본격 작동, simple-vertical 은 같은 파이프라인 사용 (placeholder).
+// bold-vertical / kids-playful 모두 media-ai sync generation path 를 사용.
 
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -42,14 +42,6 @@ const TEMPLATES: TemplateOption[] = [
       '귀엽고 발랄한 톤 — pain-point 핑크 섹션 + 넘버드 포인트 + 라이프스타일 갤러리. 유아·키즈·트렌디 카테고리.',
     status: 'ready',
     thumbnailEmoji: '⚡',
-  },
-  {
-    id: 'simple-vertical',
-    name: 'Simple Vertical',
-    description:
-      '빠른 1-call 자동 생성(Gemini 한 번에 카피+섹션) + 누끼/lifestyle 합성. 동일 디자인을 5~30초에 즉시. 일반 상품.',
-    status: 'ready',
-    thumbnailEmoji: '📋',
   },
 ];
 
@@ -97,7 +89,7 @@ export default function TemplateSelectionModal({
   isOpen,
   onClose,
   onConfirm,
-  defaultTemplateId = 'simple-vertical',
+  defaultTemplateId = 'bold-vertical',
   defaultMode = 'draft',
 }: Props) {
   const [templateId, setTemplateId] = useState<string>(defaultTemplateId);

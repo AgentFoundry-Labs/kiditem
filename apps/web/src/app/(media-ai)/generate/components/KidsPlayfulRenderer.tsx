@@ -535,6 +535,19 @@ export default function KidsPlayfulRenderer({ data }: Props) {
                 </tbody>
               </table>
             </div>
+
+            {data.safetyLabelImageUrls.length > 0 && (
+              <div className="space-y-4">
+                {data.safetyLabelImageUrls.map((src, i) => (
+                  <img
+                    key={i}
+                    src={src}
+                    alt="제품 안전 품질표시"
+                    className="w-full rounded-2xl border border-gray-200 shadow-sm"
+                  />
+                ))}
+              </div>
+            )}
           </div>
         </footer>
       </div>

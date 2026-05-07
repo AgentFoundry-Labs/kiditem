@@ -5,9 +5,9 @@
  * 사용할 fire-and-forget 트리거.
  *
  * - product.raw_data 에서 1688 raw 필드 추출
- * - POST /api/ai/detail-page/generate 호출 (백그라운드)
+ * - POST /api/ai/detail-page/generate 호출
  * - 모달 닫고 페이지 자유롭게 다닐 수 있음
- * - 진행 상태는 DB 의 imageProcessingStatus 로 관리 → 카드/헤더 progress UI 가 polling
+ * - 생성 중에는 optimistic row 로 진행 상태를 보여주고, 완료 row 는 DB 이력에 저장
  */
 import { useCallback } from 'react';
 import { toast } from 'sonner';
@@ -88,7 +88,7 @@ interface TriggerInput {
   productId: string;
   productName: string;
   rawData: Record<string, unknown> | null;
-  /** 'kids-playful' (default) 또는 'simple-vertical' */
+  /** 'kids-playful' (default) 또는 'bold-vertical' */
   templateId?: string;
   imageUrls?: string[];
 }
@@ -141,7 +141,7 @@ export function useKidsPlayfulFromSourcing() {
           productId,
           templateId: templateId ?? 'kids-playful',
         });
-        toast.success('상세페이지 생성 시작 — 진행 상황은 카드 상단에서 확인하세요', {
+        toast.success('상세페이지 생성 완료 — 생성 이력에서 바로 확인할 수 있어요', {
           duration: 4000,
         });
         return res;

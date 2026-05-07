@@ -61,8 +61,18 @@ export function extractResultJsonFromStdout(stdout: string): Record<string, unkn
             if (parsed && typeof parsed === 'object') return parsed;
           } catch { /* not raw JSON */ }
         }
-        // candidate 자체가 에이전트 결과일 수 있음 (콜백 없이 직접 출력)
-        if (candidate.actions || candidate.products || candidate.suggestions || candidate.answer) {
+        // candidate 자체가 에이전트 결과일 수 있음 (콜백 없이 직접 출력).
+        // python_http 이미지 에이전트는 {"image_url": "..."} 형태를 stdout으로 반환한다.
+        if (
+          candidate.actions
+          || candidate.products
+          || candidate.suggestions
+          || candidate.answer
+          || candidate.image_url
+          || candidate.imageUrl
+          || candidate.url
+          || candidate.images
+        ) {
           return candidate;
         }
       }

@@ -120,6 +120,70 @@ function rawImageCandidates(rawData: Record<string, unknown>): string[] {
   );
 }
 
+function rawDataWithImageFallback(
+  rawData: Record<string, unknown>,
+  imageUrls: string[],
+): Record<string, unknown> {
+  if (imageUrls.length === 0 || rawImageCandidates(rawData).length > 0) return rawData;
+  return {
+    ...rawData,
+    images: imageUrls,
+    imageUrls,
+    image_urls: imageUrls,
+  };
+}
+
+function imageUrlFingerprint(url: string): string {
+  try {
+    return decodeURIComponent(url).toLowerCase().replace(/[?#].*$/, '');
+  } catch {
+    return url.toLowerCase().replace(/[?#].*$/, '');
+  }
+}
+
+function scoreThumbnailCandidate(url: string, index: number, explicitUrl?: string | null): number {
+  const fingerprint = imageUrlFingerprint(url);
+  let score = 1000 - index;
+
+  if (explicitUrl && fingerprint === imageUrlFingerprint(explicitUrl)) score += 400;
+  if (/thumb|thumbnail|대표|main|cover|hero/.test(fingerprint)) score += 180;
+  if (/single|product|item|goods|front|mainimage/.test(fingerprint)) score += 80;
+  if (/detail|desc|description|상세|size|사이즈|spec|스펙/.test(fingerprint)) score -= 180;
+  if (/barcode|bar_code|바코드|kc|quality|label|warning|safety|품질|표시|인증|주의/.test(fingerprint)) score -= 600;
+
+  return score;
+}
+
+export function selectBestThumbnailImage(
+  rawData: Record<string, unknown> | null | undefined,
+  imageUrls: string[],
+  explicitUrl?: string | null,
+): string | null {
+  const raw = rawData ?? {};
+  const candidates = collectImageUrls(
+    explicitUrl,
+    raw.thumbnailUrl,
+    raw.thumbnail_url,
+    raw.mainImage,
+    raw.main_image,
+    raw.mainImages,
+    raw.main_images,
+    raw.imageUrl,
+    raw.image_url,
+    raw.images,
+    raw.imageUrls,
+    raw.image_urls,
+    raw.offerImgList,
+    imageUrls,
+  );
+
+  if (candidates.length === 0) return null;
+
+  return candidates
+    .map((url, index) => ({ url, score: scoreThumbnailCandidate(url, index, explicitUrl) }))
+    .sort((a, b) => b.score - a.score)[0]?.url ?? null;
+}
+
 export const productsApi = {
   async list(params?: {
     page?: number;
@@ -143,6 +207,7 @@ export const productsApi = {
         p.imageUrl,
         p.thumbnailUrl,
       );
+      const thumbnailUrl = selectBestThumbnailImage(rawData, images, p.thumbnailUrl || p.imageUrl || null);
       // status: pipelineStep 직접 매핑. 진행 중 / 완료 상태가 카드에서 시각적으로 구분되어야 함.
       // 이전엔 (p.status || 'DRAFT').toUpperCase() 로 정상 fallback 됐는데 백엔드는 pipelineStep 만
       // 보내고 status 컬럼이 없어서 무조건 'DRAFT' 였음 → AI 생성 중인 카드도 'DRAFT' 표시.
@@ -153,7 +218,7 @@ export const productsApi = {
         status: rawStatus as ProductStatus,
         source_platform: p.sourcePlatform || rawData.source_platform || '',
         source_url: p.sourceUrl || rawData.source_url || null,
-        thumbnail_url: p.thumbnailUrl || p.imageUrl || images[0] || null,
+        thumbnail_url: thumbnailUrl,
         price_krw: p.sellPrice || null,
         cost_cny: p.costCny ? Number(p.costCny) : (rawData.price ? parseFloat(rawData.price) : null),
         image_count: images.length,
@@ -175,18 +240,20 @@ export const productsApi = {
       p.imageUrl,
       p.thumbnailUrl,
     );
+    const hydratedRawData = rawDataWithImageFallback(rawData, images);
+    const thumbnailUrl = selectBestThumbnailImage(hydratedRawData, images, p.thumbnailUrl || p.imageUrl || null);
     return {
       id: p.id,
       name: p.name || rawData.title || '',
       status: (p.pipelineStep || p.status || 'DRAFT') as ProductStatus,
       source_platform: p.sourcePlatform || rawData.source_platform || '',
       source_url: p.sourceUrl || rawData.source_url || null,
-      thumbnail_url: p.thumbnailUrl || p.imageUrl || images[0] || null,
+      thumbnail_url: thumbnailUrl,
       price_krw: p.sellPrice || null,
       cost_cny: p.costCny ? Number(p.costCny) : (rawData.price ? parseFloat(rawData.price) : null),
       image_count: images.length,
       is_processed: p.processedData != null,
-      raw_data: rawData,
+      raw_data: hydratedRawData,
       processed_data: p.processedData || p.processed_data || null,
       image_urls: images,
       created_at: p.createdAt || '',
@@ -196,6 +263,13 @@ export const productsApi = {
 
   async delete(id: string): Promise<{ ok: boolean }> {
     return apiClient.delete<{ ok: boolean }>(`/api/products/masters/${id}`);
+  },
+
+  async addRawDataField(
+    id: string,
+    input: { key: string; value: string },
+  ): Promise<{ rawData: Record<string, unknown> }> {
+    return apiClient.post<{ rawData: Record<string, unknown> }>(`/api/products/${id}/raw-data`, input);
   },
 
   async process(
