@@ -46,10 +46,29 @@ export class AgentRunExecutor {
       // Bus emit must never poison the executor — listeners are observability
       // (operation-alert bridge etc.). Worst case the alert stays running and
       // the user dismisses it manually.
+      const target = event.runId
+        ? `run ${event.runId}`
+        : `request ${event.requestId}`;
       this.logger.warn(
-        `Failed to emit ${AGENT_RUN_EVENTS.FINALIZED} for run ${event.runId}: ${err}`,
+        `Failed to emit ${AGENT_RUN_EVENTS.FINALIZED} for ${target}: ${err}`,
       );
     }
+  }
+
+  private async failBeforeRun(input: {
+    organizationId: string;
+    requestId: string;
+    errorCode: string;
+    errorMessage: string;
+  }): Promise<void> {
+    await this.repository.failClaimedRequest(input);
+    this.emitFinalized({
+      organizationId: input.organizationId,
+      requestId: input.requestId,
+      status: 'failed',
+      errorCode: input.errorCode,
+      errorMessage: input.errorMessage,
+    });
   }
 
   async executeNext(
@@ -74,7 +93,7 @@ export class AgentRunExecutor {
       id: claimed.agentInstanceId,
     });
     if (!instance) {
-      await this.repository.failClaimedRequest({
+      await this.failBeforeRun({
         organizationId: claimed.organizationId,
         requestId: claimed.id,
         errorCode: 'agent_instance_missing',
@@ -89,7 +108,7 @@ export class AgentRunExecutor {
 
     const blueprint = await this.repository.findBlueprintByType(instance.type);
     if (!blueprint) {
-      await this.repository.failClaimedRequest({
+      await this.failBeforeRun({
         organizationId: claimed.organizationId,
         requestId: claimed.id,
         errorCode: 'blueprint_missing',
@@ -113,7 +132,7 @@ export class AgentRunExecutor {
       requestOverride: requestModelOverride,
     });
     if (!model) {
-      await this.repository.failClaimedRequest({
+      await this.failBeforeRun({
         organizationId: claimed.organizationId,
         requestId: claimed.id,
         errorCode: 'model_required',

@@ -206,10 +206,7 @@ export default function Sidebar({
   const setEditorDirty = useStore((s) => s.setEditorDirty);
   const showConfirm = useStore((s) => s.showConfirm);
   const setPanelOpen = usePanelStore((s) => s.setOpen);
-  // PR2에서 PanelAlertItem(kind='alert') 추가 시 이 필터 업데이트
-  const unreadAlertCount = usePanelStore(
-    (s) => Object.values(s.byId).filter((i) => i.kind === 'run' && i.status === 'failed').length
-  );
+  const unreadAlertCount = usePanelStore((s) => s.unreadCount());
   const runningCount = usePanelStore((s) => s.runningCount());
   const { user, logout } = useAuth();
 

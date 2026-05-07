@@ -17,10 +17,11 @@ import { OperationAlertService } from './operation-alert.service';
  * run reached a terminal state, and it had no awareness of per-domain ledger
  * entries.
  *
- * The bridge is the cross-domain seam: agent-os emits a generic
- * `agent.run.finalized` event, automation listens, and `OperationAlertService`
- * closes the row by `(sourceType, sourceId)`. Domains opt in by setting that
- * source on their alert; no per-agent-type code lives here.
+ * The bridge is the cross-domain boundary: agent-os emits a generic
+ * `agent.run.finalized` event when a request reaches a terminal state,
+ * automation listens, and `OperationAlertService` closes the row by
+ * `(sourceType, sourceId)`. Domains opt in by setting that source on their
+ * alert; no per-agent-type code lives here.
  */
 @Injectable()
 export class AgentRunOperationAlertBridge {
@@ -31,13 +32,14 @@ export class AgentRunOperationAlertBridge {
   @OnEvent(AGENT_RUN_EVENTS.FINALIZED)
   async onAgentRunFinalized(event: AgentRunFinalizedEvent): Promise<void> {
     try {
+      const metadata = event.runId === undefined ? {} : { runId: event.runId };
       if (event.status === 'succeeded') {
         await this.operationAlerts.closeBySource(
           event.organizationId,
           'agent_run_request',
           event.requestId,
           'succeeded',
-          { metadata: { runId: event.runId } },
+          { metadata },
         );
       } else {
         await this.operationAlerts.closeBySource(
@@ -47,13 +49,16 @@ export class AgentRunOperationAlertBridge {
           'failed',
           {
             message: event.errorMessage,
-            metadata: { runId: event.runId, errorCode: event.errorCode },
+            metadata: { ...metadata, errorCode: event.errorCode },
           },
         );
       }
     } catch (err) {
+      const target = event.runId === undefined
+        ? `request ${event.requestId}`
+        : `AgentRun ${event.runId} (request ${event.requestId})`;
       this.logger.warn(
-        `closeBySource failed for AgentRun ${event.runId} (request ${event.requestId}): ${err}`,
+        `closeBySource failed for ${target}: ${err}`,
       );
     }
   }

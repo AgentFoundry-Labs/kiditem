@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Bell, X } from 'lucide-react';
-import { usePanelStore } from './lib/panel-store';
+import { isActivePanelItem, usePanelStore } from './lib/panel-store';
 import { PanelItemRow } from './PanelItemRow';
 import { useAuth } from '@/hooks/useAuth';
 import type { PanelItem } from '@kiditem/shared/panel';
@@ -100,17 +100,7 @@ function partitionByStatus(items: PanelItem[]) {
   const recent: PanelItem[] = [];
   let runningCount = 0;
   for (const item of items) {
-    // Both run items and operation-kind alerts contribute to "active". Signal
-    // alerts (broadcast warnings) and terminal items fall into "recent" so
-    // the header progress count + active-section sort match what the user
-    // perceives as work-in-flight.
-    const isActiveRun =
-      item.kind === 'run' && (item.status === 'pending' || item.status === 'running');
-    const isActiveOperationAlert =
-      item.kind === 'alert' &&
-      item.alertKind === 'operation' &&
-      (item.status === 'pending' || item.status === 'running');
-    if (isActiveRun || isActiveOperationAlert) {
+    if (isActivePanelItem(item)) {
       active.push(item);
       runningCount++;
     } else {
