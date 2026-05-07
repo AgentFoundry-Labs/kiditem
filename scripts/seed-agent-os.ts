@@ -26,10 +26,18 @@
 import { config } from 'dotenv';
 import { resolve } from 'path';
 import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
 
 config({ path: resolve(process.cwd(), '.env') });
 
-const prisma = new PrismaClient();
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+  throw new Error('Missing DATABASE_URL: Agent OS seed requires a database connection.');
+}
+
+const prisma = new PrismaClient({
+  adapter: new PrismaPg({ connectionString }),
+});
 
 interface BlueprintSeed {
   type: string;
