@@ -100,8 +100,17 @@ function partitionByStatus(items: PanelItem[]) {
   const recent: PanelItem[] = [];
   let runningCount = 0;
   for (const item of items) {
-    const isActive = item.kind === 'run' && (item.status === 'pending' || item.status === 'running');
-    if (isActive) {
+    // Both run items and operation-kind alerts contribute to "active". Signal
+    // alerts (broadcast warnings) and terminal items fall into "recent" so
+    // the header progress count + active-section sort match what the user
+    // perceives as work-in-flight.
+    const isActiveRun =
+      item.kind === 'run' && (item.status === 'pending' || item.status === 'running');
+    const isActiveOperationAlert =
+      item.kind === 'alert' &&
+      item.alertKind === 'operation' &&
+      (item.status === 'pending' || item.status === 'running');
+    if (isActiveRun || isActiveOperationAlert) {
       active.push(item);
       runningCount++;
     } else {

@@ -115,3 +115,41 @@ describe('PanelSheet my/team split', () => {
     expect(screen.queryByText('팀')).not.toBeInTheDocument();
   });
 });
+
+describe('PanelSheet active count', () => {
+  beforeEach(() => {
+    mockUser.value = { id: MY_USER_ID };
+    usePanelStore.setState({ byId: {}, isOpen: true, connectionStatus: 'connected' });
+  });
+  afterEach(() => {
+    mockUser.value = null;
+    usePanelStore.setState({ byId: {}, isOpen: false });
+  });
+
+  const makeOperationAlert = (
+    id: string,
+    status: 'running' | 'succeeded' | 'failed',
+  ): PanelItem => ({
+    ...makeAlertItem(id),
+    alertKind: 'operation',
+    status,
+  });
+
+  it('counts running operation alerts in the header progress badge', () => {
+    seedStore([
+      makeRunItem('wf-1', MY_USER_ID, 'running'),
+      makeOperationAlert('op-1', 'running'),
+      makeOperationAlert('op-2', 'succeeded'), // not active
+    ]);
+    render(<PanelSheet />);
+    // 1 running run + 1 running operation alert = 2 active
+    expect(screen.getByText('2 진행')).toBeInTheDocument();
+  });
+
+  it('signal alerts never count as active', () => {
+    seedStore([makeAlertItem('signal-1')]);
+    render(<PanelSheet />);
+    // signal alerts → recent only, no progress badge shown
+    expect(screen.queryByText(/진행$/)).not.toBeInTheDocument();
+  });
+});
