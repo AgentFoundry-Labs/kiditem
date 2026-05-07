@@ -153,24 +153,44 @@ model Alert {
   targetType String? @map("target_type")
   targetId   String? @map("target_id") @db.Uuid
 
+  kind     String @default("signal")
+  status   String @default("open")
   type     String
   severity String  @default("warning")
   title    String
   message  String?
   isRead   Boolean @default(false) @map("is_read")
+  readAt   DateTime? @map("read_at") @db.Timestamptz
+
+  operationKey String? @map("operation_key")
+  sourceType   String? @map("source_type")
+  sourceId     String? @map("source_id")
+  actorUserId  String? @map("actor_user_id") @db.Uuid
+  href         String?
+  progress     Float?
+  metadata     Json    @default("{}") @db.JsonB
 
   actionTaskId String? @map("action_task_id") @db.Uuid
 
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  startedAt  DateTime? @map("started_at") @db.Timestamptz
+  finishedAt DateTime? @map("finished_at") @db.Timestamptz
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   actionTask   ActionTask?  @relation("AlertPromotedTo", fields: [actionTaskId], references: [id], onDelete: SetNull)
+  actorUser    User?        @relation("AlertActor", fields: [actorUserId], references: [id], onDelete: SetNull)
 
+  @@unique([organizationId, operationKey], map: "alerts_organization_id_operation_key_key", where: raw("operation_key IS NOT NULL"))
   @@index([organizationId])
   @@index([organizationId, isRead, createdAt])
+  @@index([organizationId, kind, status, createdAt])
+  @@index([organizationId, actorUserId, status, createdAt])
   @@index([organizationId, actionTaskId])
   @@index([actionTaskId])
   @@index([organizationId, targetType, targetId])
+  @@index([organizationId, sourceType, sourceId])
+  @@index([actorUserId])
   @@index([isRead])
   @@index([type])
   @@index([createdAt])

@@ -55,6 +55,13 @@ function mapAlertTypeToRole(type: string): string | null {
   return ALERT_TYPE_TO_ROLE[type] ?? null;
 }
 
+function jsonObject(value: Prisma.JsonValue): Record<string, unknown> {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+}
+
 @Injectable()
 export class AlertsService {
   private readonly logger = new Logger(AlertsService.name);
@@ -75,17 +82,53 @@ export class AlertsService {
           organizationId: true,
           targetType: true,
           targetId: true,
+          kind: true,
+          status: true,
           type: true,
           severity: true,
           title: true,
           message: true,
+          operationKey: true,
+          sourceType: true,
+          sourceId: true,
+          actorUserId: true,
+          actionTaskId: true,
+          href: true,
+          progress: true,
+          metadata: true,
           isRead: true,
+          readAt: true,
+          startedAt: true,
+          finishedAt: true,
           createdAt: true,
+          updatedAt: true,
         },
       });
       return rows.map((r) => ({
-        ...r,
+        id: r.id,
+        organizationId: r.organizationId,
+        kind: r.kind as AlertItem['kind'],
+        status: r.status as AlertItem['status'],
+        type: r.type,
+        severity: r.severity,
+        title: r.title,
+        message: r.message,
+        targetType: r.targetType,
+        targetId: r.targetId,
+        operationKey: r.operationKey,
+        sourceType: r.sourceType,
+        sourceId: r.sourceId,
+        actorUserId: r.actorUserId,
+        actionTaskId: r.actionTaskId,
+        href: r.href,
+        progress: r.progress,
+        metadata: jsonObject(r.metadata),
+        isRead: r.isRead,
+        readAt: r.readAt instanceof Date ? r.readAt.toISOString() : r.readAt,
+        startedAt: r.startedAt instanceof Date ? r.startedAt.toISOString() : r.startedAt,
+        finishedAt: r.finishedAt instanceof Date ? r.finishedAt.toISOString() : r.finishedAt,
         createdAt: r.createdAt instanceof Date ? r.createdAt.toISOString() : r.createdAt,
+        updatedAt: r.updatedAt instanceof Date ? r.updatedAt.toISOString() : r.updatedAt,
       } satisfies AlertItem));
     } catch {
       throw new InternalServerErrorException('알림 데이터 조회 실패');
@@ -95,7 +138,7 @@ export class AlertsService {
   async markAsRead(id: string, organizationId: string) {
     const result = await this.prisma.alert.updateMany({
       where: { id, organizationId },
-      data: { isRead: true },
+      data: { isRead: true, readAt: new Date() },
     });
     if (result.count === 0) throw new NotFoundException('알림을 찾을 수 없습니다.');
 
@@ -107,7 +150,7 @@ export class AlertsService {
   async markAllAsRead(organizationId: string): Promise<{ updated: number }> {
     const result = await this.prisma.alert.updateMany({
       where: { organizationId, isRead: false },
-      data: { isRead: true },
+      data: { isRead: true, readAt: new Date() },
     });
     return { updated: result.count };
   }
@@ -198,7 +241,7 @@ export class AlertsService {
   async dismiss(alertId: string, organizationId: string): Promise<void> {
     const { count } = await this.prisma.alert.updateMany({
       where: { id: alertId, organizationId }, // organizationId scope — IDOR prevention
-      data: { isRead: true },
+      data: { isRead: true, readAt: new Date() },
     });
     if (count === 0) throw new NotFoundException('Alert not found');
 

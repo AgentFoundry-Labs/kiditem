@@ -143,6 +143,8 @@ model User {
   invitedOrganizationMemberships OrganizationMembership[] @relation("OrganizationMembershipInviter")
   triggeredWorkflowRuns          WorkflowRun[]            @relation("WorkflowRunTriggeredBy")
   triggeredThumbnailGenerations  ThumbnailGeneration[]    @relation("ThumbnailGenerationTriggeredBy")
+  triggeredContentGenerations    ContentGeneration[]      @relation("ContentGenerationTriggeredBy")
+  actorAlerts                    Alert[]                  @relation("AlertActor")
   assignedActionTasks            ActionTask[]             @relation("ActionTaskAssignee")
 
   // Agent OS v2 — actor relations

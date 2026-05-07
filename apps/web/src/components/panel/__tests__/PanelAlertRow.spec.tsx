@@ -11,15 +11,26 @@ vi.mock('../PromoteToTaskModal', () => ({
 const makeAlert = (overrides: Partial<PanelAlertItem> = {}): PanelAlertItem => ({
   kind: 'alert',
   id: '00000000-0000-0000-0000-000000000001',
+  alertKind: 'signal',
+  status: 'open',
   severity: 'info',
   type: 'internal:rules',
   title: '테스트 알림',
   message: '상세 메시지',
   targetType: null,
   targetId: null,
+  operationKey: null,
+  sourceType: null,
+  sourceId: null,
   isRead: false,
   actionTaskId: null,
   actorUserId: null,
+  href: null,
+  progress: null,
+  metadata: {},
+  readAt: null,
+  startedAt: null,
+  finishedAt: null,
   createdAt: '2026-04-15T00:00:00Z',
   ...overrides,
 });
@@ -57,12 +68,12 @@ describe('PanelAlertRow', () => {
   it('action button shown only when actionTaskId is null', () => {
     const { rerender } = render(<PanelAlertRow item={makeAlert({ actionTaskId: null })} />);
     expect(screen.getByRole('button', { name: '할 일로 만들기' })).toBeInTheDocument();
-    rerender(<PanelAlertRow item={makeAlert({ actionTaskId: 'uuid-1234' })} />);
+    rerender(<PanelAlertRow item={makeAlert({ actionTaskId: '00000000-0000-0000-0000-000000000099' })} />);
     expect(screen.queryByRole('button', { name: '할 일로 만들기' })).not.toBeInTheDocument();
   });
 
   it('linked badge shown only when actionTaskId is set', () => {
-    const { rerender } = render(<PanelAlertRow item={makeAlert({ actionTaskId: 'uuid-1234' })} />);
+    const { rerender } = render(<PanelAlertRow item={makeAlert({ actionTaskId: '00000000-0000-0000-0000-000000000099' })} />);
     expect(screen.getByText('← 할 일 목록에 있음')).toBeInTheDocument();
     rerender(<PanelAlertRow item={makeAlert({ actionTaskId: null })} />);
     expect(screen.queryByText('← 할 일 목록에 있음')).not.toBeInTheDocument();

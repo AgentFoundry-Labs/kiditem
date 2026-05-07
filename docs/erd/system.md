@@ -61,13 +61,26 @@ erDiagram
     String organizationId FK
     String targetType
     String targetId
+    String kind
+    String status
     String type
     String severity
     String title
     String message
     Boolean isRead
+    DateTime readAt
+    String operationKey
+    String sourceType
+    String sourceId
+    String actorUserId FK
+    String href
+    Float progress
+    Json metadata
     String actionTaskId FK
+    DateTime startedAt
+    DateTime finishedAt
     DateTime createdAt
+    DateTime updatedAt
   }
   BusinessRule {
     String id PK
@@ -150,6 +163,7 @@ erDiagram
 | ActionTask | assigneeUser | references external | Core | User |
 | ActionTask | organization | references external | Core | Organization |
 | ActivityEvent | organization | references external | Core | Organization |
+| Alert | actorUser | references external | Core | User |
 | Alert | organization | references external | Core | Organization |
 | BusinessRule | organization | references external | Core | Organization |
 | Marketplace | marketplace | referenced by external | AgentOS | AgentBlueprint |

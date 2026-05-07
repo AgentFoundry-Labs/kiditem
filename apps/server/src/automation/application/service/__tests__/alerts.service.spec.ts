@@ -14,13 +14,26 @@ const BASE_ALERT = {
   organizationId: ORGANIZATION_ID,
   targetType: null,
   targetId: null,
+  kind: 'signal',
+  status: 'open',
   type: 'strategy_change',
   severity: 'critical',
   title: 'Test alert',
   message: 'Something is wrong',
+  operationKey: null,
+  sourceType: null,
+  sourceId: null,
+  actorUserId: null,
+  href: null,
+  progress: null,
+  metadata: {},
   isRead: false,
+  readAt: null,
   actionTaskId: null,
+  startedAt: null,
+  finishedAt: null,
   createdAt: new Date('2026-04-16T00:00:00Z'),
+  updatedAt: new Date('2026-04-16T00:00:00Z'),
 };
 
 const BASE_TASK = {
@@ -318,7 +331,7 @@ describe('AlertsService.markAsRead', () => {
 
     expect(prisma.alert.updateMany).toHaveBeenCalledWith({
       where: { id: ALERT_ID, organizationId: ORGANIZATION_ID },
-      data: { isRead: true },
+      data: { isRead: true, readAt: expect.any(Date) },
     });
     expect(prisma.alert.findFirst).toHaveBeenCalledWith({
       where: { id: ALERT_ID, organizationId: ORGANIZATION_ID },
@@ -334,7 +347,7 @@ describe('AlertsService.markAsRead', () => {
     await expect(service.markAsRead(ALERT_ID, ORGANIZATION_ID)).rejects.toThrow(NotFoundException);
     expect(prisma.alert.updateMany).toHaveBeenCalledWith({
       where: { id: ALERT_ID, organizationId: ORGANIZATION_ID },
-      data: { isRead: true },
+      data: { isRead: true, readAt: expect.any(Date) },
     });
     expect(prisma.alert.update).not.toHaveBeenCalled();
   });
@@ -350,7 +363,7 @@ describe('AlertsService.dismiss', () => {
 
       expect(prisma.alert.updateMany).toHaveBeenCalledWith({
         where: { id: ALERT_ID, organizationId: ORGANIZATION_ID },
-        data: { isRead: true },
+        data: { isRead: true, readAt: expect.any(Date) },
       });
       expect(eventEmitter.emit).toHaveBeenCalledWith(
         PANEL_EVENTS.DISMISS,

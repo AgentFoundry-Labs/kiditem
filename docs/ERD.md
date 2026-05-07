@@ -439,13 +439,26 @@ erDiagram
     String organizationId FK
     String targetType
     String targetId
+    String kind
+    String status
     String type
     String severity
     String title
     String message
     Boolean isRead
+    DateTime readAt
+    String operationKey
+    String sourceType
+    String sourceId
+    String actorUserId FK
+    String href
+    Float progress
+    Json metadata
     String actionTaskId FK
+    DateTime startedAt
+    DateTime finishedAt
     DateTime createdAt
+    DateTime updatedAt
   }
   BundleComponent {
     String id PK
@@ -783,6 +796,7 @@ erDiagram
     String status
     Int retryCount
     String errorMessage
+    String triggeredByUserId FK
     DateTime createdAt
     DateTime updatedAt
   }
@@ -1775,6 +1789,8 @@ erDiagram
   User o|--o{ AgentAuthorizationEvent : "decidedBy"
   User o|--o{ AgentAuthorizationEvent : "requestedBy"
   User o|--o{ AgentRunRequest : "requestedBy"
+  User o|--o{ Alert : "actorUser"
+  User o|--o{ ContentGeneration : "triggeredByUser"
   User o|--o{ OrganizationMembership : "invitedBy"
   User ||--o{ OrganizationMembership : "user"
   User o|--o{ ThumbnailGeneration : "triggeredByUser"

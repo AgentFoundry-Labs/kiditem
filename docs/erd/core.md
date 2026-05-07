@@ -349,6 +349,7 @@ erDiagram
 | ProductOption | option | referenced by external | Orders | UnshippedItem |
 | ProductOption | option | referenced by external | Supply | PurchaseOrderItem |
 | ProductOption | option | referenced by external | Supply | SupplierProduct |
+| User | actorUser | referenced by external | System | Alert |
 | User | agentInstance | references external | AgentOS | AgentInstance |
 | User | approver | referenced by external | AgentOS | AgentApprovalRequest |
 | User | assigneeUser | referenced by external | System | ActionTask |
@@ -358,4 +359,5 @@ erDiagram
 | User | requestedBy | referenced by external | AgentOS | AgentAuthorizationEvent |
 | User | requestedBy | referenced by external | AgentOS | AgentRunRequest |
 | User | triggeredByUser | referenced by external | AgentOS | WorkflowRun |
+| User | triggeredByUser | referenced by external | AI | ContentGeneration |
 | User | triggeredByUser | referenced by external | AI | ThumbnailGeneration |

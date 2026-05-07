@@ -61,15 +61,26 @@ describe('PanelEvent', () => {
 const makeAlert = (overrides = {}) => ({
   kind: 'alert' as const,
   id: '00000000-0000-0000-0000-000000000001',
+  alertKind: 'signal' as const,
+  status: 'open' as const,
   severity: 'warning',
   type: 'internal:stock',
   title: 'Stock low',
   message: null,
   targetType: null,
   targetId: null,
+  operationKey: null,
+  sourceType: null,
+  sourceId: null,
   isRead: false,
   actionTaskId: null,
   actorUserId: null,
+  href: null,
+  progress: null,
+  metadata: {},
+  readAt: null,
+  startedAt: null,
+  finishedAt: null,
   createdAt: '2026-04-15T00:00:00Z',
   ...overrides,
 });
@@ -77,6 +88,28 @@ const makeAlert = (overrides = {}) => ({
 describe('PanelAlertItem', () => {
   it('parses a valid alert item', () => {
     expect(() => PanelAlertItem.parse(makeAlert())).not.toThrow();
+  });
+
+  it('preserves alert ledger fields without colliding with the panel kind discriminator', () => {
+    const result = PanelAlertItem.parse(makeAlert({
+      alertKind: 'operation',
+      status: 'running',
+      operationKey: 'agent-os.request:00000000-0000-0000-0000-000000000001',
+      sourceType: 'agent_run_request',
+      sourceId: '00000000-0000-0000-0000-000000000001',
+      href: '/agents',
+      progress: 0.5,
+      metadata: { agentType: 'sourcing' },
+      actorUserId: '00000000-0000-0000-0000-000000000099',
+      startedAt: '2026-04-15T00:00:00Z',
+    }));
+
+    expect(result.kind).toBe('alert');
+    expect(result.alertKind).toBe('operation');
+    expect(result.status).toBe('running');
+    expect(result.operationKey).toBe('agent-os.request:00000000-0000-0000-0000-000000000001');
+    expect(result.actorUserId).toBe('00000000-0000-0000-0000-000000000099');
+    expect(result.metadata).toEqual({ agentType: 'sourcing' });
   });
 
   it('PanelItem discriminates alert from run', () => {

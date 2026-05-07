@@ -39,15 +39,26 @@ const makeRunItem = (id: string, actorUserId: string | null, status: 'running' |
 const makeAlertItem = (id: string): PanelItem => ({
   kind: 'alert',
   id,
+  alertKind: 'signal',
+  status: 'open',
   severity: 'warning',
   type: 'internal:rules',
   title: `알림 ${id}`,
   message: null,
   targetType: null,
   targetId: null,
+  operationKey: null,
+  sourceType: null,
+  sourceId: null,
   isRead: false,
   actionTaskId: null,
   actorUserId: null, // alerts always null
+  href: null,
+  progress: null,
+  metadata: {},
+  readAt: null,
+  startedAt: null,
+  finishedAt: null,
   createdAt: '2026-04-15T00:00:00Z',
 });
 
