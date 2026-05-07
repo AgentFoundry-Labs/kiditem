@@ -9,7 +9,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication, ExpressAdapter } from '@nestjs/platform-express';
 import type { Request, Response } from 'express';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const express = require('express') as () => import('express').Express;
+const express = require('express') as typeof import('express');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const cookieParser = require('cookie-parser') as () => import('express').RequestHandler;
 import { AppModule } from './app.module';
@@ -25,6 +25,14 @@ async function bootstrap() {
   // CopilotKit raw route is registered before Nest middleware, so cookie auth
   // must be parsed on the underlying Express app before the chat handler.
   expressApp.use(cookieParser());
+  // Pre-parse the JSON body so the CopilotKit v2 single-route handler can
+  // rebuild a fresh Web Request via `synthesizeBodyFromParsedBody` instead
+  // of trying to stream the IncomingMessage. Streaming-bodied Web Requests
+  // hit a Node fetch `clone()/json()` failure inside CopilotKit's helper
+  // (`Invalid JSON payload`), even when the underlying body is intact —
+  // see node_modules/@copilotkit/runtime/dist/lib/integrations/node-http
+  // /request-handler.mjs `synthesizeBodyFromParsedBody`.
+  expressApp.use('/api/chat/copilot', express.json({ limit: '25mb' }));
 
   // ChatService / SupabaseAuthMiddleware 는 Nest 초기화 후에만 resolve 가능 — lazy ref.
   // 이 raw express handler 는 Nest router 앞에 있어 AppModule middleware 와
