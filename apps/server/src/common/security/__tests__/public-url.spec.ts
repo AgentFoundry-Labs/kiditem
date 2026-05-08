@@ -44,6 +44,9 @@ describe('public-url policy', () => {
   describe('assertPublicHttpUrl — blocked hosts', () => {
     const cases: Array<[string, string]> = [
       ['http://localhost/x.png', 'localhost'],
+      ['http://localhost./x.png', 'localhost with trailing root dot'],
+      ['http://foo.localhost/x.png', 'localhost subdomain'],
+      ['http://foo.localhost./x.png', 'localhost subdomain with trailing root dot'],
       ['http://127.0.0.1/x.png', 'IPv4 loopback'],
       ['http://10.0.0.5/x.png', 'RFC1918 10/8'],
       ['http://192.168.1.1/x.png', 'RFC1918 192.168/16'],
@@ -76,6 +79,7 @@ describe('public-url policy', () => {
   describe('assertPublicHttpUrl — allowed hosts', () => {
     const cases: Array<[string, string]> = [
       ['https://cdn.example.com/a.png', 'public HTTPS hostname'],
+      ['https://cdn.example.com./a.png', 'public HTTPS hostname with trailing root dot'],
       ['http://example.com/x.png', 'public HTTP hostname'],
       ['https://1.1.1.1/x.png', 'public IPv4 (Cloudflare DNS)'],
       ['https://8.8.8.8/x.png', 'public IPv4 (Google DNS)'],

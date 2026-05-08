@@ -42,9 +42,10 @@ export function assertPublicHttpUrl(raw: string): void {
   if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1);
   const zoneIdx = host.indexOf('%');
   if (zoneIdx !== -1) host = host.slice(0, zoneIdx);
+  host = stripTrailingRootDots(host);
 
   // Hostname blocklist (non-IP).
-  if (host === 'localhost' || host === '') {
+  if (host === 'localhost' || host.endsWith('.localhost') || host === '') {
     throw new PublicUrlError('image url host not allowed');
   }
 
@@ -102,6 +103,10 @@ function extractEmbeddedIPv4(host: string): string | null {
   if (compatHex) return decodeHex(compatHex[1], compatHex[2]);
 
   return null;
+}
+
+function stripTrailingRootDots(host: string): string {
+  return host.replace(/\.+$/, '');
 }
 
 function isPrivateIPv4(ip: string): boolean {
