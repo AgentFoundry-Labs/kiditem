@@ -275,9 +275,17 @@ function pickProductName(
 function collectExcludedImageIndices(
   output: DetailPageGenerateAgentOutput,
 ): number[] {
-  if (output.templateId !== 'bold-vertical') return [];
-  const result = output.result as BoldVerticalGeneration;
   const indices = new Set<number>();
+  if (output.templateId === 'kids-playful') {
+    for (const idx of output.reservedPackageImageIndices ?? []) {
+      if (Number.isInteger(idx) && idx >= 0) indices.add(idx);
+    }
+    for (const idx of output.safetyLabelImageIndices ?? []) {
+      if (Number.isInteger(idx) && idx >= 0) indices.add(idx);
+    }
+    return Array.from(indices).sort((a, b) => a - b);
+  }
+  const result = output.result as BoldVerticalGeneration;
   for (const idx of result.packageImageIndices ?? []) {
     if (Number.isInteger(idx) && idx >= 0) indices.add(idx);
   }

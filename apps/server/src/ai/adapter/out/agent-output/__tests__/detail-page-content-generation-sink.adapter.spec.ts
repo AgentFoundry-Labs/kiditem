@@ -146,6 +146,32 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
       );
     });
 
+    it('passes kids-playful package and safety-label exclusions to generated image generation', async () => {
+      await sink.applySuccess({
+        organizationId: ORG,
+        requestId: REQUEST,
+        runId: RUN,
+        sourceResourceId: CG_ID,
+        output: {
+          templateId: 'kids-playful',
+          result: {},
+          imageUrls: [
+            'https://example.com/product.jpg',
+            'https://example.com/package.jpg',
+            'https://example.com/safety.jpg',
+          ],
+          reservedPackageImageIndices: [1],
+          safetyLabelImageIndices: [2],
+        } as never,
+      });
+
+      expect(images.generateBestEffort).toHaveBeenCalledWith(
+        expect.objectContaining({
+          excludedImageIndices: [1, 2],
+        }),
+      );
+    });
+
     it('scopes the lookup by organizationId (cross-tenant attempt is a no-op)', async () => {
       await sink.applySuccess({
         organizationId: OTHER_ORG,

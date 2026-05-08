@@ -67,6 +67,108 @@ const VALID_BOLD_VERTICAL_TEXT = JSON.stringify({
   ],
 });
 
+const VALID_KIDS_PLAYFUL_TEXT = JSON.stringify({
+  section1: {
+    subhead: '오감발달 놀이시간',
+    mainHeadline: '수제왁스팝',
+    heroImageIndex: 1,
+  },
+  section2: {
+    reviews: [
+      { usp: '촉감', headline: '손끝이 즐거워요', body: '말랑한 느낌이 좋아요' },
+      { usp: '소리', headline: '바삭 소리가나요', body: '누를 때 재미있어요' },
+      { usp: '색상', headline: '알록달록해요', body: '색깔 구경도 즐거워요' },
+      { usp: '놀이', headline: '혼자도 잘 놀아요', body: '집중해서 만져요' },
+    ],
+  },
+  section3: {
+    label: '촉감놀이 200%',
+    headline: '손끝 놀이 친구!',
+    subhead: '오감으로 즐기는 시간',
+    scenarios: [
+      { caption: '포장을 열고 왁스팝을 준비하세요', imageIndex: 1 },
+      { caption: '손으로 주무르며 모양을 느껴보세요', imageIndex: 0 },
+      { caption: '바삭한 소리를 들으며 놀아보세요', imageIndex: 0 },
+    ],
+  },
+  section4: {
+    intro: { line1: '놀이가 단조로우라', line2: '금방 지루해지는', line3: '낭패' },
+    cards: [
+      { title: '같은 장난감은 금방 질려요...', subtitle: '흥미 부족' },
+      { title: '딱딱한 놀이는 손이 아파요...', subtitle: '촉감 아쉬움' },
+    ],
+    moodImageIndex: 1,
+  },
+  section5: {
+    headlineLine1: '손끝으로',
+    headlineLine2: '바삭하게 즐겨요',
+    subcopy: ['말랑한 촉감 놀이', '바삭한 소리 재미', '알록달록 색상 구성'],
+    imageIndex: 1,
+  },
+  section6: {
+    label: '왁스팝 특징',
+    headline: '손으로 느끼는 즐거움',
+    bigHeadline: '오감발달!',
+    cards: [
+      { num: '01', title: '말랑촉감', subtitle: '손끝자극', imageIndex: 0 },
+      { num: '02', title: '바삭소리', subtitle: '놀이몰입', imageIndex: 1 },
+      { num: '03', title: '색상구성', subtitle: '랜덤재미', imageIndex: 2 },
+    ],
+  },
+  section7: {
+    tagText: 'KeyPoint',
+    headlineLine1: '말랑하게',
+    headlineLine2: '손끝자극',
+    emphasisInLine2: '자극',
+    body1: '누를 때마다 촉감이 살아나고',
+    body2: '손끝 감각을 즐겁게 깨워요',
+    bodyEmphasis: '오감 놀이에 딱 좋아요',
+    imageIndex: 1,
+  },
+  section8: {
+    introLine1: '바삭한 소리와 촉감',
+    introLine2: '오감발달 놀이시간',
+    introLine3: '수제왁스팝',
+    blocks: [
+      {
+        pillLabel: '01. 바삭소리',
+        headline: '누를수록\n재미있어요',
+        body: '손으로 누르면 바삭한 소리가 나요',
+        imageIndex: 1,
+      },
+      {
+        pillLabel: '02. 색상구성',
+        headline: '색마다\n다른 재미',
+        body: '랜덤 색상으로 고르는 재미가 있어요',
+        imageIndex: 2,
+      },
+    ],
+  },
+  section9: {
+    tagText: 'KeyPoint',
+    smallHeadline: '집에서도 즐거운 놀이',
+    bigHeadline: { line1: '가볍게', line2: '즐기는', line3: '촉감' },
+    emphasisInLine3: '촉감',
+    body: ['가방에 넣기 부담 없고', '꺼내서 바로 즐겨요'],
+    topic: '휴대성',
+  },
+  section10: {
+    cards: [
+      { smallHeadline: '실내놀이', bigHeadlineLine1: '집에서도', bigHeadlineLine2: 'OK', imageIndex: 1 },
+      { smallHeadline: '선물추천', bigHeadlineLine1: '아이들이', bigHeadlineLine2: '좋아해', imageIndex: 2 },
+      { smallHeadline: '간편보관', bigHeadlineLine1: '정리까지', bigHeadlineLine2: '깔끔', imageIndex: 0 },
+    ],
+  },
+  section11: {
+    galleryImageIndices: [0, 1],
+    symbolCard: { icon: 'Sparkles', text: 'TOY' },
+    closing: {
+      body: ['손끝으로 느끼는 즐거움', '오감 발달을 돕는 놀이'],
+      headline: ['지금 바로', '즐겨보세요!'],
+    },
+  },
+});
+
 function makeHandler(textCompletion: TextCompletionPort) {
   const registry = new AgentRuntimeHandlerRegistry();
   // Real refiner without heroImageService — bold vertical color/package
@@ -117,6 +219,39 @@ describe('DetailPageGenerateRuntimeHandler', () => {
       .result.hook;
     expect(hook.text).toBe('키즈');
     expect(hook.titleSub).toBe('텀블러!');
+  });
+
+  it('returns kids-playful package and safety-label exclusions for the sink', async () => {
+    const textCompletion: TextCompletionPort = {
+      complete: vi.fn().mockResolvedValue({ text: VALID_KIDS_PLAYFUL_TEXT }),
+    };
+    const { handler } = makeHandler(textCompletion);
+
+    const result = await handler.execute(makeCtx({
+      input: {
+        templateId: 'kids-playful',
+        raw: {
+          rawTitle: '수제 왁스팝',
+          rawCategory: '완구',
+          rawDescription: '손으로 누르는 오감 놀이',
+          rawOptions: '랜덤 색상',
+          imageUrls: [
+            'https://example.com/product.jpg',
+            'https://example.com/package.jpg',
+            'https://example.com/safety.jpg',
+          ],
+        },
+        heroImageMode: 'llm-pick',
+        reservedPackageImageIndices: [1],
+        safetyLabelImageIndices: [2],
+      },
+    }));
+
+    expect(result.output).toMatchObject({
+      templateId: 'kids-playful',
+      reservedPackageImageIndices: [1],
+      safetyLabelImageIndices: [2],
+    });
   });
 
   it('throws agent_input_invalid when ctx.input does not match the schema', async () => {

@@ -123,6 +123,9 @@ Gemini text generation 호출은 `TEXT_COMPLETION_PORT` 한 곳에 모인다. `t
   Prisma + alert 만 다룬다. Producer 가 payload 에 미리 계산된
   `reservedPackageImageIndices` / `safetyLabelImageIndices` 를 주면 handler
   는 그 값을 사용하고 vision 호출을 생략한다 (테스트 / reconcile replay 용 hook).
+  Handler 는 kids-playful output 에도 같은 인덱스를 실어 sink 가 후속
+  `DetailPageGeneratedImagesService.generateBestEffort` 호출에서 package /
+  safety-label 이미지를 제외하게 한다.
 - **Bridge** — `detail-page-agent-output.bridge.ts`:
   `agent.run.finalized` 이벤트 listen → `event.agentType === 'detail_page_generate'`
   필터 → output Zod validate → sink 호출. envelope 사용 금지 (runtime

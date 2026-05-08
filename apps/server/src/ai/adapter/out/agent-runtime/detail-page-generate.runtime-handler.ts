@@ -180,12 +180,26 @@ export class DetailPageGenerateRuntimeHandler
         `images=${rawInput.imageUrls.length}`,
     );
 
+    const output = isBoldVertical
+      ? {
+          templateId: 'bold-vertical' as const,
+          result: refined as BoldVerticalGeneration,
+          imageUrls: rawInput.imageUrls,
+        }
+      : {
+          templateId: 'kids-playful' as const,
+          result: refined as DetailPageGeneration,
+          imageUrls: rawInput.imageUrls,
+          reservedPackageImageIndices: kidsImageContext
+            ? [...kidsImageContext.packageImageIndices].sort((a, b) => a - b)
+            : [],
+          safetyLabelImageIndices: kidsImageContext
+            ? [...kidsImageContext.safetyLabelImageIndices].sort((a, b) => a - b)
+            : [],
+        };
+
     return {
-      output: {
-        templateId,
-        result: refined,
-        imageUrls: rawInput.imageUrls,
-      },
+      output,
       provider: 'gemini-text',
     };
   }
