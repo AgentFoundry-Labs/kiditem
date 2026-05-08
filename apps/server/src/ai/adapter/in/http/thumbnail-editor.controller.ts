@@ -2,9 +2,12 @@ import { BadRequestException, Body, Controller, Post } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
+import { Roles } from '../../../../auth/decorators/roles.decorator';
 import type { AuthUser } from '../../../../auth/auth.types';
 import { ThumbnailEditorDto } from './dto/thumbnail-editor.dto';
+import { ReconcileThumbnailBodyDto } from './dto/thumbnail-reconcile.dto';
 import { ThumbnailEditorAiService } from '../../../application/service/thumbnail-editor-ai.service';
+import { ThumbnailAgentReconcileService } from '../../../application/service/thumbnail-agent-reconcile.service';
 import type {
   ThumbnailEditorEditCase,
   ThumbnailEditorInputImage,
@@ -12,19 +15,46 @@ import type {
 } from '../../../domain/model/thumbnail-editor';
 import { ThumbnailGenerationService } from '../../../application/service/thumbnail-generation.service';
 
+interface EnqueueResponse {
+  candidates: never[];
+  generationId: string;
+  status: 'pending';
+}
+
+interface SyncResponse {
+  candidates: Array<{ url: string; filename: string }>;
+  generationId: null;
+}
+
 @Controller('thumbnail-editor')
 export class ThumbnailEditorController {
   constructor(
     private readonly editorAi: ThumbnailEditorAiService,
     private readonly generationService: ThumbnailGenerationService,
+    private readonly reconcile: ThumbnailAgentReconcileService,
   ) {}
 
+  /**
+   * `/api/thumbnail-editor/generate` — two paths:
+   *
+   * - **Product-bound (`productId` set, default for the editor UI)**:
+   *   creates a `pending` `ThumbnailGeneration` row, opens an
+   *   `(operationKey='thumbnail-edit:<id>', sourceType='thumbnail_generation')`
+   *   operation alert, and enqueues a `thumbnail_generate` Agent OS
+   *   request. Returns `{ generationId, status: 'pending' }` immediately.
+   *   Frontend polls the generation row to surface candidates when the
+   *   bridge + sink finalize.
+   *
+   * - **Standalone (no `productId`)**: kept synchronous as a transitional
+   *   preview path for tests / external integrations. Calls the Gemini
+   *   image-gen service inline and returns candidates without a DB row.
+   */
   @Post('generate')
   async generate(
     @Body() body: ThumbnailEditorDto,
     @CurrentOrganization() organizationId: string,
     @CurrentUser() authUser?: AuthUser,
-  ) {
+  ): Promise<EnqueueResponse | SyncResponse> {
     const mode = body.mode ?? 'edit';
     const product = body.productId
       ? await this.generationService.findProductForEditor(body.productId, organizationId)
@@ -40,14 +70,47 @@ export class ThumbnailEditorController {
 
     const editCase = this.inferEditCase(body);
     const composition = this.compositionText(body);
+    const productName = product?.name ?? body.productName ?? null;
+    const category = product?.category ?? null;
+
+    if (product) {
+      // Async path — Agent OS owns the LLM call from here. Producer side
+      // creates the row + alert + enqueue and returns immediately.
+      const enqueueResult = await this.generationService.enqueueEditorGeneration({
+        organizationId,
+        productId: product.id,
+        productName: product.name,
+        triggeredByUserId: authUser?.id ?? null,
+        inputs,
+        inputMeta: this.inputMeta(body, mode, editCase, inputs),
+        method: mode === 'creative' ? 'creative' : 'generate',
+        originalUrl: product.imageUrl ?? inputs[0]?.url ?? '',
+        agentPayload: this.agentPayload({
+          body,
+          mode,
+          editCase,
+          composition,
+          inputs,
+          productName,
+          category,
+        }),
+      });
+      return {
+        candidates: [],
+        generationId: enqueueResult.generationId,
+        status: 'pending',
+      } satisfies EnqueueResponse;
+    }
+
+    // Standalone preview — sync Gemini call, no row.
     const candidates = mode === 'creative'
       ? await this.editorAi.generateCreative(inputs, organizationId, {
           sceneType: body.sceneType,
           styleType: body.styleType,
           productDescription: body.productDescription,
           userPrompt: body.userPrompt,
-          productName: product?.name ?? body.productName ?? null,
-          category: product?.category ?? null,
+          productName,
+          category,
           hasStyleReference: Boolean(body.backgroundReference),
         })
       : await this.editorAi.generateEdit(inputs, organizationId, {
@@ -57,29 +120,56 @@ export class ThumbnailEditorController {
           userPrompt: body.userPrompt,
           layout: body.layout,
           productDescription: body.productDescription,
-          productName: product?.name ?? body.productName ?? null,
-          category: product?.category ?? null,
+          productName,
+          category,
         });
-
-    const generationId = product
-      ? await this.generationService.saveEditorResult({
-          productId: product.id,
-          organizationId,
-          originalUrl: product.imageUrl ?? inputs[0]?.url ?? null,
-          candidates,
-          inputImages: inputs,
-          method: mode === 'creative' ? 'creative' : 'generate',
-          inputMeta: this.inputMeta(body, mode, editCase, inputs),
-          triggeredByUserId: authUser?.id ?? null,
-        })
-      : null;
 
     return {
       candidates: candidates.map((candidate) => ({
         url: candidate.url,
         filename: candidate.filename ?? candidate.storageKey?.split('/').pop() ?? 'thumbnail.png',
       })),
-      generationId,
+      generationId: null,
+    } satisfies SyncResponse;
+  }
+
+  private agentPayload(input: {
+    body: ThumbnailEditorDto;
+    mode: 'edit' | 'creative';
+    editCase: ThumbnailEditorEditCase;
+    composition: string | undefined;
+    inputs: ThumbnailEditorInputImage[];
+    productName: string | null;
+    category: string | null;
+  }): Record<string, unknown> {
+    const { body, mode, editCase, composition, inputs } = input;
+    return {
+      mode,
+      editCase: mode === 'edit' ? editCase : undefined,
+      purpose: body.purpose,
+      productName: input.productName,
+      productDescription: body.productDescription,
+      category: input.category,
+      sceneType: body.sceneType,
+      styleType: body.styleType,
+      supplementaryLabel: body.supplementaryLabel,
+      pieceCount: body.pieceCount,
+      colorCount: body.colorCount,
+      layout: body.layout,
+      composition,
+      userPrompt: body.userPrompt,
+      hasStyleReference: mode === 'creative' ? Boolean(body.backgroundReference) : undefined,
+      inputs: inputs.map((img) => ({
+        data: img.data,
+        mimeType: img.mimeType,
+        label: img.label,
+        url: img.url,
+        storageKey: img.storageKey,
+        role: img.role,
+        sortOrder: img.sortOrder,
+        source: img.source,
+        fileSize: img.fileSize,
+      })),
     };
   }
 
@@ -147,6 +237,28 @@ export class ThumbnailEditorController {
     if (body.pieceCount) parts.push(`${body.pieceCount}개입`);
     if (body.colorCount) parts.push(`${body.colorCount}가지 색상`);
     return parts.length > 0 ? parts.join(', ') : undefined;
+  }
+
+  /**
+   * Admin-triggered reconcile for the thumbnail editor Agent OS
+   * pipeline. Replays terminal `AgentRunRequest` rows whose originating
+   * `ThumbnailGeneration` is still `pending`/`running` — recovery path
+   * for missed bus events. See agent-os/AGENTS.md "Recovery contract".
+   *
+   * Idempotent (`lockGenerationForProcessing` returns null on terminal
+   * rows so the sink no-ops), so this can be invoked freely. Restricted
+   * to owner/admin to avoid accidental load amplification.
+   */
+  @Post('reconcile-stuck')
+  @Roles('owner', 'admin')
+  reconcileStuck(
+    @Body() body: ReconcileThumbnailBodyDto,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return this.reconcile.reconcile(organizationId, {
+      sinceMinutes: body.sinceMinutes,
+      limit: body.limit,
+    });
   }
 
   private inputMeta(

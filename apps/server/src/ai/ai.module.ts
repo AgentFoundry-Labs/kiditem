@@ -17,8 +17,9 @@ import { CoupangImageSyncController } from './adapter/in/http/coupang-image-sync
 
 // adapter/out
 import { DetailPageContentGenerationSinkAdapter } from './adapter/out/agent-output/detail-page-content-generation-sink.adapter';
-import { ThumbnailNoopAgentOutputSink } from './adapter/out/agent-output/thumbnail-noop-sink.adapter';
+import { ThumbnailGenerationSinkAdapter } from './adapter/out/agent-output/thumbnail-generation-sink.adapter';
 import { DetailPageGenerateRuntimeHandler } from './adapter/out/agent-runtime/detail-page-generate.runtime-handler';
+import { ThumbnailGenerateRuntimeHandler } from './adapter/out/agent-runtime/thumbnail-generate.runtime-handler';
 import { CoupangInventoryScrapeAdapter } from './adapter/out/coupang/coupang-inventory-scrape.adapter';
 import { CoupangProductSalesScrapeAdapter } from './adapter/out/coupang/coupang-product-sales-scrape.adapter';
 import { CoupangImageReconciliationAdapter } from './adapter/out/channels/coupang-image-reconciliation.adapter';
@@ -35,6 +36,7 @@ import { WingAutomationRunner } from './adapter/out/wing/wing-automation-runner'
 import { DetailPageAgentOutputBridge } from './application/service/detail-page-agent-output.bridge';
 import { DetailPageAgentReconcileService } from './application/service/detail-page-agent-reconcile.service';
 import { ThumbnailAgentOutputBridge } from './application/service/thumbnail-agent-output.bridge';
+import { ThumbnailAgentReconcileService } from './application/service/thumbnail-agent-reconcile.service';
 import { ImageAiService } from './application/service/image-ai.service';
 import { TextAiService } from './application/service/text-ai.service';
 import { ThumbnailAnalysisService } from './application/service/thumbnail-analysis.service';
@@ -88,6 +90,7 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     DetailPageHeroImageService,
     DetailPageResultRefinerService,
     TextAiService,
+    ThumbnailAgentReconcileService,
     ThumbnailAnalysisService,
     ThumbnailAutoService,
     ThumbnailComplianceVerifierService,
@@ -99,16 +102,17 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     ThumbnailWingService,
 
     // Agent OS bridges — listen for finalized events and route validated
-    // output through the sink ports defined below. Detail-page sink is the
-    // real `ContentGeneration` writer; thumbnail sink stays no-op until
-    // its producer is flipped to async.
+    // output through the sink ports defined below. Detail-page + thumbnail
+    // both write back to their owner row (`ContentGeneration` /
+    // `ThumbnailGeneration`).
     DetailPageAgentOutputBridge,
     ThumbnailAgentOutputBridge,
 
     // outgoing adapters
     DetailPageContentGenerationSinkAdapter,
     DetailPageGenerateRuntimeHandler,
-    ThumbnailNoopAgentOutputSink,
+    ThumbnailGenerationSinkAdapter,
+    ThumbnailGenerateRuntimeHandler,
     CoupangImageReconciliationAdapter,
     CoupangInventoryScrapeAdapter,
     CoupangProductSalesScrapeAdapter,
@@ -135,8 +139,12 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
       useExisting: DetailPageContentGenerationSinkAdapter,
     },
     {
+      // Real sink — applies validated thumbnail_generate output to the
+      // originating ThumbnailGeneration row (succeeded/failed + candidates
+      // + status events + operation alert close). Mirrors the detail-page
+      // wiring shipped in PR #213.
       provide: THUMBNAIL_AGENT_OUTPUT_SINK_PORT,
-      useExisting: ThumbnailNoopAgentOutputSink,
+      useExisting: ThumbnailGenerationSinkAdapter,
     },
     { provide: IMAGE_FETCH_PORT, useExisting: ThumbnailImageFetcherService },
     { provide: IMAGE_STORAGE_PORT, useExisting: StorageService },

@@ -25,7 +25,8 @@ function makeInput(
   };
 }
 
-function makeController() {
+function makeController(opts: { withProduct?: boolean } = {}) {
+  const withProduct = opts.withProduct ?? true;
   const editorAi = {
     resolveInputImage: vi.fn(async (
       value: string,
@@ -40,24 +41,58 @@ function makeController() {
     ]),
   };
   const generationService = {
-    findProductForEditor: vi.fn(async () => ({
-      id: PRODUCT_ID,
-      name: 'Sample product',
-      category: 'toys',
-      imageUrl: 'master-url',
+    findProductForEditor: vi.fn(async () =>
+      withProduct
+        ? {
+            id: PRODUCT_ID,
+            name: 'Sample product',
+            category: 'toys',
+            imageUrl: 'master-url',
+          }
+        : null,
+    ),
+    enqueueEditorGeneration: vi.fn(async () => ({
+      generationId: 'generation-async-1',
+      status: 'pending' as const,
     })),
     saveEditorResult: vi.fn(async () => 'generation-1'),
   };
+  const reconcile = { reconcile: vi.fn() };
   const controller = new ThumbnailEditorController(
     editorAi as never,
     generationService as never,
+    reconcile as never,
   );
   return { controller, editorAi, generationService };
 }
 
-describe('ThumbnailEditorController parity behavior', () => {
-  it('prepends the main product image for color-variant generation', async () => {
-    const { controller, editorAi } = makeController();
+describe('ThumbnailEditorController product-bound (async Agent OS)', () => {
+  it('returns pending status + generationId without calling editorAi directly', async () => {
+    const { controller, editorAi, generationService } = makeController();
+    const body = {
+      productId: PRODUCT_ID,
+      productImage: 'main-product-url',
+      colorImages: ['red-url', 'blue-url'],
+      purpose: 'compliance',
+      mode: 'edit',
+    } satisfies ThumbnailEditorDto;
+
+    const result = await controller.generate(body, ORGANIZATION_ID);
+
+    expect(result).toEqual({
+      candidates: [],
+      generationId: 'generation-async-1',
+      status: 'pending',
+    });
+    // The runtime handler now owns the LLM call; controller must not
+    // touch editorAi when enqueueing the agent run.
+    expect(editorAi.generateEdit).not.toHaveBeenCalled();
+    expect(editorAi.generateCreative).not.toHaveBeenCalled();
+    expect(generationService.enqueueEditorGeneration).toHaveBeenCalledTimes(1);
+  });
+
+  it('forwards resolved inputs (with role + label ordering preserved) into the agent payload', async () => {
+    const { controller, generationService } = makeController();
     const body = {
       productId: PRODUCT_ID,
       productImage: 'main-product-url',
@@ -68,17 +103,26 @@ describe('ThumbnailEditorController parity behavior', () => {
 
     await controller.generate(body, ORGANIZATION_ID);
 
-    const inputs = editorAi.generateEdit.mock.calls[0][0] as ThumbnailEditorInputImage[];
-    expect(inputs.map((input) => input.label)).toEqual([
+    const arg = generationService.enqueueEditorGeneration.mock.calls[0][0] as {
+      agentPayload: { inputs: ThumbnailEditorInputImage[] };
+      inputs: ThumbnailEditorInputImage[];
+      method: string;
+    };
+    expect(arg.method).toBe('generate');
+    expect(arg.agentPayload.inputs.map((i) => i.label)).toEqual([
       'Main product',
       'Color variant 1',
       'Color variant 2',
     ]);
-    expect(inputs.map((input) => input.role)).toEqual(['product', 'color_variant', 'color_variant']);
+    expect(arg.agentPayload.inputs.map((i) => i.role)).toEqual([
+      'product',
+      'color_variant',
+      'color_variant',
+    ]);
   });
 
-  it('adds product/category context to creative prompt options', async () => {
-    const { controller, editorAi } = makeController();
+  it('passes productName + category from the resolved master into the agent payload', async () => {
+    const { controller, generationService } = makeController();
     const body = {
       productId: PRODUCT_ID,
       productImage: 'main-product-url',
@@ -90,8 +134,32 @@ describe('ThumbnailEditorController parity behavior', () => {
 
     await controller.generate(body, ORGANIZATION_ID);
 
-    const options = editorAi.generateCreative.mock.calls[0][2] as Record<string, unknown>;
-    expect(options.productName).toBe('Sample product');
-    expect(options.category).toBe('toys');
+    const arg = generationService.enqueueEditorGeneration.mock.calls[0][0] as {
+      agentPayload: { productName: string; category: string; mode: string; hasStyleReference: boolean };
+      method: string;
+    };
+    expect(arg.agentPayload.productName).toBe('Sample product');
+    expect(arg.agentPayload.category).toBe('toys');
+    expect(arg.agentPayload.mode).toBe('creative');
+    expect(arg.method).toBe('creative');
+  });
+});
+
+describe('ThumbnailEditorController standalone (no productId — sync fallback)', () => {
+  it('keeps the synchronous Gemini path when productId is omitted', async () => {
+    const { controller, editorAi, generationService } = makeController({ withProduct: false });
+    const body = {
+      productImage: 'main-product-url',
+      purpose: 'compliance',
+      mode: 'edit',
+    } satisfies ThumbnailEditorDto;
+
+    const result = await controller.generate(body, ORGANIZATION_ID);
+    expect(generationService.enqueueEditorGeneration).not.toHaveBeenCalled();
+    expect(editorAi.generateEdit).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      candidates: expect.any(Array),
+      generationId: null,
+    });
   });
 });

@@ -46,9 +46,28 @@ describe('ThumbnailGenerateAgentOutputSchema', () => {
 });
 
 describe('ThumbnailGenerateAgentInputSchema', () => {
+  // Phase 3 made `inputs` required — every real Agent OS run delivers at
+  // least the product image plus 0..N supplemental images. Each scenario
+  // here uses a minimal one-image payload to stay focused on the field
+  // under test.
+  const sampleInputs = [
+    {
+      data: 'YmFzZTY0LWRhdGE=',
+      mimeType: 'image/png',
+      label: 'Product photo',
+      url: 'https://cdn.example.com/p.png',
+      storageKey: 'thumbnail-inputs/org/p.png',
+      role: 'product' as const,
+      sortOrder: 0,
+      source: 'upload',
+      fileSize: 1234,
+    },
+  ];
+
   it('accepts creative mode with optional fields omitted', () => {
     const parsed = ThumbnailGenerateAgentInputSchema.safeParse({
       mode: 'creative',
+      inputs: sampleInputs,
     });
     expect(parsed.success).toBe(true);
   });
@@ -59,6 +78,7 @@ describe('ThumbnailGenerateAgentInputSchema', () => {
       editCase: 'compose',
       supplementaryLabel: '구성',
       pieceCount: 4,
+      inputs: sampleInputs,
     });
     expect(parsed.success).toBe(true);
   });
@@ -66,6 +86,14 @@ describe('ThumbnailGenerateAgentInputSchema', () => {
   it('rejects unknown mode', () => {
     const parsed = ThumbnailGenerateAgentInputSchema.safeParse({
       mode: 'unknown',
+      inputs: sampleInputs,
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it('rejects missing inputs (Phase 3 required field)', () => {
+    const parsed = ThumbnailGenerateAgentInputSchema.safeParse({
+      mode: 'edit',
     });
     expect(parsed.success).toBe(false);
   });

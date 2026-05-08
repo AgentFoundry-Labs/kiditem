@@ -23,9 +23,20 @@ interface GenerateRequest {
   layout?: 'auto' | 'fan' | 'arch' | 'grid' | 'stack' | 'radial';
 }
 
+/**
+ * `/api/thumbnail-editor/generate` returns one of two shapes:
+ *
+ * - **Async (product-bound)** — `{ candidates: [], generationId, status: 'pending' }`.
+ *   The Agent OS pipeline will fill candidates onto the
+ *   `ThumbnailGeneration` row. The caller should switch to polling
+ *   (`useGenerationList`) and wait for `status === 'succeeded'`.
+ * - **Sync (no productId / standalone preview)** — `{ candidates, generationId: null }`.
+ *   Candidates are immediately usable.
+ */
 interface GenerateResponse {
   candidates: Array<{ url: string; filename: string }>;
   generationId: string | null;
+  status?: 'pending';
 }
 
 export function useGenerateThumbnail() {
