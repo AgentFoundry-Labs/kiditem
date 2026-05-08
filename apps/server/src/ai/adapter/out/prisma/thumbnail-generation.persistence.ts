@@ -107,6 +107,7 @@ export async function createPendingEditJob(
     method: string;
     inputMeta: Prisma.InputJsonValue;
     editAnalysis: EditAnalysisResult | null;
+    triggeredByUserId?: string | null;
   },
 ): Promise<GenerationRow> {
   const generation = await prisma.thumbnailGeneration.create({
@@ -121,6 +122,7 @@ export async function createPendingEditJob(
       editAnalysis: args.editAnalysis
         ? (args.editAnalysis as unknown as Prisma.InputJsonValue)
         : Prisma.JsonNull,
+      triggeredByUserId: args.triggeredByUserId ?? null,
     },
     include: generationInclude(args.organizationId),
   });

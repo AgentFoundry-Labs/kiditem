@@ -248,6 +248,7 @@ describe('Thumbnail-editor Agent OS pipeline (real Postgres)', () => {
       where: { id: dto.generationId },
     });
     expect(initial.status).toBe('pending');
+    expect(initial.triggeredByUserId).toBe(TEST_USER_ID);
 
     await worker.tick();
     await waitForStatus(prisma!, dto.generationId, 'succeeded');

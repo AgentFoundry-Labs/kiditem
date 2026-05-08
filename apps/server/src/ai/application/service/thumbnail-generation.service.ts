@@ -167,6 +167,7 @@ export class ThumbnailGenerationService {
       method: input.method,
       inputMeta: input.inputMeta,
       editAnalysis: null,
+      triggeredByUserId: input.triggeredByUserId,
     });
 
     await persistPendingInputImages(this.prisma, {
@@ -446,6 +447,7 @@ export class ThumbnailGenerationService {
           analysisContext: toAnalysisContextJson(analysis, editSuggestions),
         },
         editAnalysis,
+        triggeredByUserId,
       });
       await this.emitStatusChange({
         organizationId,
