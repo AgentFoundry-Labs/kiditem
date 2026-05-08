@@ -49,6 +49,12 @@ export const DetailPageGenerateAgentOutputSchema = z.discriminatedUnion(
       templateId: z.literal('kids-playful'),
       result: DetailPageGenerationSchema,
       imageUrls: z.array(z.string()).default([]),
+      reservedPackageImageIndices: z
+        .array(z.number().int().nonnegative())
+        .default([]),
+      safetyLabelImageIndices: z
+        .array(z.number().int().nonnegative())
+        .default([]),
     }),
     z.object({
       templateId: z.literal('bold-vertical'),

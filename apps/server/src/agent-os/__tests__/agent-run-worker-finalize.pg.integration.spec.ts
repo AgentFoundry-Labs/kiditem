@@ -10,8 +10,9 @@
  * present on both the success and failure paths.
  *
  * Uses a deterministic in-memory runtime adapter so the success path is
- * exercised without any external provider. The default `LocalRuntimeAdapter`
- * fail-fast contract is covered separately by the executor unit tests.
+ * exercised without any external provider. The default `RoutingRuntimeAdapter`
+ * fail-fast contract (no handler registered) is covered separately by the
+ * executor unit tests + the routing-runtime adapter spec.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { EventEmitter2 } from '@nestjs/event-emitter';

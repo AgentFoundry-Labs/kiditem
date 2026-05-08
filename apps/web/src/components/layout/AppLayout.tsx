@@ -59,11 +59,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       >
         <main className={cn(isEditorRoute ? 'p-0' : 'p-6')}>{children}</main>
       </div>
-      {!isEditorRoute && (
-        <PanelErrorBoundary>
-          <PanelMount />
-        </PanelErrorBoundary>
-      )}
+      <PanelErrorBoundary>
+        <PanelMount />
+      </PanelErrorBoundary>
       {showAutoReadinessModal && <ReadinessModal autoOpenWhen="collectionIssue" />}
       <GlobalConfirmDialog />
       {!isEditorRoute && <GenerationStatusFloater />}

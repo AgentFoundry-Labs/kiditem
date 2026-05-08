@@ -63,6 +63,18 @@ describe('Panel integration', () => {
     expect(event.resetClient).toBe(true);
   });
 
+  it('initial connect ignores ring-buffer replay when Last-Event-ID is absent', async () => {
+    emitter.emit(PANEL_EVENTS.UPSERT, { item: makeItem({ id: 'stale-running' }), organizationId: 'co-1' });
+    await new Promise((r) => setTimeout(r, 10));
+
+    const stream$ = await controller.stream('co-1', { id: 'user-1' } as any, undefined);
+    const first = await firstValueFrom(stream$.pipe(take(1)));
+    const event = (first as any).data;
+
+    expect(event.type).toBe('snapshot');
+    expect(event.resetClient).toBe(true);
+  });
+
   it('upsert event flows from emitter to stream, organizationId stripped', async () => {
     const stream$ = await controller.stream('co-1', { id: 'user-1' } as any, undefined);
     const collected: any[] = [];

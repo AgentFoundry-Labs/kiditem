@@ -60,6 +60,21 @@ describe('panel-store', () => {
     expect(item?.kind === 'run' ? item.seq : undefined).toBe(5);
   });
 
+  it('upsertItem replaces alert lifecycle state even without item seq', () => {
+    const id = '11111111-1111-1111-1111-111111111112';
+    store.getState().upsertItem(makeAlertItem({ id, status: 'running', progress: 0.2 }));
+    store.getState().upsertItem(makeAlertItem({
+      id,
+      status: 'succeeded',
+      progress: 1,
+      finishedAt: '2026-04-15T00:05:00.000Z',
+    }));
+
+    const item = store.getState().byId[id];
+    expect(item?.kind === 'alert' ? item.status : undefined).toBe('succeeded');
+    expect(store.getState().runningCount()).toBe(0);
+  });
+
   it('handleSnapshot clears store on resetClient', () => {
     store.getState().upsertItem(makeItem({ id: 'a', seq: 100 }));
     store.getState().handleSnapshot([makeItem({ id: 'b', seq: 1 })], true);

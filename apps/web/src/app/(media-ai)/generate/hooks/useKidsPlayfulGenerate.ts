@@ -110,12 +110,27 @@ export function useKidsPlayfulGenerate() {
 /**
  * GET /api/ai/detail-page/:id — 단건 조회.
  * 에디터에서 ?kpId=... 쿼리로 진입 시 사용.
+ *
+ * 상세페이지 생성은 PR #213 부터 Agent OS 비동기 큐로 동작한다. 사용자가
+ * 폼 제출 후 곧바로 에디터로 진입하면 row 가 아직 `pending`/`processing` 일
+ * 수 있으므로, 리스트 쿼리와 같은 status-aware refetchInterval 로 자동
+ * 폴링한다. terminal 상태 (`completed`/`failed`) 가 되면 폴링 중단.
  */
 export function useKidsPlayfulOne(id?: string | null) {
   return useQuery({
     queryKey: id ? QK.one(id) : ['kp-generations', 'one', 'noop'],
     queryFn: () => apiClient.get<KidsPlayfulGenerationItem>(`/api/ai/detail-page/${id}`),
     enabled: !!id,
+    refetchInterval: (query) => {
+      const data = query.state.data as KidsPlayfulGenerationItem | undefined;
+      if (!data) return false;
+      const inProgress =
+        data.imageProcessingStatus === 'pending' ||
+        data.imageProcessingStatus === 'processing';
+      return inProgress ? 5000 : false;
+    },
+    refetchIntervalInBackground: false,
+    staleTime: 1000,
   });
 }
 

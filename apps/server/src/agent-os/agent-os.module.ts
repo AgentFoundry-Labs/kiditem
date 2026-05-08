@@ -3,7 +3,7 @@ import { AgentCatalogController } from './adapter/in/http/agent-catalog.controll
 import { AgentRunsController } from './adapter/in/http/agent-runs.controller';
 import { AgentOsRepositoryAdapter } from './adapter/out/repository/agent-os.repository.adapter';
 import { FilesystemAgentLogStoreAdapter } from './adapter/out/log-store/filesystem-agent-log-store.adapter';
-import { LocalRuntimeAdapter } from './adapter/out/runtime/local-runtime.adapter';
+import { RoutingRuntimeAdapter } from './adapter/out/runtime/routing-runtime.adapter';
 import { AGENT_LOG_STORE_PORT } from './application/port/out/agent-log-store.port';
 import { AGENT_OS_REPOSITORY_PORT } from './application/port/out/agent-os-repository.port';
 import { AGENT_RUNTIME_PORT } from './application/port/out/agent-runtime.port';
@@ -14,6 +14,7 @@ import { AgentPolicyService } from './application/service/agent-policy.service';
 import { AgentRunCoordinator } from './application/service/agent-run-coordinator.service';
 import { AgentRunExecutor } from './application/service/agent-run-executor.service';
 import { AgentRunWorker } from './application/service/agent-run-worker.service';
+import { AgentRuntimeHandlerRegistry } from './application/service/agent-runtime-handler-registry.service';
 
 @Module({
   controllers: [AgentCatalogController, AgentRunsController],
@@ -24,9 +25,11 @@ import { AgentRunWorker } from './application/service/agent-run-worker.service';
     AgentRunCoordinator,
     AgentRunExecutor,
     AgentRunWorker,
+    AgentRuntimeHandlerRegistry,
+    RoutingRuntimeAdapter,
     { provide: AGENT_RUNNER_PORT, useExisting: AgentRunCoordinator },
     { provide: AGENT_OS_REPOSITORY_PORT, useClass: AgentOsRepositoryAdapter },
-    { provide: AGENT_RUNTIME_PORT, useClass: LocalRuntimeAdapter },
+    { provide: AGENT_RUNTIME_PORT, useExisting: RoutingRuntimeAdapter },
     { provide: AGENT_LOG_STORE_PORT, useClass: FilesystemAgentLogStoreAdapter },
   ],
   exports: [
@@ -37,6 +40,7 @@ import { AgentRunWorker } from './application/service/agent-run-worker.service';
     AgentCatalogService,
     AgentObservabilityService,
     AgentPolicyService,
+    AgentRuntimeHandlerRegistry,
   ],
 })
 export class AgentOsModule {}

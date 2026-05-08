@@ -85,24 +85,6 @@ function EditorPageContent() {
     [agentId, agentHistory],
   );
 
-  const error = queryError
-    ? isApiError(queryError)
-      ? queryError.detail
-      : '에디터 데이터를 불러올 수 없습니다.'
-    : kpError
-      ? isApiError(kpError)
-        ? kpError.detail
-        : 'Trend Vertical 이력을 불러올 수 없습니다.'
-      : boldError
-        ? isApiError(boldError)
-          ? boldError.detail
-          : 'KIDITEM DESIGN 이력을 불러올 수 없습니다.'
-        : agentId && !isAgentHistoryLoading && !selectedAgentEntry
-          ? '선택한 생성 이력을 찾을 수 없습니다.'
-          : agentId && selectedAgentEntry && !selectedAgentEntry.detailPageData
-            ? '선택한 생성 이력에 상세페이지 데이터가 없습니다.'
-    : null;
-
   const realKpEntries = useMemo(
     () => kpEntries.filter((e) => !e.id.startsWith('optimistic-')),
     [kpEntries],
@@ -120,15 +102,63 @@ function EditorPageContent() {
   const activeKpEntry = kpEntry ?? defaultKpEntry;
   const activeBoldEntry = boldEntry ?? defaultBoldEntry;
 
+  // Async generation can land in `failed` (Agent OS sink → ContentGeneration
+  // FAILED). Surfacing that here as a normal "error" prevents the HTML
+  // render path below from trying to build a layout from an empty
+  // `result: {}` and crashing or showing a blank canvas. Only the entry
+  // the editor would otherwise render counts — silent recent-list
+  // failures shouldn't block the user from picking a different source.
+  const activeFailureMessage =
+    activeKpEntry?.imageProcessingStatus === 'failed'
+      ? activeKpEntry.imageProcessingError ||
+        'Trend Vertical 상세페이지 생성에 실패했습니다.'
+      : activeBoldEntry?.imageProcessingStatus === 'failed'
+        ? activeBoldEntry.imageProcessingError ||
+          'KIDITEM DESIGN 상세페이지 생성에 실패했습니다.'
+        : null;
+
+  const error = queryError
+    ? isApiError(queryError)
+      ? queryError.detail
+      : '에디터 데이터를 불러올 수 없습니다.'
+    : kpError
+      ? isApiError(kpError)
+        ? kpError.detail
+        : 'Trend Vertical 이력을 불러올 수 없습니다.'
+      : boldError
+        ? isApiError(boldError)
+          ? boldError.detail
+          : 'KIDITEM DESIGN 이력을 불러올 수 없습니다.'
+        : agentId && !isAgentHistoryLoading && !selectedAgentEntry
+          ? '선택한 생성 이력을 찾을 수 없습니다.'
+          : agentId && selectedAgentEntry && !selectedAgentEntry.detailPageData
+            ? '선택한 생성 이력에 상세페이지 데이터가 없습니다.'
+            : activeFailureMessage;
+
+  // Only render generation-derived HTML when the active entry is in a
+  // completed terminal state (or has no status at all — legacy rows from
+  // before the async pipeline). `pending`/`processing`/`failed` rows have
+  // no usable `result` and the loading screen / error screen above
+  // already covers those branches; this guard makes editorHtml a strict
+  // no-op rather than relying on downstream renderers to fail-soft.
+  const kpEntryReady =
+    !!activeKpEntry &&
+    (!activeKpEntry.imageProcessingStatus ||
+      activeKpEntry.imageProcessingStatus === 'completed');
+  const boldEntryReady =
+    !!activeBoldEntry &&
+    (!activeBoldEntry.imageProcessingStatus ||
+      activeBoldEntry.imageProcessingStatus === 'completed');
+
   // 우선순위: 명시 선택 이력 → 저장된 edits → 최신 생성 이력 → preview default.
   const editorHtml = useMemo(() => {
     if (!hasExplicitSource && editedHtmlRow?.html) {
       return ensureStyledDetailHtml(editedHtmlRow.html, templateCss);
     }
-    if (activeKpEntry) {
+    if (kpEntryReady && activeKpEntry) {
       return buildKidsPlayfulHtml(rowToRendererData(activeKpEntry));
     }
-    if (activeBoldEntry) {
+    if (boldEntryReady && activeBoldEntry) {
       // KIDITEM generation → BoldVertical 템플릿.
       try {
         const adapted = adaptBoldVerticalToDetailPageData(
@@ -177,6 +207,8 @@ function EditorPageContent() {
     agentId,
     activeKpEntry,
     activeBoldEntry,
+    kpEntryReady,
+    boldEntryReady,
     previewData,
     selectedAgentEntry,
     templateConfig,
@@ -205,6 +237,18 @@ function EditorPageContent() {
     }
   };
 
+  // 상세페이지 생성이 아직 끝나지 않은 (Agent OS async) entry 는 loading 으로
+  // 취급한다. useKidsPlayfulOne 이 폴링하므로 status 가 'completed' 또는
+  // 'failed' 가 되면 자동으로 다시 렌더링되어 이 가드를 빠져나온다.
+  const isKpStillProcessing =
+    !!kpEntry &&
+    (kpEntry.imageProcessingStatus === 'pending' ||
+      kpEntry.imageProcessingStatus === 'processing');
+  const isBoldStillProcessing =
+    !!boldEntry &&
+    (boldEntry.imageProcessingStatus === 'pending' ||
+      boldEntry.imageProcessingStatus === 'processing');
+
   // Trend/KIDITEM 모드는 templateConfig 없어도 동작 가능.
   if (
     isLoading ||
@@ -212,7 +256,9 @@ function EditorPageContent() {
     (!hasExplicitSource && !editedHtmlRow?.html && (isKpListLoading || isBoldListLoading)) ||
     (!!kpId && isKpLoading) ||
     (!!boldId && isBoldLoading) ||
-    (!!agentId && isAgentHistoryLoading)
+    (!!agentId && isAgentHistoryLoading) ||
+    isKpStillProcessing ||
+    isBoldStillProcessing
   ) {
     return <EditorLoadingScreen />;
   }

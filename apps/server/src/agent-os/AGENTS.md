@@ -73,21 +73,33 @@ AgentRun:
 ## Runtime adapter contract
 
 `AGENT_RUNTIME_PORT` is the only path the executor uses to invoke a real
-provider. Until a provider adapter (Claude CLI / Python HTTP / hosted
-gateway) replaces the default `LocalRuntimeAdapter`, every claimed request
-fails fast with `runtime_not_configured`:
+provider. The default binding is `RoutingRuntimeAdapter`, which delegates
+to per-agent-type handlers registered in `AgentRuntimeHandlerRegistry`.
 
-- `AgentRun.errorCode = 'runtime_not_configured'`
-- `AgentRunRequest.lastErrorCode = 'runtime_not_configured'`
+- Registered handler for `agentType` → adapter forwards `execute(ctx)` and
+  returns the handler's `AgentRuntimeResult`.
+- No handler for `agentType` → adapter fails fast with
+  `runtime_not_configured`:
+  - `AgentRun.errorCode = 'runtime_not_configured'`
+  - `AgentRunRequest.lastErrorCode = 'runtime_not_configured'`
 
-This is intentional — silent stub success would mask a deployment gap and
-let consumers (sourcing detail-page generator, image edit, ad-strategy)
-poll forever on empty output. Real adapters must be wired before consumer
-HTTP routes are reopened beyond their current draft state.
+The fail-fast contract is intentional — silent stub success would mask a
+deployment gap and let consumers (sourcing detail-page generator, image
+edit, ad-strategy) poll forever on empty output. Owner domains register
+their handler when they are ready to serve traffic; until then the queue
+fails the request loudly.
+
+Owner domains register handlers via the registry's `register(agentType,
+handler)` method, typically from a Nest provider's `onModuleInit`. The
+registry lives in `application/service/agent-runtime-handler-registry.service.ts`
+and the per-type handler interface is `application/port/out/agent-runtime-handler.port.ts`.
+The AI domain ships the first real handler — `detail_page_generate`.
 
 For isolated unit/integration runs that need the queue path exercised
-without a provider, set `AGENT_RUNTIME_ALLOW_NOOP=1` in `.env`. Never set
-this in shared environments.
+without a handler, set `AGENT_RUNTIME_ALLOW_NOOP=1` in `.env`. The routing
+adapter then returns a synthetic stub result. Never set this in shared
+environments — the synthetic output is empty and downstream sinks cannot
+apply it.
 
 ## Worker contract
 

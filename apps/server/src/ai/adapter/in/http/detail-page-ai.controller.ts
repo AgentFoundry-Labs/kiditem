@@ -15,10 +15,13 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { Throttle } from '@nestjs/throttler';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
+import { Roles } from '../../../../auth/decorators/roles.decorator';
 import type { AuthUser } from '../../../../auth/auth.types';
 import type { MulterFile } from '../../../../common/types';
 import { DetailPageAiService } from '../../../application/service/detail-page-ai.service';
+import { DetailPageAgentReconcileService } from '../../../application/service/detail-page-agent-reconcile.service';
 import { GenerateDetailPageBodyDto, PrefillDetailPageBodyDto } from './dto';
+import { ReconcileDetailPageBodyDto } from './dto/detail-page-reconcile.dto';
 
 const MAX_DETAIL_PAGE_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_DETAIL_PAGE_IMAGE_MIME_TYPES = new Set([
@@ -29,7 +32,10 @@ const ALLOWED_DETAIL_PAGE_IMAGE_MIME_TYPES = new Set([
 
 @Controller('ai/detail-page')
 export class DetailPageAiController {
-  constructor(private readonly service: DetailPageAiService) {}
+  constructor(
+    private readonly service: DetailPageAiService,
+    private readonly reconcile: DetailPageAgentReconcileService,
+  ) {}
 
   @Post('images')
   @UseInterceptors(
@@ -93,5 +99,28 @@ export class DetailPageAiController {
     @CurrentOrganization() organizationId: string,
   ) {
     return this.service.remove(id, organizationId);
+  }
+
+  /**
+   * Admin-triggered reconcile for the detail-page Agent OS pipeline.
+   *
+   * Replays terminal `AgentRunRequest` rows whose originating
+   * `ContentGeneration` is still `PROCESSING` — recovery path for the
+   * hot-path bus event. See agent-os/AGENTS.md "Recovery contract".
+   *
+   * Idempotent (the sink short-circuits when the row is already terminal),
+   * so this can be invoked freely. Restricted to owner/admin to avoid
+   * accidental load amplification.
+   */
+  @Post('reconcile-stuck')
+  @Roles('owner', 'admin')
+  reconcileStuck(
+    @Body() body: ReconcileDetailPageBodyDto,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return this.reconcile.reconcile(organizationId, {
+      sinceMinutes: body.sinceMinutes,
+      limit: body.limit,
+    });
   }
 }

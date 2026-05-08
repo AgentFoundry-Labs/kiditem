@@ -16,8 +16,9 @@ import { ThumbnailTrackingController } from './adapter/in/http/thumbnail-trackin
 import { CoupangImageSyncController } from './adapter/in/http/coupang-image-sync.controller';
 
 // adapter/out
-import { DetailPageNoopAgentOutputSink } from './adapter/out/agent-output/detail-page-noop-sink.adapter';
+import { DetailPageContentGenerationSinkAdapter } from './adapter/out/agent-output/detail-page-content-generation-sink.adapter';
 import { ThumbnailNoopAgentOutputSink } from './adapter/out/agent-output/thumbnail-noop-sink.adapter';
+import { DetailPageGenerateRuntimeHandler } from './adapter/out/agent-runtime/detail-page-generate.runtime-handler';
 import { CoupangInventoryScrapeAdapter } from './adapter/out/coupang/coupang-inventory-scrape.adapter';
 import { CoupangProductSalesScrapeAdapter } from './adapter/out/coupang/coupang-product-sales-scrape.adapter';
 import { CoupangImageReconciliationAdapter } from './adapter/out/channels/coupang-image-reconciliation.adapter';
@@ -32,6 +33,7 @@ import { WingAutomationRunner } from './adapter/out/wing/wing-automation-runner'
 
 // application/service
 import { DetailPageAgentOutputBridge } from './application/service/detail-page-agent-output.bridge';
+import { DetailPageAgentReconcileService } from './application/service/detail-page-agent-reconcile.service';
 import { ThumbnailAgentOutputBridge } from './application/service/thumbnail-agent-output.bridge';
 import { ImageAiService } from './application/service/image-ai.service';
 import { TextAiService } from './application/service/text-ai.service';
@@ -81,6 +83,7 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     ImageAiService,
     CoupangImageSyncService,
     DetailPageAiService,
+    DetailPageAgentReconcileService,
     DetailPageGeneratedImagesService,
     DetailPageHeroImageService,
     DetailPageResultRefinerService,
@@ -96,14 +99,15 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     ThumbnailWingService,
 
     // Agent OS bridges — listen for finalized events and route validated
-    // output through the sink ports defined below. Phase 1 sinks are no-ops
-    // (see adapter/out/agent-output/*); Phase 2 swaps the bindings for real
-    // ContentGeneration / ThumbnailGeneration writers.
+    // output through the sink ports defined below. Detail-page sink is the
+    // real `ContentGeneration` writer; thumbnail sink stays no-op until
+    // its producer is flipped to async.
     DetailPageAgentOutputBridge,
     ThumbnailAgentOutputBridge,
 
     // outgoing adapters
-    DetailPageNoopAgentOutputSink,
+    DetailPageContentGenerationSinkAdapter,
+    DetailPageGenerateRuntimeHandler,
     ThumbnailNoopAgentOutputSink,
     CoupangImageReconciliationAdapter,
     CoupangInventoryScrapeAdapter,
@@ -123,8 +127,12 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     { provide: COUPANG_INVENTORY_SCRAPE_PORT, useExisting: CoupangInventoryScrapeAdapter },
     { provide: COUPANG_PRODUCT_SALES_SCRAPE_PORT, useExisting: CoupangProductSalesScrapeAdapter },
     {
+      // Real sink — applies validated detail_page_generate output to the
+      // originating ContentGeneration row (READY/FAILED + processedImages
+      // + operation alert close). Phase 2 follow-up replaces this binding
+      // for additional AI agent types as they ship.
       provide: DETAIL_PAGE_AGENT_OUTPUT_SINK_PORT,
-      useExisting: DetailPageNoopAgentOutputSink,
+      useExisting: DetailPageContentGenerationSinkAdapter,
     },
     {
       provide: THUMBNAIL_AGENT_OUTPUT_SINK_PORT,

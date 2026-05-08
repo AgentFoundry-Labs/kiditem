@@ -18,15 +18,16 @@ import { AgentRunExecutor } from './agent-run-executor.service';
  * normal `npm run start:dev` / `npm run start:prod` boots once a real runtime
  * adapter is bound.
  *
- * **Default: disabled. Explicit opt-in only.** The default `LocalRuntimeAdapter`
- * fail-fasts every claim with `runtime_not_configured`. If the worker were
- * default-on under that adapter, every existing Agent OS consumer
- * (`/api/image-ai/edit`, rules evaluation, advertising strategy, sourcing
- * scrape) would flip from "request stays pending" to "request fails fast".
- * That changes production semantics, even though Phase 1's stated scope is
- * "production endpoints unchanged". So the worker stays off until the operator
- * explicitly opts in by setting `AGENT_RUNTIME_WORKER_ENABLED=1`. The HTTP
- * `claim-and-run` route remains available for ad-hoc per-organization drains.
+ * **Default: disabled. Explicit opt-in only.** Even with the routing runtime
+ * adapter (per-type handlers via `AgentRuntimeHandlerRegistry`), agent types
+ * without a registered handler still fail-fast with `runtime_not_configured`.
+ * Auto-on would silently flip those (`/api/image-ai/edit`, rules evaluation,
+ * advertising strategy, sourcing scrape) from "request stays pending" to
+ * "request fails fast" the moment a domain hadn't shipped its handler yet.
+ * The operator turns the worker on explicitly via
+ * `AGENT_RUNTIME_WORKER_ENABLED=1` once enough handlers are bound for the
+ * fast-fail mass to be acceptable. The HTTP `claim-and-run` route stays
+ * available for ad-hoc per-organization drains in the meantime.
  *
  * Behavior when enabled:
  *   - One in-flight tick at a time. Re-entrant ticks are skipped (`busy`
@@ -110,10 +111,12 @@ export class AgentRunWorker implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Default: **disabled**. The operator must explicitly opt in via
-   * `AGENT_RUNTIME_WORKER_ENABLED=1` once a real runtime adapter is bound,
-   * because the default `LocalRuntimeAdapter` fail-fasts every claim. Auto-on
-   * would silently turn existing Agent OS consumers' "pending" requests into
-   * fast failures — see the class doc above for the reasoning.
+   * `AGENT_RUNTIME_WORKER_ENABLED=1` once enough per-type runtime handlers
+   * are registered (`AgentRuntimeHandlerRegistry`). The routing runtime
+   * adapter still fail-fasts unknown agent types with
+   * `runtime_not_configured`, so default-on would mass-fail consumers whose
+   * handlers haven't shipped yet — see the class doc above for the
+   * reasoning.
    */
   static resolveEnabled(): boolean {
     const raw = process.env.AGENT_RUNTIME_WORKER_ENABLED;

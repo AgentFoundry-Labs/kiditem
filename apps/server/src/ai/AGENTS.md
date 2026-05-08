@@ -91,28 +91,55 @@ ai/
 
 Gemini text generation 호출은 `TEXT_COMPLETION_PORT` 한 곳에 모인다. `text-ai.service` (preset 변환) 와 `detail-page-ai.service` (kids-playful / bold-vertical 상세페이지 single-call generation) 가 모두 이 port 만 의존하므로 application layer 는 HTTP / API key / Gemini URL 을 알지 않는다. Adapter (`adapter/out/gemini/gemini-text-completion.adapter.ts`) 는 system/user/temperature/responseMimeType/model 을 받아 `generateContent` 엔드포인트를 호출한다. caller 는 `model` 을 항상 명시적으로 ENV 에서 읽어 전달 (silent fallback 금지).
 
-### 7. Detail page generation — active sync path, disabled sourcing async path
+### 7. Detail page generation — Agent OS async (product-bound) + sync standalone fallback
 
-상세페이지 생성은 현재 sync AI path 만 활성화되어 있다. sourcing async
-Agent OS path 는 sourced candidate 와 `MasterProduct` 의 lifecycle 이 분리될
-때까지 비활성화한다.
+상세페이지 생성은 두 갈래다:
 
-#### 7-bis. Agent OS output contract (Phase 1)
+| 진입점 | 모드 | 호출 경로 | 결과 저장 | 사용처 |
+|---|---|---|---|---|
+| `POST /api/ai/detail-page/generate` (`productId` 포함) | **async — Agent OS** | `DetailPageAiService.generate` → `AGENT_RUNNER_PORT.runByType('detail_page_generate')` → runtime handler → bridge → sink | `ContentGeneration` row (`PROCESSING` → `READY`/`FAILED`) | media-ai generate 페이지 (실 사용 경로) |
+| `POST /api/ai/detail-page/generate` (`productId` 없음) | **sync (transitional)** | `DetailPageAiService.generate` → `TEXT_COMPLETION_PORT` 직접 | DB 기록 없음 | 테스트 / 외부 통합 — 프론트는 항상 productId 동반 |
+| `POST /api/sourcing/:id/generate` | **disabled** | `SourcingService.generateDetailPage` → `NotImplementedException` | 없음 | candidate → master promotion model 도입 전까지 사용 금지 |
+| `POST /api/ai/detail-page/reconcile-stuck` | admin (owner/admin) | `DetailPageAgentReconcileService.reconcile` → terminal `AgentRunRequest` 재생 → sink replay | `ContentGeneration` 재시도 적용 | listener 누락/프로세스 재시작 후 stuck `PROCESSING` 회복 |
 
-`detail_page_generate` / `thumbnail_generate` blueprint + Zod output schema +
-FINALIZED bridge + no-op sink 가 정리되어 있지만, **production endpoint 는
-아직 동기 path 를 그대로 쓴다**. Phase 2 에서 sync 서비스를 Agent OS enqueue
-로 바꿀 때 다음 hook 들을 그대로 사용한다:
+#### 7-bis. Agent OS handler / sink / reconcile 토폴로지
 
-- Schemas: `apps/server/src/ai/domain/agent-output/{detail-page,thumbnail}-generate.schema.ts`
-  + barrel `apps/server/src/ai/domain/agent-output/index.ts`
-  (`AI_AGENT_OUTPUT_SCHEMAS`, `AI_AGENT_SOURCE_TYPES`).
-- Bridges: `apps/server/src/ai/application/service/{detail-page,thumbnail}-agent-output.bridge.ts`
-  — `agent.run.finalized` 를 받아 schema validate 후 sink port 로 위임.
-- Sink ports: `apps/server/src/ai/application/port/out/{detail-page,thumbnail}-agent-output-sink.port.ts`.
-  Phase 1 binding 은 `apps/server/src/ai/adapter/out/agent-output/*-noop-sink.adapter.ts`
-  (logs only, no DB write). Phase 2 는 ContentGeneration / ThumbnailGeneration
-  row 를 갱신하는 어댑터로 바인딩 한 줄을 교체한다.
+상세페이지 async path 의 컴포넌트 책임:
+
+- **Schemas** — `apps/server/src/ai/domain/agent-output/detail-page-generate.schema.ts`:
+  `DetailPageGenerateAgentInputSchema` (producer payload + handler input),
+  `DetailPageGenerateAgentOutputSchema` (handler output / bridge validate).
+  Pure domain (Zod only).
+- **Runtime handler** — `apps/server/src/ai/adapter/out/agent-runtime/detail-page-generate.runtime-handler.ts`:
+  AI 도메인이 소유. `onModuleInit` 에서 `AgentRuntimeHandlerRegistry` 에
+  자기 자신을 등록한다. agent-os 는 AI 도메인을 import 하지 않으므로
+  반대 방향 import cycle 이 없다. Handler 는 `TEXT_COMPLETION_PORT` 와
+  `DetailPageResultRefinerService` 만 의존하고 Prisma 에 닿지 않는다.
+  Handler 는 텍스트 호출(`TEXT_COMPLETION_PORT.complete`) 이전에
+  kids-playful 의 package/safety 인덱스를 `DetailPageResultRefinerService.prepareKidsPlayfulImageContext`
+  로 직접 inference 한다 (Gemini Vision). 즉 한 번의 generation 에서
+  발생하는 모든 generative 호출이 Agent OS executor 가 회계하는 한
+  AgentRun 안에 머문다 — producer side(`DetailPageAiService.generate`) 는
+  Prisma + alert 만 다룬다. Producer 가 payload 에 미리 계산된
+  `reservedPackageImageIndices` / `safetyLabelImageIndices` 를 주면 handler
+  는 그 값을 사용하고 vision 호출을 생략한다 (테스트 / reconcile replay 용 hook).
+  Handler 는 kids-playful output 에도 같은 인덱스를 실어 sink 가 후속
+  `DetailPageGeneratedImagesService.generateBestEffort` 호출에서 package /
+  safety-label 이미지를 제외하게 한다.
+- **Bridge** — `detail-page-agent-output.bridge.ts`:
+  `agent.run.finalized` 이벤트 listen → `event.agentType === 'detail_page_generate'`
+  필터 → output Zod validate → sink 호출. envelope 사용 금지 (runtime
+  failure 시 output 이 비어 있으므로 metadata 기반 routing 만 신뢰).
+- **Sink port + adapter** — `application/port/out/detail-page-agent-output-sink.port.ts`,
+  `adapter/out/agent-output/detail-page-content-generation-sink.adapter.ts`.
+  Sink 가 `(id=sourceResourceId, organizationId)` scope 로 `ContentGeneration`
+  row 를 READY/FAILED 로 갱신하고, processedImages 생성 (`DetailPageGeneratedImagesService`)
+  + operation alert close 까지 함께 처리. Bridge 는 DB 를 직접 건드리지 않고
+  sink port 만 호출한다.
+- **Reconcile service** — `application/service/detail-page-agent-reconcile.service.ts`:
+  recovery contract 의 AI 측 구현. terminal `AgentRunRequest` 를 스캔해서
+  여전히 `PROCESSING` 인 `ContentGeneration` row 를 같은 sink 경로로 replay.
+  `POST /api/ai/detail-page/reconcile-stuck` (owner/admin) 으로 호출한다.
 
 규칙:
 
@@ -124,25 +151,22 @@ FINALIZED bridge + no-op sink 가 정리되어 있지만, **production endpoint 
   (`apps/server/src/agent-os/application/event/agent-run-events.ts`).
 - Bridge 는 schema 실패 output 을 `applyFailure({ errorCode: 'agent_output_invalid' })`
   로 sink 에 넘긴다. 절대 그냥 throw 해서 다른 도메인의 FINALIZED listener 를 깨면 안 된다.
+- Sink 는 row 가 이미 terminal (`READY`/`FAILED`) 이면 무동작. 이 idempotency
+  덕에 reconcile 이 hot-path 와 안전하게 race 한다.
 - Bridge listener 는 hot-path 다. `AgentRun.output` 과 `AgentRunRequest.lastErrorCode`
-  가 source of truth 이고, listener 가 실패하거나 process 가 재시작하면 reconcile
-  경로가 회복한다. Phase 2 에서 `(agentType, sourceResourceId)` 키로 도는 reconcile
-  job 이 비-terminal 상태에 남은 downstream row 를 동일한 schema + sink 경로로 replay
-  한다 — agent-os/AGENTS.md "Recovery contract" 절 참고.
+  가 source of truth. listener 가 실패하거나 process 가 재시작하면 reconcile
+  service 가 동일 schema + sink 경로로 replay 한다 — agent-os/AGENTS.md
+  "Recovery contract" 절 참고.
+- Standalone sync path (productId 없음) 는 `ContentGeneration` ledger 를 안 만들기
+  때문에 reconcile / agent-os pipeline 과 무관하다. 외부 통합/테스트 fallback 으로만 유지.
 - 새 AI agent type 추가 시 (a) schema 파일, (b) `AI_AGENT_OUTPUT_SCHEMAS` 등록,
-  (c) FINALIZED bridge, (d) sink port + 어댑터 한 쌍을 같이 추가한다.
+  (c) FINALIZED bridge, (d) sink port + 어댑터, (e) (real handler 가 필요한 경우)
+  `AgentRuntimeHandlerRegistry` 에 등록하는 runtime handler 한 쌍을 같이 추가한다.
 
-| 진입점 | 모드 | 호출 경로 | 결과 저장 | 사용처 |
-|---|---|---|---|---|
-| `POST /api/sourcing/:id/generate` | **disabled** | `SourcingService.generateDetailPage` → `NotImplementedException` | 없음 | candidate → master promotion model 도입 전까지 사용 금지 |
-| `POST /api/ai/detail-page/generate` | **sync** (inline Gemini) | ai 도메인의 `DetailPageAiService.generate` → `TEXT_COMPLETION_PORT` | `ContentGeneration` row + `detailPageHtml` JSON column | media-ai generate 페이지 (kids-playful / bold-vertical) |
-
-규칙:
-- ai sync path 는 Gemini 응답이 즉시 schema-valid (Zod) 일 때만 사용.
-- `bold-vertical` sourcing/content-agent path 는 disabled 상태다. 다시 활성화하려면
-  sourced candidate 저장소, approval/promotion workflow, 그리고 content
-  generation target model 을 먼저 설계한다.
-- `ContentGeneration.detailPageHtml` 은 sync path 의 polymorphic JSON store 다. `templateId` 키로 분기하며 schema-level discriminator column 화는 후속 lane.
+운영 환경 의존성: 위 async path 가 실제로 동작하려면 prod/dev 환경에서
+`AGENT_RUNTIME_WORKER_ENABLED=1` 와 `AGENT_DETAIL_PAGE_GENERATE_MODEL`
+(또는 `AGENT_DEFAULT_MODEL`) 가 세팅되어야 한다 — agent-os/AGENTS.md
+"Worker contract" / "Runtime adapter contract" 참고.
 
 ## Rules
 

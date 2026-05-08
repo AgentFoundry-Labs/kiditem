@@ -345,6 +345,19 @@ export interface AgentOsRepositoryPort {
     organizationId: string;
     runId: string;
   }): Promise<AgentRunRecord | null>;
+  /**
+   * Latest `AgentRun` for a given `(organizationId, requestId)` tuple,
+   * scoped by status if provided. Used by reconcile/replay paths that
+   * need the run output for a *specific* request, not the latest run on
+   * the agent instance — `listRuns({ agentInstanceId, ... })` cannot
+   * answer "what was THIS request's output?" because newer runs from
+   * the same instance shadow it.
+   */
+  findRunByRequestId(input: {
+    organizationId: string;
+    requestId: string;
+    status?: AgentRunStatus[] | null;
+  }): Promise<AgentRunRecord | null>;
   listRuns(input: FindRunsQuery): Promise<AgentRunRecord[]>;
   appendRunEvent(input: AppendRunEventInput): Promise<AgentRunEventRecord>;
   listRunEvents(input: FindRunEventsQuery): Promise<AgentRunEventRecord[]>;

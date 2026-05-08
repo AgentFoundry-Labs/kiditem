@@ -162,7 +162,7 @@ export function useGenerateForm() {
       });
       const queryKey = apiTemplateId === 'bold-vertical' ? 'boldId' : 'kpId';
       if (data.productId) {
-        toast.success('상세페이지 생성 완료. 에디터로 이동합니다.');
+        toast.success('상세페이지 생성을 시작했습니다. 에디터에서 진행 상황을 확인하세요.');
         router.push(`/sourcing/${data.productId}/editor?${queryKey}=${data.id}`);
       }
     } catch (err) {
