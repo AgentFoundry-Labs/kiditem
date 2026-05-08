@@ -13,8 +13,8 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1029.0",
-    "@copilotkit/runtime": "^1.54.1",
-    "@google/genai": "^1.48.0",
+    "@copilotkit/runtime": "^1.57.1",
+    "@google/genai": "^1.52.0",
     "@kiditem/shared": "*",
     "@langchain/core": "^1.1.39",
     "@nestjs/common": "^11.0.0",
@@ -38,8 +38,7 @@
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.0",
     "sharp": "^0.34.5",
-    "uuid": "^11.1.0",
-    "xlsx": "^0.18.5",
+    "xlsx": "npm:@e965/xlsx@^0.20.3",
     "zod": "^3.25.0"
   },
   "devDependencies": {
