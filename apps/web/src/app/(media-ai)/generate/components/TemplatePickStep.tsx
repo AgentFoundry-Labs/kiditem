@@ -316,7 +316,7 @@ function PreviewModal({ templateId, onClose }: PreviewModalProps) {
       if (h > 0) setIframeHeight(h);
     };
     el.addEventListener('load', measure);
-    // Tailwind CDN 비동기 로드 후 layout 변할 수 있어 1초/3초 후 재측정
+    // 폰트/이미지 로드 후 layout 변할 수 있어 1초/3초 후 재측정
     const t1 = setTimeout(measure, 1500);
     const t2 = setTimeout(measure, 3500);
     return () => {
@@ -357,14 +357,20 @@ function PreviewModal({ templateId, onClose }: PreviewModalProps) {
         {/* 모달 body — overflow-y-auto. iframe 은 자체 콘텐츠 높이만큼 늘려 자체 스크롤 X.
             사용자가 모달을 위→아래로 스크롤하면 전체 템플릿이 한눈에 펼쳐짐. */}
         <div className="flex-1 overflow-y-auto bg-white">
-          <iframe
-            ref={iframeRef}
-            srcDoc={sandboxedHtml}
-            className="block w-full border-0 bg-white"
-            style={{ height: `${iframeHeight}px` }}
-            title={`${templateId}-preview-modal`}
-            sandbox={SAME_ORIGIN_SCRIPTLESS_SANDBOX}
-          />
+          {templateCss == null ? (
+            <div className="flex h-full items-center justify-center text-sm font-semibold text-slate-400">
+              템플릿 스타일을 불러오는 중입니다.
+            </div>
+          ) : (
+            <iframe
+              ref={iframeRef}
+              srcDoc={sandboxedHtml}
+              className="block w-full border-0 bg-white"
+              style={{ height: `${iframeHeight}px` }}
+              title={`${templateId}-preview-modal`}
+              sandbox={SAME_ORIGIN_SCRIPTLESS_SANDBOX}
+            />
+          )}
         </div>
       </div>
     </div>

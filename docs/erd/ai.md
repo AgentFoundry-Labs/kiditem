@@ -14,9 +14,11 @@
 | ThumbnailAnalysis | `thumbnail_analyses` | 5차원 scores(heroShot·composition·branding·mobile·differentiation) + complianceGrade(PASS/WARN/FAIL) + imageSpec(사전검수). 스펙 FAIL 시 AI 호출 생략. |
 | ThumbnailGeneration | `thumbnail_generations` | 상태: pending→generating→ready/failed→applied/skipped. method=edit 만 사용 (generate Imagen 방식 삭제됨). |
 | ThumbnailGenerationCandidate | `thumbnail_generation_candidates` | 썸네일 생성 후보 이미지. 바이너리는 object storage 에 저장하고 DB 는 URL/key 메타데이터만 보관한다. |
+| ThumbnailGenerationEvent | `thumbnail_generation_events` | ThumbnailGeneration 의 status/phase/attempt/error 전이 audit ledger. row 누적, 덮어쓰기 X. |
 | ThumbnailGenerationInputImage | `thumbnail_generation_input_images` | 썸네일 편집/생성 입력 이미지. base64 원문 대신 object storage 참조와 역할 메타데이터만 저장한다. |
 | ThumbnailRegistrationAttempt | `thumbnail_registration_attempts` | Wing 등 외부 채널 등록 시도 이력. 마지막 상태만 덮어쓰지 않고 재시도/실패 원인을 보존한다. |
 | ThumbnailTracking | `thumbnail_trackings` | - |
+| ThumbnailTrackingDailySnapshot | `thumbnail_tracking_daily_snapshots` | 적용된 썸네일의 30일 매출/판매량 시계열 — playwriter 로 Wing vendor-inventory 검색해서 매일 한 row 씩 적재. |
 
 ## Mermaid ER Diagram
 
@@ -110,6 +112,22 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  ThumbnailGenerationEvent {
+    String id PK
+    String organizationId FK
+    String generationId FK
+    String eventType
+    String fromStatus
+    String toStatus
+    String fromPhase
+    String toPhase
+    Int attemptNumber
+    String errorMessage
+    Json payload
+    String actorUserId FK
+    DateTime occurredAt
+    DateTime createdAt
+  }
   ThumbnailGenerationInputImage {
     String id PK
     String organizationId FK
@@ -120,6 +138,8 @@ erDiagram
     String label
     Int sortOrder
     String source
+    String masterImageId FK
+    String sourceCandidateId FK
     String mimeType
     Int width
     Int height
@@ -158,10 +178,29 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  ThumbnailTrackingDailySnapshot {
+    String id PK
+    String organizationId FK
+    String trackingId FK
+    DateTime capturedAt
+    DateTime capturedDate
+    Int unitsSold30d
+    Int unitsSold7d
+    Int revenueKrw
+    Int reviewCount
+    Float ratingAvg
+    Json rawCellTexts
+    String scrapeStatus
+    String errorMessage
+    DateTime createdAt
+  }
   ThumbnailGeneration ||--o{ ThumbnailGenerationCandidate : "generation"
+  ThumbnailGeneration ||--o{ ThumbnailGenerationEvent : "generation"
   ThumbnailGeneration ||--o{ ThumbnailGenerationInputImage : "generation"
   ThumbnailGeneration ||--o{ ThumbnailRegistrationAttempt : "generation"
   ThumbnailGeneration ||--o{ ThumbnailTracking : "generation"
+  ThumbnailGenerationCandidate o|--o{ ThumbnailGenerationInputImage : "sourceCandidate"
+  ThumbnailTracking ||--o{ ThumbnailTrackingDailySnapshot : "tracking"
 ```
 
 ## External References
@@ -179,7 +218,11 @@ erDiagram
 | ThumbnailGeneration | organization | references external | Core | Organization |
 | ThumbnailGeneration | triggeredByUser | references external | Core | User |
 | ThumbnailGenerationCandidate | organization | references external | Core | Organization |
+| ThumbnailGenerationEvent | actor | references external | Core | User |
+| ThumbnailGenerationEvent | organization | references external | Core | Organization |
+| ThumbnailGenerationInputImage | masterImage | references external | Core | MasterProductImage |
 | ThumbnailGenerationInputImage | organization | references external | Core | Organization |
 | ThumbnailRegistrationAttempt | organization | references external | Core | Organization |
 | ThumbnailTracking | listing | references external | Core | ChannelListing |
 | ThumbnailTracking | organization | references external | Core | Organization |
+| ThumbnailTrackingDailySnapshot | organization | references external | Core | Organization |

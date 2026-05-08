@@ -377,7 +377,10 @@ describe('ThumbnailGenerationService normalized persistence', () => {
     });
     expect(editArgs.referenceMode).toBe('edit-image');
     expect(tx.thumbnailGenerationCandidate.createMany).toHaveBeenCalled();
-    expect(tx.thumbnailGeneration.updateMany.mock.calls[0][0].data).toMatchObject({
+    const finishUpdate = tx.thumbnailGeneration.updateMany.mock.calls.find(
+      ([arg]) => arg.data?.status === 'succeeded',
+    )?.[0];
+    expect(finishUpdate?.data).toMatchObject({
       status: 'succeeded',
       phase: 'ready',
     });

@@ -1,5 +1,5 @@
 /**
- * BoldVerticalGeneration → DetailPageData.
+ * BoldVerticalGeneration -> DetailPageData.
  *
  * KIDITEM DESIGN 은 BoldVertical 템플릿을 사용한다. LLM 은 hook/section/
  * keyPoints/productInfo 같은 중간 필드를 만들고, 이 어댑터가 imageIndex 를
@@ -14,6 +14,7 @@ import {
 const GENERATED_HERO_BANNER_KEY = '__heroBanner';
 const GENERATED_SIZE_GUIDE_IMAGE_KEY = '__sizeGuideImage';
 const GENERATED_COLOR_GUIDE_IMAGE_KEY = '__colorGuideImage';
+const GENERATED_USAGE_IMAGE_KEYS = ['__usageGuideImage1', '__usageGuideImage2', '__usageGuideImage3'] as const;
 const GENERATED_DETAIL_IMAGE_KEYS = ['__detailImage1', '__detailImage2', '__detailImage3'] as const;
 
 export interface BoldVerticalGeneration {
@@ -47,18 +48,31 @@ export interface BoldVerticalGeneration {
   detailImageIndices: number[];
   packageImageIndices?: number[];
   packageLabel?: string;
+  safetyLabelImageIndices?: number[];
   productInfo?: Array<{ key: string; value: string }>;
 }
 
 export function adaptBoldVerticalToDetailPageData(
-  raw: BoldVerticalGeneration,
+  raw: Partial<BoldVerticalGeneration> | null | undefined,
   imageUrls: string[],
   processedImages: Record<string, string> = {},
   apiBase: string = '',
 ): Partial<DetailPageData> {
   const orderedImageUrls = moveSafetyLabelImagesToEnd(imageUrls);
-  const safetyLabelImages = orderedImageUrls.filter(isSafetyLabelImageUrl);
-  const productInfo = safetyLabelImages.length > 0 ? [] : raw.productInfo ?? [];
+  const generation = raw ?? {};
+  const hook = generation.hook ?? {
+    subtext: '',
+    text: '',
+    titleSub: '',
+    description: '',
+    imageIndex: null,
+  };
+  const keyPoints = generation.keyPoints ?? [];
+  const size = generation.size ?? { subtitle: '', imageIndices: [] };
+  const color = generation.color ?? { subtitle: '', imageIndices: [] };
+  const usage = generation.usage ?? { subtitle: '', imageIndices: [] };
+  const detailImageIndices = generation.detailImageIndices ?? [];
+  const explicitSafetyIndexSet = new Set(generation.safetyLabelImageIndices ?? []);
   const resolve = (
     idx: number | null | undefined,
     options: { allowSafetyLabel?: boolean } = {},
@@ -68,35 +82,69 @@ export function adaptBoldVerticalToDetailPageData(
     const url = processed
       ? (processed.startsWith('http') ? processed : `${apiBase}${processed}`)
       : (idx < orderedImageUrls.length ? orderedImageUrls[idx] : '');
-    if (!url || (!options.allowSafetyLabel && isSafetyLabelImageUrl(url))) return '';
+    if (!url || (!options.allowSafetyLabel && (explicitSafetyIndexSet.has(idx) || isSafetyLabelImageUrl(url)))) {
+      return '';
+    }
     return url;
   };
-  const resolveList = (indices: number[] | undefined): string[] =>
-    (indices ?? []).map((i) => resolve(i)).filter((u) => u !== '');
+  const resolveList = (
+    indices: number[] | undefined,
+    options: { allowSafetyLabel?: boolean } = {},
+  ): string[] => (indices ?? []).map((i) => resolve(i, options)).filter((u) => u !== '');
   const resolveGenerated = (key: string): string => {
     const url = processedImages[key];
     if (!url) return '';
     return url.startsWith('http') ? url : `${apiBase}${url}`;
   };
+  const firstProductImageIndex = orderedImageUrls.findIndex(
+    (url) => !isSafetyLabelImageUrl(url),
+  );
+  const explicitSafetyLabelImages = uniqueUrls(
+    resolveList(generation.safetyLabelImageIndices, { allowSafetyLabel: true }),
+  );
+  const safetyLabelImages = uniqueUrls([
+    ...explicitSafetyLabelImages,
+    ...orderedImageUrls.filter(isSafetyLabelImageUrl),
+  ]);
+  const safetyLabelImageSet = new Set(safetyLabelImages);
+  const productInfo = safetyLabelImages.length > 0 ? [] : generation.productInfo ?? [];
 
-  const heroImage = resolve(raw.hook.imageIndex);
+  const heroImage = resolve(hook.imageIndex ?? firstProductImageIndex);
   const generatedHeroBanner = resolveGenerated(GENERATED_HERO_BANNER_KEY);
   const generatedSizeGuideImage = resolveGenerated(GENERATED_SIZE_GUIDE_IMAGE_KEY);
   const generatedColorGuideImage = resolveGenerated(GENERATED_COLOR_GUIDE_IMAGE_KEY);
+  const generatedUsageImages = GENERATED_USAGE_IMAGE_KEYS
+    .map((key) => resolveGenerated(key))
+    .filter((url) => url !== '');
   const generatedDetailImages = GENERATED_DETAIL_IMAGE_KEYS
     .map((key) => resolveGenerated(key))
     .filter((url) => url !== '');
   const heroBanner = generatedHeroBanner;
-  const heroProductImage = heroImage || generatedSizeGuideImage;
-  const resolvedSizeImages = generatedSizeGuideImage
-    ? [generatedSizeGuideImage]
-    : [];
-  const rawColorImages = resolveList(raw.color.imageIndices);
+  const heroProductImage = generatedSizeGuideImage || heroImage;
+  const resolvedSizeImages = generatedSizeGuideImage ? [generatedSizeGuideImage] : [];
+  const rawColorImages = resolveList(color.imageIndices);
   const resolvedColorImages = generatedColorGuideImage
     ? [generatedColorGuideImage]
     : rawColorImages;
-  const resolvedUsageImages = resolveList(raw.usage.imageIndices);
-  const rawDetailImages = resolveList(raw.detailImageIndices);
+  const rawUsageImages = resolveList(usage.imageIndices);
+  const resolvedUsageImages = generatedUsageImages.length > 0
+    ? generatedUsageImages
+    : rawUsageImages;
+  const rawDetailImages = resolveList(detailImageIndices);
+  const nonPackageSectionImageSet = new Set([
+    ...resolvedSizeImages,
+    generatedColorGuideImage,
+    ...rawColorImages,
+    ...resolvedUsageImages,
+  ]);
+  const resolvedPackageImages = generation.packageLabel?.trim()
+    ? uniqueUrls(resolveList(generation.packageImageIndices))
+      .filter((url) => !nonPackageSectionImageSet.has(url))
+    : [];
+  const packageImageSet = new Set(resolvedPackageImages);
+  const nonSafetyProductImages = orderedImageUrls.filter((url) => (
+    !safetyLabelImageSet.has(url) && !isSafetyLabelImageUrl(url)
+  ));
   const primarySectionImages = new Set([
     heroProductImage,
     generatedSizeGuideImage,
@@ -104,16 +152,24 @@ export function adaptBoldVerticalToDetailPageData(
     ...rawColorImages,
     ...resolvedUsageImages,
   ].filter(Boolean));
-  const nonRepeatedRawDetailImages = rawDetailImages.filter((url) => !primarySectionImages.has(url));
+  const fallbackDetailImages = uniqueUrls([
+    ...nonSafetyProductImages.filter((url) => !primarySectionImages.has(url)),
+    ...rawUsageImages,
+    heroProductImage,
+    ...nonSafetyProductImages,
+  ]).slice(0, 3);
   const resolvedDetailImages = uniqueUrls([
     ...generatedDetailImages,
-    ...(nonRepeatedRawDetailImages.length > 0 ? nonRepeatedRawDetailImages : rawDetailImages),
-  ]);
-  const resolvedPackageImages = uniqueUrls(resolveList(raw.packageImageIndices));
-  const descriptionLines = raw.hook.description
-    ? raw.hook.description.split('\n').map((s) => s.trim()).filter(Boolean)
+    ...rawDetailImages,
+    ...(generatedUsageImages.length > 0 ? [] : rawUsageImages),
+  ]).filter((url) => !packageImageSet.has(url) && !safetyLabelImageSet.has(url));
+  const finalDetailImages = resolvedDetailImages.length > 0
+    ? resolvedDetailImages
+    : fallbackDetailImages.filter((url) => !packageImageSet.has(url) && !safetyLabelImageSet.has(url));
+  const descriptionLines = hook.description
+    ? hook.description.split('\n').map((s) => s.trim()).filter(Boolean)
     : [];
-  const productName = [raw.hook.text, raw.hook.titleSub]
+  const productName = [hook.text, hook.titleSub]
     .map((part) => (part ?? '').trim())
     .filter(Boolean)
     .join(' ')
@@ -122,23 +178,23 @@ export function adaptBoldVerticalToDetailPageData(
     .trim();
   const sectionSubtitleLines = productName
     ? [`${productName}의 상품정보 입니다.`, '아래의 제품정보를 확인해 주세요.']
-    : (raw.section?.subtitle
-        ? raw.section.subtitle.split('\n').map((s) => s.trim()).filter(Boolean)
+    : (generation.section?.subtitle
+        ? generation.section.subtitle.split('\n').map((s) => s.trim()).filter(Boolean)
         : []);
 
   return {
-    title: raw.hook.text,
-    badge: raw.hook.subtext,
-    hookText: raw.hook.text,
-    hookTitleSub: raw.hook.titleSub ?? '',
-    hookSubtext: raw.hook.subtext,
+    title: hook.text,
+    badge: hook.subtext,
+    hookText: hook.text,
+    hookTitleSub: hook.titleSub ?? '',
+    hookSubtext: hook.subtext,
     description: descriptionLines,
     images: heroProductImage ? [heroProductImage] : [],
     heroBanner,
-    sectionName: raw.section?.name ?? '',
-    sectionTitle: raw.section?.title ?? '',
+    sectionName: generation.section?.name ?? '',
+    sectionTitle: generation.section?.title ?? '',
     sectionSubtitle: sectionSubtitleLines,
-    keyPoints: raw.keyPoints.map((kp, i) => ({
+    keyPoints: keyPoints.map((kp, i) => ({
       number: i + 1,
       title: kp.title,
       description: kp.description,
@@ -148,19 +204,19 @@ export function adaptBoldVerticalToDetailPageData(
       })(),
     })),
     sizeTitle: '제품 사이즈 및 구성품',
-    sizeSubtitle: productName ? `${productName}의 사이즈 및 구성품 안내 입니다.` : raw.size.subtitle,
-    sizeGuideOverlay: raw.size.guideOverlay ?? true,
-    sizeHeightLabel: raw.size.heightLabel ?? '',
-    sizeWidthLabel: raw.size.widthLabel ?? '',
+    sizeSubtitle: productName ? `${productName}의 사이즈 및 구성품 안내 입니다.` : size.subtitle,
+    sizeGuideOverlay: size.guideOverlay ?? true,
+    sizeHeightLabel: size.heightLabel ?? '',
+    sizeWidthLabel: size.widthLabel ?? '',
     sizeImages: resolvedSizeImages,
-    colorSubtitle: raw.color.subtitle,
+    colorSubtitle: color.subtitle,
     colorImages: resolvedColorImages,
-    usageSubtitle: raw.usage.subtitle,
+    usageSubtitle: normalizeUsageGuide(usage.subtitle, productName),
     usageImages: resolvedUsageImages,
     detailText: '구성품 및 색상은 사진과 다를 수 있습니다',
-    detailImages: resolvedDetailImages,
-    detailPackageImages: resolvedPackageImages.filter((url) => resolvedDetailImages.includes(url)),
-    detailPackageLabel: raw.packageLabel ?? '',
+    detailImages: finalDetailImages,
+    detailPackageImages: resolvedPackageImages,
+    detailPackageLabel: generation.packageLabel ?? '',
     safetyLabelImages,
     productInfo,
   };
@@ -168,4 +224,43 @@ export function adaptBoldVerticalToDetailPageData(
 
 function uniqueUrls(urls: string[]): string[] {
   return Array.from(new Set(urls.filter((url) => url.trim() !== '')));
+}
+
+function normalizeUsageGuide(value: string, productName: string): string {
+  const lines = value
+    .split(/\n|(?:^|\s)(?=\d+[.)]\s*)/u)
+    .map((line) => line.replace(/^\d+[.)]\s*/u, '').trim())
+    .filter(Boolean)
+    .slice(0, 3);
+  if (lines.length >= 2) {
+    return lines.map((line, index) => `${index + 1}. ${line}`).join('\n');
+  }
+
+  const name = productName.trim();
+  const fallback = (() => {
+    if (/비눗|버블|bubble/i.test(name)) {
+      return [
+        '제품을 세워 잡고 전원을 켜세요',
+        '입구가 얼굴을 향하지 않게 사용하세요',
+        '사용 후 물기를 닦아 보관하세요',
+      ];
+    }
+    if (/수제|왁스|말랑|주물럭|슬라임|촉감/i.test(name)) {
+      return [
+        '포장을 열고 제품 상태를 확인하세요',
+        '손으로 가볍게 눌러 촉감을 즐기세요',
+        '사용 후 먼지를 닦아 보관하세요',
+      ];
+    }
+    return [
+      '포장을 열고 제품 상태를 확인하세요',
+      '보호자 확인 후 알맞게 사용하세요',
+      '사용 후 깨끗하게 정리해 보관하세요',
+    ];
+  })();
+
+  return [
+    ...lines,
+    ...fallback.filter((line) => !lines.includes(line)),
+  ].slice(0, 3).map((line, index) => `${index + 1}. ${line}`).join('\n');
 }

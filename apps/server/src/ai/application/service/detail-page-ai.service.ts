@@ -48,7 +48,15 @@ type DetailPageTemplateId = 'kids-playful' | 'bold-vertical';
 const GENERATED_HERO_BANNER_KEY = '__heroBanner';
 const GENERATED_SIZE_GUIDE_IMAGE_KEY = '__sizeGuideImage';
 const GENERATED_COLOR_GUIDE_IMAGE_KEY = '__colorGuideImage';
+const GENERATED_USAGE_IMAGE_KEYS = ['__usageGuideImage1', '__usageGuideImage2', '__usageGuideImage3'] as const;
 const GENERATED_DETAIL_IMAGE_KEYS = ['__detailImage1', '__detailImage2', '__detailImage3'] as const;
+const MAX_GENERATED_USAGE_IMAGES = 1;
+const MAX_GENERATED_DETAIL_IMAGES = 1;
+
+interface KidsPlayfulImageContext {
+  packageImageIndices: Set<number>;
+  safetyLabelImageIndices: Set<number>;
+}
 
 const DetailPagePrefillSchema = z.object({
   category: z.string().min(1).max(80),
@@ -207,6 +215,14 @@ export class DetailPageAiService {
     };
 
     const isBoldVertical = templateId === 'bold-vertical';
+    const kidsImageContext = await this.prepareKidsPlayfulImageContext({
+      templateId,
+      rawInput,
+    });
+    const excludedImageIndices = [
+      ...kidsImageContext.packageImageIndices,
+      ...kidsImageContext.safetyLabelImageIndices,
+    ];
 
     if (dto.productId) {
       const row = await this.prisma.contentGeneration.create({
@@ -251,6 +267,7 @@ export class DetailPageAiService {
           templateId,
           model,
           isBoldVertical,
+          kidsImageContext,
         });
         const productName = this.pickProductName(parsed, templateId, dto.rawTitle);
         const processedImages = await this.generateHeroImagesBestEffort({
@@ -259,6 +276,7 @@ export class DetailPageAiService {
           templateId,
           rawInput,
           productName,
+          excludedImageIndices,
         });
         const detailPageHtml = JSON.stringify({
           templateId,
@@ -315,6 +333,7 @@ export class DetailPageAiService {
       templateId,
       model,
       isBoldVertical,
+      kidsImageContext,
     });
     const productName = this.pickProductName(parsed, templateId, dto.rawTitle);
     const processedImages = await this.generateHeroImagesBestEffort({
@@ -323,6 +342,7 @@ export class DetailPageAiService {
       templateId,
       rawInput,
       productName,
+      excludedImageIndices,
     });
 
     return {
@@ -524,19 +544,31 @@ export class DetailPageAiService {
     templateId: DetailPageTemplateId;
     model: string;
     isBoldVertical: boolean;
+    kidsImageContext?: KidsPlayfulImageContext;
   }): Promise<DetailPageGeneration | BoldVerticalGeneration> {
     const { text: rawText } = await this.textCompletion.complete({
       system: input.isBoldVertical ? BOLD_VERTICAL_SYSTEM : SINGLE_CALL_SYSTEM,
       user: input.isBoldVertical
         ? buildBoldVerticalUser({ raw: input.rawInput, heroImageMode: input.heroImageMode })
-        : buildSingleCallUser({ raw: input.rawInput, heroImageMode: input.heroImageMode }),
+        : buildSingleCallUser({
+            raw: input.rawInput,
+            heroImageMode: input.heroImageMode,
+            reservedPackageImageIndices: [...(input.kidsImageContext?.packageImageIndices ?? [])],
+            safetyLabelImageIndices: [...(input.kidsImageContext?.safetyLabelImageIndices ?? [])],
+          }),
       temperature: 0.8,
       responseMimeType: 'application/json',
       model: input.model,
     });
     const parsed = (input.isBoldVertical ? BoldVerticalGenerationSchema : DetailPageGenerationSchema)
       .parse(this.extractJson(rawText));
-    if (!input.isBoldVertical) return parsed;
+    if (!input.isBoldVertical) {
+      return this.applyKidsPlayfulImageSelectionRules(
+        parsed as DetailPageGeneration,
+        input.rawInput,
+        input.kidsImageContext,
+      );
+    }
     const withProductTitleHeadings = this.applyBoldVerticalProductTitleHeadings(
       parsed as BoldVerticalGeneration,
       input.rawInput.rawTitle,
@@ -561,14 +593,19 @@ export class DetailPageAiService {
       withDetailImageOrder,
       input.rawInput,
     );
+    const detectedSafetyLabelIndices = await this.detectSafetyLabelImageIndices(
+      input.rawInput.imageUrls,
+    );
     const withImageSelectionRules = this.applyBoldVerticalImageSelectionRules(
       withPackageLabel,
       input.rawInput,
+      detectedSafetyLabelIndices,
     );
     return this.suppressProductInfoWhenSafetyLabelExists(
       withImageSelectionRules,
       input.templateId,
       input.rawInput.imageUrls,
+      detectedSafetyLabelIndices,
     ) as BoldVerticalGeneration;
   }
 
@@ -576,16 +613,237 @@ export class DetailPageAiService {
     result: T,
     templateId: DetailPageTemplateId,
     imageUrls: string[],
+    detectedSafetyLabelIndices?: Set<number>,
   ): T {
     if (templateId !== 'bold-vertical') return result;
-    if (!imageUrls.some(isSafetyLabelImageUrl)) return result;
     if (!result || typeof result !== 'object') return result;
+    const explicitSafetyIndices = (result as { safetyLabelImageIndices?: unknown }).safetyLabelImageIndices;
+    const hasExplicitSafety = Array.isArray(explicitSafetyIndices) && explicitSafetyIndices.length > 0;
+    const hasSafetyLabel = imageUrls.some(isSafetyLabelImageUrl) ||
+      (detectedSafetyLabelIndices?.size ?? 0) > 0 ||
+      hasExplicitSafety;
+    if (!hasSafetyLabel) return result;
     if (!Array.isArray((result as { productInfo?: unknown }).productInfo)) return result;
 
     return {
       ...(result as Record<string, unknown>),
       productInfo: [],
     } as T;
+  }
+
+  private async detectSafetyLabelImageIndices(imageUrls: string[]): Promise<Set<number>> {
+    const result = new Set<number>();
+    await Promise.all(imageUrls.map(async (url, index) => {
+      if (isSafetyLabelImageUrl(url)) {
+        result.add(index);
+        return;
+      }
+      const buffer = await this.fetchImageForSafetyDetection(url);
+      if (!buffer) return;
+      try {
+        if (await looksLikeSafetyLabelImage(buffer)) result.add(index);
+      } catch {
+        // Safety detection is best-effort; URL markers and LLM fields still apply.
+      }
+    }));
+    return result;
+  }
+
+  private async fetchImageForSafetyDetection(url: string): Promise<Buffer | null> {
+    if (url.startsWith('data:image/')) {
+      const [, encoded] = url.split(',', 2);
+      if (!encoded) return null;
+      try {
+        return Buffer.from(encoded, 'base64');
+      } catch {
+        return null;
+      }
+    }
+    if (!/^https?:\/\//i.test(url)) return null;
+    try {
+      const hostname = new URL(url).hostname.toLowerCase();
+      if (hostname === 'example.com' || hostname.endsWith('.example.com')) return null;
+    } catch {
+      return null;
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2500);
+    try {
+      const response = await fetch(url, { signal: controller.signal });
+      if (!response.ok) return null;
+      const contentType = response.headers.get('content-type') ?? '';
+      if (contentType && !contentType.toLowerCase().startsWith('image/')) return null;
+      return Buffer.from(await response.arrayBuffer());
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private findSafetyLabelImageUrlIndices(imageUrls: string[]): Set<number> {
+    const result = new Set<number>();
+    imageUrls.forEach((url, index) => {
+      if (isSafetyLabelImageUrl(url)) result.add(index);
+    });
+    return result;
+  }
+
+  private async prepareKidsPlayfulImageContext(input: {
+    templateId: DetailPageTemplateId;
+    rawInput: {
+      rawDescription?: string;
+      rawOptions?: string;
+      imageUrls: string[];
+    };
+  }): Promise<KidsPlayfulImageContext> {
+    if (input.templateId !== 'kids-playful') {
+      return {
+        packageImageIndices: new Set<number>(),
+        safetyLabelImageIndices: new Set<number>(),
+      };
+    }
+
+    const packageImageIndices = await this.inferKidsPackageImageIndices(input.rawInput);
+    return {
+      packageImageIndices,
+      safetyLabelImageIndices: this.findSafetyLabelImageUrlIndices(input.rawInput.imageUrls),
+    };
+  }
+
+  private async inferKidsPackageImageIndices(rawInput: {
+    rawDescription?: string;
+    rawOptions?: string;
+    imageUrls: string[];
+  }): Promise<Set<number>> {
+    const result = new Set<number>();
+    if (this.packagePreference(rawInput) === 'none') return result;
+    if (!this.heroImageService || rawInput.imageUrls.length === 0) return result;
+    if (!this.shouldInferPackageImages(rawInput)) return result;
+
+    try {
+      const indices = await this.heroImageService.inferPackageImagePositions({
+        imageUrls: rawInput.imageUrls,
+      });
+      for (const index of indices) {
+        if (!Number.isInteger(index) || index < 0 || index >= rawInput.imageUrls.length) continue;
+        result.add(index);
+      }
+    } catch {
+      // Package classification is best-effort; prompt-level hints still help when available.
+    }
+    return result;
+  }
+
+  private applyKidsPlayfulImageSelectionRules(
+    parsed: DetailPageGeneration,
+    rawInput: { imageUrls: string[] },
+    context?: KidsPlayfulImageContext,
+  ): DetailPageGeneration {
+    const packageImageIndices = new Set(context?.packageImageIndices ?? []);
+    const safetyLabelImageIndices = new Set([
+      ...(context?.safetyLabelImageIndices ?? []),
+      ...this.findSafetyLabelImageUrlIndices(rawInput.imageUrls),
+    ]);
+    const blockedIndices = new Set<number>([
+      ...packageImageIndices,
+      ...safetyLabelImageIndices,
+    ]);
+    const usedNormal = new Set<number>();
+
+    const isAvailable = (value: number | null | undefined): value is number => (
+      Number.isInteger(value) &&
+      value !== null &&
+      value !== undefined &&
+      value >= 0 &&
+      value < rawInput.imageUrls.length &&
+      !blockedIndices.has(value)
+    );
+    const claim = (value: number | null | undefined): number | null => {
+      if (!isAvailable(value) || usedNormal.has(value)) return null;
+      usedNormal.add(value);
+      return value;
+    };
+    const claimFirstRemaining = (): number | null => {
+      for (let index = 0; index < rawInput.imageUrls.length; index += 1) {
+        if (!isAvailable(index) || usedNormal.has(index)) continue;
+        usedNormal.add(index);
+        return index;
+      }
+      return null;
+    };
+
+    const section1HeroImageIndex = claim(parsed.section1.heroImageIndex) ?? claimFirstRemaining();
+    const section3Scenarios = parsed.section3.scenarios.map((scenario) => ({
+      ...scenario,
+      imageIndex: claim(scenario.imageIndex),
+    }));
+    const section4MoodImageIndex = claim(parsed.section4.moodImageIndex);
+    const section5ImageIndex = claim(parsed.section5.imageIndex);
+    const section6Cards = parsed.section6.cards.map((card) => ({
+      ...card,
+      imageIndex: claim(card.imageIndex),
+    }));
+    const section7ImageIndex = claim(parsed.section7.imageIndex);
+    const section8Blocks = parsed.section8.blocks.map((block) => ({
+      ...block,
+      imageIndex: claim(block.imageIndex),
+    }));
+    const section10Cards = parsed.section10.cards.map((card) => ({
+      ...card,
+      imageIndex: claim(card.imageIndex),
+    }));
+
+    const galleryFirstCandidate = parsed.section11.galleryImageIndices[0];
+    const gallerySecondCandidate = parsed.section11.galleryImageIndices[1];
+    const galleryFirst = claim(galleryFirstCandidate) ?? claimFirstRemaining();
+    const packageGallery = [...packageImageIndices].find((index) => (
+      Number.isInteger(index) &&
+      index >= 0 &&
+      index < rawInput.imageUrls.length &&
+      !safetyLabelImageIndices.has(index)
+    ));
+    const gallerySecond = packageGallery ?? claim(gallerySecondCandidate) ?? claimFirstRemaining();
+
+    return {
+      ...parsed,
+      section1: {
+        ...parsed.section1,
+        heroImageIndex: section1HeroImageIndex,
+      },
+      section3: {
+        ...parsed.section3,
+        scenarios: section3Scenarios,
+      },
+      section4: {
+        ...parsed.section4,
+        moodImageIndex: section4MoodImageIndex,
+      },
+      section5: {
+        ...parsed.section5,
+        imageIndex: section5ImageIndex,
+      },
+      section6: {
+        ...parsed.section6,
+        cards: section6Cards,
+      },
+      section7: {
+        ...parsed.section7,
+        imageIndex: section7ImageIndex,
+      },
+      section8: {
+        ...parsed.section8,
+        blocks: section8Blocks,
+      },
+      section10: {
+        ...parsed.section10,
+        cards: section10Cards,
+      },
+      section11: {
+        ...parsed.section11,
+        galleryImageIndices: [galleryFirst, gallerySecond],
+      },
+    };
   }
 
   private async generateHeroImagesBestEffort(input: {
@@ -602,9 +860,14 @@ export class DetailPageAiService {
       templateId: DetailPageTemplateId;
     };
     productName: string;
+    excludedImageIndices?: number[];
   }): Promise<Record<string, string>> {
     if (!this.heroImageService) return {};
     const processedImages: Record<string, string> = {};
+    const excludedImageIndices = new Set(input.excludedImageIndices ?? []);
+    const heroSourceImageUrls = input.rawInput.imageUrls.filter((url, index) => (
+      !excludedImageIndices.has(index) && !isSafetyLabelImageUrl(url)
+    ));
 
     const generateHero = () => this.heroImageService!.generateHeroBanner({
       organizationId: input.organizationId,
@@ -615,7 +878,7 @@ export class DetailPageAiService {
       templateId: input.templateId,
       headline: input.productName,
       subhead: this.pickHeroSubhead(input.parsed, input.templateId),
-      imageUrls: input.rawInput.imageUrls,
+      imageUrls: heroSourceImageUrls.length > 0 ? heroSourceImageUrls : input.rawInput.imageUrls,
     });
 
     if (input.templateId === 'bold-vertical') {
@@ -644,6 +907,10 @@ export class DetailPageAiService {
       await this.generateBoldVerticalSectionImages(input, processedImages);
     }
 
+    if (input.templateId === 'kids-playful') {
+      await this.generateKidsPlayfulSectionImages(input, processedImages);
+    }
+
     return processedImages;
   }
 
@@ -663,10 +930,14 @@ export class DetailPageAiService {
   ): Promise<void> {
     if (!this.heroImageService) return;
     const parsed = input.parsed as BoldVerticalGeneration;
+    const blockedIndices = new Set<number>([
+      ...((parsed.packageImageIndices ?? []) as number[]),
+      ...((parsed.safetyLabelImageIndices ?? []) as number[]),
+    ]);
     const productImageCount = this.countProductImages(input.rawInput.imageUrls);
     const needsDerivedLayout = productImageCount <= 3;
 
-    if ((parsed.color?.imageIndices ?? []).length === 0) {
+    if ((parsed.color?.imageIndices ?? []).length === 0 && this.colorPreference(input.rawInput) !== 'none') {
       try {
         const url = await this.heroImageService.generateColorGuideImage({
           organizationId: input.organizationId,
@@ -674,7 +945,11 @@ export class DetailPageAiService {
           category: input.rawInput.rawCategory,
           description: input.rawInput.rawDescription,
           options: input.rawInput.rawOptions,
-          imageUrls: this.pickSectionSourceImages(parsed.color?.imageIndices ?? [], input.rawInput.imageUrls),
+          imageUrls: this.pickSectionSourceImages(
+            parsed.color?.imageIndices ?? [],
+            input.rawInput.imageUrls,
+            blockedIndices,
+          ),
         });
         processedImages[GENERATED_COLOR_GUIDE_IMAGE_KEY] = url;
       } catch {
@@ -682,8 +957,39 @@ export class DetailPageAiService {
       }
     }
 
+    const usageSteps = this.normalizeUsageGuide(parsed.usage?.subtitle ?? '', input.rawInput)
+      .split('\n')
+      .map((step) => step.trim())
+      .filter(Boolean)
+      .slice(0, GENERATED_USAGE_IMAGE_KEYS.length);
+    if (usageSteps.length > 0) {
+      for (const [index, key] of GENERATED_USAGE_IMAGE_KEYS.slice(0, MAX_GENERATED_USAGE_IMAGES).entries()) {
+        const usageStep = usageSteps[index];
+        if (!usageStep) continue;
+        try {
+          const url = await this.heroImageService.generateUsageGuideImage({
+            organizationId: input.organizationId,
+            productName: input.rawInput.rawTitle,
+            category: input.rawInput.rawCategory,
+            description: input.rawInput.rawDescription,
+            options: input.rawInput.rawOptions,
+            imageUrls: this.pickSectionSourceImages(
+              parsed.usage?.imageIndices ?? [],
+              input.rawInput.imageUrls,
+              blockedIndices,
+            ),
+            usageStep,
+            variant: index + 1,
+          });
+          if (url) processedImages[key] = url;
+        } catch {
+          // Usage guide images are best-effort; the template still renders text steps.
+        }
+      }
+    }
+
     if (needsDerivedLayout || (parsed.detailImageIndices ?? []).length < 2) {
-      for (const [index, key] of GENERATED_DETAIL_IMAGE_KEYS.entries()) {
+      for (const [index, key] of GENERATED_DETAIL_IMAGE_KEYS.slice(0, MAX_GENERATED_DETAIL_IMAGES).entries()) {
         try {
           const url = await this.heroImageService.generateDetailCutImage({
             organizationId: input.organizationId,
@@ -691,10 +997,14 @@ export class DetailPageAiService {
             category: input.rawInput.rawCategory,
             description: input.rawInput.rawDescription,
             options: input.rawInput.rawOptions,
-            imageUrls: this.pickSectionSourceImages(parsed.detailImageIndices ?? [], input.rawInput.imageUrls),
+            imageUrls: this.pickSectionSourceImages(
+              parsed.detailImageIndices ?? [],
+              input.rawInput.imageUrls,
+              blockedIndices,
+            ),
             variant: index + 1,
           });
-          processedImages[key] = url;
+          if (url) processedImages[key] = url;
         } catch {
           // Detail support images are best-effort; fallback to selected/uploaded images.
         }
@@ -702,20 +1012,128 @@ export class DetailPageAiService {
     }
   }
 
+  private async generateKidsPlayfulSectionImages(
+    input: {
+      organizationId: string;
+      parsed: DetailPageGeneration | BoldVerticalGeneration;
+      rawInput: {
+        rawTitle: string;
+        rawCategory: string;
+        rawDescription: string;
+        rawOptions: string;
+        imageUrls: string[];
+      };
+      excludedImageIndices?: number[];
+    },
+    processedImages: Record<string, string>,
+  ): Promise<void> {
+    if (!this.heroImageService) return;
+    const parsed = input.parsed as DetailPageGeneration;
+    const excludedIndices = new Set(input.excludedImageIndices ?? []);
+    const preferredIndices = this.collectKidsPlayfulNormalImageIndices(parsed);
+    const fallbackIndices = input.rawInput.imageUrls
+      .map((_, index) => index)
+      .filter((index) => !excludedIndices.has(index));
+    const sourceImages = this.pickSectionSourceImages(
+      preferredIndices.length > 0 ? preferredIndices : fallbackIndices,
+      input.rawInput.imageUrls,
+      excludedIndices,
+    );
+    if (sourceImages.length === 0) return;
+
+    for (const [index, key] of GENERATED_USAGE_IMAGE_KEYS.slice(0, MAX_GENERATED_USAGE_IMAGES).entries()) {
+      const scenario = parsed.section3.scenarios[index];
+      if (!scenario || scenario.imageIndex !== null || processedImages[key]) continue;
+      try {
+        const url = await this.heroImageService.generateUsageGuideImage({
+          organizationId: input.organizationId,
+          productName: input.rawInput.rawTitle,
+          category: input.rawInput.rawCategory,
+          description: input.rawInput.rawDescription,
+          options: input.rawInput.rawOptions,
+          imageUrls: sourceImages,
+          usageStep: scenario.caption,
+          variant: index + 1,
+        });
+        if (url) processedImages[key] = url;
+      } catch {
+        // Generated usage images are best-effort; the section can still show text.
+      }
+    }
+
+    const needsDetailImages = [
+      parsed.section5.imageIndex,
+      ...parsed.section6.cards.map((card) => card.imageIndex),
+      parsed.section7.imageIndex,
+      ...parsed.section8.blocks.map((block) => block.imageIndex),
+      ...parsed.section10.cards.map((card) => card.imageIndex),
+    ].some((imageIndex) => imageIndex === null);
+    if (!needsDetailImages) return;
+
+    for (const [index, key] of GENERATED_DETAIL_IMAGE_KEYS.slice(0, MAX_GENERATED_DETAIL_IMAGES).entries()) {
+      if (processedImages[key]) continue;
+      try {
+        const url = await this.heroImageService.generateDetailCutImage({
+          organizationId: input.organizationId,
+          productName: input.rawInput.rawTitle,
+          category: input.rawInput.rawCategory,
+          description: input.rawInput.rawDescription,
+          options: input.rawInput.rawOptions,
+          imageUrls: sourceImages,
+          variant: index + 1,
+        });
+        if (url) processedImages[key] = url;
+      } catch {
+        // Generated detail images are best-effort; raw images or placeholders remain valid.
+      }
+    }
+  }
+
+  private collectKidsPlayfulNormalImageIndices(parsed: DetailPageGeneration): number[] {
+    const values = [
+      parsed.section1.heroImageIndex,
+      ...parsed.section3.scenarios.map((scenario) => scenario.imageIndex),
+      parsed.section4.moodImageIndex,
+      parsed.section5.imageIndex,
+      ...parsed.section6.cards.map((card) => card.imageIndex),
+      parsed.section7.imageIndex,
+      ...parsed.section8.blocks.map((block) => block.imageIndex),
+      ...parsed.section10.cards.map((card) => card.imageIndex),
+    ];
+    return Array.from(new Set(values.filter((value): value is number => Number.isInteger(value))));
+  }
+
   private pickSizeGuideSourceImages(
     parsed: DetailPageGeneration | BoldVerticalGeneration,
     imageUrls: string[],
   ): string[] {
-    const sizeIndices = (parsed as BoldVerticalGeneration).size?.imageIndices ?? [];
+    const bold = parsed as BoldVerticalGeneration;
+    const sizeIndices = bold.size?.imageIndices ?? [];
     return this.pickSectionSourceImages(sizeIndices, imageUrls);
   }
 
-  private pickSectionSourceImages(indices: number[], imageUrls: string[]): string[] {
+  private pickSectionSourceImages(
+    indices: number[],
+    imageUrls: string[],
+    excludedIndices: Set<number> = new Set(),
+  ): string[] {
+    const allowedEntries = imageUrls
+      .map((url, index) => ({ url, index }))
+      .filter(({ url, index }) => (
+        typeof url === 'string' &&
+        url.trim() !== '' &&
+        !excludedIndices.has(index) &&
+        !isSafetyLabelImageUrl(url)
+      ));
     const picked = indices
+      .filter((idx) => Number.isInteger(idx) && !excludedIndices.has(idx))
       .map((idx) => imageUrls[idx])
-      .filter((url): url is string => typeof url === 'string' && url.trim() !== '');
-    return Array.from(new Set([...picked, ...imageUrls]))
-      .filter((url) => typeof url === 'string' && url.trim() !== '');
+      .filter((url): url is string => (
+        typeof url === 'string' &&
+        url.trim() !== '' &&
+        !isSafetyLabelImageUrl(url)
+      ));
+    return Array.from(new Set([...picked, ...allowedEntries.map(({ url }) => url)]));
   }
 
   private countProductImages(imageUrls: string[]): number {
@@ -782,6 +1200,7 @@ export class DetailPageAiService {
       imageUrls: string[];
     },
   ): Promise<BoldVerticalGeneration> {
+    if (this.colorPreference(rawInput) === 'none') return this.applyBoldVerticalNoColor(parsed);
     if (!this.heroImageService) return parsed;
     try {
       const subtitle = await this.heroImageService.inferColorSubtitle({
@@ -807,6 +1226,7 @@ export class DetailPageAiService {
       imageUrls: string[];
     },
   ): Promise<BoldVerticalGeneration> {
+    if (this.colorPreference(rawInput) === 'none') return this.applyBoldVerticalNoColor(parsed);
     if (!this.heroImageService) return parsed;
     try {
       const imageIndices = await this.heroImageService.inferColorImageSelection({
@@ -845,6 +1265,18 @@ export class DetailPageAiService {
         subtitle: colorSubtitle,
       },
       productInfo,
+    };
+  }
+
+  private applyBoldVerticalNoColor(parsed: BoldVerticalGeneration): BoldVerticalGeneration {
+    return {
+      ...parsed,
+      color: {
+        ...parsed.color,
+        subtitle: '',
+        imageIndices: [],
+      },
+      productInfo: (parsed.productInfo ?? []).filter((info) => !info.key.includes('색상')),
     };
   }
 
@@ -1002,13 +1434,25 @@ export class DetailPageAiService {
   private applyBoldVerticalImageSelectionRules(
     parsed: BoldVerticalGeneration,
     rawInput: { rawDescription: string; rawOptions: string; imageUrls: string[] },
+    detectedSafetyLabelIndices: Set<number> = new Set(),
   ): BoldVerticalGeneration {
-    const safetyIndices = new Set(
+    const urlSafetyIndices = new Set(
       rawInput.imageUrls
         .map((url, index) => ({ url, index }))
         .filter(({ url }) => isSafetyLabelImageUrl(url))
         .map(({ index }) => index),
     );
+    const explicitSafetyLabelImageIndices = [
+      ...(parsed.safetyLabelImageIndices ?? []),
+      ...Array.from(urlSafetyIndices),
+      ...Array.from(detectedSafetyLabelIndices),
+    ];
+    const safetyLabelImageIndices = this.cleanImageIndices(
+      explicitSafetyLabelImageIndices,
+      rawInput.imageUrls.length,
+      8,
+    );
+    const safetyIndices = new Set(safetyLabelImageIndices);
     const cleanIndices = (indices: number[] | undefined, max: number): number[] => {
       const seen = new Set<number>();
       const result: number[] = [];
@@ -1029,6 +1473,7 @@ export class DetailPageAiService {
     const detailBase = cleanIndices(parsed.detailImageIndices, 8)
       .filter((index) => !packageSet.has(index));
     const detailImageIndices = [...detailBase, ...packageImageIndices].slice(0, 8);
+    const isNoColor = this.colorPreference(rawInput) === 'none';
 
     return {
       ...parsed,
@@ -1047,16 +1492,35 @@ export class DetailPageAiService {
       },
       color: {
         ...parsed.color,
-        imageIndices: cleanIndices(parsed.color.imageIndices, 6),
+        subtitle: isNoColor ? '' : parsed.color.subtitle,
+        imageIndices: isNoColor ? [] : cleanIndices(parsed.color.imageIndices, 6),
       },
       usage: {
         ...parsed.usage,
+        subtitle: this.normalizeUsageGuide(parsed.usage.subtitle, rawInput),
         imageIndices: cleanIndices(parsed.usage.imageIndices, 4),
       },
       detailImageIndices,
       packageImageIndices,
       packageLabel: packageImageIndices.length > 0 ? parsed.packageLabel : '',
+      safetyLabelImageIndices,
+      productInfo: isNoColor
+        ? (parsed.productInfo ?? []).filter((info) => !info.key.includes('색상'))
+        : parsed.productInfo,
     };
+  }
+
+  private cleanImageIndices(indices: number[] | undefined, imageCount: number, max: number): number[] {
+    const seen = new Set<number>();
+    const result: number[] = [];
+    for (const index of indices ?? []) {
+      if (!Number.isInteger(index) || index < 0 || index >= imageCount) continue;
+      if (seen.has(index)) continue;
+      seen.add(index);
+      result.push(index);
+      if (result.length >= max) break;
+    }
+    return result;
   }
 
   private packagePreference(
@@ -1066,6 +1530,88 @@ export class DetailPageAiService {
     if (/박스\/세트\s*정보\s*:\s*없음/u.test(raw)) return 'none';
     if (/박스\/세트\s*정보\s*:\s*있음/u.test(raw)) return 'exists';
     return 'auto';
+  }
+
+  private shouldInferPackageImages(rawInput: {
+    rawDescription?: string;
+    rawOptions?: string;
+    imageUrls: string[];
+  }): boolean {
+    if (this.packagePreference(rawInput) === 'exists') return true;
+    const raw = `${rawInput.rawDescription ?? ''}\n${rawInput.rawOptions ?? ''}`
+      .replace(/박스\/세트\s*정보\s*:\s*AI[^\n]*/gu, '')
+      .replace(/박스\/세트\s*구분\s*:\s*AI[^\n]*/gu, '');
+    if (/(\d+\s*(?:개입|입|pcs|p|세트)|패키지|박스|box|package|구성품|세트\s*구성)/iu.test(raw)) {
+      return true;
+    }
+    return rawInput.imageUrls.some((url) => /(?:box|package|pkg|set|barcode|kc|label)/iu.test(url));
+  }
+
+  private colorPreference(
+    rawInput: { rawDescription?: string; rawOptions?: string },
+  ): 'none' | 'single' | 'multiple' | 'auto' {
+    const raw = `${rawInput.rawDescription ?? ''}\n${rawInput.rawOptions ?? ''}`;
+    if (/색상\s*구성\s*:\s*없음/u.test(raw)) return 'none';
+    if (/색상\s*구성\s*:\s*단일\s*색상/u.test(raw)) return 'single';
+    if (/색상\s*구성\s*:\s*여러\s*색상/u.test(raw)) return 'multiple';
+    return 'auto';
+  }
+
+  private normalizeUsageGuide(
+    value: string,
+    rawInput: { rawTitle?: string; rawCategory?: string; rawDescription?: string; rawOptions?: string },
+  ): string {
+    const existing = value
+      .split(/\n|(?:^|\s)(?=\d+[.)]\s*)/u)
+      .map((line) => line.replace(/^\d+[.)]\s*/u, '').trim())
+      .filter(Boolean)
+      .slice(0, 3);
+    if (existing.length >= 2) {
+      return existing.map((line, index) => `${index + 1}. ${line}`).join('\n');
+    }
+
+    const raw = `${rawInput.rawTitle ?? ''}\n${rawInput.rawCategory ?? ''}\n${rawInput.rawDescription ?? ''}\n${rawInput.rawOptions ?? ''}`;
+    const steps = [
+      ...existing,
+      ...this.fallbackUsageSteps(raw).filter((line) => !existing.includes(line)),
+    ].slice(0, 3);
+    return steps.map((line, index) => `${index + 1}. ${line}`).join('\n');
+  }
+
+  private fallbackUsageSteps(raw: string): string[] {
+    if (/비눗|버블|bubble/i.test(raw)) {
+      return [
+        '제품을 세워 잡고 전원을 켜세요',
+        '입구가 얼굴을 향하지 않게 사용하세요',
+        '사용 후 물기를 닦아 보관하세요',
+      ];
+    }
+    if (/드론|비행|촬영/i.test(raw)) {
+      return [
+        '배터리를 충분히 충전하세요',
+        '평평한 공간에서 전원을 켜세요',
+        '사용 후 전원을 끄고 보관하세요',
+      ];
+    }
+    if (/수제|왁스|말랑|주물럭|슬라임|촉감/i.test(raw)) {
+      return [
+        '포장을 열고 제품 상태를 확인하세요',
+        '손으로 가볍게 눌러 촉감을 즐기세요',
+        '사용 후 먼지를 닦아 보관하세요',
+      ];
+    }
+    if (/스티커|문구|펜|노트|학용/i.test(raw)) {
+      return [
+        '필요한 구성품을 먼저 확인하세요',
+        '원하는 위치에 맞춰 사용하세요',
+        '사용 후 정리해 보관하세요',
+      ];
+    }
+    return [
+      '포장을 열고 제품 상태를 확인하세요',
+      '보호자 확인 후 알맞게 사용하세요',
+      '사용 후 깨끗하게 정리해 보관하세요',
+    ];
   }
 
   private packageKind(

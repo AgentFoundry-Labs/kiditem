@@ -123,7 +123,8 @@ export function useKidsPlayfulOne(id?: string | null) {
  * GET /api/ai/detail-page?productId=...
  * productId omit → 전체. given → 그 product 만.
  *
- * 진행 중 (pending/processing) entry 가 있으면 5초 polling — 누끼 결과 점진 반영.
+ * 진행 중 (pending/processing) entry 가 있으면 느린 polling — 상세페이지 이미지 생성은 길고 무거워
+ * 여러 탭에서 429가 나지 않도록 백그라운드 polling은 끈다.
  */
 export function useKidsPlayfulGenerationList(productId?: string | null) {
   return useQuery({
@@ -142,8 +143,11 @@ export function useKidsPlayfulGenerationList(productId?: string | null) {
           e.imageProcessingStatus === 'pending' ||
           e.imageProcessingStatus === 'processing',
       );
-      return inProgress ? 5000 : false;
+      return inProgress ? 15000 : false;
     },
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: false,
+    staleTime: 5000,
   });
 }
 
@@ -168,8 +172,11 @@ export function useBoldVerticalGenerationList(productId?: string | null) {
           e.imageProcessingStatus === 'pending' ||
           e.imageProcessingStatus === 'processing',
       );
-      return inProgress ? 5000 : false;
+      return inProgress ? 15000 : false;
     },
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: false,
+    staleTime: 5000,
   });
 }
 

@@ -19,13 +19,15 @@ export default function GenerationStatusFloater() {
   const { data } = useQuery({
     queryKey: queryKeys.sourcing.list({ inProgressOnly: '1' }),
     queryFn: () =>
-      apiClient.get<ProductsResponse>('/api/sourcing/extension/products?page=1&limit=100'),
+      apiClient.get<ProductsResponse>('/api/sourcing/extension/products?page=1&limit=100&inProgressOnly=1'),
     refetchInterval: (query) => {
       const items = query.state.data?.items ?? [];
       const hasActive = items.some((p) => p.pipelineStep && IN_PROGRESS.includes(p.pipelineStep));
-      return hasActive ? 5000 : 30000;
+      return hasActive ? 15000 : 60000;
     },
-    staleTime: 0,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: false,
+    staleTime: 10_000,
   });
 
   const inProgress = (data?.items ?? []).filter(

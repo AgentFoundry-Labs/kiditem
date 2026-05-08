@@ -46,6 +46,7 @@ interface Props {
   onSceneTypeChange: (v: string) => void;
   onStyleTypeChange: (v: string) => void;
   onProductDescriptionChange: (v: string) => void;
+  onGenerateImageOnly: () => void;
   onGenerate: () => void;
   onCoupang: () => void;
   onReEditFromSelected: () => void;
@@ -91,6 +92,7 @@ export function EditorControlPanel({
   onSceneTypeChange,
   onStyleTypeChange,
   onProductDescriptionChange,
+  onGenerateImageOnly,
   onGenerate,
   onCoupang,
   onReEditFromSelected,
@@ -110,6 +112,34 @@ export function EditorControlPanel({
       </div>
 
       <div className="flex-shrink-0 px-4 pt-1 pb-3 bg-white">
+        <div className="mb-3 rounded-2xl border border-violet-200 bg-violet-50/70 p-3">
+          <div className="flex items-start gap-2.5">
+            <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white text-violet-600 shadow-sm">
+              <Wand2 size={15} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-[13px] font-extrabold text-violet-950">
+                이미지만으로 바로 생성
+              </div>
+              <p className="mt-0.5 text-[11px] leading-relaxed text-violet-700">
+                아래 세부 설정과 지시사항을 무시하고, 업로드한 이미지 기준으로 썸네일을 만듭니다.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onGenerateImageOnly}
+            disabled={generateDisabled}
+            className="mt-3 w-full flex items-center justify-center gap-2 rounded-xl bg-white px-3 py-2.5 text-[13px] font-bold text-violet-700 shadow-sm ring-1 ring-violet-200 transition-all hover:bg-violet-600 hover:text-white disabled:opacity-40 disabled:hover:bg-white disabled:hover:text-violet-700"
+          >
+            {isPending ? (
+              <><Loader2 size={15} className="animate-spin" /> 생성 중</>
+            ) : (
+              <><Wand2 size={15} /> 이미지로만 생성</>
+            )}
+          </button>
+        </div>
+
         <button
           type="button"
           onClick={onGenerate}

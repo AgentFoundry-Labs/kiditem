@@ -52,6 +52,38 @@ export function useSelectCandidate() {
   });
 }
 
+/**
+ * "선택 대기" 탭 진입 시 모든 ready generation 의 `selectedUrl` 일괄 해제.
+ * Optimistic — 즉시 cache 의 selectedUrl 을 null 로 비우고 서버 호출.
+ */
+export function useClearReadySelections() {
+  const queryClient = useQueryClient();
+  const qKey = queryKeys.thumbnailAnalysis.generations();
+  return useMutation({
+    mutationFn: () =>
+      apiClient.put<{ count: number }>(
+        '/api/thumbnail-analysis/generations/clear-ready-selections',
+        {},
+      ),
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: qKey });
+      const previous = queryClient.getQueryData<ThumbnailGenerationItem[]>(qKey);
+      queryClient.setQueryData<ThumbnailGenerationItem[]>(qKey, (old) =>
+        old?.map((g): ThumbnailGenerationItem =>
+          g.phase === 'ready' && g.selectedUrl ? { ...g, selectedUrl: null } : g,
+        ) ?? [],
+      );
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) queryClient.setQueryData(qKey, context.previous);
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: qKey });
+    },
+  });
+}
+
 export function useApplyGeneration() {
   const queryClient = useQueryClient();
   return useMutation({

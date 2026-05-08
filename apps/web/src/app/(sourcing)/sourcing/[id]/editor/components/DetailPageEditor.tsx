@@ -61,6 +61,10 @@ import EditorPagePanel from './EditorPagePanel';
 import EditorToolRail, { type EditorToolId } from './EditorToolRail';
 import { ImagePickerModal } from './ImagePickerModal';
 import { ImageSelectionPanel } from './ImageSelectionPanel';
+import {
+  buildTemplateSectionBlockHtml,
+  TEMPLATE_SECTION_PRESETS,
+} from './template-section-blocks';
 
 interface DetailPageEditorProps {
   html: string;
@@ -371,6 +375,9 @@ function normalizeBodyAssetUrls(doc: Document): void {
 function sanitizePersistedHead(headHtml: string, viewportContent: string): string {
   const doc = new DOMParser().parseFromString(`<head>${headHtml}</head>`, 'text/html');
   const head = doc.head;
+  const hasCompiledTemplateStyles = Array.from(head.querySelectorAll('style')).some((style) =>
+    /tailwindcss v|NanumSquareRoundLocal|--font-display/i.test(style.textContent ?? ''),
+  );
 
   head.querySelectorAll('meta[charset], base, meta[name="viewport"]').forEach((el) => el.remove());
   head.insertAdjacentHTML(
@@ -383,6 +390,10 @@ function sanitizePersistedHead(headHtml: string, viewportContent: string): strin
   head.querySelectorAll('script[src]').forEach((script) => {
     const src = script.getAttribute('src');
     if (!src) return;
+    if (hasCompiledTemplateStyles && /cdn\.tailwindcss\.com/i.test(src)) {
+      script.remove();
+      return;
+    }
     if (seenScripts.has(src)) {
       script.remove();
       return;
@@ -394,7 +405,9 @@ function sanitizePersistedHead(headHtml: string, viewportContent: string): strin
   head.querySelectorAll('link[rel="stylesheet"]').forEach((link) => {
     const href = link.getAttribute('href');
     if (!href) return;
-    if (seenStylesheets.has(href)) {
+    const isLegacyDisplayFont =
+      hasCompiledTemplateStyles && /Black\+Han\+Sans|Black\s*Han\s*Sans/i.test(href);
+    if (isLegacyDisplayFont || seenStylesheets.has(href)) {
       link.remove();
       return;
     }
@@ -407,11 +420,18 @@ function sanitizePersistedHead(headHtml: string, viewportContent: string): strin
     const isEditorWrapperStyle = /#[\w-]+\{[^}]*min-height:\d+px[^}]*\}/.test(text);
     const isEditorCanvasStyle =
       /\.gjs-|\.gjs-selected|\.gjs-hovered|scrollbar-width:\s*none/i.test(text);
+    const isLegacyEditedHtmlFallbackStyle =
+      hasCompiledTemplateStyles &&
+      (text.includes('section[class*="from-[#1a1a1a]"]') ||
+        text.includes('relative > img.h-\\[500px\\]') ||
+        text.includes('.brightness-\\[0\\.7\\]') ||
+        /Black\s*Han\s*Sans/i.test(text));
     const normalizedText = absolutizeFontUrls(text).trim();
 
     if (
       isEditorWrapperStyle ||
       isEditorCanvasStyle ||
+      isLegacyEditedHtmlFallbackStyle ||
       (normalizedText && seenStyleText.has(normalizedText))
     ) {
       style.remove();
@@ -900,7 +920,7 @@ function EditorToolbar({
         return;
       }
       const html = contentMap[type];
-      if (html) wrapper.append(html);
+      if (html) insertEditorHtml(editor, html);
     },
     [editor],
   );
@@ -1287,6 +1307,13 @@ function TextToolPanel({ editor }: { editor: ReturnType<typeof useEditor> }) {
           }
         />
       </ToolSection>
+
+      <ToolSection title="템플릿 섹션">
+        <PresetGrid
+          items={TEMPLATE_SECTION_PRESETS}
+          onSelect={(_, item) => insertEditorHtml(editor, buildTemplateSectionBlockHtml(item.kind))}
+        />
+      </ToolSection>
     </div>
   );
 }
@@ -1600,12 +1627,12 @@ function QuickShapeButton({
   );
 }
 
-function PresetGrid({
+function PresetGrid<TItem extends { label: string; sub: string }>({
   items,
   onSelect,
 }: {
-  items: Array<{ label: string; sub: string }>;
-  onSelect: (label: string) => void;
+  items: TItem[];
+  onSelect: (label: string, item: TItem) => void;
 }) {
   return (
     <div className="grid grid-cols-2 gap-2">
@@ -1613,7 +1640,7 @@ function PresetGrid({
         <button
           key={item.label}
           type="button"
-          onClick={() => onSelect(item.label)}
+          onClick={() => onSelect(item.label, item)}
           className="h-24 rounded-xl bg-slate-50 p-3 text-left transition hover:bg-slate-100"
         >
           <div className="text-sm font-black text-slate-800">{item.label}</div>
@@ -1625,12 +1652,181 @@ function PresetGrid({
 }
 
 function insertEditorHtml(editor: ReturnType<typeof useEditor>, html: string) {
-  const added = editor.addComponents(html);
+  const target = getInsertionTarget(editor);
+  const added = target.parent
+    ? target.parent.components().add(html, { at: target.at })
+    : editor.addComponents(html);
   const component = Array.isArray(added) ? added[0] : added;
   if (component) {
     editor.select(component);
     requestAnimationFrame(() => scrollComponentIntoCanvasView(editor, component));
   }
+}
+
+function getInsertionTarget(editor: ReturnType<typeof useEditor>): { parent: any | null; at: number } {
+  const wrapper = editor.getWrapper();
+  const children = wrapper?.components?.();
+  const selected = editor.getSelected();
+  if (selected && isComponentInCanvasViewport(editor, selected)) {
+    const insertableSelected = getInsertableComponent(selected, wrapper);
+    const selectedParent = insertableSelected?.parent?.();
+    if (insertableSelected && selectedParent) {
+      return { parent: selectedParent, at: insertableSelected.index() + 1 };
+    }
+  }
+
+  if (!wrapper || !children?.length) return { parent: wrapper ?? null, at: children?.length ?? 0 };
+
+  const viewportComponent = getViewportCenterInsertableComponent(editor, wrapper);
+  const viewportParent = viewportComponent?.parent?.();
+  if (viewportComponent && viewportParent) {
+    return { parent: viewportParent, at: viewportComponent.index() + 1 };
+  }
+
+  const frame = getEditorFrameEl(editor);
+  const frameWindow = frame?.contentWindow;
+  if (!frameWindow) return { parent: wrapper, at: children.length };
+
+  const viewportHeight = frameWindow.innerHeight || frame?.clientHeight || 900;
+  const viewportTop = frameWindow.scrollY;
+  const viewportBottom = viewportTop + viewportHeight;
+  const viewportCenter = viewportTop + viewportHeight / 2;
+  const models = flattenEditorComponents(wrapper);
+  let best: any | null = null;
+  let bestScore = Number.POSITIVE_INFINITY;
+
+  for (const component of models) {
+    if (component === wrapper) continue;
+    const element = component?.getEl?.();
+    if (!element) continue;
+    const rect = element.getBoundingClientRect();
+    if (rect.height <= 0 || rect.width <= 0) continue;
+    const top = viewportTop + rect.top;
+    const bottom = top + rect.height;
+    const visibleOverlap = Math.max(0, Math.min(bottom, viewportBottom) - Math.max(top, viewportTop));
+    if (visibleOverlap <= 0) continue;
+    const center = top + rect.height / 2;
+    const distance = Math.abs(center - viewportCenter);
+    const oversizePenalty = Math.max(0, rect.height - viewportHeight * 0.9) * 0.18;
+    const score = distance + oversizePenalty + getInsertionDepth(component, wrapper) * 4;
+    if (score < bestScore) {
+      best = component;
+      bestScore = score;
+    }
+  }
+
+  const insertableBest = getInsertableComponent(best, wrapper);
+  const parent = insertableBest?.parent?.();
+  return insertableBest && parent
+    ? { parent, at: insertableBest.index() + 1 }
+    : { parent: wrapper, at: children.length };
+}
+
+function getViewportCenterInsertableComponent(
+  editor: ReturnType<typeof useEditor>,
+  wrapper: any,
+): any | null {
+  const frame = getEditorFrameEl(editor);
+  const doc = frame?.contentDocument;
+  const frameWindow = frame?.contentWindow;
+  if (!doc || !frameWindow || !wrapper) return null;
+
+  const width = frameWindow.innerWidth || frame?.clientWidth || 720;
+  const height = frameWindow.innerHeight || frame?.clientHeight || 900;
+  const points = [
+    [width / 2, height / 2],
+    [width / 2, height * 0.36],
+    [width / 2, height * 0.64],
+    [width * 0.38, height / 2],
+    [width * 0.62, height / 2],
+  ];
+
+  for (const [x, y] of points) {
+    const component = getInsertableComponentFromPoint(doc, wrapper, x, y);
+    if (component) return component;
+  }
+
+  return null;
+}
+
+function getInsertableComponentFromPoint(
+  doc: Document,
+  wrapper: any,
+  x: number,
+  y: number,
+): any | null {
+  let element = doc.elementFromPoint(x, y) as HTMLElement | null;
+  while (element && element !== doc.body && element !== doc.documentElement) {
+    const id = element.getAttribute('id');
+    if (id) {
+      const component = findEditorComponentById(wrapper, id);
+      const insertableComponent = getInsertableComponent(component, wrapper);
+      if (insertableComponent) return insertableComponent;
+    }
+    element = element.parentElement;
+  }
+  return null;
+}
+
+function findEditorComponentById(wrapper: any, id: string): any | null {
+  const escapedId =
+    typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+      ? CSS.escape(id)
+      : id.replace(/([ !"#$%&'()*+,./:;<=>?@[\\\]^`{|}~])/g, '\\$1');
+  return wrapper?.find?.(`#${escapedId}`)?.[0] ?? null;
+}
+
+function isComponentInCanvasViewport(editor: ReturnType<typeof useEditor>, component: any): boolean {
+  const frame = getEditorFrameEl(editor);
+  const frameWindow = frame?.contentWindow;
+  const element = component?.getEl?.();
+  if (!frameWindow || !element) return false;
+  const rect = element.getBoundingClientRect();
+  const viewportHeight = frameWindow.innerHeight || frame?.clientHeight || 900;
+  const viewportWidth = frameWindow.innerWidth || frame?.clientWidth || 720;
+  return rect.bottom > 0 && rect.top < viewportHeight && rect.right > 0 && rect.left < viewportWidth;
+}
+
+function flattenEditorComponents(root: any): any[] {
+  const result: any[] = [];
+  const walk = (component: any) => {
+    result.push(component);
+    const children = component?.components?.()?.models ?? [];
+    children.forEach(walk);
+  };
+  walk(root);
+  return result;
+}
+
+function getInsertableComponent(component: any, wrapper: any): any | null {
+  if (!component || !wrapper) return component ?? null;
+  let current = component;
+  while (current && current !== wrapper) {
+    const tag = String(current.get?.('tagName') ?? '').toLowerCase();
+    const parent = current.parent?.();
+    if (!parent || parent === wrapper) return current;
+    const parentTag = String(parent.get?.('tagName') ?? '').toLowerCase();
+    if (isInlineEditorTag(tag) || isInlineEditorTag(parentTag)) {
+      current = parent;
+      continue;
+    }
+    return current;
+  }
+  return null;
+}
+
+function isInlineEditorTag(tag: string): boolean {
+  return ['span', 'strong', 'em', 'b', 'i', 'small', 'u', 'a', 'br'].includes(tag);
+}
+
+function getInsertionDepth(component: any, wrapper: any): number {
+  let depth = 0;
+  let current = component;
+  while (current && current !== wrapper) {
+    depth += 1;
+    current = current.parent?.() ?? null;
+  }
+  return depth;
 }
 
 function scrollComponentIntoCanvasView(editor: ReturnType<typeof useEditor>, component: any) {
@@ -1641,10 +1837,8 @@ function scrollComponentIntoCanvasView(editor: ReturnType<typeof useEditor>, com
 
   const rect = element.getBoundingClientRect();
   const viewportHeight = frameWindow.innerHeight || frame?.clientHeight || 900;
-  const nextTop = Math.max(
-    0,
-    frameWindow.scrollY + rect.top - viewportHeight / 2 + rect.height / 2,
-  );
+  if (rect.top >= 80 && rect.bottom <= viewportHeight - 80) return;
+  const nextTop = Math.max(0, frameWindow.scrollY + rect.top - viewportHeight * 0.35);
   frameWindow.scrollTo({ top: nextTop, behavior: 'auto' });
 }
 

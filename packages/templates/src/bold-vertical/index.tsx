@@ -54,7 +54,7 @@ function HeroSection({ d }: { d: DetailPageData }) {
     .slice(0, 2);
 
   return (
-    <section className="bg-[var(--theme-bg-light)]">
+    <section data-section="hero" className="bg-[var(--theme-bg-light)]">
       {bannerSrc && (
         <div className="w-full aspect-[21/9] relative overflow-hidden">
           <img
@@ -168,6 +168,14 @@ function productSentenceName(d: DetailPageData): string {
   return productDisplayName(d).replace(/[!?.]+$/g, '');
 }
 
+function usageGuideSteps(value: string): string[] {
+  return value
+    .split(/\n|(?:^|\s)(?=\d+[.)]\s*)/u)
+    .map((line) => line.replace(/^\d+[.)]\s*/u, '').trim())
+    .filter(Boolean)
+    .slice(0, 3);
+}
+
 function SizeGuideSection({ d }: { d: DetailPageData }) {
   const [mainImage, ...restImages] = d.sizeImages;
   if (!mainImage) return null;
@@ -205,13 +213,14 @@ function SizeGuideSection({ d }: { d: DetailPageData }) {
               <div
                 style={{
                   display: 'inline-grid',
-                  gridTemplateColumns: showHeightGuide ? '82px minmax(0, max-content)' : 'minmax(0, max-content)',
-                  gridTemplateRows: showWidthGuide ? 'auto 78px' : 'auto',
-                  columnGap: showHeightGuide ? 22 : 0,
+                  gridTemplateColumns: showHeightGuide ? '64px minmax(0, max-content)' : 'minmax(0, max-content)',
+                  gridTemplateRows: showWidthGuide ? 'auto 58px' : 'auto',
+                  columnGap: showHeightGuide ? 16 : 0,
                   alignItems: 'stretch',
                   justifyContent: 'center',
                   justifyItems: 'center',
                   maxWidth: '100%',
+                  width: '78%',
                 }}
               >
                 {showHeightGuide && (
@@ -222,7 +231,7 @@ function SizeGuideSection({ d }: { d: DetailPageData }) {
                       gridColumn: 1,
                       gridRow: 1,
                       alignSelf: 'stretch',
-                      width: 78,
+                      width: 60,
                     }}
                   >
                     <span
@@ -231,7 +240,7 @@ function SizeGuideSection({ d }: { d: DetailPageData }) {
                         top: 0,
                         bottom: 0,
                         right: 8,
-                        width: 1.5,
+                        width: 1.25,
                         background: '#111827',
                       }}
                     >
@@ -247,7 +256,7 @@ function SizeGuideSection({ d }: { d: DetailPageData }) {
                         transform: 'translate(-50%, -50%) rotate(-90deg)',
                         transformOrigin: 'center',
                         color: '#111827',
-                        fontSize: 42,
+                        fontSize: 'clamp(24px, 4vw, 34px)',
                         lineHeight: 1,
                         fontWeight: 900,
                         whiteSpace: 'nowrap',
@@ -269,8 +278,8 @@ function SizeGuideSection({ d }: { d: DetailPageData }) {
                     zIndex: 10,
                     display: 'block',
                     width: 'auto',
-                    maxWidth: showHeightGuide ? 'min(520px, 100%)' : 'min(620px, 100%)',
-                    maxHeight: 560,
+                    maxWidth: '100%',
+                    maxHeight: 430,
                     objectFit: 'contain',
                   }}
                 />
@@ -285,8 +294,8 @@ function SizeGuideSection({ d }: { d: DetailPageData }) {
                       alignSelf: 'start',
                       width: '100%',
                       minWidth: 180,
-                      height: 72,
-                      marginTop: 18,
+                      height: 54,
+                      marginTop: 14,
                     }}
                   >
                     <span
@@ -295,7 +304,7 @@ function SizeGuideSection({ d }: { d: DetailPageData }) {
                         left: 0,
                         right: 0,
                         top: 0,
-                        height: 1.5,
+                        height: 1.25,
                         background: '#111827',
                       }}
                     >
@@ -307,10 +316,10 @@ function SizeGuideSection({ d }: { d: DetailPageData }) {
                       style={{
                         position: 'absolute',
                         left: '50%',
-                        top: 18,
+                        top: 14,
                         transform: 'translateX(-50%)',
                         color: '#111827',
-                        fontSize: 46,
+                        fontSize: 'clamp(26px, 4.4vw, 38px)',
                         lineHeight: 1,
                         fontWeight: 900,
                         whiteSpace: 'nowrap',
@@ -346,12 +355,12 @@ function sizeGuideCap(position: 'top' | 'bottom' | 'left' | 'right'): CSSPropert
   const isVerticalCap = position === 'top' || position === 'bottom';
   return {
     position: 'absolute',
-    ...(position === 'top' ? { top: 0, left: -13 } : {}),
-    ...(position === 'bottom' ? { bottom: 0, left: -13 } : {}),
-    ...(position === 'left' ? { left: 0, top: -13 } : {}),
-    ...(position === 'right' ? { right: 0, top: -13 } : {}),
-    width: isVerticalCap ? 28 : 1.5,
-    height: isVerticalCap ? 1.5 : 28,
+    ...(position === 'top' ? { top: 0, left: -10 } : {}),
+    ...(position === 'bottom' ? { bottom: 0, left: -10 } : {}),
+    ...(position === 'left' ? { left: 0, top: -10 } : {}),
+    ...(position === 'right' ? { right: 0, top: -10 } : {}),
+    width: isVerticalCap ? 22 : 1.25,
+    height: isVerticalCap ? 1.25 : 22,
     background: '#111827',
     content: '""',
     display: 'block',
@@ -363,12 +372,20 @@ function sizeGuideCap(position: 'top' | 'bottom' | 'left' | 'right'): CSSPropert
 function PointSection({ d }: { d: DetailPageData }) {
   const productName = productSentenceName(d);
   const hasColorSection = d.colorImages.length > 0 || d.colorSubtitle.trim() !== '';
-  const hasUsageSection = d.usageImages.length > 0 || d.usageSubtitle.trim() !== '';
+  const usageSteps = usageGuideSteps(d.usageSubtitle);
+  const hasUsageSection = d.usageImages.length > 0 || usageSteps.length > 0;
+  const extraUsageImages = d.usageImages.slice(usageSteps.length);
   const sectionName = d.hookText || d.sectionName;
   const sectionTitle = d.hookTitleSub || d.sectionTitle;
+  const packageSectionImages = uniqueImageUrls(d.detailPackageImages);
+  const packageImageSet = new Set(packageSectionImages);
+  const detailSectionImages = uniqueImageUrls(
+    d.detailImages.length > 0 ? d.detailImages : d.images.slice(0, 1),
+  ).filter((src) => !packageImageSet.has(src));
+  const hasDetailSection = detailSectionImages.length > 0 || packageSectionImages.length > 0;
 
   return (
-    <section className="bg-white pb-20 pt-28 relative">
+    <section data-section="point" className="bg-white pb-20 pt-28 relative">
       <div className="absolute left-1/2 -translate-x-1/2 top-14 w-14 h-14 bg-black text-white rounded-full flex flex-col items-center justify-center shadow-lg z-10">
         <span className="text-[10px] font-bold leading-none mt-1 tracking-widest">POINT</span>
         <span className="text-2xl font-display leading-none mt-0.5">1</span>
@@ -440,13 +457,34 @@ function PointSection({ d }: { d: DetailPageData }) {
             <div style={{ width: 384, height: 2 }} className="bg-[#2d3436] opacity-40 mx-auto mb-12" />
             <SubSectionBadge label="사용법 안내" />
 
-            {d.usageSubtitle && (
-              <p className="mt-6 text-[var(--theme-text-secondary)] font-bold text-lg">
-                {d.usageSubtitle}
-              </p>
+            {usageSteps.length > 0 && (
+              <ol data-field="usageSubtitle" className="mx-auto mt-8 flex max-w-2xl flex-col gap-5 px-6 text-left">
+                {usageSteps.map((step, index) => (
+                  <li
+                    key={`${step}-${index}`}
+                    className="overflow-hidden rounded-[28px] border border-black/5 bg-white shadow-sm"
+                  >
+                    <div className="flex items-start gap-4 px-6 py-5">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#1e2d4d] text-base font-black text-white">
+                        {index + 1}
+                      </span>
+                      <span className="pt-1 text-lg font-black leading-relaxed text-[var(--theme-text-primary)]">
+                        {step}
+                      </span>
+                    </div>
+                    {d.usageImages[index] && (
+                      <img
+                        src={d.usageImages[index]}
+                        alt={`사용법 ${index + 1}`}
+                        className="w-full h-auto"
+                      />
+                    )}
+                  </li>
+                ))}
+              </ol>
             )}
 
-            {d.usageImages.length > 0 && (
+            {usageSteps.length === 0 && d.usageImages.length > 0 && (
               <div data-container="usageImages" className="mt-10 flex flex-col gap-6 px-6 max-w-2xl mx-auto">
                 {d.usageImages.map((uimg, i) => (
                   <img
@@ -458,43 +496,71 @@ function PointSection({ d }: { d: DetailPageData }) {
                 ))}
               </div>
             )}
+
+            {usageSteps.length > 0 && extraUsageImages.length > 0 && (
+              <div data-container="usageImages" className="mt-6 flex flex-col gap-6 px-6 max-w-2xl mx-auto">
+                {extraUsageImages.map((uimg, i) => (
+                  <img
+                    key={i}
+                    src={uimg}
+                    alt="추가 사용법 안내"
+                    className="w-full h-auto rounded-[var(--theme-radius)]"
+                  />
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      <div data-section="detailImages" className={d.detailImages.length > 0 ? '' : 'hidden'}>
+      <div data-section="detailImages" className={hasDetailSection ? '' : 'hidden'}>
         <div className="text-center mt-16">
           <div style={{ width: 384, height: 2 }} className="bg-[#2d3436] opacity-40 mx-auto mb-12" />
           <SubSectionBadge label="DETAIL" />
 
-          <div data-container="detailImages" className="mt-10 flex flex-col gap-6 px-6 max-w-2xl mx-auto">
-            {d.detailImages.map((dimg, i) => {
-              const isPackageImage = d.detailPackageImages.includes(dimg);
-              const packageLabel = normalizePackageLabel(d.detailPackageLabel);
-              const packageBadge = packageHelperText(packageLabel);
-              return (
-              <div key={i}>
-                {isPackageImage && (
-                  <div className="mb-6 mt-12 text-center font-black text-[var(--theme-text-primary)]">
-                    <p className="text-2xl md:text-3xl">{packageLabel}</p>
-                    <p className="mt-3 inline-block rounded-full bg-sky-100 px-6 py-2 text-lg md:text-xl text-sky-700">
-                      {packageBadge}
-                    </p>
-                  </div>
-                )}
-                <img
-                  src={dimg}
-                  alt={isPackageImage ? packageLabel : '디테일 이미지'}
-                  className="w-full h-auto rounded-[var(--theme-radius)]"
-                />
+          {detailSectionImages.length > 0 && (
+            <div data-container="detailImages" className="mt-10 flex flex-col gap-6 px-6 max-w-2xl mx-auto">
+              {detailSectionImages.map((dimg, i) => (
+                <div key={i}>
+                  <img
+                    src={dimg}
+                    alt="디테일 이미지"
+                    className="w-full h-auto rounded-[var(--theme-radius)]"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {packageSectionImages.length > 0 && (
+            <div data-container="detailPackageImages" className="mt-12 px-6 max-w-2xl mx-auto">
+              <div className="mb-6 text-center font-black text-[var(--theme-text-primary)]">
+                <p className="text-2xl md:text-3xl">{normalizePackageLabel(d.detailPackageLabel)}</p>
+                <p className="mt-3 inline-block rounded-full bg-sky-100 px-6 py-2 text-lg md:text-xl text-sky-700">
+                  {packageHelperText(normalizePackageLabel(d.detailPackageLabel))}
+                </p>
               </div>
-              );
-            })}
-          </div>
+              <div className="flex flex-col gap-6">
+                {packageSectionImages.map((dimg, i) => (
+                  <div key={i}>
+                    <img
+                      src={dimg}
+                      alt={normalizePackageLabel(d.detailPackageLabel)}
+                      className="w-full h-auto rounded-[var(--theme-radius)]"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </section>
   );
+}
+
+function uniqueImageUrls(urls: string[]): string[] {
+  return Array.from(new Set(urls.filter((url) => url.trim() !== '')));
 }
 
 function normalizePackageLabel(label: string): string {
@@ -520,7 +586,7 @@ function SpecsSection({ d }: { d: DetailPageData }) {
   const showProductInfoTable = !hasSafetyLabelImage && d.productInfo.length > 0;
 
   return (
-    <section className="bg-[var(--theme-bg-light)] py-20 px-4">
+    <section data-section="specs" className="bg-[var(--theme-bg-light)] py-20 px-4">
       <div className="text-center">
         <SubSectionBadge label="INFO" />
       </div>

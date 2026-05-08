@@ -164,14 +164,31 @@ export class ThumbnailAnalysisController {
     return this.generationService.selectCandidate(id, organizationId, body.selectedUrl);
   }
 
+  /**
+   * "선택 대기" 탭의 모든 generation 의 `selectedUrl` 일괄 해제.
+   * Frontend (`/thumbnails` AI 편집 탭) 가 ready 탭 진입 시 호출.
+   */
+  @Put('generations/clear-ready-selections')
+  clearReadySelections(@CurrentOrganization() organizationId: string) {
+    return this.generationService.clearReadySelections(organizationId);
+  }
+
   @Put('generations/:id/apply')
-  applyGeneration(@Param('id') id: string, @CurrentOrganization() organizationId: string) {
-    return this.generationService.applyGeneration(id, organizationId);
+  applyGeneration(
+    @Param('id') id: string,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() authUser?: AuthUser,
+  ) {
+    return this.generationService.applyGeneration(id, organizationId, authUser?.id ?? null);
   }
 
   @Put('generations/:id/skip')
-  skipGeneration(@Param('id') id: string, @CurrentOrganization() organizationId: string) {
-    return this.generationService.skipGeneration(id, organizationId);
+  skipGeneration(
+    @Param('id') id: string,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() authUser?: AuthUser,
+  ) {
+    return this.generationService.skipGeneration(id, organizationId, authUser?.id ?? null);
   }
 
   @Delete('generations/:id')

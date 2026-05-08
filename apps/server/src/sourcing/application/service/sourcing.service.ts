@@ -309,14 +309,27 @@ export class SourcingService {
   }
 
   async listProducts(
-    query: { page?: string | number; limit?: string | number; platform?: string },
+    query: {
+      page?: string | number;
+      limit?: string | number;
+      platform?: string;
+      sort?: string;
+      inProgressOnly?: string;
+    },
     organizationId: string,
   ) {
     const { page, limit, skip } = paginationParams(query);
+    const orderBy = query.sort === 'oldest'
+      ? { createdAt: 'asc' as const }
+      : query.sort === 'name_asc'
+        ? { name: 'asc' as const }
+        : { createdAt: 'desc' as const };
     const where = {
       organizationId,
       isDeleted: false,
-      pipelineStep: { not: null },
+      pipelineStep: query.inProgressOnly
+        ? { in: ['processing', 'images_generating'] }
+        : { not: null },
       ...(query.platform && {
         sourcePlatform: PLATFORM_MAP[query.platform.toLowerCase()] || query.platform,
       }),
@@ -325,7 +338,7 @@ export class SourcingService {
       this.prisma.masterProduct.count({ where }),
       this.prisma.masterProduct.findMany({
         where,
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         skip,
         take: limit,
       }),

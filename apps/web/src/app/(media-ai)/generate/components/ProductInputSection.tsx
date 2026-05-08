@@ -261,6 +261,7 @@ export default function ProductInputSection({
                   onChange={(value) => setColorVariantStatus(value as ColorVariantStatus)}
                   options={[
                     { value: 'auto', label: 'AI가 이미지로 판단' },
+                    { value: 'none', label: '색상 없음' },
                     { value: 'single', label: '단일 색상' },
                     { value: 'multiple', label: '여러 색상' },
                   ]}
@@ -270,7 +271,8 @@ export default function ProductInputSection({
                   value={colorVariantNames}
                   onChange={(e) => setColorVariantNames(e.target.value)}
                   placeholder="색상명 예: 핑크 / 화이트"
-                  className="h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] px-3 text-sm font-medium text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--primary)]"
+                  disabled={colorVariantStatus === 'none'}
+                  className="h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] px-3 text-sm font-medium text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-50"
                 />
               </div>
             </Field>

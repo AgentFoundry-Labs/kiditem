@@ -35,7 +35,23 @@ export interface RegistrationAttemptForVerification {
 
 export function pickWingProductName(master: MasterForWingNaming): string {
   const coupangName = master.listings?.[0]?.channelName?.trim();
-  return coupangName || master.name || '';
+  return decodeWingProductName(coupangName || master.name || '');
+}
+
+function decodeWingProductName(value: string): string {
+  let current = value.trim();
+  if (!/%[0-9A-Fa-f]{2}/.test(current)) return current;
+
+  for (let i = 0; i < 2; i += 1) {
+    try {
+      const decoded = decodeURIComponent(current).trim();
+      if (decoded === current) return decoded;
+      current = decoded;
+    } catch {
+      return current;
+    }
+  }
+  return current;
 }
 
 export function pickRegistrationImageUrl(generation: GenerationForWingSelection): string | null {

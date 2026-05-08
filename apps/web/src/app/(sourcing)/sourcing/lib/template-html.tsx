@@ -141,9 +141,9 @@ function inferEditedHtmlStyleProfile(html: string): EditedHtmlStyleProfile {
   if (/\bfont-display\b|data-field=["']hookText["']|data-field=["']sectionTitle["']/i.test(html)) {
     return {
       fontLinks: [
-        'https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Noto+Sans+KR:wght@400;500;700;900&display=swap',
+        'https://hangeul.pstatic.net/hangeul_static/css/nanum-pen.css',
       ],
-      bodyFontFamily: "'Noto Sans KR', system-ui, sans-serif",
+      bodyFontFamily: "'NanumSquareRoundLocal', 'Noto Sans KR', sans-serif",
       viewportWidth: 860,
     };
   }
@@ -187,8 +187,15 @@ const EDITED_HTML_FALLBACK_CSS = `
     --theme-text-primary: #44403c;
     --theme-text-secondary: #57534e;
     --theme-radius: 24px;
-    --font-display: "Black Han Sans", sans-serif;
-    --font-sans: "Noto Sans KR", "Pretendard", system-ui, sans-serif;
+    --font-display: "Jalnan2Local", "NanumSquareRoundLocal", "NanumSquareNeoHeavy", "NanumSquareNeoExtraBold", sans-serif;
+    --font-sans: "NanumSquareRoundLocal", "Noto Sans KR", "Pretendard", system-ui, sans-serif;
+  }
+  @font-face {
+    font-family: "Jalnan2Local";
+    src: url("/fonts/jalnan2/Jalnan2TTF.ttf") format("truetype");
+    font-weight: 400 900;
+    font-style: normal;
+    font-display: swap;
   }
   .bg-gradient-to-b { background-image: linear-gradient(to bottom, var(--tw-gradient-stops)); }
   .bg-gradient-to-t { background-image: linear-gradient(to top, var(--tw-gradient-stops)); }
@@ -319,21 +326,50 @@ function repairProductInfoTableWidthHtml(html: string): string {
   return /<html[\s>]/i.test(html) ? `<!DOCTYPE html>\n${doc.documentElement.outerHTML}` : doc.body.innerHTML;
 }
 
+function stripLegacyTemplateStyleMixing(html: string): string {
+  if (!/<html[\s>]/i.test(html) && !/<head[\s>]/i.test(html)) return html;
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  doc.head.querySelectorAll('script[src]').forEach((script) => {
+    const src = script.getAttribute('src') ?? '';
+    if (/cdn\.tailwindcss\.com/i.test(src)) script.remove();
+  });
+  doc.head.querySelectorAll('link[rel="stylesheet"]').forEach((link) => {
+    const href = link.getAttribute('href') ?? '';
+    if (/Black\+Han\+Sans|Black\s*Han\s*Sans/i.test(href)) link.remove();
+  });
+  doc.head.querySelectorAll('style').forEach((style) => {
+    const text = style.textContent ?? '';
+    const isLegacyFallback =
+      text.includes('section[class*="from-[#1a1a1a]"]') ||
+      text.includes('relative > img.h-\\[500px\\]') ||
+      text.includes('.brightness-\\[0\\.7\\]');
+    if (/Black\s*Han\s*Sans/i.test(text) || isLegacyFallback) style.remove();
+  });
+  return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+}
+
 /**
  * GrapesJS 저장본은 body fragment 만 남을 수 있다. 그 경우 Tailwind/template CSS 를
  * 다시 붙여 상세 미리보기와 다음 에디터 진입에서 원래 디자인을 유지한다.
  */
 export function ensureStyledDetailHtml(html: string, templateCss = ''): string {
-  const source = normalizeEditedHtmlAssets(
+  const baseSource = normalizeEditedHtmlAssets(
     repairProductInfoTableWidthHtml(repairSizeGuideFrameHtml(html.trim())),
   );
-  if (!source) return html;
+  if (!baseSource) return html;
 
+  const compiledTemplateCss = absolutizeFontUrls(templateCss);
+  const hasTemplateCss = compiledTemplateCss.trim() !== '';
+  const source = hasTemplateCss ? stripLegacyTemplateStyleMixing(baseSource) : baseSource;
   const profile = inferEditedHtmlStyleProfile(source);
   const hasTailwindRuntime = /cdn\.tailwindcss\.com/i.test(source);
-  const hasCompiledTailwind = /tailwindcss v/i.test(source);
+  const hasCompiledTailwind =
+    /tailwindcss v/i.test(source) || /tailwindcss v/i.test(compiledTemplateCss);
   const needsTailwindRuntime =
-    looksLikeTailwindMarkup(source) && !hasTailwindRuntime && !hasCompiledTailwind;
+    looksLikeTailwindMarkup(source) &&
+    !hasTailwindRuntime &&
+    !hasCompiledTailwind &&
+    !hasTemplateCss;
   const fontLinks = profile.fontLinks
     .filter((fontUrl) => !source.includes(fontUrl))
     .map((fontUrl) => `<link rel="stylesheet" href="${fontUrl}" />`)
@@ -343,8 +379,8 @@ export function ensureStyledDetailHtml(html: string, templateCss = ''): string {
   <meta name="viewport" content="width=${profile.viewportWidth}, initial-scale=1" />
   ${needsTailwindRuntime ? '<script src="https://cdn.tailwindcss.com"></script>' : ''}
   ${fontLinks}
-  ${templateCss ? `<style>${absolutizeFontUrls(templateCss)}</style>` : ''}
-  <style>${EDITED_HTML_FALLBACK_CSS}</style>
+  ${hasTemplateCss ? `<style>${compiledTemplateCss}</style>` : ''}
+  ${hasTemplateCss ? '' : `<style>${EDITED_HTML_FALLBACK_CSS}</style>`}
   <style>
     body {
       margin: 0;
@@ -356,7 +392,7 @@ export function ensureStyledDetailHtml(html: string, templateCss = ''): string {
 
   if (/<html[\s>]/i.test(source)) {
     if (/<head[\s>]/i.test(source)) {
-      return source.replace(/<head(\s[^>]*)?>/i, (match) => `${match}${headExtra}`);
+      return source.replace(/<\/head>/i, `${headExtra}\n</head>`);
     }
     return source.replace(/<html(\s[^>]*)?>/i, (match) => `${match}<head>${headExtra}</head>`);
   }

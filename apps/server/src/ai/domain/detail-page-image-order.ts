@@ -9,10 +9,16 @@ const SAFETY_LABEL_URL_MARKERS = [
   'kc-cert',
   'certification-label',
   'warning-label',
+  'barcode',
+  'bar-code',
+  '바코드',
   '품질표시',
+  '품질경영',
   '안전특별법',
   '사용시주의사항',
   '안전확인',
+  '어린이제품',
+  '표시사항',
   'KC',
 ];
 

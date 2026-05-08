@@ -12,6 +12,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { Throttle } from '@nestjs/throttler';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../../../auth/auth.types';
@@ -68,6 +69,7 @@ export class DetailPageAiController {
   }
 
   @Get()
+  @Throttle({ default: { limit: 300, ttl: 60_000 } })
   list(
     @CurrentOrganization() organizationId: string,
     @Query('productId') productId?: string,
@@ -77,6 +79,7 @@ export class DetailPageAiController {
   }
 
   @Get(':id')
+  @Throttle({ default: { limit: 300, ttl: 60_000 } })
   getOne(
     @Param('id', new ParseUUIDPipe()) id: string,
     @CurrentOrganization() organizationId: string,

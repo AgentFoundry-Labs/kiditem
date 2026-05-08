@@ -77,7 +77,7 @@ describe('ThumbnailEditorController parity behavior', () => {
     expect(inputs.map((input) => input.role)).toEqual(['product', 'color_variant', 'color_variant']);
   });
 
-  it('does not add product/category context to creative prompt options', async () => {
+  it('adds product/category context to creative prompt options', async () => {
     const { controller, editorAi } = makeController();
     const body = {
       productId: PRODUCT_ID,
@@ -91,7 +91,7 @@ describe('ThumbnailEditorController parity behavior', () => {
     await controller.generate(body, ORGANIZATION_ID);
 
     const options = editorAi.generateCreative.mock.calls[0][2] as Record<string, unknown>;
-    expect(options.productName).toBeUndefined();
-    expect(options.category).toBeUndefined();
+    expect(options.productName).toBe('Sample product');
+    expect(options.category).toBe('toys');
   });
 });

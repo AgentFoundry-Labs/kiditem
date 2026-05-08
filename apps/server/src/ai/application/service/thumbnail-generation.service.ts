@@ -1,8 +1,10 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type {
@@ -54,6 +56,7 @@ import {
 } from '../../adapter/out/prisma/thumbnail-generation.query';
 import {
   applyGenerationToMaster,
+  clearReadySelections,
   createPendingEditJob,
   deleteGeneration,
   lockGenerationForProcessing,
@@ -66,6 +69,11 @@ import {
   setSelectedCandidate,
   type SaveEditorResultInput,
 } from '../../adapter/out/prisma/thumbnail-generation.persistence';
+import {
+  THUMBNAIL_GENERATION_EVENT_PORT,
+  type AppendThumbnailGenerationEventInput,
+  type ThumbnailGenerationEventPort,
+} from '../port/out/thumbnail-generation-event.port';
 
 @Injectable()
 export class ThumbnailGenerationService {
@@ -76,6 +84,9 @@ export class ThumbnailGenerationService {
     private readonly editorAiService: ThumbnailEditorAiService,
     private readonly trackingService: ThumbnailTrackingService,
     private readonly operationAlerts: OperationAlertService,
+    @Optional()
+    @Inject(THUMBNAIL_GENERATION_EVENT_PORT)
+    private readonly generationEvents: ThumbnailGenerationEventPort | null = null,
   ) {}
 
   private editJobOperationKey(generationId: string): string {
@@ -95,7 +106,22 @@ export class ThumbnailGenerationService {
 
   async saveEditorResult(input: SaveEditorResultInput): Promise<string> {
     await this.assertProductOwned(input.productId, input.organizationId);
-    return saveEditorResultPersistence(this.prisma, input);
+    const generationId = await saveEditorResultPersistence(this.prisma, input);
+    await this.emitStatusChange({
+      organizationId: input.organizationId,
+      generationId,
+      fromStatus: null,
+      toStatus: 'succeeded',
+      fromPhase: null,
+      toPhase: 'ready',
+      actorUserId: input.triggeredByUserId ?? null,
+      payload: {
+        method: input.method,
+        inputCount: input.inputImages?.length ?? 0,
+        candidateCount: input.candidates.length,
+      },
+    });
+    return generationId;
   }
 
   async findAll(
@@ -128,7 +154,20 @@ export class ThumbnailGenerationService {
     return this.findOne(id, organizationId);
   }
 
-  async applyGeneration(id: string, organizationId: string): Promise<ThumbnailGenerationItem> {
+  /**
+   * "선택 대기" (`phase: 'ready'`) 상태 generation 들의 `selectedUrl` 일괄 해제.
+   * 사용자가 thumbnails 페이지의 "선택 대기" 탭에 진입할 때마다 깨끗한 상태로
+   * 시작하도록 frontend 가 호출. applied 항목은 유지.
+   */
+  async clearReadySelections(organizationId: string): Promise<{ count: number }> {
+    return clearReadySelections(this.prisma, organizationId);
+  }
+
+  async applyGeneration(
+    id: string,
+    organizationId: string,
+    actorUserId: string | null = null,
+  ): Promise<ThumbnailGenerationItem> {
     const existing = await findGenerationWithCandidatesOrThrow(this.prisma, id, organizationId);
     const master = await findGenerationMaster(this.prisma, existing.masterId, organizationId);
     if (!master) throw new NotFoundException(`MasterProduct ${existing.masterId} not found`);
@@ -153,6 +192,16 @@ export class ThumbnailGenerationService {
       masterId: existing.masterId,
       selected,
     });
+    await this.emitPhaseChange({
+      organizationId,
+      generationId: id,
+      fromPhase: existing.phase,
+      toPhase: 'applied',
+      fromStatus: existing.status,
+      toStatus: 'succeeded',
+      actorUserId,
+      payload: { selectedUrl: selected?.url ?? null },
+    });
 
     const analysis = await findThumbnailAnalysisGrade(this.prisma, existing.masterId, organizationId);
     void this.trackingService
@@ -174,9 +223,22 @@ export class ThumbnailGenerationService {
     return this.findOne(id, organizationId);
   }
 
-  async skipGeneration(id: string, organizationId: string): Promise<ThumbnailGenerationItem> {
-    await this.assertGenerationOwned(id, organizationId);
-    await markGenerationCancelled(this.prisma, id, organizationId);
+  async skipGeneration(
+    id: string,
+    organizationId: string,
+    triggeredByUserId: string | null = null,
+  ): Promise<ThumbnailGenerationItem> {
+    const change = await markGenerationCancelled(this.prisma, id, organizationId);
+    if (!change) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
+    await this.emitStatusChange({
+      organizationId,
+      generationId: id,
+      fromStatus: change.fromStatus,
+      toStatus: 'cancelled',
+      fromPhase: change.fromPhase,
+      toPhase: null,
+      actorUserId: triggeredByUserId,
+    });
     // No-op when the generation never opened an alert (e.g. auto-batch).
     await this.operationAlerts.cancel(organizationId, this.editJobOperationKey(id));
     return this.findOne(id, organizationId);
@@ -255,6 +317,22 @@ export class ThumbnailGenerationService {
         },
         editAnalysis,
       });
+      await this.emitStatusChange({
+        organizationId,
+        generationId: generation.id,
+        fromStatus: null,
+        toStatus: 'pending',
+        fromPhase: null,
+        toPhase: null,
+        actorUserId: triggeredByUserId,
+        payload: {
+          method,
+          productId: product.id,
+          purpose,
+          variantKey: variantKey ?? 'auto',
+          automated: method === 'auto',
+        },
+      });
 
       // Per-generation alert for every method, including auto-batch. The
       // earlier "method === 'auto'" gate was dropped because the cohort alert
@@ -294,7 +372,18 @@ export class ThumbnailGenerationService {
     });
     if (!existing) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
 
-    await resetGenerationForReEdit(this.prisma, { id, organizationId, purpose, variantKey });
+    const change = await resetGenerationForReEdit(this.prisma, { id, organizationId, purpose, variantKey });
+    if (!change) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
+    await this.emitStatusChange({
+      organizationId,
+      generationId: id,
+      fromStatus: change.fromStatus,
+      toStatus: 'pending',
+      fromPhase: change.fromPhase,
+      toPhase: null,
+      actorUserId: triggeredByUserId,
+      payload: { purpose, variantKey: variantKey ?? 'auto' },
+    });
 
     // Re-open the operation alert. `start()` is idempotent on the
     // (organizationId, operationKey) tuple — a previous failed/succeeded
@@ -342,6 +431,27 @@ export class ThumbnailGenerationService {
   ): Promise<void> {
     const locked = await lockGenerationForProcessing(this.prisma, id, organizationId);
     if (!locked) return;
+    await this.emitStatusChange({
+      organizationId,
+      generationId: id,
+      fromStatus: locked.fromStatus,
+      toStatus: 'running',
+      fromPhase: locked.fromPhase,
+      toPhase: null,
+      attemptNumber: locked.attemptNumber,
+      payload: { purpose, variantKey: variantKey ?? 'auto' },
+    });
+    await this.appendGenerationEvent({
+      organizationId,
+      generationId: id,
+      eventType: 'attempt_started',
+      fromStatus: locked.fromStatus,
+      toStatus: 'running',
+      fromPhase: locked.fromPhase,
+      toPhase: null,
+      attemptNumber: locked.attemptNumber,
+      payload: { purpose, variantKey: variantKey ?? 'auto' },
+    });
 
     try {
       const existing = await findGenerationWithInputImages(this.prisma, id, organizationId);
@@ -421,7 +531,7 @@ export class ThumbnailGenerationService {
         recompose: (analysis?.recompose ?? null) as Prisma.InputJsonValue,
         analysisContext: toAnalysisContextJson(analysis, editSuggestions),
       };
-      await replaceGenerationResult(this.prisma, {
+      const completed = await replaceGenerationResult(this.prisma, {
         generationId: id,
         organizationId,
         candidates,
@@ -429,18 +539,76 @@ export class ThumbnailGenerationService {
         inputMeta,
         editAnalysis: toEditAnalysis(analysis),
       });
+      if (completed) {
+        await this.emitStatusChange({
+          organizationId,
+          generationId: id,
+          fromStatus: completed.fromStatus,
+          toStatus: 'succeeded',
+          fromPhase: completed.fromPhase,
+          toPhase: 'ready',
+          attemptNumber: completed.attemptNumber,
+          payload: {
+            candidateCount: candidates.length,
+            inputCount: inputImages.length,
+            editCase,
+            variantKey: variantKey ?? 'auto',
+          },
+        });
+        await this.appendGenerationEvent({
+          organizationId,
+          generationId: id,
+          eventType: 'attempt_finished',
+          fromStatus: completed.fromStatus,
+          toStatus: 'succeeded',
+          fromPhase: completed.fromPhase,
+          toPhase: 'ready',
+          attemptNumber: completed.attemptNumber,
+          payload: {
+            candidateCount: candidates.length,
+            inputCount: inputImages.length,
+            editCase,
+            variantKey: variantKey ?? 'auto',
+          },
+        });
 
-      // Operation alert succeed — no-op for auto-batch (no per-generation alert
-      // was opened) and for unrelated lifecycles where the alert is missing.
-      await this.operationAlerts.succeed(
-        organizationId,
-        this.editJobOperationKey(id),
-        { metadata: { candidateCount: candidates.length } },
-      );
+        // Operation alert succeed — no-op for unrelated lifecycles where the
+        // alert is missing.
+        await this.operationAlerts.succeed(
+          organizationId,
+          this.editJobOperationKey(id),
+          { metadata: { candidateCount: candidates.length } },
+        );
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(`편집 처리 실패 (${id}): ${message}`);
-      await markGenerationFailed(this.prisma, id, organizationId, message);
+      const failed = await markGenerationFailed(this.prisma, id, organizationId, message);
+      if (failed) {
+        await this.emitStatusChange({
+          organizationId,
+          generationId: id,
+          fromStatus: failed.fromStatus,
+          toStatus: 'failed',
+          fromPhase: failed.fromPhase,
+          toPhase: null,
+          attemptNumber: failed.attemptNumber,
+          errorMessage: message,
+          payload: { purpose, variantKey: variantKey ?? 'auto' },
+        });
+        await this.appendGenerationEvent({
+          organizationId,
+          generationId: id,
+          eventType: 'error',
+          fromStatus: failed.fromStatus,
+          toStatus: 'failed',
+          fromPhase: failed.fromPhase,
+          toPhase: null,
+          attemptNumber: failed.attemptNumber,
+          errorMessage: message,
+          payload: { purpose, variantKey: variantKey ?? 'auto' },
+        });
+      }
       await this.operationAlerts.fail(
         organizationId,
         this.editJobOperationKey(id),
@@ -513,6 +681,54 @@ export class ThumbnailGenerationService {
       select: { id: true },
     });
     if (!existing) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
+  }
+
+  private async emitStatusChange(
+    input: Omit<AppendThumbnailGenerationEventInput, 'eventType'> & {
+      eventType?: AppendThumbnailGenerationEventInput['eventType'];
+      fromPhase?: string | null;
+      toPhase?: string | null;
+    },
+  ): Promise<void> {
+    await this.appendGenerationEvent({
+      ...input,
+      eventType: input.eventType ?? 'status_change',
+    });
+    if (input.fromPhase !== input.toPhase) {
+      await this.appendGenerationEvent({
+        organizationId: input.organizationId,
+        generationId: input.generationId,
+        eventType: 'phase_change',
+        fromStatus: input.fromStatus,
+        toStatus: input.toStatus,
+        fromPhase: input.fromPhase,
+        toPhase: input.toPhase,
+        attemptNumber: input.attemptNumber,
+        actorUserId: input.actorUserId,
+        payload: input.payload,
+      });
+    }
+  }
+
+  private async emitPhaseChange(input: Omit<AppendThumbnailGenerationEventInput, 'eventType'>): Promise<void> {
+    if (input.fromPhase === input.toPhase) return;
+    await this.appendGenerationEvent({
+      ...input,
+      eventType: 'phase_change',
+    });
+  }
+
+  private async appendGenerationEvent(input: AppendThumbnailGenerationEventInput): Promise<void> {
+    if (!this.generationEvents) return;
+    try {
+      await this.generationEvents.append(input);
+    } catch (err) {
+      this.logger.warn(
+        `ThumbnailGenerationEvent 기록 실패 (generationId=${input.generationId}, type=${input.eventType}): ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
   }
 }
 

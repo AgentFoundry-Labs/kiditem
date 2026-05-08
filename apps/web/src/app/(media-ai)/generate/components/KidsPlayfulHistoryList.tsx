@@ -214,7 +214,8 @@ interface FullscreenViewerProps {
 }
 
 function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
-  const [templateCss, setTemplateCss] = useState('');
+  const [templateCss, setTemplateCss] = useState<string | null>(null);
+  const isBoldVertical = entry.templateId === 'bold-vertical';
   useEffect(() => {
     let cancelled = false;
     fetch('/templates-styles.css', { cache: 'no-store' })
@@ -230,7 +231,8 @@ function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
     };
   }, []);
   const html = useMemo(() => {
-    if (entry.templateId === 'bold-vertical') {
+    if (templateCss == null) return '';
+    if (isBoldVertical) {
       const adapted = adaptBoldVerticalToDetailPageData(
         entry.result as unknown as BoldVerticalGeneration,
         entry.imageUrls,
@@ -239,8 +241,8 @@ function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
       );
       return buildBoldVerticalHtml(adapted, templateCss);
     }
-    return buildKidsPlayfulHtml(rowToRendererData(entry));
-  }, [entry, templateCss]);
+    return buildKidsPlayfulHtml(rowToRendererData(entry), templateCss);
+  }, [entry, isBoldVertical, templateCss]);
   const sandboxedHtml = useMemo(() => stripSrcDocScripts(html), [html]);
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-2">
@@ -262,12 +264,18 @@ function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
           </button>
         </div>
         <div className="flex-1 overflow-y-auto bg-white">
-          <iframe
-            title="상세페이지 생성 이력 미리보기"
-            srcDoc={sandboxedHtml}
-            className="h-full w-full border-0"
-            sandbox={SAME_ORIGIN_SCRIPTLESS_SANDBOX}
-          />
+          {templateCss == null ? (
+            <div className="flex h-full items-center justify-center text-sm font-semibold text-slate-400">
+              템플릿 스타일을 불러오는 중입니다.
+            </div>
+          ) : (
+            <iframe
+              title="상세페이지 생성 이력 미리보기"
+              srcDoc={sandboxedHtml}
+              className="h-full w-full border-0"
+              sandbox={SAME_ORIGIN_SCRIPTLESS_SANDBOX}
+            />
+          )}
         </div>
       </div>
     </div>

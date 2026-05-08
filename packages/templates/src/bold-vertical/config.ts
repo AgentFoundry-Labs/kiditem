@@ -7,5 +7,5 @@ export const boldVerticalConfig = {
     'https://hangeul.pstatic.net/hangeul_static/css/nanum-pen.css',
   ],
   fontFamily: "'NanumSquareRoundLocal', 'Noto Sans KR', sans-serif",
-  displayFontFamily: "'NanumSquareRoundLocal', 'NanumSquareNeoHeavy', 'NanumSquareNeoExtraBold', sans-serif",
+  displayFontFamily: "'Jalnan2Local', 'NanumSquareRoundLocal', 'NanumSquareNeoHeavy', 'NanumSquareNeoExtraBold', sans-serif",
 };

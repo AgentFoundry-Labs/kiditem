@@ -4,6 +4,7 @@ import { apiClient } from '@/lib/api-client';
 
 interface GenerateRequest {
   productId?: string;
+  productName?: string;
   productImage?: string;
   packagingImage?: string;
   supplementaryLabel?: string;

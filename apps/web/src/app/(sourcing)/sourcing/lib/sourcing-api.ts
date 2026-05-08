@@ -41,6 +41,8 @@ interface ProductListResponse {
   total: number;
 }
 
+export type SourcingSort = 'newest' | 'oldest' | 'name_asc';
+
 export interface ProductDetailResponse {
   id: string;
   name: string;
@@ -143,13 +145,14 @@ function imageUrlFingerprint(url: string): string {
 
 function scoreThumbnailCandidate(url: string, index: number, explicitUrl?: string | null): number {
   const fingerprint = imageUrlFingerprint(url);
-  let score = 1000 - index;
+  let score = 1000 - (index * 12);
 
-  if (explicitUrl && fingerprint === imageUrlFingerprint(explicitUrl)) score += 400;
-  if (/thumb|thumbnail|대표|main|cover|hero/.test(fingerprint)) score += 180;
-  if (/single|product|item|goods|front|mainimage/.test(fingerprint)) score += 80;
+  if (explicitUrl && fingerprint === imageUrlFingerprint(explicitUrl)) score += 35;
+  if (index > 0 && index <= 4) score += 70;
+  if (/thumb|thumbnail|대표|main|cover|hero/.test(fingerprint)) score += 60;
+  if (/single|product|item|goods|front|mainimage|standalone/.test(fingerprint)) score += 90;
   if (/detail|desc|description|상세|size|사이즈|spec|스펙/.test(fingerprint)) score -= 180;
-  if (/barcode|bar_code|바코드|kc|quality|label|warning|safety|품질|표시|인증|주의/.test(fingerprint)) score -= 600;
+  if (/box|package|packaging|carton|박스|상자|포장|barcode|bar_code|바코드|kc|quality|label|warning|safety|품질|표시|인증|주의/.test(fingerprint)) score -= 700;
 
   return score;
 }
@@ -161,9 +164,12 @@ export function selectBestThumbnailImage(
 ): string | null {
   const raw = rawData ?? {};
   const candidates = collectImageUrls(
-    explicitUrl,
-    raw.thumbnailUrl,
-    raw.thumbnail_url,
+    raw.representativeImageUrl,
+    raw.representative_image_url,
+    raw.bestProductImageUrl,
+    raw.best_product_image_url,
+    raw.primaryProductImageUrl,
+    raw.primary_product_image_url,
     raw.mainImage,
     raw.main_image,
     raw.mainImages,
@@ -175,6 +181,9 @@ export function selectBestThumbnailImage(
     raw.image_urls,
     raw.offerImgList,
     imageUrls,
+    explicitUrl,
+    raw.thumbnailUrl,
+    raw.thumbnail_url,
   );
 
   if (candidates.length === 0) return null;
@@ -190,12 +199,14 @@ export const productsApi = {
     limit?: number;
     status?: string;
     platform?: string;
+    sort?: SourcingSort;
   }): Promise<ProductListResponse> {
     const qs = new URLSearchParams({
       page: String(params?.page || 1),
       limit: String(params?.limit || 50),
     });
     if (params?.platform) qs.set('platform', params.platform);
+    if (params?.sort) qs.set('sort', params.sort);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data = await apiClient.get<{ items: any[]; total: number; page: number; limit: number }>(`/api/sourcing/extension/products?${qs}`);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

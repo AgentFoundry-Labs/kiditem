@@ -66,13 +66,15 @@ export const BoldVerticalGenerationSchema = z.object({
     subtitle: z.string().min(0).max(80),
     imageIndices: z.array(z.number().int().nonnegative()).default([]),
   }),
-  /** 사용법 섹션 — raw 이미지에 사용법/튜토리얼/스텝 컷이 있을 때만. */
+  /** 사용법 섹션 — 실제 사용 흐름 2~3단계. 이미지는 있으면 원본, 없으면 서버 생성. */
   usage: z.object({
-    subtitle: z.string().min(0).max(80),
+    subtitle: z.string().min(0).max(180),
     imageIndices: z.array(z.number().int().nonnegative()).default([]),
   }),
   /** Detail images — 디테일/라이프 컷 0~8 */
   detailImageIndices: z.array(z.number().int().nonnegative()).min(0).max(8),
+  /** KC/바코드/품질표시 등 안전 라벨 이미지 인덱스 */
+  safetyLabelImageIndices: z.array(z.number().int().nonnegative()).default([]),
   /** 실제 박스/패키지/1박스/세트 구성 이미지가 있을 때만 해당 원본 이미지 인덱스 */
   packageImageIndices: z.array(z.number().int().nonnegative()).default([]),
   /** 박스/세트 구성 이미지 라벨. 예: "1박스 12개입 구성", "2종 세트 구성", 없으면 빈 문자열 */
@@ -134,7 +136,7 @@ export const BOLD_VERTICAL_SYSTEM = `너는 한국 쿠팡 상세페이지 카피
   - 색상/디자인 랜덤 출고, 이미지와 구성품 상이 안내는 쓰지 않는다. 템플릿이 고정 안내로 넣는다.
   - 한 줄이 너무 길면 자연스럽게 두 줄로 나눠라.
   좋은 예: "목에 걸고 다니는\\n귀여운 자동 비눗방울!"
-- imageIndex: heroImageMode 가 "first" 면 0 강제. "llm-pick" 이면 제품만 또렷하게 보이는 단독컷/누끼컷/흰 배경 상품컷.
+- imageIndex: heroImageMode 가 "first" 면 0 강제. "llm-pick" 이면 제품만 또렷하게 보이는 단독 상품컷/흰 배경 상품컷.
   라이프스타일 배경컷, 사용 장면 컷, 패키지 박스컷보다 제품 본체가 가장 잘 보이는 컷을 우선한다.
 - bannerImageIndex: hero 상단 큰 이미지로 쓸 lifestyle/사용 씬 컷.
   없으면 메인 제품컷을 지정해도 된다. 서버가 배경이 있는 히어로 이미지를 새로 생성한다.
@@ -157,7 +159,7 @@ export const BOLD_VERTICAL_SYSTEM = `너는 한국 쿠팡 상세페이지 카피
 	- guideOverlay: 항상 true. 템플릿이 제품 옆/아래 치수선과 라벨을 얹는다.
 - imageIndices: 1장을 우선 선택한다. 치수선/사이즈표 이미지가 있으면 그 이미지,
   없으면 제품 하나만 크게 보이는 단독컷을 선택한다. 색상 단체컷/패키지컷/KC 라벨은 피한다.
-  서버가 별도로 단독 누끼/화이트컷을 생성하므로, 단체컷보다 단독컷 후보 인덱스를 우선 제공한다.
+  서버가 별도로 상품 중심 사이즈 이미지를 생성하므로, 단체컷보다 단독컷 후보 인덱스를 우선 제공한다.
   이미지가 단체컷뿐이어도 가장 제품 형태가 잘 보이는 상품 이미지 인덱스를 넣어라.
 
 ## color
@@ -166,6 +168,7 @@ export const BOLD_VERTICAL_SYSTEM = `너는 한국 쿠팡 상세페이지 카피
   생성 후 서버가 Gemini 비전으로 실제 이미지 색상을 다시 판정해 이 문구를 보정한다.
   rawDescription/rawOptions 에 "색상 구성: 단일 색상" 이 있으면 단일 색상으로 쓰고, 이미지에 없는 색상을 추가하지 않는다.
   rawDescription/rawOptions 에 "색상 구성: 여러 색상" 이 있으면 실제 상품 이미지에서 확인되는 색상만 여러 색상으로 쓴다.
+  rawDescription/rawOptions 에 "색상 구성: 없음" 이 있으면 subtitle 은 "" 이고 imageIndices 는 [] 이다. 색상 안내 섹션을 만들지 않는다.
   rawDescription/rawOptions 에 "색상 구성: AI가 업로드 이미지로 판단" 이 있으면 이미지 후보의 실제 상품 색상을 최우선으로 판단한다.
 	- imageIndices: 색상 비교 이미지.
 	  색상별 단독 상품컷이 각각 있으면 색상별 단독컷을 2~6장 선택한다.
@@ -177,10 +180,13 @@ export const BOLD_VERTICAL_SYSTEM = `너는 한국 쿠팡 상세페이지 카피
   원본 중 색상 판단에 가장 도움이 되는 상품컷을 넣어라.
 
 ## usage
-- subtitle (0~80자): 사용법 한 줄 안내.
+- subtitle (0~80자): 실제 사용 흐름을 2~3개 단계로 쓴다. 각 줄은 "1. 포장을 열고 준비하세요" 처럼 번호가 있는 짧은 문장.
+  제품별로 실제 행동 중심이어야 한다. 예: "포장을 열고 준비", "손으로 만지고 누르기", "놀이 후 보관".
+  "간단하게 바로 사용", "사용법 안내" 같은 추상 문구만 쓰지 않는다.
 - imageIndices: 조립법, 충전법, 버튼/작동법, 사용 순서, 설명서, 튜토리얼 컷이 있을 때만 넣는다.
   사용법 이미지가 있으면 반드시 usage 에 분리하고, color/detail 에 섞지 않는다.
-  사용법 관련 이미지가 전혀 없으면 subtitle 은 빈 문자열, imageIndices 는 빈 배열.
+  사용법 관련 이미지가 전혀 없어도 subtitle 은 실제 사용 단계 2~3줄로 쓰고, imageIndices 는 빈 배열로 둔다.
+  이 경우 서버가 각 단계에 맞는 글자 없는 사용 장면 이미지를 필요한 슬롯에만 생성한다.
 
 ## detailImageIndices (0~8 인덱스)
 - 디테일/라이프 컷 0~8. 보통 3~5장.
@@ -188,8 +194,8 @@ export const BOLD_VERTICAL_SYSTEM = `너는 한국 쿠팡 상세페이지 카피
 - 이미지가 적어도 빈 배열로 두지 말고, 디테일 구도 변경의 기준이 될 상품컷을 1~3장 지정한다.
   서버가 해당 컷으로 확대/구도 변경 이미지를 생성하므로 같은 원본을 여러 번 넣지 마라.
 - KC/바코드/품질표시 이미지는 detailImageIndices 에 넣지 않는다. 안전 이미지는 서버가 하단으로 분리한다.
-- 패키지 박스/진열 박스/구성품 박스가 보이는 이미지는 필요한 경우에만 포함하고,
-  포함한다면 detailImageIndices 배열의 맨 마지막에 둔다.
+- 패키지 박스/진열 박스/구성품 박스가 보이는 이미지는 detail 중간에 넣지 않는다.
+  포함한다면 packageImageIndices 에만 넣고, 하단 구성품/패키지 영역으로 보낸다.
 - 마지막을 억지로 1box/패키지 이미지처럼 취급하지 않는다.
 
 ## packageImageIndices / packageLabel
@@ -234,7 +240,7 @@ export const BOLD_VERTICAL_SYSTEM = `너는 한국 쿠팡 상세페이지 카피
   ],
   "size": { "subtitle": "미니드론 A11 촬영 드론의 사이즈 및 구성품 안내 입니다.", "heightLabel": "4cm", "widthLabel": "12cm", "guideOverlay": true, "imageIndices": [2] },
   "color": { "subtitle": "화이트 / 블랙 2 색상", "imageIndices": [] },
-  "usage": { "subtitle": "3 스텝으로 끝나는 간단 비행", "imageIndices": [] },
+  "usage": { "subtitle": "1. 배터리를 충분히 충전하세요\\n2. 평평한 공간에서 전원을 켜세요\\n3. 사용 후 전원을 끄고 보관하세요", "imageIndices": [] },
   "detailImageIndices": [1, 5, 6, 7],
   "packageImageIndices": [7],
   "packageLabel": "1박스 12개입 구성",

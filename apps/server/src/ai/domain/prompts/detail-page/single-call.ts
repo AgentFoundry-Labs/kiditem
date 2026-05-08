@@ -43,6 +43,8 @@ export type DetailPageGeneration = z.infer<typeof DetailPageGenerationSchema>;
 export interface SingleCallInput {
   raw: RawProductInput;
   heroImageMode: HeroImageMode;
+  reservedPackageImageIndices?: number[];
+  safetyLabelImageIndices?: number[];
 }
 
 export const SINGLE_CALL_SYSTEM = `너는 한국 쿠팡 상세페이지의 카피라이터다. 1688/Alibaba 에서 스크래핑한
@@ -67,12 +69,17 @@ E. **보조 셀링포인트 분리**: section9.topic 은 section6.cards 의 USP 
    section10.cards 의 3 개 속성도 section6 USP / section9.topic 과 모두 다른 주제.
 
 # 이미지 매칭 정책 (중요)
-- 입력 이미지 N 장은 **최대한 활용**. null 은 진짜 부적합할 때 최소한으로.
-- 라이프/사용씬 우선이지만 부족하면 **화이트백 단독컷도 OK**. "완벽한 라이프컷이 없어서 null" 은 금지.
-- 같은 이미지가 두 섹션에 중복되는 것보다 약간 어색해도 매칭하는 편이 낫다.
-  단, **section7 ↔ section8.blocks ↔ section10 ↔ section11 같은 큰 영역끼리는 가능한 한 다른 컷**.
-- 전체 imageIndex 슬롯 중 null 비율은 **30 % 이하 권장**. 이미지 후보가 5장 이상이면 null 거의 없게.
-- 이미지가 정말 1~2장만 있고 슬롯이 더 많을 때만 null 다수 허용.
+- 이미지 선택은 "많이 채우기"보다 **카피와 장면의 의미 일치**가 우선이다.
+- 사용법/기능/상황 섹션에는 해당 행동·특징이 보이는 이미지가 없으면 null 로 둔다.
+  서버가 null 슬롯에 실제 사용 장면처럼 보이는 생성 이미지를 보완한다.
+- 같은 원본 이미지를 큰 영역(section3/5/6/7/8/10/11)에 반복 배치하지 않는다.
+- 패키지/박스/진열 박스/묶음 포장/바코드/KC·제품안전표시 이미지는
+  hero, problem, usage, feature, keypoint, lifestyle, front gallery 에 절대 쓰지 않는다.
+- 패키지/박스 이미지는 **맨 아래 galleryImageIndices 두 번째 슬롯(section11.galleryImageIndices[1])** 에만 쓴다.
+- 여러 상품이 같이 찍힌 사진이라고 해서 박스 이미지가 아니다. 실제 물리 박스/트레이/패키지/포장재가
+  또렷하게 보여야만 패키지 이미지로 본다.
+- 제품안전표시/바코드 이미지는 상세 하단 별도 안전표시 영역에서만 사용하므로 모든 imageIndex 슬롯에서 제외한다.
+- 화이트백 단독컷은 제품 크기/색상/클로즈업처럼 의미가 맞는 섹션에만 사용한다.
 
 # 줄바꿈 정책
 줄바꿈 \\n 은 오직 다음 두 필드에서만 허용 (각 1~2줄):
@@ -189,6 +196,10 @@ E. **보조 셀링포인트 분리**: section9.topic 은 section6.cards 의 USP 
 
 export function buildSingleCallUser(input: SingleCallInput): string {
   const { raw, heroImageMode } = input;
+  const reservedPackageImageIndices = input.reservedPackageImageIndices
+    ?.filter((index) => Number.isInteger(index)) ?? [];
+  const safetyLabelImageIndices = input.safetyLabelImageIndices
+    ?.filter((index) => Number.isInteger(index)) ?? [];
   return `다음 raw 제품 데이터로 11 개 섹션을 통째로 생성하라.
 
 heroImageMode: ${heroImageMode}
@@ -196,9 +207,17 @@ heroImageMode: ${heroImageMode}
 카테고리(원문): ${raw.rawCategory}
 원본 설명: ${raw.rawDescription}
 주요 옵션/스펙: ${raw.rawOptions}
+하단 전용 패키지/박스 후보 인덱스: ${reservedPackageImageIndices.length > 0 ? reservedPackageImageIndices.join(', ') : '없음'}
+본문 사용 금지 안전표시/바코드 후보 인덱스: ${safetyLabelImageIndices.length > 0 ? safetyLabelImageIndices.join(', ') : '없음'}
 
 이미지 후보 (인덱스: URL):
 ${formatImageCandidates(raw.imageUrls)}
+
+이미지 배치 추가 지시:
+- 하단 전용 패키지/박스 후보는 section11.galleryImageIndices[1] 외에는 절대 넣지 말 것.
+- 안전표시/바코드 후보는 모든 imageIndex/galleryImageIndices 슬롯에서 제외할 것.
+- 섹션 설명과 장면이 맞지 않으면 imageIndex 를 null 로 둘 것. 서버가 생성 이미지로 보완한다.
+- 상품명/DETAIL FEATURE CALLOUT/척도/말풍선 같은 글자가 들어간 이미지를 새로 요구하지 말 것.
 
 JSON 객체 1 개만 출력하라. 다른 텍스트 금지.`;
 }
