@@ -152,6 +152,7 @@ export class RulesService {
             severity: 'critical',
             title: v.message,
             message: v.actionType ?? '',
+            href: `/products/${r.masterId}`,
           })),
       );
       if (criticals.length) {
@@ -176,7 +177,7 @@ export class RulesService {
                 sourceType: null,
                 sourceId: null,
                 actorUserId: null,
-                href: null,
+                href: '/products',
                 progress: null,
                 metadata: {},
                 isRead: false,

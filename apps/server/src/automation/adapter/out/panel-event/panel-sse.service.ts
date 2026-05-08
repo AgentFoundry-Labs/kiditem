@@ -56,20 +56,35 @@ export class PanelSseService implements OnModuleDestroy {
   }
 
   /**
-   * 구독자의 organizationId와 일치하는 이벤트만 통과.
+   * 구독자의 organizationId와 visibility 계약에 맞는 이벤트만 통과.
    * MessageEvent는 @nestjs/common (NOT DOM MessageEvent).
    * 현재 seqCounter를 getter로 노출 (controller가 snapshot resetClient 판단 시 사용).
    */
-  getStream(subscriberOrganizationId: string): Observable<MessageEvent> {
+  getStream(
+    subscriberOrganizationId: string,
+    subscriberUserId: string | null = null,
+  ): Observable<MessageEvent> {
     return this.subject.asObservable().pipe(
-      filter((b) => b.organizationId === subscriberOrganizationId),
+      filter((b) =>
+        b.organizationId === subscriberOrganizationId &&
+        this.isVisibleToSubscriber(b.event, subscriberUserId),
+      ),
       map((b) => ({ data: b.event, id: String(b.event.seq) })),
     );
   }
 
-  replayAfter(organizationId: string, afterSeq: number): PanelEvent[] {
+  replayAfter(
+    organizationId: string,
+    afterSeq: number,
+    subscriberUserId: string | null = null,
+  ): PanelEvent[] {
     const arr = this.ringBuffer.get(organizationId) ?? [];
-    return arr.filter((b) => b.event.seq > afterSeq).map((b) => b.event) satisfies PanelEvent[];
+    return arr
+      .filter((b) =>
+        b.event.seq > afterSeq &&
+        this.isVisibleToSubscriber(b.event, subscriberUserId),
+      )
+      .map((b) => b.event) satisfies PanelEvent[];
   }
 
   onModuleDestroy() {
@@ -78,5 +93,27 @@ export class PanelSseService implements OnModuleDestroy {
 
   get currentSeq(): number {
     return this.seqCounter;
+  }
+
+  private isVisibleToSubscriber(
+    event: PanelEvent,
+    subscriberUserId: string | null,
+  ): boolean {
+    if (event.type === 'dismiss') return true;
+    // Snapshot events are built per subscriber in PanelController, not stored
+    // in the shared bus/ring buffer. Never replay a shared snapshot wholesale.
+    if (event.type === 'snapshot') return false;
+    return this.isItemVisibleToSubscriber(event.item, subscriberUserId);
+  }
+
+  private isItemVisibleToSubscriber(
+    item: PanelItem,
+    subscriberUserId: string | null,
+  ): boolean {
+    if (item.kind === 'alert') return true;
+    return (
+      item.visibility === 'organization' ||
+      (item.visibility === 'user' && item.actorUserId === subscriberUserId)
+    );
   }
 }

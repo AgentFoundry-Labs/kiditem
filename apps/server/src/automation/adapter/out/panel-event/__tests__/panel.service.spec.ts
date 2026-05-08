@@ -86,6 +86,9 @@ describe('PanelService', () => {
             expect.objectContaining({
               createdAt: expect.objectContaining({ gte: expect.any(Date) }),
             }),
+            expect.objectContaining({
+              updatedAt: expect.objectContaining({ gte: expect.any(Date) }),
+            }),
             {
               kind: 'operation',
               status: { in: ['pending', 'running'] },
@@ -113,5 +116,60 @@ describe('PanelService', () => {
     ]);
     const items = await service.snapshot('co-1', 'user-a');
     expect(items[0]).toMatchObject({ subtitle: '2/3 단계', progress: 2 / 3 });
+  });
+
+  it('suppresses thumbnail run projection when a matching operation alert is visible', async () => {
+    const now = new Date();
+    prisma.thumbnailGeneration.findMany.mockResolvedValue([
+      {
+        id: '11111111-1111-4111-8111-111111111111',
+        status: 'running',
+        phase: null,
+        triggeredByUserId: 'user-a',
+        createdAt: now,
+        master: { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', name: 'Alert-backed product' },
+      },
+      {
+        id: '22222222-2222-4222-8222-222222222222',
+        status: 'running',
+        phase: null,
+        triggeredByUserId: 'user-a',
+        createdAt: now,
+        master: { id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', name: 'Legacy image product' },
+      },
+    ]);
+    prisma.alert.findMany.mockResolvedValue([
+      {
+        id: '33333333-3333-4333-8333-333333333333',
+        kind: 'operation',
+        status: 'running',
+        type: 'thumbnail_edit_job',
+        severity: 'info',
+        title: '썸네일 편집',
+        message: null,
+        targetType: 'master',
+        targetId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        operationKey: 'thumbnail-edit:11111111-1111-4111-8111-111111111111',
+        sourceType: 'thumbnail_generation',
+        sourceId: '11111111-1111-4111-8111-111111111111',
+        actorUserId: 'aaaaaaaa-1111-4111-8111-aaaaaaaa1111',
+        href: '/thumbnails?generationId=11111111-1111-4111-8111-111111111111',
+        progress: 0,
+        metadata: {},
+        isRead: false,
+        readAt: null,
+        actionTaskId: null,
+        startedAt: now,
+        finishedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+
+    const items = await service.snapshot('co-1', 'user-a');
+
+    expect(items.map((item) => item.id)).not.toContain('image:11111111-1111-4111-8111-111111111111');
+    expect(items.map((item) => item.id)).toContain('image:22222222-2222-4222-8222-222222222222');
+    expect(items.map((item) => item.id)).toContain('33333333-3333-4333-8333-333333333333');
   });
 });

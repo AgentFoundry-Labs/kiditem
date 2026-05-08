@@ -32,7 +32,7 @@ export class PanelController {
       typeof lastEventId === 'string' && lastEventId.trim().length > 0;
     const afterSeq = hasLastEventId ? parseInt(lastEventId, 10) : 0;
     const replayed = hasLastEventId && Number.isFinite(afterSeq)
-      ? this.sseService.replayAfter(organizationId, afterSeq)
+      ? this.sseService.replayAfter(organizationId, afterSeq, user.id)
       : [];
 
     let initial$: Observable<MessageEvent>;
@@ -58,7 +58,7 @@ export class PanelController {
       initial$ = from([{ data: snapshotEvent, id: String(seq) } as MessageEvent]);
     }
 
-    const live$ = this.sseService.getStream(organizationId);
+    const live$ = this.sseService.getStream(organizationId, user.id);
     return concat(initial$, live$);
   }
 

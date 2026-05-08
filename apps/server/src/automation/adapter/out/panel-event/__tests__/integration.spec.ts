@@ -127,4 +127,31 @@ describe('Panel integration', () => {
     const replayed = collected.filter((e) => e.type === 'upsert');
     expect(replayed.length).toBeGreaterThanOrEqual(2);
   });
+
+  it('Last-Event-ID replay applies the same user visibility filter as snapshot', async () => {
+    emitter.emit(
+      PANEL_EVENTS.UPSERT,
+      {
+        item: makeItem({ id: 'other-user', visibility: 'user', actorUserId: 'user-b' }),
+        organizationId: 'co-1',
+      },
+    );
+    emitter.emit(
+      PANEL_EVENTS.UPSERT,
+      {
+        item: makeItem({ id: 'mine', visibility: 'user', actorUserId: 'user-a' }),
+        organizationId: 'co-1',
+      },
+    );
+    await new Promise((r) => setTimeout(r, 10));
+
+    const stream$ = await controller.stream('co-1', { id: 'user-a' } as any, '0');
+    const collected: any[] = [];
+    const sub = stream$.subscribe((e) => collected.push((e as any).data));
+    await new Promise((r) => setTimeout(r, 10));
+    sub.unsubscribe();
+
+    expect(collected.filter((e) => e.type === 'snapshot')).toHaveLength(0);
+    expect(collected.filter((e) => e.type === 'upsert').map((e) => e.item.id)).toEqual(['mine']);
+  });
 });
