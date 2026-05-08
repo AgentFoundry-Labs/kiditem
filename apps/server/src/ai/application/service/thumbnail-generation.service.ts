@@ -82,6 +82,10 @@ export class ThumbnailGenerationService {
     return `thumbnail-edit:${generationId}`;
   }
 
+  private thumbnailGenerationHref(generationId: string): string {
+    return `/thumbnails?generationId=${encodeURIComponent(generationId)}`;
+  }
+
   async findProductForEditor(
     productId: string,
     organizationId: string,
@@ -267,7 +271,7 @@ export class ThumbnailGenerationService {
         actorUserId: triggeredByUserId,
         targetType: 'master',
         targetId: product.id,
-        href: `/thumbnails/${generation.id}`,
+        href: this.thumbnailGenerationHref(generation.id),
         metadata: { method, purpose, variantKey: variantKey ?? 'auto' },
       });
 
@@ -305,7 +309,7 @@ export class ThumbnailGenerationService {
       actorUserId: triggeredByUserId,
       targetType: 'master',
       targetId: existing.masterId,
-      href: `/thumbnails/${id}`,
+      href: this.thumbnailGenerationHref(id),
       metadata: { method: existing.method, purpose, variantKey: variantKey ?? 'auto', retry: true },
     });
 

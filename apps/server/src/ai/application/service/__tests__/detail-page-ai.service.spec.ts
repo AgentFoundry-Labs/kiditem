@@ -326,7 +326,7 @@ describe('DetailPageAiService', () => {
         actorUserId: USER_ID,
         targetType: 'master',
         targetId: MASTER_ID,
-        href: `/products/${MASTER_ID}`,
+        href: `/product-hub/${MASTER_ID}`,
       }),
     );
 

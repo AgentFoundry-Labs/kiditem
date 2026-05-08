@@ -240,7 +240,7 @@ export class DetailPageAiService {
         actorUserId: triggeredByUserId,
         targetType: 'master',
         targetId: dto.productId,
-        href: `/products/${dto.productId}`,
+        href: `/product-hub/${dto.productId}`,
         metadata: { templateId, imageCount: imageUrls.length },
       });
 
