@@ -110,6 +110,32 @@ const BLUEPRINTS: BlueprintSeed[] = [
     defaultModelEnv: 'AGENT_THUMBNAIL_AUTO_EDIT_MODEL',
   },
   {
+    type: 'detail_page_generate',
+    name: 'Detail Page Generate',
+    description:
+      '상세페이지 1-call 생성 에이전트. 출력은 ai 도메인 detail-page-generate output schema 가 검증한다.',
+    promptPath: `${PROMPT_BASE}/detail-page-generate.md`,
+    defaultAdapterType: 'claude_local',
+    defaultModelEnv: 'AGENT_DETAIL_PAGE_GENERATE_MODEL',
+    defaultRuntimeConfig: {
+      // ai 도메인 bridge 가 sourceResourceType 으로 ContentGeneration row 를 lookup 한다.
+      // 다음 PR 에서 실제 sink 가 붙기 전까지는 no-op 로 전달된다.
+      outputContract: 'ai.detail_page_generate.v1',
+    },
+  },
+  {
+    type: 'thumbnail_generate',
+    name: 'Thumbnail Generate',
+    description:
+      '썸네일 에디터/배치 1-call 생성 에이전트. 출력은 ai 도메인 thumbnail-generate output schema 가 검증한다.',
+    promptPath: `${PROMPT_BASE}/thumbnail-generate.md`,
+    defaultAdapterType: 'claude_local',
+    defaultModelEnv: 'AGENT_THUMBNAIL_GENERATE_MODEL',
+    defaultRuntimeConfig: {
+      outputContract: 'ai.thumbnail_generate.v1',
+    },
+  },
+  {
     type: 'chat',
     name: 'Chatbot',
     description: 'Operator chatbot — read-only DB context',

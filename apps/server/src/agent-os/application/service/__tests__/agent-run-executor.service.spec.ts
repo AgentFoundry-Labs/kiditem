@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AGENT_RUN_EVENTS } from '../../event/agent-run-events';
 import { AgentRunExecutor } from '../agent-run-executor.service';
+import { AgentOsRuntimeError } from '../../../domain/agent-os.errors';
 import type {
   AgentBlueprintRecord,
   AgentInstanceRecord,
+  AgentRunRecord,
   AgentRunRequestRecord,
 } from '../../../domain/agent-os.types';
 
@@ -94,9 +96,37 @@ function makeBlueprint(
   };
 }
 
+function makeRun(overrides: Partial<AgentRunRecord> = {}): AgentRunRecord {
+  return {
+    id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    organizationId: ORGANIZATION_ID,
+    agentInstanceId: INSTANCE_ID,
+    requestId: REQUEST_ID,
+    taskSessionId: '44444444-4444-4444-4444-444444444444',
+    retryOfRunId: null,
+    status: 'running',
+    attempt: 1,
+    invocationSource: 'rules',
+    adapterType: 'local',
+    model: 'gpt-5.4',
+    provider: null,
+    taskKey: 'rules.evaluate',
+    startedAt: new Date('2026-05-07T00:00:00.000Z'),
+    finishedAt: null,
+    errorCode: null,
+    errorMessage: null,
+    output: null,
+    lastEventSeq: 0,
+    ...overrides,
+  };
+}
+
 function makeExecutor(options: {
   instance?: AgentInstanceRecord | null;
   blueprint?: AgentBlueprintRecord | null;
+  claimed?: AgentRunRequestRecord | null;
+  runtimeResult?: { output: Record<string, unknown> };
+  runtimeError?: unknown;
 }) {
   const instance = Object.prototype.hasOwnProperty.call(options, 'instance')
     ? options.instance
@@ -104,14 +134,25 @@ function makeExecutor(options: {
   const blueprint = Object.prototype.hasOwnProperty.call(options, 'blueprint')
     ? options.blueprint
     : makeBlueprint();
+  const claimed = Object.prototype.hasOwnProperty.call(options, 'claimed')
+    ? options.claimed
+    : makeClaimedRequest();
   const repository = {
-    claimNextRunRequest: vi.fn().mockResolvedValue(makeClaimedRequest()),
+    claimNextRunRequest: vi.fn().mockResolvedValue(claimed),
     findInstanceById: vi.fn().mockResolvedValue(instance),
     findBlueprintByType: vi.fn().mockResolvedValue(blueprint),
     failClaimedRequest: vi.fn().mockResolvedValue(undefined),
-    createRunForRequest: vi.fn(),
+    createRunForRequest: vi.fn().mockResolvedValue(makeRun()),
+    appendRunEvent: vi.fn().mockResolvedValue(undefined),
+    finalizeRun: vi.fn().mockResolvedValue(makeRun()),
+    markRequestStatus: vi.fn().mockResolvedValue(undefined),
   };
-  const runtime = { execute: vi.fn() };
+  const runtime = {
+    execute: vi.fn().mockImplementation(async () => {
+      if (options.runtimeError) throw options.runtimeError;
+      return options.runtimeResult ?? { output: { ok: true } };
+    }),
+  };
   const eventEmitter = { emit: vi.fn() };
   const executor = new AgentRunExecutor(
     repository as never,
@@ -119,7 +160,7 @@ function makeExecutor(options: {
     eventEmitter as never,
   );
 
-  return { executor, repository, eventEmitter };
+  return { executor, repository, runtime, eventEmitter };
 }
 
 describe('AgentRunExecutor', () => {
@@ -166,5 +207,109 @@ describe('AgentRunExecutor', () => {
         errorCode: testCase.errorCode,
       }),
     );
+  });
+
+  it('emits a succeeded FINALIZED event with the runtime output on success', async () => {
+    const { executor, eventEmitter, repository } = makeExecutor({
+      runtimeResult: { output: { ok: true, sample: 'detail-page' } },
+    });
+
+    const result = await executor.executeNext('worker-1', ORGANIZATION_ID);
+    expect(result).toMatchObject({ executed: true, requestId: REQUEST_ID });
+    expect(repository.finalizeRun).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'succeeded' }),
+    );
+    expect(eventEmitter.emit).toHaveBeenCalledWith(
+      AGENT_RUN_EVENTS.FINALIZED,
+      expect.objectContaining({
+        status: 'succeeded',
+        output: { ok: true, sample: 'detail-page' },
+      }),
+    );
+  });
+
+  it('finalizes the run with runtime_not_configured when adapter throws', async () => {
+    const { executor, repository, eventEmitter } = makeExecutor({
+      claimed: makeClaimedRequest({ attempts: 1, maxAttempts: 1 }),
+      runtimeError: new AgentOsRuntimeError(
+        'runtime_not_configured',
+        'no provider',
+      ),
+    });
+    const result = await executor.executeNext('worker-1', ORGANIZATION_ID);
+
+    expect(result).toMatchObject({
+      executed: true,
+      errorCode: 'runtime_not_configured',
+    });
+    expect(repository.finalizeRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'failed',
+        errorCode: 'runtime_not_configured',
+      }),
+    );
+    expect(eventEmitter.emit).toHaveBeenCalledWith(
+      AGENT_RUN_EVENTS.FINALIZED,
+      expect.objectContaining({
+        status: 'failed',
+        errorCode: 'runtime_not_configured',
+      }),
+    );
+  });
+
+  it('does NOT emit FINALIZED on retryable failure (request returns to pending)', async () => {
+    const { executor, repository, eventEmitter } = makeExecutor({
+      claimed: makeClaimedRequest({ attempts: 1, maxAttempts: 3 }),
+      runtimeError: new AgentOsRuntimeError(
+        'transient_error',
+        'temporarily down',
+      ),
+    });
+    await executor.executeNext('worker-1', ORGANIZATION_ID);
+
+    expect(repository.markRequestStatus).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'pending' }),
+    );
+    const finalizedEmits = eventEmitter.emit.mock.calls.filter(
+      ([eventName]: [string]) => eventName === AGENT_RUN_EVENTS.FINALIZED,
+    );
+    expect(finalizedEmits).toHaveLength(0);
+  });
+
+  describe('executeNextUnscoped', () => {
+    it('claims without organizationId filter and runs the same path', async () => {
+      const { executor, repository } = makeExecutor({});
+      const result = await executor.executeNextUnscoped('worker-internal');
+
+      expect(repository.claimNextRunRequest).toHaveBeenCalledWith(
+        expect.objectContaining({
+          workerId: 'worker-internal',
+          organizationId: null,
+        }),
+      );
+      expect(result.executed).toBe(true);
+    });
+
+    it('returns no_pending_request when nothing to claim', async () => {
+      const { executor, repository } = makeExecutor({ claimed: null });
+      const result = await executor.executeNextUnscoped('worker-internal');
+      expect(repository.claimNextRunRequest).toHaveBeenCalled();
+      expect(result).toMatchObject({
+        executed: false,
+        reason: 'no_pending_request',
+      });
+    });
+  });
+
+  describe('executeNext requires explicit organizationId', () => {
+    it('returns organization_required when called with empty org', async () => {
+      const { executor, repository } = makeExecutor({});
+      const result = await executor.executeNext('worker-1', '');
+      expect(result).toMatchObject({
+        executed: false,
+        reason: 'organization_required',
+      });
+      expect(repository.claimNextRunRequest).not.toHaveBeenCalled();
+    });
   });
 });

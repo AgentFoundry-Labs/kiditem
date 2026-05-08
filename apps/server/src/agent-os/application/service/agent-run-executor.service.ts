@@ -87,7 +87,37 @@ export class AgentRunExecutor {
     if (!claimed) {
       return { executed: false, reason: 'no_pending_request' };
     }
+    return this.executeClaimed(claimed);
+  }
 
+  /**
+   * Worker-friendly variant — claims the next pending request across all
+   * organizations. The internal `AgentRunWorker` calls this on its tick to
+   * drain the queue platform-wide; the HTTP `claim-and-run` route uses the
+   * scoped variant above for explicit per-org operations.
+   *
+   * Organization scope is preserved on the *downstream* side: the claimed
+   * request carries its own `organizationId`, which is threaded through every
+   * Prisma write inside `executeClaimed`. Skipping the where-clause filter on
+   * the claim itself is the only way for a single internal worker to serve
+   * multiple tenants without a per-org thread, and matches the intent of the
+   * `claimNextRunRequest({ organizationId: null })` raw SQL path.
+   */
+  async executeNextUnscoped(workerId: string): Promise<AgentRunExecutorResult> {
+    const claimed = await this.repository.claimNextRunRequest({
+      workerId,
+      now: new Date(),
+      organizationId: null,
+    });
+    if (!claimed) {
+      return { executed: false, reason: 'no_pending_request' };
+    }
+    return this.executeClaimed(claimed);
+  }
+
+  private async executeClaimed(
+    claimed: import('../../domain/agent-os.types').AgentRunRequestRecord,
+  ): Promise<AgentRunExecutorResult> {
     const instance = await this.repository.findInstanceById({
       organizationId: claimed.organizationId,
       id: claimed.agentInstanceId,

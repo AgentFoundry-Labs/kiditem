@@ -13,6 +13,7 @@ import { AgentObservabilityService } from './application/service/agent-observabi
 import { AgentPolicyService } from './application/service/agent-policy.service';
 import { AgentRunCoordinator } from './application/service/agent-run-coordinator.service';
 import { AgentRunExecutor } from './application/service/agent-run-executor.service';
+import { AgentRunWorker } from './application/service/agent-run-worker.service';
 
 @Module({
   controllers: [AgentCatalogController, AgentRunsController],
@@ -22,6 +23,7 @@ import { AgentRunExecutor } from './application/service/agent-run-executor.servi
     AgentPolicyService,
     AgentRunCoordinator,
     AgentRunExecutor,
+    AgentRunWorker,
     { provide: AGENT_RUNNER_PORT, useExisting: AgentRunCoordinator },
     { provide: AGENT_OS_REPOSITORY_PORT, useClass: AgentOsRepositoryAdapter },
     { provide: AGENT_RUNTIME_PORT, useClass: LocalRuntimeAdapter },
@@ -31,6 +33,7 @@ import { AgentRunExecutor } from './application/service/agent-run-executor.servi
     AGENT_RUNNER_PORT,
     AgentRunCoordinator,
     AgentRunExecutor,
+    AgentRunWorker,
     AgentCatalogService,
     AgentObservabilityService,
     AgentPolicyService,
