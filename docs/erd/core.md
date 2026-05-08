@@ -276,6 +276,7 @@ erDiagram
 | MasterProduct | master | referenced by external | Finance | GradeHistory |
 | MasterProduct | master | referenced by external | Finance | ProcessingCost |
 | MasterProduct | master | referenced by external | Supply | MasterSupplierProduct |
+| MasterProductImage | masterImage | referenced by external | AI | ThumbnailGenerationInputImage |
 | Organization | organization | referenced by external | Advertising | AdAction |
 | Organization | organization | referenced by external | Advertising | ExecutionWorker |
 | Organization | organization | referenced by external | Advertising | ScrapeTarget |
@@ -295,9 +296,11 @@ erDiagram
 | Organization | organization | referenced by external | AI | ThumbnailAnalysis |
 | Organization | organization | referenced by external | AI | ThumbnailGeneration |
 | Organization | organization | referenced by external | AI | ThumbnailGenerationCandidate |
+| Organization | organization | referenced by external | AI | ThumbnailGenerationEvent |
 | Organization | organization | referenced by external | AI | ThumbnailGenerationInputImage |
 | Organization | organization | referenced by external | AI | ThumbnailRegistrationAttempt |
 | Organization | organization | referenced by external | AI | ThumbnailTracking |
+| Organization | organization | referenced by external | AI | ThumbnailTrackingDailySnapshot |
 | Organization | organization | referenced by external | Channels | ChannelAccountDailyKpiSnapshot |
 | Organization | organization | referenced by external | Channels | ChannelAdTargetDailySnapshot |
 | Organization | organization | referenced by external | Channels | ChannelListingDailySnapshot |
@@ -349,6 +352,7 @@ erDiagram
 | ProductOption | option | referenced by external | Orders | UnshippedItem |
 | ProductOption | option | referenced by external | Supply | PurchaseOrderItem |
 | ProductOption | option | referenced by external | Supply | SupplierProduct |
+| User | actor | referenced by external | AI | ThumbnailGenerationEvent |
 | User | actorUser | referenced by external | System | Alert |
 | User | agentInstance | references external | AgentOS | AgentInstance |
 | User | approver | referenced by external | AgentOS | AgentApprovalRequest |

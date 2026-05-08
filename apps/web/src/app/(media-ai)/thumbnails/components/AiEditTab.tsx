@@ -21,7 +21,10 @@ import type {
 } from '@kiditem/shared/ai';
 import { cn } from '@/lib/utils';
 import { isActive, isApplied, isReady } from '../../_shared/lib/thumbnail-status';
-import { useDeleteGeneration, useReEditGeneration } from '../../_shared/hooks/useThumbnailGenerations';
+import {
+  useDeleteGeneration,
+  useReEditGeneration,
+} from '../../_shared/hooks/useThumbnailGenerations';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { ProductCard } from '../../_shared/components/thumbnails/ProductCard';
 import { RecomposeVariantPicker } from '../../_shared/components/thumbnails/RecomposeVariantPicker';

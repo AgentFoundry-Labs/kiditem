@@ -88,6 +88,27 @@ describe('ThumbnailWingService', () => {
     });
   });
 
+  it('decodes URL-encoded Coupang product names before Wing automation', async () => {
+    const { service, prisma, automationRunner } = makeService();
+    prisma.masterProduct.findFirst.mockResolvedValueOnce({
+      name: 'Master product',
+      listings: [
+        {
+          channelName:
+            '%ED%83%9C%EC%96%91%EA%B4%91%EB%B3%80%EC%8B%A0%EB%A1%9C%EB%B4%87%2F%EB%B3%80%EC%8B%A0%EB%A1%9C%EB%B4%87%2F%EA%B5%90%EC%9C%A1%EC%99%84%EA%B5%AC',
+        },
+      ],
+    });
+
+    await service.registerToWing(GENERATION_ID, ORGANIZATION_ID);
+
+    expect(automationRunner.runWingUpload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        productName: '태양광변신로봇/변신로봇/교육완구',
+      }),
+    );
+  });
+
   it('clears failed registration attempts instead of touching removed legacy columns', async () => {
     const { service, prisma } = makeService();
 

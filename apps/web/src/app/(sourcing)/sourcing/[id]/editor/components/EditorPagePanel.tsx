@@ -1,8 +1,17 @@
 'use client';
 
+import type { DragEvent, ReactNode } from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import { useEditor } from '@grapesjs/react';
-import { Barcode, Image as ImageIcon, MousePointer2 } from 'lucide-react';
+import {
+  Barcode,
+  Eye,
+  EyeOff,
+  GripVertical,
+  Image as ImageIcon,
+  MousePointer2,
+  X,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type GjsComponent = any;
@@ -30,12 +39,12 @@ const PAGE_DEFINITIONS: PageDefinition[] = [
   {
     id: 'hero',
     label: '히어로',
-    selectors: ['[data-field="heroBanner"]', '[data-field="heroImage"]'],
+    selectors: ['[data-section="hero"]', '[data-field="heroBanner"]', '[data-field="heroImage"]'],
   },
   {
     id: 'point',
     label: '포인트',
-    selectors: ['[data-field="sectionName"]', '[data-field="sectionTitle"]', '[data-field="sectionSubtitle"]'],
+    selectors: ['[data-section="point"]', '[data-field="sectionName"]', '[data-field="sectionTitle"]', '[data-field="sectionSubtitle"]'],
   },
   {
     id: 'size',
@@ -50,6 +59,12 @@ const PAGE_DEFINITIONS: PageDefinition[] = [
     textIncludes: ['색상 안내'],
   },
   {
+    id: 'usage',
+    label: '사용법',
+    selectors: ['[data-section="usageImages"]', '[data-container="usageImages"]'],
+    textIncludes: ['사용법 안내'],
+  },
+  {
     id: 'detail',
     label: '디테일컷',
     selectors: ['[data-section="detailImages"]', '[data-container="detailImages"]', '[data-field="detailText"]'],
@@ -58,7 +73,7 @@ const PAGE_DEFINITIONS: PageDefinition[] = [
   {
     id: 'safety',
     label: '제품안전 표시',
-    selectors: [],
+    selectors: ['[data-section="specs"]', '[data-container="productInfo"]'],
     textIncludes: ['제품 안전 특별법', '품질표시'],
   },
   {
@@ -72,6 +87,8 @@ const PAGE_DEFINITIONS: PageDefinition[] = [
 export default function EditorPagePanel() {
   const editor = useEditor();
   const [pages, setPages] = useState<PageItem[]>([]);
+  const [draggingPageId, setDraggingPageId] = useState<string | null>(null);
+  const [dragOverPageId, setDragOverPageId] = useState<string | null>(null);
 
   const collectPages = useCallback(() => {
     const wrapper = editor.getWrapper();
@@ -80,9 +97,19 @@ export default function EditorPagePanel() {
       return;
     }
     const selected = editor.getSelected();
+    const componentsInDocumentOrder = flattenComponents(wrapper);
+    const orderByComponent = new Map<GjsComponent, number>();
+    componentsInDocumentOrder.forEach((component, index) => {
+      orderByComponent.set(component, index);
+    });
     const summaries = PAGE_DEFINITIONS.map((definition, index) =>
       summarizePage(definition, index, wrapper),
-    );
+    ).sort((a, b) => {
+      const aOrder = a.target ? orderByComponent.get(a.target) ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
+      const bOrder = b.target ? orderByComponent.get(b.target) ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
+      if (aOrder !== bOrder) return aOrder - bOrder;
+      return a.index - b.index;
+    }).map((page, index) => ({ ...page, index }));
     const activePageId = findActivePageId(summaries, selected, wrapper);
     setPages(summaries.map((page) => ({ ...page, selected: page.id === activePageId })));
   }, [editor]);
@@ -110,23 +137,114 @@ export default function EditorPagePanel() {
     [editor],
   );
 
+  const refreshPages = useCallback(() => {
+    requestAnimationFrame(collectPages);
+  }, [collectPages]);
+
+  const movePage = useCallback(
+    (sourceId: string, targetId: string) => {
+      if (sourceId === targetId) return;
+      const sourcePage = pages.find((page) => page.id === sourceId);
+      const targetPage = pages.find((page) => page.id === targetId);
+      if (!sourcePage?.target || !targetPage?.target) return;
+
+      const sourceParent = sourcePage.target.parent?.();
+      const targetParent = targetPage.target.parent?.();
+      if (!sourceParent || !targetParent) return;
+
+      const sourceIndex = sourcePage.target.index?.() ?? 0;
+      const targetIndex = targetPage.target.index?.() ?? 0;
+      const definition = sourcePage.target.toJSON?.();
+      if (!definition) return;
+
+      sourcePage.target.remove();
+      const insertAt =
+        sourceParent === targetParent && sourceIndex < targetIndex
+          ? Math.max(0, targetIndex - 1)
+          : targetIndex;
+      const result = targetParent.components().add(definition, { at: insertAt });
+      const moved = Array.isArray(result) ? result[0] : result;
+      if (moved) editor.select(moved);
+      refreshPages();
+    },
+    [editor, pages, refreshPages],
+  );
+
+  const togglePageHidden = useCallback(
+    (page: PageItem) => {
+      if (!page.target) return;
+      if (page.hidden) {
+        page.target.removeStyle?.('display');
+      } else {
+        page.target.addStyle?.({ display: 'none' });
+      }
+      editor.select(page.target);
+      refreshPages();
+    },
+    [editor, refreshPages],
+  );
+
+  const removePage = useCallback(
+    (page: PageItem) => {
+      if (!page.target) return;
+      page.target.remove();
+      refreshPages();
+    },
+    [refreshPages],
+  );
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
       <div className="space-y-2">
         {pages.map((page) => (
-          <button
+          <div
             key={page.id}
-            type="button"
+            role="button"
+            tabIndex={page.target ? 0 : -1}
+            aria-disabled={!page.target}
+            draggable={Boolean(page.target)}
             onMouseDown={(event) => {
+              event.stopPropagation();
+            }}
+            onDragStart={(event: DragEvent<HTMLDivElement>) => {
+              if (!page.target) return;
+              event.dataTransfer.effectAllowed = 'move';
+              event.dataTransfer.setData('text/plain', page.id);
+              setDraggingPageId(page.id);
+            }}
+            onDragOver={(event: DragEvent<HTMLDivElement>) => {
+              if (!page.target || !draggingPageId || draggingPageId === page.id) return;
+              event.preventDefault();
+              event.dataTransfer.dropEffect = 'move';
+              setDragOverPageId(page.id);
+            }}
+            onDragLeave={(event: DragEvent<HTMLDivElement>) => {
+              if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+              setDragOverPageId((current) => (current === page.id ? null : current));
+            }}
+            onDrop={(event: DragEvent<HTMLDivElement>) => {
               event.preventDefault();
               event.stopPropagation();
+              const sourceId = draggingPageId ?? event.dataTransfer.getData('text/plain');
+              if (sourceId && page.target) movePage(sourceId, page.id);
+              setDraggingPageId(null);
+              setDragOverPageId(null);
+            }}
+            onDragEnd={() => {
+              setDraggingPageId(null);
+              setDragOverPageId(null);
             }}
             onClick={(event) => {
               event.preventDefault();
               event.stopPropagation();
               selectPage(page);
             }}
-            disabled={!page.target}
+            onKeyDown={(event) => {
+              if (!page.target || (event.key !== 'Enter' && event.key !== ' ')) return;
+              event.preventDefault();
+              event.stopPropagation();
+              selectPage(page);
+            }}
             className={cn(
               'group flex w-full items-stretch gap-3 rounded-xl border bg-white p-2 text-left transition',
               page.selected
@@ -134,6 +252,8 @@ export default function EditorPagePanel() {
                 : page.target
                   ? 'border-slate-200 hover:border-slate-300 hover:shadow-sm'
                   : 'cursor-not-allowed border-slate-100 opacity-50',
+              page.target && 'cursor-grab active:cursor-grabbing',
+              dragOverPageId === page.id && 'border-emerald-400 bg-emerald-50/40 ring-1 ring-emerald-200',
               page.hidden && 'opacity-50',
             )}
           >
@@ -147,21 +267,92 @@ export default function EditorPagePanel() {
               )}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="mb-0.5 flex items-center gap-1.5">
-                <span className="text-[10px] font-bold text-slate-400">
-                  페이지 {page.index + 1}
-                </span>
-                {page.selected && <MousePointer2 size={11} className="text-slate-500" />}
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="mb-0.5 flex min-w-0 items-center gap-1.5">
+                    {page.target && (
+                      <GripVertical
+                        size={13}
+                        className="shrink-0 text-slate-300 transition group-hover:text-slate-500"
+                        aria-hidden
+                      />
+                    )}
+                    <span className="shrink-0 text-[10px] font-bold text-slate-400">
+                      페이지 {page.index + 1}
+                    </span>
+                    <p className="truncate text-sm font-black text-slate-800">{page.label}</p>
+                    {page.selected && <MousePointer2 size={11} className="shrink-0 text-slate-500" />}
+                  </div>
+                  <p className="mt-1 line-clamp-2 text-xs font-medium leading-4 text-slate-400">
+                    {page.target ? page.title : page.subtitle}
+                  </p>
+                </div>
+                {page.target && (
+                  <div className="flex shrink-0 items-center gap-1">
+                    <PageActionButton
+                      title={page.hidden ? '섹션 보이기' : '섹션 숨기기'}
+                      onClick={() => togglePageHidden(page)}
+                    >
+                      {page.hidden ? <Eye size={12} /> : <EyeOff size={12} />}
+                    </PageActionButton>
+                    <PageActionButton
+                      title="섹션 삭제"
+                      tone="danger"
+                      onClick={() => removePage(page)}
+                    >
+                      <X size={13} strokeWidth={2.4} />
+                    </PageActionButton>
+                  </div>
+                )}
               </div>
-              <p className="truncate text-sm font-black text-slate-800">{page.label}</p>
-              <p className="mt-1 line-clamp-2 text-xs font-medium leading-4 text-slate-400">
-                {page.target ? page.title : page.subtitle}
-              </p>
             </div>
-          </button>
+          </div>
         ))}
       </div>
     </div>
+  );
+}
+
+function PageActionButton({
+  children,
+  title,
+  tone = 'default',
+  onClick,
+}: {
+  children: ReactNode;
+  title: string;
+  tone?: 'default' | 'danger';
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      draggable={false}
+      onMouseDown={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      }}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onClick();
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        event.stopPropagation();
+        onClick();
+      }}
+      className={cn(
+        'inline-flex h-7 w-7 items-center justify-center rounded-lg border transition-colors',
+        tone === 'danger'
+          ? 'border-rose-100 bg-rose-50 text-rose-500 hover:border-rose-200 hover:bg-rose-100'
+          : 'border-slate-200 bg-slate-50 text-slate-500 hover:border-slate-300 hover:bg-white hover:text-slate-800',
+      )}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -244,20 +435,9 @@ function preferPageTarget(
   wrapper: GjsComponent,
   definition: PageDefinition,
 ): GjsComponent {
-  if (definition.id === 'point') return preferContentBlockAncestor(component, wrapper);
+  const sectionRoot = preferNamedSectionAncestor(component, wrapper);
+  if (sectionRoot) return sectionRoot;
   return preferSectionAncestor(component, wrapper);
-}
-
-function preferContentBlockAncestor(component: GjsComponent, wrapper: GjsComponent): GjsComponent {
-  let current = component;
-  let candidate = component;
-  while (current && current !== wrapper) {
-    const tag = String(current.get?.('tagName') ?? '').toLowerCase();
-    if (tag === 'section') return candidate;
-    candidate = current;
-    current = current.parent?.() ?? null;
-  }
-  return candidate;
 }
 
 function preferSectionAncestor(component: GjsComponent, wrapper: GjsComponent): GjsComponent {
@@ -275,6 +455,27 @@ function preferSectionAncestor(component: GjsComponent, wrapper: GjsComponent): 
     current = current.parent?.() ?? null;
   }
   return component;
+}
+
+function preferNamedSectionAncestor(component: GjsComponent, wrapper: GjsComponent): GjsComponent | null {
+  let current = component;
+  while (current && current !== wrapper) {
+    const attrs = current.getAttributes?.() ?? {};
+    const section = attrs['data-section'];
+    if (
+      section === 'hero' ||
+      section === 'point' ||
+      section === 'sizeImages' ||
+      section === 'colorImages' ||
+      section === 'usageImages' ||
+      section === 'detailImages' ||
+      section === 'specs'
+    ) {
+      return current;
+    }
+    current = current.parent?.() ?? null;
+  }
+  return null;
 }
 
 function flattenComponents(root: GjsComponent): GjsComponent[] {

@@ -1,6 +1,8 @@
 import { BadRequestException, Body, Controller, Post } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
+import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
+import type { AuthUser } from '../../../../auth/auth.types';
 import { ThumbnailEditorDto } from './dto/thumbnail-editor.dto';
 import { ThumbnailEditorAiService } from '../../../application/service/thumbnail-editor-ai.service';
 import type {
@@ -18,7 +20,11 @@ export class ThumbnailEditorController {
   ) {}
 
   @Post('generate')
-  async generate(@Body() body: ThumbnailEditorDto, @CurrentOrganization() organizationId: string) {
+  async generate(
+    @Body() body: ThumbnailEditorDto,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() authUser?: AuthUser,
+  ) {
     const mode = body.mode ?? 'edit';
     const product = body.productId
       ? await this.generationService.findProductForEditor(body.productId, organizationId)
@@ -40,6 +46,8 @@ export class ThumbnailEditorController {
           styleType: body.styleType,
           productDescription: body.productDescription,
           userPrompt: body.userPrompt,
+          productName: product?.name ?? body.productName ?? null,
+          category: product?.category ?? null,
           hasStyleReference: Boolean(body.backgroundReference),
         })
       : await this.editorAi.generateEdit(inputs, organizationId, {
@@ -49,7 +57,7 @@ export class ThumbnailEditorController {
           userPrompt: body.userPrompt,
           layout: body.layout,
           productDescription: body.productDescription,
-          productName: product?.name ?? null,
+          productName: product?.name ?? body.productName ?? null,
           category: product?.category ?? null,
         });
 
@@ -62,6 +70,7 @@ export class ThumbnailEditorController {
           inputImages: inputs,
           method: mode === 'creative' ? 'creative' : 'generate',
           inputMeta: this.inputMeta(body, mode, editCase, inputs),
+          triggeredByUserId: authUser?.id ?? null,
         })
       : null;
 

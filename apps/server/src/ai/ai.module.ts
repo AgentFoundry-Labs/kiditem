@@ -17,11 +17,13 @@ import { CoupangImageSyncController } from './adapter/in/http/coupang-image-sync
 
 // adapter/out
 import { CoupangInventoryScrapeAdapter } from './adapter/out/coupang/coupang-inventory-scrape.adapter';
+import { CoupangProductSalesScrapeAdapter } from './adapter/out/coupang/coupang-product-sales-scrape.adapter';
 import { CoupangImageReconciliationAdapter } from './adapter/out/channels/coupang-image-reconciliation.adapter';
 import { GeminiTextCompletionAdapter } from './adapter/out/gemini/gemini-text-completion.adapter';
 import { GeminiThumbnailVisionAdapter } from './adapter/out/gemini/gemini-thumbnail-vision.adapter';
 import { ThumbnailReferenceImagesService } from './adapter/out/gemini/thumbnail-reference-images.adapter';
 import { ThumbnailImageFetcherService } from './adapter/out/image-fetch/thumbnail-image-fetcher.adapter';
+import { ThumbnailGenerationEventAdapter } from './adapter/out/prisma/thumbnail-generation-event.adapter';
 import { ThumbnailWingPersistence } from './adapter/out/prisma/thumbnail-wing.persistence';
 import { MasterCatalogAdapter } from './adapter/out/products/master-catalog.adapter';
 import { WingAutomationRunner } from './adapter/out/wing/wing-automation-runner';
@@ -33,7 +35,9 @@ import { ThumbnailAnalysisService } from './application/service/thumbnail-analys
 import { ThumbnailAutoService } from './application/service/thumbnail-auto.service';
 import { CoupangImageSyncService } from './application/service/coupang-image-sync.service';
 import { DetailPageHeroImageService } from './application/service/detail-page-hero-image.service';
+import { DetailPageGeneratedImagesService } from './application/service/detail-page-generated-images.service';
 import { DetailPageAiService } from './application/service/detail-page-ai.service';
+import { DetailPageResultRefinerService } from './application/service/detail-page-result-refiner.service';
 import { ThumbnailComplianceVerifierService } from './application/service/thumbnail-compliance-verifier.service';
 import { ThumbnailEditorAiService } from './application/service/thumbnail-editor-ai.service';
 import { ThumbnailGenerationService } from './application/service/thumbnail-generation.service';
@@ -44,11 +48,13 @@ import { ThumbnailWingService } from './application/service/thumbnail-wing.servi
 
 // application/port — out
 import { COUPANG_INVENTORY_SCRAPE_PORT } from './application/port/out/coupang-inventory-scrape.port';
+import { COUPANG_PRODUCT_SALES_SCRAPE_PORT } from './application/port/out/coupang-product-sales-scrape.port';
 import { COUPANG_IMAGE_RECONCILIATION_PORT } from './application/port/out/coupang-image-reconciliation.port';
 import { IMAGE_FETCH_PORT } from './application/port/out/image-fetch.port';
 import { IMAGE_STORAGE_PORT } from './application/port/out/image-storage.port';
 import { MASTER_CATALOG_PORT } from './application/port/out/master-catalog.port';
 import { TEXT_COMPLETION_PORT } from './application/port/out/text-completion.port';
+import { THUMBNAIL_GENERATION_EVENT_PORT } from './application/port/out/thumbnail-generation-event.port';
 import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.port';
 
 @Module({
@@ -68,8 +74,10 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     // application services
     ImageAiService,
     CoupangImageSyncService,
-    DetailPageHeroImageService,
     DetailPageAiService,
+    DetailPageGeneratedImagesService,
+    DetailPageHeroImageService,
+    DetailPageResultRefinerService,
     TextAiService,
     ThumbnailAnalysisService,
     ThumbnailAutoService,
@@ -84,9 +92,11 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     // outgoing adapters
     CoupangImageReconciliationAdapter,
     CoupangInventoryScrapeAdapter,
+    CoupangProductSalesScrapeAdapter,
     GeminiTextCompletionAdapter,
     GeminiThumbnailVisionAdapter,
     MasterCatalogAdapter,
+    ThumbnailGenerationEventAdapter,
     ThumbnailImageFetcherService,
     ThumbnailReferenceImagesService,
     ThumbnailWingPersistence,
@@ -96,10 +106,12 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     { provide: WING_AUTOMATION_PORT, useExisting: WingAutomationRunner },
     { provide: COUPANG_IMAGE_RECONCILIATION_PORT, useExisting: CoupangImageReconciliationAdapter },
     { provide: COUPANG_INVENTORY_SCRAPE_PORT, useExisting: CoupangInventoryScrapeAdapter },
+    { provide: COUPANG_PRODUCT_SALES_SCRAPE_PORT, useExisting: CoupangProductSalesScrapeAdapter },
     { provide: IMAGE_FETCH_PORT, useExisting: ThumbnailImageFetcherService },
     { provide: IMAGE_STORAGE_PORT, useExisting: StorageService },
     { provide: MASTER_CATALOG_PORT, useExisting: MasterCatalogAdapter },
     { provide: TEXT_COMPLETION_PORT, useExisting: GeminiTextCompletionAdapter },
+    { provide: THUMBNAIL_GENERATION_EVENT_PORT, useExisting: ThumbnailGenerationEventAdapter },
   ],
 })
 export class AiModule {}

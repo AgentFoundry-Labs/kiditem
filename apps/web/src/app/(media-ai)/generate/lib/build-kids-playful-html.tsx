@@ -12,14 +12,23 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import KidsPlayfulRenderer from '../components/KidsPlayfulRenderer';
 import type { KidsPlayfulData } from './kids-playful-types';
 
-export function buildKidsPlayfulHtml(data: KidsPlayfulData): string {
+function absolutizeFontUrls(css: string): string {
+  if (typeof window === 'undefined') return css;
+  return css.replace(/url\(\s*(['"]?)\/fonts\//g, `url($1${window.location.origin}/fonts/`);
+}
+
+export function buildKidsPlayfulHtml(data: KidsPlayfulData, templateCss = ''): string {
   const inner = renderToStaticMarkup(<KidsPlayfulRenderer data={data} />);
+  const compiledTemplateCss = absolutizeFontUrls(templateCss);
+  const tailwindResource = compiledTemplateCss.trim()
+    ? `<style>${compiledTemplateCss}</style>`
+    : '<script src="https://cdn.tailwindcss.com"></script>';
   return `<!DOCTYPE html>
 <html lang="ko">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=720, initial-scale=1" />
-  <script src="https://cdn.tailwindcss.com"></script>
+  ${tailwindResource}
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet" />
   <style>
     body { margin: 0; font-family: 'Noto Sans KR', system-ui, sans-serif; }

@@ -12,6 +12,18 @@ const backendBase = stripTrailingSlash(
 
 const nextConfig = {
   transpilePackages: ['@kiditem/templates'],
+  async headers() {
+    return [
+      {
+        source: '/fonts/:path*',
+        headers: [
+          { key: 'Access-Control-Allow-Origin', value: '*' },
+          { key: 'Access-Control-Allow-Methods', value: 'GET, OPTIONS' },
+          { key: 'Cross-Origin-Resource-Policy', value: 'cross-origin' },
+        ],
+      },
+    ];
+  },
   experimental: {
     optimizePackageImports: ['lucide-react', 'recharts'],
     turbopackFileSystemCacheForDev: false,

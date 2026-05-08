@@ -1,5 +1,6 @@
 'use client';
 import { Download, Scissors, Sparkles, Package, Palette, Layers, Plus, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 import type { EditUseCase } from './UseCaseSelection';
 import type { MasterImageItem } from '@kiditem/shared/product';
 import type { EditorMode, HistoryCandidate } from '../edit/page';
@@ -59,6 +60,49 @@ const GROUP_MIN: Partial<Record<SlotKind, number>> = {
   bundle_item: 2,
 };
 
+function normalizeDownloadFilename(filename: string | null | undefined, imageUrl: string, mimeType: string): string {
+  const urlName = (() => {
+    try {
+      const pathname = new URL(imageUrl, window.location.href).pathname;
+      return decodeURIComponent(pathname.split('/').filter(Boolean).pop() ?? '');
+    } catch {
+      return '';
+    }
+  })();
+  const inferredExt = mimeType.includes('png')
+    ? 'png'
+    : mimeType.includes('webp')
+      ? 'webp'
+      : mimeType.includes('jpeg') || mimeType.includes('jpg')
+        ? 'jpg'
+        : 'png';
+  const baseName = (filename?.trim() || urlName || `thumbnail-${Date.now()}.${inferredExt}`)
+    .replace(/[\\/:*?"<>|]+/g, '-')
+    .replace(/\s+/g, ' ');
+  return /\.[a-z0-9]{2,5}$/i.test(baseName) ? baseName : `${baseName}.${inferredExt}`;
+}
+
+async function downloadImageFile(imageUrl: string, filename?: string | null): Promise<void> {
+  const response = await fetch(
+    imageUrl,
+    imageUrl.startsWith('data:') ? undefined : { credentials: 'include' },
+  );
+  if (!response.ok) {
+    throw new Error(`Image download failed: ${response.status}`);
+  }
+
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = normalizeDownloadFilename(filename, imageUrl, blob.type);
+  link.style.display = 'none';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+}
+
 export function EditorInputPanel({
   mode,
   editCase = null,
@@ -99,6 +143,18 @@ export function EditorInputPanel({
   const colorSlots = slots.filter((s) => s.kind === 'color_variant');
   const bundleSlots = slots.filter((s) => s.kind === 'bundle_item');
   const bundleOwnerId = bundleSlots.find((s) => s.value)?.sourceProductId;
+  const selectedCandidate = selectedCandidateUrl
+    ? historyCandidates.find((c) => (resolveImageUrl(c.url) ?? '') === selectedCandidateUrl)
+    : null;
+  const handleDownloadSelected = async () => {
+    if (!selectedCandidateUrl) return;
+    try {
+      await downloadImageFile(selectedCandidateUrl, selectedCandidate?.filename);
+    } catch (err) {
+      console.error('[thumbnail-editor] download failed', err);
+      toast.error('이미지 다운로드에 실패했어요. 다시 시도해주세요.');
+    }
+  };
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-white">
@@ -380,16 +436,14 @@ export function EditorInputPanel({
               이미지 히스토리 · 최신순 · {historyCandidates.length}
             </span>
             {selectedCandidateUrl ? (
-              <a
-                href={selectedCandidateUrl}
-                download
-                target="_blank"
-                rel="noreferrer"
+              <button
+                type="button"
+                onClick={handleDownloadSelected}
                 className="flex items-center gap-1 text-[11px] font-semibold text-gray-700 bg-white hover:bg-gray-100 border border-gray-200 rounded-lg px-2 py-1 transition-colors"
                 title="선택한 이미지 다운로드"
               >
                 <Download size={12} /> 다운로드
-              </a>
+              </button>
             ) : (
               <span className="flex items-center gap-1 text-[11px] font-semibold text-gray-400 bg-white border border-gray-200 rounded-lg px-2 py-1 opacity-50 cursor-not-allowed">
                 <Download size={12} /> 다운로드

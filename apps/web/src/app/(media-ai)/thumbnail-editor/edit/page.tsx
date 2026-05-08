@@ -35,6 +35,12 @@ import {
   type Slot,
 } from './lib/slots';
 import { type EditorMode, parseEditCaseParam } from './lib/edit-page-types';
+import {
+  readThumbnailEditorUpload,
+  readThumbnailEditorUploadResult,
+  rememberThumbnailEditorUpload,
+  writeThumbnailEditorUploadResult,
+} from './lib/upload-session';
 import { useEditorHistory } from './hooks/useEditorHistory';
 import { EditorPageHeader } from './components/EditorPageHeader';
 import { getThemeHint } from './lib/theme-hint';
@@ -54,6 +60,8 @@ function ThumbnailEditorWorkspaceContent() {
   const router = useRouter();
   const productId = searchParams.get('productId');
   const imageUrlParam = searchParams.get('imageUrl');
+  const uploadKeyParam = searchParams.get('uploadKey');
+  const productNameParam = searchParams.get('productName')?.trim() ?? '';
   const generationIdParam = searchParams.get('generationId');
   const modeParam = searchParams.get('mode');
   const editCaseParam = searchParams.get('editCase');
@@ -80,7 +88,7 @@ function ThumbnailEditorWorkspaceContent() {
     enabled: !!productId,
   });
 
-  const productName = product?.name ?? '';
+  const productName = product?.name ?? productNameParam;
   const originalImageUrl = product?.imageUrl ?? null;
 
   // 분석 결과 fetch — productId 의 recompose 분류 정보 (kind, options) 받아서 picker 노출.
@@ -108,6 +116,8 @@ function ThumbnailEditorWorkspaceContent() {
     parseEditCaseParam(editCaseParam) ?? (modeParam === 'creative' ? null : 'single'),
   );
   const [modalOpen, setModalOpen] = useState(false);
+  const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null);
+  const initialImageUrl = uploadedImageUrl ?? imageUrlParam;
 
   const [slots, setSlots] = useState<Slot[]>(() =>
     buildInitialSlots(
@@ -121,6 +131,37 @@ function ThumbnailEditorWorkspaceContent() {
       },
     ),
   );
+
+  useEffect(() => {
+    if (!uploadKeyParam) return;
+    try {
+      const stored = readThumbnailEditorUpload(uploadKeyParam);
+      if (stored) {
+        setUploadedImageUrl(stored);
+        rememberThumbnailEditorUpload(uploadKeyParam, {
+          productName,
+          mode,
+        });
+        const storedResult = readThumbnailEditorUploadResult(uploadKeyParam);
+        if (storedResult?.candidates.length) {
+          setResult(storedResult.candidates);
+          setGenerationId(null);
+        }
+      } else {
+        toast.error('업로드 이미지를 찾을 수 없습니다. 다시 업로드해 주세요.');
+      }
+    } catch {
+      toast.error('업로드 이미지를 불러오지 못했습니다. 다시 업로드해 주세요.');
+    }
+  }, [uploadKeyParam]);
+
+  useEffect(() => {
+    if (!uploadedImageUrl) return;
+    setSlots((prev) => {
+      if (prev.some((slot) => slot.value)) return prev;
+      return setFirstSlotValueByKind(prev, 'product', uploadedImageUrl, 'upload');
+    });
+  }, [uploadedImageUrl]);
   const [supplementaryLabel, setSupplementaryLabel] = useState<SupplementaryLabel>('박스');
   const [pieceCount, setPieceCount] = useState<number | null>(null);
   const [layout, setLayout] = useState<import('./lib/slots').LayoutKindLite>('auto');
@@ -155,8 +196,8 @@ function ThumbnailEditorWorkspaceContent() {
   const { images: hubImages, loading: hubImagesLoading } = useProductImages(productId);
 
   const productImage = selectProductValue(slots);
-  const effectiveProductImage = productImage ?? (imageUrlParam ? null : originalImageUrl);
-  const fallbackProductImage = !productImage && !imageUrlParam ? originalImageUrl : null;
+  const effectiveProductImage = productImage ?? (initialImageUrl ? null : originalImageUrl);
+  const fallbackProductImage = !productImage && !initialImageUrl ? originalImageUrl : null;
   const hasInputSlotFilled = slots.some((s) => s.value);
 
   const [result, setResult] = useState<Array<{ url: string; filename: string }>>([]);
@@ -266,13 +307,15 @@ function ThumbnailEditorWorkspaceContent() {
   const deleteCandidateMutation = useDeleteCandidate();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
-  const handleGenerate = async () => {
+  const handleGenerate = async (options: { imageOnly?: boolean } = {}) => {
+    const imageOnly = options.imageOnly === true;
     console.log('[edit-page] handleGenerate called', {
       selectedVariantKey,
       productId,
       mode,
       hasRecompose: !!recomposeClassification,
       userPromptEmpty: !userPrompt.trim(),
+      imageOnly,
     });
 
     // Path 결정 (top-down 우선순위):
@@ -281,13 +324,13 @@ function ThumbnailEditorWorkspaceContent() {
     //    (사용자가 그냥 편집하기 누른 경우 = AI 분류 따라가는 의도)
     // 3. 그 외 (textarea 에 사용자 instruction 있음) → generate flow
 
-    if (selectedVariantKey) {
+    if (!imageOnly && selectedVariantKey) {
       console.log('[edit-page] → recompose flow (variantKey 명시 선택)');
       await handleRecomposeVariant(selectedVariantKey);
       return;
     }
 
-    if (recomposeClassification && !userPrompt.trim()) {
+    if (!imageOnly && recomposeClassification && !userPrompt.trim()) {
       console.log('[edit-page] → recompose flow (AI 분류 + 빈 textarea — auto variant)');
       await handleRecomposeVariant(undefined);
       return;
@@ -305,15 +348,26 @@ function ThumbnailEditorWorkspaceContent() {
       const dto = slotsToDto(slots, resolvedCase, {
         productId, supplementaryLabel, pieceCount,
         purpose: mode === 'creative' ? 'quality' : 'compliance',
-        mode, userPrompt, sceneType, styleType, productDescription,
+        mode,
+        userPrompt: imageOnly ? '' : userPrompt,
+        sceneType,
+        styleType,
+        productDescription: imageOnly ? '' : productDescription,
+        productName,
         productImageOverride: effectiveProductImage,
-        layout,
+        layout: imageOnly ? 'auto' : layout,
       });
       const data = await generateMutation.mutateAsync(dto);
       if (!mountedRef.current) return;
       if (data?.candidates) {
         setResult(data.candidates);
         setGenerationId(data.generationId ?? null);
+        if (uploadKeyParam) {
+          writeThumbnailEditorUploadResult(uploadKeyParam, data.candidates, {
+            productName,
+            mode,
+          });
+        }
         // generate flow 는 mutation 응답에 candidates 통째로 — polling 안 기다려도 됨. 즉시 해제.
         setForcedAwaiting(false);
         queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.generations() });
@@ -659,7 +713,8 @@ function ThumbnailEditorWorkspaceContent() {
             onSceneTypeChange={setSceneType}
             onStyleTypeChange={setStyleType}
             onProductDescriptionChange={setProductDescription}
-            onGenerate={handleGenerate}
+            onGenerateImageOnly={() => handleGenerate({ imageOnly: true })}
+            onGenerate={() => handleGenerate()}
             onCoupang={handleCoupang}
             onReEditFromSelected={handleReEditFromSelected}
             recomposeSlot={

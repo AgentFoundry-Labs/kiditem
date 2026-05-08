@@ -121,6 +121,14 @@ function HighlightedHeadline({
 
 export default function KidsPlayfulRenderer({ data }: Props) {
   const SymbolIcon = ICON_MAP[data.section11.symbolCard.icon] ?? Sparkles;
+  const symbolImageUrl =
+    data.section10.cards.find((card) => card.imageUrl)?.imageUrl ??
+    data.section8.blocks.find((block) => block.imageUrl)?.imageUrl ??
+    data.section7.imageUrl ??
+    data.section5.imageUrl ??
+    data.section11.galleryImageUrls[0] ??
+    data.section11.galleryImageUrls[1] ??
+    null;
 
   return (
     <div className="bg-[#e5e7eb] min-h-screen text-gray-900 font-sans break-keep antialiased pb-20">
@@ -453,10 +461,17 @@ export default function KidsPlayfulRenderer({ data }: Props) {
             fallbackHint="gallery 1"
           />
 
-          <div className="w-full aspect-[4/3] bg-blue-500 flex items-center justify-center p-10">
-            <div className="bg-white/10 w-full h-full rounded-3xl backdrop-blur-sm border border-white/20 shadow-2xl overflow-hidden flex flex-col items-center justify-center">
-              <SymbolIcon className="w-32 h-32 text-white/50 mb-6" />
-              <p className="text-white text-2xl font-black tracking-widest opacity-30">
+          <div className="relative w-full aspect-[4/3] bg-blue-500 overflow-hidden p-10">
+            <Img
+              src={symbolImageUrl}
+              alt={data.section11.symbolCard.text}
+              className="absolute inset-0 w-full h-full object-cover brightness-[0.72]"
+              fallbackHint={data.section11.symbolCard.text}
+            />
+            <div className="absolute inset-0 bg-blue-600/45"></div>
+            <div className="relative z-10 bg-white/10 w-full h-full rounded-3xl backdrop-blur-sm border border-white/20 shadow-2xl overflow-hidden flex flex-col items-center justify-center">
+              <SymbolIcon className="w-32 h-32 text-white/70 mb-6" />
+              <p className="text-white text-2xl font-black tracking-widest opacity-70">
                 {data.section11.symbolCard.text}
               </p>
             </div>

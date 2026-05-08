@@ -31,6 +31,13 @@ export interface SaveEditorResultInput {
   triggeredByUserId?: string | null;
 }
 
+function normalizeInputSource(source: string | null | undefined): string {
+  if (source === 'other-product') return 'other_product';
+  if (source === 'prev-gen' || source === 're-edit') return 'prev_gen';
+  if (source === 'master_image') return 'hub';
+  return source ?? 'upload';
+}
+
 export async function saveEditorResult(
   prisma: PrismaService,
   input: SaveEditorResultInput,
@@ -70,7 +77,9 @@ export async function saveEditorResult(
               role: img.role,
               label: img.label,
               sortOrder: img.sortOrder,
-              source: img.source,
+              source: normalizeInputSource(img.source),
+              masterImageId: img.masterImageId ?? null,
+              sourceCandidateId: img.sourceCandidateId ?? null,
               mimeType: img.mimeType,
               width: null,
               height: null,
@@ -140,6 +149,30 @@ export async function setSelectedCandidate(
   });
 }
 
+/**
+ * 선택 대기 (`phase: 'ready'`) 상태의 generation 들의 `selectedUrl` 을 일괄 해제.
+ *
+ * 사용처: `/thumbnails` AI 편집 탭의 "선택 대기" 진입 시 — 사용자가 새로
+ * 들어올 때마다 깨끗한 선택 상태에서 시작하도록 한다. 이미 적용된
+ * (`phase: 'applied'`) generation 의 `selectedUrl` 은 유지 (실 적용 결과니까).
+ *
+ * Tenant scope: organizationId WHERE 절로 강제.
+ */
+export async function clearReadySelections(
+  prisma: PrismaService,
+  organizationId: string,
+): Promise<{ count: number }> {
+  const result = await prisma.thumbnailGeneration.updateMany({
+    where: {
+      organizationId,
+      phase: 'ready',
+      selectedUrl: { not: null },
+    },
+    data: { selectedUrl: null },
+  });
+  return { count: result.count };
+}
+
 export interface ApplyGenerationSelected {
   url: string;
   storageKey: string | null;
@@ -204,10 +237,18 @@ export async function markGenerationCancelled(
   prisma: PrismaService,
   id: string,
   organizationId: string,
-): Promise<void> {
-  await prisma.thumbnailGeneration.updateMany({
-    where: { id, organizationId },
-    data: { status: 'cancelled', phase: null },
+): Promise<{ fromStatus: string; fromPhase: string | null } | null> {
+  return prisma.$transaction(async (tx) => {
+    const current = await tx.thumbnailGeneration.findFirst({
+      where: { id, organizationId },
+      select: { status: true, phase: true },
+    });
+    if (!current) return null;
+    await tx.thumbnailGeneration.updateMany({
+      where: { id, organizationId },
+      data: { status: 'cancelled', phase: null },
+    });
+    return { fromStatus: current.status, fromPhase: current.phase };
   });
 }
 
@@ -265,9 +306,14 @@ export async function resetGenerationForReEdit(
     purpose: 'compliance' | 'quality';
     variantKey: 'auto' | 'with-box' | 'no-box' | null;
   },
-): Promise<void> {
+): Promise<{ fromStatus: string; fromPhase: string | null } | null> {
   const { id, organizationId, purpose, variantKey } = args;
-  await prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx) => {
+    const current = await tx.thumbnailGeneration.findFirst({
+      where: { id, organizationId },
+      select: { status: true, phase: true },
+    });
+    if (!current) return null;
     await tx.thumbnailGenerationCandidate.deleteMany({
       where: { generationId: id, organizationId },
     });
@@ -285,6 +331,7 @@ export async function resetGenerationForReEdit(
         },
       },
     });
+    return { fromStatus: current.status, fromPhase: current.phase };
   });
 }
 
@@ -298,17 +345,33 @@ export async function lockGenerationForProcessing(
   prisma: PrismaService,
   id: string,
   organizationId: string,
-): Promise<boolean> {
-  const locked = await prisma.thumbnailGeneration.updateMany({
-    where: { id, organizationId, status: { in: ['pending', 'running'] } },
-    data: {
-      status: 'running',
-      phase: null,
-      errorMessage: null,
-      attemptCount: { increment: 1 },
-    },
+): Promise<{
+  fromStatus: string;
+  fromPhase: string | null;
+  attemptNumber: number;
+} | null> {
+  return prisma.$transaction(async (tx) => {
+    const current = await tx.thumbnailGeneration.findFirst({
+      where: { id, organizationId, status: { in: ['pending', 'running'] } },
+      select: { status: true, phase: true, attemptCount: true },
+    });
+    if (!current) return null;
+    const locked = await tx.thumbnailGeneration.updateMany({
+      where: { id, organizationId, status: current.status },
+      data: {
+        status: 'running',
+        phase: null,
+        errorMessage: null,
+        attemptCount: { increment: 1 },
+      },
+    });
+    if (locked.count === 0) return null;
+    return {
+      fromStatus: current.status,
+      fromPhase: current.phase,
+      attemptNumber: current.attemptCount + 1,
+    };
   });
-  return locked.count > 0;
 }
 
 /**
@@ -326,14 +389,18 @@ export async function replaceGenerationResult(
     inputMeta: Prisma.InputJsonValue;
     editAnalysis: EditAnalysisResult | null;
   },
-): Promise<void> {
+): Promise<{
+  fromStatus: string;
+  fromPhase: string | null;
+  attemptNumber: number;
+} | null> {
   const { generationId, organizationId, candidates, inputImages, inputMeta, editAnalysis } = args;
-  await prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx) => {
     const current = await tx.thumbnailGeneration.findFirst({
       where: { id: generationId, organizationId, status: 'running' },
-      select: { id: true },
+      select: { id: true, status: true, phase: true, attemptCount: true },
     });
-    if (!current) return;
+    if (!current) return null;
     await tx.thumbnailGenerationCandidate.deleteMany({ where: { generationId, organizationId } });
     await tx.thumbnailGenerationInputImage.deleteMany({ where: { generationId, organizationId } });
     if (candidates.length > 0) {
@@ -362,7 +429,9 @@ export async function replaceGenerationResult(
           role: img.role,
           label: img.label,
           sortOrder: img.sortOrder,
-          source: img.source,
+          source: normalizeInputSource(img.source),
+          masterImageId: img.masterImageId ?? null,
+          sourceCandidateId: img.sourceCandidateId ?? null,
           mimeType: img.mimeType,
           width: null,
           height: null,
@@ -383,6 +452,11 @@ export async function replaceGenerationResult(
           : Prisma.JsonNull,
       },
     });
+    return {
+      fromStatus: current.status,
+      fromPhase: current.phase,
+      attemptNumber: current.attemptCount,
+    };
   });
 }
 
@@ -391,11 +465,26 @@ export async function markGenerationFailed(
   id: string,
   organizationId: string,
   message: string,
-): Promise<void> {
-  await prisma.thumbnailGeneration
-    .updateMany({
+): Promise<{
+  fromStatus: string;
+  fromPhase: string | null;
+  attemptNumber: number;
+} | null> {
+  return prisma.$transaction(async (tx) => {
+    const current = await tx.thumbnailGeneration.findFirst({
+      where: { id, organizationId, status: 'running' },
+      select: { status: true, phase: true, attemptCount: true },
+    });
+    if (!current) return null;
+    const updated = await tx.thumbnailGeneration.updateMany({
       where: { id, organizationId, status: 'running' },
       data: { status: 'failed', phase: null, errorMessage: message },
-    })
-    .catch(() => {});
+    });
+    if (updated.count === 0) return null;
+    return {
+      fromStatus: current.status,
+      fromPhase: current.phase,
+      attemptNumber: current.attemptCount,
+    };
+  }).catch(() => null);
 }

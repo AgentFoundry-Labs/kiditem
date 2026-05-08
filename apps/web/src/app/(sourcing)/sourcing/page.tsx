@@ -16,26 +16,26 @@ import SourcingStats from './components/list/SourcingStats';
 import SourcingToolbar from './components/list/SourcingToolbar';
 import { useProcessingIds } from './hooks/useProcessingIds';
 import { useScrapeUrl } from './hooks/useScrapeUrl';
-import { isInProgress, productsApi } from './lib/sourcing-api';
-
-const PAGE_SIZE = 50;
+import { isInProgress, productsApi, type SourcingSort } from './lib/sourcing-api';
 
 export default function SourcingPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [sort, setSort] = useState<SourcingSort>('newest');
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const scrape = useScrapeUrl();
 
   const { data: productData, isLoading } = useQuery({
-    queryKey: queryKeys.sourcing.list({ page: String(page) }),
-    queryFn: () => productsApi.list({ page, limit: PAGE_SIZE }),
-    // ContentAgent 가 한 단계 진행할 때마다 pipeline_step 갱신 → 3초 폴링으로 카드 자동 refresh.
+    queryKey: queryKeys.sourcing.list({ page: String(page), limit: String(pageSize), sort }),
+    queryFn: () => productsApi.list({ page, limit: pageSize, sort }),
+    // ContentAgent 가 한 단계 진행할 때마다 pipeline_step 갱신 → 낮은 빈도 폴링으로 카드 자동 refresh.
     // 'processing' (Step1) / 'images_generating' (Step2) / 옛 'PROCESSING' 모두 트리거.
     refetchInterval: (query) => {
       const items = query.state.data?.items ?? [];
-      return items.some((p) => isInProgress(p.status)) ? 3000 : false;
+      return items.some((p) => isInProgress(p.status)) ? 10000 : false;
     },
   });
 
@@ -61,12 +61,22 @@ export default function SourcingPage() {
 
       <SourcingStats
         draftCount={products.filter((p) => p.status === 'DRAFT' || p.status === 'draft').length}
-        totalCount={products.length}
+        totalCount={total}
       />
 
       <SourcingToolbar
         showScrapeInput={scrape.showScrapeInput}
         onToggleScrapeInput={scrape.toggleScrapeInput}
+        sort={sort}
+        pageSize={pageSize}
+        onSortChange={(nextSort) => {
+          setSort(nextSort);
+          setPage(1);
+        }}
+        onPageSizeChange={(nextPageSize) => {
+          setPageSize(nextPageSize);
+          setPage(1);
+        }}
       />
 
       <div className="flex-1 overflow-y-auto px-5 py-4">
@@ -95,7 +105,7 @@ export default function SourcingPage() {
         />
 
         <div className="mt-4">
-          <Pagination page={page} limit={PAGE_SIZE} total={total} onPageChange={setPage} />
+          <Pagination page={page} limit={pageSize} total={total} onPageChange={setPage} />
         </div>
       </div>
     </div>

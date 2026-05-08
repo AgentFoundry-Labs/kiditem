@@ -1,28 +1,27 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useRef } from 'react';
 import Link from 'next/link';
 
-import { useGenerationList } from '../_shared/hooks/useThumbnailGenerations';
 import { useAnalysisList } from '@/app/(media-ai)/thumbnails/hooks/useThumbnailAnalysis';
 
+import { useGenerationList } from '../_shared/hooks/useThumbnailGenerations';
 import { HubUploadZone, type HubUploadZoneHandle } from './components/HubUploadZone';
 import { ModeShowcase } from './components/ModeShowcase';
 import { PendingSection } from './components/PendingSection';
 import { RegistrationPendingSection } from './components/RegistrationPendingSection';
 import { NeedsFixSection } from './components/NeedsFixSection';
 import { AutoEditSection } from './components/AutoEditSection';
+import { DirectUploadJobsSection } from './components/DirectUploadJobsSection';
 
 export default function ThumbnailEditorHubPage() {
   const { data: generations = [] } = useGenerationList();
   const { data: analysis } = useAnalysisList();
 
   const uploadRef = useRef<HubUploadZoneHandle>(null);
-  const [pendingMode, setPendingMode] = useState<'edit' | 'creative' | null>(null);
 
-  const startUpload = (mode: 'edit' | 'creative' | null) => {
-    setPendingMode(mode);
-    uploadRef.current?.openFilePicker();
+  const startUpload = (mode: 'edit' | 'creative') => {
+    uploadRef.current?.openFilePicker(mode);
   };
 
   const hasPending = generations.some(
@@ -63,9 +62,9 @@ export default function ThumbnailEditorHubPage() {
 
         <ModeShowcase onStart={startUpload} />
 
-        <div className="hidden">
-          <HubUploadZone ref={uploadRef} pendingMode={pendingMode} />
-        </div>
+        <HubUploadZone ref={uploadRef} hideDropzone />
+
+        <DirectUploadJobsSection />
 
         <AutoEditSection />
 

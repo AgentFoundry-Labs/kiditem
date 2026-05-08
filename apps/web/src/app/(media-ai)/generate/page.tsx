@@ -8,9 +8,8 @@
 //
 // 사용자: "사이드바 상세페이지 생성 페이지... 앞에 템플릿 선택하고 이 페이지로 넘어오게"
 
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useState } from 'react';
 import { ArrowLeft, Sparkles, X } from 'lucide-react';
-import { useStore } from '@/store/useStore';
 import GenerateLoadingOverlay from './components/GenerateLoadingOverlay';
 import KidsPlayfulHistoryList from './components/KidsPlayfulHistoryList';
 import ProductInputSection from './components/ProductInputSection';
@@ -28,7 +27,6 @@ export default function GeneratePage() {
 function GeneratePageContent() {
   const [step, setStep] = useState<'template' | 'form'>('template');
   const [templateId, setTemplateId] = useState<GenerateTemplateId>('bold-vertical');
-  const setSidebarOpen = useStore((state) => state.setSidebarOpen);
 
   const {
     rawTitle,
@@ -63,10 +61,6 @@ function GeneratePageContent() {
     handlePrefill,
     handleSubmit,
   } = useGenerateForm();
-
-  useEffect(() => {
-    setSidebarOpen(false);
-  }, [setSidebarOpen]);
 
   if (step === 'template') {
     return (

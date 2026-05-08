@@ -81,8 +81,6 @@ export function RegistrationPendingSection() {
     [groups, safePage],
   );
 
-  if (groups.length === 0) return null;
-
   const allSelected = items.length > 0 && items.every((g) => selectedIds.has(g.id));
   const toggleGroup = (group: RegGroup) => {
     setSelectedIds((prev) => {
@@ -219,27 +217,37 @@ export function RegistrationPendingSection() {
           </div>
         </div>
 
-        <div className="grid grid-cols-3 md:grid-cols-3 xl:grid-cols-4 gap-x-1 gap-y-6">
-          {pagedGroups.map((group) => {
-            const selectedInGroup = group.items.filter((i) => selectedIds.has(i.id)).length;
-            return (
-              <RegistrationPendingCard
-                key={group.productId}
-                group={group}
-                selectedCount={selectedInGroup}
-                onToggle={() => toggleGroup(group)}
-                onEdit={() => {
-                  const params = new URLSearchParams({
-                    productId: group.productId,
-                    generationId: group.representative.id,
-                  });
-                  router.push(`/thumbnail-editor/edit?${params.toString()}`);
-                }}
-                onClearError={() => group.items.forEach((i) => handleClearError(i.id))}
-              />
-            );
-          })}
-        </div>
+        {groups.length === 0 ? (
+          <div className="flex min-h-[180px] flex-col items-center justify-center rounded-2xl border border-dashed border-violet-100 bg-white/45 px-4 py-10 text-center">
+            <Store size={22} className="text-violet-300" />
+            <p className="mt-2 text-sm font-bold text-gray-700">쿠팡 등록 대기 없음</p>
+            <p className="mt-1 max-w-xs text-xs leading-relaxed text-gray-500">
+              생성 결과를 선택하고 적용 완료 처리하면 여기에서 Wing 등록을 이어서 할 수 있습니다.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 md:grid-cols-3 xl:grid-cols-4 gap-x-1 gap-y-6">
+            {pagedGroups.map((group) => {
+              const selectedInGroup = group.items.filter((i) => selectedIds.has(i.id)).length;
+              return (
+                <RegistrationPendingCard
+                  key={group.productId}
+                  group={group}
+                  selectedCount={selectedInGroup}
+                  onToggle={() => toggleGroup(group)}
+                  onEdit={() => {
+                    const params = new URLSearchParams({
+                      productId: group.productId,
+                      generationId: group.representative.id,
+                    });
+                    router.push(`/thumbnail-editor/edit?${params.toString()}`);
+                  }}
+                  onClearError={() => group.items.forEach((i) => handleClearError(i.id))}
+                />
+              );
+            })}
+          </div>
+        )}
       </section>
 
       {selectedIds.size > 0 && (

@@ -17,8 +17,16 @@
   font-display: swap;
 }
 
+@font-face {
+  font-family: "Jalnan2Local";
+  src: url("/fonts/jalnan2/Jalnan2TTF.ttf") format("truetype");
+  font-weight: 400 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 @theme {
-  --font-display: "NanumSquareRoundLocal", "NanumSquareNeoHeavy", "NanumSquareNeoExtraBold", sans-serif;
+  --font-display: "Jalnan2Local", "NanumSquareRoundLocal", "NanumSquareNeoHeavy", "NanumSquareNeoExtraBold", sans-serif;
   --font-hand: "NanumPen", cursive;
   --font-sans: "NanumSquareRoundLocal", "Noto Sans KR", "Pretendard", sans-serif;
 }

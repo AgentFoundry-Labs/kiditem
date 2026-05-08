@@ -21,6 +21,11 @@ export class ThumbnailEditorDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(200)
+  productName?: string;
+
+  @IsOptional()
+  @IsString()
   productImage?: string;
 
   @IsOptional()

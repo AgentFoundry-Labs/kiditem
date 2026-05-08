@@ -12,7 +12,7 @@ import { useKidsPlayfulGenerate } from './useKidsPlayfulGenerate';
 
 export type GenerateTemplateId = 'bold-vertical' | 'kids-playful';
 export type BoxSetStatus = 'auto' | 'none' | 'box' | 'set' | 'exists';
-export type ColorVariantStatus = 'auto' | 'single' | 'multiple';
+export type ColorVariantStatus = 'auto' | 'none' | 'single' | 'multiple';
 
 interface DetailPagePrefillResult {
   category: string;
@@ -267,6 +267,12 @@ function buildColorVariantInstruction(
     return [
       names ? `색상 구성: 단일 색상 (${names})` : '색상 구성: 단일 색상',
       '색상 안내 섹션은 단일 색상 기준으로 만들고, 이미지에 없는 다른 색상을 상상해서 추가하지 마세요.',
+    ].join('\n');
+  }
+  if (status === 'none') {
+    return [
+      '색상 구성: 없음',
+      '색상 안내 섹션을 만들지 말고 color.subtitle는 빈 문자열, color.imageIndices는 빈 배열로 두세요.',
     ].join('\n');
   }
   if (status === 'multiple') {

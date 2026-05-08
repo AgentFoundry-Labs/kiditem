@@ -1,8 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Eye, Loader2, Pencil, Sparkles, Trash2, Wand2 } from 'lucide-react';
-import { cn, formatKRW } from '@/lib/utils';
+import { Loader2, Sparkles, Trash2, Wand2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import SourcingStatusBadge from './SourcingStatusBadge';
 import { useGenerateDetailPage, type GenerateMode } from '../../[id]/hooks/useGenerateDetailPage';
 import { useKidsPlayfulFromSourcing } from '../../[id]/hooks/useKidsPlayfulFromSourcing';
@@ -72,6 +72,10 @@ export default function ProductCard({
           : null;
 
   const showProgress = (isProcessing || !!kpInProgress) && !!progressLabel;
+  const sourceLabel = product.source_platform === 'detail-page-generator'
+    ? '자체제작'
+    : product.source_platform;
+
   return (
     <div
       className={cn(
@@ -107,8 +111,8 @@ export default function ProductCard({
         <div className="absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-2 p-2">
           <div className="flex max-w-[calc(100%-42px)] flex-col gap-1">
             <SourcingStatusBadge status={product.status} />
-            <span className="w-fit rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white backdrop-blur-sm">
-              {product.source_platform}
+            <span className="w-fit rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-bold tracking-wide text-white backdrop-blur-sm">
+              {sourceLabel}
             </span>
           </div>
           <button
@@ -145,19 +149,6 @@ export default function ProductCard({
           {product.name}
         </h3>
 
-        <div className="flex justify-between items-center mb-0.5">
-          <span className="text-[11px] text-[var(--text-tertiary)]">판매가</span>
-          <span className="text-xs font-bold text-[var(--text-primary)]">
-            {product.price_krw != null ? `₩${formatKRW(product.price_krw)}` : '-'}
-          </span>
-        </div>
-        <div className="flex justify-between items-center mb-3">
-          <span className="text-[11px] text-[var(--text-tertiary)]">원가</span>
-          <span className="text-xs font-bold text-[var(--text-secondary)]">
-            {product.cost_cny != null ? `¥${product.cost_cny}` : '-'}
-          </span>
-        </div>
-
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -165,10 +156,10 @@ export default function ProductCard({
           }}
           disabled={generateBusy}
           className={cn(
-            'w-full flex h-9 items-center justify-center gap-1.5 rounded-lg text-[12px] font-extrabold transition-all text-white shadow-sm',
+            'w-full flex h-9 items-center justify-center gap-1.5 rounded-lg border text-[12px] font-extrabold transition-all shadow-sm',
             generateBusy
-              ? 'bg-violet-400 cursor-wait'
-              : 'bg-violet-600 hover:bg-violet-700 hover:shadow-md hover:shadow-violet-200',
+              ? 'cursor-wait border-violet-200 bg-violet-50 text-violet-600'
+              : 'border-[var(--text-primary)] bg-white text-[var(--text-primary)] hover:border-violet-600 hover:bg-violet-600 hover:text-white hover:shadow-md hover:shadow-violet-200',
           )}
           title="템플릿 + 생성 모드 선택"
         >
@@ -187,24 +178,6 @@ export default function ProductCard({
           onClose={() => setModalOpen(false)}
           onConfirm={handleConfirm}
         />
-
-        <div className="mt-2 grid grid-cols-2 gap-1.5">
-          <button
-            onClick={() => onNavigate(product.id)}
-            className="flex h-8 items-center justify-center gap-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-sunken)] text-[11px] font-bold text-[var(--text-secondary)] transition-colors hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700"
-          >
-            <Eye size={12} /> 상세 보기
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenEditor(product.id);
-            }}
-            className="flex h-8 items-center justify-center gap-1 rounded-lg border border-violet-200 bg-violet-50 text-[11px] font-bold text-violet-700 transition-colors hover:bg-violet-100"
-          >
-            <Pencil size={12} /> 편집
-          </button>
-        </div>
       </div>
     </div>
   );

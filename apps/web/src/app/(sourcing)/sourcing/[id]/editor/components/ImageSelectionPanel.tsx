@@ -7,14 +7,17 @@ import {
   AlignLeft,
   AlignRight,
   ChevronsUpDown,
+  CornerDownLeft,
   Maximize2,
   Minimize2,
+  RotateCw,
   Trash2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AIImageEditPanel } from './AIImageEditPanel';
 
 type ImageAlign = 'left' | 'center' | 'right';
+type ImageFit = 'natural' | 'contain' | 'cover';
 
 interface ImageSelectionPanelProps {
   component: any;
@@ -30,6 +33,12 @@ const WIDTH_PRESETS = [
   { label: '작게', value: 60 },
   { label: '보통', value: 80 },
   { label: '크게', value: 100 },
+] as const;
+
+const FIT_OPTIONS = [
+  { label: '원본비율', value: 'natural' },
+  { label: '전체보기', value: 'contain' },
+  { label: '채우기', value: 'cover' },
 ] as const;
 
 function readNumericStyle(component: any, key: string, fallback: number): number {
@@ -50,12 +59,58 @@ function inferAlignment(component: any): ImageAlign {
   return 'center';
 }
 
+function inferFit(component: any): ImageFit {
+  const style = component?.getStyle?.() ?? {};
+  const fit = style['object-fit'] ?? style.objectFit;
+  const height = style.height;
+  if (fit === 'cover') return 'cover';
+  if (fit === 'contain' && typeof height === 'string' && height !== 'auto') return 'contain';
+  return 'natural';
+}
+
+function readRotation(component: any): number {
+  const style = component?.getStyle?.() ?? {};
+  const raw = String(style.transform ?? '');
+  const match = raw.match(/rotate\((-?\d+(?:\.\d+)?)deg\)/i);
+  return match ? Number(match[1]) : 0;
+}
+
 function applyImageWidth(component: any, width: number) {
   component?.addStyle?.({
     display: 'block',
     width: `${width}%`,
     'max-width': 'none',
     height: 'auto',
+  });
+}
+
+function applyImageFit(component: any, fit: ImageFit, frameHeight: number) {
+  if (fit === 'natural') {
+    component?.addStyle?.({
+      height: 'auto',
+      'object-fit': 'contain',
+      'object-position': 'center center',
+    });
+    return;
+  }
+
+  component?.addStyle?.({
+    height: `${frameHeight}px`,
+    'object-fit': fit,
+    'object-position': 'center center',
+  });
+}
+
+function applyImageRadius(component: any, radius: number) {
+  component?.addStyle?.({
+    'border-radius': `${radius}px`,
+  });
+}
+
+function applyImageRotation(component: any, rotation: number) {
+  component?.addStyle?.({
+    transform: rotation === 0 ? 'none' : `rotate(${rotation}deg)`,
+    'transform-origin': 'center center',
   });
 }
 
@@ -91,16 +146,32 @@ export function ImageSelectionPanel({
 }: ImageSelectionPanelProps) {
   const [width, setWidth] = useState(100);
   const [align, setAlign] = useState<ImageAlign>('center');
+  const [fit, setFit] = useState<ImageFit>('natural');
+  const [frameHeight, setFrameHeight] = useState(360);
+  const [radius, setRadius] = useState(0);
+  const [rotation, setRotation] = useState(0);
   const [marginTop, setMarginTop] = useState(0);
   const [marginBottom, setMarginBottom] = useState(0);
   const [currentImageUrl, setCurrentImageUrl] = useState(imageUrl);
+  const [originalImageUrl, setOriginalImageUrl] = useState(imageUrl);
 
   useEffect(() => {
     setWidth(Math.min(100, Math.max(20, readNumericStyle(component, 'width', 100))));
+    setFit(inferFit(component));
+    setFrameHeight(Math.min(900, Math.max(120, readNumericStyle(component, 'height', 360))));
+    setRadius(Math.min(80, Math.max(0, readNumericStyle(component, 'border-radius', 0))));
+    setRotation(Math.min(180, Math.max(-180, readRotation(component))));
     setMarginTop(Math.min(160, Math.max(0, readNumericStyle(component, 'margin-top', 0))));
     setMarginBottom(Math.min(160, Math.max(0, readNumericStyle(component, 'margin-bottom', 0))));
     setAlign(inferAlignment(component));
     setCurrentImageUrl(imageUrl);
+    const attrs = component?.getAttributes?.() ?? {};
+    const storedOriginal = typeof attrs['data-original-src'] === 'string' ? attrs['data-original-src'] : '';
+    const nextOriginal = storedOriginal || imageUrl;
+    setOriginalImageUrl(nextOriginal);
+    if (!storedOriginal && imageUrl) {
+      component?.addAttributes?.({ 'data-original-src': imageUrl });
+    }
   }, [component, imageUrl]);
 
   useEffect(() => {
@@ -134,6 +205,34 @@ export function ImageSelectionPanel({
     [component, editor],
   );
 
+  const commitFit = useCallback(
+    (nextFit: ImageFit, nextFrameHeight = frameHeight) => {
+      setFit(nextFit);
+      setFrameHeight(nextFrameHeight);
+      applyImageFit(component, nextFit, nextFrameHeight);
+      editor?.trigger?.('component:update', component);
+    },
+    [component, editor, frameHeight],
+  );
+
+  const commitRadius = useCallback(
+    (nextRadius: number) => {
+      setRadius(nextRadius);
+      applyImageRadius(component, nextRadius);
+      editor?.trigger?.('component:update', component);
+    },
+    [component, editor],
+  );
+
+  const commitRotation = useCallback(
+    (nextRotation: number) => {
+      setRotation(nextRotation);
+      applyImageRotation(component, nextRotation);
+      editor?.trigger?.('component:update', component);
+    },
+    [component, editor],
+  );
+
   const commitSpacing = useCallback(
     (top: number, bottom: number) => {
       setMarginTop(top);
@@ -148,6 +247,12 @@ export function ImageSelectionPanel({
     component?.remove?.();
     onClose();
   }, [component, onClose]);
+
+  const handleRestoreOriginal = useCallback(() => {
+    if (!originalImageUrl) return;
+    setCurrentImageUrl(originalImageUrl);
+    onEditComplete(originalImageUrl);
+  }, [onEditComplete, originalImageUrl]);
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -209,6 +314,38 @@ export function ImageSelectionPanel({
           </div>
 
           <div>
+            <span className="mb-2 block text-xs font-medium text-slate-600">이미지 맞춤</span>
+            <div className="grid grid-cols-3 gap-1.5">
+              {FIT_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => commitFit(option.value)}
+                  className={cn(
+                    'rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors',
+                    fit === option.value
+                      ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                      : 'border-slate-200 bg-white text-slate-600 hover:border-emerald-200 hover:text-emerald-600',
+                  )}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            {fit !== 'natural' && (
+              <SpacingSlider
+                label="높이"
+                value={frameHeight}
+                min={120}
+                max={900}
+                step={20}
+                suffix="px"
+                onChange={(next) => commitFit(fit, next)}
+              />
+            )}
+          </div>
+
+          <div>
             <span className="mb-2 block text-xs font-medium text-slate-600">정렬</span>
             <div className="grid grid-cols-3 gap-1.5">
               {([
@@ -236,6 +373,31 @@ export function ImageSelectionPanel({
 
           <div>
             <span className="mb-2 flex items-center gap-1.5 text-xs font-medium text-slate-600">
+              <RotateCw size={12} />
+              회전 / 모서리
+            </span>
+            <SpacingSlider
+              label="회전"
+              value={rotation}
+              min={-180}
+              max={180}
+              step={5}
+              suffix="°"
+              onChange={commitRotation}
+            />
+            <SpacingSlider
+              label="둥글기"
+              value={radius}
+              min={0}
+              max={80}
+              step={2}
+              suffix="px"
+              onChange={commitRadius}
+            />
+          </div>
+
+          <div>
+            <span className="mb-2 flex items-center gap-1.5 text-xs font-medium text-slate-600">
               <ChevronsUpDown size={12} />
               위아래 여백
             </span>
@@ -256,12 +418,25 @@ export function ImageSelectionPanel({
             onClick={() => {
               commitWidth(100);
               commitAlign('center');
+              commitFit('natural');
+              commitRadius(0);
+              commitRotation(0);
               commitSpacing(0, 0);
             }}
             className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white py-2 text-xs font-medium text-slate-600 transition-colors hover:border-emerald-200 hover:text-emerald-600"
           >
             <Minimize2 size={13} />
             기본값으로
+          </button>
+
+          <button
+            type="button"
+            onClick={handleRestoreOriginal}
+            disabled={!originalImageUrl || originalImageUrl === currentImageUrl}
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white py-2 text-xs font-medium text-slate-600 transition-colors hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <CornerDownLeft size={13} />
+            원본 이미지 복구
           </button>
         </div>
       </div>
@@ -280,10 +455,18 @@ export function ImageSelectionPanel({
 function SpacingSlider({
   label,
   value,
+  min = 0,
+  max = 160,
+  step = 4,
+  suffix = 'px',
   onChange,
 }: {
   label: string;
   value: number;
+  min?: number;
+  max?: number;
+  step?: number;
+  suffix?: string;
   onChange: (value: number) => void;
 }) {
   return (
@@ -291,14 +474,17 @@ function SpacingSlider({
       <span className="text-[11px] font-medium text-slate-400">{label}</span>
       <input
         type="range"
-        min={0}
-        max={160}
-        step={4}
+        min={min}
+        max={max}
+        step={step}
         value={value}
         onChange={(event) => onChange(Number(event.target.value))}
         className="w-full accent-emerald-500"
       />
-      <span className="text-right text-[11px] font-semibold text-slate-500">{value}px</span>
+      <span className="text-right text-[11px] font-semibold text-slate-500">
+        {value}
+        {suffix}
+      </span>
     </div>
   );
 }

@@ -245,6 +245,7 @@ export type LayoutKindLite = 'auto' | 'fan' | 'arch' | 'grid' | 'stack' | 'radia
 
 interface SlotsDtoExtras {
   productId?: string | null;
+  productName?: string | null;
   supplementaryLabel?: string;
   pieceCount?: number | null;
   purpose: 'compliance' | 'quality';
@@ -260,6 +261,7 @@ interface SlotsDtoExtras {
 
 interface GenerateDto {
   productId?: string;
+  productName?: string;
   productImage?: string;
   packagingImage?: string;
   supplementaryLabel?: string;
@@ -283,6 +285,7 @@ export function slotsToDto(slots: Slot[], editCase: EditCaseLite, extras: SlotsD
     mode,
     purpose,
     productId,
+    productName,
     supplementaryLabel,
     pieceCount,
     userPrompt,
@@ -305,6 +308,7 @@ export function slotsToDto(slots: Slot[], editCase: EditCaseLite, extras: SlotsD
 
   return {
     productId: (isBundle ? bundleOwner : productId) ?? undefined,
+    productName: productName?.trim() || undefined,
     productImage: isBundle ? undefined : productValue ?? undefined,
     packagingImage: isBundle ? undefined : packagingValue ?? undefined,
     supplementaryLabel: editCase === 'compose' ? supplementaryLabel : undefined,

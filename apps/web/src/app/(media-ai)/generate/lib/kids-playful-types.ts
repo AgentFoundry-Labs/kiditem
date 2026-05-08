@@ -12,6 +12,8 @@ import {
 } from './detail-page-image-order';
 
 const GENERATED_HERO_BANNER_KEY = '__heroBanner';
+const GENERATED_USAGE_IMAGE_KEYS = ['__usageGuideImage1', '__usageGuideImage2', '__usageGuideImage3'] as const;
+const GENERATED_DETAIL_IMAGE_KEYS = ['__detailImage1', '__detailImage2', '__detailImage3'] as const;
 
 export interface KidsPlayfulData {
   section1: {
@@ -218,6 +220,8 @@ export function adaptToKidsPlayful(
     return url.startsWith('http') ? url : `${apiBase}${url}`;
   };
   const generatedHeroBanner = resolveGenerated(GENERATED_HERO_BANNER_KEY);
+  const generatedUsageImages = GENERATED_USAGE_IMAGE_KEYS.map((key) => resolveGenerated(key));
+  const generatedDetailImages = GENERATED_DETAIL_IMAGE_KEYS.map((key) => resolveGenerated(key));
 
   return {
     section1: {
@@ -230,9 +234,9 @@ export function adaptToKidsPlayful(
       label: raw.section3.label,
       headline: raw.section3.headline,
       subhead: raw.section3.subhead,
-      scenarios: raw.section3.scenarios.map((s) => ({
+      scenarios: raw.section3.scenarios.map((s, index) => ({
         caption: s.caption,
-        imageUrl: resolve(s.imageIndex),
+        imageUrl: resolve(s.imageIndex) ?? generatedUsageImages[index] ?? null,
       })),
     },
     section4: {
@@ -244,17 +248,17 @@ export function adaptToKidsPlayful(
       headlineLine1: raw.section5.headlineLine1,
       headlineLine2: raw.section5.headlineLine2,
       subcopy: raw.section5.subcopy,
-      imageUrl: resolve(raw.section5.imageIndex),
+      imageUrl: resolve(raw.section5.imageIndex) ?? generatedDetailImages[0] ?? generatedUsageImages[0] ?? null,
     },
     section6: {
       label: raw.section6.label,
       headline: raw.section6.headline,
       bigHeadline: raw.section6.bigHeadline,
-      cards: raw.section6.cards.map((c) => ({
+      cards: raw.section6.cards.map((c, index) => ({
         num: c.num,
         title: c.title,
         subtitle: c.subtitle,
-        imageUrl: resolve(c.imageIndex),
+        imageUrl: resolve(c.imageIndex) ?? generatedDetailImages[index] ?? generatedUsageImages[index] ?? null,
       })),
     },
     section7: {
@@ -265,26 +269,30 @@ export function adaptToKidsPlayful(
       body1: raw.section7.body1,
       body2: raw.section7.body2,
       bodyEmphasis: raw.section7.bodyEmphasis,
-      imageUrl: resolve(raw.section7.imageIndex),
+      imageUrl: resolve(raw.section7.imageIndex) ?? generatedDetailImages[0] ?? generatedDetailImages[1] ?? null,
     },
     section8: {
       introLine1: raw.section8.introLine1,
       introLine2: raw.section8.introLine2,
       introLine3: raw.section8.introLine3,
-      blocks: raw.section8.blocks.map((b) => ({
+      blocks: raw.section8.blocks.map((b, index) => ({
         pillLabel: b.pillLabel,
         headline: b.headline,
         body: b.body,
-        imageUrl: resolve(b.imageIndex),
+        imageUrl: resolve(b.imageIndex) ??
+          generatedDetailImages[index + 1] ??
+          generatedDetailImages[index] ??
+          generatedUsageImages[index] ??
+          null,
       })),
     },
     section9: raw.section9,
     section10: {
-      cards: raw.section10.cards.map((c) => ({
+      cards: raw.section10.cards.map((c, index) => ({
         smallHeadline: c.smallHeadline,
         bigHeadlineLine1: c.bigHeadlineLine1,
         bigHeadlineLine2: c.bigHeadlineLine2,
-        imageUrl: resolve(c.imageIndex),
+        imageUrl: resolve(c.imageIndex) ?? generatedUsageImages[index] ?? generatedDetailImages[index] ?? null,
       })),
     },
     section11: {

@@ -10,21 +10,23 @@ model Organization {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   // Core
-  memberships                    OrganizationMembership[]
-  legalEntities                  LegalEntity[]
-  channelAccounts                ChannelAccount[]
-  orders                         Order[]
-  purchaseOrders                 PurchaseOrder[]
-  profitLoss                     ProfitLoss[]
-  thumbnails                     Thumbnail[]
-  thumbnailAnalyses              ThumbnailAnalysis[]
-  thumbnailGenerations           ThumbnailGeneration[]
-  thumbnailGenerationCandidates  ThumbnailGenerationCandidate[]
-  thumbnailGenerationInputImages ThumbnailGenerationInputImage[]
-  thumbnailRegistrationAttempts  ThumbnailRegistrationAttempt[]
-  thumbnailTrackings             ThumbnailTracking[]
-  reviews                        Review[]
-  alerts                         Alert[]
+  memberships                     OrganizationMembership[]
+  legalEntities                   LegalEntity[]
+  channelAccounts                 ChannelAccount[]
+  orders                          Order[]
+  purchaseOrders                  PurchaseOrder[]
+  profitLoss                      ProfitLoss[]
+  thumbnails                      Thumbnail[]
+  thumbnailAnalyses               ThumbnailAnalysis[]
+  thumbnailGenerations            ThumbnailGeneration[]
+  thumbnailGenerationCandidates   ThumbnailGenerationCandidate[]
+  thumbnailGenerationInputImages  ThumbnailGenerationInputImage[]
+  thumbnailGenerationEvents       ThumbnailGenerationEvent[]
+  thumbnailRegistrationAttempts   ThumbnailRegistrationAttempt[]
+  thumbnailTrackings              ThumbnailTracking[]
+  thumbnailTrackingDailySnapshots ThumbnailTrackingDailySnapshot[]
+  reviews                         Review[]
+  alerts                          Alert[]
 
   // Sourcing & Content
   contentGenerations ContentGeneration[]
@@ -124,28 +126,29 @@ model Organization {
 /// @namespace Core
 /// @describe human(직원) / agent(AI, agentInstanceId 연결) / system(챗봇). 조직 소속은 OrganizationMembership 이 source of truth.
 model User {
-  id                String    @id @default(uuid()) @db.Uuid
-  email             String    @unique
-  name              String
-  password          String?
-  role              String    @default("member") // global/default role; per-organization role lives on OrganizationMembership.
-  type              String    @default("human")
-  team              String?
-  avatarUrl         String?   @map("avatar_url")
-  agentInstanceId   String?   @map("agent_instance_id") @db.Uuid
-  isActive          Boolean   @default(true) @map("is_active")
-  lastLoginAt       DateTime? @map("last_login_at") @db.Timestamptz
-  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  id              String    @id @default(uuid()) @db.Uuid
+  email           String    @unique
+  name            String
+  password        String?
+  role            String    @default("member") // global/default role; per-organization role lives on OrganizationMembership.
+  type            String    @default("human")
+  team            String?
+  avatarUrl       String?   @map("avatar_url")
+  agentInstanceId String?   @map("agent_instance_id") @db.Uuid
+  isActive        Boolean   @default(true) @map("is_active")
+  lastLoginAt     DateTime? @map("last_login_at") @db.Timestamptz
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  agentInstance                  AgentInstance?           @relation(fields: [agentInstanceId], references: [id], onDelete: SetNull)
+  agentInstance                  AgentInstance?             @relation(fields: [agentInstanceId], references: [id], onDelete: SetNull)
   memberships                    OrganizationMembership[]
-  invitedOrganizationMemberships OrganizationMembership[] @relation("OrganizationMembershipInviter")
-  triggeredWorkflowRuns          WorkflowRun[]            @relation("WorkflowRunTriggeredBy")
-  triggeredThumbnailGenerations  ThumbnailGeneration[]    @relation("ThumbnailGenerationTriggeredBy")
-  triggeredContentGenerations    ContentGeneration[]      @relation("ContentGenerationTriggeredBy")
-  actorAlerts                    Alert[]                  @relation("AlertActor")
-  assignedActionTasks            ActionTask[]             @relation("ActionTaskAssignee")
+  invitedOrganizationMemberships OrganizationMembership[]   @relation("OrganizationMembershipInviter")
+  triggeredWorkflowRuns          WorkflowRun[]              @relation("WorkflowRunTriggeredBy")
+  triggeredThumbnailGenerations  ThumbnailGeneration[]      @relation("ThumbnailGenerationTriggeredBy")
+  thumbnailGenerationEvents      ThumbnailGenerationEvent[] @relation("ThumbnailGenerationEventActor")
+  triggeredContentGenerations    ContentGeneration[]        @relation("ContentGenerationTriggeredBy")
+  actorAlerts                    Alert[]                    @relation("AlertActor")
+  assignedActionTasks            ActionTask[]               @relation("ActionTaskAssignee")
 
   // Agent OS v2 — actor relations
   requestedAgentRunRequests         AgentRunRequest[]         @relation("AgentRunRequestRequestedBy")
@@ -357,8 +360,9 @@ model MasterProductImage {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  master       MasterProduct @relation(fields: [masterId], references: [id], onDelete: Cascade)
+  organization              Organization                    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  master                    MasterProduct                   @relation(fields: [masterId], references: [id], onDelete: Cascade)
+  thumbnailGenerationInputs ThumbnailGenerationInputImage[]
 
   @@index([organizationId])
   @@index([masterId])

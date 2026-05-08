@@ -39,6 +39,10 @@ interface GenerateDetailSectionImageInput extends GenerateSizeGuideImageInput {
   variant?: number;
 }
 
+interface GenerateUsageGuideImageInput extends GenerateDetailSectionImageInput {
+  usageStep?: string;
+}
+
 interface InferColorSubtitleInput {
   productName: string;
   category: string;
@@ -317,6 +321,47 @@ export class DetailPageHeroImageService {
     return this.storage.save(key, buffer, mimeType);
   }
 
+  async generateUsageGuideImage(input: GenerateUsageGuideImageInput): Promise<string> {
+    const images = await this.fetchInputImages(input.imageUrls, 6);
+    if (images.length === 0) {
+      throw new ServiceUnavailableException('detail_page_usage_image_no_inputs');
+    }
+
+    const response = await this.getClient().models.generateContent({
+      model: requireGeminiImageModel(),
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            ...images.flatMap((img) => [
+              { text: `[${img.label}]` },
+              { inlineData: { data: img.data, mimeType: img.mimeType } },
+            ]),
+            { text: this.buildUsageGuidePrompt(input) },
+          ],
+        },
+      ],
+      config: {
+        responseModalities: [Modality.TEXT, Modality.IMAGE],
+        imageConfig: { aspectRatio: '4:3', imageSize: '2K' },
+      },
+    });
+
+    const parts = response.candidates?.[0]?.content?.parts ?? [];
+    const imagePart = parts.find((part) => part.inlineData?.data)?.inlineData;
+    if (!imagePart?.data) {
+      const text = parts.find((part) => part.text)?.text?.slice(0, 300);
+      this.logger.warn(`Gemini detail usage response had no image. text=${text ?? '(empty)'}`);
+      throw new ServiceUnavailableException('detail_page_usage_image_returned_no_image');
+    }
+
+    const mimeType = imagePart.mimeType ?? 'image/png';
+    this.imageFetcher.assertSupportedMime(mimeType);
+    const buffer = Buffer.from(imagePart.data, 'base64');
+    const key = `detail-page-section-images/${input.organizationId}/usage-${input.variant ?? 1}-${randomUUID()}.${this.imageFetcher.extForMime(mimeType)}`;
+    return this.storage.save(key, buffer, mimeType);
+  }
+
   async generateSizeGuideImage(input: GenerateSizeGuideImageInput): Promise<string> {
     const images = await this.fetchInputImages(input.imageUrls, 8);
     if (images.length === 0) {
@@ -554,11 +599,11 @@ export class DetailPageHeroImageService {
       '- If only one product photo is available, create a fresh composition of the same real product using a new angle/background; do not invent unsupported colors.',
       '- If Options/specs explicitly says "색상 구성: 단일 색상", keep it as a single-color guide and do not invent extra variants.',
       '- If Options/specs explicitly says "색상 구성: 여러 색상", include only visible real product variants from the references.',
-      '- If color names/options are clearly provided, simple Korean color callout labels are allowed, but keep them short and clean.',
+      '- Do not add color names, callout labels, Korean text, English text, icons, arrows, badges, or captions inside the image. The HTML template will render all text separately.',
       '- Never use a package box, display box, barcode/KC/safety label, size chart, instruction sheet, or unrelated prop as the main subject.',
       '- Preserve real product colors and printed artwork. Do not merge colors or change the product identity.',
       '- Use a bright playful background suitable for kids goods, with enough contrast for the product.',
-      '- No prices, discount badges, shop logos, watermarks, or long text.',
+      '- No prices, discount badges, shop logos, watermarks, or text of any kind.',
       '- Photorealistic commercial product composition, not a flat illustration.',
     ].filter(Boolean).join('\n');
   }
@@ -643,6 +688,8 @@ export class DetailPageHeroImageService {
       '',
       'Composition requirements:',
       '- This image will be placed ONLY in the "DETAIL" section of a Korean product detail page.',
+      '- IMAGE-ONLY OUTPUT: not a callout card, poster, infographic, or designed text panel.',
+      '- Do not create a "DETAIL FEATURE CALLOUT" design. The template supplies all headings and captions separately.',
       `- ${variantDirection}`,
       '- Use the provided product photos as the exact product reference.',
       '- Never design a new product, new shape, new character, or new package. Only restage the same product from the references.',
@@ -650,10 +697,33 @@ export class DetailPageHeroImageService {
       '- Vary the composition from previous sections: use a different crop, zoom level, camera angle, or product placement while keeping the product recognizable.',
       '- Prefer enlarged product composition shots that make the product easier to inspect, not another full duplicate of the uploaded photo.',
       '- Preserve product shape, proportions, colors, printed artwork, materials, and important physical details.',
-      '- Do not invent fake KC marks, barcodes, certifications, brand logos, prices, watermarks, or long text.',
+      '- Do not render the product name inside this image.',
+      '- No Korean text, English text, numbers, fake KC marks, barcodes, certifications, brand logos, prices, watermarks, or long text.',
       '- Avoid package boxes as the main subject unless the input photo clearly shows the package and the detail page needs a 구성/패키지 컷.',
       '- Use a clean bright kids-product ecommerce look, with the product fully visible and not awkwardly cropped.',
       '- Photorealistic commercial product shot, not a flat illustration.',
+    ].filter(Boolean).join('\n');
+  }
+
+  private buildUsageGuidePrompt(input: GenerateUsageGuideImageInput): string {
+    const variant = input.variant ?? 1;
+    return [
+      'Create one ecommerce product usage photo.',
+      `Product name: ${input.productName}`,
+      `Category: ${input.category}`,
+      `Product notes: ${input.description}`,
+      input.options ? `Options/specs: ${input.options}` : '',
+      input.usageStep ? `Usage step reference: ${input.usageStep}` : '',
+      '',
+      'Composition requirements:',
+      '- IMAGE-ONLY OUTPUT: create only a clean product photo showing the action.',
+      '- Do not create an instruction card, tutorial panel, app UI, label sheet, or infographic.',
+      '- Do not render "사용법 안내", step numbers, Korean text, English text, icons, arrows, captions, badges, or labels inside the image.',
+      '- Use the provided product photos as the exact product reference.',
+      '- Preserve product shape, proportions, colors, printed artwork, and materials.',
+      '- Show a realistic hand interaction only if it helps explain the step; use natural short nails, no manicure, no nail polish.',
+      `- Variant ${variant}: choose a slightly different camera angle or hand position while keeping the product inspectable.`,
+      '- Clean bright kids-product ecommerce look, photorealistic, no illustration.',
     ].filter(Boolean).join('\n');
   }
 
@@ -666,9 +736,6 @@ export class DetailPageHeroImageService {
       `Category: ${input.category}`,
       `Product notes: ${input.description}`,
       input.options ? `Options/specs: ${input.options}` : '',
-      input.widthLabel || input.heightLabel
-        ? `Template measurement labels: width=${input.widthLabel || '(unknown)'}, height=${input.heightLabel || '(unknown)'}`
-        : '',
       '',
       'Composition requirements:',
       '- HARD REQUIREMENT: output exactly ONE single product unit only, enlarged and centered.',
@@ -687,7 +754,7 @@ export class DetailPageHeroImageService {
       '- Output a clean transparent-background PNG cutout if supported.',
       '- If transparency is unavailable, use a pure white (#FFFFFF) border-connected background only so the application can remove it. Do not leave an inner white rectangle or photo card behind the product.',
       '- Remove every background pixel around the product silhouette. The final product should visually sit directly on the template background after trimming.',
-      '- Do not add measurement lines or dimension text. The template will overlay measurement guides separately.',
+      '- Absolutely do not add measurement lines, arrows, rulers, dimension text, or numbers. The template will overlay measurement guides separately.',
       '- Photorealistic product-only studio cutout, not an illustration.',
     ].filter(Boolean).join('\n');
   }
