@@ -99,8 +99,27 @@ function makePrismaStub(input: {
 }
 
 function makeObservabilityStub(runs: AgentRunRecord[]): AgentObservabilityService {
+  // Reconcile uses `findRunByRequest({ organizationId, requestId, status })`
+  // — keyed on the EXACT request, not just on the agent instance. The
+  // stub honours the requestId filter so the regression test in this
+  // spec (two succeeded runs sharing one instance) actually exercises the
+  // P1 fix.
+  const findRunByRequest = vi
+    .fn()
+    .mockImplementation(
+      async (input: { requestId: string; status?: string[] }) => {
+        const candidates = runs.filter(
+          (r) =>
+            r.requestId === input.requestId &&
+            (!input.status || input.status.includes(r.status)),
+        );
+        // Latest startedAt wins — adapter contract.
+        candidates.sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
+        return candidates[0] ?? null;
+      },
+    );
   return {
-    listRuns: vi.fn().mockResolvedValue(runs),
+    findRunByRequest,
   } as unknown as AgentObservabilityService;
 }
 
@@ -227,5 +246,51 @@ describe('DetailPageAgentReconcileService', () => {
       expect.objectContaining({ errorCode: 'agent_output_invalid' }),
     );
     expect(sink.applySuccess).not.toHaveBeenCalled();
+  });
+
+  // P1#1 regression — two succeeded runs share an instance; the older one
+  // is the stuck request the reconcile is replaying. The previous
+  // implementation grabbed `listRuns({ agentInstanceId, limit: 1 })` and
+  // landed on the newer run, then routed the stuck request to
+  // `applyFailure({ errorCode: 'agent_output_invalid' })` because the
+  // requestId on the latest run did not match. Asserts that the request
+  // resolves to its OWN run output.
+  it('replays the request-specific run even when a newer succeeded run exists on the same instance', async () => {
+    const stuckRequestId = 'req-stuck';
+    const newerRequestId = 'req-newer';
+    const prisma = makePrismaStub({
+      requests: [makeRow({ id: stuckRequestId })],
+      cgStatus: 'PROCESSING',
+    });
+    const stuckRun = makeRun({
+      id: 'run-stuck',
+      requestId: stuckRequestId,
+      startedAt: new Date('2026-05-08T10:00:00.000Z'),
+      output: VALID_OUTPUT,
+    });
+    const newerRun = makeRun({
+      id: 'run-newer',
+      requestId: newerRequestId,
+      startedAt: new Date('2026-05-08T11:00:00.000Z'),
+      // Newer succeeded run on the SAME instance — different request.
+      output: { templateId: 'bold-vertical', result: { unrelated: true } } as Record<string, unknown>,
+    });
+    const observability = makeObservabilityStub([newerRun, stuckRun]);
+    const svc = new DetailPageAgentReconcileService(
+      prisma as never,
+      observability,
+      sink,
+    );
+
+    await svc.reconcile(ORG);
+
+    expect(sink.applySuccess).toHaveBeenCalledTimes(1);
+    expect(sink.applySuccess).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: stuckRequestId,
+        runId: 'run-stuck',
+      }),
+    );
+    expect(sink.applyFailure).not.toHaveBeenCalled();
   });
 });

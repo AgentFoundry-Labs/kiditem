@@ -579,6 +579,27 @@ export class AgentOsRepositoryAdapter implements AgentOsRepositoryPort {
     return row ? toRunRecord(row) : null;
   }
 
+  async findRunByRequestId(input: {
+    organizationId: string;
+    requestId: string;
+    status?: AgentRunStatus[] | null;
+  }) {
+    const where: Prisma.AgentRunWhereInput = {
+      organizationId: input.organizationId,
+      requestId: input.requestId,
+    };
+    if (input.status && input.status.length > 0) {
+      where.status = { in: input.status };
+    }
+    const row = await this.prisma.agentRun.findFirst({
+      where,
+      // Latest attempt wins — retries share `requestId` and we want the
+      // most recent terminal one.
+      orderBy: { startedAt: 'desc' },
+    });
+    return row ? toRunRecord(row) : null;
+  }
+
   async listRuns(input: FindRunsQuery) {
     const where: Prisma.AgentRunWhereInput = {
       organizationId: input.organizationId,

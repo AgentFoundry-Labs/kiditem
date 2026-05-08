@@ -113,8 +113,16 @@ Gemini text generation 호출은 `TEXT_COMPLETION_PORT` 한 곳에 모인다. `t
 - **Runtime handler** — `apps/server/src/ai/adapter/out/agent-runtime/detail-page-generate.runtime-handler.ts`:
   AI 도메인이 소유. `onModuleInit` 에서 `AgentRuntimeHandlerRegistry` 에
   자기 자신을 등록한다. agent-os 는 AI 도메인을 import 하지 않으므로
-  반대 방향 import cycle 이 없다. Handler 는 `TEXT_COMPLETION_PORT` 만
-  의존하고 Prisma 에 닿지 않는다.
+  반대 방향 import cycle 이 없다. Handler 는 `TEXT_COMPLETION_PORT` 와
+  `DetailPageResultRefinerService` 만 의존하고 Prisma 에 닿지 않는다.
+  Handler 는 텍스트 호출(`TEXT_COMPLETION_PORT.complete`) 이전에
+  kids-playful 의 package/safety 인덱스를 `DetailPageResultRefinerService.prepareKidsPlayfulImageContext`
+  로 직접 inference 한다 (Gemini Vision). 즉 한 번의 generation 에서
+  발생하는 모든 generative 호출이 Agent OS executor 가 회계하는 한
+  AgentRun 안에 머문다 — producer side(`DetailPageAiService.generate`) 는
+  Prisma + alert 만 다룬다. Producer 가 payload 에 미리 계산된
+  `reservedPackageImageIndices` / `safetyLabelImageIndices` 를 주면 handler
+  는 그 값을 사용하고 vision 호출을 생략한다 (테스트 / reconcile replay 용 hook).
 - **Bridge** — `detail-page-agent-output.bridge.ts`:
   `agent.run.finalized` 이벤트 listen → `event.agentType === 'detail_page_generate'`
   필터 → output Zod validate → sink 호출. envelope 사용 금지 (runtime

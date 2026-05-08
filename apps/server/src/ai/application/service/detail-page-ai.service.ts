@@ -290,16 +290,12 @@ export class DetailPageAiService {
     });
     if (!master) throw new NotFoundException('Product not found');
 
-    // Pre-compute the kids-playful image context BEFORE enqueueing so the
-    // expensive Gemini-vision call (`heroImageService.inferPackageImagePositions`)
-    // happens once per generation. The runtime handler reads the indices
-    // from the agent payload; the sink reads them back out of the payload
-    // via reconcile/replay if a listener crashed.
-    const kidsImageContext = await this.resultRefiner.prepareKidsPlayfulImageContext({
-      templateId: input.templateId,
-      rawInput: input.rawInput,
-    });
-
+    // Producer-side stays Prisma-only. Any generative AI calls (text or
+    // vision) must run inside the runtime handler so the executor accounts
+    // for them and a single failure surfaces through the unified
+    // bridge/sink/reconcile path. The kids-playful package/safety
+    // inference (which used to live here as a Gemini-vision pre-compute)
+    // moved to `DetailPageGenerateRuntimeHandler.resolveKidsImageContext`.
     const row = await this.prisma.contentGeneration.create({
       data: {
         organizationId: input.organizationId,
@@ -351,8 +347,9 @@ export class DetailPageAiService {
             imageUrls: input.rawInput.imageUrls,
           },
           heroImageMode: input.heroImageMode,
-          reservedPackageImageIndices: [...kidsImageContext.packageImageIndices],
-          safetyLabelImageIndices: [...kidsImageContext.safetyLabelImageIndices],
+          // No reservedPackageImageIndices/safetyLabelImageIndices here —
+          // the runtime handler resolves them via Gemini Vision so the
+          // entire generative call sequence stays inside Agent OS.
         },
       },
     );

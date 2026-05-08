@@ -8,6 +8,7 @@ import {
   type FindRunEventsQuery,
   type FindRunsQuery,
 } from '../port/out/agent-os-repository.port';
+import type { AgentRunStatus } from '../../domain/agent-os.types';
 
 @Injectable()
 export class AgentObservabilityService {
@@ -30,6 +31,21 @@ export class AgentObservabilityService {
 
   findRun(input: { organizationId: string; runId: string }) {
     return this.repository.findRunById(input);
+  }
+
+  /**
+   * Latest `AgentRun` (optionally filtered by status) for a specific
+   * `(organizationId, requestId)` tuple. Reconcile / replay paths use
+   * this — `listRuns({ agentInstanceId })` cannot answer "what was THIS
+   * request's output?" because newer runs from the same instance shadow
+   * older ones. See agent-os/AGENTS.md "Recovery contract".
+   */
+  findRunByRequest(input: {
+    organizationId: string;
+    requestId: string;
+    status?: AgentRunStatus[] | null;
+  }) {
+    return this.repository.findRunByRequestId(input);
   }
 
   listRunEvents(query: FindRunEventsQuery) {

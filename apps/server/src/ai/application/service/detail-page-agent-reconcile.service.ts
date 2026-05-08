@@ -143,14 +143,17 @@ export class DetailPageAgentReconcileService {
         continue;
       }
 
-      // Status === 'succeeded' — pull the latest run's output and validate.
-      const runs = await this.observability.listRuns({
+      // Status === 'succeeded' — pull THIS request's run output. Using
+      // `listRuns({ agentInstanceId, status: ['succeeded'], limit: 1 })`
+      // would pick the latest succeeded run on the instance, not the run
+      // bound to this request — which silently misclassifies older stuck
+      // requests as `agent_output_invalid` whenever a newer run exists on
+      // the same instance.
+      const ourRun = await this.observability.findRunByRequest({
         organizationId,
-        limit: 1,
-        agentInstanceId: req.agentInstanceId,
+        requestId: req.id,
         status: ['succeeded'],
       });
-      const ourRun = runs.find((r) => r.requestId === req.id) ?? null;
       const output = ourRun?.output ?? null;
       const parsed = DetailPageGenerateAgentOutputSchema.safeParse(output);
       if (!parsed.success) {

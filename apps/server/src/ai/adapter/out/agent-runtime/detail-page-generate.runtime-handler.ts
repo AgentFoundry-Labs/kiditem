@@ -107,8 +107,8 @@ export class DetailPageGenerateRuntimeHandler
       templateId,
       raw,
       heroImageMode,
-      reservedPackageImageIndices = [],
-      safetyLabelImageIndices = [],
+      reservedPackageImageIndices,
+      safetyLabelImageIndices,
     } = parsedInput.data;
     const isBoldVertical = templateId === 'bold-vertical';
 
@@ -122,6 +122,24 @@ export class DetailPageGenerateRuntimeHandler
       templateId,
     };
 
+    // Kids-playful prompt + image-selection rules need the package /
+    // safety-label image hints. The producer side used to pre-compute
+    // these via `DetailPageHeroImageService.inferPackageImagePositions`
+    // (Gemini Vision) right before enqueue, which left a chunk of AI work
+    // outside the Agent OS boundary. We do the inference HERE so the
+    // entire generative call sequence — text + vision — runs inside the
+    // runtime handler the executor accounts for. Producers MAY still pass
+    // pre-computed indices on the input payload; if they do, we honour
+    // them and skip the redundant Gemini call (eg. tests, reconcile
+    // replays).
+    const kidsImageContext = isBoldVertical
+      ? null
+      : await this.resolveKidsImageContext({
+          rawInput,
+          reservedPackageImageIndices,
+          safetyLabelImageIndices,
+        });
+
     const { text: rawText } = await this.textCompletion.complete({
       system: isBoldVertical ? BOLD_VERTICAL_SYSTEM : SINGLE_CALL_SYSTEM,
       user: isBoldVertical
@@ -129,8 +147,12 @@ export class DetailPageGenerateRuntimeHandler
         : buildSingleCallUser({
             raw: rawInput,
             heroImageMode,
-            reservedPackageImageIndices,
-            safetyLabelImageIndices,
+            reservedPackageImageIndices: kidsImageContext
+              ? [...kidsImageContext.packageImageIndices]
+              : [],
+            safetyLabelImageIndices: kidsImageContext
+              ? [...kidsImageContext.safetyLabelImageIndices]
+              : [],
           }),
       temperature: 0.8,
       responseMimeType: 'application/json',
@@ -150,10 +172,7 @@ export class DetailPageGenerateRuntimeHandler
       : this.resultRefiner.applyKidsPlayfulImageSelectionRules(
           validated as DetailPageGeneration,
           rawInput,
-          {
-            packageImageIndices: new Set(reservedPackageImageIndices),
-            safetyLabelImageIndices: new Set(safetyLabelImageIndices),
-          },
+          kidsImageContext ?? undefined,
         );
 
     this.logger.debug(
@@ -169,6 +188,38 @@ export class DetailPageGenerateRuntimeHandler
       },
       provider: 'gemini-text',
     };
+  }
+
+  private async resolveKidsImageContext(input: {
+    rawInput: {
+      rawTitle: string;
+      rawCategory: string;
+      rawDescription: string;
+      rawOptions: string;
+      imageUrls: string[];
+      heroImageMode: 'first' | 'llm-pick';
+      templateId: 'kids-playful' | 'bold-vertical';
+    };
+    reservedPackageImageIndices: number[] | undefined;
+    safetyLabelImageIndices: number[] | undefined;
+  }) {
+    // Producer-supplied indices win — both are present means a
+    // reconcile/test path already paid the inference cost and is replaying
+    // through the handler. Empty arrays count as "supplied" so callers can
+    // explicitly opt out of vision inference.
+    if (
+      input.reservedPackageImageIndices !== undefined &&
+      input.safetyLabelImageIndices !== undefined
+    ) {
+      return {
+        packageImageIndices: new Set<number>(input.reservedPackageImageIndices),
+        safetyLabelImageIndices: new Set<number>(input.safetyLabelImageIndices),
+      };
+    }
+    return this.resultRefiner.prepareKidsPlayfulImageContext({
+      templateId: input.rawInput.templateId,
+      rawInput: input.rawInput,
+    });
   }
 
   private extractJson(raw: string): unknown {
