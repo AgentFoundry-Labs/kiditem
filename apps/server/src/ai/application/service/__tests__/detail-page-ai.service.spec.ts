@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DetailPageAiService } from '../detail-page-ai.service';
+import { DetailPageGeneratedImagesService } from '../detail-page-generated-images.service';
+import { DetailPageResultRefinerService } from '../detail-page-result-refiner.service';
 import type { OperationAlertService } from '../../../../automation/application/service/operation-alert.service';
 
 const ORGANIZATION_ID = '11111111-1111-4111-8111-111111111111';
@@ -15,6 +17,25 @@ function makeOperationAlertsStub(): OperationAlertService {
     progress: vi.fn().mockResolvedValue({}),
     cancel: vi.fn().mockResolvedValue({}),
   } as unknown as OperationAlertService;
+}
+
+function makeService(
+  prisma: unknown,
+  textCompletion: unknown,
+  imageStorage: unknown,
+  operationAlerts: OperationAlertService,
+  heroImageService?: unknown,
+): DetailPageAiService {
+  const resultRefiner = new DetailPageResultRefinerService(heroImageService as never);
+  const generatedImages = new DetailPageGeneratedImagesService(heroImageService as never);
+  return new DetailPageAiService(
+    prisma as never,
+    textCompletion as never,
+    imageStorage as never,
+    operationAlerts,
+    resultRefiner,
+    generatedImages,
+  );
 }
 
 function boldVerticalResult() {
@@ -212,12 +233,12 @@ describe('DetailPageAiService', () => {
       generateDetailCutImage: vi.fn()
         .mockResolvedValueOnce('https://cdn.example.com/generated-detail-1.png'),
     };
-    const service = new DetailPageAiService(
-      prisma as never,
+    const service = makeService(
+      prisma,
       textCompletion,
       imageStorage,
       makeOperationAlertsStub(),
-      heroImageService as never,
+      heroImageService,
     );
 
     await service.generate(
@@ -298,8 +319,8 @@ describe('DetailPageAiService', () => {
     const imageStorage = {
       save: vi.fn(),
     };
-    const service = new DetailPageAiService(
-      prisma as never,
+    const service = makeService(
+      prisma,
       textCompletion,
       imageStorage,
       makeOperationAlertsStub(),
@@ -345,12 +366,12 @@ describe('DetailPageAiService', () => {
         .mockResolvedValueOnce('https://cdn.example.com/generated-detail-1.png')
         .mockResolvedValueOnce('https://cdn.example.com/generated-detail-2.png'),
     };
-    const service = new DetailPageAiService(
-      prisma as never,
+    const service = makeService(
+      prisma,
       textCompletion,
       imageStorage,
       makeOperationAlertsStub(),
-      heroImageService as never,
+      heroImageService,
     );
 
     const result = await service.generate(
@@ -400,12 +421,12 @@ describe('DetailPageAiService', () => {
         .mockResolvedValueOnce('https://cdn.example.com/generated-detail-2.png')
         .mockResolvedValueOnce('https://cdn.example.com/generated-detail-3.png'),
     };
-    const service = new DetailPageAiService(
-      prisma as never,
+    const service = makeService(
+      prisma,
       textCompletion,
       imageStorage,
       makeOperationAlertsStub(),
-      heroImageService as never,
+      heroImageService,
     );
 
     const result = await service.generate(
@@ -468,8 +489,8 @@ describe('DetailPageAiService', () => {
       complete: vi.fn().mockRejectedValueOnce(new Error('gemini-timeout')),
     };
     const imageStorage = { save: vi.fn() };
-    const service = new DetailPageAiService(
-      prisma as never,
+    const service = makeService(
+      prisma,
       textCompletion,
       imageStorage,
       operationAlerts,
@@ -534,8 +555,8 @@ describe('DetailPageAiService', () => {
       complete: vi.fn().mockRejectedValueOnce(new Error('gemini-timeout')),
     };
     const imageStorage = { save: vi.fn() };
-    const service = new DetailPageAiService(
-      prisma as never,
+    const service = makeService(
+      prisma,
       textCompletion,
       imageStorage,
       operationAlerts,
@@ -582,8 +603,8 @@ describe('DetailPageAiService', () => {
     const imageStorage = {
       save: vi.fn(),
     };
-    const service = new DetailPageAiService(
-      prisma as never,
+    const service = makeService(
+      prisma,
       textCompletion,
       imageStorage,
       makeOperationAlertsStub(),
