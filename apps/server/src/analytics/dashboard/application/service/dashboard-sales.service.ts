@@ -1,7 +1,6 @@
 import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
-  DashboardEffectivePeriod,
   DashboardSalesSummary,
   ProfitBreakdown,
   MonthlyTrendItem,
@@ -22,6 +21,7 @@ import {
   type CoupangAdsMetrics,
   type WingTrafficMetrics,
 } from '../../adapter/out/repository/wing-traffic-aggregation.repository.adapter';
+import { buildEffectivePeriod } from '../../helpers/effective-period';
 import { pct1 } from '../../helpers/percent';
 
 /**
@@ -160,7 +160,7 @@ export class DashboardSalesService {
         planAchievement: null,
         trafficKpi: this.buildTrafficKpi(rangeCur, wingTrafficRange, coupangAdsForRange, wing, useWingRange),
         lastSyncAt: lastSyncAt?.toISOString() ?? null,
-        effectivePeriod: this.buildEffectivePeriod(
+        effectivePeriod: buildEffectivePeriod(
           ctx,
           latestDataDate,
           curMonth,
@@ -351,40 +351,6 @@ export class DashboardSalesService {
     } satisfies TrafficKpi;
   }
 
-  // ── effectivePeriod ─────────────────────────────────────────────────────
-  private buildEffectivePeriod(
-    ctx: DashboardContext,
-    latestDataDate: Date | null,
-    cur: RangeProfitMetrics,
-    wingCur: WingTrafficMetrics,
-    coupangAds: CoupangAdsMetrics,
-  ): DashboardEffectivePeriod {
-    const orderActive = cur.revenue !== 0 || cur.orderCount > 0;
-    const wingActive = wingCur.hasData;
-    const adsActive = coupangAds.hasData;
-
-    let revenueSource: DashboardEffectivePeriod['revenueSource'] = 'none';
-    if (orderActive && wingActive) revenueSource = 'mixed';
-    else if (orderActive) revenueSource = 'orders';
-    else if (wingActive) revenueSource = 'wing';
-
-    let adSource: DashboardEffectivePeriod['adSource'] = 'none';
-    if (cur.adCost > 0 && adsActive) adSource = 'mixed';
-    else if (cur.adCost > 0) adSource = 'orders';
-    else if (adsActive) adSource = 'coupang_ads';
-
-    return {
-      year: ctx.year,
-      month: ctx.month,
-      label: `${ctx.year}-${String(ctx.month).padStart(2, '0')}`,
-      shifted: ctx.anchorShifted,
-      latestDataDate: latestDataDate
-        ? latestDataDate.toISOString().slice(0, 10)
-        : null,
-      revenueSource,
-      adSource,
-    } satisfies DashboardEffectivePeriod;
-  }
 }
 
 function pickLatest(a: Date | null, b: Date | null): Date | null {
