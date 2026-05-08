@@ -14,6 +14,7 @@ import {
   normalizeAgentErrorMessage,
 } from '../../domain/agent-os.errors';
 import { resolveEffectiveModel } from '../../domain/agent-os.types';
+import type { AgentRunRequestRecord } from '../../domain/agent-os.types';
 import {
   AGENT_RUN_EVENTS,
   type AgentRunFinalizedEvent,
@@ -25,6 +26,30 @@ export interface AgentRunExecutorResult {
   runId?: string;
   reason?: string;
   errorCode?: string;
+}
+
+/**
+ * Bus metadata derived from the claimed `AgentRunRequest`. Threaded into every
+ * `emitFinalized` call so listeners can filter on `agentType` / `source`
+ * without inspecting the in-band `output` payload (output is missing on
+ * failure paths).
+ */
+interface ClaimedRoutingMetadata {
+  agentType: string;
+  source: string;
+  sourceResourceType: string | null;
+  sourceResourceId: string | null;
+}
+
+function routingFromClaimed(
+  claimed: AgentRunRequestRecord,
+): ClaimedRoutingMetadata {
+  return {
+    agentType: claimed.agentType,
+    source: claimed.source,
+    sourceResourceType: claimed.sourceResourceType,
+    sourceResourceId: claimed.sourceResourceId,
+  };
 }
 
 @Injectable()
@@ -58,13 +83,20 @@ export class AgentRunExecutor {
   private async failBeforeRun(input: {
     organizationId: string;
     requestId: string;
+    routing: ClaimedRoutingMetadata;
     errorCode: string;
     errorMessage: string;
   }): Promise<void> {
-    await this.repository.failClaimedRequest(input);
+    await this.repository.failClaimedRequest({
+      organizationId: input.organizationId,
+      requestId: input.requestId,
+      errorCode: input.errorCode,
+      errorMessage: input.errorMessage,
+    });
     this.emitFinalized({
       organizationId: input.organizationId,
       requestId: input.requestId,
+      ...input.routing,
       status: 'failed',
       errorCode: input.errorCode,
       errorMessage: input.errorMessage,
@@ -87,6 +119,38 @@ export class AgentRunExecutor {
     if (!claimed) {
       return { executed: false, reason: 'no_pending_request' };
     }
+    return this.executeClaimed(claimed);
+  }
+
+  /**
+   * Worker-friendly variant — claims the next pending request across all
+   * organizations. The internal `AgentRunWorker` calls this on its tick to
+   * drain the queue platform-wide; the HTTP `claim-and-run` route uses the
+   * scoped variant above for explicit per-org operations.
+   *
+   * Organization scope is preserved on the *downstream* side: the claimed
+   * request carries its own `organizationId`, which is threaded through every
+   * Prisma write inside `executeClaimed`. Skipping the where-clause filter on
+   * the claim itself is the only way for a single internal worker to serve
+   * multiple tenants without a per-org thread, and matches the intent of the
+   * `claimNextRunRequest({ organizationId: null })` raw SQL path.
+   */
+  async executeNextUnscoped(workerId: string): Promise<AgentRunExecutorResult> {
+    const claimed = await this.repository.claimNextRunRequest({
+      workerId,
+      now: new Date(),
+      organizationId: null,
+    });
+    if (!claimed) {
+      return { executed: false, reason: 'no_pending_request' };
+    }
+    return this.executeClaimed(claimed);
+  }
+
+  private async executeClaimed(
+    claimed: AgentRunRequestRecord,
+  ): Promise<AgentRunExecutorResult> {
+    const routing = routingFromClaimed(claimed);
 
     const instance = await this.repository.findInstanceById({
       organizationId: claimed.organizationId,
@@ -96,6 +160,7 @@ export class AgentRunExecutor {
       await this.failBeforeRun({
         organizationId: claimed.organizationId,
         requestId: claimed.id,
+        routing,
         errorCode: 'agent_instance_missing',
         errorMessage: 'Agent instance disappeared after request was queued.',
       });
@@ -111,6 +176,7 @@ export class AgentRunExecutor {
       await this.failBeforeRun({
         organizationId: claimed.organizationId,
         requestId: claimed.id,
+        routing,
         errorCode: 'blueprint_missing',
         errorMessage: `No blueprint registered for type "${instance.type}".`,
       });
@@ -135,6 +201,7 @@ export class AgentRunExecutor {
       await this.failBeforeRun({
         organizationId: claimed.organizationId,
         requestId: claimed.id,
+        routing,
         errorCode: 'model_required',
         errorMessage: 'Agent execution requires an explicit model.',
       });
@@ -221,6 +288,7 @@ export class AgentRunExecutor {
         organizationId: run.organizationId,
         requestId: claimed.id,
         runId: run.id,
+        ...routing,
         status: 'succeeded',
         output: result.output,
       });
@@ -263,6 +331,7 @@ export class AgentRunExecutor {
           organizationId: claimed.organizationId,
           requestId: claimed.id,
           runId: run.id,
+          ...routing,
           status: 'failed',
           errorCode,
           errorMessage,

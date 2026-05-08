@@ -16,6 +16,8 @@ import { ThumbnailTrackingController } from './adapter/in/http/thumbnail-trackin
 import { CoupangImageSyncController } from './adapter/in/http/coupang-image-sync.controller';
 
 // adapter/out
+import { DetailPageNoopAgentOutputSink } from './adapter/out/agent-output/detail-page-noop-sink.adapter';
+import { ThumbnailNoopAgentOutputSink } from './adapter/out/agent-output/thumbnail-noop-sink.adapter';
 import { CoupangInventoryScrapeAdapter } from './adapter/out/coupang/coupang-inventory-scrape.adapter';
 import { CoupangProductSalesScrapeAdapter } from './adapter/out/coupang/coupang-product-sales-scrape.adapter';
 import { CoupangImageReconciliationAdapter } from './adapter/out/channels/coupang-image-reconciliation.adapter';
@@ -29,6 +31,8 @@ import { MasterCatalogAdapter } from './adapter/out/products/master-catalog.adap
 import { WingAutomationRunner } from './adapter/out/wing/wing-automation-runner';
 
 // application/service
+import { DetailPageAgentOutputBridge } from './application/service/detail-page-agent-output.bridge';
+import { ThumbnailAgentOutputBridge } from './application/service/thumbnail-agent-output.bridge';
 import { ImageAiService } from './application/service/image-ai.service';
 import { TextAiService } from './application/service/text-ai.service';
 import { ThumbnailAnalysisService } from './application/service/thumbnail-analysis.service';
@@ -47,6 +51,8 @@ import { ThumbnailVisionAiService } from './application/service/thumbnail-vision
 import { ThumbnailWingService } from './application/service/thumbnail-wing.service';
 
 // application/port — out
+import { DETAIL_PAGE_AGENT_OUTPUT_SINK_PORT } from './application/port/out/detail-page-agent-output-sink.port';
+import { THUMBNAIL_AGENT_OUTPUT_SINK_PORT } from './application/port/out/thumbnail-agent-output-sink.port';
 import { COUPANG_INVENTORY_SCRAPE_PORT } from './application/port/out/coupang-inventory-scrape.port';
 import { COUPANG_PRODUCT_SALES_SCRAPE_PORT } from './application/port/out/coupang-product-sales-scrape.port';
 import { COUPANG_IMAGE_RECONCILIATION_PORT } from './application/port/out/coupang-image-reconciliation.port';
@@ -89,7 +95,16 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     ThumbnailVisionAiService,
     ThumbnailWingService,
 
+    // Agent OS bridges — listen for finalized events and route validated
+    // output through the sink ports defined below. Phase 1 sinks are no-ops
+    // (see adapter/out/agent-output/*); Phase 2 swaps the bindings for real
+    // ContentGeneration / ThumbnailGeneration writers.
+    DetailPageAgentOutputBridge,
+    ThumbnailAgentOutputBridge,
+
     // outgoing adapters
+    DetailPageNoopAgentOutputSink,
+    ThumbnailNoopAgentOutputSink,
     CoupangImageReconciliationAdapter,
     CoupangInventoryScrapeAdapter,
     CoupangProductSalesScrapeAdapter,
@@ -107,6 +122,14 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     { provide: COUPANG_IMAGE_RECONCILIATION_PORT, useExisting: CoupangImageReconciliationAdapter },
     { provide: COUPANG_INVENTORY_SCRAPE_PORT, useExisting: CoupangInventoryScrapeAdapter },
     { provide: COUPANG_PRODUCT_SALES_SCRAPE_PORT, useExisting: CoupangProductSalesScrapeAdapter },
+    {
+      provide: DETAIL_PAGE_AGENT_OUTPUT_SINK_PORT,
+      useExisting: DetailPageNoopAgentOutputSink,
+    },
+    {
+      provide: THUMBNAIL_AGENT_OUTPUT_SINK_PORT,
+      useExisting: ThumbnailNoopAgentOutputSink,
+    },
     { provide: IMAGE_FETCH_PORT, useExisting: ThumbnailImageFetcherService },
     { provide: IMAGE_STORAGE_PORT, useExisting: StorageService },
     { provide: MASTER_CATALOG_PORT, useExisting: MasterCatalogAdapter },

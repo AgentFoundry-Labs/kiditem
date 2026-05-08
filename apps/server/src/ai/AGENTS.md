@@ -97,6 +97,41 @@ Gemini text generation 호출은 `TEXT_COMPLETION_PORT` 한 곳에 모인다. `t
 Agent OS path 는 sourced candidate 와 `MasterProduct` 의 lifecycle 이 분리될
 때까지 비활성화한다.
 
+#### 7-bis. Agent OS output contract (Phase 1)
+
+`detail_page_generate` / `thumbnail_generate` blueprint + Zod output schema +
+FINALIZED bridge + no-op sink 가 정리되어 있지만, **production endpoint 는
+아직 동기 path 를 그대로 쓴다**. Phase 2 에서 sync 서비스를 Agent OS enqueue
+로 바꿀 때 다음 hook 들을 그대로 사용한다:
+
+- Schemas: `apps/server/src/ai/domain/agent-output/{detail-page,thumbnail}-generate.schema.ts`
+  + barrel `apps/server/src/ai/domain/agent-output/index.ts`
+  (`AI_AGENT_OUTPUT_SCHEMAS`, `AI_AGENT_SOURCE_TYPES`).
+- Bridges: `apps/server/src/ai/application/service/{detail-page,thumbnail}-agent-output.bridge.ts`
+  — `agent.run.finalized` 를 받아 schema validate 후 sink port 로 위임.
+- Sink ports: `apps/server/src/ai/application/port/out/{detail-page,thumbnail}-agent-output-sink.port.ts`.
+  Phase 1 binding 은 `apps/server/src/ai/adapter/out/agent-output/*-noop-sink.adapter.ts`
+  (logs only, no DB write). Phase 2 는 ContentGeneration / ThumbnailGeneration
+  row 를 갱신하는 어댑터로 바인딩 한 줄을 교체한다.
+
+규칙:
+
+- Bridge 는 Prisma 를 직접 쓰지 않는다. DB 갱신은 항상 sink port 어댑터의 책임.
+- Bridge 는 `event.agentType` 으로 필터링한다. `output.__envelope` 같은 in-band
+  routing 마커는 사용 금지 — runtime failure 는 `output` 자체가 비어 있으므로
+  그쪽으로 필터하면 진짜 실패가 묵음 처리된다. 라우팅 메타데이터(`agentType`,
+  `source`, `sourceResourceType`, `sourceResourceId`)는 모두 bus payload 에 있다
+  (`apps/server/src/agent-os/application/event/agent-run-events.ts`).
+- Bridge 는 schema 실패 output 을 `applyFailure({ errorCode: 'agent_output_invalid' })`
+  로 sink 에 넘긴다. 절대 그냥 throw 해서 다른 도메인의 FINALIZED listener 를 깨면 안 된다.
+- Bridge listener 는 hot-path 다. `AgentRun.output` 과 `AgentRunRequest.lastErrorCode`
+  가 source of truth 이고, listener 가 실패하거나 process 가 재시작하면 reconcile
+  경로가 회복한다. Phase 2 에서 `(agentType, sourceResourceId)` 키로 도는 reconcile
+  job 이 비-terminal 상태에 남은 downstream row 를 동일한 schema + sink 경로로 replay
+  한다 — agent-os/AGENTS.md "Recovery contract" 절 참고.
+- 새 AI agent type 추가 시 (a) schema 파일, (b) `AI_AGENT_OUTPUT_SCHEMAS` 등록,
+  (c) FINALIZED bridge, (d) sink port + 어댑터 한 쌍을 같이 추가한다.
+
 | 진입점 | 모드 | 호출 경로 | 결과 저장 | 사용처 |
 |---|---|---|---|---|
 | `POST /api/sourcing/:id/generate` | **disabled** | `SourcingService.generateDetailPage` → `NotImplementedException` | 없음 | candidate → master promotion model 도입 전까지 사용 금지 |
