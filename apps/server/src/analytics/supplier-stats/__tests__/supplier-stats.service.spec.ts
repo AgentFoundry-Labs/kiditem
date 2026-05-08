@@ -441,6 +441,46 @@ describe('SupplierStatsService', () => {
       expect(timeline[1].description).toBe('발주 #11111111 - Supplier One');
     });
 
+    it('does not count unpaid zero-paid supplier payments as paid', async () => {
+      prisma.purchaseOrder.findMany.mockResolvedValue([]);
+      prisma.supplierPayment.findMany.mockResolvedValue([
+        {
+          id: '22222222-2222-2222-2222-222222222222',
+          createdAt: new Date('2026-04-15'),
+          amount: 1_000,
+          paidAmount: 0,
+          status: 'unpaid',
+          notes: null,
+        },
+        {
+          id: '33333333-3333-3333-3333-333333333333',
+          createdAt: new Date('2026-04-16'),
+          amount: 1_000,
+          paidAmount: 250,
+          status: 'partial',
+          notes: null,
+        },
+        {
+          id: '44444444-4444-4444-4444-444444444444',
+          createdAt: new Date('2026-04-17'),
+          amount: 1_000,
+          paidAmount: 0,
+          status: 'paid',
+          notes: null,
+        },
+      ]);
+
+      const report = await service.getHistory('organization-1', 'sup-1');
+
+      expect(report.summary).toMatchObject({
+        totalPaid: 1_250,
+        paymentCount: 3,
+      });
+      expect(report.items.find((item) => item.status === 'unpaid')?.amount).toBe(0);
+      expect(report.items.find((item) => item.status === 'partial')?.amount).toBe(250);
+      expect(report.items.find((item) => item.status === 'paid')?.amount).toBe(1_000);
+    });
+
     it('scopes purchaseOrder + payment by organizationId + supplierId', async () => {
       prisma.purchaseOrder.findMany.mockResolvedValue([]);
       prisma.supplierPayment.findMany.mockResolvedValue([]);

@@ -32,6 +32,18 @@ type OptionOrderStats = {
   totalRevenue: number;
 };
 
+type SupplierPaymentHistoryRow = {
+  amount: number;
+  paidAmount?: number | null;
+  status: string;
+};
+
+function settledSupplierPaymentAmount(payment: SupplierPaymentHistoryRow): number {
+  const paidAmount = payment.paidAmount ?? 0;
+  if (paidAmount > 0) return paidAmount;
+  return payment.status === 'paid' ? payment.amount : 0;
+}
+
 function summarizeSupplierSales(items: SupplierSalesRow[]): SupplierSalesReport['summary'] {
   return items.reduce<SupplierSalesReport['summary']>(
     (summary, item) => ({
@@ -304,10 +316,8 @@ export class SupplierStatsService {
         status: po.status,
         description: `발주 #${po.id.slice(0, 8)} - ${po.supplierName}`,
       })),
-      // SupplierPayment.paidAmount 는 schema 상 `Int @default(0)` (finance 도메인이 부분/연체 결제 차액 계산에 0 을 의존).
-      // 결제가 아직 발생 안 된 row 는 paidAmount=0 으로 들어오므로 `??` fallback 이 아닌 명시적 zero-check 로 amount 로 fallback.
       ...payments.map((p) => {
-        const settled = p.paidAmount > 0 ? p.paidAmount : p.amount;
+        const settled = settledSupplierPaymentAmount(p);
         return {
           type: 'payment' as const,
           id: p.id,
