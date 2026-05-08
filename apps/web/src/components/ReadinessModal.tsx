@@ -22,29 +22,15 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
+import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
 import { cn } from '@/lib/utils';
 import type { ReadinessCheck, ReadinessResponse } from '@kiditem/shared/readiness';
 import { useAdSync } from '@/app/ad-ops/hooks/useAdSync';
 
 const SESSION_DISMISSED_KEY = 'kiditem.readiness.dismissed';
-const EXTENSION_ID_KEY = 'kiditem-ext-id';
 
-type ChromeRuntime = {
-  runtime?: {
-    sendMessage?: (id: string, msg: unknown, cb: (resp: unknown) => void) => void;
-    lastError?: { message?: string };
-  };
-};
-
-function getChrome(): ChromeRuntime | undefined {
-  return (window as unknown as { chrome?: ChromeRuntime }).chrome;
-}
-
-function sendToExtension(
-  id: string,
-  message: unknown,
-): Promise<{
+type ExtensionMessageResponse = {
   success?: boolean;
   results?: unknown[];
   error?: string;
@@ -55,26 +41,7 @@ function sendToExtension(
   total?: number;
   current?: number;
   currentLabel?: string;
-}> {
-  return new Promise((resolve, reject) => {
-    try {
-      const c = getChrome();
-      if (!c?.runtime?.sendMessage) {
-        reject(new Error('Chrome 익스텐션 API 미지원'));
-        return;
-      }
-      c.runtime.sendMessage(id, message, (response: unknown) => {
-        if (c.runtime?.lastError) {
-          reject(new Error(c.runtime.lastError.message ?? '익스텐션 통신 실패'));
-          return;
-        }
-        resolve(response as { success?: boolean; results?: unknown[]; error?: string });
-      });
-    } catch (e) {
-      reject(e instanceof Error ? e : new Error(String(e)));
-    }
-  });
-}
+};
 
 type DisplayMeta = { title: string; hint: string; icon: LucideIcon };
 
@@ -359,64 +326,6 @@ function AdSyncRow({ onComplete }: { onComplete: () => void }) {
   );
 }
 
-/** 익스텐션 ID 자동 감지.
- *  1) localStorage 에 저장된 ID 로 ping → 성공이면 채택.
- *  2) 저장 ID 가 없거나 실패하면 host-bridge.js (content script) 가 보내는
- *     postMessage("kiditem:ext-id") 를 짧게(최대 1.2s) 기다림. 페이지가 막
- *     열려서 content script 가 아직 안 박힌 케이스 회복.
- *  3) 그래도 없으면 페이지에서 직접 요청(postMessage) 후 한 번 더 대기.
- *  4) 끝까지 실패하면 null.
- */
-async function detectExtensionId(): Promise<string | null> {
-  if (typeof window === 'undefined') return null;
-
-  const tryPing = async (id: string): Promise<boolean> => {
-    try {
-      const r = await sendToExtension(id, { action: 'ping' });
-      return !!r?.success;
-    } catch {
-      return false;
-    }
-  };
-
-  const stored = localStorage.getItem(EXTENSION_ID_KEY);
-  if (stored && (await tryPing(stored))) return stored;
-
-  // postMessage 핸드셰이크 — content script 가 자동으로 broadcast 하거나, request 에 응답.
-  const fromHandshake = await new Promise<string | null>((resolve) => {
-    let done = false;
-    const onMsg = (ev: MessageEvent) => {
-      const data = ev.data as { type?: string; extensionId?: string } | null;
-      if (!data || data.type !== 'kiditem:ext-id' || !data.extensionId) return;
-      if (done) return;
-      done = true;
-      window.removeEventListener('message', onMsg);
-      try {
-        localStorage.setItem(EXTENSION_ID_KEY, data.extensionId);
-      } catch {
-        /* noop */
-      }
-      resolve(data.extensionId);
-    };
-    window.addEventListener('message', onMsg);
-    // 페이지 측에서 능동적으로도 요청
-    try {
-      window.postMessage({ type: 'kiditem:request-ext-id' }, window.location.origin);
-    } catch {
-      /* noop */
-    }
-    setTimeout(() => {
-      if (done) return;
-      done = true;
-      window.removeEventListener('message', onMsg);
-      resolve(null);
-    }, 1200);
-  });
-
-  if (fromHandshake && (await tryPing(fromHandshake))) return fromHandshake;
-  return null;
-}
-
 /** 익스텐션 미감지 시 fallback — 새 탭으로 URL 열어 content script 가 자동 동기화하게 함. */
 function fallbackOpenTabs(urls: string[]) {
   for (const url of urls) {
@@ -544,7 +453,7 @@ export default function ReadinessModal({
       }
 
       // 익스텐션 sequential batch 시작
-      const startResp = await sendToExtension(eid, {
+      const startResp = await sendToExtension<ExtensionMessageResponse>(eid, {
         action: 'scrapeTargets',
         urls: check.scrapeUrls.map((url: string, i: number) => ({
           id: `${check.key}-${i}`,
@@ -558,7 +467,7 @@ export default function ReadinessModal({
       const runId = typeof startResp.runId === 'string' ? startResp.runId : undefined;
       const cancelCollect = async () => {
         if (!runId) return;
-        await sendToExtension(eid, { action: 'cancelBatchScrape', runId });
+        await sendToExtension<ExtensionMessageResponse>(eid, { action: 'cancelBatchScrape', runId });
         toast.info('데이터 수집 중단 요청을 보냈습니다');
       };
 
@@ -582,17 +491,10 @@ export default function ReadinessModal({
         let lastCurrent = -1;
         const tick = async () => {
           try {
-            const status = (await sendToExtension(eid, {
+            const status = await sendToExtension<ExtensionMessageResponse>(eid, {
               action: 'getBatchScrapeStatus',
               runId,
-            })) as {
-              status?: string;
-              completed?: number;
-              failed?: number;
-              total?: number;
-              current?: number;
-              currentLabel?: string;
-            };
+            });
             if (status?.current && status.current !== lastCurrent) {
               lastCurrent = status.current;
               toast.info(
@@ -642,7 +544,7 @@ export default function ReadinessModal({
         try {
           const sweepUrl = 'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1';
           toast.info('캠페인별 상품 수집 시작 — 새 탭에서 처리됩니다', { duration: 4000 });
-          const sweepResp = await sendToExtension(eid, {
+          const sweepResp = await sendToExtension<ExtensionMessageResponse>(eid, {
             action: 'scrapeTargets',
             urls: [{ id: 'ad-sync-sweep', url: sweepUrl, label: '광고 동기화 (캠페인별 상품)' }],
           });
@@ -650,7 +552,10 @@ export default function ReadinessModal({
             const sweepRunId = typeof sweepResp.runId === 'string' ? sweepResp.runId : undefined;
             const cancelSweep = async () => {
               if (!sweepRunId) return;
-              await sendToExtension(eid, { action: 'cancelBatchScrape', runId: sweepRunId });
+              await sendToExtension<ExtensionMessageResponse>(eid, {
+                action: 'cancelBatchScrape',
+                runId: sweepRunId,
+              });
               toast.info('광고 동기화 중단 요청을 보냈습니다');
             };
             if (sweepRunId) {
@@ -670,10 +575,10 @@ export default function ReadinessModal({
               const sMaxMs = 8 * 60_000;
               const sTick = async () => {
                 try {
-                  const st = (await sendToExtension(eid, {
+                  const st = await sendToExtension<ExtensionMessageResponse>(eid, {
                     action: 'getBatchScrapeStatus',
                     runId: sweepRunId,
-                  })) as { status?: string; failed?: number };
+                  });
                   if (
                     st?.status === 'done' ||
                     st?.status === 'error' ||

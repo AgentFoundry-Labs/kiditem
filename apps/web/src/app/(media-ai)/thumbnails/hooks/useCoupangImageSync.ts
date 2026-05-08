@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
+import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
 
 export interface CoupangSyncStatus {
@@ -51,15 +52,7 @@ interface CoupangImageRowsExtensionStatus {
   cancelled?: boolean;
 }
 
-type ChromeRuntime = {
-  runtime?: {
-    sendMessage?: (id: string, msg: unknown, cb: (resp: unknown) => void) => void;
-    lastError?: { message?: string };
-  };
-};
-
 const STORAGE_KEY = 'kiditem:coupang-image-sync:job-id';
-const EXTENSION_ID_KEY = 'kiditem-ext-id';
 const CANCELLED_MESSAGE = '이미지 수집이 중단되었습니다';
 
 function readStoredJobId(): string | null {
@@ -73,10 +66,6 @@ function writeStoredJobId(jobId: string | null) {
   else window.localStorage.removeItem(STORAGE_KEY);
 }
 
-function getChrome(): ChromeRuntime | undefined {
-  return (window as unknown as { chrome?: ChromeRuntime }).chrome;
-}
-
 function makeRunId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
     return crypto.randomUUID();
@@ -84,73 +73,14 @@ function makeRunId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-function sendToExtension(id: string, message: unknown): Promise<ExtensionMessageResponse> {
-  return new Promise((resolve, reject) => {
-    try {
-      const chrome = getChrome();
-      if (!chrome?.runtime?.sendMessage) {
-        reject(new Error('Chrome 익스텐션 API 미지원'));
-        return;
-      }
-      chrome.runtime.sendMessage(id, message, (response: unknown) => {
-        if (chrome.runtime?.lastError) {
-          reject(new Error(chrome.runtime.lastError.message ?? '익스텐션 통신 실패'));
-          return;
-        }
-        resolve(response as ExtensionMessageResponse);
-      });
-    } catch (error) {
-      reject(error instanceof Error ? error : new Error(String(error)));
-    }
-  });
-}
-
-async function detectExtensionId(): Promise<string | null> {
-  if (typeof window === 'undefined') return null;
-
-  const tryPing = async (id: string): Promise<boolean> => {
-    try {
-      const response = await sendToExtension(id, { action: 'ping' });
-      return !!response?.success;
-    } catch {
-      return false;
-    }
-  };
-
-  const stored = window.localStorage.getItem(EXTENSION_ID_KEY);
-  if (stored && (await tryPing(stored))) return stored;
-
-  const fromHandshake = await new Promise<string | null>((resolve) => {
-    let done = false;
-    const onMessage = (event: MessageEvent) => {
-      const data = event.data as { type?: string; extensionId?: string } | null;
-      if (!data || data.type !== 'kiditem:ext-id' || !data.extensionId) return;
-      if (done) return;
-      done = true;
-      window.removeEventListener('message', onMessage);
-      window.localStorage.setItem(EXTENSION_ID_KEY, data.extensionId);
-      resolve(data.extensionId);
-    };
-
-    window.addEventListener('message', onMessage);
-    window.postMessage({ type: 'kiditem:request-ext-id' }, window.location.origin);
-    window.setTimeout(() => {
-      if (done) return;
-      done = true;
-      window.removeEventListener('message', onMessage);
-      resolve(null);
-    }, 1200);
-  });
-
-  if (fromHandshake && (await tryPing(fromHandshake))) return fromHandshake;
-  return null;
-}
-
 async function scrapeRowsWithExtension(
   extensionId: string,
   runId: string,
 ): Promise<CoupangInventoryImageRow[]> {
-  const response = await sendToExtension(extensionId, { action: 'scrapeCoupangImageRows', runId });
+  const response = await sendToExtension<ExtensionMessageResponse>(extensionId, {
+    action: 'scrapeCoupangImageRows',
+    runId,
+  });
   if (!response?.success) {
     if (response?.cancelled) {
       throw new Error(CANCELLED_MESSAGE);
@@ -201,10 +131,10 @@ export function useCoupangImageSync() {
     queryKey: [...queryKeys.coupangImageSync.all, 'extension', extensionRunId],
     queryFn: async () => {
       if (!extensionId || !extensionRunId) return null;
-      return sendToExtension(extensionId, {
+      return sendToExtension<CoupangImageRowsExtensionStatus | null>(extensionId, {
         action: 'getCoupangImageRowsStatus',
         runId: extensionRunId,
-      }) as Promise<CoupangImageRowsExtensionStatus | null>;
+      });
     },
     enabled: !!extensionId && !!extensionRunId,
     refetchInterval: (query) => {
@@ -260,7 +190,7 @@ export function useCoupangImageSync() {
   const cancel = useCallback(async () => {
     const activeExtensionId = extensionId ?? await detectExtensionId();
     if (!activeExtensionId || !extensionRunId) return;
-    await sendToExtension(activeExtensionId, {
+    await sendToExtension<ExtensionMessageResponse>(activeExtensionId, {
       action: 'cancelCoupangImageRows',
       runId: extensionRunId,
     });
