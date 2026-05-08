@@ -205,6 +205,18 @@ function EditorPageContent() {
     }
   };
 
+  // 상세페이지 생성이 아직 끝나지 않은 (Agent OS async) entry 는 loading 으로
+  // 취급한다. useKidsPlayfulOne 이 폴링하므로 status 가 'completed' 또는
+  // 'failed' 가 되면 자동으로 다시 렌더링되어 이 가드를 빠져나온다.
+  const isKpStillProcessing =
+    !!kpEntry &&
+    (kpEntry.imageProcessingStatus === 'pending' ||
+      kpEntry.imageProcessingStatus === 'processing');
+  const isBoldStillProcessing =
+    !!boldEntry &&
+    (boldEntry.imageProcessingStatus === 'pending' ||
+      boldEntry.imageProcessingStatus === 'processing');
+
   // Trend/KIDITEM 모드는 templateConfig 없어도 동작 가능.
   if (
     isLoading ||
@@ -212,7 +224,9 @@ function EditorPageContent() {
     (!hasExplicitSource && !editedHtmlRow?.html && (isKpListLoading || isBoldListLoading)) ||
     (!!kpId && isKpLoading) ||
     (!!boldId && isBoldLoading) ||
-    (!!agentId && isAgentHistoryLoading)
+    (!!agentId && isAgentHistoryLoading) ||
+    isKpStillProcessing ||
+    isBoldStillProcessing
   ) {
     return <EditorLoadingScreen />;
   }

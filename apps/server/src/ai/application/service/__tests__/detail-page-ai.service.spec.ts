@@ -3,11 +3,13 @@ import { DetailPageAiService } from '../detail-page-ai.service';
 import { DetailPageGeneratedImagesService } from '../detail-page-generated-images.service';
 import { DetailPageResultRefinerService } from '../detail-page-result-refiner.service';
 import type { OperationAlertService } from '../../../../automation/application/service/operation-alert.service';
+import type { AgentRunnerPort } from '../../../../agent-os/application/port/in/agent-runner.port';
 
 const ORGANIZATION_ID = '11111111-1111-4111-8111-111111111111';
 const USER_ID = '99999999-9999-9999-9999-999999999999';
 const MASTER_ID = '22222222-2222-4222-8222-222222222222';
 const GENERATION_ID = '33333333-3333-4333-8333-333333333333';
+const REQUEST_ID = '44444444-4444-4444-4444-444444444444';
 
 function makeOperationAlertsStub(): OperationAlertService {
   return {
@@ -19,12 +21,27 @@ function makeOperationAlertsStub(): OperationAlertService {
   } as unknown as OperationAlertService;
 }
 
+function makeAgentRunnerStub(
+  result: Awaited<ReturnType<AgentRunnerPort['runByType']>> = {
+    ok: true,
+    requestId: REQUEST_ID,
+    agentType: 'detail_page_generate',
+    agentInstanceId: 'agent-instance',
+    status: 'pending',
+  },
+): AgentRunnerPort {
+  return {
+    runByType: vi.fn().mockResolvedValue(result),
+  };
+}
+
 function makeService(
   prisma: unknown,
   textCompletion: unknown,
   imageStorage: unknown,
   operationAlerts: OperationAlertService,
   heroImageService?: unknown,
+  agentRunner: AgentRunnerPort = makeAgentRunnerStub(),
 ): DetailPageAiService {
   const resultRefiner = new DetailPageResultRefinerService(heroImageService as never);
   const generatedImages = new DetailPageGeneratedImagesService(heroImageService as never);
@@ -35,6 +52,7 @@ function makeService(
     operationAlerts,
     resultRefiner,
     generatedImages,
+    agentRunner,
   );
 }
 
@@ -214,34 +232,28 @@ describe('DetailPageAiService', () => {
     vi.restoreAllMocks();
   });
 
-  it('scopes stored generation completion updates by organizationId', async () => {
+  it('product-bound generate creates a PROCESSING row, opens the alert, and enqueues a detail_page_generate request', async () => {
     const prisma = makePrisma();
-    const textCompletion = {
-      complete: vi.fn().mockResolvedValue({
-        text: JSON.stringify(boldVerticalResult()),
-      }),
-    };
-    const imageStorage = {
-      save: vi.fn(),
-    };
+    const textCompletion = { complete: vi.fn() };
+    const imageStorage = { save: vi.fn() };
     const heroImageService = {
-      inferColorSubtitle: vi.fn().mockResolvedValue('민트 / 핑크 / 옐로우 3가지 색상'),
-      generateHeroBanner: vi.fn().mockResolvedValue('https://cdn.example.com/generated-hero.png'),
-      generateSizeGuideImage: vi.fn().mockResolvedValue('https://cdn.example.com/generated-size.png'),
-      generateColorGuideImage: vi.fn().mockResolvedValue('https://cdn.example.com/generated-color.png'),
-      inferPackageImagePositions: vi.fn().mockResolvedValue([1]),
-      generateDetailCutImage: vi.fn()
-        .mockResolvedValueOnce('https://cdn.example.com/generated-detail-1.png'),
+      // Pre-enqueue inference happens once on the producer side so the runtime
+      // handler does not redo the expensive Gemini-vision call for the same
+      // request. Returning [] (none) keeps this assertion simple.
+      inferPackageImagePositions: vi.fn().mockResolvedValue([]),
     };
+    const operationAlerts = makeOperationAlertsStub();
+    const agentRunner = makeAgentRunnerStub();
     const service = makeService(
       prisma,
       textCompletion,
       imageStorage,
-      makeOperationAlertsStub(),
+      operationAlerts,
       heroImageService,
+      agentRunner,
     );
 
-    await service.generate(
+    const result = await service.generate(
       {
         productId: MASTER_ID,
         templateId: 'bold-vertical',
@@ -249,64 +261,54 @@ describe('DetailPageAiService', () => {
         rawCategory: '완구',
         rawDescription: '아이들이 가지고 놀기 좋은 장난감',
         rawOptions: '혼합 색상 / 사이즈 85*60mm',
-        imageUrls: [
-          'https://example.com/detail-1.jpg',
-          'https://example.com/package-box.jpg',
-          'https://example.com/detail-2.jpg',
-        ],
+        imageUrls: ['https://example.com/detail-1.jpg'],
       },
       ORGANIZATION_ID,
       USER_ID,
     );
 
-    await vi.waitFor(() => {
-      expect(prisma.contentGeneration.updateMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: GENERATION_ID, organizationId: ORGANIZATION_ID },
-        }),
-      );
+    expect(prisma.contentGeneration.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        organizationId: ORGANIZATION_ID,
+        masterId: MASTER_ID,
+        triggeredByUserId: USER_ID,
+        status: 'PROCESSING',
+      }),
     });
-    const updateArg = prisma.contentGeneration.updateMany.mock.calls.find(
-      ([arg]) => arg.data?.status === 'READY',
-    )?.[0];
-    const stored = JSON.parse(updateArg?.data?.detailPageHtml ?? '{}');
-    expect(updateArg?.data?.generatedTitle).toBe('휴대용 목걸이 비눗방울!');
-    expect(stored.result.hook.text).toBe('휴대용 목걸이');
-    expect(stored.result.hook.titleSub).toBe('비눗방울!');
-    expect(stored.result.section.name).toBe('휴대용 목걸이');
-    expect(stored.result.section.title).toBe('비눗방울!');
-    expect(stored.result.color.subtitle).toBe('민트 / 핑크 / 옐로우 3가지 색상');
-    expect(stored.result.size.heightLabel).toBe('60mm');
-    expect(stored.result.size.widthLabel).toBe('85mm');
-    expect(stored.result.productInfo).toContainEqual({
-      key: '제품명',
-      value: '휴대용 목걸이 비눗방울',
-    });
-    expect(stored.result.productInfo).toContainEqual({
-      key: '색상',
-      value: '민트 / 핑크 / 옐로우 3가지 색상',
-    });
-    expect(stored.result.detailImageIndices).toEqual([0, 2, 1]);
-    expect(prisma.contentGeneration.updateMany).toHaveBeenCalledWith(
+    // Runtime handler owns the LLM call now — service must not have reached out.
+    expect(textCompletion.complete).not.toHaveBeenCalled();
+    // Sink owns READY/FAILED writes — service must not have updated either.
+    expect(prisma.contentGeneration.updateMany).not.toHaveBeenCalled();
+
+    expect(agentRunner.runByType).toHaveBeenCalledWith(
+      'detail_page_generate',
       expect.objectContaining({
-        data: expect.objectContaining({
-          processedImages: {
-            __heroBanner: 'https://cdn.example.com/generated-hero.png',
-            __sizeGuideImage: 'https://cdn.example.com/generated-size.png',
-            __colorGuideImage: 'https://cdn.example.com/generated-color.png',
-            __detailImage1: 'https://cdn.example.com/generated-detail-1.png',
-          },
+        organizationId: ORGANIZATION_ID,
+        sourceType: 'ai.detail_page_generate',
+        sourceResourceType: 'content_generation',
+        sourceResourceId: GENERATION_ID,
+        payload: expect.objectContaining({
+          templateId: 'bold-vertical',
+          heroImageMode: 'llm-pick',
+          raw: expect.objectContaining({
+            rawTitle: '휴대용목걸이비눗방울',
+          }),
         }),
       }),
     );
-    expect(heroImageService.generateDetailCutImage).toHaveBeenCalledTimes(1);
-    expect(heroImageService.generateSizeGuideImage).toHaveBeenCalledWith(
+
+    expect(operationAlerts.start).toHaveBeenCalledWith(
       expect.objectContaining({
-        heightLabel: '60mm',
-        widthLabel: '85mm',
+        organizationId: ORGANIZATION_ID,
+        operationKey: `detail-page:${GENERATION_ID}`,
+        sourceType: 'content_generation',
+        sourceId: GENERATION_ID,
       }),
     );
-    expect(prisma.contentGeneration.update).not.toHaveBeenCalled();
+
+    expect(result.id).toBe(GENERATION_ID);
+    expect(result.imageProcessingStatus).toBe('processing');
+    expect(result.productId).toBe(MASTER_ID);
   });
 
   it('suppresses generated product info table when a KC safety label image exists', async () => {
@@ -481,19 +483,30 @@ describe('DetailPageAiService', () => {
     expect(heroImageService.generateDetailCutImage).toHaveBeenCalledTimes(1);
   });
 
-  it('persists triggeredByUserId, opens an operation alert, then closes it on failure', async () => {
+  it('marks the row FAILED and closes the alert when AgentRunCoordinator rejects the enqueue', async () => {
+    // Producer-side enqueue failure (eg. agent_instance_not_found) — the AI
+    // service must not leave a stranded PROCESSING row and must close the
+    // operation alert it just opened. Runtime/LLM-level failures arrive via
+    // the bridge + sink and are covered separately by the sink spec.
     const prisma = makePrisma();
     const operationAlerts = makeOperationAlertsStub();
-    const textCompletion = {
-      // Force a Gemini failure so the test exits early via the catch branch.
-      complete: vi.fn().mockRejectedValueOnce(new Error('gemini-timeout')),
-    };
+    const textCompletion = { complete: vi.fn() };
     const imageStorage = { save: vi.fn() };
+    const heroImageService = {
+      inferPackageImagePositions: vi.fn().mockResolvedValue([]),
+    };
+    const agentRunner = makeAgentRunnerStub({
+      ok: false,
+      reason: 'agent_instance_not_found',
+      agentType: 'detail_page_generate',
+    });
     const service = makeService(
       prisma,
       textCompletion,
       imageStorage,
       operationAlerts,
+      heroImageService,
+      agentRunner,
     );
 
     await expect(
@@ -511,7 +524,7 @@ describe('DetailPageAiService', () => {
         ORGANIZATION_ID,
         USER_ID,
       ),
-    ).rejects.toThrow('gemini-timeout');
+    ).rejects.toThrow(/Agent OS enqueue failed/);
 
     expect(prisma.contentGeneration.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -521,29 +534,24 @@ describe('DetailPageAiService', () => {
         status: 'PROCESSING',
       }),
     });
-
     expect(operationAlerts.start).toHaveBeenCalledWith(
       expect.objectContaining({
         organizationId: ORGANIZATION_ID,
         operationKey: `detail-page:${GENERATION_ID}`,
-        type: 'detail_page_generation',
         sourceType: 'content_generation',
         sourceId: GENERATION_ID,
-        actorUserId: USER_ID,
-        targetType: 'master',
-        targetId: MASTER_ID,
-        href: `/product-hub/${MASTER_ID}`,
       }),
     );
-
     expect(prisma.contentGeneration.updateMany).toHaveBeenCalledWith({
       where: { id: GENERATION_ID, organizationId: ORGANIZATION_ID },
-      data: expect.objectContaining({ status: 'FAILED', errorMessage: 'gemini-timeout' }),
+      data: expect.objectContaining({ status: 'FAILED' }),
     });
     expect(operationAlerts.fail).toHaveBeenCalledWith(
       ORGANIZATION_ID,
       `detail-page:${GENERATION_ID}`,
-      expect.objectContaining({ message: 'gemini-timeout' }),
+      expect.objectContaining({
+        metadata: expect.objectContaining({ errorCode: 'agent_enqueue_failed' }),
+      }),
     );
     expect(operationAlerts.succeed).not.toHaveBeenCalled();
   });

@@ -11,6 +11,10 @@ import { z } from 'zod';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { OperationAlertService } from '../../../automation/application/service/operation-alert.service';
 import {
+  AGENT_RUNNER_PORT,
+  type AgentRunnerPort,
+} from '../../../agent-os/application/port/in/agent-runner.port';
+import {
   DetailPageGenerationSchema,
   SINGLE_CALL_SYSTEM,
   buildSingleCallUser,
@@ -22,6 +26,10 @@ import {
   buildBoldVerticalUser,
   type BoldVerticalGeneration,
 } from '../../domain/prompts/bold-vertical/single-call';
+import {
+  AI_AGENT_SOURCE_TYPES,
+  DETAIL_PAGE_GENERATE_AGENT_TYPE,
+} from '../../domain/agent-output';
 import type {
   GenerateDetailPageBodyDto,
   PrefillDetailPageBodyDto,
@@ -42,6 +50,11 @@ import {
 import type { DetailPageRawInput, DetailPageTemplateId, KidsPlayfulImageContext } from './detail-page-ai.types';
 import { DetailPageGeneratedImagesService } from './detail-page-generated-images.service';
 import { DetailPageResultRefinerService } from './detail-page-result-refiner.service';
+import {
+  detailPageOperationKey,
+  parseDetailPageStoredJson,
+  serializeDetailPageStoredJson,
+} from './detail-page-stored.helpers';
 
 const DetailPagePrefillSchema = z.object({
   category: z.string().min(1).max(80),
@@ -105,6 +118,8 @@ export class DetailPageAiService {
     private readonly operationAlerts: OperationAlertService,
     private readonly resultRefiner: DetailPageResultRefinerService,
     private readonly generatedImages: DetailPageGeneratedImagesService,
+    @Inject(AGENT_RUNNER_PORT)
+    private readonly agentRunner: AgentRunnerPort,
   ) {}
 
   async uploadInputImage(
@@ -170,22 +185,6 @@ export class DetailPageAiService {
     organizationId: string,
     triggeredByUserId: string | null,
   ): Promise<DetailPageGenerationDto> {
-    const model = process.env.AI_TEXT_MODEL;
-    if (!model) {
-      throw new HttpException(
-        'AI_TEXT_MODEL이 설정되지 않았습니다.',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-
-    if (dto.productId) {
-      const master = await this.prisma.masterProduct.findFirst({
-        where: { id: dto.productId, organizationId, isDeleted: false },
-        select: { id: true },
-      });
-      if (!master) throw new NotFoundException('Product not found');
-    }
-
     const heroImageMode = dto.heroImageMode ?? 'llm-pick';
     const templateId = dto.templateId ?? 'kids-playful';
     const imageUrls = moveSafetyLabelImagesToEnd(dto.imageUrls);
@@ -199,6 +198,40 @@ export class DetailPageAiService {
       templateId,
     };
 
+    if (dto.productId) {
+      // Product-bound generations now run on Agent OS. We create the
+      // `ContentGeneration` row in `PROCESSING`, enqueue an
+      // `AgentRunRequest` keyed by `(content_generation, row.id)`, and
+      // return the placeholder DTO immediately. The runtime handler runs
+      // the LLM call; the bridge + sink finalize the row to READY/FAILED.
+      // The frontend already polls `imageProcessingStatus` so the UX
+      // change is invisible aside from the row being PROCESSING for a few
+      // seconds longer than the legacy sync path.
+      return this.enqueueProductBoundGeneration({
+        organizationId,
+        triggeredByUserId,
+        productId: dto.productId,
+        rawTitle: dto.rawTitle,
+        templateId,
+        heroImageMode,
+        imageUrls,
+        rawInput,
+      });
+    }
+
+    // Standalone path (no productId) stays synchronous. The frontend's
+    // generate flow always creates a temporary product before submitting,
+    // so this branch is effectively only used by tests / external
+    // integrations that opt out of the row lifecycle. We keep it sync to
+    // preserve the immediate-result contract those callers rely on; they
+    // never enter the `ContentGeneration` ledger.
+    const model = process.env.AI_TEXT_MODEL;
+    if (!model) {
+      throw new HttpException(
+        'AI_TEXT_MODEL이 설정되지 않았습니다.',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
     const isBoldVertical = templateId === 'bold-vertical';
     const kidsImageContext = await this.resultRefiner.prepareKidsPlayfulImageContext({
       templateId,
@@ -208,110 +241,6 @@ export class DetailPageAiService {
       ...kidsImageContext.packageImageIndices,
       ...kidsImageContext.safetyLabelImageIndices,
     ];
-
-    if (dto.productId) {
-      const row = await this.prisma.contentGeneration.create({
-        data: {
-          organizationId,
-          masterId: dto.productId,
-          triggeredByUserId,
-          originalImages: imageUrls,
-          processedImages: {},
-          generatedTitle: dto.rawTitle.slice(0, 80),
-          detailPageHtml: JSON.stringify({
-            templateId,
-            result: {},
-            imageUrls,
-            rawInput,
-          }),
-          status: 'PROCESSING',
-        },
-      });
-
-      // Operation alert: surface the running detail-page generation in the
-      // dashboard notification ledger so the user can track progress.
-      const operationKey = `detail-page:${row.id}`;
-      await this.operationAlerts.start({
-        organizationId,
-        operationKey,
-        type: 'detail_page_generation',
-        title: `상세페이지 생성: ${dto.rawTitle.slice(0, 40)}`,
-        sourceType: 'content_generation',
-        sourceId: row.id,
-        actorUserId: triggeredByUserId,
-        targetType: 'master',
-        targetId: dto.productId,
-        href: `/product-hub/${dto.productId}`,
-        metadata: { templateId, imageCount: imageUrls.length },
-      });
-
-      try {
-        const parsed = await this.generateParsed({
-          rawInput,
-          heroImageMode,
-          templateId,
-          model,
-          isBoldVertical,
-          kidsImageContext,
-        });
-        const productName = this.pickProductName(parsed, templateId, dto.rawTitle);
-        const processedImages = await this.generatedImages.generateBestEffort({
-          organizationId,
-          parsed,
-          templateId,
-          rawInput,
-          productName,
-          excludedImageIndices,
-        });
-        const detailPageHtml = JSON.stringify({
-          templateId,
-          result: parsed,
-          imageUrls,
-          rawInput,
-        });
-        await this.prisma.contentGeneration.updateMany({
-          where: { id: row.id, organizationId },
-          data: {
-            generatedTitle: productName,
-            detailPageHtml,
-            processedImages,
-            status: 'READY',
-            errorMessage: null,
-          },
-        });
-
-        await this.operationAlerts.succeed(organizationId, operationKey, {
-          metadata: {
-            generatedTitle: productName,
-            heroImageCount: Object.keys(processedImages).length,
-          },
-        });
-
-        return this.toDto({
-          ...row,
-          generatedTitle: productName,
-          detailPageHtml,
-          processedImages,
-          status: 'READY',
-          errorMessage: null,
-        });
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : '상세페이지 생성 실패';
-        await this.prisma.contentGeneration.updateMany({
-          where: { id: row.id, organizationId },
-          data: {
-            status: 'FAILED',
-            errorMessage,
-          },
-        });
-        await this.operationAlerts.fail(organizationId, operationKey, {
-          message: errorMessage,
-          metadata: { templateId },
-        });
-        throw err;
-      }
-    }
-
     const parsed = await this.generateParsed({
       rawInput,
       heroImageMode,
@@ -343,6 +272,127 @@ export class DetailPageAiService {
       imageProcessingError: null,
       createdAt: new Date().toISOString(),
     };
+  }
+
+  private async enqueueProductBoundGeneration(input: {
+    organizationId: string;
+    triggeredByUserId: string | null;
+    productId: string;
+    rawTitle: string;
+    templateId: DetailPageTemplateId;
+    heroImageMode: 'first' | 'llm-pick';
+    imageUrls: string[];
+    rawInput: DetailPageRawInput;
+  }): Promise<DetailPageGenerationDto> {
+    const master = await this.prisma.masterProduct.findFirst({
+      where: { id: input.productId, organizationId: input.organizationId, isDeleted: false },
+      select: { id: true },
+    });
+    if (!master) throw new NotFoundException('Product not found');
+
+    // Pre-compute the kids-playful image context BEFORE enqueueing so the
+    // expensive Gemini-vision call (`heroImageService.inferPackageImagePositions`)
+    // happens once per generation. The runtime handler reads the indices
+    // from the agent payload; the sink reads them back out of the payload
+    // via reconcile/replay if a listener crashed.
+    const kidsImageContext = await this.resultRefiner.prepareKidsPlayfulImageContext({
+      templateId: input.templateId,
+      rawInput: input.rawInput,
+    });
+
+    const row = await this.prisma.contentGeneration.create({
+      data: {
+        organizationId: input.organizationId,
+        masterId: input.productId,
+        triggeredByUserId: input.triggeredByUserId,
+        originalImages: input.imageUrls,
+        processedImages: {},
+        generatedTitle: input.rawTitle.slice(0, 80),
+        detailPageHtml: serializeDetailPageStoredJson({
+          templateId: input.templateId,
+          result: {},
+          imageUrls: input.imageUrls,
+          rawInput: input.rawInput,
+        }),
+        status: 'PROCESSING',
+      },
+    });
+
+    await this.operationAlerts.start({
+      organizationId: input.organizationId,
+      operationKey: detailPageOperationKey(row.id),
+      type: 'detail_page_generation',
+      title: `상세페이지 생성: ${input.rawTitle.slice(0, 40)}`,
+      sourceType: 'content_generation',
+      sourceId: row.id,
+      actorUserId: input.triggeredByUserId,
+      targetType: 'master',
+      targetId: input.productId,
+      href: `/product-hub/${input.productId}`,
+      metadata: { templateId: input.templateId, imageCount: input.imageUrls.length },
+    });
+
+    const enqueueResult = await this.agentRunner.runByType(
+      DETAIL_PAGE_GENERATE_AGENT_TYPE,
+      {
+        organizationId: input.organizationId,
+        requestedByUserId: input.triggeredByUserId ?? undefined,
+        sourceType: AI_AGENT_SOURCE_TYPES.DETAIL_PAGE_GENERATE,
+        sourceResourceType: 'content_generation',
+        sourceResourceId: row.id,
+        reason: `detail_page_generate for product ${input.productId}`,
+        payload: {
+          templateId: input.templateId,
+          raw: {
+            rawTitle: input.rawInput.rawTitle,
+            rawCategory: input.rawInput.rawCategory,
+            rawDescription: input.rawInput.rawDescription,
+            rawOptions: input.rawInput.rawOptions,
+            imageUrls: input.rawInput.imageUrls,
+          },
+          heroImageMode: input.heroImageMode,
+          reservedPackageImageIndices: [...kidsImageContext.packageImageIndices],
+          safetyLabelImageIndices: [...kidsImageContext.safetyLabelImageIndices],
+        },
+      },
+    );
+
+    if (!enqueueResult.ok) {
+      // Producer-side failure (eg. agent_instance_not_found) — the row was
+      // created but no Agent OS request will run. Mark it FAILED so the
+      // frontend stops polling, close the alert, and surface the reason.
+      const errorMessage = enqueueResult.reason
+        ? `Agent OS enqueue failed: ${enqueueResult.reason}`
+        : 'Agent OS enqueue failed.';
+      await this.prisma.contentGeneration.updateMany({
+        where: { id: row.id, organizationId: input.organizationId },
+        data: { status: 'FAILED', errorMessage },
+      });
+      await this.operationAlerts.fail(
+        input.organizationId,
+        detailPageOperationKey(row.id),
+        {
+          message: errorMessage,
+          metadata: {
+            errorCode: 'agent_enqueue_failed',
+            agentReason: enqueueResult.reason ?? null,
+          },
+        },
+      );
+      throw new HttpException(errorMessage, HttpStatus.SERVICE_UNAVAILABLE);
+    }
+
+    return this.toDto({
+      id: row.id,
+      masterId: row.masterId,
+      originalImages: row.originalImages,
+      processedImages: {},
+      generatedTitle: row.generatedTitle,
+      detailPageHtml: row.detailPageHtml,
+      status: 'PROCESSING',
+      errorMessage: null,
+      createdAt: row.createdAt,
+    });
   }
 
   async list(
@@ -396,7 +446,7 @@ export class DetailPageAiService {
     errorMessage: string | null;
     createdAt: Date;
   }): DetailPageGenerationDto {
-    const stored = this.parseStoredDetail(row.detailPageHtml);
+    const stored = parseDetailPageStoredJson(row.detailPageHtml);
     const imageUrls = stored.imageUrls.length > 0
       ? stored.imageUrls
       : (Array.isArray(row.originalImages) ? row.originalImages.filter((x): x is string => typeof x === 'string') : []);
@@ -419,40 +469,6 @@ export class DetailPageAiService {
       imageProcessingError: row.errorMessage,
       createdAt: row.createdAt.toISOString(),
     };
-  }
-
-  private parseStoredDetail(raw: string | null): {
-    templateId: DetailPageTemplateId;
-    result: unknown;
-    imageUrls: string[];
-    rawInput: unknown;
-    rawTitle: string | null;
-  } {
-    if (!raw) {
-      return { templateId: 'kids-playful', result: {}, imageUrls: [], rawInput: {}, rawTitle: null };
-    }
-    try {
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      const templateId = parsed.templateId === 'bold-vertical' || parsed.templateId === 'simple-vertical'
-        ? 'bold-vertical'
-        : 'kids-playful';
-      const imageUrls = Array.isArray(parsed.imageUrls)
-        ? parsed.imageUrls.filter((x): x is string => typeof x === 'string')
-        : [];
-      const rawInput = parsed.rawInput ?? {};
-      const rawTitle = rawInput && typeof rawInput === 'object' && typeof (rawInput as { rawTitle?: unknown }).rawTitle === 'string'
-        ? (rawInput as { rawTitle: string }).rawTitle
-        : null;
-      return {
-        templateId,
-        result: parsed.result ?? parsed,
-        imageUrls,
-        rawInput,
-        rawTitle,
-      };
-    } catch {
-      return { templateId: 'kids-playful', result: {}, imageUrls: [], rawInput: {}, rawTitle: null };
-    }
   }
 
   private isStoredAiDetail(raw: string | null): boolean {
