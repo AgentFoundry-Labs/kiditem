@@ -14,10 +14,21 @@ import { AgentRunExecutor } from './agent-run-executor.service';
  * stay `pending` until something else triggers `claim-and-run`. The HTTP
  * `/api/agent-os/executor/claim-and-run` route is per-organization and was
  * historically expected to be invoked by an external orchestrator that never
- * shipped. Phase 1 ships this in-process worker so the queue moves under
- * normal `npm run start:dev` / `npm run start:prod` boots.
+ * shipped. Phase 1 ships the worker class so the queue can be drained under
+ * normal `npm run start:dev` / `npm run start:prod` boots once a real runtime
+ * adapter is bound.
  *
- * Behavior:
+ * **Default: disabled. Explicit opt-in only.** The default `LocalRuntimeAdapter`
+ * fail-fasts every claim with `runtime_not_configured`. If the worker were
+ * default-on under that adapter, every existing Agent OS consumer
+ * (`/api/image-ai/edit`, rules evaluation, advertising strategy, sourcing
+ * scrape) would flip from "request stays pending" to "request fails fast".
+ * That changes production semantics, even though Phase 1's stated scope is
+ * "production endpoints unchanged". So the worker stays off until the operator
+ * explicitly opts in by setting `AGENT_RUNTIME_WORKER_ENABLED=1`. The HTTP
+ * `claim-and-run` route remains available for ad-hoc per-organization drains.
+ *
+ * Behavior when enabled:
  *   - One in-flight tick at a time. Re-entrant ticks are skipped (`busy`
  *     guard) so a slow runtime call does not stack ticks.
  *   - Empty-queue ticks (`no_pending_request`) are silent — the queue is
@@ -26,23 +37,15 @@ import { AgentRunExecutor } from './agent-run-executor.service';
  *     stop the loop.
  *
  * Configuration:
- *   - `AGENT_RUNTIME_WORKER_ENABLED=0` disables the timer (default: enabled
- *     except in `NODE_ENV=test`, where vitest spec files toggle their own
- *     behavior).
+ *   - `AGENT_RUNTIME_WORKER_ENABLED=1|true` enables the timer (default:
+ *     disabled regardless of `NODE_ENV`).
  *   - `AGENT_RUNTIME_WORKER_INTERVAL_MS` overrides the tick interval (default
- *     `2000`). Setting `0` is equivalent to disabled.
+ *     `2000`). Setting `0` disables the timer.
  *
  * Multi-instance note: claim is `FOR UPDATE SKIP LOCKED`, so multiple workers
  * across replicas are safe. KidItem currently runs a single backend instance,
  * matching the same operational assumption as `coupang-image-sync` and the
  * panel SSE bus. When prod scales out, this worker scales naturally.
- *
- * Runtime adapter contract: this worker does not assume any particular
- * provider. The default `LocalRuntimeAdapter` fails fast with
- * `runtime_not_configured`, so until a real provider is bound the queue
- * drains by failing each request quickly — that is the intended Phase 1
- * behavior, and the bridges treat `agent_run_failed` outputs as no-op
- * sink failures rather than swallowing them.
  */
 @Injectable()
 export class AgentRunWorker implements OnModuleInit, OnModuleDestroy {
@@ -62,7 +65,9 @@ export class AgentRunWorker implements OnModuleInit, OnModuleDestroy {
   onModuleInit(): void {
     if (!this.enabled || this.intervalMs <= 0) {
       this.logger.log(
-        `AgentRunWorker disabled (enabled=${this.enabled} intervalMs=${this.intervalMs}). Run claim-and-run manually or via /api/agent-os/executor/claim-and-run.`,
+        `AgentRunWorker disabled (enabled=${this.enabled} intervalMs=${this.intervalMs}). ` +
+          `Set AGENT_RUNTIME_WORKER_ENABLED=1 to opt in once a real runtime adapter is bound. ` +
+          `Use POST /api/agent-os/executor/claim-and-run for ad-hoc per-organization drains.`,
       );
       return;
     }
@@ -103,13 +108,16 @@ export class AgentRunWorker implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /**
+   * Default: **disabled**. The operator must explicitly opt in via
+   * `AGENT_RUNTIME_WORKER_ENABLED=1` once a real runtime adapter is bound,
+   * because the default `LocalRuntimeAdapter` fail-fasts every claim. Auto-on
+   * would silently turn existing Agent OS consumers' "pending" requests into
+   * fast failures — see the class doc above for the reasoning.
+   */
   static resolveEnabled(): boolean {
     const raw = process.env.AGENT_RUNTIME_WORKER_ENABLED;
-    if (raw === undefined) {
-      // Default: on everywhere except `NODE_ENV=test`. Vitest sets that
-      // automatically, so unit tests get a quiet worker by default.
-      return process.env.NODE_ENV !== 'test';
-    }
+    if (raw === undefined || raw === '') return false;
     return raw === '1' || raw.toLowerCase() === 'true';
   }
 

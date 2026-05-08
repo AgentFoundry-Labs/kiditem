@@ -117,8 +117,18 @@ FINALIZED bridge + no-op sink 가 정리되어 있지만, **production endpoint 
 규칙:
 
 - Bridge 는 Prisma 를 직접 쓰지 않는다. DB 갱신은 항상 sink port 어댑터의 책임.
+- Bridge 는 `event.agentType` 으로 필터링한다. `output.__envelope` 같은 in-band
+  routing 마커는 사용 금지 — runtime failure 는 `output` 자체가 비어 있으므로
+  그쪽으로 필터하면 진짜 실패가 묵음 처리된다. 라우팅 메타데이터(`agentType`,
+  `source`, `sourceResourceType`, `sourceResourceId`)는 모두 bus payload 에 있다
+  (`apps/server/src/agent-os/application/event/agent-run-events.ts`).
 - Bridge 는 schema 실패 output 을 `applyFailure({ errorCode: 'agent_output_invalid' })`
   로 sink 에 넘긴다. 절대 그냥 throw 해서 다른 도메인의 FINALIZED listener 를 깨면 안 된다.
+- Bridge listener 는 hot-path 다. `AgentRun.output` 과 `AgentRunRequest.lastErrorCode`
+  가 source of truth 이고, listener 가 실패하거나 process 가 재시작하면 reconcile
+  경로가 회복한다. Phase 2 에서 `(agentType, sourceResourceId)` 키로 도는 reconcile
+  job 이 비-terminal 상태에 남은 downstream row 를 동일한 schema + sink 경로로 replay
+  한다 — agent-os/AGENTS.md "Recovery contract" 절 참고.
 - 새 AI agent type 추가 시 (a) schema 파일, (b) `AI_AGENT_OUTPUT_SCHEMAS` 등록,
   (c) FINALIZED bridge, (d) sink port + 어댑터 한 쌍을 같이 추가한다.
 

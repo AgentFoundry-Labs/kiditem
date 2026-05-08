@@ -94,19 +94,34 @@ this in shared environments.
 `AgentRunWorker` (`application/service/agent-run-worker.service.ts`) is an
 in-process timer that drains the queue by calling
 `AgentRunExecutor.executeNextUnscoped(workerId)` on each tick. Without it,
-requests enqueued via `AgentRunnerPort` would sit `pending` forever
-(historic behaviour: the HTTP `claim-and-run` route is per-organization and
-was meant to be called by an external orchestrator that never shipped).
+requests enqueued via `AgentRunnerPort` sit `pending` until the HTTP
+`claim-and-run` route is invoked.
 
-Defaults:
+**Default: disabled. Explicit opt-in only.** The default `LocalRuntimeAdapter`
+fail-fasts every claim with `runtime_not_configured`. Auto-enabling the
+worker under that adapter would silently flip every existing Agent OS
+consumer (`/api/image-ai/edit`, rules evaluation, advertising strategy,
+sourcing scrape) from "request stays pending" to "request fails fast" — a
+production semantic change that does not belong in any PR labelled
+"production endpoints unchanged". The operator turns the worker on
+explicitly via `AGENT_RUNTIME_WORKER_ENABLED=1` once a real runtime
+adapter is bound.
 
-- Enabled in dev/prod, disabled in `NODE_ENV=test` (vitest sets that
-  automatically). Override with `AGENT_RUNTIME_WORKER_ENABLED=0|1`.
-- Tick every `AGENT_RUNTIME_WORKER_INTERVAL_MS` (default `2000`). Setting
-  `0` disables the timer.
+Configuration:
+
+- `AGENT_RUNTIME_WORKER_ENABLED=1|true` enables the timer (default
+  disabled regardless of `NODE_ENV`). `0` / unset / empty keep it off.
+- `AGENT_RUNTIME_WORKER_INTERVAL_MS` overrides the tick interval (default
+  `2000`). Setting `0` disables the timer.
+
+Behavior when enabled:
+
 - Single in-flight tick at a time (`busy` guard) so a slow runtime call
   does not stack ticks.
-- Errors are caught and logged so a bad request does not stop the loop.
+- Empty-queue ticks (`no_pending_request`) are silent — idle queue is
+  normal.
+- Runtime exceptions are caught and logged so a bad request does not stop
+  the loop.
 
 Multi-instance: `claimNextRunRequest` uses `FOR UPDATE SKIP LOCKED`, so
 multiple replicas are safe. KidItem runs a single backend instance today;
@@ -114,7 +129,8 @@ the worker scales naturally if that changes.
 
 The HTTP `POST /api/agent-os/executor/claim-and-run` route stays for
 explicit per-organization triggers (ops drains, tests, panel debug). It
-does not replace the worker — it complements it.
+does not replace the worker — it complements it, and is also the supported
+"how do I drain manually before the worker is opted in" surface.
 
 ## AI domain bridge contract
 
@@ -140,6 +156,51 @@ When adding a new AI agent type, register its schema in
 `ai/domain/agent-output/index.ts` (`AI_AGENT_OUTPUT_SCHEMAS`) and add a
 bridge that subscribes to FINALIZED. Do not invent a per-type event name
 on the bus — there is one finalized event for the whole platform.
+
+### Event routing metadata
+
+`AgentRunFinalizedEvent` carries `agentType`, `source`, `sourceResourceType`,
+and `sourceResourceId` in addition to the request/run identifiers. Listeners
+**must filter on `agentType`**, not on the in-band `output` payload, because
+failure events have no output. Routing the failure path symmetrically with
+the success path is the whole reason the metadata moved from an
+`output.__envelope` convention onto the bus payload.
+
+## Recovery contract
+
+The bus event is **hot-path only**. `AgentRun.output` (succeeded) /
+`AgentRun.errorCode` + `AgentRunRequest.lastErrorCode` (failed) are the
+durable record. Listeners (operation-alert bridge, AI bridges) treat the
+event as a best-effort kick to apply downstream side effects, never as the
+source of truth.
+
+Loss modes the executor and listeners do **not** prevent on their own:
+
+- Process restart between `repository.finalizeRun(...)` and a slow
+  listener's sink call.
+- Listener exception that the bridge swallows (intentional — bridges must
+  not crash the bus).
+- Event bus drop in a future multi-instance / external-bus deployment.
+
+Phase 2 recovery contract for AI domain rows
+(`ContentGeneration` / `ThumbnailGeneration`):
+
+1. Producer side stamps `AgentRunRequest.sourceResourceType` +
+   `sourceResourceId` with the downstream row's primary key when enqueuing.
+2. The bridge sink updates the downstream row keyed on
+   `sourceResourceId` when the bus event fires.
+3. A reconcile job (separate Phase 2 follow-up) reads
+   `AgentRunRequest`s in terminal state (`succeeded`/`failed`) joined to
+   the downstream row by `sourceResourceId`, and replays the sink for any
+   row that is still in a non-terminal state (`PROCESSING` for
+   `ContentGeneration`, `pending`/`running` for `ThumbnailGeneration`).
+4. The reconcile job is the only thing that may bypass the event bus. It
+   reads `AgentRun.output` and feeds it through the same Zod schema +
+   sink port so the recovery code path is the same as the hot path.
+
+Phase 1 ships only steps 1 and 2's wiring (sink port + no-op adapter).
+Step 3's reconcile job and step 4's replay surface land with the Phase 2
+producer flip.
 
 ## Bootstrap
 

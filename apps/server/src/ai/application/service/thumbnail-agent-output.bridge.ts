@@ -19,6 +19,10 @@ import {
  * `thumbnail_generate` results back into the AI domain through the sink port.
  *
  * Same contract as `DetailPageAgentOutputBridge`:
+ *   - Filters strictly on `event.agentType` (the executor stamps the resolved
+ *     Agent OS type into the bus payload). No envelope sniffing — failure
+ *     events have no `output`, so envelope-based filtering would silently
+ *     drop real runtime failures of agents we own.
  *   - Validates output against Zod schema owned by the AI domain.
  *   - Delegates to a sink port (Phase 1 = no-op, Phase 2 = real
  *     `ThumbnailGeneration` writer).
@@ -39,14 +43,14 @@ export class ThumbnailAgentOutputBridge {
 
   @OnEvent(AGENT_RUN_EVENTS.FINALIZED)
   async onAgentRunFinalized(event: AgentRunFinalizedEvent): Promise<void> {
-    if (!this.isOurs(event)) return;
+    if (event.agentType !== ThumbnailAgentOutputBridge.AGENT_TYPE) return;
     try {
       if (event.status === 'failed') {
         await this.sink.applyFailure({
           organizationId: event.organizationId,
           requestId: event.requestId,
           runId: event.runId,
-          sourceResourceId: this.extractSourceResourceId(event),
+          sourceResourceId: event.sourceResourceId,
           errorCode: event.errorCode ?? 'agent_run_failed',
           errorMessage: event.errorMessage ?? 'Agent run failed without a message.',
         });
@@ -66,7 +70,7 @@ export class ThumbnailAgentOutputBridge {
           organizationId: event.organizationId,
           requestId: event.requestId,
           runId: event.runId,
-          sourceResourceId: this.extractSourceResourceId(event),
+          sourceResourceId: event.sourceResourceId,
           errorCode: 'agent_output_invalid',
           errorMessage,
         });
@@ -77,7 +81,7 @@ export class ThumbnailAgentOutputBridge {
         organizationId: event.organizationId,
         requestId: event.requestId,
         runId: event.runId,
-        sourceResourceId: this.extractSourceResourceId(event),
+        sourceResourceId: event.sourceResourceId,
         output: parsed.data,
       });
     } catch (err) {
@@ -87,37 +91,5 @@ export class ThumbnailAgentOutputBridge {
         }`,
       );
     }
-  }
-
-  private isOurs(event: AgentRunFinalizedEvent): boolean {
-    // See DetailPageAgentOutputBridge.isOurs for the rationale. Failure events
-    // require the producer-side `sourceType` envelope so we don't double-close
-    // alerts owned by other domains. Success events fall through to Zod
-    // validation, which is the strict filter.
-    if (event.status === 'failed') {
-      const sourceType = this.extractSourceType(event);
-      return sourceType === ThumbnailAgentOutputBridge.SOURCE_TYPE;
-    }
-    return true;
-  }
-
-  private extractSourceResourceId(event: AgentRunFinalizedEvent): string | null {
-    const envelope = this.readEnvelope(event);
-    return typeof envelope.sourceResourceId === 'string'
-      ? envelope.sourceResourceId
-      : null;
-  }
-
-  private extractSourceType(event: AgentRunFinalizedEvent): string | null {
-    const envelope = this.readEnvelope(event);
-    return typeof envelope.sourceType === 'string' ? envelope.sourceType : null;
-  }
-
-  private readEnvelope(event: AgentRunFinalizedEvent): Record<string, unknown> {
-    if (!event.output || typeof event.output !== 'object') return {};
-    const candidate = (event.output as { __envelope?: unknown }).__envelope;
-    return candidate && typeof candidate === 'object'
-      ? (candidate as Record<string, unknown>)
-      : {};
   }
 }

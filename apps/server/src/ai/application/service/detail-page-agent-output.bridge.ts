@@ -19,19 +19,23 @@ import {
  * Agent OS executor and routes `detail_page_generate` results back into the
  * AI domain through the sink port.
  *
+ * Filtering — strictly on `event.agentType`. The executor sets that field to
+ * the resolved Agent OS type when finalizing, so the bridge can identify its
+ * own runs without inspecting the in-band `output` payload (output is missing
+ * on failure paths). This keeps the failure path symmetric with success: an
+ * `agent_run_failed` for `detail_page_generate` reaches this bridge whether
+ * or not a runtime ever produced output.
+ *
  * The bridge does not write to the database directly. It validates the
  * runtime output against the Zod schema owned by the AI domain and delegates
  * to `DETAIL_PAGE_AGENT_OUTPUT_SINK_PORT`. Phase 1 binds the port to a
  * no-op adapter; Phase 2 swaps it for a real `ContentGeneration` writer.
  *
- * Filtering: agent type comparison alone is insufficient because the bridge
- * cannot read `AgentRunRequest.agentType` from the bus payload. Instead the
- * producer side sets `sourceType` to `AI_AGENT_SOURCE_TYPES.DETAIL_PAGE_GENERATE`
- * when enqueuing, and the bridge filters on `(agentType, sourceType)` once
- * Phase 2 wires the real producer. Phase 1 still calls the sink for any
- * finalized event that *includes* a `detail_page_generate`-shaped output —
- * the explicit Zod check guarantees we only invoke the sink with a valid
- * payload, regardless of which producer path queued the request.
+ * Recovery — the bridge is hot-path only. `AgentRun.output` is the durable
+ * record. If the listener crashes or the process restarts before the sink
+ * applies the change, a `(agentType, sourceResourceId)`-keyed reconcile job
+ * (Phase 2 follow-up) is the recovery path. See agent-os/AGENTS.md
+ * "Recovery contract".
  */
 @Injectable()
 export class DetailPageAgentOutputBridge {
@@ -47,14 +51,14 @@ export class DetailPageAgentOutputBridge {
 
   @OnEvent(AGENT_RUN_EVENTS.FINALIZED)
   async onAgentRunFinalized(event: AgentRunFinalizedEvent): Promise<void> {
-    if (!this.isOurs(event)) return;
+    if (event.agentType !== DetailPageAgentOutputBridge.AGENT_TYPE) return;
     try {
       if (event.status === 'failed') {
         await this.sink.applyFailure({
           organizationId: event.organizationId,
           requestId: event.requestId,
           runId: event.runId,
-          sourceResourceId: this.extractSourceResourceId(event),
+          sourceResourceId: event.sourceResourceId,
           errorCode: event.errorCode ?? 'agent_run_failed',
           errorMessage: event.errorMessage ?? 'Agent run failed without a message.',
         });
@@ -74,7 +78,7 @@ export class DetailPageAgentOutputBridge {
           organizationId: event.organizationId,
           requestId: event.requestId,
           runId: event.runId,
-          sourceResourceId: this.extractSourceResourceId(event),
+          sourceResourceId: event.sourceResourceId,
           errorCode: 'agent_output_invalid',
           errorMessage,
         });
@@ -85,7 +89,7 @@ export class DetailPageAgentOutputBridge {
         organizationId: event.organizationId,
         requestId: event.requestId,
         runId: event.runId,
-        sourceResourceId: this.extractSourceResourceId(event),
+        sourceResourceId: event.sourceResourceId,
         output: parsed.data,
       });
     } catch (err) {
@@ -96,47 +100,5 @@ export class DetailPageAgentOutputBridge {
         }`,
       );
     }
-  }
-
-  private isOurs(event: AgentRunFinalizedEvent): boolean {
-    // Phase 1: producer-side sourceType is not yet wired (the AI services
-    // still run sync), so we accept any finalized event whose output parses
-    // as `detail_page_generate`. The Zod check inside `onAgentRunFinalized`
-    // is the actual filter for the success path. Failure events without a
-    // matching producer hint are ignored to avoid double-handling other
-    // domains' alerts (rules etc.).
-    if (event.status === 'failed') {
-      const sourceType = this.extractSourceType(event);
-      return sourceType === DetailPageAgentOutputBridge.SOURCE_TYPE;
-    }
-    return true;
-  }
-
-  /**
-   * The bus payload is intentionally narrow — it carries the IDs and the
-   * runtime output but not the producer-side metadata. We probe the output
-   * for an optional `__sourceResourceId` envelope here so Phase 2 producers
-   * (which will start passing the metadata through `payload.__envelope`) can
-   * deliver a downstream resource id without changing the bus shape.
-   * Phase 1 always returns null.
-   */
-  private extractSourceResourceId(event: AgentRunFinalizedEvent): string | null {
-    const envelope = this.readEnvelope(event);
-    return typeof envelope.sourceResourceId === 'string'
-      ? envelope.sourceResourceId
-      : null;
-  }
-
-  private extractSourceType(event: AgentRunFinalizedEvent): string | null {
-    const envelope = this.readEnvelope(event);
-    return typeof envelope.sourceType === 'string' ? envelope.sourceType : null;
-  }
-
-  private readEnvelope(event: AgentRunFinalizedEvent): Record<string, unknown> {
-    if (!event.output || typeof event.output !== 'object') return {};
-    const candidate = (event.output as { __envelope?: unknown }).__envelope;
-    return candidate && typeof candidate === 'object'
-      ? (candidate as Record<string, unknown>)
-      : {};
   }
 }

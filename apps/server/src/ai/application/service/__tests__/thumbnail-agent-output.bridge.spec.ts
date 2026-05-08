@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ThumbnailAgentOutputBridge } from '../thumbnail-agent-output.bridge';
-import { AI_AGENT_SOURCE_TYPES } from '../../../domain/agent-output';
+import { THUMBNAIL_GENERATE_AGENT_TYPE } from '../../../domain/agent-output';
 import type { AgentRunFinalizedEvent } from '../../../../agent-os/application/event/agent-run-events';
 import type { ThumbnailAgentOutputSinkPort } from '../../port/out/thumbnail-agent-output-sink.port';
 
@@ -35,6 +35,10 @@ function makeEvent(
     organizationId: ORG,
     requestId: REQUEST,
     runId: RUN,
+    agentType: THUMBNAIL_GENERATE_AGENT_TYPE,
+    source: 'ai.thumbnail_generate',
+    sourceResourceType: null,
+    sourceResourceId: null,
     status: 'succeeded',
     output: VALID_OUTPUT,
     ...overrides,
@@ -48,14 +52,16 @@ describe('ThumbnailAgentOutputBridge', () => {
 
   it('routes a valid succeeded output to the sink', async () => {
     const { bridge, sink } = makeBridge();
-    await bridge.onAgentRunFinalized(makeEvent());
+    await bridge.onAgentRunFinalized(
+      makeEvent({ sourceResourceId: 'tg-1234' }),
+    );
     expect(sink.applySuccess).toHaveBeenCalledTimes(1);
     expect(sink.applySuccess).toHaveBeenCalledWith(
       expect.objectContaining({
         organizationId: ORG,
         requestId: REQUEST,
         runId: RUN,
-        sourceResourceId: null,
+        sourceResourceId: 'tg-1234',
       }),
     );
   });
@@ -84,10 +90,24 @@ describe('ThumbnailAgentOutputBridge', () => {
     );
   });
 
-  it('ignores failed events from other domains', async () => {
+  it('ignores events from other agent types (succeeded)', async () => {
     const { bridge, sink } = makeBridge();
     await bridge.onAgentRunFinalized(
       makeEvent({
+        agentType: 'detail_page_generate',
+        source: 'ai.detail_page_generate',
+      }),
+    );
+    expect(sink.applySuccess).not.toHaveBeenCalled();
+    expect(sink.applyFailure).not.toHaveBeenCalled();
+  });
+
+  it('ignores events from other agent types (failed) — covers review #2 symmetry', async () => {
+    const { bridge, sink } = makeBridge();
+    await bridge.onAgentRunFinalized(
+      makeEvent({
+        agentType: 'rules_evaluation',
+        source: 'rules.evaluate',
         status: 'failed',
         output: undefined,
         errorCode: 'runtime_not_configured',
@@ -97,17 +117,13 @@ describe('ThumbnailAgentOutputBridge', () => {
     expect(sink.applyFailure).not.toHaveBeenCalled();
   });
 
-  it('routes failed events with our source-type envelope', async () => {
+  it('routes failed events for our agent type even when output is missing', async () => {
     const { bridge, sink } = makeBridge();
     await bridge.onAgentRunFinalized(
       makeEvent({
         status: 'failed',
-        output: {
-          __envelope: {
-            sourceType: AI_AGENT_SOURCE_TYPES.THUMBNAIL_GENERATE,
-            sourceResourceId: 'tg-7777',
-          },
-        },
+        output: undefined,
+        sourceResourceId: 'tg-7777',
         errorCode: 'runtime_not_configured',
         errorMessage: 'no provider',
       }),

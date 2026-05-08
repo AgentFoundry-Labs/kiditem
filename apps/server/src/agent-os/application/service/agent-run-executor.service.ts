@@ -14,6 +14,7 @@ import {
   normalizeAgentErrorMessage,
 } from '../../domain/agent-os.errors';
 import { resolveEffectiveModel } from '../../domain/agent-os.types';
+import type { AgentRunRequestRecord } from '../../domain/agent-os.types';
 import {
   AGENT_RUN_EVENTS,
   type AgentRunFinalizedEvent,
@@ -25,6 +26,30 @@ export interface AgentRunExecutorResult {
   runId?: string;
   reason?: string;
   errorCode?: string;
+}
+
+/**
+ * Bus metadata derived from the claimed `AgentRunRequest`. Threaded into every
+ * `emitFinalized` call so listeners can filter on `agentType` / `source`
+ * without inspecting the in-band `output` payload (output is missing on
+ * failure paths).
+ */
+interface ClaimedRoutingMetadata {
+  agentType: string;
+  source: string;
+  sourceResourceType: string | null;
+  sourceResourceId: string | null;
+}
+
+function routingFromClaimed(
+  claimed: AgentRunRequestRecord,
+): ClaimedRoutingMetadata {
+  return {
+    agentType: claimed.agentType,
+    source: claimed.source,
+    sourceResourceType: claimed.sourceResourceType,
+    sourceResourceId: claimed.sourceResourceId,
+  };
 }
 
 @Injectable()
@@ -58,13 +83,20 @@ export class AgentRunExecutor {
   private async failBeforeRun(input: {
     organizationId: string;
     requestId: string;
+    routing: ClaimedRoutingMetadata;
     errorCode: string;
     errorMessage: string;
   }): Promise<void> {
-    await this.repository.failClaimedRequest(input);
+    await this.repository.failClaimedRequest({
+      organizationId: input.organizationId,
+      requestId: input.requestId,
+      errorCode: input.errorCode,
+      errorMessage: input.errorMessage,
+    });
     this.emitFinalized({
       organizationId: input.organizationId,
       requestId: input.requestId,
+      ...input.routing,
       status: 'failed',
       errorCode: input.errorCode,
       errorMessage: input.errorMessage,
@@ -116,8 +148,10 @@ export class AgentRunExecutor {
   }
 
   private async executeClaimed(
-    claimed: import('../../domain/agent-os.types').AgentRunRequestRecord,
+    claimed: AgentRunRequestRecord,
   ): Promise<AgentRunExecutorResult> {
+    const routing = routingFromClaimed(claimed);
+
     const instance = await this.repository.findInstanceById({
       organizationId: claimed.organizationId,
       id: claimed.agentInstanceId,
@@ -126,6 +160,7 @@ export class AgentRunExecutor {
       await this.failBeforeRun({
         organizationId: claimed.organizationId,
         requestId: claimed.id,
+        routing,
         errorCode: 'agent_instance_missing',
         errorMessage: 'Agent instance disappeared after request was queued.',
       });
@@ -141,6 +176,7 @@ export class AgentRunExecutor {
       await this.failBeforeRun({
         organizationId: claimed.organizationId,
         requestId: claimed.id,
+        routing,
         errorCode: 'blueprint_missing',
         errorMessage: `No blueprint registered for type "${instance.type}".`,
       });
@@ -165,6 +201,7 @@ export class AgentRunExecutor {
       await this.failBeforeRun({
         organizationId: claimed.organizationId,
         requestId: claimed.id,
+        routing,
         errorCode: 'model_required',
         errorMessage: 'Agent execution requires an explicit model.',
       });
@@ -251,6 +288,7 @@ export class AgentRunExecutor {
         organizationId: run.organizationId,
         requestId: claimed.id,
         runId: run.id,
+        ...routing,
         status: 'succeeded',
         output: result.output,
       });
@@ -293,6 +331,7 @@ export class AgentRunExecutor {
           organizationId: claimed.organizationId,
           requestId: claimed.id,
           runId: run.id,
+          ...routing,
           status: 'failed',
           errorCode,
           errorMessage,

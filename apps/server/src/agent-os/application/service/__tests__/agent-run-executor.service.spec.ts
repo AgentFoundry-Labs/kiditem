@@ -198,6 +198,8 @@ describe('AgentRunExecutor', () => {
       }),
     );
     expect(repository.createRunForRequest).not.toHaveBeenCalled();
+    // Pre-run failures must still carry routing metadata so AI bridges can
+    // correlate runtime_not_configured-style failures with their domain row.
     expect(eventEmitter.emit).toHaveBeenCalledWith(
       AGENT_RUN_EVENTS.FINALIZED,
       expect.objectContaining({
@@ -205,12 +207,22 @@ describe('AgentRunExecutor', () => {
         requestId: REQUEST_ID,
         status: 'failed',
         errorCode: testCase.errorCode,
+        agentType: 'rules_evaluator',
+        source: 'rules',
+        sourceResourceType: null,
+        sourceResourceId: null,
       }),
     );
   });
 
   it('emits a succeeded FINALIZED event with the runtime output on success', async () => {
     const { executor, eventEmitter, repository } = makeExecutor({
+      claimed: makeClaimedRequest({
+        agentType: 'detail_page_generate',
+        source: 'ai.detail_page_generate',
+        sourceResourceType: 'content_generation',
+        sourceResourceId: 'cg-42',
+      }),
       runtimeResult: { output: { ok: true, sample: 'detail-page' } },
     });
 
@@ -224,13 +236,24 @@ describe('AgentRunExecutor', () => {
       expect.objectContaining({
         status: 'succeeded',
         output: { ok: true, sample: 'detail-page' },
+        agentType: 'detail_page_generate',
+        source: 'ai.detail_page_generate',
+        sourceResourceType: 'content_generation',
+        sourceResourceId: 'cg-42',
       }),
     );
   });
 
   it('finalizes the run with runtime_not_configured when adapter throws', async () => {
     const { executor, repository, eventEmitter } = makeExecutor({
-      claimed: makeClaimedRequest({ attempts: 1, maxAttempts: 1 }),
+      claimed: makeClaimedRequest({
+        attempts: 1,
+        maxAttempts: 1,
+        agentType: 'thumbnail_generate',
+        source: 'ai.thumbnail_generate',
+        sourceResourceType: 'thumbnail_generation',
+        sourceResourceId: 'tg-77',
+      }),
       runtimeError: new AgentOsRuntimeError(
         'runtime_not_configured',
         'no provider',
@@ -248,11 +271,17 @@ describe('AgentRunExecutor', () => {
         errorCode: 'runtime_not_configured',
       }),
     );
+    // Failure path must surface routing metadata even though `output` is
+    // absent — review #2: bridges cannot fall back on envelope sniffing.
     expect(eventEmitter.emit).toHaveBeenCalledWith(
       AGENT_RUN_EVENTS.FINALIZED,
       expect.objectContaining({
         status: 'failed',
         errorCode: 'runtime_not_configured',
+        agentType: 'thumbnail_generate',
+        source: 'ai.thumbnail_generate',
+        sourceResourceType: 'thumbnail_generation',
+        sourceResourceId: 'tg-77',
       }),
     );
   });

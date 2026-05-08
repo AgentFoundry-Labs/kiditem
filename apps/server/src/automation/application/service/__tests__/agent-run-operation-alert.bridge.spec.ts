@@ -12,14 +12,27 @@ function makeOperationAlerts() {
   };
 }
 
+// AgentRunFinalizedEvent now carries routing metadata (`agentType`, `source`,
+// `sourceResourceType`, `sourceResourceId`). Operation-alert bridge does not
+// look at those fields — it keys only on `requestId` — but the event shape is
+// strict so the helper here ensures the spec stays compiling against the
+// canonical contract.
+const BASE_EVENT: Omit<AgentRunFinalizedEvent, 'status'> = {
+  organizationId: ORG,
+  requestId: REQUEST_ID,
+  runId: RUN_ID,
+  agentType: 'rules_evaluation',
+  source: 'rules.evaluate',
+  sourceResourceType: null,
+  sourceResourceId: null,
+};
+
 describe('AgentRunOperationAlertBridge', () => {
   it('closes the source-linked operation alert with succeeded on a successful AgentRun', async () => {
     const operationAlerts = makeOperationAlerts();
     const bridge = new AgentRunOperationAlertBridge(operationAlerts as never);
     const event: AgentRunFinalizedEvent = {
-      organizationId: ORG,
-      requestId: REQUEST_ID,
-      runId: RUN_ID,
+      ...BASE_EVENT,
       status: 'succeeded',
       output: { ok: true },
     };
@@ -41,9 +54,7 @@ describe('AgentRunOperationAlertBridge', () => {
     const operationAlerts = makeOperationAlerts();
     const bridge = new AgentRunOperationAlertBridge(operationAlerts as never);
     const event: AgentRunFinalizedEvent = {
-      organizationId: ORG,
-      requestId: REQUEST_ID,
-      runId: RUN_ID,
+      ...BASE_EVENT,
       status: 'failed',
       errorCode: 'gemini_timeout',
       errorMessage: 'request timed out',
@@ -74,9 +85,7 @@ describe('AgentRunOperationAlertBridge', () => {
 
     await expect(
       bridge.onAgentRunFinalized({
-        organizationId: ORG,
-        requestId: REQUEST_ID,
-        runId: RUN_ID,
+        ...BASE_EVENT,
         status: 'succeeded',
       }),
     ).resolves.toBeUndefined();

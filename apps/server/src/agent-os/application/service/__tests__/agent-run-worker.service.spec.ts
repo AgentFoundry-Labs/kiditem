@@ -9,22 +9,40 @@ describe('AgentRunWorker', () => {
     vi.restoreAllMocks();
   });
 
-  it('resolveEnabled defaults to false in NODE_ENV=test', () => {
-    process.env.NODE_ENV = 'test';
-    delete process.env.AGENT_RUNTIME_WORKER_ENABLED;
-    expect(AgentRunWorker.resolveEnabled()).toBe(false);
-  });
+  describe('resolveEnabled — explicit opt-in only', () => {
+    it('defaults to false when AGENT_RUNTIME_WORKER_ENABLED is unset', () => {
+      delete process.env.AGENT_RUNTIME_WORKER_ENABLED;
+      // NODE_ENV must not influence the default — review #1 requirement.
+      process.env.NODE_ENV = 'production';
+      expect(AgentRunWorker.resolveEnabled()).toBe(false);
+    });
 
-  it('resolveEnabled defaults to true outside NODE_ENV=test', () => {
-    process.env.NODE_ENV = 'development';
-    delete process.env.AGENT_RUNTIME_WORKER_ENABLED;
-    expect(AgentRunWorker.resolveEnabled()).toBe(true);
-  });
+    it('defaults to false even outside NODE_ENV=test (no auto-on)', () => {
+      delete process.env.AGENT_RUNTIME_WORKER_ENABLED;
+      process.env.NODE_ENV = 'development';
+      expect(AgentRunWorker.resolveEnabled()).toBe(false);
+    });
 
-  it('resolveEnabled honours explicit AGENT_RUNTIME_WORKER_ENABLED=1 even in test', () => {
-    process.env.NODE_ENV = 'test';
-    process.env.AGENT_RUNTIME_WORKER_ENABLED = '1';
-    expect(AgentRunWorker.resolveEnabled()).toBe(true);
+    it('defaults to false in NODE_ENV=test', () => {
+      delete process.env.AGENT_RUNTIME_WORKER_ENABLED;
+      process.env.NODE_ENV = 'test';
+      expect(AgentRunWorker.resolveEnabled()).toBe(false);
+    });
+
+    it('honours AGENT_RUNTIME_WORKER_ENABLED=1', () => {
+      process.env.AGENT_RUNTIME_WORKER_ENABLED = '1';
+      expect(AgentRunWorker.resolveEnabled()).toBe(true);
+    });
+
+    it('honours AGENT_RUNTIME_WORKER_ENABLED=true (case-insensitive)', () => {
+      process.env.AGENT_RUNTIME_WORKER_ENABLED = 'TRUE';
+      expect(AgentRunWorker.resolveEnabled()).toBe(true);
+    });
+
+    it('treats explicit AGENT_RUNTIME_WORKER_ENABLED=0 as disabled', () => {
+      process.env.AGENT_RUNTIME_WORKER_ENABLED = '0';
+      expect(AgentRunWorker.resolveEnabled()).toBe(false);
+    });
   });
 
   it('resolveIntervalMs defaults to 2000 when env unset', () => {
@@ -107,7 +125,18 @@ describe('AgentRunWorker', () => {
   });
 
   describe('lifecycle', () => {
-    it('does not start the timer when disabled', () => {
+    it('does not start the timer when disabled (default)', () => {
+      delete process.env.AGENT_RUNTIME_WORKER_ENABLED;
+      const setIntervalSpy = vi.spyOn(global, 'setInterval');
+      const worker = new AgentRunWorker({
+        executeNextUnscoped: vi.fn(),
+      } as never);
+      worker.onModuleInit();
+      expect(setIntervalSpy).not.toHaveBeenCalled();
+      worker.onModuleDestroy();
+    });
+
+    it('does not start the timer when explicitly disabled (=0)', () => {
       process.env.AGENT_RUNTIME_WORKER_ENABLED = '0';
       const setIntervalSpy = vi.spyOn(global, 'setInterval');
       const worker = new AgentRunWorker({

@@ -4,6 +4,11 @@
  * Verifies: enqueue (`AgentRunCoordinator`) → claim (`AgentRunWorker.tick()`)
  * → executor → runtime → finalize → `agent.run.finalized` event captured.
  *
+ * The bus payload carries routing metadata (`agentType`, `source`,
+ * `sourceResourceType`, `sourceResourceId`) so AI bridges can filter on it
+ * without inspecting the in-band `output`. The test asserts those fields are
+ * present on both the success and failure paths.
+ *
  * Uses a deterministic in-memory runtime adapter so the success path is
  * exercised without any external provider. The default `LocalRuntimeAdapter`
  * fail-fast contract is covered separately by the executor unit tests.
@@ -92,7 +97,9 @@ beforeAll(async () => {
   eventBus = new EventEmitter2();
   coordinator = new AgentRunCoordinator(repository);
   executor = new AgentRunExecutor(repository, runtime, eventBus);
-  // Disable the timer; we drive `tick()` directly.
+  // Disable the timer; we drive `tick()` directly. (The default is also
+  // disabled now — review #1 — but keep the explicit override so the spec
+  // still works if a developer flips on the env var locally.)
   process.env.AGENT_RUNTIME_WORKER_ENABLED = '0';
   worker = new AgentRunWorker(executor);
 });
@@ -112,7 +119,7 @@ beforeEach(async () => {
 });
 
 describe('AgentRunWorker → AgentRunExecutor → finalize (real Postgres)', () => {
-  it('drains a queued detail_page_generate request and emits FINALIZED', async () => {
+  it('drains a queued detail_page_generate request and emits FINALIZED with routing metadata', async () => {
     await seedBlueprintAndInstance({
       type: 'detail_page_generate',
       name: 'Detail Page Generate',
@@ -137,6 +144,8 @@ describe('AgentRunWorker → AgentRunExecutor → finalize (real Postgres)', () 
     const enqueue = await coordinator.runByType('detail_page_generate', {
       organizationId: TEST_ORGANIZATION_ID,
       sourceType: 'ai.detail_page_generate',
+      sourceResourceType: 'content_generation',
+      sourceId: 'cg-integration-1',
       payload: { templateId: 'bold-vertical' },
     });
     expect(enqueue.ok).toBe(true);
@@ -154,6 +163,10 @@ describe('AgentRunWorker → AgentRunExecutor → finalize (real Postgres)', () 
       requestId,
       status: 'succeeded',
       output: sampleOutput,
+      agentType: 'detail_page_generate',
+      source: 'ai.detail_page_generate',
+      sourceResourceType: 'content_generation',
+      sourceResourceId: 'cg-integration-1',
     });
 
     const persistedRequest = await prisma!.agentRunRequest.findUniqueOrThrow({
@@ -169,15 +182,13 @@ describe('AgentRunWorker → AgentRunExecutor → finalize (real Postgres)', () 
     expect(persistedRun.output).toEqual(sampleOutput);
   });
 
-  it('emits FINALIZED with runtime_not_configured when no provider matches', async () => {
+  it('emits FINALIZED with runtime_not_configured AND routing metadata on terminal failure', async () => {
     await seedBlueprintAndInstance({
       type: 'thumbnail_generate',
       name: 'Thumbnail Generate',
       promptPath: 'agent-config/prompts/agents/thumbnail-generate.md',
     });
 
-    // Force a single-attempt request so the failure is terminal (FINALIZED
-    // emits only on terminal request states; retries do not emit).
     const finalized: AgentRunFinalizedEvent[] = [];
     eventBus.on(AGENT_RUN_EVENTS.FINALIZED, (event: AgentRunFinalizedEvent) => {
       finalized.push(event);
@@ -186,6 +197,8 @@ describe('AgentRunWorker → AgentRunExecutor → finalize (real Postgres)', () 
     const enqueue = await coordinator.runByType('thumbnail_generate', {
       organizationId: TEST_ORGANIZATION_ID,
       sourceType: 'ai.thumbnail_generate',
+      sourceResourceType: 'thumbnail_generation',
+      sourceId: 'tg-integration-1',
       payload: { mode: 'creative' },
     });
     expect(enqueue.ok).toBe(true);
@@ -201,7 +214,16 @@ describe('AgentRunWorker → AgentRunExecutor → finalize (real Postgres)', () 
 
     const failedEvent = finalized.find((event) => event.status === 'failed');
     expect(failedEvent).toBeDefined();
-    expect(failedEvent!.errorCode).toBe('runtime_not_configured');
+    expect(failedEvent).toMatchObject({
+      errorCode: 'runtime_not_configured',
+      agentType: 'thumbnail_generate',
+      source: 'ai.thumbnail_generate',
+      sourceResourceType: 'thumbnail_generation',
+      sourceResourceId: 'tg-integration-1',
+    });
+    // Failure path has no in-band output — bridges must rely on the metadata
+    // above, not on `output.__envelope`.
+    expect(failedEvent!.output).toBeUndefined();
 
     const persistedRequest = await prisma!.agentRunRequest.findUniqueOrThrow({
       where: { id: enqueue.requestId! },

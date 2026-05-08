@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DetailPageAgentOutputBridge } from '../detail-page-agent-output.bridge';
-import { AI_AGENT_SOURCE_TYPES } from '../../../domain/agent-output';
+import { DETAIL_PAGE_GENERATE_AGENT_TYPE } from '../../../domain/agent-output';
 import type { AgentRunFinalizedEvent } from '../../../../agent-os/application/event/agent-run-events';
 import type { DetailPageAgentOutputSinkPort } from '../../port/out/detail-page-agent-output-sink.port';
 
@@ -54,6 +54,10 @@ function makeEvent(
     organizationId: ORG,
     requestId: REQUEST,
     runId: RUN,
+    agentType: DETAIL_PAGE_GENERATE_AGENT_TYPE,
+    source: 'ai.detail_page_generate',
+    sourceResourceType: null,
+    sourceResourceId: null,
     status: 'succeeded',
     output: VALID_BOLD_VERTICAL_OUTPUT,
     ...overrides,
@@ -67,14 +71,16 @@ describe('DetailPageAgentOutputBridge', () => {
 
   it('routes a valid succeeded output to the sink', async () => {
     const { bridge, sink } = makeBridge();
-    await bridge.onAgentRunFinalized(makeEvent());
+    await bridge.onAgentRunFinalized(
+      makeEvent({ sourceResourceId: 'cg-1234' }),
+    );
     expect(sink.applySuccess).toHaveBeenCalledTimes(1);
     expect(sink.applySuccess).toHaveBeenCalledWith(
       expect.objectContaining({
         organizationId: ORG,
         requestId: REQUEST,
         runId: RUN,
-        sourceResourceId: null,
+        sourceResourceId: 'cg-1234',
       }),
     );
     expect(sink.applyFailure).not.toHaveBeenCalled();
@@ -92,22 +98,26 @@ describe('DetailPageAgentOutputBridge', () => {
     );
   });
 
-  it('extracts sourceResourceId from output __envelope when present', async () => {
+  it('ignores events from other agent types (succeeded)', async () => {
     const { bridge, sink } = makeBridge();
-    const output = {
-      ...VALID_BOLD_VERTICAL_OUTPUT,
-      __envelope: { sourceResourceId: 'cg-1234' },
-    };
-    await bridge.onAgentRunFinalized(makeEvent({ output }));
-    expect(sink.applySuccess).toHaveBeenCalledWith(
-      expect.objectContaining({ sourceResourceId: 'cg-1234' }),
+    // Even with a perfectly-shaped detail-page payload, a different agent
+    // type means this is not ours — do not invoke the sink.
+    await bridge.onAgentRunFinalized(
+      makeEvent({
+        agentType: 'thumbnail_generate',
+        source: 'ai.thumbnail_generate',
+      }),
     );
+    expect(sink.applySuccess).not.toHaveBeenCalled();
+    expect(sink.applyFailure).not.toHaveBeenCalled();
   });
 
-  it('ignores failed events from other domains (no envelope source type)', async () => {
+  it('ignores events from other agent types (failed) — covers review #2 symmetry', async () => {
     const { bridge, sink } = makeBridge();
     await bridge.onAgentRunFinalized(
       makeEvent({
+        agentType: 'rules_evaluation',
+        source: 'rules.evaluate',
         status: 'failed',
         output: undefined,
         errorCode: 'runtime_not_configured',
@@ -117,17 +127,13 @@ describe('DetailPageAgentOutputBridge', () => {
     expect(sink.applyFailure).not.toHaveBeenCalled();
   });
 
-  it('handles failed events that carry our source type envelope', async () => {
+  it('handles failed events for our agent type even when output is missing', async () => {
     const { bridge, sink } = makeBridge();
     await bridge.onAgentRunFinalized(
       makeEvent({
         status: 'failed',
-        output: {
-          __envelope: {
-            sourceType: AI_AGENT_SOURCE_TYPES.DETAIL_PAGE_GENERATE,
-            sourceResourceId: 'cg-9999',
-          },
-        },
+        output: undefined,
+        sourceResourceId: 'cg-9999',
         errorCode: 'runtime_not_configured',
         errorMessage: 'no provider',
       }),
