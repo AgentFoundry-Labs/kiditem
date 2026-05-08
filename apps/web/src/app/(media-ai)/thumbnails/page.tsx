@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { ErrorState, EmptyState } from '@/components/ui/EmptyState';
@@ -33,6 +33,17 @@ import { getEffectiveComplianceGrade, needsThumbnailFix } from './lib/thumbnail-
 import type { ThumbnailAnalysisResult, ThumbnailGenerationItem } from '@kiditem/shared/ai';
 
 export default function ThumbnailsPage() {
+  // Next 16 build error: useSearchParams() must live inside a Suspense boundary
+  // so the static prerender pass can defer to client. Inner component owns the
+  // page logic; this wrapper exists solely for the Suspense boundary.
+  return (
+    <Suspense fallback={<PageSkeleton variant="cards" />}>
+      <ThumbnailsPageContent />
+    </Suspense>
+  );
+}
+
+function ThumbnailsPageContent() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();

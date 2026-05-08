@@ -304,14 +304,19 @@ export class SupplierStatsService {
         status: po.status,
         description: `발주 #${po.id.slice(0, 8)} - ${po.supplierName}`,
       })),
-      ...payments.map((p) => ({
-        type: 'payment' as const,
-        id: p.id,
-        date: p.createdAt,
-        amount: p.paidAmount ?? p.amount,
-        status: p.status,
-        description: p.notes ?? `결제 ${(p.paidAmount ?? p.amount).toLocaleString()}원`,
-      })),
+      // SupplierPayment.paidAmount 는 schema 상 `Int @default(0)` (finance 도메인이 부분/연체 결제 차액 계산에 0 을 의존).
+      // 결제가 아직 발생 안 된 row 는 paidAmount=0 으로 들어오므로 `??` fallback 이 아닌 명시적 zero-check 로 amount 로 fallback.
+      ...payments.map((p) => {
+        const settled = p.paidAmount > 0 ? p.paidAmount : p.amount;
+        return {
+          type: 'payment' as const,
+          id: p.id,
+          date: p.createdAt,
+          amount: settled,
+          status: p.status,
+          description: p.notes ?? `결제 ${settled.toLocaleString()}원`,
+        };
+      }),
     ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     return {
