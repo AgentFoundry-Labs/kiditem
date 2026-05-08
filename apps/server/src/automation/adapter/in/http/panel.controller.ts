@@ -28,8 +28,12 @@ export class PanelController {
     @CurrentUser() user: AuthUser,
     @Headers('last-event-id') lastEventId?: string,
   ): Promise<Observable<MessageEvent>> {
-    const afterSeq = lastEventId ? parseInt(lastEventId, 10) : 0;
-    const replayed = this.sseService.replayAfter(organizationId, afterSeq);
+    const hasLastEventId =
+      typeof lastEventId === 'string' && lastEventId.trim().length > 0;
+    const afterSeq = hasLastEventId ? parseInt(lastEventId, 10) : 0;
+    const replayed = hasLastEventId && Number.isFinite(afterSeq)
+      ? this.sseService.replayAfter(organizationId, afterSeq)
+      : [];
 
     let initial$: Observable<MessageEvent>;
 

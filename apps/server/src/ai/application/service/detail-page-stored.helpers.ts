@@ -97,3 +97,12 @@ export function serializeDetailPageStoredJson(input: {
 export function detailPageOperationKey(contentGenerationId: string): string {
   return `detail-page:${contentGenerationId}`;
 }
+
+export function detailPageEditorHref(input: {
+  productId: string;
+  contentGenerationId: string;
+  templateId: DetailPageTemplateId;
+}): string {
+  const queryKey = input.templateId === 'bold-vertical' ? 'boldId' : 'kpId';
+  return `/sourcing/${input.productId}/editor?${queryKey}=${input.contentGenerationId}`;
+}

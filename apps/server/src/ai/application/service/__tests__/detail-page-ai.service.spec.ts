@@ -303,6 +303,7 @@ describe('DetailPageAiService', () => {
         operationKey: `detail-page:${GENERATION_ID}`,
         sourceType: 'content_generation',
         sourceId: GENERATION_ID,
+        href: `/sourcing/${MASTER_ID}/editor?boldId=${GENERATION_ID}`,
       }),
     );
 
@@ -540,6 +541,7 @@ describe('DetailPageAiService', () => {
         operationKey: `detail-page:${GENERATION_ID}`,
         sourceType: 'content_generation',
         sourceId: GENERATION_ID,
+        href: `/sourcing/${MASTER_ID}/editor?kpId=${GENERATION_ID}`,
       }),
     );
     expect(prisma.contentGeneration.updateMany).toHaveBeenCalledWith({

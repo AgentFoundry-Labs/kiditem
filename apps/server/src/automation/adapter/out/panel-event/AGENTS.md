@@ -88,6 +88,24 @@ dashboard 작업 큐에서 처리한다. Agent OS 관련 사용자 알림도 별
 나 panel source 를 만들지 말고 `Alert` 로 투영한 뒤 필요 시 `ActionTask` 로
 승격한다.
 
+## Alert href contract
+
+`Alert.href` 는 알림이 설명하는 작업의 목적지 deep link 다. Panel 은 href 를
+추론하지 않고 그대로 "이동" 링크로 렌더링하므로, 알림 producer 가 작업
+owner 로서 명시적으로 정의해야 한다.
+
+- 진행 중 operation: 상태 확인 / 취소 / 재시도 context 로 이동.
+- 성공 operation: 생성물 / 처리 결과물 화면으로 이동.
+- 실패 operation: 실패 원인 확인과 재시도 시작점으로 이동.
+- signal alert: 사용자가 문제를 해결할 수 있는 화면으로 이동.
+
+결과 URL 을 `start()` 시점에 알 수 없으면 status URL 을 임시로 넣고,
+`succeed()` / `fail()` 의 patch `href` 로 결과 / 재시도 URL 을 갱신한다.
+`targetType` / `targetId` 는 분석용 메타데이터일 뿐 href fallback 으로
+자동 변환하지 않는다. 예: 상세페이지 생성은 상품 허브가 아니라
+`/sourcing/:productId/editor?boldId=:contentGenerationId` 또는
+`?kpId=:contentGenerationId` 로 연결한다.
+
 ## Single-instance assumption
 
 `PanelSseService` 의 ring buffer 는 in-process. 멀티 인스턴스 production 으로

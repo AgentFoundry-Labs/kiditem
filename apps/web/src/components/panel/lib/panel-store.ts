@@ -59,6 +59,9 @@ export const createPanelStore = () => create<PanelStoreState>((set, get) => ({
   upsertItem: (item) => set((state) => {
     const existing = state.byId[item.id];
     // PanelAlertItem has no seq — always upsert. PanelRunItem uses seq for dedup.
+    if (item.kind === 'alert') {
+      return { byId: { ...state.byId, [item.id]: item } };
+    }
     const itemSeq = item.kind === 'run' ? item.seq : 0;
     const existingSeq = existing?.kind === 'run' ? existing.seq : 0;
     if (existing && existingSeq >= itemSeq) return state;

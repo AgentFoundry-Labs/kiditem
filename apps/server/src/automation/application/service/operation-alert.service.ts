@@ -50,7 +50,13 @@ export interface StartOperationAlertInput {
   actorUserId?: string | null;
   targetType?: string | null;
   targetId?: string | null;
-  href?: string | null;
+  /**
+   * User-facing deep link for this operation. Producers own this value: it
+   * should open the status/result/retry surface for the work described by the
+   * alert, not a generic target fallback. Use explicit null only when the
+   * product has no meaningful user-facing surface yet.
+   */
+  href: string | null;
   severity?: OperationAlertSeverity;
   progress?: number | null;
   metadata?: Record<string, unknown>;
@@ -58,6 +64,10 @@ export interface StartOperationAlertInput {
 
 export interface OperationLifecyclePatch {
   message?: string | null;
+  /**
+   * Optional lifecycle link update. Use this when the final result URL is only
+   * known after the operation succeeds/fails.
+   */
   href?: string | null;
   progress?: number | null;
   severity?: OperationAlertSeverity;

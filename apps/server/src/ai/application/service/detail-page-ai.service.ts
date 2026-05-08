@@ -51,6 +51,7 @@ import type { DetailPageRawInput, DetailPageTemplateId, KidsPlayfulImageContext 
 import { DetailPageGeneratedImagesService } from './detail-page-generated-images.service';
 import { DetailPageResultRefinerService } from './detail-page-result-refiner.service';
 import {
+  detailPageEditorHref,
   detailPageOperationKey,
   parseDetailPageStoredJson,
   serializeDetailPageStoredJson,
@@ -324,7 +325,11 @@ export class DetailPageAiService {
       actorUserId: input.triggeredByUserId,
       targetType: 'master',
       targetId: input.productId,
-      href: `/product-hub/${input.productId}`,
+      href: detailPageEditorHref({
+        productId: input.productId,
+        contentGenerationId: row.id,
+        templateId: input.templateId,
+      }),
       metadata: { templateId: input.templateId, imageCount: input.imageUrls.length },
     });
 
