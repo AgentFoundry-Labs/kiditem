@@ -106,4 +106,47 @@ describe('PanelSseService', () => {
     expect(msg.data.itemId).toBe('workflow:abc');
     expect(msg.data).not.toHaveProperty('item');
   });
+
+  it('filters user-scoped run events by subscriber user while keeping org-wide runs', async () => {
+    const sub = service.getStream('co-1', 'user-a');
+    const collected: any[] = [];
+    const subscription = sub.subscribe((e) => collected.push((e as any).data));
+
+    emitter.emit(
+      PANEL_EVENTS.UPSERT,
+      { item: makeItem({ id: 'team', visibility: 'organization', actorUserId: null }), organizationId: 'co-1' },
+    );
+    emitter.emit(
+      PANEL_EVENTS.UPSERT,
+      { item: makeItem({ id: 'other-user', visibility: 'user', actorUserId: 'user-b' }), organizationId: 'co-1' },
+    );
+    emitter.emit(
+      PANEL_EVENTS.UPSERT,
+      { item: makeItem({ id: 'mine', visibility: 'user', actorUserId: 'user-a' }), organizationId: 'co-1' },
+    );
+
+    await new Promise((r) => setTimeout(r, 10));
+    subscription.unsubscribe();
+
+    expect(collected.map((e) => e.item.id)).toEqual(['team', 'mine']);
+  });
+
+  it('filters user-scoped run replay by subscriber user', async () => {
+    emitter.emit(
+      PANEL_EVENTS.UPSERT,
+      { item: makeItem({ id: 'team', visibility: 'organization', actorUserId: null }), organizationId: 'co-1' },
+    );
+    emitter.emit(
+      PANEL_EVENTS.UPSERT,
+      { item: makeItem({ id: 'other-user', visibility: 'user', actorUserId: 'user-b' }), organizationId: 'co-1' },
+    );
+    emitter.emit(
+      PANEL_EVENTS.UPSERT,
+      { item: makeItem({ id: 'mine', visibility: 'user', actorUserId: 'user-a' }), organizationId: 'co-1' },
+    );
+    await new Promise((r) => setTimeout(r, 5));
+
+    const replayed = service.replayAfter('co-1', 0, 'user-a');
+    expect(replayed.map((e: any) => e.item.id)).toEqual(['team', 'mine']);
+  });
 });
