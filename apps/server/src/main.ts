@@ -9,7 +9,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication, ExpressAdapter } from '@nestjs/platform-express';
 import type { Request, Response } from 'express';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const express = require('express') as () => import('express').Express;
+const express = require('express') as typeof import('express');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const cookieParser = require('cookie-parser') as () => import('express').RequestHandler;
 import { AppModule } from './app.module';
@@ -22,6 +22,17 @@ async function bootstrap() {
   // NestFactory 가 만든 default ExpressAdapter 를 쓰면 미들웨어가 Nest router
   // 뒤에 쌓여 `/api/chat/copilot/...` 이 Nest 의 404 에 먼저 잡힘.
   const expressApp = express();
+  // CopilotKit raw route is registered before Nest middleware, so cookie auth
+  // must be parsed on the underlying Express app before the chat handler.
+  expressApp.use(cookieParser());
+  // Pre-parse the JSON body so the CopilotKit v2 single-route handler can
+  // rebuild a fresh Web Request via `synthesizeBodyFromParsedBody` instead
+  // of trying to stream the IncomingMessage. Streaming-bodied Web Requests
+  // hit a Node fetch `clone()/json()` failure inside CopilotKit's helper
+  // (`Invalid JSON payload`), even when the underlying body is intact —
+  // see node_modules/@copilotkit/runtime/dist/lib/integrations/node-http
+  // /request-handler.mjs `synthesizeBodyFromParsedBody`.
+  expressApp.use('/api/chat/copilot', express.json({ limit: '25mb' }));
 
   // ChatService / SupabaseAuthMiddleware 는 Nest 초기화 후에만 resolve 가능 — lazy ref.
   // 이 raw express handler 는 Nest router 앞에 있어 AppModule middleware 와
@@ -31,6 +42,10 @@ async function bootstrap() {
   let chatServiceRef: ChatService | null = null;
   let supabaseAuthRef: SupabaseAuthMiddleware | null = null;
   expressApp.use('/api/chat/copilot', async (req: Request, res: Response) => {
+    // Browsers reach this route through Next's same-origin rewrite (see
+    // `apps/web/next.config.mjs`). There is no cross-origin browser caller,
+    // so chat-specific CORS preflight handling is intentionally absent —
+    // `app.enableCors` below covers the remaining server→server callers.
     if (!chatServiceRef || !supabaseAuthRef) {
       res.status(503).json({ error: 'service_not_ready' });
       return;
@@ -87,7 +102,7 @@ async function bootstrap() {
   });
   app.useBodyParser('json', { limit: '25mb' });
   // SupabaseAuthMiddleware 가 Supabase SSR auth-token 쿠키를 읽기 위해 필요.
-  app.use(cookieParser());
+  // `expressApp.use(cookieParser())` above covers both raw chat and Nest routes.
   app.setGlobalPrefix('api');
   app.useGlobalPipes(new ValidationPipe({
     whitelist: true,

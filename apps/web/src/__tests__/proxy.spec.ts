@@ -110,4 +110,35 @@ describe('proxy auth redirect', () => {
     expect(response.status).toBe(307);
     expect(new URL(response.headers.get('location') ?? '').pathname).toBe('/');
   });
+
+  // The CopilotKit browser runtime hits /api/chat/copilot[...] which Next
+  // rewrites to Nest. The caller is `fetch`/SSE, not a navigation, so a 307
+  // to /login would corrupt the stream. Nest itself returns JSON 401
+  // auth_required when the Supabase SSR cookie is missing.
+  describe('chat runtime transport bypass', () => {
+    it('passes /api/chat/copilot through without checking Supabase claims', async () => {
+      const response = await proxy(makeRequest('/api/chat/copilot'));
+
+      expect(response.status).toBe(200);
+      expect(createServerClient).not.toHaveBeenCalled();
+    });
+
+    it('passes /api/chat/copilot/info through even when Supabase env is missing', async () => {
+      const response = await proxy(makeRequest('/api/chat/copilot/info'));
+
+      expect(response.status).toBe(200);
+      expect(createServerClient).not.toHaveBeenCalled();
+    });
+
+    it('passes /api/chat/copilot/info through when Supabase claims are absent', async () => {
+      setSupabaseEnv();
+      mockSupabaseClaims(null);
+
+      const response = await proxy(makeRequest('/api/chat/copilot/info'));
+
+      expect(response.status).toBe(200);
+      // Bypass runs before Supabase resolution → claims check skipped entirely.
+      expect(createServerClient).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -1,9 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DetailPageAiService } from '../detail-page-ai.service';
+import type { OperationAlertService } from '../../../../automation/application/service/operation-alert.service';
 
 const ORGANIZATION_ID = '11111111-1111-4111-8111-111111111111';
+const USER_ID = '99999999-9999-9999-9999-999999999999';
 const MASTER_ID = '22222222-2222-4222-8222-222222222222';
 const GENERATION_ID = '33333333-3333-4333-8333-333333333333';
+
+function makeOperationAlertsStub(): OperationAlertService {
+  return {
+    start: vi.fn().mockResolvedValue({}),
+    succeed: vi.fn().mockResolvedValue({}),
+    fail: vi.fn().mockResolvedValue({}),
+    progress: vi.fn().mockResolvedValue({}),
+    cancel: vi.fn().mockResolvedValue({}),
+  } as unknown as OperationAlertService;
+}
 
 function boldVerticalResult() {
   return {
@@ -101,6 +113,7 @@ describe('DetailPageAiService', () => {
       prisma as never,
       textCompletion,
       imageStorage,
+      makeOperationAlertsStub(),
       heroImageService as never,
     );
 
@@ -119,6 +132,7 @@ describe('DetailPageAiService', () => {
         ],
       },
       ORGANIZATION_ID,
+      USER_ID,
     );
 
     await vi.waitFor(() => {
@@ -185,6 +199,7 @@ describe('DetailPageAiService', () => {
       prisma as never,
       textCompletion,
       imageStorage,
+      makeOperationAlertsStub(),
     );
 
     const result = await service.generate(
@@ -200,6 +215,7 @@ describe('DetailPageAiService', () => {
         ],
       },
       ORGANIZATION_ID,
+      USER_ID,
     );
 
     expect((result.result as ReturnType<typeof boldVerticalResult>).productInfo).toEqual([]);
@@ -230,6 +246,7 @@ describe('DetailPageAiService', () => {
       prisma as never,
       textCompletion,
       imageStorage,
+      makeOperationAlertsStub(),
       heroImageService as never,
     );
 
@@ -246,6 +263,7 @@ describe('DetailPageAiService', () => {
         ],
       },
       ORGANIZATION_ID,
+      USER_ID,
     );
 
     const parsed = result.result as ReturnType<typeof boldVerticalResult> & {
@@ -255,6 +273,108 @@ describe('DetailPageAiService', () => {
     expect(parsed.packageImageIndices).toEqual([]);
     expect(parsed.packageLabel).toBe('');
     expect(heroImageService.inferPackageImagePositions).not.toHaveBeenCalled();
+  });
+
+  it('persists triggeredByUserId, opens an operation alert, then closes it on failure', async () => {
+    const prisma = makePrisma();
+    const operationAlerts = makeOperationAlertsStub();
+    const textCompletion = {
+      // Force a Gemini failure so the test exits early via the catch branch.
+      complete: vi.fn().mockRejectedValueOnce(new Error('gemini-timeout')),
+    };
+    const imageStorage = { save: vi.fn() };
+    const service = new DetailPageAiService(
+      prisma as never,
+      textCompletion,
+      imageStorage,
+      operationAlerts,
+    );
+
+    await expect(
+      service.generate(
+        {
+          productId: MASTER_ID,
+          rawTitle: '키즈 텀블러 500ml',
+          rawCategory: '유아용품',
+          rawDescription: '아이가 사용하기 좋은 텀블러',
+          rawOptions: '핑크, 블루',
+          imageUrls: ['https://cdn.example.com/p1.png'],
+          heroImageMode: 'first',
+          templateId: 'kids-playful',
+        },
+        ORGANIZATION_ID,
+        USER_ID,
+      ),
+    ).rejects.toThrow('gemini-timeout');
+
+    expect(prisma.contentGeneration.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        organizationId: ORGANIZATION_ID,
+        masterId: MASTER_ID,
+        triggeredByUserId: USER_ID,
+        status: 'PROCESSING',
+      }),
+    });
+
+    expect(operationAlerts.start).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: ORGANIZATION_ID,
+        operationKey: `detail-page:${GENERATION_ID}`,
+        type: 'detail_page_generation',
+        sourceType: 'content_generation',
+        sourceId: GENERATION_ID,
+        actorUserId: USER_ID,
+        targetType: 'master',
+        targetId: MASTER_ID,
+        href: `/product-hub/${MASTER_ID}`,
+      }),
+    );
+
+    expect(prisma.contentGeneration.updateMany).toHaveBeenCalledWith({
+      where: { id: GENERATION_ID, organizationId: ORGANIZATION_ID },
+      data: expect.objectContaining({ status: 'FAILED', errorMessage: 'gemini-timeout' }),
+    });
+    expect(operationAlerts.fail).toHaveBeenCalledWith(
+      ORGANIZATION_ID,
+      `detail-page:${GENERATION_ID}`,
+      expect.objectContaining({ message: 'gemini-timeout' }),
+    );
+    expect(operationAlerts.succeed).not.toHaveBeenCalled();
+  });
+
+  it('skips alert lifecycle when productId is omitted (standalone preview)', async () => {
+    const prisma = makePrisma();
+    const operationAlerts = makeOperationAlertsStub();
+    const textCompletion = {
+      complete: vi.fn().mockRejectedValueOnce(new Error('gemini-timeout')),
+    };
+    const imageStorage = { save: vi.fn() };
+    const service = new DetailPageAiService(
+      prisma as never,
+      textCompletion,
+      imageStorage,
+      operationAlerts,
+    );
+
+    await expect(
+      service.generate(
+        {
+          rawTitle: 'standalone',
+          rawCategory: '',
+          rawDescription: '',
+          rawOptions: '',
+          imageUrls: [],
+          heroImageMode: 'first',
+          templateId: 'kids-playful',
+        },
+        ORGANIZATION_ID,
+        USER_ID,
+      ),
+    ).rejects.toThrow();
+
+    expect(prisma.contentGeneration.create).not.toHaveBeenCalled();
+    expect(operationAlerts.start).not.toHaveBeenCalled();
+    expect(operationAlerts.fail).not.toHaveBeenCalled();
   });
 
   it('prefills direct generator fields from a product name', async () => {
@@ -281,6 +401,7 @@ describe('DetailPageAiService', () => {
       prisma as never,
       textCompletion,
       imageStorage,
+      makeOperationAlertsStub(),
     );
 
     const result = await service.prefill(
@@ -289,6 +410,7 @@ describe('DetailPageAiService', () => {
         imageUrls: ['https://example.com/image.jpg'],
       },
       ORGANIZATION_ID,
+      USER_ID,
     );
 
     expect(textCompletion.complete).toHaveBeenCalledWith(

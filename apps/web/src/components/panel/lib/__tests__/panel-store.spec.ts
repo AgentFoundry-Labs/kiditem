@@ -1,11 +1,39 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createPanelStore } from '../panel-store';
+import type { PanelItem } from '@kiditem/shared/panel';
 
 const makeItem = (overrides = {}) => ({
   id: 'workflow:abc', kind: 'run' as const, source: 'workflow' as const, sourceId: 'abc',
   seq: 1, status: 'running' as const, title: 't', deepLink: '/x',
   actorUserId: null, visibility: 'organization' as const,
   createdAt: '2026-04-15T00:00:00Z', updatedAt: '2026-04-15T00:00:00Z',
+  ...overrides,
+});
+
+const makeAlertItem = (overrides: Partial<PanelItem> = {}): PanelItem => ({
+  kind: 'alert',
+  id: '11111111-1111-1111-1111-111111111111',
+  alertKind: 'operation',
+  status: 'running',
+  severity: 'info',
+  type: 'internal:rules',
+  title: '작업 실행 중',
+  message: null,
+  targetType: null,
+  targetId: null,
+  operationKey: 'op-1',
+  sourceType: 'agent_run_request',
+  sourceId: '22222222-2222-2222-2222-222222222222',
+  isRead: false,
+  actionTaskId: null,
+  actorUserId: null,
+  href: null,
+  progress: null,
+  metadata: {},
+  readAt: null,
+  startedAt: '2026-04-15T00:00:00.000Z',
+  finishedAt: null,
+  createdAt: '2026-04-15T00:00:00.000Z',
   ...overrides,
 });
 
@@ -50,7 +78,34 @@ describe('panel-store', () => {
     store.getState().upsertItem(makeItem({ id: '1', seq: 1, status: 'pending' }));
     store.getState().upsertItem(makeItem({ id: '2', seq: 2, status: 'running' }));
     store.getState().upsertItem(makeItem({ id: '3', seq: 3, status: 'succeeded' }));
-    expect(store.getState().runningCount()).toBe(2);
+    store.getState().upsertItem(makeAlertItem({ id: '11111111-1111-1111-1111-111111111112' }));
+    store.getState().upsertItem(
+      makeAlertItem({
+        id: '11111111-1111-1111-1111-111111111113',
+        alertKind: 'signal',
+      }),
+    );
+    store.getState().upsertItem(
+      makeAlertItem({
+        id: '11111111-1111-1111-1111-111111111114',
+        status: 'succeeded',
+      }),
+    );
+    expect(store.getState().runningCount()).toBe(3);
+  });
+
+  it('unreadCount counts unread alerts and failed runs', () => {
+    store.getState().upsertItem(makeItem({ id: '1', seq: 1, status: 'failed' }));
+    store.getState().upsertItem(makeItem({ id: '2', seq: 2, status: 'succeeded' }));
+    store.getState().upsertItem(makeAlertItem({ id: '11111111-1111-1111-1111-111111111112' }));
+    store.getState().upsertItem(
+      makeAlertItem({
+        id: '11111111-1111-1111-1111-111111111113',
+        isRead: true,
+      }),
+    );
+
+    expect(store.getState().unreadCount()).toBe(2);
   });
 
   it('applyEvent dispatches by type', () => {

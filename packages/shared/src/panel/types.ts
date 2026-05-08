@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { PanelRunSourceSchema } from './sources.js';
+import { AlertKindSchema, AlertStatusSchema } from '../schemas/alerts.js';
 
 const PanelItemBase = z.object({
   id: z.string(),
@@ -30,32 +31,33 @@ export const PanelRunItem = PanelItemBase.extend({
 });
 
 // panel/types.ts: PanelAlertItem — panel SSE stream projection.
-// 포함 필드: kind/id/severity/type/title/message/targetType/targetId/isRead/actionTaskId/actorUserId/createdAt.
-// (Plan B2c.dashboard T9, BREAKING — was `productId`; DB schema has `targetType + targetId`)
 //
-// Alert 테이블 매핑:
-//   id → Alert.id
-//   severity → Alert.severity (flat string — ADR-0011 Rule 3, domain owner controls vocab)
-//   type → Alert.type (flat string — future namespacing is a future ADR concern)
-//   title → Alert.title
-//   message → Alert.message (nullable)
-//   targetType → Alert.targetType (nullable) — polymorphic target discriminator ('product' | 'master' | ...)
-//   targetId → Alert.targetId (nullable uuid) — polymorphic target FK
-//   isRead → Alert.isRead
-//   createdAt → Alert.createdAt (ISO serialized)
-//   actorUserId — Alert 테이블에 actor 컬럼 없음 → adapter에서 항상 null로 채워짐 (PR2b 한정)
+// `kind` is the panel discriminant and must stay literal "alert". The DB
+// ledger kind (`Alert.kind`) is exposed as `alertKind` to avoid colliding with
+// `PanelItem = run | alert`.
 export const PanelAlertItem = z.object({
   kind: z.literal('alert'),
   id: z.string().uuid(),
+  alertKind: AlertKindSchema,
+  status: AlertStatusSchema,
   severity: z.string(), // flat string — Alert.severity 분포는 future-proof
   type: z.string(), // flat string — 'internal:rules' 같은 namespacing 미스코프 (future ADR)
   title: z.string(),
   message: z.string().nullable(),
   targetType: z.string().nullable(),
   targetId: z.string().uuid().nullable(),
+  operationKey: z.string().nullable(),
+  sourceType: z.string().nullable(),
+  sourceId: z.string().nullable(),
   isRead: z.boolean(),
   actionTaskId: z.string().uuid().nullable(),
-  actorUserId: z.string().uuid().nullable(), // Alert는 actor 컬럼 없음 → 항상 null (PR2b 한정)
+  actorUserId: z.string().uuid().nullable(),
+  href: z.string().nullable(),
+  progress: z.number().min(0).max(1).nullable(),
+  metadata: z.record(z.unknown()),
+  readAt: z.string().datetime().nullable(),
+  startedAt: z.string().datetime().nullable(),
+  finishedAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
 });
 

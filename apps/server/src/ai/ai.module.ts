@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { StorageService } from '../common/storage/storage.service';
 import { ChannelsModule } from '../channels/channels.module';
 import { AgentOsModule } from '../agent-os/agent-os.module';
+import { AutomationModule } from '../automation/automation.module';
 
 // adapter/in/http
 import { ImageAiController } from './adapter/in/http/image-ai.controller';
@@ -51,7 +52,7 @@ import { TEXT_COMPLETION_PORT } from './application/port/out/text-completion.por
 import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.port';
 
 @Module({
-  imports: [ChannelsModule, AgentOsModule],
+  imports: [ChannelsModule, AgentOsModule, AutomationModule],
   controllers: [
     CoupangImageSyncController,
     DetailPageAiController,

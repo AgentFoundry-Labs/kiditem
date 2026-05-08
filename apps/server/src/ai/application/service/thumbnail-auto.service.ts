@@ -45,18 +45,31 @@ export class ThumbnailAutoService {
 
   async runBatch(
     organizationId: string,
+    triggeredByUserId: string | null,
     limit = 30,
   ): Promise<AutoBatchResult & { requestId?: string; runId?: string; status?: string }> {
+    // No cohort-level alert here. The previous implementation marked a cohort
+    // alert as `succeeded` immediately after `createAutoBatch()`, which only
+    // performs `setImmediate(processEditJob)` per job — the actual work was
+    // still running or could later fail. Users saw a misleading "completed"
+    // banner. Per-generation operation alerts (now created for every method,
+    // including `auto`) are the source of truth for completion. The cohort
+    // identity is captured by the AgentRunRequest itself.
     const runner = await this.agentRunner.runByType(AGENT_TYPE, {
       organizationId,
       sourceType: 'ai.thumbnail_auto_edit',
       reason: `thumbnail-auto batch limit=${limit}`,
-      payload: { limit },
+      payload: { limit, triggeredByUserId },
     });
 
     this.requireRunnerOk(runner, 'ai.thumbnail_auto_edit');
 
-    const result = await this.generationService.createAutoBatch(organizationId, limit);
+    const result = await this.generationService.createAutoBatch(
+      organizationId,
+      limit,
+      triggeredByUserId,
+    );
+
     return {
       ...result,
       requestId: runner.requestId,

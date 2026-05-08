@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Bell, X } from 'lucide-react';
-import { usePanelStore } from './lib/panel-store';
+import { isActivePanelItem, usePanelStore } from './lib/panel-store';
 import { PanelItemRow } from './PanelItemRow';
 import { useAuth } from '@/hooks/useAuth';
 import type { PanelItem } from '@kiditem/shared/panel';
@@ -32,8 +32,8 @@ export function PanelSheet() {
   return (
     <Dialog.Root open={isOpen} onOpenChange={setOpen}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-black/10" />
-        <Dialog.Content className="fixed right-0 top-0 h-full w-96 bg-white border-l border-slate-200 shadow-xl flex flex-col">
+        <Dialog.Overlay className="fixed inset-0 z-[100] bg-black/10" />
+        <Dialog.Content className="fixed right-0 top-0 z-[110] h-full w-96 bg-white border-l border-slate-200 shadow-xl flex flex-col">
           <div className="flex items-center justify-between px-4 py-3.5 border-b border-slate-200">
             <Dialog.Title className="text-sm font-semibold text-slate-900 flex items-center gap-2">
               <Bell className="w-4 h-4 text-slate-500" />
@@ -100,8 +100,7 @@ function partitionByStatus(items: PanelItem[]) {
   const recent: PanelItem[] = [];
   let runningCount = 0;
   for (const item of items) {
-    const isActive = item.kind === 'run' && (item.status === 'pending' || item.status === 'running');
-    if (isActive) {
+    if (isActivePanelItem(item)) {
       active.push(item);
       runningCount++;
     } else {

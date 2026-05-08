@@ -39,15 +39,26 @@ const makeRunItem = (id: string, actorUserId: string | null, status: 'running' |
 const makeAlertItem = (id: string): PanelItem => ({
   kind: 'alert',
   id,
+  alertKind: 'signal',
+  status: 'open',
   severity: 'warning',
   type: 'internal:rules',
   title: `알림 ${id}`,
   message: null,
   targetType: null,
   targetId: null,
+  operationKey: null,
+  sourceType: null,
+  sourceId: null,
   isRead: false,
   actionTaskId: null,
   actorUserId: null, // alerts always null
+  href: null,
+  progress: null,
+  metadata: {},
+  readAt: null,
+  startedAt: null,
+  finishedAt: null,
   createdAt: '2026-04-15T00:00:00Z',
 });
 
@@ -102,5 +113,43 @@ describe('PanelSheet my/team split', () => {
     seedStore([makeRunItem('wf-3', MY_USER_ID)]);
     render(<PanelSheet />);
     expect(screen.queryByText('팀')).not.toBeInTheDocument();
+  });
+});
+
+describe('PanelSheet active count', () => {
+  beforeEach(() => {
+    mockUser.value = { id: MY_USER_ID };
+    usePanelStore.setState({ byId: {}, isOpen: true, connectionStatus: 'connected' });
+  });
+  afterEach(() => {
+    mockUser.value = null;
+    usePanelStore.setState({ byId: {}, isOpen: false });
+  });
+
+  const makeOperationAlert = (
+    id: string,
+    status: 'running' | 'succeeded' | 'failed',
+  ): PanelItem => ({
+    ...makeAlertItem(id),
+    alertKind: 'operation',
+    status,
+  });
+
+  it('counts running operation alerts in the header progress badge', () => {
+    seedStore([
+      makeRunItem('wf-1', MY_USER_ID, 'running'),
+      makeOperationAlert('op-1', 'running'),
+      makeOperationAlert('op-2', 'succeeded'), // not active
+    ]);
+    render(<PanelSheet />);
+    // 1 running run + 1 running operation alert = 2 active
+    expect(screen.getByText('2 진행')).toBeInTheDocument();
+  });
+
+  it('signal alerts never count as active', () => {
+    seedStore([makeAlertItem('signal-1')]);
+    render(<PanelSheet />);
+    // signal alerts → recent only, no progress badge shown
+    expect(screen.queryByText(/진행$/)).not.toBeInTheDocument();
   });
 });

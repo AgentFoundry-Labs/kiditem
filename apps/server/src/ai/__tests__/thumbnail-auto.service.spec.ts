@@ -33,7 +33,7 @@ function makeService(runnerResult: AgentRunnerResult) {
 }
 
 describe('ThumbnailAutoService', () => {
-  it('delegates to Agent OS runByType and returns the runner runId/status', async () => {
+  it('delegates to Agent OS runByType, threads triggeredByUserId, and returns runner ids', async () => {
     const { service, runner, generationService } = makeService({
       ok: true,
       runId: 'run-1',
@@ -42,17 +42,20 @@ describe('ThumbnailAutoService', () => {
       status: 'running',
     });
 
-    const result = await service.runBatch(ORGANIZATION_ID, 5);
+    const result = await service.runBatch(ORGANIZATION_ID, 'user-1', 5);
 
     expect(runner.runByType).toHaveBeenCalledWith(
       'thumbnail_auto_edit',
       expect.objectContaining({
         organizationId: ORGANIZATION_ID,
         sourceType: 'ai.thumbnail_auto_edit',
-        payload: { limit: 5 },
+        payload: expect.objectContaining({ limit: 5, triggeredByUserId: 'user-1' }),
       }),
     );
-    expect(generationService.createAutoBatch).toHaveBeenCalledWith(ORGANIZATION_ID, 5);
+    // Per-generation operation alerts now own completion tracking — runBatch
+    // forwards the actor through createAutoBatch instead of opening a cohort
+    // alert that would lie about completion (see PR #209 review).
+    expect(generationService.createAutoBatch).toHaveBeenCalledWith(ORGANIZATION_ID, 5, 'user-1');
     expect(result).toEqual({
       ...batchResult,
       requestId: 'request-1',
@@ -69,7 +72,7 @@ describe('ThumbnailAutoService', () => {
       status: 'requires_approval',
     });
 
-    const result = await service.runBatch(ORGANIZATION_ID, 5);
+    const result = await service.runBatch(ORGANIZATION_ID, null, 5);
 
     expect(result.requestId).toBe('request-only');
     expect(result.runId).toBeUndefined();
@@ -83,7 +86,7 @@ describe('ThumbnailAutoService', () => {
       reason: 'agent_instance_not_found',
     });
 
-    await expect(service.runBatch(ORGANIZATION_ID, 5)).rejects.toThrow(
+    await expect(service.runBatch(ORGANIZATION_ID, 'user-1', 5)).rejects.toThrow(
       /agent_instance_not_found/,
     );
     expect(generationService.createAutoBatch).not.toHaveBeenCalled();

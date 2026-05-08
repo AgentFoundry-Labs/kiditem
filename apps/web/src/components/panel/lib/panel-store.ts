@@ -3,6 +3,23 @@ import type { PanelItem, PanelEvent } from '@kiditem/shared/panel';
 
 const PANEL_OPEN_LS_KEY = 'kiditem.panel.open';
 
+export function isActivePanelItem(item: PanelItem): boolean {
+  if (item.kind === 'run') {
+    return item.status === 'pending' || item.status === 'running';
+  }
+  return (
+    item.alertKind === 'operation' &&
+    (item.status === 'pending' || item.status === 'running')
+  );
+}
+
+export function isUnreadPanelItem(item: PanelItem): boolean {
+  if (item.kind === 'alert') {
+    return !item.isRead;
+  }
+  return item.status === 'failed';
+}
+
 const readOpenFromStorage = (): boolean => {
   if (typeof window === 'undefined') return false;
   try {
@@ -30,6 +47,7 @@ interface PanelStoreState {
   // 매 렌더 새 레퍼런스로 useSyncExternalStore infinite loop 유발. 필요하면
   // 컴포넌트가 byId 구독 + useMemo로 파생.
   runningCount: () => number;
+  unreadCount: () => number;
 }
 
 export const createPanelStore = () => create<PanelStoreState>((set, get) => ({
@@ -93,7 +111,10 @@ export const createPanelStore = () => create<PanelStoreState>((set, get) => ({
   setConnectionStatus: (connectionStatus) => set({ connectionStatus }),
 
   runningCount: () =>
-    Object.values(get().byId).filter((i) => i.kind === 'run' && (i.status === 'pending' || i.status === 'running')).length,
+    Object.values(get().byId).filter(isActivePanelItem).length,
+
+  unreadCount: () =>
+    Object.values(get().byId).filter(isUnreadPanelItem).length,
 }));
 
 export const usePanelStore = createPanelStore();

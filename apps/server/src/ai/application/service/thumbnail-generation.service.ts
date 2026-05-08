@@ -10,6 +10,7 @@ import type {
   ThumbnailGenerationListResponse,
 } from '@kiditem/shared/ai';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { OperationAlertService } from '../../../automation/application/service/operation-alert.service';
 import {
   ThumbnailEditorAiService,
 } from './thumbnail-editor-ai.service';
@@ -74,7 +75,16 @@ export class ThumbnailGenerationService {
     private readonly prisma: PrismaService,
     private readonly editorAiService: ThumbnailEditorAiService,
     private readonly trackingService: ThumbnailTrackingService,
+    private readonly operationAlerts: OperationAlertService,
   ) {}
+
+  private editJobOperationKey(generationId: string): string {
+    return `thumbnail-edit:${generationId}`;
+  }
+
+  private thumbnailGenerationHref(generationId: string): string {
+    return `/thumbnails?generationId=${encodeURIComponent(generationId)}`;
+  }
 
   async findProductForEditor(
     productId: string,
@@ -167,6 +177,8 @@ export class ThumbnailGenerationService {
   async skipGeneration(id: string, organizationId: string): Promise<ThumbnailGenerationItem> {
     await this.assertGenerationOwned(id, organizationId);
     await markGenerationCancelled(this.prisma, id, organizationId);
+    // No-op when the generation never opened an alert (e.g. auto-batch).
+    await this.operationAlerts.cancel(organizationId, this.editJobOperationKey(id));
     return this.findOne(id, organizationId);
   }
 
@@ -203,6 +215,7 @@ export class ThumbnailGenerationService {
     organizationId: string,
     purpose: 'compliance' | 'quality',
     variantKey: 'auto' | 'with-box' | 'no-box' | null,
+    triggeredByUserId: string | null,
     method = 'generate',
   ): Promise<ThumbnailGenerationItem[]> {
     if (productIds.length === 0) return [];
@@ -242,6 +255,26 @@ export class ThumbnailGenerationService {
         },
         editAnalysis,
       });
+
+      // Per-generation alert for every method, including auto-batch. The
+      // earlier "method === 'auto'" gate was dropped because the cohort alert
+      // it relied on was being marked succeeded before background jobs
+      // finished — see review feedback on PR #209. Per-generation alerts are
+      // the source of truth for actual edit-job completion.
+      await this.operationAlerts.start({
+        organizationId,
+        operationKey: this.editJobOperationKey(generation.id),
+        type: 'thumbnail_edit_job',
+        title: `${method === 'auto' ? '썸네일 자동 재편집' : '썸네일 편집'}: ${product.name}`,
+        sourceType: 'thumbnail_generation',
+        sourceId: generation.id,
+        actorUserId: triggeredByUserId,
+        targetType: 'master',
+        targetId: product.id,
+        href: this.thumbnailGenerationHref(generation.id),
+        metadata: { method, purpose, variantKey: variantKey ?? 'auto' },
+      });
+
       this.scheduleEditJob(generation.id, organizationId, purpose, variantKey);
       items.push(toThumbnailGenerationItem(generation, product));
     }
@@ -253,9 +286,33 @@ export class ThumbnailGenerationService {
     organizationId: string,
     purpose: 'compliance' | 'quality',
     variantKey: 'auto' | 'with-box' | 'no-box' | null,
+    triggeredByUserId: string | null,
   ): Promise<{ ok: true }> {
-    await this.assertGenerationOwned(id, organizationId);
+    const existing = await this.prisma.thumbnailGeneration.findFirst({
+      where: { id, organizationId },
+      select: { id: true, masterId: true, method: true },
+    });
+    if (!existing) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
+
     await resetGenerationForReEdit(this.prisma, { id, organizationId, purpose, variantKey });
+
+    // Re-open the operation alert. `start()` is idempotent on the
+    // (organizationId, operationKey) tuple — a previous failed/succeeded
+    // alert flips back to running, fresh runs create a new row.
+    await this.operationAlerts.start({
+      organizationId,
+      operationKey: this.editJobOperationKey(id),
+      type: 'thumbnail_edit_job',
+      title: '썸네일 재편집',
+      sourceType: 'thumbnail_generation',
+      sourceId: id,
+      actorUserId: triggeredByUserId,
+      targetType: 'master',
+      targetId: existing.masterId,
+      href: this.thumbnailGenerationHref(id),
+      metadata: { method: existing.method, purpose, variantKey: variantKey ?? 'auto', retry: true },
+    });
+
     this.scheduleEditJob(id, organizationId, purpose, variantKey);
     return { ok: true };
   }
@@ -372,16 +429,30 @@ export class ThumbnailGenerationService {
         inputMeta,
         editAnalysis: toEditAnalysis(analysis),
       });
+
+      // Operation alert succeed — no-op for auto-batch (no per-generation alert
+      // was opened) and for unrelated lifecycles where the alert is missing.
+      await this.operationAlerts.succeed(
+        organizationId,
+        this.editJobOperationKey(id),
+        { metadata: { candidateCount: candidates.length } },
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(`편집 처리 실패 (${id}): ${message}`);
       await markGenerationFailed(this.prisma, id, organizationId, message);
+      await this.operationAlerts.fail(
+        organizationId,
+        this.editJobOperationKey(id),
+        { message },
+      );
     }
   }
 
   async createAutoBatch(
     organizationId: string,
     limit = 30,
+    triggeredByUserId: string | null = null,
   ): Promise<{
     attempted: number;
     succeeded: number;
@@ -403,7 +474,14 @@ export class ThumbnailGenerationService {
         continue;
       }
       try {
-        const [item] = await this.createEditJobs([product.id], organizationId, 'compliance', 'auto', 'auto');
+        const [item] = await this.createEditJobs(
+          [product.id],
+          organizationId,
+          'compliance',
+          'auto',
+          triggeredByUserId,
+          'auto',
+        );
         runs.push({ ok: true, productId: product.id, generationId: item?.id ?? null });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

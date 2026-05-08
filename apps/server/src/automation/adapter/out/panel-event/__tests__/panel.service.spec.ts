@@ -10,6 +10,8 @@ describe('PanelService', () => {
   beforeEach(async () => {
     prisma = {
       workflowRun: { findMany: vi.fn().mockResolvedValue([]) },
+      thumbnailGeneration: { findMany: vi.fn().mockResolvedValue([]) },
+      alert: { findMany: vi.fn().mockResolvedValue([]) },
     };
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -70,6 +72,26 @@ describe('PanelService', () => {
         take: 100,
         orderBy: { createdAt: 'desc' },
         include: { template: { select: { name: true } } },
+      }),
+    );
+  });
+
+  it('alert findMany scopes by organizationId and includes long-running operation alerts beyond 24h', async () => {
+    await service.snapshot('co-1', 'user-a');
+    expect(prisma.alert.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          organizationId: 'co-1',
+          OR: expect.arrayContaining([
+            expect.objectContaining({
+              createdAt: expect.objectContaining({ gte: expect.any(Date) }),
+            }),
+            {
+              kind: 'operation',
+              status: { in: ['pending', 'running'] },
+            },
+          ]),
+        }),
       }),
     );
   });

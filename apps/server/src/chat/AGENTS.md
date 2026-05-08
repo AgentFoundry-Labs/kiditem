@@ -22,11 +22,34 @@ chat/
   - `POST /api/chat` — NestJS controller (간단 endpoint)
   - `POST /api/chat/copilot/*` — CopilotKit Hono router (multi-turn agent orchestration)
 
+### Browser-facing path = same-origin rewrite
+
+브라우저는 `NEXT_PUBLIC_API_URL` / `API_BASE` 로 chat runtime 을 직접 호출하지
+않는다. `apps/web/next.config.mjs` rewrites 가 `/api/chat/copilot` 및
+`/api/chat/copilot/:path*` 를 backend base 로 보낸다. 그래서 같은 origin 의
+Supabase SSR auth-token cookie 가 그대로 따라오고 cross-origin CORS preflight
+는 발생하지 않는다. 이 규약 때문에 chat 전용 CORS helper 는 두지 않는다 —
+`app.enableCors` 의 일반 화이트리스트가 server→server 호출만 커버하면 된다.
+
 ### Express pre-registration (NestJS 우회)
 
 `main.ts:24` — `expressApp.use('/api/chat/copilot', ...)` 가 NestFactory **이전에** 등록됨.
 
 이유: CopilotKit 내부 Hono router 가 `/info`, `/...` 등 sub-route 를 가지는데, NestJS `@All('copilot')` exact-match 가 가로채면 sub-route 못 갂. URL 패치 (`req.url = req.originalUrl`, line 31) 로 Express prefix strip 보정.
+
+Raw chat handler 는 Nest middleware 앞에 등록되므로 cookie session 을 읽으려면
+**`expressApp.use(cookieParser())` 가 raw route 등록 전에 호출돼 있어야 한다**.
+이 줄을 옮기거나 제거하지 말 것 — `SupabaseAuthMiddleware` 가 cookie 에서
+access token 을 끄집어내는 단일 진입점이다.
+
+또한 raw route 앞에 **`expressApp.use('/api/chat/copilot', express.json(...))`** 가
+반드시 등록돼 있어야 한다. CopilotKit v2 single-route helper 는 내부적으로
+`request.clone().json()` 을 호출하는데, IncomingMessage 를 ReadableStream 으로
+래핑한 Web Request 에서 이 호출이 `Invalid JSON payload (400)` 로 실패한다 (Node
+fetch 의 streaming clone 한계). bodyParser 가 먼저 돌면 `req.body` 가 채워지고
+CopilotKit 의 `synthesizeBodyFromParsedBody` 가 buffered body 로 새 Web Request 를
+재구성해 정상 파싱된다. 이 줄을 없애면 chat runtime 의 `info` 호출조차 400 으로
+떨어진다.
 
 ### ClaudeCliAdapter 등록 (chat.service.ts:34)
 

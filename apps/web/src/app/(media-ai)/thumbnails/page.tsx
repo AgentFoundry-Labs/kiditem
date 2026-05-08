@@ -1,23 +1,20 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
-import type { ThumbnailAnalysisResult, ThumbnailGenerationItem } from '@kiditem/shared/ai';
-
 import { ErrorState, EmptyState } from '@/components/ui/EmptyState';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { isApplied, isReady } from '../_shared/lib/thumbnail-status';
 import { pickDisplayableImageUrl } from '@/lib/resolve-url';
-
-import { useAnalysisList } from './hooks/useThumbnailAnalysis';
+import { isApplied, isReady } from '../_shared/lib/thumbnail-status';
 import { useGenerationList } from '../_shared/hooks/useThumbnailGenerations';
+import { DetailModal } from '../_shared/components/thumbnails/DetailModal';
+import { useAnalysisList } from './hooks/useThumbnailAnalysis';
 import { useTrackingList } from './hooks/useThumbnailTracking';
 import { useBatchAnalysis } from './hooks/useBatchAnalysis';
 import { useThumbnailActions } from './hooks/useThumbnailActions';
 import { useCoupangImageSync } from './hooks/useCoupangImageSync';
-
-import { DetailModal } from '../_shared/components/thumbnails/DetailModal';
 import { InspectionDrawer } from './components/InspectionDrawer';
 import { ThumbnailHeader } from './components/ThumbnailHeader';
 import { BatchProgressBanner } from './components/BatchProgressBanner';
@@ -33,8 +30,13 @@ import { ScanResultsTab } from './components/ScanResultsTab';
 import { AiEditTab } from './components/AiEditTab';
 import { HistoryTab } from './components/HistoryTab';
 import { getEffectiveComplianceGrade, needsThumbnailFix } from './lib/thumbnail-classification';
+import type { ThumbnailAnalysisResult, ThumbnailGenerationItem } from '@kiditem/shared/ai';
 
 export default function ThumbnailsPage() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const deepLinkGenerationId = searchParams.get('generationId');
   const analysisQuery = useAnalysisList();
   const generationQuery = useGenerationList();
   const trackingQuery = useTrackingList();
@@ -56,6 +58,7 @@ export default function ThumbnailsPage() {
   const [historyPage, setHistoryPage] = useState(1);
   const [unclassifiedPage, setUnclassifiedPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+  const handledDeepLinkRef = useRef<string | null>(null);
 
   // AI Action Center "AI 편집" 클릭 시 확인 다이얼로그.
   // 이전 동작: 클릭 즉시 N건 일괄 mutation 발화 (LLM 비용 + 큐 점유). KPI 타일이 탭 이동처럼
@@ -171,6 +174,36 @@ export default function ThumbnailsPage() {
       latest.selectedUrl !== selectedGen.selectedUrl;
     if (changed) setSelectedGen(latest);
   }, [generations, selectedGen]);
+
+  useEffect(() => {
+    if (!deepLinkGenerationId) return;
+    if (handledDeepLinkRef.current === deepLinkGenerationId) return;
+
+    const generation = generations.find((g) => g.id === deepLinkGenerationId);
+    if (!generation) return;
+
+    handledDeepLinkRef.current = deepLinkGenerationId;
+    setSelectedProduct(null);
+    setSelectedGen(generation);
+    if (isApplied(generation)) {
+      setActiveTab('history');
+      setHistorySubTab('history');
+    } else {
+      setActiveTab('ai-edit');
+    }
+  }, [deepLinkGenerationId, generations]);
+
+  const closeDetailModal = () => {
+    setSelectedProduct(null);
+    setSelectedGen(null);
+    if (!deepLinkGenerationId) return;
+
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete('generationId');
+    const query = next.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    handledDeepLinkRef.current = null;
+  };
 
   const genByProductId = useMemo(() => {
     const map = new Map<string, ThumbnailGenerationItem>();
@@ -628,10 +661,7 @@ export default function ThumbnailsPage() {
           isAiAnalyzing={selectedProduct ? actions.aiAnalyzingId === selectedProduct.productId : false}
           imageSpec={selectedProduct?.imageSpec ?? null}
           generatedProductIds={generatedProductIds}
-          onClose={() => {
-            setSelectedProduct(null);
-            setSelectedGen(null);
-          }}
+          onClose={closeDetailModal}
           onAiAnalyze={() => {
             const pid = selectedProduct?.productId ?? selectedGen?.productId;
             if (pid) actions.runAiAnalysis(pid);

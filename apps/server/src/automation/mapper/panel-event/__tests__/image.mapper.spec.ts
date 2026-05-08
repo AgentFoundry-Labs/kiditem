@@ -127,8 +127,8 @@ describe('imagePanelMapper', () => {
     expect(result.success).toBe(true);
   });
 
-  it('deepLink follows /products/:productId/thumbnails/:generationId pattern', () => {
+  it('deepLink opens the thumbnail workspace with the generation selected', () => {
     const item = imagePanelMapper.mapToItem(makeInput(), 'co-1');
-    expect(item.deepLink).toBe(`/products/${MASTER_ID}/thumbnails/${GEN_ID}`);
+    expect(item.deepLink).toBe(`/thumbnails?generationId=${GEN_ID}`);
   });
 });

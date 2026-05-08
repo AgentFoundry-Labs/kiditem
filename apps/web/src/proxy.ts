@@ -9,9 +9,28 @@ import { NextResponse, type NextRequest } from 'next/server';
  */
 const PUBLIC_PATHS = ['/login', '/auth'];
 
+/**
+ * Same-origin transport for the AI chat runtime. The browser hits
+ * `/api/chat/copilot[...]`, Next rewrites it to Nest (see
+ * `apps/web/next.config.mjs`). The proxy must NOT redirect these to
+ * `/login` because the caller is `fetch`/SSE, not a navigation — Nest
+ * already returns JSON `401 auth_required` when the cookie is missing,
+ * which CopilotKit can surface to the user. Returning a 307 to `/login`
+ * here would corrupt the SSE stream and break the chat UI on first
+ * unauthenticated load.
+ */
+const TRANSPORT_BYPASS_PATHS = ['/api/chat/copilot'];
+
 export async function proxy(req: NextRequest) {
   const path = req.nextUrl.pathname;
   const isPublic = PUBLIC_PATHS.some((p) => path === p || path.startsWith(`${p}/`));
+  const isTransportBypass = TRANSPORT_BYPASS_PATHS.some(
+    (p) => path === p || path.startsWith(`${p}/`),
+  );
+
+  if (isTransportBypass) {
+    return NextResponse.next();
+  }
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;

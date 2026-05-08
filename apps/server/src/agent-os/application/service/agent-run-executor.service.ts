@@ -1,4 +1,5 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   AGENT_OS_REPOSITORY_PORT,
   type AgentOsRepositoryPort,
@@ -13,6 +14,10 @@ import {
   normalizeAgentErrorMessage,
 } from '../../domain/agent-os.errors';
 import { resolveEffectiveModel } from '../../domain/agent-os.types';
+import {
+  AGENT_RUN_EVENTS,
+  type AgentRunFinalizedEvent,
+} from '../event/agent-run-events';
 
 export interface AgentRunExecutorResult {
   executed: boolean;
@@ -24,12 +29,47 @@ export interface AgentRunExecutorResult {
 
 @Injectable()
 export class AgentRunExecutor {
+  private readonly logger = new Logger(AgentRunExecutor.name);
+
   constructor(
     @Inject(AGENT_OS_REPOSITORY_PORT)
     private readonly repository: AgentOsRepositoryPort,
     @Inject(AGENT_RUNTIME_PORT)
     private readonly runtime: AgentRuntimePort,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
+
+  private emitFinalized(event: AgentRunFinalizedEvent): void {
+    try {
+      this.eventEmitter.emit(AGENT_RUN_EVENTS.FINALIZED, event);
+    } catch (err) {
+      // Bus emit must never poison the executor — listeners are observability
+      // (operation-alert bridge etc.). Worst case the alert stays running and
+      // the user dismisses it manually.
+      const target = event.runId
+        ? `run ${event.runId}`
+        : `request ${event.requestId}`;
+      this.logger.warn(
+        `Failed to emit ${AGENT_RUN_EVENTS.FINALIZED} for ${target}: ${err}`,
+      );
+    }
+  }
+
+  private async failBeforeRun(input: {
+    organizationId: string;
+    requestId: string;
+    errorCode: string;
+    errorMessage: string;
+  }): Promise<void> {
+    await this.repository.failClaimedRequest(input);
+    this.emitFinalized({
+      organizationId: input.organizationId,
+      requestId: input.requestId,
+      status: 'failed',
+      errorCode: input.errorCode,
+      errorMessage: input.errorMessage,
+    });
+  }
 
   async executeNext(
     workerId: string,
@@ -53,7 +93,7 @@ export class AgentRunExecutor {
       id: claimed.agentInstanceId,
     });
     if (!instance) {
-      await this.repository.failClaimedRequest({
+      await this.failBeforeRun({
         organizationId: claimed.organizationId,
         requestId: claimed.id,
         errorCode: 'agent_instance_missing',
@@ -68,7 +108,7 @@ export class AgentRunExecutor {
 
     const blueprint = await this.repository.findBlueprintByType(instance.type);
     if (!blueprint) {
-      await this.repository.failClaimedRequest({
+      await this.failBeforeRun({
         organizationId: claimed.organizationId,
         requestId: claimed.id,
         errorCode: 'blueprint_missing',
@@ -92,7 +132,7 @@ export class AgentRunExecutor {
       requestOverride: requestModelOverride,
     });
     if (!model) {
-      await this.repository.failClaimedRequest({
+      await this.failBeforeRun({
         organizationId: claimed.organizationId,
         requestId: claimed.id,
         errorCode: 'model_required',
@@ -177,6 +217,14 @@ export class AgentRunExecutor {
         },
       });
 
+      this.emitFinalized({
+        organizationId: run.organizationId,
+        requestId: claimed.id,
+        runId: run.id,
+        status: 'succeeded',
+        output: result.output,
+      });
+
       return { executed: true, requestId: claimed.id, runId: run.id };
     } catch (error) {
       const errorCode = normalizeAgentErrorCode(error);
@@ -205,6 +253,16 @@ export class AgentRunExecutor {
         await this.repository.markRequestStatus({
           organizationId: claimed.organizationId,
           requestId: claimed.id,
+          status: 'failed',
+          errorCode,
+          errorMessage,
+        });
+        // Emit FINALIZED only when the request itself is terminal — retries
+        // (status: 'pending') will run again and emit on their final attempt.
+        this.emitFinalized({
+          organizationId: claimed.organizationId,
+          requestId: claimed.id,
+          runId: run.id,
           status: 'failed',
           errorCode,
           errorMessage,

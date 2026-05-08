@@ -12,11 +12,30 @@ import type { Alert } from '@prisma/client';
 import { PanelAlertItem } from '@kiditem/shared/panel';
 
 // Compile-time drift guard — if Alert model loses one of these fields, tsc fails.
-// actorUserId is NOT in Alert (no actor column) — intentionally excluded.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 type _PanelAlertItemDrift = Pick<
   Alert,
-  'id' | 'severity' | 'type' | 'title' | 'message' | 'targetType' | 'targetId' | 'isRead'
+  | 'id'
+  | 'kind'
+  | 'status'
+  | 'severity'
+  | 'type'
+  | 'title'
+  | 'message'
+  | 'targetType'
+  | 'targetId'
+  | 'operationKey'
+  | 'sourceType'
+  | 'sourceId'
+  | 'isRead'
+  | 'actionTaskId'
+  | 'actorUserId'
+  | 'href'
+  | 'progress'
+  | 'metadata'
+  | 'readAt'
+  | 'startedAt'
+  | 'finishedAt'
 > extends Record<string, unknown>
   ? true
   : never;
@@ -29,15 +48,26 @@ describe('PanelAlertItem drift detection', () => {
     const alertLike = {
       kind: 'alert' as const,
       id: ALERT_ID,
+      alertKind: 'signal',
+      status: 'open',
       severity: 'warning',
       type: 'internal:stock',
       title: 'Stock low',
       message: null,
       targetType: null,
       targetId: null,
+      operationKey: null,
+      sourceType: null,
+      sourceId: null,
       isRead: false,
       actionTaskId: null,
       actorUserId: null,
+      href: null,
+      progress: null,
+      metadata: {},
+      readAt: null,
+      startedAt: null,
+      finishedAt: null,
       createdAt: '2026-04-15T00:00:00Z',
     };
     const result = PanelAlertItem.parse(alertLike);
@@ -57,15 +87,26 @@ describe('PanelAlertItem drift detection', () => {
     const alertLike = {
       kind: 'alert' as const,
       id: ALERT_ID,
+      alertKind: 'operation',
+      status: 'failed',
       severity: 'critical',
       type: 'rule:margin',
       title: 'Margin too low',
       message: 'Margin is below 10%',
       targetType: 'master',
       targetId: TARGET_ID,
+      operationKey: `rule:margin:${ALERT_ID}`,
+      sourceType: 'business_rule',
+      sourceId: ALERT_ID,
       isRead: true,
       actionTaskId: null,
       actorUserId: null,
+      href: '/products',
+      progress: null,
+      metadata: { rule: 'margin' },
+      readAt: '2026-04-15T12:00:00Z',
+      startedAt: '2026-04-15T12:00:00Z',
+      finishedAt: '2026-04-15T12:00:01Z',
       createdAt: '2026-04-15T12:00:00Z',
     };
     const result = PanelAlertItem.parse(alertLike);

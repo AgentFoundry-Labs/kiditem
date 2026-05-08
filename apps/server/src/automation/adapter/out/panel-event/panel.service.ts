@@ -93,12 +93,23 @@ export class PanelService {
       this.logger.warn('Image source backfill failed', err);
     }
 
-    // ── Alert source (recent 24h alerts) ──
+    // ── Alert source ──
+    // Recent (last 24h) alerts of any kind PLUS still-active operation
+    // alerts regardless of age. Without the second OR branch, a
+    // long-running operation older than 24h drops off the panel after
+    // reload even though the work is still in flight (review feedback on
+    // PR #209).
     try {
       const alerts = await this.prisma.alert.findMany({
         where: {
           organizationId,
-          createdAt: { gte: twentyFourHoursAgo },
+          OR: [
+            { createdAt: { gte: twentyFourHoursAgo } },
+            {
+              kind: 'operation',
+              status: { in: ['pending', 'running'] },
+            },
+          ],
         },
         orderBy: { createdAt: 'desc' },
         take: 100,

@@ -35,6 +35,7 @@ erDiagram
     String status
     Int retryCount
     String errorMessage
+    String triggeredByUserId FK
     DateTime createdAt
     DateTime updatedAt
   }
@@ -169,6 +170,7 @@ erDiagram
 |---|---|---|---|---|
 | ContentGeneration | master | references external | Core | MasterProduct |
 | ContentGeneration | organization | references external | Core | Organization |
+| ContentGeneration | triggeredByUser | references external | Core | User |
 | Thumbnail | listing | references external | Core | ChannelListing |
 | Thumbnail | organization | references external | Core | Organization |
 | ThumbnailAnalysis | master | references external | Core | MasterProduct |

@@ -45,7 +45,7 @@ export const imagePanelMapper: PanelRunMapper<ImageAdapterInput> = {
       phase: generation.phase ?? null,
       failureType: null, // image source doesn't use failureType
       title: product.title,
-      deepLink: `/products/${product.id}/thumbnails/${generation.id}`,
+      deepLink: `/thumbnails?generationId=${encodeURIComponent(generation.id)}`,
       actorUserId: generation.triggeredByUserId ?? null,
       visibility: imagePanelMapper.defaultVisibility(input),
       createdAt: generation.createdAt.toISOString(),

@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { z } from 'zod';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { OperationAlertService } from '../../../automation/application/service/operation-alert.service';
 import {
   DetailPageGenerationSchema,
   SINGLE_CALL_SYSTEM,
@@ -108,6 +109,7 @@ export class DetailPageAiService {
     private readonly textCompletion: TextCompletionPort,
     @Inject(IMAGE_STORAGE_PORT)
     private readonly imageStorage: ImageStoragePort,
+    private readonly operationAlerts: OperationAlertService,
     @Optional()
     private readonly heroImageService?: DetailPageHeroImageService,
   ) {}
@@ -173,6 +175,7 @@ export class DetailPageAiService {
   async generate(
     dto: GenerateDetailPageBodyDto,
     organizationId: string,
+    triggeredByUserId: string | null,
   ): Promise<DetailPageGenerationDto> {
     const model = process.env.AI_TEXT_MODEL;
     if (!model) {
@@ -210,6 +213,7 @@ export class DetailPageAiService {
         data: {
           organizationId,
           masterId: dto.productId,
+          triggeredByUserId,
           originalImages: imageUrls,
           processedImages: {},
           generatedTitle: dto.rawTitle.slice(0, 80),
@@ -221,6 +225,23 @@ export class DetailPageAiService {
           }),
           status: 'PROCESSING',
         },
+      });
+
+      // Operation alert: surface the running detail-page generation in the
+      // dashboard notification ledger so the user can track progress.
+      const operationKey = `detail-page:${row.id}`;
+      await this.operationAlerts.start({
+        organizationId,
+        operationKey,
+        type: 'detail_page_generation',
+        title: `상세페이지 생성: ${dto.rawTitle.slice(0, 40)}`,
+        sourceType: 'content_generation',
+        sourceId: row.id,
+        actorUserId: triggeredByUserId,
+        targetType: 'master',
+        targetId: dto.productId,
+        href: `/product-hub/${dto.productId}`,
+        metadata: { templateId, imageCount: imageUrls.length },
       });
 
       try {
@@ -256,6 +277,13 @@ export class DetailPageAiService {
           },
         });
 
+        await this.operationAlerts.succeed(organizationId, operationKey, {
+          metadata: {
+            generatedTitle: productName,
+            heroImageCount: Object.keys(processedImages).length,
+          },
+        });
+
         return this.toDto({
           ...row,
           generatedTitle: productName,
@@ -265,12 +293,17 @@ export class DetailPageAiService {
           errorMessage: null,
         });
       } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : '상세페이지 생성 실패';
         await this.prisma.contentGeneration.updateMany({
           where: { id: row.id, organizationId },
           data: {
             status: 'FAILED',
-            errorMessage: err instanceof Error ? err.message : '상세페이지 생성 실패',
+            errorMessage,
           },
+        });
+        await this.operationAlerts.fail(organizationId, operationKey, {
+          message: errorMessage,
+          metadata: { templateId },
         });
         throw err;
       }

@@ -1,7 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import { Info, AlertTriangle, AlertCircle, XCircle, Bell } from 'lucide-react';
+import Link from 'next/link';
+import {
+  Info, AlertTriangle, AlertCircle, XCircle, Bell,
+  Loader2, CheckCircle2, Ban, ExternalLink,
+} from 'lucide-react';
 import { cn, timeAgo } from '@/lib/utils';
 import { PromoteToTaskModal } from './PromoteToTaskModal';
 import type { PanelAlertItem } from '@kiditem/shared/panel';
@@ -16,9 +20,50 @@ function severityIcon(severity: string) {
   }
 }
 
+/**
+ * Operation status badge config.
+ *
+ * Operation alerts (Alert.kind = 'operation') represent user-triggered
+ * long-running work — the lifecycle ledger introduced in PR #209.
+ * `signal` alerts (broadcast warnings/info) skip this badge entirely.
+ */
+function operationStatusBadge(status: string): { label: string; className: string; Icon: typeof Loader2 } | null {
+  switch (status) {
+    case 'running':
+    case 'pending':
+      return {
+        label: status === 'pending' ? '대기 중' : '진행 중',
+        className: 'bg-blue-50 text-blue-600',
+        Icon: Loader2,
+      };
+    case 'succeeded':
+      return { label: '완료', className: 'bg-emerald-50 text-emerald-600', Icon: CheckCircle2 };
+    case 'failed':
+      return { label: '실패', className: 'bg-red-50 text-red-600', Icon: XCircle };
+    case 'cancelled':
+      return { label: '취소', className: 'bg-slate-100 text-slate-500', Icon: Ban };
+    case 'resolved':
+      return { label: '해결', className: 'bg-slate-100 text-slate-500', Icon: CheckCircle2 };
+    default:
+      return null;
+  }
+}
+
 export function PanelAlertRow({ item }: { item: PanelAlertItem }) {
   const { Icon, colorClass } = severityIcon(item.severity);
   const [modalOpen, setModalOpen] = useState(false);
+
+  const isOperation = item.alertKind === 'operation';
+  const badge = isOperation ? operationStatusBadge(item.status) : null;
+  const showProgress =
+    isOperation &&
+    (item.status === 'running' || item.status === 'pending') &&
+    typeof item.progress === 'number';
+  // Promote-to-task only makes sense for terminal/open signals or terminal
+  // operations. Surfacing it on a still-running operation would create an
+  // orphaned task whose context (success/fail/cancel) is not yet known.
+  const canPromote =
+    item.actionTaskId == null && (!isOperation || item.status !== 'running');
 
   return (
     <>
@@ -38,12 +83,60 @@ export function PanelAlertRow({ item }: { item: PanelAlertItem }) {
               <span className="w-2 h-2 bg-blue-500 rounded-full shrink-0 mt-1" aria-label="읽지 않음" />
             )}
           </div>
+          {badge && (
+            <div className="mt-1 flex items-center gap-1.5">
+              <span
+                className={cn(
+                  'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium',
+                  badge.className,
+                )}
+                aria-label={`상태: ${badge.label}`}
+              >
+                <badge.Icon
+                  className={cn(
+                    'w-3 h-3',
+                    item.status === 'running' && 'animate-spin',
+                  )}
+                />
+                {badge.label}
+              </span>
+              {item.sourceType && (
+                <span className="text-[10px] text-slate-400">{item.sourceType}</span>
+              )}
+            </div>
+          )}
+          {showProgress && (
+            <div
+              className="mt-1 h-1 w-full bg-slate-100 rounded overflow-hidden"
+              role="progressbar"
+              aria-valuenow={Math.round((item.progress ?? 0) * 100)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+            >
+              <div
+                className="h-full bg-blue-500 transition-[width]"
+                style={{ width: `${Math.max(0, Math.min(1, item.progress ?? 0)) * 100}%` }}
+              />
+            </div>
+          )}
           {item.message && (
             <div className="text-xs text-slate-500 mt-0.5 truncate">{item.message}</div>
           )}
           <div className="flex items-center justify-between gap-2 mt-0.5">
-            <div className="text-xs text-slate-400">{timeAgo(item.createdAt)}</div>
-            {item.actionTaskId == null ? (
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="text-xs text-slate-400">{timeAgo(item.createdAt)}</div>
+              {item.href && (
+                <Link
+                  href={item.href}
+                  className="inline-flex items-center gap-0.5 text-xs text-purple-600 hover:underline"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <span>이동</span>
+                  <ExternalLink className="w-3 h-3" />
+                </Link>
+              )}
+            </div>
+            {canPromote ? (
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); setModalOpen(true); }}
@@ -55,11 +148,11 @@ export function PanelAlertRow({ item }: { item: PanelAlertItem }) {
               >
                 할 일로 만들기
               </button>
-            ) : (
+            ) : item.actionTaskId != null ? (
               <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
                 ← 할 일 목록에 있음
               </span>
-            )}
+            ) : null}
           </div>
         </div>
       </div>

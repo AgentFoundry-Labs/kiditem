@@ -9,6 +9,8 @@ import {
 } from '@nestjs/common';
 import { RulesService } from '../services/rules.service';
 import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
+import { CurrentUser } from '../../auth/decorators/current-user.decorator';
+import type { AuthUser } from '../../auth/auth.types';
 import { ListRulesQueryDto, UpdateRuleBodyDto } from '../dto';
 
 @Controller('rules')
@@ -16,8 +18,11 @@ export class RulesController {
   constructor(private readonly rulesService: RulesService) {}
 
   @Post('evaluate')
-  async evaluate(@CurrentOrganization() organizationId: string) {
-    return this.rulesService.evaluateAll(organizationId);
+  async evaluate(
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.rulesService.evaluateAll(organizationId, user.id);
   }
 
   @Get('evaluate/status/:requestId')
@@ -39,8 +44,11 @@ export class RulesController {
   }
 
   @Get('suggest-thresholds')
-  async suggestThresholds(@CurrentOrganization() organizationId: string) {
-    return this.rulesService.suggestThresholds(organizationId);
+  async suggestThresholds(
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.rulesService.suggestThresholds(organizationId, user.id);
   }
 
   @Patch(':id')
