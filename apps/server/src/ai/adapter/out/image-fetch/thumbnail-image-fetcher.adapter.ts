@@ -9,12 +9,16 @@ import {
   MAX_REDIRECTS,
   ThumbnailImageSourceError,
 } from '../../../domain/thumbnail-image-source';
+import { PublicUrlError } from '../../../../common/security/public-url';
 import { StorageService } from '../../../../common/storage/storage.service';
 
 export { MAX_FETCH_BYTES, MAX_REDIRECTS } from '../../../domain/thumbnail-image-source';
 
 function asBadRequest(error: unknown): never {
-  if (error instanceof ThumbnailImageSourceError) {
+  // URL guards now throw `PublicUrlError` (shared with products domain);
+  // MIME / data-URL guards still throw `ThumbnailImageSourceError`. Both must
+  // surface as 400 BadRequest at the HTTP boundary.
+  if (error instanceof ThumbnailImageSourceError || error instanceof PublicUrlError) {
     throw new BadRequestException(error.message);
   }
   throw error;
