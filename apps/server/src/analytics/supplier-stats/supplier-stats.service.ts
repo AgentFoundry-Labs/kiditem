@@ -32,6 +32,18 @@ type OptionOrderStats = {
   totalRevenue: number;
 };
 
+type SupplierPaymentHistoryRow = {
+  amount: number;
+  paidAmount?: number | null;
+  status: string;
+};
+
+function settledSupplierPaymentAmount(payment: SupplierPaymentHistoryRow): number {
+  const paidAmount = payment.paidAmount ?? 0;
+  if (paidAmount > 0) return paidAmount;
+  return payment.status === 'paid' ? payment.amount : 0;
+}
+
 function summarizeSupplierSales(items: SupplierSalesRow[]): SupplierSalesReport['summary'] {
   return items.reduce<SupplierSalesReport['summary']>(
     (summary, item) => ({
@@ -304,14 +316,17 @@ export class SupplierStatsService {
         status: po.status,
         description: `발주 #${po.id.slice(0, 8)} - ${po.supplierName}`,
       })),
-      ...payments.map((p) => ({
-        type: 'payment' as const,
-        id: p.id,
-        date: p.createdAt,
-        amount: p.paidAmount ?? p.amount,
-        status: p.status,
-        description: p.notes ?? `결제 ${(p.paidAmount ?? p.amount).toLocaleString()}원`,
-      })),
+      ...payments.map((p) => {
+        const settled = settledSupplierPaymentAmount(p);
+        return {
+          type: 'payment' as const,
+          id: p.id,
+          date: p.createdAt,
+          amount: settled,
+          status: p.status,
+          description: p.notes ?? `결제 ${settled.toLocaleString()}원`,
+        };
+      }),
     ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     return {

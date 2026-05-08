@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Download, Plus, Trash2, ExternalLink, Loader2, X } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
+import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
 import { cn } from '@/lib/utils';
 
@@ -23,25 +24,10 @@ interface ScrapeResult {
   error?: string;
 }
 
-function sendToExtension(id: string, message: any): Promise<any> {
-  return new Promise((resolve, reject) => {
-    try {
-      const chrome = (window as any).chrome;
-      if (!chrome?.runtime?.sendMessage) {
-        reject(new Error('Chrome API 미지원'));
-        return;
-      }
-      chrome.runtime.sendMessage(id, message, (response: any) => {
-        if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
-          return;
-        }
-        resolve(response);
-      });
-    } catch (e) {
-      reject(e);
-    }
-  });
+interface ScrapeTargetsResponse {
+  success?: boolean;
+  results?: ScrapeResult[];
+  error?: string;
 }
 
 export default function ScrapeCollector({ onComplete }: { onComplete?: () => void }) {
@@ -62,18 +48,14 @@ export default function ScrapeCollector({ onComplete }: { onComplete?: () => voi
 
   const findExtensionId = useCallback(async (): Promise<string | null> => {
     if (extensionId) return extensionId;
-    const storedId = typeof window !== 'undefined' ? localStorage.getItem('kiditem-ext-id') : null;
-    if (!storedId) { setExtensionStatus('not_found'); return null; }
-    try {
-      const result = await sendToExtension(storedId, { action: 'ping' });
-      if (result?.success) {
-        setExtensionId(storedId);
-        setExtensionStatus('connected');
-        return storedId;
-      }
-    } catch { /* */ }
-    setExtensionStatus('not_found');
-    return null;
+    const detectedExtensionId = await detectExtensionId();
+    if (!detectedExtensionId) {
+      setExtensionStatus('not_found');
+      return null;
+    }
+    setExtensionId(detectedExtensionId);
+    setExtensionStatus('connected');
+    return detectedExtensionId;
   }, [extensionId]);
 
   const openModal = async () => {
@@ -121,10 +103,13 @@ export default function ScrapeCollector({ onComplete }: { onComplete?: () => voi
     }
 
     try {
-      const result = await sendToExtension(eid, {
+      const result = await sendToExtension<ScrapeTargetsResponse>(eid, {
         action: 'scrapeTargets',
         urls: targets.map(t => ({ id: t.id, url: t.url, label: t.label })),
       });
+      if (result.success === false) {
+        throw new Error(result.error ?? '익스텐션 수집 실패');
+      }
       setResults(result.results || []);
       setTimeout(() => {
         queryClient.invalidateQueries({ queryKey: queryKeys.ads.collectStatus() });

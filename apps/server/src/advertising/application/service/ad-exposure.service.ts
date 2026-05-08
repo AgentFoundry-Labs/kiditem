@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { ExposureAnalysisData, ExposureFactorScore, ExposureProductScore, ExposureUrgentAction } from '@kiditem/shared/advertising';
 import type { ExposureScoreInput, TopIssueInput } from '../../domain/model/strategy-types';
-import { toListingSummary } from '../../mapper/ad-listing.mapper';
+import { hydratedListingToSummary } from '../../mapper/ad-listing.mapper';
 
 /**
  * Pure calculator — Exposure analysis (5 score + topIssue + assembly).
@@ -20,7 +20,7 @@ import { toListingSummary } from '../../mapper/ad-listing.mapper';
  *  - traffic.{rev, prevRev, orders} + maxT14 → input.trafficContext
  *  - inv.leadTime + option profitRate → input.fulfillmentContext
  *  - determineTopIssue 는 T1 의 TopIssueInput 형태 (scores only) 로 단순화 — label 기반.
- *  - toListingSummary 는 mapper/ad-listing.mapper import (DRY)
+ *  - hydratedListingToSummary 는 mapper/ad-listing.mapper import (DRY)
  *
  * 5 score weight: sales 0.25 / review 0.2 / ad 0.25 / fulfillment 0.2 / info 0.1 (원본 보존).
  */
@@ -96,7 +96,7 @@ export class AdExposureService {
     ];
 
     return {
-      listing: toListingSummary(listing),
+      listing: hydratedListingToSummary(listing),
       grade: listing.masterProduct.abcGrade,
       factors,
       totalScore,

@@ -7,25 +7,10 @@ import { useCallback, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
+import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
 
-const EXTENSION_ID_KEY = 'kiditem-ext-id';
 const SWEEP_URL = 'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1';
-
-type ChromeRuntime = {
-  runtime?: {
-    sendMessage?: (id: string, msg: unknown, cb: (resp: unknown) => void) => void;
-    lastError?: { message?: string };
-  };
-};
-
-function getChrome(): ChromeRuntime | undefined {
-  return (window as unknown as { chrome?: ChromeRuntime }).chrome;
-}
-
-function sendToExtension(
-  id: string,
-  message: unknown,
-): Promise<{
+type ExtensionMessageResponse = {
   success?: boolean;
   error?: string;
   status?: string;
@@ -38,26 +23,7 @@ function sendToExtension(
   runId?: string;
   startedAt?: number;
   endedAt?: number;
-}> {
-  return new Promise((resolve, reject) => {
-    try {
-      const c = getChrome();
-      if (!c?.runtime?.sendMessage) {
-        reject(new Error('Chrome 익스텐션 API 미지원'));
-        return;
-      }
-      c.runtime.sendMessage(id, message, (response: unknown) => {
-        if (c.runtime?.lastError) {
-          reject(new Error(c.runtime.lastError.message ?? '익스텐션 통신 실패'));
-          return;
-        }
-        resolve(response as { success?: boolean; error?: string });
-      });
-    } catch (e) {
-      reject(e instanceof Error ? e : new Error(String(e)));
-    }
-  });
-}
+};
 
 interface BatchScrapeStatus {
   status?: 'starting' | 'running' | 'done' | 'error' | 'idle' | 'cancelled';
@@ -70,54 +36,6 @@ interface BatchScrapeStatus {
   startedAt?: number;
   endedAt?: number;
   cancelled?: boolean;
-}
-
-async function detectExtensionId(): Promise<string | null> {
-  if (typeof window === 'undefined') return null;
-
-  const tryPing = async (id: string): Promise<boolean> => {
-    try {
-      const r = await sendToExtension(id, { action: 'ping' });
-      return !!r?.success;
-    } catch {
-      return false;
-    }
-  };
-
-  const stored = localStorage.getItem(EXTENSION_ID_KEY);
-  if (stored && (await tryPing(stored))) return stored;
-
-  const fromHandshake = await new Promise<string | null>((resolve) => {
-    let done = false;
-    const onMsg = (ev: MessageEvent) => {
-      const data = ev.data as { type?: string; extensionId?: string } | null;
-      if (!data || data.type !== 'kiditem:ext-id' || !data.extensionId) return;
-      if (done) return;
-      done = true;
-      window.removeEventListener('message', onMsg);
-      try {
-        localStorage.setItem(EXTENSION_ID_KEY, data.extensionId);
-      } catch {
-        /* noop */
-      }
-      resolve(data.extensionId);
-    };
-    window.addEventListener('message', onMsg);
-    try {
-      window.postMessage({ type: 'kiditem:request-ext-id' }, window.location.origin);
-    } catch {
-      /* noop */
-    }
-    setTimeout(() => {
-      if (done) return;
-      done = true;
-      window.removeEventListener('message', onMsg);
-      resolve(null);
-    }, 1200);
-  });
-
-  if (fromHandshake && (await tryPing(fromHandshake))) return fromHandshake;
-  return null;
 }
 
 interface UseAdSyncOptions {
@@ -157,12 +75,12 @@ export function useAdSync({ onComplete }: UseAdSyncOptions = {}) {
       }
 
       cancelRef.current = async () => {
-        await sendToExtension(eid, { action: 'cancelBatchScrape', runId });
+        await sendToExtension<ExtensionMessageResponse>(eid, { action: 'cancelBatchScrape', runId });
         setStatus((prev) => ({ ...(prev ?? {}), runId, status: 'cancelled', cancelled: true }));
         toast.info('광고 동기화 중단 요청을 보냈습니다');
       };
 
-      const startResp = await sendToExtension(eid, {
+      const startResp = await sendToExtension<ExtensionMessageResponse>(eid, {
         action: 'scrapeTargets',
         runId,
         urls: [{ id: 'ad-sync', url: SWEEP_URL, label: '광고동기화 (운영중 캠페인 자동 수집)' }],
@@ -187,7 +105,10 @@ export function useAdSync({ onComplete }: UseAdSyncOptions = {}) {
         const startGraceMs = 15_000;
         const tick = async () => {
           try {
-            const nextStatus = await sendToExtension(eid, { action: 'getBatchScrapeStatus', runId });
+            const nextStatus = await sendToExtension<ExtensionMessageResponse>(eid, {
+              action: 'getBatchScrapeStatus',
+              runId,
+            });
             setStatus(nextStatus as BatchScrapeStatus);
             const statusStartedAt = nextStatus?.startedAt ?? 0;
             const isCurrentRun =

@@ -2,7 +2,6 @@ import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   DashboardAdSummary,
-  DashboardEffectivePeriod,
   AdMetricsDetail,
   IndustryBenchmark,
   DailyAdItem,
@@ -27,6 +26,7 @@ import {
   type CoupangAdsMetrics,
   type WingTrafficMetrics,
 } from '../../adapter/out/repository/wing-traffic-aggregation.repository.adapter';
+import { buildEffectivePeriod } from '../../helpers/effective-period';
 import { pct1, pct2 } from '../../helpers/percent';
 import { kstDayStart } from '../../../../common/kst';
 
@@ -137,7 +137,7 @@ export class DashboardAdService {
         industryBenchmark: this.buildBenchmark(monthlyMetrics, curMonthProfit),
         saving: this.buildSaving(curMonthProfit, prevMonthProfit, monthlyMetrics, monthlyPrev, useCoupangAdsForMonth),
         wingAdData: wingAdSummary !== null ? this.buildWingAdData(wingAdSummary) : null,
-        effectivePeriod: this.buildEffectivePeriod(
+        effectivePeriod: buildEffectivePeriod(
           ctx,
           latestDataDate,
           curMonthProfit,
@@ -392,39 +392,6 @@ export class DashboardAdService {
     } satisfies WingAdSummary;
   }
 
-  private buildEffectivePeriod(
-    ctx: DashboardContext,
-    latestDataDate: Date | null,
-    cur: RangeProfitMetrics,
-    wingCur: WingTrafficMetrics,
-    coupangAds: CoupangAdsMetrics,
-  ): DashboardEffectivePeriod {
-    const orderActive = cur.revenue !== 0 || cur.orderCount > 0;
-    const wingActive = wingCur.hasData;
-    const adsActive = coupangAds.hasData;
-
-    let revenueSource: DashboardEffectivePeriod['revenueSource'] = 'none';
-    if (orderActive && wingActive) revenueSource = 'mixed';
-    else if (orderActive) revenueSource = 'orders';
-    else if (wingActive) revenueSource = 'wing';
-
-    let adSource: DashboardEffectivePeriod['adSource'] = 'none';
-    if (cur.adCost > 0 && adsActive) adSource = 'mixed';
-    else if (cur.adCost > 0) adSource = 'orders';
-    else if (adsActive) adSource = 'coupang_ads';
-
-    return {
-      year: ctx.year,
-      month: ctx.month,
-      label: `${ctx.year}-${String(ctx.month).padStart(2, '0')}`,
-      shifted: ctx.anchorShifted,
-      latestDataDate: latestDataDate
-        ? latestDataDate.toISOString().slice(0, 10)
-        : null,
-      revenueSource,
-      adSource,
-    } satisfies DashboardEffectivePeriod;
-  }
 }
 
 function mergeAdMetrics(

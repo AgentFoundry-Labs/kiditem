@@ -880,5 +880,45 @@ describe('Supplier-stats flow (PG integration)', () => {
       expect(timeline).toHaveLength(1);
       expect(timeline[0].amount).toBe(100);
     });
+
+    it('does not count unpaid zero-paid rows as paid while preserving legacy paid fallback', async () => {
+      const supplier = await prisma.supplier.create({
+        data: { organizationId: TEST_ORGANIZATION_ID, name: 'Payment Status Supplier' },
+      });
+
+      await prisma.supplierPayment.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          supplierId: supplier.id,
+          amount: 1_000,
+          status: 'unpaid',
+        },
+      });
+      await prisma.supplierPayment.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          supplierId: supplier.id,
+          amount: 1_000,
+          paidAmount: 250,
+          status: 'partial',
+        },
+      });
+      await prisma.supplierPayment.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          supplierId: supplier.id,
+          amount: 1_000,
+          status: 'paid',
+        },
+      });
+
+      const report = await service.getHistory(TEST_ORGANIZATION_ID, supplier.id);
+      const byStatus = new Map(report.items.map((item) => [item.status, item]));
+
+      expect(report.summary).toMatchObject({ paymentCount: 3, totalPaid: 1_250 });
+      expect(byStatus.get('unpaid')?.amount).toBe(0);
+      expect(byStatus.get('partial')?.amount).toBe(250);
+      expect(byStatus.get('paid')?.amount).toBe(1_000);
+    });
   });
 });
