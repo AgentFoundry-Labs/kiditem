@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { AdStrategyAction, AdIssues, ChannelStateSignal } from '@kiditem/shared/advertising';
 import type { GradeRulesInput, AdIssuesInput, HydratedListing } from '../../domain/model/strategy-types';
-import { toListingSummary } from '../../mapper/ad-listing.mapper';
+import { hydratedListingToSummary } from '../../mapper/ad-listing.mapper';
 
 type Priority = 'urgent' | 'high' | 'medium' | 'low';
 
@@ -22,7 +22,7 @@ const PRIORITY_ORDER: Record<Priority, number> = {
  * 변경:
  *  - prisma 호출 제거 (input 으로 이동; adGroups = `legacy ad groupBy(['listingId'])` 결과)
  *  - productId → listingId (B2b 도입분)
- *  - toListingSummary 는 mapper/ad-listing.mapper import
+ *  - hydratedListingToSummary 는 mapper/ad-listing.mapper import
  *
  * Threshold 보존: 5000 / 100 / 200 / 300 / 480 / 10000 / 50 / 20 / 0.35 / 3000 (B2b 원본).
  */
@@ -65,7 +65,7 @@ export class AdGradeRulesService {
       const adBudgetLimit = margin > 0 ? margin * 0.35 : 0;
       const stock = primary?.availableStock ?? 0;
       const profitRate = profitRateByListing.get(listing.id) ?? 0;
-      const summary = toListingSummary(listing);
+      const summary = hydratedListingToSummary(listing);
       const name = listing.masterProduct.name;
 
       const recs: Array<{ rule: string; reason: string; priority: Priority }> = [];
@@ -242,7 +242,7 @@ export class AdGradeRulesService {
       const roas = spend > 0 ? Math.round((adRevenue / spend) * 100) : 0;
 
       const grade = gradeMap.get(listing.id) ?? normalizeGrade(listing.masterProduct.abcGrade);
-      const summary = toListingSummary(listing);
+      const summary = hydratedListingToSummary(listing);
 
       if (spend > 0 && conversions === 0) {
         zeroConversion.push({

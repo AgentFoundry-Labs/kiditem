@@ -32,14 +32,6 @@ export function hydratedListingToSummary(listing: HydratedListing): {
 }
 
 /**
- * Backwards-compatible alias retained because three sub-services (ad-grade-rules,
- * ad-exposure, ad-budget-allocator) call it under the original name. The
- * orchestrator side keeps it identical so we don't create churn that masks
- * structural diffs.
- */
-export const toListingSummary = hydratedListingToSummary;
-
-/**
  * Read-model row → AdListingSummary preserving the master meta fields used
  * downstream (abcGrade, adTier, healthScore). Used by hub / campaign /
  * benchmark services that already loaded ScopedAdListingReadModel rows.
@@ -55,11 +47,5 @@ export function scopedListingToSummary(
     option: null,
   };
 }
-
-/**
- * Re-export under the legacy name so consumers that already imported
- * `toAdListingSummary` from the old location continue to compile.
- */
-export const toAdListingSummary = scopedListingToSummary;
 
 export type { AdListingSummary };
