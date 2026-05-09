@@ -18,7 +18,7 @@ function runDevData(args: string[], env: Record<string, string> = {}) {
 }
 
 describe('profile-based dev data workflow', () => {
-  it('exports image sync replay rows for every active Coupang listing sharing a master image', () => {
+  it('exports image sync replay rows from MasterProductImage URLs, not master sourceUrl', () => {
     const result = buildCoupangImageSyncRowsForListings([
       {
         externalId: '200',
@@ -26,7 +26,15 @@ describe('profile-based dev data workflow', () => {
         master: {
           name: '공유 마스터',
           legacyCode: null,
-          sourceUrl: 'https://image.example/shared.jpg',
+          sourceUrl: 'https://wing.coupang.com/product-page',
+          images: [
+            {
+              url: 'https://image.example/shared.jpg',
+              source: 'coupang-wing',
+              isPrimary: true,
+              sortOrder: 0,
+            },
+          ],
           options: [{ legacyCode: 'KIDITEM-1' }],
         },
       },
@@ -36,11 +44,19 @@ describe('profile-based dev data workflow', () => {
         master: {
           name: '공유 마스터',
           legacyCode: null,
-          sourceUrl: 'https://image.example/shared.jpg',
+          sourceUrl: 'https://wing.coupang.com/product-page',
+          images: [
+            {
+              url: 'https://image.example/shared.jpg',
+              source: 'coupang-wing',
+              isPrimary: true,
+              sortOrder: 0,
+            },
+          ],
           options: [{ legacyCode: 'KIDITEM-1' }],
         },
       },
-    ]);
+    ] as never);
 
     expect(result.rows).toEqual([
       {
@@ -56,7 +72,7 @@ describe('profile-based dev data workflow', () => {
         url: 'https://image.example/shared.jpg',
       },
     ]);
-    expect(result.skippedMissingSourceUrl).toBe(0);
+    expect(result.skippedMissingImageUrl).toBe(0);
   });
 
   it('exposes generic dev data scripts', () => {

@@ -14,14 +14,6 @@ import {
   type CoupangInventoryScrapePort,
 } from '../port/out/coupang-inventory-scrape.port';
 import {
-  IMAGE_FETCH_PORT,
-  type ImageFetchPort,
-} from '../port/out/image-fetch.port';
-import {
-  IMAGE_STORAGE_PORT,
-  type ImageStoragePort,
-} from '../port/out/image-storage.port';
-import {
   MASTER_CATALOG_PORT,
   type MasterCatalogPort,
 } from '../port/out/master-catalog.port';
@@ -29,6 +21,7 @@ import {
   COUPANG_IMAGE_RECONCILIATION_PORT,
   type CoupangImageReconciliationPort,
 } from '../port/out/coupang-image-reconciliation.port';
+import { assertPublicHttpUrl } from '../../../common/security/public-url';
 
 export type CoupangImageSyncJobStatus = 'running' | 'done' | 'failed';
 
@@ -37,7 +30,7 @@ export interface CoupangImageSyncJobState {
   organizationId: string;
   actorUserId: string | null;
   status: CoupangImageSyncJobStatus;
-  phase: 'starting' | 'scraping' | 'downloading' | 'finished';
+  phase: 'starting' | 'scraping' | 'linking' | 'finished';
   total: number;
   processed: number;
   succeeded: number;
@@ -53,14 +46,14 @@ const OPERATION_KEY_PREFIX = 'coupang-image-sync:';
 const OPERATION_HREF = '/thumbnails';
 
 /**
- * Coupang Wing 인벤토리 페이지에서 상품 이미지를 스크래핑해서 MasterProduct 의
- * primary image 로 첨부하는 잡을 시작/조회.
+ * Coupang Wing 인벤토리 페이지에서 상품 이미지 URL 을 스크래핑해서
+ * MasterProduct 의 primary image metadata 로 첨부하는 잡을 시작/조회.
  *
  * Architecture (apps/server/AGENTS.md):
  *  - cross-domain `products` 접근은 `MASTER_CATALOG_PORT` 를 통해서만.
  *  - playwriter subprocess + filesystem 의존은 `COUPANG_INVENTORY_SCRAPE_PORT`
  *    뒤에 격리.
- *  - image fetch/storage/prisma reads 는 outbound port 뒤에 격리.
+ *  - 원본 이미지는 외부 URL metadata 로만 연결하고, binary fetch/storage 는 하지 않는다.
  *  - 이 service 는 use-case orchestration 만 담당.
  *
  * Single-instance assumption:
@@ -81,10 +74,6 @@ export class CoupangImageSyncService {
     private readonly scraper: CoupangInventoryScrapePort,
     @Inject(MASTER_CATALOG_PORT)
     private readonly catalog: MasterCatalogPort,
-    @Inject(IMAGE_FETCH_PORT)
-    private readonly imageFetcher: ImageFetchPort,
-    @Inject(IMAGE_STORAGE_PORT)
-    private readonly storage: ImageStoragePort,
     @Inject(COUPANG_IMAGE_RECONCILIATION_PORT)
     private readonly reconciliation: CoupangImageReconciliationPort,
     private readonly operationAlerts: OperationAlertService,
@@ -209,7 +198,7 @@ export class CoupangImageSyncService {
     const targets = await this.filterRowsNeedingImage(organizationId, uniqueRows);
 
     job.total = targets.length;
-    job.phase = 'downloading';
+    job.phase = 'linking';
     void this.notifyAlertProgress(job);
 
     if (job.total === 0) {
@@ -278,7 +267,7 @@ export class CoupangImageSyncService {
         operationKey: this.alertOperationKey(job),
         type: 'coupang_image_sync',
         title: '쿠팡 Wing 이미지 동기화',
-        message: '쿠팡 Wing 인벤토리에서 상품 이미지를 가져오는 중입니다.',
+        message: '쿠팡 Wing 인벤토리에서 상품 이미지 URL을 연결하는 중입니다.',
         sourceType: 'coupang_image_sync',
         sourceId: job.jobId,
         actorUserId: job.actorUserId,
@@ -378,6 +367,8 @@ export class CoupangImageSyncService {
     organizationId: string,
     row: CoupangInventoryRow,
   ): Promise<'synced' | 'unchanged' | 'unmatched'> {
+    assertPublicHttpUrl(row.url);
+
     const handle = await this.catalog.findCoupangMaster({
       organizationId,
       inventoryId: row.inventoryId,
@@ -387,19 +378,13 @@ export class CoupangImageSyncService {
     if (!handle) return 'unmatched';
     if (handle.hasImage) return 'unchanged';
 
-    const fetched = await this.imageFetcher.fetchImage(row.url);
-    const ext = this.imageFetcher.extForMime(fetched.mimeType);
-    const key = `product-images/${handle.masterId}/coupang-${Date.now()}.${ext}`;
-    const publicUrl = await this.storage.save(key, fetched.buffer, fetched.mimeType);
-
     const attached = await this.catalog.attachPrimaryImage({
       organizationId,
       masterId: handle.masterId,
-      storageKey: key,
-      url: publicUrl,
-      mimeType: fetched.mimeType,
-      fileSize: fetched.buffer.length,
-      sourceUrl: row.url,
+      storageKey: null,
+      url: row.url,
+      mimeType: null,
+      fileSize: null,
     });
     return attached ? 'synced' : 'unchanged';
   }

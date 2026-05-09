@@ -5,6 +5,17 @@ import { MasterCatalogAdapter } from '../master-catalog.adapter';
 describe('MasterCatalogAdapter', () => {
   function buildAdapter() {
     const tx = {
+      masterProduct: {
+        findFirst: vi.fn().mockResolvedValue({
+          imageUrl: null,
+          thumbnailUrl: null,
+          images: [],
+        }),
+        updateMany: vi.fn(),
+      },
+      masterProductImage: {
+        create: vi.fn(),
+      },
       channelListing: {
         create: vi.fn(),
       },
@@ -86,5 +97,31 @@ describe('MasterCatalogAdapter', () => {
       masterId: '00000000-0000-0000-0000-00000000a111',
       hasImage: false,
     });
+  });
+
+  it('attaches external Coupang image metadata without treating the CDN URL as the master sourceUrl', async () => {
+    const { adapter, tx } = buildAdapter();
+
+    const attached = await adapter.attachPrimaryImage({
+      organizationId: '00000000-0000-0000-0000-0000000c0001',
+      masterId: '00000000-0000-0000-0000-00000000a111',
+      storageKey: null,
+      url: 'https://thumbnail10.coupangcdn.com/thumbnails/remote/230x230ex/image.jpg',
+      mimeType: null,
+      fileSize: null,
+    } as never);
+
+    expect(attached).toBe(true);
+    expect(tx.masterProductImage.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          storageKey: null,
+          url: 'https://thumbnail10.coupangcdn.com/thumbnails/remote/230x230ex/image.jpg',
+          source: 'coupang-wing',
+        }),
+      }),
+    );
+    const updateCall = tx.masterProduct.updateMany.mock.calls[0]?.[0];
+    expect(updateCall.data).not.toHaveProperty('sourceUrl');
   });
 });

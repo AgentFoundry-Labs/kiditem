@@ -7,9 +7,10 @@ import { createSupabaseBrowserClient } from './supabase/client';
  * Supabase 세션 access token 을 `Authorization: Bearer <token>` 헤더로 첨부.
  * 토큰이 없으면 헤더 없이 요청 → 백엔드에서 401, 미들웨어가 `/login` 리다이렉트.
  *
- * `credentials: 'include'` 는 cross-origin (web:3000 → server:4000) 에서 cookie
- * 전달을 허용한다 — Authorization 헤더가 없는 SSE/EventSource 요청도 같은 cookie
- * 를 사용해 인증한다 (SupabaseAuthMiddleware 가 SSR auth-token cookie session 을 읽음).
+ * `credentials: 'include'` 는 local cross-origin 개발(web:3000 → server:4000)과
+ * staging/prod same-origin `/api/*` routing 양쪽에서 cookie 전달을 일관되게 둔다.
+ * Authorization 헤더가 없는 SSE/EventSource 요청도 같은 cookie 를 사용해 인증한다
+ * (SupabaseAuthMiddleware 가 SSR auth-token cookie session 을 읽음).
  */
 async function getAccessToken(): Promise<string | null> {
   if (typeof window === 'undefined') return null;

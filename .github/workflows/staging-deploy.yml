@@ -1,0 +1,375 @@
+name: Staging Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Deploy this ref, show staging status, or rollback to an existing GHCR tag.
+        type: choice
+        required: true
+        default: deploy
+        options:
+          - deploy
+          - status
+          - rollback
+      image_tag:
+        description: Existing GHCR tag for rollback. Use a git SHA tag, not "staging".
+        required: false
+        type: string
+
+concurrency:
+  group: staging
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  API_IMAGE_BASE: ghcr.io/agentfoundry-labs/kiditem-api
+  WEB_IMAGE_BASE: ghcr.io/agentfoundry-labs/kiditem-web
+
+jobs:
+  build:
+    name: Build and push images
+    if: github.event_name == 'push' || inputs.operation == 'deploy'
+    runs-on: ubuntu-latest
+    environment: staging
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      git_sha: ${{ steps.refs.outputs.git_sha }}
+      api_image_ref: ${{ steps.image_refs.outputs.api_image_ref }}
+      web_image_ref: ${{ steps.image_refs.outputs.web_image_ref }}
+      api_image_tag: ${{ steps.refs.outputs.api_image_tag }}
+      web_image_tag: ${{ steps.refs.outputs.web_image_tag }}
+      api_digest: ${{ steps.build_api.outputs.digest }}
+      web_digest: ${{ steps.build_web.outputs.digest }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Validate staging build variables
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          set -euo pipefail
+          : "${NEXT_PUBLIC_SUPABASE_URL:?Set staging variable NEXT_PUBLIC_SUPABASE_URL}"
+          : "${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:?Set staging variable NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}"
+
+      - name: Compute image references
+        id: refs
+        run: |
+          set -euo pipefail
+          echo "git_sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "api_image_tag=${API_IMAGE_BASE}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "web_image_tag=${WEB_IMAGE_BASE}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: API image metadata
+        id: api_meta
+        uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6
+        with:
+          images: ${{ env.API_IMAGE_BASE }}
+          tags: |
+            type=raw,value=${{ github.sha }}
+            type=raw,value=staging
+          labels: |
+            org.opencontainers.image.title=KidItem Staging API
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Build and push API image
+        id: build_api
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
+        with:
+          context: .
+          file: ./apps/server/Dockerfile
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            INSTALL_CHROMIUM=false
+          tags: ${{ steps.api_meta.outputs.tags }}
+          labels: ${{ steps.api_meta.outputs.labels }}
+          cache-from: type=gha,scope=staging-api
+          cache-to: type=gha,mode=max,scope=staging-api
+
+      - name: Web image metadata
+        id: web_meta
+        uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6
+        with:
+          images: ${{ env.WEB_IMAGE_BASE }}
+          tags: |
+            type=raw,value=${{ github.sha }}
+            type=raw,value=staging
+          labels: |
+            org.opencontainers.image.title=KidItem Staging Web
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Build and push web image
+        id: build_web
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
+        with:
+          context: .
+          file: ./apps/web/Dockerfile
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            NEXT_PUBLIC_API_URL=
+            NEXT_PUBLIC_SUPABASE_URL=${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+            NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+          tags: ${{ steps.web_meta.outputs.tags }}
+          labels: ${{ steps.web_meta.outputs.labels }}
+          cache-from: type=gha,scope=staging-web
+          cache-to: type=gha,mode=max,scope=staging-web
+
+      - name: Emit digest image references
+        id: image_refs
+        env:
+          API_DIGEST: ${{ steps.build_api.outputs.digest }}
+          WEB_DIGEST: ${{ steps.build_web.outputs.digest }}
+        run: |
+          set -euo pipefail
+          echo "api_image_ref=${API_IMAGE_BASE}@${API_DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "web_image_ref=${WEB_IMAGE_BASE}@${WEB_DIGEST}" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    name: Deploy to staging
+    if: github.event_name == 'push' || inputs.operation == 'deploy'
+    needs: build
+    runs-on: ubuntu-latest
+    environment: staging
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Prepare SSH
+        env:
+          STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          STAGING_SSH_KNOWN_HOSTS: ${{ secrets.STAGING_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          : "${STAGING_SSH_KEY:?Set staging secret STAGING_SSH_KEY}"
+          : "${STAGING_SSH_KNOWN_HOSTS:?Set staging secret STAGING_SSH_KNOWN_HOSTS}"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$STAGING_SSH_KEY" > ~/.ssh/kiditem-staging
+          chmod 600 ~/.ssh/kiditem-staging
+          printf '%s\n' "$STAGING_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Sync staging compose assets
+        env:
+          STAGING_HOST: ${{ vars.STAGING_HOST }}
+          STAGING_USER: ${{ vars.STAGING_USER }}
+          STAGING_REMOTE_DIR: ${{ vars.STAGING_REMOTE_DIR }}
+        run: |
+          set -euo pipefail
+          ./deploy/staging/remote-deploy.sh --help >/dev/null
+          : "${STAGING_HOST:?Set staging variable STAGING_HOST}"
+          STAGING_USER="${STAGING_USER:-ubuntu}"
+          STAGING_REMOTE_DIR="${STAGING_REMOTE_DIR:-/opt/kiditem}"
+          case "$STAGING_USER" in (*[!A-Za-z0-9_.-]*|'') echo "Invalid STAGING_USER" >&2; exit 2 ;; esac
+          case "$STAGING_REMOTE_DIR" in (/*) ;; (*) echo "STAGING_REMOTE_DIR must be absolute" >&2; exit 2 ;; esac
+          case "$STAGING_REMOTE_DIR" in (*[!A-Za-z0-9_./-]*) echo "Invalid STAGING_REMOTE_DIR" >&2; exit 2 ;; esac
+          target="${STAGING_USER}@${STAGING_HOST}"
+          remote_dir_q="$(printf '%q' "$STAGING_REMOTE_DIR")"
+          tar -czf - docker-compose.staging.yml deploy/staging/nginx.conf deploy/staging/remote-deploy.sh \
+            | ssh -i ~/.ssh/kiditem-staging "$target" \
+                "mkdir -p ${remote_dir_q} && tar -xzf - -C ${remote_dir_q} && chmod +x ${remote_dir_q}/deploy/staging/remote-deploy.sh"
+
+      - name: Deploy images on EC2
+        env:
+          STAGING_HOST: ${{ vars.STAGING_HOST }}
+          STAGING_USER: ${{ vars.STAGING_USER }}
+          STAGING_REMOTE_DIR: ${{ vars.STAGING_REMOTE_DIR }}
+          STAGING_URL: ${{ vars.STAGING_URL }}
+          GHCR_ACTOR: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KIDITEM_API_IMAGE: ${{ needs.build.outputs.api_image_ref }}
+          KIDITEM_WEB_IMAGE: ${{ needs.build.outputs.web_image_ref }}
+          KIDITEM_API_IMAGE_TAG: ${{ needs.build.outputs.api_image_tag }}
+          KIDITEM_WEB_IMAGE_TAG: ${{ needs.build.outputs.web_image_tag }}
+          API_IMAGE_DIGEST: ${{ needs.build.outputs.api_digest }}
+          WEB_IMAGE_DIGEST: ${{ needs.build.outputs.web_digest }}
+          GIT_SHA: ${{ needs.build.outputs.git_sha }}
+          GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          : "${STAGING_HOST:?Set staging variable STAGING_HOST}"
+          STAGING_USER="${STAGING_USER:-ubuntu}"
+          STAGING_REMOTE_DIR="${STAGING_REMOTE_DIR:-/opt/kiditem}"
+          target="${STAGING_USER}@${STAGING_HOST}"
+          q() { printf '%q' "$1"; }
+          ssh -i ~/.ssh/kiditem-staging "$target" "cd $(q "$STAGING_REMOTE_DIR") && bash -s" <<REMOTE
+          set -euo pipefail
+          export GHCR_ACTOR=$(q "$GHCR_ACTOR")
+          export GHCR_TOKEN=$(q "$GHCR_TOKEN")
+          export KIDITEM_API_IMAGE=$(q "$KIDITEM_API_IMAGE")
+          export KIDITEM_WEB_IMAGE=$(q "$KIDITEM_WEB_IMAGE")
+          export KIDITEM_API_IMAGE_TAG=$(q "$KIDITEM_API_IMAGE_TAG")
+          export KIDITEM_WEB_IMAGE_TAG=$(q "$KIDITEM_WEB_IMAGE_TAG")
+          export API_IMAGE_DIGEST=$(q "$API_IMAGE_DIGEST")
+          export WEB_IMAGE_DIGEST=$(q "$WEB_IMAGE_DIGEST")
+          export GIT_SHA=$(q "$GIT_SHA")
+          export DEPLOY_OPERATION=deploy
+          export STAGING_URL=$(q "${STAGING_URL:-}")
+          export GITHUB_ACTOR=$(q "$GITHUB_ACTOR")
+          export GITHUB_REPOSITORY=$(q "$GITHUB_REPOSITORY")
+          export GITHUB_RUN_ID=$(q "$GITHUB_RUN_ID")
+          export GITHUB_RUN_ATTEMPT=$(q "$GITHUB_RUN_ATTEMPT")
+          export GITHUB_RUN_URL=$(q "$GITHUB_RUN_URL")
+          ./deploy/staging/remote-deploy.sh deploy
+          REMOTE
+
+  rollback:
+    name: Roll back staging
+    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'rollback'
+    runs-on: ubuntu-latest
+    environment: staging
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Prepare SSH
+        env:
+          STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          STAGING_SSH_KNOWN_HOSTS: ${{ secrets.STAGING_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          : "${STAGING_SSH_KEY:?Set staging secret STAGING_SSH_KEY}"
+          : "${STAGING_SSH_KNOWN_HOSTS:?Set staging secret STAGING_SSH_KNOWN_HOSTS}"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$STAGING_SSH_KEY" > ~/.ssh/kiditem-staging
+          chmod 600 ~/.ssh/kiditem-staging
+          printf '%s\n' "$STAGING_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Sync staging compose assets
+        env:
+          STAGING_HOST: ${{ vars.STAGING_HOST }}
+          STAGING_USER: ${{ vars.STAGING_USER }}
+          STAGING_REMOTE_DIR: ${{ vars.STAGING_REMOTE_DIR }}
+        run: |
+          set -euo pipefail
+          : "${STAGING_HOST:?Set staging variable STAGING_HOST}"
+          STAGING_USER="${STAGING_USER:-ubuntu}"
+          STAGING_REMOTE_DIR="${STAGING_REMOTE_DIR:-/opt/kiditem}"
+          case "$STAGING_USER" in (*[!A-Za-z0-9_.-]*|'') echo "Invalid STAGING_USER" >&2; exit 2 ;; esac
+          case "$STAGING_REMOTE_DIR" in (/*) ;; (*) echo "STAGING_REMOTE_DIR must be absolute" >&2; exit 2 ;; esac
+          case "$STAGING_REMOTE_DIR" in (*[!A-Za-z0-9_./-]*) echo "Invalid STAGING_REMOTE_DIR" >&2; exit 2 ;; esac
+          target="${STAGING_USER}@${STAGING_HOST}"
+          remote_dir_q="$(printf '%q' "$STAGING_REMOTE_DIR")"
+          tar -czf - docker-compose.staging.yml deploy/staging/nginx.conf deploy/staging/remote-deploy.sh \
+            | ssh -i ~/.ssh/kiditem-staging "$target" \
+                "mkdir -p ${remote_dir_q} && tar -xzf - -C ${remote_dir_q} && chmod +x ${remote_dir_q}/deploy/staging/remote-deploy.sh"
+
+      - name: Deploy selected rollback tag
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          STAGING_HOST: ${{ vars.STAGING_HOST }}
+          STAGING_USER: ${{ vars.STAGING_USER }}
+          STAGING_REMOTE_DIR: ${{ vars.STAGING_REMOTE_DIR }}
+          STAGING_URL: ${{ vars.STAGING_URL }}
+          GHCR_ACTOR: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          : "${IMAGE_TAG:?image_tag input is required for rollback}"
+          case "$IMAGE_TAG" in (*[!A-Za-z0-9_.-]*|staging) echo "Use an immutable git SHA tag for rollback, not '$IMAGE_TAG'" >&2; exit 2 ;; esac
+          : "${STAGING_HOST:?Set staging variable STAGING_HOST}"
+          STAGING_USER="${STAGING_USER:-ubuntu}"
+          STAGING_REMOTE_DIR="${STAGING_REMOTE_DIR:-/opt/kiditem}"
+          target="${STAGING_USER}@${STAGING_HOST}"
+          q() { printf '%q' "$1"; }
+          API_IMAGE="${API_IMAGE_BASE}:${IMAGE_TAG}"
+          WEB_IMAGE="${WEB_IMAGE_BASE}:${IMAGE_TAG}"
+          ssh -i ~/.ssh/kiditem-staging "$target" "cd $(q "$STAGING_REMOTE_DIR") && bash -s" <<REMOTE
+          set -euo pipefail
+          export GHCR_ACTOR=$(q "$GHCR_ACTOR")
+          export GHCR_TOKEN=$(q "$GHCR_TOKEN")
+          export KIDITEM_API_IMAGE=$(q "$API_IMAGE")
+          export KIDITEM_WEB_IMAGE=$(q "$WEB_IMAGE")
+          export KIDITEM_API_IMAGE_TAG=$(q "$API_IMAGE")
+          export KIDITEM_WEB_IMAGE_TAG=$(q "$WEB_IMAGE")
+          export GIT_SHA=$(q "$IMAGE_TAG")
+          export DEPLOY_OPERATION=rollback
+          export STAGING_URL=$(q "${STAGING_URL:-}")
+          export GITHUB_ACTOR=$(q "$GITHUB_ACTOR")
+          export GITHUB_REPOSITORY=$(q "$GITHUB_REPOSITORY")
+          export GITHUB_RUN_ID=$(q "$GITHUB_RUN_ID")
+          export GITHUB_RUN_ATTEMPT=$(q "$GITHUB_RUN_ATTEMPT")
+          export GITHUB_RUN_URL=$(q "$GITHUB_RUN_URL")
+          ./deploy/staging/remote-deploy.sh deploy
+          REMOTE
+
+  status:
+    name: Show staging status
+    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'status'
+    runs-on: ubuntu-latest
+    environment: staging
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Prepare SSH
+        env:
+          STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          STAGING_SSH_KNOWN_HOSTS: ${{ secrets.STAGING_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          : "${STAGING_SSH_KEY:?Set staging secret STAGING_SSH_KEY}"
+          : "${STAGING_SSH_KNOWN_HOSTS:?Set staging secret STAGING_SSH_KNOWN_HOSTS}"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$STAGING_SSH_KEY" > ~/.ssh/kiditem-staging
+          chmod 600 ~/.ssh/kiditem-staging
+          printf '%s\n' "$STAGING_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Sync staging status script
+        env:
+          STAGING_HOST: ${{ vars.STAGING_HOST }}
+          STAGING_USER: ${{ vars.STAGING_USER }}
+          STAGING_REMOTE_DIR: ${{ vars.STAGING_REMOTE_DIR }}
+        run: |
+          set -euo pipefail
+          : "${STAGING_HOST:?Set staging variable STAGING_HOST}"
+          STAGING_USER="${STAGING_USER:-ubuntu}"
+          STAGING_REMOTE_DIR="${STAGING_REMOTE_DIR:-/opt/kiditem}"
+          case "$STAGING_USER" in (*[!A-Za-z0-9_.-]*|'') echo "Invalid STAGING_USER" >&2; exit 2 ;; esac
+          case "$STAGING_REMOTE_DIR" in (/*) ;; (*) echo "STAGING_REMOTE_DIR must be absolute" >&2; exit 2 ;; esac
+          case "$STAGING_REMOTE_DIR" in (*[!A-Za-z0-9_./-]*) echo "Invalid STAGING_REMOTE_DIR" >&2; exit 2 ;; esac
+          target="${STAGING_USER}@${STAGING_HOST}"
+          remote_dir_q="$(printf '%q' "$STAGING_REMOTE_DIR")"
+          tar -czf - docker-compose.staging.yml deploy/staging/nginx.conf deploy/staging/remote-deploy.sh \
+            | ssh -i ~/.ssh/kiditem-staging "$target" \
+                "mkdir -p ${remote_dir_q} && tar -xzf - -C ${remote_dir_q} && chmod +x ${remote_dir_q}/deploy/staging/remote-deploy.sh"
+
+      - name: Query EC2 status
+        env:
+          STAGING_HOST: ${{ vars.STAGING_HOST }}
+          STAGING_USER: ${{ vars.STAGING_USER }}
+          STAGING_REMOTE_DIR: ${{ vars.STAGING_REMOTE_DIR }}
+        run: |
+          set -euo pipefail
+          : "${STAGING_HOST:?Set staging variable STAGING_HOST}"
+          STAGING_USER="${STAGING_USER:-ubuntu}"
+          STAGING_REMOTE_DIR="${STAGING_REMOTE_DIR:-/opt/kiditem}"
+          q() { printf '%q' "$1"; }
+          ssh -i ~/.ssh/kiditem-staging "${STAGING_USER}@${STAGING_HOST}" \
+            "cd $(q "$STAGING_REMOTE_DIR") && ./deploy/staging/remote-deploy.sh status"

@@ -26,7 +26,7 @@ describe('apiClient.get', () => {
     const result = await apiClient.get('/api/products')
     expect(result).toEqual({ data: 'ok' })
     expect(mockFetch).toHaveBeenCalledWith(
-      'http://localhost:4000/api/products',
+      '/api/products',
       expect.objectContaining({ credentials: 'include' }),
     )
   })

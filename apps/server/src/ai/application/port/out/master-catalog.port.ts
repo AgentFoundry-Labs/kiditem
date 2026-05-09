@@ -40,12 +40,11 @@ export interface CoupangListingImageState {
 export interface AttachPrimaryImageInput {
   organizationId: string;
   masterId: string;
-  storageKey: string;
+  /** Null when the image is an external source URL such as Coupang CDN. */
+  storageKey: string | null;
   url: string;
-  mimeType: string;
-  fileSize: number;
-  /** Coupang Wing 원본 페이지 URL (sourceUrl 갱신용) */
-  sourceUrl: string;
+  mimeType: string | null;
+  fileSize: number | null;
 }
 
 export interface MasterCatalogPort {

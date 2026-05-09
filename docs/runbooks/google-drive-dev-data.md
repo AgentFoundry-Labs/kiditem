@@ -44,8 +44,8 @@ KidItem Dev Data/
 published.
 
 Bundles may include `payloads/coupang-image-sync-from-db.json` when a publisher
-has run Wing image sync. That file stores replayable Wing image rows, not image
-binaries or local object-storage URLs.
+has run Wing image sync. That file stores replayable Wing image rows and
+external Coupang CDN URLs, not image binaries or local object-storage URLs.
 
 ## Agent Setup Steps
 

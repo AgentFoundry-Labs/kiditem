@@ -78,8 +78,9 @@ Rules:
 
    If the same local DB also contains Wing image sync results that should be
    shared, add `--image-sync-from-db`. The script exports replayable rows from
-   `source='coupang-wing'` `MasterProductImage` records into
-   `payloads/coupang-image-sync-from-db.json`.
+   `source='coupang-wing'` `MasterProductImage.url` records into
+   `payloads/coupang-image-sync-from-db.json`. It does not export image
+   binaries or local object-storage URLs.
 
    `data:dev:export` automatically snapshots the project reference files from
    Drive root into the bundle when `KIDITEM_DEV_DATA_DRIVE_DIR` is configured:
