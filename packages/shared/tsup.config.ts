@@ -21,6 +21,7 @@ export default defineConfig({
     'src/supplier-stats.ts',
     'src/channel-dashboard.ts',
     'src/channel-reconciliation.ts',
+    'src/channel-account.ts',
     'src/agent-os.ts',
     'src/workflow.ts',
     'src/common.ts',

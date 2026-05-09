@@ -7,6 +7,7 @@ import {
   COUPANG_PROVIDER_PORT,
   type CoupangProviderPort,
 } from '../application/port/out/coupang-provider.port';
+import { ChannelAccountService } from '../application/service/channel-account.service';
 import {
   makeTestPrisma,
   resetDb,
@@ -23,15 +24,32 @@ describe('Order sync (PG integration)', () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     const coupangPortStub: CoupangProviderPort = {
-      getVendorId: () => 'TEST_VENDOR',
+      getDeliveryCompanies: () => [],
       getSellerProducts: async () => ({ code: 'SUCCESS', message: 'OK' }),
       getSellerProduct: async () => ({ code: 'SUCCESS', message: 'OK' }),
       getOrderSheets: async () => ({ code: 'SUCCESS', message: 'OK' }),
+      confirmOrderSheets: async () => ({}),
+      uploadInvoice: async () => ({}),
+      approveReturn: async () => ({}),
     };
     const m = await Test.createTestingModule({
       providers: [
         ChannelSyncService,
         { provide: PrismaService, useValue: prisma },
+        {
+          provide: ChannelAccountService,
+          useValue: {
+            getCoupangSettings: async () => ({
+              configured: true,
+              vendorId: 'TEST_VENDOR',
+              accessKeyMasked: 'TEST********KEY',
+              hasAccessKey: true,
+              hasSecretKey: true,
+              status: 'active',
+              updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+            }),
+          },
+        },
         { provide: COUPANG_PROVIDER_PORT, useValue: coupangPortStub },
       ],
     }).compile();

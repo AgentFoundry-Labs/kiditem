@@ -10,7 +10,7 @@ npm run build           # Production build
 docker compose up -d    # Run via Docker (from root)
 ```
 
-Env: `.env` → `DATABASE_URL`, `COUPANG_*`, `GEMINI_API_KEY`
+Env: `.env` → `DATABASE_URL`, `CHANNEL_CREDENTIALS_ENCRYPTION_KEY`, `GEMINI_API_KEY`
 
 ## Scoped Instructions
 

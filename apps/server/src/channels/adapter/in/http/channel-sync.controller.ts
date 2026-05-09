@@ -44,8 +44,8 @@ export class ChannelSyncController {
   ) {}
 
   @Get('health')
-  async checkHealth() {
-    return this.syncService.checkHealth();
+  async checkHealth(@CurrentOrganization() organizationId: string) {
+    return this.syncService.checkHealth(organizationId);
   }
 
   @Post('products')

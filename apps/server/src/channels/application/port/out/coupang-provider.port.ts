@@ -90,20 +90,34 @@ export interface OrderSheetResponse {
   }>;
 }
 
+export interface DeliveryCompany {
+  code: string;
+  name: string;
+}
+
 export interface CoupangProviderPort {
-  getVendorId(): string;
-  getSellerProducts(params: {
+  getDeliveryCompanies(): readonly DeliveryCompany[];
+  getSellerProducts(organizationId: string, params: {
     nextToken?: string;
     maxPerPage?: number;
     status?: string;
-    vendorId?: string;
   }): Promise<SellerProductListResponse>;
-  getSellerProduct(sellerProductId: string): Promise<SellerProductDetailResponse>;
-  getOrderSheets(params: {
+  getSellerProduct(organizationId: string, sellerProductId: string): Promise<SellerProductDetailResponse>;
+  getOrderSheets(organizationId: string, params: {
     createdAtFrom: string;
     createdAtTo: string;
     status?: string;
     maxPerPage?: number;
     nextToken?: string;
   }): Promise<OrderSheetResponse>;
+  confirmOrderSheets(organizationId: string, shipmentBoxIds: number[]): Promise<unknown>;
+  uploadInvoice(
+    organizationId: string,
+    shipmentBoxId: number,
+    params: {
+      deliveryCompanyCode: string;
+      invoiceNumber: string;
+    },
+  ): Promise<unknown>;
+  approveReturn(organizationId: string, receiptId: number): Promise<unknown>;
 }

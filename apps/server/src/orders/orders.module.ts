@@ -9,8 +9,10 @@ import { ReviewsController } from './controllers/reviews.controller';
 import { ReviewsService } from './services/reviews.service';
 import { ReturnTransfersController } from './return-transfers/return-transfers.controller';
 import { ReturnTransfersService } from './return-transfers/return-transfers.service';
+import { ChannelsModule } from '../channels/channels.module';
 
 @Module({
+  imports: [ChannelsModule],
   controllers: [
     OrdersController,
     ReturnsController,

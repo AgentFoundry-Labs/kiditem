@@ -1,15 +1,14 @@
-import { coupangRequest, getVendorId } from './coupang-client';
+import { coupangRequest, type CoupangCredentials } from './coupang-client';
 
 // ===== 발주서(주문) =====
 
-export async function getOrderSheets(params: {
+export async function getOrderSheets(credentials: CoupangCredentials, params: {
   createdAtFrom: string;
   createdAtTo: string;
   status?: string;
   maxPerPage?: number;
   nextToken?: string;
 }) {
-  const vendorId = getVendorId();
   const query: Record<string, string> = {
     createdAtFrom: params.createdAtFrom,
     createdAtTo: params.createdAtTo,
@@ -20,33 +19,38 @@ export async function getOrderSheets(params: {
 
   return coupangRequest({
     method: 'GET',
-    path: `/v2/providers/openapi/apis/api/v4/vendors/${vendorId}/ordersheets`,
+    credentials,
+    path: `/v2/providers/openapi/apis/api/v4/vendors/${credentials.vendorId}/ordersheets`,
     query,
   });
 }
 
-export async function confirmOrderSheets(shipmentBoxIds: number[]) {
-  const vendorId = getVendorId();
+export async function confirmOrderSheets(
+  credentials: CoupangCredentials,
+  shipmentBoxIds: number[],
+) {
   return coupangRequest({
     method: 'PUT',
-    path: `/v2/providers/openapi/apis/api/v4/vendors/${vendorId}/ordersheets/acknowledgement`,
+    credentials,
+    path: `/v2/providers/openapi/apis/api/v4/vendors/${credentials.vendorId}/ordersheets/acknowledgement`,
     body: { shipmentBoxIds },
   });
 }
 
 export async function uploadInvoice(
+  credentials: CoupangCredentials,
   shipmentBoxId: number,
   params: {
     deliveryCompanyCode: string;
     invoiceNumber: string;
   },
 ) {
-  const vendorId = getVendorId();
   return coupangRequest({
     method: 'PUT',
-    path: `/v2/providers/openapi/apis/api/v4/vendors/${vendorId}/ordersheets/${shipmentBoxId}/invoiceNumber`,
+    credentials,
+    path: `/v2/providers/openapi/apis/api/v4/vendors/${credentials.vendorId}/ordersheets/${shipmentBoxId}/invoiceNumber`,
     body: {
-      vendorId,
+      vendorId: credentials.vendorId,
       shipmentBoxId,
       deliveryCompanyCode: params.deliveryCompanyCode,
       invoiceNumber: params.invoiceNumber,
@@ -56,11 +60,11 @@ export async function uploadInvoice(
 
 // ===== 반품 =====
 
-export async function approveReturn(receiptId: number) {
-  const vendorId = getVendorId();
+export async function approveReturn(credentials: CoupangCredentials, receiptId: number) {
   return coupangRequest({
     method: 'PUT',
-    path: `/v2/providers/openapi/apis/api/v4/vendors/${vendorId}/returnRequests/${receiptId}/approval`,
+    credentials,
+    path: `/v2/providers/openapi/apis/api/v4/vendors/${credentials.vendorId}/returnRequests/${receiptId}/approval`,
   });
 }
 

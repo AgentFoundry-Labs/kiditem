@@ -66,9 +66,7 @@ Vitest. Keep only infrastructure-critical tests — no implementation detail (wi
 
 ```
 DATABASE_URL=postgresql://kiditem:kiditem@localhost:5433/kiditem
-COUPANG_ACCESS_KEY=         # Coupang Wing API
-COUPANG_SECRET_KEY=
-COUPANG_VENDOR_ID=
+CHANNEL_CREDENTIALS_ENCRYPTION_KEY=  # 32-byte key for encrypted ChannelAccount credentials
 GEMINI_API_KEY=             # Text AI (workflow analysis)
 AI_TEXT_MODEL=gemini-2.5-flash
 AI_IMAGE_ANALYSIS_MODEL=gemini-3.1-flash-lite-preview

@@ -11,6 +11,10 @@ import {
   COUPANG_PROVIDER_PORT,
   type CoupangProviderPort,
 } from '../port/out/coupang-provider.port';
+import {
+  ChannelAccountService,
+  isCoupangCredentialResolutionError,
+} from './channel-account.service';
 import type {
   SyncResult,
   HealthResult,
@@ -75,25 +79,34 @@ export class ChannelSyncService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly channelAccounts: ChannelAccountService,
     @Inject(COUPANG_PROVIDER_PORT) private readonly coupang: CoupangProviderPort,
   ) {}
 
-  async checkHealth(): Promise<HealthResult> {
+  async checkHealth(organizationId: string): Promise<HealthResult> {
     try {
-      const vendorId = this.coupang.getVendorId();
-      const response = await this.coupang.getSellerProducts({
+      const settings = await this.channelAccounts.getCoupangSettings(organizationId);
+      if (!settings.configured) {
+        return {
+          connected: false,
+          vendorId: settings.vendorId ?? '',
+          error: '쿠팡 API 설정이 필요합니다.',
+        };
+      }
+
+      const response = await this.coupang.getSellerProducts(organizationId, {
         maxPerPage: 1,
       });
 
       if (response.code === 'ERROR' || response.code === 'FORBIDDEN') {
         return {
           connected: false,
-          vendorId,
+          vendorId: settings.vendorId ?? '',
           error: response.message || 'API 인증 실패',
         };
       }
 
-      return { connected: true, vendorId };
+      return { connected: true, vendorId: settings.vendorId ?? '' };
     } catch (error: unknown) {
       const message =
         error instanceof Error ? error.message : 'Unknown error';
@@ -133,7 +146,7 @@ export class ChannelSyncService {
 
     try {
       do {
-        const listResponse = await this.coupang.getSellerProducts({
+        const listResponse = await this.coupang.getSellerProducts(organizationId, {
           nextToken,
           maxPerPage: PRODUCT_PAGE_SIZE,
         });
@@ -169,6 +182,7 @@ export class ChannelSyncService {
         );
       }
     } catch (error: unknown) {
+      if (isCoupangCredentialResolutionError(error)) throw error;
       const message = error instanceof Error ? error.message : 'Unknown error';
       result.errors += 1;
       result.details?.push(`Product sync failed: ${message}`);
@@ -203,7 +217,7 @@ export class ChannelSyncService {
       return;
     }
 
-    const detailResponse = await this.coupang.getSellerProduct(sellerProductId);
+    const detailResponse = await this.coupang.getSellerProduct(organizationId, sellerProductId);
     if (detailResponse.code !== 'SUCCESS') {
       throw new Error(
         `detail ${detailResponse.code}: ${detailResponse.message || 'Unknown API error'}`,
@@ -296,7 +310,7 @@ export class ChannelSyncService {
       // Coupang KR market 은 `yyyy-MM-ddTHH:mm:ss+09:00` 포맷 (KST 로컬 + offset) 을 기대한다.
       // 단순 `toISOString().slice(0,19)` (UTC + offset 제거) 로 보내면 Coupang 이 KST 로 해석해
       // 9시간 어긋난 윈도우로 조회됨 (예: KST 09:30 실행 → `00:30` 으로 인식, 00:30~09:30 누락).
-      const response = await this.coupang.getOrderSheets({
+      const response = await this.coupang.getOrderSheets(organizationId, {
         createdAtFrom: formatKstIso(dateFrom),
         createdAtTo: formatKstIso(dateTo),
         maxPerPage: 50,
@@ -327,6 +341,7 @@ export class ChannelSyncService {
         }
       }
     } catch (error: unknown) {
+      if (isCoupangCredentialResolutionError(error)) throw error;
       const message =
         error instanceof Error ? error.message : 'Unknown error';
       result.errors++;
