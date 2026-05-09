@@ -50,6 +50,7 @@ describe('ThumbnailAutoService', () => {
         organizationId: ORGANIZATION_ID,
         sourceType: 'ai.thumbnail_auto_edit',
         payload: expect.objectContaining({ limit: 5, triggeredByUserId: 'user-1' }),
+        requestedByUserId: 'user-1',
       }),
     );
     // Per-generation operation alerts now own completion tracking — runBatch

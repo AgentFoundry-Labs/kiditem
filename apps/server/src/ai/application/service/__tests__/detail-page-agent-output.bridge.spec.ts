@@ -58,6 +58,7 @@ function makeEvent(
     source: 'ai.detail_page_generate',
     sourceResourceType: null,
     sourceResourceId: null,
+    requestedByUserId: null,
     status: 'succeeded',
     output: VALID_BOLD_VERTICAL_OUTPUT,
     ...overrides,

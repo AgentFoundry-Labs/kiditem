@@ -39,6 +39,7 @@ interface ClaimedRoutingMetadata {
   source: string;
   sourceResourceType: string | null;
   sourceResourceId: string | null;
+  requestedByUserId: string | null;
 }
 
 function routingFromClaimed(
@@ -49,6 +50,7 @@ function routingFromClaimed(
     source: claimed.source,
     sourceResourceType: claimed.sourceResourceType,
     sourceResourceId: claimed.sourceResourceId,
+    requestedByUserId: claimed.requestedByUserId,
   };
 }
 

@@ -60,6 +60,7 @@ export class ThumbnailAutoService {
       sourceType: 'ai.thumbnail_auto_edit',
       reason: `thumbnail-auto batch limit=${limit}`,
       payload: { limit, triggeredByUserId },
+      ...(triggeredByUserId ? { requestedByUserId: triggeredByUserId } : {}),
     });
 
     this.requireRunnerOk(runner, 'ai.thumbnail_auto_edit');

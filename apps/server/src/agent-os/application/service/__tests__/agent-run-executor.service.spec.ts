@@ -211,6 +211,7 @@ describe('AgentRunExecutor', () => {
         source: 'rules',
         sourceResourceType: null,
         sourceResourceId: null,
+        requestedByUserId: null,
       }),
     );
   });
@@ -222,6 +223,7 @@ describe('AgentRunExecutor', () => {
         source: 'ai.detail_page_generate',
         sourceResourceType: 'content_generation',
         sourceResourceId: 'cg-42',
+        requestedByUserId: 'user-77',
       }),
       runtimeResult: { output: { ok: true, sample: 'detail-page' } },
     });
@@ -240,6 +242,7 @@ describe('AgentRunExecutor', () => {
         source: 'ai.detail_page_generate',
         sourceResourceType: 'content_generation',
         sourceResourceId: 'cg-42',
+        requestedByUserId: 'user-77',
       }),
     );
   });
@@ -282,6 +285,32 @@ describe('AgentRunExecutor', () => {
         source: 'ai.thumbnail_generate',
         sourceResourceType: 'thumbnail_generation',
         sourceResourceId: 'tg-77',
+        requestedByUserId: null,
+      }),
+    );
+  });
+
+  it('threads requestedByUserId from the claimed request onto the failure event', async () => {
+    const { executor, eventEmitter } = makeExecutor({
+      claimed: makeClaimedRequest({
+        attempts: 1,
+        maxAttempts: 1,
+        agentType: 'rules_evaluation',
+        source: 'rules.evaluation',
+        requestedByUserId: 'user-42',
+      }),
+      runtimeError: new AgentOsRuntimeError('boom', 'kapow'),
+    });
+
+    await executor.executeNext('worker-1', ORGANIZATION_ID);
+
+    expect(eventEmitter.emit).toHaveBeenCalledWith(
+      AGENT_RUN_EVENTS.FINALIZED,
+      expect.objectContaining({
+        status: 'failed',
+        agentType: 'rules_evaluation',
+        source: 'rules.evaluation',
+        requestedByUserId: 'user-42',
       }),
     );
   });
