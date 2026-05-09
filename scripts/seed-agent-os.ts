@@ -86,6 +86,14 @@ const BLUEPRINTS: BlueprintSeed[] = [
     defaultModelEnv: 'AGENT_AD_STRATEGY_MODEL',
   },
   {
+    type: 'sourcing',
+    name: 'Sourcing',
+    description: '소싱 URL 스크래핑/상품 수집 에이전트',
+    promptPath: `${PROMPT_BASE}/sourcing.md`,
+    defaultAdapterType: 'claude_local',
+    defaultModelEnv: 'AGENT_SOURCING_MODEL',
+  },
+  {
     type: 'thumbnail_analyst',
     name: 'Thumbnail Analyst',
     description: '썸네일 컴플라이언스 분석 에이전트',
