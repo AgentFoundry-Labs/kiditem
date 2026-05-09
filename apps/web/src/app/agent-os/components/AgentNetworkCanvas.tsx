@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useRef, useState } from 'react';
-import { Maximize2, Move, ZoomIn, ZoomOut } from 'lucide-react';
+import { Maximize2, Move, Wrench, ZoomIn, ZoomOut } from 'lucide-react';
 import AgentFace from '@/components/AgentFace';
 import { cn } from '@/lib/utils';
 import { CATEGORY_FACE, type OrgNode, type TeamStyle } from '../lib/agent-os-types';
@@ -20,7 +20,7 @@ export function AgentNetworkCanvas({
 }: Props) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [zoom, setZoom] = useState(0.7);
+  const [zoom, setZoom] = useState(0.6);
   const dragRef = useRef<{ startX: number; startY: number; startPanX: number; startPanY: number } | null>(null);
 
   const handleCanvasMouseDown = useCallback((e: React.MouseEvent) => {
@@ -47,7 +47,7 @@ export function AgentNetworkCanvas({
     setZoom(z => Math.min(2.5, Math.max(0.3, z + delta)));
   }, []);
 
-  const resetView = useCallback(() => { setPan({ x: 0, y: 0 }); setZoom(0.7); }, []);
+  const resetView = useCallback(() => { setPan({ x: 0, y: 0 }); setZoom(0.6); }, []);
 
   return (
     <>
@@ -92,7 +92,7 @@ export function AgentNetworkCanvas({
 
           <div className="w-px h-8 bg-gradient-to-b from-violet-500/30 to-white/10" />
 
-          <div className="relative" style={{ width: teams.length * 190 }}>
+          <div className="relative" style={{ width: Math.max(teams.length, 1) * 190 }}>
             <div className="absolute top-0 left-[10%] right-[10%] h-px bg-white/10" />
             <div className="flex justify-between px-[10%]">
               {teams.map(t => {
@@ -102,11 +102,12 @@ export function AgentNetworkCanvas({
             </div>
           </div>
 
-          <div className="flex justify-center gap-3" style={{ width: teams.length * 190 }}>
+          <div className="flex justify-center gap-3" style={{ width: Math.max(teams.length, 1) * 190 }}>
             {teams.map(team => {
               const style = teamStyle[team.category || ''];
               if (!style) return null;
               const teamAgents = team.reports ?? [];
+              const teamTools = team.tools ?? [];
               const taskCount = teamTaskCounts[team.category || ''] ?? 0;
               const TeamIcon = style.icon;
               return (
@@ -119,10 +120,11 @@ export function AgentNetworkCanvas({
                     </div>
                     <div className="flex items-center gap-2 text-[10px] font-mono text-slate-600">
                       <span>{teamAgents.length} agents</span>
+                      {teamTools.length > 0 && <span>{teamTools.length} tools</span>}
                       {taskCount > 0 && <span style={{ color: style.color }}>{taskCount}t</span>}
                     </div>
                   </div>
-                  {teamAgents.length > 0 && <div className="w-px h-3" style={{ background: `${style.color}20` }} />}
+                  {(teamAgents.length > 0 || teamTools.length > 0) && <div className="w-px h-3" style={{ background: `${style.color}20` }} />}
                   <div className="w-full space-y-1.5">
                     {teamAgents.map((agent, idx) => {
                       const isRunning = agent.status === 'running';
@@ -163,6 +165,33 @@ export function AgentNetworkCanvas({
                         </div>
                       );
                     })}
+                    {teamTools.length > 0 && (
+                      <div className={cn('space-y-1', teamAgents.length > 0 && 'pt-1')}>
+                        {teamTools.map(tool => {
+                          const isRunning = tool.status === 'running';
+                          const isSelected = selectedAgent === tool.id;
+                          return (
+                            <button
+                              key={tool.id}
+                              onClick={() => onSelect(tool.id)}
+                              className={cn(
+                                'w-full rounded-md border px-2 py-1.5 text-left transition-all',
+                                isSelected ? 'bg-white/[0.06] ring-1' : 'border-white/[0.05] bg-black/10 hover:bg-white/[0.035]',
+                              )}
+                              style={isSelected ? { borderColor: `${style.color}35`, boxShadow: `0 0 0 1px ${style.color}20` } : undefined}
+                            >
+                              <div className="flex items-center gap-2">
+                                <Wrench size={11} style={{ color: style.color }} />
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-[10px] font-medium text-slate-300 truncate">{tool.name}</div>
+                                </div>
+                                <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', isRunning ? 'bg-emerald-400 animate-pulse' : 'bg-slate-700')} />
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 </div>
               );

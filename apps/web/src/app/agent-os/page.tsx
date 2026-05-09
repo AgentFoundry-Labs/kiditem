@@ -7,7 +7,7 @@ import {
   ChevronLeft, Layers, MoreHorizontal, Radio,
 } from 'lucide-react';
 import { ActionTaskSchema, type ActionTask } from '@kiditem/shared/action-task';
-import type { AgentInstanceSummary, AgentRunSummary } from '@kiditem/shared/agent-os';
+import type { AgentDefinitionSummary, AgentInstanceSummary, AgentRunSummary } from '@kiditem/shared/agent-os';
 import type { DashboardAdSummary, DashboardSalesSummary } from '@kiditem/shared/dashboard';
 import type { PanelItem } from '@kiditem/shared/panel';
 import { apiClient } from '@/lib/api-client';
@@ -29,6 +29,7 @@ import { type OrgNode, useTeamStyle } from './lib/agent-os-types';
 function buildOrgNodes(
   instances: AgentInstanceSummary[],
   runningInstanceIds: Set<string>,
+  definitionsByType: Map<string, AgentDefinitionSummary>,
 ): OrgNode[] {
   const childrenByParent = new Map<string | null, AgentInstanceSummary[]>();
   for (const inst of instances) {
@@ -39,9 +40,12 @@ function buildOrgNodes(
   }
   const buildNode = (inst: AgentInstanceSummary): OrgNode => {
     const reports = (childrenByParent.get(inst.id) ?? []).map(buildNode);
+    const definition = definitionsByType.get(inst.type);
     return {
       id: inst.id,
       name: inst.name,
+      agentType: inst.type,
+      runtimeKind: definition?.runtimeKind ?? 'agent',
       type: inst.role === 'ceo' ? 'manager' : reports.length > 0 ? 'manager' : 'specialist',
       role: inst.role,
       title: inst.title ?? inst.role,
@@ -66,15 +70,23 @@ export default function AgentOSPage() {
     queryFn: () => apiClient.get<AgentInstanceSummary[]>('/api/agent-os/instances'),
     refetchInterval: 30_000,
   });
+  const { data: definitions = [] } = useQuery({
+    queryKey: ['agent-os', 'definitions'],
+    queryFn: () => apiClient.get<AgentDefinitionSummary[]>('/api/agent-os/definitions'),
+    staleTime: 5 * 60_000,
+  });
   const { data: runningRuns = { items: [] as AgentRunSummary[] } } = useQuery({
     queryKey: ['agent-os', 'runs', 'running'],
     queryFn: () => apiClient.get<{ items: AgentRunSummary[] }>('/api/agent-os/runs?status=running&limit=100'),
     refetchInterval: 15_000,
   });
+  const definitionsByType = useMemo(() => {
+    return new Map(definitions.map((definition) => [definition.type, definition]));
+  }, [definitions]);
   const orgNodes = useMemo(() => {
     const runningIds = new Set(runningRuns.items.map((r) => r.agentInstanceId));
-    return buildOrgNodes(instances, runningIds);
-  }, [instances, runningRuns]);
+    return buildOrgNodes(instances, runningIds, definitionsByType);
+  }, [definitionsByType, instances, runningRuns]);
   const { data: actionTasks = [] } = useQuery({
     queryKey: queryKeys.actionTasks.list(),
     queryFn: () => apiClient.get<ActionTask[]>('/api/action-tasks'),
@@ -112,7 +124,19 @@ export default function AgentOSPage() {
   const panelById = usePanelStore((s) => s.byId);
   const panelConnection = usePanelStore((s) => s.connectionStatus);
 
-  const ceo = orgNodes[0];
+  const managerNode = useMemo(() => (
+    orgNodes.find(node => node.agentType === 'manager' || node.runtimeKind === 'coordinator') ?? orgNodes[0]
+  ), [orgNodes]);
+  const ceo = useMemo(() => {
+    if (!managerNode) return undefined;
+    const existingReports = managerNode.reports ?? [];
+    const existingReportIds = new Set(existingReports.map(node => node.id));
+    const rootPeers = orgNodes.filter(node => node.id !== managerNode.id && !existingReportIds.has(node.id));
+    return {
+      ...managerNode,
+      reports: [...existingReports, ...rootPeers],
+    };
+  }, [managerNode, orgNodes]);
   const teams = useMemo<OrgNode[]>(
     () => {
       const directReports = ceo?.reports ?? orgNodes;
@@ -120,29 +144,49 @@ export default function AgentOSPage() {
       if (explicitTeams.length > 0) return explicitTeams;
 
       const grouped = new Map<string, OrgNode[]>();
-      for (const agent of directReports) {
-        if (agent.type === 'team' || agent.role === 'manager' || agent.type === 'manager') continue;
-        const category = classifyAgentCategory(agent);
-        const group = grouped.get(category) ?? [];
-        group.push({ ...agent, category });
-        grouped.set(category, group);
+      const groupedTools = new Map<string, OrgNode[]>();
+      const generatedTeams: OrgNode[] = [];
+      for (const unit of directReports) {
+        if (unit.type === 'team' || unit.role === 'manager' || unit.type === 'manager') continue;
+        const category = classifyAgentCategory(unit);
+        const target = unit.runtimeKind === 'tool_wrapper' ? groupedTools : grouped;
+        const group = target.get(category) ?? [];
+        group.push({ ...unit, category });
+        target.set(category, group);
       }
 
-      const generatedTeams: OrgNode[] = [];
       for (const [category, style] of Object.entries(teamStyle)) {
         const reports = grouped.get(category) ?? [];
-        if (reports.length === 0) continue;
-        const status = reports.some(agent => agent.status === 'running') ? 'running' : 'idle';
+        const tools = groupedTools.get(category) ?? [];
+        if (reports.length === 0 && tools.length === 0) continue;
+        const status = [...reports, ...tools].some(unit => unit.status === 'running') ? 'running' : 'idle';
         generatedTeams.push({
-            id: `team-${category}`,
-            name: style.label,
-            type: 'team',
-            role: 'team',
-            title: style.label,
-            status,
-            category,
-            reports,
-          });
+          id: `team-${category}`,
+          name: style.label,
+          type: 'team',
+          role: 'team',
+          title: style.label,
+          status,
+          category,
+          reports: reports.length > 0 ? reports : undefined,
+          tools: tools.length > 0 ? tools : undefined,
+        });
+      }
+      for (const [category, reports] of grouped) {
+        if (teamStyle[category]) continue;
+        const tools = groupedTools.get(category) ?? [];
+        const status = [...reports, ...tools].some(unit => unit.status === 'running') ? 'running' : 'idle';
+        generatedTeams.push({
+          id: `team-${category}`,
+          name: category,
+          type: 'team',
+          role: 'team',
+          title: category,
+          status,
+          category,
+          reports,
+          tools: tools.length > 0 ? tools : undefined,
+        });
       }
       return generatedTeams;
     },
@@ -152,11 +196,20 @@ export default function AgentOSPage() {
     const byId = new Map<string, OrgNode>();
     for (const agent of flattenNodes(orgNodes)) byId.set(agent.id, agent);
     for (const agent of teams.flatMap(team => team.reports ?? [])) byId.set(agent.id, agent);
+    for (const tool of teams.flatMap(team => team.tools ?? [])) byId.set(tool.id, tool);
     return Array.from(byId.values());
   }, [orgNodes, teams]);
   const agents = useMemo(
     () => teams.flatMap(team => team.reports ?? []),
     [teams],
+  );
+  const executionTools = useMemo(
+    () => teams.flatMap(team => team.tools ?? []),
+    [teams],
+  );
+  const agentRoster = useMemo(
+    () => (ceo && ceo.runtimeKind !== 'tool_wrapper' ? [ceo, ...agents] : agents),
+    [agents, ceo],
   );
 
   const allTeamTasks = useMemo(() => {
@@ -178,12 +231,12 @@ export default function AgentOSPage() {
   }, [allTeamTasks]);
 
   const aiActions = useMemo(() => actionTasks.filter(t => t.type === 'ai'), [actionTasks]);
-  const runningCount = useMemo(() => agents.filter(a => a.status === 'running').length, [agents]);
+  const runningCount = useMemo(() => agentRoster.filter(a => a.status === 'running').length, [agentRoster]);
   const idleCount = useMemo(
-    () => agents.filter(a => a.status !== 'running' && a.lastHeartbeatAt).length,
-    [agents],
+    () => agentRoster.filter(a => a.status !== 'running' && a.lastHeartbeatAt).length,
+    [agentRoster],
   );
-  const offlineCount = useMemo(() => agents.filter(a => !a.lastHeartbeatAt).length, [agents]);
+  const offlineCount = useMemo(() => agentRoster.filter(a => !a.lastHeartbeatAt).length, [agentRoster]);
   const urgentCount = useMemo(() => aiActions.filter(t => t.priority === 'urgent').length, [aiActions]);
 
   const selectedData = selectedAgent ? allAgents.find(a => a.id === selectedAgent) : null;
@@ -255,7 +308,8 @@ export default function AgentOSPage() {
           onSelect={select}
         />
         <AgentsListPanel
-          agents={agents}
+          agents={agentRoster}
+          tools={executionTools}
           teams={teams}
           teamStyle={teamStyle}
           selectedAgent={selectedAgent}
@@ -273,7 +327,8 @@ export default function AgentOSPage() {
       </div>
 
       <AgentOsBottomDashboard
-        totalAgents={agents.length}
+        totalAgents={agentRoster.length}
+        totalTools={executionTools.length}
         runningCount={runningCount}
         idleCount={idleCount}
         offlineCount={offlineCount}

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AlertKindSchema, AlertStatusSchema } from './alerts.js';
 import { zIsoDate } from './common.js';
 
 // ─── Shared building blocks ───────────────────────────────────────────────
@@ -10,14 +11,20 @@ import { zIsoDate } from './common.js';
 // (Plan B2c.dashboard T9, BREAKING — was `productId`; DB schema has `targetType + targetId`)
 export const DashboardAlertItemSchema = z.object({
   id: z.string(),
+  kind: AlertKindSchema,
+  status: AlertStatusSchema,
   type: z.string(),
   severity: z.string(),
   title: z.string(),
   message: z.string().nullable(),
+  sourceType: z.string().nullable().optional(),
+  href: z.string().nullable().optional(),
+  progress: z.number().min(0).max(1).nullable().optional(),
   targetType: z.string().nullable().optional(),
   targetId: z.string().nullable().optional(),
   isRead: z.boolean(),
   createdAt: zIsoDate,
+  updatedAt: zIsoDate.optional(),
 });
 
 export const TopProductSchema = z.object({

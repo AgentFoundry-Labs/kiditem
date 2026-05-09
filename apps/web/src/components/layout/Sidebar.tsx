@@ -145,11 +145,10 @@ const menuSections: MenuSection[] = [
     label: '',
     collapsible: false,
     items: [
-      // `/agent-os` (top-level fullscreen launcher view) 는 별도 entry point —
-      // landing page (`/`) 의 launcher 카드 또는 직접 URL 진입. 사이드바의
-      // "에이전트 관리" 는 `/agents` 도메인의 list/marketplace/workflow admin
-      // 콘솔이라 라벨을 분리해서 두 surface 의 의미 충돌을 막는다.
-      { href: '/agents', label: '에이전트 관리', icon: Bot },
+      // `/agent-os` is the user-facing Agent OS surface. The `/agents`
+      // operations console remains addressable by direct URL for run/request
+      // debugging, but should not be the main user navigation target.
+      { href: '/agent-os', label: 'Agent OS', icon: Bot },
       { href: '/settings', label: '설정', icon: Settings },
     ],
   },
@@ -160,6 +159,7 @@ const adsSubPaths = ['/ads/campaigns', '/ads/strategy', '/ads/benchmark', '/ads/
 function isItemActive(href: string, pathname: string): boolean {
   if (href === '/dashboard') return pathname === '/dashboard';
   if (href === '/agents') return pathname.startsWith('/agents') || pathname.startsWith('/workflows') || pathname.startsWith('/marketplace');
+  if (href === '/agent-os') return pathname.startsWith('/agent-os');
   if (href === '/ads') {
     return pathname === '/ads' ||
       (pathname.startsWith('/ads/') && !adsSubPaths.some(sub => pathname.startsWith(sub)));

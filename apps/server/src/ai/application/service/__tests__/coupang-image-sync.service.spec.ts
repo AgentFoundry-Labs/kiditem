@@ -131,12 +131,20 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
     const reconciliation: CoupangImageReconciliationPort = {
       recordRows: vi.fn(async () => undefined),
     };
+    const operationAlerts = {
+      start: vi.fn(async () => ({ id: 'alert-1' })),
+      progress: vi.fn(async () => null),
+      succeed: vi.fn(async () => null),
+      fail: vi.fn(async () => null),
+      cancel: vi.fn(async () => null),
+    };
     const service = new CoupangImageSyncService(
       scraper,
       catalog,
       imageFetcher,
       storage,
       reconciliation,
+      operationAlerts as any,
     );
     return {
       service,
@@ -145,6 +153,7 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
       storage,
       imageFetcher,
       reconciliation,
+      operationAlerts,
       ensureCalls,
       attachCalls,
     };
@@ -264,6 +273,110 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
     expect(status.unmatched).toBe(1);
     expect(catalog.attachPrimaryImage).toHaveBeenCalledTimes(1);
     expect(imageFetcher.fetchImage).toHaveBeenCalledTimes(1);
+  });
+
+  it('emits operation alert lifecycle for a successful job', async () => {
+    const { service, operationAlerts } = buildService();
+    const { jobId } = service.start(ORG_A, 'user-1');
+    await waitForJob();
+
+    expect(operationAlerts.start).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: ORG_A,
+        operationKey: `coupang-image-sync:${jobId}`,
+        type: 'coupang_image_sync',
+        sourceType: 'coupang_image_sync',
+        sourceId: jobId,
+        actorUserId: 'user-1',
+        href: '/thumbnails',
+      }),
+    );
+    expect(operationAlerts.succeed).toHaveBeenCalledWith(
+      ORG_A,
+      `coupang-image-sync:${jobId}`,
+      expect.objectContaining({
+        metadata: expect.objectContaining({ jobId, total: 2, succeeded: 2 }),
+      }),
+    );
+    expect(operationAlerts.fail).not.toHaveBeenCalled();
+  });
+
+  it('does not close the operation alert before the start call has finished', async () => {
+    const { service, operationAlerts } = buildService();
+    let releaseStart!: () => void;
+    operationAlerts.start.mockImplementationOnce(
+      () => new Promise((resolve) => {
+        releaseStart = () => resolve({ id: 'alert-delayed' });
+      }),
+    );
+
+    const { jobId } = service.startFromRows(
+      ORG_A,
+      [{ inventoryId: 'EXT-1', name: 'Extension P1', url: 'https://wing.coupang.com/img/ext-1.jpg' }],
+      'user-1',
+    );
+
+    await waitForJob();
+    expect(service.getStatus(jobId, ORG_A).status).toBe('running');
+    expect(operationAlerts.succeed).not.toHaveBeenCalled();
+
+    releaseStart();
+    await waitForJob();
+
+    expect(service.getStatus(jobId, ORG_A).status).toBe('done');
+    expect(operationAlerts.succeed).toHaveBeenCalledWith(
+      ORG_A,
+      `coupang-image-sync:${jobId}`,
+      expect.objectContaining({
+        metadata: expect.objectContaining({ jobId, total: 1, succeeded: 1 }),
+      }),
+    );
+  });
+
+  it('emits operation alert fail when the job throws before completion', async () => {
+    const scraper: CoupangInventoryScrapePort = {
+      scrapeAll: vi.fn(async () => {
+        throw new Error('extension scrape blew up');
+      }),
+    };
+    const catalog: MasterCatalogPort = {
+      findCoupangListingImageStates: vi.fn(async () => []),
+      findCoupangMaster: vi.fn(async () => null as unknown as CoupangListingHandle),
+      attachPrimaryImage: vi.fn(async () => true),
+    };
+    const reconciliation: CoupangImageReconciliationPort = {
+      recordRows: vi.fn(async () => undefined),
+    };
+    const operationAlerts = {
+      start: vi.fn(async () => ({ id: 'alert-1' })),
+      progress: vi.fn(async () => null),
+      succeed: vi.fn(async () => null),
+      fail: vi.fn(async () => null),
+      cancel: vi.fn(async () => null),
+    };
+    const service = new CoupangImageSyncService(
+      scraper,
+      catalog,
+      { fetchImage: vi.fn(), extForMime: vi.fn() } as any,
+      { save: vi.fn() } as any,
+      reconciliation,
+      operationAlerts as any,
+    );
+
+    const { jobId } = service.start(ORG_A, 'user-1');
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+
+    expect(service.getStatus(jobId, ORG_A).status).toBe('failed');
+    expect(operationAlerts.start).toHaveBeenCalled();
+    expect(operationAlerts.fail).toHaveBeenCalledWith(
+      ORG_A,
+      `coupang-image-sync:${jobId}`,
+      expect.objectContaining({
+        message: 'extension scrape blew up',
+      }),
+    );
+    expect(operationAlerts.succeed).not.toHaveBeenCalled();
   });
 
   it('batches existing listing lookup before filtering rows needing images', async () => {

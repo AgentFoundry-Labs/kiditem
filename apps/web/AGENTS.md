@@ -170,12 +170,12 @@ Route-group private shared directories contain ONLY code shared by 2+ routes ins
 
 부모 Next.js 패턴(이 문서)으로 거의 커버되지만, 아래 도메인은 한 가지 특이점이 있다.
 
-- **`app/(automation)/agents/`** — 제품상 Agent OS 관리 화면. Agent OS
-  인스턴스, run, request 운영 콘솔이며 사이드바의 "에이전트 관리"가 이 route 를
-  가리킨다. Agent 관련 사용자 알림 관리는 여기서 별도 inbox 를 만들지 않고
-  dashboard Alerts tab / `Alert -> ActionTask` 흐름을 따른다.
-- **`app/agent-os/`** — 현재 Agent 관리/알림 UX 범위 밖의 풀스크린 시각화
-  surface. `AppLayout` 의
+- **`app/(automation)/agents/`** — Agent OS run/request 내부 운영 콘솔. 일반
+  사용자의 Agent 상태 확인 surface 가 아니며 사이드바 기본 진입점도 아니다.
+  Agent 관련 사용자 알림 관리는 여기서 별도 inbox 를 만들지 않고 dashboard
+  Alerts tab / `Alert -> ActionTask` 흐름을 따른다.
+- **`app/agent-os/`** — 사용자 기준 Agent OS 풀스크린 시각화 surface.
+  `AppLayout` 의
   `pathname === '/' || pathname.startsWith('/agent-os')` 가드로 sidebar/panel
   /chat 모두 bypass 하고 자체 헤더/캔버스/바텀 대시보드를 렌더한다. dark
   cyberpunk 미학을 위해 surface 토큰 대신 hard-coded 슬레이트/시안 컬러
@@ -183,8 +183,8 @@ Route-group private shared directories contain ONLY code shared by 2+ routes ins
   의도적으로 허용 — Styling 룰의 시맨틱 토큰 권고 예외.
   `/api/agent-os/instances` + `/api/agent-os/runs?status=running` +
   `/api/action-tasks` polling (15s/30s) + dashboard sales/ad summary +
-  `usePanelStream` 으로 live ops view. 이 route 를 제품상 Agent OS 관리 화면으로
-  확장하지 않는다.
+  `usePanelStream` 으로 live ops view. `agent`/`coordinator` 는 Agent network 로,
+  `tool_wrapper` 는 팀별 실행 도구로 표시한다.
 - **`app/(inventory)/inventory/`** — `lib/barcode-print.ts` 의 `printBarcodeWindow()` (window.open + `<style>` 인쇄) + xlsx import/export. 브라우저 print API 직접 사용 케이스.
 - **`app/settings/`** — 다양한 file upload (CSV/Image), printer 연결 (`PrinterSettings` 컴포넌트), health check + sync 운영 액션. system-level operations 가 한 페이지에 모임.
 - **`app/(finance)/sales-analysis/`** — `Settlements` 탭이 streaming 패턴 (스트림 chunked download). xlsx export 도 함.

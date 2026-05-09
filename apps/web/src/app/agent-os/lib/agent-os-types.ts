@@ -1,3 +1,4 @@
+import type { AgentDefinitionRuntimeKind } from '@kiditem/shared/agent-os';
 import {
   Megaphone, Package, Palette, Search, Shield, ShoppingBag, type LucideIcon,
 } from 'lucide-react';
@@ -5,6 +6,8 @@ import {
 export interface OrgNode {
   id: string;
   name: string;
+  agentType?: string;
+  runtimeKind?: AgentDefinitionRuntimeKind;
   type: string;
   role: string;
   title: string;
@@ -12,6 +15,7 @@ export interface OrgNode {
   lastHeartbeatAt?: string | null;
   category?: string;
   reports?: OrgNode[];
+  tools?: OrgNode[];
 }
 
 export interface TeamStyle {

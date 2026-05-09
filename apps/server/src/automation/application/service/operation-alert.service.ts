@@ -128,6 +128,15 @@ export class OperationAlertService {
     return alert;
   }
 
+  async findByOperationKey(
+    organizationId: string,
+    operationKey: string,
+  ): Promise<Alert | null> {
+    return this.prisma.alert.findFirst({
+      where: { organizationId, operationKey },
+    });
+  }
+
   async progress(
     organizationId: string,
     operationKey: string,

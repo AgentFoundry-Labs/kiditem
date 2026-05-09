@@ -151,14 +151,20 @@ export class DashboardInventoryService {
       // alerts — project to AlertItemDashboard shape (no organizationId)
       const alerts: AlertItemDashboard[] = unreadAlerts.map((a) => ({
         id: a.id,
+        kind: a.kind as AlertItemDashboard['kind'],
+        status: a.status as AlertItemDashboard['status'],
         type: a.type,
         severity: a.severity,
         title: a.title,
         message: a.message,
+        sourceType: a.sourceType,
+        href: a.href,
+        progress: a.progress,
         targetType: a.targetType,
         targetId: a.targetId,
         isRead: a.isRead,
         createdAt: a.createdAt,
+        updatedAt: a.updatedAt,
       }));
 
       return {

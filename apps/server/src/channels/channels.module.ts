@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AutomationModule } from '../automation/automation.module';
 import { ChannelSyncController } from './adapter/in/http/channel-sync.controller';
 import { ChannelDashboardController } from './adapter/in/http/channel-dashboard.controller';
 import { ChannelReconciliationController } from './adapter/in/http/channel-reconciliation.controller';
@@ -9,6 +10,7 @@ import { ChannelReconciliationService } from './application/service/channel-reco
 import { COUPANG_PROVIDER_PORT } from './application/port/out/coupang-provider.port';
 
 @Module({
+  imports: [AutomationModule],
   controllers: [
     ChannelSyncController,
     ChannelDashboardController,

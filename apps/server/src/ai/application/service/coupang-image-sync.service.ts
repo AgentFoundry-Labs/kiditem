@@ -7,6 +7,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { OperationAlertService } from '../../../automation/application/service/operation-alert.service';
 import {
   COUPANG_INVENTORY_SCRAPE_PORT,
   type CoupangInventoryRow,
@@ -34,6 +35,7 @@ export type CoupangImageSyncJobStatus = 'running' | 'done' | 'failed';
 export interface CoupangImageSyncJobState {
   jobId: string;
   organizationId: string;
+  actorUserId: string | null;
   status: CoupangImageSyncJobStatus;
   phase: 'starting' | 'scraping' | 'downloading' | 'finished';
   total: number;
@@ -47,6 +49,8 @@ export interface CoupangImageSyncJobState {
 }
 
 const JOB_TTL_MS = 30 * 60 * 1000;
+const OPERATION_KEY_PREFIX = 'coupang-image-sync:';
+const OPERATION_HREF = '/thumbnails';
 
 /**
  * Coupang Wing 인벤토리 페이지에서 상품 이미지를 스크래핑해서 MasterProduct 의
@@ -83,29 +87,36 @@ export class CoupangImageSyncService {
     private readonly storage: ImageStoragePort,
     @Inject(COUPANG_IMAGE_RECONCILIATION_PORT)
     private readonly reconciliation: CoupangImageReconciliationPort,
+    private readonly operationAlerts: OperationAlertService,
   ) {}
 
-  start(organizationId: string): { jobId: string } {
-    const job = this.createJob(organizationId);
+  start(
+    organizationId: string,
+    actorUserId: string | null = null,
+  ): { jobId: string } {
+    const job = this.createJob(organizationId, actorUserId);
 
-    void this.runFromScraper(job).catch((error: unknown) => {
-      this.failJob(job, error);
-    });
-
-    return { jobId: job.jobId };
-  }
-
-  startFromRows(organizationId: string, rows: CoupangInventoryRow[]): { jobId: string } {
-    const job = this.createJob(organizationId);
-
-    void this.runFromRows(job, rows).catch((error: unknown) => {
-      this.failJob(job, error);
-    });
+    this.runAfterAlertStart(job, () => this.runFromScraper(job));
 
     return { jobId: job.jobId };
   }
 
-  private createJob(organizationId: string): CoupangImageSyncJobState {
+  startFromRows(
+    organizationId: string,
+    rows: CoupangInventoryRow[],
+    actorUserId: string | null = null,
+  ): { jobId: string } {
+    const job = this.createJob(organizationId, actorUserId);
+
+    this.runAfterAlertStart(job, () => this.runFromRows(job, rows));
+
+    return { jobId: job.jobId };
+  }
+
+  private createJob(
+    organizationId: string,
+    actorUserId: string | null,
+  ): CoupangImageSyncJobState {
     for (const job of this.jobs.values()) {
       if (job.organizationId === organizationId && job.status === 'running') {
         throw new ConflictException('이미 진행 중인 동기화 잡이 있습니다');
@@ -116,6 +127,7 @@ export class CoupangImageSyncService {
     const job: CoupangImageSyncJobState = {
       jobId,
       organizationId,
+      actorUserId,
       status: 'running',
       phase: 'starting',
       total: 0,
@@ -130,6 +142,18 @@ export class CoupangImageSyncService {
     this.jobs.set(jobId, job);
 
     return job;
+  }
+
+  private runAfterAlertStart(
+    job: CoupangImageSyncJobState,
+    run: () => Promise<void>,
+  ): void {
+    void (async () => {
+      await this.notifyAlertStart(job);
+      await run();
+    })().catch((error: unknown) => {
+      this.failJob(job, error);
+    });
   }
 
   getStatus(jobId: string, organizationId: string): CoupangImageSyncJobState {
@@ -164,10 +188,12 @@ export class CoupangImageSyncService {
     job.error = error instanceof Error ? error.message : String(error);
     job.finishedAt = Date.now();
     this.logger.error(`Coupang image sync job ${job.jobId} failed: ${job.error}`);
+    void this.notifyAlertFail(job);
   }
 
   private async runFromScraper(job: CoupangImageSyncJobState): Promise<void> {
     job.phase = 'scraping';
+    void this.notifyAlertProgress(job);
 
     const scrapedRows = await this.scraper.scrapeAll();
     await this.runFromRows(job, scrapedRows);
@@ -184,11 +210,13 @@ export class CoupangImageSyncService {
 
     job.total = targets.length;
     job.phase = 'downloading';
+    void this.notifyAlertProgress(job);
 
     if (job.total === 0) {
       job.status = 'done';
       job.phase = 'finished';
       job.finishedAt = Date.now();
+      void this.notifyAlertSucceed(job);
       return;
     }
 
@@ -209,6 +237,119 @@ export class CoupangImageSyncService {
     job.status = 'done';
     job.phase = 'finished';
     job.finishedAt = Date.now();
+    void this.notifyAlertSucceed(job);
+  }
+
+  // ── Operation alert lifecycle (panel projection) ─────────────────────────
+  // The job is single-instance (in-memory map), so the alert ledger is the
+  // only place the user can track state if they leave /thumbnails. Alert
+  // emit failures are swallowed so the sync keeps running; the worst case
+  // is a stale "running" badge, which the FE polling reset will clear.
+
+  private alertOperationKey(job: CoupangImageSyncJobState): string {
+    return `${OPERATION_KEY_PREFIX}${job.jobId}`;
+  }
+
+  private alertMetadata(job: CoupangImageSyncJobState): Record<string, unknown> {
+    return {
+      jobId: job.jobId,
+      phase: job.phase,
+      total: job.total,
+      processed: job.processed,
+      succeeded: job.succeeded,
+      unmatched: job.unmatched,
+      failed: job.failed,
+    };
+  }
+
+  private alertProgressFraction(
+    job: CoupangImageSyncJobState,
+  ): number | null {
+    if (job.total === 0) return null;
+    return Math.max(0, Math.min(1, job.processed / job.total));
+  }
+
+  private async notifyAlertStart(
+    job: CoupangImageSyncJobState,
+  ): Promise<void> {
+    try {
+      await this.operationAlerts.start({
+        organizationId: job.organizationId,
+        operationKey: this.alertOperationKey(job),
+        type: 'coupang_image_sync',
+        title: '쿠팡 Wing 이미지 동기화',
+        message: '쿠팡 Wing 인벤토리에서 상품 이미지를 가져오는 중입니다.',
+        sourceType: 'coupang_image_sync',
+        sourceId: job.jobId,
+        actorUserId: job.actorUserId,
+        href: OPERATION_HREF,
+        metadata: this.alertMetadata(job),
+      });
+    } catch (err) {
+      this.logger.warn(
+        `coupang_image_sync alert start failed (job=${job.jobId}): ${err}`,
+      );
+    }
+  }
+
+  private async notifyAlertProgress(
+    job: CoupangImageSyncJobState,
+  ): Promise<void> {
+    try {
+      await this.operationAlerts.progress(
+        job.organizationId,
+        this.alertOperationKey(job),
+        {
+          progress: this.alertProgressFraction(job),
+          metadata: this.alertMetadata(job),
+        },
+      );
+    } catch (err) {
+      this.logger.warn(
+        `coupang_image_sync alert progress failed (job=${job.jobId}): ${err}`,
+      );
+    }
+  }
+
+  private async notifyAlertSucceed(
+    job: CoupangImageSyncJobState,
+  ): Promise<void> {
+    const allSkipped = job.total === 0;
+    try {
+      await this.operationAlerts.succeed(
+        job.organizationId,
+        this.alertOperationKey(job),
+        {
+          message: allSkipped
+            ? '동기화 대상이 없어 변경 사항 없이 완료되었습니다.'
+            : `이미지 ${job.succeeded}건 동기화 완료 (대상 ${job.total}건 / 미매칭 ${job.unmatched}건 / 실패 ${job.failed}건).`,
+          metadata: this.alertMetadata(job),
+        },
+      );
+    } catch (err) {
+      this.logger.warn(
+        `coupang_image_sync alert succeed failed (job=${job.jobId}): ${err}`,
+      );
+    }
+  }
+
+  private async notifyAlertFail(
+    job: CoupangImageSyncJobState,
+  ): Promise<void> {
+    try {
+      await this.operationAlerts.fail(
+        job.organizationId,
+        this.alertOperationKey(job),
+        {
+          message: job.error ?? '쿠팡 Wing 이미지 동기화 실패',
+          metadata: this.alertMetadata(job),
+        },
+      );
+    } catch (err) {
+      this.logger.warn(
+        `coupang_image_sync alert fail emit failed (job=${job.jobId}): ${err}`,
+      );
+    }
   }
 
   private async filterRowsNeedingImage(

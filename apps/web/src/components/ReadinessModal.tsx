@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   CheckCircle2,
   AlertTriangle,
@@ -23,6 +23,17 @@ import type { LucideIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
 import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
+import {
+  cancelOperationAlert,
+  failOperationAlert,
+  progressOperationAlert,
+  startOperationAlert,
+  succeedOperationAlert,
+} from '@/lib/operation-alerts';
+import {
+  classifyBatchScrapeStatus,
+  summarizeBatchScrapeProgress,
+} from '@/lib/operation-alert-lifecycle';
 import { queryKeys } from '@/lib/query-keys';
 import { cn } from '@/lib/utils';
 import type { ReadinessCheck, ReadinessResponse } from '@kiditem/shared/readiness';
@@ -34,7 +45,7 @@ type ExtensionMessageResponse = {
   success?: boolean;
   results?: unknown[];
   error?: string;
-  status?: string;
+  status?: 'idle' | 'running' | 'done' | 'error' | 'cancelled' | 'starting';
   runId?: string;
   completed?: number;
   failed?: number;
@@ -403,25 +414,45 @@ export default function ReadinessModal({
     setOpen(false);
   };
 
-  const collectMutation = useMutation({
-    mutationFn: async (endpoint: string) => apiClient.post(endpoint, {}),
-    onSuccess: async () => {
-      toast.success('수집 완료');
-      await invalidateCollectedData();
-      await query.refetch();
-    },
-    onError: (err) => {
-      const msg = err instanceof Error ? err.message : '수집 실패';
-      toast.error(msg);
-    },
-    onSettled: () => setPendingKey(null),
-  });
-
   const handleCollect = async (check: ReadinessCheck) => {
+    const operationKey = `dashboard.collect:${check.key}`;
+    const href = check.key === 'coupang_ads' ? '/ad-ops' : '/dashboard';
+
     if (check.collector === 'server') {
       if (!check.collectEndpoint) return;
       setPendingKey(check.key);
-      collectMutation.mutate(check.collectEndpoint);
+      const alert = await startOperationAlert({
+        operationKey,
+        type: 'dashboard_data_collect',
+        title: `${check.label} 수집`,
+        sourceType: 'readiness_check',
+        sourceId: check.key,
+        href,
+        metadata: { checkKey: check.key, collector: 'server' },
+      });
+      try {
+        await apiClient.post(check.collectEndpoint, {});
+        toast.success('수집 완료');
+        if (alert) {
+          void succeedOperationAlert(operationKey, {
+            message: `${check.label} 수집 완료`,
+            metadata: { checkKey: check.key, collector: 'server' },
+          });
+        }
+        await invalidateCollectedData();
+        await query.refetch();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : '수집 실패';
+        toast.error(msg);
+        if (alert) {
+          void failOperationAlert(operationKey, {
+            message: msg,
+            metadata: { checkKey: check.key, collector: 'server', error: msg },
+          });
+        }
+      } finally {
+        setPendingKey(null);
+      }
       return;
     }
 
@@ -434,11 +465,19 @@ export default function ReadinessModal({
       return;
     }
 
+    // Operation alert lifecycle — track running/succeeded/failed in the panel
+    // so the user can leave this modal and still see status. The dedupe key
+    // is per-check-type, so retrying the same check upserts the same alert.
+    // Coupang ads is the one check whose result page is /ad-ops, not /dashboard.
+    let alertStarted = false;
+    let collectOutcome: 'succeeded' | 'warning' | 'failed' | 'cancelled' | null = null;
+
     setPendingKey(check.key);
     try {
       const eid = await detectExtensionId();
       if (!eid) {
         // 익스텐션 미설치 → 폴백: 한꺼번에 다 새 탭으로 (less ideal, but works)
+        // No alert here — there is no tracked operation, the user owns N tabs manually.
         fallbackOpenTabs(check.scrapeUrls);
         toast.warning(
           `익스텐션 미연결 — ${check.scrapeUrls.length}개 탭 일괄 오픈`,
@@ -451,6 +490,21 @@ export default function ReadinessModal({
         setTimeout(() => query.refetch(), 12000);
         return;
       }
+
+      const alert = await startOperationAlert({
+        operationKey,
+        type: 'dashboard_data_collect',
+        title: `${check.label} 수집`,
+        sourceType: 'readiness_check',
+        sourceId: check.key,
+        href,
+        metadata: {
+          checkKey: check.key,
+          totalUrls: check.scrapeUrls.length,
+          missingDates: check.missingDates?.length ?? 0,
+        },
+      });
+      alertStarted = !!alert;
 
       // 익스텐션 sequential batch 시작
       const startResp = await sendToExtension<ExtensionMessageResponse>(eid, {
@@ -508,29 +562,106 @@ export default function ReadinessModal({
               status?.status === 'cancelled' ||
               status?.status === 'idle'
             ) {
-              const ok = status?.completed ?? 0;
-              const fail = status?.failed ?? 0;
-              if (status?.status === 'cancelled') {
-                toast.info(`수집 중단: 성공 ${ok} / 실패 ${fail} / 전체 ${status?.total ?? totalUrls}`);
-              } else if (fail === 0) {
-                toast.success(`${ok}/${status?.total ?? totalUrls}일 수집 완료`);
-              } else {
+              const summary = summarizeBatchScrapeProgress(status, totalUrls);
+              const { ok, fail, total: totalSeen } = summary;
+              const terminal = classifyBatchScrapeStatus(status);
+              if (terminal === 'cancelled') {
+                collectOutcome = 'cancelled';
+                toast.info(`수집 중단: 성공 ${ok} / 실패 ${fail} / 전체 ${totalSeen}`);
+                if (alertStarted) {
+                  void cancelOperationAlert(operationKey, {
+                    message: `수집 중단됨 (성공 ${ok} / 실패 ${fail} / 전체 ${totalSeen})`,
+                    metadata: { ok, fail, total: totalSeen, phase: 'collect' },
+                  });
+                }
+              } else if (terminal === 'failed') {
+                collectOutcome = 'failed';
                 toast.warning(
-                  `수집 종료: 성공 ${ok} / 실패 ${fail} / 전체 ${status?.total ?? totalUrls}`,
+                  `수집 종료: 성공 ${ok} / 실패 ${fail} / 전체 ${totalSeen}`,
                 );
+                if (alertStarted) {
+                  void failOperationAlert(operationKey, {
+                    message: `수집 실패 (성공 ${ok} / 실패 ${fail} / 전체 ${totalSeen})`,
+                    metadata: { ok, fail, total: totalSeen, phase: 'collect' },
+                  });
+                }
+              } else if (terminal === 'succeeded' || terminal === 'warning') {
+                collectOutcome = terminal;
+                if (check.key === 'coupang_ads') {
+                  if (alertStarted) {
+                    void progressOperationAlert(operationKey, {
+                      progress: 0.5,
+                      message: `일별 수집 완료 (성공 ${ok} / 실패 ${fail} / 전체 ${totalSeen})`,
+                      metadata: { ok, fail, total: totalSeen, phase: 'collect' },
+                    });
+                  }
+                  resolve();
+                  return;
+                }
+                if (terminal === 'succeeded') {
+                  toast.success(`${ok}/${totalSeen}일 수집 완료`);
+                  if (alertStarted) {
+                    void succeedOperationAlert(operationKey, {
+                      message: `${ok}/${totalSeen}일 수집 완료`,
+                      metadata: { ok, fail, total: totalSeen, phase: 'collect' },
+                    });
+                  }
+                } else {
+                  toast.warning(
+                    `수집 종료: 성공 ${ok} / 실패 ${fail} / 전체 ${totalSeen}`,
+                  );
+                  if (alertStarted) {
+                    void succeedOperationAlert(operationKey, {
+                      severity: 'warning',
+                      message: `일부 수집 실패 (성공 ${ok} / 실패 ${fail} / 전체 ${totalSeen})`,
+                      metadata: { ok, fail, total: totalSeen, phase: 'collect' },
+                    });
+                  }
+                }
               }
               resolve();
               return;
             }
+            const summary = summarizeBatchScrapeProgress(status, totalUrls);
+            if (alertStarted) {
+              void progressOperationAlert(operationKey, {
+                progress:
+                  check.key === 'coupang_ads' && summary.progress != null
+                    ? summary.progress * 0.5
+                    : summary.progress,
+                message: `수집 중 (${summary.ok + summary.fail}/${summary.total})`,
+                metadata: {
+                  ok: summary.ok,
+                  fail: summary.fail,
+                  total: summary.total,
+                  phase: 'collect',
+                },
+              });
+            }
             if (Date.now() - start > maxMs) {
+              collectOutcome = 'failed';
               toast.warning(
                 `수집 타임아웃 — ${status?.completed ?? 0}/${totalUrls} 완료`,
               );
+              if (alertStarted) {
+                void failOperationAlert(operationKey, {
+                  message: `수집 타임아웃 (${status?.completed ?? 0}/${totalUrls} 완료)`,
+                  metadata: { phase: 'collect', timeout: true },
+                });
+              }
               resolve();
               return;
             }
             setTimeout(tick, 3000);
-          } catch {
+          } catch (err) {
+            collectOutcome = 'failed';
+            const message = err instanceof Error ? err.message : '수집 상태 확인 실패';
+            if (alertStarted) {
+              void failOperationAlert(operationKey, {
+                message,
+                metadata: { phase: 'collect', error: message },
+              });
+            }
             resolve();
           }
         };
@@ -540,89 +671,183 @@ export default function ReadinessModal({
       // coupang_ads: 일별 수집 후 캠페인별 상품 sweep 추가 — 광고 동기화와 동일 흐름.
       // 운영중/일시정지 상관없이 모든 캠페인의 상품 목록(상품명·on/off·집행광고비·전환율 등)
       // 을 자동 수집해 광고 전략용 스냅샷으로 적재.
-      if (check.key === 'coupang_ads') {
+      if (
+        check.key === 'coupang_ads' &&
+        (collectOutcome === 'succeeded' || collectOutcome === 'warning')
+      ) {
         try {
-          const sweepUrl = 'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1';
-          toast.info('캠페인별 상품 수집 시작 — 새 탭에서 처리됩니다', { duration: 4000 });
+          const sweepUrl =
+            'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1';
+          toast.info('캠페인별 상품 수집 시작 — 새 탭에서 처리됩니다', {
+            duration: 4000,
+          });
           const sweepResp = await sendToExtension<ExtensionMessageResponse>(eid, {
             action: 'scrapeTargets',
-            urls: [{ id: 'ad-sync-sweep', url: sweepUrl, label: '광고 동기화 (캠페인별 상품)' }],
+            urls: [
+              {
+                id: 'ad-sync-sweep',
+                url: sweepUrl,
+                label: '광고 동기화 (캠페인별 상품)',
+              },
+            ],
           });
-          if (sweepResp?.success !== false) {
-            const sweepRunId = typeof sweepResp.runId === 'string' ? sweepResp.runId : undefined;
-            const cancelSweep = async () => {
-              if (!sweepRunId) return;
-              await sendToExtension<ExtensionMessageResponse>(eid, {
-                action: 'cancelBatchScrape',
-                runId: sweepRunId,
-              });
-              toast.info('광고 동기화 중단 요청을 보냈습니다');
-            };
-            if (sweepRunId) {
-              toast.info('캠페인별 상품 수집 중...', {
-                duration: 6000,
-                action: {
-                  label: '중단',
-                  onClick: () => {
-                    void cancelSweep();
-                  },
+          if (sweepResp?.success === false) {
+            throw new Error(sweepResp.error ?? '광고 동기화 시작 실패');
+          }
+
+          const sweepRunId =
+            typeof sweepResp.runId === 'string' ? sweepResp.runId : undefined;
+          const cancelSweep = async () => {
+            if (!sweepRunId) return;
+            await sendToExtension<ExtensionMessageResponse>(eid, {
+              action: 'cancelBatchScrape',
+              runId: sweepRunId,
+            });
+            toast.info('광고 동기화 중단 요청을 보냈습니다');
+          };
+          if (sweepRunId) {
+            toast.info('캠페인별 상품 수집 중...', {
+              duration: 6000,
+              action: {
+                label: '중단',
+                onClick: () => {
+                  void cancelSweep();
                 },
-              });
-            }
-            // 캠페인 N개 × ~30s. 최대 8분.
-            await new Promise<void>((resolve) => {
-              const sStart = Date.now();
-              const sMaxMs = 8 * 60_000;
-              const sTick = async () => {
-                try {
-                  const st = await sendToExtension<ExtensionMessageResponse>(eid, {
-                    action: 'getBatchScrapeStatus',
-                    runId: sweepRunId,
-                  });
-                  if (
-                    st?.status === 'done' ||
-                    st?.status === 'error' ||
-                    st?.status === 'cancelled' ||
-                    st?.status === 'idle'
-                  ) {
-                    if (st?.status === 'cancelled') toast.info('광고 동기화 중단됨');
-                    else if (st?.status === 'error') toast.error('광고 동기화 실패');
-                    else if ((st?.failed ?? 0) > 0) toast.warning('광고 동기화 일부 실패');
-                    else toast.success('광고 동기화 완료');
-                    resolve();
-                    return;
-                  }
-                  if (Date.now() - sStart > sMaxMs) {
-                    toast.warning('광고 동기화 타임아웃 — 백그라운드에서 진행 중일 수 있습니다');
-                    resolve();
-                    return;
-                  }
-                  setTimeout(sTick, 3000);
-                } catch {
-                  resolve();
-                }
-              };
-              sTick();
+              },
             });
           }
-        } catch {
-          /* sweep 실패는 일별 수집 결과를 무효화하지 않음 — 무시 */
+          // 캠페인 N개 × ~30s. 최대 8분.
+          await new Promise<void>((resolve) => {
+            const sStart = Date.now();
+            const sMaxMs = 8 * 60_000;
+            const sTick = async () => {
+              try {
+                const st = await sendToExtension<ExtensionMessageResponse>(eid, {
+                  action: 'getBatchScrapeStatus',
+                  runId: sweepRunId,
+                });
+                if (
+                  st?.status === 'done' ||
+                  st?.status === 'error' ||
+                  st?.status === 'cancelled' ||
+                  st?.status === 'idle'
+                ) {
+                  const summary = summarizeBatchScrapeProgress(st, st?.total ?? 1);
+                  const sOk = summary.ok;
+                  const sFail = summary.fail;
+                  const terminal = classifyBatchScrapeStatus(st);
+                  if (terminal === 'cancelled') {
+                    toast.info('광고 동기화 중단됨');
+                    if (alertStarted) {
+                      void cancelOperationAlert(operationKey, {
+                        message: '광고 동기화 중단됨 (캠페인 sweep 단계)',
+                        metadata: { ok: sOk, fail: sFail, phase: 'ad_sweep' },
+                      });
+                    }
+                  } else if (terminal === 'failed') {
+                    toast.error('광고 동기화 실패');
+                    if (alertStarted) {
+                      void failOperationAlert(operationKey, {
+                        message: '광고 동기화 실패 (캠페인 sweep 단계)',
+                        metadata: { ok: sOk, fail: sFail, phase: 'ad_sweep' },
+                      });
+                    }
+                  } else if (terminal === 'warning' || collectOutcome === 'warning') {
+                    toast.warning('광고 동기화 일부 실패');
+                    if (alertStarted) {
+                      void succeedOperationAlert(operationKey, {
+                        severity: 'warning',
+                        message: `광고 동기화 일부 실패 (성공 ${sOk} / 실패 ${sFail})`,
+                        metadata: { ok: sOk, fail: sFail, phase: 'ad_sweep' },
+                      });
+                    }
+                  } else if (terminal === 'succeeded') {
+                    toast.success('광고 동기화 완료');
+                    if (alertStarted) {
+                      void succeedOperationAlert(operationKey, {
+                        message: `광고 동기화 완료 (캠페인 ${sOk}건)`,
+                        metadata: { ok: sOk, fail: sFail, phase: 'ad_sweep' },
+                      });
+                    }
+                  }
+                  resolve();
+                  return;
+                }
+                const summary = summarizeBatchScrapeProgress(st, st?.total ?? 1);
+                if (alertStarted) {
+                  void progressOperationAlert(operationKey, {
+                    progress:
+                      summary.progress == null
+                        ? 0.5
+                        : 0.5 + summary.progress * 0.5,
+                    message: `캠페인별 상품 수집 중 (${summary.ok + summary.fail}/${summary.total})`,
+                    metadata: {
+                      ok: summary.ok,
+                      fail: summary.fail,
+                      total: summary.total,
+                      phase: 'ad_sweep',
+                    },
+                  });
+                }
+                if (Date.now() - sStart > sMaxMs) {
+                  toast.warning(
+                    '광고 동기화 타임아웃 — 백그라운드에서 진행 중일 수 있습니다',
+                  );
+                  if (alertStarted) {
+                    void failOperationAlert(operationKey, {
+                      message: '광고 동기화 타임아웃 (캠페인 sweep 단계)',
+                      metadata: { phase: 'ad_sweep', timeout: true },
+                    });
+                  }
+                  resolve();
+                  return;
+                }
+                setTimeout(sTick, 3000);
+              } catch (err) {
+                const message =
+                  err instanceof Error ? err.message : '광고 동기화 상태 확인 실패';
+                if (alertStarted) {
+                  void failOperationAlert(operationKey, {
+                    message,
+                    metadata: { phase: 'ad_sweep', error: message },
+                  });
+                }
+                resolve();
+              }
+            };
+            sTick();
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : '광고 동기화 실패';
+          if (alertStarted) {
+            void failOperationAlert(operationKey, {
+              message,
+              metadata: { phase: 'ad_sweep', error: message },
+            });
+          }
         }
       }
 
       await invalidateCollectedData();
       await query.refetch();
     } catch (e) {
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      if (alertStarted) {
+        void failOperationAlert(operationKey, {
+          message: `익스텐션 통신 실패: ${errorMessage}`,
+          metadata: { phase: 'collect', error: errorMessage },
+        });
+      }
       // 익스텐션 통신 실패 → 폴백
       try {
         fallbackOpenTabs(check.scrapeUrls);
         toast.warning('익스텐션 통신 실패 — 폴백으로 탭 일괄 오픈', {
-          description: e instanceof Error ? e.message : String(e),
+          description: errorMessage,
           duration: 7000,
         });
         setTimeout(() => query.refetch(), 12000);
       } catch {
-        toast.error(e instanceof Error ? e.message : '익스텐션 통신 실패');
+        toast.error(errorMessage);
       }
     } finally {
       setPendingKey(null);

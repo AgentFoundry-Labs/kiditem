@@ -1,11 +1,9 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { Bot, BarChart3, Zap, ArrowRight } from 'lucide-react';
 
 export default function HubPage() {
-  const router = useRouter();
-
   return (
     <div className="fixed inset-0 flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 overflow-hidden">
       {/* Background effects */}
@@ -37,28 +35,28 @@ export default function HubPage() {
 
         {/* Two cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 w-full max-w-2xl">
-          {/* Agent management */}
-          <button
-            onClick={() => router.push('/agents')}
+          {/* Agent OS */}
+          <Link
+            href="/agent-os"
             className="group relative rounded-2xl border border-cyan-500/20 bg-slate-900/80 backdrop-blur-xl p-8 text-left transition-all duration-300 hover:border-cyan-400/40 hover:shadow-[0_0_40px_rgba(6,182,212,0.15)] hover:scale-[1.02]"
           >
             <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent opacity-0 group-hover:opacity-100 transition-opacity rounded-t-2xl" />
             <div className="w-14 h-14 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center mb-5">
               <Bot size={28} className="text-cyan-400" />
             </div>
-            <h2 className="text-xl font-bold text-white mb-2">에이전트 관리</h2>
+            <h2 className="text-xl font-bold text-white mb-2">Agent OS</h2>
             <p className="text-sm text-slate-400 leading-relaxed mb-6">
-              Agent OS 인스턴스, 실행 요청, 운영 상태 관리
+              Agent 네트워크와 실행 도구, 실시간 작업 상태 확인
             </p>
             <div className="flex items-center gap-2 text-cyan-400 text-sm font-semibold">
               <span>진입</span>
               <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" />
             </div>
-          </button>
+          </Link>
 
           {/* Dashboard */}
-          <button
-            onClick={() => router.push('/dashboard')}
+          <Link
+            href="/dashboard"
             className="group relative rounded-2xl border border-purple-500/20 bg-slate-900/80 backdrop-blur-xl p-8 text-left transition-all duration-300 hover:border-purple-400/40 hover:shadow-[0_0_40px_rgba(168,85,247,0.15)] hover:scale-[1.02]"
           >
             <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-purple-400 to-transparent opacity-0 group-hover:opacity-100 transition-opacity rounded-t-2xl" />
@@ -73,10 +71,10 @@ export default function HubPage() {
               <span>진입</span>
               <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" />
             </div>
-          </button>
+          </Link>
         </div>
 
-        <p className="text-xs text-slate-600 font-mono">KidItem Workflow AutoSystem v2.0</p>
+        <p className="text-xs text-slate-600 font-mono">KidItem Workflow AutoSystem</p>
       </div>
     </div>
   );

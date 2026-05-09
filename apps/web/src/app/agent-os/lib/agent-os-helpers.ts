@@ -7,6 +7,7 @@ export function flattenNodes(nodes: OrgNode[]): OrgNode[] {
   for (const n of nodes) {
     out.push(n);
     if (n.reports?.length) out.push(...flattenNodes(n.reports));
+    if (n.tools?.length) out.push(...n.tools);
   }
   return out;
 }
@@ -26,7 +27,7 @@ export function classifyAction(a: ActionTask): string {
 }
 
 export function classifyAgentCategory(agent: OrgNode): string {
-  const key = `${agent.category ?? ''} ${agent.role} ${agent.type} ${agent.name} ${agent.title ?? ''}`.toLowerCase();
+  const key = `${agent.category ?? ''} ${agent.role} ${agent.type} ${agent.agentType ?? ''} ${agent.name} ${agent.title ?? ''}`.toLowerCase();
   if (/wing|coupang|collector|channel|쿠팡/.test(key)) return 'coupang';
   if (/ad|ads|roas|campaign|analytics|광고|분석/.test(key)) return 'analytics';
   if (/content|thumbnail|image|detail|상세|콘텐츠|썸네일|이미지/.test(key)) return 'content';
@@ -36,7 +37,9 @@ export function classifyAgentCategory(agent: OrgNode): string {
 }
 
 export function findAgentTeam(teams: OrgNode[], agentId: string): OrgNode | undefined {
-  return teams.find(t => t.reports?.some(a => a.id === agentId));
+  return teams.find(t => (
+    t.reports?.some(a => a.id === agentId) || t.tools?.some(a => a.id === agentId)
+  ));
 }
 
 export function compactKRW(n: number): string {
