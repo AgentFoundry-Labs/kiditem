@@ -3,10 +3,12 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Load root .env (monorepo 루트), then local fallback
+# Load agent-local env first; root .env is only a fallback for shared local
+# tooling values such as DATABASE_URL.
+_agents_env = Path(__file__).resolve().parent.parent / '.env'
 _root_env = Path(__file__).resolve().parent.parent.parent / '.env'
+load_dotenv(_agents_env)
 load_dotenv(_root_env)
-load_dotenv()  # local agents/.env fallback (won't overwrite)
 
 # ── DB ──────────────────────────────────────────────────────────────────────
 DATABASE_URL = os.environ["DATABASE_URL"]

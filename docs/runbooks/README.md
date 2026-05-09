@@ -16,6 +16,9 @@ Runbooks are different from concept docs:
 
 Current runbooks:
 
+- [Environment Variables](environment-variables.md) — inventory of env vars,
+  injection paths, staging verification commands, and feature-specific
+  requirements for API, web, Agent OS, and Python agents.
 - [Staging Deploy](staging-deploy.md) — operate the EC2 staging runtime through
   GitHub Actions, GHCR image tags/digests, Docker Compose, container nginx, host
   TLS proxy, Supabase staging DB/Auth, and Supabase Storage through its
