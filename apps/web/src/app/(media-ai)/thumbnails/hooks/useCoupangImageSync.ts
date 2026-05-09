@@ -54,6 +54,21 @@ interface CoupangImageRowsExtensionStatus {
 
 const STORAGE_KEY = 'kiditem:coupang-image-sync:job-id';
 const CANCELLED_MESSAGE = '이미지 수집이 중단되었습니다';
+const EXTENSION_REQUIRED_MESSAGE =
+  '스테이징에서는 쿠팡 Wing 수집을 Chrome 확장 프로그램으로만 실행할 수 있습니다. 확장 프로그램을 리로드한 뒤 다시 시도하세요.';
+
+export function canUseBackendCoupangImageSyncFallback(
+  hostname = typeof window === 'undefined' ? '' : window.location.hostname,
+): boolean {
+  const normalized = hostname.trim().toLowerCase();
+  return (
+    normalized === 'localhost' ||
+    normalized === '127.0.0.1' ||
+    normalized === '::1' ||
+    normalized === '[::1]' ||
+    normalized.endsWith('.localhost')
+  );
+}
 
 function readStoredJobId(): string | null {
   if (typeof window === 'undefined') return null;
@@ -116,6 +131,9 @@ export function useCoupangImageSync() {
         } finally {
           setExtensionRunId(null);
         }
+      }
+      if (!canUseBackendCoupangImageSyncFallback()) {
+        throw new Error(EXTENSION_REQUIRED_MESSAGE);
       }
       return apiClient.post<{ jobId: string }>('/api/coupang-image-sync', {});
     },

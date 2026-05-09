@@ -294,6 +294,19 @@ sudo systemctl reload nginx
 
 Use `http://<ec2-public-ip>` for the first smoke test.
 
+If `/thumbnails` Coupang image sync is tested from the staging web app, the
+local Chrome extension must allow the same public origin. Do not commit the
+real staging origin into the default extension manifest; create a local-only
+copy instead:
+
+```bash
+STAGING_URL="$(gh variable get STAGING_URL --env staging)" \
+  node scripts/prepare-coupang-extension.mjs
+```
+
+Then load `.secrets/extensions/coupang-ads-scraper-staging` from
+`chrome://extensions` before testing image sync.
+
 ## Host Nginx With HTTPS Domain
 
 Install the host reverse proxy after DNS points to the EC2 host.

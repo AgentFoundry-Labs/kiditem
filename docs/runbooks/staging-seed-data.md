@@ -57,7 +57,7 @@ Verification after the copy:
   total `1,990`.
 - `GET /api/products/pipeline-stats?period=14` returns total `1,990`,
   channel linked `1,077`, and channel unlinked `913`.
-- `http://3.106.120.252/product-hub` shows product data and the logout button.
+- `<STAGING_URL>/product-hub` shows product data and the logout button.
 
 The rule is:
 
