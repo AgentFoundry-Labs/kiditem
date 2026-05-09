@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AgentOsModule } from '../agent-os/agent-os.module';
+import { AutomationModule } from '../automation/automation.module';
 import { ProductsModule } from '../products/products.module';
 
 import { SourcingController } from './adapter/in/http/sourcing.controller';
@@ -30,7 +31,7 @@ import { SOURCING_PRODUCTS_CATALOG_PORT } from './application/port/out/products-
  * `supplier-payments` is a finance capability and stays out of this module.
  */
 @Module({
-  imports: [PrismaModule, AgentOsModule, ProductsModule],
+  imports: [PrismaModule, AgentOsModule, AutomationModule, ProductsModule],
   controllers: [
     SourcingController,
     ProcurementController,

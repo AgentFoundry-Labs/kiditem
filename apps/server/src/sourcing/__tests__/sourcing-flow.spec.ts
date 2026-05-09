@@ -26,8 +26,14 @@ function makeProductsCatalog() {
 
 function makeAgentGateway() {
   return {
-    scrapeUrl: vi.fn().mockResolvedValue({ taskId: 'task-1' }),
+    scrapeUrl: vi.fn().mockResolvedValue({ taskId: 'task-1', requestId: 'request-1' }),
     generateDetailPage: vi.fn().mockResolvedValue({ taskId: 'detail-1' }),
+  };
+}
+
+function makeOperationAlerts() {
+  return {
+    start: vi.fn().mockResolvedValue({}),
   };
 }
 
@@ -36,12 +42,19 @@ describe('SourcingService — extension data ingestion', () => {
   let prisma: ReturnType<typeof makePrisma>;
   let productsCatalog: ReturnType<typeof makeProductsCatalog>;
   let agentGateway: ReturnType<typeof makeAgentGateway>;
+  let operationAlerts: ReturnType<typeof makeOperationAlerts>;
 
   beforeEach(() => {
     prisma = makePrisma();
     productsCatalog = makeProductsCatalog();
     agentGateway = makeAgentGateway();
-    service = new SourcingService(prisma as any, productsCatalog as any, agentGateway as any);
+    operationAlerts = makeOperationAlerts();
+    service = new SourcingService(
+      prisma as any,
+      productsCatalog as any,
+      agentGateway as any,
+      operationAlerts as any,
+    );
   });
 
   it('receiveExtensionData with new source_url → creates a master through SOURCING_PRODUCTS_CATALOG_PORT', async () => {
@@ -215,15 +228,65 @@ describe('SourcingService — extension data ingestion', () => {
     expect(result.product_count).toBe(1);
   });
 
-  it('scrapeUrl → delegates to SourcingAgentGatewayPort with organizationId scope', async () => {
-    const result = await service.scrapeUrl('https://1688.com/item/77', 'organization-2');
+  it('scrapeUrl → delegates to SourcingAgentGatewayPort with organizationId scope and threads triggeredByUserId', async () => {
+    const result = await service.scrapeUrl(
+      'https://1688.com/item/77',
+      'organization-2',
+      'user-7',
+    );
 
     expect(agentGateway.scrapeUrl).toHaveBeenCalledWith({
       organizationId: 'organization-2',
       url: 'https://1688.com/item/77',
+      triggeredByUserId: 'user-7',
     });
     expect(result.taskId).toBe('task-1');
     expect(result.ok).toBe(true);
+  });
+
+  it('scrapeUrl → opens a producer-owned operation alert keyed by agent_run_request:<requestId> when the gateway returns a requestId', async () => {
+    agentGateway.scrapeUrl.mockResolvedValue({ taskId: 'task-x', requestId: 'request-x' });
+
+    await service.scrapeUrl('https://1688.com/item/88', 'organization-3', 'user-9');
+
+    expect(operationAlerts.start).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: 'organization-3',
+        operationKey: 'sourcing-scrape:request-x',
+        type: 'sourcing_scrape_url',
+        sourceType: 'agent_run_request',
+        sourceId: 'request-x',
+        actorUserId: 'user-9',
+        href: '/sourcing',
+        metadata: expect.objectContaining({
+          agentType: 'sourcing',
+          url: 'https://1688.com/item/88',
+        }),
+      }),
+    );
+  });
+
+  it('scrapeUrl → does NOT open an operation alert when the gateway returned only a runId (no requestId)', async () => {
+    agentGateway.scrapeUrl.mockResolvedValue({ taskId: 'run-only' });
+
+    const result = await service.scrapeUrl(
+      'https://1688.com/item/99',
+      'organization-4',
+      'user-9',
+    );
+
+    expect(result.taskId).toBe('run-only');
+    expect(operationAlerts.start).not.toHaveBeenCalled();
+  });
+
+  it('scrapeUrl → forwards null triggeredByUserId for system-driven calls', async () => {
+    await service.scrapeUrl('https://1688.com/item/55', 'organization-5', null);
+
+    expect(agentGateway.scrapeUrl).toHaveBeenCalledWith({
+      organizationId: 'organization-5',
+      url: 'https://1688.com/item/55',
+      triggeredByUserId: null,
+    });
   });
 
   it('generateDetailPage is disabled until sourced candidates can be promoted to masters', async () => {

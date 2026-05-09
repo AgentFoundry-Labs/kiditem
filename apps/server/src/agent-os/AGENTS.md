@@ -224,7 +224,7 @@ The seed reads default model from `AGENT_<TYPE>_MODEL` per blueprint with
 is set — no silent default).
 
 Currently seeded agent types: `manager`, `rules_evaluation`, `rules_suggest`,
-`ad_strategy`, `thumbnail_analyst`, `image_edit`, `thumbnail_auto_edit`,
+`ad_strategy`, `sourcing`, `thumbnail_analyst`, `image_edit`, `thumbnail_auto_edit`,
 `detail_page_generate`, `thumbnail_generate`, `chat`. The two `*_generate`
 types are Phase 1 placeholders — blueprint + prompt + AI bridge skeleton
 are wired, but production endpoints (`/api/ai/detail-page/generate`,

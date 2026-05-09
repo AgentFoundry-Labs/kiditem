@@ -7,6 +7,8 @@ import {
   ScrapeUrlBodyDto,
 } from './dto';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
+import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
+import type { AuthUser } from '../../../../auth/auth.types';
 
 @Controller('sourcing')
 export class SourcingController {
@@ -29,8 +31,9 @@ export class SourcingController {
   async scrapeUrl(
     @Body() body: ScrapeUrlBodyDto,
     @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.sourcingService.scrapeUrl(body.url.trim(), organizationId);
+    return this.sourcingService.scrapeUrl(body.url.trim(), organizationId, user.id);
   }
 
   @Get('extension/products')
