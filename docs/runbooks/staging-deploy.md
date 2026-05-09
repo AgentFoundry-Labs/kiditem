@@ -5,6 +5,10 @@ instance. The primary deploy path is GitHub Actions -> GHCR -> EC2 Docker
 Compose. The local `bin/deploy-staging.sh` path remains a break-glass fallback
 for initial bootstrapping or GitHub outage recovery.
 
+For the full environment variable inventory, feature-specific requirements, and
+safe verification commands, see
+[`docs/runbooks/environment-variables.md`](environment-variables.md).
+
 ```text
 Internet
   -> host nginx + TLS on EC2
@@ -224,8 +228,8 @@ Workflow file:
 
 Triggers:
 
-- Push to `main` builds and deploys staging.
-- Manual `workflow_dispatch` with `operation=deploy` deploys the selected ref.
+- Manual `workflow_dispatch` with `operation=deploy` builds and deploys the
+  selected ref. Use `main` for normal staging verification.
 - Manual `workflow_dispatch` with `operation=status` prints the EC2 deployment
   manifest and smoke endpoint status.
 - Manual `workflow_dispatch` with `operation=rollback` deploys an existing GHCR
@@ -234,11 +238,16 @@ Triggers:
 Branch model:
 
 ```text
-feature/fix branch -> PR -> main -> automatic staging deploy
+feature/fix branch -> PR -> develop
+develop -> PR/merge -> main
+GitHub Actions -> Staging Deploy -> Run workflow on main -> operation=deploy
 ```
 
-Do not create a long-lived `staging` branch. Staging is a GitHub Environment,
-not a separate source branch.
+`develop` is the long-lived collaboration/integration branch and does not
+deploy staging by itself. `main` is the normal staging deployment ref, but it
+does not deploy automatically; an operator triggers the workflow manually. Do
+not create a long-lived `staging` branch; staging is a GitHub Environment, not a
+separate source branch.
 
 Image naming:
 

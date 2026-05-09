@@ -37,6 +37,16 @@ Precedence: the most-specific `AGENTS.md` wins, then parent `AGENTS.md` files.
 
 ## Core Workflow (작업 시작 ~ 완료)
 
+### Branch Model
+
+- `feature/*`, `fix/*` → normal work branches.
+- `develop` → shared development integration branch. Regular PRs target
+  `develop`; merging here does **not** deploy staging.
+- `main` → staging deployment branch. Promote `develop` to `main` only when the
+  collected changes are ready for staging verification, then run the staging
+  deploy workflow manually on `main`.
+- No direct push to `main`.
+
 ### 0. 환경 부트스트랩 — 새 워크트리 / 새 머신 / preview 인증 필요할 때
 
 ```bash
@@ -77,6 +87,8 @@ env 파일 (`.env`, `apps/web/.env.local`) 동기화 + `npm install` + dev previ
 ### 4. Commit / PR
 
 - 브랜치: `feat/{issue}-{desc}`, `fix/{desc}`. `main` 직접 push 금지.
+- 일반 작업 PR base 는 `develop`. 스테이징 검증 준비가 끝난 묶음만
+  `develop` → `main` 으로 승격하고, 필요할 때 수동 staging deploy 를 실행한다.
 - 커밋: `feat:` `fix:` `refactor:` `docs:` `test:`
 - PR body 는 `.github/PULL_REQUEST_TEMPLATE.md` 체크리스트 포함. DB 변경/backfill/개발 데이터 bundle 변경 여부 명시.
 - `gh pr create` pre-hook 이 컨벤션 + 문서 업데이트 체크리스트 자동 실행.
