@@ -167,7 +167,7 @@ export class MasterCatalogAdapter implements MasterCatalogPort {
   }
 
   async attachPrimaryImage(input: AttachPrimaryImageInput): Promise<boolean> {
-    const { organizationId, masterId, storageKey, url, mimeType, fileSize, sourceUrl } = input;
+    const { organizationId, masterId, storageKey, url, mimeType, fileSize } = input;
 
     return this.prisma.$transaction(
       async (tx: Prisma.TransactionClient) => {
@@ -207,7 +207,6 @@ export class MasterCatalogAdapter implements MasterCatalogPort {
           data: {
             imageUrl: url,
             sourcePlatform: 'coupang',
-            sourceUrl,
           },
         });
         return true;

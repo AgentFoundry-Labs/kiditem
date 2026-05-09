@@ -13,7 +13,7 @@ interface ThumbnailHeaderProps {
   syncRunning: boolean;
   syncCanCancel: boolean;
   syncCancelling: boolean;
-  syncPhase: 'starting' | 'scraping' | 'downloading' | 'finished' | null;
+  syncPhase: 'starting' | 'scraping' | 'linking' | 'finished' | null;
   syncProgress: { processed: number; total: number } | null;
 }
 
@@ -37,8 +37,8 @@ export function ThumbnailHeader({
     ? '이미지 동기화'
     : syncPhase === 'scraping' && syncProgress
       ? `Wing ${syncProgress.processed}/${syncProgress.total || '?'}p 수집 중...`
-    : syncPhase === 'downloading' && syncProgress
-      ? `다운로드 중 ${syncProgress.processed}/${syncProgress.total}`
+    : syncPhase === 'linking' && syncProgress
+      ? `URL 연결 중 ${syncProgress.processed}/${syncProgress.total}`
       : '이미지 동기화 중...';
 
   return (

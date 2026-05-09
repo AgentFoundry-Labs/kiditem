@@ -130,7 +130,7 @@ function ThumbnailsPageContent() {
 
   useEffect(() => {
     if (!syncStatus || syncStatus.status !== 'running') return;
-    if (syncStatus.phase !== 'downloading' || syncStatus.processed <= 0) return;
+    if (syncStatus.phase !== 'linking' || syncStatus.processed <= 0) return;
 
     const now = Date.now();
     if (now - lastSyncRefreshAt.current < 5000) return;

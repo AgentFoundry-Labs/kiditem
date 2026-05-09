@@ -89,7 +89,12 @@ type CoupangImageSyncListingSource = {
   master: {
     name: string;
     legacyCode?: string | null;
-    sourceUrl?: string | null;
+    images?: Array<{
+      url: string | null;
+      source?: string | null;
+      isPrimary?: boolean | null;
+      sortOrder?: number | null;
+    }>;
     options?: Array<{ legacyCode?: string | null }>;
   };
 };
@@ -99,12 +104,12 @@ let cachedGeneratedApiAccessToken: string | null = null;
 export function buildCoupangImageSyncRowsForListings(listings: CoupangImageSyncListingSource[]): {
   rows: CoupangImageSyncRow[];
   skippedDuplicateInventoryId: number;
-  skippedMissingSourceUrl: number;
+  skippedMissingImageUrl: number;
 } {
   const rows: CoupangImageSyncRow[] = [];
   const seenInventoryIds = new Set<string>();
   let skippedDuplicateInventoryId = 0;
-  let skippedMissingSourceUrl = 0;
+  let skippedMissingImageUrl = 0;
 
   for (const listing of listings) {
     const inventoryId = listing.externalId.trim();
@@ -113,9 +118,9 @@ export function buildCoupangImageSyncRowsForListings(listings: CoupangImageSyncL
       continue;
     }
 
-    const sourceUrl = listing.master.sourceUrl?.trim();
-    if (!sourceUrl) {
-      skippedMissingSourceUrl += 1;
+    const imageUrl = selectReplayableCoupangImageUrl(listing.master.images ?? []);
+    if (!imageUrl) {
+      skippedMissingImageUrl += 1;
       continue;
     }
 
@@ -124,12 +129,27 @@ export function buildCoupangImageSyncRowsForListings(listings: CoupangImageSyncL
       inventoryId,
       legacyCode: listing.master.legacyCode ?? listing.master.options?.[0]?.legacyCode ?? null,
       name: listing.channelName ?? listing.master.name,
-      url: sourceUrl,
+      url: imageUrl,
     });
   }
 
   rows.sort((a, b) => a.inventoryId.localeCompare(b.inventoryId));
-  return { rows, skippedDuplicateInventoryId, skippedMissingSourceUrl };
+  return { rows, skippedDuplicateInventoryId, skippedMissingImageUrl };
+}
+
+function selectReplayableCoupangImageUrl(
+  images: NonNullable<CoupangImageSyncListingSource['master']['images']>,
+): string | null {
+  const candidates = images
+    .filter((image) => !image.source || image.source === 'coupang-wing')
+    .map((image) => ({
+      url: image.url?.trim() ?? '',
+      isPrimary: image.isPrimary === true,
+      sortOrder: image.sortOrder ?? 0,
+    }))
+    .filter((image) => image.url.length > 0)
+    .sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary) || a.sortOrder - b.sortOrder);
+  return candidates[0]?.url ?? null;
 }
 
 function parseArgs(raw = process.argv.slice(2)): Args {
@@ -820,7 +840,7 @@ async function exportCoupangImageSyncRowsFromDb(args: Args): Promise<{
   rowCount: number;
   sourceListingCount: number;
   skippedDuplicateInventoryId: number;
-  skippedMissingSourceUrl: number;
+  skippedMissingImageUrl: number;
 }> {
   const prisma = await createPrisma();
   try {
@@ -841,7 +861,6 @@ async function exportCoupangImageSyncRowsFromDb(args: Args): Promise<{
           organizationId,
           isDeleted: false,
           sourcePlatform: 'coupang',
-          sourceUrl: { not: null },
           images: {
             some: {
               organizationId,
@@ -859,7 +878,20 @@ async function exportCoupangImageSyncRowsFromDb(args: Args): Promise<{
           select: {
             name: true,
             legacyCode: true,
-            sourceUrl: true,
+            images: {
+              where: {
+                organizationId,
+                source: 'coupang-wing',
+                isDeleted: false,
+              },
+              orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
+              select: {
+                url: true,
+                source: true,
+                isPrimary: true,
+                sortOrder: true,
+              },
+            },
             options: {
               where: {
                 organizationId,
@@ -876,7 +908,7 @@ async function exportCoupangImageSyncRowsFromDb(args: Args): Promise<{
       },
     });
 
-    const { rows, skippedDuplicateInventoryId, skippedMissingSourceUrl } =
+    const { rows, skippedDuplicateInventoryId, skippedMissingImageUrl } =
       buildCoupangImageSyncRowsForListings(listings);
     if (rows.length === 0 && !bool(args, 'allow-empty-image-sync')) {
       throw new Error('No replayable Coupang image sync rows found. Pass --allow-empty-image-sync to export an empty payload.');
@@ -894,13 +926,13 @@ async function exportCoupangImageSyncRowsFromDb(args: Args): Promise<{
           sourceListingCount: listings.length,
           rowCount: rows.length,
           skippedDuplicateInventoryId,
-          skippedMissingSourceUrl,
+          skippedMissingImageUrl,
         },
       },
       rowCount: rows.length,
       sourceListingCount: listings.length,
       skippedDuplicateInventoryId,
-      skippedMissingSourceUrl,
+      skippedMissingImageUrl,
     };
   } finally {
     await prisma.$disconnect();

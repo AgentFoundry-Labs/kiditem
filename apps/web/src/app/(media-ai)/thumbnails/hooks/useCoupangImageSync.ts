@@ -9,7 +9,7 @@ import { queryKeys } from '@/lib/query-keys';
 export interface CoupangSyncStatus {
   jobId: string;
   status: 'running' | 'done' | 'failed';
-  phase: 'starting' | 'scraping' | 'downloading' | 'finished';
+  phase: 'starting' | 'scraping' | 'linking' | 'finished';
   total: number;
   processed: number;
   succeeded: number;

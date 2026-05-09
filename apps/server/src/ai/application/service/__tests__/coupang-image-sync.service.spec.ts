@@ -141,8 +141,6 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
     const service = new CoupangImageSyncService(
       scraper,
       catalog,
-      imageFetcher,
-      storage,
       reconciliation,
       operationAlerts as any,
     );
@@ -182,8 +180,8 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
     expect(() => service.getStatus(jobId, ORG_B)).toThrow(ForbiddenException);
   });
 
-  it('completes job: scraper → catalog.findCoupangMaster + attachPrimaryImage per row', async () => {
-    const { service, scraper, catalog, ensureCalls, attachCalls } = buildService();
+  it('completes job: scraper → catalog.findCoupangMaster + URL metadata attach per row', async () => {
+    const { service, scraper, catalog, storage, imageFetcher, ensureCalls, attachCalls } = buildService();
     const { jobId } = service.start(ORG_A);
 
     // 잡 실행은 fire-and-forget. 다음 microtask 까지 대기.
@@ -200,9 +198,26 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
     expect(scraper.scrapeAll).toHaveBeenCalledTimes(1);
     expect(catalog.findCoupangMaster).toHaveBeenCalledTimes(2);
     expect(catalog.attachPrimaryImage).toHaveBeenCalledTimes(2);
+    expect(imageFetcher.fetchImage).not.toHaveBeenCalled();
+    expect(storage.save).not.toHaveBeenCalled();
     expect(ensureCalls.map((c) => c.inventoryId)).toEqual(['INV-1', 'INV-2']);
     expect(attachCalls.every((c) => c.organizationId === ORG_A)).toBe(true);
-    expect(attachCalls.every((c) => c.url.startsWith('https://storage/'))).toBe(true);
+    expect(attachCalls).toEqual([
+      expect.objectContaining({
+        masterId: 'master-INV-1',
+        storageKey: null,
+        url: 'https://wing.coupang.com/img/1.jpg',
+        mimeType: null,
+        fileSize: null,
+      }),
+      expect.objectContaining({
+        masterId: 'master-INV-2',
+        storageKey: null,
+        url: 'https://wing.coupang.com/img/2.jpg',
+        mimeType: null,
+        fileSize: null,
+      }),
+    ]);
   });
 
   it('startFromRows() uses extension-provided rows without invoking the scraper', async () => {
@@ -244,6 +259,24 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
     });
   });
 
+  it('rejects non-public source image URLs without attaching metadata', async () => {
+    const { service, catalog, imageFetcher, storage } = buildService();
+
+    const { jobId } = service.startFromRows(ORG_A, [
+      { inventoryId: 'LOCALHOST', name: 'bad image', url: 'http://localhost:9000/private.jpg' },
+    ]);
+    await waitForJob();
+
+    const status = service.getStatus(jobId, ORG_A);
+    expect(status.status).toBe('done');
+    expect(status.processed).toBe(1);
+    expect(status.failed).toBe(1);
+    expect(status.succeeded).toBe(0);
+    expect(catalog.attachPrimaryImage).not.toHaveBeenCalled();
+    expect(imageFetcher.fetchImage).not.toHaveBeenCalled();
+    expect(storage.save).not.toHaveBeenCalled();
+  });
+
   it('per-row failure does not abort the loop — counts failed and continues', async () => {
     const { service } = buildService({ attachThrowsOnce: true });
     const { jobId } = service.start(ORG_A);
@@ -258,7 +291,7 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
   });
 
   it('counts unmatched Coupang rows separately from failures', async () => {
-    const { service, catalog, imageFetcher } = buildService({
+    const { service, catalog, imageFetcher, storage } = buildService({
       unmatchedInventoryIds: ['INV-1'],
     });
     const { jobId } = service.start(ORG_A);
@@ -272,7 +305,8 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
     expect(status.failed).toBe(0);
     expect(status.unmatched).toBe(1);
     expect(catalog.attachPrimaryImage).toHaveBeenCalledTimes(1);
-    expect(imageFetcher.fetchImage).toHaveBeenCalledTimes(1);
+    expect(imageFetcher.fetchImage).not.toHaveBeenCalled();
+    expect(storage.save).not.toHaveBeenCalled();
   });
 
   it('emits operation alert lifecycle for a successful job', async () => {
@@ -357,8 +391,6 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
     const service = new CoupangImageSyncService(
       scraper,
       catalog,
-      { fetchImage: vi.fn(), extForMime: vi.fn() } as any,
-      { save: vi.fn() } as any,
       reconciliation,
       operationAlerts as any,
     );
