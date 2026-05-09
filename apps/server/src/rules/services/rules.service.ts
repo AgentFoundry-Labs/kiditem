@@ -62,6 +62,7 @@ export class RulesService {
       organizationId,
       sourceType: RULES_EVALUATION_SOURCE,
       payload: { organization_id: organizationId },
+      ...(triggeredByUserId ? { requestedByUserId: triggeredByUserId } : {}),
     });
 
     if (!result.ok) {
@@ -365,6 +366,7 @@ export class RulesService {
       organizationId,
       sourceType: RULES_SUGGEST_SOURCE,
       payload: { organization_id: organizationId },
+      ...(triggeredByUserId ? { requestedByUserId: triggeredByUserId } : {}),
     });
 
     if (!result.ok) {

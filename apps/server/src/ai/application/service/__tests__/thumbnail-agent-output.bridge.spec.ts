@@ -39,6 +39,7 @@ function makeEvent(
     source: 'ai.thumbnail_generate',
     sourceResourceType: null,
     sourceResourceId: null,
+    requestedByUserId: null,
     status: 'succeeded',
     output: VALID_OUTPUT,
     ...overrides,

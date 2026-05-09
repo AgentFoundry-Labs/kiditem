@@ -114,6 +114,23 @@ describe('RulesService', () => {
       expect(operationAlerts.start).not.toHaveBeenCalled();
     });
 
+    it('forwards triggeredByUserId to AGENT_RUNNER_PORT.requestedByUserId so the FINALIZED bridge can fall back to a user alert', async () => {
+      const { service, agentRunner } = makeService();
+      agentRunner.runByType.mockResolvedValue({
+        ok: true,
+        requestId: 'request-actor',
+        agentType: 'rules_evaluation',
+        status: 'pending',
+      });
+
+      await service.evaluateAll(ORGANIZATION_ID, 'user-7');
+
+      expect(agentRunner.runByType).toHaveBeenCalledWith(
+        'rules_evaluation',
+        expect.objectContaining({ requestedByUserId: 'user-7' }),
+      );
+    });
+
     it('opens a running operation alert keyed by the requestId on successful queue', async () => {
       const { service, agentRunner, operationAlerts } = makeService();
       agentRunner.runByType.mockResolvedValue({

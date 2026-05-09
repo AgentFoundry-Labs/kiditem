@@ -25,6 +25,12 @@
  *     downstream resource pointer (eg. `ContentGeneration.id`). Bridges use
  *     this to apply the runtime output back onto the originating row without
  *     re-reading the request.
+ *   - `requestedByUserId` — the user who triggered the run (when known).
+ *     Threaded so the operation-alert bridge can synthesize a user-facing
+ *     fallback `Alert` for failed runs whose producer never opened one.
+ *     `null` when the request is system/cron/workflow-driven; the fallback
+ *     bridge intentionally skips those because Agent OS observability owns
+ *     non-user signals.
  *
  * Important — listeners must not infer routing from `output.__envelope` or
  * any other in-band field. The bus payload itself is the routing surface.
@@ -43,6 +49,12 @@ export interface AgentRunFinalizedEvent {
   source: string;
   sourceResourceType: string | null;
   sourceResourceId: string | null;
+  /**
+   * User who triggered the run, when known. `null` for system/cron/workflow
+   * triggers. The operation-alert bridge consults this to decide whether to
+   * synthesize a fallback failure alert when the producer never opened one.
+   */
+  requestedByUserId: string | null;
   /**
    * Terminal request status. Retryable failures (request returned to `pending`)
    * do NOT emit FINALIZED, so listeners can close their alerts unconditionally.
