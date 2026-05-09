@@ -21,6 +21,14 @@ function makePrisma() {
   };
 }
 
+function makeOperationAlerts() {
+  return {
+    start: vi.fn(async () => ({})),
+    succeed: vi.fn(async () => ({})),
+    fail: vi.fn(async () => ({})),
+  };
+}
+
 const MOCK_SETTLEMENTS = [
   { id: 's1', organizationId: 'c1', period: '2025-03', expectedAmount: 1000000, actualAmount: 980000, difference: -20000, status: 'confirmed' },
   { id: 's2', organizationId: 'c1', period: '2025-02', expectedAmount: 900000, actualAmount: 0, difference: 0, status: 'pending' },
@@ -219,6 +227,65 @@ describe('SettlementsService', () => {
       ]);
       expect(strings.join('')).toContain(
         "AND o.status NOT IN ('cancelled', 'returned', 'refunded')",
+      );
+    });
+
+    it('opens and closes an operation alert for manual reconcile runs', async () => {
+      const operationAlerts = makeOperationAlerts();
+      service = new SettlementsService(prisma as any, operationAlerts as never);
+      mockedBuildPerListingMetrics.mockResolvedValue([baseMetric]);
+      prisma.$queryRaw.mockResolvedValue([
+        { listing_id: baseMetric.listingId, total_price: 10_000n, order_count: 5n },
+      ]);
+
+      await service.reconcile('c1', '2025-03', 'user-1');
+
+      expect(operationAlerts.start).toHaveBeenCalledWith(
+        expect.objectContaining({
+          organizationId: 'c1',
+          actorUserId: 'user-1',
+          operationKey: 'settlements-reconcile:2025-03',
+          type: 'settlements_reconcile',
+          title: '정산 대사 실행',
+          sourceType: 'finance_reconcile',
+          sourceId: '2025-03',
+          href: '/sales-analysis',
+        }),
+      );
+      expect(operationAlerts.succeed).toHaveBeenCalledWith(
+        'c1',
+        'settlements-reconcile:2025-03',
+        expect.objectContaining({
+          href: '/sales-analysis',
+          metadata: expect.objectContaining({
+            period: '2025-03',
+            matchedCount: 1,
+            mismatchCount: 0,
+          }),
+        }),
+      );
+      expect(operationAlerts.fail).not.toHaveBeenCalled();
+    });
+
+    it('marks the reconcile operation alert failed when aggregation throws', async () => {
+      const operationAlerts = makeOperationAlerts();
+      service = new SettlementsService(prisma as any, operationAlerts as never);
+      mockedBuildPerListingMetrics.mockRejectedValueOnce(new Error('aggregation failed'));
+
+      await expect(service.reconcile('c1', '2025-03', 'user-1')).rejects.toThrow(
+        'aggregation failed',
+      );
+
+      expect(operationAlerts.fail).toHaveBeenCalledWith(
+        'c1',
+        'settlements-reconcile:2025-03',
+        expect.objectContaining({
+          href: '/sales-analysis',
+          metadata: expect.objectContaining({
+            period: '2025-03',
+            error: 'aggregation failed',
+          }),
+        }),
       );
     });
   });

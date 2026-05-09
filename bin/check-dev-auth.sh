@@ -7,8 +7,8 @@
 # Triggers a reminder when ANY of the following is true:
 #   - Inside .claude/worktrees/<name>/ AND .env is missing
 #   - apps/web/.env.local is missing
-#   - .dev-auth/callback.url is missing or older than 50 minutes (Supabase
-#     access token TTL is ~1h; 50min gives a safety buffer)
+#   - .dev-auth/callback.url / session.env is missing or older than 50 minutes
+#     (Supabase access token TTL is ~1h; 50min gives a safety buffer)
 #
 # Exit 0 always — this hook is informational, never blocking.
 
@@ -41,6 +41,9 @@ else
     reasons+=(".dev-auth/callback.url is $((age / 60))min old (Supabase access token TTL ~1h)")
   fi
 fi
+if [[ ! -s .dev-auth/session.env ]]; then
+  reasons+=(".dev-auth/session.env missing (preview user/org identity not verified)")
+fi
 
 if (( ${#reasons[@]} == 0 )); then
   exit 0
@@ -55,8 +58,9 @@ fi
   done
   printf '\nRun:\n  ./bin/dev-bootstrap.sh\n\n'
   printf 'Then for AI preview agents: navigate the preview to the URL in\n'
-  printf '.dev-auth/callback.url to land an authenticated session without a\n'
-  printf 'login form. Full flow: docs/runbooks/dev-preview-with-auth.md\n\n'
+  printf '.dev-auth/callback.url. The bootstrap verifies local User + active\n'
+  printf 'OrganizationMembership before minting the callback. Full flow:\n'
+  printf 'docs/runbooks/dev-preview-with-auth.md\n\n'
 } >&2
 
 exit 0

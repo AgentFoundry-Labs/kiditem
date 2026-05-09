@@ -5,6 +5,13 @@ import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import type { ThumbnailAnalysisResult } from '@kiditem/shared/ai';
 import { apiClient } from '@/lib/api-client';
+import {
+  cancelOperationAlert,
+  failOperationAlert,
+  progressOperationAlert,
+  startOperationAlert,
+  succeedOperationAlert,
+} from '@/lib/operation-alerts';
 import { queryKeys } from '@/lib/query-keys';
 import type { AnalysisScope } from './useThumbnailAnalysis';
 
@@ -20,6 +27,7 @@ export function useBatchAnalysis() {
   const queryClient = useQueryClient();
   const batchCancelRef = useRef(false);
   const batchAbortRef = useRef<AbortController | null>(null);
+  const operationKeyRef = useRef<string | null>(null);
 
   const [isBatchRunning, setIsBatchRunning] = useState(false);
   const [batchTotal, setBatchTotal] = useState(0);
@@ -36,6 +44,13 @@ export function useBatchAnalysis() {
   const cancel = () => {
     batchCancelRef.current = true;
     batchAbortRef.current?.abort();
+    const operationKey = operationKeyRef.current;
+    if (operationKey) {
+      void cancelOperationAlert(operationKey, {
+        message: '썸네일 AI 분류가 중단되었습니다.',
+      });
+      operationKeyRef.current = null;
+    }
     toast.success('배치 분류를 중단했습니다');
   };
 
@@ -58,11 +73,25 @@ export function useBatchAnalysis() {
     setIsBatchRunning(true);
     batchCancelRef.current = false;
     batchAbortRef.current = new AbortController();
+    const operationKey = `thumbnail-analysis:batch:${Date.now()}`;
+    operationKeyRef.current = operationKey;
+    await startOperationAlert({
+      operationKey,
+      type: 'thumbnail_analysis',
+      title: '썸네일 AI 분류',
+      sourceType: 'browser_batch',
+      sourceId: scope,
+      href: '/thumbnails',
+      message: `썸네일 ${targets.length}개를 AI 분류하고 있습니다.`,
+      progress: 0,
+      metadata: { total: targets.length, scope },
+    });
 
     const allResults: ThumbnailAnalysisResult[] = [];
     const signal = batchAbortRef.current.signal;
     let firstChunkError: unknown = null;
     let succeededInChunks = 0;
+    let processedCount = 0;
 
     try {
       for (let i = 0; i < targets.length; i += BATCH_SIZE) {
@@ -99,7 +128,18 @@ export function useBatchAnalysis() {
         }
 
         options.onResults?.(valid);
-        setBatchDone((d) => d + chunk.length);
+        processedCount += chunk.length;
+        setBatchDone(processedCount);
+        await progressOperationAlert(operationKey, {
+          message: `썸네일 AI 분류 진행 중: ${Math.min(processedCount, targets.length)}/${targets.length}`,
+          progress: Math.min(1, processedCount / targets.length),
+          metadata: {
+            total: targets.length,
+            processed: Math.min(processedCount, targets.length),
+            succeeded: succeededInChunks,
+            failed: Math.max(0, Math.min(processedCount, targets.length) - succeededInChunks),
+          },
+        });
         queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.all });
 
         if (i + BATCH_SIZE < targets.length) {
@@ -110,6 +150,16 @@ export function useBatchAnalysis() {
       if (!batchCancelRef.current) {
         if (firstChunkError && succeededInChunks === 0) {
           // 모든 chunk 실패 — onComplete 부르지 말고 명확한 에러만 보이게.
+          await failOperationAlert(operationKey, {
+            message: `썸네일 AI 분류 실패: ${firstChunkError instanceof Error ? firstChunkError.message : String(firstChunkError)}`,
+            progress: processedCount > 0 ? Math.min(1, processedCount / targets.length) : 0,
+            metadata: {
+              total: targets.length,
+              processed: processedCount,
+              succeeded: succeededInChunks,
+              failed: targets.length,
+            },
+          });
           toast.error(
             `AI 분류 실패 — ${firstChunkError instanceof Error ? firstChunkError.message : String(firstChunkError)}`,
           );
@@ -120,15 +170,39 @@ export function useBatchAnalysis() {
               `일부 분석 실패 — 성공 ${succeededInChunks}/${targets.length}개. ${firstChunkError instanceof Error ? firstChunkError.message : ''}`,
             );
           }
+          await succeedOperationAlert(operationKey, {
+            message: firstChunkError
+              ? `썸네일 AI 분류 일부 완료: 성공 ${succeededInChunks}/${targets.length}개`
+              : `썸네일 AI 분류 완료: ${succeededInChunks}/${targets.length}개`,
+            severity: firstChunkError ? 'warning' : 'info',
+            metadata: {
+              total: targets.length,
+              processed: processedCount,
+              succeeded: succeededInChunks,
+              failed: Math.max(0, targets.length - succeededInChunks),
+            },
+          });
           options.onComplete?.(allResults, targets);
         }
       }
     } catch (err) {
+      await failOperationAlert(operationKey, {
+        message: `썸네일 AI 분류 실패: ${err instanceof Error ? err.message : 'batch 분석 실패'}`,
+        metadata: {
+          total: targets.length,
+          processed: processedCount,
+          succeeded: succeededInChunks,
+          failed: Math.max(0, targets.length - succeededInChunks),
+        },
+      });
       toast.error(err instanceof Error ? err.message : 'batch 분석 실패');
     } finally {
       setIsBatchRunning(false);
       setBatchStartTime(null);
       batchAbortRef.current = null;
+      if (operationKeyRef.current === operationKey) {
+        operationKeyRef.current = null;
+      }
     }
   };
 

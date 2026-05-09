@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AutomationModule } from '../automation/automation.module';
 import { ProfitLossController } from './controllers/profit-loss.controller';
 import { ProfitLossService } from './services/profit-loss.service';
 import { SalesAnalysisController } from './controllers/sales-analysis.controller';
@@ -16,6 +17,7 @@ import { SettlementsController } from './settlements/settlements.controller';
 import { SettlementsService } from './settlements/settlements.service';
 
 @Module({
+  imports: [AutomationModule],
   controllers: [
     ProfitLossController,
     SalesAnalysisController,

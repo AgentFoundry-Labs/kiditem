@@ -38,10 +38,11 @@ npm run dev:all
 # kiditem@naver.com + 비밀번호 (PR 작성자에게 별도 채널로 전달받음)
 ```
 
-비밀번호를 모르거나 password flow 를 우회하려면:
+AI/격리 preview 브라우저에서 로그인 폼 입력 없이 검증 세션이 필요하면:
 ```bash
-node scripts/login-magiclink.mjs kiditem@naver.com
-# 출력의 CALLBACK_URL 을 브라우저에서 열면 cookie set + 대시보드 진입
+./bin/dev-bootstrap.sh
+# 출력 URL 또는 .dev-auth/callback.url 을 preview 브라우저에서 열면
+# local User + active OrganizationMembership 이 검증된 Supabase 세션으로 진입
 ```
 
 ---

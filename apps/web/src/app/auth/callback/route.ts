@@ -5,8 +5,9 @@ import { sanitizeInternalRedirectPath } from '@/lib/auth-redirect';
 /**
  * Auth callback — 두 흐름 지원:
  *
- *  1) `?token_hash=<hash>&type=magiclink|recovery|invite` — admin.generateLink 또는
- *     verifyOtp 로 발급한 link. PKCE code_verifier 없이도 동작.
+ *  1) `?token_hash=<hash>&type=magiclink|recovery|invite` — dev preview
+ *     session callback 또는 recovery/invite verifyOtp link. PKCE
+ *     code_verifier 없이도 동작.
  *  2) `?code=<authCode>` — OAuth (Google/GitHub) PKCE flow. 클라이언트가 시작한 흐름이므로
  *     `code_verifier` 쿠키가 보장됨.
  *

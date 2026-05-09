@@ -18,44 +18,13 @@ import {
 } from '../../../application/service/operation-alert.service';
 import { mapAlertRowToItem } from '../../../mapper/alert-item.mapper';
 import {
+  isBrowserOperationProducer,
+  resolveBrowserOperationProducer,
+} from '../../../domain/policy/browser-operation-producers';
+import {
   StartOperationAlertDto,
   UpdateOperationAlertDto,
 } from './dto/alerts';
-
-const BROWSER_OPERATION_PRODUCERS = new Set([
-  'dashboard_data_collect:readiness_check',
-  'ad_sync:ad_extension_run',
-]);
-
-const READINESS_OPERATION_DEFINITIONS = new Map<
-  string,
-  { title: string; href: string }
->([
-  ['wing_sales', { title: '쿠팡 Wing 데이터 수집', href: '/dashboard' }],
-  ['coupang_ads', { title: '쿠팡 광고 데이터 수집', href: '/ad-ops' }],
-  ['coupang_products', { title: '쿠팡 상품 데이터 수집', href: '/dashboard' }],
-  ['wing_kpi', { title: 'Wing 아이템위너 KPI', href: '/dashboard' }],
-]);
-
-function isBrowserOperationProducer(
-  type: string,
-  sourceType: string | null | undefined,
-): boolean {
-  return BROWSER_OPERATION_PRODUCERS.has(`${type}:${sourceType ?? ''}`);
-}
-
-function resolveBrowserOperationProducer(
-  dto: StartOperationAlertDto,
-): { title: string; href: string } | null {
-  if (dto.type === 'dashboard_data_collect' && dto.sourceType === 'readiness_check') {
-    if (!dto.sourceId) return null;
-    return READINESS_OPERATION_DEFINITIONS.get(dto.sourceId) ?? null;
-  }
-  if (dto.type === 'ad_sync' && dto.sourceType === 'ad_extension_run') {
-    return { title: '광고 동기화', href: '/ad-ops' };
-  }
-  return null;
-}
 
 /**
  * Frontend-facing entrypoint for `Alert.kind='operation'` lifecycle when

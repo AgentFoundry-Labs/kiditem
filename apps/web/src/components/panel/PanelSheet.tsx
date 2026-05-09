@@ -1,17 +1,20 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Bell, X } from 'lucide-react';
+import { ArchiveX, Bell, X } from 'lucide-react';
+import { apiClient } from '@/lib/api-client';
+import { useAuth } from '@/hooks/useAuth';
 import { isActivePanelItem, usePanelStore } from './lib/panel-store';
 import { PanelItemRow } from './PanelItemRow';
-import { useAuth } from '@/hooks/useAuth';
 import type { PanelItem } from '@kiditem/shared/panel';
 
 export function PanelSheet() {
+  const [isClearing, setIsClearing] = useState(false);
   const isOpen = usePanelStore((s) => s.isOpen);
   const setOpen = usePanelStore((s) => s.setOpen);
   const byId = usePanelStore((s) => s.byId);
+  const dismissItem = usePanelStore((s) => s.dismissItem);
   const connectionStatus = usePanelStore((s) => s.connectionStatus);
 
   const { user } = useAuth();
@@ -23,11 +26,33 @@ export function PanelSheet() {
     () => partitionByStatus(Object.values(byId)),
     [byId],
   );
+  const dismissableAlerts = useMemo(
+    () => [...active, ...recent].filter(isDismissablePanelAlert),
+    [active, recent],
+  );
 
-  const { myItems, teamItems } = useMemo(
-    () => partitionByOwner([...active, ...recent], currentUserId),
+  const { myItems, attentionItems, teamItems } = useMemo(
+    () => partitionPanelItems([...active, ...recent], currentUserId),
     [active, recent, currentUserId],
   );
+
+  const clearDismissableAlerts = async () => {
+    if (isClearing || dismissableAlerts.length === 0) return;
+    setIsClearing(true);
+    try {
+      const results = await Promise.allSettled(
+        dismissableAlerts.map(async (item) => {
+          await apiClient.post(`/api/alerts/${encodeURIComponent(item.id)}/dismiss`);
+          dismissItem(item.id);
+        }),
+      );
+      if (results.some((result) => result.status === 'rejected')) {
+        console.warn('[panel] failed to clear some alerts');
+      }
+    } finally {
+      setIsClearing(false);
+    }
+  };
 
   return (
     <Dialog.Root open={isOpen} onOpenChange={setOpen}>
@@ -46,7 +71,25 @@ export function PanelSheet() {
                   {runningCount} 진행
                 </span>
               )}
-              <button onClick={() => setOpen(false)} className="p-1 text-slate-400 hover:text-slate-600">
+              {dismissableAlerts.length > 0 && (
+                <button
+                  type="button"
+                  onClick={clearDismissableAlerts}
+                  disabled={isClearing}
+                  aria-label="완료 알림 정리"
+                  title="완료 알림 정리"
+                  className="inline-flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <ArchiveX className="w-3 h-3" />
+                  완료 정리
+                </button>
+              )}
+              <button
+                type="button"
+                aria-label="알림 패널 닫기"
+                onClick={() => setOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-600"
+              >
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -73,20 +116,26 @@ export function PanelSheet() {
                 </div>
               )}
 
-            {/* 팀 section — empty 시 헤더도 숨김 */}
+            {/* 조직 알림 section — 조직/시스템 알림을 팀 작업과 분리 */}
+            <div className="px-4 py-2 text-xs font-bold text-slate-500 uppercase bg-slate-50 border-b border-slate-100">
+              조직 알림
+            </div>
+            {attentionItems.length > 0
+              ? attentionItems.map((i) => <PanelItemRow key={i.id} item={i} />)
+              : (
+                <div className="px-4 py-6 text-center text-sm text-slate-400">
+                  조직 알림이 없습니다
+                </div>
+              )}
+
+            {/* 팀 작업 section — empty 시 헤더도 숨김 */}
             {teamItems.length > 0 && (
               <>
                 <div className="px-4 py-2 text-xs font-bold text-slate-500 uppercase bg-slate-50 border-b border-slate-100">
-                  팀
+                  팀 작업
                 </div>
                 {teamItems.map((i) => <PanelItemRow key={i.id} item={i} />)}
               </>
-            )}
-
-            {myItems.length === 0 && teamItems.length === 0 && (
-              <div className="px-4 py-8 text-center text-sm text-slate-400">
-                현재 주목할 항목이 없어요
-              </div>
             )}
           </div>
         </Dialog.Content>
@@ -113,15 +162,26 @@ function partitionByStatus(items: PanelItem[]) {
   return { active, recent, runningCount };
 }
 
-function partitionByOwner(items: PanelItem[], currentUserId: string | null) {
+function isDismissablePanelAlert(item: PanelItem) {
+  return item.kind === 'alert' && !isActivePanelItem(item);
+}
+
+function partitionPanelItems(items: PanelItem[], currentUserId: string | null) {
   const myItems: PanelItem[] = [];
+  const attentionItems: PanelItem[] = [];
   const teamItems: PanelItem[] = [];
   for (const item of items) {
     if (currentUserId !== null && item.actorUserId === currentUserId) {
       myItems.push(item);
+    } else if (isAttentionPanelItem(item)) {
+      attentionItems.push(item);
     } else {
       teamItems.push(item);
     }
   }
-  return { myItems, teamItems };
+  return { myItems, attentionItems, teamItems };
+}
+
+function isAttentionPanelItem(item: PanelItem) {
+  return item.kind === 'alert' && item.actorUserId === null;
 }

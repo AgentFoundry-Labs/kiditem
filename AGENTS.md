@@ -43,7 +43,7 @@ Precedence: the most-specific `AGENTS.md` wins, then parent `AGENTS.md` files.
 ./bin/dev-bootstrap.sh
 ```
 
-env 파일 (`.env`, `apps/web/.env.local`) 동기화 + `npm install` + Supabase magic-link 세션 발급. 출력의 콜백 URL 을 AI 프리뷰가 navigate 하면 로그인 폼 없이 인증된 세션 진입. 토큰 만료 (~1h) 시 재실행. 자세히: [`docs/runbooks/dev-preview-with-auth.md`](docs/runbooks/dev-preview-with-auth.md). 처음 셋업이면 [`docs/runbooks/auth-supabase.md`](docs/runbooks/auth-supabase.md) 먼저.
+env 파일 (`.env`, `apps/web/.env.local`) 동기화 + `npm install` + dev preview 세션 callback 발급. 발급 전 local `User` mirror 와 active `OrganizationMembership` 를 확인하므로, AI 프리뷰가 출력 URL 로 진입하면 실제 user/org 컨텍스트가 있는 Supabase 세션이 만들어진다. 토큰 만료 (~1h) 시 재실행. 자세히: [`docs/runbooks/dev-preview-with-auth.md`](docs/runbooks/dev-preview-with-auth.md). 처음 셋업이면 [`docs/runbooks/auth-supabase.md`](docs/runbooks/auth-supabase.md) 먼저.
 
 ### 1. 시작 전 — scope-local instruction 필독
 

@@ -4,8 +4,9 @@ import { useState } from 'react';
 import Link from 'next/link';
 import {
   Info, AlertTriangle, AlertCircle, XCircle, Bell,
-  Loader2, CheckCircle2, Ban, ExternalLink,
+  Loader2, CheckCircle2, Ban, ExternalLink, X,
 } from 'lucide-react';
+import { apiClient } from '@/lib/api-client';
 import { cn, timeAgo } from '@/lib/utils';
 import { PromoteToTaskModal } from './PromoteToTaskModal';
 import { usePanelStore } from './lib/panel-store';
@@ -54,6 +55,7 @@ export function PanelAlertRow({ item }: { item: PanelAlertItem }) {
   const { Icon, colorClass } = severityIcon(item.severity);
   const [modalOpen, setModalOpen] = useState(false);
   const setPanelOpen = usePanelStore((s) => s.setOpen);
+  const dismissItem = usePanelStore((s) => s.dismissItem);
 
   const isOperation = item.alertKind === 'operation';
   const badge = isOperation ? operationStatusBadge(item.status) : null;
@@ -66,6 +68,18 @@ export function PanelAlertRow({ item }: { item: PanelAlertItem }) {
   // orphaned task whose context (success/fail/cancel) is not yet known.
   const canPromote =
     item.actionTaskId == null && (!isOperation || item.status !== 'running');
+  const canDismiss =
+    !isOperation || (item.status !== 'running' && item.status !== 'pending');
+
+  const dismiss = async (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    try {
+      await apiClient.post(`/api/alerts/${encodeURIComponent(item.id)}/dismiss`);
+      dismissItem(item.id);
+    } catch (err) {
+      console.warn('[panel] dismiss alert failed', err);
+    }
+  };
 
   return (
     <>
@@ -141,23 +155,39 @@ export function PanelAlertRow({ item }: { item: PanelAlertItem }) {
                 </Link>
               )}
             </div>
-            {canPromote ? (
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); setModalOpen(true); }}
-                aria-label="할 일로 만들기"
-                className={cn(
-                  'opacity-0 group-hover:opacity-100 focus:opacity-100 transition',
-                  'text-xs px-2 py-1 rounded border border-gray-300 hover:bg-gray-50',
-                )}
-              >
-                할 일로 만들기
-              </button>
-            ) : item.actionTaskId != null ? (
-              <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
-                ← 할 일 목록에 있음
-              </span>
-            ) : null}
+            <div className="flex items-center gap-1 shrink-0">
+              {canPromote ? (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setModalOpen(true); }}
+                  aria-label="할 일로 만들기"
+                  className={cn(
+                    'opacity-0 group-hover:opacity-100 focus:opacity-100 transition',
+                    'text-xs px-2 py-1 rounded border border-gray-300 hover:bg-gray-50',
+                  )}
+                >
+                  할 일로 만들기
+                </button>
+              ) : item.actionTaskId != null ? (
+                <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
+                  ← 할 일 목록에 있음
+                </span>
+              ) : null}
+              {canDismiss && (
+                <button
+                  type="button"
+                  onClick={dismiss}
+                  aria-label="알림 정리"
+                  title="알림 정리"
+                  className={cn(
+                    'opacity-0 group-hover:opacity-100 focus:opacity-100 transition',
+                    'p-1 rounded border border-gray-300 text-slate-400 hover:bg-gray-50 hover:text-slate-600',
+                  )}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
