@@ -28,6 +28,7 @@ describe('apiClient.getParsed', () => {
       id: '11111111-1111-1111-1111-111111111111',
       amount: 42,
     });
+    expect(fetch).toHaveBeenCalledWith('/api/test', expect.any(Object));
   });
 
   it('throws ZodError on invalid response shape', async () => {

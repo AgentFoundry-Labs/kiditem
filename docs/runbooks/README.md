@@ -16,6 +16,11 @@ Runbooks are different from concept docs:
 
 Current runbooks:
 
+- [Staging Deploy](staging-deploy.md) — build the initial EC2 staging runtime
+  with Docker Compose, container nginx, host TLS proxy, Supabase staging DB/Auth,
+  and Supabase Storage through its S3-compatible API.
+- [Staging Seed Data](staging-seed-data.md) — push the staging schema and import
+  pinned Google Drive seed artifacts into the dedicated staging environment.
 - [Playwriter Wing Image Sync](playwriter-wing-image-sync.md) — set up the
   local Playwriter CLI/session required by `/thumbnails` image sync and Wing
   thumbnail registration.

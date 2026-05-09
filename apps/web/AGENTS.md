@@ -1,14 +1,19 @@
 # apps/web — Next.js Frontend
 
-Frontend only. No API Routes / Route Handlers. All data fetched from NestJS (`localhost:4000`).
+Frontend only. No API Routes / Route Handlers. All data is fetched from NestJS
+through `apiClient`: local development uses `NEXT_PUBLIC_API_URL=http://localhost:4000`,
+while staging/production leave it empty and rely on the edge proxy (`/api/*` →
+NestJS).
 
 **AI chat transport exception** — the CopilotKit browser runtime calls
 same-origin `/api/chat/copilot` only. `apps/web/next.config.mjs` rewrites
 both `/api/chat/copilot` and `/api/chat/copilot/:path*` to the Nest chat
-runtime. This is a rewrite (transport), not an API Route — there is no
+runtime for local/dev environments where nginx/ALB is not handling `/api/*`.
+This is a rewrite (transport), not an API Route — there is no
 `app/api/.../route.ts` handler and there must not be one. Any other
 domain that needs server proxying must go through Nest directly via
-`apiClient`, not via a new rewrite/Route Handler.
+`apiClient` plus the staging/prod edge proxy, not via a new Next rewrite/Route
+Handler.
 
 ## Run
 
@@ -18,7 +23,9 @@ npm run build  # Production build
 npx vitest run # Tests
 ```
 
-Env: `.env.local` → `NEXT_PUBLIC_API_URL=http://localhost:4000`
+Env: `.env.local` → local dev sets `NEXT_PUBLIC_API_URL=http://localhost:4000`.
+Staging/production should omit it or set it to an empty string so browser API
+calls stay same-origin (`/api/*`).
 
 ## Scoped Instructions
 

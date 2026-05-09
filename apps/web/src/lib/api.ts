@@ -3,4 +3,6 @@
 // strings — that path is untrusted and the backend will ignore it. See
 // `apps/web/AGENTS.md` (API Calls) for the full rule and rationale.
 
-export const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+// Local dev sets NEXT_PUBLIC_API_URL=http://localhost:4000. Staging/prod leave
+// it empty so nginx/ALB routes same-origin `/api/*` directly to NestJS.
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';

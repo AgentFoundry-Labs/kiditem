@@ -11,6 +11,7 @@ const backendBase = stripTrailingSlash(
 );
 
 const nextConfig = {
+  output: 'standalone',
   transpilePackages: ['@kiditem/templates'],
   async headers() {
     return [
