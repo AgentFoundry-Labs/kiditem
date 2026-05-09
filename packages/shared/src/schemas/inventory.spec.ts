@@ -18,6 +18,8 @@ const inventoryRow = {
   masterName: '테스트 상품',
   optionName: '블루',
   kind: 'SIMPLE',
+  costPrice: 1000,
+  abcGrade: 'A',
   currentStock: 10,
   availableStock: 10,
   safetyStock: 3,
