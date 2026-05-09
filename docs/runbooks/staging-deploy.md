@@ -1,6 +1,9 @@
 # Staging Deploy Runbook
 
-This runbook creates the initial KidItem staging runtime on one EC2 instance:
+This runbook creates and operates the KidItem staging runtime on one EC2
+instance. The primary deploy path is GitHub Actions -> GHCR -> EC2 Docker
+Compose. The local `bin/deploy-staging.sh` path remains a break-glass fallback
+for initial bootstrapping or GitHub outage recovery.
 
 ```text
 Internet
@@ -14,6 +17,7 @@ External services:
   PostgreSQL/Auth -> Supabase project for this staging runtime
   Storage         -> Supabase Storage public bucket, via S3-compatible API
   Seed registry   -> Google Drive pinned seed artifacts
+  Image registry  -> GHCR images tagged by git SHA
 ```
 
 ## Human Prerequisites
@@ -29,6 +33,9 @@ External services:
   generate a server-side access key pair in Dashboard -> Storage ->
   Configuration -> S3. Save the secret immediately; Supabase shows it once.
 - A public DNS record such as `staging.example.com` pointing to the EC2 public IP.
+- GitHub Actions is enabled for `AgentFoundry-Labs/kiditem`.
+- GitHub Environment `staging` exists with the variables and secrets listed in
+  "GitHub Environment Setup".
 
 Do not store secrets in git. Runtime secret files live only on the staging host.
 
@@ -44,10 +51,14 @@ Do not store secrets in git. Runtime secret files live only on the staging host.
 /opt/kiditem/
   docker-compose.staging.yml
   deploy/staging/nginx.conf
+  deploy/staging/remote-deploy.sh
   deploy/staging/host-nginx-http.conf.example
   deploy/staging/host-nginx.conf.example
   .env.staging.api
   .env.staging.web
+  .env.staging.deploy
+  deployments/current.json
+  deployments/history/<timestamp>-<git-sha>.json
 ```
 
 ## One-Time EC2 Setup
@@ -145,6 +156,119 @@ NEXT_PUBLIC_API_URL=
 The browser calls `/api/*` on the same origin, and nginx routes those requests
 to the NestJS container.
 
+## GitHub Environment Setup
+
+Create a GitHub Environment named `staging`.
+
+Environment variables:
+
+```text
+STAGING_HOST=<ec2-public-ip-or-dns>
+STAGING_USER=ubuntu
+STAGING_REMOTE_DIR=/opt/kiditem
+STAGING_URL=http://<ec2-public-ip>
+NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<staging-supabase-publishable-key>
+```
+
+When DNS and TLS are ready, change only `STAGING_URL` and the API
+`CORS_ORIGINS` value in `/opt/kiditem/.env.staging.api`.
+
+Environment secrets:
+
+```text
+STAGING_SSH_KEY=<private key whose public key is authorized for the EC2 user>
+STAGING_SSH_KNOWN_HOSTS=<ssh-keyscan output for STAGING_HOST>
+```
+
+Create `STAGING_SSH_KNOWN_HOSTS` from an operator machine:
+
+```bash
+ssh-keyscan -H <ec2-public-ip-or-dns>
+```
+
+CLI setup template:
+
+```bash
+gh api --method PUT repos/AgentFoundry-Labs/kiditem/environments/staging
+
+gh variable set STAGING_HOST --env staging --body "<ec2-public-ip-or-dns>"
+gh variable set STAGING_USER --env staging --body "ubuntu"
+gh variable set STAGING_REMOTE_DIR --env staging --body "/opt/kiditem"
+gh variable set STAGING_URL --env staging --body "http://<ec2-public-ip>"
+gh variable set NEXT_PUBLIC_SUPABASE_URL --env staging --body "https://<project-ref>.supabase.co"
+gh variable set NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY --env staging --body "<publishable-key>"
+
+gh secret set STAGING_SSH_KEY --env staging < .secrets/staging/kiditem-staging-keypair.pem
+ssh-keyscan -H <ec2-public-ip-or-dns> | gh secret set STAGING_SSH_KNOWN_HOSTS --env staging
+```
+
+Do not use `StrictHostKeyChecking=accept-new` in GitHub Actions. Pinning the
+host key prevents a deploy from trusting an unexpected SSH host.
+
+The workflow uses the short-lived `GITHUB_TOKEN` to push and pull GHCR images.
+Do not create a long-lived GHCR PAT for staging unless the `GITHUB_TOKEN` path
+is blocked by organization policy.
+
+Workflow actions are pinned to commit SHA with the tag version left as a YAML
+comment. When upgrading an action, resolve the new tag SHA with
+`git ls-remote https://github.com/<owner>/<repo>.git refs/tags/<tag>`.
+
+## Primary Deploy From GitHub Actions
+
+Workflow file:
+
+```text
+.github/workflows/staging-deploy.yml
+```
+
+Triggers:
+
+- Push to `main` builds and deploys staging.
+- Manual `workflow_dispatch` with `operation=deploy` deploys the selected ref.
+- Manual `workflow_dispatch` with `operation=status` prints the EC2 deployment
+  manifest and smoke endpoint status.
+- Manual `workflow_dispatch` with `operation=rollback` deploys an existing GHCR
+  git-SHA tag. Do not pass `staging` as a rollback tag.
+
+Branch model:
+
+```text
+feature/fix branch -> PR -> main -> automatic staging deploy
+```
+
+Do not create a long-lived `staging` branch. Staging is a GitHub Environment,
+not a separate source branch.
+
+Image naming:
+
+```text
+ghcr.io/agentfoundry-labs/kiditem-api:<git-sha>
+ghcr.io/agentfoundry-labs/kiditem-web:<git-sha>
+ghcr.io/agentfoundry-labs/kiditem-api:staging
+ghcr.io/agentfoundry-labs/kiditem-web:staging
+```
+
+The mutable `staging` tag is only a pointer for humans. Runtime compose uses
+the digest image refs produced by the build job and records those refs in:
+
+```text
+/opt/kiditem/.env.staging.deploy
+/opt/kiditem/deployments/current.json
+/opt/kiditem/deployments/history/
+```
+
+Each deploy syncs only non-secret runtime assets to EC2:
+
+```text
+docker-compose.staging.yml
+deploy/staging/nginx.conf
+deploy/staging/remote-deploy.sh
+```
+
+The workflow never overwrites `/opt/kiditem/.env.staging.api` or
+`/opt/kiditem/.env.staging.web`.
+
 ## Host Nginx For IP-Only Smoke Test
 
 The app compose nginx binds to `127.0.0.1:8080`. Host nginx exposes it on public
@@ -181,7 +305,10 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-## Deploy From Local Workspace
+## Local Deploy Fallback
+
+Use this only when GitHub Actions or GHCR is unavailable, or for the first smoke
+bootstrap before the GitHub Environment exists.
 
 From the local repo:
 
@@ -192,11 +319,15 @@ STAGING_SSH_KEY=~/.ssh/<key>.pem \
 ./bin/deploy-staging.sh
 ```
 
-The script builds both Docker images locally, streams `docker save | gzip`
-directly into `docker load` over SSH, restarts the compose stack, and checks
-`http://127.0.0.1:8080/login` on the EC2 host. It intentionally does not store
-the compressed image archive on EC2, which keeps small root disks from holding
-both the archive and the loaded images at the same time.
+The fallback script builds both Docker images locally, streams
+`docker save | gzip` directly into `docker load` over SSH, restarts the compose
+stack, and checks `http://127.0.0.1:8080/login` on the EC2 host. It
+intentionally does not store the compressed image archive on EC2, which keeps
+small root disks from holding both the archive and the loaded images at the
+same time.
+
+Fallback deploys do not write the GHCR deployment manifest unless the operator
+also runs `deploy/staging/remote-deploy.sh` with explicit GHCR image refs.
 
 By default, local builds target `linux/amd64`, which matches normal EC2 Ubuntu
 instances even when the operator is using Apple Silicon locally. Override only
@@ -239,12 +370,20 @@ Use these only when operating directly on the EC2 host:
 
 ```bash
 cd /opt/kiditem
-export KIDITEM_API_IMAGE=kiditem-staging-api:<tag>
-export KIDITEM_WEB_IMAGE=kiditem-staging-web:<tag>
+set -a
+source .env.staging.deploy
+set +a
 docker compose --env-file .env.staging.web -f docker-compose.staging.yml config
 docker compose --env-file .env.staging.web -f docker-compose.staging.yml up -d
 docker compose --env-file .env.staging.web -f docker-compose.staging.yml ps
 docker compose --env-file .env.staging.web -f docker-compose.staging.yml logs --tail=100 nginx web api
+```
+
+To inspect the current deployment without remembering compose flags:
+
+```bash
+cd /opt/kiditem
+./deploy/staging/remote-deploy.sh status
 ```
 
 ## Verification
@@ -252,6 +391,9 @@ docker compose --env-file .env.staging.web -f docker-compose.staging.yml logs --
 After deploy:
 
 ```bash
+cd /opt/kiditem
+test -f deployments/current.json
+cat deployments/current.json
 curl -fsS http://127.0.0.1:8080/login
 curl -I http://<ec2-public-ip>/login
 curl -I https://<real-staging-domain>/login
@@ -265,6 +407,8 @@ Expected results:
   unauthenticated. It should not be a connection error or nginx `502`.
 - Browser network requests to app APIs use `http://<ec2-public-ip>/api/*` or
   `https://<real-staging-domain>/api/*`, not `localhost:4000`.
+- `deployments/current.json` records the git SHA, image refs, image digests,
+  GitHub workflow run URL, and deploy operation.
 
 ## Blocker Criteria
 
@@ -275,6 +419,8 @@ Stop and report instead of guessing if:
 - nginx returns `502` after both containers are running.
 - Supabase connection errors mention the production project.
 - Any seed/import step would target production by accident.
+- GitHub Actions cannot pull GHCR images from EC2 using `GITHUB_TOKEN`.
+- `deployments/current.json` is missing after a successful CI deploy.
 
 ## Final Report Format
 
@@ -282,7 +428,8 @@ Report:
 
 - EC2 host and public staging URL.
 - Git branch or commit deployed.
-- Docker image tag loaded on EC2.
+- Docker image refs and digests loaded on EC2.
+- GitHub Actions run URL.
 - Supabase project ref used for staging.
 - Supabase Storage bucket name used for staging.
 - Compose service status.

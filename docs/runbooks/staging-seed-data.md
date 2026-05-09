@@ -129,7 +129,7 @@ set -a
 source .env.staging.seed
 set +a
 
-npm run data:dev:doctor
+npm run data:dev:status
 npm run data:dev:sync -- --profile staging-smoke-2026-05-09 --api-url "$KIDITEM_API_URL" --yes
 ```
 
@@ -157,7 +157,7 @@ source .env.staging.seed
 set +a
 
 npx prisma validate
-npm run data:dev:doctor
+npm run data:dev:status
 curl -fsS "$KIDITEM_API_URL/login" >/dev/null
 ```
 
