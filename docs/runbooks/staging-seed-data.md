@@ -8,6 +8,30 @@ If the first staging rollout reuses the shared dev Supabase project, treat this
 runbook as non-destructive sync only. Do not run reset commands against the
 shared dev DB.
 
+## Initial Shared Supabase Baseline
+
+As of the initial EC2 staging rollout, the current Supabase project is treated
+as the staging DB/Auth source. That means staging deploys should point at the
+existing Supabase project and should not import a seed profile by default.
+
+Observed baseline on 2026-05-10:
+
+- 1 active organization (`Dev Company`, slug `dev-company`).
+- 4 app DB users and 4 active organization memberships.
+- 4 Supabase Auth users.
+- 1,990 active master products.
+- 1,192 channel listing rows.
+- 1,077 master product image rows.
+
+For login to work, the Supabase Auth user id must match `public.users.id`, and
+that user must have an active `OrganizationMembership`. The current usable
+staging operator accounts are the Auth users whose ids match their app DB user
+rows. Placeholder/local users whose email exists in both places but ids differ
+are not valid staging login accounts until they are explicitly mirrored.
+
+Treat Google Drive seed artifacts as recovery/reproduction snapshots for this
+phase, not as a deploy-time import step.
+
 The rule is:
 
 ```text

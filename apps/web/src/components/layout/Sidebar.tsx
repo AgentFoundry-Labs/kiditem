@@ -284,7 +284,7 @@ export default function Sidebar({
         )}
       >
         {/* Logo */}
-        <div className="h-14 flex items-center px-5 border-b border-[var(--border-subtle)]">
+        <div className="h-14 shrink-0 flex items-center px-5 border-b border-[var(--border-subtle)]">
           {sidebarOpen ? (
             <>
               <Link href="/" onClick={(e) => handleNavClick(e, '/')} className="flex items-center gap-2.5">
@@ -320,7 +320,7 @@ export default function Sidebar({
 
         {/* Scrollable nav — collapsible sections */}
         <nav
-          className="flex-1 py-2 overflow-y-auto"
+          className="min-h-0 flex-1 overflow-y-auto py-2"
           style={{ scrollbarWidth: 'none', overscrollBehaviorY: 'contain' }}
         >
           {menuSections.slice(0, -1).map((section, si) => {
@@ -442,7 +442,7 @@ export default function Sidebar({
         </nav>
 
         {/* Bottom pinned — Agent OS + 설정 */}
-        <div className="border-t border-[var(--border-subtle)] px-3 py-2 space-y-0.5">
+        <div className="shrink-0 border-t border-[var(--border-subtle)] px-3 py-2 space-y-0.5">
           {menuSections[menuSections.length - 1].items.map((item) => {
             const active = isItemActive(item.href, pathname);
             const Icon = item.icon;
