@@ -3,17 +3,21 @@ import {
   AGENT_OS_REPOSITORY_PORT,
   type AgentOsRepositoryPort,
   type CreateAgentInstanceInput,
-  type CreateBlueprintInput,
   type UpdateAgentInstanceInput,
   type UpsertInstanceToolPolicyInput,
 } from '../port/out/agent-os-repository.port';
 import { AgentOsCatalogError } from '../../domain/agent-os.errors';
 import { AgentPolicyService } from './agent-policy.service';
 import {
-  type AgentBlueprintRecord,
+  type AgentDefinitionRecord,
   type AgentInstanceRecord,
   resolveEffectiveModel,
 } from '../../domain/agent-os.types';
+import {
+  findAgentDefinitionByType,
+  listAgentDefinitions,
+  resolveDefinitionDefaultModel,
+} from '../../domain/agent-definition.registry';
 
 @Injectable()
 export class AgentCatalogService {
@@ -23,18 +27,8 @@ export class AgentCatalogService {
     private readonly policy: AgentPolicyService,
   ) {}
 
-  listBlueprints(): Promise<AgentBlueprintRecord[]> {
-    return this.repository.listBlueprints();
-  }
-
-  upsertBlueprint(input: CreateBlueprintInput): Promise<AgentBlueprintRecord> {
-    if (!input.defaultModel || input.defaultModel.length === 0) {
-      throw new AgentOsCatalogError(
-        'blueprint_default_model_required',
-        'AgentBlueprint.defaultModel is required.',
-      );
-    }
-    return this.repository.upsertBlueprint(input);
+  listDefinitions(): AgentDefinitionRecord[] {
+    return listAgentDefinitions();
   }
 
   listInstances(input: { organizationId: string }): Promise<AgentInstanceRecord[]> {
@@ -55,29 +49,28 @@ export class AgentCatalogService {
     runtimeConfig?: Record<string, unknown>;
     promptPathOverride?: string | null;
   }): Promise<AgentInstanceRecord> {
-    const blueprint = await this.repository.findBlueprintByType(input.type);
-    if (!blueprint) {
+    const definition = findAgentDefinitionByType(input.type);
+    if (!definition) {
       throw new AgentOsCatalogError(
-        'blueprint_not_found',
-        `No blueprint registered for type "${input.type}".`,
+        'agent_definition_not_found',
+        `No agent definition registered for type "${input.type}".`,
       );
     }
 
     const effectiveModel = resolveEffectiveModel({
-      blueprintDefault: blueprint.defaultModel,
+      definitionDefault: resolveDefinitionDefaultModel(definition),
       instanceOverride: input.modelOverride ?? null,
     });
     if (!effectiveModel) {
       throw new AgentOsCatalogError(
         'instance_model_required',
-        'Instance creation requires a resolvable model (override or blueprint default).',
+        'Instance creation requires a resolvable model (override or definition default).',
       );
     }
 
     const data: CreateAgentInstanceInput = {
       organizationId: input.organizationId,
-      blueprintId: blueprint.id,
-      type: blueprint.type,
+      type: definition.type,
       name: input.name,
       role: input.role ?? 'specialist',
       title: input.title ?? null,
@@ -85,10 +78,10 @@ export class AgentCatalogService {
       reportsToId: input.reportsToId ?? null,
       lifecycleStatus: 'active',
       trustLevel: input.trustLevel ?? 0,
-      adapterType: blueprint.defaultAdapterType,
+      adapterType: definition.defaultAdapterType,
       modelOverride: input.modelOverride ?? null,
       adapterConfig: input.adapterConfig ?? {},
-      runtimeConfig: input.runtimeConfig ?? blueprint.defaultRuntimeConfig,
+      runtimeConfig: input.runtimeConfig ?? {},
       promptPathOverride: input.promptPathOverride ?? null,
     };
 

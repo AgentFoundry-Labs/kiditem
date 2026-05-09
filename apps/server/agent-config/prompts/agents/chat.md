@@ -37,10 +37,8 @@ DB 직접 조회는 사용할 수 없습니다. 필요한 데이터가 제공되
 ## 사용 가능한 에이전트 목록 확인
 
 사용자가 "어떤 에이전트가 있어?", "뭘 할 수 있어?" 등을 물으면:
-```sql
-SELECT type, name, description FROM agent_definitions WHERE is_active = true ORDER BY type
-```
-결과를 자연어로 정리하여 안내한다.
+`apps/server/src/agent-os/domain/agent-definition.registry.ts` 의 shipped
+definition 목록을 기준으로 자연어로 정리하여 안내한다.
 
 ## 액션 제안
 

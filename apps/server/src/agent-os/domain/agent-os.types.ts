@@ -1,4 +1,4 @@
-// Pure domain types and constants for Agent OS v2. No Prisma, no Nest, no IO.
+// Pure domain types and constants for Agent OS. No Prisma, no Nest, no IO.
 
 export const AGENT_INSTANCE_LIFECYCLE_STATUSES = [
   'active',
@@ -55,24 +55,41 @@ export const AGENT_APPROVAL_STATUSES = [
 export type AgentApprovalStatus =
   (typeof AGENT_APPROVAL_STATUSES)[number];
 
-export interface AgentBlueprintRecord {
+export const AGENT_DEFINITION_RUNTIME_KINDS = [
+  'agent',
+  'coordinator',
+  'tool_wrapper',
+] as const;
+export type AgentDefinitionRuntimeKind =
+  (typeof AGENT_DEFINITION_RUNTIME_KINDS)[number];
+
+export interface AgentDefinitionToolPolicyRecord {
+  toolKey: string;
+  effect: AgentToolPolicyEffect;
+  approvalMode: 'none' | 'admin' | 'self';
+  dryRunMode: 'optional' | 'required' | 'disabled';
+  constraints: Record<string, unknown>;
+}
+
+export interface AgentDefinitionRecord {
   id: string;
   type: string;
   name: string;
   description: string | null;
   promptPath: string;
   defaultAdapterType: string;
-  defaultModel: string;
+  defaultModelEnv: string;
   defaultRuntimeConfig: Record<string, unknown>;
   defaultCapabilities: Record<string, unknown>;
   catalogStatus: string;
   marketplaceId: string | null;
+  runtimeKind: AgentDefinitionRuntimeKind;
+  defaultToolPolicies: AgentDefinitionToolPolicyRecord[];
 }
 
 export interface AgentInstanceRecord {
   id: string;
   organizationId: string;
-  blueprintId: string;
   type: string;
   name: string;
   role: string;
@@ -211,7 +228,7 @@ export interface AgentAuthorizationEventRecord {
 }
 
 export function resolveEffectiveModel(input: {
-  blueprintDefault: string;
+  definitionDefault: string | null;
   instanceOverride: string | null;
   requestOverride?: string | null;
 }): string | null {
@@ -222,8 +239,8 @@ export function resolveEffectiveModel(input: {
   if (input.instanceOverride && input.instanceOverride.length > 0) {
     return input.instanceOverride;
   }
-  if (input.blueprintDefault && input.blueprintDefault.length > 0) {
-    return input.blueprintDefault;
+  if (input.definitionDefault && input.definitionDefault.length > 0) {
+    return input.definitionDefault;
   }
   return null;
 }

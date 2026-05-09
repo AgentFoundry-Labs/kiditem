@@ -21,8 +21,8 @@ import { WorkflowRunnerService } from './application/service/workflow-runner.ser
 /**
  * `automation/` is the workflow-runner / action-board / alerts /
  * marketplace catalog / panel projection owner domain. Agent execution
- * (blueprint, instance, run request, run, runtime adapter, observability)
- * lives in the sibling `agent-os/` owner domain. This module imports
+ * (definition registry, instance, run request, run, runtime adapter,
+ * observability) lives in the sibling `agent-os/` owner domain. This module imports
  * `AgentOsModule` so workflow runner nodes (`agent_task.create`) can
  * inject `AGENT_RUNNER_PORT` to delegate work without taking a hard
  * dependency on a runtime adapter.
@@ -30,12 +30,12 @@ import { WorkflowRunnerService } from './application/service/workflow-runner.ser
  * Registered surfaces:
  * - `MarketplaceController` — workflow install/uninstall via
  *   `MarketplaceInstallService`. Agent install/uninstall returns
- *   `BadRequestException` until Agent OS v2 catalog wiring lands; see
+ *   `BadRequestException` until Agent OS catalog wiring lands; see
  *   `automation/adapter/out/panel-event/AGENTS.md` "Not yet wired".
  * - `PanelController` + `PanelService` / `PanelSseService` — read-only
  *   projection over workflow / image / alert sources. Live agent run
  *   projection was retired with the legacy `HeartbeatRun` /
- *   `AgentDefinition` models; Agent OS v2 will own the next iteration.
+ *   `AgentDefinition` models; Agent OS will own the next iteration.
  * - `WorkflowsController` / `WorkflowRunsController` +
  *   `WorkflowOrchestrationService` + `WorkflowRunnerService` — template
  *   CRUD, run creation, trusted tenant binding, DAG execution, panel

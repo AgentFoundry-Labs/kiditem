@@ -68,26 +68,18 @@ let coordinator: AgentRunCoordinator;
 let executor: AgentRunExecutor;
 let worker: AgentRunWorker;
 
-async function seedBlueprintAndInstance(input: {
+async function seedInstance(input: {
   type: string;
   name: string;
-  promptPath: string;
 }) {
-  const blueprint = await repository.upsertBlueprint({
-    type: input.type,
-    name: input.name,
-    promptPath: input.promptPath,
-    defaultAdapterType: 'claude_local',
-    defaultModel: 'test-model',
-  });
   const instance = await repository.createInstanceWithRuntimeState({
     organizationId: TEST_ORGANIZATION_ID,
-    blueprintId: blueprint.id,
     type: input.type,
     name: `${input.name} Instance`,
     adapterType: 'claude_local',
+    modelOverride: 'test-model',
   });
-  return { blueprint, instance };
+  return { instance };
 }
 
 beforeAll(async () => {
@@ -121,10 +113,9 @@ beforeEach(async () => {
 
 describe('AgentRunWorker → AgentRunExecutor → finalize (real Postgres)', () => {
   it('drains a queued detail_page_generate request and emits FINALIZED with routing metadata', async () => {
-    await seedBlueprintAndInstance({
+    await seedInstance({
       type: 'detail_page_generate',
       name: 'Detail Page Generate',
-      promptPath: 'agent-config/prompts/agents/detail-page-generate.md',
     });
 
     const sampleOutput = {
@@ -184,10 +175,9 @@ describe('AgentRunWorker → AgentRunExecutor → finalize (real Postgres)', () 
   });
 
   it('emits FINALIZED with runtime_not_configured AND routing metadata on terminal failure', async () => {
-    await seedBlueprintAndInstance({
+    await seedInstance({
       type: 'thumbnail_generate',
       name: 'Thumbnail Generate',
-      promptPath: 'agent-config/prompts/agents/thumbnail-generate.md',
     });
 
     const finalized: AgentRunFinalizedEvent[] = [];

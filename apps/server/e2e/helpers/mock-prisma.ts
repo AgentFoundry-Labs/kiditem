@@ -25,11 +25,10 @@ const models = [
   'order', 'coupangOrderItem', 'inventory', 'review',
   'organization', 'supplier', 'warehouse', 'ad', 'profitLoss',
   'workflowTemplate', 'workflowRun', 'activityEvent', 'alert',
-  // Agent OS v2
-  'agentBlueprint', 'agentInstance', 'agentRuntimeState',
+  // Agent OS
+  'agentInstance', 'agentRuntimeState',
   'agentTaskSession', 'agentRunRequest', 'agentRun', 'agentRunEvent',
-  'agentToolDefinition', 'agentBlueprintToolPolicy',
-  'agentInstanceToolPolicy', 'agentAuthorizationEvent',
+  'agentToolDefinition', 'agentInstanceToolPolicy', 'agentAuthorizationEvent',
   'agentApprovalRequest', 'agentCostEvent',
   'marketplace', 'businessRule', 'featureGate', 'thumbnailAnalysis',
   'thumbnailGeneration', 'thumbnail', 'category', 'optionMaster',

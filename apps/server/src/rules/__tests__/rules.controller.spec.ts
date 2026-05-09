@@ -49,7 +49,7 @@ describe('RulesController evaluation routes', () => {
 
     // The status read goes through AgentObservabilityService inside the
     // service; the controller must scope by both organizationId (IDOR-safe)
-    // and the v2 requestId path param.
+    // and the requestId path param.
     expect(rulesService.getEvaluationStatus).toHaveBeenCalledWith(ORGANIZATION_ID, 'request-1');
   });
 });

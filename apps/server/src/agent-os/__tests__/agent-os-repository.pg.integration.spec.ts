@@ -14,19 +14,12 @@ let prisma: PrismaClient | null = null;
 let repository: AgentOsRepositoryAdapter;
 
 async function seedRun(organizationId: string, label: string) {
-  const blueprint = await repository.upsertBlueprint({
-    type: 'boundary_test',
-    name: 'Boundary Test',
-    promptPath: 'agent-config/prompts/agents/manager.md',
-    defaultAdapterType: 'claude_local',
-    defaultModel: 'test-model',
-  });
   const instance = await repository.createInstanceWithRuntimeState({
     organizationId,
-    blueprintId: blueprint.id,
     type: 'boundary_test',
     name: `${label} agent`,
     adapterType: 'claude_local',
+    modelOverride: 'test-model',
   });
   const session = await repository.ensureTaskSession({
     organizationId,
@@ -53,7 +46,7 @@ async function seedRun(organizationId: string, label: string) {
     model: 'test-model',
     input: { label },
   });
-  return { blueprint, instance, session, request, run };
+  return { instance, session, request, run };
 }
 
 beforeAll(async () => {

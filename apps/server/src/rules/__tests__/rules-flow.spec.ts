@@ -5,7 +5,7 @@ import { RulesService } from '../services/rules.service';
  * rules-flow.spec.ts — end-to-end rules evaluation flow test.
  * Tests the full pipeline: evaluateAll → processEvaluationResult → healthScore update + alerts.
  *
- * Under Agent OS v2 the @OnEvent(AGENT_EVENTS.RESULT_READY) callback is gone;
+ * Under Agent OS the @OnEvent(AGENT_EVENTS.RESULT_READY) callback is gone;
  * the runtime writes its result to AgentRun.resultJson and a bridging adapter
  * invokes RulesService.processEvaluationResult with the decoded products.
  */

@@ -38,7 +38,7 @@ sourcing/
 │   │   └── dto/                                    ← every class-validator DTO
 │   └── out/
 │       ├── agent/
-│       │   └── sourcing-agent.gateway.adapter.ts   ← Agent OS v2 delegation seam
+│       │   └── sourcing-agent.gateway.adapter.ts   ← Agent OS delegation seam
 │       └── products/
 │           └── products-catalog.adapter.ts         ← MastersService cross-domain seam
 ├── application/
@@ -64,10 +64,10 @@ sourcing/
 The Wave H1 Lane S fold introduced hexagonal boundaries only where behavior
 justifies them. The rest stays transitional flat CRUD by design:
 
-- **Agent OS v2 delegation** (`/api/sourcing/scrape-url`) is mandatory port
+- **Agent OS delegation** (`/api/sourcing/scrape-url`) is mandatory port
   per the architecture contract. `SourcingService` depends on
   `SOURCING_AGENT_GATEWAY_PORT`; `SourcingAgentGatewayAdapter` is the only
-  call site of Agent OS v2's `AGENT_RUNNER_PORT.runByType('sourcing', ...)`
+  call site of the Agent OS `AGENT_RUNNER_PORT.runByType('sourcing', ...)`
   for sourcing. The adapter maps the runner result onto the legacy
   `{ taskId }` contract using `runId` (preferred) or `requestId` (deferred-run
   fallback); it never invents a task id silently. `POST /api/sourcing/:id/generate`
@@ -98,7 +98,7 @@ justifies them. The rest stays transitional flat CRUD by design:
 - `/api/sourcing/extension/product-data` accepts pushes from the 1688 / Alibaba
   browser extension. `MasterProduct` upsert keys on
   `{ sourceUrl, organizationId }` (idempotency).
-- `/api/sourcing/scrape-url` enqueues an Agent OS v2 run via
+- `/api/sourcing/scrape-url` enqueues an Agent OS run via
   `AGENT_RUNNER_PORT.runByType('sourcing', …)`. The adapter is the only seam;
   `SourcingService` does not import any Agent OS service directly and never
   reaches the runtime adapters.

@@ -13,7 +13,7 @@ import type {
 } from '../../../application/port/out/sourcing-agent.gateway.port';
 
 /**
- * Outgoing adapter that binds {@link SourcingAgentGatewayPort} to Agent OS v2's
+ * Outgoing adapter that binds {@link SourcingAgentGatewayPort} to the Agent OS
  * {@link AgentRunnerPort}. The legacy `AgentRegistryService.runByType()` hop is
  * replaced; the port-level result shape (`{ taskId }`) is preserved so callers
  * (`SourcingService.scrapeUrl`) keep their existing contract.

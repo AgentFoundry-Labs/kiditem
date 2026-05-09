@@ -123,7 +123,7 @@ export type {
 export { WorkflowTemplateSchema, WorkflowRunSchema, WorkflowStepRunSchema } from './workflow.js';
 export type { WorkflowTemplate, WorkflowRun, WorkflowStepRun } from './workflow.js';
 
-// Agent OS v2 — see `@kiditem/shared/agent-os` subpath. Legacy Agent +
+// Agent OS — see `@kiditem/shared/agent-os` subpath. Legacy Agent +
 // AgentTrace schemas have been removed.
 
 // Marketplace

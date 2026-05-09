@@ -4,11 +4,9 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   type AgentOsRepositoryPort,
   type AppendRunEventInput,
-  type BlueprintToolPolicyRecord,
   type CreateAgentInstanceInput,
   type CreateApprovalRequestInput,
   type CreateAuthorizationEventInput,
-  type CreateBlueprintInput,
   type CreateRunRecordInput,
   type CreateRunRequestRecordInput,
   type FailClaimedRequestInput,
@@ -28,7 +26,6 @@ import {
 import {
   type AgentApprovalStatus,
   type AgentAuthorizationDecision,
-  type AgentBlueprintRecord,
   type AgentInstanceLifecycleStatus,
   type AgentInstanceRecord,
   type AgentRunEventRecord,
@@ -76,49 +73,7 @@ interface RunRequestRow {
 export class AgentOsRepositoryAdapter implements AgentOsRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
-  // ---- Catalog -----------------------------------------------------------
-  async findBlueprintByType(type: string) {
-    const row = await this.prisma.agentBlueprint.findUnique({ where: { type } });
-    return row ? toBlueprintRecord(row) : null;
-  }
-
-  async listBlueprints() {
-    const rows = await this.prisma.agentBlueprint.findMany({
-      orderBy: { type: 'asc' },
-    });
-    return rows.map(toBlueprintRecord);
-  }
-
-  async upsertBlueprint(input: CreateBlueprintInput) {
-    const row = await this.prisma.agentBlueprint.upsert({
-      where: { type: input.type },
-      create: {
-        type: input.type,
-        name: input.name,
-        description: input.description ?? null,
-        promptPath: input.promptPath,
-        defaultAdapterType: input.defaultAdapterType,
-        defaultModel: input.defaultModel,
-        defaultRuntimeConfig: (input.defaultRuntimeConfig ?? {}) as Prisma.InputJsonValue,
-        defaultCapabilities: (input.defaultCapabilities ?? {}) as Prisma.InputJsonValue,
-        catalogStatus: input.catalogStatus ?? 'active',
-        marketplaceId: input.marketplaceId ?? null,
-      },
-      update: {
-        name: input.name,
-        description: input.description ?? null,
-        promptPath: input.promptPath,
-        defaultAdapterType: input.defaultAdapterType,
-        defaultModel: input.defaultModel,
-        defaultRuntimeConfig: (input.defaultRuntimeConfig ?? {}) as Prisma.InputJsonValue,
-        defaultCapabilities: (input.defaultCapabilities ?? {}) as Prisma.InputJsonValue,
-        catalogStatus: input.catalogStatus ?? 'active',
-        marketplaceId: input.marketplaceId ?? null,
-      },
-    });
-    return toBlueprintRecord(row);
-  }
-
+  // ---- Instances ---------------------------------------------------------
   async findActiveInstanceByType(input: { organizationId: string; type: string }) {
     const row = await this.prisma.agentInstance.findFirst({
       where: { organizationId: input.organizationId, type: input.type },
@@ -148,7 +103,6 @@ export class AgentOsRepositoryAdapter implements AgentOsRepositoryPort {
       const instance = await tx.agentInstance.create({
         data: {
           organizationId: input.organizationId,
-          blueprintId: input.blueprintId,
           type: input.type,
           name: input.name,
           role: input.role ?? 'specialist',
@@ -207,26 +161,6 @@ export class AgentOsRepositoryAdapter implements AgentOsRepositoryPort {
   }
 
   // ---- Tool policy --------------------------------------------------------
-  async resolveBlueprintToolPolicy(input: { blueprintId: string; toolKey: string }) {
-    const tool = await this.prisma.agentToolDefinition.findUnique({
-      where: { key: input.toolKey },
-    });
-    if (!tool) return null;
-
-    const row = await this.prisma.agentBlueprintToolPolicy.findUnique({
-      where: { blueprintId_toolId: { blueprintId: input.blueprintId, toolId: tool.id } },
-    });
-    if (!row) return null;
-    return {
-      toolId: tool.id,
-      toolKey: tool.key,
-      effect: row.effect as BlueprintToolPolicyRecord['effect'],
-      approvalMode: (row.approvalMode ?? 'none') as BlueprintToolPolicyRecord['approvalMode'],
-      dryRunMode: (row.dryRunMode ?? 'optional') as BlueprintToolPolicyRecord['dryRunMode'],
-      constraints: (row.constraints ?? {}) as Record<string, unknown>,
-    } satisfies BlueprintToolPolicyRecord;
-  }
-
   async resolveInstanceToolPolicy(input: {
     organizationId: string;
     agentInstanceId: string;
@@ -1060,27 +994,10 @@ function clampLimit(limit: number | undefined, defaultLimit: number): number {
   return Math.min(limit, defaultLimit);
 }
 
-function toBlueprintRecord(row: Prisma.AgentBlueprintGetPayload<{}>): AgentBlueprintRecord {
-  return {
-    id: row.id,
-    type: row.type,
-    name: row.name,
-    description: row.description,
-    promptPath: row.promptPath,
-    defaultAdapterType: row.defaultAdapterType,
-    defaultModel: row.defaultModel,
-    defaultRuntimeConfig: (row.defaultRuntimeConfig ?? {}) as Record<string, unknown>,
-    defaultCapabilities: (row.defaultCapabilities ?? {}) as Record<string, unknown>,
-    catalogStatus: row.catalogStatus,
-    marketplaceId: row.marketplaceId,
-  };
-}
-
 function toInstanceRecord(row: Prisma.AgentInstanceGetPayload<{}>): AgentInstanceRecord {
   return {
     id: row.id,
     organizationId: row.organizationId,
-    blueprintId: row.blueprintId,
     type: row.type,
     name: row.name,
     role: row.role,

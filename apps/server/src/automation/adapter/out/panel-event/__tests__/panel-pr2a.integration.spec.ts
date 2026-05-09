@@ -4,7 +4,7 @@
  * Verifies that workflow + image sources flow through the real
  * EventEmitter2 global bus to PanelSseService without mocking the bus.
  * (The legacy `HeartbeatRun + AgentDefinition` agent projection was
- * retired in the Agent OS v2 migration; live agent run events come
+ * retired in the Agent OS migration; live agent run events come
  * from Agent OS directly and are not yet wired into the panel — see
  * `panel-event/AGENTS.md` "Not yet wired".)
  *

@@ -1,4 +1,4 @@
-# rules — Agent OS v2 Delegation + Bulk SQL Post-Processing
+# rules — Agent OS Delegation + Bulk SQL Post-Processing
 
 비즈니스 규칙 평가는 **agent 비동기 spawn → result post-processing** 으로 처리.
 CRUD 패턴이 아니라 Agent OS 에 위임하는 도메인.
@@ -7,7 +7,7 @@ CRUD 패턴이 아니라 Agent OS 에 위임하는 도메인.
 
 이 폴더는 비즈니스 정책 룰 도메인이다. 룰 정의, threshold, 평가 결과
 post-processing, activity event / critical alert 생성 계약을 소유한다.
-Agent 실행은 Agent OS v2 platform (`apps/server/src/agent-os/`) 이 소유하므로
+Agent 실행은 Agent OS platform (`apps/server/src/agent-os/`) 이 소유하므로
 `AGENT_RUNNER_PORT` 만 의존한다.
 
 - `RulesController` 는 `RulesService` 만 의존한다. `AGENT_RUNNER_PORT` 와
@@ -32,9 +32,9 @@ owner domain 으로 이동했다. 새 위치:
 
 ## Schedule routes — removed with the legacy port
 
-`GET/PATCH /api/rules/schedule` 은 Agent OS v2 마이그레이션과 함께 삭제됐다.
+`GET/PATCH /api/rules/schedule` 은 Agent OS 마이그레이션과 함께 삭제됐다.
 legacy `AgentScheduleControlPort` 도 함께 사라졌고, 프론트 consumer 도 없다.
-Agent OS v2 가 schedule 표면 (`AgentInstance.runtimeConfig` /
+Agent OS 가 schedule 표면 (`AgentInstance.runtimeConfig` /
 `AgentRunRequest.scheduledFor`) 을 도입하면 그 시점에 새 endpoint 로
 재공개한다 (별도 plan + scoped instruction 갱신 필수). 임시 503 stub 은
 contract drift 위험 때문에 두지 않는다.
@@ -54,7 +54,7 @@ rules/
 
 | Route | 책임 |
 |---|---|
-| `POST /api/rules/evaluate` | Agent OS v2 spawn + return `{ requestId, status }` |
+| `POST /api/rules/evaluate` | Agent OS spawn + return `{ requestId, status }` |
 | `GET /api/rules/evaluate/status/:requestId` | `AgentObservabilityService.findRequest` 폴링 |
 | `GET /api/rules` | 회사+카테고리별 룰 리스트 |
 | `PATCH /api/rules/:id` | 룰 정의 update (tenant-scoped read 후 write) |
@@ -63,7 +63,7 @@ rules/
 
 ## 핵심 패턴
 
-### 1. Agent OS v2 delegation
+### 1. Agent OS delegation
 
 `POST /api/rules/evaluate` →
 1. `AGENT_RUNNER_PORT.runByType('rules_evaluation', { organizationId, sourceType: 'rules.evaluation', payload: { organization_id } })` 호출
@@ -87,7 +87,7 @@ batch_summary item 을 emit. emit throw 는 catch 해 alert 생성 흐름은 깨
 
 ## Rules
 
-- 룰 평가는 **반드시 Agent OS v2 (`AGENT_RUNNER_PORT`)**. 서비스 내 직접 평가 금지
+- 룰 평가는 **반드시 Agent OS (`AGENT_RUNNER_PORT`)**. 서비스 내 직접 평가 금지
 - Critical 위반 → alert 자동 생성, 모든 위반 → activity_event 생성
 - 회사 스코프: `@CurrentOrganization()` 데코레이터 필수. service 에서는
   `processEvaluationResult({ organizationId, ... })` argument 가 신뢰 경계
@@ -124,4 +124,4 @@ batch_summary item 을 emit. emit throw 는 catch 해 alert 생성 흐름은 깨
 | Agent result 형식 변경 | `agent-config/prompts/agents/rules-evaluation.md` + `services/rules.service.ts` (`processEvaluationResult`) + `__tests__/rules-flow.spec.ts` + Agent OS bridging 어댑터 |
 | 새 룰 카테고리 | DB seed (BusinessRule INSERT 마이그레이션) + `rules.service.ts:list filter` + 프론트 카테고리 enum |
 | Bulk update 변경 | `services/rules.service.ts` healthScore $transaction 블록 — `(id, organizationId)` 스코프 유지 + unsafe raw SQL 금지 + `__tests__/rules-flow.spec.ts` & `rules.service.spec.ts` 의 $transaction/updateMany 모킹 동기화 |
-| Schedule 재도입 | Agent OS v2 schedule 표면 (`AgentInstance.runtimeConfig` / `AgentRunRequest.scheduledFor`) plan 작성 → 새 controller route + service method + DTO + frontend consumer 일괄 추가. 이 PR 에서 503 stub 은 제거됐다. |
+| Schedule 재도입 | Agent OS schedule 표면 (`AgentInstance.runtimeConfig` / `AgentRunRequest.scheduledFor`) plan 작성 → 새 controller route + service method + DTO + frontend consumer 일괄 추가. 이 PR 에서 503 stub 은 제거됐다. |

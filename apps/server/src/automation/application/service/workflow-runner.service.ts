@@ -41,8 +41,8 @@ type WorkflowRunContext = Record<string, unknown>;
  * Agent delegation contract: `agent_task.create` nodes are executed by
  * the slim-core builtin executor, which calls `AgentRunnerPort.runByType`
  * (provided by Agent OS). The runner injects the trusted `organizationId`
- * and the workflow trace into the call so blueprint authors cannot forge
- * a foreign tenant or run id by editing template JSON.
+ * and the workflow trace into the call so template authors cannot forge a
+ * foreign tenant or run id by editing template JSON.
  */
 @Injectable()
 export class WorkflowRunnerService {

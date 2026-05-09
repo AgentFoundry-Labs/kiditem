@@ -1978,7 +1978,7 @@ function RightPanel({
       setAiFillTaskId(taskId);
       setAiFillStep('카피 생성 중...');
 
-      // Agent OS v2: trigger-content-draft returns AgentRunRequest.id as taskId.
+      // Agent OS: trigger-content-draft returns AgentRunRequest.id as taskId.
       // Poll the request, pivot to the run via latestRunId once executor claims.
       let lastStep = '';
       let latestRunId: string | null = null;
@@ -2046,7 +2046,7 @@ function RightPanel({
 
   const handleAiFillCancel = useCallback(async () => {
     if (!aiFillTaskId) return;
-    // Agent OS v2 does not currently expose a per-run cancel endpoint; the
+    // Agent OS does not currently expose a per-run cancel endpoint; the
     // run will exit on its own once it observes a cancellation signal or
     // finishes. We keep this action available so the UI feedback (closing
     // the busy indicator) still triggers reliably.
@@ -2068,7 +2068,7 @@ function RightPanel({
         sourceId: productId,
         payload: { preset: 'color_guide', image_urls: colorImageUrls, productId },
       });
-      // Agent OS v2: POST returns requestId synchronously; runId materializes
+      // Agent OS: POST returns requestId synchronously; runId materializes
       // when the executor claims the request.
       const requestId = data.requestId;
       if (!requestId) throw new Error('이미지 작업을 시작하지 못했습니다.');

@@ -72,25 +72,25 @@ afterAll(async () => {
   await closeApp();
 });
 
-// Agent OS v2 marketplace contract:
-// - Agent blueprints are a GLOBAL catalog (no per-organization install/clone).
+// Agent OS marketplace contract:
+// - Shipped agent definitions are code-owned/global (no per-organization install/clone).
 //   `GET /api/marketplace/agents` lists what's available; the per-tenant
 //   "installed" flag is always false because cloning into a tenant is no
 //   longer the install model.
-// - Agent install/uninstall HTTP routes are stable surfaces but return 400
-//   in v2 — they are kept so callers fail loudly, not silently. Tenants pick
-//   blueprints up by creating an `AgentInstance` through Agent OS APIs.
+// - Agent install/uninstall HTTP routes are stable surfaces but return 400 —
+//   they are kept so callers fail loudly, not silently. Tenants pick
+//   definitions up by creating an `AgentInstance` through Agent OS APIs.
 // - Workflow install/uninstall remain organization-scoped CRUD on
 //   `WorkflowTemplate`. The slim-core executor allowlist still rejects
 //   catalog rows that reference removed node types.
 
-describe('Marketplace — /api/marketplace/agents (Agent OS v2)', () => {
+describe('Marketplace — /api/marketplace/agents (Agent OS)', () => {
   describe('GET /api/marketplace/agents', () => {
     beforeEach(() => {
       (prisma.marketplace.findMany as any).mockResolvedValue([sampleAgentCatalog]);
     });
 
-    it('lists agent catalog rows with installed=false (v2 has no per-tenant clone)', async () => {
+    it('lists agent catalog rows with installed=false (no per-tenant clone)', async () => {
       const res = await api().get('/api/marketplace/agents');
 
       expect(res.status).toBe(200);
@@ -101,7 +101,7 @@ describe('Marketplace — /api/marketplace/agents (Agent OS v2)', () => {
   });
 
   describe('POST /api/marketplace/agents/:id/install', () => {
-    it('returns 400 — blueprints are global; tenants create AgentInstance via Agent OS', async () => {
+    it('returns 400 — definitions are global; tenants create AgentInstance via Agent OS', async () => {
       const res = await api()
         .post(`/api/marketplace/agents/${MARKETPLACE_AGENT_ID}/install`)
         .send({});

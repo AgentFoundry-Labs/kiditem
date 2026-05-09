@@ -20,7 +20,7 @@ import { SOURCING_PRODUCTS_CATALOG_PORT } from './application/port/out/products-
 /**
  * Sourcing is the canonical owner root for sourcing / procurement / suppliers.
  * Capabilities folded under this module:
- *   - sourcing extension ingest + scrape (Agent OS v2 delegated) — `/api/sourcing/*`
+ *   - sourcing extension ingest + scrape (Agent OS delegated) — `/api/sourcing/*`
  *   - purchase orders state machine — `/api/purchase-orders/*`
  *   - supplier CRUD (transitional flat) — `/api/suppliers/*`
  *

@@ -110,7 +110,7 @@ test -s .dev-auth/callback.url && echo "callback url written"
 
 # After preview starts:
 curl -s -o /dev/null -w '%{http_code}\n' \
-  http://localhost:4000/api/agent-os/blueprints
+  http://localhost:4000/api/agent-os/definitions
 # 401 expected without auth.
 
 # After AI navigates the preview to the callback URL and the cookie lands,

@@ -268,7 +268,7 @@ PR #214 panel 계약과의 정합성:
 | 수정 시 | 같이 봐야 할 파일 |
 |---|---|
 | Text preset 추가 | `application/service/text-ai.service.ts` (system prompt) + `adapter/in/http/dto/text-transform.dto.ts` (enum) |
-| Image preset 추가 | `adapter/in/http/dto/image-edit.dto.ts` (preset enum) + Agent OS `image_edit` blueprint prompt (Agent OS 도메인 소관 — `apps/server/src/agent-os/`). AI 도메인은 prompt 텍스트를 보유하지 않는다. |
+| Image preset 추가 | `adapter/in/http/dto/image-edit.dto.ts` (preset enum) + Agent OS `image_edit` definition prompt (Agent OS 도메인 소관 — `apps/server/src/agent-os/`). AI 도메인은 prompt 텍스트를 보유하지 않는다. |
 | Image edit / Auto re-edit cohort delegation | `application/service/image-ai.service.ts`, `application/service/thumbnail-auto.service.ts` — 둘 다 `AGENT_RUNNER_PORT.runByType(type, { organizationId, sourceType, payload })` 만 호출. Agent OS 가 `AgentRunRequest` / `AgentRun` lifecycle 을 소유하므로 AI 측 DB 기록 없음. |
 | Gemini 모델 변경 | ENV `AI_TEXT_MODEL` / `AI_IMAGE_MODEL` / `AI_IMAGE_ANALYSIS_MODEL` / `AI_IMAGE_ANALYSIS_VERIFY_MODEL` + `adapter/out/gemini/thumbnail-gemini-config.ts` |
 | 새 Gemini 호출 추가 | `adapter/out/gemini/gemini-thumbnail-vision.adapter.ts` (envelope 처리 통일) |

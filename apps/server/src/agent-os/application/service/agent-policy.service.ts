@@ -10,6 +10,7 @@ import {
   type EffectiveToolPolicy,
   resolveToolPolicy,
 } from '../../domain/policy.types';
+import { findAgentDefinitionByType } from '../../domain/agent-definition.registry';
 
 @Injectable()
 export class AgentPolicyService {
@@ -21,32 +22,30 @@ export class AgentPolicyService {
   async resolveEffectivePolicy(input: {
     organizationId: string;
     agentInstanceId: string;
-    blueprintId: string;
+    agentType: string;
     toolKey: string;
   }): Promise<EffectiveToolPolicy> {
-    const [blueprint, instance] = await Promise.all([
-      this.repository.resolveBlueprintToolPolicy({
-        blueprintId: input.blueprintId,
-        toolKey: input.toolKey,
-      }),
-      this.repository.resolveInstanceToolPolicy({
-        organizationId: input.organizationId,
-        agentInstanceId: input.agentInstanceId,
-        toolKey: input.toolKey,
-      }),
-    ]);
+    const definition = findAgentDefinitionByType(input.agentType);
+    const definitionPolicy =
+      definition?.defaultToolPolicies.find((policy) => policy.toolKey === input.toolKey) ??
+      null;
+    const instance = await this.repository.resolveInstanceToolPolicy({
+      organizationId: input.organizationId,
+      agentInstanceId: input.agentInstanceId,
+      toolKey: input.toolKey,
+    });
 
-    const toolId = instance?.toolId ?? blueprint?.toolId ?? '';
-    return resolveToolPolicy(blueprint, instance, toolId, input.toolKey);
+    const toolId = instance?.toolId ?? '';
+    return resolveToolPolicy(definitionPolicy, instance, toolId, input.toolKey);
   }
 
   async authorizeToolUse(
-    input: AuthorizeToolUseInput & { blueprintId: string },
+    input: AuthorizeToolUseInput & { agentType: string },
   ): Promise<AuthorizeToolUseResult> {
     const policy = await this.resolveEffectivePolicy({
       organizationId: input.organizationId,
       agentInstanceId: input.agentInstanceId,
-      blueprintId: input.blueprintId,
+      agentType: input.agentType,
       toolKey: input.toolKey,
     });
 

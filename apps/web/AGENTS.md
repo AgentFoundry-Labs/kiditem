@@ -170,7 +170,7 @@ Route-group private shared directories contain ONLY code shared by 2+ routes ins
 
 부모 Next.js 패턴(이 문서)으로 거의 커버되지만, 아래 도메인은 한 가지 특이점이 있다.
 
-- **`app/(automation)/agents/`** — 제품상 Agent OS 관리 화면. Agent OS v2
+- **`app/(automation)/agents/`** — 제품상 Agent OS 관리 화면. Agent OS
   인스턴스, run, request 운영 콘솔이며 사이드바의 "에이전트 관리"가 이 route 를
   가리킨다. Agent 관련 사용자 알림 관리는 여기서 별도 inbox 를 만들지 않고
   dashboard Alerts tab / `Alert -> ActionTask` 흐름을 따른다.

@@ -6,7 +6,7 @@ import { AutomationModule } from '../automation/automation.module';
 
 // EventEmitter2 is injected globally — do NOT import EventEmitterModule.forRoot() here.
 //
-// Agent OS v2 wiring (post-`agent-registry` deletion):
+// Agent OS wiring (post-`agent-registry` deletion):
 // - `AGENT_RUNNER_PORT` (kicks off `rules_evaluation` / `rules_suggest`) and
 //   `AgentObservabilityService` (run-request / run status reads) are both
 //   provided by `AgentOsModule`. The legacy `AgentScheduleControlPort` was

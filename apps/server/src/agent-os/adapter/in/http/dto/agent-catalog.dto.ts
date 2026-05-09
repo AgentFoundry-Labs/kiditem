@@ -7,41 +7,6 @@ import {
   Min,
 } from 'class-validator';
 
-export class UpsertBlueprintDto {
-  @IsString()
-  type!: string;
-
-  @IsString()
-  name!: string;
-
-  @IsOptional()
-  @IsString()
-  description?: string;
-
-  @IsString()
-  promptPath!: string;
-
-  @IsString()
-  defaultAdapterType!: string;
-
-  @IsString()
-  defaultModel!: string;
-
-  @IsOptional()
-  defaultRuntimeConfig?: Record<string, unknown>;
-
-  @IsOptional()
-  defaultCapabilities?: Record<string, unknown>;
-
-  @IsOptional()
-  @IsIn(['active', 'deprecated', 'hidden'])
-  catalogStatus?: string;
-
-  @IsOptional()
-  @IsString()
-  marketplaceId?: string;
-}
-
 export class CreateAgentInstanceDto {
   @IsString()
   type!: string;

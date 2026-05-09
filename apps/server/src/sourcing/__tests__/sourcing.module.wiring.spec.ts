@@ -47,7 +47,7 @@ describe('SourcingModule canonical owner wiring', () => {
     expect(portBinding!.useExisting).toBe(SourcingAgentGatewayAdapter);
   });
 
-  it('imports the Agent OS v2 runtime so the gateway adapter can resolve AGENT_RUNNER_PORT', () => {
+  it('imports the Agent OS runtime so the gateway adapter can resolve AGENT_RUNNER_PORT', () => {
     const imports: unknown[] = Reflect.getMetadata(IMPORTS_KEY, SourcingModule) ?? [];
     // PrismaModule + AgentOsModule + AutomationModule (+ ProductsModule).
     // Suppliers stays transitional flat CRUD; introducing a new import here

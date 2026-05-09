@@ -27,7 +27,7 @@ const POLL_TIMEOUTS_MS: Record<GenerateMode, number> = {
 };
 
 /**
- * Agent OS v2 polling: `POST /api/agent-os/runs` returns `requestId` only —
+ * Agent OS polling: `POST /api/agent-os/runs` returns `requestId` only —
  * the actual run is created when the executor claims the request. Pivot from
  * request → run via `latestRunId` so we never 404 on a not-yet-existing run.
  */
@@ -91,7 +91,7 @@ export function useGenerateDetailPage(productId: string) {
         mode: params.mode,
         ...(params.templateId && { templateId: params.templateId }),
       });
-      // Agent OS v2 returns requestId synchronously; runId materializes when
+      // Agent OS returns requestId synchronously; runId materializes when
       // the executor claims the request. Polling pivots via latestRunId.
       const requestId = start.requestId;
       if (!requestId) {

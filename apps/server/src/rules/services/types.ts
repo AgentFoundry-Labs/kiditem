@@ -1,6 +1,6 @@
 export interface EvaluationResult {
   /**
-   * Agent OS v2 `AgentRunRequest.id`. Replaces the legacy `taskId`.
+   * Agent OS `AgentRunRequest.id`. Replaces the legacy `taskId`.
    */
   requestId?: string;
   status: string;

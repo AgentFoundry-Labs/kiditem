@@ -7,7 +7,7 @@ export interface EffectiveToolPolicy {
   toolId: string;
   toolKey: string;
   effect: AgentToolPolicyEffect;
-  source: 'blueprint' | 'instance' | 'missing';
+  source: 'definition' | 'instance' | 'missing';
   approvalMode: 'none' | 'admin' | 'self';
   dryRunMode: 'optional' | 'required' | 'disabled';
   constraints: Record<string, unknown>;
@@ -35,7 +35,7 @@ export interface AuthorizeToolUseResult {
 }
 
 export function resolveToolPolicy(
-  blueprint: Pick<EffectiveToolPolicy, 'effect' | 'approvalMode' | 'dryRunMode' | 'constraints'> | null,
+  definition: Pick<EffectiveToolPolicy, 'effect' | 'approvalMode' | 'dryRunMode' | 'constraints'> | null,
   instance: Pick<EffectiveToolPolicy, 'effect' | 'approvalMode' | 'dryRunMode' | 'constraints'> | null,
   toolId: string,
   toolKey: string,
@@ -51,15 +51,15 @@ export function resolveToolPolicy(
       constraints: instance.constraints,
     };
   }
-  if (blueprint) {
+  if (definition) {
     return {
       toolId,
       toolKey,
-      effect: blueprint.effect,
-      source: 'blueprint',
-      approvalMode: blueprint.approvalMode,
-      dryRunMode: blueprint.dryRunMode,
-      constraints: blueprint.constraints,
+      effect: definition.effect,
+      source: 'definition',
+      approvalMode: definition.approvalMode,
+      dryRunMode: definition.dryRunMode,
+      constraints: definition.constraints,
     };
   }
   return {

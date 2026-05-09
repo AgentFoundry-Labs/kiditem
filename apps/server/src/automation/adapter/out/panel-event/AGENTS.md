@@ -20,7 +20,7 @@
 panel 에 추가하지 않는다:
 
 - **Agent run projection** — 구버전은 `HeartbeatRun + AgentDefinition.name` 을
-  read-only join 해 `agent` source 로 emit 했다. Agent OS v2 마이그레이션에서
+  read-only join 해 `agent` source 로 emit 했다. Agent OS 마이그레이션에서
   legacy `HeartbeatRun` / `AgentDefinition` 모델이 폐기되면서 이 source 는
   제거됐다. Live agent run 이벤트는 Agent OS owner (`apps/server/src/agent-os/`)
   가 `AgentRun.status` 전이 지점에서 직접 emit 해야 하며, 그 wiring 이
@@ -30,8 +30,8 @@ panel 에 추가하지 않는다:
 - **Marketplace 의 agent install 경로** — `Marketplace` row (`type='agent'`)
   의 listing 은 read-only 로 노출하지만, install/uninstall 은
   `MarketplaceController` 에서 `BadRequestException` 으로 막혀 있다. 이유는
-  legacy `AgentDefinition` clone path 가 사라졌고 Agent OS v2 의
-  `AgentBlueprint` 는 organization 에 clone 하지 않는 글로벌 catalog 이기 때문.
+  legacy `AgentDefinition` clone path 가 사라졌고 Agent OS 의 shipped
+  definitions 는 DB row 가 아니라 code-owned global registry 이기 때문.
   새 카탈로그 wiring 이 들어오면 controller 의 두 `BadRequestException`
   핸들러를 실제 application service 호출로 교체한다.
 

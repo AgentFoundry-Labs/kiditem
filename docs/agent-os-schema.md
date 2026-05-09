@@ -1,7 +1,7 @@
-# Agent OS v2 Schema Design
+# Agent OS Schema Design
 
-Status: approved design, pre-implementation
-Date: 2026-05-07
+Status: implemented baseline, code-owned definition registry refactor
+Date: 2026-05-09
 Owner platform: `apps/server/src/agent-os`
 
 This document defines the target schema and backend ownership boundary for the
@@ -21,7 +21,7 @@ The current Agent OS stores too many concerns in the same places:
 - `HeartbeatService` coordinates queueing, execution, permissions, safety,
   transcript, runtime state, and legacy task sync in one large service.
 
-The v2 design removes `AgentTask`, `HeartbeatRun`, and legacy task markers as
+The current design removes `AgentTask`, `HeartbeatRun`, and legacy task markers as
 sources of truth. The central execution unit becomes `AgentRun`.
 
 ## References Used
@@ -46,7 +46,7 @@ sources of truth. The central execution unit becomes `AgentRun`.
 
 ## Owner Boundary
 
-Agent OS v2 should be a top-level backend owner platform:
+Agent OS should be a top-level backend owner platform:
 
 ```text
 apps/server/src/agent-os/
@@ -68,9 +68,9 @@ apps/server/src/agent-os/
 
 Ownership:
 
-- `agent-os/` owns agent catalog, instances, execution requests, run execution,
-  runtime state, tool policy, approvals, authorization audit, cost ledger, run
-  events, and log references.
+- `agent-os/` owns the code-owned Agent Definition Registry, instances,
+  execution requests, run execution, runtime state, tool policy, approvals,
+  authorization audit, cost ledger, run events, and log references.
 - `automation/workflows` depends on Agent OS through `AgentRunnerPort`.
 - `rules`, `sourcing`, `advertising`, and `ai` depend on Agent OS through
   ports, not concrete services.
@@ -86,84 +86,79 @@ owner-domain table lists `agent-os` as its own platform owner.
 ## Model Overview
 
 ```text
-AgentBlueprint
-  └─< AgentBlueprintToolPolicy
-  └─< AgentInstance
-        ├─1 AgentRuntimeState
-        ├─< AgentInstanceToolPolicy
-        ├─< AgentTaskSession
-        ├─< AgentRunRequest
-        │     ├─ self-FK coalescedIntoRequest
-        │     ├─< AgentRun
-        │     │     ├─< AgentRunEvent
-        │     │     └─< AgentCostEvent
-        │     ├─< AgentAuthorizationEvent
-        │     └─< AgentApprovalRequest
-        └─< User(type='agent')
+AgentDefinitionRegistry (backend code, not DB)
+  └─ type/default adapter/default model env/prompt/default runtime config
+
+AgentInstance
+  ├─1 AgentRuntimeState
+  ├─< AgentInstanceToolPolicy
+  ├─< AgentTaskSession
+  ├─< AgentRunRequest
+  │     ├─ self-FK coalescedIntoRequest
+  │     ├─< AgentRun
+  │     │     ├─< AgentRunEvent
+  │     │     └─< AgentCostEvent
+  │     ├─< AgentAuthorizationEvent
+  │     └─< AgentApprovalRequest
+  └─< User(type='agent')
 ```
 
 State machine:
 
 ```text
 AgentRunRequest
-queued -> claimed -> finished
-       -> coalesced
-       -> deferred -> queued
-       -> skipped
-       -> failed
+pending -> claimed -> succeeded
+                  -> failed
+                  -> cancelled
+        -> coalesced
+        -> requires_approval -> pending
+        -> skipped
 
 AgentRun
 running -> succeeded
         -> failed
-        -> timed_out
         -> cancelled
 ```
 
 Queue state belongs to `AgentRunRequest`. Execution state belongs to `AgentRun`.
-`AgentRun` never has a `queued` status.
+`AgentRun` never has a `pending` status.
 
 ## Prisma Model Draft
 
-The blocks below are intentionally close to Prisma. Exact relation names can be
-adjusted during implementation, but ownership, nullability, and indexes are
-part of the design.
+The blocks below preserve the schema intent. The exact source of truth is
+`prisma/models/agents.prisma`; when the implementation and this document differ,
+update this document or defer to Prisma.
 
-### AgentBlueprint
+### Agent Definition Registry
 
-Global catalog definition. This replaces the global/template side of
-`AgentDefinition`.
+Shipped definitions are backend code, not mutable database rows. This replaces
+the global/template side of `AgentDefinition` and avoids a DB catalog drifting
+from prompts, runtime handlers, and source-controlled output contracts.
 
-```prisma
-model AgentBlueprint {
-  id                    String   @id @default(uuid()) @db.Uuid
-  type                  String   @unique
-  name                  String
-  description           String?
-  promptPath            String   @map("prompt_path")
-  defaultAdapterType    String   @map("default_adapter_type")
-  defaultModel          String   @map("default_model")
-  defaultRuntimeConfig  Json     @default("{}") @map("default_runtime_config") @db.JsonB
-  defaultCapabilities   Json     @default("{}") @map("default_capabilities") @db.JsonB
-  catalogStatus         String   @default("active") @map("catalog_status")
-  marketplaceId         String?  @map("marketplace_id") @db.Uuid
-  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt             DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  marketplace Marketplace? @relation(fields: [marketplaceId], references: [id], onDelete: SetNull)
-  instances   AgentInstance[]
-  toolPolicies AgentBlueprintToolPolicy[]
-
-  @@index([catalogStatus])
-  @@index([marketplaceId])
-  @@map("agent_blueprints")
+```ts
+interface AgentDefinitionRecord {
+  id: string; // same as type for shipped definitions
+  type: string;
+  name: string;
+  description: string | null;
+  promptPath: string;
+  defaultAdapterType: string;
+  defaultModelEnv: string;
+  defaultRuntimeConfig: Record<string, unknown>;
+  defaultCapabilities: Record<string, unknown>;
+  runtimeKind: 'agent' | 'coordinator' | 'tool_wrapper';
+  defaultToolPolicies: AgentDefinitionToolPolicyRecord[];
 }
 ```
 
 Rules:
 
-- `defaultModel` is required. No runtime may silently choose a model when the
-  blueprint and instance do not resolve to one.
+- Each definition names an explicit `defaultModelEnv`. No runtime may silently
+  choose a model when request override, instance override, and definition env
+  fallback do not resolve to one.
 - Prompt body stays in `agent-config/prompts/`; the database stores paths only.
+- Fixed AI jobs that do not choose actions dynamically are classified as
+  `tool_wrapper`; true agent rows are reserved for flexible action selection.
 
 ### AgentInstance
 
@@ -174,7 +169,6 @@ Organization-owned runnable subject. This replaces the tenant-owned side of
 model AgentInstance {
   id                 String    @id @default(uuid()) @db.Uuid
   organizationId     String    @map("organization_id") @db.Uuid
-  blueprintId        String    @map("blueprint_id") @db.Uuid
   type               String
   name               String
   role               String    @default("specialist")
@@ -194,7 +188,6 @@ model AgentInstance {
   updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  blueprint    AgentBlueprint @relation(fields: [blueprintId], references: [id], onDelete: Restrict)
   parent       AgentInstance? @relation("AgentInstanceHierarchy", fields: [reportsToId], references: [id], onDelete: SetNull)
   children     AgentInstance[] @relation("AgentInstanceHierarchy")
   runtimeState AgentRuntimeState?
@@ -206,7 +199,6 @@ model AgentInstance {
 
   @@unique([organizationId, type])
   @@index([organizationId])
-  @@index([blueprintId])
   @@index([reportsToId])
   @@index([organizationId, lifecycleStatus])
   @@index([organizationId, reportsToId])
@@ -219,8 +211,12 @@ Rules:
 - `lifecycleStatus` stores operator-controlled state only:
   `active | paused | disabled`.
 - `running` and `idle` are derived from current runs and runtime state.
-- Effective model is `modelOverride ?? blueprint.defaultModel`. The fallback is
-  explicit catalog configuration, not a hardcoded runtime default.
+- `type` must match a code-owned definition.
+- Effective model is `requestOverride ?? modelOverride ?? env(defaultModelEnv)
+  ?? AGENT_DEFAULT_MODEL`. If none resolve, execution fails with
+  `model_required`; there is no hardcoded runtime default.
+- `runtimeConfig` stores organization override only. Definition defaults remain
+  in code and are merged at execution time.
 
 ### AgentRuntimeState
 
@@ -317,7 +313,7 @@ model AgentRunRequest {
   requestedByActorType     String?   @map("requested_by_actor_type")
   requestedByActorId       String?   @map("requested_by_actor_id")
   payloadSnapshot          Json?     @map("payload_snapshot") @db.JsonB
-  status                   String    @default("queued")
+  status                   String    @default("pending")
   coalescedIntoRequestId   String?   @map("coalesced_into_request_id") @db.Uuid
   requestedAt              DateTime  @default(now()) @map("requested_at") @db.Timestamptz
   claimedAt                DateTime? @map("claimed_at") @db.Timestamptz
@@ -350,7 +346,7 @@ Rules:
 - Every request gets its own row.
 - Coalesced requests point at the representative request via
   `coalescedIntoRequestId`; their source and payload are not lost.
-- Claiming a queued request must use a Prisma tagged raw SQL statement with
+- Claiming a pending request must use a Prisma tagged raw SQL statement with
   `FOR UPDATE SKIP LOCKED` and an `organization_id` predicate.
 - `AgentRunRequest 1:N AgentRun`. Retries create additional runs under the same
   request.
@@ -522,32 +518,12 @@ model AgentToolDefinition {
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  blueprintPolicies AgentBlueprintToolPolicy[]
   instancePolicies  AgentInstanceToolPolicy[]
   authorizationEvents AgentAuthorizationEvent[]
 
   @@index([riskLevel])
   @@index([isActive])
   @@map("agent_tool_definitions")
-}
-
-model AgentBlueprintToolPolicy {
-  id              String   @id @default(uuid()) @db.Uuid
-  blueprintId     String   @map("blueprint_id") @db.Uuid
-  toolId          String   @map("tool_id") @db.Uuid
-  effect          String
-  approvalMode    String   @default("none") @map("approval_mode")
-  dryRunMode      String   @default("optional") @map("dry_run_mode")
-  constraintsJson Json?    @map("constraints_json") @db.JsonB
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  blueprint AgentBlueprint @relation(fields: [blueprintId], references: [id], onDelete: Cascade)
-  tool      AgentToolDefinition @relation(fields: [toolId], references: [id], onDelete: Cascade)
-
-  @@unique([blueprintId, toolId])
-  @@index([toolId])
-  @@map("agent_blueprint_tool_policies")
 }
 
 model AgentInstanceToolPolicy {
@@ -577,7 +553,7 @@ Policy resolution:
 
 ```text
 effective policy =
-  AgentBlueprintToolPolicy
+  AgentDefinitionRegistry.defaultToolPolicies
   overridden by AgentInstanceToolPolicy
 
 instance overrides may narrow by default.
@@ -671,15 +647,15 @@ model AgentApprovalRequest {
 
 Rules:
 
-- `AgentRunRequest.status = deferred` while approval is pending.
-- Approval can move the same request back to `queued`; rejection moves it to
+- `AgentRunRequest.status = requires_approval` while approval is pending.
+- Approval can move the same request back to `pending`; rejection moves it to
   `skipped` or `failed` with an authorization event.
 
 ## Legacy Replacement Mapping
 
-| Legacy | v2 |
+| Legacy | Agent OS |
 |---|---|
-| `AgentDefinition` global template fields | `AgentBlueprint` |
+| `AgentDefinition` global template fields | code-owned Agent Definition Registry |
 | `AgentDefinition` tenant-owned instance fields | `AgentInstance` |
 | `AgentDefinition.rt_*` | `AgentRuntimeState` + `AgentTaskSession` |
 | `AgentTask` | removed |
@@ -688,7 +664,7 @@ Rules:
 | `AgentEvent` | `AgentRunEvent` or `AgentAuthorizationEvent` |
 | `AgentLog` | external log store + `AgentRun` excerpts/log ref |
 | `User.agentDefinitionId` | `User.agentInstanceId` |
-| `Marketplace.installedAgents` | `AgentBlueprint.marketplaceId` and/or marketplace install records |
+| `Marketplace.installedAgents` | read-only marketplace listing plus future Agent OS catalog wiring |
 
 ## Application Services
 
@@ -696,7 +672,7 @@ Keep application services cohesive. Do not create one service per table.
 
 ```text
 AgentCatalogService
-  Blueprint, instance, hierarchy, and tool policy management.
+  Definition listing, instance, hierarchy, and tool policy management.
 
 AgentRunCoordinator
   Request creation, idempotency, coalescing, approval/defer, and queue claim.
@@ -724,7 +700,7 @@ AgentLogStorePort
 
 ## Queue Claim Pattern
 
-Use Postgres as the durable queue. Do not add Redis/SQS/Kafka for v2.
+Use Postgres as the durable queue. Do not add Redis/SQS/Kafka for Agent OS.
 
 Claim should be one tagged raw SQL statement, scoped by organization when the
 worker has an organization scope and otherwise carefully bounded by worker
@@ -736,7 +712,7 @@ SET status = 'claimed', claimed_at = now(), updated_at = now()
 WHERE id = (
   SELECT id
   FROM agent_run_requests
-  WHERE status = 'queued'
+  WHERE status = 'pending'
   ORDER BY requested_at ASC
   LIMIT 1
   FOR UPDATE SKIP LOCKED
@@ -802,7 +778,7 @@ Schema changes also require `packages/shared` contract updates and
 1. Update instruction/architecture docs for `agent-os` owner boundary.
 2. Replace Prisma Agent OS models.
 3. Run `db:push`, `prisma generate`, ERD/Graphify regeneration.
-4. Add shared subpath contracts for Agent OS v2.
+4. Add shared subpath contracts for Agent OS.
 5. Implement `agent-os` module, repository adapter, and five application services.
 6. Rewire workflow and business-domain ports to the new `AgentRunnerPort`.
 7. Remove legacy `agent-registry`, `AgentTask`, `HeartbeatRun`, and trace path.

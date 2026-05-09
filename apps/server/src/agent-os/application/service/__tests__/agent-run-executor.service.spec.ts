@@ -1,9 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AGENT_RUN_EVENTS } from '../../event/agent-run-events';
 import { AgentRunExecutor } from '../agent-run-executor.service';
 import { AgentOsRuntimeError } from '../../../domain/agent-os.errors';
 import type {
-  AgentBlueprintRecord,
   AgentInstanceRecord,
   AgentRunRecord,
   AgentRunRequestRecord,
@@ -47,8 +46,8 @@ function makeClaimedRequest(
     createdAt: new Date('2026-05-07T00:00:00.000Z'),
     updatedAt: new Date('2026-05-07T00:00:00.000Z'),
     taskKey: 'rules.evaluate',
-    agentType: 'rules_evaluator',
-    adapterType: 'local',
+    agentType: 'rules_evaluation',
+    adapterType: 'claude_local',
     latestRunId: null,
     ...overrides,
   };
@@ -58,9 +57,8 @@ function makeInstance(overrides: Partial<AgentInstanceRecord> = {}): AgentInstan
   return {
     id: INSTANCE_ID,
     organizationId: ORGANIZATION_ID,
-    blueprintId: '55555555-5555-5555-5555-555555555555',
-    type: 'rules_evaluator',
-    name: 'Rules Evaluator',
+    type: 'rules_evaluation',
+    name: 'Rules Evaluation',
     role: 'rules',
     title: null,
     icon: null,
@@ -68,30 +66,11 @@ function makeInstance(overrides: Partial<AgentInstanceRecord> = {}): AgentInstan
     lifecycleStatus: 'active',
     pauseReason: null,
     trustLevel: 1,
-    adapterType: 'local',
+    adapterType: 'claude_local',
     modelOverride: null,
     adapterConfig: {},
     runtimeConfig: {},
     promptPathOverride: null,
-    ...overrides,
-  };
-}
-
-function makeBlueprint(
-  overrides: Partial<AgentBlueprintRecord> = {},
-): AgentBlueprintRecord {
-  return {
-    id: '55555555-5555-5555-5555-555555555555',
-    type: 'rules_evaluator',
-    name: 'Rules Evaluator',
-    description: null,
-    promptPath: 'agent-config/prompts/rules-evaluator.md',
-    defaultAdapterType: 'local',
-    defaultModel: 'gpt-5.4',
-    defaultRuntimeConfig: {},
-    defaultCapabilities: {},
-    catalogStatus: 'active',
-    marketplaceId: null,
     ...overrides,
   };
 }
@@ -123,7 +102,6 @@ function makeRun(overrides: Partial<AgentRunRecord> = {}): AgentRunRecord {
 
 function makeExecutor(options: {
   instance?: AgentInstanceRecord | null;
-  blueprint?: AgentBlueprintRecord | null;
   claimed?: AgentRunRequestRecord | null;
   runtimeResult?: { output: Record<string, unknown> };
   runtimeError?: unknown;
@@ -131,16 +109,12 @@ function makeExecutor(options: {
   const instance = Object.prototype.hasOwnProperty.call(options, 'instance')
     ? options.instance
     : makeInstance();
-  const blueprint = Object.prototype.hasOwnProperty.call(options, 'blueprint')
-    ? options.blueprint
-    : makeBlueprint();
   const claimed = Object.prototype.hasOwnProperty.call(options, 'claimed')
     ? options.claimed
     : makeClaimedRequest();
   const repository = {
     claimNextRunRequest: vi.fn().mockResolvedValue(claimed),
     findInstanceById: vi.fn().mockResolvedValue(instance),
-    findBlueprintByType: vi.fn().mockResolvedValue(blueprint),
     failClaimedRequest: vi.fn().mockResolvedValue(undefined),
     createRunForRequest: vi.fn().mockResolvedValue(makeRun()),
     appendRunEvent: vi.fn().mockResolvedValue(undefined),
@@ -164,6 +138,14 @@ function makeExecutor(options: {
 }
 
 describe('AgentRunExecutor', () => {
+  beforeEach(() => {
+    vi.stubEnv('AGENT_DEFAULT_MODEL', 'gpt-5.4');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it.each([
     {
       name: 'missing instance',
@@ -171,16 +153,24 @@ describe('AgentRunExecutor', () => {
       errorCode: 'agent_instance_missing',
     },
     {
-      name: 'missing blueprint',
-      options: { blueprint: null },
-      errorCode: 'blueprint_missing',
+      name: 'missing code-owned definition',
+      options: {
+        instance: makeInstance({ type: 'unknown_agent' }),
+        claimed: makeClaimedRequest({ agentType: 'unknown_agent' }),
+      },
+      errorCode: 'agent_definition_missing',
     },
     {
       name: 'missing effective model',
-      options: { blueprint: makeBlueprint({ defaultModel: '' }) },
+      options: {},
       errorCode: 'model_required',
+      clearDefaultModel: true,
     },
   ])('emits a terminal request event on pre-run failure: $name', async (testCase) => {
+    if ('clearDefaultModel' in testCase && testCase.clearDefaultModel) {
+      vi.stubEnv('AGENT_DEFAULT_MODEL', '');
+      vi.stubEnv('AGENT_RULES_EVALUATION_MODEL', '');
+    }
     const { executor, repository, eventEmitter } = makeExecutor(testCase.options);
 
     const result = await executor.executeNext('worker-1', ORGANIZATION_ID);
@@ -207,7 +197,7 @@ describe('AgentRunExecutor', () => {
         requestId: REQUEST_ID,
         status: 'failed',
         errorCode: testCase.errorCode,
-        agentType: 'rules_evaluator',
+        agentType: testCase.options.claimed?.agentType ?? 'rules_evaluation',
         source: 'rules',
         sourceResourceType: null,
         sourceResourceId: null,

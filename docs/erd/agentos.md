@@ -11,11 +11,9 @@
 |---|---|---|
 | AgentApprovalRequest | `agent_approval_requests` | Human approval state. While pending, AgentRunRequest.status = requires_approval. |
 | AgentAuthorizationEvent | `agent_authorization_events` | Authorization audit. Logged before, during, and outside runs (eg. admin policy widening). |
-| AgentBlueprint | `agent_blueprints` | Global catalog template for an agent kind. Replaces the global side of the legacy AgentDefinition. |
-| AgentBlueprintToolPolicy | `agent_blueprint_tool_policies` | Default tool policy at the blueprint level (allow / deny / approval_required). |
 | AgentCostEvent | `agent_cost_events` | Cost ledger source of truth. Insert + AgentRuntimeState aggregate update share one transaction. |
-| AgentInstance | `agent_instances` | Organization-owned runnable subject. Replaces the tenant-owned side of legacy AgentDefinition. |
-| AgentInstanceToolPolicy | `agent_instance_tool_policies` | Per-instance override for tool policy. Resolution: instance overrides blueprint, deny wins. |
+| AgentInstance | `agent_instances` | Organization-owned runnable subject. Type must match the code-owned Agent Definition Registry. |
+| AgentInstanceToolPolicy | `agent_instance_tool_policies` | Per-instance override for tool policy. Registry defaults are code-owned; DB stores organization overrides. |
 | AgentRun | `agent_runs` | Accepted execution attempt. Replaces HeartbeatRun. Always starts at status="running"; queue state lives on AgentRunRequest. |
 | AgentRunEvent | `agent_run_events` | Run-local event timeline (status, tool, model, safety, fallback). Bulk logs go to external store via logRef. |
 | AgentRunRequest | `agent_run_requests` | Durable request inbox + queue + dedupe + audit. Replaces AgentWakeupRequest. Queue state lives here, not on AgentRun. |
@@ -72,32 +70,6 @@ erDiagram
     String decidedByUserId FK
     DateTime createdAt
   }
-  AgentBlueprint {
-    String id PK
-    String type UK
-    String name
-    String description
-    String promptPath
-    String defaultAdapterType
-    String defaultModel
-    Json defaultRuntimeConfig
-    Json defaultCapabilities
-    String catalogStatus
-    String marketplaceId FK
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  AgentBlueprintToolPolicy {
-    String id PK
-    String blueprintId FK
-    String toolId FK
-    String effect
-    String approvalMode
-    String dryRunMode
-    Json constraints
-    DateTime createdAt
-    DateTime updatedAt
-  }
   AgentCostEvent {
     String id PK
     String organizationId FK
@@ -119,7 +91,6 @@ erDiagram
   AgentInstance {
     String id PK
     String organizationId FK
-    String blueprintId FK
     String type
     String name
     String role
@@ -309,8 +280,6 @@ erDiagram
     DateTime updatedAt
     String marketplaceId FK
   }
-  AgentBlueprint ||--o{ AgentBlueprintToolPolicy : "blueprint"
-  AgentBlueprint ||--o{ AgentInstance : "blueprint"
   AgentInstance ||--o{ AgentApprovalRequest : "agentInstance"
   AgentInstance ||--o{ AgentAuthorizationEvent : "agentInstance"
   AgentInstance ||--o{ AgentCostEvent : "agentInstance"
@@ -336,7 +305,6 @@ erDiagram
   AgentTaskSession ||--o{ AgentRun : "taskSession"
   AgentTaskSession ||--o{ AgentRunRequest : "taskSession"
   AgentToolDefinition o|--o{ AgentAuthorizationEvent : "tool"
-  AgentToolDefinition ||--o{ AgentBlueprintToolPolicy : "tool"
   AgentToolDefinition ||--o{ AgentInstanceToolPolicy : "tool"
   WorkflowRun o|--o{ AgentRunRequest : "sourceWorkflowRun"
   WorkflowTemplate ||--o{ WorkflowRun : "template"
@@ -353,7 +321,6 @@ erDiagram
 | AgentAuthorizationEvent | decidedBy | references external | Core | User |
 | AgentAuthorizationEvent | organization | references external | Core | Organization |
 | AgentAuthorizationEvent | requestedBy | references external | Core | User |
-| AgentBlueprint | marketplace | references external | System | Marketplace |
 | AgentCostEvent | organization | references external | Core | Organization |
 | AgentInstance | agentInstance | referenced by external | Core | User |
 | AgentInstance | organization | references external | Core | Organization |

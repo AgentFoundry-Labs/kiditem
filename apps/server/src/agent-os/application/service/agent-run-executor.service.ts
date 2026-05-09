@@ -16,6 +16,10 @@ import {
 import { resolveEffectiveModel } from '../../domain/agent-os.types';
 import type { AgentRunRequestRecord } from '../../domain/agent-os.types';
 import {
+  findAgentDefinitionByType,
+  resolveDefinitionDefaultModel,
+} from '../../domain/agent-definition.registry';
+import {
   AGENT_RUN_EVENTS,
   type AgentRunFinalizedEvent,
 } from '../event/agent-run-events';
@@ -173,19 +177,19 @@ export class AgentRunExecutor {
       };
     }
 
-    const blueprint = await this.repository.findBlueprintByType(instance.type);
-    if (!blueprint) {
+    const definition = findAgentDefinitionByType(instance.type);
+    if (!definition) {
       await this.failBeforeRun({
         organizationId: claimed.organizationId,
         requestId: claimed.id,
         routing,
-        errorCode: 'blueprint_missing',
-        errorMessage: `No blueprint registered for type "${instance.type}".`,
+        errorCode: 'agent_definition_missing',
+        errorMessage: `No agent definition registered for type "${instance.type}".`,
       });
       return {
         executed: false,
         requestId: claimed.id,
-        errorCode: 'blueprint_missing',
+        errorCode: 'agent_definition_missing',
       };
     }
 
@@ -195,7 +199,7 @@ export class AgentRunExecutor {
         : null;
 
     const model = resolveEffectiveModel({
-      blueprintDefault: blueprint.defaultModel,
+      definitionDefault: resolveDefinitionDefaultModel(definition),
       instanceOverride: instance.modelOverride,
       requestOverride: requestModelOverride,
     });
@@ -214,7 +218,7 @@ export class AgentRunExecutor {
       };
     }
 
-    const promptPath = instance.promptPathOverride ?? blueprint.promptPath;
+    const promptPath = instance.promptPathOverride ?? definition.promptPath;
 
     const run = await this.repository.createRunForRequest({
       organizationId: claimed.organizationId,
@@ -251,7 +255,7 @@ export class AgentRunExecutor {
         promptPath,
         input: claimed.payload,
         trustLevel: instance.trustLevel,
-        runtimeConfig: { ...blueprint.defaultRuntimeConfig, ...instance.runtimeConfig },
+        runtimeConfig: { ...definition.defaultRuntimeConfig, ...instance.runtimeConfig },
       });
 
       await this.repository.finalizeRun({
