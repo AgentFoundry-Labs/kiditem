@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { PanelAlertRow } from '../PanelAlertRow';
+import { usePanelStore } from '../lib/panel-store';
 import type { PanelAlertItem } from '@kiditem/shared/panel';
 
 vi.mock('../PromoteToTaskModal', () => ({
@@ -179,6 +180,23 @@ describe('PanelAlertRow', () => {
       );
       const link = screen.getByRole('link', { name: /이동/ });
       expect(link).toHaveAttribute('href', '/products/abc');
+    });
+
+    it('closes the panel when href link is clicked', () => {
+      usePanelStore.getState().setOpen(true);
+      render(
+        <PanelAlertRow
+          item={makeAlert({
+            alertKind: 'operation',
+            status: 'succeeded',
+            href: '/products/abc',
+          })}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole('link', { name: /이동/ }));
+
+      expect(usePanelStore.getState().isOpen).toBe(false);
     });
 
     it('hides promote button while a running operation is in flight', () => {

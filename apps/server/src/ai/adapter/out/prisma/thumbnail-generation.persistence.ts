@@ -107,6 +107,7 @@ export async function createPendingEditJob(
     method: string;
     inputMeta: Prisma.InputJsonValue;
     editAnalysis: EditAnalysisResult | null;
+    triggeredByUserId?: string | null;
   },
 ): Promise<GenerationRow> {
   const generation = await prisma.thumbnailGeneration.create({
@@ -121,6 +122,7 @@ export async function createPendingEditJob(
       editAnalysis: args.editAnalysis
         ? (args.editAnalysis as unknown as Prisma.InputJsonValue)
         : Prisma.JsonNull,
+      triggeredByUserId: args.triggeredByUserId ?? null,
     },
     include: generationInclude(args.organizationId),
   });
@@ -457,6 +459,107 @@ export async function replaceGenerationResult(
       fromPhase: current.phase,
       attemptNumber: current.attemptCount,
     };
+  });
+}
+
+/**
+ * Async-pipeline variant of `replaceGenerationResult` for the
+ * `thumbnail_generate` Agent OS sink path.
+ *
+ * Differences from `replaceGenerationResult`:
+ *   - Does NOT delete or rewrite `ThumbnailGenerationInputImage` rows.
+ *     Inputs are written once at enqueue time by the producer; the
+ *     async sink only owns the candidate / status / phase transition.
+ *   - Same atomic lock-checking pattern (status='running' must be
+ *     true at write time so a parallel cancel cannot be overridden).
+ */
+export async function applyAgentSuccessResult(
+  prisma: PrismaService,
+  args: {
+    generationId: string;
+    organizationId: string;
+    candidates: ThumbnailEditorCandidate[];
+    inputMeta: Prisma.InputJsonValue;
+  },
+): Promise<{
+  fromStatus: string;
+  fromPhase: string | null;
+  attemptNumber: number;
+} | null> {
+  const { generationId, organizationId, candidates, inputMeta } = args;
+  return prisma.$transaction(async (tx) => {
+    const current = await tx.thumbnailGeneration.findFirst({
+      where: { id: generationId, organizationId, status: 'running' },
+      select: { id: true, status: true, phase: true, attemptCount: true },
+    });
+    if (!current) return null;
+    await tx.thumbnailGenerationCandidate.deleteMany({ where: { generationId, organizationId } });
+    if (candidates.length > 0) {
+      await tx.thumbnailGenerationCandidate.createMany({
+        data: candidates.map((candidate, index) => ({
+          organizationId,
+          generationId,
+          url: candidate.url,
+          storageKey: candidate.storageKey ?? null,
+          filename: candidate.filename ?? candidate.storageKey?.split('/').pop() ?? null,
+          sortOrder: index,
+          mimeType: candidate.mimeType ?? null,
+          width: null,
+          height: null,
+          fileSize: candidate.fileSize ?? null,
+        })),
+      });
+    }
+    await tx.thumbnailGeneration.updateMany({
+      where: { id: generationId, organizationId, status: 'running' },
+      data: {
+        status: 'succeeded',
+        phase: 'ready',
+        selectedUrl: null,
+        errorMessage: null,
+        inputMeta,
+      },
+    });
+    return {
+      fromStatus: current.status,
+      fromPhase: current.phase,
+      attemptNumber: current.attemptCount,
+    };
+  });
+}
+
+/**
+ * Persist a producer-resolved input-image array onto a freshly created
+ * pending generation row. Used by the editor enqueue path so the user
+ * can see their inputs in the generation history while the Agent OS
+ * runtime is still working on candidates.
+ */
+export async function persistPendingInputImages(
+  prisma: PrismaService,
+  args: {
+    generationId: string;
+    organizationId: string;
+    inputImages: ThumbnailEditorInputImage[];
+  },
+): Promise<void> {
+  if (args.inputImages.length === 0) return;
+  await prisma.thumbnailGenerationInputImage.createMany({
+    data: args.inputImages.map((img) => ({
+      organizationId: args.organizationId,
+      generationId: args.generationId,
+      url: img.url,
+      storageKey: img.storageKey,
+      role: img.role,
+      label: img.label,
+      sortOrder: img.sortOrder,
+      source: normalizeInputSource(img.source),
+      masterImageId: img.masterImageId ?? null,
+      sourceCandidateId: img.sourceCandidateId ?? null,
+      mimeType: img.mimeType,
+      width: null,
+      height: null,
+      fileSize: img.fileSize,
+    })),
   });
 }
 

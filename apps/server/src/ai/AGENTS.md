@@ -56,7 +56,8 @@ ai/
 | `POST /api/render-image` | sync | HTML template → image buffer |
 | `GET/POST/PUT/DELETE /api/thumbnail-analysis/*` | mixed | 분석/요약/배치/Wing 등록/Generation 상태전이 (15+ endpoints) |
 | `POST /api/thumbnail-auto/batch` | sync | A등급 자동 재편집 cohort 시작 |
-| `POST /api/thumbnail-editor/generate` | sync | 에디터 생성 (creative/edit) → ThumbnailGeneration 1건 + 후보 저장 |
+| `POST /api/thumbnail-editor/generate` | mixed | product-bound 은 **async (Agent OS)**, productId 없으면 sync standalone |
+| `POST /api/thumbnail-editor/reconcile-stuck` | sync (admin) | terminal `AgentRunRequest` 재생 → `ThumbnailGeneration` stuck row 회복 |
 | `GET/PATCH /api/thumbnail-tracking[/:id]` | sync | CTR/리뷰/매출 측정 트래킹 |
 
 ## 핵심 패턴
@@ -167,6 +168,57 @@ Gemini text generation 호출은 `TEXT_COMPLETION_PORT` 한 곳에 모인다. `t
 `AGENT_RUNTIME_WORKER_ENABLED=1` 와 `AGENT_DETAIL_PAGE_GENERATE_MODEL`
 (또는 `AGENT_DEFAULT_MODEL`) 가 세팅되어야 한다 — agent-os/AGENTS.md
 "Worker contract" / "Runtime adapter contract" 참고.
+
+### 8. Thumbnail editor generation — Agent OS async (product-bound) + sync standalone fallback
+
+`POST /api/thumbnail-editor/generate` 는 productId 동봉 여부로 두 갈래
+(Phase 3 / PR #213 detail-page 패턴 그대로):
+
+| 진입 | 모드 | 호출 경로 | row | 사용처 |
+|---|---|---|---|---|
+| `productId` 포함 | **async — Agent OS** | `ThumbnailEditorController.generate` → `ThumbnailGenerationService.enqueueEditorGeneration` → `AGENT_RUNNER_PORT.runByType('thumbnail_generate')` → runtime handler → bridge → sink | `ThumbnailGeneration` (`pending` → `running` → `succeeded`/`failed`) | `/thumbnail-editor` 페이지 (실 사용 경로) |
+| `productId` 없음 | **sync (transitional)** | controller 가 직접 `ThumbnailEditorAiService.generateEdit/generateCreative` 호출 | row 없음 | 테스트 / 외부 통합 / 일회성 미리보기 |
+| `POST /api/thumbnail-editor/reconcile-stuck` | admin (owner/admin) | `ThumbnailAgentReconcileService.reconcile` → terminal `AgentRunRequest` 재생 → sink replay | `ThumbnailGeneration` 재시도 적용 | listener 누락 / 프로세스 재시작 후 stuck `pending`/`running` 회복 |
+
+#### 8-bis. Agent OS handler / sink / reconcile 토폴로지 (thumbnail)
+
+- **Schemas** — `apps/server/src/ai/domain/agent-output/thumbnail-generate.schema.ts`:
+  `ThumbnailGenerateAgentInputSchema` (`mode` / `editCase` / `purpose` /
+  `inputs[]` 등; producer 가 inline base64 `data` + storage url 둘 다
+  실어 보낸다) + `ThumbnailGenerateAgentOutputSchema` (`{ candidates: [{ url, filename, storageKey, mimeType, fileSize }] }`).
+- **Runtime handler** — `apps/server/src/ai/adapter/out/agent-runtime/thumbnail-generate.runtime-handler.ts`:
+  AI 도메인이 소유. `onModuleInit` 에서 `AgentRuntimeHandlerRegistry`
+  에 등록. `ThumbnailEditorAiService.generateEdit` / `generateCreative`
+  를 그대로 호출 — Gemini image gen + storage 업로드는 기존 service 가
+  처리한다. Handler 는 Prisma 에 닿지 않는다.
+- **Bridge** — `thumbnail-agent-output.bridge.ts`: `agent.run.finalized`
+  listen → `event.agentType === 'thumbnail_generate'` 필터 → output
+  Zod validate → sink 호출.
+- **Sink** — `apps/server/src/ai/adapter/out/agent-output/thumbnail-generation-sink.adapter.ts`:
+  `lockGenerationForProcessing` (pending → running) → `applyAgentSuccessResult`
+  (running → succeeded + ready, candidates 교체, 입력 이미지는 보존) /
+  `markGenerationFailed` (running → failed) → status_change event 기록 →
+  `OperationAlertService.succeed` / `fail` 로 `(thumbnail-edit:<id>,
+  sourceType='thumbnail_generation', sourceId=<id>)` alert 종결.
+- **Reconcile** — `apps/server/src/ai/application/service/thumbnail-agent-reconcile.service.ts`:
+  detail-page reconcile 과 같은 모양. `AgentObservabilityService.findRunByRequest`
+  로 `(organizationId, requestId)` 직접 조회 후 sink replay.
+
+PR #214 panel 계약과의 정합성:
+- Producer 가 `(operationKey='thumbnail-edit:<id>', sourceType='thumbnail_generation', sourceId=<id>)` 로
+  alert 를 시작하므로, panel 의 `image.mapper.ts` legacy projection 은
+  같은 generation 에 alert 가 살아있는 동안 자동으로 숨겨진다 (PR #214
+  의 `alertBackedThumbnailGenerationIds` 가드).
+- `href` 는 `start()` 에 `/thumbnails?generationId=<id>` 로 박고, sink 의
+  `succeed()` / `fail()` patch 에서 결과 / 재시도 surface 로 갱신한다.
+  PR #214 의 alert href 계약을 그대로 따른다.
+- 새 panel source 를 추가하지 않는다. `agent` source 는 여전히 owner-domain
+  wiring 이 들어올 때까지 비어 있고, 사용자-facing 신호는 위 OperationAlert
+  가 단일 진입점이다.
+
+운영 환경 의존성: detail page 와 동일하게 `AGENT_RUNTIME_WORKER_ENABLED=1`
++ `AGENT_THUMBNAIL_GENERATE_MODEL` (또는 `AGENT_DEFAULT_MODEL`) 가
+세팅되어야 한다.
 
 ## Rules
 

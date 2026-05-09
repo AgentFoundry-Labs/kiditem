@@ -62,6 +62,7 @@ import {
   lockGenerationForProcessing,
   markGenerationCancelled,
   markGenerationFailed,
+  persistPendingInputImages,
   removeCandidate as removeCandidatePersistence,
   replaceGenerationResult,
   resetGenerationForReEdit,
@@ -69,6 +70,14 @@ import {
   setSelectedCandidate,
   type SaveEditorResultInput,
 } from '../../adapter/out/prisma/thumbnail-generation.persistence';
+import {
+  AGENT_RUNNER_PORT,
+  type AgentRunnerPort,
+} from '../../../agent-os/application/port/in/agent-runner.port';
+import {
+  AI_AGENT_SOURCE_TYPES,
+  THUMBNAIL_GENERATE_AGENT_TYPE,
+} from '../../domain/agent-output';
 import {
   THUMBNAIL_GENERATION_EVENT_PORT,
   type AppendThumbnailGenerationEventInput,
@@ -84,6 +93,8 @@ export class ThumbnailGenerationService {
     private readonly editorAiService: ThumbnailEditorAiService,
     private readonly trackingService: ThumbnailTrackingService,
     private readonly operationAlerts: OperationAlertService,
+    @Inject(AGENT_RUNNER_PORT)
+    private readonly agentRunner: AgentRunnerPort,
     @Optional()
     @Inject(THUMBNAIL_GENERATION_EVENT_PORT)
     private readonly generationEvents: ThumbnailGenerationEventPort | null = null,
@@ -122,6 +133,126 @@ export class ThumbnailGenerationService {
       },
     });
     return generationId;
+  }
+
+  /**
+   * Enqueue a thumbnail editor generation onto Agent OS.
+   *
+   * Async product-bound path used by `/api/thumbnail-editor/generate`. The
+   * sequence mirrors `createEditJobs` (auto-batch) but the actual Gemini
+   * call is delegated to the Agent OS runtime via
+   * `AGENT_RUNNER_PORT.runByType('thumbnail_generate', …)`. The bridge +
+   * sink (`ThumbnailGenerationSinkAdapter`) finalize the row + close the
+   * operation alert.
+   *
+   * Operation alert keeps the existing `(thumbnail_generation, <id>)`
+   * source contract so PR #214 panel projection hides the legacy image
+   * run while the alert is alive.
+   */
+  async enqueueEditorGeneration(input: {
+    organizationId: string;
+    productId: string;
+    productName: string;
+    triggeredByUserId: string | null;
+    inputs: ThumbnailEditorInputImage[];
+    inputMeta: Prisma.InputJsonValue;
+    method: 'generate' | 'creative';
+    originalUrl: string;
+    agentPayload: Record<string, unknown>;
+  }): Promise<{ generationId: string; status: 'pending' }> {
+    const generation = await createPendingEditJob(this.prisma, {
+      organizationId: input.organizationId,
+      masterId: input.productId,
+      originalUrl: input.originalUrl,
+      method: input.method,
+      inputMeta: input.inputMeta,
+      editAnalysis: null,
+      triggeredByUserId: input.triggeredByUserId,
+    });
+
+    await persistPendingInputImages(this.prisma, {
+      generationId: generation.id,
+      organizationId: input.organizationId,
+      inputImages: input.inputs,
+    });
+
+    await this.emitStatusChange({
+      organizationId: input.organizationId,
+      generationId: generation.id,
+      fromStatus: null,
+      toStatus: 'pending',
+      fromPhase: null,
+      toPhase: null,
+      actorUserId: input.triggeredByUserId,
+      payload: {
+        method: input.method,
+        productId: input.productId,
+        inputCount: input.inputs.length,
+      },
+    });
+
+    await this.operationAlerts.start({
+      organizationId: input.organizationId,
+      operationKey: this.editJobOperationKey(generation.id),
+      type: 'thumbnail_edit_job',
+      title: `썸네일 ${input.method === 'creative' ? 'AI 연출' : '편집'}: ${input.productName}`,
+      sourceType: 'thumbnail_generation',
+      sourceId: generation.id,
+      actorUserId: input.triggeredByUserId,
+      targetType: 'master',
+      targetId: input.productId,
+      href: this.thumbnailGenerationHref(generation.id),
+      metadata: { method: input.method, inputCount: input.inputs.length },
+    });
+
+    const enqueueResult = await this.agentRunner.runByType(
+      THUMBNAIL_GENERATE_AGENT_TYPE,
+      {
+        organizationId: input.organizationId,
+        requestedByUserId: input.triggeredByUserId ?? undefined,
+        sourceType: AI_AGENT_SOURCE_TYPES.THUMBNAIL_GENERATE,
+        sourceResourceType: 'thumbnail_generation',
+        sourceResourceId: generation.id,
+        reason: `thumbnail_generate for product ${input.productId}`,
+        payload: input.agentPayload,
+      },
+    );
+
+    if (!enqueueResult.ok) {
+      const errorMessage = enqueueResult.reason
+        ? `Agent OS enqueue failed: ${enqueueResult.reason}`
+        : 'Agent OS enqueue failed.';
+      // Mirror the producer-side enqueue-failure path used by
+      // `DetailPageAiService.enqueueProductBoundGeneration`: the row was
+      // created so we mark it FAILED and close the alert before throwing.
+      const lock = await lockGenerationForProcessing(
+        this.prisma,
+        generation.id,
+        input.organizationId,
+      );
+      if (lock) {
+        await markGenerationFailed(
+          this.prisma,
+          generation.id,
+          input.organizationId,
+          errorMessage,
+        );
+      }
+      await this.operationAlerts.fail(
+        input.organizationId,
+        this.editJobOperationKey(generation.id),
+        {
+          message: errorMessage,
+          metadata: {
+            errorCode: 'agent_enqueue_failed',
+            agentReason: enqueueResult.reason ?? null,
+          },
+        },
+      );
+      throw new BadRequestException(errorMessage);
+    }
+
+    return { generationId: generation.id, status: 'pending' };
   }
 
   async findAll(
@@ -316,6 +447,7 @@ export class ThumbnailGenerationService {
           analysisContext: toAnalysisContextJson(analysis, editSuggestions),
         },
         editAnalysis,
+        triggeredByUserId,
       });
       await this.emitStatusChange({
         organizationId,

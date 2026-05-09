@@ -119,6 +119,10 @@ describe('ThumbnailGenerationService operation alerts', () => {
       USER_ID,
     );
 
+    expect(mocks.createPendingEditJob).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ triggeredByUserId: USER_ID }),
+    );
     expect(operationAlerts.start).toHaveBeenCalledWith(
       expect.objectContaining({
         organizationId: ORGANIZATION_ID,

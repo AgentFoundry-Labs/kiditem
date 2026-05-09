@@ -359,7 +359,29 @@ function ThumbnailEditorWorkspaceContent() {
       });
       const data = await generateMutation.mutateAsync(dto);
       if (!mountedRef.current) return;
-      if (data?.candidates) {
+
+      if (data?.status === 'pending' && data.generationId) {
+        // Async product-bound path — backend enqueued an Agent OS request
+        // and returned immediately. Don't set candidates here; the
+        // existing `useGenerationList` polling already detects the
+        // pending row and `useEffect`s above flip status → result.
+        // forcedAwaiting stays true so the loading modal holds until the
+        // bridge + sink finalize the row.
+        setGenerationId(data.generationId);
+        const next = new URLSearchParams(searchParams.toString());
+        next.set('generationId', data.generationId);
+        router.replace(`?${next.toString()}`, { scroll: false });
+        await queryClient.refetchQueries({
+          queryKey: queryKeys.thumbnailAnalysis.generations(),
+        });
+        toast.success('썸네일 생성 시작 — 잠시만 기다려주세요');
+        return;
+      }
+
+      if (data?.candidates && data.candidates.length > 0) {
+        // Sync standalone path (no productId) — candidates returned
+        // immediately. Mirror the legacy behaviour for non-product
+        // uploads: render directly + persist into the upload session.
         setResult(data.candidates);
         setGenerationId(data.generationId ?? null);
         if (uploadKeyParam) {
@@ -368,16 +390,12 @@ function ThumbnailEditorWorkspaceContent() {
             mode,
           });
         }
-        // generate flow 는 mutation 응답에 candidates 통째로 — polling 안 기다려도 됨. 즉시 해제.
         setForcedAwaiting(false);
         queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.generations() });
         toast.success(`썸네일 ${data.candidates.length}장 생성 완료`);
-        // 새로고침해도 기존 결과를 복원할 수 있도록 generationId 를 URL 에 박아둔다.
-        // 기존 initialGeneration 쿼리가 이 id 로 candidates 를 복원.
         if (data.generationId) {
           const next = new URLSearchParams(searchParams.toString());
           next.set('generationId', data.generationId);
-          // imageUrl 은 더 이상 auto-start 트리거가 아니지만, 편집 시작점 복원용으로 유지.
           router.replace(`?${next.toString()}`, { scroll: false });
         }
       }

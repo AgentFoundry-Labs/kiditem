@@ -16,10 +16,12 @@ export {
 export {
   THUMBNAIL_GENERATE_AGENT_TYPE,
   ThumbnailCandidateSchema,
+  ThumbnailGenerateAgentInputImageSchema,
   ThumbnailGenerateAgentInputSchema,
   ThumbnailGenerateAgentOutputSchema,
   type ThumbnailCandidate,
   type ThumbnailGenerateAgentInput,
+  type ThumbnailGenerateAgentInputImage,
   type ThumbnailGenerateAgentOutput,
 } from './thumbnail-generate.schema';
 
