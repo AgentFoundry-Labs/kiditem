@@ -2,18 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { OrdersService } from '../orders.service';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { OrderListResponseSchema, OrderActionResponseSchema, OrderStatsResponseSchema } from '@kiditem/shared/order';
-
-// Mock the coupang adapter module
-vi.mock('../../../channels/adapters/coupang/orders', () => ({
-  confirmOrderSheets: vi.fn(),
-  uploadInvoice: vi.fn(),
-  DELIVERY_COMPANIES: [
-    { code: 'CJGLS', name: 'CJ대한통운' },
-    { code: 'KGB', name: '로젠택배' },
-  ],
-}));
-
-import { confirmOrderSheets, uploadInvoice } from '../../../channels/adapters/coupang/orders';
+import type { CoupangProviderPort } from '../../../channels/application/port/out/coupang-provider.port';
 
 function makePrisma() {
   return {
@@ -32,6 +21,21 @@ function ownedRows(ids: number[]): Array<{ externalOrderId: string }> {
 
 const ORGANIZATION_ID = 'organization-1';
 const OTHER_ORGANIZATION_ID = 'organization-2';
+
+function makeCoupangPort(): CoupangProviderPort {
+  return {
+    getDeliveryCompanies: vi.fn(() => [
+      { code: 'CJGLS', name: 'CJ대한통운' },
+      { code: 'KGB', name: '로젠택배' },
+    ]),
+    getSellerProducts: vi.fn(),
+    getSellerProduct: vi.fn(),
+    getOrderSheets: vi.fn(),
+    confirmOrderSheets: vi.fn(),
+    uploadInvoice: vi.fn(),
+    approveReturn: vi.fn(),
+  };
+}
 
 const MOCK_LINE_ITEM = {
   id: '00000000-0000-4000-8000-000000000002',
@@ -68,10 +72,12 @@ const MOCK_ORDER = {
 describe('OrdersService — order query and actions', () => {
   let service: OrdersService;
   let prisma: ReturnType<typeof makePrisma>;
+  let coupang: CoupangProviderPort;
 
   beforeEach(() => {
     prisma = makePrisma();
-    service = new OrdersService(prisma as any);
+    coupang = makeCoupangPort();
+    service = new OrdersService(prisma as any, coupang);
     vi.clearAllMocks();
   });
 
@@ -298,7 +304,10 @@ describe('OrdersService — order query and actions', () => {
   describe('confirm', () => {
     it('confirm action → 소유권 검증 후 coupang confirmOrderSheets 호출', async () => {
       prisma.order.findMany.mockResolvedValueOnce(ownedRows([12345, 67890]));
-      (confirmOrderSheets as ReturnType<typeof vi.fn>).mockResolvedValue({ code: '200', message: 'success' });
+      vi.mocked(coupang.confirmOrderSheets).mockResolvedValue({
+        code: '200',
+        message: 'success',
+      });
 
       const result = await service.confirm([12345, 67890], ORGANIZATION_ID);
 
@@ -312,7 +321,10 @@ describe('OrdersService — order query and actions', () => {
           }),
         }),
       );
-      expect(confirmOrderSheets).toHaveBeenCalledWith([12345, 67890]);
+      expect(coupang.confirmOrderSheets).toHaveBeenCalledWith(
+        ORGANIZATION_ID,
+        [12345, 67890],
+      );
       expect(result.message).toBe('2건 승인 완료');
       expect(result.data).toEqual({ code: '200', message: 'success' });
 
@@ -327,7 +339,7 @@ describe('OrdersService — order query and actions', () => {
       await expect(service.confirm([12345, 99999], ORGANIZATION_ID)).rejects.toBeInstanceOf(
         NotFoundException,
       );
-      expect(confirmOrderSheets).not.toHaveBeenCalled();
+      expect(coupang.confirmOrderSheets).not.toHaveBeenCalled();
     });
 
     it('shipmentBoxId 가 safe integer 범위 밖이면 BadRequest + adapter/lookup 호출 안 함 (defensive)', async () => {
@@ -335,7 +347,7 @@ describe('OrdersService — order query and actions', () => {
       await expect(service.confirm([12345, unsafeId], ORGANIZATION_ID)).rejects.toBeInstanceOf(
         BadRequestException,
       );
-      expect(confirmOrderSheets).not.toHaveBeenCalled();
+      expect(coupang.confirmOrderSheets).not.toHaveBeenCalled();
       expect(prisma.order.findMany).not.toHaveBeenCalled();
     });
   });
@@ -343,7 +355,7 @@ describe('OrdersService — order query and actions', () => {
   describe('uploadInvoice', () => {
     it('invoice action → 소유권 검증 후 coupang uploadInvoice 호출', async () => {
       prisma.order.findMany.mockResolvedValueOnce(ownedRows([12345]));
-      (uploadInvoice as ReturnType<typeof vi.fn>).mockResolvedValue({ code: '200', message: 'ok' });
+      vi.mocked(coupang.uploadInvoice).mockResolvedValue({ code: '200', message: 'ok' });
 
       const result = await service.uploadInvoice(12345, 'CJGLS', 'INV-001', ORGANIZATION_ID);
 
@@ -356,7 +368,8 @@ describe('OrdersService — order query and actions', () => {
           }),
         }),
       );
-      expect(uploadInvoice).toHaveBeenCalledWith(
+      expect(coupang.uploadInvoice).toHaveBeenCalledWith(
+        ORGANIZATION_ID,
         12345,
         expect.objectContaining({
           deliveryCompanyCode: 'CJGLS',
@@ -375,7 +388,7 @@ describe('OrdersService — order query and actions', () => {
       await expect(
         service.uploadInvoice(99999, 'CJGLS', 'INV-001', ORGANIZATION_ID),
       ).rejects.toBeInstanceOf(NotFoundException);
-      expect(uploadInvoice).not.toHaveBeenCalled();
+      expect(coupang.uploadInvoice).not.toHaveBeenCalled();
     });
   });
 

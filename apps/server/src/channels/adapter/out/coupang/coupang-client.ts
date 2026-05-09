@@ -4,29 +4,26 @@ const COUPANG_HOST = 'api-gateway.coupang.com';
 const COUPANG_BASE_URL = `https://${COUPANG_HOST}`;
 const REQUEST_TIMEOUT = 30000;
 
+export interface CoupangCredentials {
+  vendorId: string;
+  accessKey: string;
+  secretKey: string;
+}
+
 interface CoupangRequestOptions {
+  credentials: CoupangCredentials;
   method: 'GET' | 'POST' | 'PUT' | 'DELETE';
   path: string;
   query?: Record<string, string>;
   body?: unknown;
 }
 
-function getEnvOrThrow(key: string): string {
-  const value = process.env[key];
-  if (!value) {
-    throw new Error(`환경변수 ${key}가 설정되지 않았습니다. .env 파일을 확인하세요.`);
-  }
-  return value;
-}
-
 function generateAuthorization(
+  credentials: CoupangCredentials,
   method: string,
   path: string,
   query: string,
 ): string {
-  const accessKey = getEnvOrThrow('COUPANG_ACCESS_KEY');
-  const secretKey = getEnvOrThrow('COUPANG_SECRET_KEY');
-
   const datetime =
     new Date()
       .toISOString()
@@ -37,21 +34,22 @@ function generateAuthorization(
   const message = datetime + method + path + query;
 
   const signature = crypto
-    .createHmac('sha256', secretKey)
+    .createHmac('sha256', credentials.secretKey)
     .update(message)
     .digest('hex');
 
-  return `CEA algorithm=HmacSHA256, access-key=${accessKey}, signed-date=${datetime}, signature=${signature}`;
+  return `CEA algorithm=HmacSHA256, access-key=${credentials.accessKey}, signed-date=${datetime}, signature=${signature}`;
 }
 
 export async function coupangRequest<T = unknown>({
+  credentials,
   method,
   path,
   query = {},
   body,
 }: CoupangRequestOptions): Promise<T> {
   const queryString = new URLSearchParams(query).toString();
-  const authorization = generateAuthorization(method, path, queryString);
+  const authorization = generateAuthorization(credentials, method, path, queryString);
 
   const url = queryString
     ? `${COUPANG_BASE_URL}${path}?${queryString}`
@@ -98,8 +96,4 @@ export async function coupangRequest<T = unknown>({
   } finally {
     clearTimeout(timeout);
   }
-}
-
-export function getVendorId(): string {
-  return getEnvOrThrow('COUPANG_VENDOR_ID');
 }

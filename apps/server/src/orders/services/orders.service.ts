@@ -1,16 +1,18 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
-  confirmOrderSheets,
-  uploadInvoice,
-  DELIVERY_COMPANIES,
-} from '../../channels/adapters/coupang/orders';
+  COUPANG_PROVIDER_PORT,
+  type CoupangProviderPort,
+} from '../../channels/application/port/out/coupang-provider.port';
 import { OrderStatusSchema } from '@kiditem/shared/order';
 import type { OrderActionResponse, OrderListItem, OrderListResponse, OrderStatsResponse } from '@kiditem/shared/order';
 
 @Injectable()
 export class OrdersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(COUPANG_PROVIDER_PORT) private readonly coupang: CoupangProviderPort,
+  ) {}
 
   private toListItem(order: {
     id: string;
@@ -135,7 +137,7 @@ export class OrdersService {
     return {
       items: orders.map((order) => this.toListItem(order)),
       total: orders.length,
-      deliveryCompanies: [...DELIVERY_COMPANIES],
+      deliveryCompanies: [...this.coupang.getDeliveryCompanies()],
     } satisfies OrderListResponse;
   }
 
@@ -234,7 +236,7 @@ export class OrdersService {
     organizationId: string,
   ): Promise<OrderActionResponse> {
     await this.assertOwnedShipmentBoxIds(shipmentBoxIds, organizationId);
-    const result = await confirmOrderSheets(shipmentBoxIds);
+    const result = await this.coupang.confirmOrderSheets(organizationId, shipmentBoxIds);
     return {
       message: `${shipmentBoxIds.length}건 승인 완료`,
       data: result,
@@ -248,7 +250,7 @@ export class OrdersService {
     organizationId: string,
   ): Promise<OrderActionResponse> {
     await this.assertOwnedShipmentBoxIds([shipmentBoxId], organizationId);
-    const result = await uploadInvoice(shipmentBoxId, {
+    const result = await this.coupang.uploadInvoice(organizationId, shipmentBoxId, {
       deliveryCompanyCode,
       invoiceNumber,
     });

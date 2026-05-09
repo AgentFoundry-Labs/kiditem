@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   TrendingUp, TrendingDown, Minus,
@@ -32,6 +31,7 @@ import {
   type DashboardAdSummary,
   type DashboardInventorySummary,
   type DashboardTrendItem,
+  type AlertItemDashboard,
 } from '@kiditem/shared/dashboard';
 import {
   ActionTaskListSchema,
@@ -66,7 +66,6 @@ function alertIcon(type: string) {
 }
 
 export default function Dashboard() {
-  const router = useRouter();
   const queryClient = useQueryClient();
 
   const [showProfitDetail, setShowProfitDetail] = useState(false);
@@ -621,7 +620,6 @@ export default function Dashboard() {
         ) : (
           <SidePanel
             alerts={inventoryData.alerts}
-            router={router}
             queryClient={queryClient}
           />
         )}
@@ -888,10 +886,25 @@ function UnavailableMetricCard({ label, icon: Icon, accentColor, note }: {
 }
 
 // ===== 사이드 패널 =====
-function SidePanel({ alerts, router, queryClient }: {
-  alerts: { id: string; type: string; message: string | null }[];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  router: any;
+function alertStatusLabel(status: AlertItemDashboard['status']): string | null {
+  if (status === 'running') return '진행 중';
+  if (status === 'pending') return '대기 중';
+  if (status === 'succeeded') return '완료';
+  if (status === 'failed') return '실패';
+  if (status === 'cancelled') return '취소';
+  if (status === 'resolved') return '해결';
+  return null;
+}
+
+function alertStatusClass(status: AlertItemDashboard['status']): string {
+  if (status === 'succeeded') return 'bg-emerald-50 text-emerald-700';
+  if (status === 'failed') return 'bg-red-50 text-red-700';
+  if (status === 'running' || status === 'pending') return 'bg-blue-50 text-blue-700';
+  return 'bg-slate-100 text-slate-600';
+}
+
+function SidePanel({ alerts, queryClient }: {
+  alerts: AlertItemDashboard[];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   queryClient: any;
 }) {
@@ -919,14 +932,35 @@ function SidePanel({ alerts, router, queryClient }: {
 
       <div className="flex-1 overflow-y-auto min-h-0">
         {alerts.map(a => {
-          const href = a.type === 'strategy_change' ? '/ad-ops' : a.type === 'stock_low' ? '/purchase-orders' : a.type === 'minus_product' ? '/cleanup' : a.type === 'ad_high' ? '/ads-hub' : undefined;
-          return (
-            <div key={a.id} onClick={() => href && router.push(href)} className={cn('flex items-start gap-2.5 px-4 py-2.5 border-b border-slate-50 transition-colors', href && 'cursor-pointer')}>
+          const href = a.href ?? (a.type === 'strategy_change' ? '/ad-ops' : a.type === 'stock_low' ? '/purchase-orders' : a.type === 'minus_product' ? '/cleanup' : a.type === 'ad_high' ? '/ads-hub' : undefined);
+          const statusLabel = a.kind === 'operation' ? alertStatusLabel(a.status) : null;
+          const content = (
+            <>
               <div className="mt-0.5">{alertIcon(a.type)}</div>
               <div className="flex-1 min-w-0">
-                <span className="text-sm leading-relaxed text-slate-500">{a.message}</span>
-                {href && <span className="text-[10px] ml-1.5 text-purple-600">→</span>}
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-sm font-medium leading-relaxed text-slate-700 truncate">{a.title}</span>
+                  {statusLabel && (
+                    <span className={cn('shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold', alertStatusClass(a.status))}>
+                      {statusLabel}
+                    </span>
+                  )}
+                  {href && <span className="text-[10px] text-purple-600">→</span>}
+                </div>
+                {a.message && (
+                  <div className="mt-0.5 truncate text-xs text-slate-500">{a.message}</div>
+                )}
               </div>
+            </>
+          );
+          const rowClass = cn('flex items-start gap-2.5 px-4 py-2.5 border-b border-slate-50 transition-colors', href && 'cursor-pointer hover:bg-slate-50');
+          return href ? (
+            <Link key={a.id} href={href} className={rowClass}>
+              {content}
+            </Link>
+          ) : (
+            <div key={a.id} className={rowClass}>
+              {content}
             </div>
           );
         })}

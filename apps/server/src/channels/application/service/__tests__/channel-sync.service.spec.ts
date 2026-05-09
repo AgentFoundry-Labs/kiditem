@@ -7,6 +7,33 @@ import {
   COUPANG_PROVIDER_PORT,
   type CoupangProviderPort,
 } from '../../port/out/coupang-provider.port';
+import { ChannelAccountService } from '../channel-account.service';
+
+function makeCoupangPortStub(): CoupangProviderPort {
+  return {
+    getDeliveryCompanies: vi.fn(() => []),
+    getSellerProducts: vi.fn(),
+    getSellerProduct: vi.fn(),
+    getOrderSheets: vi.fn(),
+    confirmOrderSheets: vi.fn(),
+    uploadInvoice: vi.fn(),
+    approveReturn: vi.fn(),
+  };
+}
+
+function makeChannelAccountStub() {
+  return {
+    getCoupangSettings: vi.fn().mockResolvedValue({
+      configured: true,
+      vendorId: 'TEST_VENDOR',
+      accessKeyMasked: 'TEST********KEY',
+      hasAccessKey: true,
+      hasSecretKey: true,
+      status: 'active',
+      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+    }),
+  };
+}
 
 describe('ChannelSyncService.syncSingleOrder (Plan A.5)', () => {
   let service: ChannelSyncService;
@@ -22,16 +49,12 @@ describe('ChannelSyncService.syncSingleOrder (Plan A.5)', () => {
     prisma = {
       $transaction: vi.fn(async (cb: any) => cb(tx)),
     };
-    const coupangPortStub: CoupangProviderPort = {
-      getVendorId: () => 'TEST_VENDOR',
-      getSellerProducts: vi.fn(),
-      getSellerProduct: vi.fn(),
-      getOrderSheets: vi.fn(),
-    };
+    const coupangPortStub = makeCoupangPortStub();
     const m = await Test.createTestingModule({
       providers: [
         ChannelSyncService,
         { provide: PrismaService, useValue: prisma },
+        { provide: ChannelAccountService, useValue: makeChannelAccountStub() },
         { provide: COUPANG_PROVIDER_PORT, useValue: coupangPortStub },
       ],
     }).compile();
@@ -199,16 +222,12 @@ describe('ChannelSyncService.syncSingleReturn (Plan A.5)', () => {
     prisma = {
       $transaction: vi.fn(async (cb: any) => cb(tx)),
     };
-    const coupangPortStub: CoupangProviderPort = {
-      getVendorId: () => 'TEST_VENDOR',
-      getSellerProducts: vi.fn(),
-      getSellerProduct: vi.fn(),
-      getOrderSheets: vi.fn(),
-    };
+    const coupangPortStub = makeCoupangPortStub();
     const m = await Test.createTestingModule({
       providers: [
         ChannelSyncService,
         { provide: PrismaService, useValue: prisma },
+        { provide: ChannelAccountService, useValue: makeChannelAccountStub() },
         { provide: COUPANG_PROVIDER_PORT, useValue: coupangPortStub },
       ],
     }).compile();
@@ -326,16 +345,12 @@ describe('ChannelSyncService.syncOrders (KST adapter boundary)', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     prisma = { $transaction: vi.fn() };
-    coupangPortStub = {
-      getVendorId: () => 'TEST_VENDOR',
-      getSellerProducts: vi.fn(),
-      getSellerProduct: vi.fn(),
-      getOrderSheets: vi.fn(),
-    };
+    coupangPortStub = makeCoupangPortStub();
     const m = await Test.createTestingModule({
       providers: [
         ChannelSyncService,
         { provide: PrismaService, useValue: prisma },
+        { provide: ChannelAccountService, useValue: makeChannelAccountStub() },
         { provide: COUPANG_PROVIDER_PORT, useValue: coupangPortStub },
       ],
     }).compile();
@@ -352,6 +367,7 @@ describe('ChannelSyncService.syncOrders (KST adapter boundary)', () => {
     await service.syncOrders('c1', dateFrom, dateTo);
 
     expect(coupangPortStub.getOrderSheets).toHaveBeenCalledWith(
+      'c1',
       expect.objectContaining({
         createdAtFrom: '2026-04-18T09:00:00+09:00',
         createdAtTo: '2026-04-25T09:30:00+09:00',

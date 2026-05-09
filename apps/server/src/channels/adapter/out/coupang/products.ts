@@ -1,12 +1,10 @@
-import { coupangRequest, getVendorId } from './coupang-client';
+import { coupangRequest, type CoupangCredentials } from './coupang-client';
 
-export async function getSellerProducts(params?: {
-  vendorId?: string;
+export async function getSellerProducts(credentials: CoupangCredentials, params?: {
   nextToken?: string;
   maxPerPage?: number;
   status?: string;
 }) {
-  const vendorId = params?.vendorId || getVendorId();
   const query: Record<string, string> = {};
 
   if (params?.nextToken) query.nextToken = params.nextToken;
@@ -16,16 +14,18 @@ export async function getSellerProducts(params?: {
   return coupangRequest({
     method: 'GET',
     path: `/v2/providers/seller_api/apis/api/v1/marketplace/seller-products`,
+    credentials,
     query: {
-      vendorId,
+      vendorId: credentials.vendorId,
       ...query,
     },
   });
 }
 
-export async function getSellerProduct(sellerProductId: string) {
+export async function getSellerProduct(credentials: CoupangCredentials, sellerProductId: string) {
   return coupangRequest({
     method: 'GET',
+    credentials,
     path: `/v2/providers/seller_api/apis/api/v1/marketplace/seller-products/${sellerProductId}`,
   });
 }

@@ -86,7 +86,7 @@ orders/
 
 ## Cross-domain deps
 
-- **channels** — `coupangAdapter.confirmOrderSheets`, `uploadInvoice`. Order/OrderLineItem upsert 는 channel-sync.service.ts 가 담당 (orders 모듈은 read + action 만).
+- **channels** — `CoupangProviderPort` 의 `confirmOrderSheets`, `uploadInvoice`, `approveReturn`. Order/OrderLineItem upsert 는 channel-sync.service.ts 가 담당 (orders 모듈은 read + action 만).
 
 ## 함께 수정할 파일 맵
 

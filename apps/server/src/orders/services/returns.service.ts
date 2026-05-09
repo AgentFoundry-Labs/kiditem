@@ -1,7 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { OrderReturn, OrderReturnLineItem } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { approveReturn } from '../../channels/adapters/coupang/orders';
+import {
+  COUPANG_PROVIDER_PORT,
+  type CoupangProviderPort,
+} from '../../channels/application/port/out/coupang-provider.port';
 
 type OrderReturnWithLineItems = OrderReturn & {
   lineItems: OrderReturnLineItem[];
@@ -9,7 +12,10 @@ type OrderReturnWithLineItems = OrderReturn & {
 
 @Injectable()
 export class ReturnsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(COUPANG_PROVIDER_PORT) private readonly coupang: CoupangProviderPort,
+  ) {}
 
   async findAll(
     organizationId: string,
@@ -79,8 +85,11 @@ export class ReturnsService {
     };
   }
 
-  async approve(receiptId: number): Promise<{ message: string; data: unknown }> {
-    const result = await approveReturn(receiptId);
+  async approve(
+    receiptId: number,
+    organizationId: string,
+  ): Promise<{ message: string; data: unknown }> {
+    const result = await this.coupang.approveReturn(organizationId, receiptId);
     return { message: '반품 승인 완료', data: result };
   }
 }

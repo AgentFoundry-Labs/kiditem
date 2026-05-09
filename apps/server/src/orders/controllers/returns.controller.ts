@@ -2,6 +2,7 @@ import { Controller, Get, Post, Body, Param, Query, ServiceUnavailableException 
 import { ReturnsService } from '../services/returns.service';
 import { ListReturnsQueryDto, ReturnActionBodyDto } from '../dto';
 import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
+import { isCoupangCredentialResolutionError } from '../../channels/application/service/channel-account.service';
 
 @Controller('returns')
 export class ReturnsController {
@@ -23,10 +24,14 @@ export class ReturnsController {
   }
 
   @Post()
-  async handleAction(@Body() body: ReturnActionBodyDto) {
+  async handleAction(
+    @Body() body: ReturnActionBodyDto,
+    @CurrentOrganization() organizationId: string,
+  ) {
     try {
-      return await this.returnsService.approve(body.receiptId);
-    } catch {
+      return await this.returnsService.approve(body.receiptId, organizationId);
+    } catch (err) {
+      if (isCoupangCredentialResolutionError(err)) throw err;
       throw new ServiceUnavailableException('쿠팡 API가 연결되지 않았습니다.');
     }
   }

@@ -5,9 +5,15 @@ import type {
   SellerProductDetailResponse,
   OrderSheetResponse,
 } from '../../../application/port/out/coupang-provider.port';
-import { getVendorId } from './coupang-client';
+import { ChannelAccountService } from '../../../application/service/channel-account.service';
 import { getSellerProducts, getSellerProduct } from './products';
-import { getOrderSheets } from './orders';
+import {
+  getOrderSheets,
+  confirmOrderSheets,
+  uploadInvoice,
+  approveReturn,
+  DELIVERY_COMPANIES,
+} from './orders';
 
 /**
  * Coupang provider outgoing adapter — implements CoupangProviderPort by
@@ -17,30 +23,62 @@ import { getOrderSheets } from './orders';
  */
 @Injectable()
 export class CoupangProviderAdapter implements CoupangProviderPort {
-  getVendorId(): string {
-    return getVendorId();
+  constructor(private readonly channelAccounts: ChannelAccountService) {}
+
+  getDeliveryCompanies() {
+    return DELIVERY_COMPANIES;
   }
 
-  async getSellerProducts(params: {
+  async getSellerProducts(organizationId: string, params: {
     nextToken?: string;
     maxPerPage?: number;
     status?: string;
-    vendorId?: string;
   }): Promise<SellerProductListResponse> {
-    return getSellerProducts(params) as Promise<SellerProductListResponse>;
+    const credentials = await this.channelAccounts.resolveCoupangCredentials(organizationId);
+    return getSellerProducts(credentials, params) as Promise<SellerProductListResponse>;
   }
 
-  async getSellerProduct(sellerProductId: string): Promise<SellerProductDetailResponse> {
-    return getSellerProduct(sellerProductId) as Promise<SellerProductDetailResponse>;
+  async getSellerProduct(
+    organizationId: string,
+    sellerProductId: string,
+  ): Promise<SellerProductDetailResponse> {
+    const credentials = await this.channelAccounts.resolveCoupangCredentials(organizationId);
+    return getSellerProduct(credentials, sellerProductId) as Promise<SellerProductDetailResponse>;
   }
 
-  async getOrderSheets(params: {
+  async getOrderSheets(organizationId: string, params: {
     createdAtFrom: string;
     createdAtTo: string;
     status?: string;
     maxPerPage?: number;
     nextToken?: string;
   }): Promise<OrderSheetResponse> {
-    return getOrderSheets(params) as Promise<OrderSheetResponse>;
+    const credentials = await this.channelAccounts.resolveCoupangCredentials(organizationId);
+    return getOrderSheets(credentials, params) as Promise<OrderSheetResponse>;
+  }
+
+  async confirmOrderSheets(
+    organizationId: string,
+    shipmentBoxIds: number[],
+  ): Promise<unknown> {
+    const credentials = await this.channelAccounts.resolveCoupangCredentials(organizationId);
+    return confirmOrderSheets(credentials, shipmentBoxIds);
+  }
+
+  async uploadInvoice(
+    organizationId: string,
+    shipmentBoxId: number,
+    params: {
+      deliveryCompanyCode: string;
+      invoiceNumber: string;
+    },
+  ): Promise<unknown> {
+    const credentials = await this.channelAccounts.resolveCoupangCredentials(organizationId);
+    return uploadInvoice(credentials, shipmentBoxId, params);
+  }
+
+  async approveReturn(organizationId: string, receiptId: number): Promise<unknown> {
+    const credentials = await this.channelAccounts.resolveCoupangCredentials(organizationId);
+    return approveReturn(credentials, receiptId);
   }
 }

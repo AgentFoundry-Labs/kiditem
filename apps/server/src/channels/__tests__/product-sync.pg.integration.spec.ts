@@ -9,6 +9,7 @@ import {
   type SellerProductListResponse,
   type SellerProductDetailResponse,
 } from '../application/port/out/coupang-provider.port';
+import { ChannelAccountService } from '../application/service/channel-account.service';
 import {
   makeTestPrisma,
   resetDb,
@@ -79,15 +80,32 @@ describe('Product sync (PG integration, Wave C1)', () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     coupangPort = {
-      getVendorId: () => 'TEST_VENDOR',
+      getDeliveryCompanies: vi.fn(() => []),
       getSellerProducts: vi.fn(),
       getSellerProduct: vi.fn(),
       getOrderSheets: vi.fn(),
+      confirmOrderSheets: vi.fn(),
+      uploadInvoice: vi.fn(),
+      approveReturn: vi.fn(),
     };
     const m = await Test.createTestingModule({
       providers: [
         ChannelSyncService,
         { provide: PrismaService, useValue: prisma },
+        {
+          provide: ChannelAccountService,
+          useValue: {
+            getCoupangSettings: vi.fn().mockResolvedValue({
+              configured: true,
+              vendorId: 'TEST_VENDOR',
+              accessKeyMasked: 'TEST********KEY',
+              hasAccessKey: true,
+              hasSecretKey: true,
+              status: 'active',
+              updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+            }),
+          },
+        },
         { provide: COUPANG_PROVIDER_PORT, useValue: coupangPort },
       ],
     }).compile();

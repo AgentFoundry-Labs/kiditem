@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronRight, Minus, Search, Users } from 'lucide-react';
+import { ChevronRight, Minus, Search, Users, Wrench } from 'lucide-react';
 import AgentFace from '@/components/AgentFace';
 import { cn } from '@/lib/utils';
 import { findAgentTeam } from '../lib/agent-os-helpers';
@@ -8,6 +8,7 @@ import { CATEGORY_FACE, type OrgNode, type TeamStyle } from '../lib/agent-os-typ
 
 interface Props {
   agents: OrgNode[];
+  tools: OrgNode[];
   teams: OrgNode[];
   teamStyle: Record<string, TeamStyle>;
   selectedAgent: string | null;
@@ -17,7 +18,7 @@ interface Props {
 }
 
 export function AgentsListPanel({
-  agents, teams, teamStyle, selectedAgent, minimized, onToggleMinimize, onSelect,
+  agents, tools, teams, teamStyle, selectedAgent, minimized, onToggleMinimize, onSelect,
 }: Props) {
   if (minimized) {
     return (
@@ -36,7 +37,10 @@ export function AgentsListPanel({
   return (
     <div className="absolute top-4 left-4 w-[300px] max-h-[calc(100%-32px)] bg-[#0f1628]/95 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden flex flex-col z-20 shadow-xl shadow-black/40">
       <div className="shrink-0 px-4 py-3 flex items-center justify-between border-b border-white/5">
-        <span className="text-[14px] font-bold">Agents</span>
+        <div>
+          <div className="text-[14px] font-bold">Agents</div>
+          <div className="text-[10px] text-slate-600">{tools.length} tools available</div>
+        </div>
         <div className="flex items-center gap-1">
           <button className="w-7 h-7 rounded-lg hover:bg-white/[0.04] flex items-center justify-center text-slate-500"><Search size={13} /></button>
           <button
@@ -55,6 +59,7 @@ export function AgentsListPanel({
           const isRunning = agent.status === 'running';
           const isSelected = selectedAgent === agent.id;
           const statusLabel = isRunning ? 'Running' : agent.lastHeartbeatAt ? 'Idle' : 'Offline';
+          const subtitle = agent.runtimeKind === 'coordinator' ? 'Coordinator' : style?.label ?? agent.role;
           return (
             <button key={agent.id} onClick={() => onSelect(agent.id)}
               className={cn('w-full flex items-center gap-3 p-2.5 rounded-xl border text-left transition-colors',
@@ -65,7 +70,7 @@ export function AgentsListPanel({
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-[13px] font-semibold truncate">{agent.name}</div>
-                <div className="text-[10px] text-slate-500 truncate">{style?.label ?? agent.role}</div>
+                <div className="text-[10px] text-slate-500 truncate">{subtitle}</div>
               </div>
               <span className={cn('shrink-0 px-2 py-1 rounded-full text-[9px] font-semibold border',
                 isRunning ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20' :
@@ -78,6 +83,39 @@ export function AgentsListPanel({
         })}
         {agents.length === 0 && (
           <div className="py-8 text-center text-slate-600 text-[11px]">에이전트 없음</div>
+        )}
+        {tools.length > 0 && (
+          <div className="pt-3">
+            <div className="px-1 pb-1.5 text-[9px] font-bold uppercase tracking-wider text-slate-600">Tools</div>
+            <div className="space-y-1">
+              {tools.map(tool => {
+                const team = findAgentTeam(teams, tool.id);
+                const style = teamStyle[team?.category ?? ''];
+                const isRunning = tool.status === 'running';
+                const isSelected = selectedAgent === tool.id;
+                return (
+                  <button
+                    key={tool.id}
+                    onClick={() => onSelect(tool.id)}
+                    className={cn(
+                      'w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg border text-left transition-colors',
+                      isSelected ? 'bg-white/[0.06]' : 'border-white/[0.05] bg-black/10 hover:bg-white/[0.035]',
+                    )}
+                    style={isSelected ? { borderColor: `${style?.color ?? '#64748b'}45`, boxShadow: `0 0 0 1px ${style?.color ?? '#64748b'}25` } : undefined}
+                  >
+                    <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ background: `${style?.color ?? '#64748b'}12` }}>
+                      <Wrench size={13} style={{ color: style?.color ?? '#94a3b8' }} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[11px] font-medium text-slate-300 truncate">{tool.name}</div>
+                      <div className="text-[9px] text-slate-600 truncate">{style?.label ?? 'Tool wrapper'}</div>
+                    </div>
+                    <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', isRunning ? 'bg-emerald-400 animate-pulse' : 'bg-slate-700')} />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         )}
       </div>
     </div>

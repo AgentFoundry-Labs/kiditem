@@ -8,12 +8,30 @@ import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
+import {
+  cancelOperationAlert,
+  failOperationAlert,
+  progressOperationAlert,
+  startOperationAlert,
+  succeedOperationAlert,
+} from '@/lib/operation-alerts';
+import {
+  classifyBatchScrapeStatus,
+  summarizeBatchScrapeProgress,
+} from '@/lib/operation-alert-lifecycle';
+
+// One operation alert per organization at a time — re-clicking the button
+// upserts the same row instead of stacking duplicate panel entries. Concurrent
+// runs across browser tabs collapse onto the same `(organizationId, ad-sync)`
+// row by the server-side partial unique index.
+const AD_SYNC_OPERATION_KEY = 'ad-sync';
+const AD_SYNC_HREF = '/ad-ops';
 
 const SWEEP_URL = 'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1';
 type ExtensionMessageResponse = {
   success?: boolean;
   error?: string;
-  status?: string;
+  status?: 'starting' | 'running' | 'done' | 'error' | 'idle' | 'cancelled';
   cancelled?: boolean;
   total?: number;
   current?: number;
@@ -60,11 +78,15 @@ export function useAdSync({ onComplete }: UseAdSyncOptions = {}) {
         : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const runStartedAt = Date.now();
     let sawCurrentRun = false;
+    let alertStarted = false;
     setLoading(true);
     setStatus({ status: 'starting', runId, total: 1, current: 0, completed: 0, failed: 0 });
     try {
       const eid = await detectExtensionId();
       if (!eid) {
+        // No extension — fall back to opening the ad center directly. There
+        // is no tracked operation, so do not create an alert (it would leak
+        // as a stuck "running" row).
         window.open(SWEEP_URL, '_blank', 'noopener,noreferrer');
         toast.warning('익스텐션 미연결 — 새 탭으로 광고센터를 엽니다', {
           description:
@@ -74,10 +96,28 @@ export function useAdSync({ onComplete }: UseAdSyncOptions = {}) {
         return;
       }
 
+      const alert = await startOperationAlert({
+        operationKey: AD_SYNC_OPERATION_KEY,
+        type: 'ad_sync',
+        title: '광고 동기화',
+        message: '운영중 캠페인을 자동 순회하며 캠페인별 상품 데이터를 수집합니다.',
+        sourceType: 'ad_extension_run',
+        sourceId: runId,
+        href: AD_SYNC_HREF,
+        metadata: { runId },
+      });
+      alertStarted = !!alert;
+
       cancelRef.current = async () => {
         await sendToExtension<ExtensionMessageResponse>(eid, { action: 'cancelBatchScrape', runId });
         setStatus((prev) => ({ ...(prev ?? {}), runId, status: 'cancelled', cancelled: true }));
         toast.info('광고 동기화 중단 요청을 보냈습니다');
+        if (alertStarted) {
+          void cancelOperationAlert(AD_SYNC_OPERATION_KEY, {
+            message: '사용자가 광고 동기화를 중단했습니다',
+            metadata: { runId },
+          });
+        }
       };
 
       const startResp = await sendToExtension<ExtensionMessageResponse>(eid, {
@@ -128,6 +168,12 @@ export function useAdSync({ onComplete }: UseAdSyncOptions = {}) {
               toast.warning('광고 동기화 시작 상태를 확인하지 못했습니다', {
                 description: '광고센터 탭이 열렸는지 확인해주세요.',
               });
+              if (alertStarted) {
+                void failOperationAlert(AD_SYNC_OPERATION_KEY, {
+                  message: '광고 동기화 시작 상태를 확인하지 못했습니다',
+                  metadata: { runId },
+                });
+              }
               resolve();
               return;
             }
@@ -139,27 +185,82 @@ export function useAdSync({ onComplete }: UseAdSyncOptions = {}) {
                 nextStatus?.status === 'cancelled' ||
                 nextStatus?.status === 'idle')
             ) {
-              const ok = nextStatus?.completed ?? 0;
-              const fail = nextStatus?.failed ?? 0;
-              if (nextStatus?.status === 'cancelled') {
+              const summary = summarizeBatchScrapeProgress(nextStatus, nextStatus?.total ?? 1);
+              const ok = summary.ok;
+              const fail = summary.fail;
+              const terminal = classifyBatchScrapeStatus(nextStatus);
+              if (terminal === 'cancelled') {
                 toast.info(`광고 동기화 중단 — 성공 ${ok} / 실패 ${fail}`);
-              } else if (nextStatus?.status === 'error') {
+                if (alertStarted) {
+                  void cancelOperationAlert(AD_SYNC_OPERATION_KEY, {
+                    message: `광고 동기화 중단됨 (성공 ${ok} / 실패 ${fail})`,
+                    metadata: { runId, ok, fail },
+                  });
+                }
+              } else if (terminal === 'failed') {
                 toast.error('광고 동기화 실패');
-              } else if (fail > 0) {
+                if (alertStarted) {
+                  void failOperationAlert(AD_SYNC_OPERATION_KEY, {
+                    message: '광고 동기화 실패',
+                    metadata: { runId, ok, fail },
+                  });
+                }
+              } else if (terminal === 'warning') {
                 toast.warning(`광고 동기화 종료 — 성공 ${ok} / 실패 ${fail}`);
-              } else {
+                if (alertStarted) {
+                  void succeedOperationAlert(AD_SYNC_OPERATION_KEY, {
+                    severity: 'warning',
+                    message: `광고 동기화 일부 실패 (성공 ${ok} / 실패 ${fail})`,
+                    metadata: { runId, ok, fail },
+                  });
+                }
+              } else if (terminal === 'succeeded') {
                 toast.success('광고 동기화 완료');
+                if (alertStarted) {
+                  void succeedOperationAlert(AD_SYNC_OPERATION_KEY, {
+                    message: `광고 동기화 완료 (캠페인 ${ok}건)`,
+                    metadata: { runId, ok, fail },
+                  });
+                }
               }
               resolve();
               return;
             }
+            if (isCurrentRun) {
+              const summary = summarizeBatchScrapeProgress(nextStatus, nextStatus?.total ?? 1);
+              if (alertStarted) {
+                void progressOperationAlert(AD_SYNC_OPERATION_KEY, {
+                  progress: summary.progress,
+                  message: `광고 동기화 진행 중 (${summary.ok + summary.fail}/${summary.total})`,
+                  metadata: {
+                    runId,
+                    ok: summary.ok,
+                    fail: summary.fail,
+                    total: summary.total,
+                  },
+                });
+              }
+            }
             if (Date.now() - start > maxMs) {
               toast.warning('광고 동기화 타임아웃 — 백그라운드에서 계속 진행 중일 수 있습니다');
+              if (alertStarted) {
+                void failOperationAlert(AD_SYNC_OPERATION_KEY, {
+                  message: '광고 동기화 타임아웃 — 백그라운드에서 진행 중일 수 있음',
+                  metadata: { runId, timeout: true },
+                });
+              }
               resolve();
               return;
             }
             setTimeout(tick, 3000);
-          } catch {
+          } catch (err) {
+            const message = err instanceof Error ? err.message : '광고 동기화 상태 확인 실패';
+            if (alertStarted) {
+              void failOperationAlert(AD_SYNC_OPERATION_KEY, {
+                message,
+                metadata: { runId, error: message },
+              });
+            }
             resolve();
           }
         };
@@ -172,7 +273,14 @@ export function useAdSync({ onComplete }: UseAdSyncOptions = {}) {
       queryClient.invalidateQueries({ queryKey: ['readiness'] });
       onComplete?.();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : '광고 동기화 실패');
+      const errorMessage = e instanceof Error ? e.message : '광고 동기화 실패';
+      toast.error(errorMessage);
+      if (alertStarted) {
+        void failOperationAlert(AD_SYNC_OPERATION_KEY, {
+          message: errorMessage,
+          metadata: { runId, error: errorMessage },
+        });
+      }
     } finally {
       cancelRef.current = null;
       setLoading(false);

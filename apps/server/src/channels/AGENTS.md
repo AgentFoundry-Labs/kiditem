@@ -19,6 +19,7 @@ channels/
 ├── adapter/
 │   ├── in/
 │   │   └── http/
+│   │       ├── channel-account.controller.ts               (@Controller('channels/coupang/account'))
 │   │       ├── channel-sync.controller.ts                  (@Controller('coupang-sync'))
 │   │       ├── channel-dashboard.controller.ts             (@Controller('coupang-dashboard'))
 │   │       ├── channel-reconciliation.controller.ts        (@Controller('channels/reconciliation/coupang'))
@@ -41,6 +42,7 @@ channels/
 │   │       └── coupang-provider.port.ts                    (COUPANG_PROVIDER_PORT token + CoupangProviderPort interface + Coupang external response types)
 │   └── service/
 │       ├── channel-sync.service.ts                         (syncProducts/syncOrders/syncInventory; uses @Inject(COUPANG_PROVIDER_PORT))
+│       ├── channel-account.service.ts                      (organization-scoped Coupang ChannelAccount settings + credential resolution)
 │       ├── channel-dashboard.service.ts                    (6 dashboard aggregation methods; PrismaService direct — transitional)
 │       ├── channel-reconciliation.service.ts               (Coupang ↔ KidItem matching queue — issue #199)
 │       └── types.ts                                        (SyncResult, HealthResult, CoupangSyncOrderPayload, CoupangSyncReturnPayload)
@@ -59,8 +61,9 @@ channels/
 
 `coupang-client.ts`:
 - 인증: HmacSHA256 signature (`generateAuthorization()`)
-  - ENV: `COUPANG_ACCESS_KEY`, `COUPANG_SECRET_KEY`, `COUPANG_VENDOR_ID`
-  - 누락 시 즉시 throw — fail fast
+  - 조직별 쿠팡 계정은 `ChannelAccount(channel='coupang', isPrimary=true)` 가 source of truth.
+  - `vendorId` 는 `ChannelAccount.vendorId` / `externalAccountId`, `accessKey` / `secretKey` 는 `config.coupangCredentials` 의 암호화 envelope 로 저장한다.
+  - 서버 ENV 는 `CHANNEL_CREDENTIALS_ENCRYPTION_KEY` 만 사용한다. 쿠팡 vendor/access/secret 값을 ENV fallback 으로 읽지 않는다.
 - HTTP: native `fetch` + AbortController 30s timeout
 - 응답 검증: `response.ok` + content-type JSON 체크
 - **재시도 로직 없음** — 단일 시도. caller 가 책임.
@@ -202,7 +205,7 @@ Hard contracts:
 - ❌ $queryRaw 에 string concat (parameterized 만)
 - ❌ Cross-organization raw 쿼리 (organizationId WHERE 빠뜨리지 말 것)
 - ❌ Adapter 내 retry 로직 추가 — 의도적으로 caller 책임으로 둠 (변경 시 scoped plan + instruction update)
-- ❌ 환경 변수 fallback 추가 (현재는 throw — 운영 환경 자격증명 누락 즉시 발견 의도)
+- ❌ 쿠팡 vendor/access/secret 환경 변수 fallback 추가 — 조직별 `ChannelAccount` 설정만 사용
 - ❌ `adapters/coupang/` 하위에 shim 이외의 파일 추가 (compat shim 은 `orders.ts` 1개뿐)
 
 ## 함께 수정할 파일 맵

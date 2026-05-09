@@ -1,9 +1,17 @@
 'use client';
 
 import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Settings } from 'lucide-react';
+import { toast } from 'sonner';
+import {
+  CoupangAccountSettingsSchema,
+  type CoupangAccountSettings,
+  type UpdateCoupangAccountSettings,
+} from '@kiditem/shared/channel-account';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
+import { queryKeys } from '@/lib/query-keys';
 import CoupangTab from './components/CoupangTab';
 import AdsCsvUpload from './components/AdsCsvUpload';
 import TrafficUpload from './components/TrafficUpload';
@@ -23,55 +31,77 @@ export interface HealthResult {
 }
 
 export default function SettingsPage() {
+  const queryClient = useQueryClient();
   const [healthResult, setHealthResult] = useState<HealthResult | null>(null);
-  const [testing, setTesting] = useState(false);
-  const [syncingProduct, setSyncingProduct] = useState(false);
-  const [syncingOrder, setSyncingOrder] = useState(false);
   const [productSyncResult, setProductSyncResult] = useState<SyncResult | null>(null);
   const [orderSyncResult, setOrderSyncResult] = useState<SyncResult | null>(null);
   const [lastProductSync, setLastProductSync] = useState<Date | null>(null);
   const [lastOrderSync, setLastOrderSync] = useState<Date | null>(null);
+  const { data: accountSettings = null, isLoading: settingsLoading } = useQuery({
+    queryKey: queryKeys.coupangAccount.settings(),
+    queryFn: () =>
+      apiClient.getParsed(
+        '/api/channels/coupang/account',
+        CoupangAccountSettingsSchema,
+      ),
+  });
   const isConnected = healthResult?.connected ?? false;
+  const isConfigured = accountSettings?.configured ?? false;
 
-  const handleTestConnection = async () => {
-    setTesting(true);
-    try {
-      const data = await apiClient.get<HealthResult>(`/api/coupang-sync/health`);
+  const saveSettingsMutation = useMutation({
+    mutationFn: (input: UpdateCoupangAccountSettings) =>
+      apiClient.patchParsed<CoupangAccountSettings>(
+        '/api/channels/coupang/account',
+        CoupangAccountSettingsSchema,
+        input,
+      ),
+    onSuccess: (data) => {
+      queryClient.setQueryData(queryKeys.coupangAccount.settings(), data);
+      setHealthResult(null);
+      toast.success('쿠팡 API 설정을 저장했습니다.');
+    },
+    onError: (err) => {
+      toast.error(isApiError(err) ? err.detail : '쿠팡 API 설정 저장에 실패했습니다.');
+    },
+  });
+
+  const testConnectionMutation = useMutation({
+    mutationFn: () => apiClient.get<HealthResult>('/api/coupang-sync/health'),
+    onSuccess: (data) => {
       setHealthResult(data);
-    } catch (err) {
-      setHealthResult({ connected: false, vendorId: '', error: isApiError(err) ? err.detail : '서버 연결 실패' });
-    } finally {
-      setTesting(false);
-    }
-  };
+      if (data.connected) toast.success('쿠팡 API 연결을 확인했습니다.');
+      else toast.error(data.error || '쿠팡 API 연결에 실패했습니다.');
+    },
+    onError: (err) => {
+      const error = isApiError(err) ? err.detail : '서버 연결 실패';
+      setHealthResult({ connected: false, vendorId: '', error });
+      toast.error(error);
+    },
+  });
 
-  const handleSyncProduct = async () => {
-    setSyncingProduct(true);
-    setProductSyncResult(null);
-    try {
-      const data = await apiClient.post<SyncResult>(`/api/coupang-sync/products`);
+  const syncProductMutation = useMutation({
+    mutationFn: () => apiClient.post<SyncResult>('/api/coupang-sync/products'),
+    onMutate: () => setProductSyncResult(null),
+    onSuccess: (data) => {
       setProductSyncResult(data);
       setLastProductSync(new Date());
-    } catch (err) {
+    },
+    onError: (err) => {
       setProductSyncResult({ synced: 0, errors: 1, details: [isApiError(err) ? err.detail : '서버 연결 실패'] });
-    } finally {
-      setSyncingProduct(false);
-    }
-  };
+    },
+  });
 
-  const handleSyncOrder = async () => {
-    setSyncingOrder(true);
-    setOrderSyncResult(null);
-    try {
-      const data = await apiClient.post<SyncResult>(`/api/coupang-sync/orders`, {});
+  const syncOrderMutation = useMutation({
+    mutationFn: () => apiClient.post<SyncResult>('/api/coupang-sync/orders', {}),
+    onMutate: () => setOrderSyncResult(null),
+    onSuccess: (data) => {
       setOrderSyncResult(data);
       setLastOrderSync(new Date());
-    } catch (err) {
+    },
+    onError: (err) => {
       setOrderSyncResult({ synced: 0, errors: 1, details: [isApiError(err) ? err.detail : '서버 연결 실패'] });
-    } finally {
-      setSyncingOrder(false);
-    }
-  };
+    },
+  });
 
   return (
     <div className="space-y-6">
@@ -84,18 +114,23 @@ export default function SettingsPage() {
       </div>
 
       <CoupangTab
+        accountSettings={accountSettings}
+        settingsLoading={settingsLoading}
         healthResult={healthResult}
         isConnected={isConnected}
-        testing={testing}
-        syncingProduct={syncingProduct}
-        syncingOrder={syncingOrder}
+        isConfigured={isConfigured}
+        testing={testConnectionMutation.isPending}
+        savingSettings={saveSettingsMutation.isPending}
+        syncingProduct={syncProductMutation.isPending}
+        syncingOrder={syncOrderMutation.isPending}
         productSyncResult={productSyncResult}
         orderSyncResult={orderSyncResult}
         lastProductSync={lastProductSync}
         lastOrderSync={lastOrderSync}
-        onTestConnection={handleTestConnection}
-        onSyncProduct={handleSyncProduct}
-        onSyncOrder={handleSyncOrder}
+        onSaveSettings={(input) => saveSettingsMutation.mutate(input)}
+        onTestConnection={() => testConnectionMutation.mutate()}
+        onSyncProduct={() => syncProductMutation.mutate()}
+        onSyncOrder={() => syncOrderMutation.mutate()}
       />
 
       <AdsCsvUpload />
@@ -107,7 +142,7 @@ export default function SettingsPage() {
       <PrinterSettings />
 
       <div className="bg-blue-50 rounded-xl p-4 border border-blue-200 text-sm text-blue-800">
-        <strong>참고:</strong> API 호출 제한이 있으므로 동기화는 필요할 때만 실행하세요. 셀피아와 API 키를 공유하고 있어 호출 빈도가 합산됩니다.
+        <strong>참고:</strong> API 호출 제한이 있으므로 동기화는 필요할 때만 실행하세요. 저장된 쿠팡 API 설정은 현재 조직의 채널 계정에만 적용됩니다.
       </div>
     </div>
   );

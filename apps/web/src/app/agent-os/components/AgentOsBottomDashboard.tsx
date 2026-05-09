@@ -18,6 +18,7 @@ const STATUS_ICON: Record<string, typeof Loader2> = {
 
 interface Props {
   totalAgents: number;
+  totalTools: number;
   runningCount: number;
   idleCount: number;
   offlineCount: number;
@@ -28,7 +29,7 @@ interface Props {
 }
 
 export function AgentOsBottomDashboard({
-  totalAgents, runningCount, idleCount, offlineCount,
+  totalAgents, totalTools, runningCount, idleCount, offlineCount,
   salesData, adData, panelItems, panelConnection,
 }: Props) {
   const sm = salesData?.monthly;
@@ -38,11 +39,15 @@ export function AgentOsBottomDashboard({
     <div className="shrink-0 grid grid-cols-12 grid-rows-2 gap-3 px-5 py-4 h-[240px]">
       <div className="col-span-3 row-span-2 rounded-2xl bg-[#0d1321] border border-white/10 p-4 flex flex-col">
         <div className="flex items-center justify-between mb-1">
-          <span className="text-[13px] font-bold text-slate-300">Agents Summary</span>
+          <span className="text-[13px] font-bold text-slate-300">Agent Network</span>
           <span className="text-[10px] text-slate-600">Last sync · now</span>
         </div>
         <div className="text-[30px] font-bold leading-tight">{formatNumber(totalAgents)}</div>
-        <div className="text-[11px] text-slate-600 mb-3">Total Agents</div>
+        <div className="flex items-center gap-2 text-[11px] text-slate-600 mb-3">
+          <span>Agents</span>
+          <span className="w-1 h-1 rounded-full bg-slate-700" />
+          <span>{formatNumber(totalTools)} tools</span>
+        </div>
         <div className="flex items-center gap-3 text-[10px] text-slate-500 mb-1.5">
           <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-400" />Running</div>
           <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-amber-400" />Idle</div>

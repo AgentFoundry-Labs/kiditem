@@ -5,6 +5,7 @@ import { MarketplaceInstallService } from './application/service/marketplace-ins
 import { ActionTaskController } from './adapter/in/http/action-task.controller';
 import { AlertsController } from './adapter/in/http/alerts.controller';
 import { MarketplaceController } from './adapter/in/http/marketplace.controller';
+import { OperationAlertLifecycleController } from './adapter/in/http/operation-alert-lifecycle.controller';
 import { PanelController } from './adapter/in/http/panel.controller';
 import { WorkflowsController, WorkflowRunsController } from './adapter/in/http/workflows.controller';
 import { PrismaMarketplaceInstallStoreAdapter } from './adapter/out/prisma/marketplace-install-store.adapter';
@@ -57,6 +58,7 @@ import { WorkflowRunnerService } from './application/service/workflow-runner.ser
     PanelController,
     ActionTaskController,
     AlertsController,
+    OperationAlertLifecycleController,
     WorkflowsController,
     WorkflowRunsController,
   ],
