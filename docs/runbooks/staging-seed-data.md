@@ -32,6 +32,33 @@ are not valid staging login accounts until they are explicitly mirrored.
 Treat Google Drive seed artifacts as recovery/reproduction snapshots for this
 phase, not as a deploy-time import step.
 
+The first EC2 staging DB was initialized on 2026-05-10 by pushing the Prisma
+schema to the shared Supabase Postgres database, then copying only the smoke
+test baseline from local dev Postgres. This was not a full DB clone. Copied
+tables:
+
+- Auth/workspace: `organizations`, `users`, `organization_memberships`.
+- Catalog counters: `master_code_counters`.
+- Product management: `master_products`, `product_options`, `inventory`,
+  `channel_listings`, `master_product_images`.
+- Product metrics snapshots: `channel_scrape_runs`,
+  `channel_scrape_snapshots`, `channel_listing_daily_snapshots`,
+  `channel_ad_target_daily_snapshots`.
+
+Excluded tables include agent run history, workflow run history, action tasks,
+alerts, content generation history, thumbnail generation history, orders,
+returns, settlements, suppliers, and other domain data not required for the
+initial `/product-hub` smoke test.
+
+Verification after the copy:
+
+- `GET /api/auth/me` returns 200 with the preview Supabase session.
+- `GET /api/products/masters?page=1&limit=5&period=14&enriched=true` returns
+  total `1,990`.
+- `GET /api/products/pipeline-stats?period=14` returns total `1,990`,
+  channel linked `1,077`, and channel unlinked `913`.
+- `http://3.106.120.252/product-hub` shows product data and the logout button.
+
 The rule is:
 
 ```text
