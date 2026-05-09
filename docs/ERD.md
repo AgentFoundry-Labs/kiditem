@@ -24,7 +24,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | Domain | Models |
 |---|---:|
 | [Advertising](erd/advertising.md) | 5 |
-| [AgentOS](erd/agentos.md) | 15 |
+| [AgentOS](erd/agentos.md) | 13 |
 | [AI](erd/ai.md) | 10 |
 | [Channels](erd/channels.md) | 8 |
 | [Core](erd/core.md) | 13 |
@@ -45,11 +45,9 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ScrapeTarget | Advertising | `scrape_targets` | - |
 | AgentApprovalRequest | AgentOS | `agent_approval_requests` | Human approval state. While pending, AgentRunRequest.status = requires_approval. |
 | AgentAuthorizationEvent | AgentOS | `agent_authorization_events` | Authorization audit. Logged before, during, and outside runs (eg. admin policy widening). |
-| AgentBlueprint | AgentOS | `agent_blueprints` | Global catalog template for an agent kind. Replaces the global side of the legacy AgentDefinition. |
-| AgentBlueprintToolPolicy | AgentOS | `agent_blueprint_tool_policies` | Default tool policy at the blueprint level (allow / deny / approval_required). |
 | AgentCostEvent | AgentOS | `agent_cost_events` | Cost ledger source of truth. Insert + AgentRuntimeState aggregate update share one transaction. |
-| AgentInstance | AgentOS | `agent_instances` | Organization-owned runnable subject. Replaces the tenant-owned side of legacy AgentDefinition. |
-| AgentInstanceToolPolicy | AgentOS | `agent_instance_tool_policies` | Per-instance override for tool policy. Resolution: instance overrides blueprint, deny wins. |
+| AgentInstance | AgentOS | `agent_instances` | Organization-owned runnable subject. Type must match the code-owned Agent Definition Registry. |
+| AgentInstanceToolPolicy | AgentOS | `agent_instance_tool_policies` | Per-instance override for tool policy. Registry defaults are code-owned; DB stores organization overrides. |
 | AgentRun | AgentOS | `agent_runs` | Accepted execution attempt. Replaces HeartbeatRun. Always starts at status="running"; queue state lives on AgentRunRequest. |
 | AgentRunEvent | AgentOS | `agent_run_events` | Run-local event timeline (status, tool, model, safety, fallback). Bulk logs go to external store via logRef. |
 | AgentRunRequest | AgentOS | `agent_run_requests` | Durable request inbox + queue + dedupe + audit. Replaces AgentWakeupRequest. Queue state lives here, not on AgentRun. |
@@ -230,32 +228,6 @@ erDiagram
     String decidedByUserId FK
     DateTime createdAt
   }
-  AgentBlueprint {
-    String id PK
-    String type UK
-    String name
-    String description
-    String promptPath
-    String defaultAdapterType
-    String defaultModel
-    Json defaultRuntimeConfig
-    Json defaultCapabilities
-    String catalogStatus
-    String marketplaceId FK
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  AgentBlueprintToolPolicy {
-    String id PK
-    String blueprintId FK
-    String toolId FK
-    String effect
-    String approvalMode
-    String dryRunMode
-    Json constraints
-    DateTime createdAt
-    DateTime updatedAt
-  }
   AgentCostEvent {
     String id PK
     String organizationId FK
@@ -277,7 +249,6 @@ erDiagram
   AgentInstance {
     String id PK
     String organizationId FK
-    String blueprintId FK
     String type
     String name
     String role
@@ -1646,8 +1617,6 @@ erDiagram
   }
   ActionTask o|--o{ Alert : "actionTask"
   AdAction ||--o{ ExecutionTask : "action"
-  AgentBlueprint ||--o{ AgentBlueprintToolPolicy : "blueprint"
-  AgentBlueprint ||--o{ AgentInstance : "blueprint"
   AgentInstance ||--o{ AgentApprovalRequest : "agentInstance"
   AgentInstance ||--o{ AgentAuthorizationEvent : "agentInstance"
   AgentInstance ||--o{ AgentCostEvent : "agentInstance"
@@ -1674,7 +1643,6 @@ erDiagram
   AgentTaskSession ||--o{ AgentRun : "taskSession"
   AgentTaskSession ||--o{ AgentRunRequest : "taskSession"
   AgentToolDefinition o|--o{ AgentAuthorizationEvent : "tool"
-  AgentToolDefinition ||--o{ AgentBlueprintToolPolicy : "tool"
   AgentToolDefinition ||--o{ AgentInstanceToolPolicy : "tool"
   ChannelAdTargetDailySnapshot o|--o{ AdAction : "adTargetDaily"
   ChannelListing o|--o{ AdAction : "listing"
@@ -1703,7 +1671,6 @@ erDiagram
   ChannelScrapeSnapshot o|--o{ ChannelListingOptionDailySnapshot : "rawSnapshot"
   ExecutionTask ||--o{ ExecutionLog : "task"
   ExecutionWorker o|--o{ ExecutionTask : "worker"
-  Marketplace o|--o{ AgentBlueprint : "marketplace"
   Marketplace o|--o{ WorkflowTemplate : "marketplace"
   MasterProduct ||--o{ ChannelListing : "master"
   MasterProduct ||--o{ ContentGeneration : "master"

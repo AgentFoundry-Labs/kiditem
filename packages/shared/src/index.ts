@@ -124,7 +124,7 @@ export type {
 export { WorkflowTemplateSchema, WorkflowRunSchema, WorkflowStepRunSchema } from './schemas/workflow.js';
 export type { WorkflowTemplate, WorkflowRun, WorkflowStepRun } from './schemas/workflow.js';
 
-// Agent OS v2 — use `@kiditem/shared/agent-os` subpath; legacy Agent/AgentTrace
+// Agent OS — use `@kiditem/shared/agent-os` subpath; legacy Agent/AgentTrace
 // schemas have been removed in favor of run-centric Agent OS contracts.
 
 // Marketplace

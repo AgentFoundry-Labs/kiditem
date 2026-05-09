@@ -1,32 +1,48 @@
 import { describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { listAgentDefinitions } from '../../apps/server/src/agent-os/domain/agent-definition.registry';
 
 const repoRoot = join(__dirname, '..', '..');
 const seedPath = join(repoRoot, 'scripts/seed-agent-os.ts');
-const promptBase = join(repoRoot, 'apps/server/agent-config/prompts/agents');
-
-function blueprintPromptPairs() {
-  const source = readFileSync(seedPath, 'utf8');
-  return [...source.matchAll(/type: '([^']+)'[\s\S]*?promptPath: `\$\{PROMPT_BASE\}\/([^`]+)`/g)]
-    .map((match) => ({ type: match[1], promptFile: match[2] }));
-}
 
 describe('Agent OS seed catalog', () => {
-  it('seeds every shipped producer agent type that backend routes can enqueue', () => {
-    const types = blueprintPromptPairs().map((pair) => pair.type);
+  it('seeds every shipped producer definition that backend routes can enqueue', () => {
+    const types = listAgentDefinitions().map((definition) => definition.type);
 
     expect(types).toContain('ad_strategy');
     expect(types).toContain('image_edit');
     expect(types).toContain('sourcing');
   });
 
-  it('points every seeded blueprint at an existing prompt file', () => {
-    for (const pair of blueprintPromptPairs()) {
+  it('points every code-owned definition at an existing prompt file', () => {
+    for (const definition of listAgentDefinitions()) {
       expect(
-        existsSync(join(promptBase, pair.promptFile)),
-        `${pair.type} prompt does not exist: ${pair.promptFile}`,
+        existsSync(join(repoRoot, 'apps/server', definition.promptPath)),
+        `${definition.type} prompt does not exist: ${definition.promptPath}`,
       ).toBe(true);
     }
+  });
+
+  it('does not write legacy blueprint rows; definitions are code-owned', () => {
+    const source = readFileSync(seedPath, 'utf8');
+    expect(source).not.toContain(`agent${'Blue'}${'print'}`);
+  });
+
+  it('does not copy definition defaults into instance override columns', () => {
+    const source = readFileSync(seedPath, 'utf8');
+    expect(source).not.toContain('runtimeConfig: definition.defaultRuntimeConfig');
+  });
+
+  it('marks fixed AI/job producers as transitional tool wrappers', () => {
+    const definitions = new Map(
+      listAgentDefinitions().map((definition) => [definition.type, definition]),
+    );
+
+    expect(definitions.get('manager')?.runtimeKind).toBe('coordinator');
+    expect(definitions.get('chat')?.runtimeKind).toBe('agent');
+    expect(definitions.get('thumbnail_generate')?.runtimeKind).toBe('tool_wrapper');
+    expect(definitions.get('detail_page_generate')?.runtimeKind).toBe('tool_wrapper');
+    expect(definitions.get('image_edit')?.runtimeKind).toBe('tool_wrapper');
   });
 });

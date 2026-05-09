@@ -22,9 +22,9 @@ import { ListMarketplaceQueryDto, InstallMarketplaceBodyDto } from './dto';
  * `automation/application/service/`.
  *
  * Agent install/uninstall endpoints respond with `BadRequestException`
- * because the legacy `AgentDefinition` table was retired in favor of
- * Agent OS `AgentBlueprint` (global) + `AgentInstance` (tenant). The
- * marketplace agent install path has not been re-wired yet — see
+ * because shipped Agent OS definitions are code-owned/global while
+ * `AgentInstance` is tenant-owned. The marketplace agent install path has
+ * not been re-wired yet — see
  * `apps/server/src/automation/adapter/out/panel-event/AGENTS.md`
  * "Not yet wired" subsection.
  */
@@ -87,23 +87,23 @@ export class MarketplaceController {
   }
 
   /**
-   * Agent install is not wired against the new Agent OS catalog.
-   * `AgentBlueprint` rows are global to Agent OS and are not cloned
-   * per-tenant from marketplace rows. The endpoint is preserved as a
+   * Agent install is not wired against the Agent OS definition registry.
+   * Definitions are code-owned and are not cloned per-tenant from marketplace
+   * rows. The endpoint is preserved as a
    * stable surface but explicitly rejects requests instead of silently
    * succeeding or returning a partial result.
    */
   @Post('agents/:id/install')
   installAgent(@Param('id') _id: string) {
     throw new BadRequestException(
-      'Marketplace agent install is not available. Agent blueprints are managed by Agent OS directly.',
+      'Marketplace agent install is not available. Agent definitions are managed by Agent OS directly.',
     );
   }
 
   @Post('agents/:id/uninstall')
   uninstallAgent(@Param('id') _id: string) {
     throw new BadRequestException(
-      'Marketplace agent uninstall is not available. Agent blueprints are managed by Agent OS directly.',
+      'Marketplace agent uninstall is not available. Agent definitions are managed by Agent OS directly.',
     );
   }
 }

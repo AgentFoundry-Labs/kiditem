@@ -1,8 +1,8 @@
 # Agent OS
 
-Agent OS owns agent blueprints, organization-scoped instances, durable run
-requests, run execution, tool policy, approvals, cost ledger, and run
-observability. It replaces the legacy `AgentDefinition + AgentTask +
+Agent OS owns code-owned agent definitions, organization-scoped instances,
+durable run requests, run execution, tool policy, approvals, cost ledger, and
+run observability. It replaces the legacy `AgentDefinition + AgentTask +
 AgentWakeupRequest + HeartbeatRun + AgentEvent` runtime.
 
 ## Boundary
@@ -29,7 +29,7 @@ AgentWakeupRequest + HeartbeatRun + AgentEvent` runtime.
 - `Alert` rows are organization-scoped. Personal work is represented by
   promoting an alert into an `ActionTask`, then using `ActionTask.assigneeUserId`
   / assigned-to filters for "my work" vs organization-wide visibility.
-- Tool permission uses blueprint default policy plus instance override.
+- Tool permission uses code-owned definition policy plus instance override.
 - Bulk runtime logs are external; database rows store structured events,
   excerpts, and log references only.
 - Cost ledger inserts and `AgentRuntimeState.totalCostMicros` updates run in a
@@ -216,17 +216,14 @@ producer flip.
 
 ## Bootstrap
 
-Fresh DBs need at least one `AgentBlueprint` per shipped agent type and one
-`AgentInstance` per organization, otherwise every consumer hits
-`agent_instance_not_found`. Run `npm run seed:agent-os` after `db:push`.
-The seed reads default model from `AGENT_<TYPE>_MODEL` per blueprint with
-`AGENT_DEFAULT_MODEL` as a single shared fallback (and throws if neither
-is set — no silent default).
+Fresh DBs need one `AgentInstance` per shipped code-owned definition and
+organization, otherwise every consumer hits `agent_instance_not_found`. Run
+`npm run seed:agent-os` after `db:push`. The seed reads default model from
+`AGENT_<TYPE>_MODEL` per definition with `AGENT_DEFAULT_MODEL` as a single
+shared fallback (and throws if neither is set — no silent default).
 
 Currently seeded agent types: `manager`, `rules_evaluation`, `rules_suggest`,
 `ad_strategy`, `sourcing`, `thumbnail_analyst`, `image_edit`, `thumbnail_auto_edit`,
-`detail_page_generate`, `thumbnail_generate`, `chat`. The two `*_generate`
-types are Phase 1 placeholders — blueprint + prompt + AI bridge skeleton
-are wired, but production endpoints (`/api/ai/detail-page/generate`,
-`/api/thumbnail-editor/generate`) still run the synchronous AI service
-paths until Phase 2 swaps them onto Agent OS.
+`detail_page_generate`, `thumbnail_generate`, `chat`. Fixed one-call AI jobs
+that do not yet plan dynamically are classified as `tool_wrapper` definitions;
+true agents remain reserved for subjects with flexible action selection.

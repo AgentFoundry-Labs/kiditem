@@ -1,41 +1,16 @@
-// agents.prisma — Agent OS v2 + Workflows
+// agents.prisma — Agent OS + Workflows
 //
-// Agent OS owns the catalog/instance/runtime/policy/cost surface.
+// Agent OS owns organization-scoped instances, runtime, policy, approvals,
+// and cost ledgers. Shipped agent definitions live in the backend code
+// registry, not in DB.
 // Workflow models live alongside because the workflow runner triggers
 // Agent OS through `AgentRunnerPort` and shares related FK columns.
 
 /// @namespace AgentOS
-/// @describe Global catalog template for an agent kind. Replaces the global side of the legacy AgentDefinition.
-model AgentBlueprint {
-  id                   String   @id @default(uuid()) @db.Uuid
-  type                 String   @unique
-  name                 String
-  description          String?
-  promptPath           String   @map("prompt_path")
-  defaultAdapterType   String   @map("default_adapter_type")
-  defaultModel         String   @map("default_model")
-  defaultRuntimeConfig Json     @default("{}") @map("default_runtime_config") @db.JsonB
-  defaultCapabilities  Json     @default("{}") @map("default_capabilities") @db.JsonB
-  catalogStatus        String   @default("active") @map("catalog_status")
-  marketplaceId        String?  @map("marketplace_id") @db.Uuid
-  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt            DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  marketplace  Marketplace?               @relation(fields: [marketplaceId], references: [id], onDelete: SetNull)
-  instances    AgentInstance[]
-  toolPolicies AgentBlueprintToolPolicy[]
-
-  @@index([catalogStatus])
-  @@index([marketplaceId])
-  @@map("agent_blueprints")
-}
-
-/// @namespace AgentOS
-/// @describe Organization-owned runnable subject. Replaces the tenant-owned side of legacy AgentDefinition.
+/// @describe Organization-owned runnable subject. Type must match the code-owned Agent Definition Registry.
 model AgentInstance {
   id                 String    @id @default(uuid()) @db.Uuid
   organizationId     String    @map("organization_id") @db.Uuid
-  blueprintId        String    @map("blueprint_id") @db.Uuid
   type               String
   name               String
   role               String    @default("specialist")
@@ -55,7 +30,6 @@ model AgentInstance {
   updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization         Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  blueprint            AgentBlueprint            @relation(fields: [blueprintId], references: [id], onDelete: Restrict)
   parent               AgentInstance?            @relation("AgentInstanceHierarchy", fields: [reportsToId], references: [id], onDelete: SetNull)
   children             AgentInstance[]           @relation("AgentInstanceHierarchy")
   runtimeState         AgentRuntimeState?
@@ -71,7 +45,6 @@ model AgentInstance {
 
   @@unique([organizationId, type])
   @@index([organizationId])
-  @@index([blueprintId])
   @@index([reportsToId])
   @@index([organizationId, lifecycleStatus])
   @@index([organizationId, reportsToId])
@@ -298,7 +271,6 @@ model AgentToolDefinition {
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  blueprintPolicies   AgentBlueprintToolPolicy[]
   instancePolicies    AgentInstanceToolPolicy[]
   authorizationEvents AgentAuthorizationEvent[]
 
@@ -308,28 +280,7 @@ model AgentToolDefinition {
 }
 
 /// @namespace AgentOS
-/// @describe Default tool policy at the blueprint level (allow / deny / approval_required).
-model AgentBlueprintToolPolicy {
-  id           String   @id @default(uuid()) @db.Uuid
-  blueprintId  String   @map("blueprint_id") @db.Uuid
-  toolId       String   @map("tool_id") @db.Uuid
-  effect       String
-  approvalMode String   @default("none") @map("approval_mode")
-  dryRunMode   String   @default("optional") @map("dry_run_mode")
-  constraints  Json     @default("{}") @db.JsonB
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  blueprint AgentBlueprint      @relation(fields: [blueprintId], references: [id], onDelete: Cascade)
-  tool      AgentToolDefinition @relation(fields: [toolId], references: [id], onDelete: Cascade)
-
-  @@unique([blueprintId, toolId])
-  @@index([toolId, effect])
-  @@map("agent_blueprint_tool_policies")
-}
-
-/// @namespace AgentOS
-/// @describe Per-instance override for tool policy. Resolution: instance overrides blueprint, deny wins.
+/// @describe Per-instance override for tool policy. Registry defaults are code-owned; DB stores organization overrides.
 model AgentInstanceToolPolicy {
   id              String   @id @default(uuid()) @db.Uuid
   organizationId  String   @map("organization_id") @db.Uuid

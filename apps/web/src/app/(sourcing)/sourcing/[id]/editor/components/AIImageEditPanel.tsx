@@ -117,7 +117,7 @@ function extractEditedImageUrl(output: unknown): string | null {
   );
 }
 
-// Agent OS v2: `/api/image-ai/edit` returns `{ taskId }` where taskId is the
+// Agent OS: `/api/image-ai/edit` returns `{ taskId }` where taskId is the
 // `AgentRunRequest.id` (no AgentRun yet — the run materializes when the
 // executor claims the request). We poll `/api/agent-os/requests/:id` and
 // pivot to the run via `latestRunId` once status leaves the pre-claim phase.

@@ -11,7 +11,7 @@ import { OperationAlertService } from '../../../automation/application/service/o
  *
  * Image edits are async by design — heavy/slow work that runs through
  * Agent OS. The legacy `AgentRegistryService.runByType('image_edit', ...)`
- * call site is replaced with a direct dependency on Agent OS v2's
+ * call site is replaced with a direct dependency on the Agent OS
  * {@link AgentRunnerPort} (`AGENT_RUNNER_PORT`).
  *
  * The legacy `{ taskId }` HTTP contract is preserved for clients that

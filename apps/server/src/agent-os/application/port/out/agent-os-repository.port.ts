@@ -1,5 +1,4 @@
 import type {
-  AgentBlueprintRecord,
   AgentInstanceRecord,
   AgentRunRecord,
   AgentRunRequestRecord,
@@ -14,36 +13,19 @@ import type {
 
 export const AGENT_OS_REPOSITORY_PORT = Symbol('AGENT_OS_REPOSITORY_PORT');
 
-export interface BlueprintToolPolicyRecord {
+export interface InstanceToolPolicyRecord {
   toolId: string;
   toolKey: string;
   effect: 'allow' | 'deny' | 'approval_required';
   approvalMode: 'none' | 'admin' | 'self';
   dryRunMode: 'optional' | 'required' | 'disabled';
   constraints: Record<string, unknown>;
-}
-
-export interface InstanceToolPolicyRecord extends BlueprintToolPolicyRecord {
   organizationId: string;
   agentInstanceId: string;
 }
 
-export interface CreateBlueprintInput {
-  type: string;
-  name: string;
-  description?: string | null;
-  promptPath: string;
-  defaultAdapterType: string;
-  defaultModel: string;
-  defaultRuntimeConfig?: Record<string, unknown>;
-  defaultCapabilities?: Record<string, unknown>;
-  catalogStatus?: string;
-  marketplaceId?: string | null;
-}
-
 export interface CreateAgentInstanceInput {
   organizationId: string;
-  blueprintId: string;
   type: string;
   name: string;
   role?: string;
@@ -274,11 +256,7 @@ export interface FindAuthorizationEventsQuery {
 }
 
 export interface AgentOsRepositoryPort {
-  // Catalog
-  findBlueprintByType(type: string): Promise<AgentBlueprintRecord | null>;
-  listBlueprints(): Promise<AgentBlueprintRecord[]>;
-  upsertBlueprint(input: CreateBlueprintInput): Promise<AgentBlueprintRecord>;
-
+  // Instances
   findActiveInstanceByType(input: {
     organizationId: string;
     type: string;
@@ -294,10 +272,6 @@ export interface AgentOsRepositoryPort {
   updateInstance(input: UpdateAgentInstanceInput): Promise<AgentInstanceRecord>;
 
   // Tool policy
-  resolveBlueprintToolPolicy(input: {
-    blueprintId: string;
-    toolKey: string;
-  }): Promise<BlueprintToolPolicyRecord | null>;
   resolveInstanceToolPolicy(input: {
     organizationId: string;
     agentInstanceId: string;

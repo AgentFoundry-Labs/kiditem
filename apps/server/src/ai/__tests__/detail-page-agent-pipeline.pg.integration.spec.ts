@@ -102,7 +102,7 @@ class FakeOperationAlertService {
   async fail(_o: string, _k: string, p?: unknown) { this.fails.push(p ?? null); return null; }
 }
 
-async function seedMasterAndAgentBlueprint(prisma: PrismaClient, repo: AgentOsRepositoryAdapter) {
+async function seedMasterAndAgentInstance(prisma: PrismaClient, repo: AgentOsRepositoryAdapter) {
   await prisma.masterProduct.create({
     data: {
       id: MASTER_ID,
@@ -111,19 +111,12 @@ async function seedMasterAndAgentBlueprint(prisma: PrismaClient, repo: AgentOsRe
       code: 'INT-DETAIL-PAGE-001',
     },
   });
-  const blueprint = await repo.upsertBlueprint({
-    type: 'detail_page_generate',
-    name: 'Detail Page Generate',
-    promptPath: 'agent-config/prompts/agents/detail-page-generate.md',
-    defaultAdapterType: 'claude_local',
-    defaultModel: 'gemini-test',
-  });
   await repo.createInstanceWithRuntimeState({
     organizationId: ORG,
-    blueprintId: blueprint.id,
     type: 'detail_page_generate',
     name: 'Detail Page Generate Instance',
     adapterType: 'claude_local',
+    modelOverride: 'gemini-test',
   });
 }
 
@@ -215,7 +208,7 @@ beforeEach(async () => {
   if (!prisma) throw new Error('Prisma test client was not initialized');
   await resetDb(prisma);
   await seedBaseFixture(prisma);
-  await seedMasterAndAgentBlueprint(prisma, repo);
+  await seedMasterAndAgentInstance(prisma, repo);
   stubHandler.output = null;
   stubHandler.failureCode = null;
   stubHandler.observed = [];

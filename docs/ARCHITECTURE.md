@@ -66,10 +66,10 @@ sourcing         test-helpers types           uploads
 
 Important ownership decisions:
 
-- `agent-os/` is the target owner platform for Agent OS v2: agent catalog,
-  organization-owned instances, run requests, accepted runs, runtime state,
-  tool policy, approvals, authorization audit, cost ledger, run events, and log
-  references. See [Agent OS v2 Schema Design](agent-os-v2-schema.md).
+- `agent-os/` is the owner platform for Agent OS: code-owned agent
+  definitions, organization-owned instances, run requests, accepted runs,
+  runtime state, tool policy, approvals, authorization audit, cost ledger, run
+  events, and log references. See [Agent OS Schema Design](agent-os-schema.md).
 - `automation/` owns workflow orchestration, action-board/action-task routes,
   marketplace install/catalog surfaces, manager routes, alerts, and panel event
   projection. `Alert` is the single user-facing notification ledger, including
@@ -121,8 +121,8 @@ not the dashboard notification or agent-management contract.
 
 ## Agent OS
 
-Agent OS is a backend platform capability. The v2 target is documented in
-[Agent OS v2 Schema Design](agent-os-v2-schema.md). Runtime execution and run
+Agent OS is a backend platform capability. The schema and owner boundary are
+documented in [Agent OS Schema Design](agent-os-schema.md). Runtime execution and run
 accounting live under `apps/server/src/agent-os/`:
 
 - Public workflow routes live under

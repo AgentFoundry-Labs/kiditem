@@ -15,10 +15,10 @@ function jsonArrayInput(value: unknown): Prisma.InputJsonValue {
  * application service decides what to install; this adapter owns the
  * persistence mechanics, transactions, and tenant-scoped mutations.
  *
- * Agent install is intentionally absent — the legacy `AgentDefinition`
- * model has been retired. Agent blueprints are global Agent OS catalog
- * entries, not tenant-clonable rows. Marketplace `type='agent'` rows are
- * read-only listings; install is not wired and the controller rejects it.
+ * Agent install is intentionally absent. Shipped Agent OS definitions are
+ * code-owned/global, not tenant-clonable rows. Marketplace `type='agent'`
+ * rows are read-only listings; install is not wired and the controller
+ * rejects it.
  */
 @Injectable()
 export class PrismaMarketplaceInstallStoreAdapter

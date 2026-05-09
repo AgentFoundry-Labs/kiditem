@@ -18,7 +18,7 @@ export class PanelService {
    * Sources: workflow run, thumbnail generation, alert.
    *
    * Agent run projection (formerly `HeartbeatRun + AgentDefinition`) was
-   * removed in the Agent OS v2 migration. Live agent run events should be
+   * removed in the Agent OS migration. Live agent run events should be
    * emitted by Agent OS itself (`AgentRun.status` transitions on
    * `AgentRunCoordinator` / `AgentRunExecutor`) — that wiring is not yet
    * in place. Until it lands, the snapshot only contains the three

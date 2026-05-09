@@ -1,17 +1,17 @@
 /**
  * scripts/seed-agent-os.ts
  *
- * Idempotent seed for Agent OS v2 catalog + per-organization runtime instances.
+ * Idempotent seed for Agent OS per-organization runtime instances.
  *
  * Without this, every Agent OS consumer (rules/evaluate, ai/image-edit,
  * ad-agent/run, sourcing detail-page generation, chat) returns
- * `agent_instance_not_found` because the catalog is empty.
+ * `agent_instance_not_found` because the organization has no runnable
+ * instance for the code-owned definition.
  *
  * What this seed creates (idempotent):
- * 1. One `AgentBlueprint` per shipped agent type, pointing at the prompt path
- *    in `apps/server/agent-config/prompts/agents/*.md`. Default model comes
- *    from `AGENT_DEFAULT_MODEL` env (no silent fallback inside this script).
- * 2. One `AgentInstance` per blueprint per organization, with the matching
+ * 1. Validates every shipped code-owned agent definition has an explicit
+ *    model env (`AGENT_<TYPE>_MODEL` or `AGENT_DEFAULT_MODEL`).
+ * 2. One `AgentInstance` per definition per organization, with the matching
  *    `AgentRuntimeState` row created via the same upsert path the catalog
  *    service uses.
  *
@@ -27,6 +27,11 @@ import { config } from 'dotenv';
 import { resolve } from 'path';
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
+import {
+  listAgentDefinitions,
+  resolveDefinitionDefaultModel,
+} from '../apps/server/src/agent-os/domain/agent-definition.registry';
+import type { AgentDefinitionRecord } from '../apps/server/src/agent-os/domain/agent-os.types';
 
 config({ path: resolve(process.cwd(), '.env') });
 
@@ -39,166 +44,23 @@ const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString }),
 });
 
-interface BlueprintSeed {
-  type: string;
-  name: string;
-  description: string;
-  promptPath: string;
-  defaultAdapterType: 'claude_local' | 'python_http';
-  defaultModelEnv: string;
-  defaultRuntimeConfig?: Record<string, unknown>;
-  defaultCapabilities?: Record<string, unknown>;
-}
-
-const PROMPT_BASE = 'agent-config/prompts/agents';
-
-const BLUEPRINTS: BlueprintSeed[] = [
-  {
-    type: 'manager',
-    name: 'Manager Agent',
-    description: '전사 데이터 분석/지시 에이전트',
-    promptPath: `${PROMPT_BASE}/manager.md`,
-    defaultAdapterType: 'claude_local',
-    defaultModelEnv: 'AGENT_MANAGER_MODEL',
-  },
-  {
-    type: 'rules_evaluation',
-    name: 'Rules Evaluation',
-    description: '룰 평가 에이전트',
-    promptPath: `${PROMPT_BASE}/rules-evaluation.md`,
-    defaultAdapterType: 'claude_local',
-    defaultModelEnv: 'AGENT_RULES_EVALUATION_MODEL',
-  },
-  {
-    type: 'rules_suggest',
-    name: 'Rules Threshold Suggester',
-    description: '룰 임계 제안 에이전트',
-    promptPath: `${PROMPT_BASE}/rules-suggest.md`,
-    defaultAdapterType: 'claude_local',
-    defaultModelEnv: 'AGENT_RULES_SUGGEST_MODEL',
-  },
-  {
-    type: 'ad_strategy',
-    name: 'Ad Strategy',
-    description: '광고 전략 분석 에이전트',
-    promptPath: `${PROMPT_BASE}/ad-strategy.md`,
-    defaultAdapterType: 'claude_local',
-    defaultModelEnv: 'AGENT_AD_STRATEGY_MODEL',
-  },
-  {
-    type: 'sourcing',
-    name: 'Sourcing',
-    description: '소싱 URL 스크래핑/상품 수집 에이전트',
-    promptPath: `${PROMPT_BASE}/sourcing.md`,
-    defaultAdapterType: 'claude_local',
-    defaultModelEnv: 'AGENT_SOURCING_MODEL',
-  },
-  {
-    type: 'thumbnail_analyst',
-    name: 'Thumbnail Analyst',
-    description: '썸네일 컴플라이언스 분석 에이전트',
-    promptPath: `${PROMPT_BASE}/thumbnail-analyst.md`,
-    defaultAdapterType: 'claude_local',
-    defaultModelEnv: 'AGENT_THUMBNAIL_ANALYST_MODEL',
-  },
-  {
-    type: 'image_edit',
-    name: 'Image Edit',
-    description: '이미지 편집 (background/text/replace) 에이전트',
-    promptPath: `${PROMPT_BASE}/manager.md`, // image_edit prompt 미존재 — 임시로 manager 가리킨다 (실제 runtime 도입 시 분리)
-    defaultAdapterType: 'python_http',
-    defaultModelEnv: 'AGENT_IMAGE_EDIT_MODEL',
-  },
-  {
-    type: 'thumbnail_auto_edit',
-    name: 'Thumbnail Auto Edit',
-    description: 'A 등급 cohort 자동 재편집 에이전트',
-    promptPath: `${PROMPT_BASE}/thumbnail-analyst.md`,
-    defaultAdapterType: 'python_http',
-    defaultModelEnv: 'AGENT_THUMBNAIL_AUTO_EDIT_MODEL',
-  },
-  {
-    type: 'detail_page_generate',
-    name: 'Detail Page Generate',
-    description:
-      '상세페이지 1-call 생성 에이전트. 출력은 ai 도메인 detail-page-generate output schema 가 검증한다.',
-    promptPath: `${PROMPT_BASE}/detail-page-generate.md`,
-    defaultAdapterType: 'claude_local',
-    defaultModelEnv: 'AGENT_DETAIL_PAGE_GENERATE_MODEL',
-    defaultRuntimeConfig: {
-      // ai 도메인 bridge 가 sourceResourceType 으로 ContentGeneration row 를 lookup 한다.
-      // 다음 PR 에서 실제 sink 가 붙기 전까지는 no-op 로 전달된다.
-      outputContract: 'ai.detail_page_generate.v1',
-    },
-  },
-  {
-    type: 'thumbnail_generate',
-    name: 'Thumbnail Generate',
-    description:
-      '썸네일 에디터/배치 1-call 생성 에이전트. 출력은 ai 도메인 thumbnail-generate output schema 가 검증한다.',
-    promptPath: `${PROMPT_BASE}/thumbnail-generate.md`,
-    defaultAdapterType: 'claude_local',
-    defaultModelEnv: 'AGENT_THUMBNAIL_GENERATE_MODEL',
-    defaultRuntimeConfig: {
-      outputContract: 'ai.thumbnail_generate.v1',
-    },
-  },
-  {
-    type: 'chat',
-    name: 'Chatbot',
-    description: 'Operator chatbot — read-only DB context',
-    promptPath: `${PROMPT_BASE}/chat.md`,
-    defaultAdapterType: 'claude_local',
-    defaultModelEnv: 'AGENT_CHAT_MODEL',
-  },
-];
-
-function resolveDefaultModel(envName: string): string {
-  // Per-blueprint env first, then a single shared fallback.
-  const value = process.env[envName] ?? process.env.AGENT_DEFAULT_MODEL;
+function resolveDefaultModel(definition: AgentDefinitionRecord): string {
+  // Per-definition env first, then a single shared fallback.
+  const value = resolveDefinitionDefaultModel(definition);
   if (!value || value.length === 0) {
     throw new Error(
-      `Missing default model: set ${envName} or AGENT_DEFAULT_MODEL in .env (no silent fallback).`,
+      `Missing default model: set ${definition.defaultModelEnv} or AGENT_DEFAULT_MODEL in .env (no silent fallback).`,
     );
   }
   return value;
 }
 
-async function upsertBlueprint(seed: BlueprintSeed) {
-  const defaultModel = resolveDefaultModel(seed.defaultModelEnv);
-  const blueprint = await prisma.agentBlueprint.upsert({
-    where: { type: seed.type },
-    create: {
-      type: seed.type,
-      name: seed.name,
-      description: seed.description,
-      promptPath: seed.promptPath,
-      defaultAdapterType: seed.defaultAdapterType,
-      defaultModel,
-      defaultRuntimeConfig: seed.defaultRuntimeConfig ?? {},
-      defaultCapabilities: seed.defaultCapabilities ?? {},
-      catalogStatus: 'active',
-    },
-    update: {
-      name: seed.name,
-      description: seed.description,
-      promptPath: seed.promptPath,
-      defaultAdapterType: seed.defaultAdapterType,
-      defaultModel,
-      defaultRuntimeConfig: seed.defaultRuntimeConfig ?? {},
-      defaultCapabilities: seed.defaultCapabilities ?? {},
-      catalogStatus: 'active',
-    },
-  });
-  return blueprint;
-}
-
 async function ensureInstance(
   organizationId: string,
-  blueprint: { id: string; type: string; name: string; defaultAdapterType: string; defaultRuntimeConfig: unknown },
+  definition: AgentDefinitionRecord,
 ) {
   const existing = await prisma.agentInstance.findFirst({
-    where: { organizationId, type: blueprint.type },
+    where: { organizationId, type: definition.type },
     select: { id: true },
   });
   if (existing) {
@@ -214,11 +76,9 @@ async function ensureInstance(
     const instance = await tx.agentInstance.create({
       data: {
         organizationId,
-        blueprintId: blueprint.id,
-        type: blueprint.type,
-        name: blueprint.name,
-        adapterType: blueprint.defaultAdapterType,
-        runtimeConfig: (blueprint.defaultRuntimeConfig ?? {}) as Record<string, unknown>,
+        type: definition.type,
+        name: definition.name,
+        adapterType: definition.defaultAdapterType,
       },
       select: { id: true },
     });
@@ -250,13 +110,16 @@ async function main() {
 
   console.log(`Seeding Agent OS for ${orgIds.length} organization(s).`);
 
-  const blueprints = await Promise.all(BLUEPRINTS.map((b) => upsertBlueprint(b)));
-  console.log(`  blueprints upserted: ${blueprints.length}`);
+  const definitions = listAgentDefinitions();
+  for (const definition of definitions) {
+    resolveDefaultModel(definition);
+  }
+  console.log(`  definitions validated: ${definitions.length}`);
 
   let instances = 0;
   for (const orgId of orgIds) {
-    for (const blueprint of blueprints) {
-      await ensureInstance(orgId, blueprint);
+    for (const definition of definitions) {
+      await ensureInstance(orgId, definition);
       instances += 1;
     }
   }

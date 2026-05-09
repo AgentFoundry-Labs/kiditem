@@ -35,7 +35,7 @@ model Organization {
   workflowTemplates WorkflowTemplate[]
   activityEvents    ActivityEvent[]
 
-  // Agent OS v2
+  // Agent OS
   agentInstances            AgentInstance[]
   agentRuntimeStates        AgentRuntimeState[]
   agentTaskSessions         AgentTaskSession[]
@@ -150,7 +150,7 @@ model User {
   actorAlerts                    Alert[]                    @relation("AlertActor")
   assignedActionTasks            ActionTask[]               @relation("ActionTaskAssignee")
 
-  // Agent OS v2 — actor relations
+  // Agent OS — actor relations
   requestedAgentRunRequests         AgentRunRequest[]         @relation("AgentRunRequestRequestedBy")
   requestedAgentAuthorizationEvents AgentAuthorizationEvent[] @relation("AgentAuthorizationRequestedBy")
   decidedAgentAuthorizationEvents   AgentAuthorizationEvent[] @relation("AgentAuthorizationDecidedBy")

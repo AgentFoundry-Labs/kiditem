@@ -166,6 +166,5 @@ erDiagram
 | Alert | actorUser | references external | Core | User |
 | Alert | organization | references external | Core | Organization |
 | BusinessRule | organization | references external | Core | Organization |
-| Marketplace | marketplace | referenced by external | AgentOS | AgentBlueprint |
 | Marketplace | marketplace | referenced by external | AgentOS | WorkflowTemplate |
 | SystemSetting | organization | references external | Core | Organization |

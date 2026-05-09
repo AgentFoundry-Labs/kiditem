@@ -211,7 +211,7 @@ domain instead of growing as standalone bounded contexts:
 | `channels` | channel listings, channel sync, external marketplace spine |
 | `ai` / `media-ai` | thumbnail/image AI, generation, provider adapters |
 | `rules` | business policy definitions, thresholds, rule evaluation result handling; delegates Agent OS work through `AGENT_RUNNER_PORT` |
-| `agent-os` | Agent OS v2 platform — agent blueprints, organization-scoped instances, durable run requests, run execution, runtime adapter orchestration, tool policy, approvals, cost ledger, run observability. Business domains call Agent OS through `AgentRunnerPort`. See [`src/agent-os/AGENTS.md`](src/agent-os/AGENTS.md). |
+| `agent-os` | Agent OS platform — code-owned agent definitions, organization-scoped instances, durable run requests, run execution, runtime adapter orchestration, tool policy, approvals, cost ledger, run observability. Business domains call Agent OS through `AgentRunnerPort`. See [`src/agent-os/AGENTS.md`](src/agent-os/AGENTS.md). |
 | `automation` | Workflow runner (`WorkflowRun`/`WorkflowTemplate`), action board, alerts, marketplace install/catalog, panel projection. `Alert` is the user-facing notification surface, including Agent-related notifications; `ActionTask` owns "my work" assignment after alert promotion. Calls Agent OS via `AGENT_RUNNER_PORT` for agent execution; never owns agent runtime adapters or run execution. |
 | `analytics` | `dashboard`, `statistics`, `traffic`, `supplier-stats` |
 | `platform` | `auth`, `organizations`, `feature-gate`, `common`, `prisma`, uploads/platform infra |
@@ -258,7 +258,7 @@ async getProduct(id: string, organizationId: string) {
 | 경로 | 핵심 포인트 |
 |---|---|
 | [`src/advertising/AGENTS.md`](src/advertising/AGENTS.md) | Ad Operations — `/api/ads/*`, daily-fact ingest, AdAction 5 target-daily rules, extension sync matching (`vendorItemId` > `externalId`), multi-tenant scope. |
-| [`src/agent-os/AGENTS.md`](src/agent-os/AGENTS.md) | Agent OS v2 — owner platform for agent blueprints, organization-scoped instances, durable run requests (`AgentRunRequest`), run execution (`AgentRun`), tool policy, approvals, cost ledger, run observability. Business domains depend on `AgentRunnerPort` only. |
+| [`src/agent-os/AGENTS.md`](src/agent-os/AGENTS.md) | Agent OS — owner platform for code-owned agent definitions, organization-scoped instances, durable run requests (`AgentRunRequest`), run execution (`AgentRun`), tool policy, approvals, cost ledger, run observability. Business domains depend on `AgentRunnerPort` only. |
 | [`src/ai/AGENTS.md`](src/ai/AGENTS.md) | Dual-path AI — image work delegates to Agent OS, text transform calls Gemini directly, thumbnail/Wing automation uses explicit application ports where already reconstructed. |
 | [`src/analytics/AGENTS.md`](src/analytics/AGENTS.md) | Reporting/read-model owner — `dashboard`, `statistics`, `traffic`, `supplier-stats`; dashboard is reconstructed, the rest stay flat until a concrete driver appears. |
 | [`src/auth/AGENTS.md`](src/auth/AGENTS.md) | 인증/권한 인프라 — `@CurrentUser`, `@CurrentOrganization`, `@Roles`, `@SkipAuth`, OrganizationScopeGuard, DevAuthMiddleware. |

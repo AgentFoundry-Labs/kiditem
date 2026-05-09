@@ -44,6 +44,12 @@ export const agentApprovalStatusSchema = z.enum([
   'cancelled',
 ]);
 
+export const agentDefinitionRuntimeKindSchema = z.enum([
+  'agent',
+  'coordinator',
+  'tool_wrapper',
+]);
+
 export const createAgentRunRequestSchema = z.object({
   agentType: z.string().min(1),
   taskKey: z.string().min(1).default('default'),
@@ -72,13 +78,17 @@ export const agentRunnerResultSchema = z.object({
   reason: z.string().optional(),
 });
 
-export const agentBlueprintSummarySchema = z.object({
+export const agentDefinitionSummarySchema = z.object({
   id: z.string(),
   type: z.string(),
   name: z.string(),
   description: z.string().nullable(),
+  promptPath: z.string(),
   defaultAdapterType: z.string(),
-  defaultModel: z.string(),
+  defaultModelEnv: z.string(),
+  defaultRuntimeConfig: z.record(z.string(), z.unknown()),
+  defaultCapabilities: z.record(z.string(), z.unknown()),
+  runtimeKind: agentDefinitionRuntimeKindSchema,
   catalogStatus: z.string(),
   marketplaceId: z.string().nullable(),
 });
@@ -86,7 +96,6 @@ export const agentBlueprintSummarySchema = z.object({
 export const agentInstanceSummarySchema = z.object({
   id: z.string(),
   organizationId: z.string(),
-  blueprintId: z.string(),
   type: z.string(),
   name: z.string(),
   role: z.string(),
@@ -205,9 +214,10 @@ export type AgentRunStatus = z.infer<typeof agentRunStatusSchema>;
 export type AgentToolPolicyEffect = z.infer<typeof agentToolPolicyEffectSchema>;
 export type AgentAuthorizationDecision = z.infer<typeof agentAuthorizationDecisionSchema>;
 export type AgentApprovalStatus = z.infer<typeof agentApprovalStatusSchema>;
+export type AgentDefinitionRuntimeKind = z.infer<typeof agentDefinitionRuntimeKindSchema>;
 export type CreateAgentRunRequestInput = z.infer<typeof createAgentRunRequestSchema>;
 export type AgentRunnerResult = z.infer<typeof agentRunnerResultSchema>;
-export type AgentBlueprintSummary = z.infer<typeof agentBlueprintSummarySchema>;
+export type AgentDefinitionSummary = z.infer<typeof agentDefinitionSummarySchema>;
 export type AgentInstanceSummary = z.infer<typeof agentInstanceSummarySchema>;
 export type AgentRunRequestSummary = z.infer<typeof agentRunRequestSummarySchema>;
 export type AgentRunSummary = z.infer<typeof agentRunSummarySchema>;

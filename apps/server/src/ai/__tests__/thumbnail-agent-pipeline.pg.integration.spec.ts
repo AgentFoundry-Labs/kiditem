@@ -87,7 +87,7 @@ class FakeOperationAlertService {
   async cancel() { return null; }
 }
 
-async function seedMasterAndAgentBlueprint(prisma: PrismaClient, repo: AgentOsRepositoryAdapter) {
+async function seedMasterAndAgentInstance(prisma: PrismaClient, repo: AgentOsRepositoryAdapter) {
   await prisma.masterProduct.create({
     data: {
       id: MASTER_ID,
@@ -96,19 +96,12 @@ async function seedMasterAndAgentBlueprint(prisma: PrismaClient, repo: AgentOsRe
       code: 'INT-THUMB-001',
     },
   });
-  const blueprint = await repo.upsertBlueprint({
-    type: 'thumbnail_generate',
-    name: 'Thumbnail Generate',
-    promptPath: 'agent-config/prompts/agents/thumbnail-generate.md',
-    defaultAdapterType: 'claude_local',
-    defaultModel: 'gemini-image-test',
-  });
   await repo.createInstanceWithRuntimeState({
     organizationId: ORG,
-    blueprintId: blueprint.id,
     type: 'thumbnail_generate',
     name: 'Thumbnail Generate Instance',
     adapterType: 'claude_local',
+    modelOverride: 'gemini-image-test',
   });
 }
 
@@ -207,7 +200,7 @@ beforeEach(async () => {
   if (!prisma) throw new Error('Prisma test client was not initialized');
   await resetDb(prisma);
   await seedBaseFixture(prisma);
-  await seedMasterAndAgentBlueprint(prisma, repo);
+  await seedMasterAndAgentInstance(prisma, repo);
   stubHandler.output = null;
   stubHandler.failureCode = null;
   stubHandler.observed = [];

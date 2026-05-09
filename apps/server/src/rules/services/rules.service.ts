@@ -23,7 +23,7 @@ const RULES_SUGGEST_SOURCE = 'rules.suggest';
  * post-processes (healthScore bulk update + activity events + critical
  * alerts + panel emission).
  *
- * Under Agent OS v2 the run runtime writes its `resultJson` to the
+ * Under Agent OS the run runtime writes its `resultJson` to the
  * `AgentRun` row. Adapters that bridge Agent OS run completion back to the
  * rules domain pass this shape into `RulesService.processEvaluationResult`.
  */
@@ -95,7 +95,7 @@ export class RulesService {
 
   /**
    * Post-process a rules-evaluation run result. Replaces the legacy
-   * `@OnEvent(AGENT_EVENTS.RESULT_READY)` callback. Agent OS v2 writes the
+   * `@OnEvent(AGENT_EVENTS.RESULT_READY)` callback. Agent OS writes the
    * result to `AgentRun.resultJson` on completion; the bridging adapter
    * invokes this method with the parsed product list.
    */

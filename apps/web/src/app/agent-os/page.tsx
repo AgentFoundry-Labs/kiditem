@@ -24,7 +24,7 @@ import { LiveActivityPanel, type RecentLog } from './components/LiveActivityPane
 import { classifyAction, classifyAgentCategory, flattenNodes } from './lib/agent-os-helpers';
 import { type OrgNode, useTeamStyle } from './lib/agent-os-types';
 
-// Synthesize the org tree the canvas expects from Agent OS v2 instances.
+// Synthesize the org tree the canvas expects from Agent OS instances.
 // `reports` is built from `reportsToId`; running runs flag instances as `running`.
 function buildOrgNodes(
   instances: AgentInstanceSummary[],

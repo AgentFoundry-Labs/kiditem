@@ -18,11 +18,11 @@ type AutoBatchResult = Awaited<ReturnType<ThumbnailGenerationService['createAuto
 /**
  * A-grade thumbnail auto re-edit cohort entrypoint.
  *
- * Legacy (pre-Agent-OS-v2) implementation owned its own `AgentDefinition`
+ * Legacy (legacy Agent OS) implementation owned its own `AgentDefinition`
  * upsert, opened a `HeartbeatRun`, ran the batch synchronously, and closed
  * the `HeartbeatRun`. Those Prisma models are gone.
  *
- * Agent OS v2 owns durable run accounting end-to-end (request inbox →
+ * Agent OS owns durable run accounting end-to-end (request inbox →
  * `AgentRun` → run events). We delegate via {@link AgentRunnerPort} so the
  * Agent OS catalog/run history is the single source of truth, then run the
  * inline batch work — the actual business logic still belongs to the AI
@@ -81,7 +81,7 @@ export class ThumbnailAutoService {
 
   /**
    * Refuse to invent a request/run id. If the Agent OS runner could not
-   * produce one (e.g. blueprint missing, instance disabled), we surface
+   * produce one (e.g. definition missing, instance disabled), we surface
    * the runner's reason rather than silently proceeding with no audit
    * trail. This keeps `runByType` results visible end-to-end.
    */

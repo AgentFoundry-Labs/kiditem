@@ -16,7 +16,6 @@ import { AgentCatalogService } from '../../../application/service/agent-catalog.
 import {
   CreateAgentInstanceDto,
   UpdateAgentInstanceDto,
-  UpsertBlueprintDto,
   UpsertInstanceToolPolicyDto,
 } from './dto/agent-catalog.dto';
 
@@ -24,17 +23,9 @@ import {
 export class AgentCatalogController {
   constructor(private readonly catalog: AgentCatalogService) {}
 
-  @Get('blueprints')
-  listBlueprints() {
-    return this.catalog.listBlueprints();
-  }
-
-  // Global catalog mutation. Restricted to admin/owner — blueprints span
-  // every organization and define default models / prompts / tool policy.
-  @Roles('admin', 'owner')
-  @Post('blueprints')
-  upsertBlueprint(@Body() body: UpsertBlueprintDto) {
-    return this.catalog.upsertBlueprint(body);
+  @Get('definitions')
+  listDefinitions() {
+    return this.catalog.listDefinitions();
   }
 
   @Get('instances')
@@ -91,7 +82,7 @@ export class AgentCatalogController {
   }
 
   // Tool policy widening (deny → allow / approval_required → allow) is
-  // explicitly an admin-tier action per docs/agent-os-v2-schema.md and is
+  // explicitly an admin-tier action per docs/agent-os-schema.md and is
   // audited via AgentAuthorizationEvent.
   @Roles('admin', 'owner')
   @Put('instances/:id/tool-policies/:toolKey')
