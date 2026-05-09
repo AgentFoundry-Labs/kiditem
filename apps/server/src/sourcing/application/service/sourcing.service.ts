@@ -1,6 +1,7 @@
 import { Inject, Injectable, NotFoundException, NotImplementedException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { paginationParams } from '../../../common/pagination';
+import { OperationAlertService } from '../../../automation/application/service/operation-alert.service';
 import {
   SOURCING_AGENT_GATEWAY_PORT,
   type SourcingAgentGatewayPort,
@@ -45,6 +46,7 @@ export class SourcingService {
     private readonly productsCatalog: SourcingProductsCatalogPort,
     @Inject(SOURCING_AGENT_GATEWAY_PORT)
     private readonly agentGateway: SourcingAgentGatewayPort,
+    private readonly operationAlerts: OperationAlertService,
   ) {}
 
   private extractCostCny(data: FlatExtensionData): number | null {
@@ -298,8 +300,33 @@ export class SourcingService {
     );
   }
 
-  async scrapeUrl(url: string, organizationId: string): Promise<{ ok: boolean; message: string; taskId: string }> {
-    const result = await this.agentGateway.scrapeUrl({ organizationId, url });
+  async scrapeUrl(
+    url: string,
+    organizationId: string,
+    triggeredByUserId: string | null,
+  ): Promise<{ ok: boolean; message: string; taskId: string }> {
+    const result = await this.agentGateway.scrapeUrl({
+      organizationId,
+      url,
+      triggeredByUserId,
+    });
+
+    if (result.requestId) {
+      await this.operationAlerts.start({
+        organizationId,
+        operationKey: `sourcing-scrape:${result.requestId}`,
+        type: 'sourcing_scrape_url',
+        title: '소싱 URL 스크래핑 진행 중',
+        sourceType: 'agent_run_request',
+        sourceId: result.requestId,
+        actorUserId: triggeredByUserId,
+        href: '/sourcing',
+        metadata: {
+          agentType: 'sourcing',
+          url,
+        },
+      });
+    }
 
     return {
       ok: true,

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AgentOsModule } from '../agent-os/agent-os.module';
+import { AutomationModule } from '../automation/automation.module';
 import { AdvertisingController } from './adapter/in/http/advertising.controller';
 import { AdStrategyAgentController } from './adapter/in/http/ad-strategy-agent.controller';
 import { AdvertisingService } from './application/service/advertising.service';
@@ -19,7 +20,7 @@ import { AdConfigService } from './application/service/ad-config.service';
 import { ChannelScrapePersistenceService } from './services/channel-scrape-persistence.service';
 
 @Module({
-  imports: [AgentOsModule],
+  imports: [AgentOsModule, AutomationModule],
   controllers: [AdvertisingController, AdStrategyAgentController],
   providers: [
     AdvertisingService,

@@ -41,8 +41,14 @@ export class SourcingAgentGatewayAdapter implements SourcingAgentGatewayPort {
         url: request.url,
         organization_id: request.organizationId,
       },
+      ...(request.triggeredByUserId
+        ? { requestedByUserId: request.triggeredByUserId }
+        : {}),
     });
-    return { taskId: this.requireTaskId(result, 'sourcing.scrape_url') };
+    return {
+      taskId: this.requireTaskId(result, 'sourcing.scrape_url'),
+      requestId: result.requestId,
+    };
   }
 
   async generateDetailPage(

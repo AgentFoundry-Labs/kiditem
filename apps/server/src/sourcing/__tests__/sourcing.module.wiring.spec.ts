@@ -9,6 +9,7 @@ import { ProcurementService } from '../application/service/procurement.service';
 import { SuppliersService } from '../application/service/suppliers.service';
 import { SourcingAgentGatewayAdapter } from '../adapter/out/agent/sourcing-agent.gateway.adapter';
 import { SOURCING_AGENT_GATEWAY_PORT } from '../application/port/out/sourcing-agent.gateway.port';
+import { AutomationModule } from '../../automation/automation.module';
 
 // NestJS @Module / @Controller metadata keys (stable across Nest 10/11).
 const IMPORTS_KEY = 'imports';
@@ -48,10 +49,15 @@ describe('SourcingModule canonical owner wiring', () => {
 
   it('imports the Agent OS v2 runtime so the gateway adapter can resolve AGENT_RUNNER_PORT', () => {
     const imports: unknown[] = Reflect.getMetadata(IMPORTS_KEY, SourcingModule) ?? [];
-    // PrismaModule + AgentOsModule (+ ProductsModule). Suppliers stays
-    // transitional flat CRUD; introducing a new import here means a new
-    // capability surface.
+    // PrismaModule + AgentOsModule + AutomationModule (+ ProductsModule).
+    // Suppliers stays transitional flat CRUD; introducing a new import here
+    // means a new capability surface.
     expect(imports.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('imports AutomationModule so SourcingService can resolve OperationAlertService for producer-owned alerts', () => {
+    const imports: unknown[] = Reflect.getMetadata(IMPORTS_KEY, SourcingModule) ?? [];
+    expect(imports).toContain(AutomationModule);
   });
 
   it('keeps public /api route prefixes for every capability', () => {

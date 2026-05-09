@@ -2,6 +2,8 @@ import { Body, Controller, Post } from '@nestjs/common';
 import { AdStrategyAgentService } from '../../../application/service/ad-strategy-agent.service';
 import { RunAdStrategyBodyDto } from './dto/ad-strategy-agent';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
+import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
+import type { AuthUser } from '../../../../auth/auth.types';
 
 /**
  * Manual trigger for the `ad_strategy` agent. Run observability
@@ -13,7 +15,15 @@ export class AdStrategyAgentController {
   constructor(private readonly adStrategyAgentService: AdStrategyAgentService) {}
 
   @Post('run')
-  run(@Body() body: RunAdStrategyBodyDto, @CurrentOrganization() organizationId: string) {
-    return this.adStrategyAgentService.run({ ...body, organizationId });
+  run(
+    @Body() body: RunAdStrategyBodyDto,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.adStrategyAgentService.run({
+      ...body,
+      organizationId,
+      triggeredByUserId: user.id,
+    });
   }
 }

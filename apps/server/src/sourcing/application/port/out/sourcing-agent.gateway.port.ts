@@ -11,10 +11,31 @@ export const SOURCING_AGENT_GATEWAY_PORT = Symbol('SOURCING_AGENT_GATEWAY_PORT')
 export interface SourcingScrapeRequest {
   organizationId: string;
   url: string;
+  /**
+   * Actor that triggered the scrape, when known. The adapter forwards this
+   * onto `AGENT_RUNNER_PORT.runByType('sourcing', ...)` as
+   * `requestedByUserId` so the FINALIZED bridge can synthesize a fallback
+   * Alert if the producer-owned alert is missed. `null` for system/cron
+   * triggers.
+   */
+  triggeredByUserId?: string | null;
 }
 
 export interface SourcingScrapeResult {
+  /**
+   * Legacy `taskId` contract. Prefer `runId` (live `AgentRun.id`); falls
+   * back to `requestId` (`AgentRunRequest.id`) only when the runner deferred
+   * execution.
+   */
   taskId: string;
+  /**
+   * Durable `AgentRunRequest.id`. Surfaced separately so the sourcing
+   * application service can open a producer-owned operation alert keyed by
+   * `(sourceType='agent_run_request', sourceId=requestId)` — the bridge
+   * closes the same row on FINALIZED. Absent when the runner did not
+   * produce a request id (e.g. agent instance disabled).
+   */
+  requestId?: string;
 }
 
 export interface SourcingDetailPageGenerateRequest {
