@@ -18,7 +18,8 @@ Usage:
 
 Deploy mode requires KIDITEM_API_IMAGE and KIDITEM_WEB_IMAGE.
 If GHCR_TOKEN is set, the script logs into ghcr.io only for the pull and logs
-out before exiting.
+out before exiting. Set SKIP_IMAGE_PULL=1 only for smoke tests that use images
+already loaded on the remote host.
 USAGE
 }
 
@@ -160,9 +161,13 @@ deploy() {
 
   docker_login_if_available
 
-  echo "Pulling staging images"
-  docker pull "$KIDITEM_API_IMAGE"
-  docker pull "$KIDITEM_WEB_IMAGE"
+  if [[ "${SKIP_IMAGE_PULL:-}" == "1" ]]; then
+    echo "Skipping image pull because SKIP_IMAGE_PULL=1"
+  else
+    echo "Pulling staging images"
+    docker pull "$KIDITEM_API_IMAGE"
+    docker pull "$KIDITEM_WEB_IMAGE"
+  fi
 
   write_deploy_env
 
