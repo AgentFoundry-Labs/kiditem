@@ -31,6 +31,14 @@ function makePrisma() {
   };
 }
 
+function makeOperationAlerts() {
+  return {
+    start: vi.fn(async () => ({})),
+    succeed: vi.fn(async () => ({})),
+    fail: vi.fn(async () => ({})),
+  };
+}
+
 describe('SalesPlansService', () => {
   let service: SalesPlansService;
   let prisma: ReturnType<typeof makePrisma>;
@@ -202,6 +210,59 @@ describe('SalesPlansService', () => {
           actualProfit: 640_000,
         },
       });
+    });
+
+    it('opens and closes an operation alert for manual actual sync', async () => {
+      const operationAlerts = makeOperationAlerts();
+      service = new SalesPlansService(prisma as any, operationAlerts as never);
+      prisma.salesPlan.findFirst.mockResolvedValue({
+        id: 'p1',
+        organizationId: 'organization-1',
+        period: '2026-04',
+      });
+      prisma.order.aggregate.mockResolvedValue({
+        _sum: { totalPrice: 5_000_000 },
+        _count: { id: 12 },
+      });
+      mockedBuildPerListingMetrics.mockResolvedValue([
+        { listingId: 'l1', netProfit: 1_000_000 } as any,
+      ]);
+      prisma.salesPlan.update.mockResolvedValue({
+        id: 'p1',
+        period: '2026-04',
+        actualRevenue: 5_000_000,
+        actualOrders: 12,
+        actualProfit: 1_000_000,
+      });
+
+      await service.syncActuals('p1', 'organization-1', 'user-1');
+
+      expect(operationAlerts.start).toHaveBeenCalledWith(
+        expect.objectContaining({
+          organizationId: 'organization-1',
+          actorUserId: 'user-1',
+          operationKey: 'sales-plan-sync:p1',
+          type: 'sales_plan_sync',
+          title: '사업계획 실적 동기화',
+          sourceType: 'sales_plan',
+          sourceId: 'p1',
+          href: '/sales-analysis',
+        }),
+      );
+      expect(operationAlerts.succeed).toHaveBeenCalledWith(
+        'organization-1',
+        'sales-plan-sync:p1',
+        expect.objectContaining({
+          href: '/sales-analysis',
+          metadata: expect.objectContaining({
+            period: '2026-04',
+            actualRevenue: 5_000_000,
+            actualOrders: 12,
+            actualProfit: 1_000_000,
+          }),
+        }),
+      );
+      expect(operationAlerts.fail).not.toHaveBeenCalled();
     });
 
     it('defaults to zero when Order.aggregate is empty and live metrics are empty', async () => {

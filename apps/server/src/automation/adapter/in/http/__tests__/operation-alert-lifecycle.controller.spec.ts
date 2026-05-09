@@ -150,6 +150,45 @@ describe('OperationAlertLifecycleController.start', () => {
       ),
     ).rejects.toThrow('unsupported operation alert producer');
   });
+
+  it('accepts thumbnail analysis browser batch producer and canonicalizes title/href', async () => {
+    const { controller, service } = makeController();
+    service.start.mockResolvedValueOnce(
+      alertRow({
+        type: 'thumbnail_analysis',
+        title: '썸네일 AI 분류',
+        sourceType: 'browser_batch',
+        sourceId: 'all',
+        href: '/thumbnails',
+      }),
+    );
+
+    await controller.start(
+      {
+        operationKey: 'thumbnail-analysis:batch:test',
+        type: 'thumbnail_analysis',
+        title: 'client title ignored',
+        sourceType: 'browser_batch',
+        sourceId: 'all',
+        href: '/settings',
+      },
+      ORGANIZATION_ID,
+      { id: USER_ID } as any,
+    );
+
+    expect(service.start).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: ORGANIZATION_ID,
+        operationKey: 'thumbnail-analysis:batch:test',
+        actorUserId: USER_ID,
+        type: 'thumbnail_analysis',
+        title: '썸네일 AI 분류',
+        sourceType: 'browser_batch',
+        sourceId: 'all',
+        href: '/thumbnails',
+      }),
+    );
+  });
 });
 
 describe('OperationAlertLifecycleController.update', () => {

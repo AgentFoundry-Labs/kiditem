@@ -1,8 +1,16 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { PanelAlertRow } from '../PanelAlertRow';
 import { usePanelStore } from '../lib/panel-store';
 import type { PanelAlertItem } from '@kiditem/shared/panel';
+
+const mockApiPost = vi.hoisted(() => vi.fn(async () => ({ ok: true })));
+
+vi.mock('@/lib/api-client', () => ({
+  apiClient: {
+    post: mockApiPost,
+  },
+}));
 
 vi.mock('../PromoteToTaskModal', () => ({
   PromoteToTaskModal: ({ open, onClose }: { open: boolean; onClose: () => void }) =>
@@ -48,6 +56,11 @@ const makeAlert = (overrides: Partial<PanelAlertItem> = {}): PanelAlertItem => (
 });
 
 describe('PanelAlertRow', () => {
+  beforeEach(() => {
+    mockApiPost.mockClear();
+    usePanelStore.setState({ byId: {}, isOpen: true });
+  });
+
   it('renders title and message', () => {
     render(<PanelAlertRow item={makeAlert()} />);
     expect(screen.getByText('테스트 알림')).toBeInTheDocument();
@@ -125,6 +138,19 @@ describe('PanelAlertRow', () => {
     const btn = screen.getByRole('button', { name: '할 일로 만들기' });
     expect(btn).toHaveAttribute('aria-label', '할 일로 만들기');
     expect(btn.tabIndex).not.toBe(-1);
+  });
+
+  it('dismisses a terminal alert from the panel', async () => {
+    const item = makeAlert({ id: 'alert-cleanup-1' });
+    usePanelStore.setState({ byId: { [item.id]: item }, isOpen: true });
+
+    render(<PanelAlertRow item={item} />);
+    fireEvent.click(screen.getByRole('button', { name: '알림 정리' }));
+
+    expect(mockApiPost).toHaveBeenCalledWith('/api/alerts/alert-cleanup-1/dismiss');
+    await waitFor(() => {
+      expect(usePanelStore.getState().byId['alert-cleanup-1']).toBeUndefined();
+    });
   });
 
   describe('operation alerts (alertKind = "operation")', () => {
@@ -215,6 +241,15 @@ describe('PanelAlertRow', () => {
         />,
       );
       expect(screen.getByRole('button', { name: '할 일로 만들기' })).toBeInTheDocument();
+    });
+
+    it('does not offer cleanup while an operation is running', () => {
+      render(
+        <PanelAlertRow
+          item={makeAlert({ alertKind: 'operation', status: 'running' })}
+        />,
+      );
+      expect(screen.queryByRole('button', { name: '알림 정리' })).not.toBeInTheDocument();
     });
   });
 });

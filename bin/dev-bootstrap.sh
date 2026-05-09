@@ -8,8 +8,9 @@
 #      have them. Resolves the "git worktrees don't carry .env" friction.
 #   2. Runs `npm install --legacy-peer-deps` if node_modules is missing.
 #   3. Verifies SUPABASE_URL + SUPABASE_SECRET_KEY are set.
-#   4. Calls scripts/login-magiclink.mjs with the configured dev user and writes
-#      the resulting CALLBACK_URL to .dev-auth/callback.url (gitignored).
+#   4. Calls scripts/create-dev-preview-session.mjs with the configured dev user,
+#      verifies local User + active OrganizationMembership, and writes the
+#      resulting callback URL to .dev-auth/callback.url (gitignored).
 #   5. Prints a one-liner the AI/preview agent can navigate to in order to
 #      hydrate the auth cookie in a fresh Chromium without typing a password.
 #
@@ -181,22 +182,39 @@ if [[ ! "$WEB_ORIGIN" =~ ^https?://[^/]+(:[0-9]+)?$ ]]; then
 fi
 echo "  · DEV_WEB_ORIGIN=${WEB_ORIGIN}"
 
-# ---------- step 4: mint a magic-link callback URL --------------------------
+# ---------- step 4: mint a dev preview session callback URL -----------------
 
-echo "==> step 4: magic-link callback for ${DEV_EMAIL}"
+echo "==> step 4: dev preview session for ${DEV_EMAIL}"
 mkdir -p .dev-auth
 
-CALLBACK_OUTPUT="$(SUPABASE_URL="$SUPABASE_URL" SUPABASE_SECRET_KEY="$SUPABASE_SECRET_KEY" DEV_WEB_ORIGIN="$WEB_ORIGIN" node scripts/login-magiclink.mjs "$DEV_EMAIL" "/" 2>&1 || true)"
+CALLBACK_OUTPUT="$(SUPABASE_URL="$SUPABASE_URL" SUPABASE_SECRET_KEY="$SUPABASE_SECRET_KEY" DEV_WEB_ORIGIN="$WEB_ORIGIN" node scripts/create-dev-preview-session.mjs "$DEV_EMAIL" "/" 2>&1 || true)"
 
 CALLBACK_URL="$(printf '%s\n' "$CALLBACK_OUTPUT" | sed -n 's/^CALLBACK_URL=//p' | head -1)"
 if [[ -z "$CALLBACK_URL" ]]; then
-  echo "  ✗ login-magiclink.mjs did not produce a CALLBACK_URL."
+  echo "  ✗ create-dev-preview-session.mjs did not produce a CALLBACK_URL."
+  echo "$CALLBACK_OUTPUT"
+  exit 1
+fi
+PREVIEW_USER_ID="$(printf '%s\n' "$CALLBACK_OUTPUT" | sed -n 's/^PREVIEW_USER_ID=//p' | head -1)"
+PREVIEW_USER_EMAIL="$(printf '%s\n' "$CALLBACK_OUTPUT" | sed -n 's/^PREVIEW_USER_EMAIL=//p' | head -1)"
+PREVIEW_ORGANIZATION_ID="$(printf '%s\n' "$CALLBACK_OUTPUT" | sed -n 's/^PREVIEW_ORGANIZATION_ID=//p' | head -1)"
+PREVIEW_MEMBERSHIP_ID="$(printf '%s\n' "$CALLBACK_OUTPUT" | sed -n 's/^PREVIEW_MEMBERSHIP_ID=//p' | head -1)"
+
+if [[ -z "$PREVIEW_USER_ID" || -z "$PREVIEW_ORGANIZATION_ID" || -z "$PREVIEW_MEMBERSHIP_ID" ]]; then
+  echo "  ✗ preview identity was not verified."
   echo "$CALLBACK_OUTPUT"
   exit 1
 fi
 
 printf '%s\n' "$CALLBACK_URL" > .dev-auth/callback.url
+{
+  printf 'PREVIEW_USER_ID=%s\n' "$PREVIEW_USER_ID"
+  printf 'PREVIEW_USER_EMAIL=%s\n' "$PREVIEW_USER_EMAIL"
+  printf 'PREVIEW_ORGANIZATION_ID=%s\n' "$PREVIEW_ORGANIZATION_ID"
+  printf 'PREVIEW_MEMBERSHIP_ID=%s\n' "$PREVIEW_MEMBERSHIP_ID"
+} > .dev-auth/session.env
 echo "  · wrote .dev-auth/callback.url"
+echo "  · verified user=${PREVIEW_USER_EMAIL} organization=${PREVIEW_ORGANIZATION_ID}"
 
 # ---------- step 5: print AI-preview snippet --------------------------------
 
@@ -213,11 +231,12 @@ For an AI preview agent (Claude Preview MCP, Playwright, etc.):
 
      The /auth/callback route consumes the token, sets the Supabase auth
      cookie, and redirects to /. Subsequent requests to /api/* are
-     authenticated as ${DEV_EMAIL}.
+     authenticated as ${PREVIEW_USER_EMAIL} with organization
+     ${PREVIEW_ORGANIZATION_ID}.
 
   3. When the access token expires (~1h), re-run this script.
 
 For a human:
   - Just paste the URL above into the browser tab the dev server is running in.
-  - Or run \`node scripts/login-magiclink.mjs ${DEV_EMAIL}\` directly.
+  - Or run \`node scripts/create-dev-preview-session.mjs ${DEV_EMAIL}\` directly.
 EOF

@@ -250,6 +250,7 @@ export default function ProductsPageContent() {
       const fd = new FormData();
       fd.append('file', file);
       fd.append('period', String(period));
+      fd.append('source', 'products');
       return apiClient.upload<{ success: boolean; upserted?: number; error?: string }>(`/api/traffic/upload`, fd);
     },
     onSuccess: (data) => {

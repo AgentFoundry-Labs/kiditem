@@ -1,8 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { usePanelStore } from '../lib/panel-store';
 import { PanelSheet } from '../PanelSheet';
 import type { PanelItem } from '@kiditem/shared/panel';
+
+const mockApiPost = vi.hoisted(() => vi.fn(async () => ({ ok: true })));
+
+vi.mock('@/lib/api-client', () => ({
+  apiClient: {
+    post: mockApiPost,
+  },
+}));
 
 // next/navigation mock
 vi.mock('next/navigation', () => ({
@@ -68,8 +76,9 @@ function seedStore(items: PanelItem[]) {
   usePanelStore.setState({ byId, isOpen: true, connectionStatus: 'connected' });
 }
 
-describe('PanelSheet my/team split', () => {
+describe('PanelSheet my/attention/team split', () => {
   beforeEach(() => {
+    mockApiPost.mockClear();
     mockUser.value = { id: MY_USER_ID };
     usePanelStore.setState({ byId: {}, isOpen: true, connectionStatus: 'connected' });
   });
@@ -88,31 +97,39 @@ describe('PanelSheet my/team split', () => {
     expect(screen.queryByText('팀')).not.toBeInTheDocument();
   });
 
-  it('workflow run with other actorUserId → 팀 section', () => {
+  it('workflow run with other actorUserId → 팀 작업 section', () => {
     seedStore([makeRunItem('wf-2', OTHER_USER_ID, 'succeeded')]);
     render(<PanelSheet />);
-    expect(screen.getByText('팀')).toBeInTheDocument();
+    expect(screen.getByText('팀 작업')).toBeInTheDocument();
     expect(screen.getByText('워크플로우 wf-2')).toBeInTheDocument();
   });
 
-  it('alert item (actorUserId null) → 팀 section', () => {
+  it('system alert with actorUserId null → 조직 알림 section', () => {
     seedStore([makeAlertItem('alert-1')]);
     render(<PanelSheet />);
-    expect(screen.getByText('팀')).toBeInTheDocument();
+    expect(screen.getByText('조직 알림')).toBeInTheDocument();
     expect(screen.getByText('알림 alert-1')).toBeInTheDocument();
+    expect(screen.queryByText('팀 작업')).not.toBeInTheDocument();
   });
 
   it('내 작업 0건 → empty state placeholder shown', () => {
-    // Only a team alert item — my section should show empty placeholder
+    // Only an attention alert item — my section should show empty placeholder
     seedStore([makeAlertItem('alert-2')]);
     render(<PanelSheet />);
     expect(screen.getByText('진행 중인 내 작업이 없습니다')).toBeInTheDocument();
   });
 
-  it('팀 0건 → 팀 header not rendered', () => {
+  it('조직 알림 0건 → empty state placeholder shown', () => {
     seedStore([makeRunItem('wf-3', MY_USER_ID)]);
     render(<PanelSheet />);
-    expect(screen.queryByText('팀')).not.toBeInTheDocument();
+    expect(screen.getByText('조직 알림')).toBeInTheDocument();
+    expect(screen.getByText('조직 알림이 없습니다')).toBeInTheDocument();
+  });
+
+  it('팀 0건 → 팀 header not rendered', () => {
+    seedStore([makeRunItem('wf-4', MY_USER_ID)]);
+    render(<PanelSheet />);
+    expect(screen.queryByText('팀 작업')).not.toBeInTheDocument();
   });
 });
 
@@ -151,5 +168,30 @@ describe('PanelSheet active count', () => {
     render(<PanelSheet />);
     // signal alerts → recent only, no progress badge shown
     expect(screen.queryByText(/진행$/)).not.toBeInTheDocument();
+  });
+
+  it('clears dismissable alerts but keeps running operations', async () => {
+    const runningOperation = {
+      ...makeAlertItem('op-running'),
+      alertKind: 'operation' as const,
+      status: 'running',
+    };
+    seedStore([
+      makeAlertItem('signal-1'),
+      { ...makeAlertItem('op-done'), alertKind: 'operation' as const, status: 'succeeded' },
+      runningOperation,
+    ]);
+
+    render(<PanelSheet />);
+    screen.getByRole('button', { name: '완료 알림 정리' }).click();
+
+    await waitFor(() => {
+      expect(usePanelStore.getState().byId['signal-1']).toBeUndefined();
+      expect(usePanelStore.getState().byId['op-done']).toBeUndefined();
+    });
+    expect(usePanelStore.getState().byId['op-running']).toBeDefined();
+    expect(mockApiPost).toHaveBeenCalledWith('/api/alerts/signal-1/dismiss');
+    expect(mockApiPost).toHaveBeenCalledWith('/api/alerts/op-done/dismiss');
+    expect(mockApiPost).not.toHaveBeenCalledWith('/api/alerts/op-running/dismiss');
   });
 });

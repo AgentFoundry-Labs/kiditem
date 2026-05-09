@@ -28,6 +28,7 @@ export default function TrafficUpload() {
     try {
       const formData = new FormData();
       formData.append('file', file);
+      formData.append('source', 'settings');
 
       const data = await apiClient.upload<TrafficUploadResult & { success?: boolean }>('/api/traffic/upload', formData);
 

@@ -1,10 +1,12 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import * as XLSX from 'xlsx';
+import { TextDecoder } from 'util';
 import type { MulterFile } from '../../common/types';
 import { resolvePricing } from '../../common/option-pricing-resolver';
 import { kstDayStart } from '../../common/kst';
+import { OperationAlertService } from '../../automation/application/service/operation-alert.service';
 
 interface DayRevenue {
   date: string;
@@ -14,6 +16,52 @@ interface DayRevenue {
   visitors: number;
   netProfit?: number;
   profitRate?: number;
+}
+
+type TrafficUploadSource = 'settings' | 'products';
+
+interface TrafficUploadOptions {
+  actorUserId?: string | null;
+  source?: string | null;
+}
+
+const TRAFFIC_UPLOAD_SURFACES: Record<TrafficUploadSource, { href: string }> = {
+  settings: { href: '/settings' },
+  products: { href: '/products' },
+};
+
+function normalizeTrafficUploadSource(source: string | null | undefined): TrafficUploadSource {
+  return source === 'products' ? 'products' : 'settings';
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function readTrafficWorkbook(file: MulterFile): XLSX.WorkBook {
+  const isCsv =
+    file.mimetype === 'text/csv' || /\.csv$/i.test(file.originalname);
+  if (!isCsv) return XLSX.read(file.buffer, { type: 'buffer' });
+  return XLSX.read(selectCsvText(file.buffer), { type: 'string' });
+}
+
+function selectCsvText(buffer: Buffer): string {
+  const utf8 = stripBom(buffer.toString('utf8'));
+  if (looksLikeTrafficCsv(utf8)) return utf8;
+
+  const eucKr = stripBom(new TextDecoder('euc-kr').decode(buffer));
+  if (looksLikeTrafficCsv(eucKr)) return eucKr;
+
+  return utf8;
+}
+
+function stripBom(text: string): string {
+  return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+}
+
+function looksLikeTrafficCsv(text: string): boolean {
+  const firstLine = text.split(/\r?\n/, 1)[0] ?? '';
+  return /등록상품\s*ID|등록상품ID|sellerProductId/i.test(firstLine);
 }
 
 /**
@@ -68,374 +116,427 @@ const LISTING_PRICING_SELECT = {
  */
 @Injectable()
 export class TrafficService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional()
+    private readonly operationAlerts?: OperationAlertService,
+  ) {}
 
-  async uploadTrafficStats(file: MulterFile, organizationId: string) {
-    if (file.size > 10 * 1024 * 1024) {
-      throw new BadRequestException('파일 크기 10MB 초과');
-    }
-
-    const buffer = file.buffer;
-    const workbook = XLSX.read(buffer, { type: 'buffer' });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rows: any[] = XLSX.utils.sheet_to_json(sheet);
-
-    if (rows.length === 0) {
-      throw new BadRequestException('데이터가 없습니다');
-    }
-
-    const keys = Object.keys(rows[0]);
-
-    function findCol(...candidates: string[]): string | null {
-      for (const c of candidates) {
-        const found = keys.find((k) => k === c);
-        if (found) return found;
-      }
-      for (const c of candidates) {
-        const found = keys.find(
-          (k) => k.includes(c) && !k.includes('전환') && !k.includes('총'),
-        );
-        if (found) return found;
-      }
-      return null;
-    }
-
-    const colProductId = findCol('등록상품ID', '등록상품 ID', 'sellerProductId');
-    const colVisitors = findCol('방문자');
-    const colViews =
-      keys.find((k) => k === '조회') || keys.find((k) => k === '조회수') || null;
-    const colCart = findCol('장바구니');
-    const colOrders =
-      keys.find((k) => k === '주문') || keys.find((k) => k === '주문수') || null;
-    const colSalesQty = findCol('판매량', '판매수량');
-    const colRevenue =
-      keys.find((k) => k === '매출(원)') ||
-      keys.find((k) => k === '매출') ||
-      null;
-    const colDate = findCol('날짜', '기간', '일자');
-
-    if (!colProductId) {
-      throw new BadRequestException(
-        `등록상품ID 컬럼을 찾을 수 없습니다. 감지된 컬럼: ${keys.join(', ')}`,
-      );
-    }
-
-    // Coupang 의 '등록상품ID' 는 ChannelListing.externalId 에 해당.
-    // CSV upload 는 Coupang 전용이므로 channel='coupang' 로 제한.
-    const listings = await this.prisma.channelListing.findMany({
-      where: { organizationId, isDeleted: false, channel: 'coupang' },
-      select: { id: true, externalId: true },
+  async uploadTrafficStats(
+    file: MulterFile,
+    organizationId: string,
+    options: TrafficUploadOptions = {},
+  ) {
+    const source = normalizeTrafficUploadSource(options.source);
+    const operationKey = `traffic-upload:${source}`;
+    const href = TRAFFIC_UPLOAD_SURFACES[source].href;
+    await this.operationAlerts?.start({
+      organizationId,
+      operationKey,
+      type: 'traffic_upload',
+      title: '트래픽 데이터 업로드',
+      sourceType: 'traffic_upload',
+      sourceId: source,
+      actorUserId: options.actorUserId ?? null,
+      href,
+      message: 'Wing 트래픽 엑셀 데이터를 업로드하고 있습니다.',
+      progress: 0,
+      metadata: {
+        source,
+        fileName: file.originalname,
+        fileSize: file.size,
+      },
     });
-    const listingMap = new Map<string, string>(
-      listings.map((l) => [l.externalId, l.id]),
-    );
 
-    const todayKst = kstDayStart(new Date());
-    const todayStr = todayKst.toISOString().slice(0, 10);
-
-    const parseNum = (val: unknown): number => {
-      if (val === null || val === undefined) return 0;
-      const n = Number(String(val).replace(/[,%]/g, ''));
-      return isNaN(n) ? 0 : n;
-    };
-
-    type AggregatedRow = {
-      listingId: string;
-      externalId: string;
-      rawSnapshotId: string | null;
-      visitors: number;
-      views: number;
-      cartAdds: number;
-      orders: number;
-      salesQty: number;
-      revenue: number;
-      date: string; // 'YYYY-MM-DD' KST
-    };
-    type ParsedUploadRow = {
-      raw: Record<string, unknown>;
-      listingId: string | null;
-      externalId: string | null;
-      date: string | null;
-      visitors: number;
-      views: number;
-      cartAdds: number;
-      orders: number;
-      salesQty: number;
-      revenue: number;
-      matchStatus: 'matched' | 'unmatched';
-      matchReason: string | null;
-    };
-
-    const aggregated = new Map<string, AggregatedRow>();
-    const parsedRows: ParsedUploadRow[] = [];
-
-    let skipped = 0;
-
-    for (const row of rows) {
-      const cpId = String(row[colProductId] || '').trim();
-      if (!cpId) {
-        skipped++;
-        parsedRows.push({
-          raw: row,
-          listingId: null,
-          externalId: null,
-          date: null,
-          visitors: 0,
-          views: 0,
-          cartAdds: 0,
-          orders: 0,
-          salesQty: 0,
-          revenue: 0,
-          matchStatus: 'unmatched',
-          matchReason: 'missing-external-id',
-        });
-        continue;
+    try {
+      if (file.size > 10 * 1024 * 1024) {
+        throw new BadRequestException('파일 크기 10MB 초과');
       }
 
-      const listingId = listingMap.get(cpId);
-      if (!listingId) {
-        skipped++;
+      const workbook = readTrafficWorkbook(file);
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rows: any[] = XLSX.utils.sheet_to_json(sheet);
+
+      if (rows.length === 0) {
+        throw new BadRequestException('데이터가 없습니다');
+      }
+
+      const keys = Object.keys(rows[0]);
+
+      function findCol(...candidates: string[]): string | null {
+        for (const c of candidates) {
+          const found = keys.find((k) => k === c);
+          if (found) return found;
+        }
+        for (const c of candidates) {
+          const found = keys.find(
+            (k) => k.includes(c) && !k.includes('전환') && !k.includes('총'),
+          );
+          if (found) return found;
+        }
+        return null;
+      }
+
+      const colProductId = findCol('등록상품ID', '등록상품 ID', 'sellerProductId');
+      const colVisitors = findCol('방문자');
+      const colViews =
+        keys.find((k) => k === '조회') || keys.find((k) => k === '조회수') || null;
+      const colCart = findCol('장바구니');
+      const colOrders =
+        keys.find((k) => k === '주문') || keys.find((k) => k === '주문수') || null;
+      const colSalesQty = findCol('판매량', '판매수량');
+      const colRevenue =
+        keys.find((k) => k === '매출(원)') ||
+        keys.find((k) => k === '매출') ||
+        null;
+      const colDate = findCol('날짜', '기간', '일자');
+
+      if (!colProductId) {
+        throw new BadRequestException(
+          `등록상품ID 컬럼을 찾을 수 없습니다. 감지된 컬럼: ${keys.join(', ')}`,
+        );
+      }
+
+      // Coupang 의 '등록상품ID' 는 ChannelListing.externalId 에 해당.
+      // CSV upload 는 Coupang 전용이므로 channel='coupang' 로 제한.
+      const listings = await this.prisma.channelListing.findMany({
+        where: { organizationId, isDeleted: false, channel: 'coupang' },
+        select: { id: true, externalId: true },
+      });
+      const listingMap = new Map<string, string>(
+        listings.map((l) => [l.externalId, l.id]),
+      );
+
+      const todayKst = kstDayStart(new Date());
+      const todayStr = todayKst.toISOString().slice(0, 10);
+
+      const parseNum = (val: unknown): number => {
+        if (val === null || val === undefined) return 0;
+        const n = Number(String(val).replace(/[,%]/g, ''));
+        return isNaN(n) ? 0 : n;
+      };
+
+      type AggregatedRow = {
+        listingId: string;
+        externalId: string;
+        rawSnapshotId: string | null;
+        visitors: number;
+        views: number;
+        cartAdds: number;
+        orders: number;
+        salesQty: number;
+        revenue: number;
+        date: string; // 'YYYY-MM-DD' KST
+      };
+      type ParsedUploadRow = {
+        raw: Record<string, unknown>;
+        listingId: string | null;
+        externalId: string | null;
+        date: string | null;
+        visitors: number;
+        views: number;
+        cartAdds: number;
+        orders: number;
+        salesQty: number;
+        revenue: number;
+        matchStatus: 'matched' | 'unmatched';
+        matchReason: string | null;
+      };
+
+      const aggregated = new Map<string, AggregatedRow>();
+      const parsedRows: ParsedUploadRow[] = [];
+
+      let skipped = 0;
+
+      for (const row of rows) {
+        const cpId = String(row[colProductId] || '').trim();
+        if (!cpId) {
+          skipped++;
+          parsedRows.push({
+            raw: row,
+            listingId: null,
+            externalId: null,
+            date: null,
+            visitors: 0,
+            views: 0,
+            cartAdds: 0,
+            orders: 0,
+            salesQty: 0,
+            revenue: 0,
+            matchStatus: 'unmatched',
+            matchReason: 'missing-external-id',
+          });
+          continue;
+        }
+
+        const listingId = listingMap.get(cpId);
+        if (!listingId) {
+          skipped++;
+          parsedRows.push({
+            raw: row,
+            listingId: null,
+            externalId: cpId,
+            date: null,
+            visitors: 0,
+            views: 0,
+            cartAdds: 0,
+            orders: 0,
+            salesQty: 0,
+            revenue: 0,
+            matchStatus: 'unmatched',
+            matchReason: 'unmatched-listing',
+          });
+          continue;
+        }
+
+        const date = colDate
+          ? String(row[colDate] || todayStr).slice(0, 10)
+          : todayStr;
+
+        const visitors = parseNum(colVisitors ? row[colVisitors] : 0);
+        const views = parseNum(colViews ? row[colViews] : 0);
+        const cartAdds = parseNum(colCart ? row[colCart] : 0);
+        const orders = parseNum(colOrders ? row[colOrders] : 0);
+        const salesQty = parseNum(colSalesQty ? row[colSalesQty] : 0);
+        const revenue = parseNum(colRevenue ? row[colRevenue] : 0);
+
         parsedRows.push({
           raw: row,
-          listingId: null,
+          listingId,
           externalId: cpId,
-          date: null,
-          visitors: 0,
-          views: 0,
-          cartAdds: 0,
-          orders: 0,
-          salesQty: 0,
-          revenue: 0,
-          matchStatus: 'unmatched',
-          matchReason: 'unmatched-listing',
+          date,
+          visitors,
+          views,
+          cartAdds,
+          orders,
+          salesQty,
+          revenue,
+          matchStatus: 'matched',
+          matchReason: null,
         });
-        continue;
       }
 
-      const date = colDate
-        ? String(row[colDate] || todayStr).slice(0, 10)
-        : todayStr;
+      const observedAt = new Date();
+      let upserted = 0;
 
-      const visitors = parseNum(colVisitors ? row[colVisitors] : 0);
-      const views = parseNum(colViews ? row[colViews] : 0);
-      const cartAdds = parseNum(colCart ? row[colCart] : 0);
-      const orders = parseNum(colOrders ? row[colOrders] : 0);
-      const salesQty = parseNum(colSalesQty ? row[colSalesQty] : 0);
-      const revenue = parseNum(colRevenue ? row[colRevenue] : 0);
-
-      parsedRows.push({
-        raw: row,
-        listingId,
-        externalId: cpId,
-        date,
-        visitors,
-        views,
-        cartAdds,
-        orders,
-        salesQty,
-        revenue,
-        matchStatus: 'matched',
-        matchReason: null,
-      });
-    }
-
-    const observedAt = new Date();
-    let upserted = 0;
-
-    if (parsedRows.length > 0) {
-      // Persist a `ChannelScrapeRun` + per-row `ChannelScrapeSnapshot` so the
-      // raw upload is auditable / replay-able the same way extension-sync
-      // payloads are. Raw capture is committed before normalization so daily
-      // upsert failures never erase audit/replay rows.
-      const run = await this.prisma.channelScrapeRun.create({
-        data: {
-          organizationId,
-          channel: 'coupang',
-          source: 'traffic_csv_upload',
-          pageType: 'traffic',
-          businessDate: todayKst,
-          status: 'running',
-          rowCount: rows.length,
-          metaJson: {
-            detectedColumns: {
-              productId: colProductId,
-              visitors: colVisitors,
-              views: colViews,
-              cart: colCart,
-              orders: colOrders,
-              salesQty: colSalesQty,
-              revenue: colRevenue,
-              date: colDate,
-            },
-            fileName: file.originalname,
-          } as Prisma.InputJsonValue,
-        },
-        select: { id: true },
-      });
-
-      let matchedRows = 0;
-      const unmatchedRows = skipped;
-
-      for (const parsed of parsedRows) {
-        const businessDate = parsed.date ? new Date(parsed.date) : null;
-        const snapshot = await this.prisma.channelScrapeSnapshot.create({
+      if (parsedRows.length > 0) {
+        // Persist a `ChannelScrapeRun` + per-row `ChannelScrapeSnapshot` so the
+        // raw upload is auditable / replay-able the same way extension-sync
+        // payloads are. Raw capture is committed before normalization so daily
+        // upsert failures never erase audit/replay rows.
+        const run = await this.prisma.channelScrapeRun.create({
           data: {
             organizationId,
-            scrapeRunId: run.id,
             channel: 'coupang',
             source: 'traffic_csv_upload',
             pageType: 'traffic',
-            businessDate,
-            externalId: parsed.externalId,
-            listingId: parsed.listingId,
-            matchStatus: parsed.matchStatus,
-            matchReason: parsed.matchReason,
-            rawJson: parsed.raw as Prisma.InputJsonValue,
-            normalizedJson:
-              parsed.matchStatus === 'matched'
-                ? ({
-                    visitors: parsed.visitors,
-                    views: parsed.views,
-                    cartAdds: parsed.cartAdds,
-                    orders: parsed.orders,
-                    salesQty: parsed.salesQty,
-                    revenue: parsed.revenue,
-                  } as Prisma.InputJsonValue)
-                : Prisma.DbNull,
+            businessDate: todayKst,
+            status: 'running',
+            rowCount: rows.length,
+            metaJson: {
+              detectedColumns: {
+                productId: colProductId,
+                visitors: colVisitors,
+                views: colViews,
+                cart: colCart,
+                orders: colOrders,
+                salesQty: colSalesQty,
+                revenue: colRevenue,
+                date: colDate,
+              },
+              fileName: file.originalname,
+            } as Prisma.InputJsonValue,
           },
           select: { id: true },
         });
 
-        if (
-          parsed.matchStatus !== 'matched' ||
-          !parsed.listingId ||
-          !parsed.externalId ||
-          !parsed.date
-        ) {
-          continue;
-        }
-        matchedRows += 1;
-        const key = `${parsed.listingId}::${parsed.date}`;
-        const existing = aggregated.get(key);
-        if (existing) {
-          existing.rawSnapshotId = snapshot.id;
-          existing.visitors += parsed.visitors;
-          existing.views += parsed.views;
-          existing.cartAdds += parsed.cartAdds;
-          existing.orders += parsed.orders;
-          existing.salesQty += parsed.salesQty;
-          existing.revenue += parsed.revenue;
-        } else {
-          aggregated.set(key, {
-            listingId: parsed.listingId,
-            externalId: parsed.externalId,
-            rawSnapshotId: snapshot.id,
-            date: parsed.date,
-            visitors: parsed.visitors,
-            views: parsed.views,
-            cartAdds: parsed.cartAdds,
-            orders: parsed.orders,
-            salesQty: parsed.salesQty,
-            revenue: parsed.revenue,
-          });
-        }
-      }
+        let matchedRows = 0;
+        const unmatchedRows = skipped;
 
-      const dataArr = [...aggregated.values()];
-      try {
-        await this.prisma.$transaction(async (tx) => {
-          for (const d of dataArr) {
-            const businessDate = new Date(d.date);
-            // Daily-fact upsert — overwrite-on-replay metric semantics so a
-            // re-upload of the same day yields the same totals (idempotent).
-            await tx.channelListingDailySnapshot.upsert({
-              where: {
-                organizationId_listingId_businessDate: {
-                  organizationId,
-                  listingId: d.listingId,
-                  businessDate,
-                },
-              },
-              create: {
-                organizationId,
-                listingId: d.listingId,
-                channel: 'coupang',
-                externalId: d.externalId,
-                businessDate,
-                sampleCount: 1,
-                firstObservedAt: observedAt,
-                lastObservedAt: observedAt,
-                rawSnapshotId: d.rawSnapshotId,
-                trafficVisitors: d.visitors,
-                trafficViews: d.views,
-                trafficCartAdds: d.cartAdds,
-                trafficOrders: d.orders,
-                trafficSalesQty: d.salesQty,
-                trafficRevenue: d.revenue,
-                metaJson: {
-                  'traffic.csv_upload': {
-                    source: 'traffic_csv_upload',
-                    data: {
-                      fileName: file.originalname,
-                      uploadedAt: observedAt.toISOString(),
-                    },
-                  },
-                } as Prisma.InputJsonValue,
-              },
-              update: {
-                sampleCount: { increment: 1 },
-                lastObservedAt: observedAt,
-                rawSnapshotId: d.rawSnapshotId,
-                trafficVisitors: d.visitors,
-                trafficViews: d.views,
-                trafficCartAdds: d.cartAdds,
-                trafficOrders: d.orders,
-                trafficSalesQty: d.salesQty,
-                trafficRevenue: d.revenue,
-              },
+        for (const parsed of parsedRows) {
+          const businessDate = parsed.date ? new Date(parsed.date) : null;
+          const snapshot = await this.prisma.channelScrapeSnapshot.create({
+            data: {
+              organizationId,
+              scrapeRunId: run.id,
+              channel: 'coupang',
+              source: 'traffic_csv_upload',
+              pageType: 'traffic',
+              businessDate,
+              externalId: parsed.externalId,
+              listingId: parsed.listingId,
+              matchStatus: parsed.matchStatus,
+              matchReason: parsed.matchReason,
+              rawJson: parsed.raw as Prisma.InputJsonValue,
+              normalizedJson:
+                parsed.matchStatus === 'matched'
+                  ? ({
+                      visitors: parsed.visitors,
+                      views: parsed.views,
+                      cartAdds: parsed.cartAdds,
+                      orders: parsed.orders,
+                      salesQty: parsed.salesQty,
+                      revenue: parsed.revenue,
+                    } as Prisma.InputJsonValue)
+                  : Prisma.DbNull,
+            },
+            select: { id: true },
+          });
+
+          if (
+            parsed.matchStatus !== 'matched' ||
+            !parsed.listingId ||
+            !parsed.externalId ||
+            !parsed.date
+          ) {
+            continue;
+          }
+          matchedRows += 1;
+          const key = `${parsed.listingId}::${parsed.date}`;
+          const existing = aggregated.get(key);
+          if (existing) {
+            existing.rawSnapshotId = snapshot.id;
+            existing.visitors += parsed.visitors;
+            existing.views += parsed.views;
+            existing.cartAdds += parsed.cartAdds;
+            existing.orders += parsed.orders;
+            existing.salesQty += parsed.salesQty;
+            existing.revenue += parsed.revenue;
+          } else {
+            aggregated.set(key, {
+              listingId: parsed.listingId,
+              externalId: parsed.externalId,
+              rawSnapshotId: snapshot.id,
+              date: parsed.date,
+              visitors: parsed.visitors,
+              views: parsed.views,
+              cartAdds: parsed.cartAdds,
+              orders: parsed.orders,
+              salesQty: parsed.salesQty,
+              revenue: parsed.revenue,
             });
           }
-        });
-      } catch (err) {
+        }
+
+        const dataArr = [...aggregated.values()];
+        try {
+          await this.prisma.$transaction(async (tx) => {
+            for (const d of dataArr) {
+              const businessDate = new Date(d.date);
+              // Daily-fact upsert — overwrite-on-replay metric semantics so a
+              // re-upload of the same day yields the same totals (idempotent).
+              await tx.channelListingDailySnapshot.upsert({
+                where: {
+                  organizationId_listingId_businessDate: {
+                    organizationId,
+                    listingId: d.listingId,
+                    businessDate,
+                  },
+                },
+                create: {
+                  organizationId,
+                  listingId: d.listingId,
+                  channel: 'coupang',
+                  externalId: d.externalId,
+                  businessDate,
+                  sampleCount: 1,
+                  firstObservedAt: observedAt,
+                  lastObservedAt: observedAt,
+                  rawSnapshotId: d.rawSnapshotId,
+                  trafficVisitors: d.visitors,
+                  trafficViews: d.views,
+                  trafficCartAdds: d.cartAdds,
+                  trafficOrders: d.orders,
+                  trafficSalesQty: d.salesQty,
+                  trafficRevenue: d.revenue,
+                  metaJson: {
+                    'traffic.csv_upload': {
+                      source: 'traffic_csv_upload',
+                      data: {
+                        fileName: file.originalname,
+                        uploadedAt: observedAt.toISOString(),
+                      },
+                    },
+                  } as Prisma.InputJsonValue,
+                },
+                update: {
+                  sampleCount: { increment: 1 },
+                  lastObservedAt: observedAt,
+                  rawSnapshotId: d.rawSnapshotId,
+                  trafficVisitors: d.visitors,
+                  trafficViews: d.views,
+                  trafficCartAdds: d.cartAdds,
+                  trafficOrders: d.orders,
+                  trafficSalesQty: d.salesQty,
+                  trafficRevenue: d.revenue,
+                },
+              });
+            }
+          });
+        } catch (err) {
+          await this.updateScrapeRunOrThrow(run.id, organizationId, {
+            status: 'error',
+            matchedCount: matchedRows,
+            unmatchedCount: unmatchedRows,
+            errorCount: 1,
+            errorJson: {
+              message: err instanceof Error ? err.message : String(err),
+              name: err instanceof Error ? err.name : 'Error',
+            } as Prisma.InputJsonValue,
+            finishedAt: new Date(),
+          });
+          throw err;
+        }
+
+        upserted = dataArr.length;
         await this.updateScrapeRunOrThrow(run.id, organizationId, {
-          status: 'error',
+          status: 'complete',
           matchedCount: matchedRows,
           unmatchedCount: unmatchedRows,
-          errorCount: 1,
-          errorJson: {
-            message: err instanceof Error ? err.message : String(err),
-            name: err instanceof Error ? err.name : 'Error',
-          } as Prisma.InputJsonValue,
           finishedAt: new Date(),
         });
-        throw err;
       }
 
-      upserted = dataArr.length;
-      await this.updateScrapeRunOrThrow(run.id, organizationId, {
-        status: 'complete',
-        matchedCount: matchedRows,
-        unmatchedCount: unmatchedRows,
-        finishedAt: new Date(),
+      const response = {
+        success: true,
+        upserted,
+        skipped,
+        detectedColumns: {
+          productId: colProductId,
+          visitors: colVisitors,
+          views: colViews,
+          cart: colCart,
+          orders: colOrders,
+          salesQty: colSalesQty,
+          revenue: colRevenue,
+          date: colDate,
+        },
+      };
+      await this.operationAlerts?.succeed(organizationId, operationKey, {
+        href,
+        message: `트래픽 데이터 업로드 완료: ${upserted}건 반영, ${skipped}건 스킵`,
+        severity: skipped > 0 ? 'warning' : 'info',
+        metadata: {
+          source,
+          fileName: file.originalname,
+          upserted,
+          skipped,
+        },
       });
+      return response;
+    } catch (err) {
+      await this.operationAlerts?.fail(organizationId, operationKey, {
+        href,
+        message: `트래픽 데이터 업로드 실패: ${errorMessage(err)}`,
+        metadata: {
+          source,
+          fileName: file.originalname,
+          error: errorMessage(err),
+        },
+      });
+      throw err;
     }
-
-    return {
-      success: true,
-      upserted,
-      skipped,
-      detectedColumns: {
-        productId: colProductId,
-        visitors: colVisitors,
-        views: colViews,
-        cart: colCart,
-        orders: colOrders,
-        salesQty: colSalesQty,
-        revenue: colRevenue,
-        date: colDate,
-      },
-    };
   }
 
   private async updateScrapeRunOrThrow(

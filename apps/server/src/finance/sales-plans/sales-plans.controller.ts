@@ -2,6 +2,8 @@ import { Controller, Get, Post, Patch, Delete, Param, Body } from '@nestjs/commo
 import { SalesPlansService } from './sales-plans.service';
 import { CreateSalesPlanDto, UpdateSalesPlanDto } from './dto';
 import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
+import { CurrentUser } from '../../auth/decorators/current-user.decorator';
+import type { AuthUser } from '../../auth/auth.types';
 
 @Controller('sales-plans')
 export class SalesPlansController {
@@ -27,8 +29,12 @@ export class SalesPlansController {
   }
 
   @Patch(':id/sync')
-  syncActuals(@Param('id') id: string, @CurrentOrganization() organizationId: string) {
-    return this.salesPlansService.syncActuals(id, organizationId);
+  syncActuals(
+    @Param('id') id: string,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.salesPlansService.syncActuals(id, organizationId, user.id);
   }
 
   @Delete(':id')
