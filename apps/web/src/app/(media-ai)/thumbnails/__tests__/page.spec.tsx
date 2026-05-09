@@ -18,6 +18,14 @@ const generation = {
   },
 };
 
+const failedGeneration = {
+  ...generation,
+  id: '44444444-4444-4444-8444-444444444444',
+  status: 'failed',
+  phase: null,
+  errorMessage: 'fetch failed',
+};
+
 const mockSearchParams = vi.hoisted(() => ({
   value: new URLSearchParams(),
   replace: vi.fn(),
@@ -51,7 +59,7 @@ vi.mock('../hooks/useThumbnailAnalysis', () => ({
 
 vi.mock('../../_shared/hooks/useThumbnailGenerations', () => ({
   useGenerationList: () => ({
-    data: [generation],
+    data: [generation, failedGeneration],
     refetch: vi.fn(),
   }),
 }));
@@ -125,7 +133,11 @@ vi.mock('../components/PipelineVisualization', () => ({ PipelineVisualization: (
 vi.mock('../components/ThumbnailMainTabs', () => ({ ThumbnailMainTabs: () => <div /> }));
 vi.mock('../components/UnclassifiedTab', () => ({ UnclassifiedTab: () => <div /> }));
 vi.mock('../components/ScanResultsTab', () => ({ ScanResultsTab: () => <div /> }));
-vi.mock('../components/AiEditTab', () => ({ AiEditTab: () => <div /> }));
+vi.mock('../components/AiEditTab', () => ({
+  AiEditTab: ({ editFilter }: { editFilter: string }) => (
+    <div data-testid="ai-edit-tab">filter:{editFilter}</div>
+  ),
+}));
 vi.mock('../components/HistoryTab', () => ({ HistoryTab: () => <div /> }));
 vi.mock('../components/InspectionDrawer', () => ({ InspectionDrawer: () => <div /> }));
 
@@ -143,5 +155,16 @@ describe('ThumbnailsPage deep links', () => {
     await waitFor(() => {
       expect(screen.getByTestId('detail-modal')).toHaveTextContent(`generation:${generation.id}`);
     });
+  });
+
+  it('opens failed generation deep links on the failed edit filter', async () => {
+    mockSearchParams.value = new URLSearchParams(`generationId=${failedGeneration.id}`);
+
+    render(<ThumbnailsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('detail-modal')).toHaveTextContent(`generation:${failedGeneration.id}`);
+    });
+    expect(screen.getByTestId('ai-edit-tab')).toHaveTextContent('filter:failed');
   });
 });

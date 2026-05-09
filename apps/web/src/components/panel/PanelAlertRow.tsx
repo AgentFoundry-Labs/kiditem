@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { cn, timeAgo } from '@/lib/utils';
 import { PromoteToTaskModal } from './PromoteToTaskModal';
+import { usePanelStore } from './lib/panel-store';
 import type { PanelAlertItem } from '@kiditem/shared/panel';
 
 function severityIcon(severity: string) {
@@ -52,6 +53,7 @@ function operationStatusBadge(status: string): { label: string; className: strin
 export function PanelAlertRow({ item }: { item: PanelAlertItem }) {
   const { Icon, colorClass } = severityIcon(item.severity);
   const [modalOpen, setModalOpen] = useState(false);
+  const setPanelOpen = usePanelStore((s) => s.setOpen);
 
   const isOperation = item.alertKind === 'operation';
   const badge = isOperation ? operationStatusBadge(item.status) : null;
@@ -129,7 +131,10 @@ export function PanelAlertRow({ item }: { item: PanelAlertItem }) {
                 <Link
                   href={item.href}
                   className="inline-flex items-center gap-0.5 text-xs text-purple-600 hover:underline"
-                  onClick={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPanelOpen(false);
+                  }}
                 >
                   <span>이동</span>
                   <ExternalLink className="w-3 h-3" />

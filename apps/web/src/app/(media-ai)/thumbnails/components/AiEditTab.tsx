@@ -10,6 +10,7 @@ import {
   Loader2,
   Wand2,
   X,
+  XCircle,
   Zap,
   type LucideIcon,
 } from 'lucide-react';
@@ -32,7 +33,7 @@ import { ThumbnailStatusBadge } from '../../_shared/components/thumbnails/Thumbn
 import { resolveImageUrl } from '../lib/resolve-url';
 import { buildEditHref } from '@/app/(media-ai)/thumbnail-editor/edit/lib/build-edit-href';
 
-type EditFilter = 'pending' | 'generating' | 'ready' | 'applied';
+type EditFilter = 'pending' | 'generating' | 'ready' | 'applied' | 'failed';
 
 interface AiEditTabProps {
   generations: ThumbnailGenerationItem[];
@@ -77,6 +78,9 @@ export function AiEditTab({
   const generatingGens = generations.filter((g) => isActive(g)).sort(byNewestGen);
   const readyGens = generations.filter((g) => isReady(g)).sort(byNewestGen);
   const appliedGens = generations.filter((g) => isApplied(g)).sort(byNewestGen);
+  const failedGens = generations
+    .filter((g) => g.status === 'failed' || g.status === 'cancelled')
+    .sort(byNewestGen);
   const sortedPendingProducts = [...pendingProducts].sort(byNewestAnalysis);
 
   // 생성중 탭에 머물러 있는데 모든 generation 이 완료되면 → 선택 대기 탭으로 자동 전환
@@ -110,11 +114,12 @@ export function AiEditTab({
     { key: 'generating', label: '생성 중', count: generatingGens.length, color: '#3182f6', desc: 'AI 처리 중', icon: Loader2 },
     { key: 'ready', label: '선택 대기', count: readyGens.length, color: '#7048e8', desc: '이미지 선택 필요', icon: Wand2 },
     { key: 'applied', label: '적용 완료', count: appliedGens.length, color: '#00c471', desc: '쿠팡 반영', icon: CheckCircle },
+    { key: 'failed', label: '실패', count: failedGens.length, color: '#ef4444', desc: '재시도 필요', icon: XCircle },
   ];
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         {filterCards.map((s) => {
           const isActive = editFilter === s.key;
           return (
@@ -179,6 +184,15 @@ export function AiEditTab({
 
       {editFilter === 'applied' && (
         <AppliedSection generations={appliedGens} onSelectGen={onSelectGen} onDelete={handleDelete} />
+      )}
+
+      {editFilter === 'failed' && (
+        <FailedSection
+          generations={failedGens}
+          onSelectGen={onSelectGen}
+          onDelete={handleDelete}
+          onChangeFilter={onChangeFilter}
+        />
       )}
 
       <ConfirmDialog
@@ -662,6 +676,76 @@ function AppliedSection({
               onClick={() => onSelectGen(g)}
               onDelete={() => onDelete(g)}
             />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FailedSection({
+  generations,
+  onSelectGen,
+  onDelete,
+  onChangeFilter,
+}: {
+  generations: ThumbnailGenerationItem[];
+  onSelectGen: (g: ThumbnailGenerationItem) => void;
+  onDelete: (g: ThumbnailGenerationItem) => void;
+  onChangeFilter: (f: EditFilter) => void;
+}) {
+  const reEditMutation = useReEditGeneration();
+
+  return (
+    <div className="space-y-3">
+      <span className="text-[13px] font-bold" style={{ color: '#ef4444' }}>
+        실패 ({generations.length})
+      </span>
+      {generations.length === 0 ? (
+        <div className="py-12 text-center text-sm" style={{ color: 'var(--thumb-text-quaternary)' }}>
+          실패한 작업이 없습니다
+        </div>
+      ) : (
+        <div className="grid grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
+          {generations.map((g) => (
+            <div key={g.id} className="flex flex-col gap-1.5">
+              <ProductCard
+                imageUrl={g.originalUrl ?? g.product?.imageUrl ?? null}
+                name={g.product?.name ?? ''}
+                badge={<ThumbnailStatusBadge status={g.status} phase={g.phase ?? null} />}
+                onClick={() => onSelectGen(g)}
+                onDelete={() => onDelete(g)}
+              />
+              <div
+                className="min-h-[32px] rounded-lg border border-red-100 bg-red-50 px-2 py-1.5 text-[11px] leading-4 text-red-700 line-clamp-2"
+                title={g.errorMessage ?? undefined}
+              >
+                {g.errorMessage ?? (g.status === 'cancelled' ? '사용자 또는 시스템에 의해 취소됨' : '생성 실패')}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  reEditMutation.mutate(g.id, {
+                    onSuccess: () => toast.success('재생성을 요청했습니다'),
+                    onError: () => {
+                      toast.error('재생성 요청 실패');
+                      onChangeFilter('failed');
+                    },
+                  });
+                  onChangeFilter('generating');
+                }}
+                disabled={reEditMutation.isPending}
+                className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-colors bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {reEditMutation.isPending ? <Loader2 size={10} className="animate-spin" /> : <Wand2 size={10} />}
+                다시 생성
+              </button>
+              <Link href={buildEditHref({ productId: g.productId, generationId: g.id, imageUrl: g.product?.imageUrl })}>
+                <button className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-colors bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-100">
+                  <Wand2 size={10} /> 편집 화면으로
+                </button>
+              </Link>
+            </div>
           ))}
         </div>
       )}

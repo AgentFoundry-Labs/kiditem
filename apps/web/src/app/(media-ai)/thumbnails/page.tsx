@@ -60,7 +60,7 @@ function ThumbnailsPageContent() {
   const [selectedGen, setSelectedGen] = useState<ThumbnailGenerationItem | null>(null);
   const [inspectOpen, setInspectOpen] = useState(false);
 
-  const [editFilter, setEditFilter] = useState<'pending' | 'generating' | 'ready' | 'applied'>('ready');
+  const [editFilter, setEditFilter] = useState<'pending' | 'generating' | 'ready' | 'applied' | 'failed'>('ready');
   const [selectedNeedsFixIds, setSelectedNeedsFixIds] = useState<Set<string>>(new Set());
   const [historySubTab, setHistorySubTab] = useState<'history' | 'tracking'>('history');
 
@@ -199,8 +199,15 @@ function ThumbnailsPageContent() {
     if (isApplied(generation)) {
       setActiveTab('history');
       setHistorySubTab('history');
+    } else if (generation.status === 'failed' || generation.status === 'cancelled') {
+      setActiveTab('ai-edit');
+      setEditFilter('failed');
+    } else if (generation.status === 'pending' || generation.status === 'running') {
+      setActiveTab('ai-edit');
+      setEditFilter('generating');
     } else {
       setActiveTab('ai-edit');
+      setEditFilter('ready');
     }
   }, [deepLinkGenerationId, generations]);
 
@@ -323,6 +330,17 @@ function ThumbnailsPageContent() {
 
   const needsFixIds = new Set(needsFixProducts.map((p) => p.productId));
   const validActiveGenerations = activeGenerations.filter((g) => needsFixIds.has(g.productId));
+  const aiEditCount = generations.filter(
+    (g) =>
+      needsFixIds.has(g.productId) &&
+      (
+        g.status === 'pending' ||
+        g.status === 'running' ||
+        isReady(g) ||
+        g.status === 'failed' ||
+        g.status === 'cancelled'
+      ),
+  ).length;
 
   const searchFilter = (r: ThumbnailAnalysisResult) =>
     !sq || r.productName.toLowerCase().includes(sq);
@@ -544,7 +562,7 @@ function ThumbnailsPageContent() {
         unclassifiedCount={unclassifiedCount}
         analyzedCount={analyzedCount}
         needsFixCount={needsFixCount}
-        validActiveGenerationsCount={validActiveGenerations.length}
+        aiEditCount={aiEditCount}
         historyCount={historyByProduct.length}
         onChangeTab={handleMainTabChange}
       />

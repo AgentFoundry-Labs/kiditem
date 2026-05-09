@@ -88,9 +88,11 @@ export function DetailModal({
   const hasAnalysis = !!(display?.scores || display?.complianceScores);
   // 이미지 생성 + 분석 데이터가 둘 다 있으면 combined 뷰: 위 Before/After, 아래 분석.
   const isCombined = hasCandidates && hasAnalysis;
-  const isUnclassified = !hasCandidates && !display?.scores && !display?.complianceScores;
+  const isUnclassified = !gen && !hasCandidates && !display?.scores && !display?.complianceScores;
+  const isGenerationFailed = gen?.status === 'failed' || gen?.status === 'cancelled';
   const editHref = buildEditHref({
     productId: product?.productId ?? gen?.productId ?? '',
+    generationId: gen?.id,
     imageUrl: product?.imageUrl ?? gen?.product.imageUrl ?? null,
   });
   const grade = display?.grade;
@@ -161,6 +163,11 @@ export function DetailModal({
                 <Loader2 size={12} className="animate-spin" /> 생성 중
               </span>
             )}
+            {isGenerationFailed && (
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-red-600 bg-red-50 px-2.5 py-1 rounded-lg flex-shrink-0">
+                <XCircle size={12} /> {gen?.status === 'cancelled' ? '취소됨' : '생성 실패'}
+              </span>
+            )}
             {gen && isApplied(gen) && (
               <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-lg flex-shrink-0">
                 <CheckCircle size={12} /> 적용 완료
@@ -173,6 +180,17 @@ export function DetailModal({
 
           {/* ── 바디 ── */}
           <div className="flex-1 overflow-y-auto">
+            {isGenerationFailed && (
+              <div className="mx-5 mt-5 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-800">
+                <div className="flex items-center gap-2 font-semibold">
+                  <XCircle size={15} className="shrink-0" />
+                  {gen?.status === 'cancelled' ? '생성이 취소되었습니다' : 'AI 썸네일 생성에 실패했습니다'}
+                </div>
+                <p className="mt-1 text-xs leading-relaxed text-red-700/85">
+                  {gen?.errorMessage ?? (gen?.status === 'cancelled' ? '사용자 또는 시스템에 의해 취소되었습니다.' : '오류 메시지가 없습니다.')}
+                </p>
+              </div>
+            )}
 
             {isCombined ? (
               /* ── Combined: 위 Before/After, 아래 분석 ── */

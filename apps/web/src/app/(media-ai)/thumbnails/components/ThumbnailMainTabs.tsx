@@ -7,7 +7,7 @@ interface ThumbnailMainTabsProps {
   unclassifiedCount: number;
   analyzedCount: number;
   needsFixCount: number;
-  validActiveGenerationsCount: number;
+  aiEditCount: number;
   historyCount: number;
   onChangeTab: (tab: MainTabKey, opts?: { setNeedsFixFilter?: boolean; resetFilter?: boolean }) => void;
 }
@@ -24,7 +24,7 @@ export function ThumbnailMainTabs({
   unclassifiedCount,
   analyzedCount,
   needsFixCount,
-  validActiveGenerationsCount,
+  aiEditCount,
   historyCount,
   onChangeTab,
 }: ThumbnailMainTabsProps) {
@@ -67,8 +67,8 @@ export function ThumbnailMainTabs({
       <PillButton active={activeTab === 'ai-edit'} onClick={() => onChangeTab('ai-edit')} narrowGap>
         <Wand2 size={14} />
         AI 편집
-        {validActiveGenerationsCount > 0 && (
-          <CountBadge active={activeTab === 'ai-edit'}>{validActiveGenerationsCount}</CountBadge>
+        {aiEditCount > 0 && (
+          <CountBadge active={activeTab === 'ai-edit'}>{aiEditCount}</CountBadge>
         )}
       </PillButton>
 
