@@ -190,7 +190,7 @@ wait_for_health() {
 
 verify_render_image_runtime() {
   echo "Checking API render-image browser runtime"
-  timeout 60s compose exec -T api node - <<'NODE'
+  compose exec -T api node - <<'NODE'
 const puppeteer = require('puppeteer');
 
 (async () => {
@@ -198,6 +198,7 @@ const puppeteer = require('puppeteer');
     headless: true,
     executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    timeout: 30000,
   });
   await browser.close();
 })().catch((error) => {
