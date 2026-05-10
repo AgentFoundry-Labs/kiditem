@@ -452,7 +452,7 @@ export default function ProductInputSection({
           {isLoading ? (
             <>
               <Loader2 size={18} className="animate-spin" />
-              초안 생성 중
+              요청 등록 중
             </>
           ) : (
             <>
@@ -462,7 +462,7 @@ export default function ProductInputSection({
           )}
         </button>
         <p className="mt-2 text-xs font-medium text-[var(--text-tertiary)]">
-          생성 완료 후 에디터로 바로 이동합니다.
+          완료되면 알림에서 에디터로 이동할 수 있습니다.
         </p>
       </div>
     </section>
