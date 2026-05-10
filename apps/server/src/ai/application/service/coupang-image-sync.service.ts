@@ -12,6 +12,7 @@ import { OperationAlertService } from '../../../automation/application/service/o
 import {
   COUPANG_INVENTORY_SCRAPE_PORT,
   type CoupangInventoryRow,
+  type CoupangInventoryRowSource,
   type CoupangInventoryScrapePort,
 } from '../port/out/coupang-inventory-scrape.port';
 import {
@@ -23,6 +24,7 @@ import {
   type CoupangImageReconciliationPort,
 } from '../port/out/coupang-image-reconciliation.port';
 import { assertPublicHttpUrl } from '../../../common/security/public-url';
+import type { CoupangImageSyncCapabilities } from '@kiditem/shared/ai';
 
 export type CoupangImageSyncJobStatus = 'running' | 'done' | 'failed';
 
@@ -30,6 +32,7 @@ export interface CoupangImageSyncJobState {
   jobId: string;
   organizationId: string;
   actorUserId: string | null;
+  source: CoupangInventoryRowSource;
   status: CoupangImageSyncJobStatus;
   phase: 'starting' | 'scraping' | 'linking' | 'finished';
   total: number;
@@ -90,11 +93,23 @@ export class CoupangImageSyncService implements OnModuleInit {
     organizationId: string,
     actorUserId: string | null = null,
   ): { jobId: string } {
-    const job = this.createJob(organizationId, actorUserId);
+    const job = this.createJob(organizationId, actorUserId, 'server_scraper');
 
     this.runAfterAlertStart(job, () => this.runFromScraper(job));
 
     return { jobId: job.jobId };
+  }
+
+  getCapabilities(): CoupangImageSyncCapabilities {
+    const serverScraper = this.scraper.getCapabilities();
+    return {
+      extensionRows: {
+        source: 'extension',
+        enabled: true,
+      },
+      serverScraper,
+      preferredSource: serverScraper.enabled ? 'server_scraper' : 'extension',
+    } satisfies CoupangImageSyncCapabilities;
   }
 
   private async closeStaleRunningAlerts(): Promise<void> {
@@ -124,9 +139,9 @@ export class CoupangImageSyncService implements OnModuleInit {
     rows: CoupangInventoryRow[],
     actorUserId: string | null = null,
   ): { jobId: string } {
-    const job = this.createJob(organizationId, actorUserId);
+    const job = this.createJob(organizationId, actorUserId, 'extension');
 
-    this.runAfterAlertStart(job, () => this.runFromRows(job, rows));
+    this.runAfterAlertStart(job, () => this.runFromRows(job, rows, 'extension'));
 
     return { jobId: job.jobId };
   }
@@ -134,6 +149,7 @@ export class CoupangImageSyncService implements OnModuleInit {
   private createJob(
     organizationId: string,
     actorUserId: string | null,
+    source: CoupangInventoryRowSource,
   ): CoupangImageSyncJobState {
     for (const job of this.jobs.values()) {
       if (job.organizationId === organizationId && job.status === 'running') {
@@ -146,6 +162,7 @@ export class CoupangImageSyncService implements OnModuleInit {
       jobId,
       organizationId,
       actorUserId,
+      source,
       status: 'running',
       phase: 'starting',
       total: 0,
@@ -214,15 +231,17 @@ export class CoupangImageSyncService implements OnModuleInit {
     void this.notifyAlertProgress(job);
 
     const scrapedRows = await this.scraper.scrapeAll();
-    await this.runFromRows(job, scrapedRows);
+    await this.runFromRows(job, scrapedRows, 'server_scraper');
   }
 
   private async runFromRows(
     job: CoupangImageSyncJobState,
     rows: CoupangInventoryRow[],
+    source: CoupangInventoryRowSource,
   ): Promise<void> {
     const { organizationId } = job;
-    const uniqueRows = dedupeRows(rows);
+    job.source = source;
+    const uniqueRows = dedupeRows(rows, source);
     await this.reconciliation.recordRows({ organizationId, rows: uniqueRows });
     const targets = await this.filterRowsNeedingImage(organizationId, uniqueRows);
 
@@ -271,6 +290,7 @@ export class CoupangImageSyncService implements OnModuleInit {
   private alertMetadata(job: CoupangImageSyncJobState): Record<string, unknown> {
     return {
       jobId: job.jobId,
+      source: job.source,
       phase: job.phase,
       total: job.total,
       processed: job.processed,
@@ -464,14 +484,17 @@ export class CoupangImageSyncService implements OnModuleInit {
  * Pure helper — exported for unit test.
  * 같은 inventoryId 중복 제거. 빈 inventoryId / url 도 제거.
  */
-export function dedupeRows(rows: CoupangInventoryRow[]): CoupangInventoryRow[] {
+export function dedupeRows(
+  rows: CoupangInventoryRow[],
+  source: CoupangInventoryRowSource,
+): CoupangInventoryRow[] {
   const seen = new Set<string>();
   const out: CoupangInventoryRow[] = [];
   for (const row of rows) {
     if (!row.inventoryId || !row.url) continue;
     if (seen.has(row.inventoryId)) continue;
     seen.add(row.inventoryId);
-    out.push(row);
+    out.push({ ...row, source });
   }
   return out;
 }

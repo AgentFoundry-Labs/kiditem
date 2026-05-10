@@ -6,6 +6,11 @@ import type { MasterProduct, MasterProductImage } from '@prisma/client';
 import type { MasterImageItem } from '@kiditem/shared/product';
 import type { MasterWithImageRows } from '../adapter/out/prisma/master-product.query';
 
+export function normalizeMasterTags(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((tag): tag is string => typeof tag === 'string');
+}
+
 export function toMasterImageItem(row: MasterProductImage): MasterImageItem {
   return {
     id: row.id,
@@ -30,5 +35,9 @@ export function toMasterImageItem(row: MasterProductImage): MasterImageItem {
  * `MasterProduct` type does not include the nested `images` field.
  */
 export function withImageRows(row: MasterWithImageRows): MasterProduct {
-  return { ...row, images: row.images.map(toMasterImageItem) } as unknown as MasterProduct;
+  return {
+    ...row,
+    tags: normalizeMasterTags(row.tags),
+    images: row.images.map(toMasterImageItem),
+  } as unknown as MasterProduct;
 }

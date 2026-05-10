@@ -1,9 +1,40 @@
 import { runInNewContext } from 'node:vm';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { CoupangInventoryScrapeAdapter } from './coupang-inventory-scrape.adapter';
 import type { CoupangInventoryRow } from '../../../application/port/out/coupang-inventory-scrape.port';
 
 describe('CoupangInventoryScrapeAdapter scrape script', () => {
+  const originalNodeEnv = process.env.NODE_ENV;
+  const originalEnabled = process.env.COUPANG_IMAGE_SYNC_SERVER_SCRAPER_ENABLED;
+
+  afterEach(() => {
+    process.env.NODE_ENV = originalNodeEnv;
+    if (originalEnabled === undefined) {
+      delete process.env.COUPANG_IMAGE_SYNC_SERVER_SCRAPER_ENABLED;
+    } else {
+      process.env.COUPANG_IMAGE_SYNC_SERVER_SCRAPER_ENABLED = originalEnabled;
+    }
+  });
+
+  it('keeps server scraper disabled in production unless the env flag enables it', () => {
+    process.env.NODE_ENV = 'production';
+    delete process.env.COUPANG_IMAGE_SYNC_SERVER_SCRAPER_ENABLED;
+
+    const adapter = new CoupangInventoryScrapeAdapter();
+    expect(adapter.getCapabilities()).toEqual({
+      source: 'server_scraper',
+      enabled: false,
+      reason: 'COUPANG_IMAGE_SYNC_SERVER_SCRAPER_ENABLED=true is required outside local/dev environments',
+    });
+
+    process.env.COUPANG_IMAGE_SYNC_SERVER_SCRAPER_ENABLED = 'true';
+    expect(adapter.getCapabilities()).toEqual({
+      source: 'server_scraper',
+      enabled: true,
+      reason: null,
+    });
+  });
+
   it('stops pagination when Wing returns the same inventory page again', async () => {
     const adapter = new CoupangInventoryScrapeAdapter();
     const script = (

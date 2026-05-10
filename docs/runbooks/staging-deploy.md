@@ -356,6 +356,25 @@ STAGING_URL="$(gh variable get STAGING_URL --env staging)" \
 Then load `.secrets/extensions/coupang-ads-scraper-staging` from
 `chrome://extensions` before testing image sync.
 
+Server-side Coupang Wing image scraping is disabled in staging by default even
+though the API image contains browser dependencies for `/api/render-image`.
+For the Phase 3 Playwriter experiment only, add the following to the staging API
+env and redeploy:
+
+```bash
+COUPANG_IMAGE_SYNC_SERVER_SCRAPER_ENABLED=true
+```
+
+Before running `/thumbnails` image sync without the extension, verify:
+
+```bash
+curl -s http://127.0.0.1:8080/api/coupang-image-sync/capabilities
+```
+
+Success criteria: `serverScraper.enabled` is `true` and `preferredSource` is
+`server_scraper`. Rollback is removing the env var and redeploying; the browser
+extension path remains available.
+
 ## Host Nginx With HTTPS Domain
 
 Install the host reverse proxy after DNS points to the EC2 host.

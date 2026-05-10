@@ -156,6 +156,7 @@ export const queryKeys = {
   },
   coupangImageSync: {
     all: ['coupangImageSync'] as const,
+    capabilities: () => [...queryKeys.coupangImageSync.all, 'capabilities'] as const,
     current: () => [...queryKeys.coupangImageSync.all, 'current'] as const,
     job: (jobId: string) => [...queryKeys.coupangImageSync.all, 'job', jobId] as const,
   },

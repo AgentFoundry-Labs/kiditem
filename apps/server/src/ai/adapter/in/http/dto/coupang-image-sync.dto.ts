@@ -1,5 +1,14 @@
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, IsArray, IsOptional, IsString, IsUrl, ValidateNested } from 'class-validator';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsIn,
+  IsOptional,
+  IsString,
+  IsUrl,
+  ValidateNested,
+} from 'class-validator';
+import { COUPANG_IMAGE_SYNC_ROW_SOURCES } from '@kiditem/shared/ai';
 
 export class CoupangImageSyncRowDto {
   @IsString()
@@ -14,6 +23,10 @@ export class CoupangImageSyncRowDto {
 
   @IsUrl({ require_tld: false })
   url!: string;
+
+  @IsOptional()
+  @IsIn(COUPANG_IMAGE_SYNC_ROW_SOURCES)
+  source?: 'extension' | 'server_scraper';
 }
 
 export class CoupangImageSyncRowsDto {

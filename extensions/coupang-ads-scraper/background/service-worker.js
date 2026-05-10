@@ -205,7 +205,14 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.action === "ping") {
-    sendResponse({ success: true, version: chrome.runtime.getManifest().version });
+    sendResponse({
+      success: true,
+      version: chrome.runtime.getManifest().version,
+      capabilities: {
+        coupangImageRows: true,
+        coupangImageRowSource: "extension",
+      },
+    });
     return;
   }
 
@@ -558,7 +565,7 @@ async function scrapeCoupangImageRows(runId = null) {
         };
       }
 
-      const rows = Array.isArray(response.rows) ? response.rows : [];
+      const rows = normalizeCoupangImageRows(response.rows);
       if (rows.length === 0) break;
       const pageSignature = buildInventoryRowsSignature(rows);
       if (seenPageSignatures.has(pageSignature)) {
@@ -681,6 +688,19 @@ function buildWingImageSyncPageUrl(page) {
 
 function buildInventoryRowsSignature(rows) {
   return rows.map((row) => `${row?.inventoryId || ""}:${row?.url || ""}`).join("|");
+}
+
+function normalizeCoupangImageRows(rows) {
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .filter((row) => row?.inventoryId && row?.url)
+    .map((row) => ({
+      inventoryId: String(row.inventoryId),
+      legacyCode: row.legacyCode ? String(row.legacyCode) : null,
+      name: String(row.name || ""),
+      url: String(row.url),
+      source: "extension",
+    }));
 }
 
 function isWingInventoryUrl(url) {
