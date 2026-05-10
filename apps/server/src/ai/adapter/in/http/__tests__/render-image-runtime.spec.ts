@@ -16,6 +16,18 @@ describe('render-image staging runtime', () => {
     expect(deployScript).toContain('verify_render_image_runtime');
     expect(deployScript).toContain('puppeteer.launch');
   });
+
+  it('reclaims unused Docker space before pulling the larger Chromium-enabled API image', () => {
+    const root = findRepoRoot();
+    const deployScript = readFileSync(join(root, 'deploy/staging/remote-deploy.sh'), 'utf8');
+
+    expect(deployScript).toContain('reclaim_docker_space');
+    expect(deployScript).toContain('docker container prune -f');
+    expect(deployScript).toContain('docker image prune -af');
+    expect(deployScript).toContain('docker builder prune -af');
+    expect(deployScript).not.toContain('docker volume prune');
+    expect(deployScript).not.toContain('--volumes');
+  });
 });
 
 function findRepoRoot(): string {

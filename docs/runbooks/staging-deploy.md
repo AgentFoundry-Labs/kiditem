@@ -238,6 +238,12 @@ The workflow uses the short-lived `GITHUB_TOKEN` to push and pull GHCR images.
 Do not create a long-lived GHCR PAT for staging unless the `GITHUB_TOKEN` path
 is blocked by organization policy.
 
+The staging API image includes Chromium for server-side render-image jobs. The
+remote deploy script prunes stopped containers, unused images, and Docker
+builder cache before pulling new images. It intentionally does not prune Docker
+volumes. If a pull still fails with `no space left on device` after that
+cleanup, increase the EC2 root volume or slim the API image before retrying.
+
 Workflow actions are pinned to commit SHA with the tag version left as a YAML
 comment. When upgrading an action, resolve the new tag SHA with
 `git ls-remote https://github.com/<owner>/<repo>.git refs/tags/<tag>`.
