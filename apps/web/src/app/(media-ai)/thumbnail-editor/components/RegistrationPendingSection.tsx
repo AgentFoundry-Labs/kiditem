@@ -12,7 +12,6 @@ import {
   useClearRegistrationError,
   type WingBatchItemResult,
 } from '../../_shared/hooks/useThumbnailGenerations';
-import { apiClient } from '@/lib/api-client';
 import { resolveImageUrl } from '@/lib/resolve-url';
 import { cn } from '@/lib/utils';
 import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
@@ -111,23 +110,6 @@ export function RegistrationPendingSection() {
   const startBatch = async () => {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
-
-    try {
-      const status = await apiClient.get<{ connected: boolean; error?: string }>(
-        '/api/thumbnail-analysis/playwriter-status',
-      );
-      if (!status.connected) {
-        toast.error(
-          status.error ??
-            '활성 Playwriter 세션이 없습니다. 터미널에서 `playwriter session new` 실행 후 쿠팡 Wing 에 로그인하세요.',
-          { duration: 8000 },
-        );
-        return;
-      }
-    } catch {
-      toast.error('Playwriter 상태 확인에 실패했습니다.');
-      return;
-    }
 
     setRunningIds(ids);
     setResults(null);
