@@ -118,6 +118,10 @@ S3_ENDPOINT=https://<project-ref>.storage.supabase.co/storage/v1/s3
 S3_PUBLIC_URL=https://<project-ref>.supabase.co/storage/v1/object/public/kiditem-staging-assets
 S3_ACCESS_KEY=<supabase-storage-s3-access-key-id>
 S3_SECRET_KEY=<supabase-storage-s3-secret-access-key>
+GEMINI_API_KEY=<gemini-api-key>
+AI_TEXT_MODEL=gemini-2.5-flash
+AGENT_RUNTIME_WORKER_ENABLED=1
+AGENT_DEFAULT_MODEL=gemini-2.5-flash
 EOF
 
 cat > .secrets/staging/deploy.env <<'EOF'
@@ -297,6 +301,23 @@ deploy/staging/remote-deploy.sh
 
 The workflow never overwrites `/opt/kiditem/.env.staging.api` or
 `/opt/kiditem/.env.staging.web`.
+
+Async Agent OS jobs are enabled on staging because product-bound detail page
+and thumbnail generation enqueue `AgentRunRequest` rows. Before every deploy,
+`remote-deploy.sh` validates `/opt/kiditem/.env.staging.api`, runs the
+idempotent Agent OS seed from the new API image, and only then restarts the
+compose stack. These values must be present in the API env file:
+
+```text
+AGENT_RUNTIME_WORKER_ENABLED=1
+AGENT_DEFAULT_MODEL=gemini-2.5-flash
+```
+
+`AGENT_DEFAULT_MODEL` may be replaced by a complete set of per-agent
+`AGENT_<TYPE>_MODEL` values, but the shared value is the normal staging
+configuration. The deploy will fail before touching the running containers if
+the worker is disabled, the model env is missing, or `AGENT_RUNTIME_ALLOW_NOOP`
+is enabled.
 
 ## Host Nginx For IP-Only Smoke Test
 
