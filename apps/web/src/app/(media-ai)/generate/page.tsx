@@ -10,7 +10,6 @@
 
 import { Suspense, useState } from 'react';
 import { ArrowLeft, Sparkles, X } from 'lucide-react';
-import GenerateLoadingOverlay from './components/GenerateLoadingOverlay';
 import KidsPlayfulHistoryList from './components/KidsPlayfulHistoryList';
 import ProductInputSection from './components/ProductInputSection';
 import TemplatePickStep from './components/TemplatePickStep';
@@ -141,7 +140,6 @@ function GeneratePageContent() {
         />
       </div>
 
-      {isLoading && <GenerateLoadingOverlay />}
     </div>
   );
 }
