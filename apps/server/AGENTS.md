@@ -10,8 +10,8 @@ npm run build
 docker compose up -d
 ```
 
-Env: `.env` -> `DATABASE_URL`, `CHANNEL_CREDENTIALS_ENCRYPTION_KEY`,
-`GEMINI_API_KEY`, and domain-specific provider keys.
+Env: `.env` follows `.env.example`. Keep it app-local; root `.env` is only a
+fallback for shared local tooling.
 
 ## Scope Instructions
 
