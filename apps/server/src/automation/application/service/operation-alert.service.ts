@@ -79,6 +79,17 @@ export interface OperationLifecyclePatch {
   metadata?: Record<string, unknown>;
 }
 
+export interface CloseStaleOperationAlertsInput {
+  sourceType: string;
+  operationKeyPrefix: string;
+  staleBefore: Date;
+  status: 'failed' | 'cancelled';
+  message: string;
+  severity?: OperationAlertSeverity;
+  metadata?: Record<string, unknown>;
+  limit?: number;
+}
+
 @Injectable()
 export class OperationAlertService {
   private readonly logger = new Logger(OperationAlertService.name);
@@ -207,6 +218,55 @@ export class OperationAlertService {
       return this.fail(organizationId, existing.operationKey, patch);
     }
     return this.cancel(organizationId, existing.operationKey, patch);
+  }
+
+  /**
+   * Best-effort recovery for operation alerts whose producer was process-local
+   * and disappeared during deploy/restart. This is intentionally filtered by
+   * producer identity so unrelated long-running operations stay visible.
+   */
+  async closeStaleOperations(input: CloseStaleOperationAlertsInput): Promise<Alert[]> {
+    const limit = Math.max(1, Math.min(input.limit ?? 50, 500));
+    const staleAlerts = await this.prisma.alert.findMany({
+      where: {
+        kind: 'operation',
+        status: { in: ['pending', 'running'] },
+        sourceType: input.sourceType,
+        operationKey: { startsWith: input.operationKeyPrefix },
+        updatedAt: { lt: input.staleBefore },
+      },
+      orderBy: { updatedAt: 'asc' },
+      take: limit,
+    });
+
+    const closed: Alert[] = [];
+    for (const alert of staleAlerts) {
+      const updateResult = await this.prisma.alert.updateMany({
+        where: {
+          id: alert.id,
+          organizationId: alert.organizationId,
+          status: { in: ['pending', 'running'] },
+        },
+        data: {
+          status: input.status,
+          severity: input.severity ?? (input.status === 'failed' ? 'error' : alert.severity),
+          message: input.message,
+          metadata: this.mergeMetadata(alert.metadata, input.metadata) as Prisma.InputJsonValue,
+          finishedAt: new Date(),
+        },
+      });
+      if (updateResult.count === 0) continue;
+
+      const refreshed = await this.prisma.alert.findFirst({
+        where: { id: alert.id, organizationId: alert.organizationId },
+      });
+      if (!refreshed) continue;
+
+      closed.push(refreshed);
+      this.emitUpsert(refreshed);
+    }
+
+    return closed;
   }
 
   // ── internals ──────────────────────────────────────────────────────────

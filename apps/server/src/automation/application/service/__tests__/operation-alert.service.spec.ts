@@ -42,6 +42,7 @@ function makePrisma() {
   return {
     alert: {
       findFirst: vi.fn(),
+      findMany: vi.fn(),
       updateMany: vi.fn(),
       create: vi.fn(),
     },
@@ -298,5 +299,71 @@ describe('OperationAlertService.succeed / fail / progress / cancel', () => {
     for (const call of prisma.alert.updateMany.mock.calls) {
       expect(call[0].where).toMatchObject({ organizationId: ORGANIZATION_ID });
     }
+  });
+});
+
+describe('OperationAlertService.closeStaleOperations', () => {
+  it('fails stale matching operation alerts and emits panel updates', async () => {
+    const { service, prisma, eventEmitter } = makeService();
+    const staleBefore = new Date('2026-05-10T10:00:00Z');
+    const stale = existingAlert({
+      id: '44444444-4444-4444-4444-444444444444',
+      operationKey: 'coupang-image-sync:job-1',
+      sourceType: 'coupang_image_sync',
+      sourceId: 'job-1',
+      updatedAt: new Date('2026-05-10T07:00:00Z'),
+      metadata: { jobId: 'job-1', phase: 'scraping' },
+    });
+    const closed = {
+      ...stale,
+      status: 'failed',
+      severity: 'error',
+      message: '쿠팡 이미지 동기화가 서버 재시작/배포 중 중단되어 자동 종료되었습니다.',
+      finishedAt: new Date('2026-05-10T10:01:00Z'),
+      metadata: { jobId: 'job-1', phase: 'finished', staleReconciled: true },
+    };
+    prisma.alert.findMany.mockResolvedValueOnce([stale]);
+    prisma.alert.updateMany.mockResolvedValueOnce({ count: 1 });
+    prisma.alert.findFirst.mockResolvedValueOnce(closed);
+
+    const result = await service.closeStaleOperations({
+      sourceType: 'coupang_image_sync',
+      operationKeyPrefix: 'coupang-image-sync:',
+      staleBefore,
+      status: 'failed',
+      message: '쿠팡 이미지 동기화가 서버 재시작/배포 중 중단되어 자동 종료되었습니다.',
+      metadata: { phase: 'finished', staleReconciled: true },
+    });
+
+    expect(prisma.alert.findMany).toHaveBeenCalledWith({
+      where: {
+        kind: 'operation',
+        status: { in: ['pending', 'running'] },
+        sourceType: 'coupang_image_sync',
+        operationKey: { startsWith: 'coupang-image-sync:' },
+        updatedAt: { lt: staleBefore },
+      },
+      orderBy: { updatedAt: 'asc' },
+      take: 50,
+    });
+    expect(prisma.alert.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: stale.id,
+        organizationId: ORGANIZATION_ID,
+        status: { in: ['pending', 'running'] },
+      },
+      data: expect.objectContaining({
+        status: 'failed',
+        severity: 'error',
+        message: '쿠팡 이미지 동기화가 서버 재시작/배포 중 중단되어 자동 종료되었습니다.',
+        finishedAt: expect.any(Date),
+        metadata: { jobId: 'job-1', phase: 'finished', staleReconciled: true },
+      }),
+    });
+    expect(result).toEqual([closed]);
+    expect(eventEmitter.emit).toHaveBeenCalledWith(
+      PANEL_EVENTS.UPSERT,
+      expect.objectContaining({ organizationId: ORGANIZATION_ID }),
+    );
   });
 });

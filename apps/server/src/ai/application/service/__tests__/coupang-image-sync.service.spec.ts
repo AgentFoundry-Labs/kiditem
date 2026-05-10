@@ -2,6 +2,7 @@ import { ConflictException, ForbiddenException, NotFoundException } from '@nestj
 import { describe, expect, it, vi } from 'vitest';
 import {
   COUPANG_IMAGE_SYNC_ALERT_START_TIMEOUT_MS,
+  COUPANG_IMAGE_SYNC_STALE_ALERT_TTL_MS,
   CoupangImageSyncService,
   dedupeRows,
   hasDisplayImage,
@@ -138,6 +139,7 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
       succeed: vi.fn(async () => null),
       fail: vi.fn(async () => null),
       cancel: vi.fn(async () => null),
+      closeStaleOperations: vi.fn(async () => []),
     };
     const service = new CoupangImageSyncService(
       scraper,
@@ -162,6 +164,31 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
     const { service } = buildService();
     service.start(ORG_A);
     expect(() => service.start(ORG_A)).toThrow(ConflictException);
+  });
+
+  it('closes stale running Coupang image-sync alerts on module init', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-10T12:00:00Z'));
+    const { service, operationAlerts } = buildService();
+
+    try {
+      await service.onModuleInit();
+
+      expect(operationAlerts.closeStaleOperations).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sourceType: 'coupang_image_sync',
+          operationKeyPrefix: 'coupang-image-sync:',
+          status: 'failed',
+          staleBefore: new Date(Date.now() - COUPANG_IMAGE_SYNC_STALE_ALERT_TTL_MS),
+          metadata: expect.objectContaining({
+            phase: 'finished',
+            staleReconciled: true,
+          }),
+        }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('start() allows different orgs to run concurrently', () => {
@@ -425,6 +452,7 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
       succeed: vi.fn(async () => null),
       fail: vi.fn(async () => null),
       cancel: vi.fn(async () => null),
+      closeStaleOperations: vi.fn(async () => []),
     };
     const service = new CoupangImageSyncService(
       scraper,
