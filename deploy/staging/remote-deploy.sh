@@ -103,6 +103,54 @@ reclaim_docker_space() {
   docker system df || true
 }
 
+stop_staging_stack_for_space() {
+  echo "Stopping current staging containers to free image layers for retry"
+  if [[ -f "$DEPLOY_ENV_FILE" ]]; then
+    compose down --remove-orphans
+  else
+    docker rm -f kiditem-staging-nginx kiditem-staging-web kiditem-staging-api >/dev/null 2>&1 || true
+  fi
+}
+
+pull_image() {
+  local image="$1"
+  local log_path
+  log_path="$(mktemp)"
+
+  if docker pull "$image" 2>&1 | tee "$log_path"; then
+    rm -f "$log_path"
+    return 0
+  fi
+
+  if grep -qiE 'no space left on device|ENOSPC' "$log_path"; then
+    rm -f "$log_path"
+    return 75
+  fi
+
+  rm -f "$log_path"
+  return 1
+}
+
+pull_staging_images() {
+  local status
+
+  echo "Pulling staging API image"
+  status=0
+  pull_image "$KIDITEM_API_IMAGE" || status=$?
+  if [[ "$status" != "0" ]]; then
+    return "$status"
+  fi
+
+  echo "Pulling staging web image"
+  status=0
+  pull_image "$KIDITEM_WEB_IMAGE" || status=$?
+  if [[ "$status" != "0" ]]; then
+    return "$status"
+  fi
+
+  return 0
+}
+
 write_deploy_env() {
   local tmp
   tmp="$(mktemp "${DEPLOY_ENV_FILE}.tmp.XXXXXX")"
@@ -230,10 +278,19 @@ deploy() {
   if [[ "${SKIP_IMAGE_PULL:-}" == "1" ]]; then
     echo "Skipping image pull because SKIP_IMAGE_PULL=1"
   else
+    local pull_status
     reclaim_docker_space
-    echo "Pulling staging images"
-    docker pull "$KIDITEM_API_IMAGE"
-    docker pull "$KIDITEM_WEB_IMAGE"
+    pull_status=0
+    pull_staging_images || pull_status=$?
+
+    if [[ "$pull_status" == "75" ]]; then
+      echo "Image pull ran out of disk after unused-resource cleanup; retrying after stopping the staging stack"
+      stop_staging_stack_for_space
+      reclaim_docker_space
+      pull_staging_images
+    elif [[ "$pull_status" != "0" ]]; then
+      return "$pull_status"
+    fi
   fi
 
   write_deploy_env
