@@ -5,7 +5,6 @@ import {
   COUPANG_IMAGE_SYNC_STALE_ALERT_TTL_MS,
   CoupangImageSyncService,
   dedupeRows,
-  hasDisplayImage,
 } from '../coupang-image-sync.service';
 import type {
   CoupangInventoryRow,
@@ -20,6 +19,14 @@ import type {
 
 const ORG_A = '00000000-0000-0000-0000-0000000c0001';
 const ORG_B = '00000000-0000-0000-0000-0000000c0002';
+
+function hasDisplayImage(master: {
+  imageUrl: string | null;
+  thumbnailUrl: string | null;
+  images: Array<{ id: string }>;
+}): boolean {
+  return Boolean(master.imageUrl || master.thumbnailUrl || master.images.length > 0);
+}
 
 describe('coupang-image-sync helpers', () => {
   describe('dedupeRows', () => {

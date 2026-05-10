@@ -10,7 +10,7 @@ import {
 } from 'class-validator';
 import { COUPANG_IMAGE_SYNC_ROW_SOURCES } from '@kiditem/shared/ai';
 
-export class CoupangImageSyncRowDto {
+class CoupangImageSyncRowDto {
   @IsString()
   inventoryId!: string;
 

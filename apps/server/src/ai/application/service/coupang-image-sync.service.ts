@@ -498,14 +498,3 @@ export function dedupeRows(
   }
   return out;
 }
-
-/**
- * Pure helper — exported for unit test.
- */
-export function hasDisplayImage(master: {
-  imageUrl: string | null;
-  thumbnailUrl: string | null;
-  images: Array<{ id: string }>;
-}): boolean {
-  return Boolean(master.imageUrl || master.thumbnailUrl || master.images.length > 0);
-}
