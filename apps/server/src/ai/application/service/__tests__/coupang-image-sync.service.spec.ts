@@ -1,6 +1,7 @@
 import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  COUPANG_IMAGE_SYNC_ALERT_START_TIMEOUT_MS,
   CoupangImageSyncService,
   dedupeRows,
   hasDisplayImage,
@@ -335,7 +336,37 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
     expect(operationAlerts.fail).not.toHaveBeenCalled();
   });
 
-  it('does not close the operation alert before the start call has finished', async () => {
+  it('continues the sync job if operation alert start hangs', async () => {
+    vi.useFakeTimers();
+    const { service, operationAlerts } = buildService();
+    operationAlerts.start.mockImplementationOnce(() => new Promise(() => undefined));
+
+    try {
+      const { jobId } = service.startFromRows(
+        ORG_A,
+        [{ inventoryId: 'EXT-1', name: 'Extension P1', url: 'https://wing.coupang.com/img/ext-1.jpg' }],
+        'user-1',
+      );
+
+      await vi.advanceTimersByTimeAsync(COUPANG_IMAGE_SYNC_ALERT_START_TIMEOUT_MS);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(service.getStatus(jobId, ORG_A).status).toBe('done');
+      expect(operationAlerts.succeed).toHaveBeenCalledWith(
+        ORG_A,
+        `coupang-image-sync:${jobId}`,
+        expect.objectContaining({
+          metadata: expect.objectContaining({ jobId, total: 1, succeeded: 1 }),
+        }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('re-closes the operation alert if a delayed start resolves after the job', async () => {
+    vi.useFakeTimers();
     const { service, operationAlerts } = buildService();
     let releaseStart!: () => void;
     operationAlerts.start.mockImplementationOnce(
@@ -344,27 +375,34 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
       }),
     );
 
-    const { jobId } = service.startFromRows(
-      ORG_A,
-      [{ inventoryId: 'EXT-1', name: 'Extension P1', url: 'https://wing.coupang.com/img/ext-1.jpg' }],
-      'user-1',
-    );
+    try {
+      const { jobId } = service.startFromRows(
+        ORG_A,
+        [{ inventoryId: 'EXT-1', name: 'Extension P1', url: 'https://wing.coupang.com/img/ext-1.jpg' }],
+        'user-1',
+      );
 
-    await waitForJob();
-    expect(service.getStatus(jobId, ORG_A).status).toBe('running');
-    expect(operationAlerts.succeed).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(COUPANG_IMAGE_SYNC_ALERT_START_TIMEOUT_MS);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(service.getStatus(jobId, ORG_A).status).toBe('done');
+      expect(operationAlerts.succeed).toHaveBeenCalledTimes(1);
 
-    releaseStart();
-    await waitForJob();
+      releaseStart();
+      await Promise.resolve();
+      await Promise.resolve();
 
-    expect(service.getStatus(jobId, ORG_A).status).toBe('done');
-    expect(operationAlerts.succeed).toHaveBeenCalledWith(
-      ORG_A,
-      `coupang-image-sync:${jobId}`,
-      expect.objectContaining({
-        metadata: expect.objectContaining({ jobId, total: 1, succeeded: 1 }),
-      }),
-    );
+      expect(operationAlerts.succeed).toHaveBeenCalledTimes(2);
+      expect(operationAlerts.succeed).toHaveBeenLastCalledWith(
+        ORG_A,
+        `coupang-image-sync:${jobId}`,
+        expect.objectContaining({
+          metadata: expect.objectContaining({ jobId, total: 1, succeeded: 1 }),
+        }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('emits operation alert fail when the job throws before completion', async () => {

@@ -44,6 +44,7 @@ export interface CoupangImageSyncJobState {
 const JOB_TTL_MS = 30 * 60 * 1000;
 const OPERATION_KEY_PREFIX = 'coupang-image-sync:';
 const OPERATION_HREF = '/thumbnails';
+export const COUPANG_IMAGE_SYNC_ALERT_START_TIMEOUT_MS = 2_000;
 
 /**
  * Coupang Wing 인벤토리 페이지에서 상품 이미지 URL 을 스크래핑해서
@@ -138,7 +139,7 @@ export class CoupangImageSyncService {
     run: () => Promise<void>,
   ): void {
     void (async () => {
-      await this.notifyAlertStart(job);
+      await this.waitForAlertStartBestEffort(job);
       await run();
     })().catch((error: unknown) => {
       this.failJob(job, error);
@@ -256,6 +257,47 @@ export class CoupangImageSyncService {
   ): number | null {
     if (job.total === 0) return null;
     return Math.max(0, Math.min(1, job.processed / job.total));
+  }
+
+  private async waitForAlertStartBestEffort(
+    job: CoupangImageSyncJobState,
+  ): Promise<void> {
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    let timedOut = false;
+
+    const alertStart = this.notifyAlertStart(job);
+    const timeoutPromise = new Promise<void>((resolve) => {
+      timeout = setTimeout(() => {
+        timedOut = true;
+        this.logger.warn(
+          `coupang_image_sync alert start timed out (job=${job.jobId}); continuing sync job`,
+        );
+        resolve();
+      }, COUPANG_IMAGE_SYNC_ALERT_START_TIMEOUT_MS);
+      if (typeof timeout === 'object' && typeof timeout.unref === 'function') {
+        timeout.unref();
+      }
+    });
+
+    await Promise.race([alertStart, timeoutPromise]);
+    if (timeout && !timedOut) clearTimeout(timeout);
+    if (timedOut) {
+      void alertStart.then(() => this.notifyAlertCurrentState(job));
+    }
+  }
+
+  private async notifyAlertCurrentState(
+    job: CoupangImageSyncJobState,
+  ): Promise<void> {
+    if (job.status === 'done') {
+      await this.notifyAlertSucceed(job);
+      return;
+    }
+    if (job.status === 'failed') {
+      await this.notifyAlertFail(job);
+      return;
+    }
+    await this.notifyAlertProgress(job);
   }
 
   private async notifyAlertStart(
