@@ -23,8 +23,12 @@ Current runbooks:
   GitHub Actions, GHCR image tags/digests, Docker Compose, container nginx, host
   TLS proxy, Supabase staging DB/Auth, and Supabase Storage through its
   S3-compatible API.
-- [Staging Seed Data](staging-seed-data.md) — push the staging schema and import
-  pinned Google Drive seed artifacts into the dedicated staging environment.
+- [Staging DB Baseline](staging-db-baseline.md) — export, verify, and restore
+  pinned staging DB baseline artifacts from a private Supabase Storage
+  S3-compatible bucket.
+- [Staging Seed Data](staging-seed-data.md) — historical first-rollout notes and
+  non-destructive seed import guidance. Staging DB reset/restore now belongs to
+  the DB baseline runbook.
 - [Playwriter Wing Image Sync](playwriter-wing-image-sync.md) — set up the
   local Playwriter CLI/session required by `/thumbnails` image sync and Wing
   thumbnail registration.

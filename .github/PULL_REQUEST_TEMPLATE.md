@@ -16,6 +16,13 @@
   - Sync/Replay 명령:
   - Import mode: `upsert` / `scoped-replace` / `pull-only` / `full-reset`
   - 영향 scope(organization/channel/date):
+- [ ] 스테이징 DB baseline 변경 없음
+- [ ] 스테이징 DB baseline 변경 있음
+  - Profile ID:
+  - Supabase Storage bucket/prefix:
+  - Manifest checksum:
+  - Export/Verify/Restore 명령:
+  - `deployments/current-db.json` 갱신 여부:
 - [ ] `prisma/init.sql.gz` 변경 있음 (예외적인 fresh-volume snapshot 용도만)
 
 > 개발 데이터 표준 경로:

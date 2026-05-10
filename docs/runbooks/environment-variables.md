@@ -38,6 +38,8 @@ GitHub Environment `staging` variables
 
 GitHub Environment `staging` secrets
   -> SSH key and known_hosts for deployment only
+  -> staging DB URL and private DB baseline S3 credentials for manual
+     staging DB baseline workflow only
 
 /opt/kiditem/.env.staging.api
   -> runtime env_file for the API container
@@ -47,6 +49,9 @@ GitHub Environment `staging` secrets
 
 /opt/kiditem/.env.staging.deploy
   -> generated image refs for docker compose
+
+/opt/kiditem/deployments/current-db.json
+  -> generated DB baseline manifest pointer, not a secret env file
 ```
 
 `NEXT_PUBLIC_*` values are public client build values. Treat them as
@@ -162,6 +167,28 @@ same-origin `/api/*` routing.
 | `S3_BUCKET` | API runtime | Yes in production | Storage service | Bucket name. |
 | `S3_PUBLIC_URL` | API runtime | Recommended | Storage service | Public object URL base. If missing, service derives it from endpoint and bucket. |
 | `S3_REGION` | API runtime | Optional | Storage service | Defaults to `us-east-1`; staging uses `ap-northeast-2`. |
+
+## Staging DB Baseline Operations
+
+These variables are not API/web runtime env. They are used only by
+`.github/workflows/staging-db.yml` or an operator shell running
+`npm run staging:db`. The bucket should be private and separate from
+`S3_BUCKET`.
+
+| Variable | Owner | Required when | Notes |
+|---|---|---|---|
+| `STAGING_DATABASE_URL` | GitHub Environment secret | GitHub Actions `staging-db` workflow | Staging Supabase session pooler URL. The CLI receives it as `DATABASE_URL`. |
+| `DATABASE_URL` | Operator shell | Local DB baseline operation | Staging DB URL only. The CLI refuses mutating operations unless target is explicitly staging. |
+| `STAGING_DB_BASELINE_TARGET` | Operator/workflow guard | Export or restore | Must be `staging`; prevents accidental generic DB mutation. |
+| `STAGING_DB_BASELINE_SANITIZED` | Operator/workflow guard | Export | Must be `true`; operator assertion that the dump contains no production/customer raw data. |
+| `STAGING_DB_BASELINE_BUCKET` | DB baseline storage | Export, verify, restore | Private bucket for DB dump artifacts. Do not use the public app asset bucket. |
+| `STAGING_DB_BASELINE_S3_ENDPOINT` | DB baseline storage | Export, verify, restore | Supabase Storage S3-compatible endpoint. |
+| `STAGING_DB_BASELINE_S3_REGION` | DB baseline storage | Export, verify, restore | Staging uses `ap-northeast-2`; falls back to `S3_REGION` for operator convenience. |
+| `STAGING_DB_BASELINE_S3_ACCESS_KEY` | DB baseline storage secret | Export, verify, restore | Server/operator-only S3 access key. |
+| `STAGING_DB_BASELINE_S3_SECRET_KEY` | DB baseline storage secret | Export, verify, restore | Server/operator-only S3 secret. |
+| `STAGING_DB_BASELINE_PREFIX` | DB baseline storage | Optional | Defaults to `staging-db-baselines`. |
+| `STAGING_DB_BASELINE_PROFILE_ID` | Operator shell | Optional local convenience | Pinned immutable profile id, never `latest`. |
+| `STAGING_DB_BASELINE_RECORD_DIR` | Operator shell | Optional local/EC2 record write | Writes `current-db.json` and `db-history/` after export/restore. |
 
 ## Server AI And Models
 

@@ -20,7 +20,7 @@ Internet
 External services:
   PostgreSQL/Auth -> Supabase project for this staging runtime
   Storage         -> Supabase Storage public bucket, via S3-compatible API
-  Seed registry   -> Google Drive pinned seed artifacts
+  DB baseline     -> Supabase Storage private bucket, via S3-compatible API
   Image registry  -> GHCR images tagged by git SHA
 ```
 
@@ -36,6 +36,10 @@ External services:
   through an S3-compatible client, so enable Supabase Storage S3 protocol and
   generate a server-side access key pair in Dashboard -> Storage ->
   Configuration -> S3. Save the secret immediately; Supabase shows it once.
+- A separate private Supabase Storage bucket for staging DB baseline artifacts
+  if export/restore will be operated through GitHub Actions. Do not reuse the
+  public app asset bucket. See
+  [`staging-db-baseline.md`](staging-db-baseline.md).
 - A public DNS record such as `staging.example.com` pointing to the EC2 public IP.
 - GitHub Actions is enabled for `AgentFoundry-Labs/kiditem`.
 - GitHub Environment `staging` exists with the variables and secrets listed in
@@ -63,6 +67,8 @@ Do not store secrets in git. Runtime secret files live only on the staging host.
   .env.staging.deploy
   deployments/current.json
   deployments/history/<timestamp>-<git-sha>.json
+  deployments/current-db.json
+  deployments/db-history/<timestamp>-<profileId>.json
 ```
 
 ## One-Time EC2 Setup
@@ -173,6 +179,10 @@ STAGING_REMOTE_DIR=/opt/kiditem
 STAGING_URL=http://<ec2-public-ip>
 NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<staging-supabase-publishable-key>
+STAGING_DB_BASELINE_BUCKET=kiditem-staging-db-baselines
+STAGING_DB_BASELINE_S3_ENDPOINT=https://<project-ref>.storage.supabase.co/storage/v1/s3
+STAGING_DB_BASELINE_S3_REGION=ap-northeast-2
+STAGING_DB_BASELINE_PREFIX=staging-db-baselines
 ```
 
 When DNS and TLS are ready, change only `STAGING_URL` and the API
@@ -183,6 +193,9 @@ Environment secrets:
 ```text
 STAGING_SSH_KEY=<private key whose public key is authorized for the EC2 user>
 STAGING_SSH_KNOWN_HOSTS=<ssh-keyscan output for STAGING_HOST>
+STAGING_DATABASE_URL=<staging-supabase-session-pooler-url>
+STAGING_DB_BASELINE_S3_ACCESS_KEY=<private-db-baseline-s3-access-key-id>
+STAGING_DB_BASELINE_S3_SECRET_KEY=<private-db-baseline-s3-secret-access-key>
 ```
 
 Create `STAGING_SSH_KNOWN_HOSTS` from an operator machine:
@@ -202,9 +215,16 @@ gh variable set STAGING_REMOTE_DIR --env staging --body "/opt/kiditem"
 gh variable set STAGING_URL --env staging --body "http://<ec2-public-ip>"
 gh variable set NEXT_PUBLIC_SUPABASE_URL --env staging --body "https://<project-ref>.supabase.co"
 gh variable set NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY --env staging --body "<publishable-key>"
+gh variable set STAGING_DB_BASELINE_BUCKET --env staging --body "kiditem-staging-db-baselines"
+gh variable set STAGING_DB_BASELINE_S3_ENDPOINT --env staging --body "https://<project-ref>.storage.supabase.co/storage/v1/s3"
+gh variable set STAGING_DB_BASELINE_S3_REGION --env staging --body "ap-northeast-2"
+gh variable set STAGING_DB_BASELINE_PREFIX --env staging --body "staging-db-baselines"
 
 gh secret set STAGING_SSH_KEY --env staging < .secrets/staging/kiditem-staging-keypair.pem
 ssh-keyscan -H <ec2-public-ip-or-dns> | gh secret set STAGING_SSH_KNOWN_HOSTS --env staging
+printf '%s' '<staging-supabase-session-pooler-url>' | gh secret set STAGING_DATABASE_URL --env staging
+printf '%s' '<private-db-baseline-s3-access-key-id>' | gh secret set STAGING_DB_BASELINE_S3_ACCESS_KEY --env staging
+printf '%s' '<private-db-baseline-s3-secret-access-key>' | gh secret set STAGING_DB_BASELINE_S3_SECRET_KEY --env staging
 ```
 
 Do not use `StrictHostKeyChecking=accept-new` in GitHub Actions. Pinning the
@@ -431,6 +451,8 @@ Expected results:
   `https://<real-staging-domain>/api/*`, not `localhost:4000`.
 - `deployments/current.json` records the git SHA, image refs, image digests,
   GitHub workflow run URL, and deploy operation.
+- `deployments/current-db.json`, when present, records the staging DB baseline
+  profile restored or exported by the separate DB baseline workflow.
 
 ## Blocker Criteria
 
@@ -440,7 +462,9 @@ Stop and report instead of guessing if:
 - `docker compose config` fails.
 - nginx returns `502` after both containers are running.
 - Supabase connection errors mention the production project.
-- Any seed/import step would target production by accident.
+- Any seed/import/baseline step would target production by accident.
+- DB baseline export/restore would use the public app asset bucket instead of
+  the private DB baseline bucket.
 - GitHub Actions cannot pull GHCR images from EC2 using `GITHUB_TOKEN`.
 - `deployments/current.json` is missing after a successful CI deploy.
 
@@ -454,5 +478,6 @@ Report:
 - GitHub Actions run URL.
 - Supabase project ref used for staging.
 - Supabase Storage bucket name used for staging.
+- DB baseline profile id and `deployments/current-db.json` state, if operated.
 - Compose service status.
 - Verification commands and results.
