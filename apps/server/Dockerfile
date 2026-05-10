@@ -48,6 +48,7 @@ RUN apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update -y \
         ca-certificates \
         openssl \
         $(if [ "$INSTALL_CHROMIUM" = "true" ]; then echo "chromium fonts-liberation fonts-noto-cjk"; fi) \
+    && if [ "$INSTALL_CHROMIUM" = "true" ]; then test -x /usr/bin/chromium && /usr/bin/chromium --version; fi \
     && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production

@@ -11,6 +11,7 @@ describe('render-image staging runtime', () => {
     const localDeployScript = readFileSync(join(root, 'bin/deploy-staging.sh'), 'utf8');
 
     expect(dockerfile).toContain('PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium');
+    expect(dockerfile).toContain('test -x /usr/bin/chromium && /usr/bin/chromium --version');
     expect(workflow).toContain('INSTALL_CHROMIUM=true');
     expect(localDeployScript).toContain('INSTALL_CHROMIUM="${INSTALL_CHROMIUM:-true}"');
     expect(deployScript).toContain('verify_render_image_runtime');
