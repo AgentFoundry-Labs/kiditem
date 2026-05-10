@@ -242,7 +242,9 @@ The staging API image includes Chromium for server-side render-image jobs. The
 remote deploy script prunes stopped containers, unused images, and Docker
 builder cache before pulling new images. It intentionally does not prune Docker
 volumes. If a pull still fails with `no space left on device` after that
-cleanup, increase the EC2 root volume or slim the API image before retrying.
+cleanup, the script stops the current staging containers without volumes, prunes
+again, and retries the pull once. If the retry still fails, increase the EC2
+root volume or slim the API image before retrying.
 
 Workflow actions are pinned to commit SHA with the tag version left as a YAML
 comment. When upgrading an action, resolve the new tag SHA with

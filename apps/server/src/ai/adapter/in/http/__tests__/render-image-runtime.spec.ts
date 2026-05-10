@@ -28,6 +28,18 @@ describe('render-image staging runtime', () => {
     expect(deployScript).not.toContain('docker volume prune');
     expect(deployScript).not.toContain('--volumes');
   });
+
+  it('falls back to stopping staging containers without volumes when image pull runs out of disk', () => {
+    const root = findRepoRoot();
+    const deployScript = readFileSync(join(root, 'deploy/staging/remote-deploy.sh'), 'utf8');
+
+    expect(deployScript).toContain('no space left on device|ENOSPC');
+    expect(deployScript).toContain('stop_staging_stack_for_space');
+    expect(deployScript).toContain('compose down --remove-orphans');
+    expect(deployScript).toContain('pull_staging_images || pull_status=$?');
+    expect(deployScript).not.toContain('compose down --volumes');
+    expect(deployScript).not.toContain('docker system prune --volumes');
+  });
 });
 
 function findRepoRoot(): string {
