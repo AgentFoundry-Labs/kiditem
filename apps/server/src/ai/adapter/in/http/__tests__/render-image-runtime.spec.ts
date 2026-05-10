@@ -15,6 +15,8 @@ describe('render-image staging runtime', () => {
     expect(localDeployScript).toContain('INSTALL_CHROMIUM="${INSTALL_CHROMIUM:-true}"');
     expect(deployScript).toContain('verify_render_image_runtime');
     expect(deployScript).toContain('puppeteer.launch');
+    expect(deployScript).toContain('timeout: 30000');
+    expect(deployScript).not.toContain('timeout 60s compose exec');
   });
 
   it('reclaims unused Docker space before pulling the larger Chromium-enabled API image', () => {
