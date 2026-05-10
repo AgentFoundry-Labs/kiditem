@@ -1,8 +1,10 @@
 import { config } from 'dotenv';
 import { resolve } from 'path';
 
-config({ path: resolve(__dirname, '..', '..', '..', '.env') });
+// App-local env is authoritative for the NestJS runtime; root .env is only a
+// fallback for shared local tooling values such as DATABASE_URL.
 config({ path: resolve(__dirname, '..', '.env') });
+config({ path: resolve(__dirname, '..', '..', '..', '.env') });
 
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';

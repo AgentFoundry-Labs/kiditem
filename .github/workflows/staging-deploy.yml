@@ -1,9 +1,6 @@
 name: Staging Deploy
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
     inputs:
       operation:
@@ -32,7 +29,7 @@ env:
 jobs:
   build:
     name: Build and push images
-    if: github.event_name == 'push' || inputs.operation == 'deploy'
+    if: inputs.operation == 'deploy'
     runs-on: ubuntu-latest
     environment: staging
     permissions:
@@ -98,7 +95,7 @@ jobs:
           platforms: linux/amd64
           push: true
           build-args: |
-            INSTALL_CHROMIUM=false
+            INSTALL_CHROMIUM=true
           tags: ${{ steps.api_meta.outputs.tags }}
           labels: ${{ steps.api_meta.outputs.labels }}
           cache-from: type=gha,scope=staging-api
@@ -145,7 +142,7 @@ jobs:
 
   deploy:
     name: Deploy to staging
-    if: github.event_name == 'push' || inputs.operation == 'deploy'
+    if: inputs.operation == 'deploy'
     needs: build
     runs-on: ubuntu-latest
     environment: staging

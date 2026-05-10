@@ -1,8 +1,14 @@
 # Staging Seed Data Runbook
 
-Staging seed data is managed as pinned artifacts that match the current Prisma
-schema. Google Drive remains the registry for the initial stage because the team
-already uses it for shared development data.
+> Historical first-rollout notes. Staging DB reset/restore is now managed by
+> [Staging DB Baseline](staging-db-baseline.md) with immutable Supabase Storage
+> S3-compatible artifacts. Google Drive dev-data remains local developer input
+> sharing and must not be used as the staging DB baseline source.
+
+This file records the initial staging seed approach. The durable staging DB
+state model is now: Prisma schema version + Supabase Storage DB baseline
+artifact + checksum manifest. Google Drive is not the staging DB baseline
+registry.
 
 If the first staging rollout reuses the shared dev Supabase project, treat this
 runbook as non-destructive sync only. Do not run reset commands against the
@@ -57,16 +63,18 @@ Verification after the copy:
   total `1,990`.
 - `GET /api/products/pipeline-stats?period=14` returns total `1,990`,
   channel linked `1,077`, and channel unlinked `913`.
-- `http://3.106.120.252/product-hub` shows product data and the logout button.
+- `<STAGING_URL>/product-hub` shows product data and the logout button.
 
-The rule is:
+The current durable rule is:
 
 ```text
-Prisma schema version + pinned seed artifact profile -> repeatable staging DB state
+Prisma schema version + pinned Supabase Storage DB baseline profile -> repeatable staging DB state
 ```
 
-Do not import "latest" data into staging. Use a named, pinned profile such as
-`staging-smoke-2026-05-09`.
+Do not import "latest" data into staging. For reset/restore, use
+[`staging-db-baseline.md`](staging-db-baseline.md) with a named, pinned profile
+such as `staging-smoke-2026-05-10-v1`. Treat the Google Drive seed profile
+commands below as historical/non-destructive import references only.
 
 ## Human Prerequisites
 

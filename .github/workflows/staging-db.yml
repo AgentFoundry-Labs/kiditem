@@ -1,0 +1,181 @@
+name: Staging DB Baseline
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Show status, export, verify, or restore a pinned staging DB baseline.
+        type: choice
+        required: true
+        default: status
+        options:
+          - status
+          - export-baseline
+          - verify
+          - restore-baseline
+      profile_id:
+        description: Pinned profile id, for example staging-smoke-2026-05-10-v1.
+        required: false
+        type: string
+      confirm:
+        description: Required for restore-baseline. Must be RESET_STAGING_DB.
+        required: false
+        type: string
+
+concurrency:
+  group: staging-db
+  cancel-in-progress: false
+
+jobs:
+  staging-db:
+    name: Staging DB baseline operation
+    runs-on: ubuntu-latest
+    environment: staging
+    permissions:
+      contents: read
+    env:
+      DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+      STAGING_DB_BASELINE_TARGET: staging
+      STAGING_DB_BASELINE_BUCKET: ${{ vars.STAGING_DB_BASELINE_BUCKET }}
+      STAGING_DB_BASELINE_S3_ENDPOINT: ${{ vars.STAGING_DB_BASELINE_S3_ENDPOINT }}
+      STAGING_DB_BASELINE_S3_REGION: ${{ vars.STAGING_DB_BASELINE_S3_REGION }}
+      STAGING_DB_BASELINE_PREFIX: ${{ vars.STAGING_DB_BASELINE_PREFIX }}
+      STAGING_DB_BASELINE_S3_ACCESS_KEY: ${{ secrets.STAGING_DB_BASELINE_S3_ACCESS_KEY }}
+      STAGING_DB_BASELINE_S3_SECRET_KEY: ${{ secrets.STAGING_DB_BASELINE_S3_SECRET_KEY }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Validate inputs
+        env:
+          OPERATION: ${{ inputs.operation }}
+          PROFILE_ID: ${{ inputs.profile_id }}
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          set -euo pipefail
+          : "${DATABASE_URL:?Set staging secret STAGING_DATABASE_URL}"
+          node <<'NODE'
+          const raw = process.env.DATABASE_URL || '';
+          let target = raw;
+          try {
+            const url = new URL(raw);
+            target = `${url.hostname} ${url.pathname}`;
+          } catch {}
+          if (/\bprod(?:uction)?\b/i.test(target)) {
+            console.error('DATABASE_URL host/path looks production-like');
+            process.exit(2);
+          }
+          NODE
+          case "$OPERATION" in
+            status)
+              ;;
+            export-baseline|verify)
+              : "${PROFILE_ID:?profile_id is required for $OPERATION}"
+              case "$PROFILE_ID" in (*[!A-Za-z0-9._-]*|latest|'') echo "Invalid pinned profile_id: $PROFILE_ID" >&2; exit 2 ;; esac
+              ;;
+            restore-baseline)
+              : "${PROFILE_ID:?profile_id is required for restore-baseline}"
+              case "$PROFILE_ID" in (*[!A-Za-z0-9._-]*|latest|'') echo "Invalid pinned profile_id: $PROFILE_ID" >&2; exit 2 ;; esac
+              if [ "$CONFIRM" != "RESET_STAGING_DB" ]; then
+                echo "restore-baseline requires confirm=RESET_STAGING_DB" >&2
+                exit 2
+              fi
+              ;;
+            *)
+              echo "Unknown operation: $OPERATION" >&2
+              exit 2
+              ;;
+          esac
+
+      - name: Install tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends postgresql-client
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts \
+            --fetch-timeout=600000 \
+            --fetch-retries=5 \
+            --fetch-retry-mintimeout=20000 \
+            --fetch-retry-maxtimeout=120000 \
+            --no-audit \
+            --no-fund
+
+      - name: Run staging DB operation
+        env:
+          OPERATION: ${{ inputs.operation }}
+          PROFILE_ID: ${{ inputs.profile_id }}
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          set -euo pipefail
+          mkdir -p .data/staging-db-workflow/deployments
+          case "$OPERATION" in
+            status)
+              npm run staging:db -- status | tee .data/staging-db-workflow/result.json
+              ;;
+            export-baseline)
+              npm run staging:db -- export \
+                --profile-id "$PROFILE_ID" \
+                --target staging \
+                --sanitized true \
+                --record-dir .data/staging-db-workflow/deployments \
+                | tee .data/staging-db-workflow/result.json
+              ;;
+            verify)
+              npm run staging:db -- verify \
+                --profile-id "$PROFILE_ID" \
+                | tee .data/staging-db-workflow/result.json
+              ;;
+            restore-baseline)
+              npm run staging:db -- restore \
+                --profile-id "$PROFILE_ID" \
+                --target staging \
+                --confirm "$CONFIRM" \
+                --record-dir .data/staging-db-workflow/deployments \
+                | tee .data/staging-db-workflow/result.json
+              ;;
+          esac
+
+      - name: Prepare SSH for current-db record
+        if: inputs.operation == 'export-baseline' || inputs.operation == 'restore-baseline'
+        env:
+          STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          STAGING_SSH_KNOWN_HOSTS: ${{ secrets.STAGING_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          : "${STAGING_SSH_KEY:?Set staging secret STAGING_SSH_KEY}"
+          : "${STAGING_SSH_KNOWN_HOSTS:?Set staging secret STAGING_SSH_KNOWN_HOSTS}"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$STAGING_SSH_KEY" > ~/.ssh/kiditem-staging
+          chmod 600 ~/.ssh/kiditem-staging
+          printf '%s\n' "$STAGING_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Sync current DB record to EC2
+        if: inputs.operation == 'export-baseline' || inputs.operation == 'restore-baseline'
+        env:
+          PROFILE_ID: ${{ inputs.profile_id }}
+          STAGING_HOST: ${{ vars.STAGING_HOST }}
+          STAGING_USER: ${{ vars.STAGING_USER }}
+          STAGING_REMOTE_DIR: ${{ vars.STAGING_REMOTE_DIR }}
+        run: |
+          set -euo pipefail
+          record_path=".data/staging-db-workflow/deployments/current-db.json"
+          test -f "$record_path"
+          : "${STAGING_HOST:?Set staging variable STAGING_HOST}"
+          STAGING_USER="${STAGING_USER:-ubuntu}"
+          STAGING_REMOTE_DIR="${STAGING_REMOTE_DIR:-/opt/kiditem}"
+          case "$STAGING_USER" in (*[!A-Za-z0-9_.-]*|'') echo "Invalid STAGING_USER" >&2; exit 2 ;; esac
+          case "$STAGING_REMOTE_DIR" in (/*) ;; (*) echo "STAGING_REMOTE_DIR must be absolute" >&2; exit 2 ;; esac
+          case "$STAGING_REMOTE_DIR" in (*[!A-Za-z0-9_./-]*) echo "Invalid STAGING_REMOTE_DIR" >&2; exit 2 ;; esac
+          case "$PROFILE_ID" in (*[!A-Za-z0-9._-]*|latest|'') echo "Invalid profile id" >&2; exit 2 ;; esac
+          target="${STAGING_USER}@${STAGING_HOST}"
+          remote_dir_q="$(printf '%q' "$STAGING_REMOTE_DIR")"
+          tmp="/tmp/kiditem-current-db-${GITHUB_RUN_ID}.json"
+          scp -i ~/.ssh/kiditem-staging "$record_path" "$target:$tmp"
+          stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+          tmp_q="$(printf '%q' "$tmp")"
+          history_name_q="$(printf '%q' "${stamp}-${PROFILE_ID}.json")"
+          ssh -i ~/.ssh/kiditem-staging "$target" "set -euo pipefail; mkdir -p ${remote_dir_q}/deployments/db-history; cp ${tmp_q} ${remote_dir_q}/deployments/current-db.json; cp ${tmp_q} ${remote_dir_q}/deployments/db-history/${history_name_q}; rm -f ${tmp_q}"

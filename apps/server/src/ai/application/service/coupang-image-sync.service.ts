@@ -6,6 +6,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  type OnModuleInit,
 } from '@nestjs/common';
 import { OperationAlertService } from '../../../automation/application/service/operation-alert.service';
 import {
@@ -44,6 +45,8 @@ export interface CoupangImageSyncJobState {
 const JOB_TTL_MS = 30 * 60 * 1000;
 const OPERATION_KEY_PREFIX = 'coupang-image-sync:';
 const OPERATION_HREF = '/thumbnails';
+export const COUPANG_IMAGE_SYNC_ALERT_START_TIMEOUT_MS = 2_000;
+export const COUPANG_IMAGE_SYNC_STALE_ALERT_TTL_MS = 2 * 60 * 60 * 1000;
 
 /**
  * Coupang Wing 인벤토리 페이지에서 상품 이미지 URL 을 스크래핑해서
@@ -65,7 +68,7 @@ const OPERATION_HREF = '/thumbnails';
  *    로 마이그레이션 필요 (transitional shortcut).
  */
 @Injectable()
-export class CoupangImageSyncService {
+export class CoupangImageSyncService implements OnModuleInit {
   private readonly logger = new Logger(CoupangImageSyncService.name);
   private readonly jobs = new Map<string, CoupangImageSyncJobState>();
 
@@ -79,6 +82,10 @@ export class CoupangImageSyncService {
     private readonly operationAlerts: OperationAlertService,
   ) {}
 
+  async onModuleInit(): Promise<void> {
+    await this.closeStaleRunningAlerts();
+  }
+
   start(
     organizationId: string,
     actorUserId: string | null = null,
@@ -88,6 +95,28 @@ export class CoupangImageSyncService {
     this.runAfterAlertStart(job, () => this.runFromScraper(job));
 
     return { jobId: job.jobId };
+  }
+
+  private async closeStaleRunningAlerts(): Promise<void> {
+    try {
+      const closed = await this.operationAlerts.closeStaleOperations({
+        sourceType: 'coupang_image_sync',
+        operationKeyPrefix: OPERATION_KEY_PREFIX,
+        staleBefore: new Date(Date.now() - COUPANG_IMAGE_SYNC_STALE_ALERT_TTL_MS),
+        status: 'failed',
+        message: '쿠팡 이미지 동기화가 서버 재시작/배포 중 중단되어 자동 종료되었습니다.',
+        metadata: {
+          phase: 'finished',
+          staleReconciled: true,
+        },
+      });
+      if (closed.length > 0) {
+        this.logger.warn(`Closed ${closed.length} stale Coupang image sync operation alert(s)`);
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Failed to close stale Coupang image sync operation alerts: ${message}`);
+    }
   }
 
   startFromRows(
@@ -138,7 +167,7 @@ export class CoupangImageSyncService {
     run: () => Promise<void>,
   ): void {
     void (async () => {
-      await this.notifyAlertStart(job);
+      await this.waitForAlertStartBestEffort(job);
       await run();
     })().catch((error: unknown) => {
       this.failJob(job, error);
@@ -256,6 +285,47 @@ export class CoupangImageSyncService {
   ): number | null {
     if (job.total === 0) return null;
     return Math.max(0, Math.min(1, job.processed / job.total));
+  }
+
+  private async waitForAlertStartBestEffort(
+    job: CoupangImageSyncJobState,
+  ): Promise<void> {
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    let timedOut = false;
+
+    const alertStart = this.notifyAlertStart(job);
+    const timeoutPromise = new Promise<void>((resolve) => {
+      timeout = setTimeout(() => {
+        timedOut = true;
+        this.logger.warn(
+          `coupang_image_sync alert start timed out (job=${job.jobId}); continuing sync job`,
+        );
+        resolve();
+      }, COUPANG_IMAGE_SYNC_ALERT_START_TIMEOUT_MS);
+      if (typeof timeout === 'object' && typeof timeout.unref === 'function') {
+        timeout.unref();
+      }
+    });
+
+    await Promise.race([alertStart, timeoutPromise]);
+    if (timeout && !timedOut) clearTimeout(timeout);
+    if (timedOut) {
+      void alertStart.then(() => this.notifyAlertCurrentState(job));
+    }
+  }
+
+  private async notifyAlertCurrentState(
+    job: CoupangImageSyncJobState,
+  ): Promise<void> {
+    if (job.status === 'done') {
+      await this.notifyAlertSucceed(job);
+      return;
+    }
+    if (job.status === 'failed') {
+      await this.notifyAlertFail(job);
+      return;
+    }
+    await this.notifyAlertProgress(job);
   }
 
   private async notifyAlertStart(

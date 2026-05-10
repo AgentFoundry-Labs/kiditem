@@ -5,6 +5,10 @@ instance. The primary deploy path is GitHub Actions -> GHCR -> EC2 Docker
 Compose. The local `bin/deploy-staging.sh` path remains a break-glass fallback
 for initial bootstrapping or GitHub outage recovery.
 
+For the full environment variable inventory, feature-specific requirements, and
+safe verification commands, see
+[`docs/runbooks/environment-variables.md`](environment-variables.md).
+
 ```text
 Internet
   -> host nginx + TLS on EC2
@@ -16,7 +20,7 @@ Internet
 External services:
   PostgreSQL/Auth -> Supabase project for this staging runtime
   Storage         -> Supabase Storage public bucket, via S3-compatible API
-  Seed registry   -> Google Drive pinned seed artifacts
+  DB baseline     -> Supabase Storage private bucket, via S3-compatible API
   Image registry  -> GHCR images tagged by git SHA
 ```
 
@@ -32,6 +36,10 @@ External services:
   through an S3-compatible client, so enable Supabase Storage S3 protocol and
   generate a server-side access key pair in Dashboard -> Storage ->
   Configuration -> S3. Save the secret immediately; Supabase shows it once.
+- A separate private Supabase Storage bucket for staging DB baseline artifacts
+  if export/restore will be operated through GitHub Actions. Do not reuse the
+  public app asset bucket. See
+  [`staging-db-baseline.md`](staging-db-baseline.md).
 - A public DNS record such as `staging.example.com` pointing to the EC2 public IP.
 - GitHub Actions is enabled for `AgentFoundry-Labs/kiditem`.
 - GitHub Environment `staging` exists with the variables and secrets listed in
@@ -59,6 +67,8 @@ Do not store secrets in git. Runtime secret files live only on the staging host.
   .env.staging.deploy
   deployments/current.json
   deployments/history/<timestamp>-<git-sha>.json
+  deployments/current-db.json
+  deployments/db-history/<timestamp>-<profileId>.json
 ```
 
 ## One-Time EC2 Setup
@@ -108,6 +118,10 @@ S3_ENDPOINT=https://<project-ref>.storage.supabase.co/storage/v1/s3
 S3_PUBLIC_URL=https://<project-ref>.supabase.co/storage/v1/object/public/kiditem-staging-assets
 S3_ACCESS_KEY=<supabase-storage-s3-access-key-id>
 S3_SECRET_KEY=<supabase-storage-s3-secret-access-key>
+GEMINI_API_KEY=<gemini-api-key>
+AI_TEXT_MODEL=gemini-2.5-flash
+AGENT_RUNTIME_WORKER_ENABLED=1
+AGENT_DEFAULT_MODEL=gemini-2.5-flash
 EOF
 
 cat > .secrets/staging/deploy.env <<'EOF'
@@ -169,6 +183,10 @@ STAGING_REMOTE_DIR=/opt/kiditem
 STAGING_URL=http://<ec2-public-ip>
 NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<staging-supabase-publishable-key>
+STAGING_DB_BASELINE_BUCKET=kiditem-staging-db-baselines
+STAGING_DB_BASELINE_S3_ENDPOINT=https://<project-ref>.storage.supabase.co/storage/v1/s3
+STAGING_DB_BASELINE_S3_REGION=ap-northeast-2
+STAGING_DB_BASELINE_PREFIX=staging-db-baselines
 ```
 
 When DNS and TLS are ready, change only `STAGING_URL` and the API
@@ -179,6 +197,9 @@ Environment secrets:
 ```text
 STAGING_SSH_KEY=<private key whose public key is authorized for the EC2 user>
 STAGING_SSH_KNOWN_HOSTS=<ssh-keyscan output for STAGING_HOST>
+STAGING_DATABASE_URL=<staging-supabase-session-pooler-url>
+STAGING_DB_BASELINE_S3_ACCESS_KEY=<private-db-baseline-s3-access-key-id>
+STAGING_DB_BASELINE_S3_SECRET_KEY=<private-db-baseline-s3-secret-access-key>
 ```
 
 Create `STAGING_SSH_KNOWN_HOSTS` from an operator machine:
@@ -198,9 +219,16 @@ gh variable set STAGING_REMOTE_DIR --env staging --body "/opt/kiditem"
 gh variable set STAGING_URL --env staging --body "http://<ec2-public-ip>"
 gh variable set NEXT_PUBLIC_SUPABASE_URL --env staging --body "https://<project-ref>.supabase.co"
 gh variable set NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY --env staging --body "<publishable-key>"
+gh variable set STAGING_DB_BASELINE_BUCKET --env staging --body "kiditem-staging-db-baselines"
+gh variable set STAGING_DB_BASELINE_S3_ENDPOINT --env staging --body "https://<project-ref>.storage.supabase.co/storage/v1/s3"
+gh variable set STAGING_DB_BASELINE_S3_REGION --env staging --body "ap-northeast-2"
+gh variable set STAGING_DB_BASELINE_PREFIX --env staging --body "staging-db-baselines"
 
 gh secret set STAGING_SSH_KEY --env staging < .secrets/staging/kiditem-staging-keypair.pem
 ssh-keyscan -H <ec2-public-ip-or-dns> | gh secret set STAGING_SSH_KNOWN_HOSTS --env staging
+printf '%s' '<staging-supabase-session-pooler-url>' | gh secret set STAGING_DATABASE_URL --env staging
+printf '%s' '<private-db-baseline-s3-access-key-id>' | gh secret set STAGING_DB_BASELINE_S3_ACCESS_KEY --env staging
+printf '%s' '<private-db-baseline-s3-secret-access-key>' | gh secret set STAGING_DB_BASELINE_S3_SECRET_KEY --env staging
 ```
 
 Do not use `StrictHostKeyChecking=accept-new` in GitHub Actions. Pinning the
@@ -209,6 +237,14 @@ host key prevents a deploy from trusting an unexpected SSH host.
 The workflow uses the short-lived `GITHUB_TOKEN` to push and pull GHCR images.
 Do not create a long-lived GHCR PAT for staging unless the `GITHUB_TOKEN` path
 is blocked by organization policy.
+
+The staging API image includes Chromium for server-side render-image jobs. The
+remote deploy script prunes stopped containers, unused images, and Docker
+builder cache before pulling new images. It intentionally does not prune Docker
+volumes. If a pull still fails with `no space left on device` after that
+cleanup, the script stops the current staging containers without volumes, prunes
+again, and retries the pull once. If the retry still fails, increase the EC2
+root volume or slim the API image before retrying.
 
 Workflow actions are pinned to commit SHA with the tag version left as a YAML
 comment. When upgrading an action, resolve the new tag SHA with
@@ -224,8 +260,8 @@ Workflow file:
 
 Triggers:
 
-- Push to `main` builds and deploys staging.
-- Manual `workflow_dispatch` with `operation=deploy` deploys the selected ref.
+- Manual `workflow_dispatch` with `operation=deploy` builds and deploys the
+  selected ref. Use `main` for normal staging verification.
 - Manual `workflow_dispatch` with `operation=status` prints the EC2 deployment
   manifest and smoke endpoint status.
 - Manual `workflow_dispatch` with `operation=rollback` deploys an existing GHCR
@@ -234,11 +270,16 @@ Triggers:
 Branch model:
 
 ```text
-feature/fix branch -> PR -> main -> automatic staging deploy
+feature/fix branch -> PR -> develop
+develop -> PR/merge -> main
+GitHub Actions -> Staging Deploy -> Run workflow on main -> operation=deploy
 ```
 
-Do not create a long-lived `staging` branch. Staging is a GitHub Environment,
-not a separate source branch.
+`develop` is the long-lived collaboration/integration branch and does not
+deploy staging by itself. `main` is the normal staging deployment ref, but it
+does not deploy automatically; an operator triggers the workflow manually. Do
+not create a long-lived `staging` branch; staging is a GitHub Environment, not a
+separate source branch.
 
 Image naming:
 
@@ -269,6 +310,23 @@ deploy/staging/remote-deploy.sh
 The workflow never overwrites `/opt/kiditem/.env.staging.api` or
 `/opt/kiditem/.env.staging.web`.
 
+Async Agent OS jobs are enabled on staging because product-bound detail page
+and thumbnail generation enqueue `AgentRunRequest` rows. Before every deploy,
+`remote-deploy.sh` validates `/opt/kiditem/.env.staging.api`, runs the
+idempotent Agent OS seed from the new API image, and only then restarts the
+compose stack. These values must be present in the API env file:
+
+```text
+AGENT_RUNTIME_WORKER_ENABLED=1
+AGENT_DEFAULT_MODEL=gemini-2.5-flash
+```
+
+`AGENT_DEFAULT_MODEL` may be replaced by a complete set of per-agent
+`AGENT_<TYPE>_MODEL` values, but the shared value is the normal staging
+configuration. The deploy will fail before touching the running containers if
+the worker is disabled, the model env is missing, or `AGENT_RUNTIME_ALLOW_NOOP`
+is enabled.
+
 ## Host Nginx For IP-Only Smoke Test
 
 The app compose nginx binds to `127.0.0.1:8080`. Host nginx exposes it on public
@@ -284,6 +342,19 @@ sudo systemctl reload nginx
 ```
 
 Use `http://<ec2-public-ip>` for the first smoke test.
+
+If `/thumbnails` Coupang image sync is tested from the staging web app, the
+local Chrome extension must allow the same public origin. Do not commit the
+real staging origin into the default extension manifest; create a local-only
+copy instead:
+
+```bash
+STAGING_URL="$(gh variable get STAGING_URL --env staging)" \
+  node scripts/prepare-coupang-extension.mjs
+```
+
+Then load `.secrets/extensions/coupang-ads-scraper-staging` from
+`chrome://extensions` before testing image sync.
 
 ## Host Nginx With HTTPS Domain
 
@@ -337,9 +408,10 @@ when the EC2 host is intentionally a different architecture:
 DOCKER_PLATFORM=linux/arm64 ./bin/deploy-staging.sh
 ```
 
-The first smoke deploy leaves Chromium out of the API image to fit small EC2
-root disks. Browser-rendering workflows can be enabled after the instance has a
-larger disk:
+Staging API images include Chromium so `/api/render-image` can launch
+Puppeteer. Keep enough free disk on the EC2 root volume before deploy; the
+remote deploy smoke check launches Puppeteer inside the API container and fails
+the deploy if the browser runtime is missing.
 
 ```bash
 INSTALL_CHROMIUM=true ./bin/deploy-staging.sh
@@ -409,6 +481,8 @@ Expected results:
   `https://<real-staging-domain>/api/*`, not `localhost:4000`.
 - `deployments/current.json` records the git SHA, image refs, image digests,
   GitHub workflow run URL, and deploy operation.
+- `deployments/current-db.json`, when present, records the staging DB baseline
+  profile restored or exported by the separate DB baseline workflow.
 
 ## Blocker Criteria
 
@@ -418,7 +492,9 @@ Stop and report instead of guessing if:
 - `docker compose config` fails.
 - nginx returns `502` after both containers are running.
 - Supabase connection errors mention the production project.
-- Any seed/import step would target production by accident.
+- Any seed/import/baseline step would target production by accident.
+- DB baseline export/restore would use the public app asset bucket instead of
+  the private DB baseline bucket.
 - GitHub Actions cannot pull GHCR images from EC2 using `GITHUB_TOKEN`.
 - `deployments/current.json` is missing after a successful CI deploy.
 
@@ -432,5 +508,6 @@ Report:
 - GitHub Actions run URL.
 - Supabase project ref used for staging.
 - Supabase Storage bucket name used for staging.
+- DB baseline profile id and `deployments/current-db.json` state, if operated.
 - Compose service status.
 - Verification commands and results.

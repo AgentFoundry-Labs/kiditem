@@ -74,7 +74,7 @@ IMAGE_TAG="${IMAGE_TAG:-$(git -C "$ROOT_DIR" rev-parse --short HEAD 2>/dev/null 
 API_IMAGE="${API_IMAGE:-kiditem-staging-api:${IMAGE_TAG}}"
 WEB_IMAGE="${WEB_IMAGE:-kiditem-staging-web:${IMAGE_TAG}}"
 DOCKER_PLATFORM="${DOCKER_PLATFORM:-linux/amd64}"
-INSTALL_CHROMIUM="${INSTALL_CHROMIUM:-false}"
+INSTALL_CHROMIUM="${INSTALL_CHROMIUM:-true}"
 
 SSH_TARGET="${STAGING_USER}@${STAGING_HOST}"
 SSH_OPTS=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new)

@@ -1,0 +1,404 @@
+# Environment Variables Runbook
+
+This runbook is the inventory for KidItem environment variables. It separates
+the current minimum runtime env from feature-specific optional env, describes
+where each variable is injected, which runtime consumes it, and how to verify
+that staging received it without printing secret values.
+
+Do not record real secrets in git, pull requests, issue comments, or chat.
+
+Do not copy every variable in this runbook into every environment. Keep env
+files minimal, then add feature-specific variables only when that feature is
+actually enabled in that environment.
+
+## Human Prerequisites
+
+- Access to the GitHub repository and the target GitHub Environment.
+- SSH access to the target host when changing runtime secrets.
+- Access to the Supabase project used by the target environment.
+- Access to provider consoles for AI keys, storage S3 keys, and marketplace
+  credentials.
+
+## Injection Paths
+
+Local development:
+
+```text
+.env                    root tooling env: Prisma CLI, dev bootstrap, dev data
+apps/server/.env        NestJS local runtime env
+apps/web/.env.local     Next.js local env
+agents/.env             Python agent runtime env
+```
+
+Staging:
+
+```text
+GitHub Environment `staging` variables
+  -> build-time public web values and EC2 connection metadata
+
+GitHub Environment `staging` secrets
+  -> SSH key and known_hosts for deployment only
+  -> staging DB URL and private DB baseline S3 credentials for manual
+     staging DB baseline workflow only
+
+/opt/kiditem/.env.staging.api
+  -> runtime env_file for the API container
+
+/opt/kiditem/.env.staging.web
+  -> runtime env_file for the web container
+
+/opt/kiditem/.env.staging.deploy
+  -> generated image refs for docker compose
+
+/opt/kiditem/deployments/current-db.json
+  -> generated DB baseline manifest pointer, not a secret env file
+```
+
+`NEXT_PUBLIC_*` values are public client build values. Treat them as
+environment-specific, but not as server secrets. If a `NEXT_PUBLIC_*` value is
+used during `next build`, changing it requires rebuilding the web image.
+
+## Environment Split
+
+Local development:
+
+- Source of truth examples are `.env.example`, `apps/server/.env.example`,
+  `apps/web/.env.example`, and `agents/.env.example`.
+- App runtime env is app-local: NestJS reads `apps/server/.env` first, Python
+  agents read `agents/.env` first, and root `.env` is only a fallback for
+  shared local tooling values.
+- Root `.env` should stay narrow: Prisma CLI, Supabase bootstrap/admin sync,
+  and shared dev-data paths.
+- Local app env may include developer conveniences, local DB URLs, and optional
+  provider keys for testing a feature.
+- Local env must not be copied to staging or production as-is.
+
+Staging:
+
+- Source of truth example is `deploy/staging/env/api.env.example` for the API
+  container and `deploy/staging/env/web.env.example` for the web container.
+- Staging should use a dedicated Supabase project, database, storage bucket, and
+  provider keys once real QA begins. Reusing dev is allowed only as a short
+  first-rollout bridge.
+- The current staging compose runtime runs API, web, and nginx. It does not run
+  `agents/` as a separate Python runtime.
+- Keep staging to the current minimum runtime env below. Add AI, Agent OS, or
+  channel credential env only when that staging feature is intentionally
+  enabled and verified.
+
+Production:
+
+- Production must have a separate Supabase project, database, storage bucket,
+  DNS/origin list, and provider keys from local and staging.
+- Source of truth examples are `deploy/production/env/api.env.example` for the
+  API container and `deploy/production/env/web.env.example` for the web
+  container. Values and access keys must be created independently.
+- Feature-specific secrets should remain absent until the production feature is
+  launched. Do not promote unused staging secrets to production.
+
+## Current Minimum Runtime Env
+
+API container, current staging shape:
+
+```text
+NODE_ENV
+PORT
+DATABASE_URL
+DIRECT_URL
+SUPABASE_URL
+CORS_ORIGINS
+S3_REGION
+S3_BUCKET
+S3_ENDPOINT
+S3_PUBLIC_URL
+S3_ACCESS_KEY
+S3_SECRET_KEY
+```
+
+API feature env currently enabled for staging:
+
+```text
+CHANNEL_CREDENTIALS_ENCRYPTION_KEY
+GEMINI_API_KEY
+AI_TEXT_MODEL
+AI_IMAGE_MODEL
+AI_IMAGE_ANALYSIS_MODEL
+AI_IMAGE_ANALYSIS_VERIFY_MODEL
+```
+
+Web container, current staging shape:
+
+```text
+NEXT_PUBLIC_SUPABASE_URL
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+```
+
+`NEXT_PUBLIC_API_URL` stays empty in staging/production when nginx handles
+same-origin `/api/*` routing.
+
+## Core API Runtime
+
+| Variable | Owner | Required | Consumed by | Notes |
+|---|---|---:|---|---|
+| `NODE_ENV` | API runtime | Yes | NestJS, storage, prod guards | `production` in staging/prod. |
+| `PORT` | API runtime | Yes | NestJS | `4000` for the API container. |
+| `DATABASE_URL` | API runtime | Yes | Prisma adapter | Main application database URL. |
+| `DIRECT_URL` | DB tooling | No for current API runtime | Prisma/tooling convention | Keep available for schema/data operations even though current API code reads `DATABASE_URL`. |
+| `SUPABASE_URL` | Auth | Yes | Supabase JWT/JWKS middleware | Must match the project issuing browser session cookies. |
+| `CORS_ORIGINS` | API runtime | Yes in production | Nest CORS | Comma-separated public origins. Same-origin `/api/*` still works through nginx. |
+| `API_SELF_URL` | API runtime | Optional | Action board service | Defaults to `http://localhost:4000`. Set if self-calls need the public or container URL. |
+
+## Web Runtime And Build
+
+| Variable | Owner | Required | Consumed by | Notes |
+|---|---|---:|---|---|
+| `NEXT_PUBLIC_API_URL` | Web build/runtime | Local only | API client, Next rewrite destination | Local dev uses `http://localhost:4000`. Staging/prod leave empty so browser requests stay same-origin and nginx routes `/api/*`. |
+| `NEXT_PUBLIC_SUPABASE_URL` | Web build/runtime | Yes | Supabase browser/server client, proxy | Public project URL. |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Web build/runtime | Yes | Supabase browser/server client, proxy | Public publishable key. |
+| `NEXT_PUBLIC_ENABLE_QUERY_DEVTOOLS` | Web runtime | Optional | Query devtools provider | Effective only when `NODE_ENV=development`. |
+
+## Storage
+
+| Variable | Owner | Required | Consumed by | Notes |
+|---|---|---:|---|---|
+| `S3_ENDPOINT` | API runtime | Yes in production | Storage service | Supabase Storage S3 endpoint or other S3-compatible endpoint. |
+| `S3_ACCESS_KEY` | API runtime | Yes in production | Storage service | Server-only access key. |
+| `S3_SECRET_KEY` | API runtime | Yes in production | Storage service | Server-only secret key. |
+| `S3_BUCKET` | API runtime | Yes in production | Storage service | Bucket name. |
+| `S3_PUBLIC_URL` | API runtime | Recommended | Storage service | Public object URL base. If missing, service derives it from endpoint and bucket. |
+| `S3_REGION` | API runtime | Optional | Storage service | Defaults to `us-east-1`; staging uses `ap-northeast-2`. |
+
+## Staging DB Baseline Operations
+
+These variables are not API/web runtime env. They are used only by
+`.github/workflows/staging-db.yml` or an operator shell running
+`npm run staging:db`. The bucket should be private and separate from
+`S3_BUCKET`.
+
+| Variable | Owner | Required when | Notes |
+|---|---|---|---|
+| `STAGING_DATABASE_URL` | GitHub Environment secret | GitHub Actions `staging-db` workflow | Staging Supabase session pooler URL. The CLI receives it as `DATABASE_URL`. |
+| `DATABASE_URL` | Operator shell | Local DB baseline operation | Staging DB URL only. The CLI refuses mutating operations unless target is explicitly staging. |
+| `STAGING_DB_BASELINE_TARGET` | Operator/workflow guard | Export or restore | Must be `staging`; prevents accidental generic DB mutation. |
+| `STAGING_DB_BASELINE_SANITIZED` | Operator/workflow guard | Export | Must be `true`; operator assertion that the dump contains no production/customer raw data. |
+| `STAGING_DB_BASELINE_BUCKET` | DB baseline storage | Export, verify, restore | Private bucket for DB dump artifacts. Do not use the public app asset bucket. |
+| `STAGING_DB_BASELINE_S3_ENDPOINT` | DB baseline storage | Export, verify, restore | Supabase Storage S3-compatible endpoint. |
+| `STAGING_DB_BASELINE_S3_REGION` | DB baseline storage | Export, verify, restore | Staging uses `ap-northeast-2`; falls back to `S3_REGION` for operator convenience. |
+| `STAGING_DB_BASELINE_S3_ACCESS_KEY` | DB baseline storage secret | Export, verify, restore | Server/operator-only S3 access key. |
+| `STAGING_DB_BASELINE_S3_SECRET_KEY` | DB baseline storage secret | Export, verify, restore | Server/operator-only S3 secret. |
+| `STAGING_DB_BASELINE_PREFIX` | DB baseline storage | Optional | Defaults to `staging-db-baselines`. |
+| `STAGING_DB_BASELINE_PROFILE_ID` | Operator shell | Optional local convenience | Pinned immutable profile id, never `latest`. |
+| `STAGING_DB_BASELINE_RECORD_DIR` | Operator shell | Optional local/EC2 record write | Writes `current-db.json` and `db-history/` after export/restore. |
+
+## Server AI And Models
+
+These variables are feature-specific. They are part of staging when current API
+text/detail/thumbnail AI features are enabled.
+
+| Variable | Required when | Consumed by | Notes |
+|---|---|---|---|
+| `GEMINI_API_KEY` | Gemini text, image, or vision paths are used | Gemini text and thumbnail adapters | Missing key returns explicit service errors. |
+| `AI_TEXT_MODEL` | Text transform, detail page prefill, standalone detail generation | Text AI/detail page services | No silent fallback. |
+| `AI_IMAGE_MODEL` | Thumbnail/image generation or editing | Thumbnail Gemini config | Do not use deprecated preview IDs called out by the config. |
+| `AI_IMAGE_ANALYSIS_MODEL` | Thumbnail/image analysis | Thumbnail Gemini config | No silent fallback. |
+| `AI_IMAGE_ANALYSIS_VERIFY_MODEL` | Thumbnail compliance verify path | Thumbnail Gemini config | No silent fallback. |
+| `OPENAI_API_KEY` | Not currently used by deployed API/web code | Python agents or future providers | Staging may have it set, but current API code does not read it directly. |
+
+## Agent OS And Claude CLI
+
+These variables are feature-specific. They should not be present in shared
+staging/production unless Agent OS execution or Claude CLI chat is intentionally
+enabled and covered by an operator runbook.
+
+| Variable | Required when | Consumed by | Notes |
+|---|---|---|---|
+| `AGENT_RUNTIME_WORKER_ENABLED` | Background Agent OS execution should run | Agent run worker | Default is disabled. Use `1` or `true` only after handlers and model env are ready. |
+| `AGENT_RUNTIME_WORKER_INTERVAL_MS` | Worker enabled and custom tick interval needed | Agent run worker | Defaults to `2000`. |
+| `AGENT_RUNTIME_ALLOW_NOOP` | Isolated dev/test only | Routing runtime adapter | Never set in shared staging/prod. |
+| `AGENT_DEFAULT_MODEL` | Any Agent OS definition should share one default model | Agent definition registry | Used only when a per-agent model env is empty. |
+| `AGENT_MANAGER_MODEL` | Manager agent enabled | Agent definition registry | Per-agent override. |
+| `AGENT_RULES_EVALUATION_MODEL` | Rules evaluation agent enabled | Agent definition registry | Per-agent override. |
+| `AGENT_RULES_SUGGEST_MODEL` | Rules suggestion agent enabled | Agent definition registry | Per-agent override. |
+| `AGENT_AD_STRATEGY_MODEL` | Ad strategy agent enabled | Agent definition registry | Per-agent override. |
+| `AGENT_SOURCING_MODEL` | Sourcing agent enabled | Agent definition registry | Per-agent override. |
+| `AGENT_THUMBNAIL_ANALYST_MODEL` | Thumbnail analyst agent enabled | Agent definition registry | Per-agent override. |
+| `AGENT_IMAGE_EDIT_MODEL` | Python-backed image edit agent enabled | Agent definition registry | Requires a Python agent runtime, not just the API container. |
+| `AGENT_THUMBNAIL_AUTO_EDIT_MODEL` | Python-backed auto edit agent enabled | Agent definition registry | Requires a Python agent runtime, not just the API container. |
+| `AGENT_DETAIL_PAGE_GENERATE_MODEL` | Async detail page generation enabled | Agent definition registry | Required unless `AGENT_DEFAULT_MODEL` is set. |
+| `AGENT_THUMBNAIL_GENERATE_MODEL` | Async thumbnail generation enabled | Agent definition registry | Required unless `AGENT_DEFAULT_MODEL` is set. |
+| `AGENT_CHAT_MODEL` | Chatbot agent enabled | Agent definition registry | Required unless `AGENT_DEFAULT_MODEL` is set. |
+| `ANTHROPIC_API_KEY` | Claude CLI uses Anthropic API key auth | Claude CLI env allowlist | Passed only to the Claude child process. |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Claude CLI uses OAuth token auth | Claude CLI env allowlist | Passed only to the Claude child process. |
+
+## Channel Credentials
+
+| Variable | Required when | Consumed by | Notes |
+|---|---|---|---|
+| `CHANNEL_CREDENTIALS_ENCRYPTION_KEY` | Storing or decrypting channel credentials | Channel credential crypto | Must be 32 bytes as base64, hex, or raw UTF-8. Generate with `openssl rand -base64 32`. |
+
+## Local And Dev Tooling
+
+These variables are for local scripts, data sync, or compatibility paths. Do
+not add them to shared staging/prod unless the runbook for that operation asks
+for them.
+
+| Variable | Required when | Consumed by | Notes |
+|---|---|---|---|
+| `SUPABASE_SECRET_KEY` | Running Supabase admin sync/bootstrap scripts | Scripts and dev bootstrap | Secret key. Never expose to frontend or git. |
+| `DEV_USER_EMAIL` | Dev preview session callback bootstrap | `bin/dev-bootstrap.sh` | Defaults to the shared dev seed user when unset. |
+| `DEV_WEB_ORIGIN` | Dev preview session callback bootstrap | `bin/dev-bootstrap.sh` | Must match the exact local browser origin. |
+| `KIDITEM_DEV_DATA_DRIVE_DIR` | Google Drive dev data sync | Dev data scripts | Local Google Drive Desktop path. |
+| `KIDITEM_DEV_ORGANIZATION_ID` | Dev data sync/import needs target org | Dev data scripts | Local/dev org scope. |
+| `AGENT_DATABASE_URL` | Legacy read-only agent DB tools | Legacy agent/db-query tooling | New Agent OS paths should receive backend-provided context, not DB URLs. |
+| `CHATBOT_DATABASE_URL` | Legacy chatbot DB tools | Legacy chatbot/db-query tooling | Current Claude CLI chat path does not receive DB URLs. |
+| `POLL_INTERVAL_SECONDS` | Legacy Python poller is used | Python runner scripts | Not used by the current staging compose runtime. |
+
+## Browser Automation
+
+The deployed API blocks current Coupang Wing scraping paths when
+`NODE_ENV=production`. These variables are mainly local/operator overrides.
+
+| Variable | Required when | Consumed by | Notes |
+|---|---|---|---|
+| `PLAYWRITER_BIN` | Custom Playwriter binary path needed | Playwriter CLI wrapper | Optional override. |
+| `PLAYWRITER_BROWSER_PATH` | Managed Chrome path cannot be auto-detected | Coupang inventory scrape adapter | Local/operator use. |
+| `PLAYWRITER_BROWSER_PROFILE_DIR` | Custom Chrome profile needed | Coupang inventory scrape adapter | Local/operator use. |
+| `PLAYWRITER_DIRECT_PORT` | Custom Chrome CDP port needed | Coupang inventory scrape adapter | Defaults to `9222`. |
+| `PUPPETEER_EXECUTABLE_PATH` | Puppeteer render path uses a non-default browser | Render image controller | Docker server image sets `/usr/bin/chromium`; staging API builds install Chromium and smoke-check Puppeteer launch after deploy. |
+
+## Python Agents Runtime
+
+The Python agent server is not part of the current staging compose file. These
+variables apply when running `agents/` as a separate runtime.
+
+| Variable | Required when | Consumed by | Notes |
+|---|---|---|---|
+| `DATABASE_URL` | Python agents run | Python config | Required at import time. |
+| `AI_MODE` | Python AI client runs | Python AI client | `proxy` or `direct`. |
+| `AI_BASE_URL` | `AI_MODE=proxy` | Python AI client | Proxy base URL, for example VectorEngine. |
+| `VECTORENGINE_API_KEY` | `AI_MODE=proxy` | Python AI client | Proxy API key. |
+| `OPENAI_API_KEY` | Direct OpenAI model/provider path | Python AI client | Provider-specific direct mode. |
+| `GEMINI_API_KEY` | Direct Gemini model/provider path | Python AI client | Provider-specific direct mode. |
+| `FAL_KEY` | fal.ai image edit models | Python AI/image clients | Server-only. |
+| `AI_TEXT_MODEL` | Text generation agents | Python content agents | No silent fallback. |
+| `AI_IMAGE_MODEL` | Image generation/edit agents | Python image agents | No silent fallback. |
+| `AI_IMAGE_ANALYSIS_MODEL` | Vision analysis agents | Python content agents | No silent fallback. |
+| `AI_IMAGE_EDIT_MODEL` | Template pipeline image edit | Python template pipeline | No silent fallback when feature is used. |
+| `AI_IMAGE_DETAIL_MODEL` | Detail image edit | Python template pipeline | Optional path-specific model. |
+| `AI_IMAGE_EDIT_SIZE_MODEL` | Size chart/image edit | Python image edit/template pipeline | Optional path-specific model. |
+| `DETAIL_PAGE_TEMPLATE` | Default template selection needed | Python config | Defaults to `bold_vertical`. |
+| `TMAPI_TOKEN` | 1688/TMAPI sourcing matcher enabled | Python sourcing matcher | Optional unless matcher is used. |
+| `TMAPI_BASE_URL` | Custom TMAPI endpoint needed | Python sourcing matcher | Defaults in code. |
+| `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | LLM tracing enabled | Python config/Langfuse | Both keys required to enable. |
+| `LANGFUSE_BASE_URL` | Custom Langfuse endpoint needed | Langfuse SDK | Defaults to Langfuse Cloud in examples. |
+| `LANGFUSE_HOST` | Legacy Langfuse endpoint variable is still present | Python config | Mapped to `LANGFUSE_BASE_URL` when set and `LANGFUSE_BASE_URL` is empty. Prefer `LANGFUSE_BASE_URL`. |
+| `LOG_LEVEL` | Custom logging verbosity needed | Python config | Defaults to `INFO`. |
+
+## GitHub Actions Staging Environment
+
+Variables:
+
+```text
+STAGING_HOST
+STAGING_USER
+STAGING_REMOTE_DIR
+STAGING_URL
+NEXT_PUBLIC_SUPABASE_URL
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+```
+
+Secrets:
+
+```text
+STAGING_SSH_KEY
+STAGING_SSH_KNOWN_HOSTS
+```
+
+The workflow uses the short-lived `GITHUB_TOKEN` for GHCR push/pull. Do not add
+a long-lived GHCR token unless organization policy blocks `GITHUB_TOKEN`.
+
+## Current Staging Verification
+
+Print current minimum env presence without values:
+
+```bash
+set -a
+source .secrets/staging/deploy.env
+set +a
+
+ssh -i "$STAGING_SSH_KEY" "$STAGING_USER@$STAGING_HOST" '
+  docker exec kiditem-staging-api sh -lc '"'"'
+    for k in NODE_ENV PORT DATABASE_URL DIRECT_URL SUPABASE_URL CORS_ORIGINS \
+      S3_ENDPOINT S3_ACCESS_KEY S3_SECRET_KEY S3_BUCKET S3_PUBLIC_URL S3_REGION \
+      PUPPETEER_EXECUTABLE_PATH; do
+        eval v=\${$k-}
+        if [ -n "$v" ]; then
+          printf "%s=SET len=%s\n" "$k" "${#v}"
+        else
+          printf "%s=UNSET\n" "$k"
+        fi
+      done
+  '"'"'
+'
+```
+
+Probe optional feature env only when that feature is being enabled:
+
+```bash
+ssh -i "$STAGING_SSH_KEY" "$STAGING_USER@$STAGING_HOST" '
+  docker exec kiditem-staging-api sh -lc '"'"'
+    for k in OPENAI_API_KEY GEMINI_API_KEY AI_TEXT_MODEL AI_IMAGE_MODEL \
+      AI_IMAGE_ANALYSIS_MODEL AI_IMAGE_ANALYSIS_VERIFY_MODEL \
+      CHANNEL_CREDENTIALS_ENCRYPTION_KEY \
+      AGENT_RUNTIME_WORKER_ENABLED AGENT_DEFAULT_MODEL ANTHROPIC_API_KEY \
+      CLAUDE_CODE_OAUTH_TOKEN; do
+        eval v=\${$k-}
+        if [ -n "$v" ]; then
+          printf "%s=SET len=%s\n" "$k" "${#v}"
+        else
+          printf "%s=UNSET\n" "$k"
+        fi
+      done
+  '"'"'
+'
+```
+
+Print the deployed image refs and git SHA:
+
+```bash
+ssh -i "$STAGING_SSH_KEY" "$STAGING_USER@$STAGING_HOST" \
+  'cd /opt/kiditem && cat deployments/current.json'
+```
+
+## Success Criteria
+
+- Required env for the target runtime is present.
+- `docker compose --env-file .env.staging.web -f docker-compose.staging.yml config`
+  succeeds on the staging host.
+- `./deploy/staging/remote-deploy.sh status` reports healthy containers.
+- `/login` returns `200`.
+- `/api/auth/me` returns `401` or `403` when unauthenticated.
+
+## Blocker Criteria
+
+- Any required secret is missing for a feature being enabled.
+- A `NEXT_PUBLIC_*` value was changed without rebuilding the web image.
+- `AGENT_RUNTIME_WORKER_ENABLED=1` is set without model env and runtime handlers
+  ready for the enabled agent types.
+- Staging deploy is attempted without Agent OS seed/runtime env after async
+  detail page or thumbnail generation has been enabled.
+- `AGENT_RUNTIME_ALLOW_NOOP=1` is present in shared staging/prod.
+- `CHANNEL_CREDENTIALS_ENCRYPTION_KEY` is missing while channel credentials are
+  being stored or decrypted.
+
+## Final Report Format
+
+```text
+Environment checked:
+- Runtime:
+- Git SHA:
+- Missing required env:
+- Optional env intentionally unset:
+- Commands run:
+- Result:
+```

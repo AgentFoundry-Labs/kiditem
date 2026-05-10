@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { API_BASE } from '@/lib/api';
 import { apiClient } from '@/lib/api-client';
@@ -25,7 +25,6 @@ interface DetailPagePrefillResult {
 }
 
 export function useGenerateForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const productId = searchParams.get('productId');
   const { images: savedImages, loading: imagesLoading } = useProductImages(productId);
@@ -150,7 +149,7 @@ export function useGenerateForm() {
         `특징: ${descriptionText}`,
       ].filter(Boolean).join('\n');
 
-      const data = await detailPageMutation.mutateAsync({
+      await detailPageMutation.mutateAsync({
         rawTitle: title,
         rawCategory: category,
         rawDescription: description,
@@ -160,11 +159,9 @@ export function useGenerateForm() {
         productId: linkedProductId,
         templateId: apiTemplateId,
       });
-      const queryKey = apiTemplateId === 'bold-vertical' ? 'boldId' : 'kpId';
-      if (data.productId) {
-        toast.success('상세페이지 생성을 시작했습니다. 에디터에서 진행 상황을 확인하세요.');
-        router.push(`/sourcing/${data.productId}/editor?${queryKey}=${data.id}`);
-      }
+      toast.success('상세페이지 생성을 시작했습니다.', {
+        description: '완료되면 알림에서 에디터로 이동할 수 있습니다.',
+      });
     } catch (err) {
       setError(isApiError(err) ? err.detail : '상세페이지 생성 중 오류가 발생했습니다.');
     } finally {

@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "kiditem.staging-db-baseline.v1",
+  "environment": "staging",
+  "profileId": "staging-smoke-YYYY-MM-DD-v1",
+  "schemaGitSha": "<git-sha>",
+  "prismaSchemaHash": "<sha256-of-prisma-schema-files>",
+  "createdAt": "2026-05-10T00:00:00.000Z",
+  "sanitized": true,
+  "dump": {
+    "path": "staging-db-baselines/staging-smoke-YYYY-MM-DD-v1/public.dump.pgcustom",
+    "sha256": "<dump-sha256>",
+    "bytes": 0,
+    "format": "pgcustom"
+  },
+  "rowCounts": {
+    "organizations": 1,
+    "users": 4,
+    "organization_memberships": 4,
+    "master_products": 1990,
+    "channel_listings": 1192,
+    "master_product_images": 1077
+  },
+  "excludedSchemas": ["auth", "storage"],
+  "notes": "public schema only; Supabase auth/storage schemas are excluded and must be bootstrapped separately."
+}

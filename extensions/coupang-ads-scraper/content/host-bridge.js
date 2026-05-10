@@ -1,5 +1,5 @@
-// Kiditem 대시보드(http://localhost:3000) 에 익스텐션 ID 를 자동 등록.
-// - manifest.externally_connectable 이 localhost:3000 만 허용하므로,
+// Kiditem 대시보드(localhost/staging) 에 익스텐션 ID 를 자동 등록.
+// - manifest.externally_connectable 이 허용한 KidItem origin 에서만,
 //   페이지가 chrome.runtime.sendMessage(extId, ...) 로 직접 호출하려면
 //   페이지가 익스텐션 ID 를 먼저 알아야 한다.
 // - 기존 popup btnRegister 는 수동 클릭. 본 스크립트는 페이지 진입마다 자동으로

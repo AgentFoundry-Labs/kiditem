@@ -18,6 +18,11 @@ import {
   type RawProductInput,
 } from '../detail-page/types';
 
+export const BoldVerticalProductInfoItemSchema = z.object({
+  key: z.string().min(1).max(20),
+  value: z.string().min(1).max(80),
+});
+
 export const BoldVerticalGenerationSchema = z.object({
   /** Hero Section */
   hook: z.object({
@@ -81,16 +86,18 @@ export const BoldVerticalGenerationSchema = z.object({
   packageLabel: z.string().max(40).default(''),
   /** 푸터 product_info — 정확히 5개 (제품명/사이즈/재질/원산지/사용연령 등) */
   productInfo: z
-    .array(
-      z.object({
-        key: z.string().min(1).max(20),
-        value: z.string().min(1).max(80),
-      }),
-    )
+    .array(BoldVerticalProductInfoItemSchema)
     .min(3)
     .max(7),
 });
 export type BoldVerticalGeneration = z.infer<typeof BoldVerticalGenerationSchema>;
+
+export const RefinedBoldVerticalGenerationSchema = BoldVerticalGenerationSchema.extend({
+  productInfo: z.array(BoldVerticalProductInfoItemSchema).min(0).max(7),
+});
+export type RefinedBoldVerticalGeneration = z.infer<
+  typeof RefinedBoldVerticalGenerationSchema
+>;
 
 export type HeroImageMode = 'first' | 'llm-pick';
 

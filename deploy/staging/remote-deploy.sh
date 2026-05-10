@@ -38,13 +38,46 @@ require_env() {
   [[ -n "${!name:-}" ]] || fail "missing required environment variable: $name"
 }
 
-compose() {
+load_api_env() {
+  require_file "$API_ENV_FILE"
+  set -a
+  # shellcheck disable=SC1090
+  source "$API_ENV_FILE"
+  set +a
+}
+
+validate_agent_os_runtime_env() {
+  load_api_env
+
+  if [[ "${AGENT_RUNTIME_ALLOW_NOOP:-}" == "1" || "${AGENT_RUNTIME_ALLOW_NOOP:-}" == "true" ]]; then
+    fail "AGENT_RUNTIME_ALLOW_NOOP must not be enabled in staging"
+  fi
+
+  case "${AGENT_RUNTIME_WORKER_ENABLED:-}" in
+    1|true|TRUE)
+      ;;
+    *)
+      fail "missing required API env: set AGENT_RUNTIME_WORKER_ENABLED=1 in $API_ENV_FILE for async Agent OS jobs"
+      ;;
+  esac
+
+  if [[ -z "${AGENT_DEFAULT_MODEL:-}" && -z "${AGENT_DETAIL_PAGE_GENERATE_MODEL:-}" ]]; then
+    fail "missing required API env: set AGENT_DEFAULT_MODEL or AGENT_DETAIL_PAGE_GENERATE_MODEL in $API_ENV_FILE"
+  fi
+}
+
+compose() (
   require_file "$DEPLOY_ENV_FILE"
   set -a
   # shellcheck disable=SC1090
   source "$DEPLOY_ENV_FILE"
   set +a
   docker compose --env-file "$WEB_ENV_FILE" -f "$COMPOSE_FILE" "$@"
+)
+
+seed_agent_os() {
+  echo "Seeding Agent OS instances"
+  compose run --rm --no-deps api node dist/agent-os/seed-agent-os.js
 }
 
 docker_login_if_available() {
@@ -55,6 +88,67 @@ docker_login_if_available() {
   local actor="${GHCR_ACTOR:-x-access-token}"
   printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$actor" --password-stdin >/dev/null
   trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
+}
+
+reclaim_docker_space() {
+  echo "Docker disk usage before cleanup:"
+  docker system df || true
+
+  echo "Pruning unused Docker resources before pulling staging images"
+  docker container prune -f || true
+  docker image prune -af || true
+  docker builder prune -af || true
+
+  echo "Docker disk usage after cleanup:"
+  docker system df || true
+}
+
+stop_staging_stack_for_space() {
+  echo "Stopping current staging containers to free image layers for retry"
+  if [[ -f "$DEPLOY_ENV_FILE" ]]; then
+    compose down --remove-orphans
+  else
+    docker rm -f kiditem-staging-nginx kiditem-staging-web kiditem-staging-api >/dev/null 2>&1 || true
+  fi
+}
+
+pull_image() {
+  local image="$1"
+  local log_path
+  log_path="$(mktemp)"
+
+  if docker pull "$image" 2>&1 | tee "$log_path"; then
+    rm -f "$log_path"
+    return 0
+  fi
+
+  if grep -qiE 'no space left on device|ENOSPC' "$log_path"; then
+    rm -f "$log_path"
+    return 75
+  fi
+
+  rm -f "$log_path"
+  return 1
+}
+
+pull_staging_images() {
+  local status
+
+  echo "Pulling staging API image"
+  status=0
+  pull_image "$KIDITEM_API_IMAGE" || status=$?
+  if [[ "$status" != "0" ]]; then
+    return "$status"
+  fi
+
+  echo "Pulling staging web image"
+  status=0
+  pull_image "$KIDITEM_WEB_IMAGE" || status=$?
+  if [[ "$status" != "0" ]]; then
+    return "$status"
+  fi
+
+  return 0
 }
 
 write_deploy_env() {
@@ -77,7 +171,8 @@ wait_for_health() {
       code="$(curl -sS -o /dev/null -w '%{http_code}' "$LOCAL_AUTH_URL" || true)"
       case "$code" in
         401|403)
-          echo "Staging smoke checks passed: /login=200, /api/auth/me=$code"
+          verify_render_image_runtime
+          echo "Staging smoke checks passed: /login=200, /api/auth/me=$code, Puppeteer launch=ok"
           return 0
           ;;
       esac
@@ -91,6 +186,26 @@ wait_for_health() {
   echo "Recent logs:" >&2
   compose logs --tail=100 nginx web api >&2 || true
   exit 1
+}
+
+verify_render_image_runtime() {
+  echo "Checking API render-image browser runtime"
+  compose exec -T api node - <<'NODE'
+const puppeteer = require('puppeteer');
+
+(async () => {
+  const browser = await puppeteer.launch({
+    headless: true,
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    timeout: 30000,
+  });
+  await browser.close();
+})().catch((error) => {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(1);
+});
+NODE
 }
 
 write_manifest() {
@@ -164,14 +279,26 @@ deploy() {
   if [[ "${SKIP_IMAGE_PULL:-}" == "1" ]]; then
     echo "Skipping image pull because SKIP_IMAGE_PULL=1"
   else
-    echo "Pulling staging images"
-    docker pull "$KIDITEM_API_IMAGE"
-    docker pull "$KIDITEM_WEB_IMAGE"
+    local pull_status
+    reclaim_docker_space
+    pull_status=0
+    pull_staging_images || pull_status=$?
+
+    if [[ "$pull_status" == "75" ]]; then
+      echo "Image pull ran out of disk after unused-resource cleanup; retrying after stopping the staging stack"
+      stop_staging_stack_for_space
+      reclaim_docker_space
+      pull_staging_images
+    elif [[ "$pull_status" != "0" ]]; then
+      return "$pull_status"
+    fi
   fi
 
   write_deploy_env
 
+  validate_agent_os_runtime_env
   compose config >/dev/null
+  seed_agent_os
   compose up -d --remove-orphans --force-recreate
   compose ps
 
