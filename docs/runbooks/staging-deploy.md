@@ -400,9 +400,10 @@ when the EC2 host is intentionally a different architecture:
 DOCKER_PLATFORM=linux/arm64 ./bin/deploy-staging.sh
 ```
 
-The first smoke deploy leaves Chromium out of the API image to fit small EC2
-root disks. Browser-rendering workflows can be enabled after the instance has a
-larger disk:
+Staging API images include Chromium so `/api/render-image` can launch
+Puppeteer. Keep enough free disk on the EC2 root volume before deploy; the
+remote deploy smoke check launches Puppeteer inside the API container and fails
+the deploy if the browser runtime is missing.
 
 ```bash
 INSTALL_CHROMIUM=true ./bin/deploy-staging.sh

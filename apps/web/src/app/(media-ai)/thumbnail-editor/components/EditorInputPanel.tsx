@@ -18,6 +18,7 @@ import {
 import { SlotCard, AddSlotTile } from './SlotCard';
 import { resolveImageUrl } from '@/lib/resolve-url';
 import { cn } from '@/lib/utils';
+import { downloadImageFile } from '@/lib/browser-download';
 import { ImgWithSkeleton } from './ImgWithSkeleton';
 
 const SUPPLEMENTARY_LABELS = ['박스', '세트구성', '포장', '부속품', '기타'] as const;
@@ -59,49 +60,6 @@ const GROUP_MIN: Partial<Record<SlotKind, number>> = {
   color_variant: 2,
   bundle_item: 2,
 };
-
-function normalizeDownloadFilename(filename: string | null | undefined, imageUrl: string, mimeType: string): string {
-  const urlName = (() => {
-    try {
-      const pathname = new URL(imageUrl, window.location.href).pathname;
-      return decodeURIComponent(pathname.split('/').filter(Boolean).pop() ?? '');
-    } catch {
-      return '';
-    }
-  })();
-  const inferredExt = mimeType.includes('png')
-    ? 'png'
-    : mimeType.includes('webp')
-      ? 'webp'
-      : mimeType.includes('jpeg') || mimeType.includes('jpg')
-        ? 'jpg'
-        : 'png';
-  const baseName = (filename?.trim() || urlName || `thumbnail-${Date.now()}.${inferredExt}`)
-    .replace(/[\\/:*?"<>|]+/g, '-')
-    .replace(/\s+/g, ' ');
-  return /\.[a-z0-9]{2,5}$/i.test(baseName) ? baseName : `${baseName}.${inferredExt}`;
-}
-
-async function downloadImageFile(imageUrl: string, filename?: string | null): Promise<void> {
-  const response = await fetch(
-    imageUrl,
-    imageUrl.startsWith('data:') ? undefined : { credentials: 'include' },
-  );
-  if (!response.ok) {
-    throw new Error(`Image download failed: ${response.status}`);
-  }
-
-  const blob = await response.blob();
-  const objectUrl = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = objectUrl;
-  link.download = normalizeDownloadFilename(filename, imageUrl, blob.type);
-  link.style.display = 'none';
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
-}
 
 export function EditorInputPanel({
   mode,

@@ -6,6 +6,7 @@ import {
   Download, AlertTriangle, XCircle,
   Loader2, ChevronLeft, ChevronRight, Maximize2,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { ScoreBreakdown } from '@/app/(media-ai)/thumbnails/components/ScoreBreakdown';
 import type {
   ImageSpec,
@@ -24,6 +25,7 @@ import { resolveImageUrl } from '@/lib/resolve-url';
 import { isApplied } from '../../lib/thumbnail-status';
 import { CoupangSearchCardPreview } from '@/components/coupang/CoupangPreview';
 import { buildEditHref } from '@/app/(media-ai)/thumbnail-editor/edit/lib/build-edit-href';
+import { downloadImageFile } from '@/lib/browser-download';
 
 const GRADE_CONFIG: Record<string, { bg: string; text: string }> = {
   S: { bg: '#10b981', text: '#fff' },
@@ -813,13 +815,13 @@ export function DetailModal({
                     <button
                       onClick={async () => {
                         const url = resolveImageUrl(gen.selectedUrl) ?? gen.selectedUrl;
-                        const res = await fetch(url!);
-                        const blob = await res.blob();
-                        const a = document.createElement('a');
-                        a.href = URL.createObjectURL(blob);
-                        a.download = `${productName}.png`;
-                        a.click();
-                        URL.revokeObjectURL(a.href);
+                        if (!url) return;
+                        try {
+                          await downloadImageFile(url, `${productName}.png`);
+                        } catch (err) {
+                          console.error('[thumbnail-detail] download failed', err);
+                          toast.error('이미지 다운로드에 실패했어요. 다시 시도해주세요.');
+                        }
                       }}
                       className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm text-slate-500 hover:bg-slate-200 transition-colors font-medium"
                     >

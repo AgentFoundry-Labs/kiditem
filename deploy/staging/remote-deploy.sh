@@ -110,7 +110,8 @@ wait_for_health() {
       code="$(curl -sS -o /dev/null -w '%{http_code}' "$LOCAL_AUTH_URL" || true)"
       case "$code" in
         401|403)
-          echo "Staging smoke checks passed: /login=200, /api/auth/me=$code"
+          verify_render_image_runtime
+          echo "Staging smoke checks passed: /login=200, /api/auth/me=$code, Puppeteer launch=ok"
           return 0
           ;;
       esac
@@ -124,6 +125,25 @@ wait_for_health() {
   echo "Recent logs:" >&2
   compose logs --tail=100 nginx web api >&2 || true
   exit 1
+}
+
+verify_render_image_runtime() {
+  echo "Checking API render-image browser runtime"
+  timeout 60s compose exec -T api node - <<'NODE'
+const puppeteer = require('puppeteer');
+
+(async () => {
+  const browser = await puppeteer.launch({
+    headless: true,
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+  });
+  await browser.close();
+})().catch((error) => {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(1);
+});
+NODE
 }
 
 write_manifest() {
