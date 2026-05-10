@@ -6,6 +6,15 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const defaultSourceDir = join(repoRoot, 'extensions/coupang-ads-scraper');
 const defaultOutputDir = join(repoRoot, '.secrets/extensions/coupang-ads-scraper-staging');
+const localWebOrigin = 'http://localhost:3000';
+const localApiOrigin = 'http://localhost:4000';
+const runtimeFiles = [
+  'background/service-worker.js',
+  'content/ads-report.js',
+  'popup/popup.html',
+  'popup/popup.js',
+  'utils/api.js',
+];
 
 export function normalizeKiditemOrigin(rawValue) {
   const value = String(rawValue ?? '').trim();
@@ -53,10 +62,12 @@ export function patchManifest(manifest, origin) {
 
 export function prepareCoupangExtension({
   stagingUrl,
+  apiUrl,
   sourceDir = defaultSourceDir,
   outputDir = defaultOutputDir,
 } = {}) {
   const origin = normalizeKiditemOrigin(stagingUrl);
+  const apiOrigin = normalizeKiditemOrigin(apiUrl ?? origin);
   rmSync(outputDir, { recursive: true, force: true });
   mkdirSync(dirname(outputDir), { recursive: true });
   cpSync(sourceDir, outputDir, { recursive: true });
@@ -65,21 +76,37 @@ export function prepareCoupangExtension({
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
   const patched = patchManifest(manifest, origin);
   writeFileSync(manifestPath, `${JSON.stringify(patched, null, 2)}\n`);
+  patchExtensionRuntimeFiles(outputDir, origin, apiOrigin);
 
-  return { origin, outputDir };
+  return { apiOrigin, origin, outputDir };
 }
 
 function addUnique(values, value) {
   return Array.from(new Set([...(Array.isArray(values) ? values : []), value]));
 }
 
+export function patchExtensionRuntimeFiles(outputDir, webOrigin, apiOrigin = webOrigin) {
+  for (const relativePath of runtimeFiles) {
+    const path = join(outputDir, relativePath);
+    const content = readFileSync(path, 'utf8');
+    const patched = content
+      .replaceAll(localWebOrigin, webOrigin)
+      .replaceAll(localApiOrigin, apiOrigin)
+      .replaceAll('localhost:4000', new URL(apiOrigin).host)
+      .replaceAll('localhost:3000', new URL(webOrigin).host);
+    writeFileSync(path, patched);
+  }
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
   try {
     const result = prepareCoupangExtension({
       stagingUrl: process.env.STAGING_URL,
+      apiUrl: process.env.STAGING_API_URL,
       outputDir: process.env.EXTENSION_OUTPUT_DIR || defaultOutputDir,
     });
     console.log(`Prepared Coupang extension for ${result.origin}`);
+    console.log(`Patched extension API origin to ${result.apiOrigin}`);
     console.log(`Load unpacked extension from: ${result.outputDir}`);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));

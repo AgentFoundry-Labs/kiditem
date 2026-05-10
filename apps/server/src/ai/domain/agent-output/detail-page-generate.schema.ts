@@ -12,7 +12,7 @@
  */
 import { z } from 'zod';
 import { DetailPageGenerationSchema } from '../prompts/detail-page/single-call';
-import { BoldVerticalGenerationSchema } from '../prompts/bold-vertical/single-call';
+import { RefinedBoldVerticalGenerationSchema } from '../prompts/bold-vertical/single-call';
 
 export const DETAIL_PAGE_GENERATE_AGENT_TYPE = 'detail_page_generate' as const;
 
@@ -58,7 +58,7 @@ export const DetailPageGenerateAgentOutputSchema = z.discriminatedUnion(
     }),
     z.object({
       templateId: z.literal('bold-vertical'),
-      result: BoldVerticalGenerationSchema,
+      result: RefinedBoldVerticalGenerationSchema,
       imageUrls: z.array(z.string()).default([]),
     }),
   ],

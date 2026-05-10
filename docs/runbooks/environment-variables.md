@@ -385,6 +385,8 @@ ssh -i "$STAGING_SSH_KEY" "$STAGING_USER@$STAGING_HOST" \
 - A `NEXT_PUBLIC_*` value was changed without rebuilding the web image.
 - `AGENT_RUNTIME_WORKER_ENABLED=1` is set without model env and runtime handlers
   ready for the enabled agent types.
+- Staging deploy is attempted without Agent OS seed/runtime env after async
+  detail page or thumbnail generation has been enabled.
 - `AGENT_RUNTIME_ALLOW_NOOP=1` is present in shared staging/prod.
 - `CHANNEL_CREDENTIALS_ENCRYPTION_KEY` is missing while channel credentials are
   being stored or decrypted.

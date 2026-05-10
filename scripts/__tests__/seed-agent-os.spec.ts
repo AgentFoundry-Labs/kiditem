@@ -5,6 +5,7 @@ import { listAgentDefinitions } from '../../apps/server/src/agent-os/domain/agen
 
 const repoRoot = join(__dirname, '..', '..');
 const seedPath = join(repoRoot, 'scripts/seed-agent-os.ts');
+const serverSeedPath = join(repoRoot, 'apps/server/src/agent-os/seed-agent-os.ts');
 
 describe('Agent OS seed catalog', () => {
   it('seeds every shipped producer definition that backend routes can enqueue', () => {
@@ -25,12 +26,12 @@ describe('Agent OS seed catalog', () => {
   });
 
   it('does not write legacy blueprint rows; definitions are code-owned', () => {
-    const source = readFileSync(seedPath, 'utf8');
+    const source = `${readFileSync(seedPath, 'utf8')}\n${readFileSync(serverSeedPath, 'utf8')}`;
     expect(source).not.toContain(`agent${'Blue'}${'print'}`);
   });
 
   it('does not copy definition defaults into instance override columns', () => {
-    const source = readFileSync(seedPath, 'utf8');
+    const source = `${readFileSync(seedPath, 'utf8')}\n${readFileSync(serverSeedPath, 'utf8')}`;
     expect(source).not.toContain('runtimeConfig: definition.defaultRuntimeConfig');
   });
 

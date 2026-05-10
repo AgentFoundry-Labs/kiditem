@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { ThumbnailWingPersistence } from '../adapter/out/prisma/thumbnail-wing.persistence';
 import { ThumbnailWingService } from '../application/service/thumbnail-wing.service';
 
@@ -51,11 +51,106 @@ function makeService() {
 }
 
 describe('ThumbnailWingService', () => {
+  const originalNodeEnv = process.env.NODE_ENV;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env.NODE_ENV = originalNodeEnv;
   });
 
-  it('registers through Playwriter and records current-schema registration attempts', async () => {
+  afterEach(() => {
+    process.env.NODE_ENV = originalNodeEnv;
+  });
+
+  it('prepares a per-browser Wing registration payload without running Playwriter', async () => {
+    const { service, prisma, imageFetcher, automationRunner } = makeService();
+
+    const prepared = await service.prepareWingRegistration(GENERATION_ID, ORGANIZATION_ID);
+
+    expect(prepared).toEqual({
+      attemptId: 'attempt-1',
+      generationId: GENERATION_ID,
+      productName: '쿠팡 상품명',
+      image: {
+        dataUrl: 'data:image/png;base64,aW1hZ2U=',
+        filename: `${GENERATION_ID}.png`,
+        mimeType: 'image/png',
+      },
+    });
+    expect(imageFetcher.fetchTrustedStorageImage).toHaveBeenCalledWith(
+      'http://storage.local/kiditem/thumbnail-generations/a.png',
+    );
+    expect(automationRunner.runWingUpload).not.toHaveBeenCalled();
+    expect(prisma.thumbnailRegistrationAttempt.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        organizationId: ORGANIZATION_ID,
+        generationId: GENERATION_ID,
+        status: 'running',
+      }),
+      select: { id: true },
+    });
+  });
+
+  it('completes a browser-backed Wing registration as uploaded with a scoped write', async () => {
+    const { service, prisma } = makeService();
+
+    const result = await service.completeWingRegistration(GENERATION_ID, ORGANIZATION_ID, {
+      attemptId: 'attempt-1',
+      success: true,
+      screenshotUrl: 'chrome-extension://capture/attempt-1.png',
+    });
+
+    expect(result).toEqual({
+      success: true,
+      screenshotPath: 'chrome-extension://capture/attempt-1.png',
+    });
+    expect(prisma.thumbnailRegistrationAttempt.updateMany).toHaveBeenCalledWith({
+      where: { id: 'attempt-1', organizationId: ORGANIZATION_ID, generationId: GENERATION_ID },
+      data: expect.objectContaining({
+        status: 'uploaded',
+        errorMessage: null,
+        screenshotUrl: 'chrome-extension://capture/attempt-1.png',
+      }),
+    });
+  });
+
+  it('completes a browser-backed Wing registration as failed with a scoped write', async () => {
+    const { service, prisma } = makeService();
+
+    const result = await service.completeWingRegistration(GENERATION_ID, ORGANIZATION_ID, {
+      attemptId: 'attempt-1',
+      success: false,
+      error: 'dropzone missing',
+    });
+
+    expect(result).toEqual({
+      success: false,
+      screenshotPath: null,
+      error: 'dropzone missing',
+    });
+    expect(prisma.thumbnailRegistrationAttempt.updateMany).toHaveBeenCalledWith({
+      where: { id: 'attempt-1', organizationId: ORGANIZATION_ID, generationId: GENERATION_ID },
+      data: expect.objectContaining({
+        status: 'failed',
+        errorMessage: 'dropzone missing',
+        screenshotUrl: null,
+      }),
+    });
+  });
+
+  it('blocks the legacy server-side Playwriter registration in production', async () => {
+    const { service, prisma, automationRunner } = makeService();
+    process.env.NODE_ENV = 'production';
+
+    await expect(service.registerToWing(GENERATION_ID, ORGANIZATION_ID)).rejects.toThrow(
+      'Chrome 확장 프로그램',
+    );
+
+    expect(automationRunner.runWingUpload).not.toHaveBeenCalled();
+    expect(prisma.thumbnailRegistrationAttempt.create).not.toHaveBeenCalled();
+  });
+
+  it('registers through Playwriter locally and records current-schema registration attempts', async () => {
     const { service, prisma, imageFetcher, automationRunner } = makeService();
 
     const result = await service.registerToWing(GENERATION_ID, ORGANIZATION_ID);
@@ -74,7 +169,7 @@ describe('ThumbnailWingService', () => {
       data: expect.objectContaining({
         organizationId: ORGANIZATION_ID,
         generationId: GENERATION_ID,
-        status: 'uploaded',
+        status: 'running',
       }),
       select: { id: true },
     });

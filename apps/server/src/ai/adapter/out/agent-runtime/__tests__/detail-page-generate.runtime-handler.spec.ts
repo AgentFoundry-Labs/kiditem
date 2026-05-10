@@ -3,6 +3,7 @@ import { DetailPageGenerateRuntimeHandler } from '../detail-page-generate.runtim
 import { AgentRuntimeHandlerRegistry } from '../../../../../agent-os/application/service/agent-runtime-handler-registry.service';
 import { AgentOsRuntimeError } from '../../../../../agent-os/domain/agent-os.errors';
 import type { AgentRuntimeExecutionContext } from '../../../../../agent-os/application/port/out/agent-runtime.port';
+import { DetailPageGenerateAgentOutputSchema } from '../../../../domain/agent-output';
 import { DetailPageResultRefinerService } from '../../../../application/service/detail-page-result-refiner.service';
 import type { TextCompletionPort } from '../../../../application/port/out/text-completion.port';
 
@@ -252,6 +253,35 @@ describe('DetailPageGenerateRuntimeHandler', () => {
       reservedPackageImageIndices: [1],
       safetyLabelImageIndices: [2],
     });
+  });
+
+  it('returns bridge-accepted bold-vertical output after safety-label productInfo suppression', async () => {
+    const textCompletion: TextCompletionPort = {
+      complete: vi.fn().mockResolvedValue({ text: VALID_BOLD_VERTICAL_TEXT }),
+    };
+    const { handler } = makeHandler(textCompletion);
+
+    const result = await handler.execute(makeCtx({
+      input: {
+        templateId: 'bold-vertical',
+        raw: {
+          rawTitle: '키즈 텀블러',
+          rawCategory: '유아용품',
+          rawDescription: '아이가 사용하기 좋은 텀블러',
+          rawOptions: '핑크/블루',
+          imageUrls: [
+            'https://example.com/product.jpg',
+            'https://example.com/detail-page-inputs/org/safety-label-kc.jpg',
+          ],
+        },
+        heroImageMode: 'first',
+      },
+    }));
+
+    const parsed = DetailPageGenerateAgentOutputSchema.safeParse(result.output);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.templateId).toBe('bold-vertical');
+    expect(parsed.data?.result.productInfo).toEqual([]);
   });
 
   it('throws agent_input_invalid when ctx.input does not match the schema', async () => {

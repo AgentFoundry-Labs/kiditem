@@ -7,7 +7,6 @@ import type {
   ThumbnailAnalysisResult,
   ThumbnailGenerationItem,
 } from '@kiditem/shared/ai';
-import { apiClient } from '@/lib/api-client';
 import { useAnalyze } from './useThumbnailAnalysis';
 import {
   useApplyGeneration,
@@ -15,6 +14,7 @@ import {
   useDeleteGeneration,
   useSelectCandidate,
   useSkipGeneration,
+  useWingRegister,
 } from '../../_shared/hooks/useThumbnailGenerations';
 
 interface Options {
@@ -32,6 +32,7 @@ export function useThumbnailActions(
   const applyGenerationMutation = useApplyGeneration();
   const skipGenerationMutation = useSkipGeneration();
   const deleteGenerationMutation = useDeleteGeneration();
+  const wingRegisterMutation = useWingRegister();
 
   const [aiResults, setAiResults] = useState<Record<string, ThumbnailAnalysisResult>>({});
   const [aiAnalyzingId, setAiAnalyzingId] = useState<string | null>(null);
@@ -127,27 +128,9 @@ export function useThumbnailActions(
     }
     setWingRegisteringIds((prev) => new Set(prev).add(gen.id));
     try {
-      try {
-        const status = await apiClient.get<{ connected: boolean; error?: string }>(
-          '/api/thumbnail-analysis/playwriter-status',
-        );
-        if (!status.connected) {
-          toast.error(
-            status.error ?? 'Playwriter 브라우저 연결이 없습니다. 열린 Chrome 에서 쿠팡 Wing 로그인 상태를 확인하세요.',
-            { duration: 8000 },
-          );
-          return;
-        }
-      } catch {
-        toast.error('Playwriter 상태를 확인할 수 없습니다. 서버 연결을 확인하세요.');
-        return;
-      }
-      const result = await apiClient.post<{ success: boolean; screenshotPath: string | null; error?: string }>(
-        `/api/thumbnail-analysis/generations/${gen.id}/wing-register`,
-        {},
-      );
+      const result = await wingRegisterMutation.mutateAsync(gen.id);
       if (result.success) {
-        toast.success('Wing 대표이미지 업로드 완료 — 스크린샷 확인 후 저장하세요');
+        toast.success('Wing 대표이미지 업로드 완료 — 열린 Wing 화면 확인 후 저장하세요');
         markApplied(gen.id);
         options.onAfterClose?.();
       } else {

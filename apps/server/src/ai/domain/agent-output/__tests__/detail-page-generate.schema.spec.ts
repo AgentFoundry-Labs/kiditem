@@ -65,6 +65,36 @@ describe('DetailPageGenerateAgentOutputSchema', () => {
     expect(parsed.success).toBe(false);
   });
 
+  it('accepts a refined bold-vertical output with an empty productInfo table', () => {
+    const parsed = DetailPageGenerateAgentOutputSchema.safeParse({
+      templateId: 'bold-vertical',
+      result: {
+        hook: {
+          subtext: '여름 필수템',
+          text: '더블샷',
+          titleSub: '슈퍼워터건',
+          description: '아이가 신나게 노는\n여름의 시작',
+          imageIndex: 0,
+          bannerImageIndex: 1,
+        },
+        section: { name: '더블샷', title: '슈퍼워터건', subtitle: '핵심 포인트' },
+        keyPoints: [
+          { title: '튼튼한 본체', description: '오래 쓰는 재질로 만들었어요', imageIndex: 2 },
+          { title: '먼 사거리', description: '경쟁 제품보다 더 멀리 쏘아요', imageIndex: 3 },
+          { title: '간편 충전', description: '한 번 넣으면 오래 발사돼요', imageIndex: 4 },
+        ],
+        size: { subtitle: '아이 손 사이즈', imageIndices: [5] },
+        color: { subtitle: '비비드 4색', imageIndices: [6, 7] },
+        usage: { subtitle: '쉽고 안전한 사용법', imageIndices: [8] },
+        detailImageIndices: [9, 10],
+        safetyLabelImageIndices: [11],
+        productInfo: [],
+      },
+      imageUrls: ['https://example.com/0.jpg'],
+    });
+    expect(parsed.success).toBe(true);
+  });
+
   it('rejects when the inner result does not match the templateId schema', () => {
     const parsed = DetailPageGenerateAgentOutputSchema.safeParse({
       templateId: 'bold-vertical',

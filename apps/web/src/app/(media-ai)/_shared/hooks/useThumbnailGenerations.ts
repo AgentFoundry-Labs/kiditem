@@ -7,6 +7,10 @@ import type {
   ThumbnailGenerationItem,
 } from '@kiditem/shared/ai';
 import { isActive } from '../lib/thumbnail-status';
+import {
+  registerWingThumbnailViaExtension,
+  type WingRegistrationResult,
+} from '../lib/wing-registration';
 
 export function useGenerationList() {
   return useQuery({
@@ -241,11 +245,7 @@ export function useCreateEditJobs() {
 export function useWingRegister() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) =>
-      apiClient.post<{ success: boolean; screenshotPath: string | null; error?: string }>(
-        `/api/thumbnail-analysis/generations/${id}/wing-register`,
-        {},
-      ),
+    mutationFn: (id: string) => registerWingThumbnailViaExtension(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.generations() });
     },
@@ -262,11 +262,23 @@ export interface WingBatchItemResult {
 export function useBatchWingRegister() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (generationIds: string[]) =>
-      apiClient.post<{ results: WingBatchItemResult[] }>(
-        '/api/thumbnail-analysis/generations/wing-register/batch',
-        { generationIds },
-      ),
+    mutationFn: async (generationIds: string[]) => {
+      const results: WingBatchItemResult[] = [];
+      for (const id of generationIds) {
+        try {
+          const result: WingRegistrationResult = await registerWingThumbnailViaExtension(id);
+          results.push({ id, ...result });
+        } catch (error) {
+          results.push({
+            id,
+            success: false,
+            screenshotPath: null,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      return { results };
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.generations() });
     },

@@ -38,6 +38,34 @@ require_env() {
   [[ -n "${!name:-}" ]] || fail "missing required environment variable: $name"
 }
 
+load_api_env() {
+  require_file "$API_ENV_FILE"
+  set -a
+  # shellcheck disable=SC1090
+  source "$API_ENV_FILE"
+  set +a
+}
+
+validate_agent_os_runtime_env() {
+  load_api_env
+
+  if [[ "${AGENT_RUNTIME_ALLOW_NOOP:-}" == "1" || "${AGENT_RUNTIME_ALLOW_NOOP:-}" == "true" ]]; then
+    fail "AGENT_RUNTIME_ALLOW_NOOP must not be enabled in staging"
+  fi
+
+  case "${AGENT_RUNTIME_WORKER_ENABLED:-}" in
+    1|true|TRUE)
+      ;;
+    *)
+      fail "missing required API env: set AGENT_RUNTIME_WORKER_ENABLED=1 in $API_ENV_FILE for async Agent OS jobs"
+      ;;
+  esac
+
+  if [[ -z "${AGENT_DEFAULT_MODEL:-}" && -z "${AGENT_DETAIL_PAGE_GENERATE_MODEL:-}" ]]; then
+    fail "missing required API env: set AGENT_DEFAULT_MODEL or AGENT_DETAIL_PAGE_GENERATE_MODEL in $API_ENV_FILE"
+  fi
+}
+
 compose() {
   require_file "$DEPLOY_ENV_FILE"
   set -a
@@ -45,6 +73,11 @@ compose() {
   source "$DEPLOY_ENV_FILE"
   set +a
   docker compose --env-file "$WEB_ENV_FILE" -f "$COMPOSE_FILE" "$@"
+}
+
+seed_agent_os() {
+  echo "Seeding Agent OS instances"
+  compose run --rm --no-deps api node dist/agent-os/seed-agent-os.js
 }
 
 docker_login_if_available() {
@@ -171,7 +204,9 @@ deploy() {
 
   write_deploy_env
 
+  validate_agent_os_runtime_env
   compose config >/dev/null
+  seed_agent_os
   compose up -d --remove-orphans --force-recreate
   compose ps
 

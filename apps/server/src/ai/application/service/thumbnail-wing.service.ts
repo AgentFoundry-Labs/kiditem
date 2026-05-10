@@ -1,10 +1,17 @@
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import * as fs from 'node:fs';
 import {
   WING_AUTOMATION_PORT,
   type WingAutomationPort,
 } from '../port/out/wing-automation.port';
-import { parseDataImageUrl } from '../../domain/thumbnail-image-source';
+import { MAX_FETCH_BYTES, parseDataImageUrl } from '../../domain/thumbnail-image-source';
 import {
   pickRegistrationImageUrl,
   pickWingProductName,
@@ -27,32 +34,62 @@ export class ThumbnailWingService {
     private readonly automationRunner: WingAutomationPort,
   ) {}
 
+  async prepareWingRegistration(
+    generationId: string,
+    organizationId: string,
+  ): Promise<WingRegistrationPrepareResult> {
+    const target = await this.resolveRegistrationTarget(generationId, organizationId);
+    const image = await this.loadImagePayload(target.selectedUrl, generationId);
+    const attempt = await this.persistence.createRegistrationAttempt(generationId, organizationId);
+
+    return {
+      attemptId: attempt.id,
+      generationId,
+      productName: target.productName,
+      image,
+    };
+  }
+
+  async completeWingRegistration(
+    generationId: string,
+    organizationId: string,
+    command: WingRegistrationCompleteCommand,
+  ): Promise<WingRegistrationResult> {
+    const screenshotPath = command.success ? command.screenshotUrl ?? null : null;
+    const errorMessage = command.success ? null : command.error ?? 'Wing upload failed';
+    await this.persistence.updateRegistrationAttemptOrThrow(
+      command.attemptId,
+      organizationId,
+      {
+        status: command.success ? 'uploaded' : 'failed',
+        errorMessage,
+        screenshotUrl: screenshotPath,
+        externalId: command.success ? command.externalId ?? null : null,
+        finishedAt: new Date(),
+      },
+      generationId,
+    );
+
+    return {
+      success: command.success,
+      screenshotPath,
+      ...(command.success ? {} : { error: errorMessage ?? 'Wing upload failed' }),
+    };
+  }
+
   async registerToWing(generationId: string, organizationId: string): Promise<WingRegistrationResult> {
-    const gen = await this.persistence.findGenerationWithCandidates(generationId, organizationId);
-    if (!gen) throw new NotFoundException(`ThumbnailGeneration ${generationId} not found`);
-
-    const selectedUrl = pickRegistrationImageUrl(gen);
-    if (!selectedUrl) {
-      throw new NotFoundException('Generation not found or no selected image');
-    }
-
-    const master = await this.persistence.findRegistrableMaster(gen.masterId, organizationId);
-    if (!master) throw new NotFoundException(`MasterProduct ${gen.masterId} not found`);
-
-    const productName = pickWingProductName(master);
-    if (!productName) {
-      throw new BadRequestException('쿠팡 등록 상품명을 찾을 수 없습니다');
-    }
+    this.assertLocalServerAutomationAllowed();
+    const target = await this.resolveRegistrationTarget(generationId, organizationId);
 
     const attempt = await this.persistence.createRegistrationAttempt(generationId, organizationId);
 
     try {
-      const imagePath = await this.materializeImage(selectedUrl, generationId);
+      const imagePath = await this.materializeImage(target.selectedUrl, generationId);
       const screenshotPath = `/tmp/wing-upload-${generationId}.png`;
 
-      this.logger.log(`Wing 자동화 시작: ${productName}`);
+      this.logger.log(`Wing 자동화 시작: ${target.productName}`);
       const automation = await this.automationRunner.runWingUpload({
-        productName,
+        productName: target.productName,
         imagePath,
         screenshotPath,
       });
@@ -117,7 +154,80 @@ export class ThumbnailWingService {
   }
 
   checkPlaywriterStatus(): Promise<{ connected: boolean; error?: string }> {
+    if (this.isServerAutomationBlocked()) {
+      return Promise.resolve({
+        connected: false,
+        error: '스테이징/운영 Wing 등록은 Chrome 확장 프로그램으로만 실행할 수 있습니다.',
+      });
+    }
     return this.automationRunner.checkPlaywriterStatus();
+  }
+
+  private async resolveRegistrationTarget(
+    generationId: string,
+    organizationId: string,
+  ): Promise<{ productName: string; selectedUrl: string }> {
+    const gen = await this.persistence.findGenerationWithCandidates(generationId, organizationId);
+    if (!gen) throw new NotFoundException(`ThumbnailGeneration ${generationId} not found`);
+
+    const selectedUrl = pickRegistrationImageUrl(gen);
+    if (!selectedUrl) {
+      throw new NotFoundException('Generation not found or no selected image');
+    }
+
+    const master = await this.persistence.findRegistrableMaster(gen.masterId, organizationId);
+    if (!master) throw new NotFoundException(`MasterProduct ${gen.masterId} not found`);
+
+    const productName = pickWingProductName(master);
+    if (!productName) {
+      throw new BadRequestException('쿠팡 등록 상품명을 찾을 수 없습니다');
+    }
+
+    return { productName, selectedUrl };
+  }
+
+  private async loadImagePayload(
+    source: string,
+    generationId: string,
+  ): Promise<WingRegistrationPrepareResult['image']> {
+    const dataUrl = parseDataImageUrl(source);
+    if (dataUrl) {
+      this.imageFetcher.assertSupportedMime(dataUrl.mimeType);
+      const buffer = Buffer.from(dataUrl.base64, 'base64');
+      this.assertImageSize(buffer.length);
+      const ext = this.imageFetcher.extForMime(dataUrl.mimeType);
+      return {
+        dataUrl: source,
+        filename: `${generationId}.${ext}`,
+        mimeType: dataUrl.mimeType,
+      };
+    }
+
+    const fetched = await this.imageFetcher.fetchTrustedStorageImage(source);
+    this.assertImageSize(fetched.buffer.length);
+    const ext = this.imageFetcher.extForMime(fetched.mimeType);
+    return {
+      dataUrl: `data:${fetched.mimeType};base64,${fetched.buffer.toString('base64')}`,
+      filename: `${generationId}.${ext}`,
+      mimeType: fetched.mimeType,
+    };
+  }
+
+  private assertImageSize(bytes: number): void {
+    if (bytes > MAX_FETCH_BYTES) {
+      throw new BadRequestException('image too large');
+    }
+  }
+
+  private assertLocalServerAutomationAllowed(): void {
+    if (!this.isServerAutomationBlocked()) return;
+    throw new ServiceUnavailableException(
+      '스테이징/운영 Wing 등록은 Chrome 확장 프로그램으로만 실행할 수 있습니다.',
+    );
+  }
+
+  private isServerAutomationBlocked(): boolean {
+    return process.env.NODE_ENV === 'production';
   }
 
   private async materializeImage(source: string, generationId: string): Promise<string> {
@@ -136,4 +246,23 @@ export class ThumbnailWingService {
     await fs.promises.writeFile(destPath, fetched.buffer);
     return destPath;
   }
+}
+
+export interface WingRegistrationPrepareResult {
+  attemptId: string;
+  generationId: string;
+  productName: string;
+  image: {
+    dataUrl: string;
+    filename: string;
+    mimeType: string;
+  };
+}
+
+export interface WingRegistrationCompleteCommand {
+  attemptId: string;
+  success: boolean;
+  error?: string;
+  externalId?: string;
+  screenshotUrl?: string;
 }

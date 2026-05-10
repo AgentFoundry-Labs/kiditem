@@ -1,4 +1,4 @@
-import { IsArray, IsIn, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsBoolean, IsIn, IsOptional, IsString } from 'class-validator';
 
 export class EditJobsDto {
   @IsArray()
@@ -38,4 +38,24 @@ export class WingRegisterBatchDto {
   @IsArray()
   @IsString({ each: true })
   generationIds!: string[];
+}
+
+export class WingRegisterCompleteDto {
+  @IsString()
+  attemptId!: string;
+
+  @IsBoolean()
+  success!: boolean;
+
+  @IsOptional()
+  @IsString()
+  error?: string;
+
+  @IsOptional()
+  @IsString()
+  externalId?: string;
+
+  @IsOptional()
+  @IsString()
+  screenshotUrl?: string;
 }

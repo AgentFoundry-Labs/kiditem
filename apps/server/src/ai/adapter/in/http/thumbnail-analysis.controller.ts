@@ -23,6 +23,7 @@ import {
   EditJobsDto,
   ReEditDto,
   SelectCandidateDto,
+  WingRegisterCompleteDto,
   WingRegisterBatchDto,
 } from './dto/thumbnail-edit.dto';
 import { ThumbnailAnalysisService } from '../../../application/service/thumbnail-analysis.service';
@@ -206,6 +207,20 @@ export class ThumbnailAnalysisController {
   }
 
   // ─── Wing 등록 ────────────────────────────────────────────────
+
+  @Post('generations/:id/wing-register/prepare')
+  wingRegisterPrepare(@Param('id') id: string, @CurrentOrganization() organizationId: string) {
+    return this.wingService.prepareWingRegistration(id, organizationId);
+  }
+
+  @Post('generations/:id/wing-register/complete')
+  wingRegisterComplete(
+    @Param('id') id: string,
+    @Body() body: WingRegisterCompleteDto,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return this.wingService.completeWingRegistration(id, organizationId, body);
+  }
 
   @Post('generations/:id/wing-register')
   wingRegister(@Param('id') id: string, @CurrentOrganization() organizationId: string) {
