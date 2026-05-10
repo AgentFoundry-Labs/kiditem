@@ -40,6 +40,7 @@ describe('render-image staging runtime', () => {
     expect(deployScript).toContain('stop_staging_stack_for_space');
     expect(deployScript).toContain('compose down --remove-orphans');
     expect(deployScript).toContain('pull_staging_images || pull_status=$?');
+    expect(deployScript).toContain('compose() (');
     expect(deployScript).not.toContain('compose down --volumes');
     expect(deployScript).not.toContain('docker system prune --volumes');
   });

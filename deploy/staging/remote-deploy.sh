@@ -66,14 +66,14 @@ validate_agent_os_runtime_env() {
   fi
 }
 
-compose() {
+compose() (
   require_file "$DEPLOY_ENV_FILE"
   set -a
   # shellcheck disable=SC1090
   source "$DEPLOY_ENV_FILE"
   set +a
   docker compose --env-file "$WEB_ENV_FILE" -f "$COMPOSE_FILE" "$@"
-}
+)
 
 seed_agent_os() {
   echo "Seeding Agent OS instances"
