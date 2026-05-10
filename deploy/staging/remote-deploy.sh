@@ -90,6 +90,19 @@ docker_login_if_available() {
   trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
 }
 
+reclaim_docker_space() {
+  echo "Docker disk usage before cleanup:"
+  docker system df || true
+
+  echo "Pruning unused Docker resources before pulling staging images"
+  docker container prune -f || true
+  docker image prune -af || true
+  docker builder prune -af || true
+
+  echo "Docker disk usage after cleanup:"
+  docker system df || true
+}
+
 write_deploy_env() {
   local tmp
   tmp="$(mktemp "${DEPLOY_ENV_FILE}.tmp.XXXXXX")"
@@ -217,6 +230,7 @@ deploy() {
   if [[ "${SKIP_IMAGE_PULL:-}" == "1" ]]; then
     echo "Skipping image pull because SKIP_IMAGE_PULL=1"
   else
+    reclaim_docker_space
     echo "Pulling staging images"
     docker pull "$KIDITEM_API_IMAGE"
     docker pull "$KIDITEM_WEB_IMAGE"
