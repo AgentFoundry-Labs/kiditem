@@ -236,6 +236,13 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.action === "registerWingThumbnail") {
+    registerWingThumbnail(msg)
+      .then((result) => sendResponse(result))
+      .catch((e) => sendResponse({ success: false, error: e?.message || "쿠팡 Wing 대표이미지 등록 실패" }));
+    return true;
+  }
+
   if (msg.action === "setAuthToken") {
     const token = typeof msg.token === "string" ? msg.token : null;
     if (!token) {
@@ -305,6 +312,85 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return true; // async
   }
 });
+
+async function registerWingThumbnail(message) {
+  const productName = typeof message.productName === "string" ? message.productName.trim() : "";
+  const image = message.image || {};
+  if (!productName) return { success: false, error: "쿠팡 등록 상품명이 없습니다" };
+  if (typeof image.dataUrl !== "string" || !image.dataUrl.startsWith("data:image/")) {
+    return { success: false, error: "대표이미지 데이터가 없습니다" };
+  }
+
+  const tab = await createTab({
+    url: buildWingProductSearchUrl(productName),
+    active: true,
+  });
+  if (!tab?.id) return { success: false, error: "Wing 탭을 열 수 없습니다" };
+  const tabId = tab.id;
+
+  const loaded = await waitForTabComplete(tabId, { timeoutMs: 60000 }).catch((error) => ({
+    error: error?.message || "Wing 탭 로딩 실패",
+  }));
+  if (loaded?.error) return { success: false, error: loaded.error, tabId };
+  if (!isWingInventoryUrl(loaded?.url || "")) {
+    activateTab(tabId);
+    return {
+      success: false,
+      pendingLogin: true,
+      opened: true,
+      tabId,
+      error: "쿠팡 Wing 로그인 필요 — 열린 Wing 탭에서 로그인 후 다시 실행하세요.",
+    };
+  }
+
+  await sleep(1500);
+  const openResult = await sendTabMessage(tabId, {
+    action: "kiditemOpenWingProductEdit",
+    productName,
+  });
+  if (!openResult?.success) {
+    activateTab(tabId);
+    return {
+      success: false,
+      opened: true,
+      tabId,
+      error: openResult?.error || "Wing 상품 수정 화면을 열 수 없습니다",
+    };
+  }
+
+  await waitForTabComplete(tabId, {
+    expectedUrl: openResult.editUrl || undefined,
+    timeoutMs: 60000,
+  }).catch(() => null);
+  await sleep(2500);
+
+  const uploadResult = await sendTabMessage(tabId, {
+    action: "kiditemUploadWingThumbnail",
+    productName,
+    image,
+  });
+  if (!uploadResult?.success) {
+    activateTab(tabId);
+    return {
+      success: false,
+      opened: true,
+      tabId,
+      error: uploadResult?.error || "Wing 대표이미지 업로드 실패",
+    };
+  }
+
+  activateTab(tabId);
+  return {
+    success: true,
+    opened: true,
+    tabId,
+    screenshotUrl: uploadResult.screenshotUrl,
+  };
+}
+
+function buildWingProductSearchUrl(productName) {
+  return `https://wing.coupang.com/vendor-inventory/list?searchKeywordType=PRODUCT_NAME&searchKeywords=${encodeURIComponent(productName)}&salesMethod=ALL&productStatus=ALL&stockSearchType=ALL&locale=ko_KR&sortMethod=SORT_BY_ITEM_LEVEL_UNIT_SOLD&countPerPage=50&page=1`;
+}
 
 function openAndExecuteAdActions(url = AD_ACTION_URL) {
   return new Promise((resolve) => {
@@ -719,6 +805,18 @@ function createWindow(createProperties) {
         return;
       }
       resolve(syncWindow);
+    });
+  });
+}
+
+function createTab(createProperties) {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.create(createProperties, (tab) => {
+      if (chrome.runtime.lastError || !tab?.id) {
+        reject(new Error(chrome.runtime.lastError?.message || "탭 생성 실패"));
+        return;
+      }
+      resolve(tab);
     });
   });
 }

@@ -503,27 +503,10 @@ function ThumbnailEditorWorkspaceContent() {
       return;
     }
     try {
-      const status = await apiClient.get<{ connected: boolean; error?: string }>(
-        '/api/thumbnail-analysis/playwriter-status',
-      );
-      if (!mountedRef.current) return;
-      if (!status.connected) {
-        toast.error(
-          status.error ?? '활성 Playwriter 세션이 없습니다. 터미널에서 `playwriter session new` 실행 후 쿠팡 Wing 에 로그인하세요.',
-          { duration: 8000 },
-        );
-        return;
-      }
-    } catch {
-      if (!mountedRef.current) return;
-      toast.error('Playwriter 상태를 확인할 수 없습니다. 서버 연결을 확인하세요.');
-      return;
-    }
-    try {
       const wingResult = await wingRegisterMutation.mutateAsync(generationId);
       if (!mountedRef.current) return;
       if (wingResult.success) {
-        toast.success('Wing 대표이미지 업로드 완료 — 스크린샷 확인 후 저장하세요');
+        toast.success('Wing 대표이미지 업로드 완료 — 열린 Wing 화면 확인 후 저장하세요');
         setResult([]);
         setGenerationId(null);
         setSelectedCandidateUrl(null);

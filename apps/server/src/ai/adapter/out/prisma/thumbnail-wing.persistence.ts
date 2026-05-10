@@ -71,7 +71,7 @@ export class ThumbnailWingPersistence {
       data: {
         organizationId,
         generationId,
-        status: 'uploaded',
+        status: 'running',
         startedAt: new Date(),
       },
       select: { id: true },
@@ -82,9 +82,10 @@ export class ThumbnailWingPersistence {
     id: string,
     organizationId: string,
     data: Prisma.ThumbnailRegistrationAttemptUpdateManyMutationInput,
+    generationId?: string,
   ): Promise<void> {
     const result = await this.prisma.thumbnailRegistrationAttempt.updateMany({
-      where: { id, organizationId },
+      where: { id, organizationId, ...(generationId ? { generationId } : {}) },
       data,
     });
     if (result.count === 0) {

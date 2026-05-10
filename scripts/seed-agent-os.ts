@@ -67,7 +67,10 @@ async function ensureInstance(
     // Ensure runtime state row exists (1:1 with instance).
     await prisma.agentRuntimeState.upsert({
       where: { agentInstanceId: existing.id },
-      create: { organizationId, agentInstanceId: existing.id },
+      create: {
+        organization: { connect: { id: organizationId } },
+        agentInstance: { connect: { id: existing.id } },
+      },
       update: {},
     });
     return existing;
@@ -75,7 +78,7 @@ async function ensureInstance(
   return prisma.$transaction(async (tx) => {
     const instance = await tx.agentInstance.create({
       data: {
-        organizationId,
+        organization: { connect: { id: organizationId } },
         type: definition.type,
         name: definition.name,
         adapterType: definition.defaultAdapterType,
@@ -83,7 +86,10 @@ async function ensureInstance(
       select: { id: true },
     });
     await tx.agentRuntimeState.create({
-      data: { organizationId, agentInstanceId: instance.id },
+      data: {
+        organization: { connect: { id: organizationId } },
+        agentInstance: { connect: { id: instance.id } },
+      },
     });
     return instance;
   });

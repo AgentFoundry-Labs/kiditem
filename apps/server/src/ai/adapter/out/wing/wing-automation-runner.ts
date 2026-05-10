@@ -37,6 +37,12 @@ export class WingAutomationRunner {
   private readonly logger = new Logger(WingAutomationRunner.name);
 
   runWingUpload(input: WingUploadInput): Promise<WingUploadResult> {
+    if (isServerAutomationBlocked()) {
+      return Promise.resolve({
+        success: false,
+        error: '스테이징/운영 Wing 등록은 Chrome 확장 프로그램으로만 실행할 수 있습니다.',
+      });
+    }
     const { productName, imagePath, screenshotPath } = input;
     return new Promise((resolve) => {
       const code = this.buildScript(productName, imagePath, screenshotPath);
@@ -71,6 +77,12 @@ export class WingAutomationRunner {
   }
 
   checkPlaywriterStatus(): Promise<PlaywriterStatus> {
+    if (isServerAutomationBlocked()) {
+      return Promise.resolve({
+        connected: false,
+        error: '스테이징/운영 Wing 등록은 Chrome 확장 프로그램으로만 실행할 수 있습니다.',
+      });
+    }
     return new Promise((resolve) => {
       const proc = spawnPlaywriter(['session', 'list'], { timeout: PLAYWRITER_STATUS_TIMEOUT_MS });
       let stdout = '';
@@ -200,4 +212,8 @@ export class WingAutomationRunner {
 })();
     `.trim();
   }
+}
+
+function isServerAutomationBlocked(): boolean {
+  return process.env.NODE_ENV === 'production';
 }
