@@ -1,6 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
+import { ProductManagementEnrichmentService } from '../product-management-enrichment.service';
+import { ProductManagementFactsService } from '../product-management-facts.service';
+import { ProductManagementGradeService } from '../product-management-grade.service';
 import { ProductManagementService } from '../product-management.service';
 import type { ManagementFacts, ProductManagementGradeInfo } from '../product-management.read-model';
+
+function createService(prisma: any): ProductManagementService {
+  const facts = new ProductManagementFactsService(prisma);
+  const grades = new ProductManagementGradeService(prisma, facts);
+  const enrichment = new ProductManagementEnrichmentService(facts);
+  return new ProductManagementService(prisma, facts, grades, enrichment);
+}
 
 describe('ProductManagementService.pipelineStats', () => {
   it('separates catalog total from channel-linked products', async () => {
@@ -9,7 +19,7 @@ describe('ProductManagementService.pipelineStats', () => {
         findMany: vi.fn().mockResolvedValue([{ id: 'master-linked' }, { id: 'master-inventory-only' }]),
       },
     };
-    const service = new ProductManagementService(prisma as any);
+    const service = createService(prisma);
     const grades = new Map<string, ProductManagementGradeInfo>([
       ['master-linked', { grade: 'A', score: 80, rank: 1, prevRank: null, strategy: 'keep' }],
       ['master-inventory-only', { grade: 'B', score: 50, rank: 2, prevRank: null, strategy: 'watch' }],
@@ -52,7 +62,7 @@ describe('ProductManagementService.pipelineStats', () => {
         ]),
       },
     };
-    const service = new ProductManagementService(prisma as any);
+    const service = createService(prisma);
     const grades = new Map<string, ProductManagementGradeInfo>([
       ['master-linked-low', { grade: 'B', score: 60, rank: 1, prevRank: null, strategy: 'watch' }],
       ['master-linked-no-profit', { grade: 'C', score: 20, rank: 2, prevRank: null, strategy: 'fix' }],
@@ -100,7 +110,7 @@ describe('ProductManagementService.pipelineStats', () => {
           .mockResolvedValueOnce([{ id: 'master-linked-low' }]),
       },
     };
-    const service = new ProductManagementService(prisma as any);
+    const service = createService(prisma);
     const facts: ManagementFacts = {
       stockByMaster: new Map(),
       inventoryByMaster: new Map(),

@@ -1,4 +1,3 @@
-// apps/server/src/products/products.module.ts
 import { Module } from '@nestjs/common';
 import { MasterCodeService } from './adapter/out/prisma/master-code.service';
 import { MastersService } from './application/service/masters.service';
@@ -6,6 +5,9 @@ import { OptionsService } from './application/service/options.service';
 import { BundleStockService } from './application/service/bundle-stock.service';
 import { BundleComponentsService } from './application/service/bundle-components.service';
 import { ProductCatalogService } from './application/service/product-catalog.service';
+import { ProductManagementEnrichmentService } from './application/service/product-management-enrichment.service';
+import { ProductManagementFactsService } from './application/service/product-management-facts.service';
+import { ProductManagementGradeService } from './application/service/product-management-grade.service';
 import { ProductManagementService } from './application/service/product-management.service';
 import { MastersController } from './adapter/in/http/masters.controller';
 import { OptionsController } from './adapter/in/http/options.controller';
@@ -26,13 +28,24 @@ import { CategoriesModule } from './categories/categories.module';
     ProductsLegacyController, // last — resolves after sibling /products/* controllers
   ],
   providers: [
-    MasterCodeService, MastersService, OptionsService,
-    BundleStockService, BundleComponentsService,
-    ProductCatalogService, ProductManagementService,
+    MasterCodeService,
+    MastersService,
+    OptionsService,
+    BundleStockService,
+    BundleComponentsService,
+    ProductCatalogService,
+    ProductManagementFactsService,
+    ProductManagementGradeService,
+    ProductManagementEnrichmentService,
+    ProductManagementService,
   ],
   exports: [
-    MastersService, OptionsService, BundleComponentsService,
-    BundleStockService, ProductCatalogService, ProductManagementService,
+    MastersService,
+    OptionsService,
+    BundleComponentsService,
+    BundleStockService,
+    ProductCatalogService,
+    ProductManagementService,
   ],
 })
 export class ProductsModule {}
