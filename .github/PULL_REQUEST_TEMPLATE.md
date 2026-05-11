@@ -45,16 +45,14 @@
   - Contract / AGENTS update:
   - Behavior lock tests:
   - Verification gate:
-- [ ] 500+ line service/component 수정 없음
-- [ ] 500+ line service/component 수정 있음 → 왜 split/replacement 없이 안전한지 또는 어떤 split 을 포함했는지 기록
-- [ ] LLM/prompt/model/provider/storage/fetch/Agent OS runtime/sink/reconcile 변경 없음
-- [ ] LLM/prompt/model/provider/storage/fetch/Agent OS runtime/sink/reconcile 변경 있음 → port/domain prompt/stored JSON/reconcile 경로 검토 완료
 
 ## 새 영구 규칙
 - [ ] 해당 없음 (리팩터링/버그픽스/기능 추가/단일 도메인 내부 구현)
-- [ ] 신규 영구 규칙을 해당 scope 의 `AGENTS.md` / `CLAUDE.md` 본문에 추가했음
+- [ ] 신규 영구 규칙을 해당 scope 의 `AGENTS.md` 본문에 추가했음
 
-> 트리거(하나라도 해당되면 governance 본문 갱신 필요): 새 cross-domain 규칙 / 기존 금지·허용 규칙 전복 / 런타임·모듈 경계 이동 / 기술 선택 교체 / 기능·모듈 Deprecated 선언 / 인시던트로 새 영구 규칙 생성.
+> Trigger 예시: 10+ files, 500+ line service/component, cross-layer controls,
+> LLM/prompt/model/provider/storage/fetch/Agent OS runtime/sink/reconcile,
+> 새 cross-domain 규칙, 기존 금지·허용 규칙 전복.
 
 ## 리뷰
 ```bash

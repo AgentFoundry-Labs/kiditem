@@ -29,6 +29,7 @@ Precedence: the most-specific `AGENTS.md` wins, then parent `AGENTS.md` files.
 ## Documentation Artifacts
 
 - Keep durable documentation in `docs/`, scoped `AGENTS.md`, or source-code comments when the rule is inseparable from the implementation.
+- When adding durable rules, consolidate or replace nearby rules instead of only appending; remove stale guidance in the same change.
 - Do not commit session plans, scratch specs, agent logs, or temporary coordination notes. Use local scratch space outside git for those artifacts.
 - Promote only enduring rules or release evidence into git. If a scratch plan produced a permanent convention, copy the final rule into the nearest scoped `AGENTS.md` instead of keeping the plan.
 - Environment setup, external tool setup, shared-data setup, browser extension setup, deployment/sync setup, and other collaboration procedures must have an AI-executable Markdown runbook under `docs/runbooks/` or the nearest scoped documentation. Do not rely on chat history as the source of truth.
@@ -119,26 +120,11 @@ unrelated business rewrites. Durable reconstruction contracts live in this
 file and the nearest scoped `AGENTS.md`; session plans and temporary scratch
 notes stay out of git.
 
-### Reconstruction review triggers
-
-아래 중 하나라도 해당하면 PR 은 일반 기능 리뷰 전에 reconstruction 여부를
-명시적으로 판정해야 한다. reviewer 는 PR 본문 또는 리뷰 코멘트에 "왜
-reconstruction PR 이거나 아닌지" 를 남긴다.
-
-- 10+ files touched, or same owner domain에서 web/server/shared/agent-runtime
-  같은 multiple layers 를 함께 수정.
-- 500+ line service/component 를 수정하거나, 700+ line service/component 에
-  새 behavior 를 추가.
-- LLM prompt, model/env selection, provider SDK, image/media generation,
-  storage/fetch, Agent OS runtime/bridge/sink/reconcile 경계를 변경.
-- API/DTO/schema/frontend controls 를 추가하면서 stored JSON, async runtime
-  payload, sink DTO, query DTO 중 하나라도 함께 영향을 받음.
-- PR 본문이 "follow-up" 으로 architecture cleanup 을 남기지만 그 cleanup 없이는
-  새 계약을 설명할 수 없음.
-
-Trigger 가 켜지면 reviewer 는 (a) durable rule/contract, (b) port or boundary
-shape, (c) behavior lock test, (d) verification gate 를 확인한다. 누락되면
-"후속 이슈" 로 넘기지 말고 merge 전에 scope 를 키우거나 PR 을 재작성한다.
+- **Review trigger contract** — 10+ files, 500+ line services/components,
+  LLM/provider/media/storage/fetch/runtime/sink/reconcile changes, or
+  cross-layer controls require explicit reconstruction classification in the
+  PR body/review before approval. If the needed contract/test/gate is missing,
+  fix scope before merge; do not park it as a vague follow-up.
 
 - **Rules before deletion** — record contract, scanner, or regression-test gates before deleting legacy implementation.
 - **Boundary exception is narrow** — organization guards, raw SQL policy, scanner scripts, shared export topology, and dependency tooling may cross domains. Business logic rewrites still use one owner domain per PR.

@@ -1,44 +1,86 @@
 # apps/web — Next.js Frontend
 
-Frontend only. No API Routes / Route Handlers. All data is fetched from NestJS
-through `apiClient`: local development uses `NEXT_PUBLIC_API_URL=http://localhost:4000`,
-while staging/production leave it empty and rely on the edge proxy (`/api/*` →
-NestJS).
+Frontend only. No API routes or route handlers. All data flows through the
+NestJS API via `apiClient`.
 
-**AI chat transport exception** — the CopilotKit browser runtime calls
-same-origin `/api/chat/copilot` only. `apps/web/next.config.mjs` rewrites
-both `/api/chat/copilot` and `/api/chat/copilot/:path*` to the Nest chat
-runtime for local/dev environments where nginx/ALB is not handling `/api/*`.
-This is a rewrite (transport), not an API Route — there is no
-`app/api/.../route.ts` handler and there must not be one. Any other
-domain that needs server proxying must go through Nest directly via
-`apiClient` plus the staging/prod edge proxy, not via a new Next rewrite/Route
-Handler.
+Local dev usually sets `NEXT_PUBLIC_API_URL=http://localhost:4000`.
+Staging/production should leave it empty so browser calls stay same-origin
+(`/api/*`) through the edge proxy.
+
+## Chat Transport Exception
+
+CopilotKit browser runtime calls same-origin `/api/chat/copilot`. `next.config`
+rewrites that path to Nest for local/dev. This is transport only; do not add
+`app/api/.../route.ts`. Other domains use `apiClient` and the backend API.
 
 ## Run
 
 ```bash
-npm run dev    # localhost:3000
-npm run build  # Production build
-npx vitest run # Tests
+npm run dev
+npm run build
+npx vitest run
 ```
 
-Env: `.env.local` → local dev sets `NEXT_PUBLIC_API_URL=http://localhost:4000`.
-Staging/production should omit it or set it to an empty string so browser API
-calls stay same-origin (`/api/*`).
+## Scope Instructions
 
-## Scoped Instructions
+- Read the route-scoped `AGENTS.md` before editing a route that has one.
+- Shared frontend rules live here. Do not append history; replace or compact
+  nearby rules when adding durable guidance.
 
-- Shared frontend rules live in this `AGENTS.md`.
-- Nested route guidance is maintained in
-  `src/app/(group-name)/{domain}/AGENTS.md`. Read the matching file before
-  editing that route.
-- `CLAUDE.md` files are Claude compatibility shims only. Keep shared contracts
-  in `AGENTS.md`.
+## API And State
 
-### Route Groups
+- Use `apiClient.get/post/patch/delete`; use `apiClient.fetchRaw()` for blobs.
+- Do not use raw `fetch` for backend API calls.
+- Direct `API_BASE` usage is allowed only for non-fetch URL resolution.
+- Frontend code must not import Prisma, `pg`, server DB adapters, or direct DB
+  clients.
+- Never send `organizationId` in query/body. Tenant scope is resolved by the
+  backend session.
+- Server state uses React Query. Prefer domain hooks; otherwise use inline
+  `useQuery`/`useMutation` with `queryKeys`.
+- Polling uses `refetchInterval`, not `setInterval`.
+- Mutations invalidate the relevant query key.
+- Zustand is only for client UI state such as sidebar/panel preferences or SSE
+  queues, not request/response server state.
 
-Top-level routes are organized into Next.js App Router route groups (`(name)`). Route groups do **not** affect URLs — `/agents` still resolves to `src/app/(automation)/agents/page.tsx`. Group folders only exist to colocate related domains for navigation and ownership.
+## Types And Errors
+
+- Prefer focused shared subpaths such as `@kiditem/shared/inventory`.
+- Do not expand the root `@kiditem/shared` barrel for new domains.
+- Keep single-page props/types local unless 2+ components share them.
+- Branch API errors with `isApiError(err)`.
+- Use `sonner` toasts for user-facing errors/success. No `alert()` except
+  browser prompt/confirm flows.
+
+## Styling
+
+- Tailwind + `cn()` from `@/lib/utils`.
+- No conditional template-literal class strings; use `cn('base', condition &&
+  'class')`.
+- Prefer semantic CSS variables for edited UI:
+  `--surface`, `--surface-sunken`, `--surface-raised`, `--text-*`,
+  `--border*`, `--primary`, `--primary-soft`.
+- Hard-coded `bg-white` / `text-slate-*` is legacy; convert when editing.
+- Use `useChartTheme()` for charts and `<ThemedToaster />` for toasts.
+- Lucide React is the icon library.
+- Formatting goes through helpers in `@/lib/utils`; do not call `Intl.*` or
+  `toLocaleString()` directly in UI code.
+
+## Route Structure
+
+```text
+app/(group-name)/{domain}/
+  page.tsx
+  components/
+  hooks/
+  lib/
+```
+
+Shared directories (`src/components`, `src/hooks`, `src/lib`) are only for code
+used by 2+ domains. Route-group private shared code can live in
+`app/(group)/_shared/`.
+
+Route groups do not affect URLs:
 
 | Group | Routes |
 |---|---|
@@ -50,159 +92,46 @@ Top-level routes are organized into Next.js App Router route groups (`(name)`). 
 | `(finance)` | finance-hub, profit-loss, sales-analysis, supplier-hub |
 | `(media-ai)` | thumbnails, thumbnail-editor, image-hub, generate |
 
-Routes outside any group (`ad-ops`, `agent-os`, `cs-management`, `dashboard`, `outbound`, `purchase-orders`, `reports`, `settings`, `__tests__`, `components`) remain at `src/app/{name}/`. `/` 는 제품 작업 표면 (`/agents`, `/dashboard`) 으로 분기하는 launcher 이며, `/agent-os` 는 현재 Agent 관리/알림 UX 범위가 아닌 별도 풀스크린 시각화 surface 다.
-
-## Rules
-
-### API Calls
-- Use **`apiClient.get/post/patch/delete`** from `@/lib/api-client` (no raw fetch)
-- For blob responses: `apiClient.fetchRaw()`
-- Direct `API_BASE` usage only for non-fetch purposes (e.g., image URL resolution). **Never** use `API_BASE` for the CopilotKit `runtimeUrl` — chat must hit same-origin `/api/chat/copilot`, which the Next rewrite forwards to Nest.
-- Frontend code must not import Prisma, `pg`, server-only DB adapters, or direct database clients. All data comes from NestJS APIs.
-- **Tenant scope is server-owned.** Never send `organizationId` in a query string or request body. Backend resolves the tenant from the authenticated session via `@CurrentOrganization()`; any client-supplied `organizationId` is untrusted and silently dropped by the controller DTO whitelist. Query params carry **business filters only** (status, dateRange, module, etc.). Helpers like `getOrganizationId()` for client-side tenant resolution are forbidden — if you find yourself reaching for one, the backend contract is wrong.
-
-### Data Fetching
-- Use **`useQuery` / `useMutation`** from `@tanstack/react-query` (no useState+useEffect+fetch)
-- Domain hooks are co-located: `app/(automation)/agents/hooks/useAgents.ts`, `app/(automation)/workflows/hooks/useWorkflows.ts`
-- App-wide cross-domain hooks stay in `src/hooks/`. Route-group-only shared hooks stay inside that group, for example `app/(automation)/_shared/marketplace/hooks/useMarketplace.ts` (agents + marketplace).
-- For domains without custom hooks: inline `useQuery` + `queryKeys.*` from `lib/query-keys.ts`
-- Polling: `refetchInterval` option (no setInterval)
-- After mutation: `queryClient.invalidateQueries({ queryKey: queryKeys.xxx.all })`
-
-### Types
-- API response types: prefer domain subpaths from `@kiditem/shared/*` when available. Existing root imports from `@kiditem/shared` are allowed during migration, but new domains must not expand the root barrel.
-- Single-page types: inline allowed (Novu pattern)
-- Props: inline in component file (don't export)
-- Shared across 2-3 components: export from parent → import in children
-
-### Error Handling
-- Branch with `isApiError(err)` from `@/lib/api-error`
-- User notifications: `toast.error/success` from `sonner` (no alert(), except prompt/confirm)
-- Global errors: auto-toast via QueryCache onError
-
-### Styling
-- **Tailwind CSS** + `cn()` utility from `@/lib/utils` (clsx + tailwind-merge)
-- **금지**: `className={`...${condition}...`}` 템플릿 리터럴 조건부. 항상 `cn('base', condition && 'class')` 사용. (전체 마이그레이션 완료)
-- **Dark mode**: `darkMode: 'class'` + next-themes. 신규/수정 시 시맨틱 토큰 우선:
-  - Surface/Card: `bg-[var(--surface)]`, `bg-[var(--surface-sunken)]`, `bg-[var(--surface-raised)]`
-  - Text: `text-[var(--text-primary|secondary|tertiary|muted)]`
-  - Border: `border-[var(--border|border-subtle|border-strong)]`
-  - Primary/Accent: `bg-[var(--primary)]`, `text-[var(--primary)]`, `bg-[var(--primary-soft)]`
-  - Common classes (`.card`, `.btn-primary`, `.btn-secondary`, `.btn-danger`, `.tab-*`, `.modal-*`, `.agent-card`, `.glass-card`) 은 이미 var 기반 → 그대로 사용하면 다크 자동 반영
-  - 차트: `useChartTheme()` from `@/lib/chart-theme`
-  - Toast: `<ThemedToaster />` (이미 layout 에 배선)
-- Hard-coded `bg-white / text-slate-*` 는 legacy — 파일 편집 시 위 토큰으로 치환
-- Table styles: defined in `globals.css` `@layer base`
-- Icons: **Lucide React** only (`import { Icon } from 'lucide-react'`). No other icon libraries.
-
-### Formatting Utilities (`@/lib/utils`)
-- `formatNumber()` — locale-aware number (`Intl.NumberFormat('ko-KR')`)
-- `formatCurrency()` / `formatKRW()` — KRW currency
-- `formatPercent()` — percentage (1 decimal)
-- `formatDateTime(date, opts?)` — 날짜+시간 (기본 YYYY-MM-DD HH:mm:ss)
-- `formatDate(date, opts?)` — 날짜만
-- `formatTime(date, opts?)` — 시각만 (HH:mm:ss)
-- `formatDurationMinutes(minutes)` — 분 단위 → "2시간 30분"
-- **금지**: `Intl.*`, `toLocaleString()`, `toLocaleDateString()`, `toLocaleTimeString()` 직접 호출. 항상 위 유틸 경유.
-
-### UI
-- `'use client'`: 훅(useState, useQuery 등)이나 브라우저 API를 쓰는 파일에 필수. 순수 레이아웃은 예외.
-- Radix UI primitives: Popover, Select, Tabs, DropdownMenu
-
-### Directory Structure
-
-Each grouped route can have co-located directories:
-```
-app/(group-name)/{domain}/
-  page.tsx           # Composition layer (hooks + state + component imports)
-  components/        # Domain-specific UI components
-  hooks/             # Domain-specific custom hooks
-  lib/               # Domain-specific utilities, constants, types
-```
-Ungrouped routes use the same shape at `app/{domain}/`.
-
-Shared directories (`src/components/`, `src/hooks/`, `src/lib/`) contain ONLY cross-domain code (2+ domains):
-- `src/components/ui/` — PageSkeleton, Pagination, DateRangePicker, StatusBadge
-- `src/components/layout/` — AppLayout, Header, Sidebar
-- `src/lib/` — api-client, api-error, query-keys, utils (universal infra)
-
-Route-group private shared directories contain ONLY code shared by 2+ routes inside that group:
-- `app/(automation)/_shared/marketplace/` — marketplace API/types/hooks/cards/modals (agents + marketplace)
-
-### Large Component Policy
+## Large Components
 
 - Do not add substantial behavior to 700+ line components.
-- Before editing a large component, write a route-scoped split plan that identifies pure helpers, presentational components, hooks, and state orchestration boundaries.
-- Keep API behavior stable while splitting. First extract tested helpers/presentational pieces; then replace stateful orchestration.
-- New reusable UI belongs in `src/components` only when at least two routes actually share it.
+- Changes to 500+ line components require explicit reconstruction
+  classification in review.
+- Split by pure helpers, presentational components, hooks, and orchestration
+  while keeping API behavior stable.
 
-### File Naming
-- Components: **PascalCase.tsx** (`ProductCard.tsx`)
-- Hooks: **camelCase** (`useAgents.ts`) — must start with `use`
-- Utilities, constants, types: **kebab-case.ts** (`barcode-print.ts`, `query-keys.ts`)
+## SSE
 
-### Import Order
-1. `'use client'` directive
-2. React imports (`import { useState } from 'react'`)
-3. Third-party libraries (tanstack, lucide-react, sonner, etc.)
-4. Local absolute imports (`@/lib/*`, `@/components/*`)
-5. Relative imports (`./components/*`, `../lib/*`)
-6. Type imports (`import type { ... }`)
+- Default to polling.
+- Panel is the SSE exception. Use `PanelSseClient` only; it sends cookies with
+  `credentials: 'include'`.
+- New SSE domains require a scoped plan and instruction update.
 
-### State Management
-- Zustand: 전역 클라이언트 상태 — sidebar (`src/store/useStore.ts`), panel (`src/components/panel/lib/panel-store.ts`). Request/response로 내려받는 서버 상태가 아닌 것(토글·선호·실시간 SSE 이벤트 큐)에만 한정.
-- Server state: 전부 React Query (`useQuery`/`useMutation`)
-- **Zustand selector 주의**: `(s) => s.method()` 가 배열/객체를 반환하면 매 렌더 새 레퍼런스 → `useSyncExternalStore` infinite loop. byId 같은 stable ref를 구독하고 `useMemo`로 파생. primitive 반환 메서드는 안전.
+## Domain Guides
 
-### SSE (Server-Sent Events)
-- **기본은 polling** — agents/thumbnails 도메인은 polling 유지. 새 SSE 채널은 reconnect/backfill 운영 부담을 동반하므로 명백한 필요가 있을 때만 도입한다.
-- **Panel 도메인 예외** — `@microsoft/fetch-event-source` 사용. 격리된 `PanelSseClient` (`src/components/panel/lib/panel-sse-client.ts`) 래퍼 경유만 허용. 다른 도메인이 SSE 원하면 scoped plan + 해당 instruction update 가 필요하다.
-- **인증** — fetchEventSource 는 `credentials: 'include'` 옵션으로 Supabase SSR auth-token 쿠키(`sb-<project-ref>-auth-token`, chunked 가능)를 자동 전송. backend `SupabaseAuthMiddleware` 가 cookie session 의 `access_token` 을 읽어 검증. URL query 토큰 첨부 패턴(`?devUserId=` 등)은 금지.
+Read these before editing the matching route:
 
-## Domain Guides — 서브 페이지 작업 전 scoped instruction 먼저 Read
-
-**규칙**: `src/app/(group-name)/{domain}/` 하위 파일을 Edit 하기 전, 아래 표의 해당 행이 가리키는 scoped `AGENTS.md` 를 먼저 Read 한다.
-
-### 전용 AGENTS.md 가 있는 서브 페이지 (5)
-
-| 경로 | 핵심 포인트 |
+| Path | Focus |
 |---|---|
-| [`src/app/(orders)/return-scan/AGENTS.md`](<src/app/(orders)/return-scan/AGENTS.md>) | Barcode Input + Local-Only Logging — stateless scan flow, local sync exception, no server mutation. |
-| [`src/app/(sourcing)/sourcing/AGENTS.md`](<src/app/(sourcing)/sourcing/AGENTS.md>) | Product Sourcing + GrapesJS WYSIWYG Editor + AI Edit Panels — custom blocks, iframe injection, UndoManager pause. |
-| [`src/app/(media-ai)/thumbnail-editor/AGENTS.md`](<src/app/(media-ai)/thumbnail-editor/AGENTS.md>) | Use-Case-Driven Generation — use-case card branching, mutation workflow, image hub import. |
-| [`src/app/(media-ai)/thumbnails/AGENTS.md`](<src/app/(media-ai)/thumbnails/AGENTS.md>) | Smart Polling + Batch + Optimistic UI — dynamic refetchInterval, rollback, AbortController. |
-| [`src/app/(automation)/workflows/AGENTS.md`](<src/app/(automation)/workflows/AGENTS.md>) | Wildcard Invalidation + UseQueryOptions Forwarding — tenant scope stays backend-owned, page stays thin. |
+| [`src/app/(automation)/workflows/AGENTS.md`](<src/app/(automation)/workflows/AGENTS.md>) | workflow page/query behavior |
+| [`src/app/(catalog)/product-hub/matching/AGENTS.md`](<src/app/(catalog)/product-hub/matching/AGENTS.md>) | product matching |
+| [`src/app/(media-ai)/thumbnail-editor/AGENTS.md`](<src/app/(media-ai)/thumbnail-editor/AGENTS.md>) | thumbnail editor generation workflow |
+| [`src/app/(media-ai)/thumbnails/AGENTS.md`](<src/app/(media-ai)/thumbnails/AGENTS.md>) | thumbnails polling/batch UI |
+| [`src/app/(orders)/return-scan/AGENTS.md`](<src/app/(orders)/return-scan/AGENTS.md>) | local-only scan flow |
+| [`src/app/(sourcing)/sourcing/AGENTS.md`](<src/app/(sourcing)/sourcing/AGENTS.md>) | sourcing editor and AI panels |
 
-### Notable Sub-Domains (LOW signal — 별도 scoped doc 없음)
+## Local Exceptions
 
-부모 Next.js 패턴(이 문서)으로 거의 커버되지만, 아래 도메인은 한 가지 특이점이 있다.
+- `app/agent-os/` is a fullscreen visualization surface and intentionally uses a
+  hard-coded dark/cyan style outside the normal semantic token guidance.
+- `components/panel/` owns the live slide-out panel and SSE store.
+- `app/(inventory)/inventory/lib/barcode-print.ts` may use browser print APIs.
+- `app/settings/` may contain operational uploads, printer settings, and health
+  checks.
 
-- **`app/(automation)/agents/`** — Agent OS run/request 내부 운영 콘솔. 일반
-  사용자의 Agent 상태 확인 surface 가 아니며 사이드바 기본 진입점도 아니다.
-  Agent 관련 사용자 알림 관리는 여기서 별도 inbox 를 만들지 않고 dashboard
-  Alerts tab / `Alert -> ActionTask` 흐름을 따른다.
-- **`app/agent-os/`** — 사용자 기준 Agent OS 풀스크린 시각화 surface.
-  `AppLayout` 의
-  `pathname === '/' || pathname.startsWith('/agent-os')` 가드로 sidebar/panel
-  /chat 모두 bypass 하고 자체 헤더/캔버스/바텀 대시보드를 렌더한다. dark
-  cyberpunk 미학을 위해 surface 토큰 대신 hard-coded 슬레이트/시안 컬러
-  (`bg-[#0a0f1a]`, `bg-[#0d1321]`, `bg-[#111827]`, `text-cyan-400` 등) 사용을
-  의도적으로 허용 — Styling 룰의 시맨틱 토큰 권고 예외.
-  `/api/agent-os/instances` + `/api/agent-os/runs?status=running` +
-  `/api/action-tasks` polling (15s/30s) + dashboard sales/ad summary +
-  `usePanelStream` 으로 live ops view. `agent`/`coordinator` 는 Agent network 로,
-  `tool_wrapper` 는 팀별 실행 도구로 표시한다.
-- **`app/(inventory)/inventory/`** — `lib/barcode-print.ts` 의 `printBarcodeWindow()` (window.open + `<style>` 인쇄) + xlsx import/export. 브라우저 print API 직접 사용 케이스.
-- **`app/settings/`** — 다양한 file upload (CSV/Image), printer 연결 (`PrinterSettings` 컴포넌트), health check + sync 운영 액션. system-level operations 가 한 페이지에 모임.
-- **`app/(finance)/sales-analysis/`** — `Settlements` 탭이 streaming 패턴 (스트림 chunked download). xlsx export 도 함.
-- **`app/(orders)/orders/`** — Pipeline state UI (ACCEPT → INSTRUCT → DEPARTURE → DELIVERING 시각화) + scheduled sync polling (`SYNC_HOURS` 상수로 정해진 시각마다 자동 sync invoke).
-- **`components/panel/`** — Live slide-out panel (SSE 예외). `AppLayout`에 상시 mount. PanelSseClient → Zustand store → Radix Sheet. Sidebar Bell 한 곳에서만 토글. Current sources: workflow run, agent run, image generation, alert.
+## Verification
 
-각 도메인 작업 시 위 특이점만 의식하면 부모 Next.js 패턴으로 충분.
-
-## Tests
-
-- Vitest + @testing-library/react
-- Config: `vitest.config.ts` (jsdom, @/ alias)
-- Run: `npx vitest run`
-- Test infrastructure core only (api-client, api-error). No implementation detail tests.
+```bash
+npm run build --workspace=apps/web
+npx vitest run
+```
