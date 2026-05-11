@@ -17,6 +17,8 @@ const STORED_RAW_INPUT = {
   imageUrls: ['https://example.com/p1.jpg'],
   heroImageMode: 'first' as const,
   templateId: 'bold-vertical' as const,
+  ageGroup: 'age-14-plus' as const,
+  detailImageCount: '1' as const,
 };
 
 function makeRow(overrides: Record<string, unknown> = {}) {
@@ -168,6 +170,25 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
       expect(images.generateBestEffort).toHaveBeenCalledWith(
         expect.objectContaining({
           excludedImageIndices: [1, 2],
+        }),
+      );
+    });
+
+    it('passes stored audience controls to generated image generation', async () => {
+      await sink.applySuccess({
+        organizationId: ORG,
+        requestId: REQUEST,
+        runId: RUN,
+        sourceResourceId: CG_ID,
+        output: VALID_OUTPUT,
+      });
+
+      expect(images.generateBestEffort).toHaveBeenCalledWith(
+        expect.objectContaining({
+          rawInput: expect.objectContaining({
+            ageGroup: 'age-14-plus',
+            detailImageCount: '1',
+          }),
         }),
       );
     });

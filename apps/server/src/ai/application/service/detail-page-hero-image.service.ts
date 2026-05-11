@@ -9,6 +9,7 @@ import {
   requireGeminiVisionModel,
 } from '../../adapter/out/gemini/thumbnail-gemini-config';
 import { isSafetyLabelImageUrl } from '../../domain/detail-page-image-order';
+import type { DetailPageAgeGroup } from '../../domain/prompts/detail-page/types';
 
 const sharp: typeof import('sharp') = require('sharp');
 
@@ -19,6 +20,7 @@ interface GenerateHeroBannerInput {
   description: string;
   options: string;
   templateId: 'kids-playful' | 'bold-vertical';
+  ageGroup?: DetailPageAgeGroup;
   headline: string;
   subhead: string;
   imageUrls: string[];
@@ -30,6 +32,7 @@ interface GenerateSizeGuideImageInput {
   category: string;
   description: string;
   options: string;
+  ageGroup?: DetailPageAgeGroup;
   imageUrls: string[];
   heightLabel?: string;
   widthLabel?: string;
@@ -555,14 +558,17 @@ export class DetailPageHeroImageService {
   }
 
   private buildPrompt(input: GenerateHeroBannerInput): string {
+    const audience = this.describeAudience(input.ageGroup);
+    const style = this.describeAudienceStyle(input.ageGroup);
     const tone = input.templateId === 'bold-vertical'
-      ? 'bright Korean kids-product detail page hero, soft premium studio mood, playful but clean'
-      : 'energetic Korean kids trend-detail hero, fun lifestyle mood, vivid but polished';
+      ? `bright Korean ${style} detail page hero, soft premium studio mood, playful but clean`
+      : `energetic Korean ${style} trend-detail hero, fun lifestyle mood, vivid but polished`;
 
     return [
       'Create one wide ecommerce detail-page hero banner image.',
       `Product name: ${input.productName}`,
       `Category: ${input.category}`,
+      `Target age/audience: ${audience}`,
       `Headline mood: ${input.headline}`,
       `Subhead: ${input.subhead}`,
       `Product notes: ${input.description}`,
@@ -572,7 +578,8 @@ export class DetailPageHeroImageService {
       `- Mood/style: ${tone}.`,
       '- Use the provided product photos as the exact product reference.',
       '- Preserve the product shape, colors, materials, and recognizable details as much as possible.',
-      '- Generate a NEW matching background scene or styled backdrop that fits the product mood. For bubble toys, use playful bubbles, bright clean light, and a child-friendly outdoor/playroom mood.',
+      '- Generate a NEW matching background scene or styled backdrop that fits the product mood. If people or lifestyle hints appear, follow the target age/audience exactly.',
+      this.describePeopleRule(input.ageGroup),
       '- Do NOT paste, crop, enlarge, or reuse the original uploaded photo as the whole banner.',
       '- Do NOT use a raw package/display-box photo as the banner. Package can be referenced for product identity only.',
       '- The final banner must clearly look like a generated commercial hero image with a fresh background and intentionally staged product.',
@@ -585,10 +592,13 @@ export class DetailPageHeroImageService {
   }
 
   private buildColorGuidePrompt(input: GenerateDetailSectionImageInput): string {
+    const audience = this.describeAudience(input.ageGroup);
+    const style = this.describeAudienceStyle(input.ageGroup);
     return [
       'Create one ecommerce detail-page color/options guide image.',
       `Product name: ${input.productName}`,
       `Category: ${input.category}`,
+      `Target age/audience: ${audience}`,
       `Product notes: ${input.description}`,
       input.options ? `Options/specs: ${input.options}` : '',
       '',
@@ -602,7 +612,7 @@ export class DetailPageHeroImageService {
       '- Do not add color names, callout labels, Korean text, English text, icons, arrows, badges, or captions inside the image. The HTML template will render all text separately.',
       '- Never use a package box, display box, barcode/KC/safety label, size chart, instruction sheet, or unrelated prop as the main subject.',
       '- Preserve real product colors and printed artwork. Do not merge colors or change the product identity.',
-      '- Use a bright playful background suitable for kids goods, with enough contrast for the product.',
+      `- Use a bright polished background suitable for ${style}, with enough contrast for the product.`,
       '- No prices, discount badges, shop logos, watermarks, or text of any kind.',
       '- Photorealistic commercial product composition, not a flat illustration.',
     ].filter(Boolean).join('\n');
@@ -675,6 +685,8 @@ export class DetailPageHeroImageService {
 
   private buildDetailCutPrompt(input: GenerateDetailSectionImageInput): string {
     const variant = input.variant ?? 1;
+    const audience = this.describeAudience(input.ageGroup);
+    const style = this.describeAudienceStyle(input.ageGroup);
     const variantDirection = variant % 2 === 0
       ? 'Show a usage/detail moment such as a hand interaction, opening, button, texture, functional part, or close-up feature. Keep it clean and product-focused.'
       : 'Show a polished product detail composition that highlights shape, material, print, set contents, or an alternate angle. Keep the product large and inspectable.';
@@ -683,6 +695,7 @@ export class DetailPageHeroImageService {
       'Create one ecommerce detail-page supporting image.',
       `Product name: ${input.productName}`,
       `Category: ${input.category}`,
+      `Target age/audience: ${audience}`,
       `Product notes: ${input.description}`,
       input.options ? `Options/specs: ${input.options}` : '',
       '',
@@ -700,17 +713,21 @@ export class DetailPageHeroImageService {
       '- Do not render the product name inside this image.',
       '- No Korean text, English text, numbers, fake KC marks, barcodes, certifications, brand logos, prices, watermarks, or long text.',
       '- Avoid package boxes as the main subject unless the input photo clearly shows the package and the detail page needs a 구성/패키지 컷.',
-      '- Use a clean bright kids-product ecommerce look, with the product fully visible and not awkwardly cropped.',
+      `- Use a clean bright ${style} ecommerce look, with the product fully visible and not awkwardly cropped.`,
+      this.describePeopleRule(input.ageGroup),
       '- Photorealistic commercial product shot, not a flat illustration.',
     ].filter(Boolean).join('\n');
   }
 
   private buildUsageGuidePrompt(input: GenerateUsageGuideImageInput): string {
     const variant = input.variant ?? 1;
+    const audience = this.describeAudience(input.ageGroup);
+    const style = this.describeAudienceStyle(input.ageGroup);
     return [
       'Create one ecommerce product usage photo.',
       `Product name: ${input.productName}`,
       `Category: ${input.category}`,
+      `Target age/audience: ${audience}`,
       `Product notes: ${input.description}`,
       input.options ? `Options/specs: ${input.options}` : '',
       input.usageStep ? `Usage step reference: ${input.usageStep}` : '',
@@ -722,18 +739,21 @@ export class DetailPageHeroImageService {
       '- Use the provided product photos as the exact product reference.',
       '- Preserve product shape, proportions, colors, printed artwork, and materials.',
       '- Show a realistic hand interaction only if it helps explain the step; use natural short nails, no manicure, no nail polish.',
+      this.describePeopleRule(input.ageGroup),
       `- Variant ${variant}: choose a slightly different camera angle or hand position while keeping the product inspectable.`,
-      '- Clean bright kids-product ecommerce look, photorealistic, no illustration.',
+      `- Clean bright ${style} ecommerce look, photorealistic, no illustration.`,
     ].filter(Boolean).join('\n');
   }
 
   private buildSizeGuidePrompt(input: GenerateSizeGuideImageInput): string {
     const orientation = this.describeSizeGuideOrientation(input);
+    const audience = this.describeAudience(input.ageGroup);
 
     return [
       'Create one isolated product cutout image for an ecommerce size guide.',
       `Product name: ${input.productName}`,
       `Category: ${input.category}`,
+      `Target age/audience: ${audience}`,
       `Product notes: ${input.description}`,
       input.options ? `Options/specs: ${input.options}` : '',
       '',
@@ -757,6 +777,28 @@ export class DetailPageHeroImageService {
       '- Absolutely do not add measurement lines, arrows, rulers, dimension text, or numbers. The template will overlay measurement guides separately.',
       '- Photorealistic product-only studio cutout, not an illustration.',
     ].filter(Boolean).join('\n');
+  }
+
+  private describeAudience(ageGroup?: DetailPageAgeGroup): string {
+    if (ageGroup === 'age-14-plus') {
+      return '14+ product for middle/high-school students and teenagers; not young children';
+    }
+    return '8+ product for elementary-school-age children; not toddlers or preschoolers';
+  }
+
+  private describeAudienceStyle(ageGroup?: DetailPageAgeGroup): string {
+    if (ageGroup === 'age-14-plus') return 'teen/student-product';
+    return 'kids-product';
+  }
+
+  private describePeopleRule(ageGroup?: DetailPageAgeGroup): string {
+    if (ageGroup === 'age-14-plus') {
+      return [
+        '- If a person, hands, or lifestyle use scene appears, depict a middle/high-school aged teenager or student.',
+        '- Do NOT depict a preschool child, elementary-looking child, toddler, baby, or childish nursery/playroom cues.',
+      ].join('\n');
+    }
+    return '- If a person, hands, or lifestyle use scene appears, keep them elementary-school age or older; do not depict toddlers or babies.';
   }
 
   private describeSizeGuideOrientation(input: GenerateSizeGuideImageInput): string {

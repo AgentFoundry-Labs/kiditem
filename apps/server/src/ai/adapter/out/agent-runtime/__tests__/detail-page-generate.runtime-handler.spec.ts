@@ -222,6 +222,34 @@ describe('DetailPageGenerateRuntimeHandler', () => {
     expect(hook.titleSub).toBe('텀블러!');
   });
 
+  it('passes audience and detail image count payload into the prompt', async () => {
+    const textCompletion: TextCompletionPort = {
+      complete: vi.fn().mockResolvedValue({ text: VALID_BOLD_VERTICAL_TEXT }),
+    };
+    const { handler } = makeHandler(textCompletion);
+
+    await handler.execute(makeCtx({
+      input: {
+        templateId: 'bold-vertical',
+        raw: {
+          rawTitle: '학생용 말랑이',
+          rawCategory: '완구',
+          rawDescription: '중고등학생 취미용 말랑이',
+          rawOptions: '옵션 없음',
+          imageUrls: ['https://example.com/product.jpg'],
+          ageGroup: 'age-14-plus',
+          detailImageCount: '2',
+        },
+        heroImageMode: 'llm-pick',
+      },
+    }));
+
+    const call = textCompletion.complete.mock.calls[0]?.[0];
+    expect(call?.user).toContain('사용 연령 기준: 14세 이상 상품');
+    expect(call?.user).toContain('중고등학생·청소년');
+    expect(call?.user).toContain('DETAIL 본문 이미지 수: 2개');
+  });
+
   it('returns kids-playful package and safety-label exclusions for the sink', async () => {
     const textCompletion: TextCompletionPort = {
       complete: vi.fn().mockResolvedValue({ text: VALID_KIDS_PLAYFUL_TEXT }),

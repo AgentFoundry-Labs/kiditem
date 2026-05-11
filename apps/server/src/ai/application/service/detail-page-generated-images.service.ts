@@ -2,6 +2,7 @@ import { Injectable, Optional } from '@nestjs/common';
 import { isSafetyLabelImageUrl } from '../../domain/detail-page-image-order';
 import type { BoldVerticalGeneration } from '../../domain/prompts/bold-vertical/single-call';
 import type { DetailPageGeneration } from '../../domain/prompts/detail-page/single-call';
+import { resolveDetailImageCountLimit } from '../../domain/prompts/detail-page/types';
 import type { DetailPageParsedGeneration, DetailPageRawInput, DetailPageTemplateId } from './detail-page-ai.types';
 import { DetailPageHeroImageService } from './detail-page-hero-image.service';
 import {
@@ -50,6 +51,7 @@ export class DetailPageGeneratedImagesService {
       description: input.rawInput.rawDescription,
       options: input.rawInput.rawOptions,
       templateId: input.templateId,
+      ageGroup: input.rawInput.ageGroup,
       headline: input.productName,
       subhead: pickHeroSubhead(input.parsed, input.templateId),
       imageUrls: heroSourceImageUrls.length > 0 ? heroSourceImageUrls : input.rawInput.imageUrls,
@@ -73,6 +75,7 @@ export class DetailPageGeneratedImagesService {
           category: input.rawInput.rawCategory,
           description: input.rawInput.rawDescription,
           options: input.rawInput.rawOptions,
+          ageGroup: input.rawInput.ageGroup,
           imageUrls: pickSizeGuideSourceImages(input.parsed, input.rawInput.imageUrls),
           heightLabel: (input.parsed as BoldVerticalGeneration).size?.heightLabel ?? '',
           widthLabel: (input.parsed as BoldVerticalGeneration).size?.widthLabel ?? '',
@@ -92,7 +95,7 @@ export class DetailPageGeneratedImagesService {
     input: {
       organizationId: string;
       parsed: DetailPageParsedGeneration;
-      rawInput: Pick<DetailPageRawInput, 'rawTitle' | 'rawCategory' | 'rawDescription' | 'rawOptions' | 'imageUrls'>;
+      rawInput: DetailPageRawInput;
     },
     processedImages: Record<string, string>,
   ): Promise<void> {
@@ -104,6 +107,11 @@ export class DetailPageGeneratedImagesService {
     ]);
     const productImageCount = countProductImages(input.rawInput.imageUrls);
     const needsDerivedLayout = productImageCount <= 3;
+    const detailImageLimit = resolveDetailImageCountLimit(input.rawInput.detailImageCount);
+    const remainingGeneratedDetailSlots = Math.max(
+      0,
+      detailImageLimit - (parsed.detailImageIndices ?? []).length,
+    );
 
     if ((parsed.color?.imageIndices ?? []).length === 0 && colorPreference(input.rawInput) !== 'none') {
       try {
@@ -113,6 +121,7 @@ export class DetailPageGeneratedImagesService {
           category: input.rawInput.rawCategory,
           description: input.rawInput.rawDescription,
           options: input.rawInput.rawOptions,
+          ageGroup: input.rawInput.ageGroup,
           imageUrls: pickSectionSourceImages(
             parsed.color?.imageIndices ?? [],
             input.rawInput.imageUrls,
@@ -141,6 +150,7 @@ export class DetailPageGeneratedImagesService {
             category: input.rawInput.rawCategory,
             description: input.rawInput.rawDescription,
             options: input.rawInput.rawOptions,
+            ageGroup: input.rawInput.ageGroup,
             imageUrls: pickSectionSourceImages(
               parsed.usage?.imageIndices ?? [],
               input.rawInput.imageUrls,
@@ -156,8 +166,12 @@ export class DetailPageGeneratedImagesService {
       }
     }
 
-    if (needsDerivedLayout || (parsed.detailImageIndices ?? []).length < 2) {
-      for (const [index, key] of GENERATED_DETAIL_IMAGE_KEYS.slice(0, MAX_GENERATED_DETAIL_IMAGES).entries()) {
+    if (remainingGeneratedDetailSlots > 0 && (needsDerivedLayout || (parsed.detailImageIndices ?? []).length < 2)) {
+      const maxGeneratedDetailImages = Math.min(
+        MAX_GENERATED_DETAIL_IMAGES,
+        remainingGeneratedDetailSlots,
+      );
+      for (const [index, key] of GENERATED_DETAIL_IMAGE_KEYS.slice(0, maxGeneratedDetailImages).entries()) {
         try {
           const url = await this.heroImageService.generateDetailCutImage({
             organizationId: input.organizationId,
@@ -165,6 +179,7 @@ export class DetailPageGeneratedImagesService {
             category: input.rawInput.rawCategory,
             description: input.rawInput.rawDescription,
             options: input.rawInput.rawOptions,
+            ageGroup: input.rawInput.ageGroup,
             imageUrls: pickSectionSourceImages(
               parsed.detailImageIndices ?? [],
               input.rawInput.imageUrls,
@@ -184,7 +199,7 @@ export class DetailPageGeneratedImagesService {
     input: {
       organizationId: string;
       parsed: DetailPageParsedGeneration;
-      rawInput: Pick<DetailPageRawInput, 'rawTitle' | 'rawCategory' | 'rawDescription' | 'rawOptions' | 'imageUrls'>;
+      rawInput: DetailPageRawInput;
       excludedImageIndices?: number[];
     },
     processedImages: Record<string, string>,
@@ -213,6 +228,7 @@ export class DetailPageGeneratedImagesService {
           category: input.rawInput.rawCategory,
           description: input.rawInput.rawDescription,
           options: input.rawInput.rawOptions,
+          ageGroup: input.rawInput.ageGroup,
           imageUrls: sourceImages,
           usageStep: scenario.caption,
           variant: index + 1,
@@ -241,6 +257,7 @@ export class DetailPageGeneratedImagesService {
           category: input.rawInput.rawCategory,
           description: input.rawInput.rawDescription,
           options: input.rawInput.rawOptions,
+          ageGroup: input.rawInput.ageGroup,
           imageUrls: sourceImages,
           variant: index + 1,
         });

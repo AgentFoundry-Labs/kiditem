@@ -4,6 +4,10 @@ import { buildBoldVerticalProductTitle } from '../../domain/detail-page-product-
 import type { BoldVerticalGeneration } from '../../domain/prompts/bold-vertical/single-call';
 import type { DetailPageGeneration } from '../../domain/prompts/detail-page/single-call';
 import {
+  resolveDetailImageCountLimit,
+  type DetailImageCount,
+} from '../../domain/prompts/detail-page/types';
+import {
   cleanImageIndices,
   colorPreference,
   extractSizeLabels,
@@ -426,18 +430,7 @@ export class DetailPageResultRefinerService {
     rawInput: { rawDescription?: string; rawOptions?: string; imageUrls: string[] },
   ): Promise<BoldVerticalGeneration> {
     if (packagePreference(rawInput) === 'none') {
-      return {
-        ...parsed,
-        packageImageIndices: [],
-        packageLabel: '',
-      };
-    }
-    if (!this.heroImageService || parsed.detailImageIndices.length === 0) {
-      return {
-        ...parsed,
-        packageImageIndices: [],
-        packageLabel: '',
-      };
+      return { ...parsed, packageImageIndices: [], packageLabel: '' };
     }
 
     const selected = parsed.detailImageIndices
@@ -449,61 +442,31 @@ export class DetailPageResultRefinerService {
       .filter((item): item is { imageIndex: number; detailPosition: number; url: string } => (
         typeof item.url === 'string' && item.url.trim() !== ''
       ));
-    if (selected.length === 0) {
-      return {
-        ...parsed,
-        packageImageIndices: [],
-        packageLabel: '',
-      };
-    }
 
-    try {
-      const packagePositions = await this.heroImageService.inferPackageImagePositions({
+    const packagePositions = this.heroImageService && selected.length > 0
+      ? await this.heroImageService.inferPackageImagePositions({
         imageUrls: selected.map((item) => item.url),
-      });
-      if (packagePositions.length === 0) {
-        return {
-          ...parsed,
-          packageImageIndices: [],
-          packageLabel: '',
-        };
-      }
+      }).catch(() => [])
+      : [];
 
-      const packageDetailPositions = new Set(
-        packagePositions
-          .map((position) => selected[position]?.detailPosition)
-          .filter((position): position is number => Number.isInteger(position)),
-      );
-      if (packageDetailPositions.size === 0) {
-        return {
-          ...parsed,
-          packageImageIndices: [],
-          packageLabel: '',
-        };
-      }
-      const packageImageIndices = parsed.detailImageIndices
-        .filter((_, position) => packageDetailPositions.has(position));
+    const packageDetailPositions = new Set(
+      packagePositions
+        .map((position) => selected[position]?.detailPosition)
+        .filter((position): position is number => Number.isInteger(position)),
+    );
+    const packageImageIndices = Array.from(new Set([
+      ...(parsed.packageImageIndices ?? []),
+      ...parsed.detailImageIndices.filter((_, position) => packageDetailPositions.has(position)),
+    ]));
+    const packageIndexSet = new Set(packageImageIndices);
 
-      return {
-        ...parsed,
-        packageImageIndices,
-        detailImageIndices: parsed.detailImageIndices
-          .map((imageIndex, position) => ({ imageIndex, position }))
-          .sort((a, b) => {
-            const aIsPackage = packageDetailPositions.has(a.position);
-            const bIsPackage = packageDetailPositions.has(b.position);
-            if (aIsPackage !== bIsPackage) return aIsPackage ? 1 : -1;
-            return a.position - b.position;
-          })
-          .map((item) => item.imageIndex),
-      };
-    } catch {
-      return {
-        ...parsed,
-        packageImageIndices: [],
-        packageLabel: '',
-      };
-    }
+    return {
+      ...parsed,
+      packageImageIndices,
+      detailImageIndices: parsed.detailImageIndices.filter((imageIndex, position) => (
+        !packageDetailPositions.has(position) && !packageIndexSet.has(imageIndex)
+      )),
+    };
   }
 
   private applyBoldVerticalPackageLabelFallbacks(
@@ -574,7 +537,12 @@ export class DetailPageResultRefinerService {
 
   private applyBoldVerticalImageSelectionRules(
     parsed: BoldVerticalGeneration,
-    rawInput: { rawDescription: string; rawOptions: string; imageUrls: string[] },
+    rawInput: {
+      rawDescription: string;
+      rawOptions: string;
+      imageUrls: string[];
+      detailImageCount?: DetailImageCount;
+    },
     detectedSafetyLabelIndices: Set<number> = new Set(),
   ): BoldVerticalGeneration {
     const urlSafetyIndices = new Set(
@@ -611,9 +579,9 @@ export class DetailPageResultRefinerService {
       ? []
       : cleanVisibleIndices(parsed.packageImageIndices, 3);
     const packageSet = new Set(packageImageIndices);
-    const detailBase = cleanVisibleIndices(parsed.detailImageIndices, 8)
+    const detailImageLimit = resolveDetailImageCountLimit(rawInput.detailImageCount);
+    const detailImageIndices = cleanVisibleIndices(parsed.detailImageIndices, rawInput.imageUrls.length)
       .filter((index) => !packageSet.has(index));
-    const detailImageIndices = [...detailBase, ...packageImageIndices].slice(0, 8);
     const isNoColor = colorPreference(rawInput) === 'none';
 
     return {
@@ -641,7 +609,7 @@ export class DetailPageResultRefinerService {
         subtitle: normalizeUsageGuide(parsed.usage.subtitle, rawInput),
         imageIndices: cleanVisibleIndices(parsed.usage.imageIndices, 4),
       },
-      detailImageIndices,
+      detailImageIndices: detailImageIndices.slice(0, detailImageLimit),
       packageImageIndices,
       packageLabel: packageImageIndices.length > 0 ? parsed.packageLabel : '',
       safetyLabelImageIndices,

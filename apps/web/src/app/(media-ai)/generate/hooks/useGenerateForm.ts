@@ -11,6 +11,8 @@ import { moveSafetyLabelImagesToEnd } from '../lib/detail-page-image-order';
 import { useKidsPlayfulGenerate } from './useKidsPlayfulGenerate';
 
 export type GenerateTemplateId = 'bold-vertical' | 'kids-playful';
+export type DetailPageAgeGroup = 'age-8-plus' | 'age-14-plus';
+export type DetailImageCount = 'auto' | '1' | '2' | '3';
 export type BoxSetStatus = 'auto' | 'none' | 'box' | 'set' | 'exists';
 export type ColorVariantStatus = 'auto' | 'none' | 'single' | 'multiple';
 
@@ -33,6 +35,8 @@ export function useGenerateForm() {
   const [rawTitle, setRawTitle] = useState('');
   const [rawCategory, setRawCategory] = useState('');
   const [target, setTarget] = useState('');
+  const [ageGroup, setAgeGroup] = useState<DetailPageAgeGroup>('age-8-plus');
+  const [detailImageCount, setDetailImageCount] = useState<DetailImageCount>('auto');
   const [rawDescription, setRawDescription] = useState('');
   const [productSize, setProductSize] = useState('');
   const [boxSetStatus, setBoxSetStatus] = useState<BoxSetStatus>('auto');
@@ -121,6 +125,8 @@ export function useGenerateForm() {
 
       category ||= '키즈 상품';
       generationTarget ||= '부모 구매자';
+      const ageGroupInstruction = buildAgeGroupInstruction(ageGroup);
+      const detailImageCountInstruction = buildDetailImageCountInstruction(detailImageCount);
       const boxSetInstruction = buildBoxSetInstruction(boxSetStatus, boxSetQuantity);
       const colorVariantInstruction = buildColorVariantInstruction(
         colorVariantStatus,
@@ -129,6 +135,8 @@ export function useGenerateForm() {
       const optionsForPrompt = [
         optionsText,
         productSize.trim() ? `제품 사이즈: ${productSize.trim()}` : '',
+        ageGroupInstruction,
+        detailImageCountInstruction,
         colorVariantInstruction,
         boxSetInstruction,
       ].filter(Boolean).join('\n');
@@ -143,6 +151,8 @@ export function useGenerateForm() {
       const description = [
         `카테고리: ${category}`,
         `주요 타겟: ${generationTarget}`,
+        ageGroupInstruction,
+        detailImageCountInstruction,
         productSize.trim() ? `제품 사이즈: ${productSize.trim()}` : '',
         colorVariantInstruction,
         boxSetInstruction,
@@ -158,6 +168,8 @@ export function useGenerateForm() {
         heroImageMode: 'llm-pick',
         productId: linkedProductId,
         templateId: apiTemplateId,
+        ageGroup,
+        detailImageCount,
       });
       toast.success('상세페이지 생성을 시작했습니다.', {
         description: '완료되면 알림에서 에디터로 이동할 수 있습니다.',
@@ -174,6 +186,8 @@ export function useGenerateForm() {
     setRawTitle('');
     setRawCategory('');
     setTarget('');
+    setAgeGroup('age-8-plus');
+    setDetailImageCount('auto');
     setRawDescription('');
     setProductSize('');
     setBoxSetStatus('auto');
@@ -191,6 +205,10 @@ export function useGenerateForm() {
     setRawCategory,
     target,
     setTarget,
+    ageGroup,
+    setAgeGroup,
+    detailImageCount,
+    setDetailImageCount,
     rawDescription,
     setRawDescription,
     productSize,
@@ -218,6 +236,35 @@ export function useGenerateForm() {
     handleSubmit,
     newCreate,
   };
+}
+
+function buildAgeGroupInstruction(ageGroup: DetailPageAgeGroup): string {
+  if (ageGroup === 'age-14-plus') {
+    return [
+      '사용 연령 기준: 14세 이상 상품',
+      '문구와 이미지의 실제 사용자는 아이가 아니라 중고등학생/청소년/학생으로 표현하세요.',
+      '유아·어린아이·초등 저학년처럼 보이는 장면, 말투, 모델은 피하세요.',
+    ].join('\n');
+  }
+
+  return [
+    '사용 연령 기준: 8세 이상 상품',
+    '문구와 이미지의 실제 사용자는 8세 이상 어린이/초등학생 기준으로 표현하세요.',
+    '유아·영아처럼 너무 어린 장면은 피하세요.',
+  ].join('\n');
+}
+
+function buildDetailImageCountInstruction(detailImageCount: DetailImageCount): string {
+  if (detailImageCount === '1') {
+    return 'DETAIL 이미지 수: 1개';
+  }
+  if (detailImageCount === '2') {
+    return 'DETAIL 이미지 수: 2개';
+  }
+  if (detailImageCount === '3') {
+    return 'DETAIL 이미지 수: 3개';
+  }
+  return 'DETAIL 이미지 수: 기본 2~3개';
 }
 
 function buildBoxSetInstruction(status: BoxSetStatus, quantity: string): string {
