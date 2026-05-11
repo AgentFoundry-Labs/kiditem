@@ -1,15 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
-import { GoogleGenAI, Modality } from '@google/genai';
-import { StorageService } from '../../../common/storage/storage.service';
-import { ThumbnailImageFetcherService } from '../../adapter/out/image-fetch/thumbnail-image-fetcher.adapter';
-import {
-  requireGeminiApiKey,
-  requireGeminiImageModel,
-  requireGeminiVisionModel,
-} from '../../adapter/out/gemini/thumbnail-gemini-config';
+import { Inject, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { isSafetyLabelImageUrl } from '../../domain/detail-page-image-order';
 import type { DetailPageAgeGroup } from '../../domain/prompts/detail-page/types';
+import {
+  DETAIL_PAGE_MEDIA_PORT,
+  type DetailPageMediaPort,
+} from '../port/out/detail-page-media.port';
+import { IMAGE_FETCH_PORT, type ImageFetchPort } from '../port/out/image-fetch.port';
+import { IMAGE_STORAGE_PORT, type ImageStoragePort } from '../port/out/image-storage.port';
 
 const sharp: typeof import('sharp') = require('sharp');
 
@@ -73,11 +71,14 @@ interface FetchedIndexedImage extends FetchedHeroImage {
 @Injectable()
 export class DetailPageHeroImageService {
   private readonly logger = new Logger(DetailPageHeroImageService.name);
-  private client: GoogleGenAI | null = null;
 
   constructor(
-    private readonly storage: StorageService,
-    private readonly imageFetcher: ThumbnailImageFetcherService,
+    @Inject(DETAIL_PAGE_MEDIA_PORT)
+    private readonly media: DetailPageMediaPort,
+    @Inject(IMAGE_STORAGE_PORT)
+    private readonly storage: ImageStoragePort,
+    @Inject(IMAGE_FETCH_PORT)
+    private readonly imageFetcher: ImageFetchPort,
   ) {}
 
   async generateHeroBanner(input: GenerateHeroBannerInput): Promise<string> {
@@ -86,39 +87,17 @@ export class DetailPageHeroImageService {
       throw new ServiceUnavailableException('detail_page_hero_image_no_inputs');
     }
 
-    const response = await this.getClient().models.generateContent({
-      model: requireGeminiImageModel(),
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            ...images.flatMap((img) => [
-              { text: `[${img.label}]` },
-              { inlineData: { data: img.data, mimeType: img.mimeType } },
-            ]),
-            { text: this.buildPrompt(input) },
-          ],
-        },
-      ],
-      config: {
-        responseModalities: [Modality.TEXT, Modality.IMAGE],
-        imageConfig: { aspectRatio: '16:9', imageSize: '2K' },
-      },
+    const generated = await this.media.generateImage({
+      images,
+      prompt: this.buildPrompt(input),
+      aspectRatio: '16:9',
+      imageSize: '2K',
+      noImageErrorCode: 'detail_page_hero_image_returned_no_image',
+      logContext: 'Gemini detail hero',
     });
-
-    const parts = response.candidates?.[0]?.content?.parts ?? [];
-    const imagePart = parts.find((part) => part.inlineData?.data)?.inlineData;
-    if (!imagePart?.data) {
-      const text = parts.find((part) => part.text)?.text?.slice(0, 300);
-      this.logger.warn(`Gemini detail hero response had no image. text=${text ?? '(empty)'}`);
-      throw new ServiceUnavailableException('detail_page_hero_image_returned_no_image');
-    }
-
-    const mimeType = imagePart.mimeType ?? 'image/png';
-    this.imageFetcher.assertSupportedMime(mimeType);
-    const buffer = Buffer.from(imagePart.data, 'base64');
-    const key = `detail-page-hero-banners/${input.organizationId}/${randomUUID()}.${this.imageFetcher.extForMime(mimeType)}`;
-    return this.storage.save(key, buffer, mimeType);
+    this.imageFetcher.assertSupportedMime(generated.mimeType);
+    const key = `detail-page-hero-banners/${input.organizationId}/${randomUUID()}.${this.imageFetcher.extForMime(generated.mimeType)}`;
+    return this.storage.save(key, generated.buffer, generated.mimeType);
   }
 
   async generateColorGuideImage(input: GenerateDetailSectionImageInput): Promise<string> {
@@ -127,39 +106,17 @@ export class DetailPageHeroImageService {
       throw new ServiceUnavailableException('detail_page_color_image_no_inputs');
     }
 
-    const response = await this.getClient().models.generateContent({
-      model: requireGeminiImageModel(),
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            ...images.flatMap((img) => [
-              { text: `[${img.label}]` },
-              { inlineData: { data: img.data, mimeType: img.mimeType } },
-            ]),
-            { text: this.buildColorGuidePrompt(input) },
-          ],
-        },
-      ],
-      config: {
-        responseModalities: [Modality.TEXT, Modality.IMAGE],
-        imageConfig: { aspectRatio: '4:3', imageSize: '2K' },
-      },
+    const generated = await this.media.generateImage({
+      images,
+      prompt: this.buildColorGuidePrompt(input),
+      aspectRatio: '4:3',
+      imageSize: '2K',
+      noImageErrorCode: 'detail_page_color_image_returned_no_image',
+      logContext: 'Gemini detail color',
     });
-
-    const parts = response.candidates?.[0]?.content?.parts ?? [];
-    const imagePart = parts.find((part) => part.inlineData?.data)?.inlineData;
-    if (!imagePart?.data) {
-      const text = parts.find((part) => part.text)?.text?.slice(0, 300);
-      this.logger.warn(`Gemini detail color response had no image. text=${text ?? '(empty)'}`);
-      throw new ServiceUnavailableException('detail_page_color_image_returned_no_image');
-    }
-
-    const mimeType = imagePart.mimeType ?? 'image/png';
-    this.imageFetcher.assertSupportedMime(mimeType);
-    const buffer = Buffer.from(imagePart.data, 'base64');
-    const key = `detail-page-section-images/${input.organizationId}/color-guide-${randomUUID()}.${this.imageFetcher.extForMime(mimeType)}`;
-    return this.storage.save(key, buffer, mimeType);
+    this.imageFetcher.assertSupportedMime(generated.mimeType);
+    const key = `detail-page-section-images/${input.organizationId}/color-guide-${randomUUID()}.${this.imageFetcher.extForMime(generated.mimeType)}`;
+    return this.storage.save(key, generated.buffer, generated.mimeType);
   }
 
   async inferColorSubtitle(input: InferColorSubtitleInput): Promise<string> {
@@ -168,30 +125,10 @@ export class DetailPageHeroImageService {
       throw new ServiceUnavailableException('detail_page_color_subtitle_no_inputs');
     }
 
-    const response = await this.getClient().models.generateContent({
-      model: requireGeminiVisionModel(),
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            ...images.flatMap((img) => [
-              { text: `[${img.label}]` },
-              { inlineData: { data: img.data, mimeType: img.mimeType } },
-            ]),
-            { text: this.buildColorSubtitlePrompt(input) },
-          ],
-        },
-      ],
-      config: {
-        responseMimeType: 'application/json',
-        temperature: 0.1,
-      },
+    const text = await this.media.completeVisionJson({
+      images,
+      prompt: this.buildColorSubtitlePrompt(input),
     });
-
-    const text = response.candidates?.[0]?.content?.parts
-      ?.map((part) => part.text ?? '')
-      .join('')
-      .trim();
     if (!text) {
       throw new ServiceUnavailableException('detail_page_color_subtitle_returned_no_text');
     }
@@ -208,30 +145,10 @@ export class DetailPageHeroImageService {
     const images = await this.fetchIndexedInputImages(input.imageUrls, 15);
     if (images.length === 0) return [];
 
-    const response = await this.getClient().models.generateContent({
-      model: requireGeminiVisionModel(),
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            ...images.flatMap((img) => [
-              { text: `[candidateIndex=${img.sourceIndex}]` },
-              { inlineData: { data: img.data, mimeType: img.mimeType } },
-            ]),
-            { text: this.buildColorImageSelectionPrompt(input) },
-          ],
-        },
-      ],
-      config: {
-        responseMimeType: 'application/json',
-        temperature: 0.1,
-      },
+    const text = await this.media.completeVisionJson({
+      images,
+      prompt: this.buildColorImageSelectionPrompt(input),
     });
-
-    const text = response.candidates?.[0]?.content?.parts
-      ?.map((part) => part.text ?? '')
-      .join('')
-      .trim();
     if (!text) return [];
 
     const parsed = this.parseJsonObject(text);
@@ -249,30 +166,10 @@ export class DetailPageHeroImageService {
     const images = await this.fetchIndexedInputImages(input.imageUrls, 10);
     if (images.length === 0) return [];
 
-    const response = await this.getClient().models.generateContent({
-      model: requireGeminiVisionModel(),
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            ...images.flatMap((img) => [
-              { text: `[candidateIndex=${img.sourceIndex}]` },
-              { inlineData: { data: img.data, mimeType: img.mimeType } },
-            ]),
-            { text: this.buildPackageImagePositionsPrompt() },
-          ],
-        },
-      ],
-      config: {
-        responseMimeType: 'application/json',
-        temperature: 0.1,
-      },
+    const text = await this.media.completeVisionJson({
+      images,
+      prompt: this.buildPackageImagePositionsPrompt(),
     });
-
-    const text = response.candidates?.[0]?.content?.parts
-      ?.map((part) => part.text ?? '')
-      .join('')
-      .trim();
     if (!text) return [];
 
     const parsed = this.parseJsonObject(text);
@@ -289,39 +186,17 @@ export class DetailPageHeroImageService {
       throw new ServiceUnavailableException('detail_page_detail_image_no_inputs');
     }
 
-    const response = await this.getClient().models.generateContent({
-      model: requireGeminiImageModel(),
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            ...images.flatMap((img) => [
-              { text: `[${img.label}]` },
-              { inlineData: { data: img.data, mimeType: img.mimeType } },
-            ]),
-            { text: this.buildDetailCutPrompt(input) },
-          ],
-        },
-      ],
-      config: {
-        responseModalities: [Modality.TEXT, Modality.IMAGE],
-        imageConfig: { aspectRatio: '4:3', imageSize: '2K' },
-      },
+    const generated = await this.media.generateImage({
+      images,
+      prompt: this.buildDetailCutPrompt(input),
+      aspectRatio: '4:3',
+      imageSize: '2K',
+      noImageErrorCode: 'detail_page_detail_image_returned_no_image',
+      logContext: 'Gemini detail cut',
     });
-
-    const parts = response.candidates?.[0]?.content?.parts ?? [];
-    const imagePart = parts.find((part) => part.inlineData?.data)?.inlineData;
-    if (!imagePart?.data) {
-      const text = parts.find((part) => part.text)?.text?.slice(0, 300);
-      this.logger.warn(`Gemini detail cut response had no image. text=${text ?? '(empty)'}`);
-      throw new ServiceUnavailableException('detail_page_detail_image_returned_no_image');
-    }
-
-    const mimeType = imagePart.mimeType ?? 'image/png';
-    this.imageFetcher.assertSupportedMime(mimeType);
-    const buffer = Buffer.from(imagePart.data, 'base64');
-    const key = `detail-page-section-images/${input.organizationId}/detail-cut-${input.variant ?? 1}-${randomUUID()}.${this.imageFetcher.extForMime(mimeType)}`;
-    return this.storage.save(key, buffer, mimeType);
+    this.imageFetcher.assertSupportedMime(generated.mimeType);
+    const key = `detail-page-section-images/${input.organizationId}/detail-cut-${input.variant ?? 1}-${randomUUID()}.${this.imageFetcher.extForMime(generated.mimeType)}`;
+    return this.storage.save(key, generated.buffer, generated.mimeType);
   }
 
   async generateUsageGuideImage(input: GenerateUsageGuideImageInput): Promise<string> {
@@ -330,39 +205,17 @@ export class DetailPageHeroImageService {
       throw new ServiceUnavailableException('detail_page_usage_image_no_inputs');
     }
 
-    const response = await this.getClient().models.generateContent({
-      model: requireGeminiImageModel(),
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            ...images.flatMap((img) => [
-              { text: `[${img.label}]` },
-              { inlineData: { data: img.data, mimeType: img.mimeType } },
-            ]),
-            { text: this.buildUsageGuidePrompt(input) },
-          ],
-        },
-      ],
-      config: {
-        responseModalities: [Modality.TEXT, Modality.IMAGE],
-        imageConfig: { aspectRatio: '4:3', imageSize: '2K' },
-      },
+    const generated = await this.media.generateImage({
+      images,
+      prompt: this.buildUsageGuidePrompt(input),
+      aspectRatio: '4:3',
+      imageSize: '2K',
+      noImageErrorCode: 'detail_page_usage_image_returned_no_image',
+      logContext: 'Gemini detail usage',
     });
-
-    const parts = response.candidates?.[0]?.content?.parts ?? [];
-    const imagePart = parts.find((part) => part.inlineData?.data)?.inlineData;
-    if (!imagePart?.data) {
-      const text = parts.find((part) => part.text)?.text?.slice(0, 300);
-      this.logger.warn(`Gemini detail usage response had no image. text=${text ?? '(empty)'}`);
-      throw new ServiceUnavailableException('detail_page_usage_image_returned_no_image');
-    }
-
-    const mimeType = imagePart.mimeType ?? 'image/png';
-    this.imageFetcher.assertSupportedMime(mimeType);
-    const buffer = Buffer.from(imagePart.data, 'base64');
-    const key = `detail-page-section-images/${input.organizationId}/usage-${input.variant ?? 1}-${randomUUID()}.${this.imageFetcher.extForMime(mimeType)}`;
-    return this.storage.save(key, buffer, mimeType);
+    this.imageFetcher.assertSupportedMime(generated.mimeType);
+    const key = `detail-page-section-images/${input.organizationId}/usage-${input.variant ?? 1}-${randomUUID()}.${this.imageFetcher.extForMime(generated.mimeType)}`;
+    return this.storage.save(key, generated.buffer, generated.mimeType);
   }
 
   async generateSizeGuideImage(input: GenerateSizeGuideImageInput): Promise<string> {
@@ -371,39 +224,18 @@ export class DetailPageHeroImageService {
       throw new ServiceUnavailableException('detail_page_size_image_no_inputs');
     }
 
-    const response = await this.getClient().models.generateContent({
-      model: requireGeminiImageModel(),
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            ...images.flatMap((img) => [
-              { text: `[${img.label}]` },
-              { inlineData: { data: img.data, mimeType: img.mimeType } },
-            ]),
-            { text: this.buildSizeGuidePrompt(input) },
-          ],
-        },
-      ],
-      config: {
-        responseModalities: [Modality.TEXT, Modality.IMAGE],
-        imageConfig: { aspectRatio: '1:1', imageSize: '2K' },
-      },
+    const generated = await this.media.generateImage({
+      images,
+      prompt: this.buildSizeGuidePrompt(input),
+      aspectRatio: '1:1',
+      imageSize: '2K',
+      noImageErrorCode: 'detail_page_size_image_returned_no_image',
+      logContext: 'Gemini detail size',
     });
-
-    const parts = response.candidates?.[0]?.content?.parts ?? [];
-    const imagePart = parts.find((part) => part.inlineData?.data)?.inlineData;
-    if (!imagePart?.data) {
-      const text = parts.find((part) => part.text)?.text?.slice(0, 300);
-      this.logger.warn(`Gemini detail size response had no image. text=${text ?? '(empty)'}`);
-      throw new ServiceUnavailableException('detail_page_size_image_returned_no_image');
-    }
-
-    const mimeType = imagePart.mimeType ?? 'image/png';
-    this.imageFetcher.assertSupportedMime(mimeType);
+    this.imageFetcher.assertSupportedMime(generated.mimeType);
     const normalized = await this.normalizeSizeGuideImage(
-      Buffer.from(imagePart.data, 'base64'),
-      mimeType,
+      generated.buffer,
+      generated.mimeType,
     );
     const key = `detail-page-size-guides/${input.organizationId}/${randomUUID()}.${this.imageFetcher.extForMime(normalized.mimeType)}`;
     return this.storage.save(key, normalized.buffer, normalized.mimeType);
@@ -545,7 +377,7 @@ export class DetailPageHeroImageService {
           sourceIndex: index,
           data: fetched.buffer.toString('base64'),
           mimeType: fetched.mimeType,
-          label: `상품 이미지 ${index + 1}`,
+          label: `candidateIndex=${index}`,
         });
       } catch (error) {
         this.logger.warn(
@@ -831,12 +663,6 @@ export class DetailPageHeroImageService {
     if (unit === 'm') return value * 1000;
     if (unit === 'cm') return value * 10;
     return value;
-  }
-
-  private getClient(): GoogleGenAI {
-    const apiKey = requireGeminiApiKey();
-    if (!this.client) this.client = new GoogleGenAI({ apiKey });
-    return this.client;
   }
 
   private parseJsonObject(raw: string): Record<string, unknown> {

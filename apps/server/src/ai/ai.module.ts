@@ -23,6 +23,7 @@ import { ThumbnailGenerateRuntimeHandler } from './adapter/out/agent-runtime/thu
 import { CoupangInventoryScrapeAdapter } from './adapter/out/coupang/coupang-inventory-scrape.adapter';
 import { CoupangProductSalesScrapeAdapter } from './adapter/out/coupang/coupang-product-sales-scrape.adapter';
 import { CoupangImageReconciliationAdapter } from './adapter/out/channels/coupang-image-reconciliation.adapter';
+import { DetailPageGeminiMediaAdapter } from './adapter/out/gemini/detail-page-gemini-media.adapter';
 import { GeminiTextCompletionAdapter } from './adapter/out/gemini/gemini-text-completion.adapter';
 import { GeminiThumbnailVisionAdapter } from './adapter/out/gemini/gemini-thumbnail-vision.adapter';
 import { ThumbnailReferenceImagesService } from './adapter/out/gemini/thumbnail-reference-images.adapter';
@@ -56,6 +57,7 @@ import { ThumbnailWingService } from './application/service/thumbnail-wing.servi
 
 // application/port — out
 import { DETAIL_PAGE_AGENT_OUTPUT_SINK_PORT } from './application/port/out/detail-page-agent-output-sink.port';
+import { DETAIL_PAGE_MEDIA_PORT } from './application/port/out/detail-page-media.port';
 import { THUMBNAIL_AGENT_OUTPUT_SINK_PORT } from './application/port/out/thumbnail-agent-output-sink.port';
 import { COUPANG_INVENTORY_SCRAPE_PORT } from './application/port/out/coupang-inventory-scrape.port';
 import { COUPANG_PRODUCT_SALES_SCRAPE_PORT } from './application/port/out/coupang-product-sales-scrape.port';
@@ -110,6 +112,7 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
 
     // outgoing adapters
     DetailPageContentGenerationSinkAdapter,
+    DetailPageGeminiMediaAdapter,
     DetailPageGenerateRuntimeHandler,
     ThumbnailGenerationSinkAdapter,
     ThumbnailGenerateRuntimeHandler,
@@ -148,6 +151,7 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     },
     { provide: IMAGE_FETCH_PORT, useExisting: ThumbnailImageFetcherService },
     { provide: IMAGE_STORAGE_PORT, useExisting: StorageService },
+    { provide: DETAIL_PAGE_MEDIA_PORT, useExisting: DetailPageGeminiMediaAdapter },
     { provide: MASTER_CATALOG_PORT, useExisting: MasterCatalogAdapter },
     { provide: TEXT_COMPLETION_PORT, useExisting: GeminiTextCompletionAdapter },
     { provide: THUMBNAIL_GENERATION_EVENT_PORT, useExisting: ThumbnailGenerationEventAdapter },

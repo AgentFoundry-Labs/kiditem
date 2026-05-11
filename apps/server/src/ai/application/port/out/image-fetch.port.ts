@@ -8,5 +8,7 @@ export interface FetchedImage {
 
 export interface ImageFetchPort {
   fetchImage(rawUrl: string): Promise<FetchedImage>;
+  fetchTrustedStorageImage(rawUrl: string): Promise<FetchedImage>;
+  assertSupportedMime(mimeType: string): void;
   extForMime(mimeType: string): string;
 }

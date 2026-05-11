@@ -20,14 +20,17 @@ ai/
 │       │                # thumbnail-generation.persistence, .query,
 │       │                # thumbnail-analysis.query,
 │       │                # master-image-select.preset
-│       ├── gemini/      # gemini-thumbnail-vision.adapter (vision/verify I/O),
+│       ├── gemini/      # gemini-text-completion.adapter,
+│       │                # detail-page-gemini-media.adapter (detail-page image/vision I/O),
+│       │                # gemini-thumbnail-vision.adapter (thumbnail vision/verify I/O),
 │       │                # thumbnail-reference-images.adapter (filesystem warm-up),
 │       │                # thumbnail-gemini-config (env model/key 검증)
 │       ├── image-fetch/ # thumbnail-image-fetcher.adapter (HTTP fetch + SSRF/MIME guard)
 │       └── wing/        # wing-automation-runner (Playwright spawn — WING_AUTOMATION_PORT 구현체)
 ├── application/
 │   ├── port/
-│   │   └── out/         # wing-automation.port (Wing 자동화 인터페이스)
+│   │   └── out/         # text-completion/detail-page-media/image-fetch/image-storage/
+│   │                    # wing-automation ports
 │   └── service/         # 11 orchestration services
 │                        # (image-ai, text-ai, thumbnail-analysis, thumbnail-auto,
 │                        #  thumbnail-compliance-verifier, thumbnail-editor-ai,
@@ -91,6 +94,25 @@ ai/
 ### 6. Text 호출 — 포트로 캡슐화
 
 Gemini text generation 호출은 `TEXT_COMPLETION_PORT` 한 곳에 모인다. `text-ai.service` (preset 변환) 와 `detail-page-ai.service` (kids-playful / bold-vertical 상세페이지 single-call generation) 가 모두 이 port 만 의존하므로 application layer 는 HTTP / API key / Gemini URL 을 알지 않는다. Adapter (`adapter/out/gemini/gemini-text-completion.adapter.ts`) 는 system/user/temperature/responseMimeType/model 을 받아 `generateContent` 엔드포인트를 호출한다. caller 는 `model` 을 항상 명시적으로 ENV 에서 읽어 전달 (silent fallback 금지).
+
+### 6-bis. Detail-page media 호출 — 포트로 캡슐화
+
+상세페이지 후처리 이미지/비전 호출은 `DETAIL_PAGE_MEDIA_PORT` 한 곳에
+모인다. `DetailPageHeroImageService` 는 prompt 조립, source image 선택,
+size-guide PNG normalization, storage key 결정만 담당하고, GoogleGenAI /
+Gemini model ENV / response envelope parsing 은
+`adapter/out/gemini/detail-page-gemini-media.adapter.ts` 가 담당한다.
+원본 이미지 fetch 는 `IMAGE_FETCH_PORT`, 결과 저장은 `IMAGE_STORAGE_PORT`
+를 통해서만 수행한다.
+
+규칙:
+
+- `DetailPageHeroImageService` 에 `@google/genai`, `requireGemini*`,
+  `StorageService`, `ThumbnailImageFetcherService` concrete import 를 다시
+  추가하지 않는다.
+- 상세페이지용 새 image/vision call shape 은 먼저
+  `application/port/out/detail-page-media.port.ts` 계약으로 표현하고,
+  Gemini 구현은 `detail-page-gemini-media.adapter.ts` 에 추가한다.
 
 ### 7. Detail page generation — Agent OS async (product-bound) + sync standalone fallback
 
