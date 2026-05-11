@@ -19,6 +19,8 @@ export interface KidsPlayfulGenerateBody {
   rawOptions: string;
   imageUrls: string[];
   heroImageMode?: 'first' | 'llm-pick';
+  ageGroup?: 'age-8-plus' | 'age-14-plus';
+  detailImageCount?: 'auto' | '1' | '2' | '3';
   /** sourcing MasterProduct.id — generate 페이지 직접 생성 시 omit */
   productId?: string;
   templateId?: string;

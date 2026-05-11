@@ -15,6 +15,7 @@ function makeService() {
       imageUrls: string[];
       heightLabel?: string;
       widthLabel?: string;
+      ageGroup?: 'age-8-plus' | 'age-14-plus';
     }): string;
     buildUsageGuidePrompt(input: {
       organizationId: string;
@@ -25,6 +26,7 @@ function makeService() {
       imageUrls: string[];
       usageStep?: string;
       variant?: number;
+      ageGroup?: 'age-8-plus' | 'age-14-plus';
     }): string;
     buildDetailCutPrompt(input: {
       organizationId: string;
@@ -34,6 +36,7 @@ function makeService() {
       options: string;
       imageUrls: string[];
       variant?: number;
+      ageGroup?: 'age-8-plus' | 'age-14-plus';
     }): string;
   };
 }
@@ -78,6 +81,26 @@ describe('DetailPageHeroImageService', () => {
     expect(prompt).toContain('Do not create an instruction card');
     expect(prompt).toContain('Do not render "사용법 안내"');
     expect(prompt).toContain('natural short nails, no manicure, no nail polish');
+  });
+
+  it('uses teen/student audience rules for 14+ generated images', () => {
+    const service = makeService();
+
+    const prompt = service.buildUsageGuidePrompt({
+      organizationId: 'org',
+      productName: '학생용 말랑이',
+      category: '완구',
+      description: '',
+      options: '',
+      imageUrls: ['https://example.com/product.jpg'],
+      usageStep: '친구와 함께 촉감을 확인하세요.',
+      variant: 1,
+      ageGroup: 'age-14-plus',
+    });
+
+    expect(prompt).toContain('middle/high-school aged teenager or student');
+    expect(prompt).toContain('Do NOT depict a preschool child');
+    expect(prompt).toContain('Target age/audience: 14+ product');
   });
 
   it('prevents detail generated images from becoming callout cards', () => {

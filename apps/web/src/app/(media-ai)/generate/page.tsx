@@ -35,6 +35,10 @@ function GeneratePageContent() {
     setRawCategory,
     target,
     setTarget,
+    ageGroup,
+    setAgeGroup,
+    detailImageCount,
+    setDetailImageCount,
     rawDescription,
     setRawDescription,
     productSize,
@@ -115,6 +119,10 @@ function GeneratePageContent() {
           setRawCategory={setRawCategory}
           target={target}
           setTarget={setTarget}
+          ageGroup={ageGroup}
+          setAgeGroup={setAgeGroup}
+          detailImageCount={detailImageCount}
+          setDetailImageCount={setDetailImageCount}
           rawDescription={rawDescription}
           setRawDescription={setRawDescription}
           productSize={productSize}

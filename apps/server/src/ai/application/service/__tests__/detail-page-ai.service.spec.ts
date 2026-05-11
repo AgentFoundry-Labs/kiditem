@@ -286,7 +286,8 @@ describe('DetailPageAiService', () => {
       key: '색상',
       value: '민트 / 핑크 / 옐로우 3가지 색상',
     });
-    expect(stored.result.detailImageIndices).toEqual([0, 2, 1]);
+    expect(stored.result.detailImageIndices).toEqual([0, 2]);
+    expect(stored.result.packageImageIndices).toEqual([1]);
     expect(prisma.contentGeneration.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -307,6 +308,97 @@ describe('DetailPageAiService', () => {
       }),
     );
     expect(prisma.contentGeneration.update).not.toHaveBeenCalled();
+  });
+
+  it('passes 14+ audience guidance into detail-page text prompts', async () => {
+    const prisma = makePrisma();
+    const textCompletion = {
+      complete: vi.fn().mockResolvedValue({
+        text: JSON.stringify(boldVerticalResult()),
+      }),
+    };
+    const imageStorage = {
+      save: vi.fn(),
+    };
+    const service = makeService(
+      prisma,
+      textCompletion,
+      imageStorage,
+      makeOperationAlertsStub(),
+    );
+
+    await service.generate(
+      {
+        templateId: 'bold-vertical',
+        rawTitle: '학생용 말랑이',
+        rawCategory: '완구',
+        rawDescription: '중고등학생 취미용 말랑이',
+        rawOptions: 'DETAIL 이미지 수: 2개',
+        imageUrls: [
+          'https://example.com/product-main.jpg',
+          'https://example.com/action-closeup.jpg',
+          'https://example.com/detail.jpg',
+        ],
+        ageGroup: 'age-14-plus',
+        detailImageCount: '2',
+      },
+      ORGANIZATION_ID,
+      USER_ID,
+    );
+
+    const call = textCompletion.complete.mock.calls[0]?.[0] ?? {};
+    expect(call.system).toContain('중고등학생·청소년·학생');
+    expect(call.user).toContain('사용 연령 기준: 14세 이상 상품');
+    expect(call.user).toContain('중고등학생·청소년');
+    expect(call.user).toContain('DETAIL 본문 이미지 수: 2개');
+  });
+
+  it('keeps explicit package images separate from detail images', async () => {
+    const prisma = makePrisma();
+    const textCompletion = {
+      complete: vi.fn().mockResolvedValue({
+        text: JSON.stringify({
+          ...boldVerticalResult(),
+          detailImageIndices: [0, 1, 2],
+          packageImageIndices: [1],
+          packageLabel: '박스 구성',
+        }),
+      }),
+    };
+    const imageStorage = {
+      save: vi.fn(),
+    };
+    const service = makeService(
+      prisma,
+      textCompletion,
+      imageStorage,
+      makeOperationAlertsStub(),
+    );
+
+    const result = await service.generate(
+      {
+        templateId: 'bold-vertical',
+        rawTitle: '휴대용목걸이비눗방울',
+        rawCategory: '완구',
+        rawDescription: '아이들이 가지고 놀기 좋은 장난감',
+        rawOptions: '박스/세트 정보: 있음',
+        imageUrls: [
+          'https://example.com/product-main.jpg',
+          'https://example.com/package-box.jpg',
+          'https://example.com/detail-closeup.jpg',
+        ],
+      },
+      ORGANIZATION_ID,
+      USER_ID,
+    );
+
+    const parsed = result.result as ReturnType<typeof boldVerticalResult> & {
+      packageImageIndices?: number[];
+      packageLabel?: string;
+    };
+    expect(parsed.detailImageIndices).toEqual([0, 2]);
+    expect(parsed.packageImageIndices).toEqual([1]);
+    expect(parsed.packageLabel).toBe('박스 구성');
   });
 
   it('suppresses generated product info table when a KC safety label image exists', async () => {

@@ -14,6 +14,8 @@
  */
 import { z } from 'zod';
 import {
+  formatAudienceGuidance,
+  formatDetailImageCountGuidance,
   formatImageCandidates,
   type RawProductInput,
 } from '../detail-page/types';
@@ -71,7 +73,7 @@ export const BoldVerticalGenerationSchema = z.object({
     subtitle: z.string().min(0).max(180),
     imageIndices: z.array(z.number().int().nonnegative()).default([]),
   }),
-  /** Detail images — 디테일/라이프 컷 0~8 */
+  /** Detail images — 디테일/라이프 컷. 후처리에서 요청 개수(기본 2~3개)로 제한한다. */
   detailImageIndices: z.array(z.number().int().nonnegative()).min(0).max(8),
   /** KC/바코드/품질표시 등 안전 라벨 이미지 인덱스 */
   safetyLabelImageIndices: z.array(z.number().int().nonnegative()).default([]),
@@ -121,6 +123,8 @@ export const BOLD_VERTICAL_SYSTEM = `너는 한국 쿠팡 상세페이지 카피
 6. 이미지가 1~3장뿐이면 각 섹션에는 가장 가까운 원본 후보 인덱스를 지정하되,
    서버가 구도 변경/확대 이미지를 생성할 수 있도록 detailImageIndices 는 기준이 되는 상품컷만 1~3장 지정한다.
 7. imageIndex 는 반드시 입력 후보 인덱스만 사용한다. 후보에 없는 상품/색상/구성품을 상상해서 만들지 않는다.
+8. 사용자 입력의 "사용 연령 기준"을 반드시 따른다. 14세 이상이면 아이/유아가 아니라
+   중고등학생·청소년·학생 사용 장면과 어휘로 작성한다.
 
 # 섹션별 룰
 
@@ -188,8 +192,8 @@ export const BOLD_VERTICAL_SYSTEM = `너는 한국 쿠팡 상세페이지 카피
   사용법 관련 이미지가 전혀 없어도 subtitle 은 실제 사용 단계 2~3줄로 쓰고, imageIndices 는 빈 배열로 둔다.
   이 경우 서버가 각 단계에 맞는 글자 없는 사용 장면 이미지를 필요한 슬롯에만 생성한다.
 
-## detailImageIndices (0~8 인덱스)
-- 디테일/라이프 컷 0~8. 보통 3~5장.
+## detailImageIndices (0~3 인덱스)
+- DETAIL 본문 디테일/라이프 컷은 2~3장을 기본으로 한다. 절대 3장을 넘기지 않는다.
 - 가능한 한 서로 다른 원본 이미지를 고른다. 같은 이미지를 반복 나열하지 않는다.
 - 이미지가 적어도 빈 배열로 두지 말고, 디테일 구도 변경의 기준이 될 상품컷을 1~3장 지정한다.
   서버가 해당 컷으로 확대/구도 변경 이미지를 생성하므로 같은 원본을 여러 번 넣지 마라.
@@ -206,7 +210,7 @@ export const BOLD_VERTICAL_SYSTEM = `너는 한국 쿠팡 상세페이지 카피
 - rawDescription/rawOptions 에 "박스/세트 구분: 세트" 가 있으면 세트/구성품으로만 판단하고, label 은 "N개 세트 구성" 또는 "세트 구성"으로 쓴다. 이 경우 "1박스"라고 쓰지 않는다.
 - rawDescription/rawOptions 에 "박스/세트 구분: AI 판단" 이 있으면 박스가 보이면 박스, 여러 구성품 묶음만 보이면 세트로 구분한다.
 - 실제 이미지 후보에 박스/패키지/1박스/세트 포장/구성 수량 확인용 이미지가 있을 때만 packageImageIndices 에 넣는다.
-- 해당 이미지가 있으면 같은 인덱스를 detailImageIndices 맨 마지막에도 둔다.
+- 해당 이미지는 packageImageIndices 에만 넣고, 일반 DETAIL 본문인 detailImageIndices 에는 넣지 않는다.
 - 박스나 세트 포장 이미지가 없으면 packageImageIndices 는 반드시 [] 이고 packageLabel 은 "" 이다.
 - 상품만 있는 컷, 단순 색상 비교 컷, 손으로 누르는 디테일 컷, KC/바코드/품질표시 이미지는 packageImageIndices 에 넣지 않는다.
 - 개수 정보가 rawDescription/rawOptions/이미지 텍스트에 보이면 packageLabel 에 반영한다.
@@ -241,7 +245,7 @@ export const BOLD_VERTICAL_SYSTEM = `너는 한국 쿠팡 상세페이지 카피
   "size": { "subtitle": "미니드론 A11 촬영 드론의 사이즈 및 구성품 안내 입니다.", "heightLabel": "4cm", "widthLabel": "12cm", "guideOverlay": true, "imageIndices": [2] },
   "color": { "subtitle": "화이트 / 블랙 2 색상", "imageIndices": [] },
   "usage": { "subtitle": "1. 배터리를 충분히 충전하세요\\n2. 평평한 공간에서 전원을 켜세요\\n3. 사용 후 전원을 끄고 보관하세요", "imageIndices": [] },
-  "detailImageIndices": [1, 5, 6, 7],
+  "detailImageIndices": [1, 5, 6],
   "packageImageIndices": [7],
   "packageLabel": "1박스 12개입 구성",
   "productInfo": [
@@ -262,6 +266,10 @@ heroImageMode: ${heroImageMode}
 카테고리(원문): ${raw.rawCategory}
 원본 설명: ${raw.rawDescription}
 주요 옵션/스펙: ${raw.rawOptions}
+사용 연령/표현 기준:
+${formatAudienceGuidance(raw.ageGroup)}
+DETAIL 이미지 수 기준:
+${formatDetailImageCountGuidance(raw.detailImageCount)}
 
 이미지 후보 (인덱스: URL):
 ${formatImageCandidates(raw.imageUrls)}

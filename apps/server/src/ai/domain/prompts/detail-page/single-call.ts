@@ -22,7 +22,7 @@ import { Section8Schema } from './section-08-blue-section';
 import { Section9Schema } from './section-09-keypoint-2';
 import { Section10Schema } from './section-10-lifestyles';
 import { Section11Schema } from './section-11-gallery';
-import { formatImageCandidates, type RawProductInput } from './types';
+import { formatAudienceGuidance, formatImageCandidates, type RawProductInput } from './types';
 
 /** 11 개 섹션 산출의 합. 1-call 모드의 응답 schema. */
 export const DetailPageGenerationSchema = z.object({
@@ -56,6 +56,8 @@ raw 제품 데이터를 받아 "kids-playful (트렌드 광고형)" 템플릿의
 2. 모든 카피는 한국어. 한자/영어 직역 금지. 광고 톤. 짧고 임팩트.
 3. 모든 imageIndex 필드는 입력 이미지 후보의 인덱스 (0-based) 또는 null.
 4. 카테고리(완구/문구/슬라임/유아용품/생활잡화 등)에 어휘를 맞춘다.
+5. 사용자 입력의 "사용 연령 기준"을 반드시 따른다. 14세 이상이면 아이/유아가 아니라
+   중고등학생·청소년·학생 사용 장면과 어휘로 작성한다.
 
 # Cross-section 일관성 (반드시 만족)
 A. **제품 한국어명 일관성**: section1.mainHeadline 으로 정한 한국어 제품명을
@@ -207,6 +209,8 @@ heroImageMode: ${heroImageMode}
 카테고리(원문): ${raw.rawCategory}
 원본 설명: ${raw.rawDescription}
 주요 옵션/스펙: ${raw.rawOptions}
+사용 연령/표현 기준:
+${formatAudienceGuidance(raw.ageGroup)}
 하단 전용 패키지/박스 후보 인덱스: ${reservedPackageImageIndices.length > 0 ? reservedPackageImageIndices.join(', ') : '없음'}
 본문 사용 금지 안전표시/바코드 후보 인덱스: ${safetyLabelImageIndices.length > 0 ? safetyLabelImageIndices.join(', ') : '없음'}
 

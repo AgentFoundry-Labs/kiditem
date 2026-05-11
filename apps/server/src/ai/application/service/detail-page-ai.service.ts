@@ -39,6 +39,7 @@ import {
   looksLikeSafetyLabelImage,
   moveSafetyLabelImagesToEnd,
 } from '../../domain/detail-page-image-order';
+import type { DetailImageCount, DetailPageAgeGroup } from '../../domain/prompts/detail-page/types';
 import type { DetailPageRawInput, DetailPageTemplateId, KidsPlayfulImageContext } from './detail-page-ai.types';
 import { DetailPageGeneratedImagesService } from './detail-page-generated-images.service';
 import { DetailPageResultRefinerService } from './detail-page-result-refiner.service';
@@ -188,8 +189,10 @@ export class DetailPageAiService {
 
     const heroImageMode = dto.heroImageMode ?? 'llm-pick';
     const templateId = dto.templateId ?? 'kids-playful';
+    const ageGroup: DetailPageAgeGroup = dto.ageGroup ?? 'age-8-plus';
+    const detailImageCount: DetailImageCount = dto.detailImageCount ?? 'auto';
     const imageUrls = moveSafetyLabelImagesToEnd(dto.imageUrls);
-    const rawInput = {
+    const rawInput: DetailPageRawInput = {
       rawTitle: dto.rawTitle,
       rawCategory: dto.rawCategory,
       rawDescription: dto.rawDescription,
@@ -197,6 +200,8 @@ export class DetailPageAiService {
       imageUrls,
       heroImageMode,
       templateId,
+      ageGroup,
+      detailImageCount,
     };
 
     const isBoldVertical = templateId === 'bold-vertical';
