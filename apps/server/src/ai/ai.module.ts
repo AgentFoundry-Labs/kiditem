@@ -52,6 +52,7 @@ import { DetailPageQueryService } from './application/service/detail-page-query.
 import { DetailPageResultRefinerService } from './application/service/detail-page-result-refiner.service';
 import { ThumbnailComplianceVerifierService } from './application/service/thumbnail-compliance-verifier.service';
 import { ThumbnailEditorAiService } from './application/service/thumbnail-editor-ai.service';
+import { ThumbnailGenerationJobService } from './application/service/thumbnail-generation-job.service';
 import { ThumbnailGenerationService } from './application/service/thumbnail-generation.service';
 import { ThumbnailRecomposeService } from './application/service/thumbnail-recompose.service';
 import { ThumbnailTrackingService } from './application/service/thumbnail-tracking.service';
@@ -103,6 +104,7 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     ThumbnailAutoService,
     ThumbnailComplianceVerifierService,
     ThumbnailEditorAiService,
+    ThumbnailGenerationJobService,
     ThumbnailGenerationService,
     ThumbnailRecomposeService,
     ThumbnailTrackingService,

@@ -1,20 +1,18 @@
 import {
   Injectable,
   Logger,
-  BadRequestException,
   NotImplementedException,
   Inject,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   COUPANG_PROVIDER_PORT,
   type CoupangProviderPort,
 } from '../port/out/coupang-provider.port';
-import {
-  ChannelAccountService,
-  isCoupangCredentialResolutionError,
-} from './channel-account.service';
+import { ChannelAccountService } from './channel-account.service';
+import { syncCoupangOrders, syncSingleCoupangOrder } from './channel-sync-order.service';
+import { syncCoupangProducts } from './channel-sync-product.service';
+import { syncSingleCoupangReturn } from './channel-sync-return.service';
 import type {
   SyncResult,
   HealthResult,
@@ -119,240 +117,31 @@ export class ChannelSyncService {
     }
   }
 
-  /**
-   * Coupang seller-product → ChannelListing/ChannelListingOption 동기화.
-   *
-   * 페이지네이션은 `nextToken` 기반. 각 listing 은 별도 transaction 으로 처리해서
-   * batch 중간 실패가 다른 listing 의 동기화를 막지 않도록 한다 (`syncOrders` 와 동일
-   * continue-on-error 패턴).
-   *
-   * **Master 자동 생성 안 함**: `ChannelListing.masterId` 는 required 이므로, 기존
-   * listing 이 없는 sellerProductId 는 skip + report 한다. 신규 listing 생성은
-   * 제품 import / admin UI 가 담당해야 함 (ADR-0019 same-business-domain rule).
-   * 한 번이라도 listing 이 등록된 sellerProductId 는 매번 sync 가 refresh 한다 →
-   * 재실행 idempotent (같은 (listingId, externalOptionId) 는 update 만).
-   *
-   * `vendorItemId` 는 항상 `ChannelListingOption.externalOptionId` 로 mapping.
-   * 내부 `optionId` 는 별도 매칭 단계가 채우며 여기서는 nullable 그대로 유지
-   * (unmatched 옵션이 ingestion 을 막지 않게).
-   */
   async syncProducts(organizationId: string): Promise<SyncResult> {
-    const result: SyncResult = { synced: 0, errors: 0, details: [] };
-    const PRODUCT_PAGE_SIZE = 50;
-    const MAX_PAGES = 200;
-
-    let nextToken: string | undefined;
-    let pages = 0;
-
-    try {
-      do {
-        const listResponse = await this.coupang.getSellerProducts(organizationId, {
-          nextToken,
-          maxPerPage: PRODUCT_PAGE_SIZE,
-        });
-
-        if (listResponse.code !== 'SUCCESS') {
-          result.errors += 1;
-          result.details?.push(
-            `seller-products list ${listResponse.code}: ${listResponse.message || 'Unknown API error'}`,
-          );
-          break;
-        }
-
-        const items = listResponse.data?.content ?? [];
-        for (const summary of items) {
-          const sellerProductId = String(summary.sellerProductId);
-          try {
-            await this.syncSingleProductListing(sellerProductId, organizationId, result);
-          } catch (error: unknown) {
-            result.errors += 1;
-            const message = error instanceof Error ? error.message : 'Unknown error';
-            result.details?.push(`Listing ${sellerProductId}: ${message}`);
-            this.logger.error(`Failed to sync listing ${sellerProductId}: ${message}`);
-          }
-        }
-
-        nextToken = listResponse.data?.nextToken;
-        pages += 1;
-      } while (nextToken && pages < MAX_PAGES);
-
-      if (nextToken && pages >= MAX_PAGES) {
-        result.details?.push(
-          `Stopped after ${MAX_PAGES} pages of seller-products — re-run to continue`,
-        );
-      }
-    } catch (error: unknown) {
-      if (isCoupangCredentialResolutionError(error)) throw error;
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      result.errors += 1;
-      result.details?.push(`Product sync failed: ${message}`);
-      this.logger.error(`Product sync failed: ${message}`);
-    }
-
-    this.logger.log(
-      `Product sync complete: ${result.synced} synced, ${result.errors} errors`,
-    );
-    return result;
-  }
-
-  private async syncSingleProductListing(
-    sellerProductId: string,
-    organizationId: string,
-    result: SyncResult,
-  ): Promise<void> {
-    // Refresh-only: 신규 master 자동 생성 금지. 기존 listing 이 있을 때만 진행.
-    const existing = await this.prisma.channelListing.findFirst({
-      where: {
-        organizationId,
-        channel: 'coupang',
-        externalId: sellerProductId,
-        isDeleted: false,
+    return syncCoupangProducts(
+      {
+        prisma: this.prisma,
+        coupang: this.coupang,
+        logger: this.logger,
+        normalizeProductStatus: normalizeCoupangProductStatus,
       },
-      select: { id: true },
-    });
-    if (!existing) {
-      result.details?.push(
-        `Listing ${sellerProductId}: no matching ChannelListing — create via product import / admin UI first`,
-      );
-      return;
-    }
-
-    const detailResponse = await this.coupang.getSellerProduct(organizationId, sellerProductId);
-    if (detailResponse.code !== 'SUCCESS') {
-      throw new Error(
-        `detail ${detailResponse.code}: ${detailResponse.message || 'Unknown API error'}`,
-      );
-    }
-    const detail = detailResponse.data;
-    if (!detail) {
-      throw new Error('detail returned no data');
-    }
-
-    await this.prisma.$transaction(
-      async (tx) => {
-        const updated = await tx.channelListing.updateMany({
-          where: {
-            id: existing.id,
-            organizationId,
-            channel: 'coupang',
-            externalId: sellerProductId,
-            isDeleted: false,
-          },
-          data: {
-            channelName: detail.sellerProductName ?? null,
-            status: normalizeCoupangProductStatus(detail.statusName),
-            deliveryChargeType: detail.deliveryChargeType ?? null,
-            freeShipOverAmount: detail.freeShipOverAmount ?? null,
-            returnCharge: detail.returnCharge ?? null,
-            // Prisma `Json?` 컬럼: SQL NULL 표현은 `Prisma.DbNull`.
-            // payload 가 deliveryInfo 를 안 보내면 컬럼을 비우고, 보내면 그대로 저장.
-            deliveryInfo: detail.deliveryInfo === undefined
-              ? Prisma.DbNull
-              : (detail.deliveryInfo as Prisma.InputJsonValue),
-          },
-        });
-        if (updated.count !== 1) {
-          throw new BadRequestException(
-            `ChannelListing ${sellerProductId} is no longer active for this organization`,
-          );
-        }
-
-        const items = Array.isArray(detail.items) ? detail.items : [];
-        for (const item of items) {
-          if (!item.vendorItemId) {
-            // Coupang seller-product detail 은 item 에 vendorItemId 항상 채워서 보냄.
-            // 누락 시 (listingId, externalOptionId) upsert key 충돌 방지 + 계약 명시화.
-            throw new BadRequestException(
-              `Coupang item missing vendorItemId — cannot upsert (sellerProductId=${sellerProductId})`,
-            );
-          }
-          const externalOptionId = String(item.vendorItemId);
-
-          await tx.channelListingOption.upsert({
-            where: {
-              listingId_externalOptionId: {
-                listingId: existing.id,
-                externalOptionId,
-              },
-            },
-            update: {
-              itemName: item.itemName ?? null,
-              salePrice: item.salePrice ?? null,
-              isActive: true,
-            },
-            create: {
-              organizationId,
-              listingId: existing.id,
-              externalOptionId,
-              itemName: item.itemName ?? null,
-              salePrice: item.salePrice ?? null,
-              isActive: true,
-              // optionId 는 internal ProductOption 매칭 단계가 채움. C1 에서는 nullable
-              // 그대로 두어 unmatched 옵션이 ingestion 을 막지 않게 한다.
-            },
-          });
-        }
-      },
-      { timeout: 15_000 },
+      organizationId,
     );
-
-    result.synced += 1;
   }
 
   async syncOrders(organizationId: string, from?: Date, to?: Date): Promise<SyncResult> {
-    const result: SyncResult = { synced: 0, errors: 0, details: [] };
-
-    try {
-      const dateTo = to ?? new Date();
-      const dateFrom =
-        from ?? new Date(dateTo.getTime() - 7 * 24 * 60 * 60 * 1000);
-
-      // Coupang KR market 은 `yyyy-MM-ddTHH:mm:ss+09:00` 포맷 (KST 로컬 + offset) 을 기대한다.
-      // 단순 `toISOString().slice(0,19)` (UTC + offset 제거) 로 보내면 Coupang 이 KST 로 해석해
-      // 9시간 어긋난 윈도우로 조회됨 (예: KST 09:30 실행 → `00:30` 으로 인식, 00:30~09:30 누락).
-      const response = await this.coupang.getOrderSheets(organizationId, {
-        createdAtFrom: formatKstIso(dateFrom),
-        createdAtTo: formatKstIso(dateTo),
-        maxPerPage: 50,
-      });
-
-      if (response.code === 'ERROR') {
-        return {
-          synced: 0,
-          errors: 1,
-          details: [`API 에러: ${response.message}`],
-        };
-      }
-
-      const orders = response.data ?? [];
-
-      for (const order of orders) {
-        try {
-          await this.syncSingleOrder(order, organizationId);
-          result.synced++;
-        } catch (error: unknown) {
-          result.errors++;
-          const message =
-            error instanceof Error ? error.message : 'Unknown error';
-          result.details?.push(`주문 ${order.shipmentBoxId}: ${message}`);
-          this.logger.error(
-            `Failed to sync order ${order.shipmentBoxId}: ${message}`,
-          );
-        }
-      }
-    } catch (error: unknown) {
-      if (isCoupangCredentialResolutionError(error)) throw error;
-      const message =
-        error instanceof Error ? error.message : 'Unknown error';
-      result.errors++;
-      result.details?.push(`전체 동기화 오류: ${message}`);
-      this.logger.error(`Order sync failed: ${message}`);
-    }
-
-    this.logger.log(
-      `Order sync complete: ${result.synced} synced, ${result.errors} errors`,
+    return syncCoupangOrders(
+      {
+        prisma: this.prisma,
+        coupang: this.coupang,
+        logger: this.logger,
+        formatOrderDate: formatKstIso,
+        normalizeOrderStatus: normalizeCoupangOrderStatus,
+      },
+      organizationId,
+      from,
+      to,
     );
-    return result;
   }
 
   async syncInventory(_organizationId: string): Promise<SyncResult> {
@@ -365,138 +154,11 @@ export class ChannelSyncService {
     payload: CoupangSyncOrderPayload,
     organizationId: string,
   ): Promise<void> {
-    const shipmentBoxId = String(payload.shipmentBoxId);
-    const orderItems = payload.orderItems ?? [];
-    const totalPrice = orderItems.reduce(
-      (sum, item) => sum + (item.orderPrice ?? 0),
-      0,
-    );
-    const receiverAddr =
-      [payload.receiver?.addr1, payload.receiver?.addr2]
-        .filter(Boolean)
-        .join(' ') || null;
-    const metadata = {
-      orderer: payload.orderer ?? null,
-      receiver: payload.receiver ?? null,
-      parcelPrintMessage: payload.parcelPrintMessage ?? null,
-    };
-
-    await this.prisma.$transaction(
-      async (tx) => {
-        const order = await tx.order.upsert({
-          where: {
-            organizationId_platform_externalOrderId: {
-              organizationId,
-              platform: 'coupang',
-              externalOrderId: shipmentBoxId,
-            },
-          },
-          update: {
-            status: normalizeCoupangOrderStatus(payload.status),
-            trackingNumber: payload.invoiceNumber ?? null,
-            shippingCompany: payload.deliveryCompanyName ?? null,
-            shippingPrice: payload.shippingPrice ?? 0,
-            totalPrice,
-            receiverName: payload.receiver?.name ?? null,
-            receiverPhone: payload.receiver?.safeNumber ?? null,
-            receiverAddr,
-            memo: payload.parcelPrintMessage ?? null,
-            metadata: metadata as Prisma.InputJsonValue,
-          },
-          create: {
-            organizationId,
-            platform: 'coupang',
-            externalOrderId: shipmentBoxId,
-            externalNumber: payload.orderId ? String(payload.orderId) : null,
-            status: normalizeCoupangOrderStatus(payload.status) ?? 'ACCEPT',
-            customerName: payload.orderer?.name ?? '',
-            receiverName: payload.receiver?.name ?? null,
-            receiverPhone: payload.receiver?.safeNumber ?? null,
-            receiverAddr,
-            memo: payload.parcelPrintMessage ?? null,
-            orderedAt: new Date(payload.orderedAt),
-            paidAt: payload.paidAt ? new Date(payload.paidAt) : null,
-            shippingPrice: payload.shippingPrice ?? 0,
-            totalPrice,
-            trackingNumber: payload.invoiceNumber ?? null,
-            shippingCompany: payload.deliveryCompanyName ?? null,
-            metadata: metadata as Prisma.InputJsonValue,
-          },
-        });
-
-        for (const item of orderItems) {
-          if (!item.vendorItemId) {
-            // Coupang API 는 line item 에 vendorItemId 항상 채워서 보냄. 누락 시 upsert key 충돌 방지 + 계약 명시화.
-            throw new BadRequestException(
-              `OrderLineItem missing vendorItemId — cannot upsert (shipmentBoxId=${shipmentBoxId})`,
-            );
-          }
-          const externalOptionId = String(item.vendorItemId);
-          const sellerProductId = item.sellerProductId
-            ? String(item.sellerProductId)
-            : null;
-          const externalLineId = externalOptionId;
-          const listingOption = await tx.channelListingOption.findFirst({
-            where: {
-              organizationId,
-              externalOptionId,
-              isActive: true,
-              listing: {
-                channel: 'coupang',
-                isDeleted: false,
-                ...(sellerProductId ? { externalId: sellerProductId } : {}),
-              },
-            },
-            select: {
-              id: true,
-              optionId: true,
-              option: { select: { sku: true, optionName: true } },
-            },
-          });
-
-          const lineItemMetadata = {
-            sellerProductId: item.sellerProductId ?? null,
-            instantCouponDiscount: item.instantCouponDiscount ?? 0,
-          };
-
-          await tx.orderLineItem.upsert({
-            where: {
-              orderId_externalLineId: {
-                orderId: order.id,
-                externalLineId,
-              },
-            },
-            update: {
-              quantity: item.shippingCount ?? 1,
-              unitPrice: item.salesPrice ?? 0,
-              totalPrice: item.orderPrice ?? 0,
-              listingOptionId: listingOption?.id ?? null,
-              optionId: listingOption?.optionId ?? null,
-              productName: item.sellerProductName ?? '',
-              optionName:
-                item.vendorItemName ?? listingOption?.option?.optionName ?? null,
-              sku: listingOption?.option?.sku ?? null,
-              metadata: lineItemMetadata as Prisma.InputJsonValue,
-            },
-            create: {
-              organizationId,
-              orderId: order.id,
-              listingOptionId: listingOption?.id ?? null,
-              optionId: listingOption?.optionId ?? null,
-              productName: item.sellerProductName ?? '',
-              optionName:
-                item.vendorItemName ?? listingOption?.option?.optionName ?? null,
-              sku: listingOption?.option?.sku ?? null,
-              quantity: item.shippingCount ?? 1,
-              unitPrice: item.salesPrice ?? 0,
-              totalPrice: item.orderPrice ?? 0,
-              externalLineId,
-              metadata: lineItemMetadata as Prisma.InputJsonValue,
-            },
-          });
-        }
-      },
-      { timeout: 15_000 },
+    return syncSingleCoupangOrder(
+      this.prisma,
+      payload,
+      organizationId,
+      normalizeCoupangOrderStatus,
     );
   }
 
@@ -504,88 +166,6 @@ export class ChannelSyncService {
     payload: CoupangSyncReturnPayload,
     organizationId: string,
   ): Promise<void> {
-    const receiptId = String(payload.receiptId);
-    const metadata = {
-      reasonCode: payload.reasonCode ?? null,
-      reasonCodeText: payload.reasonCodeText ?? null,
-      returnDeliveryId: payload.returnDeliveryId ?? null,
-    };
-
-    await this.prisma.$transaction(
-      async (tx) => {
-        // matchedOrder lookup inside tx: 동일 sync run 이 Order 를 먼저 만든 직후 Return 을 처리할 때 phantom read 방지.
-        const matchedOrder = payload.orderId
-          ? await tx.order.findFirst({
-              where: {
-                organizationId,
-                platform: 'coupang',
-                externalNumber: String(payload.orderId),
-              },
-              select: { id: true },
-            })
-          : null;
-
-        const ret = await tx.orderReturn.upsert({
-          where: {
-            organizationId_platform_externalReturnId: {
-              organizationId,
-              platform: 'coupang',
-              externalReturnId: receiptId,
-            },
-          },
-          update: {
-            type: payload.receiptType ?? 'RETURN',
-            status: payload.receiptStatus ?? 'pending',
-            reason: payload.cancelReason ?? '',
-            reasonCategory1: payload.cancelReasonCategory1 ?? null,
-            reasonCategory2: payload.cancelReasonCategory2 ?? null,
-            faultBy: payload.faultByType ?? 'CUSTOMER',
-            requesterName: payload.requesterName ?? '',
-            enclosePrice: payload.enclosePrice ?? null,
-            completedAt: payload.completedAt
-              ? new Date(payload.completedAt)
-              : null,
-            orderId: matchedOrder?.id ?? null,
-            metadata: metadata as Prisma.InputJsonValue,
-          },
-          create: {
-            organizationId,
-            platform: 'coupang',
-            externalReturnId: receiptId,
-            type: payload.receiptType ?? 'RETURN',
-            status: payload.receiptStatus ?? 'pending',
-            reason: payload.cancelReason ?? '',
-            reasonCategory1: payload.cancelReasonCategory1 ?? null,
-            reasonCategory2: payload.cancelReasonCategory2 ?? null,
-            faultBy: payload.faultByType ?? 'CUSTOMER',
-            requesterName: payload.requesterName ?? '',
-            enclosePrice: payload.enclosePrice ?? null,
-            requestedAt: new Date(payload.requestedAt),
-            completedAt: payload.completedAt
-              ? new Date(payload.completedAt)
-              : null,
-            orderId: matchedOrder?.id ?? null,
-            metadata: metadata as Prisma.InputJsonValue,
-          },
-        });
-
-        await tx.orderReturnLineItem.deleteMany({
-          where: { returnId: ret.id },
-        });
-        const items = Array.isArray(payload.items) ? payload.items : [];
-        for (const it of items) {
-          await tx.orderReturnLineItem.create({
-            data: {
-              organizationId,
-              returnId: ret.id,
-              productName: it.productName ?? it.vendorItemName ?? '',
-              quantity: it.quantity ?? 1,
-              metadata: { raw: it } as Prisma.InputJsonValue,
-            },
-          });
-        }
-      },
-      { timeout: 15_000 },
-    );
+    return syncSingleCoupangReturn(this.prisma, payload, organizationId);
   }
 }
