@@ -44,6 +44,9 @@
         // Provides script binaries used by root scripts (`dev:all`, `data:dev:*`,
         // `import:product-baseline`). Knip cannot link these to the script bins.
         "concurrently",
+        // Resolved dynamically by the Wing automation adapter/runbook via
+        // require.resolve('playwriter/package.json') and node_modules/.bin.
+        "playwriter",
         "tsx"
       ]
     },
@@ -66,7 +69,10 @@
       ],
       "ignore": [
         "dist/**",
-        "coverage/**"
+        "coverage/**",
+        // Compatibility shim kept by channels/AGENTS.md for legacy orders import
+        // paths while the real implementation lives under adapter/out/coupang.
+        "src/channels/adapters/coupang/orders.ts"
       ],
       // Script-bin false positives: these binaries are invoked by package.json scripts
       // (build/start/lint/test) but knip does not link them across npm workspace hoisting.
