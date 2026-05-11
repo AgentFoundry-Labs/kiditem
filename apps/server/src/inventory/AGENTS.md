@@ -79,7 +79,6 @@ inventory/
 │       ├── audits.service.ts
 │       └── picking.service.ts
 ├── domain/
-│   ├── model/                                ← pure types (StockMutationRequest)
 │   └── policy/                               ← pure rules (no Nest, no Prisma)
 │       ├── inventory-status.ts               (deriveInventoryStatus)
 │       ├── stock-mutation.ts                 (assertSufficientStock, computeStoredQuantity, deriveStockDelta)
