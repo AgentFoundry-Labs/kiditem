@@ -41,6 +41,9 @@ import { ThumbnailAgentReconcileService } from './application/service/thumbnail-
 import { ImageAiService } from './application/service/image-ai.service';
 import { TextAiService } from './application/service/text-ai.service';
 import { ThumbnailAnalysisService } from './application/service/thumbnail-analysis.service';
+import { ThumbnailAnalysisAnalyzerService } from './application/service/thumbnail-analysis-analyzer.service';
+import { ThumbnailAnalysisBatchService } from './application/service/thumbnail-analysis-batch.service';
+import { ThumbnailAnalysisQueryService } from './application/service/thumbnail-analysis-query.service';
 import { ThumbnailAutoService } from './application/service/thumbnail-auto.service';
 import { CoupangImageSyncService } from './application/service/coupang-image-sync.service';
 import { DetailPageHeroImageService } from './application/service/detail-page-hero-image.service';
@@ -50,6 +53,8 @@ import { DetailPageGenerationService } from './application/service/detail-page-g
 import { DetailPagePrefillService } from './application/service/detail-page-prefill.service';
 import { DetailPageQueryService } from './application/service/detail-page-query.service';
 import { DetailPageResultRefinerService } from './application/service/detail-page-result-refiner.service';
+import { BoldVerticalRefinerService } from './application/service/bold-vertical-refiner.service';
+import { KidsPlayfulRefinerService } from './application/service/kids-playful-refiner.service';
 import { ThumbnailComplianceVerifierService } from './application/service/thumbnail-compliance-verifier.service';
 import { ThumbnailEditorAiService } from './application/service/thumbnail-editor-ai.service';
 import { ThumbnailGenerationJobService } from './application/service/thumbnail-generation-job.service';
@@ -98,9 +103,14 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     DetailPagePrefillService,
     DetailPageQueryService,
     DetailPageResultRefinerService,
+    BoldVerticalRefinerService,
+    KidsPlayfulRefinerService,
     TextAiService,
     ThumbnailAgentReconcileService,
     ThumbnailAnalysisService,
+    ThumbnailAnalysisAnalyzerService,
+    ThumbnailAnalysisBatchService,
+    ThumbnailAnalysisQueryService,
     ThumbnailAutoService,
     ThumbnailComplianceVerifierService,
     ThumbnailEditorAiService,

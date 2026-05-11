@@ -17,11 +17,9 @@ import {
   useDeleteCandidate,
 } from '../../_shared/hooks/useThumbnailGenerations';
 import { useAnalysisList } from '../../thumbnails/hooks/useThumbnailAnalysis';
-import { RecomposeVariantPicker } from '../../_shared/components/thumbnails/RecomposeVariantPicker';
 import type { RecomposeVariantKey, ThumbnailGenerationItem } from '@kiditem/shared/ai';
 import { resolveImageUrl } from '@/lib/resolve-url';
 import { useProductImages } from '../../_shared/hooks/useProductImages';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
 import { useGenerateThumbnail } from '../hooks/useThumbnailEditor';
 import { EditorInputPanel } from '../components/EditorInputPanel';
@@ -31,10 +29,11 @@ import { ModeCaseModal } from '../components/ModeCaseModal';
 import type { EditUseCase } from '../components/UseCaseSelection';
 import type { SupplementaryLabel } from '../components/EditorInputPanel';
 import {
-  buildInitialSlots, pickCaseFromSlots, selectProductValue, setFirstSlotValueByKind, slotsToDto,
+  buildInitialSlots, selectProductValue, setFirstSlotValueByKind,
   type Slot,
 } from './lib/slots';
 import { type EditorMode, parseEditCaseParam } from './lib/edit-page-types';
+import { buildGenerateThumbnailDto } from './lib/build-generate-thumbnail-dto';
 import {
   readThumbnailEditorUpload,
   readThumbnailEditorUploadResult,
@@ -42,7 +41,10 @@ import {
   writeThumbnailEditorUploadResult,
 } from './lib/upload-session';
 import { useEditorHistory } from './hooks/useEditorHistory';
+import { useGenerationAwaitingState } from './hooks/useGenerationAwaitingState';
 import { EditorPageHeader } from './components/EditorPageHeader';
+import { DeleteCandidateConfirmDialog } from './components/DeleteCandidateConfirmDialog';
+import { RecomposeControlSlot } from './components/RecomposeControlSlot';
 import { getThemeHint } from './lib/theme-hint';
 
 export type { EditorMode, HistoryCandidate } from './lib/edit-page-types';
@@ -204,57 +206,9 @@ function ThumbnailEditorWorkspaceContent() {
   const [generationId, setGenerationId] = useState<string | null>(null);
   const [selectedCandidateUrl, setSelectedCandidateUrl] = useState<string | null>(null);
 
-  /**
-   * Recompose flow 진행 상태 — backend 가 큐만 등록하고 즉시 응답하므로 mutation.isPending
-   * 만으로는 부족. 폴링한 generation 의 status 를 확인해서 'pending' / 'running' 인 동안
-   * isGenerating 유지. 추가로 forcedAwaiting (mutation 직후 race window) 도 합산.
-   */
   const { data: pollingGenerations = [] } = useGenerationList();
-  const targetGen = generationId
-    ? pollingGenerations.find((g) => g.id === generationId)
-    : null;
-  /** mutation 응답 ~ polling 첫 hit 사이의 race window 차단용. */
-  const [forcedAwaiting, setForcedAwaiting] = useState(false);
-  /** forcedAwaiting 시작 시각 — minimum hold 1.5초 보장 (Gemini 빠른 응답 시 모달 깜빡임 방지). */
-  const forcedStartRef = useRef(0);
-  const isAwaitingGen =
-    forcedAwaiting ||
-    (!!targetGen && (targetGen.status === 'pending' || targetGen.status === 'running'));
-
-  // generation 종결 상태를 boolean 으로 derived — useEffect deps 안정화 (length 변동 X).
-  const isGenComplete = !!(
-    targetGen &&
-    targetGen.status === 'succeeded' &&
-    Array.isArray(targetGen.candidates) &&
-    targetGen.candidates.length > 0
-  );
-  const isGenError = !!(
-    targetGen &&
-    (targetGen.status === 'failed' || targetGen.status === 'cancelled')
-  );
-
-  // polling 데이터에 generation 잡히고 종결 상태면 forcedAwaiting 해제 (3초 minimum hold).
-  // 사용자 의도: 모달은 generation 완료까지 유지. mutation 응답이 빠르게 와도 (큐 등록만)
-  // candidates 도착할 때까지 모달 유지 → 사장이 진행 상황 명확히 인지.
-  useEffect(() => {
-    if (!forcedAwaiting) return;
-    if (!isGenComplete && !isGenError) return;
-    const elapsed = Date.now() - forcedStartRef.current;
-    const wait = Math.max(0, 3000 - elapsed);
-    console.log('[edit-page] generation 종결 — hold', wait, 'ms 후 모달 해제');
-    const t = setTimeout(() => setForcedAwaiting(false), wait);
-    return () => clearTimeout(t);
-  }, [forcedAwaiting, isGenComplete, isGenError]);
-
-  // safety net — forcedAwaiting=true 가 90초 이상 지속되면 강제 해제 (Gemini timeout 대비).
-  useEffect(() => {
-    if (!forcedAwaiting) return;
-    const safety = setTimeout(() => {
-      console.log('[edit-page] safety timeout 90s — forcedAwaiting 강제 해제');
-      setForcedAwaiting(false);
-    }, 90000);
-    return () => clearTimeout(safety);
-  }, [forcedAwaiting]);
+  const { forcedAwaiting, isAwaitingGen, beginAwaiting, clearAwaiting } =
+    useGenerationAwaitingState(generationId, pollingGenerations);
 
   const { data: initialGeneration } = useQuery({
     queryKey: ['thumbnail-generation', generationIdParam],
@@ -338,24 +292,22 @@ function ThumbnailEditorWorkspaceContent() {
 
     // generate flow — textarea instruction 기반
     console.log('[edit-page] → generate flow (textarea hint)');
-    forcedStartRef.current = Date.now();
-    setForcedAwaiting(true);
+    beginAwaiting();
     try {
-      // editCase 는 UI state 지만 실제 프롬프트 라우팅은 슬롯 구성 기준으로 재계산.
-      // creative 는 그대로 editCase=null. edit 모드는 슬롯에 bundle/color/packaging 이 있으면
-      // 자동으로 해당 케이스로 승격해서 백엔드 프롬프트 선택 정확도 보장.
-      const resolvedCase = mode === 'creative' ? null : pickCaseFromSlots(slots);
-      const dto = slotsToDto(slots, resolvedCase, {
-        productId, supplementaryLabel, pieceCount,
-        purpose: mode === 'creative' ? 'quality' : 'compliance',
+      const dto = buildGenerateThumbnailDto({
         mode,
-        userPrompt: imageOnly ? '' : userPrompt,
+        slots,
+        productId,
+        supplementaryLabel,
+        pieceCount,
+        imageOnly,
+        userPrompt,
         sceneType,
         styleType,
-        productDescription: imageOnly ? '' : productDescription,
+        productDescription,
         productName,
-        productImageOverride: effectiveProductImage,
-        layout: imageOnly ? 'auto' : layout,
+        effectiveProductImage,
+        layout,
       });
       const data = await generateMutation.mutateAsync(dto);
       if (!mountedRef.current) return;
@@ -390,7 +342,7 @@ function ThumbnailEditorWorkspaceContent() {
             mode,
           });
         }
-        setForcedAwaiting(false);
+        clearAwaiting();
         queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.generations() });
         toast.success(`썸네일 ${data.candidates.length}장 생성 완료`);
         if (data.generationId) {
@@ -401,7 +353,7 @@ function ThumbnailEditorWorkspaceContent() {
       }
     } catch (err) {
       if (!mountedRef.current) return;
-      setForcedAwaiting(false); // 에러 시에만 해제. 정상 응답 시는 generationId 있어 useEffect 가 status 기반 해제.
+      clearAwaiting(); // 에러 시에만 해제. 정상 응답 시는 generationId 있어 useEffect 가 status 기반 해제.
       toast.error(err instanceof Error ? err.message : '썸네일 생성 실패');
     }
   };
@@ -418,8 +370,7 @@ function ThumbnailEditorWorkspaceContent() {
       toast.error('상품 정보가 필요합니다');
       return;
     }
-    forcedStartRef.current = Date.now(); // minimum hold 시작 시각
-    setForcedAwaiting(true); // mutation 직후 race window 차단 — UI 즉시 loading
+    beginAwaiting(); // mutation 직후 race window 차단 — UI 즉시 loading
     console.log('[edit-page] forcedAwaiting=true, calling editJobsMutation...');
     try {
       const created = await editJobsMutation.mutateAsync({
@@ -464,12 +415,12 @@ function ThumbnailEditorWorkspaceContent() {
           toast.info('이미 편집 진행 중 — 결과 기다리는 중...');
         } else {
           // active 못 찾으면 일반 경고
-          setForcedAwaiting(false);
+          clearAwaiting();
           toast.warning('이미 편집이 진행 중인 상품입니다');
         }
       }
     } catch (err) {
-      setForcedAwaiting(false);
+      clearAwaiting();
       toast.error(err instanceof Error ? err.message : 'AI 편집 실패');
     }
   };
@@ -720,49 +671,20 @@ function ThumbnailEditorWorkspaceContent() {
             onReEditFromSelected={handleReEditFromSelected}
             recomposeSlot={
               recomposeClassification ? (
-                <div className="bg-violet-50/40 rounded-2xl p-4 border border-violet-200">
-                  <div className="text-[13px] font-bold text-violet-900 mb-1">
-                    AI 분류 — 변형 선택
-                  </div>
-                  <p className="text-[11px] text-violet-700 mb-2">
-                    {userPrompt.trim()
-                      ? '위쪽 텍스트가 있으면 자유 편집(generate flow). 변형 선택 시 분류 prompt 가 우선 적용됩니다.'
-                      : '편집 지시사항 비우고 편집하기 누르면 AI 분류 자동 적용. 변형 선택 시 그쪽이 우선.'}
-                  </p>
-                  <RecomposeVariantPicker
-                    classification={recomposeClassification}
-                    onSelect={(key) => setSelectedVariantKey(key)}
-                    layout="detail"
-                  />
-                  {selectedVariantKey && (
-                    <div className="mt-2 text-[11px] font-semibold text-violet-900">
-                      ✓ 선택됨:{' '}
-                      {selectedVariantKey === 'with-box'
-                        ? '박스+상품'
-                        : selectedVariantKey === 'no-box'
-                        ? '상품만'
-                        : '자동 (auto)'}
-                    </div>
-                  )}
-                </div>
+                <RecomposeControlSlot
+                  classification={recomposeClassification}
+                  userPrompt={userPrompt}
+                  selectedVariantKey={selectedVariantKey}
+                  onSelectVariant={setSelectedVariantKey}
+                />
               ) : undefined
             }
           />
       </div>
 
-      <ConfirmDialog
+      <DeleteCandidateConfirmDialog
         open={deleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}
-        tone="danger"
-        title="선택한 이미지를 삭제할까요?"
-        description={
-          <>
-            현재 선택한 이미지 <span className="font-semibold text-[var(--text-primary,#0f172a)]">1장</span>만
-            삭제되고, 같은 생성의 다른 후보는 남습니다. 마지막 1장을 삭제하면 생성 결과 자체가 함께 사라집니다.
-          </>
-        }
-        confirmText="삭제"
-        cancelText="취소"
         isLoading={deleteCandidateMutation.isPending}
         onConfirm={handleDeleteConfirm}
       />
