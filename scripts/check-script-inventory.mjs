@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 export const SCRIPT_INVENTORY = Object.freeze([
   'check-agents-hygiene.mjs',
+  'check-directory-architecture.mjs',
   'check-frontend-db-boundary.sh',
   'check-pr-reconstruction-contract.mjs',
   'check-queryraw-tenancy.sh',
@@ -63,11 +64,17 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
   if (!packageScripts['check:scripts-inventory']) {
     missingPackageHooks.push('check:scripts-inventory');
   }
+  if (!packageScripts['check:directory-architecture']) {
+    missingPackageHooks.push('check:directory-architecture');
+  }
   if (!packageScripts['test:scripts']) {
     missingPackageHooks.push('test:scripts');
   }
   if (!packageScripts['check:conventions']?.includes('check:scripts-inventory')) {
     missingPackageHooks.push('check:conventions -> check:scripts-inventory');
+  }
+  if (!packageScripts['check:conventions']?.includes('check:directory-architecture')) {
+    missingPackageHooks.push('check:conventions -> check:directory-architecture');
   }
 
   return { unexpected, missing, undocumented, missingPackageHooks };

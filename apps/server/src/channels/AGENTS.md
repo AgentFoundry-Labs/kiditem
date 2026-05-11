@@ -4,10 +4,6 @@ Channels owns marketplace account settings, Coupang product/order/return sync,
 listing reconciliation, and channel dashboard reads. Coupang provider calls are
 isolated under `adapter/out/coupang/`.
 
-## Architecture Mode
-
-Mode: Mixed Provider Boundary.
-
 Coupang provider access is hexagonal through `COUPANG_PROVIDER_PORT` and
 `adapter/out/coupang/`. Dashboard raw SQL and some reconciliation services are
 transitional; new provider APIs, retries, queues, or cross-domain writes require

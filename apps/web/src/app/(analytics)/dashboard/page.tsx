@@ -16,7 +16,7 @@ import { apiClient } from '@/lib/api-client';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 
 const DashboardCharts = dynamic(
-  () => import('../components/DashboardCharts').then(mod => ({ default: mod.DashboardCharts })),
+  () => import('./components/DashboardCharts').then(mod => ({ default: mod.DashboardCharts })),
   { ssr: false, loading: () => <div className="h-[320px] flex items-center justify-center text-sm text-slate-300">차트 로딩 중...</div> },
 );
 import { queryKeys } from '@/lib/query-keys';

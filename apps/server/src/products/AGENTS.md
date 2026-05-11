@@ -3,10 +3,6 @@
 Products owns catalog families, physical SKU options, bundle composition, and
 the `/api/categories` compatibility capability.
 
-## Architecture Mode
-
-Mode: Mixed Reconstruction.
-
 Core catalog and bundle-stock behavior use adapter/application/domain lanes.
 `categories/`, `dto/`, and `util/` are compatibility surfaces; new product
 behavior should not copy those shapes when it has transaction, policy, or

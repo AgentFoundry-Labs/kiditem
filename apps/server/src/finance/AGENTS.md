@@ -5,10 +5,6 @@ supplier payments, sales plans, and settlement reconciliation. `Settlement`
 still lives in the Orders Prisma namespace and `SupplierPayment` in Supply; the
 backend owner module is finance.
 
-## Architecture Mode
-
-Mode: Transitional Flat.
-
 Finance keeps flat controllers/services while it is live aggregation plus CRUD
 over finance-owned capabilities. Do not add provider calls, raw SQL reporting,
 cross-domain mutations, or long transaction invariants into the flat services;

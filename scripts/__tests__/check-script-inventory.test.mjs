@@ -8,8 +8,9 @@ test('accepts complete script inventory metadata', () => {
     readme: SCRIPT_INVENTORY.map((file) => `\`scripts/${file}\``).join('\n'),
     packageScripts: {
       'check:scripts-inventory': 'node scripts/check-script-inventory.mjs',
+      'check:directory-architecture': 'node scripts/check-directory-architecture.mjs',
       'test:scripts': 'vitest run --config scripts/vitest.config.ts && node --test scripts/__tests__/*.test.mjs',
-      'check:conventions': 'npm run check:scripts-inventory',
+      'check:conventions': 'npm run check:scripts-inventory && npm run check:directory-architecture',
     },
   });
 
@@ -31,7 +32,9 @@ test('reports unregistered scripts and missing hooks', () => {
   assert.ok(result.undocumented.includes('check-script-inventory.mjs'));
   assert.deepEqual(result.missingPackageHooks, [
     'check:scripts-inventory',
+    'check:directory-architecture',
     'test:scripts',
     'check:conventions -> check:scripts-inventory',
+    'check:conventions -> check:directory-architecture',
   ]);
 });

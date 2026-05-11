@@ -41,25 +41,16 @@ Flat `controller -> service -> PrismaService` modules are tolerated only for
 small legacy CRUD. A new top-level folder needs owner-domain justification:
 data ownership, mutation authority, transaction boundary, and invariants.
 
-## Architecture Modes
-
-Each `src/{owner-domain}/AGENTS.md` declares one mode:
-
-| Mode | Meaning |
-|---|---|
-| Reconstructed Hexagonal | Uses the owner-domain layout above; new behavior follows port/adapter boundaries. |
-| Mixed Reconstruction | Some surfaces are hexagonal and named; remaining flat exceptions are listed and may not grow silently. |
-| Transitional Flat | Current scope is small enough for controller/service/DTO, but expansion triggers require a reconstruction plan. |
-| Platform / Projection Adapter | Infrastructure, runtime, auth, or read projection surface with a local boundary contract instead of business aggregate ownership. |
+The current backend directory map and structure contracts live in
+[`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md#backend-directory-architecture).
+When a PR adds a top-level folder, moves a capability, or changes a folder's
+implementation shape, update that map in the same PR.
 
 Flat folders stay flat only while they have no provider SDK, Agent OS/runtime,
 workflow integration, cross-domain mutation, raw SQL/row-lock transaction,
 shared use-case consumer, meaningful pure domain policy, LLM/prompt/media/
 storage/fetch boundary, or 500+ line service pressure. Adding any of those is a
 reconstruction trigger; do not grow the flat service in place.
-
-Every scoped backend `AGENTS.md` should state: mode, local layout, allowed IO
-lanes, forbidden imports, flat exceptions if any, and verification gates.
 
 ## Global HTTP Rules
 

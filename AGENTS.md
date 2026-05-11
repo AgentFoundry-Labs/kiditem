@@ -144,6 +144,7 @@ notes stay out of git.
 - **Adapter naming rule** — reconstructed DB access lives behind application ports and outgoing adapters. The scoped plan chooses the concrete adapter lane and concise names, for example Inventory uses `adapter/out/repository/*.repository.adapter.ts`. Do not force global DAO/Repository naming, do not keep `*persistence.ts` as final naming, and do not repeat folder roles in file names unless multiple implementations require a qualifier such as `prisma`, `memory`, or a provider name.
 - **Legacy module rule** — flat `Controller -> Service -> PrismaService` modules are tolerated only as transitional legacy CRUD. New or materially rewritten domains should move behavior behind `adapter/application/domain` structure using port/adapter boundaries.
 - **Backend folder rule** — adding a new `apps/server/src/{top-level}` folder requires owner-domain justification in the scoped plan or instruction file. Small table-shaped modules should be folded into their owner domain during reconstruction.
+- **Directory architecture rule** — backend and web directory ownership/structure live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Adding, moving, or changing a top-level backend folder, frontend route group, route leaf, or shared frontend root must update that directory map in the same PR.
 
 ## Structure
 

@@ -5,7 +5,7 @@ import { Warehouse, Package, ArrowUpDown, BookOpen, ClipboardCheck, DollarSign }
 import TabLayout from '@/components/ui/TabLayout';
 
 const InventoryPage = dynamic(() => import('@/app/(inventory)/inventory/page'), { ssr: false });
-const PurchaseOrdersPage = dynamic(() => import('@/app/purchase-orders/page'), { ssr: false });
+const PurchaseOrdersPage = dynamic(() => import('@/app/(sourcing)/purchase-orders/page'), { ssr: false });
 const StockIoPage = dynamic(() => import('@/app/(inventory)/inventory-hub/components/StockIo'), { ssr: false });
 const StockLedgerPage = dynamic(() => import('@/app/(inventory)/inventory-hub/components/StockLedger'), { ssr: false });
 const StockAuditsPage = dynamic(() => import('@/app/(inventory)/inventory-hub/components/StockAudits'), { ssr: false });

@@ -4,10 +4,6 @@ Automation owns workflow templates/runs, alert lifecycle, action board tasks,
 marketplace install orchestration, and Live Ops panel projection. It is not an
 owner for downstream business mutations; owner domains expose events or ports.
 
-## Architecture Mode
-
-Mode: Reconstructed Hexagonal / Projection Adapter.
-
 Workflow orchestration, alert/action services, and marketplace install flows use
 application services, outgoing adapters, domain policies, and mappers. Panel is
 a read-only projection adapter with its own more-specific instructions under

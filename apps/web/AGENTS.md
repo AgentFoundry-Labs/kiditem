@@ -80,16 +80,23 @@ Shared directories (`src/components`, `src/hooks`, `src/lib`) are only for code
 used by 2+ domains. Route-group private shared code can live in
 `app/(group)/_shared/`.
 
+The current frontend directory map and route/shared structure contracts live in
+[`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md#frontend-directory-architecture).
+When a PR adds a route group, moves a route, or changes shared ownership,
+update that map in the same PR.
+
 Route groups do not affect URLs:
 
 | Group | Routes |
 |---|---|
+| `(advertising)` | ad-ops |
+| `(analytics)` | dashboard |
 | `(automation)` | agents, workflows, marketplace, action-board |
 | `(catalog)` | products, product-hub |
-| `(sourcing)` | sourcing, suppliers |
-| `(inventory)` | inventory, inventory-hub, stock-ops, warehouses, unshipped-items |
-| `(orders)` | orders, order-hub, order-status-hub, returns, reviews, return-scan |
-| `(finance)` | finance-hub, profit-loss, sales-analysis, supplier-hub |
+| `(sourcing)` | sourcing, sourcing-ai, suppliers, purchase-orders |
+| `(inventory)` | inventory, inventory-hub, stock-ops, warehouses, unshipped-items, outbound |
+| `(orders)` | orders, order-hub, order-status-hub, returns, reviews, return-scan, cs-management |
+| `(finance)` | finance-hub, profit-loss, sales-analysis, supplier-hub, reports |
 | `(media-ai)` | thumbnails, thumbnail-editor, image-hub, generate |
 
 ## Large Components
@@ -128,6 +135,8 @@ Read these before editing the matching route:
 - `app/(inventory)/inventory/lib/barcode-print.ts` may use browser print APIs.
 - `app/settings/` may contain operational uploads, printer settings, and health
   checks.
+- `app/login/` and `app/auth/` are auth shell/callback routes outside business
+  route groups.
 
 ## Verification
 

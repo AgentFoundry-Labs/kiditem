@@ -34,78 +34,216 @@ prisma/              Prisma multi-file schema source of truth
 extensions/          Browser extensions for sourcing / marketplace ingest
 ```
 
-## Backend Boundaries
+## Backend Directory Architecture
 
-Backend folders are owner domains or platforms, not DB-table mirrors or
-frontend page names. Reconstructed domains use domain-first modular
-architecture with application orchestration and selective hexagonal ports:
+Backend folders are owner domains, owner capabilities, platforms, or support
+folders. They are not DB-table mirrors or frontend page names. Implementation
+structure has only two classifications for business/platform code:
+`Hexagonal` or `Flat`. Support folders have no business implementation
+structure.
 
-```
+Kinds:
+
+- `Owner Domain`: owns business invariants or mutation authority.
+- `Owner Capability`: small capability with a bounded HTTP/service surface.
+- `Owner Read Model`: reporting/projection capability.
+- `Compatibility Lane`: legacy or shim surface kept under an owner folder.
+- `Platform`: cross-domain runtime or orchestration owner.
+- `Platform Capability`: small infrastructure endpoint or service.
+- `Platform Support`: shared backend infrastructure or helpers.
+- `Test Support`: test-only helpers.
+
+Structures:
+
+- `Hexagonal`: uses `adapter/`, `application/`, optional `domain/`, and optional
+  `mapper/` lanes.
+- `Flat`: controller/service/DTO or adjacent module/service files.
+
+### Backend Directory Map
+
+This map answers ownership first. If one folder owns multiple capabilities,
+their implementation structures are listed in the Backend Implementation Map.
+
+| Path | Kind | Ownership / Surfaces |
+|---|---|---|
+| `apps/server/src/activity-events` | Owner Capability | Activity event read endpoint. |
+| `apps/server/src/advertising` | Owner Domain | Coupang ad operations, scrape ingest, daily facts, strategy/action generation. |
+| `apps/server/src/agent-os` | Platform | Agent catalog, queue, runtime, policy, cost, and observability. |
+| `apps/server/src/ai` | Owner Domain | Image/text/detail-page/thumbnail AI provider and Agent OS output boundaries. |
+| `apps/server/src/analytics` | Owner Read Model | Dashboard, statistics, traffic, and supplier-stats reporting. |
+| `apps/server/src/auth` | Platform Capability | Guards, decorators, middleware, and `/api/auth/me`. |
+| `apps/server/src/automation` | Platform | Workflows, alerts, action board, marketplace install, and panel projection. |
+| `apps/server/src/channels` | Owner Domain | Marketplace account, listing, order, return, sync, and reconciliation provider boundaries. |
+| `apps/server/src/chat` | Platform Capability | CopilotKit bridge and Claude CLI adapter. |
+| `apps/server/src/common` | Platform Support | Shared backend DTOs, filters, KST/date helpers, security, storage, and pricing helpers. |
+| `apps/server/src/feature-gate` | Platform Capability | Feature flag endpoint and config behavior. |
+| `apps/server/src/finance` | Owner Domain | P&L, sales analysis, manual ledger, costs, payments, plans, settlements. |
+| `apps/server/src/inventory` | Owner Domain | Stock, unshipped, warehouses, transfers, audits, and picking. |
+| `apps/server/src/orders` | Owner Domain | Orders, returns, CS, reviews, and return-transfer operations. |
+| `apps/server/src/organizations` | Platform Capability | Organization listing surface. |
+| `apps/server/src/prisma` | Platform Support | `PrismaModule` and `PrismaService` only. |
+| `apps/server/src/products` | Owner Domain | Catalog families, physical SKU options, bundle composition, categories compatibility. |
+| `apps/server/src/readiness` | Platform Capability | Readiness checks and health-style operational surface. |
+| `apps/server/src/rules` | Owner Domain | Business rules HTTP orchestration and Agent OS delegation. |
+| `apps/server/src/sourcing` | Owner Domain | Sourcing ingest/scrape, suppliers, and purchase-order procurement. |
+| `apps/server/src/test-helpers` | Test Support | Test-only Prisma and seed helpers. |
+| `apps/server/src/types` | Platform Support | Ambient/server TypeScript types. |
+| `apps/server/src/uploads` | Platform Capability | Upload endpoint and storage bridge. |
+
+### Backend Implementation Map
+
+Only `Hexagonal` and `Flat` are valid implementation structures. Support
+folders are intentionally absent from this map.
+
+| Path | Structure | Required / Optional Contract |
+|---|---|---|
+| `apps/server/src/activity-events` | Flat | module/controller/service/`dto/`. |
+| `apps/server/src/advertising` | Hexagonal | new ingest, daily-fact, and ad-action behavior uses adapter/application/domain lanes. |
+| `apps/server/src/advertising/services` | Flat | compatibility facade lane only; no new business logic. |
+| `apps/server/src/agent-os` | Hexagonal | runtime, queue, repository, policy, and event boundaries behind ports/adapters. |
+| `apps/server/src/ai` | Hexagonal | provider, runtime handler, bridge, sink, media, fetch, and storage boundaries behind ports/adapters. |
+| `apps/server/src/analytics/dashboard` | Hexagonal | raw SQL/report hydration behind repository adapters. |
+| `apps/server/src/analytics/statistics` | Flat | read service. |
+| `apps/server/src/analytics/traffic` | Flat | read service plus operator upload mutation lane. |
+| `apps/server/src/analytics/supplier-stats` | Flat | supplier report service. |
+| `apps/server/src/auth` | Flat | guards/decorators/middleware/controller. |
+| `apps/server/src/automation` | Hexagonal | workflow, alert/action, marketplace, runner, and panel projection boundaries. |
+| `apps/server/src/channels` | Hexagonal | provider APIs use `application/port/out` plus `adapter/out/coupang`. |
+| `apps/server/src/channels/adapters` | Flat | compatibility shims only; new provider work uses `adapter/out/coupang/`. |
+| `apps/server/src/chat` | Flat | controller/service/Claude CLI adapter. |
+| `apps/server/src/feature-gate` | Flat | endpoint/config capability. |
+| `apps/server/src/finance` | Flat | controllers/services/DTO plus folded finance capabilities. |
+| `apps/server/src/inventory` | Hexagonal | reference owner-domain structure for stock mutations. |
+| `apps/server/src/orders` | Flat | controllers/services/DTO plus folded order capabilities. |
+| `apps/server/src/organizations` | Flat | controller/service capability. |
+| `apps/server/src/products` | Hexagonal | catalog and bundle-stock behavior uses adapter/application/domain lanes. |
+| `apps/server/src/products/categories` | Flat | `/api/categories` compatibility capability under products ownership. |
+| `apps/server/src/readiness` | Flat | readiness controller/service. |
+| `apps/server/src/rules` | Flat | HTTP orchestration delegates execution to Agent OS ports. |
+| `apps/server/src/sourcing` | Hexagonal | sourcing agent/products boundaries behind ports/adapters. |
+| `apps/server/src/uploads` | Flat | upload controller/service/storage bridge. |
+
+### Backend Structure Contracts
+
+Hexagonal owner capabilities use this shape:
+
+```text
 apps/server/src/{owner}/
-  adapter/in/http/      controllers and class-validator DTO binding
-  adapter/out/          Prisma/provider/runtime/panel adapters
-  application/port/     use-case input and output contracts
-  application/service/  orchestration, transactions, tenant context
-  domain/               pure models, policies, and domain services
-  mapper/               row/DTO/domain mapping
+  {owner}.module.ts
+  adapter/in/http/        HTTP controllers and DTO binding, when HTTP exists
+  adapter/out/{lane}/     DB/provider/runtime/storage/event adapters
+  application/port/in/    incoming use-case ports, when other domains consume them
+  application/port/out/   outgoing DB/cross-domain/provider/runtime contracts
+  application/service/    orchestration, transactions, organization context
+  domain/                 pure policy/model/service code
+  mapper/                 row/DTO/domain/shared contract mapping
 ```
 
-Small legacy CRUD modules may stay flat until their owner domain is actively
-reconstructed. New or materially rewritten behavior should follow the target
-shape above.
+Required: module file, `application/service/`, and a port/adapter boundary for
+each DB, provider, runtime, storage, event, workflow, or cross-domain IO lane.
+Optional: `adapter/in/http/` when no HTTP entrypoint exists, `application/port/in/`
+when no other owner consumes the use case, `domain/` when no pure policy/model
+exists yet, and `mapper/` when mapping is trivial.
 
-Current top-level backend owners/platforms:
+Flat owner capabilities use this shape:
 
-```
-activity-events  advertising  agent-os       ai  analytics  auth
-automation       channels     chat           common
-organizations        feature-gate finance         inventory
-orders           prisma       products        rules
-sourcing         test-helpers types           uploads
-```
-
-Important ownership decisions:
-
-- `agent-os/` is the owner platform for Agent OS: code-owned agent
-  definitions, organization-owned instances, run requests, accepted runs,
-  runtime state, tool policy, approvals, authorization audit, cost ledger, run
-  events, and log references. See
-  [`apps/server/src/agent-os/AGENTS.md`](../apps/server/src/agent-os/AGENTS.md)
-  and [`prisma/AGENTS.md`](../prisma/AGENTS.md).
-- `automation/` owns workflow orchestration, action-board/action-task routes,
-  marketplace install/catalog surfaces, manager routes, alerts, and panel event
-  projection. `Alert` is the single user-facing notification ledger, including
-  Agent-related notifications. "My work" is modeled by promoting alerts into
-  assigned `ActionTask` rows. Workflows delegate AI execution into `agent-os/`.
-- `rules/` owns business policy definitions and rule evaluation results, but
-  delegates Agent OS execution through `AGENT_RUNNER_PORT`.
-- `sourcing/` folds supplier and purchase-order/procurement capabilities while
-  preserving public routes `/api/suppliers/*` and `/api/purchase-orders/*`.
-- `analytics/` folds dashboard, statistics, traffic, and supplier-stats
-  read-model surfaces.
-- `products/` owns catalog/master/option/bundle behavior and the
-  `/api/categories` compatibility capability.
-
-## Frontend Boundaries
-
-Next.js route groups organize code for ownership only; they do not affect URLs.
-
-```
-apps/web/src/app/(automation)/  agents, workflows, marketplace, action-board
-apps/web/src/app/(catalog)/     products, product-hub
-apps/web/src/app/(sourcing)/    sourcing, suppliers
-apps/web/src/app/(inventory)/   inventory, inventory-hub, stock-ops, warehouses
-apps/web/src/app/(orders)/      orders, returns, reviews, return-scan
-apps/web/src/app/(finance)/     finance-hub, profit-loss, sales-analysis
-apps/web/src/app/(media-ai)/    thumbnails, thumbnail-editor, image-hub, generate
+```text
+apps/server/src/{capability}/
+  {capability}.module.ts
+  *.controller.ts or controllers/
+  *.service.ts or services/
+  dto/                    when HTTP input exists
+  {sub-capability}/       allowed for folded capability surfaces
 ```
 
-Ungrouped operational routes remain at `apps/web/src/app/{route}` when they
-are still shared or not yet folded into a group, for example `ad-ops`,
-`cs-management`, `purchase-orders`, `reports`, and `settings`. The product
-Agent OS management surface is `/agents` under the automation route group;
-the top-level `/agent-os` route is a separate fullscreen visualization surface,
-not the dashboard notification or agent-management contract.
+Required: module file plus controller/service files for HTTP capabilities.
+Optional: `dto/` when there is no HTTP input contract and sub-capability folders
+only when they remain owned by the same folder.
+
+Flat capability code may stay flat only while it has no provider SDK, Agent OS
+runtime, workflow integration, cross-domain mutation, raw SQL/row-lock
+transaction, shared use-case consumer, meaningful pure domain policy,
+LLM/prompt/media/storage/fetch boundary, or 500+ line service pressure. Adding
+one of those is a reconstruction trigger for the touched capability.
+
+Platform support folders do not own business workflows. New top-level backend
+folders must be added to this directory map in the same PR and justified by
+ownership, mutation authority, transaction boundary, and invariants.
+
+## Frontend Directory Architecture
+
+Next.js route groups organize frontend ownership only; they do not affect URLs.
+For example, moving `app/ad-ops` to `app/(advertising)/ad-ops` preserves the
+public `/ad-ops` URL.
+
+Kinds:
+
+- `Route Group`: ownership grouping under `app/(group)`.
+- `Route Leaf`: URL-rendering route with a `page.tsx`.
+- `Route Subtree`: nested URL segment such as `[id]`, `edit`, or `callback`.
+- `Route-Group Shared`: `_shared` code used by 2+ sibling routes in a group.
+- `App-Wide Shared`: code used by 2+ route groups or ungrouped routes.
+- `App Internal`: Next/app shell, auth callback, tests, fonts, or special app
+  surfaces.
+- `Test Support`: test-only frontend helpers or specs.
+
+### Frontend Route Map
+
+| Path | Kind | Routes / Notes |
+|---|---|---|
+| `apps/web/src/app/(advertising)` | Route Group | `ad-ops` |
+| `apps/web/src/app/(analytics)` | Route Group | `dashboard` |
+| `apps/web/src/app/(automation)` | Route Group | `_shared`, `action-board`, `agents`, `marketplace`, `workflows` |
+| `apps/web/src/app/(catalog)` | Route Group | `product-hub`, `products` |
+| `apps/web/src/app/(finance)` | Route Group | `_shared`, `finance-hub`, `profit-loss`, `reports`, `sales-analysis`, `supplier-hub` |
+| `apps/web/src/app/(inventory)` | Route Group | `_shared`, `inventory`, `inventory-hub`, `outbound`, `stock-ops`, `unshipped-items`, `warehouses` |
+| `apps/web/src/app/(media-ai)` | Route Group | `_shared`, `generate`, `image-hub`, `thumbnail-editor`, `thumbnails` |
+| `apps/web/src/app/(orders)` | Route Group | `_shared`, `cs-management`, `order-hub`, `order-status-hub`, `orders`, `return-scan`, `returns`, `reviews` |
+| `apps/web/src/app/(sourcing)` | Route Group | `purchase-orders`, `sourcing`, `sourcing-ai`, `suppliers` |
+| `apps/web/src/app/agent-os` | App Internal | Fullscreen visualization surface, separate from `/agents`. |
+| `apps/web/src/app/auth` | App Internal | Auth callback subtree. |
+| `apps/web/src/app/fonts` | App Internal | Next font assets. |
+| `apps/web/src/app/login` | Route Leaf | Login route. |
+| `apps/web/src/app/settings` | Route Leaf | Operational settings route. |
+| `apps/web/src/app/__tests__` | App Internal | App-route tests. |
+
+### Frontend Shared Map
+
+| Path | Kind | Notes |
+|---|---|---|
+| `apps/web/src/__tests__` | Test Support | App-shell and proxy tests. |
+| `apps/web/src/components` | App-Wide Shared | Layout, panel, product, provider, chat, Coupang, and UI components. |
+| `apps/web/src/hooks` | App-Wide Shared | Shared hooks used across routes. |
+| `apps/web/src/lib` | App-Wide Shared | API client, query keys, auth, formatting, Supabase helpers. |
+| `apps/web/src/store` | App-Wide Shared | Client-only UI state stores. |
+| `apps/web/src/types` | App-Wide Shared | Frontend shared TypeScript types. |
+
+### Frontend Structure Contracts
+
+Route leaves use this shape:
+
+```text
+apps/web/src/app/(group)/{route}/
+  page.tsx
+  components/     route-local UI pieces
+  hooks/          route-local query/mutation/state orchestration
+  lib/            route-local pure helpers and payload builders
+  __tests__/      route-local tests for complex flows
+  AGENTS.md       required for high-risk or complex route contracts
+```
+
+Required: `page.tsx`. Optional: route-local `components/`, `hooks/`, `lib/`, and
+`__tests__/` when the route needs them. Add route-local `AGENTS.md` for complex
+or high-risk route contracts.
+
+Route-group shared code lives only in `app/(group)/_shared/` and only when 2+
+sibling routes use it. App-wide shared code lives only in `src/components`,
+`src/hooks`, `src/lib`, `src/store`, or `src/types` and must be used by 2+
+groups or ungrouped routes.
+
+Frontend route code must not add `app/api/**/route.ts`, import Prisma/`pg`/DB
+clients, send `organizationId` in API payloads, or call backend APIs with raw
+`fetch`.
 
 ## Data And Tenant Rules
 

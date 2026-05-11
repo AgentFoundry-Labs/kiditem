@@ -4,10 +4,6 @@ AI owns image/text/detail-page/thumbnail generation surfaces. Product-bound
 image work is asynchronous through Agent OS; small text transforms may call the
 configured text-completion port directly.
 
-## Architecture Mode
-
-Mode: Mixed Reconstruction.
-
 Detail-page media, provider calls, Agent OS runtime handlers, bridges, and sinks
 follow the hexagonal layout below. Thumbnail legacy surfaces remain listed under
 Transitional Exceptions and must not grow without removing or reconstructing an

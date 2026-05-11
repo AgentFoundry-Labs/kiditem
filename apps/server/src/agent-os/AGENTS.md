@@ -4,10 +4,6 @@ Agent OS is the platform owner for code-owned agent definitions,
 organization-scoped instances, durable run requests, execution attempts, tool
 policy, approvals, cost ledger, and run observability.
 
-## Architecture Mode
-
-Mode: Platform Runtime / Reconstructed Hexagonal.
-
 Agent OS is a platform owner, not a business aggregate owner. Runtime, queue,
 repository, and event boundaries stay behind application ports and outgoing
 adapters. Business side effects belong to owner-domain sinks.
