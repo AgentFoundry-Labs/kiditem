@@ -1,4 +1,5 @@
-import type { DetailPageTemplateId } from './detail-page-ai.types';
+import type { DetailImageCount, DetailPageAgeGroup } from '@kiditem/shared/ai';
+import type { DetailPageRawInput, DetailPageTemplateId } from './detail-page-ai.types';
 
 /**
  * Helpers for the polymorphic JSON we stash in
@@ -88,6 +89,26 @@ export function serializeDetailPageStoredJson(input: {
   });
 }
 
+export function normalizeStoredDetailPageRawInput(input: {
+  stored: DetailPageStoredJson;
+  templateId: DetailPageTemplateId;
+  productName: string;
+  imageUrls: string[];
+}): DetailPageRawInput {
+  const rawInput = input.stored.rawInput;
+  return {
+    rawTitle: pickStoredNonEmptyString(rawInput, 'rawTitle') ?? input.productName,
+    rawCategory: pickStoredString(rawInput, 'rawCategory') ?? '',
+    rawDescription: pickStoredString(rawInput, 'rawDescription') ?? '',
+    rawOptions: pickStoredString(rawInput, 'rawOptions') ?? '',
+    imageUrls: input.imageUrls,
+    heroImageMode: pickStoredHeroMode(rawInput),
+    templateId: input.templateId,
+    ageGroup: pickStoredAgeGroup(rawInput),
+    detailImageCount: pickStoredDetailImageCount(rawInput),
+  };
+}
+
 /**
  * Convention used everywhere the detail-page operation alert is touched:
  * `detail-page:<ContentGeneration.id>`. `DetailPageAiService.generate`
@@ -105,4 +126,34 @@ export function detailPageEditorHref(input: {
 }): string {
   const queryKey = input.templateId === 'bold-vertical' ? 'boldId' : 'kpId';
   return `/sourcing/${input.productId}/editor?${queryKey}=${input.contentGenerationId}`;
+}
+
+function pickStoredString(rawInput: unknown, key: string): string | null {
+  if (!rawInput || typeof rawInput !== 'object') return null;
+  const value = (rawInput as Record<string, unknown>)[key];
+  return typeof value === 'string' ? value : null;
+}
+
+function pickStoredNonEmptyString(rawInput: unknown, key: string): string | null {
+  const value = pickStoredString(rawInput, key)?.trim();
+  return value ? value : null;
+}
+
+function pickStoredHeroMode(rawInput: unknown): 'first' | 'llm-pick' {
+  if (!rawInput || typeof rawInput !== 'object') return 'first';
+  const value = (rawInput as Record<string, unknown>).heroImageMode;
+  return value === 'llm-pick' ? 'llm-pick' : 'first';
+}
+
+function pickStoredAgeGroup(rawInput: unknown): DetailPageAgeGroup {
+  if (!rawInput || typeof rawInput !== 'object') return 'age-8-plus';
+  const value = (rawInput as Record<string, unknown>).ageGroup;
+  return value === 'age-14-plus' ? 'age-14-plus' : 'age-8-plus';
+}
+
+function pickStoredDetailImageCount(rawInput: unknown): DetailImageCount {
+  if (!rawInput || typeof rawInput !== 'object') return 'auto';
+  const value = (rawInput as Record<string, unknown>).detailImageCount;
+  if (value === '1' || value === '2' || value === '3') return value;
+  return 'auto';
 }

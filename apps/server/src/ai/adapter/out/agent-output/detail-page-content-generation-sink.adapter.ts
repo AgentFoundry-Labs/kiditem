@@ -6,13 +6,10 @@ import type { DetailPageAgentOutputSinkPort } from '../../../application/port/ou
 import type { DetailPageGenerateAgentOutput } from '../../../domain/agent-output';
 import type { BoldVerticalGeneration } from '../../../domain/prompts/bold-vertical/single-call';
 import type { DetailPageGeneration } from '../../../domain/prompts/detail-page/single-call';
-import type {
-  DetailImageCount,
-  DetailPageAgeGroup,
-} from '../../../domain/prompts/detail-page/types';
 import { DetailPageGeneratedImagesService } from '../../../application/service/detail-page-generated-images.service';
 import {
   detailPageOperationKey,
+  normalizeStoredDetailPageRawInput,
   parseDetailPageStoredJson,
   serializeDetailPageStoredJson,
 } from '../../../application/service/detail-page-stored.helpers';
@@ -200,22 +197,12 @@ export class DetailPageContentGenerationSinkAdapter
     productName: string;
     stored: ReturnType<typeof parseDetailPageStoredJson>;
   }): Promise<Record<string, string>> {
-    const rawInputForImages = {
-      rawTitle:
-        (typeof input.stored.rawInput === 'object' &&
-          input.stored.rawInput !== null &&
-          typeof (input.stored.rawInput as { rawTitle?: unknown }).rawTitle === 'string'
-          ? (input.stored.rawInput as { rawTitle: string }).rawTitle
-          : input.productName),
-      rawCategory: pickStoredString(input.stored.rawInput, 'rawCategory') ?? '',
-      rawDescription: pickStoredString(input.stored.rawInput, 'rawDescription') ?? '',
-      rawOptions: pickStoredString(input.stored.rawInput, 'rawOptions') ?? '',
+    const rawInputForImages = normalizeStoredDetailPageRawInput({
+      stored: input.stored,
       imageUrls: input.output.imageUrls,
-      heroImageMode: pickStoredHeroMode(input.stored.rawInput),
       templateId: input.output.templateId,
-      ageGroup: pickStoredAgeGroup(input.stored.rawInput),
-      detailImageCount: pickStoredDetailImageCount(input.stored.rawInput),
-    };
+      productName: input.productName,
+    });
 
     const excludedImageIndices = collectExcludedImageIndices(input.output);
 
@@ -237,34 +224,6 @@ export class DetailPageContentGenerationSinkAdapter
       return {};
     }
   }
-}
-
-function pickStoredString(
-  rawInput: unknown,
-  key: 'rawCategory' | 'rawDescription' | 'rawOptions',
-): string | null {
-  if (!rawInput || typeof rawInput !== 'object') return null;
-  const value = (rawInput as Record<string, unknown>)[key];
-  return typeof value === 'string' ? value : null;
-}
-
-function pickStoredHeroMode(rawInput: unknown): 'first' | 'llm-pick' {
-  if (!rawInput || typeof rawInput !== 'object') return 'first';
-  const value = (rawInput as Record<string, unknown>).heroImageMode;
-  return value === 'llm-pick' ? 'llm-pick' : 'first';
-}
-
-function pickStoredAgeGroup(rawInput: unknown): DetailPageAgeGroup {
-  if (!rawInput || typeof rawInput !== 'object') return 'age-8-plus';
-  const value = (rawInput as Record<string, unknown>).ageGroup;
-  return value === 'age-14-plus' ? 'age-14-plus' : 'age-8-plus';
-}
-
-function pickStoredDetailImageCount(rawInput: unknown): DetailImageCount {
-  if (!rawInput || typeof rawInput !== 'object') return 'auto';
-  const value = (rawInput as Record<string, unknown>).detailImageCount;
-  if (value === '1' || value === '2' || value === '3') return value;
-  return 'auto';
 }
 
 function pickProductName(

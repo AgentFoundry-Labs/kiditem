@@ -54,6 +54,7 @@ import { DetailPageResultRefinerService } from './detail-page-result-refiner.ser
 import {
   detailPageEditorHref,
   detailPageOperationKey,
+  normalizeStoredDetailPageRawInput,
   parseDetailPageStoredJson,
   serializeDetailPageStoredJson,
 } from './detail-page-stored.helpers';
@@ -100,7 +101,7 @@ export interface DetailPageGenerationDto {
   productId: string | null;
   templateId: DetailPageTemplateId;
   productName: string;
-  rawInput: unknown;
+  rawInput: DetailPageRawInput;
   result: DetailPageGeneration | BoldVerticalGeneration | unknown;
   imageUrls: string[];
   processedImages: Record<string, string>;
@@ -460,6 +461,13 @@ export class DetailPageAiService {
       ? stored.imageUrls
       : (Array.isArray(row.originalImages) ? row.originalImages.filter((x): x is string => typeof x === 'string') : []);
     const orderedImageUrls = moveSafetyLabelImagesToEnd(imageUrls);
+    const productName = row.generatedTitle ?? stored.rawTitle ?? '상세페이지';
+    const rawInput = normalizeStoredDetailPageRawInput({
+      stored,
+      templateId: stored.templateId,
+      productName,
+      imageUrls: orderedImageUrls,
+    });
     const result = this.resultRefiner.suppressProductInfoWhenSafetyLabelExists(
       stored.result,
       stored.templateId,
@@ -469,8 +477,8 @@ export class DetailPageAiService {
       id: row.id,
       productId: row.masterId,
       templateId: stored.templateId,
-      productName: row.generatedTitle ?? stored.rawTitle ?? '상세페이지',
-      rawInput: stored.rawInput,
+      productName,
+      rawInput,
       result,
       imageUrls: orderedImageUrls,
       processedImages: this.asStringRecord(row.processedImages),

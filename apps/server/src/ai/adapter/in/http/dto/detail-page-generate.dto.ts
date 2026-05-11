@@ -8,6 +8,14 @@ import {
   IsUUID,
   MinLength,
 } from 'class-validator';
+import {
+  DETAIL_IMAGE_COUNTS,
+  DETAIL_PAGE_AGE_GROUPS,
+  DETAIL_PAGE_TEMPLATE_IDS,
+  type DetailImageCount,
+  type DetailPageAgeGroup,
+  type DetailPageTemplateId,
+} from '@kiditem/shared/ai';
 
 export class GenerateDetailPageBodyDto {
   @IsString()
@@ -38,16 +46,16 @@ export class GenerateDetailPageBodyDto {
   productId?: string;
 
   @IsOptional()
-  @IsIn(['kids-playful', 'bold-vertical'])
-  templateId?: 'kids-playful' | 'bold-vertical';
+  @IsIn(DETAIL_PAGE_TEMPLATE_IDS)
+  templateId?: DetailPageTemplateId;
 
   @IsOptional()
-  @IsIn(['age-8-plus', 'age-14-plus'])
-  ageGroup?: 'age-8-plus' | 'age-14-plus';
+  @IsIn(DETAIL_PAGE_AGE_GROUPS)
+  ageGroup?: DetailPageAgeGroup;
 
   @IsOptional()
-  @IsIn(['auto', '1', '2', '3'])
-  detailImageCount?: 'auto' | '1' | '2' | '3';
+  @IsIn(DETAIL_IMAGE_COUNTS)
+  detailImageCount?: DetailImageCount;
 }
 
 export class PrefillDetailPageBodyDto {

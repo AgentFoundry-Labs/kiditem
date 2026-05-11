@@ -1,3 +1,13 @@
+import type {
+  DetailImageCount,
+  DetailPageAgeGroup,
+} from '@kiditem/shared/ai';
+
+export type {
+  DetailImageCount,
+  DetailPageAgeGroup,
+} from '@kiditem/shared/ai';
+
 /**
  * Detail Page Prompt — Common Types
  *
@@ -22,9 +32,6 @@ export interface RawProductInput {
   /** DETAIL 본문 이미지 수. 기본 auto = 2~3개. */
   detailImageCount?: DetailImageCount;
 }
-
-export type DetailPageAgeGroup = 'age-8-plus' | 'age-14-plus';
-export type DetailImageCount = 'auto' | '1' | '2' | '3';
 
 export function formatAudienceGuidance(ageGroup?: DetailPageAgeGroup): string {
   if (ageGroup === 'age-14-plus') {

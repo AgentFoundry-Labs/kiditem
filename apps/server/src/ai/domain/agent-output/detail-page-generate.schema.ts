@@ -11,6 +11,11 @@
  * Domain 계층이라 Nest/Prisma/HTTP 의존이 없다. Zod 만 사용한다.
  */
 import { z } from 'zod';
+import {
+  DetailImageCountSchema,
+  DetailPageAgeGroupSchema,
+  DetailPageTemplateIdSchema,
+} from '@kiditem/shared/ai';
 import { DetailPageGenerationSchema } from '../prompts/detail-page/single-call';
 import { RefinedBoldVerticalGenerationSchema } from '../prompts/bold-vertical/single-call';
 
@@ -23,7 +28,7 @@ export const DETAIL_PAGE_GENERATE_AGENT_TYPE = 'detail_page_generate' as const;
  * back so the bridge can route the result.
  */
 export const DetailPageGenerateAgentInputSchema = z.object({
-  templateId: z.enum(['kids-playful', 'bold-vertical']),
+  templateId: DetailPageTemplateIdSchema,
   raw: z
     .object({
       rawTitle: z.string(),
@@ -31,8 +36,8 @@ export const DetailPageGenerateAgentInputSchema = z.object({
       rawDescription: z.string().optional().default(''),
       rawOptions: z.string().optional().default(''),
       imageUrls: z.array(z.string()).default([]),
-      ageGroup: z.enum(['age-8-plus', 'age-14-plus']).optional().default('age-8-plus'),
-      detailImageCount: z.enum(['auto', '1', '2', '3']).optional().default('auto'),
+      ageGroup: DetailPageAgeGroupSchema.optional().default('age-8-plus'),
+      detailImageCount: DetailImageCountSchema.optional().default('auto'),
     })
     .passthrough(),
   heroImageMode: z.enum(['first', 'llm-pick']).default('first'),
