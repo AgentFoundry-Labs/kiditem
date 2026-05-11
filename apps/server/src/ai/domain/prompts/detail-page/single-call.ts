@@ -22,10 +22,16 @@ import { Section8Schema } from './section-08-blue-section';
 import { Section9Schema } from './section-09-keypoint-2';
 import { Section10Schema } from './section-10-lifestyles';
 import { Section11Schema } from './section-11-gallery';
-import { formatAudienceGuidance, formatImageCandidates, type RawProductInput } from './types';
+import {
+  formatAudienceGuidance,
+  formatImageCandidates,
+  formatUsageSectionGuidance,
+  type RawProductInput,
+} from './types';
 
 /** 11 개 섹션 산출의 합. 1-call 모드의 응답 schema. */
 export const DetailPageGenerationSchema = z.object({
+  usageEnabled: z.boolean().default(true),
   section1: Section1Schema,
   section2: Section2Schema,
   section3: Section3Schema,
@@ -111,6 +117,8 @@ E. **보조 셀링포인트 분리**: section9.topic 은 section6.cards 의 USP 
   문구→"필기감", 유아→"안심도", 잡화→"편의성")
 - headline (8~14자, 느낌표 1회 OK), subhead (10~16자)
 - scenarios 2~3 개. 각: caption (12~20자) + imageIndex (사용씬 우선, 화이트백 X)
+- raw 입력의 "사용법 영역"이 "만들지 않음"이면 사용 순서/튜토리얼/설명서형 문구를 쓰지 말고,
+  일반 활용 장면이나 구매자가 보는 특징 장면으로만 구성한다.
 
 ## section4 (Pain Points)
 - intro 3 줄: line1 (8~12자, "~라" 어미), line2 (8~12자), line3 (4~6자, 빨간 강조).
@@ -211,6 +219,8 @@ heroImageMode: ${heroImageMode}
 주요 옵션/스펙: ${raw.rawOptions}
 사용 연령/표현 기준:
 ${formatAudienceGuidance(raw.ageGroup)}
+사용법 영역 기준:
+${formatUsageSectionGuidance(raw.usageSectionMode)}
 하단 전용 패키지/박스 후보 인덱스: ${reservedPackageImageIndices.length > 0 ? reservedPackageImageIndices.join(', ') : '없음'}
 본문 사용 금지 안전표시/바코드 후보 인덱스: ${safetyLabelImageIndices.length > 0 ? safetyLabelImageIndices.join(', ') : '없음'}
 

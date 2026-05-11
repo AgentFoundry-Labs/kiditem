@@ -4,6 +4,7 @@ import { buildBoldVerticalProductTitle } from '../../domain/detail-page-product-
 import type { BoldVerticalGeneration } from '../../domain/prompts/bold-vertical/single-call';
 import type { DetailPageGeneration } from '../../domain/prompts/detail-page/single-call';
 import {
+  normalizeKcCertificationNumber,
   resolveDetailImageCountLimit,
   type DetailImageCount,
 } from '../../domain/prompts/detail-page/types';
@@ -48,7 +49,7 @@ export class DetailPageResultRefinerService {
 
   applyKidsPlayfulImageSelectionRules(
     parsed: DetailPageGeneration,
-    rawInput: { imageUrls: string[] },
+    rawInput: { imageUrls: string[]; usageSectionMode?: 'include' | 'exclude' },
     context?: KidsPlayfulImageContext,
   ): DetailPageGeneration {
     const packageImageIndices = new Set(context?.packageImageIndices ?? []);
@@ -118,6 +119,7 @@ export class DetailPageResultRefinerService {
 
     return {
       ...parsed,
+      usageEnabled: rawInput.usageSectionMode !== 'exclude',
       section1: {
         ...parsed.section1,
         heroImageIndex: section1HeroImageIndex,
@@ -193,8 +195,16 @@ export class DetailPageResultRefinerService {
       rawInput,
       detectedSafetyLabelIndices,
     );
-    return this.suppressProductInfoWhenSafetyLabelExists(
+    const withUsagePreference = this.applyBoldVerticalUsagePreference(
       withImageSelectionRules,
+      rawInput,
+    );
+    const withProductInfoFallbacks = this.applyBoldVerticalProductInfoFallbacks(
+      withUsagePreference,
+      rawInput,
+    );
+    return this.suppressProductInfoWhenSafetyLabelExists(
+      withProductInfoFallbacks,
       'bold-vertical',
       rawInput.imageUrls,
       detectedSafetyLabelIndices,
@@ -618,4 +628,56 @@ export class DetailPageResultRefinerService {
         : parsed.productInfo,
     };
   }
+
+  private applyBoldVerticalUsagePreference(
+    parsed: BoldVerticalGeneration,
+    rawInput: { usageSectionMode?: 'include' | 'exclude' },
+  ): BoldVerticalGeneration {
+    if (rawInput.usageSectionMode !== 'exclude') {
+      return parsed;
+    }
+    return {
+      ...parsed,
+      usageEnabled: false,
+      usage: {
+        ...parsed.usage,
+        subtitle: '',
+        imageIndices: [],
+      },
+    };
+  }
+
+  private applyBoldVerticalProductInfoFallbacks(
+    parsed: BoldVerticalGeneration,
+    rawInput: Pick<DetailPageRawInput, 'kcCertificationStatus' | 'kcCertificationNumber'>,
+  ): BoldVerticalGeneration {
+    const productInfo = parsed.productInfo ?? [];
+    if (rawInput.kcCertificationStatus === 'none') {
+      return {
+        ...parsed,
+        productInfo: productInfo.filter((info) => !isKcCertificationInfoKey(info.key)).slice(0, 7),
+      };
+    }
+
+    const kcNumber = normalizeKcCertificationNumber(rawInput.kcCertificationNumber);
+    if (!kcNumber) {
+      return {
+        ...parsed,
+        productInfo: productInfo.slice(0, 7),
+      };
+    }
+
+    const withoutKc = productInfo.filter((info) => !isKcCertificationInfoKey(info.key));
+    return {
+      ...parsed,
+      productInfo: [
+        ...withoutKc.slice(0, 6),
+        { key: 'KC 인증번호', value: kcNumber },
+      ],
+    };
+  }
+}
+
+function isKcCertificationInfoKey(key: string): boolean {
+  return /(?:^|\s)(?:KC|케이씨)\s*(?:인증|번호)?|인증번호/u.test(key);
 }

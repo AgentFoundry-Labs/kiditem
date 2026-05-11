@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const DETAIL_PAGE_TEMPLATE_IDS = ['kids-playful', 'bold-vertical'] as const;
 export const DETAIL_PAGE_AGE_GROUPS = ['age-8-plus', 'age-14-plus'] as const;
-export const DETAIL_IMAGE_COUNTS = ['auto', '1', '2', '3'] as const;
+export const DETAIL_IMAGE_COUNTS = ['auto', '1', '2', '3', '4', '5', '6'] as const;
 
 export const DetailPageTemplateIdSchema = z.enum(DETAIL_PAGE_TEMPLATE_IDS);
 export const DetailPageAgeGroupSchema = z.enum(DETAIL_PAGE_AGE_GROUPS);

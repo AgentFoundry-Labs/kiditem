@@ -18,6 +18,7 @@ interface TemplateConfigLike {
 type AnyComponent = React.ComponentType<any>;
 
 const API_BASE_ROOT = API_BASE.replace(/\/$/, '');
+const FONT_READY_GATE_ATTR = 'data-kiditem-font-ready-gate';
 
 function getWebOrigin(): string {
   if (typeof window === 'undefined') return '';
@@ -28,6 +29,78 @@ function absolutizeFontUrls(css: string): string {
   const webOrigin = getWebOrigin();
   if (!webOrigin) return css;
   return css.replace(/url\(\s*(['"]?)\/fonts\//g, `url($1${webOrigin}/fonts/`);
+}
+
+function normalizeFontDisplayPolicy(css: string): string {
+  return css.replace(/font-display:\s*swap\s*;/gi, 'font-display: block;');
+}
+
+function prepareTemplateCss(css: string): string {
+  return normalizeFontDisplayPolicy(absolutizeFontUrls(css));
+}
+
+export function toFontDisplayBlockUrl(fontUrl: string): string {
+  if (!/fonts\.googleapis\.com/i.test(fontUrl)) return fontUrl;
+  try {
+    const url = new URL(fontUrl);
+    url.searchParams.set('display', 'block');
+    return url.toString();
+  } catch {
+    return fontUrl.replace(/([?&]display=)swap\b/i, '$1block');
+  }
+}
+
+export function buildDetailFontReadyGateHead(): string {
+  return `<style ${FONT_READY_GATE_ATTR}>
+    html.kiditem-font-loading body {
+      opacity: 0;
+    }
+    html.kiditem-font-ready body {
+      opacity: 1;
+      transition: opacity 120ms ease-out;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html.kiditem-font-ready body {
+        transition: none;
+      }
+    }
+    @media print {
+      html.kiditem-font-loading body {
+        opacity: 1;
+      }
+    }
+  </style>
+  <script ${FONT_READY_GATE_ATTR}>
+    (function () {
+      var root = document.documentElement;
+      if (!root || root.dataset.kiditemFontGate === 'ready') return;
+      root.classList.add('kiditem-font-loading');
+      var done = false;
+      function reveal() {
+        if (done) return;
+        done = true;
+        root.classList.remove('kiditem-font-loading');
+        root.classList.add('kiditem-font-ready');
+        root.dataset.kiditemFontGate = 'ready';
+      }
+      function revealAfterPaint() {
+        var raf = window.requestAnimationFrame || function (callback) { return window.setTimeout(callback, 16); };
+        raf(function () { raf(reveal); });
+      }
+      var timeout = window.setTimeout(reveal, 2500);
+      function finish() {
+        window.clearTimeout(timeout);
+        revealAfterPaint();
+      }
+      if (document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(finish).catch(reveal);
+      } else if (document.readyState === 'complete') {
+        finish();
+      } else {
+        window.addEventListener('load', finish, { once: true });
+      }
+    })();
+  </script>`;
 }
 
 function toApiAssetUrl(value: string): string {
@@ -56,14 +129,14 @@ function normalizeDocumentAssetUrls(doc: Document): void {
 }
 
 function normalizeEditedHtmlAssets(html: string): string {
-  const source = absolutizeFontUrls(html);
+  const source = normalizeFontDisplayPolicy(absolutizeFontUrls(html));
   const isFullDocument = /<html[\s>]/i.test(source);
   const startsWithBody = /^<body[\s>]/i.test(source.trim());
   const doc = new DOMParser().parseFromString(source, 'text/html');
 
   doc.head.querySelectorAll('base').forEach((el) => el.remove());
   doc.head.querySelectorAll('style').forEach((style) => {
-    style.textContent = absolutizeFontUrls(style.textContent ?? '');
+    style.textContent = prepareTemplateCss(style.textContent ?? '');
   });
   normalizeDocumentAssetUrls(doc);
 
@@ -100,7 +173,7 @@ export function renderTemplateToHtml(
   const themeVarsCss = buildThemeVarsCss(data);
 
   const fontLinks = config.fonts
-    .map((fontUrl: string) => `<link rel="stylesheet" href="${fontUrl}" />`)
+    .map((fontUrl: string) => `<link rel="stylesheet" href="${toFontDisplayBlockUrl(fontUrl)}" />`)
     .join('\n    ');
 
   return `<!DOCTYPE html>
@@ -109,8 +182,9 @@ export function renderTemplateToHtml(
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${data.title ?? '상세페이지'}</title>
-  <style>${absolutizeFontUrls(templateCss)}</style>
+  <style>${prepareTemplateCss(templateCss)}</style>
   ${fontLinks}
+  ${buildDetailFontReadyGateHead()}
   <style>
     ${themeVarsCss}
     body {
@@ -151,7 +225,7 @@ function inferEditedHtmlStyleProfile(html: string): EditedHtmlStyleProfile {
   if (/\bmax-w-\[720px\]\b|찐 사용 후기|KeyPoint/i.test(html)) {
     return {
       fontLinks: [
-        'https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap',
+        'https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=block',
       ],
       bodyFontFamily: "'Noto Sans KR', system-ui, sans-serif",
       viewportWidth: 720,
@@ -170,7 +244,7 @@ function inferEditedHtmlStyleProfile(html: string): EditedHtmlStyleProfile {
 
   return {
     fontLinks: [
-      'https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap',
+      'https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=block',
     ],
     bodyFontFamily: "'Noto Sans KR', system-ui, sans-serif",
     viewportWidth: 860,
@@ -195,7 +269,7 @@ const EDITED_HTML_FALLBACK_CSS = `
     src: url("/fonts/jalnan2/Jalnan2TTF.ttf") format("truetype");
     font-weight: 400 900;
     font-style: normal;
-    font-display: swap;
+    font-display: block;
   }
   .bg-gradient-to-b { background-image: linear-gradient(to bottom, var(--tw-gradient-stops)); }
   .bg-gradient-to-t { background-image: linear-gradient(to top, var(--tw-gradient-stops)); }
@@ -358,7 +432,7 @@ export function ensureStyledDetailHtml(html: string, templateCss = ''): string {
   );
   if (!baseSource) return html;
 
-  const compiledTemplateCss = absolutizeFontUrls(templateCss);
+  const compiledTemplateCss = prepareTemplateCss(templateCss);
   const hasTemplateCss = compiledTemplateCss.trim() !== '';
   const source = hasTemplateCss ? stripLegacyTemplateStyleMixing(baseSource) : baseSource;
   const profile = inferEditedHtmlStyleProfile(source);
@@ -371,6 +445,7 @@ export function ensureStyledDetailHtml(html: string, templateCss = ''): string {
     !hasCompiledTailwind &&
     !hasTemplateCss;
   const fontLinks = profile.fontLinks
+    .map(toFontDisplayBlockUrl)
     .filter((fontUrl) => !source.includes(fontUrl))
     .map((fontUrl) => `<link rel="stylesheet" href="${fontUrl}" />`)
     .join('\n  ');
@@ -381,6 +456,7 @@ export function ensureStyledDetailHtml(html: string, templateCss = ''): string {
   ${fontLinks}
   ${hasTemplateCss ? `<style>${compiledTemplateCss}</style>` : ''}
   ${hasTemplateCss ? '' : `<style>${EDITED_HTML_FALLBACK_CSS}</style>`}
+  ${buildDetailFontReadyGateHead()}
   <style>
     body {
       margin: 0;

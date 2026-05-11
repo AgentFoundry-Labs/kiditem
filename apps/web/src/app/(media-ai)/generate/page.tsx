@@ -38,6 +38,12 @@ function GeneratePageContent() {
     setAgeGroup,
     detailImageCount,
     setDetailImageCount,
+    usageSectionMode,
+    setUsageSectionMode,
+    kcCertificationStatus,
+    setKcCertificationStatus,
+    kcCertificationNumber,
+    setKcCertificationNumber,
     rawDescription,
     setRawDescription,
     productSize,
@@ -122,6 +128,12 @@ function GeneratePageContent() {
           setAgeGroup={setAgeGroup}
           detailImageCount={detailImageCount}
           setDetailImageCount={setDetailImageCount}
+          usageSectionMode={usageSectionMode}
+          setUsageSectionMode={setUsageSectionMode}
+          kcCertificationStatus={kcCertificationStatus}
+          setKcCertificationStatus={setKcCertificationStatus}
+          kcCertificationNumber={kcCertificationNumber}
+          setKcCertificationNumber={setKcCertificationNumber}
           rawDescription={rawDescription}
           setRawDescription={setRawDescription}
           productSize={productSize}

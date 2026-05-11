@@ -7,7 +7,8 @@
  * 다중 entry: GenerationProgressBannerStack 으로 묶어서 헤더 한 줄 + 컴팩트 행 N개로 렌더.
  */
 
-import { Loader2 } from 'lucide-react';
+import { CircleStop, Loader2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 export interface GenerationEntry {
   /** entry 식별자 — React key */
@@ -27,6 +28,8 @@ export interface GenerationEntry {
 interface GenerationProgressBannerProps extends GenerationEntry {
   /** true 면 padding/font 작게 — 다중 entry stack 안에서 사용 */
   compact?: boolean;
+  isCancelling?: boolean;
+  onCancel?: (id: string) => void;
 }
 
 const TEMPLATE_LABEL: Record<string, string> = {
@@ -35,22 +38,31 @@ const TEMPLATE_LABEL: Record<string, string> = {
 };
 
 export function GenerationProgressBanner({
+  id,
   templateId,
   status,
   processedCount = 0,
   totalCount = 0,
   productName,
   compact = false,
+  isCancelling = false,
+  onCancel,
 }: GenerationProgressBannerProps) {
   const tLabel = TEMPLATE_LABEL[templateId] ?? templateId;
   const isPending = status === 'pending';
   const isProcessing = status === 'processing';
+  const canCancel = Boolean(onCancel) && !id.startsWith('optimistic-');
 
-  // pending 단계: 카피 (LLM JSON) 생성 중 — 진행률 indeterminate
-  // processing 단계: 누끼/배경합성 — processedCount/totalCount 로 진행률
-  const stage = isPending ? 'AI 카피 생성 중' : isProcessing ? 'AI 이미지 합성 중' : '완료 처리 중';
+  // ContentGeneration 은 Agent OS 큐/LLM/이미지 후처리를 모두 PROCESSING 으로
+  // 표현한다. 실제 이미지별 진행률이 없을 때는 indeterminate 로 보여준다.
+  const hasImageProgress = isProcessing && totalCount > 0 && processedCount > 0;
+  const stage = isPending
+    ? '요청 등록 중'
+    : hasImageProgress
+      ? 'AI 이미지 합성 중'
+      : 'AI 생성 진행 중';
   const pct =
-    isProcessing && totalCount > 0
+    hasImageProgress
       ? Math.min(100, Math.round((processedCount / totalCount) * 100))
       : null;
 
@@ -63,7 +75,7 @@ export function GenerationProgressBanner({
 
   return (
     <div
-      className={`${padCls} rounded-xl flex items-center gap-3`}
+      className={cn(padCls, 'rounded-xl flex items-center gap-3')}
       style={{ background: '#7c3aed18', border: '2px solid #7c3aed40' }}
     >
       <Loader2
@@ -71,18 +83,40 @@ export function GenerationProgressBanner({
         className="animate-spin flex-shrink-0"
         style={{ color: '#7c3aed' }}
       />
-      <div className={`flex-1 min-w-0 ${spaceY}`}>
+      <div className={cn('min-w-0 flex-1', spaceY)}>
         <div className="flex items-center justify-between gap-3">
-          <span className={`${titleCls} truncate`} style={{ color: '#7c3aed' }}>
+          <span className={cn(titleCls, 'truncate')} style={{ color: '#7c3aed' }}>
             {productName ? `${productName} — ` : ''}{tLabel} 상세페이지 생성 중 · {stage}
           </span>
-          {pct !== null && (
-            <span className={pctCls} style={{ color: '#7c3aed' }}>
-              {pct}%
-            </span>
-          )}
+          <div className="flex shrink-0 items-center gap-2">
+            {pct !== null && (
+              <span className={pctCls} style={{ color: '#7c3aed' }}>
+                {pct}%
+              </span>
+            )}
+            {canCancel && (
+              <button
+                type="button"
+                onClick={() => onCancel?.(id)}
+                disabled={isCancelling}
+                className={cn(
+                  'inline-flex h-7 items-center justify-center gap-1 rounded-md border border-violet-200 bg-white/80 px-2 text-[11px] font-bold text-violet-700 shadow-sm transition',
+                  'hover:bg-white hover:text-violet-900 disabled:cursor-not-allowed disabled:opacity-60',
+                  compact && 'h-6 px-1.5 text-[10px]',
+                )}
+                title="상세페이지 생성 중단"
+              >
+                {isCancelling ? (
+                  <Loader2 size={compact ? 12 : 13} className="animate-spin" />
+                ) : (
+                  <CircleStop size={compact ? 12 : 13} />
+                )}
+                {isCancelling ? '중단 중' : '중단'}
+              </button>
+            )}
+          </div>
         </div>
-        <div className={`${barH} rounded-full overflow-hidden`} style={{ background: '#7c3aed20' }}>
+        <div className={cn(barH, 'overflow-hidden rounded-full')} style={{ background: '#7c3aed20' }}>
           {pct !== null ? (
             <div
               className="h-full rounded-full transition-all duration-500"
@@ -90,30 +124,20 @@ export function GenerationProgressBanner({
             />
           ) : (
             <div
-              className="h-full rounded-full"
-              style={{
-                width: '40%',
-                background: '#7c3aed',
-                animation: 'kiditem-progress-indeterminate 1.4s ease-in-out infinite',
-              }}
+              className="h-full w-full rounded-full"
+              style={{ background: '#7c3aed30' }}
             />
           )}
         </div>
         {!compact && (
           <div className={subCls} style={{ color: '#7c3aed90' }}>
-            {isProcessing && totalCount > 0
+            {hasImageProgress
               ? `이미지 ${processedCount} / ${totalCount}개 처리됨`
               : '잠시만 기다려주세요 — 다른 페이지로 이동해도 백그라운드에서 계속 진행됩니다'}
           </div>
         )}
       </div>
 
-      <style jsx>{`
-        @keyframes kiditem-progress-indeterminate {
-          0% { margin-left: -40%; }
-          100% { margin-left: 100%; }
-        }
-      `}</style>
     </div>
   );
 }
@@ -124,8 +148,12 @@ export function GenerationProgressBanner({
  */
 export function GenerationProgressBannerStack({
   entries,
+  cancellingIds,
+  onCancel,
 }: {
   entries: GenerationEntry[];
+  cancellingIds?: ReadonlySet<string>;
+  onCancel?: (id: string) => void;
 }) {
   if (entries.length === 0) return null;
 
@@ -134,7 +162,11 @@ export function GenerationProgressBannerStack({
     const e = entries[0];
     return (
       <div className="mx-4 my-3">
-        <GenerationProgressBanner {...e} />
+        <GenerationProgressBanner
+          {...e}
+          isCancelling={cancellingIds?.has(e.id) ?? false}
+          onCancel={onCancel}
+        />
       </div>
     );
   }
@@ -155,7 +187,13 @@ export function GenerationProgressBannerStack({
       </div>
       <div className="space-y-1.5">
         {entries.map((e) => (
-          <GenerationProgressBanner key={e.id} {...e} compact />
+          <GenerationProgressBanner
+            key={e.id}
+            {...e}
+            compact
+            isCancelling={cancellingIds?.has(e.id) ?? false}
+            onCancel={onCancel}
+          />
         ))}
       </div>
     </div>

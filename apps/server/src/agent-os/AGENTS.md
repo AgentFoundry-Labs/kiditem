@@ -144,6 +144,12 @@ explicit per-organization triggers (ops drains, tests, panel debug). It
 does not replace the worker — it complements it, and is also the supported
 "how do I drain manually before the worker is opted in" surface.
 
+Owner domains that need immediate user-visible progress may call
+`AgentRunnerPort.executeRequest({ organizationId, requestId })` right after
+`runByType` succeeds. This claims only that specific pending request through
+the same executor path; it does not enable the global worker or drain unrelated
+queues.
+
 ## AI domain bridge contract
 
 The Agent OS executor never updates downstream domain rows. The AI domain

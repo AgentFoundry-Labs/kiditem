@@ -14,6 +14,15 @@ import {
   serializeDetailPageStoredJson,
 } from '../../../application/service/detail-page-stored.helpers';
 
+const TERMINAL_CONTENT_GENERATION_STATUSES = new Set([
+  'READY',
+  'FAILED',
+  'CANCELLED',
+  'completed',
+  'failed',
+  'cancelled',
+]);
+
 /**
  * Real `DetailPageAgentOutputSinkPort` adapter — applies a validated
  * `detail_page_generate` runtime result back onto the originating
@@ -75,7 +84,7 @@ export class DetailPageContentGenerationSinkAdapter
       );
       return;
     }
-    if (row.status === 'READY' || row.status === 'FAILED') {
+    if (TERMINAL_CONTENT_GENERATION_STATUSES.has(row.status)) {
       // Idempotent: the bridge re-fired or the reconcile job already applied.
       this.logger.debug(
         `detail_page_generate success: ContentGeneration ${row.id} already terminal (${row.status}); no-op.`,
@@ -104,8 +113,12 @@ export class DetailPageContentGenerationSinkAdapter
       rawInput: stored.rawInput,
     });
 
-    await this.prisma.contentGeneration.updateMany({
-      where: { id: row.id, organizationId: input.organizationId },
+    const updated = await this.prisma.contentGeneration.updateMany({
+      where: {
+        id: row.id,
+        organizationId: input.organizationId,
+        status: { notIn: [...TERMINAL_CONTENT_GENERATION_STATUSES] },
+      },
       data: {
         generatedTitle: productName,
         detailPageHtml,
@@ -114,6 +127,12 @@ export class DetailPageContentGenerationSinkAdapter
         errorMessage: null,
       },
     });
+    if (updated.count === 0) {
+      this.logger.debug(
+        `detail_page_generate success: ContentGeneration ${row.id} became terminal before apply; no-op.`,
+      );
+      return;
+    }
 
     await this.operationAlerts.succeed(
       input.organizationId,
@@ -158,20 +177,30 @@ export class DetailPageContentGenerationSinkAdapter
       );
       return;
     }
-    if (row.status === 'READY' || row.status === 'FAILED') {
+    if (TERMINAL_CONTENT_GENERATION_STATUSES.has(row.status)) {
       this.logger.debug(
         `detail_page_generate failure: ContentGeneration ${row.id} already terminal (${row.status}); no-op.`,
       );
       return;
     }
 
-    await this.prisma.contentGeneration.updateMany({
-      where: { id: row.id, organizationId: input.organizationId },
+    const updated = await this.prisma.contentGeneration.updateMany({
+      where: {
+        id: row.id,
+        organizationId: input.organizationId,
+        status: { notIn: [...TERMINAL_CONTENT_GENERATION_STATUSES] },
+      },
       data: {
         status: 'FAILED',
         errorMessage: input.errorMessage,
       },
     });
+    if (updated.count === 0) {
+      this.logger.debug(
+        `detail_page_generate failure: ContentGeneration ${row.id} became terminal before apply; no-op.`,
+      );
+      return;
+    }
 
     await this.operationAlerts.fail(
       input.organizationId,

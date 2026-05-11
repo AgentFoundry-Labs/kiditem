@@ -126,7 +126,7 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
       expect(images.generateBestEffort).toHaveBeenCalledTimes(1);
       expect(prisma.contentGeneration.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: CG_ID, organizationId: ORG },
+          where: expect.objectContaining({ id: CG_ID, organizationId: ORG }),
           data: expect.objectContaining({ status: 'READY', errorMessage: null }),
         }),
       );
@@ -230,6 +230,25 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
       expect(alerts.succeed).not.toHaveBeenCalled();
     });
 
+    it('does not apply success after the user cancelled the row', async () => {
+      prisma = makePrismaStub(makeRow({ status: 'CANCELLED' }));
+      sink = new DetailPageContentGenerationSinkAdapter(
+        prisma as never,
+        alerts,
+        images,
+      );
+      await sink.applySuccess({
+        organizationId: ORG,
+        requestId: REQUEST,
+        runId: RUN,
+        sourceResourceId: CG_ID,
+        output: VALID_OUTPUT,
+      });
+      expect(images.generateBestEffort).not.toHaveBeenCalled();
+      expect(prisma.contentGeneration.updateMany).not.toHaveBeenCalled();
+      expect(alerts.succeed).not.toHaveBeenCalled();
+    });
+
     it('no-ops when sourceResourceId is missing (defensive)', async () => {
       await sink.applySuccess({
         organizationId: ORG,
@@ -252,13 +271,15 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
         errorCode: 'runtime_not_configured',
         errorMessage: 'no provider',
       });
-      expect(prisma.contentGeneration.updateMany).toHaveBeenCalledWith({
-        where: { id: CG_ID, organizationId: ORG },
-        data: expect.objectContaining({
-          status: 'FAILED',
-          errorMessage: 'no provider',
+      expect(prisma.contentGeneration.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ id: CG_ID, organizationId: ORG }),
+          data: expect.objectContaining({
+            status: 'FAILED',
+            errorMessage: 'no provider',
+          }),
         }),
-      });
+      );
       expect(alerts.fail).toHaveBeenCalledWith(
         ORG,
         `detail-page:${CG_ID}`,
@@ -286,6 +307,25 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
         sourceResourceId: CG_ID,
         errorCode: 'agent_run_failed',
         errorMessage: 'second attempt',
+      });
+      expect(prisma.contentGeneration.updateMany).not.toHaveBeenCalled();
+      expect(alerts.fail).not.toHaveBeenCalled();
+    });
+
+    it('skips failure after the user cancelled the row', async () => {
+      prisma = makePrismaStub(makeRow({ status: 'CANCELLED' }));
+      sink = new DetailPageContentGenerationSinkAdapter(
+        prisma as never,
+        alerts,
+        images,
+      );
+      await sink.applyFailure({
+        organizationId: ORG,
+        requestId: REQUEST,
+        runId: RUN,
+        sourceResourceId: CG_ID,
+        errorCode: 'agent_run_failed',
+        errorMessage: 'late failure',
       });
       expect(prisma.contentGeneration.updateMany).not.toHaveBeenCalled();
       expect(alerts.fail).not.toHaveBeenCalled();

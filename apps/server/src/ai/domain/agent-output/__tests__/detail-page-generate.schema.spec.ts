@@ -113,6 +113,26 @@ describe('DetailPageGenerateAgentInputSchema', () => {
     });
     expect(parsed.heroImageMode).toBe('first');
     expect(parsed.raw.imageUrls).toEqual([]);
+    expect(parsed.raw.detailImageCount).toBe('2');
+    expect(parsed.raw.usageSectionMode).toBe('include');
+    expect(parsed.raw.kcCertificationStatus).toBe('unknown');
+  });
+
+  it('accepts explicit generation options', () => {
+    const parsed = DetailPageGenerateAgentInputSchema.parse({
+      templateId: 'bold-vertical',
+      raw: {
+        rawTitle: 'product',
+        detailImageCount: '6',
+        usageSectionMode: 'exclude',
+        kcCertificationStatus: 'exists',
+        kcCertificationNumber: 'CB061R1234-1001',
+      },
+    });
+    expect(parsed.raw.detailImageCount).toBe('6');
+    expect(parsed.raw.usageSectionMode).toBe('exclude');
+    expect(parsed.raw.kcCertificationStatus).toBe('exists');
+    expect(parsed.raw.kcCertificationNumber).toBe('CB061R1234-1001');
   });
 
   it('rejects unknown templateId', () => {

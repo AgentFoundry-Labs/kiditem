@@ -400,6 +400,19 @@ function sanitizePersistedHead(headHtml: string, viewportContent: string): strin
     }
     seenScripts.add(src);
   });
+  const seenInlineScripts = new Set<string>();
+  head.querySelectorAll('script:not([src])').forEach((script) => {
+    const text = script.textContent?.trim() ?? '';
+    if (!text) {
+      script.remove();
+      return;
+    }
+    if (seenInlineScripts.has(text)) {
+      script.remove();
+      return;
+    }
+    seenInlineScripts.add(text);
+  });
 
   const seenStylesheets = new Set<string>();
   head.querySelectorAll('link[rel="stylesheet"]').forEach((link) => {

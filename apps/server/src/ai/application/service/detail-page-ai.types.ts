@@ -5,6 +5,10 @@ import type {
 } from '@kiditem/shared/ai';
 import type { BoldVerticalGeneration } from '../../domain/prompts/bold-vertical/single-call';
 import type { DetailPageGeneration } from '../../domain/prompts/detail-page/single-call';
+import type {
+  KcCertificationStatus,
+  UsageSectionMode,
+} from '../../domain/prompts/detail-page/types';
 
 export type DetailPageTemplateId = SharedDetailPageTemplateId;
 
@@ -18,6 +22,9 @@ export interface DetailPageRawInput {
   templateId: DetailPageTemplateId;
   ageGroup?: DetailPageAgeGroup;
   detailImageCount?: DetailImageCount;
+  usageSectionMode?: UsageSectionMode;
+  kcCertificationStatus?: KcCertificationStatus;
+  kcCertificationNumber?: string;
 }
 
 export interface KidsPlayfulImageContext {

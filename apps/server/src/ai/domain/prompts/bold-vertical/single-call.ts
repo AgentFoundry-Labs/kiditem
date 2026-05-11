@@ -17,6 +17,8 @@ import {
   formatAudienceGuidance,
   formatDetailImageCountGuidance,
   formatImageCandidates,
+  formatKcCertificationGuidance,
+  formatUsageSectionGuidance,
   type RawProductInput,
 } from '../detail-page/types';
 
@@ -78,7 +80,9 @@ export const BoldVerticalGenerationSchema = z.object({
     subtitle: z.string().min(0).max(180),
     imageIndices: z.array(z.number().int().nonnegative()).default([]),
   }),
-  /** Detail images — 디테일/라이프 컷. 후처리에서 요청 개수(기본 2~3개)로 제한한다. */
+  /** 사용법 영역 렌더링 여부. 서버 후처리에서 사용자가 제외를 고르면 false 로 저장한다. */
+  usageEnabled: z.boolean().default(true),
+  /** Detail images — 디테일/라이프 컷. 후처리에서 요청 개수(기본 2개, 최대 6개)로 제한한다. */
   detailImageIndices: z.array(z.number().int().nonnegative()).min(0).max(8),
   /** KC/바코드/품질표시 등 안전 라벨 이미지 인덱스 */
   safetyLabelImageIndices: z.array(z.number().int().nonnegative()).default([]),
@@ -198,11 +202,13 @@ export const BOLD_VERTICAL_SYSTEM = `너는 한국 쿠팡 상세페이지 카피
   사용법 이미지가 있으면 반드시 usage 에 분리하고, color/detail 에 섞지 않는다.
   사용법 관련 이미지가 전혀 없어도 subtitle 은 실제 사용 단계 2~3줄로 쓰고, imageIndices 는 빈 배열로 둔다.
   이 경우 서버가 각 단계에 맞는 글자 없는 사용 장면 이미지를 필요한 슬롯에만 생성한다.
+- raw 입력의 "사용법 영역"이 "만들지 않음"이면 usage.subtitle 는 "" 이고 usage.imageIndices 는 [] 이다.
+  사용법 안내, 사용 순서, 튜토리얼, 설명서형 섹션을 만들지 않는다.
 
-## detailImageIndices (0~3 인덱스)
-- DETAIL 본문 디테일/라이프 컷은 2~3장을 기본으로 한다. 절대 3장을 넘기지 않는다.
+## detailImageIndices (0~6 인덱스)
+- DETAIL 본문 디테일/라이프 컷은 "DETAIL 이미지 수 기준"에 적힌 개수만큼 고른다. 절대 6장을 넘기지 않는다.
 - 가능한 한 서로 다른 원본 이미지를 고른다. 같은 이미지를 반복 나열하지 않는다.
-- 이미지가 적어도 빈 배열로 두지 말고, 디테일 구도 변경의 기준이 될 상품컷을 1~3장 지정한다.
+- 이미지가 적어도 빈 배열로 두지 말고, 디테일 구도 변경의 기준이 될 상품컷을 가능한 개수만큼 지정한다.
   서버가 해당 컷으로 확대/구도 변경 이미지를 생성하므로 같은 원본을 여러 번 넣지 마라.
 - KC/바코드/품질표시 이미지는 detailImageIndices 에 넣지 않는다. 안전 이미지는 서버가 하단으로 분리한다.
 - 패키지 박스/진열 박스/구성품 박스가 보이는 이미지는 detail 중간에 넣지 않는다.
@@ -226,8 +232,10 @@ export const BOLD_VERTICAL_SYSTEM = `너는 한국 쿠팡 상세페이지 카피
 
 ## productInfo (정확히 3~7개)
 - 푸터 스펙 표. 각 {"key":"제품명","value":"...."} 형식.
-- 권장 키: 제품명, 사이즈, 재질, 원산지, 사용연령, 색상.
+- 권장 키: 제품명, 사이즈, 재질, 원산지, 사용연령, 색상, KC 인증번호.
 - raw_options 와 raw_description 에서 추출.
+- KC 인증번호가 입력되어 있고 안전표시/KC/바코드 이미지가 없을 때는 {"key":"KC 인증번호","value":"입력된 번호"} 항목을 포함한다.
+- 안전표시/KC/바코드 이미지가 있으면 productInfo 표와 중복하지 않는다.
 
 좋은 예시 (드론 product, AGENT row 수준 출력):
 {
@@ -277,6 +285,10 @@ heroImageMode: ${heroImageMode}
 ${formatAudienceGuidance(raw.ageGroup)}
 DETAIL 이미지 수 기준:
 ${formatDetailImageCountGuidance(raw.detailImageCount)}
+사용법 영역 기준:
+${formatUsageSectionGuidance(raw.usageSectionMode)}
+KC 인증번호 기준:
+${formatKcCertificationGuidance(raw.kcCertificationStatus, raw.kcCertificationNumber)}
 
 이미지 후보 (인덱스: URL):
 ${formatImageCandidates(raw.imageUrls)}

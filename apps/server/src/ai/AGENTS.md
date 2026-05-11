@@ -164,10 +164,12 @@ Gemini text generation 호출은 `TEXT_COMPLETION_PORT` 한 곳에 모인다. `t
   (c) FINALIZED bridge, (d) sink port + 어댑터, (e) (real handler 가 필요한 경우)
   `AgentRuntimeHandlerRegistry` 에 등록하는 runtime handler 한 쌍을 같이 추가한다.
 
-운영 환경 의존성: 위 async path 가 실제로 동작하려면 prod/dev 환경에서
-`AGENT_RUNTIME_WORKER_ENABLED=1` 와 `AGENT_DETAIL_PAGE_GENERATE_MODEL`
-(또는 `AGENT_DEFAULT_MODEL`) 가 세팅되어야 한다 — agent-os/AGENTS.md
-"Worker contract" / "Runtime adapter contract" 참고.
+운영 환경 의존성: product-bound detail page producer 는 enqueue 직후
+`AgentRunnerPort.executeRequest` 로 해당 request 를 한 번 즉시 실행한다.
+그래도 재시도/복구/다른 Agent OS consumer 를 자동 drain 하려면 prod/dev
+환경에서 `AGENT_RUNTIME_WORKER_ENABLED=1` 이 필요하다. 실행 모델은 항상
+`AGENT_DETAIL_PAGE_GENERATE_MODEL` (또는 `AGENT_DEFAULT_MODEL`) 로 명시되어야
+한다 — agent-os/AGENTS.md "Worker contract" / "Runtime adapter contract" 참고.
 
 ### 8. Thumbnail editor generation — Agent OS async (product-bound) + sync standalone fallback
 

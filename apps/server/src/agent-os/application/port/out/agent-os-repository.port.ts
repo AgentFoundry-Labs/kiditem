@@ -310,6 +310,12 @@ export interface AgentOsRepositoryPort {
     now: Date;
     organizationId?: string | null;
   }): Promise<AgentRunRequestRecord | null>;
+  claimRunRequestById(input: {
+    workerId: string;
+    now: Date;
+    organizationId: string;
+    requestId: string;
+  }): Promise<AgentRunRequestRecord | null>;
   failClaimedRequest(input: FailClaimedRequestInput): Promise<void>;
   markRequestStatus(input: MarkRequestStatusInput): Promise<AgentRunRequestRecord>;
 

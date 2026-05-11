@@ -5,6 +5,7 @@ import {
   HttpStatus,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { z } from 'zod';
@@ -47,7 +48,13 @@ import {
   looksLikeSafetyLabelImage,
   moveSafetyLabelImagesToEnd,
 } from '../../domain/detail-page-image-order';
-import type { DetailImageCount, DetailPageAgeGroup } from '../../domain/prompts/detail-page/types';
+import type {
+  DetailImageCount,
+  DetailPageAgeGroup,
+  KcCertificationStatus,
+  UsageSectionMode,
+} from '../../domain/prompts/detail-page/types';
+import { normalizeKcCertificationNumber } from '../../domain/prompts/detail-page/types';
 import type { DetailPageRawInput, DetailPageTemplateId, KidsPlayfulImageContext } from './detail-page-ai.types';
 import { DetailPageGeneratedImagesService } from './detail-page-generated-images.service';
 import { DetailPageResultRefinerService } from './detail-page-result-refiner.service';
@@ -66,6 +73,23 @@ const DetailPagePrefillSchema = z.object({
   options: z.array(z.string().min(1).max(60)).min(0).max(10).default([]),
   extraNotes: z.string().max(400).optional().default(''),
 });
+
+const DETAIL_PAGE_PROCESSING_STATUSES = [
+  'PENDING',
+  'PROCESSING',
+  'generating',
+  'pending',
+  'processing',
+];
+const DETAIL_PAGE_TERMINAL_STATUSES = new Set([
+  'READY',
+  'FAILED',
+  'CANCELLED',
+  'completed',
+  'failed',
+  'cancelled',
+]);
+const DETAIL_PAGE_CANCELLED_MESSAGE = '사용자 요청으로 생성이 중단되었습니다.';
 
 const DETAIL_PAGE_PREFILL_SYSTEM = `너는 한국 키즈/생활 상품 상세페이지 기획자다.
 상품명만 보고 상세페이지 생성 폼에 바로 넣을 수 있는 초안을 만든다.
@@ -112,6 +136,8 @@ export interface DetailPageGenerationDto {
 
 @Injectable()
 export class DetailPageAiService {
+  private readonly logger = new Logger(DetailPageAiService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     @Inject(TEXT_COMPLETION_PORT)
@@ -191,7 +217,10 @@ export class DetailPageAiService {
     const heroImageMode = dto.heroImageMode ?? 'llm-pick';
     const templateId = dto.templateId ?? 'kids-playful';
     const ageGroup: DetailPageAgeGroup = dto.ageGroup ?? 'age-8-plus';
-    const detailImageCount: DetailImageCount = dto.detailImageCount ?? 'auto';
+    const detailImageCount: DetailImageCount = dto.detailImageCount ?? '2';
+    const usageSectionMode: UsageSectionMode = dto.usageSectionMode ?? 'include';
+    const kcCertificationStatus: KcCertificationStatus = dto.kcCertificationStatus ?? 'unknown';
+    const kcCertificationNumber = normalizeKcCertificationNumber(dto.kcCertificationNumber);
     const imageUrls = moveSafetyLabelImagesToEnd(dto.imageUrls);
     const rawInput: DetailPageRawInput = {
       rawTitle: dto.rawTitle,
@@ -203,6 +232,9 @@ export class DetailPageAiService {
       templateId,
       ageGroup,
       detailImageCount,
+      usageSectionMode,
+      kcCertificationStatus,
+      kcCertificationNumber,
     };
 
     if (dto.productId) {
@@ -358,6 +390,9 @@ export class DetailPageAiService {
             imageUrls: input.rawInput.imageUrls,
             ageGroup: input.rawInput.ageGroup,
             detailImageCount: input.rawInput.detailImageCount,
+            usageSectionMode: input.rawInput.usageSectionMode,
+            kcCertificationStatus: input.rawInput.kcCertificationStatus,
+            kcCertificationNumber: input.rawInput.kcCertificationNumber,
           },
           heroImageMode: input.heroImageMode,
           // No reservedPackageImageIndices/safetyLabelImageIndices here —
@@ -392,6 +427,11 @@ export class DetailPageAiService {
       throw new HttpException(errorMessage, HttpStatus.SERVICE_UNAVAILABLE);
     }
 
+    this.kickEnqueuedAgentRequest({
+      organizationId: input.organizationId,
+      requestId: enqueueResult.requestId,
+    });
+
     return this.toDto({
       id: row.id,
       masterId: row.masterId,
@@ -402,6 +442,23 @@ export class DetailPageAiService {
       status: 'PROCESSING',
       errorMessage: null,
       createdAt: row.createdAt,
+    });
+  }
+
+  private kickEnqueuedAgentRequest(input: {
+    organizationId: string;
+    requestId?: string;
+  }): void {
+    if (!input.requestId || !this.agentRunner.executeRequest) return;
+
+    void this.agentRunner.executeRequest({
+      organizationId: input.organizationId,
+      requestId: input.requestId,
+      workerId: 'detail-page-generate-inline',
+    }).catch((error) => {
+      this.logger.warn(
+        `Failed to kick detail_page_generate request ${input.requestId}: ${error}`,
+      );
     });
   }
 
@@ -433,6 +490,49 @@ export class DetailPageAiService {
     });
     if (!row) throw new NotFoundException('Detail page generation not found');
     return this.toDto(row);
+  }
+
+  async cancel(id: string, organizationId: string): Promise<DetailPageGenerationDto> {
+    const row = await this.prisma.contentGeneration.findFirst({
+      where: { id, organizationId },
+    });
+    if (!row) throw new NotFoundException('Detail page generation not found');
+
+    if (DETAIL_PAGE_TERMINAL_STATUSES.has(row.status)) {
+      return this.toDto(row);
+    }
+
+    const updated = await this.prisma.contentGeneration.updateMany({
+      where: {
+        id,
+        organizationId,
+        status: { in: DETAIL_PAGE_PROCESSING_STATUSES },
+      },
+      data: {
+        status: 'CANCELLED',
+        errorMessage: DETAIL_PAGE_CANCELLED_MESSAGE,
+      },
+    });
+
+    if (updated.count > 0) {
+      await this.agentRunner.cancelBySource?.({
+        organizationId,
+        sourceType: AI_AGENT_SOURCE_TYPES.DETAIL_PAGE_GENERATE,
+        sourceResourceType: 'content_generation',
+        sourceResourceId: id,
+        reason: DETAIL_PAGE_CANCELLED_MESSAGE,
+      });
+
+      await this.operationAlerts.cancel(organizationId, detailPageOperationKey(id), {
+        message: DETAIL_PAGE_CANCELLED_MESSAGE,
+        metadata: { errorCode: 'user_cancelled' },
+      });
+    }
+
+    const reloaded = await this.prisma.contentGeneration.findFirst({
+      where: { id, organizationId },
+    });
+    return this.toDto(reloaded ?? row);
   }
 
   async remove(id: string, organizationId: string): Promise<{ ok: true }> {
@@ -530,6 +630,7 @@ export class DetailPageAiService {
   private mapStatus(status: string): string {
     if (status === 'READY' || status === 'completed') return 'completed';
     if (status === 'FAILED' || status === 'failed') return 'failed';
+    if (status === 'CANCELLED' || status === 'cancelled') return 'cancelled';
     if (status === 'PROCESSING' || status === 'generating') return 'processing';
     return status.toLowerCase();
   }

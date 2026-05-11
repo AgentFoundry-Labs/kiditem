@@ -15,7 +15,14 @@ const GENERATED_HERO_BANNER_KEY = '__heroBanner';
 const GENERATED_SIZE_GUIDE_IMAGE_KEY = '__sizeGuideImage';
 const GENERATED_COLOR_GUIDE_IMAGE_KEY = '__colorGuideImage';
 const GENERATED_USAGE_IMAGE_KEYS = ['__usageGuideImage1', '__usageGuideImage2', '__usageGuideImage3'] as const;
-const GENERATED_DETAIL_IMAGE_KEYS = ['__detailImage1', '__detailImage2', '__detailImage3'] as const;
+const GENERATED_DETAIL_IMAGE_KEYS = [
+  '__detailImage1',
+  '__detailImage2',
+  '__detailImage3',
+  '__detailImage4',
+  '__detailImage5',
+  '__detailImage6',
+] as const;
 
 export interface BoldVerticalGeneration {
   hook: {
@@ -45,6 +52,7 @@ export interface BoldVerticalGeneration {
   };
   color: { subtitle: string; imageIndices: number[] };
   usage: { subtitle: string; imageIndices: number[] };
+  usageEnabled?: boolean;
   detailImageIndices: number[];
   packageImageIndices?: number[];
   packageLabel?: string;
@@ -71,6 +79,7 @@ export function adaptBoldVerticalToDetailPageData(
   const size = generation.size ?? { subtitle: '', imageIndices: [] };
   const color = generation.color ?? { subtitle: '', imageIndices: [] };
   const usage = generation.usage ?? { subtitle: '', imageIndices: [] };
+  const usageDisabled = generation.usageEnabled === false;
   const detailImageIndices = generation.detailImageIndices ?? [];
   const explicitSafetyIndexSet = new Set(generation.safetyLabelImageIndices ?? []);
   const resolve = (
@@ -113,9 +122,11 @@ export function adaptBoldVerticalToDetailPageData(
   const generatedHeroBanner = resolveGenerated(GENERATED_HERO_BANNER_KEY);
   const generatedSizeGuideImage = resolveGenerated(GENERATED_SIZE_GUIDE_IMAGE_KEY);
   const generatedColorGuideImage = resolveGenerated(GENERATED_COLOR_GUIDE_IMAGE_KEY);
-  const generatedUsageImages = GENERATED_USAGE_IMAGE_KEYS
-    .map((key) => resolveGenerated(key))
-    .filter((url) => url !== '');
+  const generatedUsageImages = usageDisabled
+    ? []
+    : GENERATED_USAGE_IMAGE_KEYS
+        .map((key) => resolveGenerated(key))
+        .filter((url) => url !== '');
   const generatedDetailImages = GENERATED_DETAIL_IMAGE_KEYS
     .map((key) => resolveGenerated(key))
     .filter((url) => url !== '');
@@ -126,7 +137,7 @@ export function adaptBoldVerticalToDetailPageData(
   const resolvedColorImages = generatedColorGuideImage
     ? [generatedColorGuideImage]
     : rawColorImages;
-  const rawUsageImages = resolveList(usage.imageIndices);
+  const rawUsageImages = usageDisabled ? [] : resolveList(usage.imageIndices);
   const resolvedUsageImages = generatedUsageImages.length > 0
     ? generatedUsageImages
     : rawUsageImages;
@@ -157,7 +168,7 @@ export function adaptBoldVerticalToDetailPageData(
     ...rawUsageImages,
     heroProductImage,
     ...nonSafetyProductImages,
-  ]).slice(0, 3);
+  ]).slice(0, 6);
   const resolvedDetailImages = uniqueUrls([
     ...generatedDetailImages,
     ...rawDetailImages,
@@ -211,10 +222,10 @@ export function adaptBoldVerticalToDetailPageData(
     sizeImages: resolvedSizeImages,
     colorSubtitle: color.subtitle,
     colorImages: resolvedColorImages,
-    usageSubtitle: normalizeUsageGuide(usage.subtitle, productName),
+    usageSubtitle: usageDisabled ? '' : normalizeUsageGuide(usage.subtitle, productName),
     usageImages: resolvedUsageImages,
     detailText: '구성품 및 색상은 사진과 다를 수 있습니다',
-    detailImages: finalDetailImages.slice(0, 3),
+    detailImages: finalDetailImages.slice(0, 6),
     detailPackageImages: resolvedPackageImages,
     detailPackageLabel: generation.packageLabel ?? '',
     safetyLabelImages,

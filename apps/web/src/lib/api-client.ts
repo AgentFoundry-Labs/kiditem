@@ -1,5 +1,5 @@
 import { ZodType, ZodError } from 'zod';
-import { API_BASE } from './api';
+import { getApiBase } from './api';
 import { ApiError } from './api-error';
 import { createSupabaseBrowserClient } from './supabase/client';
 
@@ -17,10 +17,14 @@ async function getAccessToken(): Promise<string | null> {
   try {
     const supabase = createSupabaseBrowserClient();
     const { data } = await supabase.auth.getSession();
-    return data.session?.access_token ?? null;
+    const token = data.session?.access_token ?? null;
+    if (token) return token;
   } catch {
-    return null;
+    // Fall through to direct cookie parsing. In local cross-origin dev, the
+    // browser may still expose the Supabase SSR cookie to the web app even
+    // when it is not sent to the API host.
   }
+  return getAccessTokenFromDocumentCookie();
 }
 
 async function withAuthHeaders(init?: RequestInit): Promise<RequestInit> {
@@ -32,8 +36,88 @@ async function withAuthHeaders(init?: RequestInit): Promise<RequestInit> {
   return { credentials: 'include', ...init, headers };
 }
 
+function getAccessTokenFromDocumentCookie(): string | null {
+  if (typeof document === 'undefined' || !document.cookie) return null;
+  const cookies = parseCookieHeader(document.cookie);
+  for (const baseName of findSupabaseAuthCookieBaseNames(cookies)) {
+    const encodedSession = combineCookieChunks(cookies, baseName);
+    if (!encodedSession) continue;
+    const sessionJson = decodeSupabaseCookieValue(encodedSession);
+    if (!sessionJson) continue;
+    try {
+      const session = JSON.parse(sessionJson) as unknown;
+      if (
+        session &&
+        typeof session === 'object' &&
+        typeof (session as Record<string, unknown>).access_token === 'string'
+      ) {
+        return (session as { access_token: string }).access_token;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+function parseCookieHeader(cookieHeader: string): Record<string, string> {
+  const cookies: Record<string, string> = {};
+  for (const part of cookieHeader.split(';')) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const separator = trimmed.indexOf('=');
+    if (separator < 0) continue;
+    const name = trimmed.slice(0, separator);
+    const rawValue = trimmed.slice(separator + 1);
+    try {
+      cookies[name] = decodeURIComponent(rawValue);
+    } catch {
+      cookies[name] = rawValue;
+    }
+  }
+  return cookies;
+}
+
+function findSupabaseAuthCookieBaseNames(cookies: Record<string, string>): string[] {
+  const baseNames = new Set<string>();
+  for (const name of Object.keys(cookies)) {
+    const baseName = name.replace(/\.[0-9]+$/, '');
+    if (baseName === 'supabase.auth.token' || /^sb-.+-auth-token$/.test(baseName)) {
+      baseNames.add(baseName);
+    }
+  }
+  return [...baseNames].sort();
+}
+
+function combineCookieChunks(cookies: Record<string, string>, baseName: string): string | null {
+  if (cookies[baseName]) return cookies[baseName];
+  const chunks: string[] = [];
+  for (let index = 0; ; index += 1) {
+    const chunk = cookies[`${baseName}.${index}`];
+    if (!chunk) break;
+    chunks.push(chunk);
+  }
+  return chunks.length > 0 ? chunks.join('') : null;
+}
+
+function decodeSupabaseCookieValue(value: string): string | null {
+  const base64Prefix = 'base64-';
+  if (!value.startsWith(base64Prefix)) return value;
+  try {
+    const base64 = value
+      .slice(base64Prefix.length)
+      .replace(/-/g, '+')
+      .replace(/_/g, '/');
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=');
+    const bytes = Uint8Array.from(atob(padded), (char) => char.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return null;
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, await withAuthHeaders(init));
+  const res = await fetch(`${getApiBase()}${path}`, await withAuthHeaders(init));
   if (!res.ok) {
     let code: string | null = null;
     let detail = `API error: ${res.status}`;
@@ -133,5 +217,5 @@ export const apiClient = {
     request<T>(path, { method: 'POST', body: formData }),
   /** Response 객체 직접 반환 (blob, stream 등 non-JSON 응답용) */
   fetchRaw: async (path: string, init?: RequestInit): Promise<Response> =>
-    fetch(`${API_BASE}${path}`, await withAuthHeaders(init)),
+    fetch(`${getApiBase()}${path}`, await withAuthHeaders(init)),
 };

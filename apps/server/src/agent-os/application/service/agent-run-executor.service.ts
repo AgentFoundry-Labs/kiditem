@@ -128,6 +128,31 @@ export class AgentRunExecutor {
     return this.executeClaimed(claimed);
   }
 
+  async executeRequest(
+    workerId: string,
+    organizationId: string,
+    requestId: string,
+  ): Promise<AgentRunExecutorResult> {
+    if (!organizationId) {
+      return { executed: false, requestId, reason: 'organization_required' };
+    }
+    if (!requestId) {
+      return { executed: false, reason: 'request_id_required' };
+    }
+
+    const claimed = await this.repository.claimRunRequestById({
+      workerId,
+      now: new Date(),
+      organizationId,
+      requestId,
+    });
+
+    if (!claimed) {
+      return { executed: false, requestId, reason: 'request_not_claimable' };
+    }
+    return this.executeClaimed(claimed);
+  }
+
   /**
    * Worker-friendly variant — claims the next pending request across all
    * organizations. The internal `AgentRunWorker` calls this on its tick to

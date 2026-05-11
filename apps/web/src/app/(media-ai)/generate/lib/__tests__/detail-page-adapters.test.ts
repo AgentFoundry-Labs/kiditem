@@ -55,6 +55,39 @@ describe('detail page generation adapters', () => {
     expect(data.section11.galleryImageUrls).toEqual(['https://cdn.example.com/product.jpg', null]);
   });
 
+  it('allows up to six bold vertical DETAIL images', () => {
+    const urls = Array.from(
+      { length: 6 },
+      (_, index) => `https://cdn.example.com/detail-${index + 1}.jpg`,
+    );
+    const data = adaptBoldVerticalToDetailPageData(
+      {
+        hook: {
+          subtext: '이달의 추천',
+          text: '학생용',
+          titleSub: '말랑이',
+          description: '가볍게 쥐고 푸는 촉감 놀이',
+          imageIndex: 0,
+          bannerImageIndex: null,
+        },
+        section: { name: '학생용', title: '말랑이', subtitle: '' },
+        keyPoints: [
+          { title: '가벼운 촉감', description: '손에 부담 없이 쥘 수 있어요', imageIndex: 0 },
+          { title: '책상 위 보관', description: '공간을 많이 차지하지 않아요', imageIndex: 1 },
+          { title: '선물 추천', description: '학생 선물로 잘 어울려요', imageIndex: 2 },
+        ],
+        size: { subtitle: '', imageIndices: [] },
+        color: { subtitle: '', imageIndices: [] },
+        usage: { subtitle: '', imageIndices: [] },
+        detailImageIndices: [0, 1, 2, 3, 4, 5],
+        productInfo: [],
+      },
+      urls,
+    );
+
+    expect(data.detailImages).toEqual(urls);
+  });
+
   it('uses generated hero banner before raw hero images', () => {
     const generatedHero = 'https://cdn.example.com/generated-hero.png';
     const bold = adaptBoldVerticalToDetailPageData(
@@ -159,6 +192,36 @@ describe('detail page generation adapters', () => {
     expect(data.section6.cards[1]?.imageUrl).toBe('https://api.example.com/generated/detail-2.png');
     expect(data.section8.blocks[0]?.imageUrl).toBe('https://api.example.com/generated/detail-2.png');
     expect(data.section10.cards[0]?.imageUrl).toBe('https://api.example.com/generated/usage-guide-1.png');
+  });
+
+  it('suppresses kids playful usage section and usage-image fallbacks when disabled', () => {
+    const data = adaptToKidsPlayful(
+      {
+        ...makeKidsRaw(),
+        usageEnabled: false,
+        section3: {
+          label: '활용도 200%',
+          headline: '여기저기 활용',
+          subhead: '가볍게 쓰는 장면',
+          scenarios: [
+            { caption: '책상 위에 두고 사용해요', imageIndex: null },
+            { caption: '가방에 넣어 휴대해요', imageIndex: null },
+          ],
+        },
+        section10: {
+          cards: [
+            { smallHeadline: '휴대성', bigHeadlineLine1: '가볍게', bigHeadlineLine2: 'OK', imageIndex: null },
+          ],
+        },
+      },
+      ['https://cdn.example.com/product.jpg'],
+      { __usageGuideImage1: '/generated/usage-guide-1.png' },
+      'https://api.example.com',
+    );
+
+    expect(data.usageEnabled).toBe(false);
+    expect(data.section3.scenarios[0]?.imageUrl).toBeNull();
+    expect(data.section10.cards[0]?.imageUrl).toBeNull();
   });
 
   it('maps bold vertical size guide labels and falls back to a standalone product image', () => {
@@ -287,6 +350,46 @@ describe('detail page generation adapters', () => {
     expect(data.detailImages).toEqual([
       'https://api.example.com/generated/detail-1.png',
       'https://api.example.com/generated/detail-2.png',
+      'https://cdn.example.com/product-main.jpg',
+    ]);
+  });
+
+  it('suppresses bold vertical usage fallback when the generation disables usage', () => {
+    const data = adaptBoldVerticalToDetailPageData(
+      {
+        hook: {
+          subtext: '이달의 추천',
+          text: '학생용 말랑이',
+          titleSub: '스트레스볼',
+          description: '가볍게 쥐고 푸는 촉감 놀이',
+          imageIndex: 0,
+          bannerImageIndex: null,
+        },
+        section: { name: '학생용 말랑이', title: '스트레스볼', subtitle: '' },
+        keyPoints: [
+          { title: '가벼운 촉감', description: '손에 부담 없이 쥘 수 있어요', imageIndex: 0 },
+          { title: '책상 위 보관', description: '공간을 많이 차지하지 않아요', imageIndex: 0 },
+          { title: '선물 추천', description: '학생 선물로 잘 어울려요', imageIndex: 0 },
+        ],
+        size: { subtitle: '', imageIndices: [] },
+        color: { subtitle: '', imageIndices: [] },
+        usage: { subtitle: '포장을 열고 제품을 확인하세요', imageIndices: [0] },
+        usageEnabled: false,
+        detailImageIndices: [0],
+        productInfo: [],
+      },
+      ['https://cdn.example.com/product-main.jpg'],
+      {
+        __usageGuideImage1: '/generated/usage-guide-1.png',
+        __detailImage1: '/generated/detail-1.png',
+      },
+      'https://api.example.com',
+    );
+
+    expect(data.usageSubtitle).toBe('');
+    expect(data.usageImages).toEqual([]);
+    expect(data.detailImages).toEqual([
+      'https://api.example.com/generated/detail-1.png',
       'https://cdn.example.com/product-main.jpg',
     ]);
   });

@@ -16,6 +16,7 @@ const GENERATED_USAGE_IMAGE_KEYS = ['__usageGuideImage1', '__usageGuideImage2', 
 const GENERATED_DETAIL_IMAGE_KEYS = ['__detailImage1', '__detailImage2', '__detailImage3'] as const;
 
 export interface KidsPlayfulData {
+  usageEnabled?: boolean;
   section1: {
     subhead: string;
     mainHeadline: string;
@@ -109,6 +110,7 @@ export interface KidsPlayfulData {
 
 /** Server endpoint 의 raw 응답 형. Index 기반. */
 export interface DetailPageGenerationRaw {
+  usageEnabled?: boolean;
   section1: {
     subhead: string;
     mainHeadline: string;
@@ -220,10 +222,14 @@ export function adaptToKidsPlayful(
     return url.startsWith('http') ? url : `${apiBase}${url}`;
   };
   const generatedHeroBanner = resolveGenerated(GENERATED_HERO_BANNER_KEY);
-  const generatedUsageImages = GENERATED_USAGE_IMAGE_KEYS.map((key) => resolveGenerated(key));
+  const usageEnabled = raw.usageEnabled !== false;
+  const generatedUsageImages = usageEnabled
+    ? GENERATED_USAGE_IMAGE_KEYS.map((key) => resolveGenerated(key))
+    : [];
   const generatedDetailImages = GENERATED_DETAIL_IMAGE_KEYS.map((key) => resolveGenerated(key));
 
   return {
+    usageEnabled,
     section1: {
       subhead: raw.section1.subhead,
       mainHeadline: raw.section1.mainHeadline,

@@ -4,7 +4,10 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { useAllGenerationsInProgress } from '@/app/(media-ai)/generate/hooks/useKidsPlayfulGenerate';
+import {
+  useAllGenerationsInProgress,
+  useKidsPlayfulGenerationCancel,
+} from '@/app/(media-ai)/generate/hooks/useKidsPlayfulGenerate';
 import { Pagination } from '@/components/ui/Pagination';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
@@ -124,6 +127,7 @@ function GenerationInProgressBannerSlot({
   products: Array<{ id: string; name: string }>;
 }) {
   const inProgressEntries = useAllGenerationsInProgress(null);
+  const cancelGeneration = useKidsPlayfulGenerationCancel();
   if (inProgressEntries.length === 0) return null;
 
   const entries = inProgressEntries.map((e) => {
@@ -138,5 +142,22 @@ function GenerationInProgressBannerSlot({
     };
   });
 
-  return <GenerationProgressBannerStack entries={entries} />;
+  const cancellingIds =
+    cancelGeneration.isPending && cancelGeneration.variables
+      ? new Set([cancelGeneration.variables])
+      : undefined;
+
+  return (
+    <GenerationProgressBannerStack
+      entries={entries}
+      cancellingIds={cancellingIds}
+      onCancel={(id) =>
+        cancelGeneration.mutate(id, {
+          onSuccess: () => toast.success('상세페이지 생성을 중단했습니다.'),
+          onError: (err) =>
+            toast.error(isApiError(err) ? err.detail : '생성 중단에 실패했습니다.'),
+        })
+      }
+    />
+  );
 }

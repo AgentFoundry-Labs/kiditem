@@ -10,7 +10,7 @@ import {
 } from '@/app/(media-ai)/generate/hooks/useKidsPlayfulGenerate';
 
 const IN_PROGRESS_STATUSES = new Set(['pending', 'processing']);
-const TERMINAL_STATUSES = new Set(['completed', 'failed']);
+const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
 
 export default function GenerationCompletionWatcher() {
   const router = useRouter();
@@ -60,6 +60,11 @@ export default function GenerationCompletionWatcher() {
                   onClick: () => router.push(editorUrl),
                 }
               : undefined,
+          });
+        } else if (current === 'cancelled') {
+          toast.info(`${productLabel} 생성 중단됨`, {
+            description: '사용자 요청으로 상세페이지 생성을 멈췄습니다.',
+            duration: 5000,
           });
         } else {
           toast.error(`${productLabel} 생성 실패`, {

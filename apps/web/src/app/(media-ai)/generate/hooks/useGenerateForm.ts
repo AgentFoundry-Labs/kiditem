@@ -17,6 +17,8 @@ import { useKidsPlayfulGenerate } from './useKidsPlayfulGenerate';
 
 export type GenerateTemplateId = DetailPageTemplateId;
 export type { DetailImageCount, DetailPageAgeGroup } from '@kiditem/shared/ai';
+export type UsageSectionMode = 'include' | 'exclude';
+export type KcCertificationStatus = 'unknown' | 'none' | 'exists';
 export type BoxSetStatus = 'auto' | 'none' | 'box' | 'set' | 'exists';
 export type ColorVariantStatus = 'auto' | 'none' | 'single' | 'multiple';
 
@@ -40,7 +42,10 @@ export function useGenerateForm() {
   const [rawCategory, setRawCategory] = useState('');
   const [target, setTarget] = useState('');
   const [ageGroup, setAgeGroup] = useState<DetailPageAgeGroup>('age-8-plus');
-  const [detailImageCount, setDetailImageCount] = useState<DetailImageCount>('auto');
+  const [detailImageCount, setDetailImageCount] = useState<DetailImageCount>('2');
+  const [usageSectionMode, setUsageSectionMode] = useState<UsageSectionMode>('include');
+  const [kcCertificationStatus, setKcCertificationStatus] = useState<KcCertificationStatus>('unknown');
+  const [kcCertificationNumber, setKcCertificationNumber] = useState('');
   const [rawDescription, setRawDescription] = useState('');
   const [productSize, setProductSize] = useState('');
   const [boxSetStatus, setBoxSetStatus] = useState<BoxSetStatus>('auto');
@@ -131,6 +136,11 @@ export function useGenerateForm() {
       generationTarget ||= '부모 구매자';
       const ageGroupInstruction = buildAgeGroupInstruction(ageGroup);
       const detailImageCountInstruction = buildDetailImageCountInstruction(detailImageCount);
+      const usageSectionInstruction = buildUsageSectionInstruction(usageSectionMode);
+      const kcCertificationInstruction = buildKcCertificationInstruction(
+        kcCertificationStatus,
+        kcCertificationNumber,
+      );
       const boxSetInstruction = buildBoxSetInstruction(boxSetStatus, boxSetQuantity);
       const colorVariantInstruction = buildColorVariantInstruction(
         colorVariantStatus,
@@ -141,6 +151,8 @@ export function useGenerateForm() {
         productSize.trim() ? `제품 사이즈: ${productSize.trim()}` : '',
         ageGroupInstruction,
         detailImageCountInstruction,
+        usageSectionInstruction,
+        kcCertificationInstruction,
         colorVariantInstruction,
         boxSetInstruction,
       ].filter(Boolean).join('\n');
@@ -157,6 +169,8 @@ export function useGenerateForm() {
         `주요 타겟: ${generationTarget}`,
         ageGroupInstruction,
         detailImageCountInstruction,
+        usageSectionInstruction,
+        kcCertificationInstruction,
         productSize.trim() ? `제품 사이즈: ${productSize.trim()}` : '',
         colorVariantInstruction,
         boxSetInstruction,
@@ -174,6 +188,9 @@ export function useGenerateForm() {
         templateId: apiTemplateId,
         ageGroup,
         detailImageCount,
+        usageSectionMode,
+        kcCertificationStatus,
+        kcCertificationNumber: normalizeKcCertificationNumber(kcCertificationNumber),
       });
       toast.success('상세페이지 생성을 시작했습니다.', {
         description: '완료되면 알림에서 에디터로 이동할 수 있습니다.',
@@ -191,7 +208,10 @@ export function useGenerateForm() {
     setRawCategory('');
     setTarget('');
     setAgeGroup('age-8-plus');
-    setDetailImageCount('auto');
+    setDetailImageCount('2');
+    setUsageSectionMode('include');
+    setKcCertificationStatus('unknown');
+    setKcCertificationNumber('');
     setRawDescription('');
     setProductSize('');
     setBoxSetStatus('auto');
@@ -213,6 +233,12 @@ export function useGenerateForm() {
     setAgeGroup,
     detailImageCount,
     setDetailImageCount,
+    usageSectionMode,
+    setUsageSectionMode,
+    kcCertificationStatus,
+    setKcCertificationStatus,
+    kcCertificationNumber,
+    setKcCertificationNumber,
     rawDescription,
     setRawDescription,
     productSize,
@@ -259,16 +285,55 @@ function buildAgeGroupInstruction(ageGroup: DetailPageAgeGroup): string {
 }
 
 function buildDetailImageCountInstruction(detailImageCount: DetailImageCount): string {
-  if (detailImageCount === '1') {
-    return 'DETAIL 이미지 수: 1개';
+  return `DETAIL 이미지 수: ${detailImageCount}개`;
+}
+
+function buildUsageSectionInstruction(usageSectionMode: UsageSectionMode): string {
+  if (usageSectionMode === 'exclude') {
+    return [
+      '사용법 영역: 만들지 않음',
+      '상세페이지에 사용법 안내/사용 순서/튜토리얼 섹션을 만들지 마세요.',
+      'BoldVertical 출력에서는 usage.subtitle는 빈 문자열, usage.imageIndices는 빈 배열로 두세요.',
+      '사용법 전용 이미지는 생성하지 말고 DETAIL 본문 이미지만 구성하세요.',
+    ].join('\n');
   }
-  if (detailImageCount === '2') {
-    return 'DETAIL 이미지 수: 2개';
+
+  return [
+    '사용법 영역: 포함',
+    '실제 사용 흐름이 필요한 상품이면 사용법 안내 섹션을 만드세요.',
+    '사용법/설명서 이미지가 있으면 usage 영역에 분리하세요.',
+  ].join('\n');
+}
+
+function buildKcCertificationInstruction(
+  status: KcCertificationStatus,
+  number: string,
+): string {
+  const kcNumber = normalizeKcCertificationNumber(number);
+  if (status === 'none') {
+    return [
+      'KC 인증번호: 없음',
+      'KC 번호를 추정해서 만들지 마세요.',
+      '안전표시/KC/바코드 이미지가 있으면 제품정보 표를 만들지 말고 하단 이미지로 처리하세요.',
+    ].join('\n');
   }
-  if (detailImageCount === '3') {
-    return 'DETAIL 이미지 수: 3개';
+  if (status === 'exists') {
+    return [
+      kcNumber ? `KC 인증번호: ${kcNumber}` : 'KC 인증번호: 있음',
+      '안전표시/KC/바코드 이미지가 있으면 제품정보 표와 중복하지 마세요.',
+      kcNumber
+        ? '안전표시/KC/바코드 이미지가 없을 때 제품정보 표에 KC 인증번호 항목을 추가하세요.'
+        : '이미지나 원문에서 번호가 확인될 때만 제품정보 표에 KC 인증번호 항목을 추가하세요.',
+    ].join('\n');
   }
-  return 'DETAIL 이미지 수: 기본 2~3개';
+  return [
+    'KC 인증번호: AI가 원본 설명과 이미지로 판단',
+    '안전표시/KC/바코드 이미지가 있으면 제품정보 표와 중복하지 마세요.',
+  ].join('\n');
+}
+
+function normalizeKcCertificationNumber(value: string): string {
+  return value.trim().replace(/\s+/g, ' ').slice(0, 80);
 }
 
 function buildBoxSetInstruction(status: BoxSetStatus, quantity: string): string {

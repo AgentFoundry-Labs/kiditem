@@ -4,8 +4,14 @@ import { useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { getTemplate, placeholderDetailPageData } from '@kiditem/templates';
+import { toast } from 'sonner';
+import {
+  useAllGenerationsInProgress,
+  useKidsPlayfulGenerationCancel,
+} from '@/app/(media-ai)/generate/hooks/useKidsPlayfulGenerate';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
+import { cn } from '@/lib/utils';
 import MobilePreview from '../components/detail/MobilePreview';
 import ProductEditHeader from '../components/detail/ProductEditHeader';
 import ProductEditTabs, { type EditTabType } from '../components/detail/ProductEditTabs';
@@ -14,7 +20,6 @@ import ProductErrorView from './components/ProductErrorView';
 import ProductLoadingView from './components/ProductLoadingView';
 import ProductTabContent from './components/ProductTabContent';
 import { GenerationProgressBannerStack } from './components/GenerationProgressBanner';
-import { useAllGenerationsInProgress } from '@/app/(media-ai)/generate/hooks/useKidsPlayfulGenerate';
 import { useProductDetail } from './hooks/useProductDetail';
 import { PLACEHOLDER_DATA, type ProductEditState } from './lib/types';
 
@@ -48,6 +53,7 @@ export default function ProductDetailPage() {
   const editedHtml = fetchedData?.editedHtml ?? null;
   const templateCss = fetchedData?.templateCss ?? '';
   const inProgressEntries = useAllGenerationsInProgress(productId);
+  const cancelGeneration = useKidsPlayfulGenerationCancel();
   const loadError = queryError
     ? isApiError(queryError)
       ? queryError.detail
@@ -120,14 +126,27 @@ export default function ProductDetailPage() {
             totalCount: e.imageUrls?.length ?? 0,
             // detail 페이지는 product 단일이라 productName 생략 — 헤더에 이미 표시
           }))}
+          cancellingIds={
+            cancelGeneration.isPending && cancelGeneration.variables
+              ? new Set([cancelGeneration.variables])
+              : undefined
+          }
+          onCancel={(id) =>
+            cancelGeneration.mutate(id, {
+              onSuccess: () => toast.success('상세페이지 생성을 중단했습니다.'),
+              onError: (err) =>
+                toast.error(isApiError(err) ? err.detail : '생성 중단에 실패했습니다.'),
+            })
+          }
         />
       )}
 
       <div className="flex flex-1 overflow-hidden">
         <div
-          className={`flex flex-col overflow-hidden ${
-            usesWideContent ? 'w-full' : 'w-[72%] border-r border-slate-200'
-          }`}
+          className={cn(
+            'flex flex-col overflow-hidden',
+            usesWideContent ? 'w-full' : 'w-[72%] border-r border-slate-200',
+          )}
         >
           <ProductEditTabs activeTab={activeTab} onTabChange={setActiveTab} />
           <div className="flex-1 overflow-y-auto bg-slate-50">

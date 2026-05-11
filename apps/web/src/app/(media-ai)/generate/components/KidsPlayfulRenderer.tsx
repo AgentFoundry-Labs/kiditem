@@ -180,34 +180,36 @@ export default function KidsPlayfulRenderer({ data }: Props) {
         </section>
 
         {/* Section 3: Usage 200% */}
-        <section className="py-24 px-6 bg-white">
-          <div className="text-center mb-16 space-y-4">
-            <p className="text-xl font-bold text-gray-500">{data.section3.label}</p>
-            <h2 className="text-5xl font-black">{data.section3.headline}</h2>
-            <p className="text-2xl font-bold text-gray-800">{data.section3.subhead}</p>
-          </div>
+        {data.usageEnabled !== false && (
+          <section className="py-24 px-6 bg-white">
+            <div className="text-center mb-16 space-y-4">
+              <p className="text-xl font-bold text-gray-500">{data.section3.label}</p>
+              <h2 className="text-5xl font-black">{data.section3.headline}</h2>
+              <p className="text-2xl font-bold text-gray-800">{data.section3.subhead}</p>
+            </div>
 
-          <div className="space-y-12">
-            {data.section3.scenarios.map((s, i) => (
-              <div
-                key={i}
-                className="relative rounded-2xl overflow-hidden shadow-xl aspect-video group"
-              >
-                <Img
-                  src={s.imageUrl}
-                  alt={s.caption}
-                  className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
-                  fallbackHint={`scenario ${i + 1}`}
-                />
-                <div className="absolute inset-0 bg-black/30 flex items-end justify-center pb-8">
-                  <p className="text-white text-2xl font-bold drop-shadow-md text-center px-4">
-                    {s.caption}
-                  </p>
+            <div className="space-y-12">
+              {data.section3.scenarios.map((s, i) => (
+                <div
+                  key={i}
+                  className="relative rounded-2xl overflow-hidden shadow-xl aspect-video group"
+                >
+                  <Img
+                    src={s.imageUrl}
+                    alt={s.caption}
+                    className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                    fallbackHint={`scenario ${i + 1}`}
+                  />
+                  <div className="absolute inset-0 bg-black/30 flex items-end justify-center pb-8">
+                    <p className="text-white text-2xl font-bold drop-shadow-md text-center px-4">
+                      {s.caption}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </section>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* Section 4: Pain Points */}
         <section className="py-24 px-6 bg-gray-900">

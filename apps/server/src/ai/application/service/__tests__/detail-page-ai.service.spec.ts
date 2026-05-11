@@ -32,6 +32,16 @@ function makeAgentRunnerStub(
 ): AgentRunnerPort {
   return {
     runByType: vi.fn().mockResolvedValue(result),
+    executeRequest: vi.fn().mockResolvedValue({
+      executed: true,
+      requestId: result.requestId,
+      runId: 'agent-run',
+    }),
+    cancelBySource: vi.fn().mockResolvedValue({
+      ok: true,
+      cancelledRequests: 1,
+      skippedRequests: 0,
+    }),
   };
 }
 
@@ -198,6 +208,22 @@ function makePrisma() {
       findFirst: vi.fn().mockResolvedValue({ id: MASTER_ID }),
     },
     contentGeneration: {
+      findFirst: vi.fn().mockResolvedValue({
+        id: GENERATION_ID,
+        masterId: MASTER_ID,
+        originalImages: ['https://example.com/image.jpg'],
+        processedImages: {},
+        generatedTitle: '원본 상품명',
+        detailPageHtml: JSON.stringify({
+          templateId: 'bold-vertical',
+          result: {},
+          imageUrls: ['https://example.com/image.jpg'],
+          rawInput: { rawTitle: '원본 상품명' },
+        }),
+        status: 'PROCESSING',
+        errorMessage: null,
+        createdAt: new Date('2026-05-04T00:00:00.000Z'),
+      }),
       create: vi.fn().mockResolvedValue({
         id: GENERATION_ID,
         masterId: MASTER_ID,
@@ -264,6 +290,9 @@ describe('DetailPageAiService', () => {
         imageUrls: ['https://example.com/detail-1.jpg'],
         ageGroup: 'age-14-plus',
         detailImageCount: '2',
+        usageSectionMode: 'exclude',
+        kcCertificationStatus: 'exists',
+        kcCertificationNumber: 'CB061R1234-1001',
       },
       ORGANIZATION_ID,
       USER_ID,
@@ -296,10 +325,18 @@ describe('DetailPageAiService', () => {
             rawTitle: '휴대용목걸이비눗방울',
             ageGroup: 'age-14-plus',
             detailImageCount: '2',
+            usageSectionMode: 'exclude',
+            kcCertificationStatus: 'exists',
+            kcCertificationNumber: 'CB061R1234-1001',
           }),
         }),
       }),
     );
+    expect(agentRunner.executeRequest).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      requestId: REQUEST_ID,
+      workerId: 'detail-page-generate-inline',
+    });
 
     expect(operationAlerts.start).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -314,6 +351,83 @@ describe('DetailPageAiService', () => {
     expect(result.id).toBe(GENERATION_ID);
     expect(result.imageProcessingStatus).toBe('processing');
     expect(result.productId).toBe(MASTER_ID);
+  });
+
+  it('cancels a processing product-bound generation and closes its alert', async () => {
+    const prisma = makePrisma();
+    prisma.contentGeneration.findFirst
+      .mockResolvedValueOnce({
+        id: GENERATION_ID,
+        masterId: MASTER_ID,
+        originalImages: ['https://example.com/image.jpg'],
+        processedImages: {},
+        generatedTitle: '원본 상품명',
+        detailPageHtml: JSON.stringify({
+          templateId: 'bold-vertical',
+          result: {},
+          imageUrls: ['https://example.com/image.jpg'],
+          rawInput: { rawTitle: '원본 상품명' },
+        }),
+        status: 'PROCESSING',
+        errorMessage: null,
+        createdAt: new Date('2026-05-04T00:00:00.000Z'),
+      })
+      .mockResolvedValueOnce({
+        id: GENERATION_ID,
+        masterId: MASTER_ID,
+        originalImages: ['https://example.com/image.jpg'],
+        processedImages: {},
+        generatedTitle: '원본 상품명',
+        detailPageHtml: JSON.stringify({
+          templateId: 'bold-vertical',
+          result: {},
+          imageUrls: ['https://example.com/image.jpg'],
+          rawInput: { rawTitle: '원본 상품명' },
+        }),
+        status: 'CANCELLED',
+        errorMessage: '사용자 요청으로 생성이 중단되었습니다.',
+        createdAt: new Date('2026-05-04T00:00:00.000Z'),
+      });
+    const operationAlerts = makeOperationAlertsStub();
+    const agentRunner = makeAgentRunnerStub();
+    const service = makeService(
+      prisma,
+      { complete: vi.fn() },
+      { save: vi.fn() },
+      operationAlerts,
+      undefined,
+      agentRunner,
+    );
+
+    const result = await service.cancel(GENERATION_ID, ORGANIZATION_ID);
+
+    expect(prisma.contentGeneration.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: GENERATION_ID,
+        organizationId: ORGANIZATION_ID,
+        status: { in: ['PENDING', 'PROCESSING', 'generating', 'pending', 'processing'] },
+      },
+      data: {
+        status: 'CANCELLED',
+        errorMessage: '사용자 요청으로 생성이 중단되었습니다.',
+      },
+    });
+    expect(agentRunner.cancelBySource).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      sourceType: 'ai.detail_page_generate',
+      sourceResourceType: 'content_generation',
+      sourceResourceId: GENERATION_ID,
+      reason: '사용자 요청으로 생성이 중단되었습니다.',
+    });
+    expect(operationAlerts.cancel).toHaveBeenCalledWith(
+      ORGANIZATION_ID,
+      `detail-page:${GENERATION_ID}`,
+      expect.objectContaining({
+        message: '사용자 요청으로 생성이 중단되었습니다.',
+        metadata: { errorCode: 'user_cancelled' },
+      }),
+    );
+    expect(result.imageProcessingStatus).toBe('cancelled');
   });
 
   it('passes 14+ audience guidance into detail-page text prompts', async () => {
@@ -333,7 +447,7 @@ describe('DetailPageAiService', () => {
       makeOperationAlertsStub(),
     );
 
-    await service.generate(
+    const result = await service.generate(
       {
         templateId: 'bold-vertical',
         rawTitle: '학생용 말랑이',
@@ -347,6 +461,7 @@ describe('DetailPageAiService', () => {
         ],
         ageGroup: 'age-14-plus',
         detailImageCount: '2',
+        usageSectionMode: 'exclude',
       },
       ORGANIZATION_ID,
       USER_ID,
@@ -357,6 +472,65 @@ describe('DetailPageAiService', () => {
     expect(call.user).toContain('사용 연령 기준: 14세 이상 상품');
     expect(call.user).toContain('중고등학생·청소년');
     expect(call.user).toContain('DETAIL 본문 이미지 수: 2개');
+    expect(call.user).toContain('사용법 영역: 만들지 않음');
+    expect(result.result).toMatchObject({
+      usageEnabled: false,
+      usage: { subtitle: '', imageIndices: [] },
+    });
+  });
+
+  it('skips generated usage guide images when the usage section is excluded', async () => {
+    const prisma = makePrisma();
+    const textCompletion = {
+      complete: vi.fn().mockResolvedValue({
+        text: JSON.stringify({
+          ...boldVerticalResult(),
+          detailImageIndices: [0],
+        }),
+      }),
+    };
+    const imageStorage = {
+      save: vi.fn(),
+    };
+    const heroImageService = {
+      inferPackageImagePositions: vi.fn().mockResolvedValue([]),
+      generateHeroBanner: vi.fn().mockResolvedValue('https://cdn.example.com/generated-hero.png'),
+      generateSizeGuideImage: vi.fn().mockResolvedValue('https://cdn.example.com/generated-size.png'),
+      generateUsageGuideImage: vi.fn().mockResolvedValue('https://cdn.example.com/generated-usage.png'),
+    };
+    const service = makeService(
+      prisma,
+      textCompletion,
+      imageStorage,
+      makeOperationAlertsStub(),
+      heroImageService,
+    );
+
+    const result = await service.generate(
+      {
+        templateId: 'bold-vertical',
+        rawTitle: '학생용 말랑이',
+        rawCategory: '완구',
+        rawDescription: '중고등학생 취미용 말랑이',
+        rawOptions: '색상 구성: 없음',
+        imageUrls: [
+          'https://example.com/product-main.jpg',
+          'https://example.com/detail-1.jpg',
+          'https://example.com/detail-2.jpg',
+        ],
+        detailImageCount: '2',
+        usageSectionMode: 'exclude',
+      },
+      ORGANIZATION_ID,
+      USER_ID,
+    );
+
+    expect(result.result).toMatchObject({
+      usageEnabled: false,
+      usage: { subtitle: '', imageIndices: [] },
+    });
+    expect(result.processedImages).not.toHaveProperty('__usageGuideImage1');
+    expect(heroImageService.generateUsageGuideImage).not.toHaveBeenCalled();
   });
 
   it('keeps explicit package images separate from detail images', async () => {
@@ -435,12 +609,61 @@ describe('DetailPageAiService', () => {
           'https://example.com/product.jpg',
           'https://example.com/detail-page-inputs/org/safety-label-kc.jpg',
         ],
+        kcCertificationStatus: 'exists',
+        kcCertificationNumber: 'CB061R1234-1001',
       },
       ORGANIZATION_ID,
       USER_ID,
     );
 
     expect((result.result as ReturnType<typeof boldVerticalResult>).productInfo).toEqual([]);
+  });
+
+  it('adds KC certification number to productInfo when no safety label image exists', async () => {
+    const prisma = makePrisma();
+    const textCompletion = {
+      complete: vi.fn().mockResolvedValue({
+        text: JSON.stringify(boldVerticalResult()),
+      }),
+    };
+    const imageStorage = {
+      save: vi.fn(),
+    };
+    const service = makeService(
+      prisma,
+      textCompletion,
+      imageStorage,
+      makeOperationAlertsStub(),
+    );
+
+    const result = await service.generate(
+      {
+        templateId: 'bold-vertical',
+        rawTitle: '학생용 말랑이',
+        rawCategory: '완구',
+        rawDescription: '중고등학생 취미용 말랑이',
+        rawOptions: '색상 구성: 없음',
+        imageUrls: [
+          'https://example.com/product-main.jpg',
+          'https://example.com/detail-1.jpg',
+        ],
+        kcCertificationStatus: 'exists',
+        kcCertificationNumber: 'CB061R1234-1001',
+      },
+      ORGANIZATION_ID,
+      USER_ID,
+    );
+
+    const parsed = result.result as ReturnType<typeof boldVerticalResult>;
+    expect(parsed.productInfo).toContainEqual({
+      key: 'KC 인증번호',
+      value: 'CB061R1234-1001',
+    });
+    expect(textCompletion.complete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user: expect.stringContaining('KC 인증번호: CB061R1234-1001'),
+      }),
+    );
   });
 
   it('does not create package section when direct generator marks box set as absent', async () => {
@@ -643,6 +866,7 @@ describe('DetailPageAiService', () => {
       where: { id: GENERATION_ID, organizationId: ORGANIZATION_ID },
       data: expect.objectContaining({ status: 'FAILED' }),
     });
+    expect(agentRunner.executeRequest).not.toHaveBeenCalled();
     expect(operationAlerts.fail).toHaveBeenCalledWith(
       ORGANIZATION_ID,
       `detail-page:${GENERATION_ID}`,

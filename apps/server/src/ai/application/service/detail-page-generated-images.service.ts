@@ -18,7 +18,14 @@ const GENERATED_HERO_BANNER_KEY = '__heroBanner';
 const GENERATED_SIZE_GUIDE_IMAGE_KEY = '__sizeGuideImage';
 const GENERATED_COLOR_GUIDE_IMAGE_KEY = '__colorGuideImage';
 const GENERATED_USAGE_IMAGE_KEYS = ['__usageGuideImage1', '__usageGuideImage2', '__usageGuideImage3'] as const;
-const GENERATED_DETAIL_IMAGE_KEYS = ['__detailImage1', '__detailImage2', '__detailImage3'] as const;
+const GENERATED_DETAIL_IMAGE_KEYS = [
+  '__detailImage1',
+  '__detailImage2',
+  '__detailImage3',
+  '__detailImage4',
+  '__detailImage5',
+  '__detailImage6',
+] as const;
 const MAX_GENERATED_USAGE_IMAGES = 1;
 const MAX_GENERATED_DETAIL_IMAGES = 1;
 
@@ -134,11 +141,13 @@ export class DetailPageGeneratedImagesService {
       }
     }
 
-    const usageSteps = normalizeUsageGuide(parsed.usage?.subtitle ?? '', input.rawInput)
-      .split('\n')
-      .map((step) => step.trim())
-      .filter(Boolean)
-      .slice(0, GENERATED_USAGE_IMAGE_KEYS.length);
+    const usageSteps = parsed.usageEnabled === false || input.rawInput.usageSectionMode === 'exclude'
+      ? []
+      : normalizeUsageGuide(parsed.usage?.subtitle ?? '', input.rawInput)
+          .split('\n')
+          .map((step) => step.trim())
+          .filter(Boolean)
+          .slice(0, GENERATED_USAGE_IMAGE_KEYS.length);
     if (usageSteps.length > 0) {
       for (const [index, key] of GENERATED_USAGE_IMAGE_KEYS.slice(0, MAX_GENERATED_USAGE_IMAGES).entries()) {
         const usageStep = usageSteps[index];
@@ -218,24 +227,26 @@ export class DetailPageGeneratedImagesService {
     );
     if (sourceImages.length === 0) return;
 
-    for (const [index, key] of GENERATED_USAGE_IMAGE_KEYS.slice(0, MAX_GENERATED_USAGE_IMAGES).entries()) {
-      const scenario = parsed.section3.scenarios[index];
-      if (!scenario || scenario.imageIndex !== null || processedImages[key]) continue;
-      try {
-        const url = await this.heroImageService.generateUsageGuideImage({
-          organizationId: input.organizationId,
-          productName: input.rawInput.rawTitle,
-          category: input.rawInput.rawCategory,
-          description: input.rawInput.rawDescription,
-          options: input.rawInput.rawOptions,
-          ageGroup: input.rawInput.ageGroup,
-          imageUrls: sourceImages,
-          usageStep: scenario.caption,
-          variant: index + 1,
-        });
-        if (url) processedImages[key] = url;
-      } catch {
-        // Generated usage images are best-effort; the section can still show text.
+    if (input.rawInput.usageSectionMode !== 'exclude') {
+      for (const [index, key] of GENERATED_USAGE_IMAGE_KEYS.slice(0, MAX_GENERATED_USAGE_IMAGES).entries()) {
+        const scenario = parsed.section3.scenarios[index];
+        if (!scenario || scenario.imageIndex !== null || processedImages[key]) continue;
+        try {
+          const url = await this.heroImageService.generateUsageGuideImage({
+            organizationId: input.organizationId,
+            productName: input.rawInput.rawTitle,
+            category: input.rawInput.rawCategory,
+            description: input.rawInput.rawDescription,
+            options: input.rawInput.rawOptions,
+            ageGroup: input.rawInput.ageGroup,
+            imageUrls: sourceImages,
+            usageStep: scenario.caption,
+            variant: index + 1,
+          });
+          if (url) processedImages[key] = url;
+        } catch {
+          // Generated usage images are best-effort; the section can still show text.
+        }
       }
     }
 
