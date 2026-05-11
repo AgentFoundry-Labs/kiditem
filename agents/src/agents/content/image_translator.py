@@ -13,7 +13,7 @@ import structlog
 from PIL import Image, ImageDraw, ImageFont
 
 from src.agents.content.paths import FONTS_DIR, IMAGES_DIR
-from src.config import AI_IMAGE_ANALYSIS_MODEL, AI_TEXT_MODEL
+from src.config import AI_TEXT_MODEL
 from src.core.ai_client import AIClient
 
 logger = structlog.get_logger()
@@ -29,32 +29,6 @@ TRANSLATION_PROMPT = (
     "Keep numbers, units, symbols as-is.\n\n"
     "{texts}"
 )
-
-_VISION_DETECT_PROMPT = """\
-Analyze this image and find ONLY Chinese text regions. Ignore English, Korean, numbers-only, and symbols.
-
-For each Chinese text region, return:
-- bbox: [x_min, y_min, x_max, y_max] in pixel coordinates
-- text: the original Chinese text
-- translation: natural, concise Korean translation
-- text_color: [R, G, B] dominant text color
-- bg_color: [R, G, B] background color behind the text
-- font_weight: "bold" or "normal"
-- font_size_px: estimated font size in pixels
-- align: "left", "center", or "right"
-
-Return JSON only (no markdown):
-{"regions": [
-  {"bbox": [100, 200, 400, 250], "text": "原文", "translation": "번역", "text_color": [255, 255, 255], "bg_color": [0, 0, 0], "font_weight": "bold", "font_size_px": 32, "align": "center"}
-]}
-
-If no Chinese text is found, return: {"regions": []}
-
-CRITICAL RULES:
-- Return raw JSON only. No markdown, no ```json blocks, no explanation.
-- Do NOT skip ANY Chinese text — large titles, small captions, watermarks, ALL of them.
-- bbox coordinates must be accurate pixel positions matching the actual text boundaries.
-- Include ALL Chinese text regions even if they overlap with product images."""
 
 _CJK_RE = re.compile(
     r"[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff\U00020000-\U0002a6df"
@@ -89,11 +63,8 @@ class ImageTranslator:
         IMAGES_DIR.mkdir(parents=True, exist_ok=True)
         FONTS_DIR.mkdir(parents=True, exist_ok=True)
         self._ai = AIClient()
-        if not AI_IMAGE_ANALYSIS_MODEL:
-            raise ValueError("AI_IMAGE_ANALYSIS_MODEL is required")
         if not AI_TEXT_MODEL:
             raise ValueError("AI_TEXT_MODEL is required")
-        self._vision_model = AI_IMAGE_ANALYSIS_MODEL
         self._text_model = AI_TEXT_MODEL
         self._ocr_engine: object | None = None
 
@@ -374,130 +345,6 @@ class ImageTranslator:
             bbox = draw.textbbox((0, 0), line, font=font)
             total += int(bbox[3] - bbox[1]) + 2
         return total
-
-    async def _detect_and_translate_via_vision(
-        self,
-        image_bytes: bytes,
-    ) -> tuple[list[TextRegion], list[str]]:
-        import json as _json
-
-        raw = await self._ai.analyze_image(
-            image_bytes=image_bytes,
-            prompt=_VISION_DETECT_PROMPT,
-            model=self._vision_model,
-        )
-
-        cleaned = raw.strip()
-        if cleaned.startswith("```"):
-            cleaned = cleaned.split("\n", 1)[-1]
-            if cleaned.endswith("```"):
-                cleaned = cleaned[:-3]
-            cleaned = cleaned.strip()
-
-        try:
-            data = _json.loads(cleaned)
-        except _json.JSONDecodeError:
-            logger.warning("Vision detect returned non-JSON", raw_response=raw[:200])
-            return [], []
-
-        regions: list[TextRegion] = []
-        translations: list[str] = []
-        for r in data.get("regions", []):
-            bbox = r.get("bbox", [0, 0, 0, 0])
-            x_min, y_min, x_max, y_max = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
-            width = x_max - x_min
-            height = y_max - y_min
-            if width < 5 or height < 5:
-                continue
-
-            tc = r.get("text_color", [255, 255, 255])
-            bc = r.get("bg_color", [0, 0, 0])
-
-            font_size_px = r.get("font_size_px") or int(height * 0.75)
-
-            regions.append(
-                TextRegion(
-                    bbox=[[x_min, y_min], [x_max, y_min], [x_max, y_max], [x_min, y_max]],
-                    text=r.get("text", ""),
-                    confidence=1.0,
-                    x=x_min,
-                    y=y_min,
-                    width=width,
-                    height=height,
-                    font_size=int(font_size_px),
-                    text_color=(int(tc[0]), int(tc[1]), int(tc[2])),
-                    bg_color=(int(bc[0]), int(bc[1]), int(bc[2])),
-                    font_weight=r.get("font_weight", "normal"),
-                    align=r.get("align", "center"),
-                )
-            )
-            translations.append(r.get("translation", r.get("text", "")))
-
-        logger.info("Vision API detected text regions", region_count=len(regions))
-        return regions, translations
-
-    async def _render_text_html(
-        self,
-        width: int,
-        height: int,
-        regions: list[TextRegion],
-        translations: list[str],
-    ) -> bytes:
-        from playwright.async_api import async_playwright
-
-        divs: list[str] = []
-        for region, text in zip(regions, translations):
-            r, g, b = region.text_color
-            justify = (
-                "center"
-                if region.align == "center"
-                else "flex-start"
-                if region.align == "left"
-                else "flex-end"
-            )
-            style = (
-                f"position:absolute;"
-                f"left:{region.x}px;top:{region.y}px;"
-                f"width:{region.width}px;height:{region.height}px;"
-                f"font-size:{region.font_size}px;"
-                f"font-weight:{region.font_weight};"
-                f"color:rgb({r},{g},{b});"
-                f"text-align:{region.align};"
-                f"display:flex;align-items:center;"
-                f"justify-content:{justify};"
-                f"line-height:1.2;"
-                f"font-family:'Noto Sans KR',sans-serif;"
-                f"overflow:hidden;word-break:keep-all;"
-            )
-            escaped = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            divs.append(f'<div style="{style}">{escaped}</div>')
-
-        html = f"""\
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap');
-body {{ margin:0; padding:0; width:{width}px; height:{height}px; position:relative; background:transparent; }}
-</style>
-</head>
-<body>
-{"".join(divs)}
-</body>
-</html>"""
-
-        async with async_playwright() as p:
-            browser = await p.chromium.launch()
-            page = await browser.new_page(
-                viewport={"width": width, "height": height},
-                device_scale_factor=1,
-            )
-            await page.set_content(html, wait_until="networkidle")
-            png_bytes = await page.screenshot(type="png", omit_background=True)
-            await browser.close()
-
-        return png_bytes
 
     async def remove_chinese_text(self, image_source: str) -> str:
         import cv2
