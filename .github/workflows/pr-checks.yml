@@ -11,16 +11,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  convention-and-build:
-    name: Convention and build gates
+  review-guardrails:
+    name: PR review guardrails
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: read
-    env:
-      DATABASE_URL: postgresql://kiditem:kiditem@localhost:5432/kiditem
-      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
-      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_dummy
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -29,20 +25,6 @@ jobs:
 
       - name: Install system tools
         run: sudo apt-get update && sudo apt-get install -y ripgrep
-
-      - name: Install dependencies
-        run: |
-          set -euo pipefail
-          npm ci --ignore-scripts \
-            --fetch-timeout=600000 \
-            --fetch-retries=5 \
-            --fetch-retry-mintimeout=20000 \
-            --fetch-retry-maxtimeout=120000 \
-            --no-audit \
-            --no-fund
-
-      - name: Generate Prisma client
-        run: npm run db:generate
 
       - name: Diff sanity
         run: git diff --check "origin/${GITHUB_BASE_REF}...HEAD"
@@ -53,14 +35,5 @@ jobs:
       - name: Convention scanners
         run: npm run check:conventions
 
-      - name: Script helper tests
-        run: npm run test:scripts
-
-      - name: Build shared package
-        run: npm run build --workspace=packages/shared
-
-      - name: Build server
-        run: npm run build --workspace=apps/server
-
-      - name: Build web
-        run: npm run build --workspace=apps/web
+      - name: Script guardrail tests
+        run: node --test scripts/__tests__/*.test.mjs

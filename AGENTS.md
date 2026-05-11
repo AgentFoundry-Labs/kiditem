@@ -94,6 +94,10 @@ env 파일 (`.env`, `apps/web/.env.local`) 동기화 + `npm install` + dev previ
 - PR body 는 `.github/PULL_REQUEST_TEMPLATE.md` 체크리스트 포함. DB 변경/backfill/개발 데이터 bundle 변경 여부 명시.
 - `gh pr create` pre-hook 이 컨벤션 + 문서 업데이트 체크리스트 자동 실행.
 - Instruction file (`AGENTS.md` / `CLAUDE.md`) 를 수정한 PR 은 팀에 공유.
+- PR Checks CI 는 reviewer guardrail 이다. 구조/컨벤션 drift 와
+  reconstruction trigger 누락을 감지하는 용도이며, 변경 종류별 build/test
+  verification 을 대체하지 않는다. 작성자는 PR body 에 실제 실행한 검증
+  명령을 별도로 기록한다.
 - Review 는 diff correctness 만 보지 않는다. reviewer 는 PR 본문과 가장 구체적인
   `AGENTS.md` 를 대조해 scope / reconstruction trigger / verification gate 가
   맞는지 먼저 판정한다. Trigger 가 있는데도 PR 이 "단순 기능" 으로 축소돼 있으면
