@@ -92,7 +92,7 @@ reconstruction trigger; do not grow the flat service in place.
 - When a service is split into sub-services, move overlapping facade spec
   cases to the relevant sub-service spec in the same PR. The remaining facade
   spec should be minimal — composition / dispatch only — per
-  [docs/TESTING.md](../../docs/TESTING.md) `기존 테스트 정리 기준`.
+  [docs/TESTING.md `기존 테스트 정리 기준`](../../docs/TESTING.md#기존-테스트-정리-기준).
 - Review triggers: 10+ files, cross-layer controls, or LLM/provider/media/
   storage/fetch/runtime/sink/reconcile changes need explicit contract/test/gate
   classification before approval.
