@@ -46,6 +46,9 @@ import { CoupangImageSyncService } from './application/service/coupang-image-syn
 import { DetailPageHeroImageService } from './application/service/detail-page-hero-image.service';
 import { DetailPageGeneratedImagesService } from './application/service/detail-page-generated-images.service';
 import { DetailPageAiService } from './application/service/detail-page-ai.service';
+import { DetailPageGenerationService } from './application/service/detail-page-generation.service';
+import { DetailPagePrefillService } from './application/service/detail-page-prefill.service';
+import { DetailPageQueryService } from './application/service/detail-page-query.service';
 import { DetailPageResultRefinerService } from './application/service/detail-page-result-refiner.service';
 import { ThumbnailComplianceVerifierService } from './application/service/thumbnail-compliance-verifier.service';
 import { ThumbnailEditorAiService } from './application/service/thumbnail-editor-ai.service';
@@ -87,9 +90,12 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     ImageAiService,
     CoupangImageSyncService,
     DetailPageAiService,
+    DetailPageGenerationService,
     DetailPageAgentReconcileService,
     DetailPageGeneratedImagesService,
     DetailPageHeroImageService,
+    DetailPagePrefillService,
+    DetailPageQueryService,
     DetailPageResultRefinerService,
     TextAiService,
     ThumbnailAgentReconcileService,

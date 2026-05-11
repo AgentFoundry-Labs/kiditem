@@ -33,7 +33,10 @@ import { AGENT_RUN_EVENTS } from '../../agent-os/application/event/agent-run-eve
 import { DetailPageAiService } from '../application/service/detail-page-ai.service';
 import { DetailPageAgentReconcileService } from '../application/service/detail-page-agent-reconcile.service';
 import { DetailPageAgentOutputBridge } from '../application/service/detail-page-agent-output.bridge';
+import { DetailPageGenerationService } from '../application/service/detail-page-generation.service';
 import { DetailPageGeneratedImagesService } from '../application/service/detail-page-generated-images.service';
+import { DetailPagePrefillService } from '../application/service/detail-page-prefill.service';
+import { DetailPageQueryService } from '../application/service/detail-page-query.service';
 import { DetailPageResultRefinerService } from '../application/service/detail-page-result-refiner.service';
 import { DetailPageContentGenerationSinkAdapter } from '../adapter/out/agent-output/detail-page-content-generation-sink.adapter';
 import type { AgentRunnerPort } from '../../agent-os/application/port/in/agent-runner.port';
@@ -182,15 +185,20 @@ beforeAll(async () => {
   // Stub TextCompletionPort + ImageStoragePort — DetailPageAiService only
   // uses them on the standalone path, which we never exercise here. The
   // enqueue path only touches Prisma + agentRunner + alerts + refiner.
-  aiService = new DetailPageAiService(
+  const textCompletion = { complete: async () => ({ text: '{}' }) };
+  const query = new DetailPageQueryService(prisma as never, refiner);
+  const generation = new DetailPageGenerationService(
     prisma as never,
-    { complete: async () => ({ text: '{}' }) },
+    textCompletion,
     { save: async () => '' },
     alerts as never,
     refiner,
     generatedImages,
+    query,
     coordinator as unknown as AgentRunnerPort,
   );
+  const prefill = new DetailPagePrefillService(textCompletion);
+  aiService = new DetailPageAiService(generation, prefill, query);
 
   const observability = new AgentObservabilityService(repo);
   reconcile = new DetailPageAgentReconcileService(

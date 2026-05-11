@@ -31,8 +31,9 @@ ai/
 │   ├── port/
 │   │   └── out/         # text-completion/detail-page-media/image-fetch/image-storage/
 │   │                    # wing-automation ports
-│   └── service/         # 11 orchestration services
-│                        # (image-ai, text-ai, thumbnail-analysis, thumbnail-auto,
+│   └── service/         # orchestration services
+│                        # (detail-page facade/generation/prefill/query,
+│                        #  image-ai, text-ai, thumbnail-analysis, thumbnail-auto,
 │                        #  thumbnail-compliance-verifier, thumbnail-editor-ai,
 │                        #  thumbnail-generation, thumbnail-recompose,
 │                        #  thumbnail-tracking, thumbnail-vision-ai, thumbnail-wing)
@@ -40,6 +41,7 @@ ai/
 │   ├── model/           # thumbnail-editor (input/candidate/role 타입)
 │   ├── prompts/         # thumbnail-prompts, -prompt-scenarios,
 │   │                    # -recompose-prompts, -layout-presets (pure prompt builders)
+│   ├── detail-page-media-prompts.ts       # detail-page media prompt builders (pure)
 │   ├── recompose-classification.ts
 │   ├── thumbnail-compliance-normalizer.ts
 │   ├── thumbnail-generation-inputs.ts
@@ -93,7 +95,7 @@ ai/
 
 ### 6. Text 호출 — 포트로 캡슐화
 
-Gemini text generation 호출은 `TEXT_COMPLETION_PORT` 한 곳에 모인다. `text-ai.service` (preset 변환) 와 `detail-page-ai.service` (kids-playful / bold-vertical 상세페이지 single-call generation) 가 모두 이 port 만 의존하므로 application layer 는 HTTP / API key / Gemini URL 을 알지 않는다. Adapter (`adapter/out/gemini/gemini-text-completion.adapter.ts`) 는 system/user/temperature/responseMimeType/model 을 받아 `generateContent` 엔드포인트를 호출한다. caller 는 `model` 을 항상 명시적으로 ENV 에서 읽어 전달 (silent fallback 금지).
+Gemini text generation 호출은 `TEXT_COMPLETION_PORT` 한 곳에 모인다. `text-ai.service` (preset 변환), `detail-page-prefill.service` (폼 초안), `detail-page-generation.service` (standalone kids-playful / bold-vertical single-call generation) 가 모두 이 port 만 의존하므로 application layer 는 HTTP / API key / Gemini URL 을 알지 않는다. Adapter (`adapter/out/gemini/gemini-text-completion.adapter.ts`) 는 system/user/temperature/responseMimeType/model 을 받아 `generateContent` 엔드포인트를 호출한다. caller 는 `model` 을 항상 명시적으로 ENV 에서 읽어 전달 (silent fallback 금지).
 
 ### 6-bis. Detail-page media 호출 — 포트로 캡슐화
 
@@ -104,6 +106,8 @@ Gemini model ENV / response envelope parsing 은
 `adapter/out/gemini/detail-page-gemini-media.adapter.ts` 가 담당한다.
 원본 이미지 fetch 는 `IMAGE_FETCH_PORT`, 결과 저장은 `IMAGE_STORAGE_PORT`
 를 통해서만 수행한다.
+상세페이지 media prompt 문구와 audience/size-guide orientation 규칙은
+`domain/detail-page-media-prompts.ts` 의 순수 함수에 둔다.
 
 규칙:
 
@@ -113,15 +117,22 @@ Gemini model ENV / response envelope parsing 은
 - 상세페이지용 새 image/vision call shape 은 먼저
   `application/port/out/detail-page-media.port.ts` 계약으로 표현하고,
   Gemini 구현은 `detail-page-gemini-media.adapter.ts` 에 추가한다.
+- 상세페이지 media prompt 문구를 바꿀 때는
+  `domain/__tests__/detail-page-media-prompts.spec.ts` 를 같이 갱신한다.
 
 ### 7. Detail page generation — Agent OS async (product-bound) + sync standalone fallback
+
+`DetailPageAiService` 는 HTTP controller 호환용 facade 다. 새 상세페이지
+application 로직은 `DetailPageGenerationService` (generate/upload),
+`DetailPagePrefillService` (prefill), `DetailPageQueryService`
+(list/get/remove + DTO mapping) 중 책임에 맞는 곳에 둔다.
 
 상세페이지 생성은 두 갈래다:
 
 | 진입점 | 모드 | 호출 경로 | 결과 저장 | 사용처 |
 |---|---|---|---|---|
-| `POST /api/ai/detail-page/generate` (`productId` 포함) | **async — Agent OS** | `DetailPageAiService.generate` → `AGENT_RUNNER_PORT.runByType('detail_page_generate')` → runtime handler → bridge → sink | `ContentGeneration` row (`PROCESSING` → `READY`/`FAILED`) | media-ai generate 페이지 (실 사용 경로) |
-| `POST /api/ai/detail-page/generate` (`productId` 없음) | **sync (transitional)** | `DetailPageAiService.generate` → `TEXT_COMPLETION_PORT` 직접 | DB 기록 없음 | 테스트 / 외부 통합 — 프론트는 항상 productId 동반 |
+| `POST /api/ai/detail-page/generate` (`productId` 포함) | **async — Agent OS** | `DetailPageAiService` facade → `DetailPageGenerationService.generate` → `AGENT_RUNNER_PORT.runByType('detail_page_generate')` → runtime handler → bridge → sink | `ContentGeneration` row (`PROCESSING` → `READY`/`FAILED`) | media-ai generate 페이지 (실 사용 경로) |
+| `POST /api/ai/detail-page/generate` (`productId` 없음) | **sync (transitional)** | `DetailPageAiService` facade → `DetailPageGenerationService.generate` → `TEXT_COMPLETION_PORT` 직접 | DB 기록 없음 | 테스트 / 외부 통합 — 프론트는 항상 productId 동반 |
 | `POST /api/sourcing/:id/generate` | **disabled** | `SourcingService.generateDetailPage` → `NotImplementedException` | 없음 | candidate → master promotion model 도입 전까지 사용 금지 |
 | `POST /api/ai/detail-page/reconcile-stuck` | admin (owner/admin) | `DetailPageAgentReconcileService.reconcile` → terminal `AgentRunRequest` 재생 → sink replay | `ContentGeneration` 재시도 적용 | listener 누락/프로세스 재시작 후 stuck `PROCESSING` 회복 |
 
@@ -142,7 +153,7 @@ Gemini model ENV / response envelope parsing 은
   kids-playful 의 package/safety 인덱스를 `DetailPageResultRefinerService.prepareKidsPlayfulImageContext`
   로 직접 inference 한다 (Gemini Vision). 즉 한 번의 generation 에서
   발생하는 모든 generative 호출이 Agent OS executor 가 회계하는 한
-  AgentRun 안에 머문다 — producer side(`DetailPageAiService.generate`) 는
+  AgentRun 안에 머문다 — producer side(`DetailPageGenerationService.generate`) 는
   Prisma + alert 만 다룬다. Producer 가 payload 에 미리 계산된
   `reservedPackageImageIndices` / `safetyLabelImageIndices` 를 주면 handler
   는 그 값을 사용하고 vision 호출을 생략한다 (테스트 / reconcile replay 용 hook).
