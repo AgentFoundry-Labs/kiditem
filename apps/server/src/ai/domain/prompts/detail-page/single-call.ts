@@ -7,8 +7,8 @@
  * - 단점: 출력 토큰 ~3K. Flash max 8K 안에 들어오지만 잘리지 않게 schema
  *   설명을 압축해야 함.
  *
- * 품질 안 나오면 11-call (또는 phase 별 chunked) 로 폴백 가능. 그때는
- * section-01 ~ section-11 각 모듈을 wiring 하면 됨.
+ * section-01 ~ section-11 모듈은 현재 1-call 응답 검증용 schema 만 제공한다.
+ * 이전 11-call 프롬프트/오케스트레이터 후보는 실제 호출 경로가 없어 제거했다.
  */
 import { z } from 'zod';
 import { Section1Schema, type HeroImageMode } from './section-01-hero';
