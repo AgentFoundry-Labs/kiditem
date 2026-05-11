@@ -33,6 +33,7 @@ import { AgentOsRuntimeError } from '../../agent-os/domain/agent-os.errors';
 import { AGENT_RUN_EVENTS } from '../../agent-os/application/event/agent-run-events';
 import { ThumbnailAgentOutputBridge } from '../application/service/thumbnail-agent-output.bridge';
 import { ThumbnailAgentReconcileService } from '../application/service/thumbnail-agent-reconcile.service';
+import { ThumbnailGenerationJobService } from '../application/service/thumbnail-generation-job.service';
 import { ThumbnailGenerationService } from '../application/service/thumbnail-generation.service';
 import { ThumbnailGenerationSinkAdapter } from '../adapter/out/agent-output/thumbnail-generation-sink.adapter';
 import type { AgentRunnerPort } from '../../agent-os/application/port/in/agent-runner.port';
@@ -170,17 +171,21 @@ beforeAll(async () => {
     void bridge.onAgentRunFinalized(event);
   });
 
-  // ThumbnailGenerationService needs many dependencies but for the
-  // enqueue path we only exercise:
-  //   prisma, operationAlerts (fake), agentRunner (coordinator).
-  // The other ports are stubbed because the test only calls
-  // `enqueueEditorGeneration` which doesn't reach into them.
-  generationService = new ThumbnailGenerationService(
+  // The enqueue path exercises the facade plus its explicit job orchestrator:
+  // prisma, operationAlerts (fake), and agentRunner (coordinator). Editor AI
+  // remains stubbed because `enqueueEditorGeneration` does not reach into it.
+  const generationJobs = new ThumbnailGenerationJobService(
     prisma as never,
-    {} as never, // editorAiService — unused here
-    {} as never, // trackingService — unused here
+    {} as never,
     alerts as never,
     coordinator as unknown as AgentRunnerPort,
+    null,
+  );
+  generationService = new ThumbnailGenerationService(
+    prisma as never,
+    {} as never, // trackingService — unused here
+    alerts as never,
+    generationJobs,
     null,
   );
 

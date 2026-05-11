@@ -29,13 +29,23 @@ function parseArgs(argv) {
 function readPrBody({ body, bodyFile, event }) {
   if (body) return body;
   const file = bodyFile || event || process.env.GITHUB_EVENT_PATH;
-  if (!file || !existsSync(file)) return '';
-  const raw = readFileSync(file, 'utf8');
+  if (file && existsSync(file)) {
+    const raw = readFileSync(file, 'utf8');
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed.pull_request?.body || parsed.body || '';
+    } catch {
+      return raw;
+    }
+  }
+
   try {
-    const parsed = JSON.parse(raw);
-    return parsed.pull_request?.body || parsed.body || '';
+    return execFileSync('gh', ['pr', 'view', '--json', 'body', '--jq', '.body'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
   } catch {
-    return raw;
+    return '';
   }
 }
 

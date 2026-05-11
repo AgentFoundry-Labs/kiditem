@@ -38,6 +38,7 @@ vi.mock('../../../adapter/out/prisma/thumbnail-generation.persistence', () => ({
   lockGenerationForProcessing: vi.fn(),
   markGenerationCancelled: vi.fn(),
   markGenerationFailed: vi.fn(),
+  persistPendingInputImages: vi.fn(),
   removeCandidate: vi.fn(),
   replaceGenerationResult: vi.fn(),
   resetGenerationForReEdit: vi.fn(),
@@ -63,14 +64,24 @@ function makeOperationAlertsStub(): OperationAlertService {
   } as unknown as OperationAlertService;
 }
 
-function makeService(operationAlerts = makeOperationAlertsStub()) {
+function makeGenerationJobsStub() {
   return {
+    enqueueEditorGeneration: vi.fn(),
+    scheduleEditJob: vi.fn(),
+    processEditJob: vi.fn(),
+  };
+}
+
+function makeService(operationAlerts = makeOperationAlertsStub()) {
+  const generationJobs = makeGenerationJobsStub();
+  return {
+    generationJobs,
     operationAlerts,
     service: new ThumbnailGenerationService(
       {} as never,
       {} as never,
-      {} as never,
       operationAlerts,
+      generationJobs as never,
     ),
   };
 }

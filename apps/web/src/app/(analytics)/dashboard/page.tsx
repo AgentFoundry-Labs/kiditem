@@ -1,69 +1,41 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
-  TrendingUp, TrendingDown, Minus,
-  AlertTriangle, MinusCircle, Megaphone, Truck,
-  Zap, Play, Loader2,
-  BarChart3, Target, ShieldCheck, Wallet,
-  ShoppingCart, X, Calendar,
+  BarChart3,
+  Calendar,
+  Database,
+  Megaphone,
+  ShoppingCart,
+  Target,
+  TrendingDown,
+  TrendingUp,
+  Wallet,
+  Zap,
 } from 'lucide-react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import dynamic from 'next/dynamic';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
 import PageSkeleton from '@/components/ui/PageSkeleton';
-
-const DashboardCharts = dynamic(
-  () => import('./components/DashboardCharts').then(mod => ({ default: mod.DashboardCharts })),
-  { ssr: false, loading: () => <div className="h-[320px] flex items-center justify-center text-sm text-slate-300">차트 로딩 중...</div> },
-);
 import { queryKeys } from '@/lib/query-keys';
-import { cn, formatKRW, formatNumber, formatPercent, formatDateTime, getGradeColor, getProfitColor } from '@/lib/utils';
-import AgentFace from '@/components/AgentFace';
+import { cn, formatKRW, formatNumber, formatDateTime } from '@/lib/utils';
 import {
   DashboardSalesSummarySchema,
   DashboardAdSummarySchema,
   DashboardInventorySummarySchema,
   DashboardTrendItemSchema,
-  type DashboardSalesSummary,
-  type DashboardAdSummary,
-  type DashboardInventorySummary,
-  type DashboardTrendItem,
-  type AlertItemDashboard,
 } from '@kiditem/shared/dashboard';
-import {
-  ActionTaskListSchema,
-  ActionTaskSchema,
-  type ActionTask,
-} from '@kiditem/shared/action-task';
+import { ActionTaskListSchema } from '@kiditem/shared/action-task';
 import { z } from 'zod';
 import { friendlyError } from '@/lib/api-error';
 import ReadinessModal from '@/components/ReadinessModal';
-import { Database } from 'lucide-react';
-
-
-function SectionError({ msg, onRetry }: { msg?: string; onRetry: () => void }) {
-  return (
-    <div className="flex flex-col items-center justify-center gap-2 py-6">
-      <p className="text-sm text-slate-500">{msg ?? '이 섹션을 불러올 수 없습니다'}</p>
-      <button
-        onClick={onRetry}
-        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-purple-600 text-white hover:bg-purple-700 transition-colors"
-      >
-        다시 시도
-      </button>
-    </div>
-  );
-}
-
-function alertIcon(type: string) {
-  if (type === 'minus_product') return <MinusCircle size={14} className="text-red-500 shrink-0" />;
-  if (type === 'ad_high') return <Megaphone size={14} className="text-amber-500 shrink-0" />;
-  if (type === 'stock_low') return <Truck size={14} className="text-blue-500 shrink-0" />;
-  return <AlertTriangle size={14} className="text-slate-400 shrink-0" />;
-}
+import { DashboardChartPanel } from './components/DashboardChartPanel';
+import { MetricCard, UnavailableMetricCard } from './components/DashboardMetricCard';
+import { DashboardProfitDetailModal } from './components/DashboardProfitDetailModal';
+import { DashboardSectionError } from './components/DashboardSectionError';
+import { DashboardSidePanel } from './components/DashboardSidePanel';
+import { DashboardTopProducts } from './components/DashboardTopProducts';
 
 export default function Dashboard() {
   const queryClient = useQueryClient();
@@ -606,9 +578,9 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 overflow-hidden" style={{ height: 620 }}>
         <div className="lg:col-span-3 h-full">
           {trendHasErr ? (
-            <SectionError msg={friendlyError(trendError) ?? undefined} onRetry={refetchTrend} />
+            <DashboardSectionError msg={friendlyError(trendError) ?? undefined} onRetry={refetchTrend} />
           ) : (
-            <DashboardChart
+            <DashboardChartPanel
               dailyTrend={dailyTrend}
               aiActions={aiActions}
               industryBenchmark={adBaseline.industryBenchmark}
@@ -616,9 +588,9 @@ export default function Dashboard() {
           )}
         </div>
         {inventoryHasErr ? (
-          <SectionError msg={friendlyError(inventoryError) ?? undefined} onRetry={refetchInventory} />
+          <DashboardSectionError msg={friendlyError(inventoryError) ?? undefined} onRetry={refetchInventory} />
         ) : (
-          <SidePanel
+          <DashboardSidePanel
             alerts={inventoryData.alerts}
             queryClient={queryClient}
           />
@@ -651,7 +623,7 @@ export default function Dashboard() {
 
       {/* 경고 카드 */}
       {inventoryHasErr ? (
-        <SectionError msg={friendlyError(inventoryError) ?? undefined} onRetry={refetchInventory} />
+        <DashboardSectionError msg={friendlyError(inventoryError) ?? undefined} onRetry={refetchInventory} />
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           <Link href="/product-hub?tab=cleanup" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
@@ -674,546 +646,21 @@ export default function Dashboard() {
 
       {/* Top Products */}
       {salesBaselineHasErr ? (
-        <SectionError msg={friendlyError(salesBaselineError) ?? undefined} onRetry={refetchSalesBaseline} />
+        <DashboardSectionError msg={friendlyError(salesBaselineError) ?? undefined} onRetry={refetchSalesBaseline} />
       ) : (
-      <div className="rounded-2xl bg-white border border-slate-100 shadow-sm overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100">
-          <div className="flex items-center gap-2">
-            <BarChart3 size={15} className="text-slate-400" />
-            <h3 className="text-sm font-bold text-slate-900">Top Revenue Products</h3>
-          </div>
-          <Link href="/product-hub" className="text-xs font-mono text-purple-600">VIEW ALL →</Link>
-        </div>
-        <div className="overflow-x-auto">
-          <table style={{ minWidth: 600 }}>
-            <thead>
-              <tr className="border-b border-slate-100">
-                <th className="pl-4 w-8 text-sm text-slate-400">#</th>
-                <th className="w-8 text-sm text-slate-400">등급</th>
-                <th className="text-sm text-slate-400">상품명</th>
-                <th className="text-right text-sm text-slate-400">매출</th>
-                <th className="text-right text-sm text-slate-400">순이익</th>
-                <th className="text-right pr-4 text-sm text-slate-400">이익률</th>
-              </tr>
-            </thead>
-            <tbody>
-              {salesBaseline.topProducts.map((p, i) => (
-                <tr key={p.id} className="border-b border-slate-50">
-                  <td className="pl-4 text-sm tabular-nums text-slate-400">{i + 1}</td>
-                  <td><span className={cn('inline-flex items-center justify-center w-6 h-6 rounded text-xs font-bold', getGradeColor(p.grade))}>{p.grade}</span></td>
-                  <td className="text-sm font-medium max-w-[300px] truncate text-slate-900">{p.name}</td>
-                  <td className="text-right text-sm tabular-nums text-slate-900">{formatKRW(p.revenue)}<span className="text-slate-400">원</span></td>
-                  <td className={cn('text-right text-sm tabular-nums', getProfitColor(p.profitRate))}>{formatKRW(p.netProfit)}<span className="text-slate-400">원</span></td>
-                  <td className={cn('text-right pr-4 text-sm tabular-nums font-semibold', getProfitColor(p.profitRate))}>{formatPercent(p.profitRate)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+        <DashboardTopProducts products={salesBaseline.topProducts} />
       )}
 
 
       {/* 순이익 상세 모달 */}
-      {showProfitDetail && (() => {
-        const pd = salesBaseline.profitDetail;
-        const revenue = pd?.revenue ?? salesBaseline.monthly.revenue;
-        const items = pd ? [
-          { label: '매출', value: pd.revenue, negative: false },
-          { label: '집행광고비', value: -pd.adCost, negative: true },
-          { label: '수수료', value: -pd.commission, negative: true },
-          { label: '배송비', value: -pd.shippingCost, negative: true },
-          { label: '매입원가', value: -pd.costOfGoods, negative: true },
-          { label: '기타비용', value: -pd.otherCost, negative: true },
-        ] : [
-          { label: '매출', value: salesBaseline.monthly.revenue, negative: false },
-          { label: '광고비', value: -adBaseline.monthly.totalAdSpend, negative: true },
-          { label: '광고전환매출', value: adBaseline.monthly.adRevenue, negative: false },
-        ];
-        const netProfit = pd?.netProfit ?? salesBaseline.monthly.profit;
-        const orderCount = pd?.orderCount;
-        return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowProfitDetail(false)}>
-            <div className="w-full max-w-md rounded-2xl p-6 bg-white shadow-2xl" onClick={e => e.stopPropagation()}>
-              <div className="flex items-center justify-between mb-5">
-                <h3 className="text-lg font-bold text-slate-900">순이익 구조</h3>
-                <button onClick={() => setShowProfitDetail(false)} className="p-1 rounded-lg hover:opacity-80 text-slate-400">
-                  <X size={18} />
-                </button>
-              </div>
-              <div className="space-y-3">
-                {items.map(item => (
-                  <div key={item.label} className="flex items-center justify-between">
-                    <span className="text-sm text-slate-500">{item.label}</span>
-                    <div className="flex items-center gap-3">
-                      <div className="w-24 h-2 rounded-full overflow-hidden bg-slate-100">
-                        <div
-                          className={cn('h-full rounded-full', item.negative ? 'bg-red-500' : 'bg-purple-600')}
-                          style={{ width: `${Math.min(Math.abs(item.value) / Math.max(revenue, 1) * 100, 100)}%` }}
-                        />
-                      </div>
-                      <span className={cn('text-sm font-semibold tabular-nums w-24 text-right', item.value >= 0 ? 'text-slate-900' : 'text-red-600')}>
-                        {item.value >= 0 ? '' : '-'}{formatKRW(Math.abs(item.value))}원
-                      </span>
-                    </div>
-                  </div>
-                ))}
-                <div className="pt-3 mt-3 flex items-center justify-between border-t border-slate-200">
-                  <span className="text-sm font-bold text-slate-900">순이익</span>
-                  <span className={cn('text-lg font-extrabold tabular-nums', netProfit >= 0 ? 'text-emerald-600' : 'text-red-600')}>
-                    {formatKRW(netProfit)}원
-                  </span>
-                </div>
-                <div className="text-xs text-center mt-2 text-slate-400">
-                  {orderCount != null ? `주문 ${orderCount}건 기준` : `ROAS ${adBaseline.monthly.roas.toFixed(0)}% | CTR ${adBaseline.monthly.ctr.toFixed(2)}%`}
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
+      {showProfitDetail && (
+        <DashboardProfitDetailModal
+          salesBaseline={salesBaseline}
+          adBaseline={adBaseline}
+          onClose={() => setShowProfitDetail(false)}
+        />
+      )}
       <ReadinessModal open={showReadiness} onClose={() => setShowReadiness(false)} />
-    </div>
-  );
-}
-
-// ===== 핵심 지표 카드 =====
-function MetricCard({ label, value, unit, change, prevLabel, accentColor, icon: Icon, invertColor, goal, current, goalUnit, goalLabel, invertGoal, onClick }: {
-  label: string; value: string; unit: string; change: number; prevLabel: string;
-  accentColor: string; icon: typeof TrendingUp; invertColor?: boolean;
-  goal?: number; current?: number; goalUnit?: string; goalLabel?: string; invertGoal?: boolean; onClick?: () => void;
-}) {
-  const isPositive = invertColor ? change < 0 : change > 0;
-  const isNeutral = Math.abs(change) < 0.5;
-  const ChangeIcon = isNeutral ? Minus : isPositive ? TrendingUp : TrendingDown;
-  const changeColorStyle = isNeutral ? '#94a3b8' : isPositive ? '#059669' : '#ef4444';
-  const changeBgStyle = isNeutral ? 'rgba(148,163,184,0.1)' : isPositive ? 'rgba(5,150,105,0.1)' : 'rgba(239,68,68,0.1)';
-
-  const hasGoal = goal !== undefined && current !== undefined && goal > 0;
-  const isPercent = goalUnit === '%';
-
-  let achievementRate = 0;
-  let progressPct = 0;
-  let goalMet = false;
-
-  if (hasGoal) {
-    if (invertGoal) {
-      goalMet = current <= goal;
-      const maxBad = goal * 2;
-      progressPct = Math.max(0, Math.min(100, ((maxBad - current) / (maxBad - goal)) * 100));
-      achievementRate = goalMet ? 100 : Math.round(progressPct);
-    } else {
-      achievementRate = Math.min(Math.round((current / goal) * 100), 999);
-      progressPct = Math.min((current / goal) * 100, 100);
-      goalMet = achievementRate >= 100;
-    }
-  }
-
-  const displayGoalLabel = goalLabel || (isPercent ? `목표 ${goal}%` : `목표 ${formatKRW(goal!)}원`);
-  const remaining = hasGoal && !goalMet
-    ? invertGoal
-      ? `${(current! - goal!).toFixed(1)}%p 초과`
-      : isPercent
-        ? `${(goal! - current!).toFixed(1)}%p 남음`
-        : `${formatKRW(goal! - current!)}원 남음`
-    : null;
-
-  return (
-    <div className={cn('rounded-2xl transition-all hover:shadow-md h-full bg-white border border-slate-100 shadow-sm', onClick && 'cursor-pointer')} onClick={onClick}>
-      <div className="px-4 py-3 h-full flex flex-col">
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <div className="flex items-center gap-2">
-              <Icon size={16} style={{ color: accentColor }} />
-              <span className="text-xs font-bold uppercase tracking-wider" style={{ color: accentColor }}>{label}</span>
-            </div>
-            <div className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs font-mono" style={{ background: changeBgStyle, color: changeColorStyle }}>
-              <ChangeIcon size={12} />
-              {!isNeutral && <span>{change > 0 ? '+' : ''}{change.toFixed(1)}%</span>}
-              {isNeutral && <span>-</span>}
-            </div>
-          </div>
-          <div className="flex items-baseline gap-1">
-            <span className="text-lg sm:text-2xl font-extrabold tabular-nums tracking-tight" style={{ color: accentColor }}>{value}</span>
-            <span className="text-base font-semibold" style={{ color: accentColor, opacity: 0.6 }}>{unit}</span>
-          </div>
-          {prevLabel && <div className="text-xs mt-0.5 text-slate-500">{prevLabel}</div>}
-        </div>
-        {hasGoal && (
-          <div className="mt-auto pt-2" style={{ borderTop: `1px solid ${accentColor}20` }}>
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-[11px] font-medium" style={{ color: `${accentColor}99` }}>{displayGoalLabel}</span>
-              <span className="text-[12px] font-bold tabular-nums" style={{ color: accentColor }}>
-                {invertGoal ? (goalMet ? '달성' : `${current}%`) : `${achievementRate}%`}
-              </span>
-            </div>
-            <div className="h-1.5 rounded-full overflow-hidden" style={{ background: `${accentColor}15` }}>
-              <div className="h-full rounded-full transition-all duration-500" style={{ width: `${progressPct}%`, background: accentColor }} />
-            </div>
-            {!goalMet && remaining && <div className="text-[10px] mt-0.5" style={{ color: `${accentColor}88` }}>{remaining}</div>}
-            {goalMet && <div className="text-[10px] mt-0.5 font-semibold" style={{ color: accentColor }}>목표 달성!</div>}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ===== 산출 불가 지표 카드 =====
-// 정합성 깨지는 데이터(예: Wing 단독 상태에서 순이익/이익률)는 fake number 대신
-// 명시적인 "—" 와 사유를 보여주기 위한 카드. 레이아웃은 MetricCard 와 같음.
-function UnavailableMetricCard({ label, icon: Icon, accentColor, note }: {
-  label: string; icon: typeof TrendingUp; accentColor: string; note: string;
-}) {
-  return (
-    <div className="rounded-2xl transition-all h-full bg-white border border-slate-100 shadow-sm">
-      <div className="px-4 py-3 h-full flex flex-col">
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <div className="flex items-center gap-2">
-              <Icon size={16} style={{ color: accentColor, opacity: 0.5 }} />
-              <span className="text-xs font-bold uppercase tracking-wider" style={{ color: accentColor, opacity: 0.6 }}>{label}</span>
-            </div>
-          </div>
-          <div className="flex items-baseline gap-1">
-            <span className="text-lg sm:text-2xl font-extrabold tabular-nums tracking-tight text-slate-300">—</span>
-          </div>
-          <div className="text-xs mt-1 text-slate-400">{note}</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ===== 사이드 패널 =====
-function alertStatusLabel(status: AlertItemDashboard['status']): string | null {
-  if (status === 'running') return '진행 중';
-  if (status === 'pending') return '대기 중';
-  if (status === 'succeeded') return '완료';
-  if (status === 'failed') return '실패';
-  if (status === 'cancelled') return '취소';
-  if (status === 'resolved') return '해결';
-  return null;
-}
-
-function alertStatusClass(status: AlertItemDashboard['status']): string {
-  if (status === 'succeeded') return 'bg-emerald-50 text-emerald-700';
-  if (status === 'failed') return 'bg-red-50 text-red-700';
-  if (status === 'running' || status === 'pending') return 'bg-blue-50 text-blue-700';
-  return 'bg-slate-100 text-slate-600';
-}
-
-function SidePanel({ alerts, queryClient }: {
-  alerts: AlertItemDashboard[];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  queryClient: any;
-}) {
-  const markAllRead = async () => {
-    try {
-      await apiClient.patch('/api/alerts/read-all', {});
-      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
-    } catch { /* ignore */ }
-  };
-
-  return (
-    <div className="rounded-2xl overflow-hidden flex flex-col h-full bg-white border border-slate-100 shadow-sm">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-        <div className="flex items-center gap-1.5">
-          <AlertTriangle size={14} className="text-slate-500" />
-          <span className="text-sm font-semibold text-slate-900">알림</span>
-          {alerts.length > 0 && (
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-red-100 text-red-700">{alerts.length}</span>
-          )}
-        </div>
-        {alerts.length > 0 && (
-          <button onClick={markAllRead} className="text-xs text-purple-600 font-semibold hover:underline">전체 읽음</button>
-        )}
-      </div>
-
-      <div className="flex-1 overflow-y-auto min-h-0">
-        {alerts.map(a => {
-          const href = a.href ?? (a.type === 'strategy_change' ? '/ad-ops' : a.type === 'stock_low' ? '/purchase-orders' : a.type === 'minus_product' ? '/cleanup' : a.type === 'ad_high' ? '/ads-hub' : undefined);
-          const statusLabel = a.kind === 'operation' ? alertStatusLabel(a.status) : null;
-          const content = (
-            <>
-              <div className="mt-0.5">{alertIcon(a.type)}</div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <span className="text-sm font-medium leading-relaxed text-slate-700 truncate">{a.title}</span>
-                  {statusLabel && (
-                    <span className={cn('shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold', alertStatusClass(a.status))}>
-                      {statusLabel}
-                    </span>
-                  )}
-                  {href && <span className="text-[10px] text-purple-600">→</span>}
-                </div>
-                {a.message && (
-                  <div className="mt-0.5 truncate text-xs text-slate-500">{a.message}</div>
-                )}
-              </div>
-            </>
-          );
-          const rowClass = cn('flex items-start gap-2.5 px-4 py-2.5 border-b border-slate-50 transition-colors', href && 'cursor-pointer hover:bg-slate-50');
-          return href ? (
-            <Link key={a.id} href={href} className={rowClass}>
-              {content}
-            </Link>
-          ) : (
-            <div key={a.id} className={rowClass}>
-              {content}
-            </div>
-          );
-        })}
-        {alerts.length === 0 && (
-          <div className="px-4 py-8 text-center">
-            <ShieldCheck size={24} className="mx-auto mb-2 text-emerald-500" />
-            <div className="text-xs text-slate-400">모든 알림을 확인했습니다</div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ===== Agent OS =====
-type AgentDisplay = { role: string; name: string; title: string; status: string; color: string; currentTask: string | null };
-
-const ROLE_COLORS: Record<string, string> = {
-  ceo: 'violet', ad_manager: 'blue', inventory: 'emerald',
-  finance: 'rose', cs: 'amber',
-  data_ad: 'blue', data_inv: 'emerald', data_fin: 'rose', data_cs: 'amber',
-};
-
-// ===== 대시보드 차트 =====
-function DashboardChart({
-  dailyTrend,
-  aiActions,
-  industryBenchmark,
-}: {
-  dailyTrend: { date: string; revenue: number; profit: number; adCost: number; profitRate: number; adRate: number }[];
-  aiActions: ActionTask[];
-  industryBenchmark?: { avgAdRate: number; avgProfitRate: number; avgRoas: number; avgCtr: number; myAdRate?: number; myRoas?: number; myCtr?: number; avgCvr?: number };
-}) {
-  const [chartTab, setChartTab] = useState<'agents' | 'revenue' | 'ad' | 'benchmark'>('agents');
-  const hasTrend = dailyTrend.length > 0;
-  const hasBenchmark = !!industryBenchmark;
-
-  const queryClient = useQueryClient();
-
-  const { data: instances = [] } = useQuery({
-    queryKey: ['agent-os', 'instances'],
-    queryFn: () => apiClient.get<Array<{
-      id: string;
-      type: string;
-      name: string;
-      role: string;
-      title: string | null;
-      reportsToId: string | null;
-      lifecycleStatus: string;
-    }>>('/api/agent-os/instances'),
-    refetchInterval: 30_000,
-    enabled: chartTab === 'agents',
-  });
-
-  const agents: AgentDisplay[] = instances.map((inst) => ({
-    role: inst.role,
-    name: inst.name,
-    title: inst.title ?? inst.role,
-    status: inst.lifecycleStatus === 'active' ? 'idle' : inst.lifecycleStatus,
-    color: ROLE_COLORS[inst.role] ?? 'violet',
-    currentTask: null,
-  }));
-
-  const { mutate: executeAction, variables: executingId } = useMutation({
-    mutationFn: async (id: string) => {
-      const raw = await apiClient.post<unknown>(`/api/action-tasks/${id}/execute`, {});
-      return ActionTaskSchema.parse(raw);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.actionTasks.list() });
-      toast.success('액션을 실행했습니다.');
-    },
-    onError: () => toast.error('실행에 실패했습니다.'),
-  });
-
-  const tabs = [
-    { key: 'agents' as const, label: 'Agent OS' },
-    { key: 'revenue' as const, label: '매출 · 이익률' },
-    { key: 'ad' as const, label: '광고비 · 비율' },
-    ...(hasBenchmark ? [{ key: 'benchmark' as const, label: '업계 평균 대비' }] : []),
-  ];
-
-  const adChartData = dailyTrend.map(d => ({
-    date: d.date,
-    adCost: d.adCost,
-    revenue: d.revenue,
-    adRate: d.adRate,
-  }));
-
-  const DEPT_MAP = [
-    { key: 'ad', label: '광고부', leadRole: 'ad_manager', memberRole: 'data_ad', color: '#3b82f6' },
-    { key: 'inv', label: '재고부', leadRole: 'inventory', memberRole: 'data_inv', color: '#10b981' },
-    { key: 'cs', label: 'CS부', leadRole: 'cs', memberRole: 'data_cs', color: '#f59e0b' },
-    { key: 'fin', label: '분석부', leadRole: 'finance', memberRole: 'data_fin', color: '#ef4444' },
-  ];
-
-  const isAgentOs = chartTab === 'agents';
-  return (
-    <div className={cn('relative rounded-2xl overflow-hidden flex flex-col h-full border shadow-sm transition-all', isAgentOs ? 'border-violet-100 shadow-[0_0_40px_rgba(124,58,237,0.08)]' : 'bg-white border-slate-100')}>
-      {isAgentOs && <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-violet-500 via-purple-500 to-blue-500 z-10" />}
-      <div className={cn('flex items-center justify-between px-5 py-3 border-b shrink-0', isAgentOs ? 'border-violet-100/60 bg-white/60 backdrop-blur-sm' : 'border-slate-100')}>
-        <div className="flex items-center gap-2">
-          <div className="flex gap-1 rounded-lg p-0.5 bg-slate-100">
-            {tabs.map(t => (
-              <button key={t.key} onClick={() => setChartTab(t.key)}
-                className={cn('px-4 py-1.5 rounded-md text-[13px] font-semibold transition-all', chartTab === t.key ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-500')}>
-                {t.label}
-              </button>
-            ))}
-          </div>
-          {isAgentOs && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide uppercase bg-gradient-to-r from-violet-600 to-blue-600 text-white shadow-sm">
-              <Zap size={9} className="fill-white" /> AI Powered
-            </span>
-          )}
-        </div>
-        <span className={cn('text-[12px] flex items-center gap-1.5', isAgentOs ? 'text-violet-600 font-semibold' : 'text-slate-400')}>
-          {isAgentOs && <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />}
-          {isAgentOs ? '실시간' : '최근 30일'}
-        </span>
-      </div>
-
-      {/* Agent OS — 조직도 */}
-      {chartTab === 'agents' && (() => {
-        const ceo = agents.find(a => a.role === 'ceo');
-        const DEPT_FACE_COLORS: Record<string, string> = { ad: 'blue', inv: 'emerald', cs: 'amber', fin: 'rose' };
-
-        // 부서별 액션 분류: role 필드 우선, 없으면 taskKey+label 키워드 매칭
-        const classify = (a: ActionTask): string => {
-          if (a.role === 'ad_manager') return 'ad';
-          if (a.role === 'inventory') return 'inv';
-          if (a.role === 'cs') return 'cs';
-          if (a.role === 'finance') return 'fin';
-          const key = `${a.taskKey} ${a.label}`.toLowerCase();
-          if (/광고|ad_|roas|campaign|cpc|ctr|클릭|노출|bid/.test(key)) return 'ad';
-          if (/재고|stock|inventory|상품|product|reorder|입고|발주|품절/.test(key)) return 'inv';
-          if (/cs|고객|review|리뷰|반품|return|문의|refund|교환/.test(key)) return 'cs';
-          if (/profit|수익|정산|settlement|category|마진|비용|minus/.test(key)) return 'fin';
-          return 'ad'; // 미분류는 광고부
-        };
-
-        const deptActions: Record<string, ActionTask[]> = { ad: [], inv: [], cs: [], fin: [] };
-        for (const a of aiActions) deptActions[classify(a)].push(a);
-
-        return (
-          <div className="flex-1 flex flex-col p-4 rounded-b-2xl relative" style={{ background: 'linear-gradient(135deg, #faf5ff 0%, #ffffff 45%, #eff6ff 100%)' }}>
-            <div className="absolute inset-0 pointer-events-none" style={{ background: 'radial-gradient(circle at 20% 0%, rgba(139,92,246,0.08) 0%, transparent 40%), radial-gradient(circle at 80% 100%, rgba(59,130,246,0.06) 0%, transparent 40%)' }} />
-            <div className="relative flex-1 flex flex-col min-h-0">
-            {/* CEO */}
-            <div className="flex justify-center mb-1.5">
-              <div className="rounded-full px-3 py-1.5 flex items-center gap-2 bg-purple-600" style={{ boxShadow: '0 2px 8px rgba(124,58,237,0.25)' }}>
-                <div className="w-6 h-6 rounded-full flex items-center justify-center overflow-hidden shrink-0" style={{ background: 'rgba(255,255,255,0.85)' }}>
-                  <AgentFace color={ceo?.color || 'violet'} role="ceo" size={24} />
-                </div>
-                <span className="text-xs font-semibold text-white">{ceo?.name || 'CEO'}</span>
-                <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', ceo?.status === 'running' ? 'bg-green-400 animate-pulse' : 'bg-white/40')} />
-              </div>
-            </div>
-
-            {/* CEO → 연결선 */}
-            <div className="flex justify-center">
-              <div style={{ width: 1.5, height: 8, background: '#7c3aed', opacity: 0.3 }} />
-            </div>
-
-            {/* 부서별 에이전트 + 액션 */}
-            <div className="grid grid-cols-4 gap-2 flex-1 min-h-0">
-              {DEPT_MAP.map(dept => {
-                const lead = agents.find(a => a.role === dept.leadRole);
-                const isWorking = lead?.status === 'running';
-                const faceColor = lead?.color || DEPT_FACE_COLORS[dept.key] || 'violet';
-                const faceRole = lead?.role || dept.leadRole;
-                const actions = deptActions[dept.key] ?? [];
-
-                return (
-                  <div key={dept.key} className="flex flex-col min-h-0">
-                    {/* 에이전트 카드 */}
-                    <div className="rounded-xl p-3 flex items-center gap-2.5 border border-slate-100 shrink-0" style={{ boxShadow: isWorking ? `0 3px 12px ${dept.color}20` : '0 1px 4px rgba(0,0,0,0.04)', background: '#ffffff' }}>
-                      <div className="relative shrink-0">
-                        <div className="w-12 h-12 rounded-full overflow-hidden" style={{ background: `${dept.color}08`, boxShadow: isWorking ? `0 0 0 2px ${dept.color}40` : 'none', transition: 'box-shadow 0.3s' }}>
-                          <AgentFace color={faceColor} role={faceRole} size={48} />
-                        </div>
-                        {isWorking && (
-                          <div className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center" style={{ background: '#059669' }}>
-                            <Zap size={8} className="text-white" />
-                          </div>
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="text-base font-bold truncate" style={{ color: lead ? '#0f172a' : dept.color }}>{lead?.name || dept.label}</div>
-                        <div className="flex items-center gap-1 mt-0.5">
-                          <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', isWorking ? 'bg-green-500 animate-pulse' : 'bg-gray-300')} />
-                          <span className="text-xs" style={{ color: isWorking ? '#059669' : '#94a3b8' }}>{isWorking ? '업무 중' : '대기'}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* 연결선 */}
-                    <div className="flex justify-center">
-                      <div style={{ width: 1, height: 6, background: dept.color, opacity: 0.25 }} />
-                    </div>
-
-                    {/* 액션 목록 */}
-                    <div className="rounded-xl border border-slate-100 flex-1 min-h-0 overflow-y-auto" style={{ background: `${dept.color}04` }}>
-                      {actions.length === 0 ? (
-                        <div className="flex items-center justify-center h-full py-4">
-                          <span className="text-sm text-slate-300">할일 없음</span>
-                        </div>
-                      ) : (
-                        <div className="p-2 space-y-1.5">
-                          {actions.map(a => {
-                            const isRunning = executingId === a.id;
-                            const dot = a.priority === 'urgent' ? '#ef4444' : a.priority === 'high' ? '#f59e0b' : '#94a3b8';
-                            return (
-                              <div key={a.id} className="rounded-lg px-2.5 py-2 flex items-start gap-2 bg-white border border-slate-50 hover:border-slate-200 transition-colors">
-                                <span className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ background: dot }} />
-                                <span className="text-[15px] text-slate-800 flex-1 leading-snug line-clamp-2 font-medium">{a.label}</span>
-                                <button
-                                  onClick={() => executeAction(a.id)}
-                                  disabled={isRunning}
-                                  className="shrink-0 flex items-center justify-center w-7 h-7 rounded-md mt-0.5 transition-all disabled:opacity-50"
-                                  style={{ background: isRunning ? '#e2e8f0' : `${dept.color}15`, color: isRunning ? '#94a3b8' : dept.color }}
-                                  title="실행"
-                                >
-                                  {isRunning ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
-                                </button>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* Charts - lazy loaded to reduce initial bundle */}
-      <DashboardCharts
-        chartTab={chartTab}
-        dailyTrend={dailyTrend}
-        adChartData={adChartData}
-        benchmarkData={industryBenchmark ? [
-          { name: '광고비율', my: industryBenchmark.myAdRate ?? 0, avg: industryBenchmark.avgAdRate, unit: '%', invertGood: true },
-          { name: 'ROAS', my: industryBenchmark.myRoas ?? 0, avg: industryBenchmark.avgRoas, unit: '%', invertGood: false },
-          { name: 'CTR', my: industryBenchmark.myCtr ?? 0, avg: industryBenchmark.avgCtr, unit: '%', invertGood: false },
-          { name: 'CVR', my: industryBenchmark.avgCvr ?? 0, avg: 8, unit: '%', invertGood: false },
-        ] : null}
-        hasTrend={hasTrend}
-      />
     </div>
   );
 }
