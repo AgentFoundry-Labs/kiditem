@@ -11,6 +11,7 @@
  */
 import { useCallback } from 'react';
 import { toast } from 'sonner';
+import type { DetailPageTemplateId } from '@kiditem/shared/ai';
 import { isApiError } from '@/lib/api-error';
 import { useKidsPlayfulGenerate } from '@/app/(media-ai)/generate/hooks/useKidsPlayfulGenerate';
 
@@ -89,7 +90,7 @@ interface TriggerInput {
   productName: string;
   rawData: Record<string, unknown> | null;
   /** 'kids-playful' (default) 또는 'bold-vertical' */
-  templateId?: string;
+  templateId?: DetailPageTemplateId;
   imageUrls?: string[];
 }
 

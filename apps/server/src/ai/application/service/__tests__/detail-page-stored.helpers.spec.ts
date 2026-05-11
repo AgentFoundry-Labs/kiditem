@@ -1,0 +1,73 @@
+import { describe, expect, it } from 'vitest';
+import {
+  normalizeStoredDetailPageRawInput,
+  parseDetailPageStoredJson,
+} from '../detail-page-stored.helpers';
+
+describe('detail-page stored JSON helpers', () => {
+  it('normalizes legacy or invalid stored raw input into a safe DetailPageRawInput', () => {
+    const stored = parseDetailPageStoredJson(JSON.stringify({
+      templateId: 'bold-vertical',
+      rawInput: {
+        rawTitle: '',
+        rawCategory: 42,
+        rawDescription: '상세 설명',
+        rawOptions: null,
+        imageUrls: ['https://example.com/legacy.jpg'],
+        heroImageMode: 'invalid',
+        ageGroup: 'teen',
+        detailImageCount: '4',
+      },
+    }));
+
+    expect(normalizeStoredDetailPageRawInput({
+      stored,
+      templateId: 'bold-vertical',
+      productName: '대체 상품명',
+      imageUrls: ['https://example.com/output.jpg'],
+    })).toEqual({
+      rawTitle: '대체 상품명',
+      rawCategory: '',
+      rawDescription: '상세 설명',
+      rawOptions: '',
+      imageUrls: ['https://example.com/output.jpg'],
+      heroImageMode: 'first',
+      templateId: 'bold-vertical',
+      ageGroup: 'age-8-plus',
+      detailImageCount: 'auto',
+    });
+  });
+
+  it('preserves valid stored audience controls and hero mode', () => {
+    const stored = parseDetailPageStoredJson(JSON.stringify({
+      templateId: 'kids-playful',
+      rawInput: {
+        rawTitle: '학생용 말랑이',
+        rawCategory: '완구',
+        rawDescription: '청소년 취미용',
+        rawOptions: '2개 구성',
+        imageUrls: ['https://example.com/input.jpg'],
+        heroImageMode: 'llm-pick',
+        ageGroup: 'age-14-plus',
+        detailImageCount: '1',
+      },
+    }));
+
+    expect(normalizeStoredDetailPageRawInput({
+      stored,
+      templateId: 'kids-playful',
+      productName: 'fallback',
+      imageUrls: ['https://example.com/output.jpg'],
+    })).toEqual({
+      rawTitle: '학생용 말랑이',
+      rawCategory: '완구',
+      rawDescription: '청소년 취미용',
+      rawOptions: '2개 구성',
+      imageUrls: ['https://example.com/output.jpg'],
+      heroImageMode: 'llm-pick',
+      templateId: 'kids-playful',
+      ageGroup: 'age-14-plus',
+      detailImageCount: '1',
+    });
+  });
+});

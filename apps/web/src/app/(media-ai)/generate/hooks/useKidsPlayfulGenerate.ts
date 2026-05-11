@@ -1,6 +1,11 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type {
+  DetailImageCount,
+  DetailPageAgeGroup,
+  DetailPageTemplateId,
+} from '@kiditem/shared/ai';
 import { apiClient } from '@/lib/api-client';
 import { API_BASE } from '@/lib/api';
 import type {
@@ -19,11 +24,11 @@ export interface KidsPlayfulGenerateBody {
   rawOptions: string;
   imageUrls: string[];
   heroImageMode?: 'first' | 'llm-pick';
-  ageGroup?: 'age-8-plus' | 'age-14-plus';
-  detailImageCount?: 'auto' | '1' | '2' | '3';
+  ageGroup?: DetailPageAgeGroup;
+  detailImageCount?: DetailImageCount;
   /** sourcing MasterProduct.id — generate 페이지 직접 생성 시 omit */
   productId?: string;
-  templateId?: string;
+  templateId?: DetailPageTemplateId;
 }
 
 /** Server endpoint 응답 형 (POST generate / GET list 공용). */

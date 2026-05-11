@@ -1,8 +1,12 @@
+import type {
+  DetailImageCount,
+  DetailPageAgeGroup,
+  DetailPageTemplateId as SharedDetailPageTemplateId,
+} from '@kiditem/shared/ai';
 import type { BoldVerticalGeneration } from '../../domain/prompts/bold-vertical/single-call';
 import type { DetailPageGeneration } from '../../domain/prompts/detail-page/single-call';
-import type { DetailImageCount, DetailPageAgeGroup } from '../../domain/prompts/detail-page/types';
 
-export type DetailPageTemplateId = 'kids-playful' | 'bold-vertical';
+export type DetailPageTemplateId = SharedDetailPageTemplateId;
 
 export interface DetailPageRawInput {
   rawTitle: string;

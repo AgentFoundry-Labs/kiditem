@@ -3,6 +3,11 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
+import type {
+  DetailImageCount,
+  DetailPageAgeGroup,
+  DetailPageTemplateId,
+} from '@kiditem/shared/ai';
 import { API_BASE } from '@/lib/api';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
@@ -10,9 +15,8 @@ import { useProductImages } from '@/hooks/useProductImages';
 import { moveSafetyLabelImagesToEnd } from '../lib/detail-page-image-order';
 import { useKidsPlayfulGenerate } from './useKidsPlayfulGenerate';
 
-export type GenerateTemplateId = 'bold-vertical' | 'kids-playful';
-export type DetailPageAgeGroup = 'age-8-plus' | 'age-14-plus';
-export type DetailImageCount = 'auto' | '1' | '2' | '3';
+export type GenerateTemplateId = DetailPageTemplateId;
+export type { DetailImageCount, DetailPageAgeGroup } from '@kiditem/shared/ai';
 export type BoxSetStatus = 'auto' | 'none' | 'box' | 'set' | 'exists';
 export type ColorVariantStatus = 'auto' | 'none' | 'single' | 'multiple';
 
