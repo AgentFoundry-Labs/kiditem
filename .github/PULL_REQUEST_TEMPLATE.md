@@ -36,14 +36,30 @@
 - [ ] `npm run dev:server` 부트 확인
 - [ ] `npm run build -w apps/web` 빌드 성공
 
+## Architecture / Reconstruction Review
+- [ ] 관련된 가장 구체적인 `AGENTS.md` 를 읽고 owner domain / boundary 규칙을 확인했음
+- [ ] Reconstruction trigger 없음
+- [ ] Reconstruction trigger 있음 → 아래에 scope 판정과 반영한 contract/test/gate 기록
+  - Trigger:
+  - Scope decision:
+  - Contract / AGENTS update:
+  - Behavior lock tests:
+  - Verification gate:
+
 ## 새 영구 규칙
 - [ ] 해당 없음 (리팩터링/버그픽스/기능 추가/단일 도메인 내부 구현)
-- [ ] 신규 영구 규칙을 해당 scope 의 `AGENTS.md` / `CLAUDE.md` 본문에 추가했음
+- [ ] 신규 영구 규칙을 해당 scope 의 `AGENTS.md` 본문에 추가했음
 
-> 트리거(하나라도 해당되면 governance 본문 갱신 필요): 새 cross-domain 규칙 / 기존 금지·허용 규칙 전복 / 런타임·모듈 경계 이동 / 기술 선택 교체 / 기능·모듈 Deprecated 선언 / 인시던트로 새 영구 규칙 생성.
+> Trigger 예시: 10+ files, 500+ line service/component, cross-layer controls,
+> LLM/prompt/model/provider/storage/fetch/Agent OS runtime/sink/reconcile,
+> 새 cross-domain 규칙, 기존 금지·허용 규칙 전복.
 
 ## 리뷰
 ```bash
 gh pr checkout <PR번호>
-claude /review
+npm run check:conventions
+npm run test:scripts
 ```
+
+Reviewer must first check AGENTS compliance and reconstruction trigger
+classification before approving functional correctness.

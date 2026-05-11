@@ -20,11 +20,11 @@ if echo "$CHANGED" | grep -q "packages/shared/"; then
 fi
 
 if echo "$CHANGED" | grep -q "prisma/init.sql.gz"; then
-  echo "ℹ️  prisma/init.sql.gz 갱신됨 → 데이터 동기화가 필요하면 /project:kiditem-sync 실행"
+  echo "ℹ️  prisma/init.sql.gz 갱신됨 → fresh-volume snapshot 이 필요한 경우에만 사용하세요."
 fi
 
 if [ "$NEED_SYNC" -eq 1 ]; then
   echo ""
-  echo "👉 /project:kiditem-sync 실행하세요."
+  echo "👉 필요한 로컬 동기화: npm run db:push && npx prisma generate"
   echo ""
 fi

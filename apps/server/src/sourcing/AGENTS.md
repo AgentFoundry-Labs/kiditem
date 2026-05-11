@@ -1,160 +1,85 @@
-# apps/server/src/sourcing — Sourcing Owner Domain
+# sourcing — Owner Domain
 
-Sourcing is the canonical owner root for sourcing, procurement, and supplier
-capabilities. PR for Wave H1 Lane S folded the former top-level
-`apps/server/src/suppliers/` and `apps/server/src/procurement/` modules into
-this owner domain along the backend architecture contract in
-`apps/server/AGENTS.md`: **Domain-first modular architecture with Application
-orchestration and selective Hexagonal Ports**.
+Sourcing owns sourcing ingest/scrape, suppliers, and purchase-order
+procurement. Suppliers and procurement are capabilities inside `sourcing/`, not
+standalone owner domains. `supplier-payments` belongs to finance.
 
-## Owner domain rule
+Sourcing scrape/agent and products-catalog boundaries use application ports and
+outgoing adapters. Suppliers and some procurement paths remain transitional
+flat capability services; provider, Agent OS, or cross-domain creation work must
+stay behind the declared ports.
 
-`sourcing` is an owner domain. Suppliers and procurement are not standalone
-owner domains; they are sourcing capabilities. `AppModule` imports only
-`SourcingModule`. `supplier-payments` is a finance capability and stays out of
-this module — do not pull it in here.
+## Public Routes
 
-| Capability | Public route (frozen) |
+| Capability | Route |
 |---|---|
-| Sourcing extension ingest + scrape | `/api/sourcing/extension/*`, `/api/sourcing/scrape-url` |
-| Sourcing product detail / detail-page generate | `GET /api/sourcing/:id`, `POST /api/sourcing/:id/generate` |
-| Purchase orders state machine | `/api/purchase-orders/*` |
-| Supplier CRUD | `/api/suppliers/*` |
+| extension ingest + scrape | `/api/sourcing/extension/*`, `/api/sourcing/scrape-url` |
+| sourcing product detail | `GET /api/sourcing/:id` |
+| disabled detail-page generate | `POST /api/sourcing/:id/generate` |
+| purchase orders | `/api/purchase-orders/*` |
+| supplier CRUD | `/api/suppliers/*` |
 
-Controller file names match the capability (`sourcing.controller.ts`,
-`procurement.controller.ts`, `suppliers.controller.ts`). The `@Controller(...)`
-route shape stays exactly as above.
+Route shape is frozen.
 
-## Topology
+## Layout
 
-```
+```text
 sourcing/
-├── sourcing.module.ts                              ← single AppModule mount point + port↔adapter binding
-├── adapter/
-│   ├── in/http/                                    ← controllers + DTOs (HTTP DTO binding only)
-│   │   ├── sourcing.controller.ts                  (@Controller('sourcing'))
-│   │   ├── procurement.controller.ts               (@Controller('purchase-orders'))
-│   │   ├── suppliers.controller.ts                 (@Controller('suppliers'))
-│   │   └── dto/                                    ← every class-validator DTO
-│   └── out/
-│       ├── agent/
-│       │   └── sourcing-agent.gateway.adapter.ts   ← Agent OS delegation seam
-│       └── products/
-│           └── products-catalog.adapter.ts         ← MastersService cross-domain seam
-├── application/
-│   ├── port/
-│   │   └── out/
-│   │       ├── sourcing-agent.gateway.port.ts      (SOURCING_AGENT_GATEWAY_PORT)
-│   │       └── products-catalog.port.ts            (SOURCING_PRODUCTS_CATALOG_PORT)
-│   └── service/
-│       ├── sourcing.service.ts                     (uses gateway port + products catalog port + Prisma)
-│       ├── procurement.service.ts                  (uses domain policy + Prisma)
-│       └── suppliers.service.ts                    (transitional flat CRUD + Prisma)
-├── domain/
-│   └── policy/
-│       └── purchase-order-status.ts                (state machine: draft → pending → ordered → shipped → received)
-└── __tests__/
-    ├── sourcing-flow.spec.ts
-    ├── procurement-flow.spec.ts
-    └── (domain/policy/__tests__/purchase-order-status.spec.ts lives next to its source)
+  sourcing.module.ts
+  adapter/in/http/        sourcing/procurement/suppliers controllers + DTOs
+  adapter/out/agent/      SOURCING_AGENT_GATEWAY_PORT implementation
+  adapter/out/products/   products catalog port adapter
+  application/port/out/   agent gateway + products catalog ports
+  application/service/    sourcing, procurement, suppliers services
+  domain/policy/          purchase order status state machine
+  __tests__/
 ```
 
-## DDD/hexagonal posture in this module
+## Boundary Rules
 
-The Wave H1 Lane S fold introduced hexagonal boundaries only where behavior
-justifies them. The rest stays transitional flat CRUD by design:
+- `/api/sourcing/scrape-url` delegates to Agent OS through
+  `SOURCING_AGENT_GATEWAY_PORT`. `SourcingService` must not inject Agent OS
+  services or runtime adapters directly.
+- Cross-domain `MasterProduct` creation flows through
+  `SOURCING_PRODUCTS_CATALOG_PORT`; the products adapter is the only sourcing
+  call site of `MastersService.create`.
+- Updating an existing `MasterProduct` by `{ sourceUrl, organizationId }` may
+  stay inside `SourcingService.receiveExtensionData`; it does not issue new
+  product codes.
+- Purchase-order transitions use pure domain policy in
+  `domain/policy/purchase-order-status.ts`.
+- Suppliers stay transitional flat CRUD until a concrete reconstruction driver
+  appears.
 
-- **Agent OS delegation** (`/api/sourcing/scrape-url`) is mandatory port
-  per the architecture contract. `SourcingService` depends on
-  `SOURCING_AGENT_GATEWAY_PORT`; `SourcingAgentGatewayAdapter` is the only
-  call site of the Agent OS `AGENT_RUNNER_PORT.runByType('sourcing', ...)`
-  for sourcing. The adapter maps the runner result onto the legacy
-  `{ taskId }` contract using `runId` (preferred) or `requestId` (deferred-run
-  fallback); it never invents a task id silently. `POST /api/sourcing/:id/generate`
-  is intentionally disabled until sourced candidates are modeled separately
-  from `MasterProduct`.
-- **Cross-domain MasterProduct create** (extension ingest creating new family)
-  flows through `SOURCING_PRODUCTS_CATALOG_PORT`. `SourcingService` does not
-  import `MastersService` directly; the port adapter
-  (`adapter/out/products/products-catalog.adapter.ts`) is the only call site
-  of products' `MastersService.create` from sourcing. `MastersService.create`
-  internally invokes `MasterCodeService` to issue the `M-00000001` family
-  code in transaction, so the historical "Plan B3 prerequisite" for
-  MasterCodeService integration is satisfied through this seam.
-- **Purchase order state transitions** are extracted as a pure domain policy
-  (`domain/policy/purchase-order-status.ts`). `ProcurementService` consults
-  the policy; the state machine has no Nest, no Prisma, no IO.
-- **Suppliers** is intentionally left as transitional flat CRUD. The
-  architecture contract permits this for tiny CRUD surfaces that are not
-  being reconstructed in the same PR.
-- **MasterProduct update path** (existing master matched by
-  `{ sourceUrl, organizationId }`) lives inline in
-  `SourcingService.receiveExtensionData` and writes via Prisma. Updates do
-  not require code issuance and stay inside sourcing's transaction
-  boundary.
+## Contracts
 
-## Public contracts that must not regress
+- Extension ingest is idempotent by `{ sourceUrl, organizationId }`.
+- `/api/sourcing/extension/products` returns paginated, organization-scoped
+  `MasterProduct` rows.
+- `GET /api/sourcing/:id` uses `findFirst({ id, organizationId })` and
+  `pipelineStep IS NOT NULL`; miss is 404.
+- `POST /api/sourcing/:id/generate` stays disabled with
+  `NotImplementedException` until sourced candidates are modeled separately from
+  operational `MasterProduct`.
+- `/api/purchase-orders` keeps the legacy single POST action body
+  (`create | updateStatus | delete`).
+- Purchase-order status order is
+  `draft -> pending -> ordered -> shipped -> received`; delete is allowed only
+  from `draft` or `pending`.
+- Supplier read/update/delete is tenant-scoped by `{ id, organizationId }`.
 
-- `/api/sourcing/extension/product-data` accepts pushes from the 1688 / Alibaba
-  browser extension. `MasterProduct` upsert keys on
-  `{ sourceUrl, organizationId }` (idempotency).
-- `/api/sourcing/scrape-url` enqueues an Agent OS run via
-  `AGENT_RUNNER_PORT.runByType('sourcing', …)`. The adapter is the only seam;
-  `SourcingService` does not import any Agent OS service directly and never
-  reaches the runtime adapters.
-- `/api/sourcing/extension/products` returns paginated `MasterProduct`
-  rows scoped to the caller's organization and platform filter.
-- `GET /api/sourcing/:id` returns a single sourcing-scope `MasterProduct`
-  (with images) gated by `pipelineStep IS NOT NULL` and
-  `findFirst({ id, organizationId })`. 404 on miss; never expose
-  cross-organization rows.
-- `POST /api/sourcing/:id/generate` is disabled and returns
-  `NotImplementedException` (HTTP 501). Do not re-enable the Agent OS content
-  path until the sourcing candidate → `MasterProduct` promotion model exists;
-  otherwise a sourced-but-not-approved candidate is incorrectly treated as an
-  operational master product.
-- `/api/purchase-orders` action body (`create | updateStatus | delete`)
-  preserves the legacy single-endpoint POST shape. Status transitions follow
-  `draft → pending → ordered → shipped → received` exactly; deletion is
-  allowed only from `draft` or `pending`.
-- `/api/suppliers` CRUD reads/writes are tenant-scoped via
-  `findFirst({ id, organizationId })` before any update/delete.
+## Hard Bans
 
-## 외부 consumer
+- Direct Agent OS injection from `application/service/**`.
+- `findUnique({ where: { id } })` for supplier or purchase-order access.
+- Importing `supplier-payments`.
+- Direct import of products services from application services.
+- Raw `master_products` INSERT from sourcing; code issuance belongs to products.
+- Reintroducing top-level `suppliers` or `procurement` folders.
 
-`SourcingModule` does not export application services. Cross-domain consumers
-(if any are introduced later) should depend on a future
-`application/port/in/*` token that the module exports explicitly. Today no
-other module imports sourcing/procurement/supplier services.
+## Verification
 
-## 테스트 전략
-
-| Tier | 위치 | 목적 |
-|---|---|---|
-| Domain policy unit | `domain/policy/__tests__/purchase-order-status.spec.ts` | Pure state machine — every legal/illegal transition + deletable subset |
-| Application service unit | `__tests__/sourcing-flow.spec.ts`, `__tests__/procurement-flow.spec.ts` | Use-case orchestration. Prisma + agent gateway port faked. |
-
-## 금지 패턴
-
-- Agent OS 의 `AGENT_RUNNER_PORT`(또는 그 구현체) 를 `application/service/**`
-  에서 직접 inject — adapter 를 우회한다. Use the gateway port
-  (`SOURCING_AGENT_GATEWAY_PORT`); 런타임 hop 변경은 adapter 안에서 처리한다.
-- `findUnique({ where: { id } })` 으로 supplier/PO 조회 — IDOR. 항상
-  `findFirst({ where: { id, organizationId } })`.
-- `supplier-payments` 의 import 또는 회로 추가 — finance owner domain 소관.
-- `application/service/**` 에서 `MastersService` (또는 다른 owner domain 의
-  service) 를 직접 import — cross-domain 침범. 새 master 생성은
-  `SOURCING_PRODUCTS_CATALOG_PORT` 를 통해서만, 그 외 cross-domain dependency
-  도 동일하게 새 port 를 도입한다.
-- `master_products` 에 직접 raw INSERT (`prisma.masterProduct.create`) 추가 —
-  code 발급은 `MastersService` 만 책임진다. update 만 inline 허용.
-- `apps/server/src/{suppliers,procurement}` 폴더 부활 — capability 는
-  sourcing 안의 `adapter/in/http/<capability>.controller.ts` +
-  `application/service/<capability>.service.ts` 로만 존재한다.
-
-## Verification gates (PR 별 필수)
-
-```
+```bash
 git diff --check
 npm exec --workspace=apps/server -- vitest run src/sourcing
 npm run check:idor

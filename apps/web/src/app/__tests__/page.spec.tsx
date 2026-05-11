@@ -41,7 +41,7 @@ vi.mock('@/lib/api-client', async () => {
   };
 });
 
-import Dashboard from '../dashboard/page';
+import Dashboard from '../(analytics)/dashboard/page';
 
 function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } } });

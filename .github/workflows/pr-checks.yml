@@ -1,0 +1,39 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  review-guardrails:
+    name: PR review guardrails
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Install system tools
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
+      - name: Diff sanity
+        run: git diff --check "origin/${GITHUB_BASE_REF}...HEAD"
+
+      - name: Reconstruction trigger contract
+        run: npm run check:pr-reconstruction -- --base "origin/${GITHUB_BASE_REF}" --head HEAD --event "$GITHUB_EVENT_PATH"
+
+      - name: Convention scanners
+        run: npm run check:conventions
+
+      - name: Script guardrail tests
+        run: node --test scripts/__tests__/*.test.mjs

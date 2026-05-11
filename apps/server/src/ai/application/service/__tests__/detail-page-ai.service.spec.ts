@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DetailPageAiService } from '../detail-page-ai.service';
+import { DetailPageGenerationService } from '../detail-page-generation.service';
 import { DetailPageGeneratedImagesService } from '../detail-page-generated-images.service';
+import { DetailPagePrefillService } from '../detail-page-prefill.service';
+import { DetailPageQueryService } from '../detail-page-query.service';
 import { DetailPageResultRefinerService } from '../detail-page-result-refiner.service';
 import type { OperationAlertService } from '../../../../automation/application/service/operation-alert.service';
 import type { AgentRunnerPort } from '../../../../agent-os/application/port/in/agent-runner.port';
@@ -45,15 +48,19 @@ function makeService(
 ): DetailPageAiService {
   const resultRefiner = new DetailPageResultRefinerService(heroImageService as never);
   const generatedImages = new DetailPageGeneratedImagesService(heroImageService as never);
-  return new DetailPageAiService(
+  const query = new DetailPageQueryService(prisma as never, resultRefiner);
+  const generation = new DetailPageGenerationService(
     prisma as never,
     textCompletion as never,
     imageStorage as never,
     operationAlerts,
     resultRefiner,
     generatedImages,
+    query,
     agentRunner,
   );
+  const prefill = new DetailPagePrefillService(textCompletion as never);
+  return new DetailPageAiService(generation, prefill, query);
 }
 
 function boldVerticalResult() {

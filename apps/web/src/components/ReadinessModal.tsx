@@ -37,7 +37,7 @@ import {
 import { queryKeys } from '@/lib/query-keys';
 import { cn } from '@/lib/utils';
 import type { ReadinessCheck, ReadinessResponse } from '@kiditem/shared/readiness';
-import { useAdSync } from '@/app/ad-ops/hooks/useAdSync';
+import { useAdSync } from '@/app/(advertising)/ad-ops/hooks/useAdSync';
 
 const SESSION_DISMISSED_KEY = 'kiditem.readiness.dismissed';
 
