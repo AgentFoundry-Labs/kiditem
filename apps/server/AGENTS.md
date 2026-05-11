@@ -85,6 +85,14 @@ reconstruction trigger; do not grow the flat service in place.
   that are not being reconstructed.
 - Do not add substantial behavior to 700+ line services/components. Changes to
   500+ line files require explicit reconstruction classification in PR review.
+- Line-count triggers (500+/700+) are classification gates, not split mandates.
+  Split only when DRY violation, shared mutable state, or distinct
+  responsibility makes the split net-positive after counting facade
+  indirection and spec maintenance cost.
+- When a service is split into sub-services, move overlapping facade spec
+  cases to the relevant sub-service spec in the same PR. The remaining facade
+  spec should be minimal — composition / dispatch only — per
+  [docs/TESTING.md](../../docs/TESTING.md) `기존 테스트 정리 기준`.
 - Review triggers: 10+ files, cross-layer controls, or LLM/provider/media/
   storage/fetch/runtime/sink/reconcile changes need explicit contract/test/gate
   classification before approval.
