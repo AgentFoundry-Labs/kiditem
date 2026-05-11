@@ -3,6 +3,15 @@
 Chat owns the CopilotKit runtime bridge, Claude CLI adapter, and token-streaming
 SSE endpoints. It is self-contained and independent from Agent OS.
 
+## Architecture Mode
+
+Mode: Platform Runtime Adapter / Transitional Flat.
+
+Chat stays flat because the surface is small and self-contained. The Claude CLI
+adapter is the IO boundary. Any new tools, persistence, account mutation,
+background execution, or Agent OS integration requires a port/adapter split and
+security review.
+
 ## Layout
 
 ```text

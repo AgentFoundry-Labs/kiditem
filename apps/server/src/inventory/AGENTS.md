@@ -4,6 +4,14 @@ Inventory owns stock state, unshipped reads, warehouses, stock transfers,
 stock audits, and picking. These are capabilities inside `inventory/`, not
 standalone backend owner domains.
 
+## Architecture Mode
+
+Mode: Reconstructed Hexagonal.
+
+Inventory is the strict reference domain for server hexagonal structure. New
+behavior must use incoming ports, outgoing repository/cross-domain ports,
+application services, pure domain policies, and mappers as described below.
+
 ## Public Routes
 
 | Capability | Route |

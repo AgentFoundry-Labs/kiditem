@@ -4,6 +4,15 @@ Rules owns business rule definitions, thresholds, evaluation result
 post-processing, activity events, critical alerts, and panel emits. Actual rule
 evaluation is asynchronous Agent OS work.
 
+## Architecture Mode
+
+Mode: Agent OS Delegating Service / Transitional Flat.
+
+Rules stays flat only around HTTP orchestration and result post-processing.
+Async evaluation must go through Agent OS ports. If rule execution, scheduling,
+provider/runtime behavior, or sink/reconcile logic grows here, split it behind
+application ports and owner-domain adapters.
+
 ## Boundary
 
 - Controllers depend on `RulesService`.

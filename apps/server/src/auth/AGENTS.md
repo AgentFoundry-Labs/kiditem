@@ -3,6 +3,15 @@
 Auth owns global HTTP authentication, organization context, role checks,
 Supabase JWT enrichment, and `/api/auth/me`.
 
+## Architecture Mode
+
+Mode: Platform HTTP Infrastructure / Transitional Flat.
+
+Auth stays flat because it is guard/decorator/middleware infrastructure, not a
+business aggregate. Keep provider/JWT verification in middleware and guards. If
+auth starts owning external account workflows, durable sessions, or mutation
+invariants, introduce explicit ports/adapters instead of expanding services.
+
 ## Layout
 
 ```text

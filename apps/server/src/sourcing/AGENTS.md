@@ -4,6 +4,15 @@ Sourcing owns sourcing ingest/scrape, suppliers, and purchase-order
 procurement. Suppliers and procurement are capabilities inside `sourcing/`, not
 standalone owner domains. `supplier-payments` belongs to finance.
 
+## Architecture Mode
+
+Mode: Mixed Reconstruction.
+
+Sourcing scrape/agent and products-catalog boundaries use application ports and
+outgoing adapters. Suppliers and some procurement paths remain transitional
+flat capability services; provider, Agent OS, or cross-domain creation work must
+stay behind the declared ports.
+
 ## Public Routes
 
 | Capability | Route |

@@ -4,6 +4,14 @@ Analytics owns dashboard, statistics, traffic, and supplier-stats read models.
 It may read across owner-domain tables for reporting, but it does not import
 other owner-domain services or take mutation authority from them.
 
+## Architecture Mode
+
+Mode: Mixed Read-Model / Projection Adapter.
+
+Dashboard is reconstructed because it owns raw SQL and report hydration.
+Statistics, traffic, and supplier-stats may stay flat read services until they
+gain raw SQL complexity, mutation invariants, or 500+ line service pressure.
+
 ## Public Routes
 
 | Route | Capability |

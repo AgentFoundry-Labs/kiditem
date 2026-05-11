@@ -41,6 +41,26 @@ Flat `controller -> service -> PrismaService` modules are tolerated only for
 small legacy CRUD. A new top-level folder needs owner-domain justification:
 data ownership, mutation authority, transaction boundary, and invariants.
 
+## Architecture Modes
+
+Each `src/{owner-domain}/AGENTS.md` declares one mode:
+
+| Mode | Meaning |
+|---|---|
+| Reconstructed Hexagonal | Uses the owner-domain layout above; new behavior follows port/adapter boundaries. |
+| Mixed Reconstruction | Some surfaces are hexagonal and named; remaining flat exceptions are listed and may not grow silently. |
+| Transitional Flat | Current scope is small enough for controller/service/DTO, but expansion triggers require a reconstruction plan. |
+| Platform / Projection Adapter | Infrastructure, runtime, auth, or read projection surface with a local boundary contract instead of business aggregate ownership. |
+
+Flat folders stay flat only while they have no provider SDK, Agent OS/runtime,
+workflow integration, cross-domain mutation, raw SQL/row-lock transaction,
+shared use-case consumer, meaningful pure domain policy, LLM/prompt/media/
+storage/fetch boundary, or 500+ line service pressure. Adding any of those is a
+reconstruction trigger; do not grow the flat service in place.
+
+Every scoped backend `AGENTS.md` should state: mode, local layout, allowed IO
+lanes, forbidden imports, flat exceptions if any, and verification gates.
+
 ## Global HTTP Rules
 
 - Global prefix is `/api`; do not add `/v1`.
@@ -127,6 +147,7 @@ Read these before editing the matching path.
 | [`src/agent-os/AGENTS.md`](src/agent-os/AGENTS.md) | Agent OS platform runtime |
 | [`src/ai/AGENTS.md`](src/ai/AGENTS.md) | media AI, prompts, provider ports, Agent OS sinks |
 | [`src/analytics/AGENTS.md`](src/analytics/AGENTS.md) | reporting/read models |
+| [`src/automation/AGENTS.md`](src/automation/AGENTS.md) | workflows, alerts, action board, panel projection |
 | [`src/auth/AGENTS.md`](src/auth/AGENTS.md) | auth guards, current org/user decorators |
 | [`src/channels/AGENTS.md`](src/channels/AGENTS.md) | Coupang sync/reconciliation/provider boundary |
 | [`src/chat/AGENTS.md`](src/chat/AGENTS.md) | CopilotKit runtime and Claude CLI adapter |

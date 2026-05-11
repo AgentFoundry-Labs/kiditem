@@ -4,6 +4,16 @@ Orders owns the channel-agnostic order spine and adjacent operational surfaces:
 orders, returns, CS, reviews, and return transfers. Return transfers remain
 record-only; stock movement stays with inventory.
 
+## Architecture Mode
+
+Mode: Transitional Flat.
+
+Orders remains flat because current surfaces are channel-agnostic CRUD/actions
+with provider work delegated to channels. Do not add new provider APIs, Agent OS
+runtime, row-lock transactions, raw SQL reporting, or cross-domain mutations to
+flat services. Those changes require moving the touched surface behind local
+ports/adapters.
+
 ## Schema Contract
 
 - `Order` is the aggregate root.

@@ -5,6 +5,14 @@ strategy/action generation, and ad-action execution. It is organization-scoped
 and based on the products 3-layer model (`MasterProduct`, `ProductOption`,
 `ChannelListing`).
 
+## Architecture Mode
+
+Mode: Mixed Reconstruction.
+
+Advertising uses adapter/application/domain lanes for ingest, daily facts, and
+ad actions. New behavior goes under the layout below. The legacy `services/`
+facade exists only for compatibility and must not receive new business logic.
+
 ## Layout
 
 ```text
