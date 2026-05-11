@@ -31,6 +31,8 @@ export const DetailPageGenerateAgentInputSchema = z.object({
       rawDescription: z.string().optional().default(''),
       rawOptions: z.string().optional().default(''),
       imageUrls: z.array(z.string()).default([]),
+      ageGroup: z.enum(['age-8-plus', 'age-14-plus']).optional().default('age-8-plus'),
+      detailImageCount: z.enum(['auto', '1', '2', '3']).optional().default('auto'),
     })
     .passthrough(),
   heroImageMode: z.enum(['first', 'llm-pick']).default('first'),

@@ -40,6 +40,14 @@ export class GenerateDetailPageBodyDto {
   @IsOptional()
   @IsIn(['kids-playful', 'bold-vertical'])
   templateId?: 'kids-playful' | 'bold-vertical';
+
+  @IsOptional()
+  @IsIn(['age-8-plus', 'age-14-plus'])
+  ageGroup?: 'age-8-plus' | 'age-14-plus';
+
+  @IsOptional()
+  @IsIn(['auto', '1', '2', '3'])
+  detailImageCount?: 'auto' | '1' | '2' | '3';
 }
 
 export class PrefillDetailPageBodyDto {

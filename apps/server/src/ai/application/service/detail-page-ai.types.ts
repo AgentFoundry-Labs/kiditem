@@ -1,5 +1,6 @@
 import type { BoldVerticalGeneration } from '../../domain/prompts/bold-vertical/single-call';
 import type { DetailPageGeneration } from '../../domain/prompts/detail-page/single-call';
+import type { DetailImageCount, DetailPageAgeGroup } from '../../domain/prompts/detail-page/types';
 
 export type DetailPageTemplateId = 'kids-playful' | 'bold-vertical';
 
@@ -11,6 +12,8 @@ export interface DetailPageRawInput {
   imageUrls: string[];
   heroImageMode: 'first' | 'llm-pick';
   templateId: DetailPageTemplateId;
+  ageGroup?: DetailPageAgeGroup;
+  detailImageCount?: DetailImageCount;
 }
 
 export interface KidsPlayfulImageContext {

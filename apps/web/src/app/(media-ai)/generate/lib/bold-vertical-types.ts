@@ -214,7 +214,7 @@ export function adaptBoldVerticalToDetailPageData(
     usageSubtitle: normalizeUsageGuide(usage.subtitle, productName),
     usageImages: resolvedUsageImages,
     detailText: '구성품 및 색상은 사진과 다를 수 있습니다',
-    detailImages: finalDetailImages,
+    detailImages: finalDetailImages.slice(0, 3),
     detailPackageImages: resolvedPackageImages,
     detailPackageLabel: generation.packageLabel ?? '',
     safetyLabelImages,

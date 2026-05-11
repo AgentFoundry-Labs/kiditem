@@ -120,6 +120,8 @@ export class DetailPageGenerateRuntimeHandler
       imageUrls: raw.imageUrls ?? [],
       heroImageMode,
       templateId,
+      ageGroup: raw.ageGroup,
+      detailImageCount: raw.detailImageCount,
     };
 
     // Kids-playful prompt + image-selection rules need the package /

@@ -9,7 +9,9 @@ import {
 } from 'react';
 import {
   ChevronDown,
+  GraduationCap,
   ImagePlus,
+  Images,
   Info,
   Loader2,
   Package,
@@ -20,7 +22,12 @@ import {
 import { apiClient } from '@/lib/api-client';
 import { cn, formatTime } from '@/lib/utils';
 import { moveSafetyLabelImagesToEnd } from '../lib/detail-page-image-order';
-import type { BoxSetStatus, ColorVariantStatus } from '../hooks/useGenerateForm';
+import type {
+  BoxSetStatus,
+  ColorVariantStatus,
+  DetailImageCount,
+  DetailPageAgeGroup,
+} from '../hooks/useGenerateForm';
 
 const MAX_IMAGES = 15;
 const MAX_OPTIONS = 10;
@@ -32,6 +39,10 @@ interface ProductInputSectionProps {
   setRawCategory: (value: string) => void;
   target: string;
   setTarget: (value: string) => void;
+  ageGroup: DetailPageAgeGroup;
+  setAgeGroup: (value: DetailPageAgeGroup) => void;
+  detailImageCount: DetailImageCount;
+  setDetailImageCount: (value: DetailImageCount) => void;
   rawDescription: string;
   setRawDescription: (value: string) => void;
   productSize: string;
@@ -66,6 +77,18 @@ const TARGET_OPTIONS = [
   { value: '선물 구매자', label: '선물 구매자' },
 ];
 
+const AGE_GROUP_OPTIONS: Array<{ value: DetailPageAgeGroup; label: string }> = [
+  { value: 'age-8-plus', label: '8세 이상' },
+  { value: 'age-14-plus', label: '14세 이상' },
+];
+
+const DETAIL_IMAGE_COUNT_OPTIONS: Array<{ value: DetailImageCount; label: string }> = [
+  { value: 'auto', label: 'AI 추천 2~3개' },
+  { value: '1', label: '1개' },
+  { value: '2', label: '2개' },
+  { value: '3', label: '3개' },
+];
+
 export default function ProductInputSection({
   rawTitle,
   setRawTitle,
@@ -73,6 +96,10 @@ export default function ProductInputSection({
   setRawCategory,
   target,
   setTarget,
+  ageGroup,
+  setAgeGroup,
+  detailImageCount,
+  setDetailImageCount,
   rawDescription,
   setRawDescription,
   productSize,
@@ -217,6 +244,53 @@ export default function ProductInputSection({
             </Field>
             <Field label="주요 타겟">
               <SelectField value={target} onChange={setTarget} options={TARGET_OPTIONS} />
+            </Field>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-[1.2fr_0.8fr]">
+            <Field label="사용 연령">
+              <div className="grid grid-cols-2 gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] p-1">
+                {AGE_GROUP_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setAgeGroup(option.value)}
+                    className={cn(
+                      'inline-flex h-10 items-center justify-center gap-1.5 rounded-md text-sm font-black transition',
+                      ageGroup === option.value
+                        ? 'bg-[var(--surface)] text-[var(--primary)] shadow-sm ring-1 ring-[var(--border)]'
+                        : 'text-[var(--text-secondary)] hover:bg-[var(--surface)] hover:text-[var(--text-primary)]',
+                    )}
+                  >
+                    <GraduationCap size={15} />
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </Field>
+
+            <Field label="DETAIL 이미지 수">
+              <div className="relative">
+                <Images
+                  size={16}
+                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]"
+                />
+                <select
+                  value={detailImageCount}
+                  onChange={(e) => setDetailImageCount(e.target.value as DetailImageCount)}
+                  className="h-11 w-full appearance-none rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] px-9 text-sm font-bold text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--primary)]"
+                >
+                  {DETAIL_IMAGE_COUNT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown
+                  size={16}
+                  className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]"
+                />
+              </div>
             </Field>
           </div>
 
