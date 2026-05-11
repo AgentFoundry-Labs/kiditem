@@ -18,6 +18,7 @@ jobs:
       contents: read
       pull-requests: read
     env:
+      DATABASE_URL: postgresql://kiditem:kiditem@localhost:5432/kiditem
       NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_dummy
     steps:
