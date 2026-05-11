@@ -6,7 +6,7 @@ import type { ThumbnailAnalysisResult } from '@kiditem/shared/ai';
 
 export type AnalysisScope = 'all' | 'quality' | 'compliance';
 
-interface AnalysisListResponse {
+export interface AnalysisListResponse {
   total: number;
   analyzed: number;
   partialCount: number;
