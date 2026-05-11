@@ -178,3 +178,5 @@ npm run graphify:schema
 
 `docs/ERD.md`, `docs/erd/**`, and `graphify-out/**` are navigation aids only.
 Verify important claims against Prisma and source code.
+PR review guardrails fail schema changes that omit these generated navigation
+artifact updates.

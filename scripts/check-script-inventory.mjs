@@ -10,6 +10,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'check-pr-reconstruction-contract.mjs',
   'check-queryraw-tenancy.sh',
   'check-raw-snapshot-read-models.sh',
+  'check-schema-artifact-sync.mjs',
   'check-script-inventory.mjs',
   'check-shared-root-imports.sh',
   'check-tenant-scope.sh',
@@ -64,6 +65,9 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
   if (!packageScripts['check:scripts-inventory']) {
     missingPackageHooks.push('check:scripts-inventory');
   }
+  if (!packageScripts['check:schema-artifact-sync']) {
+    missingPackageHooks.push('check:schema-artifact-sync');
+  }
   if (!packageScripts['check:directory-architecture']) {
     missingPackageHooks.push('check:directory-architecture');
   }
@@ -72,6 +76,9 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
   }
   if (!packageScripts['check:conventions']?.includes('check:scripts-inventory')) {
     missingPackageHooks.push('check:conventions -> check:scripts-inventory');
+  }
+  if (!packageScripts['check:conventions']?.includes('check:schema-artifact-sync')) {
+    missingPackageHooks.push('check:conventions -> check:schema-artifact-sync');
   }
   if (!packageScripts['check:conventions']?.includes('check:directory-architecture')) {
     missingPackageHooks.push('check:conventions -> check:directory-architecture');

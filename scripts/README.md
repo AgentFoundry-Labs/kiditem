@@ -26,6 +26,7 @@ npm run test:scripts
 | `scripts/check-pr-reconstruction-contract.mjs` | high-risk reconstruction PR body gate | `npm run check:pr-reconstruction` |
 | `scripts/check-queryraw-tenancy.sh` | raw SQL organization-scope scanner | `npm run check:idor` |
 | `scripts/check-raw-snapshot-read-models.sh` | raw snapshot read-model boundary scanner | `npm run check:raw-snapshot-read-models` |
+| `scripts/check-schema-artifact-sync.mjs` | Prisma schema changes must include ERD/Graphify generated navigation updates | `npm run check:schema-artifact-sync` |
 | `scripts/check-script-inventory.mjs` | this inventory drift gate | `npm run check:scripts-inventory` |
 | `scripts/check-shared-root-imports.sh` | shared root-barrel ratchet | `npm run check:shared-root-imports` |
 | `scripts/check-tenant-scope.sh` | mutating service organization-scope scanner | `npm run check:tenant-scope` |
