@@ -33,3 +33,27 @@ export interface KidsPlayfulImageContext {
 }
 
 export type DetailPageParsedGeneration = DetailPageGeneration | BoldVerticalGeneration;
+
+export interface DetailPagePrefillDto {
+  category: string;
+  target: string;
+  features: string[];
+  options: string[];
+  description: string;
+  extraNotes: string;
+  estimatedSeconds: number;
+}
+
+export interface DetailPageGenerationDto {
+  id: string;
+  productId: string | null;
+  templateId: DetailPageTemplateId;
+  productName: string;
+  rawInput: DetailPageRawInput;
+  result: DetailPageGeneration | BoldVerticalGeneration | unknown;
+  imageUrls: string[];
+  processedImages: Record<string, string>;
+  imageProcessingStatus: string;
+  imageProcessingError: string | null;
+  createdAt: string;
+}

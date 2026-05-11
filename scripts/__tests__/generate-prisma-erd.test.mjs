@@ -9,7 +9,7 @@ import {
   generateMermaidErDiagram,
   parsePrismaSchemaFiles,
   writeErd,
-} from './generate-prisma-erd.mjs';
+} from '../generate-prisma-erd.mjs';
 
 const fixture = [
   {

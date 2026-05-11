@@ -14,7 +14,7 @@ import TabLayout from '@/components/ui/TabLayout';
 const SalesOverviewPage = dynamic(() => import('@/app/(finance)/sales-analysis/components/SalesOverview'), { ssr: false });
 const SettlementsPage = dynamic(() => import('@/app/(finance)/sales-analysis/components/Settlements'), { ssr: false });
 const StatisticsPage = dynamic(() => import('@/app/(finance)/sales-analysis/components/Statistics'), { ssr: false });
-const ReportsPage = dynamic(() => import('@/app/reports/page'), { ssr: false });
+const ReportsPage = dynamic(() => import('@/app/(finance)/reports/page'), { ssr: false });
 const SalesPlansPage = dynamic(() => import('@/app/(finance)/sales-analysis/components/SalesPlans'), { ssr: false });
 const WingDailySalesPage = dynamic(() => import('@/app/(finance)/sales-analysis/components/WingDailySales'), { ssr: false });
 

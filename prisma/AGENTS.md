@@ -1,61 +1,64 @@
 # prisma — Shared Schema
 
-DB schema source of truth for the entire system. Prisma v7 (multi-file).
+Prisma schema is the DB source of truth. KidItem uses Prisma v7 multi-file
+schema.
 
-## 파일 구조 (v7 best-practice)
+## Layout
 
-```
+```text
 prisma/
-├── schema.prisma       # generator + datasource 만
-├── migrations/         # 마이그레이션 이력
-└── models/             # 도메인별 모델 (10 파일, alphabetical)
-    ├── advertising.prisma      (AdAction, ScrapeTarget, ExecutionTask, ExecutionLog, ExecutionWorker)
-    ├── agents.prisma           (AgentInstance, AgentRuntimeState, AgentTaskSession, AgentRunRequest, AgentRun, AgentRunEvent, AgentToolDefinition, AgentInstanceToolPolicy, AgentAuthorizationEvent, AgentApprovalRequest, AgentCostEvent, WorkflowRun, WorkflowTemplate)
-    ├── ai.prisma               (Thumbnail*, ContentGeneration)
-    ├── channels.prisma         (ChannelScrapeRun, ChannelScrapeSnapshot, ChannelListingDailySnapshot, ChannelListingOptionDailySnapshot, ChannelAdTargetDailySnapshot, ChannelAccountDailyKpiSnapshot — daily facts are source-of-truth for listing/option/day market data)
-    ├── core.prisma             (Organization, OrganizationMembership, LegalEntity, ChannelAccount, User, MasterProduct, ProductOption, ChannelListing, ChannelListingOption, BundleComponent, CategoryMapping)
-    ├── finance.prisma          (ProfitLoss, GradeHistory, ManualLedger, ProcessingCost, SalesPlan)
-    ├── inventory.prisma        (Inventory, Stock*, Warehouse, Picking*, ReturnTransfer)
-    │                            ↳ StockTransaction 은 InventoryService 의 내부 ledger.
-    │                              외부 모듈의 직접 read/write 금지.
-    ├── orders.prisma           (Order + OrderLineItem + OrderReturn + OrderReturnLineItem channel-agnostic spine, Shipment, UnshippedItem, Settlement, CSRecord, Review)
-    ├── supply.prisma           (Supplier*, PurchaseOrder*)
-    └── system.prisma           (Marketplace, BusinessRule, ActionTask, FeatureGate, ActivityEvent, Alert, SystemSetting, MigrationCheckpoint)
+  schema.prisma        generator + datasource only
+  migrations/
+  models/
+    advertising.prisma
+    agents.prisma
+    ai.prisma
+    channels.prisma
+    core.prisma
+    finance.prisma
+    inventory.prisma
+    orders.prisma
+    supply.prisma
+    system.prisma
 ```
 
-각 모델 위 `/// @namespace <도메인>` + `/// @describe <한줄>` 주석으로 도메인 경계 + 의미를 schema 자체에 inline. `prisma generate` 가 10 파일을 자동 merge (single schema 와 동일 동작). 새 모델 추가 시 도메인에 맞는 파일에 넣고 namespace 주석 붙이기.
-
-**Prisma v7 config 위치**: `prisma.config.ts` (root) 의 `schema: 'prisma'` — 디렉토리 지정이 공식 best-practice.
+Each model gets `/// @namespace` and `/// @describe` comments. New models go in
+the owning domain file with those comments. `prisma.config.ts` points Prisma at
+the `prisma/` directory; do not move datasource URL back into `schema.prisma`.
 
 ## Commands
 
 ```bash
-npm run db:generate   # Generate Prisma client
-npm run db:push       # Dev — apply directly to DB
-npm run db:erd        # Regenerate docs/ERD.md + docs/erd/*.md after Prisma model changes
-npm run graphify:schema # Regenerate ERD + graphify-out schema navigation artifacts
-npm run db:migrate    # Production — create migration files
-npm run db:studio     # DB browser (localhost:5555)
+npm run db:generate
+npm run db:push
+npm run db:erd
+npm run graphify:schema
+npm run db:migrate
+npm run db:studio
 ```
 
-`DATABASE_URL` env required: `postgresql://kiditem:kiditem@localhost:5433/kiditem`
+Local `DATABASE_URL` default:
+`postgresql://kiditem:kiditem@localhost:5433/kiditem`.
 
-## DB 동기화 — schema vs. data (중요)
+## Pulling Code Does Not Update DB
 
-`git pull` 은 **코드만** 받는다. DB 는 로컬 볼륨에 남아있으므로 pull 후 스키마/데이터 동기화는 각자 수동으로 해야 한다.
+After pulling schema changes:
 
-### 표준 동기화 모델
+```bash
+git pull
+npm install --legacy-peer-deps
+npm run db:push -- --accept-data-loss   # only when drops are expected
+npx prisma generate
+npm run db:erd
+npm run graphify:schema
+```
 
-| 계층 | 전달 수단 | 특성 |
-|---|---|---|
-| **스키마 (DDL)** | `schema.prisma` + `db:push` | 매 pull 후 실행. 안전 |
-| **공유 개발 데이터** | Google Drive dev data profile + Coupang bundle replay (`npm run data:dev:*`) | 팀원이 같은 쿠팡 스크래퍼 결과를 재현하는 표준 경로 |
-| **운영 중 데이터 이전** | PR 본문 / release runbook 의 임시 명령 | 스키마 변경/마이그레이션 보조. 화면 데이터 공유 용도 아님. 완료 후 one-off 스크립트는 repo 에 남기지 않음 |
-| **초기 스냅샷 예외** | `prisma/init.sql.gz` (`--data-only` pg_dump) | Fresh volume 전용 예외. 기본 개발 데이터 경로 아님 |
+`db:push` applies schema. There is no long-lived SQL overlay to replay.
 
-### Google Drive dev data profile
+## Development Data
 
-팀원 간 같은 쿠팡 스크래퍼 결과를 맞출 때는 `init.sql.gz` 나 synthetic seed 를 쓰지 않는다. Google Drive 의 profile 이 `kiditem-coupang-{datasetId}.zip` bundle 을 정하고, bundle 을 `.data/dev/coupang/<datasetId>/` 로 pull 한 뒤 replay 한다.
+Shared screen/data baselines use Google Drive dev data profiles, not
+`init.sql.gz` or synthetic seeds.
 
 ```bash
 export KIDITEM_DEV_DATA_DRIVE_DIR="$HOME/.../KidItem Dev Data"
@@ -63,158 +66,117 @@ export DEV_DEFAULT_USER_ID="<local dev user uuid>"
 npm run data:dev:sync -- --profile workspace --yes
 ```
 
-규칙:
+Rules:
 
-- Bundle 원본은 Google Drive 의 `coupang/bundles/` zip archive, 로컬 사본은 `.data/` 아래에 둔다. 둘 다 Git 커밋 금지.
-- Drive 의 `profiles/*.json` 이 기준 상태를, `coupang/latest.json` 이 현재 기준 dataset 과 archive checksum 을 가리킨다. 같은 날 다시 만들면 기존 zip 을 덮어쓰지 말고 `datasetId` 의 `vN` 을 올린다.
-- 표준 replay 모드는 `scoped-replace` 다. manifest 의 organization/channel/date range scope 만 교체한다.
-- Coupang bundle 은 실제 쿠팡 스크래퍼 payload 를 `POST /api/ads/extension/sync` 경로로 replay 한다. 앱이 실제 ingest 하는 코드와 다른 DB writer 를 만들지 않는다.
-- 재고 비교 기준 파일은 Drive 루트 `references/kiditem_list.xlsx`, `references/wing-inventory-matched.xlsx` 로 관리한다. Bundle 내부 `references/` 에는 publish 시점의 snapshot 이 들어간다. 이 파일들은 scraper payload replay 대상은 아니지만, 로컬 DB baseline 이 필요하면 `scripts/import-product-baseline.ts` 로 별도 import 한다.
-- `scripts/seed-channel-market-data.ts` 같은 synthetic market-data seed 는 금지. 실제 scrape payload replay 로 대체한다.
-- 자세한 포맷/운영 절차는 [`docs/DEV_DATA_BUNDLES.md`](../docs/DEV_DATA_BUNDLES.md) 를 따른다. 새 머신 셋업은 [`docs/runbooks/google-drive-dev-data.md`](../docs/runbooks/google-drive-dev-data.md) 를 따른다.
+- Bundle archives stay in Google Drive and `.data/`; never commit them.
+- `profiles/*.json` and `coupang/latest.json` identify the current dataset and
+  checksum.
+- Standard replay mode is `scoped-replace`.
+- Coupang bundles replay through the real app ingest path
+  `POST /api/ads/extension/sync`.
+- Synthetic market-data seed writers are forbidden.
+- Durable dev-data flows belong in maintained scripts plus
+  `docs/DEV_DATA_BUNDLES.md`; machine setup belongs in `docs/runbooks/`.
 
-### init.sql.gz 의 정확한 의미
+## `init.sql.gz`
 
-- Postgres 도커 이미지의 `docker-entrypoint-initdb.d/` 패턴. **빈 볼륨 초기화 시에만** 자동 로드.
-- 기존 볼륨이 있으면 **스킵** → `git pull` 로 새 `init.sql.gz` 받아도 아무 일도 안 일어남.
-- 팀원 간 개발 데이터 공유 수단이 아니다. 공유 데이터는 Google Drive profile sync 가 책임진다.
-- 적용하려면 `docker compose down -v` 로 볼륨 삭제 후 재기동. **기존 로컬 데이터 손실 주의**.
-
-### 스키마 변경 PR 받는 사람 플로우
-
-```bash
-git pull
-npm install --legacy-peer-deps
-npm run db:push -- --accept-data-loss   # drop 이 포함됐으면 플래그 필요
-npx prisma generate
-npm run db:erd                          # docs/ERD.md + docs/erd/*.md 재생성
-npm run graphify:schema                 # graphify-out/schema/** + schema-consumers/** 재생성
-```
-
-`--accept-data-loss` 는 **삭제(drop)** 가 있을 때만 필수. PR 설명에 drop 포함 여부 명시한다.
-
-DB schema 는 Prisma schema 하나가 source of truth 다. `prisma db push` 후 별도 SQL overlay 를 재실행하지 않는다.
-
-### init.sql.gz 재생성 시점
-
-기본적으로 재생성하지 않는다. 다음 예외에만 사용한다:
-1. Fresh Docker volume bootstrap snapshot 이 명시적으로 필요한 경우
-2. 스키마 변경으로 기존 `init.sql.gz` 의 INSERT 가 fresh setup 에서 깨지는 경우
-3. PR 템플릿에서 `init.sql.gz 변경 있음` 을 의도적으로 체크한 경우
+`prisma/init.sql.gz` is only a fresh Docker volume bootstrap snapshot. Existing
+volumes ignore it. Regenerate only when a fresh-volume snapshot is explicitly
+needed or the existing snapshot breaks fresh setup.
 
 ```bash
 docker exec kiditem-postgres pg_dump -U kiditem --data-only --column-inserts \
   --no-owner --no-privileges kiditem | gzip > prisma/init.sql.gz
 ```
 
-`--data-only` 이므로 스키마는 제외되고 INSERT 만 포함. 스키마는 항상 `prisma db push` 가 책임진다.
+Deleting a local volume to apply it destroys local data.
 
-### 팀원 간 incremental 데이터 공유
+## Schema Rules
 
-기존 로컬 데이터를 **유지하면서** 새 공유 화면 데이터(예: 쿠팡 스크래퍼 결과)를 추가해야 하면 Google Drive bundle 의 `upsert` replay 를 사용한다.
+- No native PostgreSQL enums. Use `String` plus DTO/Zod/domain validation.
+- PascalCase model names, `@@map("snake_case")` table names.
+- camelCase fields, `@map("snake_case")` column names.
+- UUID primary keys use `@default(uuid()) @db.Uuid`.
+- Timestamps use `@db.Timestamptz`.
+- KRW is `Int`; CNY/decimal money uses `Decimal(12,2)`.
+- JSON is for one-off raw payload preservation only. Child rows used for
+  queries, aggregates, or IDOR guards must be normalized.
+- FK columns need a leading `@@index([foreignKey])`; Prisma does not create FK
+  indexes automatically.
+- Optional FKs must declare `onDelete` explicitly.
+- Services keep Zod/shared contracts in sync with `satisfies` where useful.
 
-스키마/운영 데이터 이전이 필요한 경우에도 one-off backfill / migration / seed 스크립트를 장기 보관하지 않는다:
+## Organization Boundary
 
-- Durable schema objects must be representable in Prisma schema. If a desired PostgreSQL feature is not representable, redesign toward an app-level invariant, a normal column/index, or a backend application port instead of adding SQL overlays.
-- One-off data movement belongs in the PR body / release runbook and is deleted after rollout.
-- Reusable developer data flows belong in `scripts/dev-data*.ts` + `docs/DEV_DATA_BUNDLES.md`; machine setup steps belong in `docs/runbooks/`.
-- Keep `scripts/*` only for current package commands, tests, generated docs, or actively maintained import/dev-data workflows.
+- `Organization` / `organization_id` is the SaaS workspace boundary.
+- `OrganizationMembership` is the source of truth for user role and current
+  organization. Do not reintroduce `User.organizationId`.
+- `LegalEntity` is tax/settlement identity, not a SaaS boundary.
+- `ChannelAccount` is marketplace/store account identity, not a SaaS boundary.
+- Agent/chat/system users may have no active membership; HTTP domain routes rely
+  on backend guards and application-level `organizationId` predicates.
 
-## Prisma v7 Config
+## Integrated Model Contracts
 
-`prisma.config.ts` (root) sets datasource URL. No `url` in `schema.prisma` (v7 pattern).
+- Agent OS uses code-owned definitions plus organization-owned
+  `AgentInstance`, durable `AgentRunRequest`, execution `AgentRun`, runtime
+  state, tool policy, authorization, and cost ledgers.
+- Queue/dedupe/audit state belongs to `AgentRunRequest`; `AgentRun` is the
+  accepted attempt.
+- Legacy `AgentDefinition`, `AgentTask`, `HeartbeatRun`,
+  `AgentWakeupRequest`, `AgentEvent`, and `AgentLog` models must not return.
+- `Marketplace.type` distinguishes `agent` and `workflow`; agent install goes
+  through the Agent OS catalog/bootstrap path.
 
-## Rules
+## Partial Unique Indexes
 
-- No native PG enums → `String` fields + app-level validation
-- PascalCase model names → `@@map("snake_case")` for table names
-- camelCase field names → `@map("snake_case")` for column names
-- UUID PK: `@default(uuid()) @db.Uuid`
-- Timestamps: `@db.Timestamptz`
-- Currency: `Int` (KRW) or `Decimal(12,2)` (CNY)
-- Python accesses snake_case DB column names directly (asyncpg raw SQL)
-- After schema changes: always run the schema-change checklist above (`db:push` + `prisma generate` + generated ERD/Graphify artifacts)
-- Keep Zod schemas in sync: use `satisfies z.infer<typeof Schema>` pattern in services
-- Json 흡수 패턴은 일회성 raw payload 보존용으로만 사용한다. 운영 쿼리·집계·IDOR guard 가 필요한 child row 는 `OrderReturnLineItem` 처럼 정규화한다.
-- **FK 컬럼에 leading `@@index` 명시 필수** — Prisma 는 FK 에 자동 인덱스를 만들지 **않는다**. JOIN/역방향 조회/부모 delete-cascade 점검이 있는 FK 는 `@@index([foreignKey])` 처럼 FK 컬럼이 첫 번째인 index 를 추가한다. `@@index([organizationId, foreignKey])` 는 organization-scoped list query 에는 유용하지만 FK 유지보수용 leading index 를 대체하지 않는다. 둘 다 필요한 read path 면 둘 다 둔다.
-- **Optional FK (`Foo?`) 에도 `onDelete` 명시** — default 동작에 의존하지 말 것. 부모 삭제 시 동작(`SetNull` / `Restrict` / `Cascade`)을 의도에 맞게 기입해 리뷰어가 정책을 바로 읽을 수 있게.
+Prisma v7 `partialIndexes` manage active-row uniqueness. Do not add full unique
+constraints on the same logical keys.
 
-## 통합 모델 규칙
+Current active-row uniqueness includes:
 
-- Agent OS 는 code-owned Agent Definition Registry(global shipped definitions) + `AgentInstance`(organization-owned runnable subject) + `AgentRuntimeState`(runtime state) + `AgentRunRequest`(durable queue/request) + `AgentRun`(accepted execution attempt) 로 분리한다.
-- Queue/dedupe/audit state 는 `AgentRunRequest` 에 둔다. `AgentRun` 은 executor 가 claim 한 실제 attempt 만 기록한다.
-- Agent 사용자 연결은 `User.agentInstanceId` 를 사용한다. Legacy AgentDefinition foreign-key links and the `AgentDefinition` / `AgentTask` / `HeartbeatRun` / `AgentWakeupRequest` / `AgentEvent` / `AgentLog` models must not be reintroduced.
-- `Marketplace`: type(`agent`|`workflow`)으로 구분. Agent install 은 legacy clone 이 아니라 Agent OS catalog/bootstrap path 를 통해 처리한다.
+- `master_products(organization_id, legacy_code)`
+- `product_options(master_id, option_name)` including null-option case
+- `product_options(organization_id, barcode)`
+- `product_options(organization_id, legacy_code)`
+- `channel_listings(organization_id, channel, external_id)`
 
-## Partial unique index 패턴
+Service code should use `findFirst({ where: { ..., isDeleted: false } })`, not
+`findUnique(...)` assumptions over these partial keys.
 
-`prisma/models/` 의 `@@unique([...], where: raw(...))` 는 Prisma v7 `partialIndexes` preview 로 관리되는 **partial unique index** 다. 이 조합이 보장하는 것:
+## Barcode Semantics
 
-- 소프트삭제된 row 의 unique 값을 새 row 가 재사용 가능 (운영상 `legacyCode`/`barcode` 재할당 필요).
-- Restore 시 활성 row 와 충돌 → P2002 → `ConflictException`.
+- `MasterProduct.barcode` is nullable, non-unique source EAN/product code.
+- `ProductOption.barcode` is the scanner/option barcode and is partial-unique by
+  `(organizationId, barcode)`.
+- Baseline import must not write source EAN into `ProductOption.barcode`.
+- If a source provides real option barcode data, use a separate import path.
 
-적용된 column 4개 (Plan A Task 11 + Plan B1):
-- `master_products(organization_id, legacy_code)` → `master_products_organization_id_legacy_code_key`
-- `product_options(master_id, option_name)` → `product_options_master_id_option_name_key` + `product_options_master_null_option` (`option_name IS NULL` 케이스)
-- `product_options(organization_id, barcode)` → `product_options_organization_id_barcode_key`
-- `product_options(organization_id, legacy_code)` → `product_options_organization_id_legacy_code_key`
-- `channel_listings(organization_id, channel, external_id)` → `channel_listings_organization_id_channel_external_id_key` (active-row uniqueness)
+## Prisma-Only Boundary
 
-서비스 코드는 `findUnique({ organizationId_xxx })` 대신 **`findFirst({ where: { ..., isDeleted: false } })`** 사용.
+Schema truth stays in Prisma. Do not maintain long-lived RLS, CHECK constraint,
+expression index, or standalone sequence overlays.
 
-Prisma `db:push` 가 partial unique index 를 직접 생성/동기화한다. 같은 컬럼에 full unique 를 추가하지 않는다.
+- Tenant isolation is enforced by Nest guards plus application/repository
+  `organizationId` predicates.
+- Agent/chatbot data access goes through backend application services/ports.
+- Value constraints use DTO/Zod/domain policy.
+- Computed lookup needs should become normal columns/indexes, not JSONB
+  expression indexes.
 
-## Barcode 의미 분리 (R0)
+If Supabase direct DB/PostgREST access becomes a product surface, treat RLS as a
+separate platform migration with policies, indexes, verification, and runbook.
 
-- `MasterProduct.barcode` = source EAN/자사상품코드. **nullable + non-unique**, `(organizationId, barcode)` index 만. 같은 EAN 이 여러 product family 에 걸치는 외부 데이터를 그대로 보존. 검색은 multi-result 가능 — `findUnique` 가정 금지.
-- `ProductOption.barcode` = 진짜 옵션/스캐너 단위 barcode. `(organizationId, barcode)` partial unique 유지 (`product_options_organization_id_barcode_key`). `/options/by-barcode/:barcode` 의 single-result 의미는 이 컬럼이 보장.
-- baseline import (`scripts/import-product-baseline.ts`) 는 source EAN 을 절대 `ProductOption.barcode` 에 쓰지 않는다 (null). master 식별자는 `(source barcode or blank fallback, normalized product name)` 결정적 키로 `MasterProduct.legacyCode = kiditem:v1:<sha256-16chars>` 에 저장 (idempotency 전용 — UI 노출 금지, user-facing code 는 `MasterProduct.code`).
-- 별도 source 가 진짜 옵션 barcode 를 제공하면 별도 import path 로 `ProductOption.barcode` 채움. baseline path 와 섞지 말 것.
+## Generated Navigation
 
-## ERD / Graphify 재생성
-
-Prisma 모델 / `scripts/generate-prisma-erd.mjs` / 스키마 consumer (`apps/server/src/channels`, `packages/shared`, `scripts`) / 기타 import script 변경 후 반드시:
+After Prisma model or schema-consumer changes:
 
 ```bash
 npm run db:erd
 npm run graphify:schema
 ```
 
-산출물 (`docs/ERD.md`, `docs/erd/**`, `graphify-out/schema/**`, `graphify-out/schema-consumers/**`) 는 navigation aid 일 뿐 source of truth 가 아님 — Graphify `INFERRED`/`AMBIGUOUS` edge 는 review 힌트로만 사용하고 중요한 주장은 source 파일로 검증한다.
-
-## Agent OS 스키마 필드
-
-- Runtime config/capability 기본값은 backend code-owned Agent Definition Registry, organization override 는 `AgentInstance.runtimeConfig` 에 둔다.
-- 실행 상태/세션 지표는 `AgentRuntimeState` 와 `AgentTaskSession` 에 둔다.
-- 출력/요약/log reference 는 `AgentRun.resultJson`, `AgentRun.summary`, `AgentRun.logRef` 에 둔다.
-- 비용은 `AgentCostEvent` ledger 로 누적한다. `AgentRun` row 에 비용 집계를 중복 저장하지 않는다.
-
-## User Types
-
-`User.type` 필드로 사람과 AI를 통합 관리:
-- `human` — 사람 직원
-- `agent` — AI 에이전트 (`agentInstanceId` 연결)
-- `system` — 챗봇/시스템 사용자. `User` 에 직접 organization FK 를 두지 않으며, 활성 `OrganizationMembership` 이 없으면 HTTP 도메인 라우트에서는 organization context 가 없는 사용자로 취급한다.
-
-## Organization Boundary
-
-- `Organization` 은 SaaS/customer workspace boundary 다. IDOR 방어와 backend application scope 의 기준 컬럼은 `organization_id`.
-- `OrganizationMembership` 이 사용자 소속과 조직 내 role 의 source of truth. `User.organizationId` 재도입 금지.
-- `LegalEntity` 는 세금계산서/정산/사업자등록 identity 를 나타내며 SaaS boundary 가 아니다.
-- `ChannelAccount` 는 쿠팡 Wing, 네이버 스마트스토어 같은 marketplace/store 계정을 나타내며 SaaS boundary 가 아니다.
-
-## Prisma-only boundary
-
-DB schema 는 Prisma-only 다. RLS, CHECK constraint, expression index, standalone sequence 를 장기 SQL overlay 로 유지하지 않는다.
-- Tenant isolation: NestJS controller/guard 가 `@CurrentOrganization()` 을 해석하고 application service / repository adapter 가 `where.organizationId` 로 강제한다.
-- Chatbot/agent: DB role 로 직접 접속하지 않는다. 서버가 제공한 organization-scoped context 또는 application port 를 통해서만 데이터에 접근한다.
-- Value constraints: native enum/CHECK 대신 DTO validation, Zod/shared schemas, domain policy 로 검증한다.
-- Computed lookup needs: JSONB expression index 대신 정규 컬럼 + Prisma `@@index` 로 승격한다.
-
-### Supabase/Postgres guidance alignment
-
-Supabase 의 일반 multi-tenant 권장사항은 RLS 방어층을 선호하지만, KidItem 의 현재 runtime 은 browser → NestJS API → Prisma server client 경로이며 frontend direct DB/PostgREST 접근을 금지한다. 따라서 현 단계의 source of truth 는 app-level `organizationId` scope 다. RLS 를 도입하려면 Prisma schema 밖 SQL policy/runtime `current_setting`/role model 이 필요하므로, ad-hoc overlay 로 추가하지 않는다.
-
-향후 Supabase direct DB/PostgREST 접근을 제품 surface 로 열거나 DB-enforced defense-in-depth 가 필요해지면 별도 platform migration 으로 다룬다. 그 migration 은 RLS policy 생성/검증/성능 index/runbook 을 포함해야 하며, 그때까지 “RLS 미의존” 규칙은 유지한다.
-
-Native PG enum 도 현 단계에서는 유지하지 않는다. 운영 status/type 값은 Coupang/API/parser 변화에 따라 빠르게 늘어나며, enum 변경은 production cast/migration 실패 경험을 만들기 쉽다. `String` 컬럼 + DTO/Zod/domain validation 이 KidItem 의 Prisma-only 운영 모델과 맞는다.
+`docs/ERD.md`, `docs/erd/**`, and `graphify-out/**` are navigation aids only.
+Verify important claims against Prisma and source code.
+PR review guardrails fail schema changes that omit these generated navigation
+artifact updates.

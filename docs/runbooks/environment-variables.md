@@ -249,9 +249,6 @@ for them.
 | `DEV_WEB_ORIGIN` | Dev preview session callback bootstrap | `bin/dev-bootstrap.sh` | Must match the exact local browser origin. |
 | `KIDITEM_DEV_DATA_DRIVE_DIR` | Google Drive dev data sync | Dev data scripts | Local Google Drive Desktop path. |
 | `KIDITEM_DEV_ORGANIZATION_ID` | Dev data sync/import needs target org | Dev data scripts | Local/dev org scope. |
-| `AGENT_DATABASE_URL` | Legacy read-only agent DB tools | Legacy agent/db-query tooling | New Agent OS paths should receive backend-provided context, not DB URLs. |
-| `CHATBOT_DATABASE_URL` | Legacy chatbot DB tools | Legacy chatbot/db-query tooling | Current Claude CLI chat path does not receive DB URLs. |
-| `POLL_INTERVAL_SECONDS` | Legacy Python poller is used | Python runner scripts | Not used by the current staging compose runtime. |
 
 ## Browser Automation
 
@@ -291,7 +288,6 @@ variables apply when running `agents/` as a separate runtime.
 | `TMAPI_BASE_URL` | Custom TMAPI endpoint needed | Python sourcing matcher | Defaults in code. |
 | `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | LLM tracing enabled | Python config/Langfuse | Both keys required to enable. |
 | `LANGFUSE_BASE_URL` | Custom Langfuse endpoint needed | Langfuse SDK | Defaults to Langfuse Cloud in examples. |
-| `LANGFUSE_HOST` | Legacy Langfuse endpoint variable is still present | Python config | Mapped to `LANGFUSE_BASE_URL` when set and `LANGFUSE_BASE_URL` is empty. Prefer `LANGFUSE_BASE_URL`. |
 | `LOG_LEVEL` | Custom logging verbosity needed | Python config | Defaults to `INFO`. |
 
 ## GitHub Actions Staging Environment
