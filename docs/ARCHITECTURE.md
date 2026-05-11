@@ -69,7 +69,9 @@ Important ownership decisions:
 - `agent-os/` is the owner platform for Agent OS: code-owned agent
   definitions, organization-owned instances, run requests, accepted runs,
   runtime state, tool policy, approvals, authorization audit, cost ledger, run
-  events, and log references. See [Agent OS Schema Design](agent-os-schema.md).
+  events, and log references. See
+  [`apps/server/src/agent-os/AGENTS.md`](../apps/server/src/agent-os/AGENTS.md)
+  and [`prisma/AGENTS.md`](../prisma/AGENTS.md).
 - `automation/` owns workflow orchestration, action-board/action-task routes,
   marketplace install/catalog surfaces, manager routes, alerts, and panel event
   projection. `Alert` is the single user-facing notification ledger, including
@@ -121,9 +123,9 @@ not the dashboard notification or agent-management contract.
 
 ## Agent OS
 
-Agent OS is a backend platform capability. The schema and owner boundary are
-documented in [Agent OS Schema Design](agent-os-schema.md). Runtime execution and run
-accounting live under `apps/server/src/agent-os/`:
+Agent OS is a backend platform capability. Runtime execution and run accounting
+live under `apps/server/src/agent-os/`; schema ownership is documented in
+`prisma/AGENTS.md`:
 
 - Public workflow routes live under
   `apps/server/src/automation/adapter/in/http/workflows.controller.ts`.

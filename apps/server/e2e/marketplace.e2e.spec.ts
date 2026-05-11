@@ -16,7 +16,7 @@ const sampleAgentCatalog = {
   role: 'manager',
   adapterType: 'claude_local',
   promptTemplate: 'agent-config/prompts/agents/manager.md',
-  skills: ['db-query'],
+  skills: [],
   permissions: null,
   icon: null,
   module: null,

@@ -81,9 +81,8 @@ export class AgentCatalogController {
     }
   }
 
-  // Tool policy widening (deny → allow / approval_required → allow) is
-  // explicitly an admin-tier action per docs/agent-os-schema.md and is
-  // audited via AgentAuthorizationEvent.
+  // Tool policy widening (deny -> allow / approval_required -> allow) is an
+  // admin-tier action audited via AgentAuthorizationEvent.
   @Roles('admin', 'owner')
   @Put('instances/:id/tool-policies/:toolKey')
   async upsertInstanceToolPolicy(

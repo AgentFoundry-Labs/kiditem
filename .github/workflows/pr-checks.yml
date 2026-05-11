@@ -1,0 +1,62 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  convention-and-build:
+    name: Convention and build gates
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_dummy
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts \
+            --fetch-timeout=600000 \
+            --fetch-retries=5 \
+            --fetch-retry-mintimeout=20000 \
+            --fetch-retry-maxtimeout=120000 \
+            --no-audit \
+            --no-fund
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+
+      - name: Diff sanity
+        run: git diff --check "origin/${GITHUB_BASE_REF}...HEAD"
+
+      - name: Reconstruction trigger contract
+        run: npm run check:pr-reconstruction -- --base "origin/${GITHUB_BASE_REF}" --head HEAD --event "$GITHUB_EVENT_PATH"
+
+      - name: Convention scanners
+        run: npm run check:conventions
+
+      - name: Script helper tests
+        run: npm run test:scripts
+
+      - name: Build shared package
+        run: npm run build --workspace=packages/shared
+
+      - name: Build server
+        run: npm run build --workspace=apps/server
+
+      - name: Build web
+        run: npm run build --workspace=apps/web

@@ -62,7 +62,7 @@ env 파일 (`.env`, `apps/web/.env.local`) 동기화 + `npm install` + dev previ
 
 - `apps/server/src/{domain}/` 수정 → [`apps/server/AGENTS.md`](apps/server/AGENTS.md) Domain Guides 표에서 해당 서브도메인 `AGENTS.md` 확인 후 Read.
 - `apps/web/src/app/{domain}/` 수정 → [`apps/web/AGENTS.md`](apps/web/AGENTS.md) Domain Guides 표에서 해당 서브 페이지 `AGENTS.md` 확인 후 Read.
-- 기타 루트 도메인 (`agents/`, `prisma/`, `packages/shared/`, `packages/templates/`) → 해당 루트의 `AGENTS.md` 직접 Read.
+- 기타 루트 도메인 (`agents/`, `prisma/`, `packages/shared/`, `packages/templates/`, `scripts/`) → 해당 루트의 `AGENTS.md` 직접 Read.
 
 ### 2. Autonomy Spectrum — 어느 모드로 일할지
 
@@ -156,6 +156,7 @@ packages/templates/  — React detail templates     → packages/templates/AGENT
 prisma/              — DB schema source of truth  → prisma/AGENTS.md
   ├─ schema.prisma   — generator + datasource
   └─ models/         — 10 domain files (/// @namespace + /// @describe comments). Prisma multi-file schema (v7 best-practice)
+scripts/             — repo automation            → scripts/AGENTS.md
 extensions/          — Chrome extensions (product-scraper: 1688/Alibaba, coupang-ads-scraper: 쿠팡 광고센터+Wing)
 ```
 
@@ -167,6 +168,6 @@ extensions/          — Chrome extensions (product-scraper: 1688/Alibaba, coupa
 - **DB schema + 도메인 분류**: [`prisma/models/`](prisma/models/) — 10 domain files. 각 모델 위의 `/// @namespace` + `/// @describe` 주석이 도메인 경계 + 의미를 담는다. `prisma generate` 로 자동 동기화 (drift 불가능).
 - **Graphify navigation**: [`docs/GRAPHIFY.md`](docs/GRAPHIFY.md), [`docs/ERD.md`](docs/ERD.md), [`docs/erd/`](docs/erd/), [`graphify-out/schema/`](graphify-out/schema/), [`graphify-out/schema-consumers/`](graphify-out/schema-consumers/) — generated navigation aids only. Source of truth remains Prisma + source code. Regenerate with `npm run graphify:schema` after Prisma/schema-consumer/import-script changes.
 - **Runbooks**: [`docs/runbooks/`](docs/runbooks/) — AI-executable setup and operations procedures. Prefer these over chat memory for environment or collaboration setup.
-- [Architecture](.claude/docs/architecture.md) — architecture index that points to the current backend/frontend/reconstruction sources of truth
+- [Architecture](docs/ARCHITECTURE.md) — current backend/frontend/reconstruction sources of truth
 - [Testing Strategy](docs/TESTING.md) — 3-tier (unit mock / e2e HTTP mock / **integration real Postgres**). Race guard·IDOR 검증은 integration tier 로. `npm run db:test:up && npm run db:test:prepare && npm run test:integration`
-- [Commands & Environment](.claude/docs/commands.md) — quick start, dev commands, ports, env vars, tests
+- [Environment Variables](docs/runbooks/environment-variables.md) — env var inventory and verification commands

@@ -59,14 +59,8 @@ __pycache__/
 # Test
 coverage/
 
-# Claude Code — ignore session/personal, track team-shared
-.claude/*
-!.claude/docs/
-!.claude/commands/
-!.claude/agents/
-.claude/agents/*
-!.claude/agents/custom/
-!.claude/settings.json
+# Claude Code — user/session-local only. Repo rules live in AGENTS.md and docs/.
+.claude/
 
 # Tools
 .claude-flow/

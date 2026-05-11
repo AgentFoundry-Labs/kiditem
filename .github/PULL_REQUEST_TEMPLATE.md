@@ -57,7 +57,8 @@
 ## 리뷰
 ```bash
 gh pr checkout <PR번호>
-claude /review
+npm run check:conventions
+npm run test:scripts
 ```
 
 Reviewer must first check AGENTS compliance and reconstruction trigger

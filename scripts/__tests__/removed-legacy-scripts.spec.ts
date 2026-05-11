@@ -20,7 +20,7 @@ function runDevData(args: string[]) {
   });
 }
 
-describe('legacy market-data migration entrypoints', () => {
+describe('removed market-data migration entrypoints', () => {
   it('does not expose migration or seed commands/scripts for deleted market-data tables', () => {
     const packageJson = JSON.parse(
       readFileSync(join(repoRoot, 'package.json'), 'utf8'),
@@ -56,16 +56,18 @@ describe('legacy market-data migration entrypoints', () => {
     }
   });
 
-  it('does not retain one-off backfill or legacy migration helpers', () => {
+  it('does not retain one-off backfill, SQL seed, or legacy migration helpers', () => {
     const prismaFiles = readdirSync(join(repoRoot, 'prisma'));
     expect(prismaFiles.filter((name) => name.startsWith('backfill-'))).toEqual([]);
     expect(prismaFiles.filter((name) => name.startsWith('rollback-status-canonical'))).toEqual([]);
 
     for (const relativePath of [
       'scripts/init-agent-reader.sql',
+      'scripts/init-langfuse-db.sql',
       'scripts/migrate-agent-prompts.sql',
       'scripts/migrate-files-to-minio.ts',
       'scripts/seed-manager-agent.sql',
+      'scripts/seed-marketplace.sql',
       'scripts/sidebar-route-audit.mjs',
       'scripts/split-prisma-schema.py',
       'scripts/sync-agent-definitions.sql',
