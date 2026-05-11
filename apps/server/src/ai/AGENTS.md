@@ -262,6 +262,36 @@ PR #214 panel 계약과의 정합성:
 - HTTP DTO 는 `adapter/in/http/dto/` 에서만 정의, application 시그니처는 DTO 모양 그대로 받는다 (`as any` 캐스트 금지).
 - Wing 자동화 의존은 `WING_AUTOMATION_PORT` 통해서만. application 서비스가 `WingAutomationRunner` 를 직접 import 하면 contract 위반.
 
+## Detail-page PR review gate
+
+상세페이지 생성/이미지/프롬프트 PR 은 작아 보여도 먼저 reconstruction
+trigger 를 판정한다. 다음 중 하나라도 해당하면 reviewer 는 PR 본문 또는
+리뷰 코멘트에 scope 판정을 남기고, 누락된 경계 작업을 merge 전에 요구한다.
+
+- `detail-page-*` application service, Agent OS runtime/bridge/sink/reconcile,
+  HTTP DTO, web generate form, shared `@kiditem/shared/ai` 계약을 한 PR 에서
+  둘 이상 수정.
+- audience/detail-image-count/color/size/package/safety 같은 생성 control 을
+  추가하거나 변경.
+- media prompt 문구, Gemini image/vision call, image fetch/storage, processed
+  image key, stored rawInput/detailPageHtml 호환성에 영향을 줌.
+- 500+ line service 를 수정하거나 private method cast 로 prompt / selection
+  logic 을 테스트함.
+
+Review checklist:
+
+- Shared tuple/type, HTTP DTO, web payload, Agent OS payload/schema, sink
+  stored DTO 가 같은 계약을 쓰는지 확인한다.
+- Prompt text/audience/size-guide orientation 은 pure domain prompt builder +
+  direct domain tests 로 고정한다. `DetailPageHeroImageService` private method
+  cast 테스트를 새로 추가하지 않는다.
+- Image/vision provider 호출은 `DETAIL_PAGE_MEDIA_PORT`; fetch/storage 는
+  기존 `IMAGE_FETCH_PORT` / `IMAGE_STORAGE_PORT` 를 재사용한다.
+- Product-bound async path 와 standalone sync path 의 behavior 차이가 의도된
+  것인지 확인하고, stored JSON normalizer/reconcile/sink 경로를 함께 본다.
+- PR 본문에서 "새 영구 규칙 해당 없음" 을 체크했더라도 위 항목이 하나라도
+  켜지면 reviewer 가 AGENTS 업데이트 필요성을 재판정한다.
+
 ## Prohibits
 
 - ❌ Image edit 동기 호출 (agent 위임 강제)

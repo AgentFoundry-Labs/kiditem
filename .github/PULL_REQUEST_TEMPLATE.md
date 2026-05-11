@@ -36,6 +36,20 @@
 - [ ] `npm run dev:server` 부트 확인
 - [ ] `npm run build -w apps/web` 빌드 성공
 
+## Architecture / Reconstruction Review
+- [ ] 관련된 가장 구체적인 `AGENTS.md` 를 읽고 owner domain / boundary 규칙을 확인했음
+- [ ] Reconstruction trigger 없음
+- [ ] Reconstruction trigger 있음 → 아래에 scope 판정과 반영한 contract/test/gate 기록
+  - Trigger:
+  - Scope decision:
+  - Contract / AGENTS update:
+  - Behavior lock tests:
+  - Verification gate:
+- [ ] 500+ line service/component 수정 없음
+- [ ] 500+ line service/component 수정 있음 → 왜 split/replacement 없이 안전한지 또는 어떤 split 을 포함했는지 기록
+- [ ] LLM/prompt/model/provider/storage/fetch/Agent OS runtime/sink/reconcile 변경 없음
+- [ ] LLM/prompt/model/provider/storage/fetch/Agent OS runtime/sink/reconcile 변경 있음 → port/domain prompt/stored JSON/reconcile 경로 검토 완료
+
 ## 새 영구 규칙
 - [ ] 해당 없음 (리팩터링/버그픽스/기능 추가/단일 도메인 내부 구현)
 - [ ] 신규 영구 규칙을 해당 scope 의 `AGENTS.md` / `CLAUDE.md` 본문에 추가했음
@@ -47,3 +61,6 @@
 gh pr checkout <PR번호>
 claude /review
 ```
+
+Reviewer must first check AGENTS compliance and reconstruction trigger
+classification before approving functional correctness.

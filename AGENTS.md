@@ -93,6 +93,10 @@ env 파일 (`.env`, `apps/web/.env.local`) 동기화 + `npm install` + dev previ
 - PR body 는 `.github/PULL_REQUEST_TEMPLATE.md` 체크리스트 포함. DB 변경/backfill/개발 데이터 bundle 변경 여부 명시.
 - `gh pr create` pre-hook 이 컨벤션 + 문서 업데이트 체크리스트 자동 실행.
 - Instruction file (`AGENTS.md` / `CLAUDE.md`) 를 수정한 PR 은 팀에 공유.
+- Review 는 diff correctness 만 보지 않는다. reviewer 는 PR 본문과 가장 구체적인
+  `AGENTS.md` 를 대조해 scope / reconstruction trigger / verification gate 가
+  맞는지 먼저 판정한다. Trigger 가 있는데도 PR 이 "단순 기능" 으로 축소돼 있으면
+  approve 하지 말고 scope 를 재분류한다.
 
 ## Cross-Domain Rules
 
@@ -114,6 +118,27 @@ Reconstruction is a platform-boundary cleanup track, not permission to mix
 unrelated business rewrites. Durable reconstruction contracts live in this
 file and the nearest scoped `AGENTS.md`; session plans and temporary scratch
 notes stay out of git.
+
+### Reconstruction review triggers
+
+아래 중 하나라도 해당하면 PR 은 일반 기능 리뷰 전에 reconstruction 여부를
+명시적으로 판정해야 한다. reviewer 는 PR 본문 또는 리뷰 코멘트에 "왜
+reconstruction PR 이거나 아닌지" 를 남긴다.
+
+- 10+ files touched, or same owner domain에서 web/server/shared/agent-runtime
+  같은 multiple layers 를 함께 수정.
+- 500+ line service/component 를 수정하거나, 700+ line service/component 에
+  새 behavior 를 추가.
+- LLM prompt, model/env selection, provider SDK, image/media generation,
+  storage/fetch, Agent OS runtime/bridge/sink/reconcile 경계를 변경.
+- API/DTO/schema/frontend controls 를 추가하면서 stored JSON, async runtime
+  payload, sink DTO, query DTO 중 하나라도 함께 영향을 받음.
+- PR 본문이 "follow-up" 으로 architecture cleanup 을 남기지만 그 cleanup 없이는
+  새 계약을 설명할 수 없음.
+
+Trigger 가 켜지면 reviewer 는 (a) durable rule/contract, (b) port or boundary
+shape, (c) behavior lock test, (d) verification gate 를 확인한다. 누락되면
+"후속 이슈" 로 넘기지 말고 merge 전에 scope 를 키우거나 PR 을 재작성한다.
 
 - **Rules before deletion** — record contract, scanner, or regression-test gates before deleting legacy implementation.
 - **Boundary exception is narrow** — organization guards, raw SQL policy, scanner scripts, shared export topology, and dependency tooling may cross domains. Business logic rewrites still use one owner domain per PR.

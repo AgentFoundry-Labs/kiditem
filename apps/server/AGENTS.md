@@ -126,6 +126,11 @@ explicitly retires the compatibility surface.
 - **Membership role source** — request `AuthUser.organizationId` and `AuthUser.role` come from active `OrganizationMembership`, not from `User.organizationId`. Platform auth owns membership selection; business services receive only the resolved `organizationId`.
 - **DTO boundary** — controllers do not use `as any`; service parameters match DTOs or service-internal interfaces. Avoid `Record<string, unknown>` as a DTO substitute.
 - **Large service policy** — do not add substantial behavior to 700+ line services. Split by domain capability or write a replacement plan before changing behavior.
+- **Large service review trigger** — changes to 500+ line services/components
+  require reviewer attention even when the diff is small. Check whether the
+  change is really a feature tweak or a missing boundary split. If multiple
+  500+ line files are touched in one PR, require a scoped reconstruction
+  classification in the PR body/review.
 - **Scanner evidence** — two complementary organization-scope gates:
   - `npm run check:idor` — raw SQL tenancy (`$queryRaw` tagged templates must bind `organization_id`).
   - `npm run check:tenant-scope` — ORM-level organization scope (no bare-id `findUnique`, no bare-id `update`/`delete` without a preceding organization-scoped read in the same function, no controller `@Body`/`@Query`/`@Param('organizationId')`, no DTO `organizationId` field).
@@ -164,6 +169,12 @@ Do not use it as the target architecture for reconstructed domains.
 - Raw SQL, complex tenant predicates, transactions, row locks, or core aggregate
   mutations.
 - A use case exposed by more than one incoming adapter.
+
+For PR review, "mandatory" means new behavior should not be approved just
+because the existing code is transitional. If the PR touches a mandatory-port
+area but keeps logic in a concrete service, reviewer must require either the
+port/adapter split in the same PR or an explicit reconstruction classification
+with user sign-off before merge.
 
 Ports are optional/deferred for tiny legacy CRUD and low-risk read-only endpoints
 that are not being reconstructed in the current PR.
