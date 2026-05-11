@@ -5,6 +5,8 @@ import { DetailPageGeneratedImagesService } from '../detail-page-generated-image
 import { DetailPagePrefillService } from '../detail-page-prefill.service';
 import { DetailPageQueryService } from '../detail-page-query.service';
 import { DetailPageResultRefinerService } from '../detail-page-result-refiner.service';
+import { BoldVerticalRefinerService } from '../bold-vertical-refiner.service';
+import { KidsPlayfulRefinerService } from '../kids-playful-refiner.service';
 import type { OperationAlertService } from '../../../../automation/application/service/operation-alert.service';
 import type { AgentRunnerPort } from '../../../../agent-os/application/port/in/agent-runner.port';
 
@@ -46,7 +48,9 @@ function makeService(
   heroImageService?: unknown,
   agentRunner: AgentRunnerPort = makeAgentRunnerStub(),
 ): DetailPageAiService {
-  const resultRefiner = new DetailPageResultRefinerService(heroImageService as never);
+  const boldVertical = new BoldVerticalRefinerService(heroImageService as never);
+  const kidsPlayful = new KidsPlayfulRefinerService(heroImageService as never);
+  const resultRefiner = new DetailPageResultRefinerService(boldVertical, kidsPlayful);
   const generatedImages = new DetailPageGeneratedImagesService(heroImageService as never);
   const query = new DetailPageQueryService(prisma as never, resultRefiner);
   const generation = new DetailPageGenerationService(

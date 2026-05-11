@@ -38,6 +38,8 @@ import { DetailPageGeneratedImagesService } from '../application/service/detail-
 import { DetailPagePrefillService } from '../application/service/detail-page-prefill.service';
 import { DetailPageQueryService } from '../application/service/detail-page-query.service';
 import { DetailPageResultRefinerService } from '../application/service/detail-page-result-refiner.service';
+import { BoldVerticalRefinerService } from '../application/service/bold-vertical-refiner.service';
+import { KidsPlayfulRefinerService } from '../application/service/kids-playful-refiner.service';
 import { DetailPageContentGenerationSinkAdapter } from '../adapter/out/agent-output/detail-page-content-generation-sink.adapter';
 import type { AgentRunnerPort } from '../../agent-os/application/port/in/agent-runner.port';
 import type { AgentTypeRuntimeHandler } from '../../agent-os/application/port/out/agent-runtime-handler.port';
@@ -181,7 +183,10 @@ beforeAll(async () => {
     void bridge.onAgentRunFinalized(event);
   });
 
-  const refiner = new DetailPageResultRefinerService(undefined);
+  const refiner = new DetailPageResultRefinerService(
+    new BoldVerticalRefinerService(),
+    new KidsPlayfulRefinerService(),
+  );
   // Stub TextCompletionPort + ImageStoragePort — DetailPageAiService only
   // uses them on the standalone path, which we never exercise here. The
   // enqueue path only touches Prisma + agentRunner + alerts + refiner.
