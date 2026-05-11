@@ -1,4 +1,8 @@
 import { describe, expect, it, beforeEach } from 'vitest';
+import { ChannelReconciliationMatcherService } from '../channel-reconciliation-matcher.service';
+import { ChannelReconciliationQueryService } from '../channel-reconciliation-query.service';
+import { ChannelReconciliationResolutionService } from '../channel-reconciliation-resolution.service';
+import { ChannelReconciliationScanService } from '../channel-reconciliation-scan.service';
 import { ChannelReconciliationService } from '../channel-reconciliation.service';
 import type { PrismaService } from '../../../../prisma/prisma.service';
 
@@ -563,6 +567,14 @@ function makeFakePrisma(seed: {
   };
 }
 
+function makeService(fakePrisma: PrismaService): ChannelReconciliationService {
+  const matcher = new ChannelReconciliationMatcherService();
+  const query = new ChannelReconciliationQueryService(fakePrisma);
+  const resolution = new ChannelReconciliationResolutionService(fakePrisma, query);
+  const scan = new ChannelReconciliationScanService(fakePrisma, matcher);
+  return new ChannelReconciliationService(scan, query, resolution);
+}
+
 describe('ChannelReconciliationService — matching rules', () => {
   it('Rule 1: existing active ChannelListing for externalId → linked / existing_external_id', async () => {
     const { fakePrisma, state } = makeFakePrisma({
@@ -578,7 +590,7 @@ describe('ChannelReconciliationService — matching rules', () => {
         },
       ],
     });
-    const service = new ChannelReconciliationService(fakePrisma);
+    const service = makeService(fakePrisma);
 
     const result = await service.scanFromRows(ORG, [
       { externalId: 'E1', legacyCode: 'LEG-1' },
@@ -628,7 +640,7 @@ describe('ChannelReconciliationService — matching rules', () => {
         },
       ],
     });
-    const service = new ChannelReconciliationService(fakePrisma);
+    const service = makeService(fakePrisma);
 
     const result = await service.syncFromImageSyncedListings(ORG);
 
@@ -688,7 +700,7 @@ describe('ChannelReconciliationService — matching rules', () => {
         },
       ],
     });
-    const service = new ChannelReconciliationService(fakePrisma);
+    const service = makeService(fakePrisma);
 
     const result = await service.syncFromImageSyncedListings(ORG);
 
@@ -750,7 +762,7 @@ describe('ChannelReconciliationService — matching rules', () => {
         },
       ],
     });
-    const service = new ChannelReconciliationService(fakePrisma);
+    const service = makeService(fakePrisma);
 
     const result = await service.syncFromImageSyncedListings(ORG);
 
@@ -792,7 +804,7 @@ describe('ChannelReconciliationService — matching rules', () => {
         },
       ],
     });
-    const service = new ChannelReconciliationService(fakePrisma);
+    const service = makeService(fakePrisma);
 
     const result = await service.scanFromRows(ORG, [
       { externalId: 'E1', externalOptionId: 'V1', legacyCode: 'LEG-1' },
@@ -845,7 +857,7 @@ describe('ChannelReconciliationService — matching rules', () => {
         },
       ],
     });
-    const service = new ChannelReconciliationService(fakePrisma);
+    const service = makeService(fakePrisma);
 
     const result = await service.scanFromRows(ORG, [
       { externalId: 'E1', externalOptionId: 'V1', legacyCode: 'LEG-1' },
@@ -891,7 +903,7 @@ describe('ChannelReconciliationService — matching rules', () => {
         },
       ],
     });
-    const service = new ChannelReconciliationService(fakePrisma);
+    const service = makeService(fakePrisma);
 
     const result = await service.scanFromRows(ORG, [
       { externalId: 'E1', legacyCode: 'LEG-1' },
@@ -909,7 +921,7 @@ describe('ChannelReconciliationService — matching rules', () => {
 
   it('Rule 4: no externalId match and no legacyCode → needs_review (no MasterProduct created)', async () => {
     const { fakePrisma, state } = makeFakePrisma({});
-    const service = new ChannelReconciliationService(fakePrisma);
+    const service = makeService(fakePrisma);
 
     const result = await service.scanFromRows(ORG, [
       { externalId: 'E-NEW', channelProductName: 'Brand new toy' },
@@ -951,7 +963,7 @@ describe('ChannelReconciliationService — matching rules', () => {
         },
       ],
     });
-    const service = new ChannelReconciliationService(fakePrisma);
+    const service = makeService(fakePrisma);
 
     const result = await service.scanFromRows(ORG, [
       { externalId: 'E1', legacyCode: 'LEG-1' },
@@ -966,7 +978,7 @@ describe('ChannelReconciliationService — matching rules', () => {
 
   it('Rule 6: ignored items remain ignored on re-scan (refresh observation only)', async () => {
     const { fakePrisma, state } = makeFakePrisma({});
-    const service = new ChannelReconciliationService(fakePrisma);
+    const service = makeService(fakePrisma);
 
     // Initial scan — needs_review.
     await service.scanFromRows(ORG, [{ externalId: 'E1' }]);
@@ -1001,7 +1013,7 @@ describe('ChannelReconciliationService — matching rules', () => {
         },
       ],
     });
-    const service = new ChannelReconciliationService(fakePrisma);
+    const service = makeService(fakePrisma);
 
     const result = await service.scanFromRows(ORG, [
       { externalId: 'E1', legacyCode: 'LEG-1' },
@@ -1028,7 +1040,7 @@ describe('ChannelReconciliationService — matching rules', () => {
         },
       ],
     });
-    const service = new ChannelReconciliationService(fakePrisma);
+    const service = makeService(fakePrisma);
 
     await service.scanFromRows(ORG, [
       { externalId: 'E1', externalOptionId: 'V1', channelProductName: 'X' },
@@ -1075,7 +1087,7 @@ describe('ChannelReconciliationService — matching rules', () => {
         },
       ],
     });
-    const service = new ChannelReconciliationService(fakePrisma);
+    const service = makeService(fakePrisma);
 
     await service.scanFromRows(ORG, [{ externalId: 'E1' }]);
     const itemId = state.items[0].id;
@@ -1103,7 +1115,7 @@ describe('ChannelReconciliationService — matching rules', () => {
         },
       ],
     });
-    const service = new ChannelReconciliationService(fakePrisma);
+    const service = makeService(fakePrisma);
 
     const result = await service.listItems(ORG, {
       page: 1,
