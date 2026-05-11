@@ -7,6 +7,7 @@ import * as path from 'node:path';
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import type {
   CoupangInventoryRow,
+  CoupangInventoryScrapeCapability,
   CoupangInventoryScrapePort,
 } from '../../../application/port/out/coupang-inventory-scrape.port';
 import {
@@ -25,6 +26,7 @@ const DEFAULT_CDP_PORT = 9222;
 const WING_INVENTORY_BASE =
   'https://wing.coupang.com/vendor-inventory/list?searchKeywordType=ALL&searchKeywords=&salesMethod=ALL&productStatus=ALL&stockSearchType=ALL&shippingFeeSearchType=ALL&displayCategoryCodes=&listingStartTime=null&listingEndTime=null&saleEndDateSearchType=ALL&bundledShippingSearchType=ALL&upBundling=ALL&displayDeletedProduct=false&shippingMethod=ALL&exposureStatus=ALL&locale=ko_KR&sortMethod=SORT_BY_REGISTRATION_DATE&countPerPage=50';
 const DEFAULT_MANAGED_PROFILE_DIR = path.join(os.homedir(), '.kiditem', 'wing-cdp-profile');
+const SERVER_SCRAPER_ENABLED_ENV = 'COUPANG_IMAGE_SYNC_SERVER_SCRAPER_ENABLED';
 const CHROME_CANDIDATES = [
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   '/Applications/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing',
@@ -49,10 +51,22 @@ const CHROME_CANDIDATES = [
 export class CoupangInventoryScrapeAdapter implements CoupangInventoryScrapePort {
   private readonly logger = new Logger(CoupangInventoryScrapeAdapter.name);
 
+  getCapabilities(): CoupangInventoryScrapeCapability {
+    const enabled = isServerScraperEnabled();
+    return {
+      source: 'server_scraper',
+      enabled,
+      reason: enabled
+        ? null
+        : `${SERVER_SCRAPER_ENABLED_ENV}=true is required outside local/dev environments`,
+    } satisfies CoupangInventoryScrapeCapability;
+  }
+
   async scrapeAll(): Promise<CoupangInventoryRow[]> {
-    if (process.env.NODE_ENV === 'production') {
+    const capability = this.getCapabilities();
+    if (!capability.enabled) {
       throw new ServiceUnavailableException(
-        'Coupang inventory scrape 는 dev/local 환경 전용입니다. prod 에서는 Coupang Open API 또는 별도 백엔드 워커를 사용하세요.',
+        'Coupang inventory scrape 는 현재 서버 환경에서 비활성화되어 있습니다. Chrome extension row 수집을 사용하거나 staging 전용 env flag 를 켜세요.',
       );
     }
 
@@ -341,6 +355,14 @@ function getCdpPort(): number {
     throw new Error(`PLAYWRITER_DIRECT_PORT must be a positive integer: ${process.env.PLAYWRITER_DIRECT_PORT}`);
   }
   return port;
+}
+
+function isServerScraperEnabled(): boolean {
+  const override = process.env[SERVER_SCRAPER_ENABLED_ENV]?.trim().toLowerCase();
+  if (override) {
+    return ['1', 'true', 'yes', 'on'].includes(override);
+  }
+  return process.env.NODE_ENV !== 'production';
 }
 
 async function openCdpPage(port: number, url: string): Promise<void> {

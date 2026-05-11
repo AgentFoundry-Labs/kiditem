@@ -26,6 +26,11 @@ export class CoupangImageSyncController {
     return this.service.startFromRows(organizationId, body.rows, user.id);
   }
 
+  @Get('capabilities')
+  capabilities() {
+    return this.service.getCapabilities();
+  }
+
   @Get()
   current(@CurrentOrganization() organizationId: string) {
     return { job: this.service.getCurrent(organizationId) };

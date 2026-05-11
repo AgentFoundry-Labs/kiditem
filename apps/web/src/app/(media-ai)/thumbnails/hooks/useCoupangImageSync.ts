@@ -2,6 +2,11 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import type {
+  CoupangImageSyncCapabilities,
+  CoupangImageSyncRow,
+  CoupangImageSyncRowSource,
+} from '@kiditem/shared/ai';
 import { apiClient } from '@/lib/api-client';
 import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
@@ -9,6 +14,7 @@ import { queryKeys } from '@/lib/query-keys';
 export interface CoupangSyncStatus {
   jobId: string;
   status: 'running' | 'done' | 'failed';
+  source: CoupangImageSyncRowSource;
   phase: 'starting' | 'scraping' | 'linking' | 'finished';
   total: number;
   processed: number;
@@ -24,12 +30,7 @@ interface CoupangSyncCurrentResponse {
   job: CoupangSyncStatus | null;
 }
 
-interface CoupangInventoryImageRow {
-  inventoryId: string;
-  legacyCode?: string | null;
-  name: string;
-  url: string;
-}
+type CoupangInventoryImageRow = CoupangImageSyncRow;
 
 interface ExtensionMessageResponse {
   success?: boolean;
@@ -68,6 +69,22 @@ export function canUseBackendCoupangImageSyncFallback(
     normalized === '[::1]' ||
     normalized.endsWith('.localhost')
   );
+}
+
+export function canStartBackendCoupangImageSyncFallback(
+  capabilities: CoupangImageSyncCapabilities | null | undefined,
+  hostname = typeof window === 'undefined' ? '' : window.location.hostname,
+): boolean {
+  if (capabilities) return capabilities.serverScraper.enabled;
+  return canUseBackendCoupangImageSyncFallback(hostname);
+}
+
+async function getCoupangImageSyncCapabilities(): Promise<CoupangImageSyncCapabilities | null> {
+  try {
+    return await apiClient.get<CoupangImageSyncCapabilities>('/api/coupang-image-sync/capabilities');
+  } catch {
+    return null;
+  }
 }
 
 function readStoredJobId(): string | null {
@@ -116,6 +133,12 @@ export function useCoupangImageSync() {
   const [extensionId, setExtensionId] = useState<string | null>(null);
   const [extensionRunId, setExtensionRunId] = useState<string | null>(null);
 
+  const capabilitiesQuery = useQuery({
+    queryKey: queryKeys.coupangImageSync.capabilities(),
+    queryFn: getCoupangImageSyncCapabilities,
+    staleTime: 60_000,
+  });
+
   const startMutation = useMutation({
     mutationFn: async () => {
       const detectedExtensionId = await detectExtensionId();
@@ -132,8 +155,9 @@ export function useCoupangImageSync() {
           setExtensionRunId(null);
         }
       }
-      if (!canUseBackendCoupangImageSyncFallback()) {
-        throw new Error(EXTENSION_REQUIRED_MESSAGE);
+      const capabilities = capabilitiesQuery.data ?? await getCoupangImageSyncCapabilities();
+      if (!canStartBackendCoupangImageSyncFallback(capabilities)) {
+        throw new Error(capabilities?.serverScraper.reason ?? EXTENSION_REQUIRED_MESSAGE);
       }
       return apiClient.post<{ jobId: string }>('/api/coupang-image-sync', {});
     },
@@ -224,6 +248,7 @@ export function useCoupangImageSync() {
     startError: startMutation.error,
     jobId,
     status,
+    capabilities: capabilitiesQuery.data ?? null,
     extensionStatus: extensionStatusQuery.data ?? null,
     extensionRunId,
     isRunning,

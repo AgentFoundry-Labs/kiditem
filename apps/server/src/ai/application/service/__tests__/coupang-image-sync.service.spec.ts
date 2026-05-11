@@ -5,7 +5,6 @@ import {
   COUPANG_IMAGE_SYNC_STALE_ALERT_TTL_MS,
   CoupangImageSyncService,
   dedupeRows,
-  hasDisplayImage,
 } from '../coupang-image-sync.service';
 import type {
   CoupangInventoryRow,
@@ -21,9 +20,17 @@ import type {
 const ORG_A = '00000000-0000-0000-0000-0000000c0001';
 const ORG_B = '00000000-0000-0000-0000-0000000c0002';
 
+function hasDisplayImage(master: {
+  imageUrl: string | null;
+  thumbnailUrl: string | null;
+  images: Array<{ id: string }>;
+}): boolean {
+  return Boolean(master.imageUrl || master.thumbnailUrl || master.images.length > 0);
+}
+
 describe('coupang-image-sync helpers', () => {
   describe('dedupeRows', () => {
-    it('removes duplicates by inventoryId, drops empty rows', () => {
+    it('removes duplicates by inventoryId, drops empty rows, and stamps source', () => {
       const rows: CoupangInventoryRow[] = [
         { inventoryId: '1', name: 'A', url: 'https://x/1.jpg' },
         { inventoryId: '1', name: 'A-dup', url: 'https://x/1b.jpg' },
@@ -31,9 +38,10 @@ describe('coupang-image-sync helpers', () => {
         { inventoryId: '', name: 'no-id', url: 'https://x/.jpg' },
         { inventoryId: '3', name: 'no-url', url: '' },
       ];
-      const out = dedupeRows(rows);
+      const out = dedupeRows(rows, 'extension');
       expect(out).toHaveLength(2);
       expect(out.map((r) => r.inventoryId)).toEqual(['1', '2']);
+      expect(out.every((r) => r.source === 'extension')).toBe(true);
       // 첫 등장이 우선, 두번째 dup row 는 버림
       expect(out[0].name).toBe('A');
     });
@@ -84,6 +92,7 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
     const existingListings = overrides?.existingListings ?? [];
 
     const scraper: CoupangInventoryScrapePort = {
+      getCapabilities: vi.fn(() => ({ source: 'server_scraper', enabled: true })),
       scrapeAll: vi.fn().mockResolvedValue(scrapeRows),
     };
 
@@ -191,6 +200,17 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
     }
   });
 
+  it('exposes extension and server scraper capabilities for source selection', () => {
+    const { service, scraper } = buildService();
+
+    expect(service.getCapabilities()).toEqual({
+      extensionRows: { source: 'extension', enabled: true },
+      serverScraper: { source: 'server_scraper', enabled: true },
+      preferredSource: 'server_scraper',
+    });
+    expect(scraper.getCapabilities).toHaveBeenCalledOnce();
+  });
+
   it('start() allows different orgs to run concurrently', () => {
     const { service } = buildService();
     expect(() => service.start(ORG_A)).not.toThrow();
@@ -281,8 +301,19 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
     expect(reconciliation.recordRows).toHaveBeenCalledWith({
       organizationId: ORG_A,
       rows: [
-        { inventoryId: 'EXT-1', name: 'Extension P1', url: 'https://wing.coupang.com/img/ext-1.jpg' },
-        { inventoryId: 'EXT-2', legacyCode: 'LC-2', name: 'Extension P2', url: 'https://wing.coupang.com/img/ext-2.jpg' },
+        {
+          inventoryId: 'EXT-1',
+          name: 'Extension P1',
+          url: 'https://wing.coupang.com/img/ext-1.jpg',
+          source: 'extension',
+        },
+        {
+          inventoryId: 'EXT-2',
+          legacyCode: 'LC-2',
+          name: 'Extension P2',
+          url: 'https://wing.coupang.com/img/ext-2.jpg',
+          source: 'extension',
+        },
       ],
     });
   });
@@ -434,6 +465,7 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
 
   it('emits operation alert fail when the job throws before completion', async () => {
     const scraper: CoupangInventoryScrapePort = {
+      getCapabilities: vi.fn(() => ({ source: 'server_scraper', enabled: true })),
       scrapeAll: vi.fn(async () => {
         throw new Error('extension scrape blew up');
       }),
