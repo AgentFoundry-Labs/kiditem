@@ -3,9 +3,9 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
-import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
 import { createSupabaseBrowserClient } from '@/lib/supabase/client';
 import { consumeSignOutReason } from '@/lib/supabase/refresh';
+import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
 
 type AuthContextValue = {
   /** 현재 Supabase 세션. null = 로그아웃 상태 또는 초기 로딩. */

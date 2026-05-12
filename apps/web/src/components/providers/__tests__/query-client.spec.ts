@@ -1,13 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ApiError } from '@/lib/api-error';
+import { makeQueryClient } from '../query-client';
 
 const toastErrorMock = vi.hoisted(() => vi.fn());
 
 vi.mock('sonner', () => ({
   toast: { error: toastErrorMock },
 }));
-
-import { makeQueryClient } from '../query-client';
 
 describe('makeQueryClient → onError', () => {
   beforeEach(() => {
