@@ -8,7 +8,9 @@ Automation is hexagonal-complete on the application/persistence boundary: 6
 outgoing repository ports back the application services, `OPERATION_ALERT_PORT`
 publishes the operation-alert lifecycle owner-side so cross-domain producers
 can depend on a token instead of a concrete service, and the architecture
-spec freezes both invariants. The only documented carve-out is
+spec freezes both invariants. Application ports expose local structural record
+types from `application/port/persistence-records.ts`; Prisma model/input types
+stay behind outgoing adapters. The only documented carve-out is
 `WorkflowRunnerService`, which still holds `PrismaService` because the
 workflow executor framework (`adapter/out/workflow-runner/executors/*`) takes
 prisma as an argument by design.
@@ -22,6 +24,7 @@ automation/
   adapter/out/repository/         6 *.repository.adapter.ts (PrismaService here only, plus carve-outs)
   adapter/out/panel-event/        SSE projection adapter (panel.service, panel-sse.service, panel-events constants)
   adapter/out/workflow-runner/    slim-core executor framework (executors/* take PrismaService directly)
+  application/port/persistence-records.ts local structural row types shared by ports/services
   application/port/in/            owner-side incoming ports — OPERATION_ALERT_PORT published for cross-domain consumers
   application/port/out/           6 outgoing ports (Symbol tokens + interfaces)
   application/service/            orchestration services; WorkflowRunnerService carve-out for executor pass-through
@@ -60,6 +63,8 @@ Invariants enforced by `__tests__/automation.architecture.spec.ts`:
 - No `*persistence.ts` files survive (migration-waypoint naming).
 - `application/**` is Prisma-free (no `@prisma/client` or `Prisma.*` types)
   outside the `WorkflowRunnerService` carve-out.
+- `application/port/**` contracts expose local structural records only; do
+  not import Prisma model or input types into incoming/outgoing ports.
 - `application/service/**` does not import `adapter/out/**`; concrete
   adapters reach application code only via Nest token bindings to
   `application/port/out/*`. WorkflowRunnerService is the carve-out — it
@@ -72,8 +77,8 @@ Invariants enforced by `__tests__/automation.architecture.spec.ts`:
 - `domain/**` is free of NestJS, Prisma, `PrismaService`, HTTP DTO
   classes, and incoming-adapter modules, and does not depend on
   application contracts.
-- Outgoing port contracts keep local DTO shapes and do not import
-  concrete helpers or adapter implementations.
+- Outgoing port contracts keep local DTO/record shapes and do not import
+  concrete helpers, adapter implementations, or ORM model/input types.
 - No top-level `dto/`, `util/`, `services/`, or `adapter/out/prisma/`
   folders remain. Final shape uses `adapter/in/http/dto/`, `domain/util/`,
   and `adapter/out/repository/`.

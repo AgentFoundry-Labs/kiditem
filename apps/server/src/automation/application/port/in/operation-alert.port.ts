@@ -11,12 +11,11 @@
 //   - `closeStaleOperations` recovers operations whose producer crashed
 //
 // The schema-typed `Alert` row is intentionally *not* exposed here —
-// publishers don't depend on Prisma. Methods return `void` so the surface
-// stays stable across reconstruction. Producers that need the row id should
-// keep `OperationAlertService` injection until that capability is published
-// here.
+// publishers don't depend on the ORM. Methods return the local structural
+// record used by Automation application code so repository implementation
+// details stay behind outgoing adapters.
 
-import type { Alert } from '@prisma/client';
+import type { AlertRecord } from '../persistence-records';
 
 export const OPERATION_ALERT_PORT = Symbol('OperationAlertPort');
 
@@ -66,35 +65,35 @@ export interface CloseStaleOperationAlertsInput {
 
 export interface OperationAlertPort {
   /** Open or re-emit an operation-alert lifecycle row. */
-  start(input: StartOperationAlertInput): Promise<Alert>;
+  start(input: StartOperationAlertInput): Promise<AlertRecord>;
 
   /** Patch a running operation. No-op when the row is missing. */
   progress(
     organizationId: string,
     operationKey: string,
     patch: OperationLifecyclePatch,
-  ): Promise<Alert | null>;
+  ): Promise<AlertRecord | null>;
 
   /** Mark a running operation succeeded. No-op when the row is missing. */
   succeed(
     organizationId: string,
     operationKey: string,
     patch?: OperationLifecyclePatch,
-  ): Promise<Alert | null>;
+  ): Promise<AlertRecord | null>;
 
   /** Mark a running operation failed. Defaults severity to `error`. */
   fail(
     organizationId: string,
     operationKey: string,
     patch?: OperationLifecyclePatch,
-  ): Promise<Alert | null>;
+  ): Promise<AlertRecord | null>;
 
   /** Cancel a running operation. No-op when the row is missing. */
   cancel(
     organizationId: string,
     operationKey: string,
     patch?: OperationLifecyclePatch,
-  ): Promise<Alert | null>;
+  ): Promise<AlertRecord | null>;
 
   /**
    * Best-effort recovery for operations whose producer was process-local
@@ -102,5 +101,5 @@ export interface OperationAlertPort {
    */
   closeStaleOperations(
     input: CloseStaleOperationAlertsInput,
-  ): Promise<Alert[]>;
+  ): Promise<AlertRecord[]>;
 }

@@ -8,23 +8,28 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { ActionTask, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import type { ActionTask } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import {
-  buildPerListingMetrics,
-  type PerListingMetrics,
-} from '../../../../common/per-listing-profit';
+import { buildPerListingMetrics } from '../../../../common/per-listing-profit';
 import type {
+  ActionBoardPerListingMetrics,
   ActionBoardRepositoryPort,
   ActionTaskClaimResult,
   ActionTaskListFilters,
   ActionTaskListItem,
   ActionTaskSourceAlert,
+  ActionTaskUpdateData,
   AGradeReviewRow,
   InventoryReorderCandidate,
   InventoryStockRow,
   UpsertActionTaskSeed,
 } from '../../../application/port/out/action-board.repository.port';
+import type { JsonValue } from '../../../application/port/persistence-records';
+
+function toPrismaJson(value: JsonValue) {
+  return value === null ? Prisma.JsonNull : (value as Prisma.InputJsonValue);
+}
 
 @Injectable()
 export class ActionBoardRepositoryAdapter
@@ -36,7 +41,7 @@ export class ActionBoardRepositoryAdapter
     organizationId: string,
     monthStart: Date,
     monthEnd: Date,
-  ): Promise<PerListingMetrics[]> {
+  ): Promise<ActionBoardPerListingMetrics[]> {
     return buildPerListingMetrics(
       this.prisma,
       organizationId,
@@ -127,7 +132,10 @@ export class ActionBoardRepositoryAdapter
         href: seed.href ?? null,
         priority: seed.priority,
         role: seed.role ?? null,
-        apiCall: seed.apiCall,
+        apiCall:
+          seed.apiCall === undefined
+            ? Prisma.JsonNull
+            : toPrismaJson(seed.apiCall),
         date: seed.date,
       },
       update: {
@@ -160,11 +168,20 @@ export class ActionBoardRepositoryAdapter
   async updateActionTaskOrThrow(
     id: string,
     organizationId: string,
-    data: Prisma.ActionTaskUpdateManyMutationInput,
+    data: ActionTaskUpdateData,
   ): Promise<ActionTask> {
+    const updateData: Prisma.ActionTaskUpdateManyMutationInput = {};
+    if (data.status !== undefined) updateData.status = data.status;
+    if (data.priority !== undefined) updateData.priority = data.priority;
+    if (data.notes !== undefined) updateData.notes = toPrismaJson(data.notes);
+    if (data.activityLog !== undefined) {
+      updateData.activityLog = toPrismaJson(data.activityLog);
+    }
+    if (data.result !== undefined) updateData.result = toPrismaJson(data.result);
+
     const { count } = await this.prisma.actionTask.updateMany({
       where: { id, organizationId },
-      data,
+      data: updateData,
     });
     if (count === 0) throw new NotFoundException('Task not found');
     return this.prisma.actionTask.findFirstOrThrow({

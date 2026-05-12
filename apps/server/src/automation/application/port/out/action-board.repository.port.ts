@@ -1,10 +1,9 @@
 // Outgoing port for the daily action board read/upsert/claim model. Joins
 // inventory, master products, thumbnails, alerts, and action tasks per the
-// dashboard warnings logic — analytics/dashboard exposes the same source
-// rows through its own port, but each owner owns its own port surface.
+// dashboard warnings logic. The contract stays Prisma-free; repository
+// adapters translate these structural records to/from the ORM.
 
-import type { ActionTask, Prisma } from '@prisma/client';
-import type { PerListingMetrics } from '../../../../common/per-listing-profit';
+import type { ActionTaskRecord, JsonValue } from '../persistence-records';
 
 export const ACTION_BOARD_REPOSITORY_PORT = Symbol(
   'ActionBoardRepositoryPort',
@@ -27,6 +26,15 @@ export interface InventoryReorderCandidate {
   reorderPoint: number;
 }
 
+export interface ActionBoardPerListingMetrics {
+  masterId: string;
+  masterName: string;
+  revenue: number;
+  adCost: number;
+  netProfit: number;
+  profitRate: number;
+}
+
 export interface UpsertActionTaskSeed {
   organizationId: string;
   taskKey: string;
@@ -37,7 +45,7 @@ export interface UpsertActionTaskSeed {
   href?: string | null;
   priority: string;
   role?: string | null;
-  apiCall?: Prisma.InputJsonValue;
+  apiCall?: JsonValue;
   date: Date;
 }
 
@@ -54,12 +62,20 @@ export interface ActionTaskListFilters {
   currentUserId: string;
 }
 
-export interface ActionTaskListItem extends ActionTask {
+export interface ActionTaskListItem extends ActionTaskRecord {
   assigneeUser: { id: string; name: string | null } | null;
 }
 
-export interface ActionTaskClaimResult extends ActionTask {
+export interface ActionTaskClaimResult extends ActionTaskRecord {
   assigneeUser: { id: string; name: string | null } | null;
+}
+
+export interface ActionTaskUpdateData {
+  status?: string;
+  priority?: string;
+  notes?: JsonValue;
+  activityLog?: JsonValue;
+  result?: JsonValue;
 }
 
 export interface ActionBoardRepositoryPort {
@@ -67,7 +83,7 @@ export interface ActionBoardRepositoryPort {
     organizationId: string,
     monthStart: Date,
     monthEnd: Date,
-  ): Promise<PerListingMetrics[]>;
+  ): Promise<ActionBoardPerListingMetrics[]>;
 
   findInventoryStockRows(organizationId: string): Promise<InventoryStockRow[]>;
 
@@ -84,19 +100,19 @@ export interface ActionBoardRepositoryPort {
   findActionTasksForDay(
     organizationId: string,
     date: Date,
-  ): Promise<ActionTask[]>;
+  ): Promise<ActionTaskRecord[]>;
 
   findActionTaskScoped(
     id: string,
     organizationId: string,
-  ): Promise<ActionTask | null>;
+  ): Promise<ActionTaskRecord | null>;
 
   /** Update the scoped action task; throws NotFoundException when missing. */
   updateActionTaskOrThrow(
     id: string,
     organizationId: string,
-    data: Prisma.ActionTaskUpdateManyMutationInput,
-  ): Promise<ActionTask>;
+    data: ActionTaskUpdateData,
+  ): Promise<ActionTaskRecord>;
 
   /** Claim atomically — fails with ConflictException when already claimed. */
   claimActionTask(

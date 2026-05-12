@@ -15,6 +15,8 @@ import path from 'node:path';
 //   - No `*persistence.ts` files survive (migration-waypoint naming).
 //   - `application/**` is Prisma-free (no `@prisma/client` or `Prisma.*`
 //     types) outside the WorkflowRunnerService carve-out.
+//   - `application/port/**` contracts are ORM-type-free; public ports expose
+//     local structural records and adapters translate ORM rows.
 //   - `application/service/**` does not import `adapter/out/**`. Concrete
 //     adapters reach application code only via Nest token bindings to
 //     `application/port/out/*`. WorkflowRunnerService is the documented
@@ -112,9 +114,9 @@ describe('automation architecture contract', () => {
 
   it('application layer does not import Prisma client (except WorkflowRunnerService carve-out)', () => {
     const auto = automationRel();
-    const applicationGlob = path.join(auto, 'application') + '/**';
+    const applicationDir = path.join(auto, 'application');
     const hits = rg(
-      `--type ts --files-with-matches '@prisma/client|Prisma\\.' --glob '${applicationGlob}' --glob '!**/__tests__/**'`,
+      `--type ts --files-with-matches '@prisma/client|Prisma\\.' ${applicationDir} --glob '!**/__tests__/**'`,
     );
     const violators = hits.filter((file) => !ALLOWED_PRISMA_FILES.has(file));
     expect(
@@ -123,11 +125,23 @@ describe('automation architecture contract', () => {
     ).toEqual([]);
   });
 
+  it('application port contracts do not expose Prisma client types', () => {
+    const auto = automationRel();
+    const portDir = path.join(auto, 'application/port');
+    const hits = rg(
+      `--type ts --files-with-matches '@prisma/client|Prisma\\.' ${portDir} --glob '!**/__tests__/**'`,
+    );
+    expect(
+      hits,
+      `application ports must expose local structural records, not Prisma model/input types:\n${hits.join('\n')}`,
+    ).toEqual([]);
+  });
+
   it('application/service/** does not import adapter/out/** (except WorkflowRunnerService carve-out)', () => {
     const auto = automationRel();
-    const serviceGlob = path.join(auto, 'application/service') + '/**';
+    const serviceDir = path.join(auto, 'application/service');
     const hits = rg(
-      `--type ts --files-with-matches '\\.\\./adapter/out|adapter/out/' --glob '${serviceGlob}' --glob '!**/__tests__/**'`,
+      `--type ts --files-with-matches '\\.\\./adapter/out|adapter/out/' ${serviceDir} --glob '!**/__tests__/**'`,
     );
     // Some services emit panel events through `adapter/out/panel-event/panel-events`
     // (the typed constant, not a Nest provider). That import is just the
@@ -156,9 +170,9 @@ describe('automation architecture contract', () => {
 
   it('incoming HTTP adapters do not import outgoing ports or repository adapters', () => {
     const auto = automationRel();
-    const httpGlob = path.join(auto, 'adapter/in/http') + '/**';
+    const httpDir = path.join(auto, 'adapter/in/http');
     const hits = rg(
-      `--type ts --files-with-matches 'application/port/out|adapter/out/repository' --glob '${httpGlob}' --glob '!**/__tests__/**'`,
+      `--type ts --files-with-matches 'application/port/out|adapter/out/repository' ${httpDir} --glob '!**/__tests__/**'`,
     );
     expect(
       hits,
@@ -168,9 +182,9 @@ describe('automation architecture contract', () => {
 
   it('application/service/** does not import other owner-domain services directly', () => {
     const auto = automationRel();
-    const serviceGlob = path.join(auto, 'application/service') + '/**';
+    const serviceDir = path.join(auto, 'application/service');
     const hits = rg(
-      `--type ts --files-with-matches '\\.\\./\\.\\./\\.\\./(advertising|ai|channels|finance|inventory|orders|products|sourcing|rules|analytics)/application' --glob '${serviceGlob}' --glob '!**/__tests__/**'`,
+      `--type ts --files-with-matches '\\.\\./\\.\\./\\.\\./(advertising|ai|channels|finance|inventory|orders|products|sourcing|rules|analytics)/application' ${serviceDir} --glob '!**/__tests__/**'`,
     );
     expect(
       hits,
@@ -180,19 +194,19 @@ describe('automation architecture contract', () => {
 
   it('domain layer is free of Nest/Prisma/HTTP coupling', () => {
     const auto = automationRel();
-    const domainGlob = path.join(auto, 'domain') + '/**';
+    const domainDir = path.join(auto, 'domain');
     const hits = rg(
       `--type ts --files-with-matches '@nestjs|@prisma/client|PrismaService|adapter/in/http|\\.dto'\
-       --glob '${domainGlob}' --glob '!**/__tests__/**'`,
+       ${domainDir} --glob '!**/__tests__/**'`,
     );
     expect(hits, `domain code is importing infrastructure:\n${hits.join('\n')}`).toEqual([]);
   });
 
   it('domain layer does not depend on application contracts', () => {
     const auto = automationRel();
-    const domainGlob = path.join(auto, 'domain') + '/**';
+    const domainDir = path.join(auto, 'domain');
     const hits = rg(
-      `--type ts --files-with-matches 'application/' --glob '${domainGlob}' --glob '!**/__tests__/**'`,
+      `--type ts --files-with-matches 'application/' ${domainDir} --glob '!**/__tests__/**'`,
     );
     expect(
       hits,
@@ -202,9 +216,9 @@ describe('automation architecture contract', () => {
 
   it('outgoing port contracts do not import concrete helpers or adapters', () => {
     const auto = automationRel();
-    const portGlob = path.join(auto, 'application/port/out') + '/**';
+    const portDir = path.join(auto, 'application/port/out');
     const hits = rg(
-      `--type ts --files-with-matches 'adapter/out|PrismaService' --glob '${portGlob}' --glob '!**/__tests__/**'`,
+      `--type ts --files-with-matches 'adapter/out|PrismaService' ${portDir} --glob '!**/__tests__/**'`,
     );
     expect(
       hits,

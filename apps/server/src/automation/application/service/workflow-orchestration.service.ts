@@ -7,6 +7,7 @@ import {
   WORKFLOW_ORCHESTRATION_REPOSITORY_PORT,
   type WorkflowOrchestrationRepositoryPort,
 } from '../port/out/workflow-orchestration.repository.port';
+import type { JsonValue } from '../port/persistence-records';
 
 interface CreateWorkflowInput {
   name: string;
@@ -95,7 +96,7 @@ export class WorkflowOrchestrationService {
       organizationId: template.organizationId,
       triggeredBy,
       triggeredByUserId: options.triggeredByUserId ?? null,
-      contextData: options.context as never,
+      contextData: options.context as JsonValue | undefined,
     });
     await this.emitPanelUpsert(run.id, template.organizationId);
 
@@ -133,7 +134,7 @@ export class WorkflowOrchestrationService {
           organizationId: templateOrganizationId,
           triggeredBy,
           triggeredByUserId: options.triggeredByUserId ?? null,
-          contextData: options.context as never,
+          contextData: options.context as JsonValue | undefined,
         });
       }),
     );

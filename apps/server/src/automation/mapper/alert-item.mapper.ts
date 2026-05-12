@@ -1,7 +1,7 @@
-import type { Alert, Prisma } from '@prisma/client';
 import type { AlertItem } from '@kiditem/shared/alerts';
+import type { AlertRecord, JsonValue } from '../application/port/persistence-records';
 
-function jsonObject(value: Prisma.JsonValue): Record<string, unknown> {
+function jsonObject(value: JsonValue): Record<string, unknown> {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     return value as Record<string, unknown>;
   }
@@ -9,7 +9,7 @@ function jsonObject(value: Prisma.JsonValue): Record<string, unknown> {
 }
 
 /**
- * Boundary mapper from a Prisma `Alert` row to the shared `AlertItem`
+ * Boundary mapper from an Automation `AlertRecord` row to the shared `AlertItem`
  * shape used by HTTP responses (`GET /api/alerts`, the operation-alert
  * lifecycle endpoints) and consumed by the frontend panel store. The
  * `alertPanelMapper` (under `mapper/panel-event/`) is a separate mapping
@@ -17,7 +17,7 @@ function jsonObject(value: Prisma.JsonValue): Record<string, unknown> {
  * `organizationId` and renames `kind`. Keep these two mappers in sync
  * field-for-field when extending the Alert schema.
  */
-export function mapAlertRowToItem(alert: Alert): AlertItem {
+export function mapAlertRowToItem(alert: AlertRecord): AlertItem {
   return {
     id: alert.id,
     organizationId: alert.organizationId,

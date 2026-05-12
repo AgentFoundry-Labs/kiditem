@@ -1,5 +1,4 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import type { Alert } from '@prisma/client';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { alertPanelMapper } from '../../mapper/panel-event/alert.mapper';
 import { PANEL_EVENTS } from '../../adapter/out/panel-event/panel-events';
@@ -13,6 +12,7 @@ import type {
   OperationLifecyclePatch,
   StartOperationAlertInput,
 } from '../port/in/operation-alert.port';
+import type { AlertRecord } from '../port/persistence-records';
 
 /**
  * OperationAlertService — write-side surface for `Alert.kind = "operation"`.
@@ -20,9 +20,8 @@ import type {
  * Implements the owner-side `OPERATION_ALERT_PORT` (port/in) published from
  * `application/port/in/operation-alert.port.ts`. Cross-owner-domain
  * consumers (advertising, ai, channels, finance, rules, sourcing,
- * analytics/traffic) bind their consumer-side
- * `adapter/out/automation/operation-alert.adapter.ts` to that token
- * instead of injecting this class directly.
+ * analytics/traffic) bind their consumer-side automation adapter to that
+ * token instead of injecting this class directly.
  *
  * Idempotency contract:
  * - Identity is `(organizationId, operationKey)`. The schema enforces this via
@@ -55,7 +54,7 @@ export class OperationAlertService implements OperationAlertPort {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
-  async start(input: StartOperationAlertInput): Promise<Alert> {
+  async start(input: StartOperationAlertInput): Promise<AlertRecord> {
     const now = new Date();
     const alert = await this.repository.upsertByOperationKey(
       input.organizationId,
@@ -88,7 +87,7 @@ export class OperationAlertService implements OperationAlertPort {
   findByOperationKey(
     organizationId: string,
     operationKey: string,
-  ): Promise<Alert | null> {
+  ): Promise<AlertRecord | null> {
     return this.repository.findByOperationKey(organizationId, operationKey);
   }
 
@@ -96,7 +95,7 @@ export class OperationAlertService implements OperationAlertPort {
     organizationId: string,
     operationKey: string,
     patch: OperationLifecyclePatch,
-  ): Promise<Alert | null> {
+  ): Promise<AlertRecord | null> {
     const result = await this.repository.transition(organizationId, operationKey, {
       ...patch,
       status: 'running',
@@ -110,7 +109,7 @@ export class OperationAlertService implements OperationAlertPort {
     organizationId: string,
     operationKey: string,
     patch: OperationLifecyclePatch = {},
-  ): Promise<Alert | null> {
+  ): Promise<AlertRecord | null> {
     const result = await this.repository.transition(organizationId, operationKey, {
       ...patch,
       status: 'succeeded',
@@ -125,7 +124,7 @@ export class OperationAlertService implements OperationAlertPort {
     organizationId: string,
     operationKey: string,
     patch: OperationLifecyclePatch = {},
-  ): Promise<Alert | null> {
+  ): Promise<AlertRecord | null> {
     const result = await this.repository.transition(organizationId, operationKey, {
       ...patch,
       status: 'failed',
@@ -140,7 +139,7 @@ export class OperationAlertService implements OperationAlertPort {
     organizationId: string,
     operationKey: string,
     patch: OperationLifecyclePatch = {},
-  ): Promise<Alert | null> {
+  ): Promise<AlertRecord | null> {
     const result = await this.repository.transition(organizationId, operationKey, {
       ...patch,
       status: 'cancelled',
@@ -161,7 +160,7 @@ export class OperationAlertService implements OperationAlertPort {
     sourceId: string,
     status: 'succeeded' | 'failed' | 'cancelled',
     patch: OperationLifecyclePatch = {},
-  ): Promise<Alert | null> {
+  ): Promise<AlertRecord | null> {
     const existing = await this.repository.findLatestBySource(
       organizationId,
       sourceType,
@@ -179,7 +178,7 @@ export class OperationAlertService implements OperationAlertPort {
 
   async closeStaleOperations(
     input: CloseStaleOperationAlertsInput,
-  ): Promise<Alert[]> {
+  ): Promise<AlertRecord[]> {
     const limit = Math.max(1, Math.min(input.limit ?? 50, 500));
     // Severity defaulting (failed→error, else carry per-row) happens in the
     // repository adapter so each row's existing severity is preserved
@@ -198,7 +197,7 @@ export class OperationAlertService implements OperationAlertPort {
     return closed;
   }
 
-  private emitUpsert(alert: Alert): void {
+  private emitUpsert(alert: AlertRecord): void {
     try {
       const item = alertPanelMapper.mapToItem(alert);
       this.eventEmitter.emit(PANEL_EVENTS.UPSERT, {

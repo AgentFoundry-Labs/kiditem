@@ -1,17 +1,17 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import { scrubSecrets } from '@kiditem/shared/security';
 import type {
   ActionTask,
   ActionTaskRelatedProduct,
 } from '@kiditem/shared/action-task';
-import type { PerListingMetrics } from '../../../common/per-listing-profit';
 import { kstDayStart, kstMonthStart } from '../../../common/kst';
 import { generateActionTaskSeeds } from '../../domain/policy/action-seeds';
 import {
   ACTION_BOARD_REPOSITORY_PORT,
+  type ActionBoardPerListingMetrics,
   type ActionBoardRepositoryPort,
 } from '../port/out/action-board.repository.port';
+import type { JsonValue } from '../port/persistence-records';
 
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 type RelatedProduct = ActionTaskRelatedProduct;
@@ -89,7 +89,7 @@ export class ActionBoardService {
         href: seed.href ?? null,
         priority: seed.priority,
         role: seed.role ?? null,
-        apiCall: (seed.apiCall ?? Prisma.JsonNull) as Prisma.InputJsonValue,
+        apiCall: seed.apiCall ?? null,
         date: today,
       });
     }
@@ -124,7 +124,7 @@ export class ActionBoardService {
     if (!task) throw new NotFoundException('Task not found');
 
     const log = (task.activityLog as Array<Record<string, unknown>>) || [];
-    const updates: Record<string, unknown> = {};
+    const updates: { status?: string; priority?: string } = {};
 
     if (data.status && data.status !== task.status) {
       log.push({
@@ -147,7 +147,7 @@ export class ActionBoardService {
 
     return this.repository.updateActionTaskOrThrow(id, organizationId, {
       ...updates,
-      activityLog: log as unknown as Prisma.InputJsonValue,
+      activityLog: log as unknown as JsonValue,
     });
   }
 
@@ -162,8 +162,8 @@ export class ActionBoardService {
     log.push({ action: 'note_added', timestamp: new Date().toISOString() });
 
     return this.repository.updateActionTaskOrThrow(id, organizationId, {
-      notes: notes as unknown as Prisma.InputJsonValue,
-      activityLog: log as unknown as Prisma.InputJsonValue,
+      notes: notes as unknown as JsonValue,
+      activityLog: log as unknown as JsonValue,
     });
   }
 
@@ -195,9 +195,9 @@ export class ActionBoardService {
       });
 
       return this.repository.updateActionTaskOrThrow(id, organizationId, {
-        result: result as Prisma.InputJsonValue,
+        result: result as JsonValue,
         status: 'done',
-        activityLog: log as unknown as Prisma.InputJsonValue,
+        activityLog: log as unknown as JsonValue,
       });
     } catch (err) {
       if (err instanceof NotFoundException) throw err;
@@ -211,9 +211,9 @@ export class ActionBoardService {
       });
 
       return this.repository.updateActionTaskOrThrow(id, organizationId, {
-        result: { error: scrubSecrets(err instanceof Error ? err.message : String(err)) } as Prisma.InputJsonValue,
+        result: { error: scrubSecrets(err instanceof Error ? err.message : String(err)) },
         status: 'done',
-        activityLog: log as unknown as Prisma.InputJsonValue,
+        activityLog: log as unknown as JsonValue,
       });
     }
   }
@@ -255,7 +255,7 @@ export class ActionBoardService {
 
   private async getRelatedProducts(
     organizationId: string,
-    metrics: PerListingMetrics[],
+    metrics: ActionBoardPerListingMetrics[],
   ): Promise<Record<string, RelatedProduct[]>> {
     const map: Record<string, RelatedProduct[]> = {};
     const highAdRows = metrics

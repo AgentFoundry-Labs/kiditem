@@ -1,9 +1,9 @@
 // Outgoing port for the `Alert.kind = "operation"` ledger persistence.
 // Wraps the idempotent upsert + lifecycle update operations the
 // OperationAlertService application logic depends on. Tenant predicate is
-// `organizationId` on every read/write.
+// `organizationId` on every read/write. The contract is Prisma-free.
 
-import type { Alert } from '@prisma/client';
+import type { AlertRecord } from '../persistence-records';
 
 export const OPERATION_ALERT_REPOSITORY_PORT = Symbol(
   'OperationAlertRepositoryPort',
@@ -69,28 +69,28 @@ export interface OperationAlertRepositoryPort {
     organizationId: string,
     operationKey: string,
     data: OperationAlertUpsertData,
-  ): Promise<Alert>;
+  ): Promise<AlertRecord>;
 
   /** Transition a row to a target status. Returns null when the row is missing. */
   transition(
     organizationId: string,
     operationKey: string,
     patch: OperationAlertTransitionPatch,
-  ): Promise<Alert | null>;
+  ): Promise<AlertRecord | null>;
 
   /** Latest row by `(organizationId, sourceType, sourceId)` for closeBySource. */
   findLatestBySource(
     organizationId: string,
     sourceType: string,
     sourceId: string,
-  ): Promise<Alert | null>;
+  ): Promise<AlertRecord | null>;
 
   /** Lookup by `(organizationId, operationKey)`. */
   findByOperationKey(
     organizationId: string,
     operationKey: string,
-  ): Promise<Alert | null>;
+  ): Promise<AlertRecord | null>;
 
   /** Batch close stale operation rows matching the criteria. */
-  closeStaleOperations(criteria: CloseStaleOperationsCriteria): Promise<Alert[]>;
+  closeStaleOperations(criteria: CloseStaleOperationsCriteria): Promise<AlertRecord[]>;
 }

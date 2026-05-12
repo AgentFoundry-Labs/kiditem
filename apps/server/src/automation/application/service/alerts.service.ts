@@ -1,5 +1,4 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import type { Alert, ActionTask } from '@prisma/client';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { kstDayStart } from '../../../common/kst';
 import { alertPanelMapper } from '../../mapper/panel-event/alert.mapper';
@@ -8,6 +7,7 @@ import {
   ALERTS_REPOSITORY_PORT,
   type AlertsRepositoryPort,
 } from '../port/out/alerts.repository.port';
+import type { ActionTaskRecord, AlertRecord } from '../port/persistence-records';
 
 /**
  * Application-internal command type for `AlertsService.promote`.
@@ -64,7 +64,7 @@ export class AlertsService {
     return this.repository.findUnreadAlerts(organizationId, limit);
   }
 
-  markAsRead(id: string, organizationId: string): Promise<Alert> {
+  markAsRead(id: string, organizationId: string): Promise<AlertRecord> {
     return this.repository.markAsRead(id, organizationId);
   }
 
@@ -90,7 +90,7 @@ export class AlertsService {
     organizationId: string,
     input: PromoteAlertInput,
     _currentUserId: string,
-  ): Promise<{ task: ActionTask; updatedAlert: Alert }> {
+  ): Promise<{ task: ActionTaskRecord; updatedAlert: AlertRecord }> {
     const result = await this.repository.promoteAlertToTask({
       alertId,
       organizationId,

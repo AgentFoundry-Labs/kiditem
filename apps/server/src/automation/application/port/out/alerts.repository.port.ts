@@ -1,9 +1,10 @@
 // Outgoing port for the user-facing `Alert` notification store. Owns the
 // unread/read lifecycle plus the promotion contract that creates an
-// `ActionTask` from an `Alert` with race-guard.
+// action task from an alert with race-guard. The contract is Prisma-free;
+// repository adapters own ORM translation.
 
-import type { Alert, ActionTask, Prisma } from '@prisma/client';
 import type { AlertItem } from '@kiditem/shared/alerts';
+import type { ActionTaskRecord, AlertRecord } from '../persistence-records';
 
 export const ALERTS_REPOSITORY_PORT = Symbol('AlertsRepositoryPort');
 
@@ -14,15 +15,15 @@ export interface PromoteAlertCommand {
   roleOverride?: string;
   /** Mapping function injected by the service so the domain mapping rules
    *  stay outside this persistence boundary. */
-  resolvePriority: (alert: Alert) => 'urgent' | 'high' | 'medium';
-  resolveRole: (alert: Alert) => string | null;
+  resolvePriority: (alert: AlertRecord) => 'urgent' | 'high' | 'medium';
+  resolveRole: (alert: AlertRecord) => string | null;
   /** Today's KST day-start used as the ActionTask date key. */
   date: Date;
 }
 
 export interface PromoteAlertResult {
-  task: ActionTask;
-  updatedAlert: Alert;
+  task: ActionTaskRecord;
+  updatedAlert: AlertRecord;
 }
 
 export interface AlertsRepositoryPort {
@@ -31,7 +32,7 @@ export interface AlertsRepositoryPort {
     limit?: number,
   ): Promise<AlertItem[]>;
 
-  markAsRead(id: string, organizationId: string): Promise<Alert>;
+  markAsRead(id: string, organizationId: string): Promise<AlertRecord>;
 
   markAllAsRead(organizationId: string): Promise<{ updated: number }>;
 
@@ -48,9 +49,3 @@ export interface AlertsRepositoryPort {
   /** Dismiss = mark read; row stays in DB. Returns void; emits via service. */
   dismissAlert(id: string, organizationId: string): Promise<void>;
 }
-
-/**
- * Update payload type re-exported for adapter implementations. Service
- * code does not depend on this; it's used inside the adapter only.
- */
-export type AlertUpdatePayload = Prisma.AlertUpdateManyMutationInput;

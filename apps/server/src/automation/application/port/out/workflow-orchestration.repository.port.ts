@@ -1,10 +1,13 @@
 // Outgoing port for workflow template CRUD + workflow run lifecycle reads
 // used by `WorkflowOrchestrationService`. Run-time execution mutations
-// live behind `WorkflowRunnerService` (transitional carve-out: still holds
-// PrismaService for the executor framework passthrough).
+// live behind `WorkflowRunnerService` until the executor framework is ported.
 
-import type { WorkflowRun, WorkflowTemplate, Prisma } from '@prisma/client';
 import type { WorkflowTemplate as SharedWorkflowTemplate } from '@kiditem/shared/workflow';
+import type {
+  JsonValue,
+  WorkflowRunRecord,
+  WorkflowTemplateRecord,
+} from '../persistence-records';
 
 export const WORKFLOW_ORCHESTRATION_REPOSITORY_PORT = Symbol(
   'WorkflowOrchestrationRepositoryPort',
@@ -42,7 +45,7 @@ export interface CreateWorkflowRunInput {
   organizationId: string;
   triggeredBy: string;
   triggeredByUserId: string | null;
-  contextData?: Prisma.InputJsonValue;
+  contextData?: JsonValue;
 }
 
 export interface PanelItemEnvelope {
@@ -53,7 +56,7 @@ export interface PanelItemEnvelope {
 }
 
 export interface WorkflowOrchestrationRepositoryPort {
-  createTemplate(input: CreateWorkflowTemplateInput): Promise<WorkflowTemplate>;
+  createTemplate(input: CreateWorkflowTemplateInput): Promise<WorkflowTemplateRecord>;
 
   findTemplates(
     organizationId: string,
@@ -63,39 +66,39 @@ export interface WorkflowOrchestrationRepositoryPort {
   findTemplateScopedWithRunCount(
     id: string,
     organizationId: string,
-  ): Promise<(WorkflowTemplate & { _count: { runs: number } }) | null>;
+  ): Promise<(WorkflowTemplateRecord & { _count: { runs: number } }) | null>;
 
   /** Returns the existing scoped template or null. */
   findTemplateScoped(
     id: string,
     organizationId: string,
-  ): Promise<WorkflowTemplate | null>;
+  ): Promise<WorkflowTemplateRecord | null>;
 
   updateTemplate(
     id: string,
     organizationId: string,
     data: UpdateWorkflowTemplateInput,
-  ): Promise<WorkflowTemplate>;
+  ): Promise<WorkflowTemplateRecord>;
 
-  deleteTemplate(id: string, organizationId: string): Promise<WorkflowTemplate>;
+  deleteTemplate(id: string, organizationId: string): Promise<WorkflowTemplateRecord>;
 
   /** Returns scoped templates ordered by input array order. */
   findTemplatesByIds(
     organizationId: string,
     templateIds: string[],
-  ): Promise<Pick<WorkflowTemplate, 'id' | 'organizationId'>[]>;
+  ): Promise<Pick<WorkflowTemplateRecord, 'id' | 'organizationId'>[]>;
 
-  createRun(input: CreateWorkflowRunInput): Promise<WorkflowRun>;
+  createRun(input: CreateWorkflowRunInput): Promise<WorkflowRunRecord>;
 
   findRunsByTemplate(
     templateId: string,
     organizationId: string,
-  ): Promise<WorkflowRun[]>;
+  ): Promise<WorkflowRunRecord[]>;
 
   findRunScoped(
     runId: string,
     organizationId: string,
-  ): Promise<WorkflowRun | null>;
+  ): Promise<WorkflowRunRecord | null>;
 
   /**
    * Build the SSE panel envelope for a workflow run. Returns null when the

@@ -1,5 +1,4 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import type { Marketplace } from '@prisma/client';
 import type { MarketplaceCatalogItem, ConfigurableParam } from '@kiditem/shared/marketplace';
 import {
   collectInvalidNodeTypes,
@@ -9,8 +8,9 @@ import {
   MARKETPLACE_CATALOG_REPOSITORY_PORT,
   type MarketplaceCatalogRepositoryPort,
 } from '../port/out/marketplace-catalog.repository.port';
+import type { MarketplaceRecord } from '../port/persistence-records';
 
-function toCatalogItem(item: Marketplace, installed: boolean): MarketplaceCatalogItem {
+function toCatalogItem(item: MarketplaceRecord, installed: boolean): MarketplaceCatalogItem {
   return {
     id: item.id,
     type: item.type as 'workflow' | 'agent',
@@ -77,7 +77,7 @@ export class MarketplaceCatalogService {
     // never reach the install path. The seed is expected to stay slim-core
     // compatible; if a stale row appears in production we surface it via
     // logs instead of rendering an installable card that would fail.
-    const visible: Marketplace[] = [];
+    const visible: MarketplaceRecord[] = [];
     for (const item of rows) {
       const invalid = collectInvalidNodeTypes(item.nodesJson);
       if (invalid.length === 0) {
@@ -92,7 +92,7 @@ export class MarketplaceCatalogService {
     return visible.map((item) => toCatalogItem(item, installedIds.has(item.id)));
   }
 
-  async getWorkflow(id: string): Promise<Marketplace | null> {
+  async getWorkflow(id: string): Promise<MarketplaceRecord | null> {
     const item = await this.repository.findWorkflowById(id);
     if (!item) return null;
     if (!isWorkflowCatalogSlimCoreCompatible(item)) {
@@ -119,7 +119,7 @@ export class MarketplaceCatalogService {
     return items.map((item) => toCatalogItem(item, false));
   }
 
-  getAgent(id: string): Promise<Marketplace | null> {
+  getAgent(id: string): Promise<MarketplaceRecord | null> {
     return this.repository.findAgentById(id);
   }
 }

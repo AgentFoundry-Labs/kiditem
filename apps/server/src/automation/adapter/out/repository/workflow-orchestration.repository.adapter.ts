@@ -20,6 +20,12 @@ import type {
   UpdateWorkflowTemplateInput,
   WorkflowOrchestrationRepositoryPort,
 } from '../../../application/port/out/workflow-orchestration.repository.port';
+import type { JsonValue } from '../../../application/port/persistence-records';
+
+function toOptionalPrismaJson(value: JsonValue | undefined) {
+  if (value === undefined) return undefined;
+  return value === null ? Prisma.JsonNull : (value as Prisma.InputJsonValue);
+}
 
 @Injectable()
 export class WorkflowOrchestrationRepositoryAdapter
@@ -154,7 +160,7 @@ export class WorkflowOrchestrationRepositoryAdapter
         triggeredBy: input.triggeredBy,
         triggeredByUserId: input.triggeredByUserId,
         organizationId: input.organizationId,
-        contextData: input.contextData ?? undefined,
+        contextData: toOptionalPrismaJson(input.contextData),
       },
     });
   }
