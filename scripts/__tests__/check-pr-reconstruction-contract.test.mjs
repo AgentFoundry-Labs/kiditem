@@ -45,3 +45,25 @@ Verification gate: npm run build --workspace=apps/server
 `;
   assert.deepEqual(missingBodyFields(body), []);
 });
+
+test('tolerates Markdown bold/italic/code wrapping around labels', () => {
+  const body = `
+**Trigger**: high-risk media boundary
+*Scope decision*: port split in this PR
+__Contract / AGENTS update__: apps/server/src/ai/AGENTS.md
+\`Behavior lock tests\`: prompt tests
+Verification gate: npm run build --workspace=apps/server
+`;
+  assert.deepEqual(missingBodyFields(body), []);
+});
+
+test('flags blank values even when the label is wrapped in Markdown', () => {
+  const body = `
+**Trigger**:
+**Scope decision**: split included
+**Contract / AGENTS update**: apps/server/src/ai/AGENTS.md
+**Behavior lock tests**: prompt tests
+**Verification gate**: npm run build --workspace=apps/server
+`;
+  assert.deepEqual(missingBodyFields(body), ['Trigger']);
+});

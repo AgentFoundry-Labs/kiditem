@@ -1,10 +1,19 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import type { AuthRequiredErrorBody } from '@kiditem/shared/auth';
 
 /**
- * 보호 라우트 가드 — Supabase 세션 쿠키가 없으면 `/login?next=<원래 경로>` 로 리다이렉트.
- * 인증된 사용자가 `/login` 직접 접근 시 `/` 로 리다이렉트.
+ * 보호 라우트 가드 — Supabase 세션 쿠키가 없으면:
+ *   - navigation (HTML 요청)    → `/login?next=<원래 경로>` 307 redirect
+ *   - fetch caller (`/api/*` 또는 `Accept: application/json`) → 401 JSON
  *
+ * fetch caller 에게 307 을 주면 브라우저가 redirect 를 따라가 `/login` HTML 을
+ * 받아오고, apiClient 가 JSON.parse 폭발해 사용자에게 의미 없는 에러가 노출됨.
+ * Backend `GlobalExceptionFilter` 의 401 응답 envelope 와 byte-level 동일하게
+ * `{ statusCode, error, message, timestamp, path }` 를 emit 해 apiClient 가
+ * dev 직결 path 와 prod proxy path 양쪽에서 동일하게 인터셉트 가능.
+ *
+ * 인증된 사용자가 `/login` 직접 접근 시 `/` 로 리다이렉트.
  * `NEXT_PUBLIC_SUPABASE_*` 키가 없으면 보호 라우트는 로그인으로 보낸다.
  */
 const PUBLIC_PATHS = ['/login', '/auth'];
@@ -21,6 +30,23 @@ const PUBLIC_PATHS = ['/login', '/auth'];
  */
 const TRANSPORT_BYPASS_PATHS = ['/api/chat/copilot'];
 
+function isApiFetchCaller(req: NextRequest, path: string): boolean {
+  if (path.startsWith('/api/')) return true;
+  const accept = req.headers.get('accept') ?? '';
+  return accept.includes('application/json');
+}
+
+function authRequiredJsonResponse(path: string): NextResponse {
+  const body: AuthRequiredErrorBody = {
+    statusCode: 401,
+    error: 'Unauthorized',
+    message: 'auth_required',
+    timestamp: new Date().toISOString(),
+    path,
+  };
+  return NextResponse.json(body, { status: 401 });
+}
+
 export async function proxy(req: NextRequest) {
   const path = req.nextUrl.pathname;
   const isPublic = PUBLIC_PATHS.some((p) => path === p || path.startsWith(`${p}/`));
@@ -36,6 +62,7 @@ export async function proxy(req: NextRequest) {
   const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
   if (!url || !publishableKey) {
     if (isPublic) return NextResponse.next();
+    if (isApiFetchCaller(req, path)) return authRequiredJsonResponse(path);
     return redirectToLogin(req, path);
   }
 
@@ -58,6 +85,7 @@ export async function proxy(req: NextRequest) {
   const claims = data?.claims ?? null;
 
   if (!claims && !isPublic) {
+    if (isApiFetchCaller(req, path)) return authRequiredJsonResponse(path);
     return redirectToLogin(req, path);
   }
   if (claims && path === '/login') {

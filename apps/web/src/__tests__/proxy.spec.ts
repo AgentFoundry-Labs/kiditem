@@ -11,8 +11,10 @@ const ORIGINAL_SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const ORIGINAL_SUPABASE_PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 const ORIGINAL_SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-function makeRequest(path: string) {
-  return new NextRequest(new URL(path, 'http://localhost:3000'));
+function makeRequest(path: string, init?: { accept?: string }) {
+  const headers: Record<string, string> = {};
+  if (init?.accept) headers.accept = init.accept;
+  return new NextRequest(new URL(path, 'http://localhost:3000'), { headers });
 }
 
 function setSupabaseEnv() {
@@ -115,6 +117,68 @@ describe('proxy auth redirect', () => {
   // rewrites to Nest. The caller is `fetch`/SSE, not a navigation, so a 307
   // to /login would corrupt the stream. Nest itself returns JSON 401
   // auth_required when the Supabase SSR cookie is missing.
+  describe('fetch caller JSON 401 branch', () => {
+    it('P1: /api/* path returns JSON 401 envelope when claims are absent', async () => {
+      setSupabaseEnv();
+      mockSupabaseClaims(null);
+
+      const response = await proxy(makeRequest('/api/dashboard/stats'));
+
+      expect(response.status).toBe(401);
+      const body = await response.json();
+      expect(body).toEqual({
+        statusCode: 401,
+        error: 'Unauthorized',
+        message: 'auth_required',
+        timestamp: expect.any(String),
+        path: '/api/dashboard/stats',
+      });
+      // envelope timestamp is ISO 8601
+      expect(new Date(body.timestamp).toString()).not.toBe('Invalid Date');
+    });
+
+    it('P2: navigation with Accept: text/html still gets 307', async () => {
+      setSupabaseEnv();
+      mockSupabaseClaims(null);
+
+      const response = await proxy(makeRequest('/dashboard', { accept: 'text/html' }));
+
+      expectRedirectPath(response, '/login', '/dashboard');
+    });
+
+    it('P3: non-/api path with Accept: application/json (RSC-like fetch) returns JSON 401', async () => {
+      setSupabaseEnv();
+      mockSupabaseClaims(null);
+
+      const response = await proxy(
+        makeRequest('/dashboard', { accept: 'application/json' }),
+      );
+
+      expect(response.status).toBe(401);
+      const body = await response.json();
+      expect(body.message).toBe('auth_required');
+    });
+
+    it('P4: /api/* path with claims falls through (next response)', async () => {
+      setSupabaseEnv();
+      mockSupabaseClaims({ sub: 'user-1' });
+
+      const response = await proxy(makeRequest('/api/dashboard/stats'));
+
+      expect(response.status).toBe(200);
+    });
+
+    it('P5: returns JSON 401 even when Supabase env is missing for /api/* caller', async () => {
+      const response = await proxy(makeRequest('/api/dashboard/stats'));
+
+      expect(response.status).toBe(401);
+      const body = await response.json();
+      expect(body.message).toBe('auth_required');
+      expect(body.error).toBe('Unauthorized');
+      expect(createServerClient).not.toHaveBeenCalled();
+    });
+  });
+
   describe('chat runtime transport bypass', () => {
     it('passes /api/chat/copilot through without checking Supabase claims', async () => {
       const response = await proxy(makeRequest('/api/chat/copilot'));

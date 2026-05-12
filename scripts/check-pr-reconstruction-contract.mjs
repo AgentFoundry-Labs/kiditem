@@ -121,9 +121,19 @@ export function analyzeReconstructionTriggers(files, lineCounts = {}) {
 export function missingBodyFields(body) {
   const missing = [];
   for (const label of REQUIRED_LABELS) {
-    const re = new RegExp(`${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[ \\t]*:[ \\t]*([^\\n\\r]*)`, 'i');
+    // Tolerate common Markdown decoration between the label and the colon:
+    //   "**Trigger**:", "*Trigger*:", "__Trigger__:", "`Trigger`:".
+    // The opening markers before the label do not need to match because the
+    // regex is unanchored. Trailing markdown that would otherwise consume the
+    // colon (e.g. `**Trigger**:` -> the second `**` sits between Trigger and `:`)
+    // is what we need to skip.
+    const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`${escapedLabel}[*_\`]*[ \\t]*:[ \\t]*([^\\n\\r]*)`, 'i');
     const match = body.match(re);
-    const value = match?.[1]?.trim() || '';
+    const value = (match?.[1] ?? '')
+      // Strip leading bold/italic/code openers on the value side as well.
+      .replace(/^[*_`]+/, '')
+      .trim();
     if (!value || /^(?:TBD|TODO|N\/A|-|_)$/i.test(value)) missing.push(label);
   }
   return missing;
