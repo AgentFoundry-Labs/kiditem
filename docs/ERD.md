@@ -16,6 +16,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 - `prisma/models/finance.prisma`
 - `prisma/models/inventory.prisma`
 - `prisma/models/orders.prisma`
+- `prisma/models/sourcing.prisma`
 - `prisma/models/supply.prisma`
 - `prisma/models/system.prisma`
 
@@ -31,6 +32,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Finance](erd/finance.md) | 5 |
 | [Inventory](erd/inventory.md) | 8 |
 | [Orders](erd/orders.md) | 9 |
+| [Sourcing](erd/sourcing.md) | 2 |
 | [Supply](erd/supply.md) | 6 |
 | [System](erd/system.md) | 8 |
 
@@ -109,6 +111,8 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | Settlement | Orders | `settlements` | 월별 정산 (예상 vs 실제 비교). |
 | Shipment | Orders | `shipments` | - |
 | UnshippedItem | Orders | `unshipped_items` | - |
+| CandidateImage | Sourcing | `sourcing_candidate_images` | 소싱 후보의 이미지 갤러리. 승격 시 MasterProductImage로 clone. |
+| SourcingCandidate | Sourcing | `sourcing_candidates` | 외부 플랫폼에서 스크랩한 소싱 후보. MasterProduct와 분리된 sourcing inbox. |
 | MasterSupplierProduct | Supply | `master_supplier_products` | Master 단위 주공급처 정책. 여러 supplier 후보 중 isPrimary 가 기본. |
 | PurchaseOrder | Supply | `purchase_orders` | 발주 state machine (draft→pending→ordered→shipped→received). 입고 검수 필드 포함 (receivedQty, defectQty). 단위는 CNY(Decimal 12,2). |
 | PurchaseOrderItem | Supply | `purchase_order_items` | - |
@@ -459,6 +463,26 @@ erDiagram
     Boolean autoExecute
     Boolean active
     Int sortOrder
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  CandidateImage {
+    String id PK
+    String organizationId FK
+    String candidateId FK
+    String url
+    String storageKey
+    String role
+    String label
+    Int sortOrder
+    String source
+    String mimeType
+    Int width
+    Int height
+    Int fileSize
+    Boolean isPrimary
+    Boolean isDeleted
+    DateTime deletedAt
     DateTime createdAt
     DateTime updatedAt
   }
@@ -951,6 +975,7 @@ erDiagram
     Boolean isDeleted
     DateTime deletedAt
     Boolean isTemporary
+    String lifecycleState
     String temporaryReason
     String memo
     DateTime createdAt
@@ -1293,6 +1318,30 @@ erDiagram
     DateTime deliveredAt
     Int deliveryDays
     String warehouseId FK
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SourcingCandidate {
+    String id PK
+    String organizationId FK
+    String sourceUrl
+    String sourcePlatform
+    Json rawData
+    String name
+    String description
+    String category
+    Json tags
+    String thumbnailUrl
+    String imageUrl
+    Decimal costCny
+    String status
+    String promotedMasterId FK,UK
+    String rejectedReason
+    DateTime rejectedAt
+    String rejectedByUserId FK
+    String triggeredByUserId FK
+    Boolean isDeleted
+    DateTime deletedAt
     DateTime createdAt
     DateTime updatedAt
   }
@@ -1679,6 +1728,7 @@ erDiagram
   MasterProduct ||--o{ MasterSupplierProduct : "master"
   MasterProduct ||--o{ ProcessingCost : "master"
   MasterProduct ||--|| ProductOption : "master"
+  MasterProduct o|--o| SourcingCandidate : "promotedMaster"
   MasterProduct ||--|| ThumbnailAnalysis : "master"
   MasterProduct ||--o{ ThumbnailGeneration : "master"
   MasterProductImage o|--o{ ThumbnailGenerationInputImage : "masterImage"
@@ -1705,6 +1755,7 @@ erDiagram
   Organization ||--o{ Alert : "organization"
   Organization ||--o{ BundleComponent : "organization"
   Organization ||--o{ BusinessRule : "organization"
+  Organization ||--o{ CandidateImage : "organization"
   Organization ||--o{ CategoryMapping : "organization"
   Organization ||--o{ ChannelAccount : "organization"
   Organization ||--o{ ChannelAccountDailyKpiSnapshot : "organization"
@@ -1742,6 +1793,7 @@ erDiagram
   Organization ||--o{ ScrapeTarget : "organization"
   Organization ||--o{ Settlement : "organization"
   Organization ||--o{ Shipment : "organization"
+  Organization ||--o{ SourcingCandidate : "organization"
   Organization ||--o{ StockAudit : "organization"
   Organization ||--o{ StockTransaction : "organization"
   Organization ||--o{ StockTransfer : "organization"
@@ -1780,6 +1832,7 @@ erDiagram
   ProductOption o|--o{ UnshippedItem : "option"
   PurchaseOrder ||--o{ PurchaseOrderItem : "order"
   PurchaseOrder o|--o{ SupplierPayment : "purchaseOrder"
+  SourcingCandidate ||--o{ CandidateImage : "candidate"
   Supplier ||--o{ MasterSupplierProduct : "supplier"
   Supplier o|--o{ PurchaseOrder : "supplier"
   Supplier ||--o{ SupplierPayment : "supplier"
@@ -1802,6 +1855,8 @@ erDiagram
   User o|--o{ ContentGeneration : "triggeredByUser"
   User o|--o{ OrganizationMembership : "invitedBy"
   User ||--o{ OrganizationMembership : "user"
+  User o|--o{ SourcingCandidate : "rejectedByUser"
+  User o|--o{ SourcingCandidate : "triggeredByUser"
   User o|--o{ ThumbnailGeneration : "triggeredByUser"
   User o|--o{ ThumbnailGenerationEvent : "actor"
   User o|--o{ WorkflowRun : "triggeredByUser"

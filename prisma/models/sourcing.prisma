@@ -1,0 +1,86 @@
+// sourcing.prisma — Sourcing domain (issue #192)
+
+/// @namespace Sourcing
+/// @describe 외부 플랫폼에서 스크랩한 소싱 후보. MasterProduct와 분리된 sourcing inbox.
+/// 옵션 확정 시 promotion으로 master 생성. promotedMasterId가 master로 reverse-link.
+model SourcingCandidate {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  sourceUrl      String @map("source_url")
+  sourcePlatform String @map("source_platform")
+  rawData        Json   @default("{}") @map("raw_data")
+
+  name         String
+  description  String  @default("")
+  category     String?
+  tags         Json    @default("[]")
+  thumbnailUrl String? @map("thumbnail_url")
+  imageUrl     String? @map("image_url")
+
+  costCny Decimal? @map("cost_cny") @db.Decimal(12, 2)
+
+  status           String  @default("sourced")
+  promotedMasterId String? @unique @map("promoted_master_id") @db.Uuid
+
+  rejectedReason   String?   @map("rejected_reason")
+  rejectedAt       DateTime? @map("rejected_at") @db.Timestamptz
+  rejectedByUserId String?   @map("rejected_by_user_id") @db.Uuid
+
+  triggeredByUserId String? @map("triggered_by_user_id") @db.Uuid
+
+  isDeleted Boolean   @default(false) @map("is_deleted")
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  promotedMaster  MasterProduct?   @relation("PromotedFromCandidate", fields: [promotedMasterId], references: [id], onDelete: SetNull)
+  rejectedByUser  User?            @relation("SourcingCandidateRejectedBy", fields: [rejectedByUserId], references: [id], onDelete: SetNull)
+  triggeredByUser User?            @relation("SourcingCandidateTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
+  images          CandidateImage[]
+
+  @@unique([organizationId, sourceUrl], map: "sourcing_candidates_organization_id_source_url_key", where: raw("is_deleted = false AND status = 'sourced'"))
+  @@index([organizationId])
+  @@index([organizationId, status])
+  @@index([organizationId, isDeleted])
+  @@index([promotedMasterId])
+  @@map("sourcing_candidates")
+}
+
+/// @namespace Sourcing
+/// @describe 소싱 후보의 이미지 갤러리. 승격 시 MasterProductImage로 clone.
+/// ThumbnailGenerationInputImage.sourceCandidate가 이 테이블 참조 (Task 8에서 repoint).
+model CandidateImage {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  candidateId    String @map("candidate_id") @db.Uuid
+
+  url        String
+  storageKey String? @map("storage_key")
+  role       String  @default("product")
+  label      String?
+  sortOrder  Int     @default(0) @map("sort_order")
+  source     String  @default("sourcing-extension")
+
+  mimeType String? @map("mime_type")
+  width    Int?
+  height   Int?
+  fileSize Int?    @map("file_size")
+
+  isPrimary Boolean   @default(false) @map("is_primary")
+  isDeleted Boolean   @default(false) @map("is_deleted")
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  candidate    SourcingCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([candidateId])
+  @@index([organizationId, candidateId])
+  @@map("sourcing_candidate_images")
+}

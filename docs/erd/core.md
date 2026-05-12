@@ -144,6 +144,7 @@ erDiagram
     Boolean isDeleted
     DateTime deletedAt
     Boolean isTemporary
+    String lifecycleState
     String temporaryReason
     String memo
     DateTime createdAt
@@ -276,6 +277,7 @@ erDiagram
 | MasterProduct | master | referenced by external | Finance | GradeHistory |
 | MasterProduct | master | referenced by external | Finance | ProcessingCost |
 | MasterProduct | master | referenced by external | Supply | MasterSupplierProduct |
+| MasterProduct | promotedMaster | referenced by external | Sourcing | SourcingCandidate |
 | MasterProductImage | masterImage | referenced by external | AI | ThumbnailGenerationInputImage |
 | Organization | organization | referenced by external | Advertising | AdAction |
 | Organization | organization | referenced by external | Advertising | ExecutionWorker |
@@ -330,6 +332,8 @@ erDiagram
 | Organization | organization | referenced by external | Orders | Settlement |
 | Organization | organization | referenced by external | Orders | Shipment |
 | Organization | organization | referenced by external | Orders | UnshippedItem |
+| Organization | organization | referenced by external | Sourcing | CandidateImage |
+| Organization | organization | referenced by external | Sourcing | SourcingCandidate |
 | Organization | organization | referenced by external | Supply | PurchaseOrder |
 | Organization | organization | referenced by external | Supply | Supplier |
 | Organization | organization | referenced by external | Supply | SupplierPayment |
@@ -359,9 +363,11 @@ erDiagram
 | User | assigneeUser | referenced by external | System | ActionTask |
 | User | decidedBy | referenced by external | AgentOS | AgentApprovalRequest |
 | User | decidedBy | referenced by external | AgentOS | AgentAuthorizationEvent |
+| User | rejectedByUser | referenced by external | Sourcing | SourcingCandidate |
 | User | requestedBy | referenced by external | AgentOS | AgentApprovalRequest |
 | User | requestedBy | referenced by external | AgentOS | AgentAuthorizationEvent |
 | User | requestedBy | referenced by external | AgentOS | AgentRunRequest |
 | User | triggeredByUser | referenced by external | AgentOS | WorkflowRun |
 | User | triggeredByUser | referenced by external | AI | ContentGeneration |
 | User | triggeredByUser | referenced by external | AI | ThumbnailGeneration |
+| User | triggeredByUser | referenced by external | Sourcing | SourcingCandidate |

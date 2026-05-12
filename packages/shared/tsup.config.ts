@@ -4,7 +4,8 @@ export default defineConfig({
   entry: [
     'src/index.ts',
     'src/schemas/index.ts',
-    'src/product.ts',
+    'src/product/index.ts',
+    'src/sourcing/index.ts',
     'src/order.ts',
     'src/inventory.ts',
     'src/ai.ts',
