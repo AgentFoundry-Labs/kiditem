@@ -1,96 +1,64 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AdCollectService } from '../ad-collect.service';
+import type { ChannelScrapeRepositoryPort } from '../../port/out/channel-scrape.repository.port';
+import {
+  buildMockChannelScrapeRepo,
+  type MockChannelScrapeRepo,
+} from '../../../__tests__/test-helpers/build-mock-ports';
 
 /**
  * H3 — `getStatus` reads `ChannelScrapeRun` for last-collected metadata + per-bucket
- * counts. Legacy `AdSnapshot` reads are gone.
+ * counts via `ChannelScrapeRepositoryPort.findAdCollectStatus`.
  */
 describe('AdCollectService (H3 — scrape-run status)', () => {
   let service: AdCollectService;
-  let prisma: any;
+  let scrapeRepo: MockChannelScrapeRepo;
 
   beforeEach(() => {
-    prisma = {
-      channelScrapeRun: {
-        findFirst: vi.fn(),
-        count: vi.fn(),
-      },
-    };
-    service = new AdCollectService(prisma);
+    scrapeRepo = buildMockChannelScrapeRepo();
+    service = new AdCollectService(
+      scrapeRepo as unknown as ChannelScrapeRepositoryPort,
+    );
   });
 
-  it('returns latest run finishedAt as lastCollectedAt and per-bucket counts', async () => {
-    prisma.channelScrapeRun.findFirst.mockResolvedValue({
-      finishedAt: new Date('2026-04-27T05:00:00Z'),
-      startedAt: new Date('2026-04-27T04:00:00Z'),
+  it('returns lastCollectedAt + campaign/product counts from the port', async () => {
+    scrapeRepo.findAdCollectStatus.mockResolvedValue({
+      lastCollectedAt: new Date('2026-04-27T05:00:00Z'),
+      campaignScrapeRunCount: 15,
+      productScrapeRunCount: 8,
     });
-    // count() is called twice — once for advertising bucket, once for wing
-    prisma.channelScrapeRun.count
-      .mockResolvedValueOnce(15) // campaign
-      .mockResolvedValueOnce(8); // product (wing)
 
     const result = await service.getStatus('organization-1');
 
     expect(result.lastCollectedAt).toEqual(new Date('2026-04-27T05:00:00Z'));
     expect(result.campaignSnapshotCount).toBe(15);
     expect(result.productSnapshotCount).toBe(8);
-
-    // Verify the bucket filters
-    const counts = prisma.channelScrapeRun.count.mock.calls;
-    expect(counts[0][0]).toEqual(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          organizationId: 'organization-1',
-          source: 'advertising',
-          pageType: { in: ['campaign', 'keyword', 'product', 'advertising'] },
-        }),
-      }),
-    );
-    expect(counts[1][0]).toEqual(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          organizationId: 'organization-1',
-          source: 'wing',
-          pageType: { in: ['itemwinner', 'traffic'] },
-        }),
-      }),
-    );
+    expect(scrapeRepo.findAdCollectStatus).toHaveBeenCalledWith('organization-1');
   });
 
-  it('falls back to startedAt when finishedAt is null', async () => {
-    prisma.channelScrapeRun.findFirst.mockResolvedValue({
-      finishedAt: null,
-      startedAt: new Date('2026-04-27T01:00:00Z'),
+  it('passes null lastCollectedAt + zero counts straight through', async () => {
+    scrapeRepo.findAdCollectStatus.mockResolvedValue({
+      lastCollectedAt: null,
+      campaignScrapeRunCount: 0,
+      productScrapeRunCount: 0,
     });
-    prisma.channelScrapeRun.count.mockResolvedValue(0);
 
-    const result = await service.getStatus('organization-1');
-
-    expect(result.lastCollectedAt).toEqual(new Date('2026-04-27T01:00:00Z'));
-  });
-
-  it('empty-state — no run rows returns null lastCollectedAt and zero counts', async () => {
-    prisma.channelScrapeRun.findFirst.mockResolvedValue(null);
-    prisma.channelScrapeRun.count.mockResolvedValue(0);
-
-    const result = await service.getStatus('organization-1');
+    const result = await service.getStatus('organization-xyz');
 
     expect(result.lastCollectedAt).toBeNull();
     expect(result.campaignSnapshotCount).toBe(0);
     expect(result.productSnapshotCount).toBe(0);
   });
 
-  it('passes organizationId through all reads', async () => {
-    prisma.channelScrapeRun.findFirst.mockResolvedValue(null);
-    prisma.channelScrapeRun.count.mockResolvedValue(0);
+  it('passes organizationId through to the port', async () => {
+    scrapeRepo.findAdCollectStatus.mockResolvedValue({
+      lastCollectedAt: null,
+      campaignScrapeRunCount: 0,
+      productScrapeRunCount: 0,
+    });
 
     await service.getStatus('organization-xyz');
 
-    expect(prisma.channelScrapeRun.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { organizationId: 'organization-xyz' } }),
-    );
-    for (const call of prisma.channelScrapeRun.count.mock.calls) {
-      expect(call[0].where.organizationId).toBe('organization-xyz');
-    }
+    expect(scrapeRepo.findAdCollectStatus).toHaveBeenCalledWith('organization-xyz');
   });
 });

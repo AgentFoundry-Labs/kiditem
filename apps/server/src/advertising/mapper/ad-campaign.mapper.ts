@@ -8,13 +8,13 @@ import type {
 } from '@kiditem/shared/advertising';
 import type { AdPeriod } from '../domain/ad-metrics';
 import { aggregateAdMetrics, buildAdMetrics } from '../domain/ad-metrics';
-import type { ScopedAdListingReadModel } from '../adapter/out/prisma/ad-listing.query';
+import type { ScopedAdListingReadModel } from '../application/port/out/ad-listing.repository.port';
 import type {
-  AdTrendDailyAggregate,
   CampaignRollup,
   ProductTargetRollup,
-} from '../adapter/out/prisma/ad-campaign.query';
-import type { AdAccountKpiDayRow } from '../adapter/out/prisma/ad-account-kpi.query';
+} from '../application/port/out/ad-campaign.repository.port';
+import type { AdTrendDailyAggregate } from '../domain/ad-trend';
+import type { AdAccountKpiDayRow } from '../application/port/out/ad-account-kpi.repository.port';
 import { scopedListingToSummary } from './ad-listing.mapper';
 
 /**

@@ -1,31 +1,39 @@
-import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../../../prisma/prisma.service';
+import { Inject, Injectable } from '@nestjs/common';
+import type {
+  AdCampaignSnapshot,
+  AdProductSnapshot,
+  AdTrendsData,
+} from '@kiditem/shared/advertising';
 import { AdConfigService } from './ad-config.service';
-import { findScopedAdListings } from '../../adapter/out/prisma/ad-listing.query';
-import {
-  aggregateDailyAdRows,
-  findAdTrendDailyRows,
-  findCampaignRollups,
-  findGradeBudgetTotals,
-  findProductTargetRollups,
-} from '../../adapter/out/prisma/ad-campaign.query';
-import { findCoupangAdsDailyAccountKpi } from '../../adapter/out/prisma/ad-account-kpi.query';
+import { aggregateDailyAdRows } from '../../domain/ad-trend';
 import {
   toAdCampaignSnapshot,
   toAdProductSnapshot,
   toAdTrendsData,
 } from '../../mapper/ad-campaign.mapper';
 import { periodToDays, type AdPeriod } from '../../domain/ad-metrics';
-import type {
-  AdCampaignSnapshot,
-  AdProductSnapshot,
-  AdTrendsData,
-} from '@kiditem/shared/advertising';
+import {
+  AD_CAMPAIGN_REPOSITORY_PORT,
+  type AdCampaignRepositoryPort,
+} from '../port/out/ad-campaign.repository.port';
+import {
+  AD_LISTING_REPOSITORY_PORT,
+  type AdListingRepositoryPort,
+} from '../port/out/ad-listing.repository.port';
+import {
+  AD_ACCOUNT_KPI_REPOSITORY_PORT,
+  type AdAccountKpiRepositoryPort,
+} from '../port/out/ad-account-kpi.repository.port';
 
 @Injectable()
 export class AdCampaignsService {
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(AD_CAMPAIGN_REPOSITORY_PORT)
+    private readonly campaignRepo: AdCampaignRepositoryPort,
+    @Inject(AD_LISTING_REPOSITORY_PORT)
+    private readonly listingRepo: AdListingRepositoryPort,
+    @Inject(AD_ACCOUNT_KPI_REPOSITORY_PORT)
+    private readonly accountKpiRepo: AdAccountKpiRepositoryPort,
     private readonly adConfigService: AdConfigService,
   ) {
     void this.adConfigService; // injected so future config-aware filters land without DI churn
@@ -44,7 +52,11 @@ export class AdCampaignsService {
     campaignName: string | undefined,
     organizationId: string,
   ): Promise<AdCampaignSnapshot[]> {
-    const rollups = await findCampaignRollups(this.prisma, organizationId, period, campaignName);
+    const rollups = await this.campaignRepo.findCampaignRollups(
+      organizationId,
+      period,
+      campaignName,
+    );
     if (rollups.length === 0) return [];
 
     const listingIds = Array.from(
@@ -54,12 +66,18 @@ export class AdCampaignsService {
           .filter((id): id is string => id != null),
       ),
     );
-    const listingMap = listingIds.length > 0
-      ? await findScopedAdListings(this.prisma, organizationId, listingIds)
-      : new Map();
+    const listingMap =
+      listingIds.length > 0
+        ? await this.listingRepo.findScopedAdListings(
+            organizationId,
+            listingIds,
+          )
+        : new Map();
 
     return rollups.map((rollup) => {
-      const listing = rollup.listingId ? listingMap.get(rollup.listingId) ?? null : null;
+      const listing = rollup.listingId
+        ? listingMap.get(rollup.listingId) ?? null
+        : null;
       return toAdCampaignSnapshot(rollup, listing, period);
     });
   }
@@ -73,7 +91,10 @@ export class AdCampaignsService {
     period: AdPeriod,
     organizationId: string,
   ): Promise<AdProductSnapshot[]> {
-    const rollups = await findProductTargetRollups(this.prisma, organizationId, period);
+    const rollups = await this.campaignRepo.findProductTargetRollups(
+      organizationId,
+      period,
+    );
     if (rollups.length === 0) return [];
 
     const listingIds = Array.from(
@@ -83,12 +104,18 @@ export class AdCampaignsService {
           .filter((id): id is string => id != null),
       ),
     );
-    const listingMap = listingIds.length > 0
-      ? await findScopedAdListings(this.prisma, organizationId, listingIds)
-      : new Map();
+    const listingMap =
+      listingIds.length > 0
+        ? await this.listingRepo.findScopedAdListings(
+            organizationId,
+            listingIds,
+          )
+        : new Map();
 
     return rollups.map((rollup) => {
-      const listing = rollup.listingId ? listingMap.get(rollup.listingId) ?? null : null;
+      const listing = rollup.listingId
+        ? listingMap.get(rollup.listingId) ?? null
+        : null;
       return toAdProductSnapshot(rollup, listing, period);
     });
   }
@@ -111,11 +138,14 @@ export class AdCampaignsService {
   ): Promise<AdTrendsData> {
     const dayCount = period ? periodToDays(period) : Math.min(days ?? 14, 90);
     const [rows, accountKpiRows] = await Promise.all([
-      findAdTrendDailyRows(this.prisma, organizationId, dayCount),
-      findCoupangAdsDailyAccountKpi(this.prisma, organizationId, period ?? '14d'),
+      this.campaignRepo.findAdTrendDailyRows(organizationId, dayCount),
+      this.accountKpiRepo.findCoupangAdsDaily(organizationId, period ?? '14d'),
     ]);
     const dailyAggregates = aggregateDailyAdRows(rows);
-    const gradeBudget = await findGradeBudgetTotals(this.prisma, organizationId, rows);
+    const gradeBudget = await this.campaignRepo.findGradeBudgetTotals(
+      organizationId,
+      rows,
+    );
     return toAdTrendsData({ dailyAggregates, gradeBudget, accountKpiRows });
   }
 }

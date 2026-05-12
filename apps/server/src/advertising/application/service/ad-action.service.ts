@@ -1,23 +1,13 @@
-import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
-import { PrismaService } from '../../../prisma/prisma.service';
+import { Inject, Injectable } from '@nestjs/common';
 import {
-  findAdActionsForReview,
-  findLatestAdActionTargetRows,
-  findLatestListingOptionStockById,
+  AD_ACTION_REPOSITORY_PORT,
   type AdActionQuery,
-} from '../../adapter/out/prisma/ad-action.query';
+  type AdActionRepositoryPort,
+} from '../port/out/ad-action.repository.port';
 import {
   createActionCandidate,
   type ActionCandidate,
 } from '../../domain/ad-action-rules';
-import {
-  approveAdActions,
-  createAdActionsFromCandidates,
-  rejectAdActions,
-  resetFailedAdActions,
-  updateActionOrThrow,
-} from '../../adapter/out/prisma/ad-action.persistence';
 
 const ACTION_DEDUP_HOURS = 24;
 
@@ -35,10 +25,13 @@ const ACTION_DEDUP_HOURS = 24;
  */
 @Injectable()
 export class AdActionService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(AD_ACTION_REPOSITORY_PORT)
+    private readonly repo: AdActionRepositoryPort,
+  ) {}
 
   async getActions(query: AdActionQuery, organizationId: string) {
-    return findAdActionsForReview(this.prisma, query, organizationId);
+    return this.repo.findAdActionsForReview(query, organizationId);
   }
 
   /**
@@ -57,7 +50,7 @@ export class AdActionService {
       Date.now() - ACTION_DEDUP_HOURS * 60 * 60 * 1000,
     );
 
-    const latestRows = await findLatestAdActionTargetRows(this.prisma, organizationId);
+    const latestRows = await this.repo.findLatestTargetRows(organizationId);
 
     // Rule 1 stock-zero check: prefer the latest option daily snapshot's
     // stockQty when listingOptionId is set. Legacy used the live
@@ -71,27 +64,15 @@ export class AdActionService {
           .filter((id): id is string => id != null),
       ),
     );
-    const optionDailyStockMap = await findLatestListingOptionStockById(
-      this.prisma,
+    const optionDailyStockMap = await this.repo.findLatestListingOptionStockById(
       organizationId,
       listingOptionIds,
     );
 
-    const existingActions = await this.prisma.adAction.findMany({
-      where: {
-        organizationId,
-        createdAt: { gte: dedupCutoff },
-        approvalStatus: { in: ['pending_review', 'approved'] },
-        executeStatus: { in: ['queued', 'running'] },
-      },
-      select: {
-        actionType: true,
-        externalId: true,
-        targetLabel: true,
-        currentValue: true,
-        proposedValue: true,
-      },
-    });
+    const existingActions = await this.repo.findExistingInflightActions(
+      organizationId,
+      dedupCutoff,
+    );
 
     const dedupSet = new Set(
       existingActions.map((item) =>
@@ -139,8 +120,7 @@ export class AdActionService {
       };
     }
 
-    const created = await createAdActionsFromCandidates(
-      this.prisma,
+    const created = await this.repo.createAdActionsFromCandidates(
       organizationId,
       candidates,
     );
@@ -155,28 +135,28 @@ export class AdActionService {
   }
 
   async approveActions(ids: string[], organizationId: string) {
-    await this.prisma.$transaction((tx) => approveAdActions(tx, ids, organizationId));
+    await this.repo.approveAdActions(ids, organizationId);
     return { updated: ids.length };
   }
 
   async rejectActions(ids: string[], organizationId: string) {
-    await this.prisma.$transaction((tx) => rejectAdActions(tx, ids, organizationId));
+    await this.repo.rejectAdActions(ids, organizationId);
     return { updated: ids.length };
   }
 
   async markRunning(id: string, beforeJson: Record<string, unknown> | undefined, organizationId: string) {
-    await updateActionOrThrow(this.prisma, id, organizationId, {
+    await this.repo.updateActionOrThrow(id, organizationId, {
       executeStatus: 'running',
-      beforeJson: beforeJson ? (beforeJson as Prisma.InputJsonValue) : undefined,
+      beforeJson: beforeJson,
       errorMessage: null,
     });
   }
 
   async markDone(id: string, afterJson: Record<string, unknown> | undefined, organizationId: string) {
-    await updateActionOrThrow(this.prisma, id, organizationId, {
+    await this.repo.updateActionOrThrow(id, organizationId, {
       executeStatus: 'done',
       executedAt: new Date(),
-      afterJson: afterJson ? (afterJson as Prisma.InputJsonValue) : undefined,
+      afterJson: afterJson,
       errorMessage: null,
     });
   }
@@ -187,14 +167,14 @@ export class AdActionService {
     afterJson: Record<string, unknown> | undefined,
     organizationId: string,
   ) {
-    await updateActionOrThrow(this.prisma, id, organizationId, {
+    await this.repo.updateActionOrThrow(id, organizationId, {
       executeStatus: 'failed',
       errorMessage: errorMessage || '실행 실패',
-      afterJson: afterJson ? (afterJson as Prisma.InputJsonValue) : undefined,
+      afterJson: afterJson,
     });
   }
 
   async resetFailed(organizationId: string) {
-    await this.prisma.$transaction((tx) => resetFailedAdActions(tx, organizationId));
+    await this.repo.resetFailedAdActions(organizationId);
   }
 }

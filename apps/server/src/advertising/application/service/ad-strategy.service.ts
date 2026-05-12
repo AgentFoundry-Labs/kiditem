@@ -1,17 +1,16 @@
 import {
+  Inject,
   Injectable,
   NotFoundException,
   ConflictException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
-import { PrismaService } from '../../../prisma/prisma.service';
 import { kstInclusiveDaysStart } from '../../../common/kst';
 import { AdConfigService } from './ad-config.service';
 import { AdGradeRulesService } from './ad-grade-rules.service';
 import { AdBudgetAllocatorService } from './ad-budget-allocator.service';
 import { AdExposureService } from './ad-exposure.service';
 import { AdRecommendService } from './ad-recommend.service';
-import type { RegisterCampaignDto } from '../../dto/register-campaign.dto';
+import type { RegisterCampaignDto } from '../../adapter/in/http/dto/register-campaign.dto';
 import {
   adAggregatesToMetricSnapshots,
   computeListingProfitRate,
@@ -20,16 +19,26 @@ import {
   getCurrentPeriod,
   getWeekRange,
   sumListingStock,
-  toAdAggregateRows,
   toGradeMapStrict,
 } from '../../domain/strategy-context';
+import type { AdAggregateRow } from '../../domain/model/strategy-types';
 import {
-  getInventorySnapshot,
-  hydrateListings,
-  loadLeadTimeByListing,
-  loadStrategyContext,
-} from '../../adapter/out/prisma/ad-strategy-context.query';
-import { findCoupangAdsDailyAccountKpi } from '../../adapter/out/prisma/ad-account-kpi.query';
+  AD_STRATEGY_CONTEXT_REPOSITORY_PORT,
+  type AdStrategyContextRepositoryPort,
+  type AllTimeAdAggregateRow,
+} from '../port/out/ad-strategy-context.repository.port';
+import {
+  AD_ACCOUNT_KPI_REPOSITORY_PORT,
+  type AdAccountKpiRepositoryPort,
+} from '../port/out/ad-account-kpi.repository.port';
+import {
+  AD_LISTING_REPOSITORY_PORT,
+  type AdListingRepositoryPort,
+} from '../port/out/ad-listing.repository.port';
+import {
+  AD_ACTION_REPOSITORY_PORT,
+  type AdActionRepositoryPort,
+} from '../port/out/ad-action.repository.port';
 import {
   toAdRulesData,
   toRecommendationCards,
@@ -50,7 +59,7 @@ type Priority = 'urgent' | 'high' | 'medium' | 'low';
  * Endpoint orchestration for `/api/ads/strategy/*` and `/api/ads/campaigns/register`.
  *
  * Heavy lifting (raw SQL latest-state reads, multi-step hydration, pure rule
- * evaluation, mapping) lives in `domain/`, `adapter/out/prisma/`, `mapper/`,
+ * evaluation, mapping) lives in `domain/`, `adapter/out/repository/`, `mapper/`,
  * and the four sub-service calculators (`AdGradeRulesService`,
  * `AdBudgetAllocatorService`, `AdExposureService`, `AdRecommendService`).
  *
@@ -64,7 +73,14 @@ type Priority = 'urgent' | 'high' | 'medium' | 'low';
 @Injectable()
 export class AdStrategyService {
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(AD_STRATEGY_CONTEXT_REPOSITORY_PORT)
+    private readonly strategyContextRepo: AdStrategyContextRepositoryPort,
+    @Inject(AD_ACCOUNT_KPI_REPOSITORY_PORT)
+    private readonly accountKpiRepo: AdAccountKpiRepositoryPort,
+    @Inject(AD_LISTING_REPOSITORY_PORT)
+    private readonly listingRepo: AdListingRepositoryPort,
+    @Inject(AD_ACTION_REPOSITORY_PORT)
+    private readonly actionRepo: AdActionRepositoryPort,
     private readonly adConfigService: AdConfigService,
     private readonly adGradeRules: AdGradeRulesService,
     private readonly adBudgetAllocator: AdBudgetAllocatorService,
@@ -89,15 +105,15 @@ export class AdStrategyService {
     organizationId: string,
   ): Promise<AdWeeklyPlan> {
     const { year, month } = getCurrentPeriod();
+    const config = await this.adConfigService.getConfig(organizationId);
     const [ctx, accountKpiRows] = await Promise.all([
-      loadStrategyContext(
-        this.prisma,
-        this.adConfigService,
+      this.strategyContextRepo.loadStrategyContext(
         organizationId,
         year,
         month,
+        config,
       ),
-      findCoupangAdsDailyAccountKpi(this.prisma, organizationId, period),
+      this.accountKpiRepo.findCoupangAdsDaily(organizationId, period),
     ]);
 
     // calcBudgetAllocation 은 AdWeeklyPlan shape 에 노출되진 않지만
@@ -166,34 +182,8 @@ export class AdStrategyService {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const [adAggAll, reviewAgg, recentReviewAgg] = await Promise.all([
-      this.prisma.channelListingDailySnapshot.groupBy({
-        by: ['listingId'],
-        where: { organizationId },
-        _sum: {
-          adSpend: true,
-          adRevenue: true,
-          adClicks: true,
-          adImpressions: true,
-          adConversions: true,
-        },
-      }),
-      this.prisma.review.groupBy({
-        by: ['listingId'],
-        where: { organizationId, listingId: { not: null } },
-        _count: { id: true },
-        _avg: { rating: true },
-      }),
-      this.prisma.review.groupBy({
-        by: ['listingId'],
-        where: {
-          organizationId,
-          listingId: { not: null },
-          reviewedAt: { gte: thirtyDaysAgo },
-        },
-        _count: { id: true },
-      }),
-    ]);
+    const adAggAll =
+      await this.strategyContextRepo.loadAllTimeAdAggregates(organizationId);
 
     const listingIds = adAggAll
       .map((a) => a.listingId)
@@ -208,50 +198,48 @@ export class AdStrategyService {
     const since14d = kstInclusiveDaysStart(14);
     const cutoff7d = kstInclusiveDaysStart(7);
 
-    const [listings, trafficDailyRows, inventoryByOption, leadTimeByListing] =
+    const [exposureCtx, listings, inventoryByOption, leadTimeByListing] =
       await Promise.all([
-        hydrateListings(this.prisma, organizationId, listingIds),
-        this.prisma.channelListingDailySnapshot.findMany({
-          where: {
-            organizationId,
-            listingId: { in: listingIds },
-            businessDate: { gte: since14d },
-          },
-          select: {
-            listingId: true,
-            businessDate: true,
-            trafficRevenue: true,
-            trafficOrders: true,
-          },
-        }),
-        getInventorySnapshot(this.prisma, organizationId, listingIds),
-        loadLeadTimeByListing(this.prisma, organizationId, listingIds),
+        this.strategyContextRepo.loadExposureAnalysisContext(
+          organizationId,
+          listingIds,
+          { recentReviewSince: thirtyDaysAgo, trafficSince: since14d },
+        ),
+        this.strategyContextRepo.hydrateListings(organizationId, listingIds),
+        this.strategyContextRepo.getInventorySnapshot(
+          organizationId,
+          listingIds,
+        ),
+        this.strategyContextRepo.loadLeadTimeByListing(
+          organizationId,
+          listingIds,
+        ),
       ]);
 
-    const adGroups = toAdAggregateRows(adAggAll);
+    const adGroups = toAdAggregateRowsFromPort(adAggAll);
     const metricsResult = this.adBudgetAllocator.calcSnapshotKeyMetrics({
       snapshots: adAggregatesToMetricSnapshots(adGroups),
       listings,
     });
 
     const reviewMap = new Map(
-      reviewAgg.map((r) => [
-        r.listingId!,
+      exposureCtx.reviewStats.map((r) => [
+        r.listingId,
         {
-          totalReviews: r._count.id,
-          avgRating: r._avg.rating != null ? Number(r._avg.rating) : 0,
+          totalReviews: r.totalReviews,
+          avgRating: r.avgRating,
         },
       ]),
     );
     const recentReviewMap = new Map(
-      recentReviewAgg.map((r) => [r.listingId!, r._count.id]),
+      exposureCtx.recentReviewCounts.map((r) => [r.listingId, r.count]),
     );
 
     const trafficByListing = new Map<
       string,
       { rev: number; prevRev: number; orders: number }
     >();
-    for (const row of trafficDailyRows) {
+    for (const row of exposureCtx.trafficDailyRows) {
       const isCurrent = row.businessDate >= cutoff7d;
       const slot = trafficByListing.get(row.listingId) ?? {
         rev: 0,
@@ -324,11 +312,11 @@ export class AdStrategyService {
   ): Promise<{ ok: true; actionId: string; taskId: string | null }> {
     // 1. listingId 검증 (per-item IDOR guard)
     for (const listing of dto.listings) {
-      const found = await this.prisma.channelListing.findFirst({
-        where: { id: listing.listingId, organizationId, isDeleted: false },
-        select: { id: true },
-      });
-      if (!found) {
+      const owned = await this.listingRepo.verifyListingOwnership(
+        listing.listingId,
+        organizationId,
+      );
+      if (!owned) {
         throw new NotFoundException(
           `Listing ${listing.listingId} not found or not yours`,
         );
@@ -336,15 +324,10 @@ export class AdStrategyService {
     }
 
     // 2. 중복 캠페인 체크
-    const existing = await this.prisma.adAction.findFirst({
-      where: {
-        organizationId,
-        actionType: 'create_campaign',
-        targetLabel: dto.campaignName,
-        executeStatus: { in: ['queued', 'running', 'done'] },
-      },
-      select: { id: true, executeStatus: true },
-    });
+    const existing = await this.actionRepo.findOpenCreateCampaignAction(
+      organizationId,
+      dto.campaignName,
+    );
     if (existing) {
       throw new ConflictException(
         `캠페인 '${dto.campaignName}'이 이미 ${existing.executeStatus === 'done' ? '등록 완료' : '등록 진행 중'}입니다. (ActionID: ${existing.id})`,
@@ -353,43 +336,34 @@ export class AdStrategyService {
 
     const priority: Priority = dto.grade === 'A' ? 'high' : dto.grade === 'B' ? 'medium' : 'low';
 
-    const payload = {
+    const payload: Record<string, unknown> = {
       campaignName: dto.campaignName,
       adGroupName: dto.adGroupName,
       grade: dto.grade,
       goalType: 'SALES',
       dailyBudget: dto.dailyBudget,
       operationMode: dto.operationMode,
-      listings: dto.listings as unknown as Prisma.InputJsonValue,
+      listings: dto.listings,
       smartTargetingBid: dto.smartTargetingBid ?? null,
-      keywords: (dto.keywords ?? []) as unknown as Prisma.InputJsonValue,
+      keywords: dto.keywords ?? [],
       nonSearchBid: dto.nonSearchBid ?? null,
       targetRoas: dto.targetRoas ?? null,
       pageType: 'campaign_registration',
-    } satisfies Prisma.InputJsonObject;
+    };
 
-    const action = await this.prisma.adAction.create({
-      data: {
+    const { actionId, taskId } =
+      await this.actionRepo.createCampaignActionWithTask({
         organizationId,
-        actionType: 'create_campaign',
-        targetType: 'campaign',
-        targetLabel: dto.campaignName,
-        reason: `${dto.grade}등급 전략 기반 캠페인 등록`,
+        campaignName: dto.campaignName,
         priority,
-        approvalStatus: 'approved',
-        executeStatus: 'queued',
+        reason: `${dto.grade}등급 전략 기반 캠페인 등록`,
         payload,
-        executionTasks: {
-          create: { status: 'queued' },
-        },
-      },
-      include: { executionTasks: true },
-    });
+      });
 
     return {
       ok: true,
-      actionId: action.id,
-      taskId: (action.executionTasks as { id: string }[])[0]?.id ?? null,
+      actionId,
+      taskId,
     };
   }
 
@@ -400,12 +374,12 @@ export class AdStrategyService {
   /** getRules / getRecommendations 공통 — strategy context hydrate 후 rule 평가. */
   private async buildActions(organizationId: string): Promise<AdStrategyAction[]> {
     const { year, month } = getCurrentPeriod();
-    const ctx = await loadStrategyContext(
-      this.prisma,
-      this.adConfigService,
+    const config = await this.adConfigService.getConfig(organizationId);
+    const ctx = await this.strategyContextRepo.loadStrategyContext(
       organizationId,
       year,
       month,
+      config,
     );
     return this.adGradeRules.calcActions({
       adGroups: ctx.adGroups,
@@ -415,4 +389,28 @@ export class AdStrategyService {
       channelStateByListing: ctx.channelStateByListing,
     });
   }
+}
+
+/**
+ * Map the port's all-time aggregate shape into the domain `AdAggregateRow`
+ * shape used by metric snapshot/budget allocator inputs. The port already
+ * normalizes the Prisma `_sum` envelope away; this helper drops null
+ * `listingId` rows and forwards the additive metrics 1:1.
+ */
+function toAdAggregateRowsFromPort(
+  rows: AllTimeAdAggregateRow[],
+): AdAggregateRow[] {
+  const out: AdAggregateRow[] = [];
+  for (const r of rows) {
+    if (!r.listingId) continue;
+    out.push({
+      listingId: r.listingId,
+      spend: r.spend,
+      revenue: r.revenue,
+      clicks: r.clicks,
+      impressions: r.impressions,
+      conversions: r.conversions,
+    });
+  }
+  return out;
 }

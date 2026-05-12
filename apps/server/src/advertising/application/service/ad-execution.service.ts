@@ -1,17 +1,13 @@
-import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '../../../prisma/prisma.service';
+import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import {
+  AD_EXECUTION_REPOSITORY_PORT,
   DEFAULT_LEASE_LIMIT,
   MAX_LEASE_LIMIT,
-  findScopedExecutionTask,
-  findTaskWorkerKey,
-  heartbeatWorkerOrThrow,
-  leaseQueuedTasks,
-  reportExecutionTask,
-  upsertExecutionWorkerForLease,
+  type AdExecutionRepositoryPort,
   type ExecutionReportInput,
   type LeaseOptions,
-} from '../../adapter/out/prisma/ad-execution.persistence';
+  type WorkerHeartbeatMeta,
+} from '../port/out/ad-execution.repository.port';
 
 /**
  * Application orchestration for the worker execution loop. The service:
@@ -29,7 +25,10 @@ import {
  */
 @Injectable()
 export class AdExecutionService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(AD_EXECUTION_REPOSITORY_PORT)
+    private readonly repo: AdExecutionRepositoryPort,
+  ) {}
 
   async lease(
     workerKey: string,
@@ -42,15 +41,13 @@ export class AdExecutionService {
       MAX_LEASE_LIMIT,
     );
 
-    const worker = await upsertExecutionWorkerForLease(
-      this.prisma,
+    const worker = await this.repo.upsertWorkerForLease(
       workerKey,
       options,
       organizationId,
     );
 
-    const tasks = await leaseQueuedTasks(
-      this.prisma,
+    const tasks = await this.repo.leaseQueuedTasks(
       worker,
       requestedPageType,
       limit,
@@ -62,23 +59,23 @@ export class AdExecutionService {
 
   async heartbeat(
     workerKey: string,
-    meta: { currentUrl?: string; currentPageType?: string } | undefined,
+    meta: WorkerHeartbeatMeta | undefined,
     organizationId: string,
   ) {
-    await heartbeatWorkerOrThrow(this.prisma, workerKey, meta, organizationId);
+    await this.repo.heartbeatWorkerOrThrow(workerKey, meta, organizationId);
   }
 
   async report(body: ExecutionReportInput, organizationId: string) {
-    const task = await findScopedExecutionTask(this.prisma, body.taskId, organizationId);
+    const task = await this.repo.findScopedExecutionTask(body.taskId, organizationId);
     if (!task) throw new NotFoundException('작업을 찾을 수 없습니다.');
 
     if (task.workerId) {
-      const ownerWorkerKey = await findTaskWorkerKey(this.prisma, task.workerId, organizationId);
+      const ownerWorkerKey = await this.repo.findTaskWorkerKey(task.workerId, organizationId);
       if (ownerWorkerKey !== body.workerKey) {
         throw new ConflictException('다른 worker가 lease한 작업입니다.');
       }
     }
 
-    await reportExecutionTask(this.prisma, body, task, organizationId);
+    await this.repo.reportExecutionTask(body, task, organizationId);
   }
 }

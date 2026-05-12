@@ -98,7 +98,7 @@ folders are intentionally absent from this map.
 | Path | Structure | Required / Optional Contract |
 |---|---|---|
 | `apps/server/src/activity-events` | Flat | module/controller/service/`dto/`. |
-| `apps/server/src/advertising` | Hexagonal | new ingest, daily-fact, and ad-action behavior uses adapter/application/domain lanes. |
+| `apps/server/src/advertising` | Hexagonal | port/adapter lanes complete; new ingest, daily-fact, and ad-action behavior uses `adapter/out/repository/` + `application/port/out/*` ports; architecture spec freezes invariants. |
 | `apps/server/src/advertising/services` | Flat | compatibility facade lane only; no new business logic. |
 | `apps/server/src/agent-os` | Hexagonal | runtime, queue, repository, policy, and event boundaries behind ports/adapters. |
 | `apps/server/src/ai` | Hexagonal | provider, runtime handler, bridge, sink, media, fetch, and storage boundaries behind ports/adapters. |

@@ -11,11 +11,9 @@
 // - `deriveAdTargetType`: keyword/product/campaign grain inference for
 //   campaign/raw-scrape handlers.
 
-import type { AdTargetType } from '../util/ad-target-key';
-import type {
-  ListingDailyState,
-  ListingOptionDailyState,
-} from '../adapter/out/prisma/channel-daily-fact.persistence';
+import type { AdTargetType } from './util/ad-target-key';
+import type { ListingDailyState } from '../application/port/out/channel-listing-daily.repository.port';
+import type { ListingOptionDailyState } from '../application/port/out/channel-option-daily.repository.port';
 
 export type ScrapeRowPair = {
   rawRow: Record<string, any>;

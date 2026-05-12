@@ -1,6 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NotFoundException } from '@nestjs/common';
 import { AdSyncService, type ListingMap } from '../ad-sync.service';
+import type { AdListingRepositoryPort } from '../../port/out/ad-listing.repository.port';
+import type { ScrapeTargetRepositoryPort } from '../../port/out/scrape-target.repository.port';
+import type { ChannelScrapeRepositoryPort } from '../../port/out/channel-scrape.repository.port';
+import type { AdCampaignIngestHandler } from '../ad-campaign-ingest.handler';
+import type { RawScrapeIngestHandler } from '../raw-scrape-ingest.handler';
+import type { TrafficIngestHandler } from '../traffic-ingest.handler';
+import type { CoupangAdsDailyIngestHandler } from '../coupang-ads-daily-ingest.handler';
+import {
+  buildMockAdListingRepo,
+  buildMockScrapeTargetRepo,
+  buildMockChannelScrapeRepo,
+  type MockAdListingRepo,
+  type MockScrapeTargetRepo,
+  type MockChannelScrapeRepo,
+} from '../../../__tests__/test-helpers/build-mock-ports';
 
 // H2 daily-fact ingestion behavior (per-source handlers, scrape-run
 // finalization, KST business-date semantics, metaJson namespacing) is
@@ -13,118 +28,98 @@ import { AdSyncService, type ListingMap } from '../ad-sync.service';
 
 describe('AdSyncService', () => {
   let service: AdSyncService;
-  let prisma: any;
-  let eventEmitter: any;
+  let listingRepo: MockAdListingRepo;
+  let scrapeTargetRepo: MockScrapeTargetRepo;
+  let scrapeRepo: MockChannelScrapeRepo;
 
   beforeEach(() => {
-    prisma = {
-      channelListing: {
-        findMany: vi.fn(),
-        count: vi.fn(),
-      },
-      channelListingOption: {
-        findMany: vi.fn(),
-      },
-      // Read paths use channel-generic daily-fact + scrape-run tables.
-      channelScrapeRun: {
-        findFirst: vi.fn(),
-      },
-      channelScrapeSnapshot: {
-        count: vi.fn(),
-      },
-      channelAccountDailyKpiSnapshot: {
-        findFirst: vi.fn(),
-      },
-      // $queryRaw is used by getExtensionStatus (DISTINCT ON listing_id).
-      $queryRaw: vi.fn().mockResolvedValue([]),
-      scrapeTarget: {
-        findFirst: vi.fn(),
-        findMany: vi.fn(),
-        create: vi.fn(),
-        update: vi.fn(),
-        updateMany: vi.fn(),
-      },
-    };
-    eventEmitter = { emit: vi.fn() };
-    service = new AdSyncService(prisma, eventEmitter);
+    listingRepo = buildMockAdListingRepo();
+    scrapeTargetRepo = buildMockScrapeTargetRepo();
+    scrapeRepo = buildMockChannelScrapeRepo();
+    service = new AdSyncService(
+      listingRepo as unknown as AdListingRepositoryPort,
+      scrapeTargetRepo as unknown as ScrapeTargetRepositoryPort,
+      scrapeRepo as unknown as ChannelScrapeRepositoryPort,
+      {} as AdCampaignIngestHandler,
+      {} as RawScrapeIngestHandler,
+      {} as TrafficIngestHandler,
+      {} as CoupangAdsDailyIngestHandler,
+    );
   });
 
   describe('buildListingMap', () => {
-    it('builds externalOptionIdMap (with listingOptionId) + externalIdMap from ChannelListingOption + ChannelListing', async () => {
-      prisma.channelListingOption.findMany.mockResolvedValue([
-        {
-          id: 'LO1',
-          externalOptionId: 'V1',
-          listingId: 'L1',
-          optionId: 'O1',
-        },
-        {
-          id: 'LO2',
-          externalOptionId: 'V2',
-          listingId: 'L2',
-          optionId: 'O2',
-        },
-      ]);
-      prisma.channelListing.findMany.mockResolvedValue([
-        { id: 'L1', externalId: 'COUPANG-1' },
-        { id: 'L2', externalId: 'COUPANG-2' },
-      ]);
+    it('delegates to AdListingRepositoryPort.buildAdSyncListingMap and returns the map verbatim', async () => {
+      const map: ListingMap = {
+        externalOptionIdMap: new Map([
+          [
+            'V1',
+            {
+              listingId: 'L1',
+              listingOptionId: 'LO1',
+              optionId: 'O1',
+              externalId: 'COUPANG-1',
+            },
+          ],
+          [
+            'V2',
+            {
+              listingId: 'L2',
+              listingOptionId: 'LO2',
+              optionId: 'O2',
+              externalId: 'COUPANG-2',
+            },
+          ],
+        ]),
+        externalIdMap: new Map([
+          ['COUPANG-1', { listingId: 'L1' }],
+          ['COUPANG-2', { listingId: 'L2' }],
+        ]),
+      };
+      listingRepo.buildAdSyncListingMap.mockResolvedValue(map);
 
-      const map = await service.buildListingMap('organization-1');
+      const result = await service.buildListingMap('organization-1');
 
-      expect(map.externalOptionIdMap.get('V1')).toEqual({
+      expect(result.externalOptionIdMap.get('V1')).toEqual({
         listingId: 'L1',
         listingOptionId: 'LO1',
         optionId: 'O1',
         externalId: 'COUPANG-1',
       });
-      expect(map.externalOptionIdMap.get('V2')).toEqual({
+      expect(result.externalOptionIdMap.get('V2')).toEqual({
         listingId: 'L2',
         listingOptionId: 'LO2',
         optionId: 'O2',
         externalId: 'COUPANG-2',
       });
-      expect(map.externalIdMap.get('COUPANG-1')).toEqual({ listingId: 'L1' });
-      expect(map.externalIdMap.get('COUPANG-2')).toEqual({ listingId: 'L2' });
+      expect(result.externalIdMap.get('COUPANG-1')).toEqual({ listingId: 'L1' });
+      expect(result.externalIdMap.get('COUPANG-2')).toEqual({ listingId: 'L2' });
 
-      expect(prisma.channelListingOption.findMany).toHaveBeenCalledWith({
-        where: {
-          organizationId: 'organization-1',
-          isActive: true,
-          listing: { organizationId: 'organization-1', channel: 'coupang', isDeleted: false },
-        },
-        select: {
-          id: true,
-          externalOptionId: true,
-          listingId: true,
-          optionId: true,
-        },
-      });
-      expect(prisma.channelListing.findMany).toHaveBeenCalledWith({
-        where: { organizationId: 'organization-1', isDeleted: false, channel: 'coupang' },
-        select: { id: true, externalId: true },
-      });
+      expect(listingRepo.buildAdSyncListingMap).toHaveBeenCalledWith('organization-1');
     });
 
     it('preserves externalOptionIdMap entries with null internal optionId (Wave C2)', async () => {
-      prisma.channelListingOption.findMany.mockResolvedValue([
-        {
-          id: 'LO1',
-          externalOptionId: 'V1',
-          listingId: 'L1',
-          optionId: null,
-        },
-      ]);
-      prisma.channelListing.findMany.mockResolvedValue([
-        { id: 'L1', externalId: 'COUPANG-NULL' },
-      ]);
+      const map: ListingMap = {
+        externalOptionIdMap: new Map([
+          [
+            'V1',
+            {
+              listingId: 'L1',
+              listingOptionId: 'LO1',
+              optionId: null,
+              externalId: 'COUPANG-NULL',
+            },
+          ],
+        ]),
+        externalIdMap: new Map(),
+      };
+      listingRepo.buildAdSyncListingMap.mockResolvedValue(map);
 
-      const map = await service.buildListingMap('organization-1');
+      const result = await service.buildListingMap('organization-1');
 
       // Wave C2 contract: listingOptionId 는 internal optionId 가 null 이어도
       // 보존되어야 한다 (C3 의 option daily snapshot 이 listingOptionId 만으로
       // upsert 가능하도록).
-      expect(map.externalOptionIdMap.get('V1')).toEqual({
+      expect(result.externalOptionIdMap.get('V1')).toEqual({
         listingId: 'L1',
         listingOptionId: 'LO1',
         optionId: null,
@@ -133,19 +128,17 @@ describe('AdSyncService', () => {
     });
 
     it('cross-tenant isolation — organization B externalOptionId does not leak into organization A map', async () => {
-      prisma.channelListingOption.findMany.mockResolvedValue([]);
-      prisma.channelListing.findMany.mockResolvedValue([]);
+      const empty: ListingMap = {
+        externalOptionIdMap: new Map(),
+        externalIdMap: new Map(),
+      };
+      listingRepo.buildAdSyncListingMap.mockResolvedValue(empty);
 
-      const map = await service.buildListingMap('organization-A');
+      const result = await service.buildListingMap('organization-A');
 
-      expect(map.externalOptionIdMap.size).toBe(0);
-      expect(map.externalIdMap.size).toBe(0);
-
-      expect(prisma.channelListingOption.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({ organizationId: 'organization-A' }),
-        }),
-      );
+      expect(result.externalOptionIdMap.size).toBe(0);
+      expect(result.externalIdMap.size).toBe(0);
+      expect(listingRepo.buildAdSyncListingMap).toHaveBeenCalledWith('organization-A');
     });
   });
 
@@ -235,68 +228,79 @@ describe('AdSyncService', () => {
       const target = {
         id: 'target-1',
         organizationId: 'organization-1',
+        url: 'https://x.com/a',
+        label: 'Label',
+        category: 'advertising',
+        isActive: true,
         lastScrapedAt: new Date('2026-04-29T00:00:00Z'),
+        createdAt: new Date('2026-04-01T00:00:00Z'),
       };
-      prisma.scrapeTarget.updateMany.mockResolvedValue({ count: 1 });
-      prisma.scrapeTarget.findFirst.mockResolvedValue(target);
+      scrapeTargetRepo.markScraped.mockResolvedValue(target);
 
       await expect(service.markScraped('target-1', 'organization-1')).resolves.toBe(
         target,
       );
 
-      expect(prisma.scrapeTarget.updateMany).toHaveBeenCalledWith({
-        where: { id: 'target-1', organizationId: 'organization-1' },
-        data: { lastScrapedAt: expect.any(Date) },
-      });
-      expect(prisma.scrapeTarget.findFirst).toHaveBeenCalledWith({
-        where: { id: 'target-1', organizationId: 'organization-1' },
-      });
-      expect(prisma.scrapeTarget.update).not.toHaveBeenCalled();
+      expect(scrapeTargetRepo.markScraped).toHaveBeenCalledWith(
+        'target-1',
+        'organization-1',
+      );
     });
 
     it('markScraped throws NotFoundException when id belongs to different tenant', async () => {
-      prisma.scrapeTarget.updateMany.mockResolvedValue({ count: 0 });
+      scrapeTargetRepo.markScraped.mockRejectedValue(
+        new NotFoundException('not found'),
+      );
 
       await expect(
         service.markScraped('target-other-tenant', 'organization-1'),
       ).rejects.toThrow(NotFoundException);
-      expect(prisma.scrapeTarget.update).not.toHaveBeenCalled();
     });
 
     it('deleteScrapeTarget writes with tenant scope and returns the updated target shape', async () => {
       const target = {
         id: 'target-1',
         organizationId: 'organization-1',
+        url: 'https://x.com/a',
+        label: 'Label',
+        category: 'advertising',
         isActive: false,
+        lastScrapedAt: null,
+        createdAt: new Date('2026-04-01T00:00:00Z'),
       };
-      prisma.scrapeTarget.updateMany.mockResolvedValue({ count: 1 });
-      prisma.scrapeTarget.findFirst.mockResolvedValue(target);
+      scrapeTargetRepo.softDelete.mockResolvedValue(target);
 
       await expect(
         service.deleteScrapeTarget('target-1', 'organization-1'),
       ).resolves.toBe(target);
 
-      expect(prisma.scrapeTarget.updateMany).toHaveBeenCalledWith({
-        where: { id: 'target-1', organizationId: 'organization-1' },
-        data: { isActive: false },
-      });
-      expect(prisma.scrapeTarget.findFirst).toHaveBeenCalledWith({
-        where: { id: 'target-1', organizationId: 'organization-1' },
-      });
-      expect(prisma.scrapeTarget.update).not.toHaveBeenCalled();
+      expect(scrapeTargetRepo.softDelete).toHaveBeenCalledWith(
+        'target-1',
+        'organization-1',
+      );
     });
 
     it('deleteScrapeTarget throws NotFoundException when id belongs to different tenant', async () => {
-      prisma.scrapeTarget.updateMany.mockResolvedValue({ count: 0 });
+      scrapeTargetRepo.softDelete.mockRejectedValue(
+        new NotFoundException('not found'),
+      );
 
       await expect(
         service.deleteScrapeTarget('target-other-tenant', 'organization-1'),
       ).rejects.toThrow(NotFoundException);
-      expect(prisma.scrapeTarget.update).not.toHaveBeenCalled();
     });
 
     it('createScrapeTarget scopes to organizationId (no default fallback)', async () => {
-      prisma.scrapeTarget.create.mockResolvedValue({ id: 't1' });
+      scrapeTargetRepo.create.mockResolvedValue({
+        id: 't1',
+        organizationId: 'organization-xyz',
+        url: 'https://x.com/a',
+        label: 'Label',
+        category: 'advertising',
+        isActive: true,
+        lastScrapedAt: null,
+        createdAt: new Date(),
+      });
 
       await service.createScrapeTarget(
         'https://x.com/a',
@@ -305,35 +309,33 @@ describe('AdSyncService', () => {
         'organization-xyz',
       );
 
-      expect(prisma.scrapeTarget.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          organizationId: 'organization-xyz',
-          url: 'https://x.com/a',
-          label: 'Label',
-          category: 'advertising',
-        }),
-      });
+      expect(scrapeTargetRepo.create).toHaveBeenCalledWith(
+        { url: 'https://x.com/a', label: 'Label', category: undefined },
+        'organization-xyz',
+      );
     });
   });
 
   describe('getExtensionStatus (H3 — current-state semantics)', () => {
     it('aggregates winner/non-winner/unknown counts from latest daily snapshot per listing', async () => {
-      prisma.channelListing.count.mockResolvedValue(7);
-      prisma.$queryRaw.mockResolvedValue([
-        { isOfferWinner: true, lastObservedAt: new Date('2026-04-25T00:00:00Z') },
-        { isOfferWinner: true, lastObservedAt: new Date('2026-04-26T00:00:00Z') },
-        { isOfferWinner: false, lastObservedAt: new Date('2026-04-26T00:00:00Z') },
-        { isOfferWinner: null, lastObservedAt: new Date('2026-04-27T00:00:00Z') },
-      ]);
-      prisma.channelScrapeSnapshot.count.mockResolvedValue(42);
-      prisma.channelScrapeRun.findFirst.mockResolvedValue({
-        finishedAt: new Date('2026-04-27T03:00:00Z'),
-        startedAt: new Date('2026-04-27T02:00:00Z'),
-        pageType: 'itemwinner',
-      });
-      prisma.channelAccountDailyKpiSnapshot.findFirst.mockResolvedValue({
-        normalizedJson: { kpis: { '아이템위너 상품': '2', '노출제한 상품': '0' } },
-        lastObservedAt: new Date('2026-04-27T03:00:00Z'),
+      scrapeRepo.findExtensionStatusSnapshot.mockResolvedValue({
+        listingCount: 7,
+        latestPerListing: [
+          { isOfferWinner: true, lastObservedAt: new Date('2026-04-25T00:00:00Z') },
+          { isOfferWinner: true, lastObservedAt: new Date('2026-04-26T00:00:00Z') },
+          { isOfferWinner: false, lastObservedAt: new Date('2026-04-26T00:00:00Z') },
+          { isOfferWinner: null, lastObservedAt: new Date('2026-04-27T00:00:00Z') },
+        ],
+        rawSnapshotCount: 42,
+        latestRun: {
+          finishedAt: new Date('2026-04-27T03:00:00Z'),
+          startedAt: new Date('2026-04-27T02:00:00Z'),
+          pageType: 'itemwinner',
+        },
+        wingKpi: {
+          normalizedJson: { kpis: { '아이템위너 상품': '2', '노출제한 상품': '0' } },
+          lastObservedAt: new Date('2026-04-27T03:00:00Z'),
+        },
       });
 
       const result = await service.getExtensionStatus('organization-1');
@@ -355,11 +357,13 @@ describe('AdSyncService', () => {
     });
 
     it('empty-state — no daily-fact rows returns explicit zeros + null timestamps (legacy ItemWinner ignored)', async () => {
-      prisma.channelListing.count.mockResolvedValue(3);
-      prisma.$queryRaw.mockResolvedValue([]);
-      prisma.channelScrapeSnapshot.count.mockResolvedValue(0);
-      prisma.channelScrapeRun.findFirst.mockResolvedValue(null);
-      prisma.channelAccountDailyKpiSnapshot.findFirst.mockResolvedValue(null);
+      scrapeRepo.findExtensionStatusSnapshot.mockResolvedValue({
+        listingCount: 3,
+        latestPerListing: [],
+        rawSnapshotCount: 0,
+        latestRun: null,
+        wingKpi: null,
+      });
 
       const result = await service.getExtensionStatus('organization-1');
 
@@ -376,33 +380,18 @@ describe('AdSyncService', () => {
     });
 
     it('passes organizationId through all reads (no default fallback) — no legacy AdSnapshot/ItemWinner reads', async () => {
-      prisma.channelListing.count.mockResolvedValue(0);
-      prisma.$queryRaw.mockResolvedValue([]);
-      prisma.channelScrapeSnapshot.count.mockResolvedValue(0);
-      prisma.channelScrapeRun.findFirst.mockResolvedValue(null);
-      prisma.channelAccountDailyKpiSnapshot.findFirst.mockResolvedValue(null);
+      scrapeRepo.findExtensionStatusSnapshot.mockResolvedValue({
+        listingCount: 0,
+        latestPerListing: [],
+        rawSnapshotCount: 0,
+        latestRun: null,
+        wingKpi: null,
+      });
 
       await service.getExtensionStatus('organization-xyz');
 
-      expect(prisma.channelListing.count).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({ organizationId: 'organization-xyz' }),
-        }),
-      );
-      expect(prisma.channelScrapeSnapshot.count).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { organizationId: 'organization-xyz' } }),
-      );
-      expect(prisma.channelScrapeRun.findFirst).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { organizationId: 'organization-xyz' } }),
-      );
-      expect(prisma.channelAccountDailyKpiSnapshot.findFirst).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            organizationId: 'organization-xyz',
-            source: 'wing',
-            kpiType: 'wing_itemwinner_kpi',
-          }),
-        }),
+      expect(scrapeRepo.findExtensionStatusSnapshot).toHaveBeenCalledWith(
+        'organization-xyz',
       );
     });
   });
