@@ -142,7 +142,7 @@ Read these before editing the matching path.
 
 | Path | Focus |
 |---|---|
-| [`src/advertising/AGENTS.md`](src/advertising/AGENTS.md) | ad operations, scrape ingest, daily facts |
+| [`src/advertising/AGENTS.md`](src/advertising/AGENTS.md) | ad operations, scrape ingest, daily facts; hexagonal-complete (`application/port/out/` + `adapter/out/repository/` + `adapter/out/automation/`, architecture spec, module wiring spec) |
 | [`src/agent-os/AGENTS.md`](src/agent-os/AGENTS.md) | Agent OS platform runtime |
 | [`src/ai/AGENTS.md`](src/ai/AGENTS.md) | media AI, prompts, provider ports, Agent OS sinks |
 | [`src/analytics/AGENTS.md`](src/analytics/AGENTS.md) | reporting/read models |

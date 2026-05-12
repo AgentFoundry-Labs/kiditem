@@ -26,8 +26,32 @@ function parseArgs(argv) {
   return args;
 }
 
+function ghPrBody() {
+  try {
+    const out = execFileSync(
+      'gh',
+      ['pr', 'view', '--json', 'body', '--jq', '.body'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+    ).trim();
+    return out || null;
+  } catch {
+    return null;
+  }
+}
+
 function readPrBody({ body, bodyFile, event }) {
   if (body) return body;
+
+  // In CI, the event payload (GITHUB_EVENT_PATH) is replayed verbatim when
+  // a workflow run is re-run, so a stale body can persist across reruns even
+  // after `gh pr edit`. Prefer `gh pr view` to read the live body, then fall
+  // back to the event file. The workflow exposes `GH_TOKEN` from GITHUB_TOKEN
+  // so this is authenticated automatically.
+  if (process.env.GITHUB_ACTIONS === 'true') {
+    const live = ghPrBody();
+    if (live) return live;
+  }
+
   const file = bodyFile || event || process.env.GITHUB_EVENT_PATH;
   if (file && existsSync(file)) {
     const raw = readFileSync(file, 'utf8');
@@ -39,14 +63,8 @@ function readPrBody({ body, bodyFile, event }) {
     }
   }
 
-  try {
-    return execFileSync('gh', ['pr', 'view', '--json', 'body', '--jq', '.body'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-  } catch {
-    return '';
-  }
+  const live = ghPrBody();
+  return live || '';
 }
 
 function changedFilesFromGit(base, head) {

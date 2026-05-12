@@ -4,7 +4,10 @@ import {
   type AgentRunnerPort,
   type AgentRunnerResult,
 } from '../../../agent-os/application/port/in/agent-runner.port';
-import { OperationAlertService } from '../../../automation/application/service/operation-alert.service';
+import {
+  OPERATION_ALERT_PORT,
+  type OperationAlertPort,
+} from '../port/out/operation-alert.port';
 
 /**
  * Triggers the `ad_strategy` agent through the Agent OS port.
@@ -16,15 +19,17 @@ import { OperationAlertService } from '../../../automation/application/service/o
  *
  * Producer-owned operation Alert: when the runner returns a durable
  * `requestId`, this service opens an Alert keyed by `agent_run_request` /
- * `<requestId>`. The operation-alert bridge closes the same row on
- * FINALIZED. PR #216's fallback bridge stays as a safety net.
+ * `<requestId>` through the `OperationAlertPort` (advertising's consumer-
+ * side wrapper around `automation.OperationAlertService`). The operation-
+ * alert bridge closes the same row on FINALIZED.
  */
 @Injectable()
 export class AdStrategyAgentService {
   constructor(
     @Inject(AGENT_RUNNER_PORT)
     private readonly agentRunner: AgentRunnerPort,
-    private readonly operationAlerts: OperationAlertService,
+    @Inject(OPERATION_ALERT_PORT)
+    private readonly operationAlerts: OperationAlertPort,
   ) {}
 
   async run(input: {

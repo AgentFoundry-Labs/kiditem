@@ -2,39 +2,43 @@
 // status/scrape-target endpoints.
 //
 // This service is intentionally thin: it dispatches to per-source ingest
-// handlers (`ingestAdCampaign`, `ingestRawScrape`, `ingestTraffic`,
-// `ingestCoupangAdsDaily`), exposes a current-state extension status read,
-// and proxies tenant-scoped scrape-target CRUD to the persistence helper.
+// handlers (`AdCampaignIngestHandler`, `RawScrapeIngestHandler`,
+// `TrafficIngestHandler`, `CoupangAdsDailyIngestHandler`), exposes a
+// current-state extension status read, and proxies tenant-scoped
+// scrape-target CRUD through the scrape-target repository port.
 // Domain helpers (business-date, listing-match, scrape-row-normalizers),
 // the listing ad metric accumulator, and channels-namespace persistence
 // live in sibling modules so each concern can evolve independently.
 
 import {
-  Injectable,
   BadRequestException,
+  Inject,
+  Injectable,
   Logger,
 } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import { Prisma } from '@prisma/client';
-import { PrismaService } from '../../../prisma/prisma.service';
-import { ExtensionSyncDto } from '../../dto';
+import { ExtensionSyncDto } from '../../adapter/in/http/dto';
 import type { AdExtensionStatus } from '@kiditem/shared/advertising';
 import {
   matchListingFromRow as matchListingFromRowFn,
   type ListingMap,
   type ListingMatch,
 } from '../../domain/listing-match';
-import { buildAdSyncListingMap } from '../../adapter/out/prisma/ad-sync-listing-map.query';
-import { ingestAdCampaign } from './ad-campaign-ingest.handler';
-import { ingestRawScrape } from './raw-scrape-ingest.handler';
-import { ingestTraffic } from './traffic-ingest.handler';
-import { ingestCoupangAdsDaily } from './coupang-ads-daily-ingest.handler';
 import {
-  createScrapeTarget,
-  deleteScrapeTarget,
-  listScrapeTargets,
-  markScrapeTargetScraped,
-} from '../../adapter/out/prisma/scrape-target.persistence';
+  AD_LISTING_REPOSITORY_PORT,
+  type AdListingRepositoryPort,
+} from '../port/out/ad-listing.repository.port';
+import {
+  SCRAPE_TARGET_REPOSITORY_PORT,
+  type ScrapeTargetRepositoryPort,
+} from '../port/out/scrape-target.repository.port';
+import {
+  CHANNEL_SCRAPE_REPOSITORY_PORT,
+  type ChannelScrapeRepositoryPort,
+} from '../port/out/channel-scrape.repository.port';
+import { AdCampaignIngestHandler } from './ad-campaign-ingest.handler';
+import { CoupangAdsDailyIngestHandler } from './coupang-ads-daily-ingest.handler';
+import { RawScrapeIngestHandler } from './raw-scrape-ingest.handler';
+import { TrafficIngestHandler } from './traffic-ingest.handler';
 
 export type { ListingMap } from '../../domain/listing-match';
 
@@ -43,8 +47,16 @@ export class AdSyncService {
   private readonly logger = new Logger(AdSyncService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly eventEmitter: EventEmitter2,
+    @Inject(AD_LISTING_REPOSITORY_PORT)
+    private readonly listingRepo: AdListingRepositoryPort,
+    @Inject(SCRAPE_TARGET_REPOSITORY_PORT)
+    private readonly scrapeTargetRepo: ScrapeTargetRepositoryPort,
+    @Inject(CHANNEL_SCRAPE_REPOSITORY_PORT)
+    private readonly scrapeRepo: ChannelScrapeRepositoryPort,
+    private readonly adCampaignHandler: AdCampaignIngestHandler,
+    private readonly rawScrapeHandler: RawScrapeIngestHandler,
+    private readonly trafficHandler: TrafficIngestHandler,
+    private readonly coupangAdsDailyHandler: CoupangAdsDailyIngestHandler,
   ) {}
 
   async sync(payload: ExtensionSyncDto, organizationId: string) {
@@ -52,22 +64,13 @@ export class AdSyncService {
 
     switch (payload.type) {
       case 'ad_campaign':
-        return ingestAdCampaign(payload, organizationId, map, {
-          prisma: this.prisma,
-        });
+        return this.adCampaignHandler.execute(payload, organizationId, map);
       case 'raw_scrape':
-        return ingestRawScrape(payload, organizationId, map, {
-          prisma: this.prisma,
-        });
+        return this.rawScrapeHandler.execute(payload, organizationId, map);
       case 'traffic':
-        return ingestTraffic(payload, organizationId, map, {
-          prisma: this.prisma,
-          eventEmitter: this.eventEmitter,
-        });
+        return this.trafficHandler.execute(payload, organizationId, map);
       case 'coupang_ads_daily':
-        return ingestCoupangAdsDaily(payload, organizationId, {
-          prisma: this.prisma,
-        });
+        return this.coupangAdsDailyHandler.execute(payload, organizationId);
       default:
         throw new BadRequestException(
           `알 수 없는 type: ${(payload as { type?: string }).type ?? 'undefined'}`,
@@ -90,62 +93,13 @@ export class AdSyncService {
    * Empty-state returns explicit zero/null.
    */
   async getExtensionStatus(organizationId: string): Promise<AdExtensionStatus> {
-    const [
+    const {
       listingCount,
       latestPerListing,
       rawSnapshotCount,
       latestRun,
-      wingKpiRow,
-    ] = await Promise.all([
-      this.prisma.channelListing.count({
-        where: { organizationId, isDeleted: false },
-      }),
-      // DISTINCT ON (listing_id) returns one row per listing — the latest
-      // daily snapshot per the deterministic ordering above. Bound is N rows
-      // for N listings regardless of history depth.
-      this.prisma.$queryRaw<
-        { isOfferWinner: boolean | null; lastObservedAt: Date }[]
-      >(Prisma.sql`
-        SELECT DISTINCT ON (listing_id)
-          is_offer_winner   AS "isOfferWinner",
-          last_observed_at  AS "lastObservedAt"
-        FROM channel_listing_daily_snapshots
-        WHERE organization_id = ${organizationId}::uuid
-        ORDER BY
-          listing_id,
-          business_date DESC,
-          last_observed_at DESC,
-          updated_at DESC,
-          id DESC
-      `),
-      this.prisma.channelScrapeSnapshot.count({ where: { organizationId } }),
-      this.prisma.channelScrapeRun.findFirst({
-        where: { organizationId },
-        orderBy: [
-          { finishedAt: 'desc' },
-          { startedAt: 'desc' },
-          { id: 'desc' },
-        ],
-        select: {
-          finishedAt: true,
-          startedAt: true,
-          pageType: true,
-        },
-      }),
-      this.prisma.channelAccountDailyKpiSnapshot.findFirst({
-        where: {
-          organizationId,
-          source: 'wing',
-          kpiType: 'wing_itemwinner_kpi',
-        },
-        orderBy: [
-          { businessDate: 'desc' },
-          { lastObservedAt: 'desc' },
-          { id: 'desc' },
-        ],
-        select: { normalizedJson: true, lastObservedAt: true },
-      }),
-    ]);
+      wingKpi: wingKpiRow,
+    } = await this.scrapeRepo.findExtensionStatusSnapshot(organizationId);
 
     let currentWinnerCount = 0;
     let currentNonWinnerCount = 0;
@@ -207,7 +161,7 @@ export class AdSyncService {
   }
 
   async buildListingMap(organizationId: string): Promise<ListingMap> {
-    return buildAdSyncListingMap(this.prisma, organizationId);
+    return this.listingRepo.buildAdSyncListingMap(organizationId);
   }
 
   matchListingFromRow(
@@ -218,7 +172,7 @@ export class AdSyncService {
   }
 
   async getScrapeTargets(organizationId: string) {
-    return listScrapeTargets(this.prisma, organizationId);
+    return this.scrapeTargetRepo.listActive(organizationId);
   }
 
   async createScrapeTarget(
@@ -227,14 +181,14 @@ export class AdSyncService {
     category: string | undefined,
     organizationId: string,
   ) {
-    return createScrapeTarget(this.prisma, url, label, category, organizationId);
+    return this.scrapeTargetRepo.create({ url, label, category }, organizationId);
   }
 
   async markScraped(id: string, organizationId: string) {
-    return markScrapeTargetScraped(this.prisma, id, organizationId);
+    return this.scrapeTargetRepo.markScraped(id, organizationId);
   }
 
   async deleteScrapeTarget(id: string, organizationId: string) {
-    return deleteScrapeTarget(this.prisma, id, organizationId);
+    return this.scrapeTargetRepo.softDelete(id, organizationId);
   }
 }

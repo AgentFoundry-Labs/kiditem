@@ -3,7 +3,7 @@ import type { HydratedListing } from '../domain/model/strategy-types';
 import type {
   ScopedAdListingReadModel,
   ScopedAdListingSummary,
-} from '../adapter/out/prisma/ad-listing.query';
+} from '../application/port/out/ad-listing.repository.port';
 
 /**
  * HydratedListing → AdListingSummary (Zod schema 정합).
@@ -47,5 +47,9 @@ export function scopedListingToSummary(
     option: null,
   };
 }
+
+// Alias retained for legacy callers (existing mapper spec). Prefer
+// `hydratedListingToSummary` in new code.
+export const toListingSummary = hydratedListingToSummary;
 
 export type { AdListingSummary };

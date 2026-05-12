@@ -1,6 +1,6 @@
-import { recomputeRoas } from '../util/ratio-recompute';
+import { recomputeRoas } from './util/ratio-recompute';
 import type { AdActionTargetType } from './model/strategy-types';
-import type { LatestTargetRow } from '../adapter/out/prisma/ad-action.query';
+import type { LatestTargetRow } from '../application/port/out/ad-action.repository.port';
 
 /**
  * Pure 5-rule selector for `AdAction` candidates.

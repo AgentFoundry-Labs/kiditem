@@ -1,10 +1,16 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
-import { PrismaService } from '../../../prisma/prisma.service';
+import { Inject, Injectable, InternalServerErrorException } from '@nestjs/common';
 import type { AdCollectStatus } from '@kiditem/shared/advertising';
+import {
+  CHANNEL_SCRAPE_REPOSITORY_PORT,
+  type ChannelScrapeRepositoryPort,
+} from '../port/out/channel-scrape.repository.port';
 
 @Injectable()
 export class AdCollectService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(CHANNEL_SCRAPE_REPOSITORY_PORT)
+    private readonly scrapeRepo: ChannelScrapeRepositoryPort,
+  ) {}
 
   async startCollection(_period: string | undefined, _organizationId: string) {
     return {
@@ -18,49 +24,17 @@ export class AdCollectService {
    * latest run's `finishedAt ?? startedAt`. Counts are run rows under the
    * advertising vs wing buckets.
    *
-   * Counting choice: we count `ChannelScrapeRun` rows (one per scrape session)
-   * under each bucket because that matches the "수집 횟수" semantics the UI
-   * has historically surfaced. `ChannelScrapeSnapshot` count would be
-   * "row 수" which is reported separately by `getExtensionStatus`.
+   * Counting choice: scrape-run rows (one per scrape session) match the
+   * "수집 횟수" semantics the UI surfaces. `ChannelScrapeSnapshot` count
+   * would be "row 수" which is reported separately by `getExtensionStatus`.
    */
   async getStatus(organizationId: string): Promise<AdCollectStatus> {
     try {
-      const [latestRun, campaignCount, productCount] = await Promise.all([
-        this.prisma.channelScrapeRun.findFirst({
-          where: { organizationId },
-          orderBy: [
-            { finishedAt: 'desc' },
-            { startedAt: 'desc' },
-            { id: 'desc' },
-          ],
-          select: { finishedAt: true, startedAt: true },
-        }),
-        // Advertising-side scrape runs (campaign / keyword / product /
-        // generic 'advertising') from the Coupang ad center.
-        this.prisma.channelScrapeRun.count({
-          where: {
-            organizationId,
-            source: 'advertising',
-            pageType: { in: ['campaign', 'keyword', 'product', 'advertising'] },
-          },
-        }),
-        // Wing-side scrape runs (item-winner status, traffic dashboard).
-        this.prisma.channelScrapeRun.count({
-          where: {
-            organizationId,
-            source: 'wing',
-            pageType: { in: ['itemwinner', 'traffic'] },
-          },
-        }),
-      ]);
-
-      const lastCollectedAt =
-        latestRun?.finishedAt ?? latestRun?.startedAt ?? null;
-
+      const summary = await this.scrapeRepo.findAdCollectStatus(organizationId);
       return {
-        lastCollectedAt,
-        campaignSnapshotCount: campaignCount,
-        productSnapshotCount: productCount,
+        lastCollectedAt: summary.lastCollectedAt,
+        campaignSnapshotCount: summary.campaignScrapeRunCount,
+        productSnapshotCount: summary.productScrapeRunCount,
       } satisfies AdCollectStatus;
     } catch (e) {
       if (e instanceof InternalServerErrorException) throw e;

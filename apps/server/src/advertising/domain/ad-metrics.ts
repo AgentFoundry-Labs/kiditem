@@ -3,7 +3,7 @@ import {
   recomputeRoas,
   recomputeCtr,
   recomputeCvr,
-} from '../util/ratio-recompute';
+} from './util/ratio-recompute';
 import type { AdMetrics } from '@kiditem/shared/advertising';
 
 export type AdMetricSums = {

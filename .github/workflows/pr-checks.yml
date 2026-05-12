@@ -5,6 +5,9 @@ on:
     branches:
       - develop
       - main
+    # Re-run guardrails when authors update the PR body so missing
+    # reconstruction fields can be fixed without an empty commit.
+    types: [opened, reopened, synchronize, edited]
 
 concurrency:
   group: pr-checks-${{ github.event.pull_request.number || github.ref }}
@@ -17,6 +20,11 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+    # `gh pr view` inside `check-pr-reconstruction-contract.mjs` needs an
+    # authenticated CLI when the event payload is stale (e.g. workflow
+    # re-runs replay the original body).
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6

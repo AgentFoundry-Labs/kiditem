@@ -4,8 +4,7 @@
 // touching the same row N times. Each handler builds the buffer locally
 // and flushes it after the per-row loop.
 
-import type { PrismaService } from '../../../prisma/prisma.service';
-import { upsertChannelListingDaily } from '../../adapter/out/prisma/channel-daily-fact.persistence';
+import type { ChannelListingDailyRepositoryPort } from '../port/out/channel-listing-daily.repository.port';
 
 export type SummedListingAdMetrics = {
   adSpend: number;
@@ -98,12 +97,12 @@ export function buildListingAdMetaData(
 }
 
 export async function flushListingAdMetrics(
-  prisma: PrismaService,
+  port: ChannelListingDailyRepositoryPort,
   accumulators: Map<string, ListingAdMetricAccumulator>,
 ): Promise<number> {
   let count = 0;
   for (const accumulator of accumulators.values()) {
-    await upsertChannelListingDaily(prisma, {
+    await port.upsert({
       organizationId: accumulator.organizationId,
       listingId: accumulator.listingId,
       channel: accumulator.channel,

@@ -1,6 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '../../../prisma/prisma.service';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { AdsConfig } from '../../domain/model/strategy-types';
+import {
+  AD_CONFIG_REPOSITORY_PORT,
+  type AdConfigRepositoryPort,
+} from '../port/out/ad-config.repository.port';
 
 const DEFAULTS: Record<string, unknown> = {
   'ads.roas.thresholds': { excellent: 300, warning: 200, poor: 100 },
@@ -34,12 +37,13 @@ const DEFAULTS: Record<string, unknown> = {
 
 @Injectable()
 export class AdConfigService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(AD_CONFIG_REPOSITORY_PORT)
+    private readonly repo: AdConfigRepositoryPort,
+  ) {}
 
   async getConfig(organizationId: string): Promise<AdsConfig> {
-    const settings = await this.prisma.systemSetting.findMany({
-      where: { organizationId, key: { startsWith: 'ads.' } },
-    });
+    const settings = await this.repo.findAdSettings(organizationId);
 
     if (settings.length === 0) {
       await this.seedDefaults(organizationId);
@@ -76,32 +80,18 @@ export class AdConfigService {
     };
   }
 
-  async updateConfig(key: string, value: unknown, organizationId: string): Promise<void> {
+  async updateConfig(
+    key: string,
+    value: unknown,
+    organizationId: string,
+  ): Promise<void> {
     if (!key.startsWith('ads.') || !(key in DEFAULTS)) {
       throw new NotFoundException(`알 수 없는 설정 키: ${key}`);
     }
-
-    await this.prisma.systemSetting.upsert({
-      where: { organizationId_key: { organizationId, key } },
-      update: { value: JSON.stringify(value) },
-      create: { organizationId, key, value: JSON.stringify(value) },
-    });
+    await this.repo.upsertSetting(key, value, organizationId);
   }
 
   async seedDefaults(organizationId: string): Promise<number> {
-    const existing = await this.prisma.systemSetting.findFirst({
-      where: { organizationId, key: { startsWith: 'ads.' } },
-    });
-    if (existing) return 0;
-
-    const result = await this.prisma.systemSetting.createMany({
-      data: Object.entries(DEFAULTS).map(([key, value]) => ({
-        organizationId,
-        key,
-        value: JSON.stringify(value),
-      })),
-      skipDuplicates: true,
-    });
-    return result.count;
+    return this.repo.seedDefaults(DEFAULTS, organizationId);
   }
 }

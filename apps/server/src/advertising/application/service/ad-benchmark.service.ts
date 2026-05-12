@@ -1,11 +1,16 @@
-import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../../../prisma/prisma.service';
+import { Inject, Injectable } from '@nestjs/common';
+import type { AdBenchmarkData, AdMetrics } from '@kiditem/shared/advertising';
 import { AdConfigService } from './ad-config.service';
 import { buildAdMetrics } from '../../domain/ad-metrics';
-import { findBenchmarkAggregates } from '../../adapter/out/prisma/ad-benchmark.query';
-import { findScopedAdListings } from '../../adapter/out/prisma/ad-listing.query';
 import { scopedListingToSummary } from '../../mapper/ad-listing.mapper';
-import type { AdBenchmarkData, AdMetrics } from '@kiditem/shared/advertising';
+import {
+  AD_BENCHMARK_REPOSITORY_PORT,
+  type AdBenchmarkRepositoryPort,
+} from '../port/out/ad-benchmark.repository.port';
+import {
+  AD_LISTING_REPOSITORY_PORT,
+  type AdListingRepositoryPort,
+} from '../port/out/ad-listing.repository.port';
 
 type DiagnosisMetric = 'ctr' | 'roas' | 'cvr';
 
@@ -45,7 +50,10 @@ function diagnoseMetric(
 @Injectable()
 export class AdBenchmarkService {
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(AD_BENCHMARK_REPOSITORY_PORT)
+    private readonly benchmarkRepo: AdBenchmarkRepositoryPort,
+    @Inject(AD_LISTING_REPOSITORY_PORT)
+    private readonly listingRepo: AdListingRepositoryPort,
     private readonly adConfigService: AdConfigService,
   ) {}
 
@@ -56,7 +64,8 @@ export class AdBenchmarkService {
    */
   async getDiagnosis(organizationId: string): Promise<AdBenchmarkData> {
     const config = await this.adConfigService.getConfig(organizationId);
-    const aggregates = await findBenchmarkAggregates(this.prisma, organizationId);
+    const aggregates =
+      await this.benchmarkRepo.findBenchmarkAggregates(organizationId);
 
     const ownMetrics = buildAdMetrics(aggregates.totals);
 
@@ -77,8 +86,7 @@ export class AdBenchmarkService {
       diagnoseMetric('cvr', ownMetrics.cvr, config.benchmark.cvr.avg),
     ];
 
-    const summaryMap = await findScopedAdListings(
-      this.prisma,
+    const summaryMap = await this.listingRepo.findScopedAdListings(
       organizationId,
       aggregates.perListing.map((row) => row.listingId),
     );

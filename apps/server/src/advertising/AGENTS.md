@@ -5,26 +5,68 @@ strategy/action generation, and ad-action execution. It is organization-scoped
 and based on the products 3-layer model (`MasterProduct`, `ProductOption`,
 `ChannelListing`).
 
-Advertising uses adapter/application/domain lanes for ingest, daily facts, and
-ad actions. New behavior goes under the layout below. The legacy `services/`
-facade exists only for compatibility and must not receive new business logic.
+Advertising is hexagonal-complete: port/adapter, application, and domain lanes
+own ingest, daily facts, strategy/action generation, and ad-action execution.
+New behavior goes under the layout below. The legacy `services/` facade exists
+only for compatibility and must not receive new business logic.
 
 ## Layout
 
 ```text
 advertising/
-  adapter/in/http/        /api/ads/* controller + DTOs
-  adapter/out/prisma/     persistence/query adapters
-  application/service/    orchestration, ingest handlers, action execution
-  domain/                 pure rules/normalizers/metrics/policies
-  mapper/                 row/DTO/domain mapping
-  services/               transitional facade only; no new services here
-  util/                   existing pure helpers; do not copy this pattern
+  adapter/in/http/             /api/ads/* controllers
+  adapter/in/http/dto/         HTTP DTO classes (moved from root dto/)
+  adapter/out/repository/      13 *.repository.adapter.ts + daily-fact-helpers.ts
+  adapter/out/automation/      cross-domain consumer adapter (operation-alert.adapter.ts)
+  application/port/out/        14 outgoing ports + daily-fact-meta.ts + repository-transaction.ts
+  application/service/         orchestration (Prisma-free) + 4 @Injectable() ingest handler classes
+  domain/                      pure rules/normalizers/metrics/policies + ad-trend.ts
+  domain/util/                 pure helpers (moved from root util/)
+  mapper/                      row/DTO/domain mapping
+  services/                    grandfathered facade only (channel-scrape-persistence.service.ts)
 ```
 
-New Nest application services go in `application/service/`. The only
-`services/` survivor is `channel-scrape-persistence.service.ts`, a compatibility
-facade over Prisma adapter functions used by existing integration tests.
+New Nest application services go in `application/service/`. Ingest handlers
+(`raw-scrape-ingest.handler.ts`, `ad-campaign-ingest.handler.ts`,
+`coupang-ads-daily-ingest.handler.ts`, `traffic-ingest.handler.ts`) are
+`@Injectable()` classes orchestrated by `AdSyncService`. The only `services/`
+survivor is `channel-scrape-persistence.service.ts`, a compatibility facade
+delegating to repository adapters and consumed by existing integration tests.
+
+## Architecture Guards
+
+Invariants enforced by `__tests__/advertising.architecture.spec.ts`:
+
+- `PrismaService` is imported only under `adapter/out/repository/**`.
+- No `*persistence.ts` files survive (migration-waypoint naming).
+- `application/**` is Prisma-free (no `@prisma/client` or `Prisma.*` types).
+- `application/service/**` does not import `adapter/out/**`; concrete adapters
+  reach services only via Nest token bindings to `application/port/out/*`.
+- `application/service/**` does not import other owner-domain services
+  directly; cross-owner reach goes through `adapter/out/{owner}/` port +
+  adapter pairs.
+- `domain/**` is free of NestJS, Prisma, `PrismaService`, HTTP DTO classes, and
+  incoming-adapter modules.
+- No top-level `dto/`, `util/`, or `adapter/out/prisma/` folders remain.
+  Final shape uses `adapter/in/http/dto/`, `domain/util/`, and
+  `adapter/out/repository/`.
+- `services/` accepts only the grandfathered
+  `channel-scrape-persistence.service.ts` facade.
+
+`application/port/in/**` is intentionally omitted because no other owner domain
+consumes advertising use cases today; controllers inject application services
+directly while that remains true.
+
+### Cross-Domain Boundary
+
+Advertising consumes `automation.OperationAlertService` through
+`application/port/out/operation-alert.port.ts` bound to
+`adapter/out/automation/operation-alert.adapter.ts`. The adapter currently
+wraps the concrete automation service directly. This is **transitional**: when
+automation publishes its own owner-side incoming port from
+`automation/application/port/in/`, the advertising adapter swaps to depend on
+that port instead of the concrete service. Until then, this is the only
+sanctioned cross-owner reach from `application/service/**`.
 
 ## Source-Of-Truth Facts
 

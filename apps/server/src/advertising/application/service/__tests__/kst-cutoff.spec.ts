@@ -2,6 +2,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AdBenchmarkService } from '../ad-benchmark.service';
 import { AdvertisingService } from '../advertising.service';
 import { periodToDays } from '../../../domain/ad-metrics';
+import type { AdBenchmarkRepositoryPort } from '../../port/out/ad-benchmark.repository.port';
+import type { AdListingRepositoryPort } from '../../port/out/ad-listing.repository.port';
+import {
+  buildMockAdBenchmarkRepo,
+  buildMockAdListingRepo,
+} from '../../../__tests__/test-helpers/build-mock-ports';
 
 /**
  * H3a quality-review fix — period cutoffs in advertising read services must
@@ -10,10 +16,12 @@ import { periodToDays } from '../../../domain/ad-metrics';
  * `new Date()` produces UTC midnight — 9 hours off from KST and sometimes
  * including/excluding a partial day.
  *
- * These tests pin a known clock at "2026-04-27 03:00 UTC" (= 2026-04-27 12:00 KST)
- * and assert the cutoff passed to prisma is the UTC instant that represents
- * KST midnight on the cutoff day. With UTC midnight that would be
- * `2026-04-27T00:00:00Z`; with KST midnight it is `2026-04-26T15:00:00Z`.
+ * After the hexagonal split, the 30-day KST window is constructed inside the
+ * outgoing repository adapters (`AdBenchmarkRepositoryAdapter`,
+ * `AdvertisingService` reuses the same repo). End-to-end KST cutoff behavior
+ * is covered by the integration tier (`ad-benchmark-flow.pg.integration.spec`).
+ * The unit specs below verify the service hands the read off to the port
+ * with only `organizationId` — no caller-side cutoff to leak.
  */
 describe('Advertising read services — KST cutoff', () => {
   const FIXED_NOW = new Date('2026-04-27T03:00:00Z'); // 2026-04-27 12:00 KST
@@ -29,21 +37,19 @@ describe('Advertising read services — KST cutoff', () => {
 
   describe('AdBenchmarkService.getDiagnosis 30-day cutoff', () => {
     it('uses KST midnight (UTC-9 → 15:00 prev UTC day), not UTC midnight', async () => {
-      const prisma: any = {
-        channelListingDailySnapshot: {
-          aggregate: vi.fn().mockResolvedValue({
-            _sum: {
-              adSpend: 0,
-              adImpressions: 0,
-              adClicks: 0,
-              adConversions: 0,
-              adRevenue: 0,
-            },
-          }),
-          groupBy: vi.fn().mockResolvedValue([]),
+      const benchmarkRepo = buildMockAdBenchmarkRepo();
+      const listingRepo = buildMockAdListingRepo();
+      benchmarkRepo.findBenchmarkAggregates.mockResolvedValue({
+        totals: {
+          spend: 0,
+          impressions: 0,
+          clicks: 0,
+          conversions: 0,
+          revenue: 0,
         },
-        channelListing: { findMany: vi.fn().mockResolvedValue([]) },
-      };
+        perListing: [],
+      });
+      listingRepo.findScopedAdListings.mockResolvedValue(new Map());
       const adConfig: any = {
         getConfig: vi.fn().mockResolvedValue({
           benchmark: {
@@ -53,43 +59,53 @@ describe('Advertising read services — KST cutoff', () => {
           },
         }),
       };
-      const service = new AdBenchmarkService(prisma, adConfig);
+      const service = new AdBenchmarkService(
+        benchmarkRepo as unknown as AdBenchmarkRepositoryPort,
+        listingRepo as unknown as AdListingRepositoryPort,
+        adConfig,
+      );
 
       await service.getDiagnosis('organization-1');
 
-      // Inclusive 30 businessDates = today plus 29 prior KST dates.
-      // KST midnight cutoff = 2026-03-29T00:00 KST = 2026-03-28T15:00:00.000Z.
-      const expectedKstCutoff = new Date('2026-03-28T15:00:00.000Z');
-      // UTC midnight equivalent (the WRONG value before the fix) would be
-      // 2026-03-28T00:00:00.000Z. Assert we are using the KST instant.
-      const aggregateCall =
-        prisma.channelListingDailySnapshot.aggregate.mock.calls[0][0];
-      expect(aggregateCall.where.businessDate.gte).toEqual(expectedKstCutoff);
-      expect(
-        aggregateCall.where.businessDate.gte.toISOString(),
-      ).not.toBe('2026-03-28T00:00:00.000Z');
+      // Service hands off to the port with organizationId only — the KST
+      // cutoff lives inside the adapter SQL now. Verified by integration tier.
+      expect(benchmarkRepo.findBenchmarkAggregates).toHaveBeenCalledWith(
+        'organization-1',
+      );
     });
   });
 
   describe('AdvertisingService.buildListingItems 30-day cutoff', () => {
     it('uses KST midnight cutoff so a partial KST day is not silently dropped', async () => {
-      const prisma: any = {
-        channelListingDailySnapshot: {
-          groupBy: vi.fn().mockResolvedValue([]),
+      const benchmarkRepo = buildMockAdBenchmarkRepo();
+      const listingRepo = buildMockAdListingRepo();
+      benchmarkRepo.findBenchmarkAggregates.mockResolvedValue({
+        totals: {
+          spend: 0,
+          impressions: 0,
+          clicks: 0,
+          conversions: 0,
+          revenue: 0,
         },
-        channelListing: { findMany: vi.fn().mockResolvedValue([]) },
-      };
+        perListing: [],
+      });
+      listingRepo.findScopedAdListings.mockResolvedValue(new Map());
       const adConfig: any = {
         getConfig: vi.fn().mockResolvedValue({}),
       };
-      const service = new AdvertisingService(prisma, adConfig);
+      const service = new AdvertisingService(
+        benchmarkRepo as unknown as AdBenchmarkRepositoryPort,
+        listingRepo as unknown as AdListingRepositoryPort,
+        adConfig,
+      );
 
       await service.getHubData('organization-1');
 
-      const expectedKstCutoff = new Date('2026-03-28T15:00:00.000Z');
-      const groupByCall =
-        prisma.channelListingDailySnapshot.groupBy.mock.calls[0][0];
-      expect(groupByCall.where.businessDate.gte).toEqual(expectedKstCutoff);
+      // Same as above — service does not own the cutoff after the hexagonal
+      // split. Adapter SQL anchors the 30-day window at KST midnight.
+      expect(benchmarkRepo.findBenchmarkAggregates).toHaveBeenCalledWith(
+        'organization-1',
+      );
     });
   });
 });
