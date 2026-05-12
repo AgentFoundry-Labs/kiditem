@@ -5,7 +5,7 @@ import json
 from PIL import Image
 from rembg import remove
 from src.agents.base import BaseAgent
-from src.agents.content.http_utils import load_image
+from src.agents.image_edit.http_utils import load_image
 from src.core.ai_client import AIClient
 from src.config import AI_IMAGE_EDIT_SIZE_MODEL, AI_IMAGE_MODEL
 

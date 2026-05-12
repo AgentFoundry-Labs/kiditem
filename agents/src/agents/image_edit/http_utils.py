@@ -13,14 +13,6 @@ async def download_image(url: str, *, timeout: float = 30.0) -> bytes:
         return resp.content
 
 
-async def download_image_with_type(url: str, *, timeout: float = 30.0) -> tuple[bytes, str]:
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-        resp = await client.get(url)
-        resp.raise_for_status()
-        mime_type = resp.headers.get("content-type", "image/jpeg").split(";")[0].strip()
-        return resp.content, mime_type
-
-
 async def load_image(source: str, *, timeout: float = 30.0) -> bytes:
     if source.startswith(("http://", "https://")):
         return await download_image(source, timeout=timeout)

@@ -1,5 +1,5 @@
 """
-FastAPI server for Python agents (content, image_edit).
+FastAPI server for Python agents (image_edit, sourcing).
 Replaces runner.py DB polling with HTTP interface.
 Called by NestJS python_http adapter.
 """
@@ -12,7 +12,6 @@ from contextlib import asynccontextmanager
 from pydantic import BaseModel
 
 from src.db import get_pool, close_pool
-from src.agents.content.agent import ContentAgent
 from src.agents.image_edit import ImageEditAgent
 from src.agents.sourcing import SourcingAgent
 
@@ -25,7 +24,6 @@ class RunRequest(BaseModel):
 
 
 AGENTS = {
-    "content": ContentAgent(),
     "image_edit": ImageEditAgent(),
     "sourcing": SourcingAgent(),
 }
