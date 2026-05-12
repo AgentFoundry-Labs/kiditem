@@ -113,6 +113,16 @@ export class ProcurementService {
       0,
     );
 
+    if (data.supplierId) {
+      const supplier = await this.prisma.supplier.findFirst({
+        where: { id: data.supplierId, organizationId },
+        select: { id: true },
+      });
+      if (!supplier) {
+        throw new BadRequestException('거래처를 찾을 수 없거나 권한이 없습니다');
+      }
+    }
+
     // tenant boundary 검증 — optionId 가 client input 그대로 흘러오므로
     // ProductOption 의 organizationId 일치 여부를 사전 확인하지 않으면
     // foreign-key 만으로는 cross-organization 침범이 막히지 않는다 (IDOR).

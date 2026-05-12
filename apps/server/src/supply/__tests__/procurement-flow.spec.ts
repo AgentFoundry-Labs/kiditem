@@ -16,6 +16,12 @@ function makePrisma() {
       count: vi.fn().mockResolvedValue(0),
       groupBy: vi.fn().mockResolvedValue([]),
     },
+    supplier: {
+      findFirst: vi.fn(),
+    },
+    productOption: {
+      findMany: vi.fn().mockResolvedValue([]),
+    },
   };
 }
 
@@ -60,6 +66,38 @@ describe('ProcurementService — PO status lifecycle', () => {
       }),
     );
     expect(result).toEqual(created);
+  });
+
+  it('create PO with supplierId verifies supplier belongs to organization', async () => {
+    const created = { ...MOCK_ORDER_DRAFT, supplierId: 'supplier-1', items: [], supplier: null };
+    prisma.supplier.findFirst.mockResolvedValue({ id: 'supplier-1' });
+    prisma.purchaseOrder.create.mockResolvedValue(created);
+
+    await service.create('organization-1', {
+      supplierName: 'Test Supplier',
+      supplierId: 'supplier-1',
+      items: [{ productName: 'Widget', quantity: 10, unitPriceCny: 50 }],
+    });
+
+    expect(prisma.supplier.findFirst).toHaveBeenCalledWith({
+      where: { id: 'supplier-1', organizationId: 'organization-1' },
+      select: { id: true },
+    });
+    expect(prisma.purchaseOrder.create).toHaveBeenCalled();
+  });
+
+  it('create PO rejects cross-organization supplierId before mutation', async () => {
+    prisma.supplier.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.create('organization-1', {
+        supplierName: 'Other Supplier',
+        supplierId: 'supplier-2',
+        items: [{ productName: 'Widget', quantity: 10, unitPriceCny: 50 }],
+      }),
+    ).rejects.toThrow(BadRequestException);
+
+    expect(prisma.purchaseOrder.create).not.toHaveBeenCalled();
   });
 
   it('updateStatus draft→pending → valid transition', async () => {

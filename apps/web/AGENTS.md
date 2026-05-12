@@ -98,7 +98,8 @@ Route groups do not affect URLs:
 | `(analytics)` | dashboard |
 | `(automation)` | agents, workflows, marketplace, action-board |
 | `(catalog)` | products, product-hub |
-| `(sourcing)` | sourcing, sourcing-ai, suppliers, purchase-orders |
+| `(sourcing)` | sourcing, sourcing-ai |
+| `(supply)` | suppliers, purchase-orders |
 | `(inventory)` | inventory, inventory-hub, stock-ops, warehouses, unshipped-items, outbound |
 | `(orders)` | orders, order-hub, order-status-hub, returns, reviews, return-scan, cs-management |
 | `(finance)` | finance-hub, profit-loss, sales-analysis, supplier-hub, reports |

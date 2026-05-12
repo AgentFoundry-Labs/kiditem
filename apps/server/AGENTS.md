@@ -119,7 +119,8 @@ reconstruction trigger; do not grow the flat service in place.
 | Owner | Notes |
 |---|---|
 | `products` | catalog, categories compatibility, bundle stock writer |
-| `sourcing` | sourcing ingest/scrape, suppliers, procurement |
+| `sourcing` | Chinese new-product discovery (scraper ingest, SourcingCandidate inbox, candidate→master promotion) |
+| `supply` | supplier registry, master-supplier policy, purchase-order procurement |
 | `inventory` | inventory, unshipped, warehouses, stock transfers/audits, picking |
 | `orders` | orders, returns, CS/reviews, return-transfer surfaces |
 | `finance` | P&L, settlements, supplier payments, cost/plan analytics |
@@ -155,7 +156,8 @@ Read these before editing the matching path.
 | [`src/orders/AGENTS.md`](src/orders/AGENTS.md) | order/return channel-agnostic spine |
 | [`src/products/AGENTS.md`](src/products/AGENTS.md) | products/catalog and bundle stock |
 | [`src/rules/AGENTS.md`](src/rules/AGENTS.md) | rules evaluation and Agent OS delegation |
-| [`src/sourcing/AGENTS.md`](src/sourcing/AGENTS.md) | sourcing/procurement state machine |
+| [`src/sourcing/AGENTS.md`](src/sourcing/AGENTS.md) | Chinese new-product discovery, candidate inbox, promotion |
+| [`src/supply/AGENTS.md`](src/supply/AGENTS.md) | supplier registry, master-supplier policy, purchase-order procurement |
 | [`src/automation/adapter/out/panel-event/AGENTS.md`](src/automation/adapter/out/panel-event/AGENTS.md) | Live Ops SSE projection |
 | [`src/automation/adapter/out/workflow-runner/AGENTS.md`](src/automation/adapter/out/workflow-runner/AGENTS.md) | workflow executor adapter |
 

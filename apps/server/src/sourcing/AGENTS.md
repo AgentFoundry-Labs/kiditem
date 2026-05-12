@@ -1,13 +1,13 @@
 # sourcing — Owner Domain
 
-Sourcing owns sourcing ingest/scrape, suppliers, and purchase-order
-procurement. Suppliers and procurement are capabilities inside `sourcing/`, not
-standalone owner domains. `supplier-payments` belongs to finance.
+Sourcing owns Chinese new-product discovery — scraper ingest from 1688 /
+Alibaba, the `SourcingCandidate` inbox, and the candidate → master promotion
+handoff. Supplier registry, master-supplier policy, and purchase-order
+procurement live in `supply/` (extracted during issue #192 follow-up Track A
+PR 1). `supplier-payments` lives in `finance/`.
 
 Sourcing scrape/agent and products-catalog boundaries use application ports and
-outgoing adapters. Suppliers and some procurement paths remain transitional
-flat capability services; provider, Agent OS, or cross-domain creation work must
-stay behind the declared ports.
+outgoing adapters.
 
 ## Public Routes
 
@@ -17,8 +17,6 @@ stay behind the declared ports.
 | sourcing candidate detail | `GET /api/sourcing/:id` |
 | candidate promotion | `POST /api/sourcing/candidates/:id/promote` |
 | candidate rejection | `POST /api/sourcing/candidates/:id/reject` |
-| purchase orders | `/api/purchase-orders/*` |
-| supplier CRUD | `/api/suppliers/*` |
 
 Route shape is frozen.
 
@@ -27,13 +25,12 @@ Route shape is frozen.
 ```text
 sourcing/
   sourcing.module.ts
-  adapter/in/http/        sourcing/procurement/suppliers controllers + DTOs
+  adapter/in/http/        sourcing candidate ingest + scrape + promote/reject controllers + DTOs
   adapter/out/agent/      SOURCING_AGENT_GATEWAY_PORT implementation
   adapter/out/products/   products catalog port adapter
   adapter/out/repository/ SOURCING_CANDIDATE_REPOSITORY_PORT adapter
   application/port/out/   agent gateway + products catalog + candidate repo ports
-  application/service/    sourcing, procurement, suppliers services
-  domain/policy/          purchase order status state machine
+  application/service/    sourcing, sourcing-promotion services
   __tests__/
 ```
 
@@ -52,10 +49,11 @@ sourcing/
   `SOURCING_AGENT_GATEWAY_PORT.notifyPromoted` which delegates to ai
   domain's `POST_PROMOTION_AI_TRIGGER_PORT`. Sourcing has no knowledge of
   AI payload shape.
-- Purchase-order transitions use pure domain policy in
-  `domain/policy/purchase-order-status.ts`.
-- Suppliers stay transitional flat CRUD until a concrete reconstruction
-  driver appears.
+- Supplier registry, `MasterSupplierProduct` policy, and `PurchaseOrder`
+  mutation belong to `supply/` (extracted during issue #192 follow-up Track A
+  PR 1). Sourcing must not reintroduce supplier/procurement controllers,
+  services, or DTOs. Cross-domain attach (PR 2) flows through a
+  `SUPPLY_ATTACH_PORT`, not direct service injection.
 
 ## Contracts
 
@@ -80,22 +78,20 @@ sourcing/
 - Promote/reject from non-`sourced` states is 422 UnprocessableEntity; a
   concurrent promoter that wins the row lock surfaces as 409 Conflict to the
   loser.
-- `/api/purchase-orders` keeps the legacy single POST action body
-  (`create | updateStatus | delete`).
-- Purchase-order status order is
-  `draft -> pending -> ordered -> shipped -> received`; delete is allowed only
-  from `draft` or `pending`.
-- Supplier read/update/delete is tenant-scoped by `{ id, organizationId }`.
-
 ## Hard Bans
 
 - Direct Agent OS injection from `application/service/**`.
 - `findUnique({ where: { id } })` for supplier or purchase-order access.
-- Importing `supplier-payments`.
 - Direct import of products services from application services.
 - Raw `master_products` INSERT from sourcing; code issuance belongs to products.
 - Raw `master_products` INSERT/UPDATE from sourcing ingest — sourcing now writes `sourcing_candidates` only.
-- Reintroducing top-level `suppliers` or `procurement` folders.
+- Direct mutation of supply/ domain models (`Supplier`, `MasterSupplierProduct`,
+  `PurchaseOrder`) or services from sourcing application services. PR 2 introduces
+  `SUPPLY_ATTACH_PORT` for cross-domain attach; until then sourcing's promotion
+  path stops at `SOURCING_PRODUCTS_CATALOG_PORT.promoteCandidate` (products
+  domain only).
+- Reintroducing supplier/procurement controllers, services, DTOs, or `supply.prisma`
+  model mutations under `sourcing/`.
 
 ## Verification
 

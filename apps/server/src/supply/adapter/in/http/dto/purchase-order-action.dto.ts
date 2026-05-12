@@ -20,7 +20,7 @@ export class PurchaseOrderActionBodyDto {
   @IsString() @MinLength(1) supplierName?: string;
 
   @ValidateIf(o => o.action === 'create')
-  @IsString() @IsOptional() supplierId?: string;
+  @IsUUID() @IsOptional() supplierId?: string;
 
   @ValidateIf(o => o.action === 'create')
   @IsArray() @ArrayMinSize(1)
