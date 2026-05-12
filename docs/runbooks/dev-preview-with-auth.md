@@ -168,6 +168,47 @@ Until that split lands, treat the existing project as the dev environment
 only and never expose its service-role key in front-end code, browser
 extensions, or shared infra.
 
+## Session expiry / refresh in dev vs prod
+
+Token TTL is ~1h (Supabase default). After idle, the browser may try to
+fetch with a stale access token and get HTTP 401 `auth_required`. How that
+gets recovered differs between dev and prod, but the user-facing UX is the
+same:
+
+| Env | Fetch path | Auto-refresh trigger |
+|---|---|---|
+| Local dev (`NEXT_PUBLIC_API_URL=http://localhost:4000`) | Browser → Nest (direct, **bypasses Next.js `proxy.ts`**) | `apiClient` 401 interceptor only |
+| Staging / prod (`NEXT_PUBLIC_API_URL` empty) | Browser → Next.js (`/api/*` same-origin) → Nest | `proxy.ts` on every request **and** `apiClient` 401 interceptor as backstop |
+
+The single source of truth on the client is
+`apps/web/src/lib/supabase/refresh.ts`:
+
+- `refreshOrFail()` — module mutex; concurrent 401 callers share one
+  `supabase.auth.refreshSession()` invocation.
+- `triggerSignOut(reason)` — emits SDK `SIGNED_OUT`. `AuthProvider` owns the
+  `/login` redirect. `reason='session_expired'` adds `?reason=session_expired`
+  to the URL so the login form surfaces a toast.
+
+Verification on dev:
+
+1. Temporarily lower the JWT expiry in Supabase Dashboard → Authentication
+   → Settings to 60 seconds.
+2. Run `bin/dev-bootstrap.sh` and open the preview.
+3. Wait 90 seconds without interacting.
+4. Click any UI action. Expected:
+   - Network panel shows one 401 → one `supabase.auth/v1/token?grant_type=refresh_token`
+     → the original request retried with the new token → 200.
+   - No toast, no redirect.
+5. Disable the user in Supabase Dashboard or wait long enough for refresh
+   to fail. Click again. Expected:
+   - 401 → refresh fails → `/login?reason=session_expired&next=<path>`.
+   - Toast: "세션이 만료되어 다시 로그인이 필요합니다."
+6. Restore the JWT expiry setting.
+
+If step 4 shows the request failing without a refresh attempt, check that
+the response body has `message: 'auth_required'` (not a different message).
+The interceptor only fires on that specific message.
+
 ## Final report format (for AI agents)
 
 When the agent reports completion of this runbook:
