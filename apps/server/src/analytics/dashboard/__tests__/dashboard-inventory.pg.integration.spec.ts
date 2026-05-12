@@ -2,8 +2,10 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
 import { DashboardInventoryService } from '../application/service/dashboard-inventory.service';
-import { buildDashboardContext } from '../application/service/context';
+import { buildDashboardContext } from '../domain/context';
+import { DashboardInventoryRepositoryAdapter } from '../adapter/out/repository/dashboard-inventory.repository.adapter';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { DASHBOARD_INVENTORY_REPOSITORY_PORT } from '../application/port/out/dashboard-inventory.repository.port';
 import {
   makeTestPrisma,
   resetDb,
@@ -29,7 +31,9 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     const m = await Test.createTestingModule({
       providers: [
         DashboardInventoryService,
+        DashboardInventoryRepositoryAdapter,
         { provide: PrismaService, useValue: prisma },
+        { provide: DASHBOARD_INVENTORY_REPOSITORY_PORT, useExisting: DashboardInventoryRepositoryAdapter },
       ],
     }).compile();
     service = m.get(DashboardInventoryService);

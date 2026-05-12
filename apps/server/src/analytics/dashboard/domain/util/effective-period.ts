@@ -1,14 +1,26 @@
 import type { DashboardEffectivePeriod } from '@kiditem/shared/dashboard';
-import type { CoupangAdsMetrics, WingTrafficMetrics } from '../adapter/out/repository/wing-traffic-aggregation.repository.adapter';
-import type { RangeProfitMetrics } from '../adapter/out/repository/profit-calculation.repository.adapter';
-import type { DashboardContext } from '../application/service/context';
+import type { DashboardContext } from '../context';
+
+interface EffectivePeriodProfitMetrics {
+  revenue: number;
+  adCost: number;
+  orderCount: number;
+}
+
+interface EffectivePeriodWingTrafficMetrics {
+  hasData: boolean;
+}
+
+interface EffectivePeriodCoupangAdsMetrics {
+  hasData: boolean;
+}
 
 export function buildEffectivePeriod(
   ctx: DashboardContext,
   latestDataDate: Date | null,
-  cur: RangeProfitMetrics,
-  wingCur: WingTrafficMetrics,
-  coupangAds: CoupangAdsMetrics,
+  cur: EffectivePeriodProfitMetrics,
+  wingCur: EffectivePeriodWingTrafficMetrics,
+  coupangAds: EffectivePeriodCoupangAdsMetrics,
 ): DashboardEffectivePeriod {
   const orderActive = cur.revenue !== 0 || cur.orderCount > 0;
   const wingActive = wingCur.hasData;

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { fetchWingAdSummary } from '../adapter/out/repository/wing-ad-summary.repository.adapter';
+import { WingAdSummaryRepositoryAdapter } from '../adapter/out/repository/wing-ad-summary.repository.adapter';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   makeTestPrisma,
@@ -11,12 +11,16 @@ import {
   IDOR_SENTINEL,
 } from '../../../test-helpers/real-prisma';
 
-describe('fetchWingAdSummary (PG integration) — daily-fact source', () => {
+describe('WingAdSummaryRepositoryAdapter.fetchCurrentMonthSummary (PG integration) — daily-fact source', () => {
   let prisma: PrismaClient;
+  let adapter: WingAdSummaryRepositoryAdapter;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
+    adapter = new WingAdSummaryRepositoryAdapter(
+      prisma as unknown as PrismaService,
+    );
   });
 
   afterAll(async () => {
@@ -70,8 +74,7 @@ describe('fetchWingAdSummary (PG integration) — daily-fact source', () => {
     await seedWingDailyKpi(TEST_ORGANIZATION_ID, 1000, 500, now);
     await seedWingDailyKpi(OTHER_ORGANIZATION_ID, IDOR_SENTINEL, IDOR_SENTINEL, now);
 
-    const result = await fetchWingAdSummary(
-      prisma as unknown as PrismaService,
+    const result = await adapter.fetchCurrentMonthSummary(
       TEST_ORGANIZATION_ID,
       now.getFullYear(),
       now.getMonth() + 1,
@@ -91,8 +94,7 @@ describe('fetchWingAdSummary (PG integration) — daily-fact source', () => {
     await seedWingDailyKpi(TEST_ORGANIZATION_ID, 1000, 500, now);
     await seedWingDailyKpi(OTHER_ORGANIZATION_ID, IDOR_SENTINEL, IDOR_SENTINEL, now);
 
-    const result = await fetchWingAdSummary(
-      prisma as unknown as PrismaService,
+    const result = await adapter.fetchCurrentMonthSummary(
       OTHER_ORGANIZATION_ID,
       now.getFullYear(),
       now.getMonth() + 1,
@@ -109,8 +111,7 @@ describe('fetchWingAdSummary (PG integration) — daily-fact source', () => {
 
     await seedWingDailyKpi(OTHER_ORGANIZATION_ID, 500, 250, now);
 
-    const result = await fetchWingAdSummary(
-      prisma as unknown as PrismaService,
+    const result = await adapter.fetchCurrentMonthSummary(
       TEST_ORGANIZATION_ID,
       now.getFullYear(),
       now.getMonth() + 1,
@@ -128,8 +129,7 @@ describe('fetchWingAdSummary (PG integration) — daily-fact source', () => {
     await seedWingDailyKpi(TEST_ORGANIZATION_ID, 1000, 500, now);
     await seedWingDailyKpi(OTHER_ORGANIZATION_ID, 500, 250, otherEarlier);
 
-    const result = await fetchWingAdSummary(
-      prisma as unknown as PrismaService,
+    const result = await adapter.fetchCurrentMonthSummary(
       TEST_ORGANIZATION_ID,
       now.getFullYear(),
       now.getMonth() + 1,
@@ -147,8 +147,7 @@ describe('fetchWingAdSummary (PG integration) — daily-fact source', () => {
 
     await seedWingDailyKpi(TEST_ORGANIZATION_ID, 0, 500, now);
 
-    const result = await fetchWingAdSummary(
-      prisma as unknown as PrismaService,
+    const result = await adapter.fetchCurrentMonthSummary(
       TEST_ORGANIZATION_ID,
       now.getFullYear(),
       now.getMonth() + 1,
