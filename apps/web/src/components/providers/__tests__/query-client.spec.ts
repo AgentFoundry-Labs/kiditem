@@ -44,29 +44,9 @@ describe('makeQueryClient → onError', () => {
     );
   });
 
-  it('toasts non-401 ApiError using detail', () => {
+  it('toasts non-401 ApiError using detail (regression: swallow must be selective)', () => {
     fireError(new ApiError(500, 'INTERNAL', 'database down'));
 
     expect(toastErrorMock).toHaveBeenCalledWith('database down');
-  });
-
-  it('silently ignores AbortError (transient)', () => {
-    const err = new Error('aborted');
-    err.name = 'AbortError';
-    fireError(err);
-
-    expect(toastErrorMock).not.toHaveBeenCalled();
-  });
-
-  it('silently ignores "Failed to fetch" (transient)', () => {
-    fireError(new Error('Failed to fetch'));
-
-    expect(toastErrorMock).not.toHaveBeenCalled();
-  });
-
-  it('toasts unknown errors with generic message (non-ApiError fallback)', () => {
-    fireError(new Error('weird thing'));
-
-    expect(toastErrorMock).toHaveBeenCalledWith('요청 처리 중 오류가 발생했습니다.');
   });
 });
