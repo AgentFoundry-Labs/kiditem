@@ -502,8 +502,10 @@ describe('DetailPageAiService', () => {
     const heroImageService = {
       inferPackageImagePositions: vi.fn().mockResolvedValue([]),
       generateHeroBanner: vi.fn().mockResolvedValue('https://cdn.example.com/generated-hero.png'),
+      generateHeroProductImage: vi.fn().mockResolvedValue('https://cdn.example.com/generated-hero-product.png'),
       generateSizeGuideImage: vi.fn().mockResolvedValue('https://cdn.example.com/generated-size.png'),
       generateUsageGuideImage: vi.fn().mockResolvedValue('https://cdn.example.com/generated-usage.png'),
+      generateDetailCutImage: vi.fn().mockResolvedValue('https://cdn.example.com/generated-detail.png'),
     };
     const service = makeService(
       prisma,
@@ -586,6 +588,199 @@ describe('DetailPageAiService', () => {
     expect(parsed.detailImageIndices).toEqual([0, 2]);
     expect(parsed.packageImageIndices).toEqual([1]);
     expect(parsed.packageLabel).toBe('박스 구성');
+  });
+
+  it('uses inferred package images only in the package section for bold vertical', async () => {
+    const refiner = new DetailPageResultRefinerService({
+      inferPackageImagePositions: vi.fn().mockResolvedValue([3]),
+    } as never);
+
+    const parsed = await refiner.refineBoldVerticalGeneration(
+      {
+        ...boldVerticalResult(),
+        hook: {
+          ...boldVerticalResult().hook,
+          imageIndex: 3,
+        },
+        keyPoints: [
+          { title: '박스 구성', description: '구성을 확인하세요', imageIndex: 3 },
+        ],
+        size: {
+          ...boldVerticalResult().size,
+          imageIndices: [3],
+        },
+        usage: {
+          subtitle: '1. 포장을 열고 젤리를 꺼내세요\n2. 쫄깃하게 즐겨보세요',
+          imageIndices: [3],
+        },
+        detailImageIndices: [0, 3],
+        packageImageIndices: [2],
+        packageLabel: '1박스 12개입 구성',
+      },
+      {
+        templateId: 'bold-vertical',
+        rawTitle: '퐁퐁 젤리팝',
+        rawCategory: '식품/간식/과자/젤리',
+        rawDescription: '박스/세트 정보: 있음\n박스/세트 구분: 박스',
+        rawOptions: '색상 구성: 없음\n박스/세트 정보: 있음\n1박스 수량: 12',
+        imageUrls: [
+          'https://example.com/product-main.jpg',
+          'https://example.com/product-detail.jpg',
+          'https://example.com/color-row.jpg',
+          'https://example.com/retail-box.jpg',
+        ],
+        detailImageCount: '2',
+        usageSectionMode: 'include',
+      },
+    );
+
+    expect(parsed.packageImageIndices).toEqual([3]);
+    expect(parsed.hook.imageIndex).toBeNull();
+    expect(parsed.keyPoints[0]?.imageIndex).toBeNull();
+    expect(parsed.size.imageIndices).toEqual([]);
+    expect(parsed.usage.imageIndices).toEqual([]);
+    expect(parsed.detailImageIndices).toEqual([0]);
+    expect(parsed.packageLabel).toBe('1박스 12개입 구성');
+  });
+
+  it('prefers inferred retail display boxes over LLM-selected color lineups for package sections', async () => {
+    const refiner = new DetailPageResultRefinerService({
+      inferPackageImagePositions: vi.fn().mockResolvedValue([0]),
+    } as never);
+
+    const parsed = await refiner.refineBoldVerticalGeneration(
+      {
+        ...boldVerticalResult(),
+        hook: {
+          ...boldVerticalResult().hook,
+          imageIndex: 0,
+        },
+        color: {
+          subtitle: '옐로우 / 퍼플 / 블루 / 핑크 4가지 색상',
+          imageIndices: [3],
+        },
+        usage: {
+          subtitle: '1. 포장을 열고 슬라임을 꺼내세요\n2. 마음껏 만지고 늘리며 즐기세요',
+          imageIndices: [0, 1],
+        },
+        detailImageIndices: [0, 1, 2, 3],
+        packageImageIndices: [3],
+        packageLabel: '1박스 12개입 구성',
+      },
+      {
+        templateId: 'bold-vertical',
+        rawTitle: '퐁퐁 버블팝슬라임',
+        rawCategory: '완구',
+        rawDescription: '박스/세트 정보: 있음\n박스/세트 구분: 박스',
+        rawOptions: '색상 구성: 여러 색상\n박스/세트 정보: 있음\n1박스 수량: 12',
+        imageUrls: [
+          'https://example.com/display-box.jpg',
+          'https://example.com/hand-product.jpg',
+          'https://example.com/usage-shot.jpg',
+          'https://example.com/color-lineup.jpg',
+        ],
+        detailImageCount: '3',
+        usageSectionMode: 'include',
+      },
+    );
+
+    expect(parsed.packageImageIndices).toEqual([0]);
+    expect(parsed.hook.imageIndex).toBeNull();
+    expect(parsed.color.imageIndices).toEqual([3]);
+    expect(parsed.usage.imageIndices).toEqual([1]);
+    expect(parsed.detailImageIndices).toEqual([1, 2, 3]);
+    expect(parsed.packageLabel).toBe('1박스 12개입 구성');
+  });
+
+  it('repairs LLM package-color collisions when package inference has no confident hit', async () => {
+    const refiner = new DetailPageResultRefinerService({
+      inferPackageImagePositions: vi.fn().mockResolvedValue([]),
+    } as never);
+
+    const parsed = await refiner.refineBoldVerticalGeneration(
+      {
+        ...boldVerticalResult(),
+        hook: {
+          ...boldVerticalResult().hook,
+          imageIndex: 0,
+        },
+        color: {
+          subtitle: '옐로우 / 퍼플 / 블루 / 핑크 4가지 색상',
+          imageIndices: [3],
+        },
+        usage: {
+          subtitle: '1. 포장을 열고 슬라임을 꺼내세요\n2. 마음껏 만지고 늘리며 즐기세요',
+          imageIndices: [0, 1],
+        },
+        detailImageIndices: [0, 1, 2, 3],
+        packageImageIndices: [3],
+        packageLabel: '1박스 12개입 구성',
+      },
+      {
+        templateId: 'bold-vertical',
+        rawTitle: '퐁퐁 버블팝슬라임',
+        rawCategory: '완구',
+        rawDescription: '박스/세트 정보: 있음\n박스/세트 구분: 박스',
+        rawOptions: '색상 구성: 여러 색상\n박스/세트 정보: 있음\n1박스 수량: 12',
+        imageUrls: [
+          'https://example.com/display-box.jpg',
+          'https://example.com/hand-product.jpg',
+          'https://example.com/usage-shot.jpg',
+          'https://example.com/color-lineup.jpg',
+        ],
+        detailImageCount: '3',
+        usageSectionMode: 'include',
+      },
+    );
+
+    expect(parsed.packageImageIndices).toEqual([0]);
+    expect(parsed.hook.imageIndex).toBeNull();
+    expect(parsed.color.imageIndices).toEqual([3]);
+    expect(parsed.usage.imageIndices).toEqual([1]);
+    expect(parsed.detailImageIndices).toEqual([1, 2]);
+    expect(parsed.packageLabel).toBe('1박스 12개입 구성');
+  });
+
+  it('does not promote package-opening usage product photos into package images', async () => {
+    const refiner = new DetailPageResultRefinerService({
+      inferPackageImagePositions: vi.fn().mockResolvedValue([]),
+    } as never);
+
+    const parsed = await refiner.refineBoldVerticalGeneration(
+      {
+        ...boldVerticalResult(),
+        color: {
+          subtitle: '',
+          imageIndices: [],
+        },
+        usage: {
+          subtitle: '1. 포장을 열고 슬라임을 꺼내세요\n2. 손으로 주무르며 버블팝을 즐기세요',
+          imageIndices: [1, 2],
+        },
+        detailImageIndices: [1, 2],
+        packageImageIndices: [0],
+        packageLabel: '1박스 12개입 구성',
+      },
+      {
+        templateId: 'bold-vertical',
+        rawTitle: '퐁퐁 버블팝슬라임',
+        rawCategory: '완구',
+        rawDescription: '박스/세트 정보: 있음\n박스/세트 구분: 박스',
+        rawOptions: '색상 구성: 없음\n박스/세트 정보: 있음\n1박스 수량: 12',
+        imageUrls: [
+          'https://example.com/display-box.jpg',
+          'https://example.com/hand-product.jpg',
+          'https://example.com/detail-shot.jpg',
+        ],
+        detailImageCount: '2',
+        usageSectionMode: 'include',
+      },
+    );
+
+    expect(parsed.packageImageIndices).toEqual([0]);
+    expect(parsed.usage.imageIndices).toEqual([1, 2]);
+    expect(parsed.detailImageIndices).toEqual([1, 2]);
+    expect(parsed.packageLabel).toBe('1박스 12개입 구성');
   });
 
   it('suppresses generated product info table when a KC safety label image exists', async () => {
@@ -688,8 +883,10 @@ describe('DetailPageAiService', () => {
       inferColorSubtitle: vi.fn().mockResolvedValue('핑크 단일 색상'),
       inferPackageImagePositions: vi.fn().mockResolvedValue([1]),
       generateHeroBanner: vi.fn().mockResolvedValue('https://cdn.example.com/generated-hero.png'),
+      generateHeroProductImage: vi.fn().mockResolvedValue('https://cdn.example.com/generated-hero-product.png'),
       generateSizeGuideImage: vi.fn().mockResolvedValue('https://cdn.example.com/generated-size.png'),
       generateColorGuideImage: vi.fn().mockResolvedValue('https://cdn.example.com/generated-color.png'),
+      generateUsageGuideImage: vi.fn().mockResolvedValue('https://cdn.example.com/generated-usage.png'),
       generateDetailCutImage: vi.fn()
         .mockResolvedValueOnce('https://cdn.example.com/generated-detail-1.png')
         .mockResolvedValueOnce('https://cdn.example.com/generated-detail-2.png'),
@@ -740,6 +937,7 @@ describe('DetailPageAiService', () => {
     const heroImageService = {
       inferPackageImagePositions: vi.fn().mockResolvedValue([1]),
       generateHeroBanner: vi.fn().mockResolvedValue('https://cdn.example.com/generated-hero.png'),
+      generateHeroProductImage: vi.fn().mockResolvedValue('https://cdn.example.com/generated-hero-product.png'),
       generateUsageGuideImage: vi.fn()
         .mockResolvedValueOnce('https://cdn.example.com/generated-usage-1.png')
         .mockResolvedValueOnce('https://cdn.example.com/generated-usage-2.png')

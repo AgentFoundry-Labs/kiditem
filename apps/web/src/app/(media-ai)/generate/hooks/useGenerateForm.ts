@@ -13,7 +13,11 @@ import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { useProductImages } from '@/hooks/useProductImages';
 import { moveSafetyLabelImagesToEnd } from '../lib/detail-page-image-order';
-import { useKidsPlayfulGenerate } from './useKidsPlayfulGenerate';
+import {
+  type KidsPlayfulGenerationItem,
+  useKidsPlayfulGenerate,
+  useKidsPlayfulOne,
+} from './useKidsPlayfulGenerate';
 
 export type GenerateTemplateId = DetailPageTemplateId;
 export type { DetailImageCount, DetailPageAgeGroup } from '@kiditem/shared/ai';
@@ -21,6 +25,23 @@ export type UsageSectionMode = 'include' | 'exclude';
 export type KcCertificationStatus = 'unknown' | 'none' | 'exists';
 export type BoxSetStatus = 'auto' | 'none' | 'box' | 'set' | 'exists';
 export type ColorVariantStatus = 'auto' | 'none' | 'single' | 'multiple';
+export type GenerationDialogPhase =
+  | 'submitting'
+  | 'started'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+export interface GenerationDialogState {
+  open: boolean;
+  phase: GenerationDialogPhase;
+  startedAt: string;
+  productName: string;
+  templateId: GenerateTemplateId;
+  generationId?: string;
+  editorUrl?: string;
+  errorMessage?: string | null;
+}
 
 interface DetailPagePrefillResult {
   category: string;
@@ -57,7 +78,11 @@ export function useGenerateForm() {
   const [isLoading, setIsLoading] = useState(false);
   const [isPrefilling, setIsPrefilling] = useState(false);
   const [generationStartedAt, setGenerationStartedAt] = useState<string | null>(null);
+  const [generationDialog, setGenerationDialog] = useState<GenerationDialogState | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const generationStatusQuery = useKidsPlayfulOne(
+    generationDialog?.generationId ?? null,
+  );
 
   useEffect(() => {
     if (savedImages.length === 0) return;
@@ -68,7 +93,33 @@ export function useGenerateForm() {
     if (valid.length > 0) setImages(moveSafetyLabelImagesToEnd(valid).slice(0, 15));
   }, [savedImages]);
 
-  const isFormValid = rawTitle.trim() !== '' && images.length > 0;
+  const isFormValid = rawTitle.trim() !== '';
+
+  useEffect(() => {
+    const item = generationStatusQuery.data;
+    if (!item) return;
+    const phase = generationStatusToDialogPhase(item.imageProcessingStatus);
+    if (!phase) return;
+
+    setGenerationDialog((prev) => {
+      if (!prev?.open || prev.generationId !== item.id) return prev;
+      const editorUrl = buildGenerationEditorUrl(item);
+      if (
+        prev.phase === phase &&
+        prev.editorUrl === editorUrl &&
+        prev.errorMessage === item.imageProcessingError
+      ) {
+        return prev;
+      }
+      return {
+        ...prev,
+        phase,
+        productName: item.productName || prev.productName,
+        editorUrl,
+        errorMessage: item.imageProcessingError,
+      };
+    });
+  }, [generationStatusQuery.data]);
 
   const requestPrefill = async (title: string, orderedImages: string[]) =>
     apiClient.post<DetailPagePrefillResult>('/api/ai/detail-page/prefill', {
@@ -98,17 +149,25 @@ export function useGenerateForm() {
   };
 
   const handleSubmit = async (selectedTemplateId: GenerateTemplateId) => {
+    const title = rawTitle.trim();
+    const orderedImages = moveSafetyLabelImagesToEnd(images);
+    if (!title) {
+      setError('상품명을 먼저 입력해 주세요.');
+      return;
+    }
+
+    const startedAt = new Date().toISOString();
     setIsLoading(true);
-    setGenerationStartedAt(new Date().toISOString());
+    setGenerationStartedAt(startedAt);
+    setGenerationDialog({
+      open: true,
+      phase: 'submitting',
+      startedAt,
+      productName: title,
+      templateId: selectedTemplateId,
+    });
     setError(null);
     try {
-      const title = rawTitle.trim();
-      const orderedImages = moveSafetyLabelImagesToEnd(images);
-      if (!title || orderedImages.length === 0) {
-        setError('상품명과 상품 이미지를 먼저 등록해 주세요.');
-        return;
-      }
-
       const apiTemplateId = selectedTemplateId === 'kids-playful' ? 'kids-playful' : 'bold-vertical';
       let category = rawCategory.trim();
       let generationTarget = target.trim();
@@ -125,7 +184,11 @@ export function useGenerateForm() {
           setRawCategory((prev) => prev || prefill.category);
           setTarget((prev) => prev || prefill.target);
           setRawDescription((prev) => prev || prefill.description);
-        } catch {
+        } catch (prefillErr) {
+          console.warn('[generate] auto-prefill failed, using defaults', prefillErr);
+          toast.warning('AI 자동 채움에 실패해 기본값으로 진행합니다.', {
+            description: '카테고리와 특징을 직접 입력하면 더 정확합니다.',
+          });
           category ||= '키즈 상품';
           generationTarget ||= '부모 구매자';
           descriptionText ||= `${title}의 특징을 업로드한 상품 이미지를 기준으로 분석해 상세페이지 카피를 작성해 주세요.`;
@@ -177,7 +240,7 @@ export function useGenerateForm() {
         `특징: ${descriptionText}`,
       ].filter(Boolean).join('\n');
 
-      await detailPageMutation.mutateAsync({
+      const generated = await detailPageMutation.mutateAsync({
         rawTitle: title,
         rawCategory: category,
         rawDescription: description,
@@ -192,34 +255,41 @@ export function useGenerateForm() {
         kcCertificationStatus,
         kcCertificationNumber: normalizeKcCertificationNumber(kcCertificationNumber),
       });
+      const nextPhase = generationStatusToDialogPhase(generated.imageProcessingStatus) ?? 'started';
+      setGenerationDialog((prev) =>
+        prev
+          ? {
+              ...prev,
+              phase: nextPhase,
+              generationId: generated.id,
+              editorUrl: buildGenerationEditorUrl(generated),
+              errorMessage: generated.imageProcessingError,
+            }
+          : {
+              open: true,
+              phase: nextPhase,
+              startedAt,
+              productName: title,
+              templateId: selectedTemplateId,
+              generationId: generated.id,
+              editorUrl: buildGenerationEditorUrl(generated),
+              errorMessage: generated.imageProcessingError,
+            },
+      );
       toast.success('상세페이지 생성을 시작했습니다.', {
         description: '완료되면 알림에서 에디터로 이동할 수 있습니다.',
       });
     } catch (err) {
       setError(isApiError(err) ? err.detail : '상세페이지 생성 중 오류가 발생했습니다.');
+      setGenerationDialog(null);
     } finally {
       setIsLoading(false);
       setGenerationStartedAt(null);
     }
   };
 
-  const newCreate = () => {
-    setRawTitle('');
-    setRawCategory('');
-    setTarget('');
-    setAgeGroup('age-8-plus');
-    setDetailImageCount('2');
-    setUsageSectionMode('include');
-    setKcCertificationStatus('unknown');
-    setKcCertificationNumber('');
-    setRawDescription('');
-    setProductSize('');
-    setBoxSetStatus('auto');
-    setBoxSetQuantity('');
-    setColorVariantStatus('auto');
-    setColorVariantNames('');
-    setRawOptions('');
-    setImages([]);
+  const closeGenerationDialog = () => {
+    setGenerationDialog(null);
   };
 
   return {
@@ -262,9 +332,10 @@ export function useGenerateForm() {
     imagesLoading,
     isPrefilling,
     generationStartedAt,
+    generationDialog,
+    closeGenerationDialog,
     handlePrefill,
     handleSubmit,
-    newCreate,
   };
 }
 
@@ -474,4 +545,20 @@ function toMasterProductImageUrl(url: string): string {
   } catch {
     return withOrigin;
   }
+}
+
+function generationStatusToDialogPhase(
+  status: KidsPlayfulGenerationItem['imageProcessingStatus'],
+): GenerationDialogPhase | null {
+  if (status === 'pending' || status === 'processing') return 'started';
+  if (status === 'completed') return 'completed';
+  if (status === 'failed') return 'failed';
+  if (status === 'cancelled') return 'cancelled';
+  return null;
+}
+
+function buildGenerationEditorUrl(item: KidsPlayfulGenerationItem): string | undefined {
+  if (!item.productId) return undefined;
+  const queryKey = item.templateId === 'bold-vertical' ? 'boldId' : 'kpId';
+  return `/sourcing/${item.productId}/editor?${queryKey}=${item.id}`;
 }

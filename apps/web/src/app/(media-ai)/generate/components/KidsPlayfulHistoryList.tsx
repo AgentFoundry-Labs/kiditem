@@ -43,6 +43,11 @@ function formatTs(iso: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+/** 카드에 표시할 상품명/타이틀 — "!" 제거. 실제 상세페이지 콘텐츠는 그대로 둠. */
+function stripExclamation(text: string): string {
+  return text.replace(/!/g, '').trim();
+}
+
 interface KidsPlayfulHistoryListProps {
   /** 있으면 이 productId 의 이력만 필터링. sourcing/[id] 의 상세페이지 탭에서 사용. */
   filterProductId?: string;
@@ -194,11 +199,10 @@ function HistoryCard({ entry, onOpen, onDelete }: HistoryCardProps) {
         </button>
       </div>
       <div className="p-3 space-y-1">
-        <p className="text-[11px] text-slate-400 truncate">{entry.productName}</p>
+        <p className="text-[11px] text-slate-400 truncate">{stripExclamation(entry.productName)}</p>
         <h3 className="text-sm font-bold text-slate-900 truncate">
-          {rowDisplayTitle(entry)}
+          {stripExclamation(`${rowDisplayTitle(entry)} ${rowDisplaySubtitle(entry)}`)}
         </h3>
-        <p className="text-[11px] text-slate-500 truncate">{rowDisplaySubtitle(entry)}</p>
         <div className="flex items-center gap-1 text-[10px] text-slate-400 pt-1">
           <Calendar size={10} />
           {formatTs(entry.createdAt)}
@@ -251,9 +255,9 @@ function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
           <div className="flex items-center gap-2 min-w-0">
             <Sparkles size={18} className="text-violet-600 shrink-0" />
             <h3 className="text-base font-bold text-slate-900 truncate">
-              {rowDisplayTitle(entry)}
+              {stripExclamation(rowDisplayTitle(entry))}
             </h3>
-            <span className="text-xs text-slate-400 font-mono truncate">{entry.productName}</span>
+            <span className="text-xs text-slate-400 font-mono truncate">{stripExclamation(entry.productName)}</span>
           </div>
           <button
             onClick={onClose}

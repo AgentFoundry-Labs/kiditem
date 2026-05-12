@@ -95,6 +95,14 @@ function pickReferenceCopy(productName: string): Pick<
   BoldVerticalProductTitle,
   'heroSubtext' | 'heroDescription' | 'sectionSubtitle'
 > {
+  if (/슬라임|말랑|촉감|주물럭|왁스팝/u.test(productName)) {
+    return {
+      heroSubtext: '말랑말랑 촉감 놀이!',
+      heroDescription: '쫀득하게 주무르며 즐기는 슬라임!',
+      sectionSubtitle: '손끝으로 즐기는 말랑한 촉감\n알록달록 색상으로 재미있게!',
+    };
+  }
+
   if (/비눗방울|버블/u.test(productName)) {
     return {
       heroSubtext: '우리 아이 나들이 필수템!',

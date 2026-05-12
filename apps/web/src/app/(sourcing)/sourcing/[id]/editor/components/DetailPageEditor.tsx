@@ -53,6 +53,7 @@ import { useStore } from '@/store/useStore';
 import 'grapesjs/dist/css/grapes.min.css';
 import './grapesjs-editor.css';
 import { buildSizeGuideFrameHtml } from '../../../lib/size-guide-frame';
+import { repairBoldVerticalEditedHtml } from '../../../lib/template-html';
 import TemplateSelectionModal from '../../components/TemplateSelectionModal';
 import { useGenerateDetailPage, type GenerateMode } from '../../hooks/useGenerateDetailPage';
 import { AITextEditPanel } from './AITextEditPanel';
@@ -114,6 +115,16 @@ const CANVAS_CSS = `
   .gjs-dashed *[data-gjs-highlightable] {
     outline: 1px dashed rgba(16, 185, 129, 0.25);
     outline-offset: -1px;
+  }
+  img[data-field="heroImage"] {
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    height: 100% !important;
+    object-fit: cover !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    mix-blend-mode: normal !important;
   }
 `;
 
@@ -534,7 +545,7 @@ function buildPersistedEditorHtml(
   );
   const bodyMarkup = normalizeBodyMarkup(html, parsed.bodyAttrs);
 
-  return `<!DOCTYPE html>
+  const fullHtml = `<!DOCTYPE html>
 <html lang="ko">
 <head>
   ${headResources}
@@ -543,6 +554,7 @@ function buildPersistedEditorHtml(
 </head>
 ${bodyMarkup}
 </html>`;
+  return repairBoldVerticalEditedHtml(fullHtml);
 }
 
 function parseFullHtml(fullHtml: string): ParsedHtml {
@@ -2479,7 +2491,7 @@ export default function DetailPageEditor({
   onSave,
   onClose,
 }: DetailPageEditorProps) {
-  const parsed = useMemo(() => parseFullHtml(html), [html]);
+  const parsed = useMemo(() => parseFullHtml(repairBoldVerticalEditedHtml(html)), [html]);
   const [selectedImageSrc, setSelectedImageSrc] = useState<string | null>(null);
   const [selectedImageComponent, setSelectedImageComponent] = useState<any>(null);
   const [selectedTextComponent, setSelectedTextComponent] = useState<any>(null);

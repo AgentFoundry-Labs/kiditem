@@ -130,7 +130,7 @@ export class DetailPageGenerationService {
     const usageSectionMode: UsageSectionMode = dto.usageSectionMode ?? 'include';
     const kcCertificationStatus: KcCertificationStatus = dto.kcCertificationStatus ?? 'unknown';
     const kcCertificationNumber = normalizeKcCertificationNumber(dto.kcCertificationNumber);
-    const imageUrls = moveSafetyLabelImagesToEnd(dto.imageUrls);
+    const imageUrls = moveSafetyLabelImagesToEnd(dto.imageUrls ?? []);
     const rawInput: DetailPageRawInput = {
       rawTitle: dto.rawTitle,
       rawCategory: dto.rawCategory,

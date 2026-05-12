@@ -49,9 +49,11 @@ export function useProductDetail(productId: string) {
       ]);
 
       let detailPageData: DetailPageData = placeholderDetailPageData;
+      let hasDetailPagePreview = false;
       if (previewRes?.template && previewRes?.data) {
         try {
           detailPageData = applyImageResolution(parseDetailPageData(previewRes.data));
+          hasDetailPagePreview = true;
         } catch {
           // keep placeholder
         }
@@ -69,6 +71,7 @@ export function useProductDetail(productId: string) {
       return {
         product: data,
         detailPageData,
+        hasDetailPagePreview,
         editedHtml: editedHtmlRes?.html ?? null,
         templateCss: css,
         editState,

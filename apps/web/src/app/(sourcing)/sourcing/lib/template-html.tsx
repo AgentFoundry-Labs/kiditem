@@ -400,6 +400,108 @@ function repairProductInfoTableWidthHtml(html: string): string {
   return /<html[\s>]/i.test(html) ? `<!DOCTYPE html>\n${doc.documentElement.outerHTML}` : doc.body.innerHTML;
 }
 
+function serializeEditedHtmlDocument(doc: Document, originalHtml: string): string {
+  if (/<html[\s>]/i.test(originalHtml)) return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+  if (/^<body[\s>]/i.test(originalHtml.trim())) return doc.body.outerHTML;
+  return doc.body.innerHTML;
+}
+
+function setStyleProperties(el: HTMLElement, styles: Record<string, string>): void {
+  for (const [key, value] of Object.entries(styles)) {
+    el.style.setProperty(key, value);
+  }
+}
+
+function repairBoldVerticalDocumentStyles(doc: Document): void {
+  doc.querySelectorAll<HTMLElement>('[data-field="hookText"], [data-field="sectionName"]')
+    .forEach((el) => {
+      setStyleProperties(el, {
+        'background-image': 'linear-gradient(90deg, var(--theme-badge-2) 0%, #596783 52%, var(--theme-badge-1) 100%)',
+        'background-clip': 'text',
+        '-webkit-background-clip': 'text',
+        color: 'transparent',
+        'font-family': 'var(--font-display)',
+        'font-weight': '900',
+      });
+    });
+
+  doc.querySelectorAll<HTMLElement>('[data-field="hookTitleSub"], [data-field="sectionTitle"]')
+    .forEach((el) => {
+      setStyleProperties(el, {
+        color: '#111827',
+        'font-family': 'var(--font-display)',
+        'font-weight': '900',
+      });
+    });
+
+  doc.querySelectorAll<HTMLElement>('h1.font-display, h2.font-display')
+    .forEach((el) => {
+      setStyleProperties(el, {
+        'font-family': 'var(--font-display)',
+        'line-height': '1.02',
+      });
+    });
+
+  doc.querySelectorAll<HTMLElement>('[data-field="hookSubtext"]')
+    .forEach((el) => {
+      setStyleProperties(el, {
+        'font-family': 'NanumPen, cursive',
+        transform: 'rotate(-4deg)',
+        'text-underline-offset': '5px',
+        'text-decoration-line': 'underline',
+        'text-decoration-color': 'var(--theme-main)',
+        'text-decoration-thickness': '2px',
+      });
+    });
+
+  doc.querySelectorAll<HTMLImageElement>('img[data-field="heroImage"]')
+    .forEach((img) => {
+      setStyleProperties(img, {
+        display: 'block',
+        width: '100%',
+        'max-width': 'none',
+        height: '100%',
+        'object-fit': 'cover',
+        'margin-left': '0',
+        'margin-right': '0',
+        'mix-blend-mode': 'normal',
+      });
+      const classNames = new Set((img.getAttribute('class') ?? '').split(/\s+/u).filter(Boolean));
+      classNames.delete('h-auto');
+      classNames.delete('object-contain');
+      ['block', 'h-full', 'w-full', 'max-w-none', 'object-cover'].forEach((className) => {
+        classNames.add(className);
+      });
+      img.setAttribute('class', Array.from(classNames).join(' '));
+      const parent = img.parentElement;
+      if (parent) {
+        setStyleProperties(parent, {
+          display: 'block',
+          height: '560px',
+          overflow: 'hidden',
+          'background-color': '#fff',
+        });
+        const parentClassNames = new Set((parent.getAttribute('class') ?? '').split(/\s+/u).filter(Boolean));
+        ['flex', 'items-center', 'justify-center', 'h-[520px]', 'md:h-[580px]'].forEach((className) => {
+          parentClassNames.delete(className);
+        });
+        ['h-[560px]', 'md:h-[640px]', 'overflow-hidden', 'bg-white'].forEach((className) => {
+          parentClassNames.add(className);
+        });
+        parent.setAttribute('class', Array.from(parentClassNames).join(' '));
+      }
+    });
+}
+
+export function repairBoldVerticalEditedHtml(html: string): string {
+  if (!/data-field=["'](?:hookText|hookTitleSub|sectionName|sectionTitle|hookSubtext|heroImage)["']/.test(html)) {
+    return html;
+  }
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  repairBoldVerticalDocumentStyles(doc);
+  return serializeEditedHtmlDocument(doc, html);
+}
+
 function stripLegacyTemplateStyleMixing(html: string): string {
   if (!/<html[\s>]/i.test(html) && !/<head[\s>]/i.test(html)) return html;
   const doc = new DOMParser().parseFromString(html, 'text/html');
@@ -428,7 +530,9 @@ function stripLegacyTemplateStyleMixing(html: string): string {
  */
 export function ensureStyledDetailHtml(html: string, templateCss = ''): string {
   const baseSource = normalizeEditedHtmlAssets(
-    repairProductInfoTableWidthHtml(repairSizeGuideFrameHtml(html.trim())),
+    repairBoldVerticalEditedHtml(
+      repairProductInfoTableWidthHtml(repairSizeGuideFrameHtml(html.trim())),
+    ),
   );
   if (!baseSource) return html;
 

@@ -170,7 +170,7 @@ export default function ProductInputSection({
     setUploadError(null);
     setUploadingCount(selectedFiles.length);
     try {
-      const uploadedUrls = await Promise.all(
+      const results = await Promise.allSettled(
         selectedFiles.map(async (file) => {
           const formData = new FormData();
           formData.append('file', file);
@@ -178,14 +178,25 @@ export default function ProductInputSection({
             '/api/ai/detail-page/images',
             formData,
           );
-          return result.url;
+          return { name: file.name, url: result.url };
         }),
       );
-      setImages((prev) =>
-        moveSafetyLabelImagesToEnd([...prev, ...uploadedUrls]).slice(0, MAX_IMAGES),
-      );
-    } catch (err) {
-      setUploadError(err instanceof Error ? err.message : '이미지 업로드에 실패했습니다.');
+      const uploaded: string[] = [];
+      const failed: string[] = [];
+      results.forEach((r, idx) => {
+        if (r.status === 'fulfilled') uploaded.push(r.value.url);
+        else failed.push(selectedFiles[idx]?.name ?? `파일 ${idx + 1}`);
+      });
+      if (uploaded.length > 0) {
+        setImages((prev) =>
+          moveSafetyLabelImagesToEnd([...prev, ...uploaded]).slice(0, MAX_IMAGES),
+        );
+      }
+      if (failed.length > 0) {
+        setUploadError(
+          `${failed.length}개 이미지 업로드 실패: ${failed.join(', ')}`,
+        );
+      }
     } finally {
       setUploadingCount(0);
       input.value = '';
@@ -256,12 +267,12 @@ export default function ProductInputSection({
           </Field>
 
           <div className="grid gap-4 md:grid-cols-[1.25fr_0.75fr]">
-            <Field label="카테고리" required>
+            <Field label="카테고리">
               <input
                 type="text"
                 value={rawCategory}
                 onChange={(e) => setRawCategory(e.target.value)}
-                placeholder="예: 생활용품/리빙"
+                placeholder="비워두면 AI가 자동으로 채워요"
                 className="h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] px-3 text-sm font-medium text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--primary)]"
               />
             </Field>
@@ -366,12 +377,12 @@ export default function ProductInputSection({
             </div>
           </Field>
 
-          <Field label="제품 주요 특징" required>
+          <Field label="제품 주요 특징">
             <textarea
               value={rawDescription}
               onChange={(e) => setRawDescription(e.target.value)}
               rows={5}
-              placeholder="AI로 내용을 채우거나 직접 핵심 특징을 적어주세요."
+              placeholder="비워두면 AI가 채워요. 핵심 특징을 직접 적어도 됩니다."
               className="min-h-[132px] w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] px-4 py-3 text-sm leading-6 text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--primary)]"
             />
           </Field>
@@ -447,7 +458,7 @@ export default function ProductInputSection({
             </Field>
           </div>
 
-          <Field label="상품 이미지" required trailing={`${images.length} / ${MAX_IMAGES}`}>
+          <Field label="상품 이미지" trailing={`${images.length} / ${MAX_IMAGES} (선택)`}>
             <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] p-3">
               <div className="flex h-[116px] gap-3 overflow-x-auto pb-1">
                 <label
@@ -587,10 +598,10 @@ export default function ProductInputSection({
         <button
           type="button"
           onClick={onSubmit}
-          disabled={isLoading || !isFormValid}
+          disabled={isLoading || !isFormValid || uploadingCount > 0}
           className={cn(
             'inline-flex h-12 w-full max-w-[300px] items-center justify-center gap-2 rounded-full text-base font-bold text-white shadow-sm transition active:scale-[0.99]',
-            isLoading || !isFormValid
+            isLoading || !isFormValid || uploadingCount > 0
               ? 'cursor-not-allowed bg-[var(--text-muted)] opacity-60'
               : 'bg-neutral-950 hover:bg-neutral-800',
           )}
@@ -599,6 +610,11 @@ export default function ProductInputSection({
             <>
               <Loader2 size={18} className="animate-spin" />
               요청 등록 중
+            </>
+          ) : uploadingCount > 0 ? (
+            <>
+              <Loader2 size={18} className="animate-spin" />
+              이미지 업로드 중
             </>
           ) : (
             <>

@@ -32,5 +32,5 @@
 }
 
 img[data-field="heroImage"] {
-  mix-blend-mode: multiply;
+  mix-blend-mode: normal;
 }

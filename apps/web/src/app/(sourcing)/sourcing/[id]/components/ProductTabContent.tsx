@@ -20,6 +20,7 @@ interface Props {
   nameLength: number;
   productId: string;
   detailPreviewHtml: string;
+  hasDetailPagePreview: boolean;
   editedHtml: string | null;
   templateCss: string;
   rawData: Record<string, unknown> | null;
@@ -43,6 +44,7 @@ export default function ProductTabContent({
   nameLength,
   productId,
   detailPreviewHtml,
+  hasDetailPagePreview,
   editedHtml,
   templateCss,
   rawData,
@@ -191,6 +193,7 @@ export default function ProductTabContent({
         <DetailPagePreview
           productId={productId}
           detailPreviewHtml={detailPreviewHtml}
+          hasDetailPagePreview={hasDetailPagePreview}
           editedHtml={editedHtml}
           templateCss={templateCss}
           selectedKidsPlayfulId={selectedKidsPlayfulId}

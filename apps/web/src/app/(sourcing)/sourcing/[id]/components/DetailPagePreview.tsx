@@ -13,7 +13,7 @@
 
 import { useRef, useEffect, useMemo, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { Download, Pencil, Sparkles, Loader2 } from 'lucide-react';
+import { Download, Pencil, Sparkles, Loader2, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   getTemplate,
@@ -50,6 +50,7 @@ import { apiClient } from '@/lib/api-client';
 interface Props {
   productId: string;
   detailPreviewHtml: string;
+  hasDetailPagePreview: boolean;
   editedHtml?: string | null;
   templateCss: string;
   /**
@@ -106,6 +107,7 @@ function buildServerRenderHtml(html: string): string {
 export default function DetailPagePreview({
   productId,
   detailPreviewHtml,
+  hasDetailPagePreview,
   editedHtml = null,
   templateCss,
   selectedKidsPlayfulId = null,
@@ -138,27 +140,37 @@ export default function DetailPagePreview({
     () => boldEntries.filter((e) => !e.id.startsWith('optimistic-')),
     [boldEntries],
   );
+  const readyKpEntries = useMemo(
+    () => realKpEntries.filter((e) => e.imageProcessingStatus === 'completed'),
+    [realKpEntries],
+  );
+  const readyBoldEntries = useMemo(
+    () => realBoldEntries.filter((e) => e.imageProcessingStatus === 'completed'),
+    [realBoldEntries],
+  );
 
   const hasExplicitSelection = !!(selectedAgentId || selectedKidsPlayfulId || selectedBoldVerticalId);
 
   const boldEntry = useMemo(() => {
     if (selectedAgentId || selectedKidsPlayfulId) return null; // 다른 게 명시 선택
     if (selectedBoldVerticalId) {
-      return realBoldEntries.find((e) => e.id === selectedBoldVerticalId) ?? null;
+      const entry = realBoldEntries.find((e) => e.id === selectedBoldVerticalId) ?? null;
+      return entry?.imageProcessingStatus === 'completed' ? entry : null;
     }
     if (editedHtml) return null;
     // 자동 default — Trend 이력 없을 때만 KIDITEM default 적용
-    return realKpEntries.length === 0 ? realBoldEntries[0] ?? null : null;
-  }, [realBoldEntries, realKpEntries, selectedBoldVerticalId, selectedKidsPlayfulId, selectedAgentId, editedHtml]);
+    return readyKpEntries.length === 0 ? readyBoldEntries[0] ?? null : null;
+  }, [realBoldEntries, readyBoldEntries, readyKpEntries, selectedBoldVerticalId, selectedKidsPlayfulId, selectedAgentId, editedHtml]);
 
   const kpEntry: KidsPlayfulGenerationItem | null = useMemo(() => {
     if (selectedAgentId || selectedBoldVerticalId) return null;
     if (selectedKidsPlayfulId) {
-      return realKpEntries.find((e) => e.id === selectedKidsPlayfulId) ?? null;
+      const entry = realKpEntries.find((e) => e.id === selectedKidsPlayfulId) ?? null;
+      return entry?.imageProcessingStatus === 'completed' ? entry : null;
     }
     if (editedHtml) return null;
-    return realKpEntries[0] ?? null;
-  }, [realKpEntries, selectedKidsPlayfulId, selectedBoldVerticalId, selectedAgentId, editedHtml]);
+    return readyKpEntries[0] ?? null;
+  }, [realKpEntries, readyKpEntries, selectedKidsPlayfulId, selectedBoldVerticalId, selectedAgentId, editedHtml]);
 
   const kpData: KidsPlayfulData | null = useMemo(
     () => (kpEntry ? rowToRendererData(kpEntry) : null),
@@ -215,7 +227,9 @@ export default function DetailPagePreview({
         ? `bold:${boldEntry.id}:${boldEntry.imageProcessingStatus}`
         : editedHtml
           ? `edited:${editedHtml.length}`
-          : 'default';
+          : hasDetailPagePreview
+            ? 'default'
+            : 'empty';
   const effectivePreviewHtml = useMemo(() => {
     if (agentSelectedHtml) return agentSelectedHtml;
     if (kpData) return buildKidsPlayfulHtml(kpData);
@@ -223,9 +237,14 @@ export default function DetailPagePreview({
     if (!hasExplicitSelection && editedHtml) {
       return ensureStyledDetailHtml(editedHtml, templateCss);
     }
+    if (hasExplicitSelection) {
+      return '';
+    }
+    if (!hasDetailPagePreview) return '';
     return ensureStyledDetailHtml(detailPreviewHtml, templateCss);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewKey, detailPreviewHtml, agentSelectedHtml, boldHtml, editedHtml, hasExplicitSelection, templateCss]);
+  }, [previewKey, detailPreviewHtml, agentSelectedHtml, boldHtml, editedHtml, hasExplicitSelection, hasDetailPagePreview, templateCss]);
+  const hasRenderableDetailPage = effectivePreviewHtml.trim().length > 0;
   const sandboxedPreviewHtml = useMemo(
     () => withDetailPreviewBridge(effectivePreviewHtml),
     [effectivePreviewHtml],
@@ -309,6 +328,27 @@ export default function DetailPagePreview({
       setIsDownloading(false);
     }
   }, [effectivePreviewHtml, isDownloading, productId]);
+
+  if (!hasRenderableDetailPage) {
+    const selectedPending = Boolean(selectedKidsPlayfulId || selectedBoldVerticalId || selectedAgentId);
+    return (
+      <div className="p-5">
+        <div className="rounded-xl border border-dashed border-slate-200 bg-white px-6 py-14 text-center">
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-400">
+            <FileText size={22} />
+          </div>
+          <h3 className="text-base font-bold text-slate-800">
+            생성된 상세페이지가 아직 없습니다
+          </h3>
+          <p className="mt-2 text-sm text-slate-500">
+            {selectedPending
+              ? '선택한 생성 이력이 완료되면 상세페이지 미리보기와 편집 버튼이 표시됩니다.'
+              : '상세페이지 생성을 완료하면 이 탭에서 미리보기, 에디터 편집, JPEG 다운로드를 사용할 수 있습니다.'}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-5 space-y-3">

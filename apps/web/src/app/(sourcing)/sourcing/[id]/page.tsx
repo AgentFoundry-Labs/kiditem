@@ -50,6 +50,7 @@ export default function ProductDetailPage() {
 
   const product = fetchedData?.product ?? null;
   const detailPageData = fetchedData?.detailPageData ?? placeholderDetailPageData;
+  const hasDetailPagePreview = fetchedData?.hasDetailPagePreview ?? false;
   const editedHtml = fetchedData?.editedHtml ?? null;
   const templateCss = fetchedData?.templateCss ?? '';
   const inProgressEntries = useAllGenerationsInProgress(productId);
@@ -157,6 +158,7 @@ export default function ProductDetailPage() {
               nameLength={nameLength}
               productId={productId}
               detailPreviewHtml={detailPreviewHtml}
+              hasDetailPagePreview={hasDetailPagePreview}
               editedHtml={editedHtml}
               templateCss={templateCss}
               rawData={product?.raw_data ?? null}
