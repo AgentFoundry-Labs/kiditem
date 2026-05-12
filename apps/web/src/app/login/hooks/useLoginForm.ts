@@ -12,6 +12,7 @@ export function useLoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = sanitizeInternalRedirectPath(searchParams.get('next'));
+  const reason = searchParams.get('reason');
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -25,6 +26,14 @@ export function useLoginForm() {
       setRemember(true);
     }
   }, []);
+
+  // AuthProvider 가 만료로 인한 redirect 일 때 `?reason=session_expired` 를 붙인다.
+  // 사용자가 어떤 액션을 하다가 갑자기 로그인 화면을 마주쳤는지 안내.
+  useEffect(() => {
+    if (reason === 'session_expired') {
+      toast.info('세션이 만료되어 다시 로그인이 필요합니다.', { duration: 5000 });
+    }
+  }, [reason]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
