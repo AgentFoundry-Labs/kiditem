@@ -7,12 +7,9 @@ import { ProductsModule } from '../products/products.module';
 
 import { SourcingController } from './adapter/in/http/sourcing.controller';
 import { ProcurementController } from './adapter/in/http/procurement.controller';
-import { SuppliersController } from './adapter/in/http/suppliers.controller';
-
 import { SourcingService } from './application/service/sourcing.service';
 import { SourcingPromotionService } from './application/service/sourcing-promotion.service';
 import { ProcurementService } from './application/service/procurement.service';
-import { SuppliersService } from './application/service/suppliers.service';
 
 import { SourcingAgentGatewayAdapter } from './adapter/out/agent/sourcing-agent.gateway.adapter';
 import { SourcingProductsCatalogAdapter } from './adapter/out/products/products-catalog.adapter';
@@ -44,13 +41,11 @@ import { SOURCING_CANDIDATE_REPOSITORY_PORT } from './application/port/out/sourc
   controllers: [
     SourcingController,
     ProcurementController,
-    SuppliersController,
   ],
   providers: [
     SourcingService,
     SourcingPromotionService,
     ProcurementService,
-    SuppliersService,
     SourcingAgentGatewayAdapter,
     SourcingProductsCatalogAdapter,
     SourcingCandidateRepositoryAdapter,
