@@ -147,7 +147,7 @@ Read these before editing the matching path.
 | [`src/agent-os/AGENTS.md`](src/agent-os/AGENTS.md) | Agent OS platform runtime |
 | [`src/ai/AGENTS.md`](src/ai/AGENTS.md) | media AI, prompts, provider ports, Agent OS sinks |
 | [`src/analytics/AGENTS.md`](src/analytics/AGENTS.md) | reporting/read models |
-| [`src/automation/AGENTS.md`](src/automation/AGENTS.md) | workflows, alerts, action board, panel projection |
+| [`src/automation/AGENTS.md`](src/automation/AGENTS.md) | workflows, alerts, action board, panel projection; hexagonal-complete (`application/port/out/` + `application/port/in/` for owner-side `OPERATION_ALERT_PORT` publish, `adapter/out/repository/`, architecture + wiring specs; `WorkflowRunnerService` PrismaService carve-out documented for the executor framework) |
 | [`src/auth/AGENTS.md`](src/auth/AGENTS.md) | auth guards, current org/user decorators |
 | [`src/channels/AGENTS.md`](src/channels/AGENTS.md) | Coupang sync/reconciliation/provider boundary |
 | [`src/chat/AGENTS.md`](src/chat/AGENTS.md) | CopilotKit runtime and Claude CLI adapter |

@@ -12,10 +12,8 @@ import type { AlertItem } from '@kiditem/shared/alerts';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../../../auth/auth.types';
-import {
-  OperationAlertService,
-  type OperationLifecyclePatch,
-} from '../../../application/service/operation-alert.service';
+import { OperationAlertService } from '../../../application/service/operation-alert.service';
+import type { OperationLifecyclePatch } from '../../../application/port/in/operation-alert.port';
 import { mapAlertRowToItem } from '../../../mapper/alert-item.mapper';
 import {
   isBrowserOperationProducer,

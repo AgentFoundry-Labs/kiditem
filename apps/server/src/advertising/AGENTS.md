@@ -59,13 +59,12 @@ directly while that remains true.
 
 ### Cross-Domain Boundary
 
-Advertising consumes `automation.OperationAlertService` through
+Advertising consumes automation's operation-alert lifecycle through
 `application/port/out/operation-alert.port.ts` bound to
-`adapter/out/automation/operation-alert.adapter.ts`. The adapter currently
-wraps the concrete automation service directly. This is **transitional**: when
-automation publishes its own owner-side incoming port from
-`automation/application/port/in/`, the advertising adapter swaps to depend on
-that port instead of the concrete service. Until then, this is the only
+`adapter/out/automation/operation-alert.adapter.ts`. The adapter depends
+on automation's owner-side `OPERATION_ALERT_PORT` token published from
+`automation/application/port/in/operation-alert.port.ts`; no concrete
+`OperationAlertService` import remains in advertising. This is the only
 sanctioned cross-owner reach from `application/service/**`.
 
 ## Source-Of-Truth Facts

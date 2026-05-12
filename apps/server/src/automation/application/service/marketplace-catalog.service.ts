@@ -1,13 +1,16 @@
-import { Injectable, Logger } from '@nestjs/common';
-import type { Marketplace } from '@prisma/client';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { MarketplaceCatalogItem, ConfigurableParam } from '@kiditem/shared/marketplace';
-import { PrismaService } from '../../../prisma/prisma.service';
 import {
   collectInvalidNodeTypes,
   isWorkflowCatalogSlimCoreCompatible,
-} from '../../adapter/out/workflow-runner/executors/slim-core-allowlist';
+} from '../../domain/policy/slim-core-allowlist';
+import {
+  MARKETPLACE_CATALOG_REPOSITORY_PORT,
+  type MarketplaceCatalogRepositoryPort,
+} from '../port/out/marketplace-catalog.repository.port';
+import type { MarketplaceRecord } from '../port/persistence-records';
 
-function toCatalogItem(item: Marketplace, installed: boolean): MarketplaceCatalogItem {
+function toCatalogItem(item: MarketplaceRecord, installed: boolean): MarketplaceCatalogItem {
   return {
     id: item.id,
     type: item.type as 'workflow' | 'agent',
@@ -54,7 +57,10 @@ function toCatalogItem(item: Marketplace, installed: boolean): MarketplaceCatalo
 export class MarketplaceCatalogService {
   private readonly logger = new Logger(MarketplaceCatalogService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(MARKETPLACE_CATALOG_REPOSITORY_PORT)
+    private readonly repository: MarketplaceCatalogRepositoryPort,
+  ) {}
 
   // ─── Workflow Catalog ───
 
@@ -62,28 +68,17 @@ export class MarketplaceCatalogService {
     organizationId: string,
     query: { module?: string; category?: string } = {},
   ): Promise<MarketplaceCatalogItem[]> {
-    const items = await this.prisma.marketplace.findMany({
-      where: {
-        type: 'workflow',
-        isPublished: true,
-        ...(query.module && { module: query.module }),
-        ...(query.category && { category: query.category }),
-      },
-      orderBy: { installCount: 'desc' },
-    });
-
-    const installed = await this.prisma.workflowTemplate.findMany({
-      where: { organizationId, marketplaceId: { not: null } },
-      select: { marketplaceId: true },
-    });
-    const installedSet = new Set(installed.map((i) => i.marketplaceId));
+    const { rows, installedIds } = await this.repository.fetchWorkflowCatalog(
+      organizationId,
+      query,
+    );
 
     // Hide catalog entries that reference unregistered node types so they
     // never reach the install path. The seed is expected to stay slim-core
     // compatible; if a stale row appears in production we surface it via
     // logs instead of rendering an installable card that would fail.
-    const visible: Marketplace[] = [];
-    for (const item of items) {
+    const visible: MarketplaceRecord[] = [];
+    for (const item of rows) {
       const invalid = collectInvalidNodeTypes(item.nodesJson);
       if (invalid.length === 0) {
         visible.push(item);
@@ -94,13 +89,11 @@ export class MarketplaceCatalogService {
       );
     }
 
-    return visible.map((item) => toCatalogItem(item, installedSet.has(item.id)));
+    return visible.map((item) => toCatalogItem(item, installedIds.has(item.id)));
   }
 
-  async getWorkflow(id: string) {
-    const item = await this.prisma.marketplace.findFirst({
-      where: { id, type: 'workflow' },
-    });
+  async getWorkflow(id: string): Promise<MarketplaceRecord | null> {
+    const item = await this.repository.findWorkflowById(id);
     if (!item) return null;
     if (!isWorkflowCatalogSlimCoreCompatible(item)) {
       const invalid = collectInvalidNodeTypes(item.nodesJson);
@@ -118,15 +111,7 @@ export class MarketplaceCatalogService {
     _organizationId: string,
     query: { role?: string; category?: string } = {},
   ): Promise<MarketplaceCatalogItem[]> {
-    const items = await this.prisma.marketplace.findMany({
-      where: {
-        type: 'agent',
-        isPublished: true,
-        ...(query.role && { role: query.role }),
-        ...(query.category && { category: query.category }),
-      },
-      orderBy: { installCount: 'desc' },
-    });
+    const items = await this.repository.fetchAgentCatalog(query);
 
     // Agent install path is not wired (legacy AgentDefinition retired).
     // Always report `installed: false`; install requests are rejected by
@@ -134,9 +119,7 @@ export class MarketplaceCatalogService {
     return items.map((item) => toCatalogItem(item, false));
   }
 
-  async getAgent(id: string) {
-    return this.prisma.marketplace.findFirst({
-      where: { id, type: 'agent' },
-    });
+  getAgent(id: string): Promise<MarketplaceRecord | null> {
+    return this.repository.findAgentById(id);
   }
 }

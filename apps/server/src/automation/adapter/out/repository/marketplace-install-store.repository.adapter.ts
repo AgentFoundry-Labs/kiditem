@@ -21,7 +21,7 @@ function jsonArrayInput(value: unknown): Prisma.InputJsonValue {
  * rejects it.
  */
 @Injectable()
-export class PrismaMarketplaceInstallStoreAdapter
+export class MarketplaceInstallStoreRepositoryAdapter
   implements MarketplaceInstallStorePort
 {
   constructor(private readonly prisma: PrismaService) {}

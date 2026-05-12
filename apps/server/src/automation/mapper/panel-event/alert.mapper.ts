@@ -1,11 +1,10 @@
 import { PanelAlertItem } from '@kiditem/shared/panel';
-import { Prisma } from '@prisma/client';
-import type { Alert } from '@prisma/client';
+import type { AlertRecord, JsonValue } from '../../application/port/persistence-records';
 
 /**
  * Alert 테이블 레코드를 PanelAlertItem으로 변환.
  */
-function jsonObject(value: Prisma.JsonValue): Record<string, unknown> {
+function jsonObject(value: JsonValue): Record<string, unknown> {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     return value as Record<string, unknown>;
   }
@@ -13,7 +12,7 @@ function jsonObject(value: Prisma.JsonValue): Record<string, unknown> {
 }
 
 export const alertPanelMapper = {
-  mapToItem(alert: Alert): PanelAlertItem {
+  mapToItem(alert: AlertRecord): PanelAlertItem {
     return PanelAlertItem.parse({
       kind: 'alert',
       id: alert.id,

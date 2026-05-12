@@ -32,6 +32,10 @@ import { PanelSseService } from '../panel-sse.service';
 import { PANEL_EVENTS } from '../panel-events';
 import { AlertsService } from '../../../../application/service/alerts.service';
 import { ActionBoardService } from '../../../../application/service/action-board.service';
+import { AlertsRepositoryAdapter } from '../../repository/alerts.repository.adapter';
+import { ActionBoardRepositoryAdapter } from '../../repository/action-board.repository.adapter';
+import { ALERTS_REPOSITORY_PORT } from '../../../../application/port/out/alerts.repository.port';
+import { ACTION_BOARD_REPOSITORY_PORT } from '../../../../application/port/out/action-board.repository.port';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -48,14 +52,28 @@ function alertFixture(overrides: Record<string, unknown> = {}) {
   return {
     id: ALERT_ID,
     organizationId: CO,
-    productId: null,
+    targetType: null,
+    targetId: null,
+    kind: 'signal',
+    status: 'open',
     type: 'rule_violation',
     severity: 'warning',
     title: 'Test alert',
     message: 'Low CTR detected',
+    operationKey: null,
+    sourceType: null,
+    sourceId: null,
+    actorUserId: null,
+    href: null,
+    progress: null,
+    metadata: {},
     isRead: false,
     actionTaskId: null,
+    readAt: null,
+    startedAt: null,
+    finishedAt: null,
     createdAt: new Date('2026-04-16T00:00:00Z'),
+    updatedAt: new Date('2026-04-16T00:00:00Z'),
     ...overrides,
   };
 }
@@ -127,7 +145,11 @@ async function buildModule(prismaOverride?: ReturnType<typeof makePrisma>): Prom
       PanelSseService,
       AlertsService,
       ActionBoardService,
+      AlertsRepositoryAdapter,
+      ActionBoardRepositoryAdapter,
       { provide: PrismaService, useValue: prisma },
+      { provide: ALERTS_REPOSITORY_PORT, useExisting: AlertsRepositoryAdapter },
+      { provide: ACTION_BOARD_REPOSITORY_PORT, useExisting: ActionBoardRepositoryAdapter },
     ],
   }).compile();
 

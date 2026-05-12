@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { collectInvalidNodeTypes } from '../../adapter/out/workflow-runner/executors/slim-core-allowlist';
+import { collectInvalidNodeTypes } from '../../domain/policy/slim-core-allowlist';
 import {
   MarketplaceInstallParams,
   MarketplaceInstallStorePort,

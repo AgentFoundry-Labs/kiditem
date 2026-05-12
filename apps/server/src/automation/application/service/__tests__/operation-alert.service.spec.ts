@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Prisma } from '@prisma/client';
 import { OperationAlertService } from '../operation-alert.service';
+import { OperationAlertRepositoryAdapter } from '../../../adapter/out/repository/operation-alert.repository.adapter';
 import { PANEL_EVENTS } from '../../../adapter/out/panel-event/panel-events';
 
 const ORGANIZATION_ID = '11111111-1111-1111-1111-111111111111';
@@ -42,6 +43,7 @@ function makePrisma() {
   return {
     alert: {
       findFirst: vi.fn(),
+      findFirstOrThrow: vi.fn(),
       findMany: vi.fn(),
       updateMany: vi.fn(),
       create: vi.fn(),
@@ -56,7 +58,8 @@ function makeEventEmitter() {
 function makeService() {
   const prisma = makePrisma();
   const eventEmitter = makeEventEmitter();
-  const service = new OperationAlertService(prisma as any, eventEmitter as any);
+  const repository = new OperationAlertRepositoryAdapter(prisma as any);
+  const service = new OperationAlertService(repository, eventEmitter as any);
   return { service, prisma, eventEmitter };
 }
 
