@@ -14,8 +14,7 @@ stay behind the declared ports.
 | Capability | Route |
 |---|---|
 | extension ingest + scrape | `/api/sourcing/extension/*`, `/api/sourcing/scrape-url` |
-| sourcing product detail | `GET /api/sourcing/:id` |
-| disabled detail-page generate | `POST /api/sourcing/:id/generate` |
+| sourcing candidate detail | `GET /api/sourcing/:id` |
 | purchase orders | `/api/purchase-orders/*` |
 | supplier CRUD | `/api/suppliers/*` |
 
@@ -29,7 +28,8 @@ sourcing/
   adapter/in/http/        sourcing/procurement/suppliers controllers + DTOs
   adapter/out/agent/      SOURCING_AGENT_GATEWAY_PORT implementation
   adapter/out/products/   products catalog port adapter
-  application/port/out/   agent gateway + products catalog ports
+  adapter/out/repository/ SOURCING_CANDIDATE_REPOSITORY_PORT adapter
+  application/port/out/   agent gateway + products catalog + candidate repo ports
   application/service/    sourcing, procurement, suppliers services
   domain/policy/          purchase order status state machine
   __tests__/
@@ -38,29 +38,28 @@ sourcing/
 ## Boundary Rules
 
 - `/api/sourcing/scrape-url` delegates to Agent OS through
-  `SOURCING_AGENT_GATEWAY_PORT`. `SourcingService` must not inject Agent OS
-  services or runtime adapters directly.
+  `SOURCING_AGENT_GATEWAY_PORT.scrapeUrl`. `SourcingService` must not inject
+  Agent OS services or runtime adapters directly.
+- Sourcing extension ingest writes `SourcingCandidate` + `CandidateImage`
+  rows via `SOURCING_CANDIDATE_REPOSITORY_PORT`. **`MasterProduct` is no
+  longer written by sourcing ingest**.
 - Cross-domain `MasterProduct` creation flows through
-  `SOURCING_PRODUCTS_CATALOG_PORT`; the products adapter is the only sourcing
-  call site of `MastersService.create`.
-- Updating an existing `MasterProduct` by `{ sourceUrl, organizationId }` may
-  stay inside `SourcingService.receiveExtensionData`; it does not issue new
-  product codes.
+  `SOURCING_PRODUCTS_CATALOG_PORT.promoteCandidate` (Task 3 신설) —
+  promotion is the only sourcing call site of products domain creation.
+- After promotion, `SourcingPromotionService` (Task 3) fires
+  `SOURCING_AGENT_GATEWAY_PORT.notifyPromoted` which delegates to ai
+  domain's `POST_PROMOTION_AI_TRIGGER_PORT`. Sourcing has no knowledge of
+  AI payload shape.
 - Purchase-order transitions use pure domain policy in
   `domain/policy/purchase-order-status.ts`.
-- Suppliers stay transitional flat CRUD until a concrete reconstruction driver
-  appears.
+- Suppliers stay transitional flat CRUD until a concrete reconstruction
+  driver appears.
 
 ## Contracts
 
-- Extension ingest is idempotent by `{ sourceUrl, organizationId }`.
-- `/api/sourcing/extension/products` returns paginated, organization-scoped
-  `MasterProduct` rows.
-- `GET /api/sourcing/:id` uses `findFirst({ id, organizationId })` and
-  `pipelineStep IS NOT NULL`; miss is 404.
-- `POST /api/sourcing/:id/generate` stays disabled with
-  `NotImplementedException` until sourced candidates are modeled separately from
-  operational `MasterProduct`.
+- `GET /api/sourcing/:id` uses `findFirst({ id, organizationId, isDeleted: false })` on `SourcingCandidate`; miss is 404.
+- `GET /api/sourcing/extension/products` returns paginated, organization-scoped `SourcingCandidate` rows where `status='sourced'`.
+- Extension ingest is idempotent by `{ sourceUrl, organizationId, status='sourced', isDeleted=false }`. Re-scrape of a URL whose existing candidate is `promoted` or `rejected` creates a new `sourced` row (re-source intent).
 - `/api/purchase-orders` keeps the legacy single POST action body
   (`create | updateStatus | delete`).
 - Purchase-order status order is
@@ -75,6 +74,7 @@ sourcing/
 - Importing `supplier-payments`.
 - Direct import of products services from application services.
 - Raw `master_products` INSERT from sourcing; code issuance belongs to products.
+- Raw `master_products` INSERT/UPDATE from sourcing ingest — sourcing now writes `sourcing_candidates` only.
 - Reintroducing top-level `suppliers` or `procurement` folders.
 
 ## Verification
