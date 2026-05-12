@@ -2,7 +2,10 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 
 import { SuppliersController } from './adapter/in/http/suppliers.controller';
+import { ProcurementController } from './adapter/in/http/procurement.controller';
+
 import { SuppliersService } from './application/service/suppliers.service';
+import { ProcurementService } from './application/service/procurement.service';
 
 /**
  * Supply owns supplier registry, master-supplier policy, and purchase-order
@@ -12,7 +15,7 @@ import { SuppliersService } from './application/service/suppliers.service';
  */
 @Module({
   imports: [PrismaModule],
-  controllers: [SuppliersController],
-  providers: [SuppliersService],
+  controllers: [SuppliersController, ProcurementController],
+  providers: [SuppliersService, ProcurementService],
 })
 export class SupplyModule {}

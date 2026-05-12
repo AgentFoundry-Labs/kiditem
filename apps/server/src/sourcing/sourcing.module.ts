@@ -6,10 +6,8 @@ import { AutomationModule } from '../automation/automation.module';
 import { ProductsModule } from '../products/products.module';
 
 import { SourcingController } from './adapter/in/http/sourcing.controller';
-import { ProcurementController } from './adapter/in/http/procurement.controller';
 import { SourcingService } from './application/service/sourcing.service';
 import { SourcingPromotionService } from './application/service/sourcing-promotion.service';
-import { ProcurementService } from './application/service/procurement.service';
 
 import { SourcingAgentGatewayAdapter } from './adapter/out/agent/sourcing-agent.gateway.adapter';
 import { SourcingProductsCatalogAdapter } from './adapter/out/products/products-catalog.adapter';
@@ -19,33 +17,34 @@ import { SOURCING_PRODUCTS_CATALOG_PORT } from './application/port/out/products-
 import { SOURCING_CANDIDATE_REPOSITORY_PORT } from './application/port/out/sourcing-candidate.repository.port';
 
 /**
- * Sourcing is the canonical owner root for sourcing / procurement / suppliers.
+ * Sourcing is the canonical owner root for sourced-product discovery and the
+ * candidate→master promotion handoff.
+ *
  * Capabilities folded under this module:
  *   - sourcing extension ingest + scrape (Agent OS delegated) — `/api/sourcing/*`
- *   - purchase orders state machine — `/api/purchase-orders/*`
- *   - supplier CRUD (transitional flat) — `/api/suppliers/*`
+ *   - candidate promotion/rejection — `/api/sourcing/candidates/:id/{promote,reject}`
+ *
+ * Supplier registry and purchase-order procurement live in `supply/` (extracted
+ * during issue #192 follow-up Track A PR 1). `supplier-payments` is a finance
+ * capability.
  *
  * Agent delegation goes through `AGENT_RUNNER_PORT` (exported by
  * `AgentOsModule`). `SourcingAgentGatewayAdapter` is the only seam that calls
  * the runner; `SourcingService` consumes `SOURCING_AGENT_GATEWAY_PORT`.
  *
  * Sourcing ingest writes `SourcingCandidate` + `CandidateImage` rows via
- * `SOURCING_CANDIDATE_REPOSITORY_PORT`. Candidate→Master promotion (Task 3)
- * fires `SOURCING_AGENT_GATEWAY_PORT.notifyPromoted` which delegates to the
- * AI domain's `POST_PROMOTION_AI_TRIGGER_PORT` (exported by `AiModule`).
- *
- * `supplier-payments` is a finance capability and stays out of this module.
+ * `SOURCING_CANDIDATE_REPOSITORY_PORT`. Candidate→Master promotion fires
+ * `SOURCING_AGENT_GATEWAY_PORT.notifyPromoted` which delegates to the AI
+ * domain's `POST_PROMOTION_AI_TRIGGER_PORT` (exported by `AiModule`).
  */
 @Module({
   imports: [PrismaModule, AgentOsModule, AiModule, AutomationModule, ProductsModule],
   controllers: [
     SourcingController,
-    ProcurementController,
   ],
   providers: [
     SourcingService,
     SourcingPromotionService,
-    ProcurementService,
     SourcingAgentGatewayAdapter,
     SourcingProductsCatalogAdapter,
     SourcingCandidateRepositoryAdapter,
