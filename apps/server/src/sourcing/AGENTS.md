@@ -78,13 +78,6 @@ sourcing/
 - Promote/reject from non-`sourced` states is 422 UnprocessableEntity; a
   concurrent promoter that wins the row lock surfaces as 409 Conflict to the
   loser.
-- `/api/purchase-orders` keeps the legacy single POST action body
-  (`create | updateStatus | delete`).
-- Purchase-order status order is
-  `draft -> pending -> ordered -> shipped -> received`; delete is allowed only
-  from `draft` or `pending`.
-- Supplier read/update/delete is tenant-scoped by `{ id, organizationId }`.
-
 ## Hard Bans
 
 - Direct Agent OS injection from `application/service/**`.

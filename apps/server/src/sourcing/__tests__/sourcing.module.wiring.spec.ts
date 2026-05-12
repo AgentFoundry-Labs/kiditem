@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { SourcingModule } from '../sourcing.module';
 import { SourcingController } from '../adapter/in/http/sourcing.controller';
 import { SourcingService } from '../application/service/sourcing.service';
+import { SourcingPromotionService } from '../application/service/sourcing-promotion.service';
 import { SourcingAgentGatewayAdapter } from '../adapter/out/agent/sourcing-agent.gateway.adapter';
 import { SOURCING_AGENT_GATEWAY_PORT } from '../application/port/out/sourcing-agent.gateway.port';
 import { AutomationModule } from '../../automation/automation.module';
@@ -27,6 +28,7 @@ describe('SourcingModule canonical owner wiring', () => {
   it('declares every application service as a provider', () => {
     const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, SourcingModule) ?? [];
     expect(providers).toContain(SourcingService);
+    expect(providers).toContain(SourcingPromotionService);
   });
 
   it('binds SOURCING_AGENT_GATEWAY_PORT to the gateway adapter', () => {
@@ -42,9 +44,8 @@ describe('SourcingModule canonical owner wiring', () => {
 
   it('imports the Agent OS runtime so the gateway adapter can resolve AGENT_RUNNER_PORT', () => {
     const imports: unknown[] = Reflect.getMetadata(IMPORTS_KEY, SourcingModule) ?? [];
-    // PrismaModule + AgentOsModule + AutomationModule (+ ProductsModule).
-    // Suppliers stays transitional flat CRUD; introducing a new import here
-    // means a new capability surface.
+    // PrismaModule + AgentOsModule + AiModule + AutomationModule + ProductsModule.
+    // Supplier/procurement capability imports belong in SupplyModule.
     expect(imports.length).toBeGreaterThanOrEqual(2);
   });
 
