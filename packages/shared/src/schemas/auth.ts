@@ -16,3 +16,15 @@ export const AuthUserPublicSchema = z.object({
   membershipId: z.string().uuid().nullable(),
 });
 export type AuthUserPublic = z.infer<typeof AuthUserPublicSchema>;
+
+// Shared response envelope for HTTP 401 `auth_required`. Backend
+// `GlobalExceptionFilter` and Next.js `proxy.ts` both emit this exact shape so
+// `apiClient` can branch the same way regardless of which layer rejected the
+// request. Field order mirrors backend filter output.
+export type AuthRequiredErrorBody = {
+  statusCode: 401;
+  error: 'Unauthorized';
+  message: 'auth_required';
+  timestamp: string;
+  path: string;
+};
