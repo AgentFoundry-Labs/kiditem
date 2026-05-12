@@ -42,6 +42,11 @@ npx vitest run
 - Mutations invalidate the relevant query key.
 - Zustand is only for client UI state such as sidebar/panel preferences or SSE
   queues, not request/response server state.
+- 401 `auth_required` 자동 refresh + signOut 흐름은 `lib/supabase/refresh.ts`
+  (`refreshOrFail` / `triggerSignOut`) + `components/providers/AuthProvider.tsx`
+  (`onAuthStateChange` 단일 소유) 가 단독 책임. 다른 곳에서
+  `supabase.auth.signOut()` 직접 호출, `window.location.assign('/login')`,
+  또는 401 응답에 대한 별도 redirect/toast 추가 금지.
 
 ## Types And Errors
 
