@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MasterCodeService } from './adapter/out/prisma/master-code.service';
 import { MastersService } from './application/service/masters.service';
+import { MasterPromotionService } from './application/service/master-promotion.service';
 import { OptionsService } from './application/service/options.service';
 import { BundleStockService } from './application/service/bundle-stock.service';
 import { BundleComponentsService } from './application/service/bundle-components.service';
@@ -30,6 +31,7 @@ import { CategoriesModule } from './categories/categories.module';
   providers: [
     MasterCodeService,
     MastersService,
+    MasterPromotionService,
     OptionsService,
     BundleStockService,
     BundleComponentsService,
@@ -41,6 +43,7 @@ import { CategoriesModule } from './categories/categories.module';
   ],
   exports: [
     MastersService,
+    MasterPromotionService,
     OptionsService,
     BundleComponentsService,
     BundleStockService,

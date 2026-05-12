@@ -15,6 +15,8 @@ stay behind the declared ports.
 |---|---|
 | extension ingest + scrape | `/api/sourcing/extension/*`, `/api/sourcing/scrape-url` |
 | sourcing candidate detail | `GET /api/sourcing/:id` |
+| candidate promotion | `POST /api/sourcing/candidates/:id/promote` |
+| candidate rejection | `POST /api/sourcing/candidates/:id/reject` |
 | purchase orders | `/api/purchase-orders/*` |
 | supplier CRUD | `/api/suppliers/*` |
 
@@ -60,6 +62,24 @@ sourcing/
 - `GET /api/sourcing/:id` uses `findFirst({ id, organizationId, isDeleted: false })` on `SourcingCandidate`; miss is 404.
 - `GET /api/sourcing/extension/products` returns paginated, organization-scoped `SourcingCandidate` rows where `status='sourced'`.
 - Extension ingest is idempotent by `{ sourceUrl, organizationId, status='sourced', isDeleted=false }`. Re-scrape of a URL whose existing candidate is `promoted` or `rejected` creates a new `sourced` row (re-source intent).
+- Promotion is atomic: `SourcingPromotionService.promote` opens a single
+  `prisma.$transaction` that (1) tenant-scoped `findFirst` pre-checks the
+  candidate, (2) `SELECT ... FOR UPDATE` row-locks via tagged-template
+  `$queryRaw` (no `$queryRawUnsafe`), (3) delegates master+options+images
+  creation to `SOURCING_PRODUCTS_CATALOG_PORT.promoteCandidate(tx, ...)`, and
+  (4) flips the candidate row to `status='promoted' + promotedMasterId=<new>`.
+  The row lock enforces 1:1 in current use-case while the D2 schema permits
+  the future N:1 case (multiple candidates → one master).
+- Promotion fires `SOURCING_AGENT_GATEWAY_PORT.notifyPromoted` after commit;
+  failures are absorbed by the gateway (`OperationAlert`) so the HTTP path
+  always reports the promotion outcome. `body.skipPostPromotionHooks=true`
+  bypasses the AI trigger (ops escape hatch).
+- Rejection sets `status='rejected', rejectedAt=now(), rejectedReason,
+  rejectedByUserId` (D3). The candidate row is preserved; image rows stay
+  attached for audit.
+- Promote/reject from non-`sourced` states is 422 UnprocessableEntity; a
+  concurrent promoter that wins the row lock surfaces as 409 Conflict to the
+  loser.
 - `/api/purchase-orders` keeps the legacy single POST action body
   (`create | updateStatus | delete`).
 - Purchase-order status order is

@@ -5,3 +5,5 @@ export { ListPurchaseOrdersQueryDto } from './list-purchase-orders.dto';
 export { PurchaseOrderActionBodyDto } from './purchase-order-action.dto';
 export { CreateSupplierDto } from './create-supplier.dto';
 export { UpdateSupplierDto } from './update-supplier.dto';
+export { PromoteCandidateBodyDto } from './promote-candidate.dto';
+export { RejectCandidateBodyDto } from './reject-candidate.dto';

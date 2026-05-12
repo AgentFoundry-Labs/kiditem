@@ -65,11 +65,20 @@ retires or reconstructs it.
 
 ## Exports
 
-- Exported application services: `MastersService`, `OptionsService`,
-  `BundleComponentsService`, `ProductCatalogService`.
+- Exported application services: `MastersService`, `MasterPromotionService`,
+  `OptionsService`, `BundleComponentsService`, `ProductCatalogService`,
+  `ProductManagementService`.
 - `MasterCodeService` is not exported.
 - `BundleStockService` is restricted to inventory recompute integration. Other
   modules should not call it directly.
+- `MasterPromotionService` is the products-side composite for sourcing
+  candidate promotion (issue #192). Only sourcing's
+  `SOURCING_PRODUCTS_CATALOG_PORT` outgoing adapter is expected to consume it.
+  It owns the atomic master/options/images write inside a caller-supplied
+  `Prisma.TransactionClient`, calls `MasterCodeService.generate(tx)` for the
+  family code, sets `lifecycleState='active'`, and delegates per-option work
+  to `OptionsService.create` so SKU issuance + tenant guards stay inside the
+  transaction.
 
 ## Organization Scope
 

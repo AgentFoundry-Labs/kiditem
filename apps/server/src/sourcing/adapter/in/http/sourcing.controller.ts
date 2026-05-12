@@ -1,8 +1,11 @@
 import { Controller, Get, Post, Body, Param, Query } from '@nestjs/common';
 import { SourcingService } from '../../../application/service/sourcing.service';
+import { SourcingPromotionService } from '../../../application/service/sourcing-promotion.service';
 import {
   ListExtensionProductsQueryDto,
+  PromoteCandidateBodyDto,
   ReceiveExtensionDataDto,
+  RejectCandidateBodyDto,
   ScrapeUrlBodyDto,
 } from './dto';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
@@ -11,7 +14,10 @@ import type { AuthUser } from '../../../../auth/auth.types';
 
 @Controller('sourcing')
 export class SourcingController {
-  constructor(private readonly sourcingService: SourcingService) {}
+  constructor(
+    private readonly sourcingService: SourcingService,
+    private readonly promotionSvc: SourcingPromotionService,
+  ) {}
 
   @Post('extension/product-data')
   async receiveExtensionData(
@@ -38,6 +44,25 @@ export class SourcingController {
     @CurrentOrganization() organizationId: string,
   ) {
     return this.sourcingService.listProducts(query, organizationId);
+  }
+
+  @Post('candidates/:id/promote')
+  async promote(
+    @Param('id') id: string,
+    @Body() body: PromoteCandidateBodyDto,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return this.promotionSvc.promote(id, organizationId, body);
+  }
+
+  @Post('candidates/:id/reject')
+  async reject(
+    @Param('id') id: string,
+    @Body() body: RejectCandidateBodyDto,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.promotionSvc.reject(id, organizationId, body, user.id ?? null);
   }
 
   @Get(':id')
