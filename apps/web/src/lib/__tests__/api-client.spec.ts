@@ -1,28 +1,77 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { z } from 'zod';
 import { apiClient } from '../api-client';
+import { ApiError, isApiError } from '../api-error';
+
+const refreshOrFailMock = vi.fn();
+const triggerSignOutMock = vi.fn();
+
+vi.mock('../supabase/refresh', () => ({
+  refreshOrFail: (...args: unknown[]) => refreshOrFailMock(...args),
+  triggerSignOut: (...args: unknown[]) => triggerSignOutMock(...args),
+}));
+
+vi.mock('../supabase/client', () => ({
+  createSupabaseBrowserClient: () => ({
+    auth: {
+      getSession: async () => ({ data: { session: null } }),
+    },
+  }),
+}));
 
 const DataSchema = z.object({
   id: z.string().uuid(),
   amount: z.number().int(),
 });
 
+function jsonResponse(status: number, body: unknown, ok = status < 400): Response {
+  return {
+    ok,
+    status,
+    headers: new Headers({ 'content-type': 'application/json' }),
+    clone() {
+      return jsonResponse(status, body, ok);
+    },
+    async json() {
+      return body;
+    },
+    async text() {
+      return JSON.stringify(body);
+    },
+  } as unknown as Response;
+}
+
+function textResponse(status: number, body: string, ok = status < 400): Response {
+  return {
+    ok,
+    status,
+    headers: new Headers({ 'content-type': 'text/html' }),
+    clone() {
+      return textResponse(status, body, ok);
+    },
+    async json() {
+      throw new SyntaxError('non-JSON body');
+    },
+    async text() {
+      return body;
+    },
+  } as unknown as Response;
+}
+
 describe('apiClient.getParsed', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
+    refreshOrFailMock.mockReset();
+    triggerSignOutMock.mockReset();
   });
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
   it('returns parsed data on valid response', async () => {
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      ok: true,
-      text: async () => JSON.stringify({
-        id: '11111111-1111-1111-1111-111111111111',
-        amount: 42,
-      }),
-    });
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      jsonResponse(200, { id: '11111111-1111-1111-1111-111111111111', amount: 42 }),
+    );
     const result = await apiClient.getParsed('/api/test', DataSchema);
     expect(result).toEqual({
       id: '11111111-1111-1111-1111-111111111111',
@@ -32,23 +81,259 @@ describe('apiClient.getParsed', () => {
   });
 
   it('throws ZodError on invalid response shape', async () => {
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      ok: true,
-      text: async () => JSON.stringify({ id: 'not-uuid', amount: 'not-number' }),
-    });
-    await expect(apiClient.getParsed('/api/test', DataSchema))
-      .rejects.toThrowError(/ZodError|invalid/i);
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      jsonResponse(200, { id: 'not-uuid', amount: 'not-number' }),
+    );
+    await expect(apiClient.getParsed('/api/test', DataSchema)).rejects.toThrowError(
+      /ZodError|invalid/i,
+    );
   });
 
   it('parses array schema', async () => {
     const ArraySchema = z.array(DataSchema);
-    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      ok: true,
-      text: async () => JSON.stringify([
-        { id: '11111111-1111-1111-1111-111111111111', amount: 1 },
-      ]),
-    });
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      jsonResponse(200, [{ id: '11111111-1111-1111-1111-111111111111', amount: 1 }]),
+    );
     const result = await apiClient.getParsed('/api/test', ArraySchema);
     expect(result).toHaveLength(1);
+  });
+});
+
+describe('apiClient — 401 interceptor', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+    refreshOrFailMock.mockReset();
+    triggerSignOutMock.mockReset();
+    triggerSignOutMock.mockResolvedValue(undefined);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('AC1: GET 401 auth_required → refresh success → retry → 200 body returned', async () => {
+    const fetchMock = fetch as ReturnType<typeof vi.fn>;
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse(401, {
+          statusCode: 401,
+          error: 'Unauthorized',
+          message: 'auth_required',
+          timestamp: '2026-05-12T00:00:00Z',
+          path: '/api/foo',
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse(200, { ok: true }));
+    refreshOrFailMock.mockResolvedValueOnce(true);
+
+    const result = await apiClient.get<{ ok: boolean }>('/api/foo');
+
+    expect(result).toEqual({ ok: true });
+    expect(refreshOrFailMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(triggerSignOutMock).not.toHaveBeenCalled();
+  });
+
+  it('AC2: GET 401 auth_required → refresh fail → triggerSignOut("session_expired") + throw', async () => {
+    const fetchMock = fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(401, {
+        statusCode: 401,
+        error: 'Unauthorized',
+        message: 'auth_required',
+        timestamp: '2026-05-12T00:00:00Z',
+        path: '/api/foo',
+      }),
+    );
+    refreshOrFailMock.mockResolvedValueOnce(false);
+
+    await expect(apiClient.get('/api/foo')).rejects.toMatchObject({
+      status: 401,
+      code: 'auth_required',
+    });
+
+    expect(refreshOrFailMock).toHaveBeenCalledTimes(1);
+    expect(triggerSignOutMock).toHaveBeenCalledWith('session_expired');
+  });
+
+  it('AC3: POST FormData 401 auth_required → refresh SKIP → triggerSignOut + throw', async () => {
+    const fetchMock = fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(401, {
+        statusCode: 401,
+        error: 'Unauthorized',
+        message: 'auth_required',
+        timestamp: '2026-05-12T00:00:00Z',
+        path: '/api/upload',
+      }),
+    );
+
+    const formData = new FormData();
+    formData.append('file', new Blob(['hello']), 'test.txt');
+
+    await expect(apiClient.upload('/api/upload', formData)).rejects.toMatchObject({
+      status: 401,
+      code: 'auth_required',
+    });
+
+    expect(refreshOrFailMock).not.toHaveBeenCalled();
+    expect(triggerSignOutMock).toHaveBeenCalledWith('session_expired');
+  });
+
+  it('AC4: GET 401 no_organization_context → NO signOut, throw ApiError', async () => {
+    const fetchMock = fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(401, {
+        statusCode: 401,
+        error: 'Unauthorized',
+        message: 'no_organization_context',
+        timestamp: '2026-05-12T00:00:00Z',
+        path: '/api/foo',
+      }),
+    );
+
+    await expect(apiClient.get('/api/foo')).rejects.toMatchObject({
+      status: 401,
+      code: 'no_organization_context',
+    });
+
+    expect(refreshOrFailMock).not.toHaveBeenCalled();
+    expect(triggerSignOutMock).not.toHaveBeenCalled();
+  });
+
+  it('AC5: GET 401 unknown_message → NO refresh, throw generic ApiError', async () => {
+    const fetchMock = fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(401, {
+        statusCode: 401,
+        error: 'Unauthorized',
+        message: 'some_other_reason',
+        timestamp: '2026-05-12T00:00:00Z',
+        path: '/api/foo',
+      }),
+    );
+
+    let caught: unknown;
+    try {
+      await apiClient.get('/api/foo');
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(isApiError(caught)).toBe(true);
+    expect((caught as ApiError).status).toBe(401);
+    expect((caught as ApiError).code).toBe('Unauthorized');
+    expect(refreshOrFailMock).not.toHaveBeenCalled();
+    expect(triggerSignOutMock).not.toHaveBeenCalled();
+  });
+
+  it('AC6: GET 500 → code === body.error (no drift)', async () => {
+    const fetchMock = fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(500, {
+        statusCode: 500,
+        error: 'INTERNAL',
+        message: 'database connection lost',
+        timestamp: '2026-05-12T00:00:00Z',
+        path: '/api/foo',
+      }),
+    );
+
+    let caught: unknown;
+    try {
+      await apiClient.get('/api/foo');
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(isApiError(caught)).toBe(true);
+    expect((caught as ApiError).status).toBe(500);
+    expect((caught as ApiError).code).toBe('INTERNAL');
+    expect((caught as ApiError).detail).toBe('database connection lost');
+    expect(refreshOrFailMock).not.toHaveBeenCalled();
+  });
+
+  it('AC7: fetchRaw 401 auth_required → refresh + retry path, then 200 Response', async () => {
+    const fetchMock = fetch as ReturnType<typeof vi.fn>;
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse(401, {
+          statusCode: 401,
+          error: 'Unauthorized',
+          message: 'auth_required',
+          timestamp: '2026-05-12T00:00:00Z',
+          path: '/api/render-image',
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse(200, { imageUrl: 'https://...' }));
+    refreshOrFailMock.mockResolvedValueOnce(true);
+
+    const res = await apiClient.fetchRaw('/api/render-image', { method: 'POST' });
+
+    expect(res.status).toBe(200);
+    expect(refreshOrFailMock).toHaveBeenCalledTimes(1);
+    expect(triggerSignOutMock).not.toHaveBeenCalled();
+  });
+
+  it('AC7b: fetchRaw 401 auth_required → refresh fail → signOut → raw 401 Response returned', async () => {
+    const fetchMock = fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(401, {
+        statusCode: 401,
+        error: 'Unauthorized',
+        message: 'auth_required',
+        timestamp: '2026-05-12T00:00:00Z',
+        path: '/api/render-image',
+      }),
+    );
+    refreshOrFailMock.mockResolvedValueOnce(false);
+
+    const res = await apiClient.fetchRaw('/api/render-image', { method: 'POST' });
+
+    expect(res.status).toBe(401);
+    expect(triggerSignOutMock).toHaveBeenCalledWith('session_expired');
+  });
+
+  it('AC8: each independent 401 invokes refreshOrFail (mutex coalescing verified in refresh.spec R3)', async () => {
+    // apiClient 책임은 "401 받을 때마다 refreshOrFail 호출". 다중 동시 호출을
+    // 1 refresh 로 합치는 mutex 는 refreshOrFail 자체 책임 (refresh.spec.ts R3).
+    // 여기서는 sequential 3회로 호출 횟수만 검증.
+    const fetchMock = fetch as ReturnType<typeof vi.fn>;
+    const body401 = {
+      statusCode: 401,
+      error: 'Unauthorized',
+      message: 'auth_required',
+      timestamp: '2026-05-12T00:00:00Z',
+      path: '/api/foo',
+    };
+    for (let i = 0; i < 3; i++) {
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse(401, body401))
+        .mockResolvedValueOnce(jsonResponse(200, { ok: i }));
+    }
+    refreshOrFailMock.mockResolvedValue(true);
+
+    await apiClient.get<{ ok: number }>('/api/foo');
+    await apiClient.get<{ ok: number }>('/api/foo');
+    await apiClient.get<{ ok: number }>('/api/foo');
+
+    expect(refreshOrFailMock).toHaveBeenCalledTimes(3);
+    expect(triggerSignOutMock).not.toHaveBeenCalled();
+  });
+
+  it('AC9: 401 with non-JSON body → no refresh, generic ApiError thrown', async () => {
+    const fetchMock = fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(textResponse(401, '<html>login page</html>'));
+
+    let caught: unknown;
+    try {
+      await apiClient.get('/api/foo');
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(isApiError(caught)).toBe(true);
+    expect((caught as ApiError).status).toBe(401);
+    expect(refreshOrFailMock).not.toHaveBeenCalled();
+    expect(triggerSignOutMock).not.toHaveBeenCalled();
   });
 });
