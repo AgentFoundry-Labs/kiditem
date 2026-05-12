@@ -53,6 +53,7 @@ import { DetailPageGenerationService } from './application/service/detail-page-g
 import { DetailPagePrefillService } from './application/service/detail-page-prefill.service';
 import { DetailPageQueryService } from './application/service/detail-page-query.service';
 import { DetailPageResultRefinerService } from './application/service/detail-page-result-refiner.service';
+import { PostPromotionAiService } from './application/service/post-promotion-ai.service';
 import { BoldVerticalRefinerService } from './application/service/bold-vertical-refiner.service';
 import { KidsPlayfulRefinerService } from './application/service/kids-playful-refiner.service';
 import { ThumbnailComplianceVerifierService } from './application/service/thumbnail-compliance-verifier.service';
@@ -63,6 +64,9 @@ import { ThumbnailRecomposeService } from './application/service/thumbnail-recom
 import { ThumbnailTrackingService } from './application/service/thumbnail-tracking.service';
 import { ThumbnailVisionAiService } from './application/service/thumbnail-vision-ai.service';
 import { ThumbnailWingService } from './application/service/thumbnail-wing.service';
+
+// application/port — in
+import { POST_PROMOTION_AI_TRIGGER_PORT } from './application/port/in/post-promotion-ai-trigger.port';
 
 // application/port — out
 import { DETAIL_PAGE_AGENT_OUTPUT_SINK_PORT } from './application/port/out/detail-page-agent-output-sink.port';
@@ -105,6 +109,7 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     DetailPageResultRefinerService,
     BoldVerticalRefinerService,
     KidsPlayfulRefinerService,
+    PostPromotionAiService,
     TextAiService,
     ThumbnailAgentReconcileService,
     ThumbnailAnalysisService,
@@ -173,6 +178,11 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     { provide: MASTER_CATALOG_PORT, useExisting: MasterCatalogAdapter },
     { provide: TEXT_COMPLETION_PORT, useExisting: GeminiTextCompletionAdapter },
     { provide: THUMBNAIL_GENERATION_EVENT_PORT, useExisting: ThumbnailGenerationEventAdapter },
+
+    // Inbound port — sourcing's post-promotion gateway injects this to fire
+    // detail-page + thumbnail generation with AI-domain-owned defaults.
+    { provide: POST_PROMOTION_AI_TRIGGER_PORT, useExisting: PostPromotionAiService },
   ],
+  exports: [POST_PROMOTION_AI_TRIGGER_PORT],
 })
 export class AiModule {}

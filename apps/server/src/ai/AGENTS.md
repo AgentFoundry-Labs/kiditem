@@ -117,6 +117,28 @@ HTTP DTO
 The handler may call existing thumbnail editor services, but must not write
 Prisma rows directly.
 
+## Post-Promotion Trigger
+
+The sourcing-candidate split (issue #192) introduces an inbound port for
+post-promotion AI generation:
+
+- Port: `POST_PROMOTION_AI_TRIGGER_PORT` in `application/port/in/`
+- Service: `PostPromotionAiService` — enqueues `detail_page_generate` +
+  `thumbnail_generate` with AI-domain-owned defaults
+  (`templateId='kids-playful'`, `mode='full'`)
+- Fire-and-forget: individual agent enqueue failures logged but not thrown
+- Called by sourcing's `SourcingAgentGatewayAdapter.notifyPromoted` (Phase 2)
+
+## ContentGeneration Master-Only Contract
+
+`ContentGeneration` and `ThumbnailGeneration` are master-only by contract
+(master_id FK is required; no polymorphic candidate target). The
+sourcing-candidate split design (issue #192) explicitly rejected
+polymorphism over implicit assumptions. If future requirements need
+candidate-stage AI preview, that would require a new
+`CandidateContentGeneration` table — not a polymorphic discriminator on
+`ContentGeneration`.
+
 ## Transitional Exceptions
 
 These are known same-domain shortcuts. Do not add to this list without removing
