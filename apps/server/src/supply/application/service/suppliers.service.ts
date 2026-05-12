@@ -3,11 +3,11 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateSupplierDto, UpdateSupplierDto } from '../../adapter/in/http/dto';
 
 /**
- * Suppliers stay as transitional legacy CRUD inside the sourcing owner domain.
+ * Suppliers stay as transitional legacy CRUD inside the supply owner domain.
  * Per the backend architecture contract, ports are deferred for tiny CRUD that
  * is not being reconstructed in this PR. Future supplier-side reconstruction
  * may add ports/adapters; the controller and route are already housed under
- * sourcing.
+ * supply.
  */
 @Injectable()
 export class SuppliersService {
@@ -59,20 +59,22 @@ export class SuppliersService {
       throw new BadRequestException('거래처를 찾을 수 없습니다');
     }
 
-    return this.prisma.supplier.update({
-      where: { id },
-      data: {
-        ...(dto.name !== undefined && { name: dto.name }),
-        ...(dto.contactName !== undefined && { contactName: dto.contactName }),
-        ...(dto.phone !== undefined && { phone: dto.phone }),
-        ...(dto.email !== undefined && { email: dto.email }),
-        ...(dto.address !== undefined && { address: dto.address }),
-        ...(dto.leadTimeDays !== undefined && { leadTimeDays: dto.leadTimeDays }),
-        ...(dto.paymentTerms !== undefined && { paymentTerms: dto.paymentTerms }),
-        ...(dto.notes !== undefined && { notes: dto.notes }),
-        ...(dto.status !== undefined && { status: dto.status }),
-      },
+    const { count } = await this.prisma.supplier.updateMany({
+      where: { id, organizationId },
+      data: this.buildUpdateData(dto),
     });
+    if (count === 0) {
+      throw new BadRequestException('거래처를 찾을 수 없습니다');
+    }
+
+    const updated = await this.prisma.supplier.findFirst({
+      where: { id, organizationId },
+    });
+    if (!updated) {
+      throw new BadRequestException('거래처를 찾을 수 없습니다');
+    }
+
+    return updated;
   }
 
   async delete(id: string, organizationId: string) {
@@ -83,7 +85,26 @@ export class SuppliersService {
       throw new BadRequestException('거래처를 찾을 수 없습니다');
     }
 
-    await this.prisma.supplier.delete({ where: { id } });
+    const { count } = await this.prisma.supplier.deleteMany({
+      where: { id, organizationId },
+    });
+    if (count === 0) {
+      throw new BadRequestException('거래처를 찾을 수 없습니다');
+    }
     return { ok: true };
+  }
+
+  private buildUpdateData(dto: UpdateSupplierDto) {
+    return {
+      ...(dto.name !== undefined && { name: dto.name }),
+      ...(dto.contactName !== undefined && { contactName: dto.contactName }),
+      ...(dto.phone !== undefined && { phone: dto.phone }),
+      ...(dto.email !== undefined && { email: dto.email }),
+      ...(dto.address !== undefined && { address: dto.address }),
+      ...(dto.leadTimeDays !== undefined && { leadTimeDays: dto.leadTimeDays }),
+      ...(dto.paymentTerms !== undefined && { paymentTerms: dto.paymentTerms }),
+      ...(dto.notes !== undefined && { notes: dto.notes }),
+      ...(dto.status !== undefined && { status: dto.status }),
+    };
   }
 }

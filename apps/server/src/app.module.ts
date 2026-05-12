@@ -15,6 +15,7 @@ import { ProductsModule } from './products/products.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { SourcingModule } from './sourcing/sourcing.module';
+import { SupplyModule } from './supply/supply.module';
 import { ActivityEventsModule } from './activity-events/activity-events.module';
 import { ChannelsModule } from './channels/channels.module';
 import { AiModule } from './ai/ai.module';
@@ -49,6 +50,7 @@ import { ReadinessModule } from './readiness/readiness.module';
     OrganizationsModule,
     AnalyticsModule,
     SourcingModule,
+    SupplyModule,
     ActivityEventsModule,
     ChannelsModule,
     AiModule,
