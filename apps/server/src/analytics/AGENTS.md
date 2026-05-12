@@ -4,9 +4,13 @@ Analytics owns dashboard, statistics, traffic, and supplier-stats read models.
 It may read across owner-domain tables for reporting, but it does not import
 other owner-domain services or take mutation authority from them.
 
-Dashboard is reconstructed because it owns raw SQL and report hydration.
-Statistics, traffic, and supplier-stats may stay flat read services until they
-gain raw SQL complexity, mutation invariants, or 500+ line service pressure.
+Dashboard is hexagonal-complete: outgoing ports + repository adapters cover
+every Prisma read, application services are Prisma-free, and pure helpers
+live under `dashboard/domain/`. See
+[`dashboard/AGENTS.md`](dashboard/AGENTS.md) for the scoped contract.
+Statistics, traffic, and supplier-stats may stay flat read services until
+they gain raw SQL complexity, mutation invariants, or 500+ line service
+pressure.
 
 ## Public Routes
 
@@ -26,7 +30,7 @@ gain raw SQL complexity, mutation invariants, or 500+ line service pressure.
 
 | Path | Shape |
 |---|---|
-| `dashboard/` | reconstructed: HTTP adapters, repository adapters, application services, pure helpers |
+| `dashboard/` | hexagonal-complete: port/adapter + application + domain. See [dashboard/AGENTS.md](dashboard/AGENTS.md) |
 | `statistics/` | transitional flat read service |
 | `traffic/` | transitional flat read service plus upload mutation lane |
 | `supplier-stats/` | transitional flat read service |

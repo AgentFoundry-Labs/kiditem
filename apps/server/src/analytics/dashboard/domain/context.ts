@@ -1,4 +1,4 @@
-import { kstDayStart } from '../../../../common/kst';
+import { kstDayStart } from '../../../common/kst';
 
 interface DateRangeContext {
   start: Date;

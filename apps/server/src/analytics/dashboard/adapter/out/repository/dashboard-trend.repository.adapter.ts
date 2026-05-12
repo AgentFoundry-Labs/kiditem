@@ -1,16 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../../prisma/prisma.service';
-
-export interface TrendRevenueRow {
-  date: string;
-  revenue: number;
-}
-
-export interface TrendAdCostRow {
-  date: string;
-  ad_cost: number;
-}
+import type {
+  DashboardTrendRepositoryPort,
+  TrendRevenueRow,
+  TrendAdCostRow,
+} from '../../../application/port/out/dashboard-trend.repository.port';
 
 /**
  * Trend-side raw SQL for the dashboard read model.
@@ -21,7 +16,9 @@ export interface TrendAdCostRow {
  * order-date and ad-snapshot grouping.
  */
 @Injectable()
-export class DashboardTrendRepositoryAdapter {
+export class DashboardTrendRepositoryAdapter
+  implements DashboardTrendRepositoryPort
+{
   constructor(private readonly prisma: PrismaService) {}
 
   async fetchTrendRevenueRows(

@@ -20,11 +20,18 @@ const ALLOW_LIST = [
   'CLAUDE_CODE_OAUTH_TOKEN',
 ];
 
+const OPTIONAL_SECRET_KEYS = new Set([
+  'ANTHROPIC_API_KEY',
+  'CLAUDE_CODE_OAUTH_TOKEN',
+]);
+
 export function buildClaudeCliEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const key of ALLOW_LIST) {
     const value = process.env[key];
-    if (value !== undefined) env[key] = value;
+    if (value === undefined) continue;
+    if (OPTIONAL_SECRET_KEYS.has(key) && value.trim() === '') continue;
+    env[key] = value;
   }
   return env;
 }

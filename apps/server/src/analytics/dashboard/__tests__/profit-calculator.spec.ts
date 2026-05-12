@@ -1,8 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
-import { calculateProfitForRange } from '../adapter/out/repository/profit-calculation.repository.adapter';
+import { ProfitCalculationRepositoryAdapter } from '../adapter/out/repository/profit-calculation.repository.adapter';
+import type { PrismaService } from '../../../prisma/prisma.service';
 
 /**
- * Hard rewrite Phase H3b — `calculateProfitForRange` ad spend now reads
+ * `ProfitCalculationRepositoryAdapter.calculateForRange` ad spend reads
  * `ChannelListingDailySnapshot.aggregate({ _sum: { adSpend, adRevenue, ... } })`.
  * Tests stay focused on R-1 shipping accumulation by stubbing the aggregate
  * to return zero — the order/lineItem path is unchanged.
@@ -29,7 +30,13 @@ function makePrisma(orders: unknown[]): PrismaMock {
   };
 }
 
-describe('calculateProfitForRange — R-1 shipping per-order', () => {
+function makeAdapter(prisma: PrismaMock): ProfitCalculationRepositoryAdapter {
+  return new ProfitCalculationRepositoryAdapter(
+    prisma as unknown as PrismaService,
+  );
+}
+
+describe('ProfitCalculationRepositoryAdapter.calculateForRange — R-1 shipping per-order', () => {
   it('order 1개에 lineItem 3개여도 shipping = order.shippingPrice × 1', async () => {
     const prisma = makePrisma([
       {
@@ -70,7 +77,7 @@ describe('calculateProfitForRange — R-1 shipping per-order', () => {
     ]);
     const from = new Date('2026-04-01T00:00:00Z');
     const to = new Date('2026-05-01T00:00:00Z');
-    const result = await calculateProfitForRange(prisma as any, 'organization-1', from, to);
+    const result = await makeAdapter(prisma).calculateForRange('organization-1', from, to);
     expect(result.shippingCost).toBe(3000); // NOT 999 × 3
   });
 
@@ -99,7 +106,7 @@ describe('calculateProfitForRange — R-1 shipping per-order', () => {
     ]);
     const from = new Date('2026-04-01T00:00:00Z');
     const to = new Date('2026-05-01T00:00:00Z');
-    const result = await calculateProfitForRange(prisma as any, 'organization-1', from, to);
+    const result = await makeAdapter(prisma).calculateForRange('organization-1', from, to);
     expect(result.shippingCost).toBe(5500);
   });
 
@@ -109,7 +116,7 @@ describe('calculateProfitForRange — R-1 shipping per-order', () => {
     ]);
     const from = new Date('2026-04-01T00:00:00Z');
     const to = new Date('2026-05-01T00:00:00Z');
-    const result = await calculateProfitForRange(prisma as any, 'organization-1', from, to);
+    const result = await makeAdapter(prisma).calculateForRange('organization-1', from, to);
     expect(result.shippingCost).toBe(3000);
     expect(result.revenue).toBe(0);
   });
@@ -118,7 +125,7 @@ describe('calculateProfitForRange — R-1 shipping per-order', () => {
     const findManyMock = vi.fn().mockResolvedValue([
       { shippingPrice: 3000, lineItems: [{ quantity: 1, totalPrice: 10000, option: { costPrice: 5000, commissionRate: 0.1, otherCost: 0 } }] },
     ]);
-    const prisma = {
+    const prisma: PrismaMock = {
       order: { findMany: findManyMock },
       channelListingDailySnapshot: {
         aggregate: vi.fn().mockResolvedValue({
@@ -134,7 +141,7 @@ describe('calculateProfitForRange — R-1 shipping per-order', () => {
     };
     const from = new Date('2026-04-01T00:00:00Z');
     const to = new Date('2026-05-01T00:00:00Z');
-    await calculateProfitForRange(prisma as any, 'organization-1', from, to);
+    await makeAdapter(prisma).calculateForRange('organization-1', from, to);
     // The status filter is the service's contract — assert findMany was called with notIn filter
     expect(findManyMock).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
@@ -145,7 +152,7 @@ describe('calculateProfitForRange — R-1 shipping per-order', () => {
   });
 });
 
-describe('calculateProfitForRange — daily-fact ad spend aggregation', () => {
+describe('ProfitCalculationRepositoryAdapter.calculateForRange — daily-fact ad spend aggregation', () => {
   it('aggregates adSpend/adRevenue/adImpressions/adClicks/adConversions from ChannelListingDailySnapshot', async () => {
     const aggregateMock = vi.fn().mockResolvedValue({
       _sum: {
@@ -156,13 +163,13 @@ describe('calculateProfitForRange — daily-fact ad spend aggregation', () => {
         adConversions: 5,
       },
     });
-    const prisma = {
+    const prisma: PrismaMock = {
       order: { findMany: vi.fn().mockResolvedValue([]) },
       channelListingDailySnapshot: { aggregate: aggregateMock },
     };
     const from = new Date('2026-04-01T00:00:00Z');
     const to = new Date('2026-05-01T00:00:00Z');
-    const result = await calculateProfitForRange(prisma as any, 'organization-1', from, to);
+    const result = await makeAdapter(prisma).calculateForRange('organization-1', from, to);
 
     expect(aggregateMock).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
@@ -185,7 +192,7 @@ describe('calculateProfitForRange — daily-fact ad spend aggregation', () => {
   });
 
   it('empty daily-fact aggregate → zero ad metrics, no legacy fallback', async () => {
-    const prisma = {
+    const prisma: PrismaMock = {
       order: { findMany: vi.fn().mockResolvedValue([]) },
       channelListingDailySnapshot: {
         aggregate: vi.fn().mockResolvedValue({
@@ -201,7 +208,7 @@ describe('calculateProfitForRange — daily-fact ad spend aggregation', () => {
     };
     const from = new Date('2026-04-01T00:00:00Z');
     const to = new Date('2026-05-01T00:00:00Z');
-    const result = await calculateProfitForRange(prisma as any, 'organization-1', from, to);
+    const result = await makeAdapter(prisma).calculateForRange('organization-1', from, to);
     expect(result.adCost).toBe(0);
     expect(result.adRevenue).toBe(0);
     expect(result.adImpressions).toBe(0);
