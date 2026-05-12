@@ -50,6 +50,18 @@ retires or reconstructs it.
 - Bundle component CRUD recomputes inline inside the transaction and uses the
   canonical row-lock helper in `adapter/out/prisma/bundle-stock.persistence.ts`.
 - Master and option use soft delete. BundleComponent uses hard delete.
+- `lifecycleState` is the master lifecycle on the API surface. Allowed values
+  are `active | paused | discontinued`, validated via
+  `@kiditem/shared/product`'s `PRODUCT_LIFECYCLE_STATES` /
+  `ProductLifecycleStateSchema`. The Prisma column defaults to `'active'`;
+  service-layer code does not need to set it explicitly on create. Catalog
+  count buckets are `activeCount / pausedCount / discontinuedCount /
+  totalCount`.
+- `pipelineStep` is deprecated on the products API surface as of Phase 5
+  (#192). The `master_products.pipeline_step` column persists until Phase 8
+  drops it; nothing in `products/` should select, filter on, or echo
+  `pipelineStep` going forward (the only remaining narrative reference is the
+  Phase 8 retirement note on `MasterPromotionService`).
 
 ## Controller And Service Rules
 

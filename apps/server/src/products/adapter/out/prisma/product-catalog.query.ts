@@ -2,11 +2,12 @@
 //
 // Catalog hydrated read shape used by `GET /api/products/catalog`,
 // `GET /api/products/catalog/:id`, and `GET /api/products/catalog/counts`.
-// Owns the WHERE builder (organizationId + soft-delete + grade + pipelineStep +
+// Owns the WHERE builder (organizationId + soft-delete + grade + lifecycleState +
 // search OR-clause), the explicit `select` that intentionally excludes
 // rawData / processedData / draftContent JSON blobs, and the nested option
 // tenant scope (`{ organizationId, isDeleted: false, isActive: true }`).
 import type { Prisma } from '@prisma/client';
+import { PRODUCT_LIFECYCLE_STATES } from '@kiditem/shared/product';
 import type { PrismaService } from '../../../../prisma/prisma.service';
 import type { ListProductCatalogQuery } from '../../../dto/list-product-catalog.query';
 
@@ -61,7 +62,7 @@ export type CatalogMasterRow = {
   sourcePlatform: string | null;
   costCny: Prisma.Decimal | number | null;
   marginRate: Prisma.Decimal | number | null;
-  pipelineStep: string | null;
+  lifecycleState: string;
   detailPageUrl: string | null;
   thumbnailStrategy: string;
   isDeleted: boolean;
@@ -77,24 +78,13 @@ export type CatalogMasterRow = {
 export type CatalogCountsRow = {
   abcGrade: string | null;
   adTier: string | null;
-  pipelineStep: string | null;
+  lifecycleState: string;
   isTemporary: boolean;
 };
 
-/**
- * Legacy callers pass `status=active` etc. through the deprecated /api/products
- * alias. Only forward values that match a real pipeline step; unknown and 'all'
- * become no filter so we don't return empty lists for meaningless pipelineStep.
- */
-export function normalizePipelineStep(value: string | undefined | null): string | null {
-  if (!value || value === 'all') return null;
-  const KNOWN = new Set(['draft', 'processing', 'processed', 'discontinued']);
-  return KNOWN.has(value) ? value : null;
-}
-
 export function buildCatalogWhere(
   organizationId: string,
-  q: Pick<ListProductCatalogQuery, 'search' | 'grade' | 'pipelineStep' | 'status'>,
+  q: Pick<ListProductCatalogQuery, 'search' | 'grade' | 'lifecycleState'>,
 ): Prisma.MasterProductWhereInput {
   const ands: Prisma.MasterProductWhereInput[] = [];
   if (q.search) {
@@ -113,12 +103,18 @@ export function buildCatalogWhere(
       ],
     });
   }
-  const pipelineStep = normalizePipelineStep(q.pipelineStep ?? q.status);
+  // Phase 5 (#192): only forward `lifecycleState` if it parses to a known
+  // value. Unknown query values short-circuit to no filter so we never echo a
+  // bogus enum value into the WHERE clause.
+  const lifecycleState =
+    q.lifecycleState && (PRODUCT_LIFECYCLE_STATES as readonly string[]).includes(q.lifecycleState)
+      ? q.lifecycleState
+      : undefined;
   return {
     organizationId,
     isDeleted: false,
     ...(q.grade ? { abcGrade: q.grade } : {}),
-    ...(pipelineStep ? { pipelineStep } : {}),
+    ...(lifecycleState ? { lifecycleState } : {}),
     ...(ands.length > 0 ? { AND: ands } : {}),
   };
 }
@@ -156,7 +152,7 @@ export function buildCatalogMasterSelect(organizationId: string) {
     sourcePlatform: true,
     costCny: true,
     marginRate: true,
-    pipelineStep: true,
+    lifecycleState: true,
     detailPageUrl: true,
     thumbnailStrategy: true,
     isDeleted: true,
@@ -210,10 +206,10 @@ export async function findCatalogDetail(
 export async function findCatalogCountsRows(
   prisma: PrismaService,
   organizationId: string,
-  q: Pick<ListProductCatalogQuery, 'status' | 'pipelineStep'> = {},
+  q: Pick<ListProductCatalogQuery, 'lifecycleState'> = {},
 ): Promise<CatalogCountsRow[]> {
   return prisma.masterProduct.findMany({
     where: buildCatalogWhere(organizationId, q),
-    select: { abcGrade: true, adTier: true, pipelineStep: true, isTemporary: true },
+    select: { abcGrade: true, adTier: true, lifecycleState: true, isTemporary: true },
   });
 }

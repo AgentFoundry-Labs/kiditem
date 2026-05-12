@@ -39,7 +39,7 @@ export class ProductCatalogService {
 
   async counts(
     organizationId: string,
-    q: Pick<ListProductCatalogQuery, 'status' | 'pipelineStep'> = {},
+    q: Pick<ListProductCatalogQuery, 'lifecycleState'> = {},
   ): Promise<ProductCatalogCounts> {
     const rows = await findCatalogCountsRows(this.prisma, organizationId, q);
     return mapCatalogCounts(rows);

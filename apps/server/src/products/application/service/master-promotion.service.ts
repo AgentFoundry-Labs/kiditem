@@ -65,9 +65,10 @@ export interface MasterPromotionResult {
  *   1. `MasterCodeService.generate(tx)` — sole code issuer per
  *      products/AGENTS.md "Core Rules" → `M-00000001` family code.
  *   2. `tx.masterProduct.create` with `lifecycleState: 'active'` (Phase 1a
- *      additive lifecycle column). The legacy `sourceUrl` / `pipelineStep`
- *      columns are left untouched here — Phase 8 retires them; until then the
- *      schema defaults (nullable) apply.
+ *      additive lifecycle column, propagated through the products API surface
+ *      in Phase 5). The legacy `sourceUrl` / `pipelineStep` columns are left
+ *      untouched here — Phase 8 retires them; until then the schema defaults
+ *      (nullable) apply.
  *   3. `tx.masterProductImage.createMany` from `candidateSnapshot.sourceImages`
  *      with `organizationId` + `masterId` injected on every row.
  *   4. For every option, `OptionsService.create(organizationId, dto, tx)` —

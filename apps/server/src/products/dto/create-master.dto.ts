@@ -33,8 +33,12 @@ export class CreateMasterDto {
   @IsOptional() @IsString()
   adTier?: string;
 
-  @IsOptional() @IsString()
-  pipelineStep?: string;
+  // Phase 5 (#192): explicit lifecycle on create. Optional here — when
+  // omitted, the service layer defaults to 'active' (matches the Prisma
+  // `master_products.lifecycleState` default and the schema column added in
+  // Phase 1a). Replaces the legacy `pipelineStep` field on this DTO.
+  @IsOptional() @IsIn(['active', 'paused', 'discontinued'])
+  lifecycleState?: 'active' | 'paused' | 'discontinued';
 
   @IsOptional() @IsArray() @IsString({ each: true })
   tags?: string[];

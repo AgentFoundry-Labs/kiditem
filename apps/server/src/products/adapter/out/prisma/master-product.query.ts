@@ -70,7 +70,7 @@ export async function findMasterImageRows(
 /**
  * Cursor-paginated master list. Owns the search OR-clause (name / legacyCode /
  * code / barcode — non-unique by ADR-0022), the filter clauses
- * (category / brand / abcGrade / pipelineStep / isDeleted / isTemporary), the
+ * (category / brand / abcGrade / lifecycleState / isDeleted / isTemporary), the
  * `(createdAt DESC, id DESC)` tuple cursor, and the `take: limit + 1`
  * overshoot used to compute `nextCursor` without a second roundtrip.
  */
@@ -112,7 +112,7 @@ export async function findMasterListPage(
     ...(q.category ? { category: q.category } : {}),
     ...(q.brand ? { brand: q.brand } : {}),
     ...(q.abcGrade ? { abcGrade: q.abcGrade } : {}),
-    ...(q.pipelineStep ? { pipelineStep: q.pipelineStep } : {}),
+    ...(q.lifecycleState ? { lifecycleState: q.lifecycleState } : {}),
     ...(ands.length > 0 ? { AND: ands } : {}),
   };
 

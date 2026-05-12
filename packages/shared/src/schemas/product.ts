@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { zIsoDate } from './common.js';
+import { ProductLifecycleStateSchema } from '../product/lifecycle-state.js';
 
 // ===== Image item =====
 // Role enum is the canonical source of truth; the web hub-roles config mirrors
@@ -82,7 +83,10 @@ export const MasterSchema = z.object({
   sourcePlatform: z.string().nullable(),
   costCny: z.number().nullable(),
   marginRate: z.number().nullable(),
-  pipelineStep: z.string().nullable(),
+  // Phase 5 (#192): API surface is `lifecycleState` only. The legacy
+  // `pipelineStep` column persists on master_products until Phase 8 drops it
+  // — until then the API never selects or surfaces it.
+  lifecycleState: ProductLifecycleStateSchema,
   detailPageUrl: z.string().url().nullable(),
   thumbnailStrategy: z.enum(['standard', 'premium', 'custom']),
   isDeleted: z.boolean(),
@@ -170,10 +174,14 @@ export const ProductCatalogCountsSchema = z.object({
   gradeC: z.number().int().nonnegative(),
   adCount: z.number().int().nonnegative(),
   noAdCount: z.number().int().nonnegative(),
-  draftCount: z.number().int().nonnegative(),
-  processingCount: z.number().int().nonnegative(),
-  processedCount: z.number().int().nonnegative(),
+  // Phase 5 (#192): catalog count buckets follow `lifecycleState`. The legacy
+  // `draftCount/processingCount/processedCount` buckets backed by
+  // `pipelineStep` are gone from the API contract; `totalCount` is the
+  // organization-scoped catalog total (== `total`).
+  activeCount: z.number().int().nonnegative(),
+  pausedCount: z.number().int().nonnegative(),
   discontinuedCount: z.number().int().nonnegative(),
+  totalCount: z.number().int().nonnegative(),
   temporaryCount: z.number().int().nonnegative(),
 });
 export type ProductCatalogCounts = z.infer<typeof ProductCatalogCountsSchema>;

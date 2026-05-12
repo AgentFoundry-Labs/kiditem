@@ -56,7 +56,7 @@ export function buildProductManagementMasterWhere(
     ...(q.category ? { category: { contains: q.category, mode: 'insensitive' } } : {}),
     ...(q.brand ? { brand: q.brand } : {}),
     ...(q.abcGrade ? { abcGrade: q.abcGrade } : {}),
-    ...(q.pipelineStep ? { pipelineStep: q.pipelineStep } : {}),
+    ...(q.lifecycleState ? { lifecycleState: q.lifecycleState } : {}),
     ...(ands.length > 0 ? { AND: ands } : {}),
   };
 }

@@ -42,7 +42,7 @@ describe('normalizeMasterTags', () => {
       sourcePlatform: null,
       costCny: null,
       marginRate: null,
-      pipelineStep: null,
+      lifecycleState: 'active',
       detailPageUrl: null,
       thumbnailStrategy: 'standard',
       isDeleted: false,
