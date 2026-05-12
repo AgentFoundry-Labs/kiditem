@@ -19,7 +19,6 @@ function thumbnailAnalysisMasterWhere(organizationId: string): Prisma.MasterProd
   return {
     organizationId,
     isDeleted: false,
-    pipelineStep: null,
     listings: {
       some: {
         organizationId,

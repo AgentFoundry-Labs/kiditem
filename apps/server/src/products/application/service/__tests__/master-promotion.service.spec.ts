@@ -108,9 +108,6 @@ describe('MasterPromotionService.create', () => {
     expect(createArg.data.tags).toEqual(['plastic', 'kids']);
     expect(createArg.data.thumbnailUrl).toBe('https://example.com/thumb.jpg');
     expect(createArg.data.imageUrl).toBe('https://example.com/main.jpg');
-    // Phase 8 will retire sourceUrl/pipelineStep; for now they remain absent here.
-    expect(createArg.data.sourceUrl).toBeUndefined();
-    expect(createArg.data.pipelineStep).toBeUndefined();
 
     // image rows: bulk createMany with all rows scoped to org + master
     expect(imageCreateMany).toHaveBeenCalledTimes(1);

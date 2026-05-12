@@ -1,96 +1,94 @@
 # Graph Report - schema-consumers  (2026-05-12)
 
 ## Corpus Check
-- 181 files · ~81,947 words
+- 181 files · ~81,906 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1943 nodes · 7388 edges · 88 communities (86 shown, 2 thin omitted)
-- Extraction: 47% EXTRACTED · 53% INFERRED · 0% AMBIGUOUS · INFERRED: 3932 edges (avg confidence: 0.72)
+- 1938 nodes · 7386 edges · 86 communities (84 shown, 2 thin omitted)
+- Extraction: 47% EXTRACTED · 53% INFERRED · 0% AMBIGUOUS · INFERRED: 3933 edges (avg confidence: 0.72)
 - Token cost: 0 input · 0 output
 
 ## Community Hubs (Navigation)
 - [[_COMMUNITY_Channels schema|Channels schema]]
-- [[_COMMUNITY_code file ChannelListingOption.isUnmatched|code file: ChannelListingOption.isUnmatched]]
+- [[_COMMUNITY_Core schema|Core schema]]
 - [[_COMMUNITY_code file ads.ts|code file: ads.ts]]
-- [[_COMMUNITY_code file dev-data-coupang.ts|code file: dev-data-coupang.ts]]
-- [[_COMMUNITY_prisma field MasterProduct.barcode|prisma field: MasterProduct.barcode]]
 - [[_COMMUNITY_code file dev-data.ts|code file: dev-data.ts]]
+- [[_COMMUNITY_prisma field CandidateImage.isDeleted|prisma field: CandidateImage.isDeleted]]
+- [[_COMMUNITY_code file generate-prisma-erd.mjs|code file: generate-prisma-erd.mjs]]
 - [[_COMMUNITY_code file staging-db-baseline.ts|code file: staging-db-baseline.ts]]
-- [[_COMMUNITY_code file check-agents-hygiene.mjs|code file: check-agents-hygiene.mjs]]
-- [[_COMMUNITY_Inventory schema|Inventory schema]]
-- [[_COMMUNITY_Supply schema|Supply schema]]
-- [[_COMMUNITY_System schema|System schema]]
-- [[_COMMUNITY_AI schema|AI schema]]
+- [[_COMMUNITY_Advertising schema|Advertising schema]]
 - [[_COMMUNITY_prisma field channel-reconciliation.types.ts|prisma field: channel-reconciliation.types.ts]]
-- [[_COMMUNITY_Core schema|Core schema]]
-- [[_COMMUNITY_AgentOS schema|AgentOS schema]]
-- [[_COMMUNITY_code file dashboard.ts|code file: dashboard.ts]]
-- [[_COMMUNITY_code file product.ts|code file: product.ts]]
-- [[_COMMUNITY_Sourcing schema|Sourcing schema]]
-- [[_COMMUNITY_Core schema|Core schema]]
-- [[_COMMUNITY_AgentOS schema|AgentOS schema]]
+- [[_COMMUNITY_code file dev-data-coupang.ts|code file: dev-data-coupang.ts]]
+- [[_COMMUNITY_Inventory schema|Inventory schema]]
+- [[_COMMUNITY_AI schema|AI schema]]
+- [[_COMMUNITY_code file check-agents-hygiene.mjs|code file: check-agents-hygiene.mjs]]
 - [[_COMMUNITY_Orders schema|Orders schema]]
+- [[_COMMUNITY_code file dashboard.ts|code file: dashboard.ts]]
+- [[_COMMUNITY_AgentOS schema|AgentOS schema]]
+- [[_COMMUNITY_code file lifecycle-state.ts|code file: lifecycle-state.ts]]
 - [[_COMMUNITY_Core schema|Core schema]]
+- [[_COMMUNITY_code file dev-data-profiles.spec.ts|code file: dev-data-profiles.spec.ts]]
+- [[_COMMUNITY_Core schema|Core schema]]
+- [[_COMMUNITY_Finance schema|Finance schema]]
+- [[_COMMUNITY_AgentOS schema|AgentOS schema]]
+- [[_COMMUNITY_Sourcing schema|Sourcing schema]]
 - [[_COMMUNITY_Orders schema|Orders schema]]
 - [[_COMMUNITY_Supply schema|Supply schema]]
-- [[_COMMUNITY_Orders schema|Orders schema]]
 - [[_COMMUNITY_code file Order.status|code file: Order.status]]
+- [[_COMMUNITY_AI schema|AI schema]]
 - [[_COMMUNITY_System schema|System schema]]
-- [[_COMMUNITY_Core schema|Core schema]]
-- [[_COMMUNITY_Orders schema|Orders schema]]
 - [[_COMMUNITY_System schema|System schema]]
+- [[_COMMUNITY_AgentOS schema|AgentOS schema]]
 - [[_COMMUNITY_Inventory schema|Inventory schema]]
 - [[_COMMUNITY_code file sources.ts|code file: sources.ts]]
-- [[_COMMUNITY_Advertising schema|Advertising schema]]
-- [[_COMMUNITY_Orders schema|Orders schema]]
-- [[_COMMUNITY_Core schema|Core schema]]
-- [[_COMMUNITY_AgentOS schema|AgentOS schema]]
-- [[_COMMUNITY_Finance schema|Finance schema]]
 - [[_COMMUNITY_Channels schema|Channels schema]]
-- [[_COMMUNITY_code file dev-data-profiles.spec.ts|code file: dev-data-profiles.spec.ts]]
+- [[_COMMUNITY_Orders schema|Orders schema]]
+- [[_COMMUNITY_Orders schema|Orders schema]]
+- [[_COMMUNITY_Supply schema|Supply schema]]
+- [[_COMMUNITY_System schema|System schema]]
 - [[_COMMUNITY_Channels schema|Channels schema]]
-- [[_COMMUNITY_Finance schema|Finance schema]]
-- [[_COMMUNITY_Core schema|Core schema]]
-- [[_COMMUNITY_Orders schema|Orders schema]]
-- [[_COMMUNITY_Orders schema|Orders schema]]
-- [[_COMMUNITY_code file removed-legacy-scripts.spec.ts|code file: removed-legacy-scripts.spec.ts]]
-- [[_COMMUNITY_Advertising schema|Advertising schema]]
-- [[_COMMUNITY_AgentOS schema|AgentOS schema]]
-- [[_COMMUNITY_AgentOS schema|AgentOS schema]]
-- [[_COMMUNITY_Orders schema|Orders schema]]
-- [[_COMMUNITY_code file patterns.ts|code file: patterns.ts]]
-- [[_COMMUNITY_Finance schema|Finance schema]]
-- [[_COMMUNITY_Inventory schema|Inventory schema]]
-- [[_COMMUNITY_Inventory schema|Inventory schema]]
-- [[_COMMUNITY_code file coupang-client.ts|code file: coupang-client.ts]]
-- [[_COMMUNITY_AI schema|AI schema]]
-- [[_COMMUNITY_code file prepare-coupang-extension.mjs|code file: prepare-coupang-extension.mjs]]
-- [[_COMMUNITY_code file channel-credential-crypto.ts|code file: channel-credential-crypto.ts]]
-- [[_COMMUNITY_Community 57|Community 57]]
 - [[_COMMUNITY_Core schema|Core schema]]
 - [[_COMMUNITY_AgentOS schema|AgentOS schema]]
-- [[_COMMUNITY_AgentOS schema|AgentOS schema]]
-- [[_COMMUNITY_code file channel-dashboard.ts|code file: channel-dashboard.ts]]
-- [[_COMMUNITY_prisma field ActionTask.targetId|prisma field: ActionTask.targetId]]
-- [[_COMMUNITY_Advertising schema|Advertising schema]]
-- [[_COMMUNITY_Inventory schema|Inventory schema]]
-- [[_COMMUNITY_AI schema|AI schema]]
-- [[_COMMUNITY_Finance schema|Finance schema]]
-- [[_COMMUNITY_Inventory schema|Inventory schema]]
-- [[_COMMUNITY_AI schema|AI schema]]
-- [[_COMMUNITY_Advertising schema|Advertising schema]]
+- [[_COMMUNITY_Orders schema|Orders schema]]
 - [[_COMMUNITY_code file fs.ts|code file: fs.ts]]
-- [[_COMMUNITY_code file reconciliation-action.dto.ts|code file: reconciliation-action.dto.ts]]
+- [[_COMMUNITY_code file patterns.ts|code file: patterns.ts]]
+- [[_COMMUNITY_code file coupang-client.ts|code file: coupang-client.ts]]
+- [[_COMMUNITY_Orders schema|Orders schema]]
+- [[_COMMUNITY_AgentOS schema|AgentOS schema]]
+- [[_COMMUNITY_AgentOS schema|AgentOS schema]]
+- [[_COMMUNITY_Supply schema|Supply schema]]
+- [[_COMMUNITY_AI schema|AI schema]]
+- [[_COMMUNITY_Inventory schema|Inventory schema]]
+- [[_COMMUNITY_code file channel-credential-crypto.ts|code file: channel-credential-crypto.ts]]
+- [[_COMMUNITY_Community 51|Community 51]]
+- [[_COMMUNITY_code file prepare-coupang-extension.mjs|code file: prepare-coupang-extension.mjs]]
+- [[_COMMUNITY_code file channel-dashboard.ts|code file: channel-dashboard.ts]]
+- [[_COMMUNITY_Core schema|Core schema]]
+- [[_COMMUNITY_Orders schema|Orders schema]]
+- [[_COMMUNITY_Inventory schema|Inventory schema]]
+- [[_COMMUNITY_Inventory schema|Inventory schema]]
+- [[_COMMUNITY_AgentOS schema|AgentOS schema]]
+- [[_COMMUNITY_AgentOS schema|AgentOS schema]]
+- [[_COMMUNITY_Finance schema|Finance schema]]
+- [[_COMMUNITY_AI schema|AI schema]]
+- [[_COMMUNITY_Inventory schema|Inventory schema]]
+- [[_COMMUNITY_AgentOS schema|AgentOS schema]]
+- [[_COMMUNITY_System schema|System schema]]
+- [[_COMMUNITY_Orders schema|Orders schema]]
 - [[_COMMUNITY_code file common.ts|code file: common.ts]]
 - [[_COMMUNITY_code file ai.ts|code file: ai.ts]]
-- [[_COMMUNITY_Inventory schema|Inventory schema]]
+- [[_COMMUNITY_code file reconciliation-action.dto.ts|code file: reconciliation-action.dto.ts]]
+- [[_COMMUNITY_Supply schema|Supply schema]]
+- [[_COMMUNITY_code file check-script-inventory.mjs|code file: check-script-inventory.mjs]]
 - [[_COMMUNITY_AgentOS schema|AgentOS schema]]
+- [[_COMMUNITY_System schema|System schema]]
+- [[_COMMUNITY_System schema|System schema]]
+- [[_COMMUNITY_code file seed-agent-os.spec.ts|code file: seed-agent-os.spec.ts]]
+- [[_COMMUNITY_Core schema|Core schema]]
 - [[_COMMUNITY_code file inspection.ts|code file: inspection.ts]]
 - [[_COMMUNITY_code file readiness.ts|code file: readiness.ts]]
-- [[_COMMUNITY_code file seed-agent-os.spec.ts|code file: seed-agent-os.spec.ts]]
 - [[_COMMUNITY_code file thumbnails.spec.ts|code file: thumbnails.spec.ts]]
-- [[_COMMUNITY_code file lifecycle-state.ts|code file: lifecycle-state.ts]]
 - [[_COMMUNITY_code file coupang-date-range.dto.ts|code file: coupang-date-range.dto.ts]]
 
 ## God Nodes (most connected - your core abstractions)
@@ -125,127 +123,127 @@
 - `ChannelReconciliationService` --references_field--> `AgentRuntimeState.organization`  [INFERRED]
   apps/server/src/channels/application/service/channel-reconciliation.service.ts → prisma/models/agents.prisma
 
-## Communities (88 total, 2 thin omitted)
+## Communities (86 total, 2 thin omitted)
 
 ### Community 0 - "Channels schema"
 Cohesion: 0.06
 Nodes (260): ChannelsModule, vendorItemId provider term, CoupangProviderAdapter, channels — Marketplace Sync And Reconciliation, prisma — Shared Schema, Channels, CoupangReconciliationRowDto, CoupangReconciliationScanDto (+252 more)
 
-### Community 1 - "code file: ChannelListingOption.isUnmatched"
-Cohesion: 0.08
-Nodes (47): ChannelListingOption.isUnmatched, collectDocComments(), collectModelBlock(), collectUniqueSignatures(), countChar(), DEFAULT_DOMAIN_OUTPUT_DIR, DEFAULT_MODELS_DIR, __dirname (+39 more)
+### Community 1 - "Core schema"
+Cohesion: 0.04
+Nodes (71): AdAction.listing, ChannelAdTargetDailySnapshot.listing, ChannelListing.channelPrice, ChannelListing.createdAt, ChannelListing.deletedAt, ChannelListing.deliveryChargeType, ChannelListing.deliveryInfo, ChannelListing.exposureStatus (+63 more)
 
 ### Community 2 - "code file: ads.ts"
 Cohesion: 0.04
 Nodes (53): AdAccountKpi, AdAccountKpiDayPoint, AdAccountKpiDayPointSchema, AdAccountKpiSchema, AdBenchmarkData, AdBenchmarkDataSchema, AdCampaignSnapshot, AdCollectStatus (+45 more)
 
-### Community 3 - "code file: dev-data-coupang.ts"
-Cohesion: 0.09
-Nodes (50): appendFlag(), appendOption(), Args, BundleManifest, BundlePayload, BundleReference, Command, commandReplay() (+42 more)
+### Community 3 - "code file: dev-data.ts"
+Cohesion: 0.1
+Nodes (49): AdapterCommand, appendFlag(), appendOption(), appendProjectReferenceDefaults(), archiveFileName(), archiveShaFileName(), BundlePackageIndex, cloudStorageRoot() (+41 more)
 
-### Community 4 - "prisma field: MasterProduct.barcode"
+### Community 4 - "prisma field: CandidateImage.isDeleted"
 Cohesion: 0.05
-Nodes (43): MasterProduct.barcode, MasterProduct.isDeleted, MasterProductImage.isDeleted, row, clean(), HardConflict, KiditemPlan, NAME_FIELDS (+35 more)
+Nodes (42): CandidateImage.isDeleted, MasterProduct.barcode, MasterProduct.isDeleted, MasterProductImage.isDeleted, SourcingCandidate.isDeleted, row, clean(), HardConflict (+34 more)
 
-### Community 5 - "code file: dev-data.ts"
-Cohesion: 0.11
-Nodes (45): AdapterCommand, appendProjectReferenceDefaults(), archiveFileName(), archiveShaFileName(), BundlePackageIndex, cloudStorageRoot(), commandPack(), commandPublish() (+37 more)
+### Community 5 - "code file: generate-prisma-erd.mjs"
+Cohesion: 0.07
+Nodes (44): collectDocComments(), collectModelBlock(), collectUniqueSignatures(), countChar(), DEFAULT_DOMAIN_OUTPUT_DIR, DEFAULT_MODELS_DIR, __dirname, extractDocValue() (+36 more)
 
 ### Community 6 - "code file: staging-db-baseline.ts"
 Cohesion: 0.09
-Nodes (48): appendValues(), commandExport(), commandStatus(), referenceTypeFor(), createZipArchive(), execFileAsync, extractZipArchive(), assertNonProductionTarget() (+40 more)
+Nodes (49): appendValues(), commandExport(), commandStatus(), referenceTypeFor(), createZipArchive(), execFileAsync, extractZipArchive(), assertNonProductionTarget() (+41 more)
 
-### Community 7 - "code file: check-agents-hygiene.mjs"
+### Community 7 - "Advertising schema"
+Cohesion: 0.04
+Nodes (49): packages/shared — @kiditem/shared, Advertising, AI, AdAction.actionType, AdAction.adTargetDaily, AdAction.afterJson, AdAction.approvalStatus, AdAction.approvedAt (+41 more)
+
+### Community 8 - "prisma field: channel-reconciliation.types.ts"
 Cohesion: 0.08
-Nodes (30): checkClaudeShims(), checkTrackedClaudeDirectory(), findStaleInstructionLines(), git(), listTracked(), runChecks(), analyzeDirectoryArchitecture(), collectDirectoryArchitecture() (+22 more)
+Nodes (26): externalOptionId canonical option identity, AdAction.externalId, ChannelAdTargetDailySnapshot.externalId, ChannelReconciliationItem.externalId, ChannelReconciliationItem.legacyCode, OrderLineItem.option, PurchaseOrderItem.option, ReturnTransfer.option (+18 more)
 
-### Community 8 - "Inventory schema"
+### Community 9 - "code file: dev-data-coupang.ts"
+Cohesion: 0.1
+Nodes (39): Args, BundleManifest, BundlePayload, BundleReference, Command, commandReplay(), COMMANDS, apiHeaders() (+31 more)
+
+### Community 10 - "Inventory schema"
 Cohesion: 0.05
 Nodes (39): Inventory.createdAt, Inventory.currentStock, Inventory.dailySalesAvg, Inventory.lastRestockedAt, Inventory.leadTimeDays, Inventory.reorderPoint, Inventory.reorderQuantity, Inventory.reservedStock (+31 more)
-
-### Community 9 - "Supply schema"
-Cohesion: 0.06
-Nodes (38): Supply, ChannelListing.master, MasterSupplierProduct.createdAt, MasterSupplierProduct.isPrimary, MasterSupplierProduct.updatedAt, OrderLineItem.option, PurchaseOrder.supplier, ReturnTransfer.option (+30 more)
-
-### Community 10 - "System schema"
-Cohesion: 0.05
-Nodes (38): System, ActivityEvent.createdAt, ActivityEvent.eventType, ActivityEvent.objectId, ActivityEvent.source, ActivityEvent.title, BusinessRule.actionType, BusinessRule.active (+30 more)
 
 ### Community 11 - "AI schema"
 Cohesion: 0.05
 Nodes (38): Thumbnail.clicks, Thumbnail.createdAt, Thumbnail.imageUrl, Thumbnail.impressions, Thumbnail.measuredAt, Thumbnail.prevClickRate, Thumbnail.status, Thumbnail.strategy (+30 more)
 
-### Community 12 - "prisma field: channel-reconciliation.types.ts"
+### Community 12 - "code file: check-agents-hygiene.mjs"
 Cohesion: 0.09
-Nodes (20): AdAction.externalId, ChannelAdTargetDailySnapshot.externalId, ChannelReconciliationItem.legacyCode, ProcessingCost.master, Tx, collectIds(), ChannelReconciliationService, ChannelListingHandle (+12 more)
+Nodes (27): checkClaudeShims(), checkTrackedClaudeDirectory(), findStaleInstructionLines(), git(), listTracked(), runChecks(), analyzeDirectoryArchitecture(), collectDirectoryArchitecture() (+19 more)
 
-### Community 13 - "Core schema"
+### Community 13 - "Orders schema"
+Cohesion: 0.1
+Nodes (31): Database ERD, ActionTask.targetId, AdAction.targetType, AgentApprovalRequest.agentInstance, AgentAuthorizationEvent.agentInstance, AgentCostEvent.agentInstance, AgentRun.agentInstance, AgentRunRequest.agentInstance (+23 more)
+
+### Community 14 - "code file: dashboard.ts"
 Cohesion: 0.06
-Nodes (35): MasterProduct.abcGrade, MasterProduct.adBudgetLimit, MasterProduct.category, MasterProduct.costCny, MasterProduct.createdAt, MasterProduct.deletedAt, MasterProduct.description, MasterProduct.detailPageUrl (+27 more)
+Nodes (34): AdMetricsDetail, AdMetricsDetailSchema, AlertItemDashboard, DailyAdItem, DailyAdItemSchema, DailyRevenueItem, DailyRevenueItemSchema, DashboardAdSummary (+26 more)
 
-### Community 14 - "AgentOS schema"
+### Community 15 - "AgentOS schema"
 Cohesion: 0.06
 Nodes (34): AgentRun.adapterType, AgentRun.attempt, AgentRun.createdAt, AgentRun.errorCode, AgentRun.errorMessage, AgentRun.exitCode, AgentRun.finishedAt, AgentRun.heartbeatAt (+26 more)
 
-### Community 15 - "code file: dashboard.ts"
+### Community 16 - "code file: lifecycle-state.ts"
 Cohesion: 0.06
-Nodes (33): AdMetricsDetail, AdMetricsDetailSchema, AlertItemDashboard, DailyAdItem, DailyAdItemSchema, DailyRevenueItem, DailyRevenueItemSchema, DashboardAdSummary (+25 more)
+Nodes (31): ProductLifecycleState, BundleComponentSchema, GetMasterImagesResponse, GetMasterImagesResponseSchema, Master, MasterImageItem, MasterImageItemSchema, MasterImageRole (+23 more)
 
-### Community 16 - "code file: product.ts"
-Cohesion: 0.06
-Nodes (30): BundleComponentSchema, GetMasterImagesResponse, GetMasterImagesResponseSchema, Master, MasterImageItem, MasterImageItemSchema, MasterImageRole, MasterImageRoleSchema (+22 more)
+### Community 17 - "Core schema"
+Cohesion: 0.08
+Nodes (33): Core, BundleComponent.bundleOption, BundleComponent.componentOption, BundleComponent.createdAt, BundleComponent.updatedAt, MasterCodeCounter.updatedAt, MasterCodeCounter.value, ProductOption.availableStock (+25 more)
 
-### Community 17 - "Sourcing schema"
+### Community 18 - "code file: dev-data-profiles.spec.ts"
 Cohesion: 0.07
-Nodes (29): Sourcing, CandidateImage.candidate, CandidateImage.createdAt, CandidateImage.fileSize, CandidateImage.height, CandidateImage.isDeleted, CandidateImage.isPrimary, CandidateImage.mimeType (+21 more)
+Nodes (31): bundleDir, consumerRoot, dataRoot, domainRoot, encryptedMirrorRoot, exportOutput, imageSyncPayloadPath, kiditemListPath (+23 more)
 
-### Community 18 - "Core schema"
-Cohesion: 0.09
-Nodes (30): BundleComponent.bundleOption, BundleComponent.componentOption, BundleComponent.createdAt, BundleComponent.updatedAt, ProductOption.availableStock, ProductOption.barcode, ProductOption.commissionRate, ProductOption.costPrice (+22 more)
+### Community 19 - "Core schema"
+Cohesion: 0.07
+Nodes (30): MasterProduct.abcGrade, MasterProduct.adBudgetLimit, MasterProduct.category, MasterProduct.createdAt, MasterProduct.deletedAt, MasterProduct.description, MasterProduct.detailPageUrl, MasterProduct.draftContent (+22 more)
 
-### Community 19 - "AgentOS schema"
+### Community 20 - "Finance schema"
+Cohesion: 0.07
+Nodes (28): Finance, ManualLedger.amount, ManualLedger.category, ManualLedger.counterpart, ManualLedger.createdBy, ManualLedger.description, ManualLedger.memo, ProcessingCost.createdAt (+20 more)
+
+### Community 21 - "AgentOS schema"
 Cohesion: 0.08
 Nodes (27): AgentInstance.adapterType, AgentInstance.createdAt, AgentInstance.lifecycleStatus, AgentInstance.modelOverride, AgentInstance.name, AgentInstance.parent, AgentInstance.pausedAt, AgentInstance.pauseReason (+19 more)
 
-### Community 20 - "Orders schema"
+### Community 22 - "Sourcing schema"
 Cohesion: 0.08
-Nodes (26): Shipment.courierCode, Shipment.courierName, Shipment.createdAt, Shipment.deliveredAt, Shipment.deliveryDays, Shipment.listing, Shipment.shippedAt, Shipment.status (+18 more)
+Nodes (27): Sourcing, CandidateImage.candidate, CandidateImage.createdAt, CandidateImage.fileSize, CandidateImage.height, CandidateImage.isPrimary, CandidateImage.mimeType, CandidateImage.sortOrder (+19 more)
 
-### Community 21 - "Core schema"
-Cohesion: 0.08
-Nodes (27): ActionTask.assigneeUser, AgentRunRequest.sourceWorkflowRun, OrganizationMembership.invitedBy, ThumbnailGeneration.triggeredByUser, User.agentInstance, User.avatarUrl, User.createdAt, User.email (+19 more)
-
-### Community 22 - "Orders schema"
-Cohesion: 0.11
-Nodes (24): AdAction.listing, ChannelAdTargetDailySnapshot.listing, Order.listing, Review.content, Review.createdAt, Review.id, Review.listing, Review.platform (+16 more)
-
-### Community 23 - "Supply schema"
-Cohesion: 0.08
-Nodes (26): PurchaseOrder.createdAt, PurchaseOrder.defectAction, PurchaseOrder.defectQty, PurchaseOrder.defectType, PurchaseOrder.expectedDeliveryDate, PurchaseOrder.inspectedAt, PurchaseOrder.orderDate, PurchaseOrder.receivedAt (+18 more)
-
-### Community 24 - "Orders schema"
+### Community 23 - "Orders schema"
 Cohesion: 0.09
 Nodes (25): SyncOrdersBodyDto, Order.createdAt, Order.customerName, Order.deliveredAt, Order.externalNumber, Order.externalOrderId, Order.id, Order.memo (+17 more)
+
+### Community 24 - "Supply schema"
+Cohesion: 0.09
+Nodes (25): Supply, MasterSupplierProduct.createdAt, MasterSupplierProduct.isPrimary, MasterSupplierProduct.updatedAt, ProcessingCost.master, PurchaseOrder.supplier, SupplierProduct.createdAt, SupplierProduct.option (+17 more)
 
 ### Community 25 - "code file: Order.status"
 Cohesion: 0.1
 Nodes (23): Order.status, DeliveryCompanySchema, OrderActionResponse, OrderActionResponseSchema, OrderLineItemSchema, OrderListItem, OrderListItemSchema, OrderListLineItem (+15 more)
 
-### Community 26 - "System schema"
+### Community 26 - "AI schema"
+Cohesion: 0.08
+Nodes (23): ThumbnailAnalysis.complianceAnalyzedAt, ThumbnailAnalysis.complianceGrade, ThumbnailAnalysis.method, ThumbnailAnalysis.overallScore, ThumbnailAnalysis.qualityAnalyzedAt, ThumbnailAnalysis.recompose, ThumbnailAnalysis.scores, ThumbnailAnalysis.suggestions (+15 more)
+
+### Community 27 - "System schema"
 Cohesion: 0.08
 Nodes (23): ErrorCodes, Marketplace.adapterType, Marketplace.category, Marketplace.configurableParams, Marketplace.createdAt, Marketplace.description, Marketplace.edgesJson, Marketplace.installCount (+15 more)
 
-### Community 27 - "Core schema"
-Cohesion: 0.09
-Nodes (24): ChannelListing.channelPrice, ChannelListing.createdAt, ChannelListing.deletedAt, ChannelListing.deliveryChargeType, ChannelListing.deliveryInfo, ChannelListing.exposureStatus, ChannelListing.externalId, ChannelListing.freeShipOverAmount (+16 more)
-
-### Community 28 - "Orders schema"
-Cohesion: 0.09
-Nodes (19): externalOptionId canonical option identity, ChannelReconciliationItem.externalId, OrderReturnLineItem.createdAt, OrderReturnLineItem.productName, ThumbnailRegistrationAttempt.externalId, UnshippedItem.option, OrderReturnLineItem, byDay (+11 more)
-
-### Community 29 - "System schema"
+### Community 28 - "System schema"
 Cohesion: 0.09
 Nodes (23): Alert.actorUser, Alert.createdAt, Alert.finishedAt, Alert.href, Alert.id, Alert.isRead, Alert.kind, Alert.message (+15 more)
+
+### Community 29 - "AgentOS schema"
+Cohesion: 0.1
+Nodes (22): ActionTask.assigneeUser, AgentApprovalRequest.actionSnapshot, AgentApprovalRequest.decidedAt, AgentApprovalRequest.decisionReason, AgentApprovalRequest.status, AgentRunRequest.requestedBy, OrganizationMembership.invitedBy, ThumbnailGeneration.triggeredByUser (+14 more)
 
 ### Community 30 - "Inventory schema"
 Cohesion: 0.12
@@ -255,181 +253,181 @@ Nodes (20): Shipment.warehouse, StockTransfer.completedAt, StockTransfer.created
 Cohesion: 0.11
 Nodes (17): OrderSheetResponse, PanelRunSource, PanelRunSourceSchema, sourceKeys, PanelAlertItem, PanelDismissEvent, PanelEvent, PanelItem (+9 more)
 
-### Community 32 - "Advertising schema"
-Cohesion: 0.11
-Nodes (18): AdAction.actionType, AdAction.adTargetDaily, AdAction.afterJson, AdAction.approvalStatus, AdAction.approvedAt, AdAction.beforeJson, AdAction.createdAt, AdAction.currentValue (+10 more)
-
-### Community 33 - "Orders schema"
-Cohesion: 0.12
-Nodes (18): Settlement.actualAmount, Settlement.adjustments, Settlement.commission, Settlement.createdAt, Settlement.difference, Settlement.expectedAmount, Settlement.id, Settlement.notes (+10 more)
-
-### Community 34 - "Core schema"
-Cohesion: 0.14
-Nodes (18): Database ERD, Core, CategoryMapping.coupangCategoryId, CategoryMapping.createdAt, CategoryMapping.internalCategory, CategoryMapping.isActive, MasterCodeCounter.updatedAt, MasterCodeCounter.value (+10 more)
-
-### Community 35 - "AgentOS schema"
-Cohesion: 0.12
-Nodes (18): AgentRunRequest.agentInstance, AgentRunRequest.claimedAt, AgentRunRequest.coalescedIntoRequest, AgentRunRequest.createdAt, AgentRunRequest.finishedAt, AgentRunRequest.idempotencyKey, AgentRunRequest.lastErrorCode, AgentRunRequest.maxAttempts (+10 more)
-
-### Community 36 - "Finance schema"
-Cohesion: 0.13
-Nodes (18): ProfitLoss.adCost, ProfitLoss.commission, ProfitLoss.createdAt, ProfitLoss.listing, ProfitLoss.month, ProfitLoss.netProfit, ProfitLoss.orderCount, ProfitLoss.otherCost (+10 more)
-
-### Community 37 - "Channels schema"
+### Community 32 - "Channels schema"
 Cohesion: 0.12
 Nodes (18): ChannelListingDailySnapshot.adConversions, ChannelListingDailySnapshot.adDirectOrders1d, ChannelListingDailySnapshot.adDirectQty1d, ChannelListingDailySnapshot.adImpressions, ChannelListingDailySnapshot.avgRating, ChannelListingDailySnapshot.businessDate, ChannelListingDailySnapshot.categoryRank, ChannelListingDailySnapshot.createdAt (+10 more)
 
-### Community 38 - "code file: dev-data-profiles.spec.ts"
-Cohesion: 0.11
-Nodes (17): bundleDir, consumerRoot, domainRoot, encryptedMirrorRoot, imageSyncPayloadPath, kiditemListPath, latestJson, payloadPath (+9 more)
+### Community 33 - "Orders schema"
+Cohesion: 0.12
+Nodes (18): CSRecord.assignee, CSRecord.content, CSRecord.createdBy, CSRecord.csStatus, CSRecord.csType, CSRecord.id, CSRecord.order, CSRecord.priority (+10 more)
 
-### Community 39 - "Channels schema"
+### Community 34 - "Orders schema"
+Cohesion: 0.12
+Nodes (18): Settlement.actualAmount, Settlement.adjustments, Settlement.commission, Settlement.createdAt, Settlement.difference, Settlement.expectedAmount, Settlement.id, Settlement.notes (+10 more)
+
+### Community 35 - "Supply schema"
+Cohesion: 0.11
+Nodes (18): PurchaseOrder.createdAt, PurchaseOrder.defectAction, PurchaseOrder.defectQty, PurchaseOrder.defectType, PurchaseOrder.expectedDeliveryDate, PurchaseOrder.inspectedAt, PurchaseOrder.orderDate, PurchaseOrder.receivedAt (+10 more)
+
+### Community 36 - "System schema"
+Cohesion: 0.12
+Nodes (17): BusinessRule.actionType, BusinessRule.active, BusinessRule.autoExecute, BusinessRule.category, BusinessRule.conditions, BusinessRule.createdAt, BusinessRule.description, BusinessRule.displayName (+9 more)
+
+### Community 37 - "Channels schema"
 Cohesion: 0.12
 Nodes (17): ChannelScrapeRun.businessDate, ChannelScrapeRun.createdAt, ChannelScrapeRun.errorCount, ChannelScrapeRun.errorJson, ChannelScrapeRun.finishedAt, ChannelScrapeRun.matchedCount, ChannelScrapeRun.metaJson, ChannelScrapeRun.pageType (+9 more)
 
-### Community 40 - "Finance schema"
-Cohesion: 0.12
-Nodes (16): Finance, ManualLedger.amount, ManualLedger.category, ManualLedger.counterpart, ManualLedger.createdBy, ManualLedger.description, ManualLedger.memo, ProcessingCost.createdAt (+8 more)
-
-### Community 41 - "Core schema"
+### Community 38 - "Core schema"
 Cohesion: 0.15
 Nodes (15): ChannelAccount.createdAt, ChannelAccount.externalAccountId, ChannelAccount.isPrimary, ChannelAccount.sellerId, ChannelAccount.status, ChannelAccount.updatedAt, ChannelAccount.vendorId, ChannelAccount (+7 more)
 
-### Community 42 - "Orders schema"
-Cohesion: 0.16
-Nodes (15): CSRecord.order, PickingItem.orderId, Shipment.order, UnshippedItem.createdAt, UnshippedItem.delayDays, UnshippedItem.isNotified, UnshippedItem.productName, UnshippedItem.quantity (+7 more)
+### Community 39 - "AgentOS schema"
+Cohesion: 0.13
+Nodes (16): AgentRunRequest.claimedAt, AgentRunRequest.coalescedIntoRequest, AgentRunRequest.createdAt, AgentRunRequest.finishedAt, AgentRunRequest.idempotencyKey, AgentRunRequest.lastErrorCode, AgentRunRequest.maxAttempts, AgentRunRequest.payload (+8 more)
 
-### Community 43 - "Orders schema"
+### Community 40 - "Orders schema"
 Cohesion: 0.15
 Nodes (15): OrderReturn.completedAt, OrderReturn.createdAt, OrderReturn.enclosePrice, OrderReturn.externalReturnId, OrderReturn.faultBy, OrderReturn.metadata, OrderReturn.platform, OrderReturn.reason (+7 more)
 
-### Community 44 - "code file: removed-legacy-scripts.spec.ts"
-Cohesion: 0.13
-Nodes (14): dataRoot, exportOutput, packageJson, payloadDir, runDevData(), tempRoot, absolutePath, deletedLegacyTables (+6 more)
+### Community 41 - "code file: fs.ts"
+Cohesion: 0.22
+Nodes (12): commandSanitize(), assertSafeDatasetId(), resolveDatasetId(), runCoupangDevData(), sanitizeValue(), loadManifest(), runCoupangAdapter(), fileSize() (+4 more)
 
-### Community 45 - "Advertising schema"
-Cohesion: 0.14
-Nodes (14): ExecutionLog.createdAt, ExecutionLog.message, ExecutionLog.payloadJson, ExecutionTask.action, ExecutionTask.afterJson, ExecutionTask.attempt, ExecutionTask.beforeJson, ExecutionTask.createdAt (+6 more)
-
-### Community 46 - "AgentOS schema"
-Cohesion: 0.17
-Nodes (13): AgentOS, AgentAuthorizationEvent.agentInstance, AgentAuthorizationEvent.createdAt, AgentAuthorizationEvent.decision, AgentAuthorizationEvent.policySnapshot, AgentToolDefinition.createdAt, AgentToolDefinition.credentialKind, AgentToolDefinition.description (+5 more)
-
-### Community 47 - "AgentOS schema"
-Cohesion: 0.15
-Nodes (13): AgentCostEvent.agentInstance, AgentCostEvent.biller, AgentCostEvent.billingType, AgentCostEvent.cachedInputTokens, AgentCostEvent.costMicros, AgentCostEvent.createdAt, AgentCostEvent.inputTokens, AgentCostEvent.metadata (+5 more)
-
-### Community 48 - "Orders schema"
-Cohesion: 0.17
-Nodes (13): OrderLineItem.createdAt, OrderLineItem.externalLineId, OrderLineItem.listingOption, OrderLineItem.metadata, OrderLineItem.productName, OrderLineItem.quantity, OrderLineItem.status, OrderLineItem.totalPrice (+5 more)
-
-### Community 49 - "code file: patterns.ts"
+### Community 42 - "code file: patterns.ts"
 Cohesion: 0.24
 Nodes (10): SECRET_PATTERNS, SENSITIVE_FIELD_KEYS, isPlainObject(), scrubDeep(), scrubSecrets(), a, input, now (+2 more)
 
-### Community 50 - "Finance schema"
-Cohesion: 0.18
-Nodes (12): SalesPlan.actualOrders, SalesPlan.actualProfit, SalesPlan.actualRevenue, SalesPlan.createdAt, SalesPlan.notes, SalesPlan.period, SalesPlan.targetOrders, SalesPlan.targetProfit (+4 more)
-
-### Community 51 - "Inventory schema"
-Cohesion: 0.18
-Nodes (12): PickingItem.pickingList, PickingList.assignedTo, PickingList.completedAt, PickingList.createdAt, PickingList.listNumber, PickingList.pickedItems, PickingList.startedAt, PickingList.status (+4 more)
-
-### Community 52 - "Inventory schema"
-Cohesion: 0.18
-Nodes (12): StockAudit.auditedBy, StockAudit.auditNumber, StockAudit.completedAt, StockAudit.createdAt, StockAudit.diffCount, StockAudit.items, StockAudit.matchedCount, StockAudit.notes (+4 more)
-
-### Community 53 - "code file: coupang-client.ts"
+### Community 43 - "code file: coupang-client.ts"
 Cohesion: 0.32
 Nodes (9): CoupangCredentials, coupangRequest(), generateAuthorization(), approveReturn(), confirmOrderSheets(), getOrderSheets(), uploadInvoice(), getSellerProduct() (+1 more)
 
-### Community 54 - "AI schema"
+### Community 44 - "Orders schema"
+Cohesion: 0.18
+Nodes (12): OrderLineItem.createdAt, OrderLineItem.externalLineId, OrderLineItem.metadata, OrderLineItem.productName, OrderLineItem.quantity, OrderLineItem.status, OrderLineItem.totalPrice, OrderLineItem.unitPrice (+4 more)
+
+### Community 45 - "AgentOS schema"
+Cohesion: 0.17
+Nodes (12): AgentCostEvent.biller, AgentCostEvent.billingType, AgentCostEvent.cachedInputTokens, AgentCostEvent.costMicros, AgentCostEvent.createdAt, AgentCostEvent.inputTokens, AgentCostEvent.metadata, AgentCostEvent.model (+4 more)
+
+### Community 46 - "AgentOS schema"
+Cohesion: 0.18
+Nodes (12): AgentOS, AgentAuthorizationEvent.createdAt, AgentAuthorizationEvent.decision, AgentAuthorizationEvent.policySnapshot, AgentToolDefinition.createdAt, AgentToolDefinition.credentialKind, AgentToolDefinition.description, AgentToolDefinition.inputSchemaJson (+4 more)
+
+### Community 47 - "Supply schema"
+Cohesion: 0.17
+Nodes (11): Supplier.address, Supplier.contactName, Supplier.createdAt, Supplier.email, Supplier.leadTimeDays, Supplier.name, Supplier.notes, Supplier.phone (+3 more)
+
+### Community 48 - "AI schema"
 Cohesion: 0.18
 Nodes (12): ThumbnailTracking.appliedAt, ThumbnailTracking.createdAt, ThumbnailTracking.ctrBefore, ThumbnailTracking.generation, ThumbnailTracking.originalGrade, ThumbnailTracking.originalScore, ThumbnailTracking.reviewsAfter, ThumbnailTracking.salesAfter (+4 more)
 
-### Community 55 - "code file: prepare-coupang-extension.mjs"
+### Community 49 - "Inventory schema"
 Cohesion: 0.18
-Nodes (9): DEFAULT_OUTPUT_PATH, addUnique(), defaultSourceDir, patchManifest(), runtimeFiles, manifest, dir, files (+1 more)
+Nodes (12): StockAudit.auditedBy, StockAudit.auditNumber, StockAudit.completedAt, StockAudit.createdAt, StockAudit.diffCount, StockAudit.items, StockAudit.matchedCount, StockAudit.notes (+4 more)
 
-### Community 56 - "code file: channel-credential-crypto.ts"
+### Community 50 - "code file: channel-credential-crypto.ts"
 Cohesion: 0.27
 Nodes (8): readCredentialsConfig(), toJsonRecord(), toRecord(), trimToOptional(), CoupangCredentialCryptoError, encryptCredential(), EncryptedCredentialEnvelope, resolveKey()
 
-### Community 57 - "Community 57"
+### Community 51 - "Community 51"
 Cohesion: 0.2
 Nodes (8): scanSummaryMessage(), errorMessage(), resultMessage(), isCoupangCredentialResolutionError(), syncCoupangOrders(), syncSingleCoupangOrder(), syncCoupangProducts(), syncSingleProductListing()
 
-### Community 58 - "Core schema"
+### Community 52 - "code file: prepare-coupang-extension.mjs"
 Cohesion: 0.18
-Nodes (11): LegalEntity.address, LegalEntity.businessNumber, LegalEntity.countryCode, LegalEntity.createdAt, LegalEntity.isPrimary, LegalEntity.metadata, LegalEntity.name, LegalEntity.representativeName (+3 more)
+Nodes (9): DEFAULT_OUTPUT_PATH, addUnique(), defaultSourceDir, patchManifest(), runtimeFiles, manifest, dir, files (+1 more)
 
-### Community 59 - "AgentOS schema"
-Cohesion: 0.18
-Nodes (11): AgentRuntimeState.agentInstance, AgentRuntimeState.consecutiveFailureCount, AgentRuntimeState.createdAt, AgentRuntimeState.lastError, AgentRuntimeState.lastHeartbeatAt, AgentRuntimeState.lastRun, AgentRuntimeState.totalCostMicros, AgentRuntimeState.totalInputTokens (+3 more)
-
-### Community 60 - "AgentOS schema"
-Cohesion: 0.22
-Nodes (11): AgentRunRequest.taskSession, AgentTaskSession.adapterType, AgentTaskSession.agentInstance, AgentTaskSession.createdAt, AgentTaskSession.lastRun, AgentTaskSession.metadata, AgentTaskSession.sessionDisplay, AgentTaskSession.sessionParams (+3 more)
-
-### Community 61 - "code file: channel-dashboard.ts"
+### Community 53 - "code file: channel-dashboard.ts"
 Cohesion: 0.18
 Nodes (10): ChannelDashboardSummary, ChannelDashboardSummarySchema, ProductRankingRow, ProductRankingRowSchema, ReturnFaultSplit, ReturnFaultSplitSchema, ReturnReasonRow, ReturnReasonRowSchema (+2 more)
 
-### Community 62 - "prisma field: ActionTask.targetId"
-Cohesion: 0.24
-Nodes (7): ActionTask.targetId, AdAction.targetType, Alert.actionTask, Alert.targetId, Alert.targetType, DashboardInventorySummary, summary
+### Community 54 - "Core schema"
+Cohesion: 0.18
+Nodes (11): LegalEntity.address, LegalEntity.businessNumber, LegalEntity.countryCode, LegalEntity.createdAt, LegalEntity.isPrimary, LegalEntity.metadata, LegalEntity.name, LegalEntity.representativeName (+3 more)
 
-### Community 63 - "Advertising schema"
+### Community 55 - "Orders schema"
+Cohesion: 0.18
+Nodes (11): Shipment.courierCode, Shipment.courierName, Shipment.createdAt, Shipment.deliveredAt, Shipment.deliveryDays, Shipment.shippedAt, Shipment.status, Shipment.trackingNo (+3 more)
+
+### Community 56 - "Inventory schema"
 Cohesion: 0.2
-Nodes (10): packages/shared — @kiditem/shared, Advertising, AI, ScrapeTarget.category, ScrapeTarget.createdAt, ScrapeTarget.isActive, ScrapeTarget.label, ScrapeTarget.lastScrapedAt (+2 more)
+Nodes (11): PickingList.assignedTo, PickingList.completedAt, PickingList.createdAt, PickingList.listNumber, PickingList.pickedItems, PickingList.startedAt, PickingList.status, PickingList.totalItems (+3 more)
 
-### Community 64 - "Inventory schema"
+### Community 57 - "Inventory schema"
 Cohesion: 0.22
 Nodes (10): ReturnTransfer.completedAt, ReturnTransfer.condition, ReturnTransfer.disposedQty, ReturnTransfer.processedBy, ReturnTransfer.quantity, ReturnTransfer.restockedQty, ReturnTransfer.rtNumber, ReturnTransfer.updatedAt (+2 more)
 
-### Community 65 - "AI schema"
+### Community 58 - "AgentOS schema"
 Cohesion: 0.2
-Nodes (10): ContentGeneration.createdAt, ContentGeneration.detailPageHtml, ContentGeneration.errorMessage, ContentGeneration.generatedCopy, ContentGeneration.originalImages, ContentGeneration.processedImages, ContentGeneration.retryCount, ContentGeneration.triggeredByUser (+2 more)
+Nodes (10): AgentRuntimeState.consecutiveFailureCount, AgentRuntimeState.createdAt, AgentRuntimeState.lastError, AgentRuntimeState.lastHeartbeatAt, AgentRuntimeState.lastRun, AgentRuntimeState.totalCostMicros, AgentRuntimeState.totalInputTokens, AgentRuntimeState.totalRuns (+2 more)
 
-### Community 66 - "Finance schema"
+### Community 59 - "AgentOS schema"
+Cohesion: 0.22
+Nodes (10): AgentRunRequest.taskSession, AgentTaskSession.adapterType, AgentTaskSession.createdAt, AgentTaskSession.lastRun, AgentTaskSession.metadata, AgentTaskSession.sessionDisplay, AgentTaskSession.sessionParams, AgentTaskSession.updatedAt (+2 more)
+
+### Community 60 - "Finance schema"
 Cohesion: 0.2
 Nodes (10): GradeHistory.calculatedAt, GradeHistory.marginScore, GradeHistory.newGrade, GradeHistory.oldGrade, GradeHistory.reason, GradeHistory.revenueScore, GradeHistory.score, GradeHistory.velocityScore (+2 more)
 
-### Community 67 - "Inventory schema"
-Cohesion: 0.22
-Nodes (9): PickingItem.createdAt, PickingItem.isPicked, PickingItem.isVerified, PickingItem.location, PickingItem.pickedAt, PickingItem.productName, PickingItem.quantity, PickingItem.verifiedAt (+1 more)
+### Community 61 - "AI schema"
+Cohesion: 0.2
+Nodes (10): ContentGeneration.createdAt, ContentGeneration.detailPageHtml, ContentGeneration.errorMessage, ContentGeneration.generatedCopy, ContentGeneration.originalImages, ContentGeneration.processedImages, ContentGeneration.retryCount, ContentGeneration.triggeredByUser (+2 more)
 
-### Community 68 - "AI schema"
-Cohesion: 0.22
-Nodes (9): ThumbnailAnalysis.complianceAnalyzedAt, ThumbnailAnalysis.complianceGrade, ThumbnailAnalysis.method, ThumbnailAnalysis.overallScore, ThumbnailAnalysis.qualityAnalyzedAt, ThumbnailAnalysis.recompose, ThumbnailAnalysis.scores, ThumbnailAnalysis.suggestions (+1 more)
+### Community 62 - "Inventory schema"
+Cohesion: 0.2
+Nodes (10): PickingItem.createdAt, PickingItem.isPicked, PickingItem.isVerified, PickingItem.location, PickingItem.pickedAt, PickingItem.pickingList, PickingItem.productName, PickingItem.quantity (+2 more)
 
-### Community 69 - "Advertising schema"
+### Community 63 - "AgentOS schema"
+Cohesion: 0.22
+Nodes (9): AgentRunRequest.sourceWorkflowRun, WorkflowRun.contextData, WorkflowRun.error, WorkflowRun.startedAt, WorkflowRun.status, WorkflowRun.steps, WorkflowRun.triggeredBy, WorkflowRun.updatedAt (+1 more)
+
+### Community 64 - "System schema"
+Cohesion: 0.22
+Nodes (9): System, MigrationCheckpoint.createdAt, MigrationCheckpoint.updatedAt, SystemSetting.createdAt, SystemSetting.updatedAt, MigrationCheckpoint, SystemSetting, MigrationCheckpoint unique(scriptName, stepName, entityKey) (+1 more)
+
+### Community 65 - "Orders schema"
 Cohesion: 0.25
-Nodes (8): ExecutionTask.worker, ExecutionWorker.createdAt, ExecutionWorker.currentPageType, ExecutionWorker.currentUrl, ExecutionWorker.lastHeartbeatAt, ExecutionWorker.metaJson, ExecutionWorker.status, ExecutionWorker
+Nodes (8): Review.content, Review.createdAt, Review.id, Review.platform, Review.rating, Review.reviewedAt, Review.reviewerName, Review
 
-### Community 70 - "code file: fs.ts"
-Cohesion: 0.39
-Nodes (5): fileSize(), readJson(), readTextIfExists(), sha256(), file
-
-### Community 71 - "code file: reconciliation-action.dto.ts"
-Cohesion: 0.29
-Nodes (5): CoupangReconciliationIgnoreDto, CoupangReconciliationLinkDto, RESOLUTION_SOURCES, STATUSES, StatusFilter
-
-### Community 72 - "code file: common.ts"
+### Community 66 - "code file: common.ts"
 Cohesion: 0.29
 Nodes (5): ApiErrorResponse, ApiErrorResponseSchema, PaginatedResponse, SyncInfo, SyncInfoSchema
 
-### Community 73 - "code file: ai.ts"
+### Community 67 - "code file: ai.ts"
 Cohesion: 0.29
 Nodes (5): DetailImageCount, DetailImageCountSchema, DetailPageAgeGroup, DetailPageTemplateId, DetailPageTemplateIdSchema
 
-### Community 74 - "Inventory schema"
-Cohesion: 0.33
-Nodes (6): StockTransaction.createdBy, StockTransaction.relatedId, StockTransaction.totalCost, StockTransaction.unitCost, StockTransaction.warehouse, StockTransaction
+### Community 68 - "code file: reconciliation-action.dto.ts"
+Cohesion: 0.29
+Nodes (5): CoupangReconciliationIgnoreDto, CoupangReconciliationLinkDto, RESOLUTION_SOURCES, STATUSES, StatusFilter
 
-### Community 75 - "AgentOS schema"
+### Community 69 - "Supply schema"
+Cohesion: 0.29
+Nodes (7): SupplierPayment.amount, SupplierPayment.createdAt, SupplierPayment.paidDate, SupplierPayment.purchaseOrder, SupplierPayment.status, SupplierPayment.updatedAt, SupplierPayment
+
+### Community 70 - "code file: check-script-inventory.mjs"
+Cohesion: 0.38
+Nodes (5): analyzeInventory(), listTopLevelScriptFiles(), SCRIPT_INVENTORY, SUPPORT_FILES, result
+
+### Community 71 - "AgentOS schema"
 Cohesion: 0.33
-Nodes (6): AgentApprovalRequest.actionSnapshot, AgentApprovalRequest.agentInstance, AgentApprovalRequest.decidedAt, AgentApprovalRequest.decisionReason, AgentApprovalRequest.status, AgentApprovalRequest
+Nodes (6): WorkflowTemplate.createdAt, WorkflowTemplate.description, WorkflowTemplate.marketplace, WorkflowTemplate.triggerType, WorkflowTemplate.version, WorkflowTemplate
+
+### Community 72 - "System schema"
+Cohesion: 0.33
+Nodes (6): ActivityEvent.createdAt, ActivityEvent.eventType, ActivityEvent.objectId, ActivityEvent.source, ActivityEvent.title, ActivityEvent
+
+### Community 73 - "System schema"
+Cohesion: 0.33
+Nodes (6): FeatureGate.allowedOrganizations, FeatureGate.description, FeatureGate.metadata, FeatureGate.updatedAt, FeatureGate, FeatureGateSchema
+
+### Community 74 - "code file: seed-agent-os.spec.ts"
+Cohesion: 0.4
+Nodes (4): definitions, seedPath, serverSeedPath, types
+
+### Community 75 - "Core schema"
+Cohesion: 0.5
+Nodes (5): CategoryMapping.coupangCategoryId, CategoryMapping.createdAt, CategoryMapping.internalCategory, CategoryMapping, CategoryMapping unique(organizationId, internalCategory)
 
 ### Community 76 - "code file: inspection.ts"
 Cohesion: 0.4
@@ -439,28 +437,20 @@ Nodes (4): InspectionItem, InspectionItemSchema, InspectionResult, InspectionRes
 Cohesion: 0.4
 Nodes (4): ReadinessCheck, ReadinessCheckSchema, ReadinessResponse, ReadinessResponseSchema
 
-### Community 78 - "code file: seed-agent-os.spec.ts"
-Cohesion: 0.4
-Nodes (4): definitions, seedPath, serverSeedPath, types
-
-### Community 79 - "code file: thumbnails.spec.ts"
-Cohesion: 0.5
-Nodes (3): parsed, CoupangImageSyncCapabilities, CoupangImageSyncRowSchema
-
 ## Knowledge Gaps
-- **1107 isolated node(s):** `AdAction.id`, `AdAction.actionType`, `AdAction.targetLabel`, `AdAction.reason`, `AdAction.priority` (+1102 more)
+- **1102 isolated node(s):** `AdAction.id`, `AdAction.actionType`, `AdAction.targetLabel`, `AdAction.reason`, `AdAction.priority` (+1097 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **2 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Organization` connect `Channels schema` to `code file: ChannelListingOption.isUnmatched`, `code file: ads.ts`, `code file: dev-data-coupang.ts`, `prisma field: MasterProduct.barcode`, `code file: dev-data.ts`, `code file: staging-db-baseline.ts`, `Inventory schema`, `Supply schema`, `System schema`, `AI schema`, `prisma field: channel-reconciliation.types.ts`, `Core schema`, `AgentOS schema`, `code file: dashboard.ts`, `code file: product.ts`, `Sourcing schema`, `Core schema`, `AgentOS schema`, `Orders schema`, `Orders schema`, `Supply schema`, `Orders schema`, `code file: Order.status`, `Core schema`, `Orders schema`, `System schema`, `Inventory schema`, `code file: sources.ts`, `Advertising schema`, `Orders schema`, `Core schema`, `AgentOS schema`, `Finance schema`, `Channels schema`, `Channels schema`, `Finance schema`, `Core schema`, `Orders schema`, `Orders schema`, `AgentOS schema`, `AgentOS schema`, `Orders schema`, `Finance schema`, `Inventory schema`, `Inventory schema`, `AI schema`, `Core schema`, `AgentOS schema`, `AgentOS schema`, `prisma field: ActionTask.targetId`, `Advertising schema`, `Inventory schema`, `AI schema`, `Finance schema`, `AI schema`, `Advertising schema`, `Inventory schema`, `AgentOS schema`?**
-  _High betweenness centrality (0.181) - this node is a cross-community bridge._
-- **Why does `Database ERD` connect `Core schema` to `Channels schema`, `code file: ChannelListingOption.isUnmatched`, `prisma field: MasterProduct.barcode`, `Inventory schema`, `Supply schema`, `System schema`, `AI schema`, `prisma field: channel-reconciliation.types.ts`, `Core schema`, `AgentOS schema`, `Sourcing schema`, `Core schema`, `AgentOS schema`, `Orders schema`, `Core schema`, `Orders schema`, `Supply schema`, `Orders schema`, `System schema`, `Core schema`, `Orders schema`, `System schema`, `Inventory schema`, `Advertising schema`, `Orders schema`, `AgentOS schema`, `Finance schema`, `Channels schema`, `Channels schema`, `Finance schema`, `Core schema`, `Orders schema`, `Orders schema`, `Advertising schema`, `AgentOS schema`, `AgentOS schema`, `Orders schema`, `Finance schema`, `Inventory schema`, `Inventory schema`, `AI schema`, `Core schema`, `AgentOS schema`, `AgentOS schema`, `prisma field: ActionTask.targetId`, `Advertising schema`, `Inventory schema`, `AI schema`, `Finance schema`, `Inventory schema`, `AI schema`, `Advertising schema`, `Inventory schema`, `AgentOS schema`?**
-  _High betweenness centrality (0.139) - this node is a cross-community bridge._
-- **Why does `Inventory` connect `Inventory schema` to `Channels schema`, `code file: ChannelListingOption.isUnmatched`, `code file: dev-data-coupang.ts`, `prisma field: MasterProduct.barcode`, `code file: dev-data.ts`, `code file: check-agents-hygiene.mjs`, `Supply schema`, `AI schema`, `prisma field: channel-reconciliation.types.ts`, `Core schema`, `code file: dashboard.ts`, `code file: product.ts`, `Core schema`, `Orders schema`, `Supply schema`, `Orders schema`, `code file: Order.status`, `System schema`, `Orders schema`, `Inventory schema`, `Core schema`, `Channels schema`, `code file: dev-data-profiles.spec.ts`, `Core schema`, `code file: removed-legacy-scripts.spec.ts`, `Inventory schema`, `Inventory schema`, `prisma field: ActionTask.targetId`, `Advertising schema`, `Inventory schema`, `AI schema`, `Finance schema`, `Inventory schema`, `AI schema`, `code file: common.ts`, `Inventory schema`, `code file: thumbnails.spec.ts`?**
-  _High betweenness centrality (0.110) - this node is a cross-community bridge._
+- **Why does `Organization` connect `Channels schema` to `Core schema`, `code file: ads.ts`, `code file: dev-data.ts`, `prisma field: CandidateImage.isDeleted`, `code file: staging-db-baseline.ts`, `Advertising schema`, `prisma field: channel-reconciliation.types.ts`, `code file: dev-data-coupang.ts`, `Inventory schema`, `AI schema`, `Orders schema`, `code file: dashboard.ts`, `AgentOS schema`, `code file: lifecycle-state.ts`, `Core schema`, `Core schema`, `Finance schema`, `AgentOS schema`, `Sourcing schema`, `Orders schema`, `code file: Order.status`, `AI schema`, `System schema`, `AgentOS schema`, `Inventory schema`, `code file: sources.ts`, `Channels schema`, `Orders schema`, `Orders schema`, `Supply schema`, `System schema`, `Channels schema`, `Core schema`, `AgentOS schema`, `Orders schema`, `Orders schema`, `AgentOS schema`, `AgentOS schema`, `Supply schema`, `AI schema`, `Inventory schema`, `Core schema`, `Orders schema`, `Inventory schema`, `Inventory schema`, `AgentOS schema`, `AgentOS schema`, `Finance schema`, `AI schema`, `System schema`, `Orders schema`, `Supply schema`, `AgentOS schema`, `System schema`, `System schema`, `Core schema`?**
+  _High betweenness centrality (0.201) - this node is a cross-community bridge._
+- **Why does `Database ERD` connect `Orders schema` to `Channels schema`, `Core schema`, `prisma field: CandidateImage.isDeleted`, `Advertising schema`, `prisma field: channel-reconciliation.types.ts`, `Inventory schema`, `AI schema`, `AgentOS schema`, `Core schema`, `Core schema`, `Finance schema`, `AgentOS schema`, `Sourcing schema`, `Orders schema`, `Supply schema`, `AI schema`, `System schema`, `System schema`, `AgentOS schema`, `Inventory schema`, `Channels schema`, `Orders schema`, `Orders schema`, `Supply schema`, `System schema`, `Channels schema`, `Core schema`, `AgentOS schema`, `Orders schema`, `Orders schema`, `AgentOS schema`, `AgentOS schema`, `Supply schema`, `AI schema`, `Inventory schema`, `Core schema`, `Orders schema`, `Inventory schema`, `Inventory schema`, `AgentOS schema`, `AgentOS schema`, `Finance schema`, `AI schema`, `Inventory schema`, `AgentOS schema`, `System schema`, `Orders schema`, `Supply schema`, `AgentOS schema`, `System schema`, `System schema`, `Core schema`?**
+  _High betweenness centrality (0.138) - this node is a cross-community bridge._
+- **Why does `Inventory` connect `Inventory schema` to `Channels schema`, `Core schema`, `code file: dev-data.ts`, `prisma field: CandidateImage.isDeleted`, `Advertising schema`, `prisma field: channel-reconciliation.types.ts`, `code file: dev-data-coupang.ts`, `AI schema`, `code file: check-agents-hygiene.mjs`, `Orders schema`, `code file: dashboard.ts`, `code file: lifecycle-state.ts`, `Core schema`, `code file: dev-data-profiles.spec.ts`, `Core schema`, `Orders schema`, `Supply schema`, `code file: Order.status`, `AI schema`, `System schema`, `Inventory schema`, `Channels schema`, `Core schema`, `Supply schema`, `Inventory schema`, `Inventory schema`, `Inventory schema`, `Finance schema`, `AI schema`, `Inventory schema`, `code file: common.ts`, `code file: check-script-inventory.mjs`, `code file: thumbnails.spec.ts`?**
+  _High betweenness centrality (0.131) - this node is a cross-community bridge._
 - **Are the 49 inferred relationships involving `Organization` (e.g. with `Thumbnail` and `ChannelReconciliationRun`) actually correct?**
   _`Organization` has 49 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 125 inferred relationships involving `Inventory` (e.g. with `Inventory.organization` and `StockTransfer`) actually correct?**

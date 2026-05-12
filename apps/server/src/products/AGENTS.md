@@ -57,11 +57,11 @@ retires or reconstructs it.
   service-layer code does not need to set it explicitly on create. Catalog
   count buckets are `activeCount / pausedCount / discontinuedCount /
   totalCount`.
-- `pipelineStep` is deprecated on the products API surface as of Phase 5
-  (#192). The `master_products.pipeline_step` column persists until Phase 8
-  drops it; nothing in `products/` should select, filter on, or echo
-  `pipelineStep` going forward (the only remaining narrative reference is the
-  Phase 8 retirement note on `MasterPromotionService`).
+- `pipelineStep` and the legacy sourcing columns (`source_url`,
+  `source_platform`, `raw_data`, `cost_cny`, `margin_rate`) are retired from
+  `master_products` (Phase 8, #192). Nothing in `products/` should select,
+  filter on, or echo any of them. Sourcing history lives on
+  `SourcingCandidate` / `CandidateImage` (see `src/sourcing/`).
 
 ## Controller And Service Rules
 

@@ -1,7 +1,7 @@
 // apps/server/src/products/dto/create-master.dto.ts
 import { Type } from 'class-transformer';
 import {
-  IsArray, IsBoolean, IsIn, IsInt, IsNotEmpty, IsNumber, IsOptional,
+  IsArray, IsBoolean, IsIn, IsInt, IsNotEmpty, IsOptional,
   IsString, IsUrl, Max, MaxLength, Min, ValidateIf, ValidateNested,
 } from 'class-validator';
 import { MasterImageItemDto } from './master-image-item.dto';
@@ -44,9 +44,6 @@ export class CreateMasterDto {
   tags?: string[];
 
   @IsOptional() @IsUrl()
-  sourceUrl?: string;
-
-  @IsOptional() @IsUrl()
   thumbnailUrl?: string;
 
   @IsOptional() @IsUrl()
@@ -54,15 +51,6 @@ export class CreateMasterDto {
 
   @IsOptional() @IsUrl()
   detailPageUrl?: string;
-
-  @IsOptional() @IsString()
-  sourcePlatform?: string;
-
-  @IsOptional() @IsNumber() @Min(0) @Max(99999999.99)
-  costCny?: number;
-
-  @IsOptional() @IsNumber() @Min(0) @Max(1)
-  marginRate?: number;
 
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => MasterImageItemDto)
   images?: MasterImageItemDto[];

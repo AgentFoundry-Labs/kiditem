@@ -4,7 +4,7 @@
 // `GET /api/products/catalog/:id`, and `GET /api/products/catalog/counts`.
 // Owns the WHERE builder (organizationId + soft-delete + grade + lifecycleState +
 // search OR-clause), the explicit `select` that intentionally excludes
-// rawData / processedData / draftContent JSON blobs, and the nested option
+// processedData / draftContent JSON blobs, and the nested option
 // tenant scope (`{ organizationId, isDeleted: false, isActive: true }`).
 import type { Prisma } from '@prisma/client';
 import { PRODUCT_LIFECYCLE_STATES } from '@kiditem/shared/product';
@@ -58,10 +58,6 @@ export type CatalogMasterRow = {
   adBudgetLimit: number | null;
   healthScore: number | null;
   healthUpdatedAt: Date | null;
-  sourceUrl: string | null;
-  sourcePlatform: string | null;
-  costCny: Prisma.Decimal | number | null;
-  marginRate: Prisma.Decimal | number | null;
   lifecycleState: string;
   detailPageUrl: string | null;
   thumbnailStrategy: string;
@@ -148,10 +144,6 @@ export function buildCatalogMasterSelect(organizationId: string) {
     adBudgetLimit: true,
     healthScore: true,
     healthUpdatedAt: true,
-    sourceUrl: true,
-    sourcePlatform: true,
-    costCny: true,
-    marginRate: true,
     lifecycleState: true,
     detailPageUrl: true,
     thumbnailStrategy: true,

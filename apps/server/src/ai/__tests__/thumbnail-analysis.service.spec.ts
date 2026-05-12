@@ -325,7 +325,6 @@ describe('ThumbnailAnalysisService AI flow', () => {
         where: expect.objectContaining({
           organizationId: ORGANIZATION_ID,
           isDeleted: false,
-          pipelineStep: null,
           listings: {
             some: {
               organizationId: ORGANIZATION_ID,
@@ -349,7 +348,6 @@ describe('ThumbnailAnalysisService AI flow', () => {
         where: expect.objectContaining({
           organizationId: ORGANIZATION_ID,
           isDeleted: false,
-          pipelineStep: null,
           listings: {
             some: {
               organizationId: ORGANIZATION_ID,

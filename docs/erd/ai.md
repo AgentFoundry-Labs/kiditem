@@ -139,7 +139,6 @@ erDiagram
     Int sortOrder
     String source
     String masterImageId FK
-    String sourceCandidateId FK
     String mimeType
     Int width
     Int height
@@ -199,7 +198,6 @@ erDiagram
   ThumbnailGeneration ||--o{ ThumbnailGenerationInputImage : "generation"
   ThumbnailGeneration ||--o{ ThumbnailRegistrationAttempt : "generation"
   ThumbnailGeneration ||--o{ ThumbnailTracking : "generation"
-  ThumbnailGenerationCandidate o|--o{ ThumbnailGenerationInputImage : "sourceCandidate"
   ThumbnailTracking ||--o{ ThumbnailTrackingDailySnapshot : "tracking"
 ```
 

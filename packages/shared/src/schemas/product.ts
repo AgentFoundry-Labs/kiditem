@@ -79,13 +79,9 @@ export const MasterSchema = z.object({
   adBudgetLimit: z.number().int().nullable(),
   healthScore: z.number().int().nullable(),
   healthUpdatedAt: zIsoDate.nullable(),
-  sourceUrl: z.string().url().nullable(),
-  sourcePlatform: z.string().nullable(),
-  costCny: z.number().nullable(),
-  marginRate: z.number().nullable(),
-  // Phase 5 (#192): API surface is `lifecycleState` only. The legacy
-  // `pipelineStep` column persists on master_products until Phase 8 drops it
-  // — until then the API never selects or surfaces it.
+  // Phase 8 (#192) retired `sourceUrl`/`sourcePlatform`/`costCny`/`marginRate`
+  // from `master_products`. Sourcing history lives on `SourcingCandidate`
+  // (see `@kiditem/shared/sourcing`).
   lifecycleState: ProductLifecycleStateSchema,
   detailPageUrl: z.string().url().nullable(),
   thumbnailStrategy: z.enum(['standard', 'premium', 'custom']),
@@ -174,10 +170,10 @@ export const ProductCatalogCountsSchema = z.object({
   gradeC: z.number().int().nonnegative(),
   adCount: z.number().int().nonnegative(),
   noAdCount: z.number().int().nonnegative(),
-  // Phase 5 (#192): catalog count buckets follow `lifecycleState`. The legacy
-  // `draftCount/processingCount/processedCount` buckets backed by
-  // `pipelineStep` are gone from the API contract; `totalCount` is the
-  // organization-scoped catalog total (== `total`).
+  // Catalog count buckets follow `lifecycleState` (Phase 5 #192). `totalCount`
+  // is the organization-scoped catalog total (== `total`). The legacy
+  // `pipelineStep`-based `draftCount/processingCount/processedCount` buckets
+  // were retired with the `pipeline_step` column in Phase 8.
   activeCount: z.number().int().nonnegative(),
   pausedCount: z.number().int().nonnegative(),
   discontinuedCount: z.number().int().nonnegative(),

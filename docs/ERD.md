@@ -962,14 +962,8 @@ erDiagram
     Int adBudgetLimit
     Int healthScore
     DateTime healthUpdatedAt
-    String sourceUrl
-    String sourcePlatform
-    Decimal costCny
-    Decimal marginRate
-    Json rawData
     Json processedData
     Json draftContent
-    String pipelineStep
     String detailPageUrl
     String thumbnailStrategy
     Boolean isDeleted
@@ -1535,7 +1529,6 @@ erDiagram
     Int sortOrder
     String source
     String masterImageId FK
-    String sourceCandidateId FK
     String mimeType
     Int width
     Int height
@@ -1842,7 +1835,6 @@ erDiagram
   ThumbnailGeneration ||--o{ ThumbnailGenerationInputImage : "generation"
   ThumbnailGeneration ||--o{ ThumbnailRegistrationAttempt : "generation"
   ThumbnailGeneration ||--o{ ThumbnailTracking : "generation"
-  ThumbnailGenerationCandidate o|--o{ ThumbnailGenerationInputImage : "sourceCandidate"
   ThumbnailTracking ||--o{ ThumbnailTrackingDailySnapshot : "tracking"
   User o|--o{ ActionTask : "assigneeUser"
   User o|--o{ AgentApprovalRequest : "approver"
