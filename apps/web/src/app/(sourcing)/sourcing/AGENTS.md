@@ -1,96 +1,69 @@
-# web/sourcing — Product Sourcing And Detail Editor
+# web/sourcing — Sourcing Candidate UI
 
-Sourcing UI has three stages: product list, product detail preview, and
-GrapesJS detail-page editor. The complex surface is `[id]/editor`.
+Sourcing UI 는 두 단계: **후보 리스트** 와 **후보 상세 + 액션(promote / reject)**.
+
+Phase 7 (#192) 이후 후보 단계의 AI 편집기/상세페이지 편집기는 제거됨. AI 생성 / 편집은 master-side 기존 surfaces 재사용:
+
+- 상세페이지 생성/편집 → `/generate?productId={master.id}` `(media-ai)/generate/`
+- 썸네일 편집 → `/thumbnail-editor/edit?productId={master.id}&mode=edit&editCase=single` `(media-ai)/thumbnail-editor/`
+
+후보 페이지는 source 데이터 read-only 표시 + promote / reject 액션만.
 
 ## Layout
 
 ```text
 sourcing/
-  page.tsx
-  [id]/page.tsx
-  [id]/editor/page.tsx
-  [id]/editor/components/
-    DetailPageEditor.tsx
-    AIImageEditPanel.tsx
-    AITextEditPanel.tsx
-    ImagePickerModal.tsx
-  components/list/
+  page.tsx                                          후보 리스트
+  [id]/page.tsx                                     후보 상세
+  [id]/components/
+    ProductTabContent.tsx                           탭 컨텐츠 (basic/options/detail/history/raw)
+    ProductErrorView.tsx, ProductLoadingView.tsx
+  [id]/hooks/useProductDetail.ts                    후보 단건 fetch
+  components/list/                                  리스트 카드/툴바/스크랩 입력
   components/detail/
-  lib/sourcing-api.ts
-  lib/template-html.tsx
-  lib/types.ts
+    ProductEditHeader.tsx                           헤더 + promote/reject 버튼
+    ProductEditTabs.tsx
+    MobilePreview.tsx, RawDataTab.tsx,
+    ThumbnailGrid.tsx, TagEditor.tsx
+  hooks/                                            useProcessingIds, useScrapeUrl
+  lib/sourcing-api.ts                               SourcedProduct + productsApi + candidatesApi
+  lib/template-html.tsx                             @kiditem/templates → 단일 HTML 문서. media-ai/generate 가 소비.
+  lib/types.ts                                      ProductEditState, mapProcessedData, PLACEHOLDER_DATA
 ```
 
 ## List Page
 
 - 50 rows/page.
-- `processingIds` tracks in-flight products.
-- Poll only while processing: `refetchInterval: hasProcessing ? 3000 : false`.
+- `processingIds` tracks in-flight AI gens on each candidate's promoted master (post-promotion).
+- Poll only while `status === 'sourced'` exists: `refetchInterval: hasActive ? 10000 : false`.
 - URL scrape calls `POST /api/sourcing/scrape-url`.
+- Card 클릭 → `/sourcing/{candidate.id}` 로 이동.
 
 ## Detail Page
 
-- Fetch product, preview, and template CSS.
-- Edits are local preview state until a separate publish/save flow.
-- Render preview through `parseDetailPageData()`, `getTemplate()`, and
-  `renderTemplateToHtml()`.
-- Do not write directly to DB from this page.
+- `useProductDetail(candidateId)` → `productsApi.getDetail(id)` → `/api/sourcing/:id` 단건.
+- 탭: `basic` (기본정보 — 카테고리/이름/태그/상품정보, 편집은 로컬 미리보기 상태), `options` (placeholder), `detail` / `history` (master-side 안내 placeholder), `raw` (source rawData 표시 read-only).
+- **DB write 없음.** 후보 자체 mutation 은 promote / reject 두 use-case 만 (`candidatesApi.{promote,reject}`).
 
-## GrapesJS Editor
+## Promote / Reject
 
-- Uses `grapesjs@0.22.14` and `@grapesjs/react@2.0.0`.
-- Canvas width target is Coupang detail page (860px).
-- `storageManager: false`; parent/page owns persistence.
-- Save exports HTML + CSS only:
-  `editor.getHtml()` + `editor.getCss({ avoidProtected: true })`.
-- Load uses `editor.setComponents()` and `editor.setStyle()`.
-- Canvas CSS/font injection happens on `canvas:frame:load:body` with
-  fingerprint dedupe.
-- `DetailPageEditor.tsx` is a large component. Do not add substantial behavior
-  without a split plan.
-
-## AI Panels
-
-Image edit:
-
-- `AIImageEditPanel.tsx` calls `POST /api/image-ai/edit`.
-- Poll `GET /api/agent-os/requests/{taskId}` every 2s up to 120s.
-- On success, fetch latest run and apply `run.output.image_url`.
-- `isBusy.current` prevents concurrent edits.
-
-Text edit:
-
-- `AITextEditPanel.tsx` calls `POST /api/text-ai/transform` synchronously.
-- Apply text while pausing GrapesJS UndoManager:
-  `um.stop(); applyTextToComponent(...); um.start();`.
-
-## Images And Templates
-
-- `ImagePickerModal` upload uses FileReader base64 passthrough; no server upload
-  from the editor.
-- Gallery images come from parent `rawImages` / `processedImages` props.
-- `lib/template-html.tsx` renders `@kiditem/templates` React components to a
-  full HTML document with CSS variables and font links.
+- `ProductEditHeader` 가 `status === 'sourced'` 일 때만 promote / reject 버튼 노출.
+- promote 성공 시 master 가 생성됨 (backend `POST /api/sourcing/candidates/:id/promote`). 응답의 `masterId` 로 `/product-hub/{masterId}` 또는 `/generate?productId={masterId}` 안내.
+- reject 시 `status='rejected'` + `rejectedAt/rejectedReason/rejectedByUserId` 채워짐.
 
 ## Hard Bans
 
-- `editor.saveJSON()`; export HTML+CSS only.
-- Server image upload from the editor.
-- Local storage through GrapesJS.
-- Concurrent AI edits.
-- Applying AI text without UndoManager pause.
-- Casual new GrapesJS plugins.
-- Direct DB update from detail preview/editor pages.
+- 후보에 AI 생성/편집 surface 다시 추가하지 말 것. AI 작업은 master-side `(media-ai)/generate`, `(media-ai)/thumbnail-editor/edit` 가 소유.
+- Direct DB update from this page.
+- `setInterval` 폴링. `refetchInterval` 사용.
+- `organizationId` 를 body/query 에 보내지 말 것.
+- `useGenerationStatusFloater`, `useGenerationHistory`, `useGenerateDetailPage`, `useKidsPlayfulFromSourcing`, `useGenerateSourcingThumbnail` 같은 후보-단계 AI 훅 재도입 금지.
 
 ## Change Map
 
-| Change | Also update |
+| 변경 | 함께 갱신 |
 |---|---|
-| AI preset | panel component + backend AI DTO/preset |
-| custom block | `DetailPageEditor` block manager + Lucide icon map |
-| template | `@kiditem/templates` component/config + `getTemplate()` |
-| style sector | `DetailPageEditor` style manager |
-| polling interval | `AIImageEditPanel` load impact |
-| save format | editor save + detail page parse/load |
-| gallery source | `ImagePickerModal` + editor props |
+| 후보 status 머신 | `@kiditem/shared/sourcing` candidate-status + backend service |
+| promote / reject DTO | `lib/sourcing-api.candidatesApi` + backend DTO |
+| 폴링 조건 | `isInProgress(status)` 사용 (status='sourced' 만 polling) |
+| master-side 편집 경로 | `(media-ai)/generate`, `(media-ai)/thumbnail-editor/edit` 라우트 + ProductTabContent 의 placeholder 링크 |
