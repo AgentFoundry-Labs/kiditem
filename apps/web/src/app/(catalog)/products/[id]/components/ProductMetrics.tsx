@@ -1,12 +1,11 @@
 'use client';
 
-import { Package, TrendingUp, BarChart3, Star } from 'lucide-react';
+import { Package, TrendingUp, Star } from 'lucide-react';
 import {
   cn,
   formatKRW,
   formatPercent,
   getGradeColor,
-  getProfitColor,
   getProductStatusBadge,
 } from '@/lib/utils';
 import type { ProductCatalogDetail as Product } from '@kiditem/shared/product';
@@ -56,15 +55,13 @@ function MetricCard({
 }
 
 export default function ProductMetrics({ product }: ProductMetricsProps) {
-  const badge = getProductStatusBadge(product.pipelineStep ?? 'draft');
+  // Phase 5/7 (#192): the master lifecycle drives the header badge. The
+  // legacy `pipelineStep` field is gone from the API contract.
+  const badge = getProductStatusBadge(product.lifecycleState ?? 'active');
 
   const representativeOption = product.options[0] ?? null;
   const sellPrice = representativeOption?.sellPrice ?? product.priceRange?.min ?? null;
   const costPrice = representativeOption?.costPrice ?? product.costRange?.min ?? null;
-  const marginRate =
-    sellPrice && sellPrice > 0 && costPrice && costPrice > 0
-      ? (sellPrice - costPrice) / sellPrice
-      : null;
   const commissionRate = representativeOption?.commissionRate ?? null;
 
   return (
@@ -88,7 +85,7 @@ export default function ProductMetrics({ product }: ProductMetricsProps) {
           옵션을 등록하면 가격 지표가 표시됩니다.
         </div>
       )}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <MetricCard
           label="판매가"
           value={sellPrice ? `${formatKRW(sellPrice)}원` : "-"}
@@ -98,12 +95,6 @@ export default function ProductMetrics({ product }: ProductMetricsProps) {
           label="매입가"
           value={costPrice ? `${formatKRW(costPrice)}원` : "-"}
           icon={<TrendingUp size={16} className="text-green-500" />}
-        />
-        <MetricCard
-          label="이익률"
-          value={marginRate != null ? formatPercent(marginRate * 100) : "-"}
-          icon={<BarChart3 size={16} className="text-purple-500" />}
-          valueColor={marginRate != null ? getProfitColor(marginRate * 100) : ""}
         />
         <MetricCard
           label="수수료율"

@@ -12,12 +12,18 @@ interface AddProductModalProps {
 }
 
 export default function AddProductModal({ onClose, onSaved }: AddProductModalProps) {
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<{
+    name: string;
+    description: string;
+    category: string;
+    brand: string;
+    lifecycleState: 'active' | 'paused' | 'discontinued';
+  }>({
     name: '',
     description: '',
     category: '',
     brand: '',
-    pipelineStep: 'draft',
+    lifecycleState: 'active',
   });
 
   const createProduct = useMutation({
@@ -27,7 +33,7 @@ export default function AddProductModal({ onClose, onSaved }: AddProductModalPro
         description: form.description,
         category: form.category || undefined,
         brand: form.brand || undefined,
-        pipelineStep: form.pipelineStep,
+        lifecycleState: form.lifecycleState,
       }),
     onSuccess: () => onSaved(),
     onError: (err) => toast.error(isApiError(err) ? err.detail : '상품 등록 중 오류가 발생했습니다.'),
@@ -86,13 +92,16 @@ export default function AddProductModal({ onClose, onSaved }: AddProductModalPro
           <div>
             <label className="block text-sm text-slate-600 mb-1">상태</label>
             <select
-              value={form.pipelineStep}
-              onChange={(e) => setForm({ ...form, pipelineStep: e.target.value })}
+              value={form.lifecycleState}
+              onChange={(e) => setForm({
+                ...form,
+                lifecycleState: e.target.value as 'active' | 'paused' | 'discontinued',
+              })}
               className="w-full border rounded-lg px-3 py-2 text-sm"
             >
-              <option value="draft">초안</option>
-              <option value="processing">처리중</option>
-              <option value="processed">완료</option>
+              <option value="active">판매중</option>
+              <option value="paused">중지</option>
+              <option value="discontinued">정리</option>
             </select>
           </div>
           <div className="text-[11px] text-slate-400 bg-slate-50 rounded-lg p-2">

@@ -62,7 +62,6 @@ export function useProductDetail(productId: string) {
         : {
             ...PLACEHOLDER_DATA,
             name: data.name,
-            salePrice: data.price_krw ?? 0,
             thumbnails: data.thumbnail_url ? [data.thumbnail_url] : [],
           };
 

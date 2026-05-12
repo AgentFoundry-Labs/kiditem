@@ -50,7 +50,7 @@ export function InfoRow({
 }
 
 export default function ProductSidebar({ product }: ProductSidebarProps) {
-  const badge = getProductStatusBadge(product.pipelineStep ?? 'draft');
+  const badge = getProductStatusBadge(product.lifecycleState ?? 'active');
   const representativeOption = product.options[0] ?? null;
   const commissionRate = representativeOption?.commissionRate ?? null;
   const shippingCost = representativeOption?.shippingCost ?? null;
