@@ -9,7 +9,7 @@
       "source_file": "prisma/models/advertising.prisma",
       "node_type": "domain",
       "id": "domain_advertising",
-      "community": 64,
+      "community": 63,
       "norm_label": "advertising"
     },
     {
@@ -21,7 +21,7 @@
       "table": "ad_actions",
       "description": "\uad11\uace0 \uc790\ub3d9 \uc2e4\ud589 \ud050. ChannelAdTargetDailySnapshot\u2192AdAction\u2192ExecutionTask\u2192ExecutionLog \ud30c\uc774\ud504\ub77c\uc778.",
       "id": "model_adaction",
-      "community": 33,
+      "community": 32,
       "norm_label": "adaction"
     },
     {
@@ -33,7 +33,7 @@
       "field": "id",
       "field_type": "String",
       "id": "field_adaction_id",
-      "community": 33,
+      "community": 32,
       "norm_label": "adaction.id"
     },
     {
@@ -45,7 +45,7 @@
       "field": "actionType",
       "field_type": "String",
       "id": "field_adaction_actiontype",
-      "community": 33,
+      "community": 32,
       "norm_label": "adaction.actiontype"
     },
     {
@@ -69,7 +69,7 @@
       "field": "externalId",
       "field_type": "String?",
       "id": "field_adaction_externalid",
-      "community": 9,
+      "community": 12,
       "norm_label": "adaction.externalid"
     },
     {
@@ -81,7 +81,7 @@
       "field": "targetLabel",
       "field_type": "String",
       "id": "field_adaction_targetlabel",
-      "community": 33,
+      "community": 32,
       "norm_label": "adaction.targetlabel"
     },
     {
@@ -93,7 +93,7 @@
       "field": "reason",
       "field_type": "String",
       "id": "field_adaction_reason",
-      "community": 33,
+      "community": 32,
       "norm_label": "adaction.reason"
     },
     {
@@ -105,7 +105,7 @@
       "field": "priority",
       "field_type": "String",
       "id": "field_adaction_priority",
-      "community": 33,
+      "community": 32,
       "norm_label": "adaction.priority"
     },
     {
@@ -117,7 +117,7 @@
       "field": "currentValue",
       "field_type": "Int?",
       "id": "field_adaction_currentvalue",
-      "community": 33,
+      "community": 32,
       "norm_label": "adaction.currentvalue"
     },
     {
@@ -129,7 +129,7 @@
       "field": "proposedValue",
       "field_type": "Int?",
       "id": "field_adaction_proposedvalue",
-      "community": 33,
+      "community": 32,
       "norm_label": "adaction.proposedvalue"
     },
     {
@@ -141,7 +141,7 @@
       "field": "payload",
       "field_type": "Json?",
       "id": "field_adaction_payload",
-      "community": 33,
+      "community": 32,
       "norm_label": "adaction.payload"
     },
     {
@@ -153,7 +153,7 @@
       "field": "approvalStatus",
       "field_type": "String",
       "id": "field_adaction_approvalstatus",
-      "community": 33,
+      "community": 32,
       "norm_label": "adaction.approvalstatus"
     },
     {
@@ -165,7 +165,7 @@
       "field": "executeStatus",
       "field_type": "String",
       "id": "field_adaction_executestatus",
-      "community": 33,
+      "community": 32,
       "norm_label": "adaction.executestatus"
     },
     {
@@ -177,7 +177,7 @@
       "field": "beforeJson",
       "field_type": "Json?",
       "id": "field_adaction_beforejson",
-      "community": 33,
+      "community": 32,
       "norm_label": "adaction.beforejson"
     },
     {
@@ -189,7 +189,7 @@
       "field": "afterJson",
       "field_type": "Json?",
       "id": "field_adaction_afterjson",
-      "community": 33,
+      "community": 32,
       "norm_label": "adaction.afterjson"
     },
     {
@@ -201,7 +201,7 @@
       "field": "errorMessage",
       "field_type": "String?",
       "id": "field_adaction_errormessage",
-      "community": 33,
+      "community": 32,
       "norm_label": "adaction.errormessage"
     },
     {
@@ -213,7 +213,7 @@
       "field": "approvedAt",
       "field_type": "DateTime?",
       "id": "field_adaction_approvedat",
-      "community": 33,
+      "community": 32,
       "norm_label": "adaction.approvedat"
     },
     {
@@ -225,7 +225,7 @@
       "field": "executedAt",
       "field_type": "DateTime?",
       "id": "field_adaction_executedat",
-      "community": 33,
+      "community": 32,
       "norm_label": "adaction.executedat"
     },
     {
@@ -237,7 +237,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_adaction_createdat",
-      "community": 33,
+      "community": 32,
       "norm_label": "adaction.createdat"
     },
     {
@@ -261,7 +261,7 @@
       "field": "listing",
       "field_type": "ChannelListing?",
       "id": "field_adaction_listing",
-      "community": 20,
+      "community": 22,
       "norm_label": "adaction.listing"
     },
     {
@@ -273,7 +273,7 @@
       "field": "adTargetDaily",
       "field_type": "ChannelAdTargetDailySnapshot?",
       "id": "field_adaction_adtargetdaily",
-      "community": 33,
+      "community": 32,
       "norm_label": "adaction.adtargetdaily"
     },
     {
@@ -285,7 +285,7 @@
       "table": "scrape_targets",
       "description": "",
       "id": "model_scrapetarget",
-      "community": 64,
+      "community": 63,
       "norm_label": "scrapetarget"
     },
     {
@@ -297,7 +297,7 @@
       "field": "url",
       "field_type": "String",
       "id": "field_scrapetarget_url",
-      "community": 64,
+      "community": 63,
       "norm_label": "scrapetarget.url"
     },
     {
@@ -309,7 +309,7 @@
       "field": "label",
       "field_type": "String",
       "id": "field_scrapetarget_label",
-      "community": 64,
+      "community": 63,
       "norm_label": "scrapetarget.label"
     },
     {
@@ -321,7 +321,7 @@
       "field": "category",
       "field_type": "String",
       "id": "field_scrapetarget_category",
-      "community": 64,
+      "community": 63,
       "norm_label": "scrapetarget.category"
     },
     {
@@ -333,7 +333,7 @@
       "field": "isActive",
       "field_type": "Boolean",
       "id": "field_scrapetarget_isactive",
-      "community": 64,
+      "community": 63,
       "norm_label": "scrapetarget.isactive"
     },
     {
@@ -345,7 +345,7 @@
       "field": "lastScrapedAt",
       "field_type": "DateTime?",
       "id": "field_scrapetarget_lastscrapedat",
-      "community": 64,
+      "community": 63,
       "norm_label": "scrapetarget.lastscrapedat"
     },
     {
@@ -357,7 +357,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_scrapetarget_createdat",
-      "community": 64,
+      "community": 63,
       "norm_label": "scrapetarget.createdat"
     },
     {
@@ -501,7 +501,7 @@
       "field": "worker",
       "field_type": "ExecutionWorker?",
       "id": "field_executiontask_worker",
-      "community": 70,
+      "community": 69,
       "norm_label": "executiontask.worker"
     },
     {
@@ -561,7 +561,7 @@
       "table": "execution_workers",
       "description": "",
       "id": "model_executionworker",
-      "community": 70,
+      "community": 69,
       "norm_label": "executionworker"
     },
     {
@@ -573,7 +573,7 @@
       "field": "status",
       "field_type": "String",
       "id": "field_executionworker_status",
-      "community": 70,
+      "community": 69,
       "norm_label": "executionworker.status"
     },
     {
@@ -585,7 +585,7 @@
       "field": "currentUrl",
       "field_type": "String?",
       "id": "field_executionworker_currenturl",
-      "community": 70,
+      "community": 69,
       "norm_label": "executionworker.currenturl"
     },
     {
@@ -597,7 +597,7 @@
       "field": "currentPageType",
       "field_type": "String?",
       "id": "field_executionworker_currentpagetype",
-      "community": 70,
+      "community": 69,
       "norm_label": "executionworker.currentpagetype"
     },
     {
@@ -609,7 +609,7 @@
       "field": "metaJson",
       "field_type": "Json?",
       "id": "field_executionworker_metajson",
-      "community": 70,
+      "community": 69,
       "norm_label": "executionworker.metajson"
     },
     {
@@ -621,7 +621,7 @@
       "field": "lastHeartbeatAt",
       "field_type": "DateTime",
       "id": "field_executionworker_lastheartbeatat",
-      "community": 70,
+      "community": 69,
       "norm_label": "executionworker.lastheartbeatat"
     },
     {
@@ -633,7 +633,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_executionworker_createdat",
-      "community": 70,
+      "community": 69,
       "norm_label": "executionworker.createdat"
     },
     {
@@ -654,7 +654,7 @@
       "source_file": "prisma/models/agents.prisma",
       "node_type": "domain",
       "id": "domain_agentos",
-      "community": 47,
+      "community": 46,
       "norm_label": "agentos"
     },
     {
@@ -868,7 +868,7 @@
       "table": "agent_runtime_states",
       "description": "Frequently-changing per-instance runtime state (last run, totals, cached aggregates). 1:1 with AgentInstance.",
       "id": "model_agentruntimestate",
-      "community": 58,
+      "community": 59,
       "norm_label": "agentruntimestate"
     },
     {
@@ -880,7 +880,7 @@
       "field": "lastError",
       "field_type": "String?",
       "id": "field_agentruntimestate_lasterror",
-      "community": 58,
+      "community": 59,
       "norm_label": "agentruntimestate.lasterror"
     },
     {
@@ -892,7 +892,7 @@
       "field": "lastHeartbeatAt",
       "field_type": "DateTime?",
       "id": "field_agentruntimestate_lastheartbeatat",
-      "community": 58,
+      "community": 59,
       "norm_label": "agentruntimestate.lastheartbeatat"
     },
     {
@@ -904,7 +904,7 @@
       "field": "consecutiveFailureCount",
       "field_type": "Int",
       "id": "field_agentruntimestate_consecutivefailurecount",
-      "community": 58,
+      "community": 59,
       "norm_label": "agentruntimestate.consecutivefailurecount"
     },
     {
@@ -916,7 +916,7 @@
       "field": "totalRuns",
       "field_type": "Int",
       "id": "field_agentruntimestate_totalruns",
-      "community": 58,
+      "community": 59,
       "norm_label": "agentruntimestate.totalruns"
     },
     {
@@ -928,7 +928,7 @@
       "field": "totalInputTokens",
       "field_type": "Int",
       "id": "field_agentruntimestate_totalinputtokens",
-      "community": 58,
+      "community": 59,
       "norm_label": "agentruntimestate.totalinputtokens"
     },
     {
@@ -940,7 +940,7 @@
       "field": "totalCostMicros",
       "field_type": "BigInt",
       "id": "field_agentruntimestate_totalcostmicros",
-      "community": 58,
+      "community": 59,
       "norm_label": "agentruntimestate.totalcostmicros"
     },
     {
@@ -952,7 +952,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_agentruntimestate_createdat",
-      "community": 58,
+      "community": 59,
       "norm_label": "agentruntimestate.createdat"
     },
     {
@@ -964,7 +964,7 @@
       "field": "updatedAt",
       "field_type": "DateTime",
       "id": "field_agentruntimestate_updatedat",
-      "community": 58,
+      "community": 59,
       "norm_label": "agentruntimestate.updatedat"
     },
     {
@@ -988,7 +988,7 @@
       "field": "agentInstance",
       "field_type": "AgentInstance",
       "id": "field_agentruntimestate_agentinstance",
-      "community": 58,
+      "community": 59,
       "norm_label": "agentruntimestate.agentinstance"
     },
     {
@@ -1000,7 +1000,7 @@
       "field": "lastRun",
       "field_type": "AgentRun?",
       "id": "field_agentruntimestate_lastrun",
-      "community": 58,
+      "community": 59,
       "norm_label": "agentruntimestate.lastrun"
     },
     {
@@ -1142,7 +1142,7 @@
       "table": "agent_run_requests",
       "description": "Durable request inbox + queue + dedupe + audit. Replaces AgentWakeupRequest. Queue state lives here, not on AgentRun.",
       "id": "model_agentrunrequest",
-      "community": 24,
+      "community": 35,
       "norm_label": "agentrunrequest"
     },
     {
@@ -1154,7 +1154,7 @@
       "field": "triggerDetail",
       "field_type": "String?",
       "id": "field_agentrunrequest_triggerdetail",
-      "community": 24,
+      "community": 35,
       "norm_label": "agentrunrequest.triggerdetail"
     },
     {
@@ -1166,7 +1166,7 @@
       "field": "idempotencyKey",
       "field_type": "String?",
       "id": "field_agentrunrequest_idempotencykey",
-      "community": 24,
+      "community": 35,
       "norm_label": "agentrunrequest.idempotencykey"
     },
     {
@@ -1178,7 +1178,7 @@
       "field": "priority",
       "field_type": "Int",
       "id": "field_agentrunrequest_priority",
-      "community": 24,
+      "community": 35,
       "norm_label": "agentrunrequest.priority"
     },
     {
@@ -1190,7 +1190,7 @@
       "field": "requestedByActorId",
       "field_type": "String?",
       "id": "field_agentrunrequest_requestedbyactorid",
-      "community": 24,
+      "community": 35,
       "norm_label": "agentrunrequest.requestedbyactorid"
     },
     {
@@ -1202,7 +1202,7 @@
       "field": "payload",
       "field_type": "Json",
       "id": "field_agentrunrequest_payload",
-      "community": 24,
+      "community": 35,
       "norm_label": "agentrunrequest.payload"
     },
     {
@@ -1214,7 +1214,7 @@
       "field": "status",
       "field_type": "String",
       "id": "field_agentrunrequest_status",
-      "community": 24,
+      "community": 35,
       "norm_label": "agentrunrequest.status"
     },
     {
@@ -1226,7 +1226,7 @@
       "field": "scheduledFor",
       "field_type": "DateTime",
       "id": "field_agentrunrequest_scheduledfor",
-      "community": 24,
+      "community": 35,
       "norm_label": "agentrunrequest.scheduledfor"
     },
     {
@@ -1238,7 +1238,7 @@
       "field": "claimedAt",
       "field_type": "DateTime?",
       "id": "field_agentrunrequest_claimedat",
-      "community": 24,
+      "community": 35,
       "norm_label": "agentrunrequest.claimedat"
     },
     {
@@ -1250,7 +1250,7 @@
       "field": "maxAttempts",
       "field_type": "Int",
       "id": "field_agentrunrequest_maxattempts",
-      "community": 24,
+      "community": 35,
       "norm_label": "agentrunrequest.maxattempts"
     },
     {
@@ -1262,7 +1262,7 @@
       "field": "finishedAt",
       "field_type": "DateTime?",
       "id": "field_agentrunrequest_finishedat",
-      "community": 24,
+      "community": 35,
       "norm_label": "agentrunrequest.finishedat"
     },
     {
@@ -1274,7 +1274,7 @@
       "field": "lastErrorCode",
       "field_type": "String?",
       "id": "field_agentrunrequest_lasterrorcode",
-      "community": 24,
+      "community": 35,
       "norm_label": "agentrunrequest.lasterrorcode"
     },
     {
@@ -1286,7 +1286,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_agentrunrequest_createdat",
-      "community": 24,
+      "community": 35,
       "norm_label": "agentrunrequest.createdat"
     },
     {
@@ -1298,7 +1298,7 @@
       "field": "updatedAt",
       "field_type": "DateTime",
       "id": "field_agentrunrequest_updatedat",
-      "community": 24,
+      "community": 35,
       "norm_label": "agentrunrequest.updatedat"
     },
     {
@@ -1322,7 +1322,7 @@
       "field": "agentInstance",
       "field_type": "AgentInstance",
       "id": "field_agentrunrequest_agentinstance",
-      "community": 24,
+      "community": 35,
       "norm_label": "agentrunrequest.agentinstance"
     },
     {
@@ -1346,7 +1346,7 @@
       "field": "sourceWorkflowRun",
       "field_type": "WorkflowRun?",
       "id": "field_agentrunrequest_sourceworkflowrun",
-      "community": 24,
+      "community": 21,
       "norm_label": "agentrunrequest.sourceworkflowrun"
     },
     {
@@ -1358,7 +1358,7 @@
       "field": "requestedBy",
       "field_type": "User?",
       "id": "field_agentrunrequest_requestedby",
-      "community": 23,
+      "community": 35,
       "norm_label": "agentrunrequest.requestedby"
     },
     {
@@ -1370,7 +1370,7 @@
       "field": "coalescedIntoRequest",
       "field_type": "AgentRunRequest?",
       "id": "field_agentrunrequest_coalescedintorequest",
-      "community": 24,
+      "community": 35,
       "norm_label": "agentrunrequest.coalescedintorequest"
     },
     {
@@ -1380,7 +1380,7 @@
       "node_type": "unique_constraint",
       "model": "AgentRunRequest",
       "id": "unique_agentrunrequest_organizationid_agentinstanceid_idempotencykey",
-      "community": 24,
+      "community": 35,
       "norm_label": "agentrunrequest unique(organizationid, agentinstanceid, idempotencykey)"
     },
     {
@@ -1904,7 +1904,7 @@
       "table": "agent_tool_definitions",
       "description": "Catalog of business tools agents may invoke. KidItem ships a curated set; not a generic HTTP/DB tool marketplace.",
       "id": "model_agenttooldefinition",
-      "community": 47,
+      "community": 46,
       "norm_label": "agenttooldefinition"
     },
     {
@@ -1916,7 +1916,7 @@
       "field": "description",
       "field_type": "String?",
       "id": "field_agenttooldefinition_description",
-      "community": 47,
+      "community": 46,
       "norm_label": "agenttooldefinition.description"
     },
     {
@@ -1928,7 +1928,7 @@
       "field": "riskLevel",
       "field_type": "String",
       "id": "field_agenttooldefinition_risklevel",
-      "community": 47,
+      "community": 46,
       "norm_label": "agenttooldefinition.risklevel"
     },
     {
@@ -1940,7 +1940,7 @@
       "field": "credentialKind",
       "field_type": "String",
       "id": "field_agenttooldefinition_credentialkind",
-      "community": 47,
+      "community": 46,
       "norm_label": "agenttooldefinition.credentialkind"
     },
     {
@@ -1952,7 +1952,7 @@
       "field": "inputSchemaJson",
       "field_type": "Json?",
       "id": "field_agenttooldefinition_inputschemajson",
-      "community": 47,
+      "community": 46,
       "norm_label": "agenttooldefinition.inputschemajson"
     },
     {
@@ -1964,7 +1964,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_agenttooldefinition_createdat",
-      "community": 47,
+      "community": 46,
       "norm_label": "agenttooldefinition.createdat"
     },
     {
@@ -1976,7 +1976,7 @@
       "field": "updatedAt",
       "field_type": "DateTime",
       "id": "field_agenttooldefinition_updatedat",
-      "community": 47,
+      "community": 46,
       "norm_label": "agenttooldefinition.updatedat"
     },
     {
@@ -2046,7 +2046,7 @@
       "table": "agent_authorization_events",
       "description": "Authorization audit. Logged before, during, and outside runs (eg. admin policy widening).",
       "id": "model_agentauthorizationevent",
-      "community": 47,
+      "community": 46,
       "norm_label": "agentauthorizationevent"
     },
     {
@@ -2058,7 +2058,7 @@
       "field": "decision",
       "field_type": "String",
       "id": "field_agentauthorizationevent_decision",
-      "community": 47,
+      "community": 46,
       "norm_label": "agentauthorizationevent.decision"
     },
     {
@@ -2070,7 +2070,7 @@
       "field": "policySnapshot",
       "field_type": "Json",
       "id": "field_agentauthorizationevent_policysnapshot",
-      "community": 47,
+      "community": 46,
       "norm_label": "agentauthorizationevent.policysnapshot"
     },
     {
@@ -2082,7 +2082,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_agentauthorizationevent_createdat",
-      "community": 47,
+      "community": 46,
       "norm_label": "agentauthorizationevent.createdat"
     },
     {
@@ -2106,7 +2106,7 @@
       "field": "agentInstance",
       "field_type": "AgentInstance",
       "id": "field_agentauthorizationevent_agentinstance",
-      "community": 47,
+      "community": 46,
       "norm_label": "agentauthorizationevent.agentinstance"
     },
     {
@@ -2118,7 +2118,7 @@
       "table": "agent_approval_requests",
       "description": "Human approval state. While pending, AgentRunRequest.status = requires_approval.",
       "id": "model_agentapprovalrequest",
-      "community": 23,
+      "community": 75,
       "norm_label": "agentapprovalrequest"
     },
     {
@@ -2130,7 +2130,7 @@
       "field": "status",
       "field_type": "String",
       "id": "field_agentapprovalrequest_status",
-      "community": 23,
+      "community": 75,
       "norm_label": "agentapprovalrequest.status"
     },
     {
@@ -2142,7 +2142,7 @@
       "field": "actionSnapshot",
       "field_type": "Json?",
       "id": "field_agentapprovalrequest_actionsnapshot",
-      "community": 23,
+      "community": 75,
       "norm_label": "agentapprovalrequest.actionsnapshot"
     },
     {
@@ -2154,7 +2154,7 @@
       "field": "decidedAt",
       "field_type": "DateTime?",
       "id": "field_agentapprovalrequest_decidedat",
-      "community": 23,
+      "community": 75,
       "norm_label": "agentapprovalrequest.decidedat"
     },
     {
@@ -2166,7 +2166,7 @@
       "field": "decisionReason",
       "field_type": "String?",
       "id": "field_agentapprovalrequest_decisionreason",
-      "community": 23,
+      "community": 75,
       "norm_label": "agentapprovalrequest.decisionreason"
     },
     {
@@ -2190,7 +2190,7 @@
       "field": "agentInstance",
       "field_type": "AgentInstance",
       "id": "field_agentapprovalrequest_agentinstance",
-      "community": 23,
+      "community": 75,
       "norm_label": "agentapprovalrequest.agentinstance"
     },
     {
@@ -2202,7 +2202,7 @@
       "table": "agent_cost_events",
       "description": "Cost ledger source of truth. Insert + AgentRuntimeState aggregate update share one transaction.",
       "id": "model_agentcostevent",
-      "community": 46,
+      "community": 47,
       "norm_label": "agentcostevent"
     },
     {
@@ -2214,7 +2214,7 @@
       "field": "provider",
       "field_type": "String",
       "id": "field_agentcostevent_provider",
-      "community": 46,
+      "community": 47,
       "norm_label": "agentcostevent.provider"
     },
     {
@@ -2226,7 +2226,7 @@
       "field": "model",
       "field_type": "String",
       "id": "field_agentcostevent_model",
-      "community": 46,
+      "community": 47,
       "norm_label": "agentcostevent.model"
     },
     {
@@ -2238,7 +2238,7 @@
       "field": "biller",
       "field_type": "String?",
       "id": "field_agentcostevent_biller",
-      "community": 46,
+      "community": 47,
       "norm_label": "agentcostevent.biller"
     },
     {
@@ -2250,7 +2250,7 @@
       "field": "billingType",
       "field_type": "String?",
       "id": "field_agentcostevent_billingtype",
-      "community": 46,
+      "community": 47,
       "norm_label": "agentcostevent.billingtype"
     },
     {
@@ -2262,7 +2262,7 @@
       "field": "inputTokens",
       "field_type": "Int",
       "id": "field_agentcostevent_inputtokens",
-      "community": 46,
+      "community": 47,
       "norm_label": "agentcostevent.inputtokens"
     },
     {
@@ -2274,7 +2274,7 @@
       "field": "cachedInputTokens",
       "field_type": "Int",
       "id": "field_agentcostevent_cachedinputtokens",
-      "community": 46,
+      "community": 47,
       "norm_label": "agentcostevent.cachedinputtokens"
     },
     {
@@ -2286,7 +2286,7 @@
       "field": "costMicros",
       "field_type": "BigInt",
       "id": "field_agentcostevent_costmicros",
-      "community": 46,
+      "community": 47,
       "norm_label": "agentcostevent.costmicros"
     },
     {
@@ -2298,7 +2298,7 @@
       "field": "metadata",
       "field_type": "Json",
       "id": "field_agentcostevent_metadata",
-      "community": 46,
+      "community": 47,
       "norm_label": "agentcostevent.metadata"
     },
     {
@@ -2310,7 +2310,7 @@
       "field": "occurredAt",
       "field_type": "DateTime",
       "id": "field_agentcostevent_occurredat",
-      "community": 46,
+      "community": 47,
       "norm_label": "agentcostevent.occurredat"
     },
     {
@@ -2322,7 +2322,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_agentcostevent_createdat",
-      "community": 46,
+      "community": 47,
       "norm_label": "agentcostevent.createdat"
     },
     {
@@ -2346,7 +2346,7 @@
       "field": "agentInstance",
       "field_type": "AgentInstance",
       "id": "field_agentcostevent_agentinstance",
-      "community": 46,
+      "community": 47,
       "norm_label": "agentcostevent.agentinstance"
     },
     {
@@ -2358,7 +2358,7 @@
       "field": "request",
       "field_type": "AgentRunRequest",
       "id": "field_agentcostevent_request",
-      "community": 46,
+      "community": 47,
       "norm_label": "agentcostevent.request"
     },
     {
@@ -2370,7 +2370,7 @@
       "table": "workflow_runs",
       "description": "Workflow run record. Workflow runner triggers Agent OS via AgentRunnerPort with sourceWorkflowRunId.",
       "id": "model_workflowrun",
-      "community": 24,
+      "community": 21,
       "norm_label": "workflowrun"
     },
     {
@@ -2394,7 +2394,7 @@
       "field": "status",
       "field_type": "String",
       "id": "field_workflowrun_status",
-      "community": 24,
+      "community": 21,
       "norm_label": "workflowrun.status"
     },
     {
@@ -2406,7 +2406,7 @@
       "field": "triggeredBy",
       "field_type": "String",
       "id": "field_workflowrun_triggeredby",
-      "community": 23,
+      "community": 21,
       "norm_label": "workflowrun.triggeredby"
     },
     {
@@ -2418,7 +2418,7 @@
       "field": "contextData",
       "field_type": "Json?",
       "id": "field_workflowrun_contextdata",
-      "community": 24,
+      "community": 21,
       "norm_label": "workflowrun.contextdata"
     },
     {
@@ -2430,7 +2430,7 @@
       "field": "steps",
       "field_type": "Json",
       "id": "field_workflowrun_steps",
-      "community": 24,
+      "community": 21,
       "norm_label": "workflowrun.steps"
     },
     {
@@ -2442,7 +2442,7 @@
       "field": "error",
       "field_type": "String?",
       "id": "field_workflowrun_error",
-      "community": 24,
+      "community": 21,
       "norm_label": "workflowrun.error"
     },
     {
@@ -2454,7 +2454,7 @@
       "field": "startedAt",
       "field_type": "DateTime?",
       "id": "field_workflowrun_startedat",
-      "community": 24,
+      "community": 21,
       "norm_label": "workflowrun.startedat"
     },
     {
@@ -2466,7 +2466,7 @@
       "field": "updatedAt",
       "field_type": "DateTime",
       "id": "field_workflowrun_updatedat",
-      "community": 24,
+      "community": 21,
       "norm_label": "workflowrun.updatedat"
     },
     {
@@ -2478,7 +2478,7 @@
       "table": "workflow_templates",
       "description": "Workflow definition. Trigger config + nodes/edges.",
       "id": "model_workflowtemplate",
-      "community": 31,
+      "community": 34,
       "norm_label": "workflowtemplate"
     },
     {
@@ -2490,7 +2490,7 @@
       "field": "description",
       "field_type": "String",
       "id": "field_workflowtemplate_description",
-      "community": 31,
+      "community": 34,
       "norm_label": "workflowtemplate.description"
     },
     {
@@ -2502,7 +2502,7 @@
       "field": "isActive",
       "field_type": "Boolean",
       "id": "field_workflowtemplate_isactive",
-      "community": 31,
+      "community": 34,
       "norm_label": "workflowtemplate.isactive"
     },
     {
@@ -2514,7 +2514,7 @@
       "field": "triggerType",
       "field_type": "String",
       "id": "field_workflowtemplate_triggertype",
-      "community": 31,
+      "community": 34,
       "norm_label": "workflowtemplate.triggertype"
     },
     {
@@ -2526,7 +2526,7 @@
       "field": "version",
       "field_type": "Int",
       "id": "field_workflowtemplate_version",
-      "community": 31,
+      "community": 34,
       "norm_label": "workflowtemplate.version"
     },
     {
@@ -2538,7 +2538,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_workflowtemplate_createdat",
-      "community": 31,
+      "community": 34,
       "norm_label": "workflowtemplate.createdat"
     },
     {
@@ -2562,7 +2562,7 @@
       "field": "marketplace",
       "field_type": "Marketplace?",
       "id": "field_workflowtemplate_marketplace",
-      "community": 31,
+      "community": 34,
       "norm_label": "workflowtemplate.marketplace"
     },
     {
@@ -2571,7 +2571,7 @@
       "source_file": "prisma/models/ai.prisma",
       "node_type": "domain",
       "id": "domain_ai",
-      "community": 64,
+      "community": 63,
       "norm_label": "ai"
     },
     {
@@ -2715,7 +2715,7 @@
       "field": "listing",
       "field_type": "ChannelListing",
       "id": "field_thumbnail_listing",
-      "community": 20,
+      "community": 22,
       "norm_label": "thumbnail.listing"
     },
     {
@@ -2727,7 +2727,7 @@
       "table": "thumbnail_analyses",
       "description": "5\ucc28\uc6d0 scores(heroShot\u00b7composition\u00b7branding\u00b7mobile\u00b7differentiation) + complianceGrade(PASS/WARN/FAIL) + imageSpec(\uc0ac\uc804\uac80\uc218). \uc2a4\ud399 FAIL \uc2dc AI \ud638\ucd9c \uc0dd\ub7b5.",
       "id": "model_thumbnailanalysis",
-      "community": 69,
+      "community": 68,
       "norm_label": "thumbnailanalysis"
     },
     {
@@ -2739,7 +2739,7 @@
       "field": "overallScore",
       "field_type": "Int",
       "id": "field_thumbnailanalysis_overallscore",
-      "community": 69,
+      "community": 68,
       "norm_label": "thumbnailanalysis.overallscore"
     },
     {
@@ -2751,7 +2751,7 @@
       "field": "scores",
       "field_type": "Json?",
       "id": "field_thumbnailanalysis_scores",
-      "community": 69,
+      "community": 68,
       "norm_label": "thumbnailanalysis.scores"
     },
     {
@@ -2763,7 +2763,7 @@
       "field": "suggestions",
       "field_type": "Json",
       "id": "field_thumbnailanalysis_suggestions",
-      "community": 69,
+      "community": 68,
       "norm_label": "thumbnailanalysis.suggestions"
     },
     {
@@ -2775,7 +2775,7 @@
       "field": "method",
       "field_type": "String",
       "id": "field_thumbnailanalysis_method",
-      "community": 69,
+      "community": 68,
       "norm_label": "thumbnailanalysis.method"
     },
     {
@@ -2787,7 +2787,7 @@
       "field": "complianceGrade",
       "field_type": "String?",
       "id": "field_thumbnailanalysis_compliancegrade",
-      "community": 69,
+      "community": 68,
       "norm_label": "thumbnailanalysis.compliancegrade"
     },
     {
@@ -2799,7 +2799,7 @@
       "field": "recompose",
       "field_type": "Json?",
       "id": "field_thumbnailanalysis_recompose",
-      "community": 69,
+      "community": 68,
       "norm_label": "thumbnailanalysis.recompose"
     },
     {
@@ -2811,7 +2811,7 @@
       "field": "qualityAnalyzedAt",
       "field_type": "DateTime?",
       "id": "field_thumbnailanalysis_qualityanalyzedat",
-      "community": 69,
+      "community": 68,
       "norm_label": "thumbnailanalysis.qualityanalyzedat"
     },
     {
@@ -2823,7 +2823,7 @@
       "field": "complianceAnalyzedAt",
       "field_type": "DateTime?",
       "id": "field_thumbnailanalysis_complianceanalyzedat",
-      "community": 69,
+      "community": 68,
       "norm_label": "thumbnailanalysis.complianceanalyzedat"
     },
     {
@@ -2931,7 +2931,7 @@
       "field": "triggeredByUser",
       "field_type": "User?",
       "id": "field_thumbnailgeneration_triggeredbyuser",
-      "community": 23,
+      "community": 21,
       "norm_label": "thumbnailgeneration.triggeredbyuser"
     },
     {
@@ -3051,7 +3051,7 @@
       "field": "externalId",
       "field_type": "String?",
       "id": "field_thumbnailregistrationattempt_externalid",
-      "community": 9,
+      "community": 28,
       "norm_label": "thumbnailregistrationattempt.externalid"
     },
     {
@@ -3287,7 +3287,7 @@
       "table": "content_generations",
       "description": "",
       "id": "model_contentgeneration",
-      "community": 66,
+      "community": 65,
       "norm_label": "contentgeneration"
     },
     {
@@ -3299,7 +3299,7 @@
       "field": "originalImages",
       "field_type": "Json?",
       "id": "field_contentgeneration_originalimages",
-      "community": 66,
+      "community": 65,
       "norm_label": "contentgeneration.originalimages"
     },
     {
@@ -3311,7 +3311,7 @@
       "field": "processedImages",
       "field_type": "Json?",
       "id": "field_contentgeneration_processedimages",
-      "community": 66,
+      "community": 65,
       "norm_label": "contentgeneration.processedimages"
     },
     {
@@ -3323,7 +3323,7 @@
       "field": "generatedCopy",
       "field_type": "String?",
       "id": "field_contentgeneration_generatedcopy",
-      "community": 66,
+      "community": 65,
       "norm_label": "contentgeneration.generatedcopy"
     },
     {
@@ -3335,7 +3335,7 @@
       "field": "detailPageHtml",
       "field_type": "String?",
       "id": "field_contentgeneration_detailpagehtml",
-      "community": 66,
+      "community": 65,
       "norm_label": "contentgeneration.detailpagehtml"
     },
     {
@@ -3347,7 +3347,7 @@
       "field": "retryCount",
       "field_type": "Int",
       "id": "field_contentgeneration_retrycount",
-      "community": 66,
+      "community": 65,
       "norm_label": "contentgeneration.retrycount"
     },
     {
@@ -3359,7 +3359,7 @@
       "field": "errorMessage",
       "field_type": "String?",
       "id": "field_contentgeneration_errormessage",
-      "community": 66,
+      "community": 65,
       "norm_label": "contentgeneration.errormessage"
     },
     {
@@ -3371,7 +3371,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_contentgeneration_createdat",
-      "community": 66,
+      "community": 65,
       "norm_label": "contentgeneration.createdat"
     },
     {
@@ -3383,7 +3383,7 @@
       "field": "updatedAt",
       "field_type": "DateTime",
       "id": "field_contentgeneration_updatedat",
-      "community": 66,
+      "community": 65,
       "norm_label": "contentgeneration.updatedat"
     },
     {
@@ -3407,7 +3407,7 @@
       "field": "triggeredByUser",
       "field_type": "User?",
       "id": "field_contentgeneration_triggeredbyuser",
-      "community": 66,
+      "community": 65,
       "norm_label": "contentgeneration.triggeredbyuser"
     },
     {
@@ -3428,7 +3428,7 @@
       "table": "channel_scrape_runs",
       "description": "\ucc44\ub110\ubcc4 \uc0c1\ud488/\uad11\uace0/\ud2b8\ub798\ud53d \uc2a4\ud06c\ub798\ud551 \uc2e4\ud589 \ub2e8\uc704. \uc6d0\ubcf8 row \ub294 ChannelScrapeSnapshot \uc5d0 \uc800\uc7a5.",
       "id": "model_channelscraperun",
-      "community": 38,
+      "community": 39,
       "norm_label": "channelscraperun"
     },
     {
@@ -3440,7 +3440,7 @@
       "field": "source",
       "field_type": "String",
       "id": "field_channelscraperun_source",
-      "community": 38,
+      "community": 39,
       "norm_label": "channelscraperun.source"
     },
     {
@@ -3452,7 +3452,7 @@
       "field": "pageType",
       "field_type": "String",
       "id": "field_channelscraperun_pagetype",
-      "community": 38,
+      "community": 39,
       "norm_label": "channelscraperun.pagetype"
     },
     {
@@ -3464,7 +3464,7 @@
       "field": "businessDate",
       "field_type": "DateTime?",
       "id": "field_channelscraperun_businessdate",
-      "community": 38,
+      "community": 39,
       "norm_label": "channelscraperun.businessdate"
     },
     {
@@ -3476,7 +3476,7 @@
       "field": "periodStart",
       "field_type": "DateTime?",
       "id": "field_channelscraperun_periodstart",
-      "community": 38,
+      "community": 39,
       "norm_label": "channelscraperun.periodstart"
     },
     {
@@ -3488,7 +3488,7 @@
       "field": "status",
       "field_type": "String",
       "id": "field_channelscraperun_status",
-      "community": 38,
+      "community": 39,
       "norm_label": "channelscraperun.status"
     },
     {
@@ -3500,7 +3500,7 @@
       "field": "targetUrl",
       "field_type": "String?",
       "id": "field_channelscraperun_targeturl",
-      "community": 38,
+      "community": 39,
       "norm_label": "channelscraperun.targeturl"
     },
     {
@@ -3512,7 +3512,7 @@
       "field": "parserVersion",
       "field_type": "String?",
       "id": "field_channelscraperun_parserversion",
-      "community": 38,
+      "community": 39,
       "norm_label": "channelscraperun.parserversion"
     },
     {
@@ -3524,7 +3524,7 @@
       "field": "rowCount",
       "field_type": "Int",
       "id": "field_channelscraperun_rowcount",
-      "community": 38,
+      "community": 39,
       "norm_label": "channelscraperun.rowcount"
     },
     {
@@ -3536,7 +3536,7 @@
       "field": "matchedCount",
       "field_type": "Int",
       "id": "field_channelscraperun_matchedcount",
-      "community": 38,
+      "community": 39,
       "norm_label": "channelscraperun.matchedcount"
     },
     {
@@ -3548,7 +3548,7 @@
       "field": "errorCount",
       "field_type": "Int",
       "id": "field_channelscraperun_errorcount",
-      "community": 38,
+      "community": 39,
       "norm_label": "channelscraperun.errorcount"
     },
     {
@@ -3560,7 +3560,7 @@
       "field": "startedAt",
       "field_type": "DateTime",
       "id": "field_channelscraperun_startedat",
-      "community": 38,
+      "community": 39,
       "norm_label": "channelscraperun.startedat"
     },
     {
@@ -3572,7 +3572,7 @@
       "field": "finishedAt",
       "field_type": "DateTime?",
       "id": "field_channelscraperun_finishedat",
-      "community": 38,
+      "community": 39,
       "norm_label": "channelscraperun.finishedat"
     },
     {
@@ -3584,7 +3584,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_channelscraperun_createdat",
-      "community": 38,
+      "community": 39,
       "norm_label": "channelscraperun.createdat"
     },
     {
@@ -3596,7 +3596,7 @@
       "field": "updatedAt",
       "field_type": "DateTime",
       "id": "field_channelscraperun_updatedat",
-      "community": 38,
+      "community": 39,
       "norm_label": "channelscraperun.updatedat"
     },
     {
@@ -3608,7 +3608,7 @@
       "field": "metaJson",
       "field_type": "Json?",
       "id": "field_channelscraperun_metajson",
-      "community": 38,
+      "community": 39,
       "norm_label": "channelscraperun.metajson"
     },
     {
@@ -3620,7 +3620,7 @@
       "field": "errorJson",
       "field_type": "Json?",
       "id": "field_channelscraperun_errorjson",
-      "community": 38,
+      "community": 39,
       "norm_label": "channelscraperun.errorjson"
     },
     {
@@ -3952,7 +3952,7 @@
       "field": "externalId",
       "field_type": "String?",
       "id": "field_channeladtargetdailysnapshot_externalid",
-      "community": 9,
+      "community": 12,
       "norm_label": "channeladtargetdailysnapshot.externalid"
     },
     {
@@ -3988,7 +3988,7 @@
       "field": "listing",
       "field_type": "ChannelListing?",
       "id": "field_channeladtargetdailysnapshot_listing",
-      "community": 20,
+      "community": 22,
       "norm_label": "channeladtargetdailysnapshot.listing"
     },
     {
@@ -4104,7 +4104,7 @@
       "field": "externalId",
       "field_type": "String?",
       "id": "field_channelreconciliationitem_externalid",
-      "community": 9,
+      "community": 28,
       "norm_label": "channelreconciliationitem.externalid"
     },
     {
@@ -4116,7 +4116,7 @@
       "field": "legacyCode",
       "field_type": "String?",
       "id": "field_channelreconciliationitem_legacycode",
-      "community": 9,
+      "community": 12,
       "norm_label": "channelreconciliationitem.legacycode"
     },
     {
@@ -4231,7 +4231,7 @@
       "source_file": "prisma/models/core.prisma",
       "node_type": "domain",
       "id": "domain_core",
-      "community": 31,
+      "community": 34,
       "norm_label": "core"
     },
     {
@@ -4279,7 +4279,7 @@
       "table": "users",
       "description": "human(\uc9c1\uc6d0) / agent(AI, agentInstanceId \uc5f0\uacb0) / system(\ucc57\ubd07). \uc870\uc9c1 \uc18c\uc18d\uc740 OrganizationMembership \uc774 source of truth.",
       "id": "model_user",
-      "community": 23,
+      "community": 21,
       "norm_label": "user"
     },
     {
@@ -4289,7 +4289,7 @@
       "node_type": "db_table",
       "model": "User",
       "id": "table_users",
-      "community": 23,
+      "community": 21,
       "norm_label": "users"
     },
     {
@@ -4301,7 +4301,7 @@
       "field": "id",
       "field_type": "String",
       "id": "field_user_id",
-      "community": 23,
+      "community": 21,
       "norm_label": "user.id"
     },
     {
@@ -4313,7 +4313,7 @@
       "field": "email",
       "field_type": "String",
       "id": "field_user_email",
-      "community": 23,
+      "community": 21,
       "norm_label": "user.email"
     },
     {
@@ -4325,7 +4325,7 @@
       "field": "name",
       "field_type": "String",
       "id": "field_user_name",
-      "community": 23,
+      "community": 21,
       "norm_label": "user.name"
     },
     {
@@ -4337,7 +4337,7 @@
       "field": "password",
       "field_type": "String?",
       "id": "field_user_password",
-      "community": 23,
+      "community": 21,
       "norm_label": "user.password"
     },
     {
@@ -4349,7 +4349,7 @@
       "field": "role",
       "field_type": "String",
       "id": "field_user_role",
-      "community": 23,
+      "community": 21,
       "norm_label": "user.role"
     },
     {
@@ -4361,7 +4361,7 @@
       "field": "type",
       "field_type": "String",
       "id": "field_user_type",
-      "community": 23,
+      "community": 21,
       "norm_label": "user.type"
     },
     {
@@ -4373,7 +4373,7 @@
       "field": "team",
       "field_type": "String?",
       "id": "field_user_team",
-      "community": 23,
+      "community": 21,
       "norm_label": "user.team"
     },
     {
@@ -4385,7 +4385,7 @@
       "field": "avatarUrl",
       "field_type": "String?",
       "id": "field_user_avatarurl",
-      "community": 23,
+      "community": 21,
       "norm_label": "user.avatarurl"
     },
     {
@@ -4397,7 +4397,7 @@
       "field": "isActive",
       "field_type": "Boolean",
       "id": "field_user_isactive",
-      "community": 31,
+      "community": 21,
       "norm_label": "user.isactive"
     },
     {
@@ -4409,7 +4409,7 @@
       "field": "lastLoginAt",
       "field_type": "DateTime?",
       "id": "field_user_lastloginat",
-      "community": 23,
+      "community": 21,
       "norm_label": "user.lastloginat"
     },
     {
@@ -4421,7 +4421,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_user_createdat",
-      "community": 23,
+      "community": 21,
       "norm_label": "user.createdat"
     },
     {
@@ -4433,7 +4433,7 @@
       "field": "updatedAt",
       "field_type": "DateTime",
       "id": "field_user_updatedat",
-      "community": 23,
+      "community": 21,
       "norm_label": "user.updatedat"
     },
     {
@@ -4445,7 +4445,7 @@
       "field": "agentInstance",
       "field_type": "AgentInstance?",
       "id": "field_user_agentinstance",
-      "community": 23,
+      "community": 21,
       "norm_label": "user.agentinstance"
     },
     {
@@ -4529,7 +4529,7 @@
       "field": "invitedBy",
       "field_type": "User?",
       "id": "field_organizationmembership_invitedby",
-      "community": 23,
+      "community": 21,
       "norm_label": "organizationmembership.invitedby"
     },
     {
@@ -4551,7 +4551,7 @@
       "table": "legal_entities",
       "description": "Legal/business entity under an organization. This stores tax, invoice, and settlement identity separately from the SaaS organization boundary.",
       "id": "model_legalentity",
-      "community": 59,
+      "community": 58,
       "norm_label": "legalentity"
     },
     {
@@ -4561,7 +4561,7 @@
       "node_type": "db_table",
       "model": "LegalEntity",
       "id": "table_legal_entities",
-      "community": 59,
+      "community": 58,
       "norm_label": "legal_entities"
     },
     {
@@ -4573,7 +4573,7 @@
       "field": "name",
       "field_type": "String",
       "id": "field_legalentity_name",
-      "community": 59,
+      "community": 58,
       "norm_label": "legalentity.name"
     },
     {
@@ -4585,7 +4585,7 @@
       "field": "businessNumber",
       "field_type": "String?",
       "id": "field_legalentity_businessnumber",
-      "community": 59,
+      "community": 58,
       "norm_label": "legalentity.businessnumber"
     },
     {
@@ -4597,7 +4597,7 @@
       "field": "countryCode",
       "field_type": "String",
       "id": "field_legalentity_countrycode",
-      "community": 59,
+      "community": 58,
       "norm_label": "legalentity.countrycode"
     },
     {
@@ -4609,7 +4609,7 @@
       "field": "representativeName",
       "field_type": "String?",
       "id": "field_legalentity_representativename",
-      "community": 59,
+      "community": 58,
       "norm_label": "legalentity.representativename"
     },
     {
@@ -4621,7 +4621,7 @@
       "field": "address",
       "field_type": "String?",
       "id": "field_legalentity_address",
-      "community": 59,
+      "community": 58,
       "norm_label": "legalentity.address"
     },
     {
@@ -4633,7 +4633,7 @@
       "field": "isPrimary",
       "field_type": "Boolean",
       "id": "field_legalentity_isprimary",
-      "community": 59,
+      "community": 58,
       "norm_label": "legalentity.isprimary"
     },
     {
@@ -4645,7 +4645,7 @@
       "field": "metadata",
       "field_type": "Json?",
       "id": "field_legalentity_metadata",
-      "community": 59,
+      "community": 58,
       "norm_label": "legalentity.metadata"
     },
     {
@@ -4657,7 +4657,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_legalentity_createdat",
-      "community": 59,
+      "community": 58,
       "norm_label": "legalentity.createdat"
     },
     {
@@ -4669,7 +4669,7 @@
       "field": "updatedAt",
       "field_type": "DateTime",
       "id": "field_legalentity_updatedat",
-      "community": 59,
+      "community": 58,
       "norm_label": "legalentity.updatedat"
     },
     {
@@ -4693,7 +4693,7 @@
       "table": "channel_accounts",
       "description": "Marketplace/store account such as Coupang Wing or Naver SmartStore. Operational channel ownership is distinct from the SaaS organization.",
       "id": "model_channelaccount",
-      "community": 40,
+      "community": 41,
       "norm_label": "channelaccount"
     },
     {
@@ -4705,7 +4705,7 @@
       "field": "externalAccountId",
       "field_type": "String?",
       "id": "field_channelaccount_externalaccountid",
-      "community": 40,
+      "community": 41,
       "norm_label": "channelaccount.externalaccountid"
     },
     {
@@ -4717,7 +4717,7 @@
       "field": "sellerId",
       "field_type": "String?",
       "id": "field_channelaccount_sellerid",
-      "community": 40,
+      "community": 41,
       "norm_label": "channelaccount.sellerid"
     },
     {
@@ -4729,7 +4729,7 @@
       "field": "vendorId",
       "field_type": "String?",
       "id": "field_channelaccount_vendorid",
-      "community": 40,
+      "community": 41,
       "norm_label": "channelaccount.vendorid"
     },
     {
@@ -4741,7 +4741,7 @@
       "field": "status",
       "field_type": "String",
       "id": "field_channelaccount_status",
-      "community": 40,
+      "community": 41,
       "norm_label": "channelaccount.status"
     },
     {
@@ -4753,7 +4753,7 @@
       "field": "isPrimary",
       "field_type": "Boolean",
       "id": "field_channelaccount_isprimary",
-      "community": 40,
+      "community": 41,
       "norm_label": "channelaccount.isprimary"
     },
     {
@@ -4765,7 +4765,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_channelaccount_createdat",
-      "community": 40,
+      "community": 41,
       "norm_label": "channelaccount.createdat"
     },
     {
@@ -4777,7 +4777,7 @@
       "field": "updatedAt",
       "field_type": "DateTime",
       "id": "field_channelaccount_updatedat",
-      "community": 40,
+      "community": 41,
       "norm_label": "channelaccount.updatedat"
     },
     {
@@ -4799,7 +4799,7 @@
       "node_type": "unique_constraint",
       "model": "ChannelAccount",
       "id": "unique_channelaccount_organizationid_channel_externalaccountid",
-      "community": 40,
+      "community": 41,
       "norm_label": "channelaccount unique(organizationid, channel, externalaccountid)"
     },
     {
@@ -4811,7 +4811,7 @@
       "table": "category_mappings",
       "description": "",
       "id": "model_categorymapping",
-      "community": 31,
+      "community": 34,
       "norm_label": "categorymapping"
     },
     {
@@ -4823,7 +4823,7 @@
       "field": "internalCategory",
       "field_type": "String",
       "id": "field_categorymapping_internalcategory",
-      "community": 31,
+      "community": 34,
       "norm_label": "categorymapping.internalcategory"
     },
     {
@@ -4835,7 +4835,7 @@
       "field": "coupangCategoryId",
       "field_type": "String?",
       "id": "field_categorymapping_coupangcategoryid",
-      "community": 31,
+      "community": 34,
       "norm_label": "categorymapping.coupangcategoryid"
     },
     {
@@ -4847,7 +4847,7 @@
       "field": "isActive",
       "field_type": "Boolean",
       "id": "field_categorymapping_isactive",
-      "community": 31,
+      "community": 34,
       "norm_label": "categorymapping.isactive"
     },
     {
@@ -4859,7 +4859,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_categorymapping_createdat",
-      "community": 31,
+      "community": 34,
       "norm_label": "categorymapping.createdat"
     },
     {
@@ -4881,7 +4881,7 @@
       "node_type": "unique_constraint",
       "model": "CategoryMapping",
       "id": "unique_categorymapping_organizationid_internalcategory",
-      "community": 31,
+      "community": 34,
       "norm_label": "categorymapping unique(organizationid, internalcategory)"
     },
     {
@@ -4917,7 +4917,7 @@
       "field": "barcode",
       "field_type": "String?",
       "id": "field_masterproduct_barcode",
-      "community": 3,
+      "community": 4,
       "norm_label": "masterproduct.barcode"
     },
     {
@@ -5145,7 +5145,7 @@
       "field": "isDeleted",
       "field_type": "Boolean",
       "id": "field_masterproduct_isdeleted",
-      "community": 9,
+      "community": 4,
       "norm_label": "masterproduct.isdeleted"
     },
     {
@@ -5263,7 +5263,7 @@
       "table": "master_code_counters",
       "description": "MasterProduct.code allocator. Prisma-owned replacement for the former PostgreSQL sequence.",
       "id": "model_mastercodecounter",
-      "community": 31,
+      "community": 34,
       "norm_label": "mastercodecounter"
     },
     {
@@ -5275,7 +5275,7 @@
       "field": "value",
       "field_type": "Int",
       "id": "field_mastercodecounter_value",
-      "community": 31,
+      "community": 34,
       "norm_label": "mastercodecounter.value"
     },
     {
@@ -5287,7 +5287,7 @@
       "field": "updatedAt",
       "field_type": "DateTime",
       "id": "field_mastercodecounter_updatedat",
-      "community": 31,
+      "community": 34,
       "norm_label": "mastercodecounter.updatedat"
     },
     {
@@ -5371,7 +5371,7 @@
       "field": "isDeleted",
       "field_type": "Boolean",
       "id": "field_masterproductimage_isdeleted",
-      "community": 3,
+      "community": 4,
       "norm_label": "masterproductimage.isdeleted"
     },
     {
@@ -5677,7 +5677,7 @@
       "table": "channel_listings",
       "description": "\ucc44\ub110\uc5d0 \uc62c\ub77c\uac04 \ud310\ub9e4 \ub4f1\ub85d\uc0c1\ud488. \ucfe0\ud321 \ub4f1\ub85d\uc0c1\ud488ID, \ub124\uc774\ubc84 \uc0c1\ud488\ubc88\ud638 \ub4f1.",
       "id": "model_channellisting",
-      "community": 28,
+      "community": 27,
       "norm_label": "channellisting"
     },
     {
@@ -5689,7 +5689,7 @@
       "field": "externalId",
       "field_type": "String",
       "id": "field_channellisting_externalid",
-      "community": 28,
+      "community": 27,
       "norm_label": "channellisting.externalid"
     },
     {
@@ -5701,7 +5701,7 @@
       "field": "channelPrice",
       "field_type": "Int?",
       "id": "field_channellisting_channelprice",
-      "community": 28,
+      "community": 27,
       "norm_label": "channellisting.channelprice"
     },
     {
@@ -5713,7 +5713,7 @@
       "field": "status",
       "field_type": "String?",
       "id": "field_channellisting_status",
-      "community": 28,
+      "community": 27,
       "norm_label": "channellisting.status"
     },
     {
@@ -5725,7 +5725,7 @@
       "field": "exposureStatus",
       "field_type": "String?",
       "id": "field_channellisting_exposurestatus",
-      "community": 28,
+      "community": 27,
       "norm_label": "channellisting.exposurestatus"
     },
     {
@@ -5737,7 +5737,7 @@
       "field": "deliveryChargeType",
       "field_type": "String?",
       "id": "field_channellisting_deliverychargetype",
-      "community": 28,
+      "community": 27,
       "norm_label": "channellisting.deliverychargetype"
     },
     {
@@ -5749,7 +5749,7 @@
       "field": "freeShipOverAmount",
       "field_type": "Int?",
       "id": "field_channellisting_freeshipoveramount",
-      "community": 28,
+      "community": 27,
       "norm_label": "channellisting.freeshipoveramount"
     },
     {
@@ -5761,7 +5761,7 @@
       "field": "returnCharge",
       "field_type": "Int?",
       "id": "field_channellisting_returncharge",
-      "community": 28,
+      "community": 27,
       "norm_label": "channellisting.returncharge"
     },
     {
@@ -5773,7 +5773,7 @@
       "field": "deliveryInfo",
       "field_type": "Json?",
       "id": "field_channellisting_deliveryinfo",
-      "community": 28,
+      "community": 27,
       "norm_label": "channellisting.deliveryinfo"
     },
     {
@@ -5785,7 +5785,7 @@
       "field": "deletedAt",
       "field_type": "DateTime?",
       "id": "field_channellisting_deletedat",
-      "community": 28,
+      "community": 27,
       "norm_label": "channellisting.deletedat"
     },
     {
@@ -5797,7 +5797,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_channellisting_createdat",
-      "community": 28,
+      "community": 27,
       "norm_label": "channellisting.createdat"
     },
     {
@@ -5809,7 +5809,7 @@
       "field": "updatedAt",
       "field_type": "DateTime",
       "id": "field_channellisting_updatedat",
-      "community": 28,
+      "community": 27,
       "norm_label": "channellisting.updatedat"
     },
     {
@@ -5821,7 +5821,7 @@
       "field": "master",
       "field_type": "MasterProduct",
       "id": "field_channellisting_master",
-      "community": 12,
+      "community": 9,
       "norm_label": "channellisting.master"
     },
     {
@@ -5831,7 +5831,7 @@
       "node_type": "unique_constraint",
       "model": "ChannelListing",
       "id": "unique_channellisting_organizationid_channel_externalid",
-      "community": 28,
+      "community": 27,
       "norm_label": "channellisting unique(organizationid, channel, externalid)"
     },
     {
@@ -5980,7 +5980,7 @@
       "source_file": "prisma/models/finance.prisma",
       "node_type": "domain",
       "id": "domain_finance",
-      "community": 39,
+      "community": 40,
       "norm_label": "finance"
     },
     {
@@ -5992,7 +5992,7 @@
       "table": "profit_loss",
       "description": "\uc6d4\uac04 \uc190\uc775. organizationId+listingId+year+month unique.",
       "id": "model_profitloss",
-      "community": 35,
+      "community": 36,
       "norm_label": "profitloss"
     },
     {
@@ -6004,7 +6004,7 @@
       "field": "year",
       "field_type": "Int",
       "id": "field_profitloss_year",
-      "community": 35,
+      "community": 36,
       "norm_label": "profitloss.year"
     },
     {
@@ -6016,7 +6016,7 @@
       "field": "month",
       "field_type": "Int",
       "id": "field_profitloss_month",
-      "community": 35,
+      "community": 36,
       "norm_label": "profitloss.month"
     },
     {
@@ -6028,7 +6028,7 @@
       "field": "revenue",
       "field_type": "Int",
       "id": "field_profitloss_revenue",
-      "community": 35,
+      "community": 36,
       "norm_label": "profitloss.revenue"
     },
     {
@@ -6040,7 +6040,7 @@
       "field": "commission",
       "field_type": "Int",
       "id": "field_profitloss_commission",
-      "community": 35,
+      "community": 36,
       "norm_label": "profitloss.commission"
     },
     {
@@ -6052,7 +6052,7 @@
       "field": "shippingCost",
       "field_type": "Int",
       "id": "field_profitloss_shippingcost",
-      "community": 35,
+      "community": 36,
       "norm_label": "profitloss.shippingcost"
     },
     {
@@ -6064,7 +6064,7 @@
       "field": "adCost",
       "field_type": "Int",
       "id": "field_profitloss_adcost",
-      "community": 35,
+      "community": 36,
       "norm_label": "profitloss.adcost"
     },
     {
@@ -6076,7 +6076,7 @@
       "field": "otherCost",
       "field_type": "Int",
       "id": "field_profitloss_othercost",
-      "community": 35,
+      "community": 36,
       "norm_label": "profitloss.othercost"
     },
     {
@@ -6088,7 +6088,7 @@
       "field": "netProfit",
       "field_type": "Int",
       "id": "field_profitloss_netprofit",
-      "community": 35,
+      "community": 36,
       "norm_label": "profitloss.netprofit"
     },
     {
@@ -6100,7 +6100,7 @@
       "field": "profitRate",
       "field_type": "Decimal?",
       "id": "field_profitloss_profitrate",
-      "community": 35,
+      "community": 36,
       "norm_label": "profitloss.profitrate"
     },
     {
@@ -6112,7 +6112,7 @@
       "field": "orderCount",
       "field_type": "Int",
       "id": "field_profitloss_ordercount",
-      "community": 35,
+      "community": 36,
       "norm_label": "profitloss.ordercount"
     },
     {
@@ -6124,7 +6124,7 @@
       "field": "returnCount",
       "field_type": "Int",
       "id": "field_profitloss_returncount",
-      "community": 35,
+      "community": 36,
       "norm_label": "profitloss.returncount"
     },
     {
@@ -6136,7 +6136,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_profitloss_createdat",
-      "community": 35,
+      "community": 36,
       "norm_label": "profitloss.createdat"
     },
     {
@@ -6148,7 +6148,7 @@
       "field": "updatedAt",
       "field_type": "DateTime",
       "id": "field_profitloss_updatedat",
-      "community": 35,
+      "community": 36,
       "norm_label": "profitloss.updatedat"
     },
     {
@@ -6172,7 +6172,7 @@
       "field": "listing",
       "field_type": "ChannelListing",
       "id": "field_profitloss_listing",
-      "community": 35,
+      "community": 36,
       "norm_label": "profitloss.listing"
     },
     {
@@ -6182,7 +6182,7 @@
       "node_type": "unique_constraint",
       "model": "ProfitLoss",
       "id": "unique_profitloss_organizationid_listingid_year_month",
-      "community": 35,
+      "community": 36,
       "norm_label": "profitloss unique(organizationid, listingid, year, month)"
     },
     {
@@ -6194,7 +6194,7 @@
       "table": "grade_histories",
       "description": "ABC \ub4f1\uae09 \ubcc0\uacbd \ucd94\uc801.",
       "id": "model_gradehistory",
-      "community": 67,
+      "community": 66,
       "norm_label": "gradehistory"
     },
     {
@@ -6204,7 +6204,7 @@
       "node_type": "db_table",
       "model": "GradeHistory",
       "id": "table_grade_histories",
-      "community": 67,
+      "community": 66,
       "norm_label": "grade_histories"
     },
     {
@@ -6216,7 +6216,7 @@
       "field": "oldGrade",
       "field_type": "String?",
       "id": "field_gradehistory_oldgrade",
-      "community": 67,
+      "community": 66,
       "norm_label": "gradehistory.oldgrade"
     },
     {
@@ -6228,7 +6228,7 @@
       "field": "newGrade",
       "field_type": "String",
       "id": "field_gradehistory_newgrade",
-      "community": 67,
+      "community": 66,
       "norm_label": "gradehistory.newgrade"
     },
     {
@@ -6240,7 +6240,7 @@
       "field": "score",
       "field_type": "Decimal",
       "id": "field_gradehistory_score",
-      "community": 67,
+      "community": 66,
       "norm_label": "gradehistory.score"
     },
     {
@@ -6252,7 +6252,7 @@
       "field": "revenueScore",
       "field_type": "Decimal",
       "id": "field_gradehistory_revenuescore",
-      "community": 67,
+      "community": 66,
       "norm_label": "gradehistory.revenuescore"
     },
     {
@@ -6264,7 +6264,7 @@
       "field": "marginScore",
       "field_type": "Decimal",
       "id": "field_gradehistory_marginscore",
-      "community": 67,
+      "community": 66,
       "norm_label": "gradehistory.marginscore"
     },
     {
@@ -6276,7 +6276,7 @@
       "field": "velocityScore",
       "field_type": "Decimal",
       "id": "field_gradehistory_velocityscore",
-      "community": 67,
+      "community": 66,
       "norm_label": "gradehistory.velocityscore"
     },
     {
@@ -6288,7 +6288,7 @@
       "field": "reason",
       "field_type": "String",
       "id": "field_gradehistory_reason",
-      "community": 67,
+      "community": 66,
       "norm_label": "gradehistory.reason"
     },
     {
@@ -6300,7 +6300,7 @@
       "field": "calculatedAt",
       "field_type": "DateTime",
       "id": "field_gradehistory_calculatedat",
-      "community": 67,
+      "community": 66,
       "norm_label": "gradehistory.calculatedat"
     },
     {
@@ -6324,7 +6324,7 @@
       "table": "manual_ledgers",
       "description": "\uc790\ub3d9 \uc9d1\uacc4 \uc678 \uc218\uae30 \uc218\uc785/\uc9c0\ucd9c.",
       "id": "model_manualledger",
-      "community": 39,
+      "community": 40,
       "norm_label": "manualledger"
     },
     {
@@ -6336,7 +6336,7 @@
       "field": "category",
       "field_type": "String",
       "id": "field_manualledger_category",
-      "community": 39,
+      "community": 40,
       "norm_label": "manualledger.category"
     },
     {
@@ -6348,7 +6348,7 @@
       "field": "counterpart",
       "field_type": "String?",
       "id": "field_manualledger_counterpart",
-      "community": 39,
+      "community": 40,
       "norm_label": "manualledger.counterpart"
     },
     {
@@ -6360,7 +6360,7 @@
       "field": "description",
       "field_type": "String?",
       "id": "field_manualledger_description",
-      "community": 39,
+      "community": 40,
       "norm_label": "manualledger.description"
     },
     {
@@ -6372,7 +6372,7 @@
       "field": "amount",
       "field_type": "Int",
       "id": "field_manualledger_amount",
-      "community": 39,
+      "community": 40,
       "norm_label": "manualledger.amount"
     },
     {
@@ -6384,7 +6384,7 @@
       "field": "memo",
       "field_type": "String?",
       "id": "field_manualledger_memo",
-      "community": 39,
+      "community": 40,
       "norm_label": "manualledger.memo"
     },
     {
@@ -6396,7 +6396,7 @@
       "field": "createdBy",
       "field_type": "String?",
       "id": "field_manualledger_createdby",
-      "community": 39,
+      "community": 40,
       "norm_label": "manualledger.createdby"
     },
     {
@@ -6420,7 +6420,7 @@
       "table": "processing_costs",
       "description": "",
       "id": "model_processingcost",
-      "community": 39,
+      "community": 40,
       "norm_label": "processingcost"
     },
     {
@@ -6432,7 +6432,7 @@
       "field": "productName",
       "field_type": "String?",
       "id": "field_processingcost_productname",
-      "community": 39,
+      "community": 40,
       "norm_label": "processingcost.productname"
     },
     {
@@ -6444,7 +6444,7 @@
       "field": "vendor",
       "field_type": "String?",
       "id": "field_processingcost_vendor",
-      "community": 39,
+      "community": 40,
       "norm_label": "processingcost.vendor"
     },
     {
@@ -6456,7 +6456,7 @@
       "field": "processType",
       "field_type": "String",
       "id": "field_processingcost_processtype",
-      "community": 39,
+      "community": 40,
       "norm_label": "processingcost.processtype"
     },
     {
@@ -6468,7 +6468,7 @@
       "field": "quantity",
       "field_type": "Int",
       "id": "field_processingcost_quantity",
-      "community": 39,
+      "community": 40,
       "norm_label": "processingcost.quantity"
     },
     {
@@ -6480,7 +6480,7 @@
       "field": "totalCost",
       "field_type": "Int",
       "id": "field_processingcost_totalcost",
-      "community": 39,
+      "community": 40,
       "norm_label": "processingcost.totalcost"
     },
     {
@@ -6492,7 +6492,7 @@
       "field": "date",
       "field_type": "DateTime",
       "id": "field_processingcost_date",
-      "community": 39,
+      "community": 40,
       "norm_label": "processingcost.date"
     },
     {
@@ -6504,7 +6504,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_processingcost_createdat",
-      "community": 39,
+      "community": 40,
       "norm_label": "processingcost.createdat"
     },
     {
@@ -6850,7 +6850,7 @@
       "table": "stock_transactions",
       "description": "",
       "id": "model_stocktransaction",
-      "community": 75,
+      "community": 74,
       "norm_label": "stocktransaction"
     },
     {
@@ -6862,7 +6862,7 @@
       "field": "unitCost",
       "field_type": "Int",
       "id": "field_stocktransaction_unitcost",
-      "community": 75,
+      "community": 74,
       "norm_label": "stocktransaction.unitcost"
     },
     {
@@ -6874,7 +6874,7 @@
       "field": "totalCost",
       "field_type": "Int",
       "id": "field_stocktransaction_totalcost",
-      "community": 75,
+      "community": 74,
       "norm_label": "stocktransaction.totalcost"
     },
     {
@@ -6886,7 +6886,7 @@
       "field": "relatedId",
       "field_type": "String?",
       "id": "field_stocktransaction_relatedid",
-      "community": 75,
+      "community": 74,
       "norm_label": "stocktransaction.relatedid"
     },
     {
@@ -6898,7 +6898,7 @@
       "field": "createdBy",
       "field_type": "String?",
       "id": "field_stocktransaction_createdby",
-      "community": 75,
+      "community": 74,
       "norm_label": "stocktransaction.createdby"
     },
     {
@@ -6922,7 +6922,7 @@
       "field": "warehouse",
       "field_type": "Warehouse?",
       "id": "field_stocktransaction_warehouse",
-      "community": 75,
+      "community": 74,
       "norm_label": "stocktransaction.warehouse"
     },
     {
@@ -7480,7 +7480,7 @@
       "table": "picking_items",
       "description": "",
       "id": "model_pickingitem",
-      "community": 68,
+      "community": 67,
       "norm_label": "pickingitem"
     },
     {
@@ -7504,7 +7504,7 @@
       "field": "productName",
       "field_type": "String",
       "id": "field_pickingitem_productname",
-      "community": 68,
+      "community": 67,
       "norm_label": "pickingitem.productname"
     },
     {
@@ -7516,7 +7516,7 @@
       "field": "quantity",
       "field_type": "Int",
       "id": "field_pickingitem_quantity",
-      "community": 68,
+      "community": 67,
       "norm_label": "pickingitem.quantity"
     },
     {
@@ -7528,7 +7528,7 @@
       "field": "location",
       "field_type": "String?",
       "id": "field_pickingitem_location",
-      "community": 68,
+      "community": 67,
       "norm_label": "pickingitem.location"
     },
     {
@@ -7540,7 +7540,7 @@
       "field": "isPicked",
       "field_type": "Boolean",
       "id": "field_pickingitem_ispicked",
-      "community": 68,
+      "community": 67,
       "norm_label": "pickingitem.ispicked"
     },
     {
@@ -7552,7 +7552,7 @@
       "field": "isVerified",
       "field_type": "Boolean",
       "id": "field_pickingitem_isverified",
-      "community": 68,
+      "community": 67,
       "norm_label": "pickingitem.isverified"
     },
     {
@@ -7564,7 +7564,7 @@
       "field": "pickedAt",
       "field_type": "DateTime?",
       "id": "field_pickingitem_pickedat",
-      "community": 68,
+      "community": 67,
       "norm_label": "pickingitem.pickedat"
     },
     {
@@ -7576,7 +7576,7 @@
       "field": "verifiedAt",
       "field_type": "DateTime?",
       "id": "field_pickingitem_verifiedat",
-      "community": 68,
+      "community": 67,
       "norm_label": "pickingitem.verifiedat"
     },
     {
@@ -7588,7 +7588,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_pickingitem_createdat",
-      "community": 68,
+      "community": 67,
       "norm_label": "pickingitem.createdat"
     },
     {
@@ -7612,7 +7612,7 @@
       "table": "return_transfers",
       "description": "",
       "id": "model_returntransfer",
-      "community": 65,
+      "community": 64,
       "norm_label": "returntransfer"
     },
     {
@@ -7624,7 +7624,7 @@
       "field": "rtNumber",
       "field_type": "String",
       "id": "field_returntransfer_rtnumber",
-      "community": 65,
+      "community": 64,
       "norm_label": "returntransfer.rtnumber"
     },
     {
@@ -7636,7 +7636,7 @@
       "field": "quantity",
       "field_type": "Int",
       "id": "field_returntransfer_quantity",
-      "community": 65,
+      "community": 64,
       "norm_label": "returntransfer.quantity"
     },
     {
@@ -7648,7 +7648,7 @@
       "field": "condition",
       "field_type": "String",
       "id": "field_returntransfer_condition",
-      "community": 65,
+      "community": 64,
       "norm_label": "returntransfer.condition"
     },
     {
@@ -7660,7 +7660,7 @@
       "field": "restockedQty",
       "field_type": "Int",
       "id": "field_returntransfer_restockedqty",
-      "community": 65,
+      "community": 64,
       "norm_label": "returntransfer.restockedqty"
     },
     {
@@ -7672,7 +7672,7 @@
       "field": "disposedQty",
       "field_type": "Int",
       "id": "field_returntransfer_disposedqty",
-      "community": 65,
+      "community": 64,
       "norm_label": "returntransfer.disposedqty"
     },
     {
@@ -7684,7 +7684,7 @@
       "field": "processedBy",
       "field_type": "String?",
       "id": "field_returntransfer_processedby",
-      "community": 65,
+      "community": 64,
       "norm_label": "returntransfer.processedby"
     },
     {
@@ -7696,7 +7696,7 @@
       "field": "completedAt",
       "field_type": "DateTime?",
       "id": "field_returntransfer_completedat",
-      "community": 65,
+      "community": 64,
       "norm_label": "returntransfer.completedat"
     },
     {
@@ -7708,7 +7708,7 @@
       "field": "updatedAt",
       "field_type": "DateTime",
       "id": "field_returntransfer_updatedat",
-      "community": 65,
+      "community": 64,
       "norm_label": "returntransfer.updatedat"
     },
     {
@@ -7732,7 +7732,7 @@
       "field": "option",
       "field_type": "ProductOption",
       "id": "field_returntransfer_option",
-      "community": 12,
+      "community": 9,
       "norm_label": "returntransfer.option"
     },
     {
@@ -7742,7 +7742,7 @@
       "node_type": "unique_constraint",
       "model": "ReturnTransfer",
       "id": "unique_returntransfer_organizationid_rtnumber",
-      "community": 65,
+      "community": 64,
       "norm_label": "returntransfer unique(organizationid, rtnumber)"
     },
     {
@@ -7754,7 +7754,7 @@
       "table": "orders",
       "description": "\ucc44\ub110-agnostic \uc8fc\ubb38 aggregate. Coupang \ub4f1 \ucc44\ub110\ubcc4 raw payload \ub294 metadata Json. \ub77c\uc778 \uc544\uc774\ud15c\uc740 OrderLineItem.",
       "id": "model_order",
-      "community": 22,
+      "community": 24,
       "norm_label": "order"
     },
     {
@@ -7764,7 +7764,7 @@
       "node_type": "db_table",
       "model": "Order",
       "id": "table_orders",
-      "community": 22,
+      "community": 24,
       "norm_label": "orders"
     },
     {
@@ -7776,7 +7776,7 @@
       "field": "id",
       "field_type": "String",
       "id": "field_order_id",
-      "community": 22,
+      "community": 24,
       "norm_label": "order.id"
     },
     {
@@ -7788,7 +7788,7 @@
       "field": "platform",
       "field_type": "String",
       "id": "field_order_platform",
-      "community": 22,
+      "community": 24,
       "norm_label": "order.platform"
     },
     {
@@ -7800,7 +7800,7 @@
       "field": "externalOrderId",
       "field_type": "String",
       "id": "field_order_externalorderid",
-      "community": 22,
+      "community": 24,
       "norm_label": "order.externalorderid"
     },
     {
@@ -7812,7 +7812,7 @@
       "field": "externalNumber",
       "field_type": "String?",
       "id": "field_order_externalnumber",
-      "community": 22,
+      "community": 24,
       "norm_label": "order.externalnumber"
     },
     {
@@ -7824,7 +7824,7 @@
       "field": "customerName",
       "field_type": "String",
       "id": "field_order_customername",
-      "community": 22,
+      "community": 24,
       "norm_label": "order.customername"
     },
     {
@@ -7836,7 +7836,7 @@
       "field": "receiverName",
       "field_type": "String?",
       "id": "field_order_receivername",
-      "community": 22,
+      "community": 24,
       "norm_label": "order.receivername"
     },
     {
@@ -7848,7 +7848,7 @@
       "field": "receiverPhone",
       "field_type": "String?",
       "id": "field_order_receiverphone",
-      "community": 22,
+      "community": 24,
       "norm_label": "order.receiverphone"
     },
     {
@@ -7860,7 +7860,7 @@
       "field": "receiverAddr",
       "field_type": "String?",
       "id": "field_order_receiveraddr",
-      "community": 22,
+      "community": 24,
       "norm_label": "order.receiveraddr"
     },
     {
@@ -7872,7 +7872,7 @@
       "field": "memo",
       "field_type": "String?",
       "id": "field_order_memo",
-      "community": 22,
+      "community": 24,
       "norm_label": "order.memo"
     },
     {
@@ -7896,7 +7896,7 @@
       "field": "orderedAt",
       "field_type": "DateTime",
       "id": "field_order_orderedat",
-      "community": 22,
+      "community": 24,
       "norm_label": "order.orderedat"
     },
     {
@@ -7908,7 +7908,7 @@
       "field": "paidAt",
       "field_type": "DateTime?",
       "id": "field_order_paidat",
-      "community": 22,
+      "community": 24,
       "norm_label": "order.paidat"
     },
     {
@@ -7920,7 +7920,7 @@
       "field": "shippedAt",
       "field_type": "DateTime?",
       "id": "field_order_shippedat",
-      "community": 22,
+      "community": 24,
       "norm_label": "order.shippedat"
     },
     {
@@ -7932,7 +7932,7 @@
       "field": "deliveredAt",
       "field_type": "DateTime?",
       "id": "field_order_deliveredat",
-      "community": 22,
+      "community": 24,
       "norm_label": "order.deliveredat"
     },
     {
@@ -7944,7 +7944,7 @@
       "field": "trackingNumber",
       "field_type": "String?",
       "id": "field_order_trackingnumber",
-      "community": 22,
+      "community": 24,
       "norm_label": "order.trackingnumber"
     },
     {
@@ -7956,7 +7956,7 @@
       "field": "shippingCompany",
       "field_type": "String?",
       "id": "field_order_shippingcompany",
-      "community": 22,
+      "community": 24,
       "norm_label": "order.shippingcompany"
     },
     {
@@ -7968,7 +7968,7 @@
       "field": "shippingPrice",
       "field_type": "Int",
       "id": "field_order_shippingprice",
-      "community": 22,
+      "community": 24,
       "norm_label": "order.shippingprice"
     },
     {
@@ -7980,7 +7980,7 @@
       "field": "totalPrice",
       "field_type": "Int",
       "id": "field_order_totalprice",
-      "community": 22,
+      "community": 24,
       "norm_label": "order.totalprice"
     },
     {
@@ -7992,7 +7992,7 @@
       "field": "metadata",
       "field_type": "Json?",
       "id": "field_order_metadata",
-      "community": 22,
+      "community": 24,
       "norm_label": "order.metadata"
     },
     {
@@ -8004,7 +8004,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_order_createdat",
-      "community": 22,
+      "community": 24,
       "norm_label": "order.createdat"
     },
     {
@@ -8016,7 +8016,7 @@
       "field": "updatedAt",
       "field_type": "DateTime",
       "id": "field_order_updatedat",
-      "community": 22,
+      "community": 24,
       "norm_label": "order.updatedat"
     },
     {
@@ -8040,7 +8040,7 @@
       "field": "listing",
       "field_type": "ChannelListing?",
       "id": "field_order_listing",
-      "community": 20,
+      "community": 22,
       "norm_label": "order.listing"
     },
     {
@@ -8050,7 +8050,7 @@
       "node_type": "unique_constraint",
       "model": "Order",
       "id": "unique_order_id_organizationid",
-      "community": 22,
+      "community": 24,
       "norm_label": "order unique(id, organizationid)"
     },
     {
@@ -8060,7 +8060,7 @@
       "node_type": "unique_constraint",
       "model": "Order",
       "id": "unique_order_organizationid_platform_externalorderid",
-      "community": 22,
+      "community": 24,
       "norm_label": "order unique(organizationid, platform, externalorderid)"
     },
     {
@@ -8216,7 +8216,7 @@
       "field": "option",
       "field_type": "ProductOption?",
       "id": "field_orderlineitem_option",
-      "community": 12,
+      "community": 9,
       "norm_label": "orderlineitem.option"
     },
     {
@@ -8436,7 +8436,7 @@
       "table": "order_return_line_items",
       "description": "\ubc18\ud488 \ub77c\uc778 \uc544\uc774\ud15c \u2014 \ubc18\ud488 \uac74 \ub0b4 SKU \ub2e8\uc704 \uc0c1\uc138. return FK \ub294 organizationId \ub97c \ud568\uaed8 \ucc38\uc870\ud574 cross-organization mismatch \ub97c DB \uac00 \ucc28\ub2e8\ud55c\ub2e4.",
       "id": "model_orderreturnlineitem",
-      "community": 12,
+      "community": 28,
       "norm_label": "orderreturnlineitem"
     },
     {
@@ -8448,7 +8448,7 @@
       "field": "productName",
       "field_type": "String",
       "id": "field_orderreturnlineitem_productname",
-      "community": 12,
+      "community": 28,
       "norm_label": "orderreturnlineitem.productname"
     },
     {
@@ -8460,7 +8460,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_orderreturnlineitem_createdat",
-      "community": 12,
+      "community": 28,
       "norm_label": "orderreturnlineitem.createdat"
     },
     {
@@ -8484,7 +8484,7 @@
       "table": "shipments",
       "description": "",
       "id": "model_shipment",
-      "community": 63,
+      "community": 20,
       "norm_label": "shipment"
     },
     {
@@ -8494,7 +8494,7 @@
       "node_type": "db_table",
       "model": "Shipment",
       "id": "table_shipments",
-      "community": 63,
+      "community": 20,
       "norm_label": "shipments"
     },
     {
@@ -8506,7 +8506,7 @@
       "field": "trackingNo",
       "field_type": "String?",
       "id": "field_shipment_trackingno",
-      "community": 63,
+      "community": 20,
       "norm_label": "shipment.trackingno"
     },
     {
@@ -8518,7 +8518,7 @@
       "field": "courierCode",
       "field_type": "String?",
       "id": "field_shipment_couriercode",
-      "community": 63,
+      "community": 20,
       "norm_label": "shipment.couriercode"
     },
     {
@@ -8530,7 +8530,7 @@
       "field": "courierName",
       "field_type": "String?",
       "id": "field_shipment_couriername",
-      "community": 63,
+      "community": 20,
       "norm_label": "shipment.couriername"
     },
     {
@@ -8542,7 +8542,7 @@
       "field": "status",
       "field_type": "String",
       "id": "field_shipment_status",
-      "community": 63,
+      "community": 20,
       "norm_label": "shipment.status"
     },
     {
@@ -8554,7 +8554,7 @@
       "field": "shippedAt",
       "field_type": "DateTime?",
       "id": "field_shipment_shippedat",
-      "community": 63,
+      "community": 20,
       "norm_label": "shipment.shippedat"
     },
     {
@@ -8566,7 +8566,7 @@
       "field": "deliveredAt",
       "field_type": "DateTime?",
       "id": "field_shipment_deliveredat",
-      "community": 63,
+      "community": 20,
       "norm_label": "shipment.deliveredat"
     },
     {
@@ -8578,7 +8578,7 @@
       "field": "deliveryDays",
       "field_type": "Int?",
       "id": "field_shipment_deliverydays",
-      "community": 63,
+      "community": 20,
       "norm_label": "shipment.deliverydays"
     },
     {
@@ -8590,7 +8590,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_shipment_createdat",
-      "community": 63,
+      "community": 20,
       "norm_label": "shipment.createdat"
     },
     {
@@ -8602,7 +8602,7 @@
       "field": "updatedAt",
       "field_type": "DateTime",
       "id": "field_shipment_updatedat",
-      "community": 63,
+      "community": 20,
       "norm_label": "shipment.updatedat"
     },
     {
@@ -8770,7 +8770,7 @@
       "field": "option",
       "field_type": "ProductOption?",
       "id": "field_unshippeditem_option",
-      "community": 12,
+      "community": 28,
       "norm_label": "unshippeditem.option"
     },
     {
@@ -8782,7 +8782,7 @@
       "table": "settlements",
       "description": "\uc6d4\ubcc4 \uc815\uc0b0 (\uc608\uc0c1 vs \uc2e4\uc81c \ube44\uad50).",
       "id": "model_settlement",
-      "community": 34,
+      "community": 33,
       "norm_label": "settlement"
     },
     {
@@ -8792,7 +8792,7 @@
       "node_type": "db_table",
       "model": "Settlement",
       "id": "table_settlements",
-      "community": 34,
+      "community": 33,
       "norm_label": "settlements"
     },
     {
@@ -8804,7 +8804,7 @@
       "field": "id",
       "field_type": "String",
       "id": "field_settlement_id",
-      "community": 34,
+      "community": 33,
       "norm_label": "settlement.id"
     },
     {
@@ -8816,7 +8816,7 @@
       "field": "period",
       "field_type": "String",
       "id": "field_settlement_period",
-      "community": 34,
+      "community": 33,
       "norm_label": "settlement.period"
     },
     {
@@ -8828,7 +8828,7 @@
       "field": "expectedAmount",
       "field_type": "Int",
       "id": "field_settlement_expectedamount",
-      "community": 34,
+      "community": 33,
       "norm_label": "settlement.expectedamount"
     },
     {
@@ -8840,7 +8840,7 @@
       "field": "actualAmount",
       "field_type": "Int",
       "id": "field_settlement_actualamount",
-      "community": 34,
+      "community": 33,
       "norm_label": "settlement.actualamount"
     },
     {
@@ -8852,7 +8852,7 @@
       "field": "commission",
       "field_type": "Int",
       "id": "field_settlement_commission",
-      "community": 34,
+      "community": 33,
       "norm_label": "settlement.commission"
     },
     {
@@ -8864,7 +8864,7 @@
       "field": "shippingFee",
       "field_type": "Int",
       "id": "field_settlement_shippingfee",
-      "community": 34,
+      "community": 33,
       "norm_label": "settlement.shippingfee"
     },
     {
@@ -8876,7 +8876,7 @@
       "field": "adjustments",
       "field_type": "Int",
       "id": "field_settlement_adjustments",
-      "community": 34,
+      "community": 33,
       "norm_label": "settlement.adjustments"
     },
     {
@@ -8888,7 +8888,7 @@
       "field": "difference",
       "field_type": "Int",
       "id": "field_settlement_difference",
-      "community": 34,
+      "community": 33,
       "norm_label": "settlement.difference"
     },
     {
@@ -8900,7 +8900,7 @@
       "field": "orderCount",
       "field_type": "Int",
       "id": "field_settlement_ordercount",
-      "community": 34,
+      "community": 33,
       "norm_label": "settlement.ordercount"
     },
     {
@@ -8912,7 +8912,7 @@
       "field": "returnCount",
       "field_type": "Int",
       "id": "field_settlement_returncount",
-      "community": 34,
+      "community": 33,
       "norm_label": "settlement.returncount"
     },
     {
@@ -8924,7 +8924,7 @@
       "field": "status",
       "field_type": "String",
       "id": "field_settlement_status",
-      "community": 34,
+      "community": 33,
       "norm_label": "settlement.status"
     },
     {
@@ -8936,7 +8936,7 @@
       "field": "settledAt",
       "field_type": "DateTime?",
       "id": "field_settlement_settledat",
-      "community": 34,
+      "community": 33,
       "norm_label": "settlement.settledat"
     },
     {
@@ -8948,7 +8948,7 @@
       "field": "notes",
       "field_type": "String?",
       "id": "field_settlement_notes",
-      "community": 34,
+      "community": 33,
       "norm_label": "settlement.notes"
     },
     {
@@ -8960,7 +8960,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_settlement_createdat",
-      "community": 34,
+      "community": 33,
       "norm_label": "settlement.createdat"
     },
     {
@@ -8972,7 +8972,7 @@
       "field": "updatedAt",
       "field_type": "DateTime",
       "id": "field_settlement_updatedat",
-      "community": 34,
+      "community": 33,
       "norm_label": "settlement.updatedat"
     },
     {
@@ -8994,7 +8994,7 @@
       "node_type": "unique_constraint",
       "model": "Settlement",
       "id": "unique_settlement_organizationid_period",
-      "community": 34,
+      "community": 33,
       "norm_label": "settlement unique(organizationid, period)"
     },
     {
@@ -9006,7 +9006,7 @@
       "table": "cs_records",
       "description": "",
       "id": "model_csrecord",
-      "community": 28,
+      "community": 27,
       "norm_label": "csrecord"
     },
     {
@@ -9018,7 +9018,7 @@
       "field": "id",
       "field_type": "String",
       "id": "field_csrecord_id",
-      "community": 28,
+      "community": 27,
       "norm_label": "csrecord.id"
     },
     {
@@ -9030,7 +9030,7 @@
       "field": "csType",
       "field_type": "String",
       "id": "field_csrecord_cstype",
-      "community": 28,
+      "community": 27,
       "norm_label": "csrecord.cstype"
     },
     {
@@ -9042,7 +9042,7 @@
       "field": "csStatus",
       "field_type": "String",
       "id": "field_csrecord_csstatus",
-      "community": 28,
+      "community": 27,
       "norm_label": "csrecord.csstatus"
     },
     {
@@ -9054,7 +9054,7 @@
       "field": "priority",
       "field_type": "String",
       "id": "field_csrecord_priority",
-      "community": 28,
+      "community": 27,
       "norm_label": "csrecord.priority"
     },
     {
@@ -9066,7 +9066,7 @@
       "field": "assignee",
       "field_type": "String?",
       "id": "field_csrecord_assignee",
-      "community": 28,
+      "community": 27,
       "norm_label": "csrecord.assignee"
     },
     {
@@ -9078,7 +9078,7 @@
       "field": "content",
       "field_type": "String",
       "id": "field_csrecord_content",
-      "community": 28,
+      "community": 27,
       "norm_label": "csrecord.content"
     },
     {
@@ -9090,7 +9090,7 @@
       "field": "resolution",
       "field_type": "String?",
       "id": "field_csrecord_resolution",
-      "community": 28,
+      "community": 27,
       "norm_label": "csrecord.resolution"
     },
     {
@@ -9102,7 +9102,7 @@
       "field": "createdBy",
       "field_type": "String?",
       "id": "field_csrecord_createdby",
-      "community": 28,
+      "community": 27,
       "norm_label": "csrecord.createdby"
     },
     {
@@ -9114,7 +9114,7 @@
       "field": "updatedAt",
       "field_type": "DateTime",
       "id": "field_csrecord_updatedat",
-      "community": 28,
+      "community": 27,
       "norm_label": "csrecord.updatedat"
     },
     {
@@ -9150,7 +9150,7 @@
       "field": "listing",
       "field_type": "ChannelListing?",
       "id": "field_csrecord_listing",
-      "community": 28,
+      "community": 27,
       "norm_label": "csrecord.listing"
     },
     {
@@ -9162,7 +9162,7 @@
       "table": "reviews",
       "description": "",
       "id": "model_review",
-      "community": 20,
+      "community": 22,
       "norm_label": "review"
     },
     {
@@ -9172,7 +9172,7 @@
       "node_type": "db_table",
       "model": "Review",
       "id": "table_reviews",
-      "community": 20,
+      "community": 22,
       "norm_label": "reviews"
     },
     {
@@ -9184,7 +9184,7 @@
       "field": "id",
       "field_type": "String",
       "id": "field_review_id",
-      "community": 20,
+      "community": 22,
       "norm_label": "review.id"
     },
     {
@@ -9196,7 +9196,7 @@
       "field": "platform",
       "field_type": "String",
       "id": "field_review_platform",
-      "community": 20,
+      "community": 22,
       "norm_label": "review.platform"
     },
     {
@@ -9208,7 +9208,7 @@
       "field": "rating",
       "field_type": "Int",
       "id": "field_review_rating",
-      "community": 20,
+      "community": 22,
       "norm_label": "review.rating"
     },
     {
@@ -9220,7 +9220,7 @@
       "field": "content",
       "field_type": "String?",
       "id": "field_review_content",
-      "community": 20,
+      "community": 22,
       "norm_label": "review.content"
     },
     {
@@ -9232,7 +9232,7 @@
       "field": "reviewerName",
       "field_type": "String?",
       "id": "field_review_reviewername",
-      "community": 20,
+      "community": 22,
       "norm_label": "review.reviewername"
     },
     {
@@ -9244,7 +9244,7 @@
       "field": "reviewedAt",
       "field_type": "DateTime",
       "id": "field_review_reviewedat",
-      "community": 20,
+      "community": 22,
       "norm_label": "review.reviewedat"
     },
     {
@@ -9256,7 +9256,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_review_createdat",
-      "community": 20,
+      "community": 22,
       "norm_label": "review.createdat"
     },
     {
@@ -9280,7 +9280,7 @@
       "field": "listing",
       "field_type": "ChannelListing?",
       "id": "field_review_listing",
-      "community": 20,
+      "community": 22,
       "norm_label": "review.listing"
     },
     {
@@ -9642,7 +9642,7 @@
       "source_file": "prisma/models/supply.prisma",
       "node_type": "domain",
       "id": "domain_supply",
-      "community": 26,
+      "community": 9,
       "norm_label": "supply"
     },
     {
@@ -9654,7 +9654,7 @@
       "table": "suppliers",
       "description": "",
       "id": "model_supplier",
-      "community": 26,
+      "community": 9,
       "norm_label": "supplier"
     },
     {
@@ -9666,7 +9666,7 @@
       "field": "name",
       "field_type": "String",
       "id": "field_supplier_name",
-      "community": 26,
+      "community": 9,
       "norm_label": "supplier.name"
     },
     {
@@ -9678,7 +9678,7 @@
       "field": "contactName",
       "field_type": "String?",
       "id": "field_supplier_contactname",
-      "community": 26,
+      "community": 9,
       "norm_label": "supplier.contactname"
     },
     {
@@ -9690,7 +9690,7 @@
       "field": "phone",
       "field_type": "String?",
       "id": "field_supplier_phone",
-      "community": 26,
+      "community": 9,
       "norm_label": "supplier.phone"
     },
     {
@@ -9702,7 +9702,7 @@
       "field": "email",
       "field_type": "String?",
       "id": "field_supplier_email",
-      "community": 26,
+      "community": 9,
       "norm_label": "supplier.email"
     },
     {
@@ -9714,7 +9714,7 @@
       "field": "address",
       "field_type": "String?",
       "id": "field_supplier_address",
-      "community": 26,
+      "community": 9,
       "norm_label": "supplier.address"
     },
     {
@@ -9726,7 +9726,7 @@
       "field": "leadTimeDays",
       "field_type": "Int",
       "id": "field_supplier_leadtimedays",
-      "community": 26,
+      "community": 9,
       "norm_label": "supplier.leadtimedays"
     },
     {
@@ -9738,7 +9738,7 @@
       "field": "notes",
       "field_type": "String?",
       "id": "field_supplier_notes",
-      "community": 26,
+      "community": 9,
       "norm_label": "supplier.notes"
     },
     {
@@ -9750,7 +9750,7 @@
       "field": "status",
       "field_type": "String",
       "id": "field_supplier_status",
-      "community": 26,
+      "community": 9,
       "norm_label": "supplier.status"
     },
     {
@@ -9762,7 +9762,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_supplier_createdat",
-      "community": 26,
+      "community": 9,
       "norm_label": "supplier.createdat"
     },
     {
@@ -9774,7 +9774,7 @@
       "field": "updatedAt",
       "field_type": "DateTime",
       "id": "field_supplier_updatedat",
-      "community": 26,
+      "community": 9,
       "norm_label": "supplier.updatedat"
     },
     {
@@ -9798,7 +9798,7 @@
       "table": "supplier_products",
       "description": "\uacf5\uae09\uc0ac\ubcc4 SKU(\uc635\uc158) \ub2e8\uc704 \uacf5\uae09\uac00 \uad00\ub9ac.",
       "id": "model_supplierproduct",
-      "community": 26,
+      "community": 9,
       "norm_label": "supplierproduct"
     },
     {
@@ -9810,7 +9810,7 @@
       "field": "supplyPrice",
       "field_type": "Int",
       "id": "field_supplierproduct_supplyprice",
-      "community": 26,
+      "community": 9,
       "norm_label": "supplierproduct.supplyprice"
     },
     {
@@ -9822,7 +9822,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_supplierproduct_createdat",
-      "community": 26,
+      "community": 9,
       "norm_label": "supplierproduct.createdat"
     },
     {
@@ -9834,7 +9834,7 @@
       "field": "updatedAt",
       "field_type": "DateTime",
       "id": "field_supplierproduct_updatedat",
-      "community": 26,
+      "community": 9,
       "norm_label": "supplierproduct.updatedat"
     },
     {
@@ -9846,7 +9846,7 @@
       "field": "option",
       "field_type": "ProductOption",
       "id": "field_supplierproduct_option",
-      "community": 26,
+      "community": 9,
       "norm_label": "supplierproduct.option"
     },
     {
@@ -9856,7 +9856,7 @@
       "node_type": "unique_constraint",
       "model": "SupplierProduct",
       "id": "unique_supplierproduct_supplierid_optionid",
-      "community": 26,
+      "community": 9,
       "norm_label": "supplierproduct unique(supplierid, optionid)"
     },
     {
@@ -9868,7 +9868,7 @@
       "table": "supplier_payments",
       "description": "",
       "id": "model_supplierpayment",
-      "community": 21,
+      "community": 23,
       "norm_label": "supplierpayment"
     },
     {
@@ -9880,7 +9880,7 @@
       "field": "amount",
       "field_type": "Int",
       "id": "field_supplierpayment_amount",
-      "community": 21,
+      "community": 23,
       "norm_label": "supplierpayment.amount"
     },
     {
@@ -9892,7 +9892,7 @@
       "field": "status",
       "field_type": "String",
       "id": "field_supplierpayment_status",
-      "community": 21,
+      "community": 23,
       "norm_label": "supplierpayment.status"
     },
     {
@@ -9904,7 +9904,7 @@
       "field": "paidDate",
       "field_type": "DateTime?",
       "id": "field_supplierpayment_paiddate",
-      "community": 21,
+      "community": 23,
       "norm_label": "supplierpayment.paiddate"
     },
     {
@@ -9916,7 +9916,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_supplierpayment_createdat",
-      "community": 21,
+      "community": 23,
       "norm_label": "supplierpayment.createdat"
     },
     {
@@ -9928,7 +9928,7 @@
       "field": "updatedAt",
       "field_type": "DateTime",
       "id": "field_supplierpayment_updatedat",
-      "community": 21,
+      "community": 23,
       "norm_label": "supplierpayment.updatedat"
     },
     {
@@ -9952,7 +9952,7 @@
       "field": "purchaseOrder",
       "field_type": "PurchaseOrder?",
       "id": "field_supplierpayment_purchaseorder",
-      "community": 21,
+      "community": 23,
       "norm_label": "supplierpayment.purchaseorder"
     },
     {
@@ -9964,7 +9964,7 @@
       "table": "purchase_orders",
       "description": "\ubc1c\uc8fc state machine (draft\u2192pending\u2192ordered\u2192shipped\u2192received). \uc785\uace0 \uac80\uc218 \ud544\ub4dc \ud3ec\ud568 (receivedQty, defectQty). \ub2e8\uc704\ub294 CNY(Decimal 12,2).",
       "id": "model_purchaseorder",
-      "community": 21,
+      "community": 23,
       "norm_label": "purchaseorder"
     },
     {
@@ -9976,7 +9976,7 @@
       "field": "supplierContact",
       "field_type": "String?",
       "id": "field_purchaseorder_suppliercontact",
-      "community": 21,
+      "community": 23,
       "norm_label": "purchaseorder.suppliercontact"
     },
     {
@@ -9988,7 +9988,7 @@
       "field": "totalAmountCny",
       "field_type": "Decimal",
       "id": "field_purchaseorder_totalamountcny",
-      "community": 21,
+      "community": 23,
       "norm_label": "purchaseorder.totalamountcny"
     },
     {
@@ -10000,7 +10000,7 @@
       "field": "status",
       "field_type": "String",
       "id": "field_purchaseorder_status",
-      "community": 21,
+      "community": 23,
       "norm_label": "purchaseorder.status"
     },
     {
@@ -10012,7 +10012,7 @@
       "field": "orderDate",
       "field_type": "DateTime",
       "id": "field_purchaseorder_orderdate",
-      "community": 21,
+      "community": 23,
       "norm_label": "purchaseorder.orderdate"
     },
     {
@@ -10024,7 +10024,7 @@
       "field": "expectedDeliveryDate",
       "field_type": "DateTime?",
       "id": "field_purchaseorder_expecteddeliverydate",
-      "community": 21,
+      "community": 23,
       "norm_label": "purchaseorder.expecteddeliverydate"
     },
     {
@@ -10036,7 +10036,7 @@
       "field": "trackingNumber",
       "field_type": "String?",
       "id": "field_purchaseorder_trackingnumber",
-      "community": 21,
+      "community": 23,
       "norm_label": "purchaseorder.trackingnumber"
     },
     {
@@ -10048,7 +10048,7 @@
       "field": "receivedAt",
       "field_type": "DateTime?",
       "id": "field_purchaseorder_receivedat",
-      "community": 21,
+      "community": 23,
       "norm_label": "purchaseorder.receivedat"
     },
     {
@@ -10060,7 +10060,7 @@
       "field": "receivedQty",
       "field_type": "Int?",
       "id": "field_purchaseorder_receivedqty",
-      "community": 21,
+      "community": 23,
       "norm_label": "purchaseorder.receivedqty"
     },
     {
@@ -10072,7 +10072,7 @@
       "field": "defectQty",
       "field_type": "Int?",
       "id": "field_purchaseorder_defectqty",
-      "community": 21,
+      "community": 23,
       "norm_label": "purchaseorder.defectqty"
     },
     {
@@ -10084,7 +10084,7 @@
       "field": "defectType",
       "field_type": "String?",
       "id": "field_purchaseorder_defecttype",
-      "community": 21,
+      "community": 23,
       "norm_label": "purchaseorder.defecttype"
     },
     {
@@ -10096,7 +10096,7 @@
       "field": "defectAction",
       "field_type": "String?",
       "id": "field_purchaseorder_defectaction",
-      "community": 21,
+      "community": 23,
       "norm_label": "purchaseorder.defectaction"
     },
     {
@@ -10108,7 +10108,7 @@
       "field": "inspectedAt",
       "field_type": "DateTime?",
       "id": "field_purchaseorder_inspectedat",
-      "community": 21,
+      "community": 23,
       "norm_label": "purchaseorder.inspectedat"
     },
     {
@@ -10120,7 +10120,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_purchaseorder_createdat",
-      "community": 21,
+      "community": 23,
       "norm_label": "purchaseorder.createdat"
     },
     {
@@ -10132,7 +10132,7 @@
       "field": "updatedAt",
       "field_type": "DateTime",
       "id": "field_purchaseorder_updatedat",
-      "community": 21,
+      "community": 23,
       "norm_label": "purchaseorder.updatedat"
     },
     {
@@ -10156,7 +10156,7 @@
       "field": "supplier",
       "field_type": "Supplier?",
       "id": "field_purchaseorder_supplier",
-      "community": 26,
+      "community": 9,
       "norm_label": "purchaseorder.supplier"
     },
     {
@@ -10168,7 +10168,7 @@
       "field": "productName",
       "field_type": "String",
       "id": "field_purchaseorderitem_productname",
-      "community": 21,
+      "community": 23,
       "norm_label": "purchaseorderitem.productname"
     },
     {
@@ -10180,7 +10180,7 @@
       "field": "unitPriceCny",
       "field_type": "Decimal",
       "id": "field_purchaseorderitem_unitpricecny",
-      "community": 21,
+      "community": 23,
       "norm_label": "purchaseorderitem.unitpricecny"
     },
     {
@@ -10192,7 +10192,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_purchaseorderitem_createdat",
-      "community": 21,
+      "community": 23,
       "norm_label": "purchaseorderitem.createdat"
     },
     {
@@ -10204,7 +10204,7 @@
       "field": "option",
       "field_type": "ProductOption?",
       "id": "field_purchaseorderitem_option",
-      "community": 21,
+      "community": 23,
       "norm_label": "purchaseorderitem.option"
     },
     {
@@ -10216,7 +10216,7 @@
       "table": "master_supplier_products",
       "description": "Master \ub2e8\uc704 \uc8fc\uacf5\uae09\ucc98 \uc815\ucc45. \uc5ec\ub7ec supplier \ud6c4\ubcf4 \uc911 isPrimary \uac00 \uae30\ubcf8.",
       "id": "model_mastersupplierproduct",
-      "community": 26,
+      "community": 9,
       "norm_label": "mastersupplierproduct"
     },
     {
@@ -10228,7 +10228,7 @@
       "field": "isPrimary",
       "field_type": "Boolean",
       "id": "field_mastersupplierproduct_isprimary",
-      "community": 26,
+      "community": 9,
       "norm_label": "mastersupplierproduct.isprimary"
     },
     {
@@ -10240,7 +10240,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_mastersupplierproduct_createdat",
-      "community": 26,
+      "community": 9,
       "norm_label": "mastersupplierproduct.createdat"
     },
     {
@@ -10252,7 +10252,7 @@
       "field": "updatedAt",
       "field_type": "DateTime",
       "id": "field_mastersupplierproduct_updatedat",
-      "community": 26,
+      "community": 9,
       "norm_label": "mastersupplierproduct.updatedat"
     },
     {
@@ -10262,7 +10262,7 @@
       "node_type": "unique_constraint",
       "model": "MasterSupplierProduct",
       "id": "unique_mastersupplierproduct_masterid_supplierid",
-      "community": 26,
+      "community": 9,
       "norm_label": "mastersupplierproduct unique(masterid, supplierid)"
     },
     {
@@ -10283,7 +10283,7 @@
       "table": "marketplace",
       "description": "type \uc73c\ub85c agent/workflow \uce74\ud0c8\ub85c\uadf8 \ud1b5\ud569.",
       "id": "model_marketplace",
-      "community": 27,
+      "community": 26,
       "norm_label": "marketplace"
     },
     {
@@ -10295,7 +10295,7 @@
       "field": "description",
       "field_type": "String",
       "id": "field_marketplace_description",
-      "community": 27,
+      "community": 26,
       "norm_label": "marketplace.description"
     },
     {
@@ -10307,7 +10307,7 @@
       "field": "category",
       "field_type": "String",
       "id": "field_marketplace_category",
-      "community": 27,
+      "community": 26,
       "norm_label": "marketplace.category"
     },
     {
@@ -10319,7 +10319,7 @@
       "field": "module",
       "field_type": "String?",
       "id": "field_marketplace_module",
-      "community": 27,
+      "community": 26,
       "norm_label": "marketplace.module"
     },
     {
@@ -10331,7 +10331,7 @@
       "field": "nodesJson",
       "field_type": "Json?",
       "id": "field_marketplace_nodesjson",
-      "community": 27,
+      "community": 26,
       "norm_label": "marketplace.nodesjson"
     },
     {
@@ -10343,7 +10343,7 @@
       "field": "edgesJson",
       "field_type": "Json?",
       "id": "field_marketplace_edgesjson",
-      "community": 27,
+      "community": 26,
       "norm_label": "marketplace.edgesjson"
     },
     {
@@ -10355,7 +10355,7 @@
       "field": "role",
       "field_type": "String?",
       "id": "field_marketplace_role",
-      "community": 27,
+      "community": 26,
       "norm_label": "marketplace.role"
     },
     {
@@ -10367,7 +10367,7 @@
       "field": "adapterType",
       "field_type": "String?",
       "id": "field_marketplace_adaptertype",
-      "community": 27,
+      "community": 26,
       "norm_label": "marketplace.adaptertype"
     },
     {
@@ -10379,7 +10379,7 @@
       "field": "promptTemplate",
       "field_type": "String?",
       "id": "field_marketplace_prompttemplate",
-      "community": 27,
+      "community": 26,
       "norm_label": "marketplace.prompttemplate"
     },
     {
@@ -10391,7 +10391,7 @@
       "field": "skills",
       "field_type": "String[]",
       "id": "field_marketplace_skills",
-      "community": 27,
+      "community": 26,
       "norm_label": "marketplace.skills"
     },
     {
@@ -10403,7 +10403,7 @@
       "field": "permissions",
       "field_type": "Json?",
       "id": "field_marketplace_permissions",
-      "community": 27,
+      "community": 26,
       "norm_label": "marketplace.permissions"
     },
     {
@@ -10415,7 +10415,7 @@
       "field": "configurableParams",
       "field_type": "Json",
       "id": "field_marketplace_configurableparams",
-      "community": 27,
+      "community": 26,
       "norm_label": "marketplace.configurableparams"
     },
     {
@@ -10427,7 +10427,7 @@
       "field": "version",
       "field_type": "Int",
       "id": "field_marketplace_version",
-      "community": 27,
+      "community": 26,
       "norm_label": "marketplace.version"
     },
     {
@@ -10439,7 +10439,7 @@
       "field": "installCount",
       "field_type": "Int",
       "id": "field_marketplace_installcount",
-      "community": 27,
+      "community": 26,
       "norm_label": "marketplace.installcount"
     },
     {
@@ -10451,7 +10451,7 @@
       "field": "isPublished",
       "field_type": "Boolean",
       "id": "field_marketplace_ispublished",
-      "community": 27,
+      "community": 26,
       "norm_label": "marketplace.ispublished"
     },
     {
@@ -10463,7 +10463,7 @@
       "field": "createdAt",
       "field_type": "DateTime",
       "id": "field_marketplace_createdat",
-      "community": 27,
+      "community": 26,
       "norm_label": "marketplace.createdat"
     },
     {
@@ -10475,7 +10475,7 @@
       "field": "updatedAt",
       "field_type": "DateTime",
       "id": "field_marketplace_updatedat",
-      "community": 27,
+      "community": 26,
       "norm_label": "marketplace.updatedat"
     },
     {
@@ -10905,7 +10905,7 @@
       "field": "assigneeUser",
       "field_type": "User?",
       "id": "field_actiontask_assigneeuser",
-      "community": 23,
+      "community": 21,
       "norm_label": "actiontask.assigneeuser"
     },
     {
@@ -11501,7 +11501,7 @@
       "source_file": "prisma/models/core.prisma",
       "node_type": "canonical_concept",
       "id": "concept_external_option_id",
-      "community": 12,
+      "community": 28,
       "norm_label": "externaloptionid canonical option identity"
     },
     {
@@ -11510,7 +11510,7 @@
       "source_file": "docs/ERD.md",
       "node_type": "document",
       "id": "doc_docs_erd_md",
-      "community": 31,
+      "community": 34,
       "norm_label": "database erd"
     },
     {
@@ -11569,7 +11569,7 @@
       "node_type": "code_file",
       "source_location": "L1",
       "id": "apps_server_src_channels_adapter_in_http_dto_reconciliation_action_dto_ts",
-      "community": 72,
+      "community": 71,
       "norm_label": "reconciliation-action.dto.ts"
     },
     {
@@ -11579,7 +11579,7 @@
       "node_type": "code_file",
       "source_location": "L1",
       "id": "apps_server_src_channels_adapter_in_http_dto_reconciliation_query_dto_ts",
-      "community": 72,
+      "community": 71,
       "norm_label": "reconciliation-query.dto.ts"
     },
     {
@@ -11589,7 +11589,7 @@
       "node_type": "code_file",
       "source_location": "L1",
       "id": "apps_server_src_channels_adapter_in_http_dto_sync_orders_dto_ts",
-      "community": 22,
+      "community": 24,
       "norm_label": "sync-orders.dto.ts"
     },
     {
@@ -11629,7 +11629,7 @@
       "node_type": "code_file",
       "source_location": "L1",
       "id": "apps_server_src_channels_application_service_tests_channel_dashboard_pg_integration_spec_ts",
-      "community": 12,
+      "community": 28,
       "norm_label": "channel-dashboard.pg.integration.spec.ts"
     },
     {
@@ -11649,7 +11649,7 @@
       "node_type": "code_file",
       "source_location": "L1",
       "id": "apps_server_src_channels_application_service_channel_reconciliation_types_ts",
-      "community": 9,
+      "community": 12,
       "norm_label": "channel-reconciliation.types.ts"
     },
     {
@@ -11689,7 +11689,7 @@
       "node_type": "code_file",
       "source_location": "L1",
       "id": "packages_shared_src_ai_ts",
-      "community": 74,
+      "community": 73,
       "norm_label": "ai.ts"
     },
     {
@@ -11729,7 +11729,7 @@
       "node_type": "code_file",
       "source_location": "L1",
       "id": "packages_shared_src_common_ts",
-      "community": 73,
+      "community": 72,
       "norm_label": "common.ts"
     },
     {
@@ -11749,7 +11749,7 @@
       "node_type": "code_file",
       "source_location": "L1",
       "id": "packages_shared_src_errors_codes_ts",
-      "community": 27,
+      "community": 26,
       "norm_label": "codes.ts"
     },
     {
@@ -11769,7 +11769,7 @@
       "node_type": "code_file",
       "source_location": "L1",
       "id": "packages_shared_src_index_ts",
-      "community": 20,
+      "community": 22,
       "norm_label": "index.ts"
     },
     {
@@ -11809,7 +11809,7 @@
       "node_type": "code_file",
       "source_location": "L1",
       "id": "packages_shared_src_panel_sources_ts",
-      "community": 32,
+      "community": 31,
       "norm_label": "sources.ts"
     },
     {
@@ -11819,7 +11819,7 @@
       "node_type": "code_file",
       "source_location": "L1",
       "id": "packages_shared_src_panel_types_ts",
-      "community": 32,
+      "community": 31,
       "norm_label": "types.ts"
     },
     {
@@ -11899,7 +11899,7 @@
       "node_type": "code_file",
       "source_location": "L1",
       "id": "packages_shared_src_schemas_ai_spec_ts",
-      "community": 74,
+      "community": 73,
       "norm_label": "ai.spec.ts"
     },
     {
@@ -11969,7 +11969,7 @@
       "node_type": "code_file",
       "source_location": "L1",
       "id": "packages_shared_src_schemas_sales_analysis_scraper_ts",
-      "community": 40,
+      "community": 41,
       "norm_label": "sales-analysis-scraper.ts"
     },
     {
@@ -11979,7 +11979,7 @@
       "node_type": "code_file",
       "source_location": "L1",
       "id": "packages_shared_src_schemas_statistics_spec_ts",
-      "community": 41,
+      "community": 20,
       "norm_label": "statistics.spec.ts"
     },
     {
@@ -12039,7 +12039,7 @@
       "node_type": "code_file",
       "source_location": "L1",
       "id": "packages_shared_src_settlements_ts",
-      "community": 20,
+      "community": 22,
       "norm_label": "settlements.ts"
     },
     {
@@ -12059,7 +12059,7 @@
       "node_type": "code_file",
       "source_location": "L1",
       "id": "packages_shared_src_statistics_ts",
-      "community": 41,
+      "community": 20,
       "norm_label": "statistics.ts"
     },
     {
@@ -12069,7 +12069,7 @@
       "node_type": "code_file",
       "source_location": "L1",
       "id": "packages_shared_src_supplier_stats_ts",
-      "community": 12,
+      "community": 9,
       "norm_label": "supplier-stats.ts"
     },
     {
@@ -12089,7 +12089,7 @@
       "node_type": "code_file",
       "source_location": "L1",
       "id": "packages_shared_tsup_config_ts",
-      "community": 20,
+      "community": 22,
       "norm_label": "tsup.config.ts"
     },
     {
@@ -12099,7 +12099,7 @@
       "node_type": "code_file",
       "source_location": "L1",
       "id": "scripts_tests_shared_cli_args_spec_ts",
-      "community": 4,
+      "community": 3,
       "norm_label": "_shared-cli-args.spec.ts"
     },
     {
@@ -12109,7 +12109,7 @@
       "node_type": "code_file",
       "source_location": "L1",
       "id": "scripts_tests_shared_fs_spec_ts",
-      "community": 71,
+      "community": 70,
       "norm_label": "_shared-fs.spec.ts"
     },
     {
@@ -12149,7 +12149,7 @@
       "node_type": "code_file",
       "source_location": "L1",
       "id": "scripts_tests_dev_data_profiles_spec_ts",
-      "community": 36,
+      "community": 38,
       "norm_label": "dev-data-profiles.spec.ts"
     },
     {
@@ -12189,7 +12189,7 @@
       "node_type": "code_file",
       "source_location": "L1",
       "id": "scripts_shared_cli_args_ts",
-      "community": 4,
+      "community": 3,
       "norm_label": "cli-args.ts"
     },
     {
@@ -12199,7 +12199,7 @@
       "node_type": "code_file",
       "source_location": "L1",
       "id": "scripts_shared_fs_ts",
-      "community": 71,
+      "community": 70,
       "norm_label": "fs.ts"
     },
     {
@@ -12324,7 +12324,7 @@
       "node_type": "code_file",
       "source_location": "L1",
       "id": "scripts_dev_data_coupang_ts",
-      "community": 4,
+      "community": 3,
       "norm_label": "dev-data-coupang.ts"
     },
     {
@@ -12364,7 +12364,7 @@
       "node_type": "code_file",
       "source_location": "L1",
       "id": "scripts_import_baseline_planner_ts",
-      "community": 3,
+      "community": 4,
       "norm_label": "import-baseline-planner.ts"
     },
     {
@@ -12374,7 +12374,7 @@
       "node_type": "code_file",
       "source_location": "L1",
       "id": "scripts_import_product_baseline_ts",
-      "community": 3,
+      "community": 4,
       "norm_label": "import-product-baseline.ts"
     },
     {
@@ -12442,7 +12442,7 @@
       "source_file": "packages/shared/AGENTS.md",
       "node_type": "document",
       "id": "doc_packages_shared_agents_md",
-      "community": 64,
+      "community": 63,
       "norm_label": "packages/shared \u2014 @kiditem/shared"
     },
     {
@@ -12469,7 +12469,7 @@
       "source_file": "apps/server/src/channels/__tests__/order-sync.pg.integration.spec.ts",
       "source_location": "L260",
       "id": "tests_order_sync_pg_integration_spec_names",
-      "community": 12,
+      "community": 28,
       "norm_label": "names"
     },
     {
@@ -12667,7 +12667,7 @@
       "source_file": "apps/server/src/channels/adapter/in/http/dto/reconciliation-action.dto.ts",
       "source_location": "L3",
       "id": "dto_reconciliation_action_dto_coupangreconciliationlinkdto",
-      "community": 72,
+      "community": 71,
       "norm_label": "coupangreconciliationlinkdto"
     },
     {
@@ -12676,7 +12676,7 @@
       "source_file": "apps/server/src/channels/adapter/in/http/dto/reconciliation-action.dto.ts",
       "source_location": "L8",
       "id": "dto_reconciliation_action_dto_coupangreconciliationignoredto",
-      "community": 72,
+      "community": 71,
       "norm_label": "coupangreconciliationignoredto"
     },
     {
@@ -12685,7 +12685,7 @@
       "source_file": "apps/server/src/channels/adapter/in/http/dto/reconciliation-query.dto.ts",
       "source_location": "L4",
       "id": "dto_reconciliation_query_dto_statuses",
-      "community": 72,
+      "community": 71,
       "norm_label": "statuses"
     },
     {
@@ -12694,7 +12694,7 @@
       "source_file": "apps/server/src/channels/adapter/in/http/dto/reconciliation-query.dto.ts",
       "source_location": "L5",
       "id": "dto_reconciliation_query_dto_statusfilter",
-      "community": 72,
+      "community": 71,
       "norm_label": "statusfilter"
     },
     {
@@ -12703,7 +12703,7 @@
       "source_file": "apps/server/src/channels/adapter/in/http/dto/reconciliation-query.dto.ts",
       "source_location": "L6",
       "id": "dto_reconciliation_query_dto_resolution_sources",
-      "community": 72,
+      "community": 71,
       "norm_label": "resolution_sources"
     },
     {
@@ -12730,7 +12730,7 @@
       "source_file": "apps/server/src/channels/adapter/in/http/dto/sync-orders.dto.ts",
       "source_location": "L3",
       "id": "dto_sync_orders_dto_syncordersbodydto",
-      "community": 22,
+      "community": 24,
       "norm_label": "syncordersbodydto"
     },
     {
@@ -12847,7 +12847,7 @@
       "source_file": "apps/server/src/channels/application/port/out/coupang-provider.port.ts",
       "source_location": "L51",
       "id": "out_coupang_provider_port_ordersheetresponse",
-      "community": 32,
+      "community": 31,
       "norm_label": "ordersheetresponse"
     },
     {
@@ -12865,7 +12865,7 @@
       "source_file": "apps/server/src/channels/application/service/__tests__/channel-account.service.spec.ts",
       "source_location": "L6",
       "id": "tests_channel_account_service_spec_key",
-      "community": 3,
+      "community": 4,
       "norm_label": "key"
     },
     {
@@ -12874,7 +12874,7 @@
       "source_file": "apps/server/src/channels/application/service/__tests__/channel-account.service.spec.ts",
       "source_location": "L8",
       "id": "tests_channel_account_service_spec_makeprisma",
-      "community": 9,
+      "community": 12,
       "norm_label": "makeprisma()"
     },
     {
@@ -12901,7 +12901,7 @@
       "source_file": "apps/server/src/channels/application/service/__tests__/channel-account.service.spec.ts",
       "source_location": "L36",
       "id": "tests_channel_account_service_spec_service",
-      "community": 9,
+      "community": 12,
       "norm_label": "service"
     },
     {
@@ -12910,7 +12910,7 @@
       "source_file": "apps/server/src/channels/application/service/__tests__/channel-dashboard.pg.integration.spec.ts",
       "source_location": "L63",
       "id": "tests_channel_dashboard_pg_integration_spec_seedfixture",
-      "community": 12,
+      "community": 28,
       "norm_label": "seedfixture()"
     },
     {
@@ -12919,7 +12919,7 @@
       "source_file": "apps/server/src/channels/application/service/__tests__/channel-dashboard.pg.integration.spec.ts",
       "source_location": "L364",
       "id": "tests_channel_dashboard_pg_integration_spec_byday",
-      "community": 12,
+      "community": 28,
       "norm_label": "byday"
     },
     {
@@ -12928,7 +12928,7 @@
       "source_file": "apps/server/src/channels/application/service/__tests__/channel-dashboard.pg.integration.spec.ts",
       "source_location": "L386",
       "id": "tests_channel_dashboard_pg_integration_spec_total",
-      "community": 12,
+      "community": 28,
       "norm_label": "total"
     },
     {
@@ -12937,7 +12937,7 @@
       "source_file": "apps/server/src/channels/application/service/__tests__/channel-dashboard.pg.integration.spec.ts",
       "source_location": "L480",
       "id": "tests_channel_dashboard_pg_integration_spec_seedorderinline",
-      "community": 12,
+      "community": 28,
       "norm_label": "seedorderinline()"
     },
     {
@@ -12946,7 +12946,7 @@
       "source_file": "apps/server/src/channels/application/service/__tests__/channel-dashboard.pg.integration.spec.ts",
       "source_location": "L503",
       "id": "tests_channel_dashboard_pg_integration_spec_seedreturninline",
-      "community": 12,
+      "community": 28,
       "norm_label": "seedreturninline()"
     },
     {
@@ -12955,7 +12955,7 @@
       "source_file": "apps/server/src/channels/application/service/__tests__/channel-dashboard.pg.integration.spec.ts",
       "source_location": "L646",
       "id": "tests_channel_dashboard_pg_integration_spec_orderdata",
-      "community": 12,
+      "community": 28,
       "norm_label": "orderdata"
     },
     {
@@ -12964,7 +12964,7 @@
       "source_file": "apps/server/src/channels/application/service/__tests__/channel-dashboard.pg.integration.spec.ts",
       "source_location": "L671",
       "id": "tests_channel_dashboard_pg_integration_spec_linkedreturndata",
-      "community": 12,
+      "community": 28,
       "norm_label": "linkedreturndata"
     },
     {
@@ -12973,7 +12973,7 @@
       "source_file": "apps/server/src/channels/application/service/__tests__/channel-dashboard.pg.integration.spec.ts",
       "source_location": "L682",
       "id": "tests_channel_dashboard_pg_integration_spec_orphanreturndata",
-      "community": 12,
+      "community": 28,
       "norm_label": "orphanreturndata"
     },
     {
@@ -12982,7 +12982,7 @@
       "source_file": "apps/server/src/channels/application/service/__tests__/channel-dashboard.pg.integration.spec.ts",
       "source_location": "L696",
       "id": "tests_channel_dashboard_pg_integration_spec_start",
-      "community": 12,
+      "community": 28,
       "norm_label": "start"
     },
     {
@@ -12991,7 +12991,7 @@
       "source_file": "apps/server/src/channels/application/service/__tests__/channel-dashboard.pg.integration.spec.ts",
       "source_location": "L724",
       "id": "tests_channel_dashboard_pg_integration_spec_byreason",
-      "community": 12,
+      "community": 28,
       "norm_label": "byreason"
     },
     {
@@ -13000,7 +13000,7 @@
       "source_file": "apps/server/src/channels/application/service/__tests__/channel-dashboard.pg.integration.spec.ts",
       "source_location": "L829",
       "id": "tests_channel_dashboard_pg_integration_spec_ids",
-      "community": 12,
+      "community": 28,
       "norm_label": "ids"
     },
     {
@@ -13009,7 +13009,7 @@
       "source_file": "apps/server/src/channels/application/service/__tests__/channel-dashboard.pg.integration.spec.ts",
       "source_location": "L867",
       "id": "tests_channel_dashboard_pg_integration_spec_day15",
-      "community": 12,
+      "community": 28,
       "norm_label": "day15"
     },
     {
@@ -13045,7 +13045,7 @@
       "source_file": "apps/server/src/channels/application/service/__tests__/channel-dashboard.service.spec.ts",
       "source_location": "L109",
       "id": "tests_channel_dashboard_service_spec_from",
-      "community": 12,
+      "community": 28,
       "norm_label": "from"
     },
     {
@@ -13054,7 +13054,7 @@
       "source_file": "apps/server/src/channels/application/service/__tests__/channel-dashboard.service.spec.ts",
       "source_location": "L110",
       "id": "tests_channel_dashboard_service_spec_to",
-      "community": 12,
+      "community": 28,
       "norm_label": "to"
     },
     {
@@ -13108,7 +13108,7 @@
       "source_file": "apps/server/src/channels/application/service/__tests__/channel-reconciliation.service.spec.ts",
       "source_location": "L27",
       "id": "tests_channel_reconciliation_service_spec_listingrow",
-      "community": 9,
+      "community": 12,
       "norm_label": "listingrow"
     },
     {
@@ -13117,7 +13117,7 @@
       "source_file": "apps/server/src/channels/application/service/__tests__/channel-reconciliation.service.spec.ts",
       "source_location": "L41",
       "id": "tests_channel_reconciliation_service_spec_listingoptionrow",
-      "community": 9,
+      "community": 12,
       "norm_label": "listingoptionrow"
     },
     {
@@ -13126,7 +13126,7 @@
       "source_file": "apps/server/src/channels/application/service/__tests__/channel-reconciliation.service.spec.ts",
       "source_location": "L121",
       "id": "tests_channel_reconciliation_service_spec_makefakeprisma",
-      "community": 9,
+      "community": 12,
       "norm_label": "makefakeprisma()"
     },
     {
@@ -13135,7 +13135,7 @@
       "source_file": "apps/server/src/channels/application/service/__tests__/channel-reconciliation.service.spec.ts",
       "source_location": "L570",
       "id": "tests_channel_reconciliation_service_spec_makeservice",
-      "community": 9,
+      "community": 12,
       "norm_label": "makeservice()"
     },
     {
@@ -13144,7 +13144,7 @@
       "source_file": "apps/server/src/channels/application/service/__tests__/channel-reconciliation.service.spec.ts",
       "source_location": "L580",
       "id": "tests_channel_reconciliation_service_spec_fakeprisma_state",
-      "community": 9,
+      "community": 12,
       "norm_label": "{ fakeprisma, state }"
     },
     {
@@ -13153,7 +13153,7 @@
       "source_file": "apps/server/src/channels/application/service/__tests__/channel-reconciliation.service.spec.ts",
       "source_location": "L776",
       "id": "tests_channel_reconciliation_service_spec_optionitem",
-      "community": 9,
+      "community": 12,
       "norm_label": "optionitem"
     },
     {
@@ -13432,7 +13432,7 @@
       "source_file": "apps/server/src/channels/application/service/channel-reconciliation-matcher.service.ts",
       "source_location": "L20",
       "id": "service_channel_reconciliation_matcher_service_channelreconciliationmatcherservice_evaluaterow",
-      "community": 9,
+      "community": 12,
       "norm_label": ".evaluaterow()"
     },
     {
@@ -13441,7 +13441,7 @@
       "source_file": "apps/server/src/channels/application/service/channel-reconciliation-matcher.service.ts",
       "source_location": "L206",
       "id": "service_channel_reconciliation_matcher_service_channelreconciliationmatcherservice_findactivelisting",
-      "community": 9,
+      "community": 12,
       "norm_label": ".findactivelisting()"
     },
     {
@@ -13450,7 +13450,7 @@
       "source_file": "apps/server/src/channels/application/service/channel-reconciliation-matcher.service.ts",
       "source_location": "L222",
       "id": "service_channel_reconciliation_matcher_service_channelreconciliationmatcherservice_findactiveoptionsbylegacycode",
-      "community": 9,
+      "community": 12,
       "norm_label": ".findactiveoptionsbylegacycode()"
     },
     {
@@ -13459,7 +13459,7 @@
       "source_file": "apps/server/src/channels/application/service/channel-reconciliation-matcher.service.ts",
       "source_location": "L240",
       "id": "service_channel_reconciliation_matcher_service_channelreconciliationmatcherservice_createlistingforcandidate",
-      "community": 9,
+      "community": 12,
       "norm_label": ".createlistingforcandidate()"
     },
     {
@@ -13468,7 +13468,7 @@
       "source_file": "apps/server/src/channels/application/service/channel-reconciliation-matcher.service.ts",
       "source_location": "L271",
       "id": "service_channel_reconciliation_matcher_service_channelreconciliationmatcherservice_createlistingoption",
-      "community": 9,
+      "community": 12,
       "norm_label": ".createlistingoption()"
     },
     {
@@ -13477,7 +13477,7 @@
       "source_file": "apps/server/src/channels/application/service/channel-reconciliation-query.service.ts",
       "source_location": "L166",
       "id": "service_channel_reconciliation_query_service_channelreconciliationqueryservice_hydrateitems",
-      "community": 9,
+      "community": 12,
       "norm_label": ".hydrateitems()"
     },
     {
@@ -13486,7 +13486,7 @@
       "source_file": "apps/server/src/channels/application/service/channel-reconciliation-query.service.ts",
       "source_location": "L242",
       "id": "service_channel_reconciliation_query_service_collectids",
-      "community": 9,
+      "community": 12,
       "norm_label": "collectids()"
     },
     {
@@ -13495,7 +13495,7 @@
       "source_file": "apps/server/src/channels/application/service/channel-reconciliation-scan.service.ts",
       "source_location": "L205",
       "id": "service_channel_reconciliation_scan_service_channelreconciliationscanservice_buildunresolvedimagesyncedlistingoptionrows",
-      "community": 9,
+      "community": 12,
       "norm_label": ".buildunresolvedimagesyncedlistingoptionrows()"
     },
     {
@@ -13504,7 +13504,7 @@
       "source_file": "apps/server/src/channels/application/service/channel-reconciliation-scan.service.ts",
       "source_location": "L254",
       "id": "service_channel_reconciliation_scan_service_channelreconciliationscanservice_backfilllistingoptionlinksfromsingleinventoryoption",
-      "community": 9,
+      "community": 12,
       "norm_label": ".backfilllistingoptionlinksfromsingleinventoryoption()"
     },
     {
@@ -13513,7 +13513,7 @@
       "source_file": "apps/server/src/channels/application/service/channel-reconciliation-scan.service.ts",
       "source_location": "L328",
       "id": "service_channel_reconciliation_scan_service_channelreconciliationscanservice_processrow",
-      "community": 9,
+      "community": 12,
       "norm_label": ".processrow()"
     },
     {
@@ -13522,7 +13522,7 @@
       "source_file": "apps/server/src/channels/application/service/channel-reconciliation.service.ts",
       "source_location": "L23",
       "id": "service_channel_reconciliation_service_channelreconciliationservice",
-      "community": 9,
+      "community": 12,
       "norm_label": "channelreconciliationservice"
     },
     {
@@ -13531,7 +13531,7 @@
       "source_file": "apps/server/src/channels/application/service/channel-reconciliation.service.ts",
       "source_location": "L30",
       "id": "service_channel_reconciliation_service_channelreconciliationservice_scanfromrows",
-      "community": 9,
+      "community": 12,
       "norm_label": ".scanfromrows()"
     },
     {
@@ -13540,7 +13540,7 @@
       "source_file": "apps/server/src/channels/application/service/channel-reconciliation.service.ts",
       "source_location": "L42",
       "id": "service_channel_reconciliation_service_channelreconciliationservice_syncfromimagesyncedlistings",
-      "community": 9,
+      "community": 12,
       "norm_label": ".syncfromimagesyncedlistings()"
     },
     {
@@ -13549,7 +13549,7 @@
       "source_file": "apps/server/src/channels/application/service/channel-reconciliation.service.ts",
       "source_location": "L50",
       "id": "service_channel_reconciliation_service_channelreconciliationservice_listitems",
-      "community": 9,
+      "community": 12,
       "norm_label": ".listitems()"
     },
     {
@@ -13558,7 +13558,7 @@
       "source_file": "apps/server/src/channels/application/service/channel-reconciliation.service.ts",
       "source_location": "L63",
       "id": "service_channel_reconciliation_service_channelreconciliationservice_linkitem",
-      "community": 9,
+      "community": 12,
       "norm_label": ".linkitem()"
     },
     {
@@ -13567,7 +13567,7 @@
       "source_file": "apps/server/src/channels/application/service/channel-reconciliation.service.ts",
       "source_location": "L71",
       "id": "service_channel_reconciliation_service_channelreconciliationservice_ignoreitem",
-      "community": 9,
+      "community": 12,
       "norm_label": ".ignoreitem()"
     },
     {
@@ -13576,7 +13576,7 @@
       "source_file": "apps/server/src/channels/application/service/channel-reconciliation.types.ts",
       "source_location": "L9",
       "id": "service_channel_reconciliation_types_reconciliationrowinput",
-      "community": 9,
+      "community": 12,
       "norm_label": "reconciliationrowinput"
     },
     {
@@ -13585,7 +13585,7 @@
       "source_file": "apps/server/src/channels/application/service/channel-reconciliation.types.ts",
       "source_location": "L20",
       "id": "service_channel_reconciliation_types_matchoutcome",
-      "community": 9,
+      "community": 12,
       "norm_label": "matchoutcome"
     },
     {
@@ -13594,7 +13594,7 @@
       "source_file": "apps/server/src/channels/application/service/channel-reconciliation.types.ts",
       "source_location": "L32",
       "id": "service_channel_reconciliation_types_productoptioncandidate",
-      "community": 9,
+      "community": 12,
       "norm_label": "productoptioncandidate"
     },
     {
@@ -13603,7 +13603,7 @@
       "source_file": "apps/server/src/channels/application/service/channel-reconciliation.types.ts",
       "source_location": "L37",
       "id": "service_channel_reconciliation_types_channellistinghandle",
-      "community": 9,
+      "community": 12,
       "norm_label": "channellistinghandle"
     },
     {
@@ -13612,7 +13612,7 @@
       "source_file": "apps/server/src/channels/application/service/channel-reconciliation.types.ts",
       "source_location": "L42",
       "id": "service_channel_reconciliation_types_channellistingoptionhandle",
-      "community": 9,
+      "community": 12,
       "norm_label": "channellistingoptionhandle"
     },
     {
@@ -13621,7 +13621,7 @@
       "source_file": "apps/server/src/channels/application/service/channel-reconciliation.types.ts",
       "source_location": "L47",
       "id": "service_channel_reconciliation_types_optionlinkbackfillresult",
-      "community": 9,
+      "community": 12,
       "norm_label": "optionlinkbackfillresult"
     },
     {
@@ -13630,7 +13630,7 @@
       "source_file": "apps/server/src/channels/application/service/channel-reconciliation.types.ts",
       "source_location": "L55",
       "id": "service_channel_reconciliation_types_prismalike",
-      "community": 9,
+      "community": 12,
       "norm_label": "prismalike"
     },
     {
@@ -13810,7 +13810,7 @@
       "source_file": "apps/server/src/channels/application/service/types.ts",
       "source_location": "L9",
       "id": "service_types_healthresult",
-      "community": 32,
+      "community": 31,
       "norm_label": "healthresult"
     },
     {
@@ -13819,7 +13819,7 @@
       "source_file": "apps/server/src/channels/application/service/types.ts",
       "source_location": "L16",
       "id": "service_types_coupangsyncorderpayload",
-      "community": 32,
+      "community": 31,
       "norm_label": "coupangsyncorderpayload"
     },
     {
@@ -13828,7 +13828,7 @@
       "source_file": "apps/server/src/channels/application/service/types.ts",
       "source_location": "L19",
       "id": "service_types_coupangsyncreturnpayload",
-      "community": 32,
+      "community": 31,
       "norm_label": "coupangsyncreturnpayload"
     },
     {
@@ -13864,7 +13864,7 @@
       "source_file": "packages/shared/src/errors/codes.ts",
       "source_location": "L2",
       "id": "errors_codes_errorcodes",
-      "community": 27,
+      "community": 26,
       "norm_label": "errorcodes"
     },
     {
@@ -13900,7 +13900,7 @@
       "source_file": "packages/shared/src/panel/sources.ts",
       "source_location": "L21",
       "id": "panel_sources_panelrunsource",
-      "community": 32,
+      "community": 31,
       "norm_label": "panelrunsource"
     },
     {
@@ -13909,7 +13909,7 @@
       "source_file": "packages/shared/src/panel/sources.ts",
       "source_location": "L22",
       "id": "panel_sources_sourcekeys",
-      "community": 32,
+      "community": 31,
       "norm_label": "sourcekeys"
     },
     {
@@ -13918,7 +13918,7 @@
       "source_file": "packages/shared/src/panel/sources.ts",
       "source_location": "L23",
       "id": "panel_sources_panelrunsourceschema",
-      "community": 32,
+      "community": 31,
       "norm_label": "panelrunsourceschema"
     },
     {
@@ -13927,7 +13927,7 @@
       "source_file": "packages/shared/src/panel/types.ts",
       "source_location": "L5",
       "id": "panel_types_panelitembase",
-      "community": 32,
+      "community": 31,
       "norm_label": "panelitembase"
     },
     {
@@ -13936,7 +13936,7 @@
       "source_file": "packages/shared/src/panel/types.ts",
       "source_location": "L18",
       "id": "panel_types_panelrunitem",
-      "community": 32,
+      "community": 31,
       "norm_label": "panelrunitem"
     },
     {
@@ -13945,7 +13945,7 @@
       "source_file": "packages/shared/src/panel/types.ts",
       "source_location": "L38",
       "id": "panel_types_panelalertitem",
-      "community": 32,
+      "community": 31,
       "norm_label": "panelalertitem"
     },
     {
@@ -13954,7 +13954,7 @@
       "source_file": "packages/shared/src/panel/types.ts",
       "source_location": "L67",
       "id": "panel_types_panelitem",
-      "community": 32,
+      "community": 31,
       "norm_label": "panelitem"
     },
     {
@@ -13963,7 +13963,7 @@
       "source_file": "packages/shared/src/panel/types.ts",
       "source_location": "L73",
       "id": "panel_types_panelupsertevent",
-      "community": 32,
+      "community": 31,
       "norm_label": "panelupsertevent"
     },
     {
@@ -13972,7 +13972,7 @@
       "source_file": "packages/shared/src/panel/types.ts",
       "source_location": "L78",
       "id": "panel_types_paneldismissevent",
-      "community": 32,
+      "community": 31,
       "norm_label": "paneldismissevent"
     },
     {
@@ -13981,7 +13981,7 @@
       "source_file": "packages/shared/src/panel/types.ts",
       "source_location": "L83",
       "id": "panel_types_panelsnapshotevent",
-      "community": 32,
+      "community": 31,
       "norm_label": "panelsnapshotevent"
     },
     {
@@ -13990,7 +13990,7 @@
       "source_file": "packages/shared/src/panel/types.ts",
       "source_location": "L89",
       "id": "panel_types_panelevent",
-      "community": 32,
+      "community": 31,
       "norm_label": "panelevent"
     },
     {
@@ -14719,7 +14719,7 @@
       "source_file": "packages/shared/src/schemas/ai.ts",
       "source_location": "L7",
       "id": "schemas_ai_detailpagetemplateidschema",
-      "community": 74,
+      "community": 73,
       "norm_label": "detailpagetemplateidschema"
     },
     {
@@ -14728,7 +14728,7 @@
       "source_file": "packages/shared/src/schemas/ai.ts",
       "source_location": "L9",
       "id": "schemas_ai_detailimagecountschema",
-      "community": 74,
+      "community": 73,
       "norm_label": "detailimagecountschema"
     },
     {
@@ -14737,7 +14737,7 @@
       "source_file": "packages/shared/src/schemas/ai.ts",
       "source_location": "L11",
       "id": "schemas_ai_detailpagetemplateid",
-      "community": 74,
+      "community": 73,
       "norm_label": "detailpagetemplateid"
     },
     {
@@ -14746,7 +14746,7 @@
       "source_file": "packages/shared/src/schemas/ai.ts",
       "source_location": "L12",
       "id": "schemas_ai_detailpageagegroup",
-      "community": 74,
+      "community": 73,
       "norm_label": "detailpageagegroup"
     },
     {
@@ -14755,7 +14755,7 @@
       "source_file": "packages/shared/src/schemas/ai.ts",
       "source_location": "L13",
       "id": "schemas_ai_detailimagecount",
-      "community": 74,
+      "community": 73,
       "norm_label": "detailimagecount"
     },
     {
@@ -14764,7 +14764,7 @@
       "source_file": "packages/shared/src/schemas/alerts.ts",
       "source_location": "L29",
       "id": "schemas_alerts_alertkindschema",
-      "community": 32,
+      "community": 31,
       "norm_label": "alertkindschema"
     },
     {
@@ -14773,7 +14773,7 @@
       "source_file": "packages/shared/src/schemas/alerts.ts",
       "source_location": "L30",
       "id": "schemas_alerts_alertstatusschema",
-      "community": 32,
+      "community": 31,
       "norm_label": "alertstatusschema"
     },
     {
@@ -14890,7 +14890,7 @@
       "source_file": "packages/shared/src/schemas/channel-account.ts",
       "source_location": "L4",
       "id": "schemas_channel_account_coupangaccountsettingsschema",
-      "community": 40,
+      "community": 41,
       "norm_label": "coupangaccountsettingsschema"
     },
     {
@@ -14899,7 +14899,7 @@
       "source_file": "packages/shared/src/schemas/channel-account.ts",
       "source_location": "L13",
       "id": "schemas_channel_account_coupangaccountsettings",
-      "community": 40,
+      "community": 41,
       "norm_label": "coupangaccountsettings"
     },
     {
@@ -14908,7 +14908,7 @@
       "source_file": "packages/shared/src/schemas/channel-account.ts",
       "source_location": "L15",
       "id": "schemas_channel_account_updatecoupangaccountsettingsschema",
-      "community": 40,
+      "community": 41,
       "norm_label": "updatecoupangaccountsettingsschema"
     },
     {
@@ -14917,7 +14917,7 @@
       "source_file": "packages/shared/src/schemas/channel-account.ts",
       "source_location": "L20",
       "id": "schemas_channel_account_updatecoupangaccountsettings",
-      "community": 40,
+      "community": 41,
       "norm_label": "updatecoupangaccountsettings"
     },
     {
@@ -15232,7 +15232,7 @@
       "source_file": "packages/shared/src/schemas/common.ts",
       "source_location": "L12",
       "id": "schemas_common_zisodate",
-      "community": 40,
+      "community": 41,
       "norm_label": "zisodate"
     },
     {
@@ -15241,7 +15241,7 @@
       "source_file": "packages/shared/src/schemas/common.ts",
       "source_location": "L16",
       "id": "schemas_common_paginatedresponseschema",
-      "community": 73,
+      "community": 72,
       "norm_label": "paginatedresponseschema()"
     },
     {
@@ -15250,7 +15250,7 @@
       "source_file": "packages/shared/src/schemas/common.ts",
       "source_location": "L27",
       "id": "schemas_common_apierrorresponseschema",
-      "community": 73,
+      "community": 72,
       "norm_label": "apierrorresponseschema"
     },
     {
@@ -15259,7 +15259,7 @@
       "source_file": "packages/shared/src/schemas/common.ts",
       "source_location": "L35",
       "id": "schemas_common_syncinfoschema",
-      "community": 73,
+      "community": 72,
       "norm_label": "syncinfoschema"
     },
     {
@@ -15268,7 +15268,7 @@
       "source_file": "packages/shared/src/schemas/common.ts",
       "source_location": "L40",
       "id": "schemas_common_paginatedresponse",
-      "community": 73,
+      "community": 72,
       "norm_label": "paginatedresponse"
     },
     {
@@ -15277,7 +15277,7 @@
       "source_file": "packages/shared/src/schemas/common.ts",
       "source_location": "L46",
       "id": "schemas_common_apierrorresponse",
-      "community": 73,
+      "community": 72,
       "norm_label": "apierrorresponse"
     },
     {
@@ -15286,7 +15286,7 @@
       "source_file": "packages/shared/src/schemas/common.ts",
       "source_location": "L47",
       "id": "schemas_common_syncinfo",
-      "community": 73,
+      "community": 72,
       "norm_label": "syncinfo"
     },
     {
@@ -15907,7 +15907,7 @@
       "source_file": "packages/shared/src/schemas/marketplace.ts",
       "source_location": "L6",
       "id": "schemas_marketplace_configurableparamschema",
-      "community": 27,
+      "community": 26,
       "norm_label": "configurableparamschema"
     },
     {
@@ -15916,7 +15916,7 @@
       "source_file": "packages/shared/src/schemas/marketplace.ts",
       "source_location": "L54",
       "id": "schemas_marketplace_configurableparam",
-      "community": 27,
+      "community": 26,
       "norm_label": "configurableparam"
     },
     {
@@ -15925,7 +15925,7 @@
       "source_file": "packages/shared/src/schemas/marketplace.ts",
       "source_location": "L55",
       "id": "schemas_marketplace_marketplacecatalogitem",
-      "community": 27,
+      "community": 26,
       "norm_label": "marketplacecatalogitem"
     },
     {
@@ -15934,7 +15934,7 @@
       "source_file": "packages/shared/src/schemas/marketplace.ts",
       "source_location": "L56",
       "id": "schemas_marketplace_workflowcatalogitem",
-      "community": 27,
+      "community": 26,
       "norm_label": "workflowcatalogitem"
     },
     {
@@ -15943,7 +15943,7 @@
       "source_file": "packages/shared/src/schemas/marketplace.ts",
       "source_location": "L57",
       "id": "schemas_marketplace_agentcatalogitem",
-      "community": 27,
+      "community": 26,
       "norm_label": "agentcatalogitem"
     },
     {
@@ -16168,7 +16168,7 @@
       "source_file": "packages/shared/src/schemas/product.spec.ts",
       "source_location": "L20",
       "id": "schemas_product_spec_row",
-      "community": 3,
+      "community": 4,
       "norm_label": "row"
     },
     {
@@ -16474,7 +16474,7 @@
       "source_file": "packages/shared/src/schemas/profit-loss.ts",
       "source_location": "L13",
       "id": "schemas_profit_loss_pldataschema",
-      "community": 35,
+      "community": 36,
       "norm_label": "pldataschema"
     },
     {
@@ -16483,7 +16483,7 @@
       "source_file": "packages/shared/src/schemas/profit-loss.ts",
       "source_location": "L35",
       "id": "schemas_profit_loss_pldata",
-      "community": 35,
+      "community": 36,
       "norm_label": "pldata"
     },
     {
@@ -16546,7 +16546,7 @@
       "source_file": "packages/shared/src/schemas/reviews.ts",
       "source_location": "L3",
       "id": "schemas_reviews_reviewfilterschema",
-      "community": 20,
+      "community": 22,
       "norm_label": "reviewfilterschema"
     },
     {
@@ -16555,7 +16555,7 @@
       "source_file": "packages/shared/src/schemas/reviews.ts",
       "source_location": "L4",
       "id": "schemas_reviews_reviewfilter",
-      "community": 20,
+      "community": 22,
       "norm_label": "reviewfilter"
     },
     {
@@ -16564,7 +16564,7 @@
       "source_file": "packages/shared/src/schemas/reviews.ts",
       "source_location": "L7",
       "id": "schemas_reviews_reviewlistitemschema",
-      "community": 20,
+      "community": 22,
       "norm_label": "reviewlistitemschema"
     },
     {
@@ -16573,7 +16573,7 @@
       "source_file": "packages/shared/src/schemas/reviews.ts",
       "source_location": "L21",
       "id": "schemas_reviews_reviewlistitem",
-      "community": 20,
+      "community": 22,
       "norm_label": "reviewlistitem"
     },
     {
@@ -16582,7 +16582,7 @@
       "source_file": "packages/shared/src/schemas/reviews.ts",
       "source_location": "L24",
       "id": "schemas_reviews_reviewsummaryschema",
-      "community": 20,
+      "community": 22,
       "norm_label": "reviewsummaryschema"
     },
     {
@@ -16591,7 +16591,7 @@
       "source_file": "packages/shared/src/schemas/reviews.ts",
       "source_location": "L39",
       "id": "schemas_reviews_reviewsummary",
-      "community": 20,
+      "community": 22,
       "norm_label": "reviewsummary"
     },
     {
@@ -16600,7 +16600,7 @@
       "source_file": "packages/shared/src/schemas/reviews.ts",
       "source_location": "L42",
       "id": "schemas_reviews_reviewlistresponseschema",
-      "community": 20,
+      "community": 22,
       "norm_label": "reviewlistresponseschema"
     },
     {
@@ -16609,7 +16609,7 @@
       "source_file": "packages/shared/src/schemas/reviews.ts",
       "source_location": "L49",
       "id": "schemas_reviews_reviewlistresponse",
-      "community": 20,
+      "community": 22,
       "norm_label": "reviewlistresponse"
     },
     {
@@ -16636,7 +16636,7 @@
       "source_file": "packages/shared/src/schemas/sales-analysis-scraper.ts",
       "source_location": "L5",
       "id": "schemas_sales_analysis_scraper_rangeschema",
-      "community": 40,
+      "community": 41,
       "norm_label": "rangeschema"
     },
     {
@@ -16672,7 +16672,7 @@
       "source_file": "packages/shared/src/schemas/settlements.ts",
       "source_location": "L27",
       "id": "schemas_settlements_settlementreconciledetail",
-      "community": 20,
+      "community": 22,
       "norm_label": "settlementreconciledetail"
     },
     {
@@ -16681,7 +16681,7 @@
       "source_file": "packages/shared/src/schemas/settlements.ts",
       "source_location": "L46",
       "id": "schemas_settlements_settlementreconcileresponse",
-      "community": 20,
+      "community": 22,
       "norm_label": "settlementreconcileresponse"
     },
     {
@@ -16690,7 +16690,7 @@
       "source_file": "packages/shared/src/schemas/statistics.ts",
       "source_location": "L14",
       "id": "schemas_statistics_statisticsoverviewschema",
-      "community": 41,
+      "community": 20,
       "norm_label": "statisticsoverviewschema"
     },
     {
@@ -16699,7 +16699,7 @@
       "source_file": "packages/shared/src/schemas/statistics.ts",
       "source_location": "L21",
       "id": "schemas_statistics_statisticsoverview",
-      "community": 41,
+      "community": 20,
       "norm_label": "statisticsoverview"
     },
     {
@@ -16708,7 +16708,7 @@
       "source_file": "packages/shared/src/schemas/statistics.ts",
       "source_location": "L25",
       "id": "schemas_statistics_statisticsproductrowschema",
-      "community": 41,
+      "community": 20,
       "norm_label": "statisticsproductrowschema"
     },
     {
@@ -16717,7 +16717,7 @@
       "source_file": "packages/shared/src/schemas/statistics.ts",
       "source_location": "L41",
       "id": "schemas_statistics_statisticsproductrow",
-      "community": 41,
+      "community": 20,
       "norm_label": "statisticsproductrow"
     },
     {
@@ -16726,7 +16726,7 @@
       "source_file": "packages/shared/src/schemas/statistics.ts",
       "source_location": "L45",
       "id": "schemas_statistics_statisticscategoryrowschema",
-      "community": 41,
+      "community": 20,
       "norm_label": "statisticscategoryrowschema"
     },
     {
@@ -16735,7 +16735,7 @@
       "source_file": "packages/shared/src/schemas/statistics.ts",
       "source_location": "L53",
       "id": "schemas_statistics_statisticscategoryrow",
-      "community": 41,
+      "community": 20,
       "norm_label": "statisticscategoryrow"
     },
     {
@@ -16744,7 +16744,7 @@
       "source_file": "packages/shared/src/schemas/statistics.ts",
       "source_location": "L65",
       "id": "schemas_statistics_statisticsgraderow",
-      "community": 41,
+      "community": 20,
       "norm_label": "statisticsgraderow"
     },
     {
@@ -16753,7 +16753,7 @@
       "source_file": "packages/shared/src/schemas/statistics.ts",
       "source_location": "L80",
       "id": "schemas_statistics_statisticsparetoitem",
-      "community": 41,
+      "community": 20,
       "norm_label": "statisticsparetoitem"
     },
     {
@@ -16762,7 +16762,7 @@
       "source_file": "packages/shared/src/schemas/statistics.ts",
       "source_location": "L92",
       "id": "schemas_statistics_statisticsparetoresponse",
-      "community": 41,
+      "community": 20,
       "norm_label": "statisticsparetoresponse"
     },
     {
@@ -16771,7 +16771,7 @@
       "source_file": "packages/shared/src/schemas/statistics.ts",
       "source_location": "L102",
       "id": "schemas_statistics_statisticsrepurchaseproduct",
-      "community": 41,
+      "community": 20,
       "norm_label": "statisticsrepurchaseproduct"
     },
     {
@@ -16780,7 +16780,7 @@
       "source_file": "packages/shared/src/schemas/statistics.ts",
       "source_location": "L110",
       "id": "schemas_statistics_statisticsrepurchasecustomer",
-      "community": 41,
+      "community": 20,
       "norm_label": "statisticsrepurchasecustomer"
     },
     {
@@ -16789,7 +16789,7 @@
       "source_file": "packages/shared/src/schemas/statistics.ts",
       "source_location": "L124",
       "id": "schemas_statistics_statisticsdeliverydailyschema",
-      "community": 41,
+      "community": 20,
       "norm_label": "statisticsdeliverydailyschema"
     },
     {
@@ -16798,7 +16798,7 @@
       "source_file": "packages/shared/src/schemas/statistics.ts",
       "source_location": "L131",
       "id": "schemas_statistics_statisticsdeliverydaily",
-      "community": 41,
+      "community": 20,
       "norm_label": "statisticsdeliverydaily"
     },
     {
@@ -16807,7 +16807,7 @@
       "source_file": "packages/shared/src/schemas/statistics.ts",
       "source_location": "L141",
       "id": "schemas_statistics_statisticsdeliveryresponse",
-      "community": 41,
+      "community": 20,
       "norm_label": "statisticsdeliveryresponse"
     },
     {
@@ -16816,7 +16816,7 @@
       "source_file": "packages/shared/src/schemas/supplier-stats.ts",
       "source_location": "L13",
       "id": "schemas_supplier_stats_suppliersalesrowschema",
-      "community": 12,
+      "community": 9,
       "norm_label": "suppliersalesrowschema"
     },
     {
@@ -16825,7 +16825,7 @@
       "source_file": "packages/shared/src/schemas/supplier-stats.ts",
       "source_location": "L21",
       "id": "schemas_supplier_stats_suppliersalesrow",
-      "community": 12,
+      "community": 9,
       "norm_label": "suppliersalesrow"
     },
     {
@@ -16834,7 +16834,7 @@
       "source_file": "packages/shared/src/schemas/supplier-stats.ts",
       "source_location": "L30",
       "id": "schemas_supplier_stats_suppliersalessummary",
-      "community": 12,
+      "community": 9,
       "norm_label": "suppliersalessummary"
     },
     {
@@ -16843,7 +16843,7 @@
       "source_file": "packages/shared/src/schemas/supplier-stats.ts",
       "source_location": "L36",
       "id": "schemas_supplier_stats_suppliersalesreport",
-      "community": 12,
+      "community": 9,
       "norm_label": "suppliersalesreport"
     },
     {
@@ -16852,7 +16852,7 @@
       "source_file": "packages/shared/src/schemas/supplier-stats.ts",
       "source_location": "L59",
       "id": "schemas_supplier_stats_supplierproductsalessummary",
-      "community": 12,
+      "community": 9,
       "norm_label": "supplierproductsalessummary"
     },
     {
@@ -16861,7 +16861,7 @@
       "source_file": "packages/shared/src/schemas/supplier-stats.ts",
       "source_location": "L65",
       "id": "schemas_supplier_stats_supplierproductsalesreport",
-      "community": 12,
+      "community": 9,
       "norm_label": "supplierproductsalesreport"
     },
     {
@@ -16870,7 +16870,7 @@
       "source_file": "packages/shared/src/schemas/supplier-stats.ts",
       "source_location": "L67",
       "id": "schemas_supplier_stats_supplierhistoryitemschema",
-      "community": 12,
+      "community": 9,
       "norm_label": "supplierhistoryitemschema"
     },
     {
@@ -16879,7 +16879,7 @@
       "source_file": "packages/shared/src/schemas/supplier-stats.ts",
       "source_location": "L75",
       "id": "schemas_supplier_stats_supplierhistoryitem",
-      "community": 12,
+      "community": 9,
       "norm_label": "supplierhistoryitem"
     },
     {
@@ -16888,7 +16888,7 @@
       "source_file": "packages/shared/src/schemas/supplier-stats.ts",
       "source_location": "L77",
       "id": "schemas_supplier_stats_supplierhistorysummaryschema",
-      "community": 12,
+      "community": 9,
       "norm_label": "supplierhistorysummaryschema"
     },
     {
@@ -16897,7 +16897,7 @@
       "source_file": "packages/shared/src/schemas/supplier-stats.ts",
       "source_location": "L84",
       "id": "schemas_supplier_stats_supplierhistorysummary",
-      "community": 12,
+      "community": 9,
       "norm_label": "supplierhistorysummary"
     },
     {
@@ -16906,7 +16906,7 @@
       "source_file": "packages/shared/src/schemas/supplier-stats.ts",
       "source_location": "L90",
       "id": "schemas_supplier_stats_supplierhistoryreport",
-      "community": 12,
+      "community": 9,
       "norm_label": "supplierhistoryreport"
     },
     {
@@ -17311,7 +17311,7 @@
       "source_file": "scripts/__tests__/_shared-cli-args.spec.ts",
       "source_location": "L81",
       "id": "tests_shared_cli_args_spec_makeargs",
-      "community": 4,
+      "community": 3,
       "norm_label": "makeargs()"
     },
     {
@@ -17320,7 +17320,7 @@
       "source_file": "scripts/__tests__/_shared-cli-args.spec.ts",
       "source_location": "L101",
       "id": "tests_shared_cli_args_spec_map",
-      "community": 4,
+      "community": 3,
       "norm_label": "map"
     },
     {
@@ -17329,7 +17329,7 @@
       "source_file": "scripts/__tests__/_shared-fs.spec.ts",
       "source_location": "L7",
       "id": "tests_shared_fs_spec_withtempdir",
-      "community": 71,
+      "community": 70,
       "norm_label": "withtempdir()"
     },
     {
@@ -17338,7 +17338,7 @@
       "source_file": "scripts/__tests__/_shared-fs.spec.ts",
       "source_location": "L22",
       "id": "tests_shared_fs_spec_file",
-      "community": 71,
+      "community": 70,
       "norm_label": "file"
     },
     {
@@ -17383,7 +17383,7 @@
       "source_file": "scripts/__tests__/dev-data-profiles.spec.ts",
       "source_location": "L93",
       "id": "tests_dev_data_profiles_spec_source",
-      "community": 36,
+      "community": 38,
       "norm_label": "source"
     },
     {
@@ -17401,7 +17401,7 @@
       "source_file": "scripts/__tests__/dev-data-profiles.spec.ts",
       "source_location": "L101",
       "id": "tests_dev_data_profiles_spec_producerroot",
-      "community": 36,
+      "community": 38,
       "norm_label": "producerroot"
     },
     {
@@ -17410,7 +17410,7 @@
       "source_file": "scripts/__tests__/dev-data-profiles.spec.ts",
       "source_location": "L102",
       "id": "tests_dev_data_profiles_spec_consumerroot",
-      "community": 36,
+      "community": 38,
       "norm_label": "consumerroot"
     },
     {
@@ -17419,7 +17419,7 @@
       "source_file": "scripts/__tests__/dev-data-profiles.spec.ts",
       "source_location": "L104",
       "id": "tests_dev_data_profiles_spec_domainroot",
-      "community": 36,
+      "community": 38,
       "norm_label": "domainroot"
     },
     {
@@ -17428,7 +17428,7 @@
       "source_file": "scripts/__tests__/dev-data-profiles.spec.ts",
       "source_location": "L106",
       "id": "tests_dev_data_profiles_spec_bundledir",
-      "community": 36,
+      "community": 38,
       "norm_label": "bundledir"
     },
     {
@@ -17437,7 +17437,7 @@
       "source_file": "scripts/__tests__/dev-data-profiles.spec.ts",
       "source_location": "L107",
       "id": "tests_dev_data_profiles_spec_payloadpath",
-      "community": 36,
+      "community": 38,
       "norm_label": "payloadpath"
     },
     {
@@ -17446,7 +17446,7 @@
       "source_file": "scripts/__tests__/dev-data-profiles.spec.ts",
       "source_location": "L108",
       "id": "tests_dev_data_profiles_spec_imagesyncpayloadpath",
-      "community": 36,
+      "community": 38,
       "norm_label": "imagesyncpayloadpath"
     },
     {
@@ -17455,7 +17455,7 @@
       "source_file": "scripts/__tests__/dev-data-profiles.spec.ts",
       "source_location": "L109",
       "id": "tests_dev_data_profiles_spec_kiditemlistpath",
-      "community": 36,
+      "community": 38,
       "norm_label": "kiditemlistpath"
     },
     {
@@ -17464,7 +17464,7 @@
       "source_file": "scripts/__tests__/dev-data-profiles.spec.ts",
       "source_location": "L110",
       "id": "tests_dev_data_profiles_spec_winginventorymatchedpath",
-      "community": 36,
+      "community": 38,
       "norm_label": "winginventorymatchedpath"
     },
     {
@@ -17473,7 +17473,7 @@
       "source_file": "scripts/__tests__/dev-data-profiles.spec.ts",
       "source_location": "L162",
       "id": "tests_dev_data_profiles_spec_publishoutput",
-      "community": 36,
+      "community": 38,
       "norm_label": "publishoutput"
     },
     {
@@ -17482,7 +17482,7 @@
       "source_file": "scripts/__tests__/dev-data-profiles.spec.ts",
       "source_location": "L173",
       "id": "tests_dev_data_profiles_spec_latestjson",
-      "community": 36,
+      "community": 38,
       "norm_label": "latestjson"
     },
     {
@@ -17491,7 +17491,7 @@
       "source_file": "scripts/__tests__/dev-data-profiles.spec.ts",
       "source_location": "L203",
       "id": "tests_dev_data_profiles_spec_syncoutput",
-      "community": 36,
+      "community": 38,
       "norm_label": "syncoutput"
     },
     {
@@ -17536,7 +17536,7 @@
       "source_file": "scripts/__tests__/dev-data-profiles.spec.ts",
       "source_location": "L288",
       "id": "tests_dev_data_profiles_spec_sourceroot",
-      "community": 36,
+      "community": 38,
       "norm_label": "sourceroot"
     },
     {
@@ -17545,7 +17545,7 @@
       "source_file": "scripts/__tests__/dev-data-profiles.spec.ts",
       "source_location": "L294",
       "id": "tests_dev_data_profiles_spec_setupoutput",
-      "community": 36,
+      "community": 38,
       "norm_label": "setupoutput"
     },
     {
@@ -17554,7 +17554,7 @@
       "source_file": "scripts/__tests__/dev-data-profiles.spec.ts",
       "source_location": "L326",
       "id": "tests_dev_data_profiles_spec_visibledriveroot",
-      "community": 36,
+      "community": 38,
       "norm_label": "visibledriveroot"
     },
     {
@@ -17563,7 +17563,7 @@
       "source_file": "scripts/__tests__/dev-data-profiles.spec.ts",
       "source_location": "L332",
       "id": "tests_dev_data_profiles_spec_encryptedmirrorroot",
-      "community": 36,
+      "community": 38,
       "norm_label": "encryptedmirrorroot"
     },
     {
@@ -17572,7 +17572,7 @@
       "source_file": "scripts/__tests__/dev-data-profiles.spec.ts",
       "source_location": "L360",
       "id": "tests_dev_data_profiles_spec_statusoutput",
-      "community": 36,
+      "community": 38,
       "norm_label": "statusoutput"
     },
     {
@@ -17644,7 +17644,7 @@
       "source_file": "scripts/__tests__/import-baseline-planner.spec.ts",
       "source_location": "L58",
       "id": "tests_import_baseline_planner_spec_b",
-      "community": 3,
+      "community": 4,
       "norm_label": "b"
     },
     {
@@ -17653,7 +17653,7 @@
       "source_file": "scripts/__tests__/import-baseline-planner.spec.ts",
       "source_location": "L59",
       "id": "tests_import_baseline_planner_spec_c",
-      "community": 3,
+      "community": 4,
       "norm_label": "c"
     },
     {
@@ -17662,7 +17662,7 @@
       "source_file": "scripts/__tests__/import-baseline-planner.spec.ts",
       "source_location": "L60",
       "id": "tests_import_baseline_planner_spec_d",
-      "community": 3,
+      "community": 4,
       "norm_label": "d"
     },
     {
@@ -17671,7 +17671,7 @@
       "source_file": "scripts/__tests__/import-baseline-planner.spec.ts",
       "source_location": "L80",
       "id": "tests_import_baseline_planner_spec_rows",
-      "community": 3,
+      "community": 4,
       "norm_label": "rows"
     },
     {
@@ -17680,7 +17680,7 @@
       "source_file": "scripts/__tests__/import-baseline-planner.spec.ts",
       "source_location": "L94",
       "id": "tests_import_baseline_planner_spec_plan",
-      "community": 3,
+      "community": 4,
       "norm_label": "plan"
     },
     {
@@ -17689,7 +17689,7 @@
       "source_file": "scripts/__tests__/import-baseline-planner.spec.ts",
       "source_location": "L104",
       "id": "tests_import_baseline_planner_spec_grouped",
-      "community": 3,
+      "community": 4,
       "norm_label": "grouped"
     },
     {
@@ -17698,7 +17698,7 @@
       "source_file": "scripts/__tests__/import-baseline-planner.spec.ts",
       "source_location": "L157",
       "id": "tests_import_baseline_planner_spec_optionkeys",
-      "community": 3,
+      "community": 4,
       "norm_label": "optionkeys"
     },
     {
@@ -17707,7 +17707,7 @@
       "source_file": "scripts/__tests__/import-baseline-planner.spec.ts",
       "source_location": "L225",
       "id": "tests_import_baseline_planner_spec_kiditem",
-      "community": 3,
+      "community": 4,
       "norm_label": "kiditem"
     },
     {
@@ -17716,7 +17716,7 @@
       "source_file": "scripts/__tests__/import-baseline-planner.spec.ts",
       "source_location": "L234",
       "id": "tests_import_baseline_planner_spec_wing",
-      "community": 3,
+      "community": 4,
       "norm_label": "wing"
     },
     {
@@ -17725,7 +17725,7 @@
       "source_file": "scripts/__tests__/import-baseline-planner.spec.ts",
       "source_location": "L355",
       "id": "tests_import_baseline_planner_spec_projected",
-      "community": 3,
+      "community": 4,
       "norm_label": "projected"
     },
     {
@@ -17896,7 +17896,7 @@
       "source_file": "scripts/_shared/cli-args.ts",
       "source_location": "L14",
       "id": "shared_cli_args_parsedargs",
-      "community": 4,
+      "community": 3,
       "norm_label": "parsedargs"
     },
     {
@@ -17905,7 +17905,7 @@
       "source_file": "scripts/_shared/cli-args.ts",
       "source_location": "L20",
       "id": "shared_cli_args_parserawargsoptions",
-      "community": 4,
+      "community": 3,
       "norm_label": "parserawargsoptions"
     },
     {
@@ -17914,7 +17914,7 @@
       "source_file": "scripts/_shared/cli-args.ts",
       "source_location": "L33",
       "id": "shared_cli_args_parserawargs",
-      "community": 4,
+      "community": 3,
       "norm_label": "parserawargs()"
     },
     {
@@ -17923,7 +17923,7 @@
       "source_file": "scripts/_shared/cli-args.ts",
       "source_location": "L69",
       "id": "shared_cli_args_pushvalue",
-      "community": 4,
+      "community": 3,
       "norm_label": "pushvalue()"
     },
     {
@@ -17932,7 +17932,7 @@
       "source_file": "scripts/_shared/cli-args.ts",
       "source_location": "L73",
       "id": "shared_cli_args_value",
-      "community": 4,
+      "community": 3,
       "norm_label": "value()"
     },
     {
@@ -17950,7 +17950,7 @@
       "source_file": "scripts/_shared/cli-args.ts",
       "source_location": "L81",
       "id": "shared_cli_args_bool",
-      "community": 4,
+      "community": 3,
       "norm_label": "bool()"
     },
     {
@@ -17959,7 +17959,7 @@
       "source_file": "scripts/_shared/cli-args.ts",
       "source_location": "L90",
       "id": "shared_cli_args_requiredvalue",
-      "community": 4,
+      "community": 3,
       "norm_label": "requiredvalue()"
     },
     {
@@ -17968,7 +17968,7 @@
       "source_file": "scripts/_shared/fs.ts",
       "source_location": "L13",
       "id": "shared_fs_readjson",
-      "community": 71,
+      "community": 70,
       "norm_label": "readjson()"
     },
     {
@@ -17986,7 +17986,7 @@
       "source_file": "scripts/_shared/fs.ts",
       "source_location": "L22",
       "id": "shared_fs_sha256",
-      "community": 71,
+      "community": 70,
       "norm_label": "sha256()"
     },
     {
@@ -17995,7 +17995,7 @@
       "source_file": "scripts/_shared/fs.ts",
       "source_location": "L26",
       "id": "shared_fs_filesize",
-      "community": 71,
+      "community": 70,
       "norm_label": "filesize()"
     },
     {
@@ -18004,7 +18004,7 @@
       "source_file": "scripts/_shared/fs.ts",
       "source_location": "L35",
       "id": "shared_fs_readtextifexists",
-      "community": 71,
+      "community": 70,
       "norm_label": "readtextifexists()"
     },
     {
@@ -18319,7 +18319,7 @@
       "source_file": "scripts/dev-data-coupang.ts",
       "source_location": "L35",
       "id": "scripts_dev_data_coupang_importmode",
-      "community": 4,
+      "community": 3,
       "norm_label": "importmode"
     },
     {
@@ -18328,7 +18328,7 @@
       "source_file": "scripts/dev-data-coupang.ts",
       "source_location": "L75",
       "id": "scripts_dev_data_coupang_replayresult",
-      "community": 4,
+      "community": 3,
       "norm_label": "replayresult"
     },
     {
@@ -18337,7 +18337,7 @@
       "source_file": "scripts/dev-data-coupang.ts",
       "source_location": "L90",
       "id": "scripts_dev_data_coupang_coupangimagesynclistingsource",
-      "community": 4,
+      "community": 3,
       "norm_label": "coupangimagesynclistingsource"
     },
     {
@@ -18346,7 +18346,7 @@
       "source_file": "scripts/dev-data-coupang.ts",
       "source_location": "L108",
       "id": "scripts_dev_data_coupang_buildcoupangimagesyncrowsforlistings",
-      "community": 4,
+      "community": 3,
       "norm_label": "buildcoupangimagesyncrowsforlistings()"
     },
     {
@@ -18355,7 +18355,7 @@
       "source_file": "scripts/dev-data-coupang.ts",
       "source_location": "L144",
       "id": "scripts_dev_data_coupang_selectreplayablecoupangimageurl",
-      "community": 4,
+      "community": 3,
       "norm_label": "selectreplayablecoupangimageurl()"
     },
     {
@@ -18364,7 +18364,7 @@
       "source_file": "scripts/dev-data-coupang.ts",
       "source_location": "L175",
       "id": "scripts_dev_data_coupang_resolvedatasetid",
-      "community": 4,
+      "community": 3,
       "norm_label": "resolvedatasetid()"
     },
     {
@@ -18373,7 +18373,7 @@
       "source_file": "scripts/dev-data-coupang.ts",
       "source_location": "L196",
       "id": "scripts_dev_data_coupang_assertsafedatasetid",
-      "community": 4,
+      "community": 3,
       "norm_label": "assertsafedatasetid()"
     },
     {
@@ -18391,7 +18391,7 @@
       "source_file": "scripts/dev-data-coupang.ts",
       "source_location": "L244",
       "id": "scripts_dev_data_coupang_sourceforpayload",
-      "community": 4,
+      "community": 3,
       "norm_label": "sourceforpayload()"
     },
     {
@@ -18400,7 +18400,7 @@
       "source_file": "scripts/dev-data-coupang.ts",
       "source_location": "L255",
       "id": "scripts_dev_data_coupang_normalizepayload",
-      "community": 4,
+      "community": 3,
       "norm_label": "normalizepayload()"
     },
     {
@@ -18409,7 +18409,7 @@
       "source_file": "scripts/dev-data-coupang.ts",
       "source_location": "L273",
       "id": "scripts_dev_data_coupang_createprisma",
-      "community": 4,
+      "community": 3,
       "norm_label": "createprisma()"
     },
     {
@@ -18418,7 +18418,7 @@
       "source_file": "scripts/dev-data-coupang.ts",
       "source_location": "L284",
       "id": "scripts_dev_data_coupang_resolveorganizationid",
-      "community": 4,
+      "community": 3,
       "norm_label": "resolveorganizationid()"
     },
     {
@@ -18427,7 +18427,7 @@
       "source_file": "scripts/dev-data-coupang.ts",
       "source_location": "L320",
       "id": "scripts_dev_data_coupang_parsebusinessdate",
-      "community": 4,
+      "community": 3,
       "norm_label": "parsebusinessdate()"
     },
     {
@@ -18436,7 +18436,7 @@
       "source_file": "scripts/dev-data-coupang.ts",
       "source_location": "L327",
       "id": "scripts_dev_data_coupang_cleanuplegacyseedrows",
-      "community": 4,
+      "community": 3,
       "norm_label": "cleanuplegacyseedrows()"
     },
     {
@@ -18445,7 +18445,7 @@
       "source_file": "scripts/dev-data-coupang.ts",
       "source_location": "L359",
       "id": "scripts_dev_data_coupang_scopedreplace",
-      "community": 4,
+      "community": 3,
       "norm_label": "scopedreplace()"
     },
     {
@@ -18454,7 +18454,7 @@
       "source_file": "scripts/dev-data-coupang.ts",
       "source_location": "L408",
       "id": "scripts_dev_data_coupang_posttoserver",
-      "community": 4,
+      "community": 3,
       "norm_label": "posttoserver()"
     },
     {
@@ -18463,7 +18463,7 @@
       "source_file": "scripts/dev-data-coupang.ts",
       "source_location": "L418",
       "id": "scripts_dev_data_coupang_apiurl",
-      "community": 4,
+      "community": 3,
       "norm_label": "apiurl()"
     },
     {
@@ -18472,7 +18472,7 @@
       "source_file": "scripts/dev-data-coupang.ts",
       "source_location": "L422",
       "id": "scripts_dev_data_coupang_decodejwtsub",
-      "community": 4,
+      "community": 3,
       "norm_label": "decodejwtsub()"
     },
     {
@@ -18481,7 +18481,7 @@
       "source_file": "scripts/dev-data-coupang.ts",
       "source_location": "L434",
       "id": "scripts_dev_data_coupang_generatedevapiaccesstoken",
-      "community": 4,
+      "community": 3,
       "norm_label": "generatedevapiaccesstoken()"
     },
     {
@@ -18490,7 +18490,7 @@
       "source_file": "scripts/dev-data-coupang.ts",
       "source_location": "L540",
       "id": "scripts_dev_data_coupang_apiheaders",
-      "community": 4,
+      "community": 3,
       "norm_label": "apiheaders()"
     },
     {
@@ -18499,7 +18499,7 @@
       "source_file": "scripts/dev-data-coupang.ts",
       "source_location": "L547",
       "id": "scripts_dev_data_coupang_requestapi",
-      "community": 4,
+      "community": 3,
       "norm_label": "requestapi()"
     },
     {
@@ -18508,7 +18508,7 @@
       "source_file": "scripts/dev-data-coupang.ts",
       "source_location": "L566",
       "id": "scripts_dev_data_coupang_coupangimagesyncrowsfrompayload",
-      "community": 4,
+      "community": 3,
       "norm_label": "coupangimagesyncrowsfrompayload()"
     },
     {
@@ -18517,7 +18517,7 @@
       "source_file": "scripts/dev-data-coupang.ts",
       "source_location": "L597",
       "id": "scripts_dev_data_coupang_postcoupangimagesynctoserver",
-      "community": 4,
+      "community": 3,
       "norm_label": "postcoupangimagesynctoserver()"
     },
     {
@@ -18526,7 +18526,7 @@
       "source_file": "scripts/dev-data-coupang.ts",
       "source_location": "L707",
       "id": "scripts_dev_data_coupang_sanitizevalue",
-      "community": 4,
+      "community": 3,
       "norm_label": "sanitizevalue()"
     },
     {
@@ -18535,7 +18535,7 @@
       "source_file": "scripts/dev-data-coupang.ts",
       "source_location": "L765",
       "id": "scripts_dev_data_coupang_exportcoupangimagesyncrowsfromdb",
-      "community": 4,
+      "community": 3,
       "norm_label": "exportcoupangimagesyncrowsfromdb()"
     },
     {
@@ -18544,7 +18544,7 @@
       "source_file": "scripts/dev-data-coupang.ts",
       "source_location": "L1007",
       "id": "scripts_dev_data_coupang_runcoupangdevdata",
-      "community": 4,
+      "community": 3,
       "norm_label": "runcoupangdevdata()"
     },
     {
@@ -18562,7 +18562,7 @@
       "source_file": "scripts/dev-data.ts",
       "source_location": "L40",
       "id": "scripts_dev_data_commands",
-      "community": 5,
+      "community": 3,
       "norm_label": "commands"
     },
     {
@@ -18571,7 +18571,7 @@
       "source_file": "scripts/dev-data.ts",
       "source_location": "L41",
       "id": "scripts_dev_data_command",
-      "community": 4,
+      "community": 3,
       "norm_label": "command"
     },
     {
@@ -18589,7 +18589,7 @@
       "source_file": "scripts/dev-data.ts",
       "source_location": "L43",
       "id": "scripts_dev_data_lane",
-      "community": 4,
+      "community": 3,
       "norm_label": "lane"
     },
     {
@@ -18607,7 +18607,7 @@
       "source_file": "scripts/dev-data.ts",
       "source_location": "L46",
       "id": "scripts_dev_data_args",
-      "community": 4,
+      "community": 3,
       "norm_label": "args"
     },
     {
@@ -18616,7 +18616,7 @@
       "source_file": "scripts/dev-data.ts",
       "source_location": "L48",
       "id": "scripts_dev_data_bundlepayload",
-      "community": 4,
+      "community": 3,
       "norm_label": "bundlepayload"
     },
     {
@@ -18625,7 +18625,7 @@
       "source_file": "scripts/dev-data.ts",
       "source_location": "L57",
       "id": "scripts_dev_data_bundlereference",
-      "community": 4,
+      "community": 3,
       "norm_label": "bundlereference"
     },
     {
@@ -18634,7 +18634,7 @@
       "source_file": "scripts/dev-data.ts",
       "source_location": "L65",
       "id": "scripts_dev_data_bundlemanifest",
-      "community": 5,
+      "community": 3,
       "norm_label": "bundlemanifest"
     },
     {
@@ -18823,7 +18823,7 @@
       "source_file": "scripts/dev-data.ts",
       "source_location": "L215",
       "id": "scripts_dev_data_loadmanifest",
-      "community": 4,
+      "community": 3,
       "norm_label": "loadmanifest()"
     },
     {
@@ -18913,7 +18913,7 @@
       "source_file": "scripts/dev-data.ts",
       "source_location": "L420",
       "id": "scripts_dev_data_requirecoupangdomain",
-      "community": 4,
+      "community": 3,
       "norm_label": "requirecoupangdomain()"
     },
     {
@@ -18922,7 +18922,7 @@
       "source_file": "scripts/dev-data.ts",
       "source_location": "L427",
       "id": "scripts_dev_data_appendoption",
-      "community": 4,
+      "community": 3,
       "norm_label": "appendoption()"
     },
     {
@@ -18940,7 +18940,7 @@
       "source_file": "scripts/dev-data.ts",
       "source_location": "L436",
       "id": "scripts_dev_data_appendflag",
-      "community": 4,
+      "community": 3,
       "norm_label": "appendflag()"
     },
     {
@@ -19030,7 +19030,7 @@
       "source_file": "scripts/dev-data.ts",
       "source_location": "L586",
       "id": "scripts_dev_data_runcoupangadapter",
-      "community": 4,
+      "community": 3,
       "norm_label": "runcoupangadapter()"
     },
     {
@@ -19039,7 +19039,7 @@
       "source_file": "scripts/dev-data.ts",
       "source_location": "L599",
       "id": "scripts_dev_data_runcoupangreplay",
-      "community": 4,
+      "community": 3,
       "norm_label": "runcoupangreplay()"
     },
     {
@@ -19048,7 +19048,7 @@
       "source_file": "scripts/dev-data.ts",
       "source_location": "L616",
       "id": "scripts_dev_data_replaystep",
-      "community": 4,
+      "community": 3,
       "norm_label": "replaystep()"
     },
     {
@@ -19120,7 +19120,7 @@
       "source_file": "scripts/dev-data.ts",
       "source_location": "L858",
       "id": "scripts_dev_data_commandsanitize",
-      "community": 4,
+      "community": 3,
       "norm_label": "commandsanitize()"
     },
     {
@@ -19129,7 +19129,7 @@
       "source_file": "scripts/dev-data.ts",
       "source_location": "L865",
       "id": "scripts_dev_data_commandreplay",
-      "community": 4,
+      "community": 3,
       "norm_label": "commandreplay()"
     },
     {
@@ -19615,7 +19615,7 @@
       "source_file": "scripts/import-baseline-planner.ts",
       "source_location": "L21",
       "id": "scripts_import_baseline_planner_workbookrow",
-      "community": 3,
+      "community": 4,
       "norm_label": "workbookrow"
     },
     {
@@ -19624,7 +19624,7 @@
       "source_file": "scripts/import-baseline-planner.ts",
       "source_location": "L28",
       "id": "scripts_import_baseline_planner_clean",
-      "community": 3,
+      "community": 4,
       "norm_label": "clean()"
     },
     {
@@ -19633,7 +19633,7 @@
       "source_file": "scripts/import-baseline-planner.ts",
       "source_location": "L33",
       "id": "scripts_import_baseline_planner_toint",
-      "community": 3,
+      "community": 4,
       "norm_label": "toint()"
     },
     {
@@ -19642,7 +19642,7 @@
       "source_file": "scripts/import-baseline-planner.ts",
       "source_location": "L39",
       "id": "scripts_import_baseline_planner_topositiveint",
-      "community": 3,
+      "community": 4,
       "norm_label": "topositiveint()"
     },
     {
@@ -19651,7 +19651,7 @@
       "source_file": "scripts/import-baseline-planner.ts",
       "source_location": "L49",
       "id": "scripts_import_baseline_planner_normalizeforgroup",
-      "community": 3,
+      "community": 4,
       "norm_label": "normalizeforgroup()"
     },
     {
@@ -19660,7 +19660,7 @@
       "source_file": "scripts/import-baseline-planner.ts",
       "source_location": "L61",
       "id": "scripts_import_baseline_planner_resolvebarcodebucket",
-      "community": 3,
+      "community": 4,
       "norm_label": "resolvebarcodebucket()"
     },
     {
@@ -19669,7 +19669,7 @@
       "source_file": "scripts/import-baseline-planner.ts",
       "source_location": "L76",
       "id": "scripts_import_baseline_planner_masterimportkey",
-      "community": 3,
+      "community": 4,
       "norm_label": "masterimportkey()"
     },
     {
@@ -19678,7 +19678,7 @@
       "source_file": "scripts/import-baseline-planner.ts",
       "source_location": "L87",
       "id": "scripts_import_baseline_planner_plannedmaster",
-      "community": 3,
+      "community": 4,
       "norm_label": "plannedmaster"
     },
     {
@@ -19687,7 +19687,7 @@
       "source_file": "scripts/import-baseline-planner.ts",
       "source_location": "L98",
       "id": "scripts_import_baseline_planner_plannedoption",
-      "community": 3,
+      "community": 4,
       "norm_label": "plannedoption"
     },
     {
@@ -19696,7 +19696,7 @@
       "source_file": "scripts/import-baseline-planner.ts",
       "source_location": "L119",
       "id": "scripts_import_baseline_planner_hardconflict",
-      "community": 3,
+      "community": 4,
       "norm_label": "hardconflict"
     },
     {
@@ -19705,7 +19705,7 @@
       "source_file": "scripts/import-baseline-planner.ts",
       "source_location": "L125",
       "id": "scripts_import_baseline_planner_kiditemplan",
-      "community": 3,
+      "community": 4,
       "norm_label": "kiditemplan"
     },
     {
@@ -19714,7 +19714,7 @@
       "source_file": "scripts/import-baseline-planner.ts",
       "source_location": "L136",
       "id": "scripts_import_baseline_planner_name_fields",
-      "community": 3,
+      "community": 4,
       "norm_label": "name_fields"
     },
     {
@@ -19723,7 +19723,7 @@
       "source_file": "scripts/import-baseline-planner.ts",
       "source_location": "L138",
       "id": "scripts_import_baseline_planner_rowname",
-      "community": 3,
+      "community": 4,
       "norm_label": "rowname()"
     },
     {
@@ -19732,7 +19732,7 @@
       "source_file": "scripts/import-baseline-planner.ts",
       "source_location": "L146",
       "id": "scripts_import_baseline_planner_rowoptionname",
-      "community": 3,
+      "community": 4,
       "norm_label": "rowoptionname()"
     },
     {
@@ -19741,7 +19741,7 @@
       "source_file": "scripts/import-baseline-planner.ts",
       "source_location": "L157",
       "id": "scripts_import_baseline_planner_plankiditemimport",
-      "community": 3,
+      "community": 4,
       "norm_label": "plankiditemimport()"
     },
     {
@@ -19750,7 +19750,7 @@
       "source_file": "scripts/import-baseline-planner.ts",
       "source_location": "L268",
       "id": "scripts_import_baseline_planner_wingplaninput",
-      "community": 3,
+      "community": 4,
       "norm_label": "wingplaninput"
     },
     {
@@ -19759,7 +19759,7 @@
       "source_file": "scripts/import-baseline-planner.ts",
       "source_location": "L279",
       "id": "scripts_import_baseline_planner_wingattachment",
-      "community": 3,
+      "community": 4,
       "norm_label": "wingattachment"
     },
     {
@@ -19768,7 +19768,7 @@
       "source_file": "scripts/import-baseline-planner.ts",
       "source_location": "L288",
       "id": "scripts_import_baseline_planner_wingplan",
-      "community": 3,
+      "community": 4,
       "norm_label": "wingplan"
     },
     {
@@ -19777,7 +19777,7 @@
       "source_file": "scripts/import-baseline-planner.ts",
       "source_location": "L299",
       "id": "scripts_import_baseline_planner_projectwingrow",
-      "community": 3,
+      "community": 4,
       "norm_label": "projectwingrow()"
     },
     {
@@ -19786,7 +19786,7 @@
       "source_file": "scripts/import-baseline-planner.ts",
       "source_location": "L314",
       "id": "scripts_import_baseline_planner_planwingmatches",
-      "community": 3,
+      "community": 4,
       "norm_label": "planwingmatches()"
     },
     {
@@ -19813,7 +19813,7 @@
       "source_file": "scripts/import-product-baseline.ts",
       "source_location": "L118",
       "id": "scripts_import_product_baseline_readsheetrows",
-      "community": 3,
+      "community": 4,
       "norm_label": "readsheetrows()"
     },
     {
@@ -19822,7 +19822,7 @@
       "source_file": "scripts/import-product-baseline.ts",
       "source_location": "L126",
       "id": "scripts_import_product_baseline_tx",
-      "community": 9,
+      "community": 12,
       "norm_label": "tx"
     },
     {
@@ -19831,7 +19831,7 @@
       "source_file": "scripts/import-product-baseline.ts",
       "source_location": "L128",
       "id": "scripts_import_product_baseline_nextmastercode",
-      "community": 3,
+      "community": 4,
       "norm_label": "nextmastercode()"
     },
     {
@@ -19840,7 +19840,7 @@
       "source_file": "scripts/import-product-baseline.ts",
       "source_location": "L141",
       "id": "scripts_import_product_baseline_nextoptionsku",
-      "community": 3,
+      "community": 4,
       "norm_label": "nextoptionsku()"
     },
     {
@@ -19849,7 +19849,7 @@
       "source_file": "scripts/import-product-baseline.ts",
       "source_location": "L150",
       "id": "scripts_import_product_baseline_masterrawdatapayload",
-      "community": 3,
+      "community": 4,
       "norm_label": "masterrawdatapayload"
     },
     {
@@ -19858,7 +19858,7 @@
       "source_file": "scripts/import-product-baseline.ts",
       "source_location": "L169",
       "id": "scripts_import_product_baseline_kiditemwritestats",
-      "community": 3,
+      "community": 4,
       "norm_label": "kiditemwritestats"
     },
     {
@@ -19867,7 +19867,7 @@
       "source_file": "scripts/import-product-baseline.ts",
       "source_location": "L185",
       "id": "scripts_import_product_baseline_applykiditemplan",
-      "community": 3,
+      "community": 4,
       "norm_label": "applykiditemplan()"
     },
     {
@@ -19876,7 +19876,7 @@
       "source_file": "scripts/import-product-baseline.ts",
       "source_location": "L348",
       "id": "scripts_import_product_baseline_buildrawdata",
-      "community": 3,
+      "community": 4,
       "norm_label": "buildrawdata()"
     },
     {
@@ -19885,7 +19885,7 @@
       "source_file": "scripts/import-product-baseline.ts",
       "source_location": "L359",
       "id": "scripts_import_product_baseline_supplierkey",
-      "community": 3,
+      "community": 4,
       "norm_label": "supplierkey()"
     },
     {
@@ -19894,7 +19894,7 @@
       "source_file": "scripts/import-product-baseline.ts",
       "source_location": "L363",
       "id": "scripts_import_product_baseline_collectsupplierseeds",
-      "community": 3,
+      "community": 4,
       "norm_label": "collectsupplierseeds()"
     },
     {
@@ -19903,7 +19903,7 @@
       "source_file": "scripts/import-product-baseline.ts",
       "source_location": "L393",
       "id": "scripts_import_product_baseline_buildsuppliernotes",
-      "community": 3,
+      "community": 4,
       "norm_label": "buildsuppliernotes()"
     },
     {
@@ -19912,7 +19912,7 @@
       "source_file": "scripts/import-product-baseline.ts",
       "source_location": "L406",
       "id": "scripts_import_product_baseline_findimportedoption",
-      "community": 3,
+      "community": 4,
       "norm_label": "findimportedoption()"
     },
     {
@@ -19921,7 +19921,7 @@
       "source_file": "scripts/import-product-baseline.ts",
       "source_location": "L436",
       "id": "scripts_import_product_baseline_applysuppliermappings",
-      "community": 3,
+      "community": 4,
       "norm_label": "applysuppliermappings()"
     },
     {
@@ -19930,7 +19930,7 @@
       "source_file": "scripts/import-product-baseline.ts",
       "source_location": "L531",
       "id": "scripts_import_product_baseline_wingwritestats",
-      "community": 3,
+      "community": 4,
       "norm_label": "wingwritestats"
     },
     {
@@ -19939,7 +19939,7 @@
       "source_file": "scripts/import-product-baseline.ts",
       "source_location": "L544",
       "id": "scripts_import_product_baseline_applywingplan",
-      "community": 3,
+      "community": 4,
       "norm_label": "applywingplan()"
     },
     {
@@ -20002,7 +20002,7 @@
       "source_file": "scripts/staging-db-baseline.ts",
       "source_location": "L64",
       "id": "scripts_staging_db_baseline_cliargs",
-      "community": 3,
+      "community": 4,
       "norm_label": "cliargs"
     },
     {
@@ -89301,5 +89301,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "9390e8acebb3d893ec659fac92eb74fbcd124357"
+  "built_at_commit": "a6cee05f8b3cbcb7e3cb802c3b559b804f1a0939"
 }

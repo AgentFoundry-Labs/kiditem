@@ -1335,7 +1335,7 @@ erDiagram
     String imageUrl
     Decimal costCny
     String status
-    String promotedMasterId FK,UK
+    String promotedMasterId FK
     String rejectedReason
     DateTime rejectedAt
     String rejectedByUserId FK
@@ -1728,7 +1728,7 @@ erDiagram
   MasterProduct ||--o{ MasterSupplierProduct : "master"
   MasterProduct ||--o{ ProcessingCost : "master"
   MasterProduct ||--|| ProductOption : "master"
-  MasterProduct o|--o| SourcingCandidate : "promotedMaster"
+  MasterProduct o|--o{ SourcingCandidate : "promotedMaster"
   MasterProduct ||--|| ThumbnailAnalysis : "master"
   MasterProduct ||--o{ ThumbnailGeneration : "master"
   MasterProductImage o|--o{ ThumbnailGenerationInputImage : "masterImage"

@@ -1,7 +1,7 @@
 # Graph Report - schema  (2026-05-12)
 
 ## Corpus Check
-- 13 files · ~16,671 words
+- 13 files · ~16,670 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -30,14 +30,14 @@
 - [[_COMMUNITY_AgentOS schema|AgentOS schema]]
 - [[_COMMUNITY_Channels schema|Channels schema]]
 - [[_COMMUNITY_Channels schema|Channels schema]]
-- [[_COMMUNITY_Channels schema|Channels schema]]
 - [[_COMMUNITY_Orders schema|Orders schema]]
+- [[_COMMUNITY_Channels schema|Channels schema]]
 - [[_COMMUNITY_Finance schema|Finance schema]]
 - [[_COMMUNITY_Channels schema|Channels schema]]
 - [[_COMMUNITY_Advertising schema|Advertising schema]]
 - [[_COMMUNITY_AgentOS schema|AgentOS schema]]
-- [[_COMMUNITY_Core schema|Core schema]]
 - [[_COMMUNITY_Orders schema|Orders schema]]
+- [[_COMMUNITY_Core schema|Core schema]]
 - [[_COMMUNITY_Finance schema|Finance schema]]
 - [[_COMMUNITY_Inventory schema|Inventory schema]]
 - [[_COMMUNITY_Supply schema|Supply schema]]
@@ -50,8 +50,8 @@
 - [[_COMMUNITY_Orders schema|Orders schema]]
 - [[_COMMUNITY_AgentOS schema|AgentOS schema]]
 - [[_COMMUNITY_AI schema|AI schema]]
-- [[_COMMUNITY_Core schema|Core schema]]
 - [[_COMMUNITY_Finance schema|Finance schema]]
+- [[_COMMUNITY_Core schema|Core schema]]
 - [[_COMMUNITY_Advertising schema|Advertising schema]]
 - [[_COMMUNITY_Advertising schema|Advertising schema]]
 - [[_COMMUNITY_AI schema|AI schema]]
@@ -159,11 +159,11 @@ Nodes (20): PurchaseOrder.createdAt, PurchaseOrder.defectAction, PurchaseOrder.d
 
 ### Community 14 - "AgentOS schema"
 Cohesion: 0.12
-Nodes (19): AgentRunRequest.agentInstance, AgentRunRequest.claimedAt, AgentRunRequest.coalescedIntoRequest, AgentRunRequest.createdAt, AgentRunRequest.finishedAt, AgentRunRequest.idempotencyKey, AgentRunRequest.lastErrorCode, AgentRunRequest.maxAttempts (+11 more)
+Nodes (19): AgentOS, AgentAuthorizationEvent.agentInstance, AgentAuthorizationEvent.createdAt, AgentAuthorizationEvent.decision, AgentAuthorizationEvent.organization, AgentAuthorizationEvent.policySnapshot, AgentInstanceToolPolicy.approvalMode, AgentInstanceToolPolicy.constraints (+11 more)
 
 ### Community 15 - "AgentOS schema"
 Cohesion: 0.12
-Nodes (19): AgentOS, AgentAuthorizationEvent.agentInstance, AgentAuthorizationEvent.createdAt, AgentAuthorizationEvent.decision, AgentAuthorizationEvent.organization, AgentAuthorizationEvent.policySnapshot, AgentInstanceToolPolicy.approvalMode, AgentInstanceToolPolicy.constraints (+11 more)
+Nodes (19): AgentRunRequest.agentInstance, AgentRunRequest.claimedAt, AgentRunRequest.coalescedIntoRequest, AgentRunRequest.createdAt, AgentRunRequest.finishedAt, AgentRunRequest.idempotencyKey, AgentRunRequest.lastErrorCode, AgentRunRequest.maxAttempts (+11 more)
 
 ### Community 16 - "Orders schema"
 Cohesion: 0.12
@@ -181,13 +181,13 @@ Nodes (18): ChannelListingDailySnapshot.adConversions, ChannelListingDailySnapsh
 Cohesion: 0.11
 Nodes (18): ChannelScrapeRun.businessDate, ChannelScrapeRun.createdAt, ChannelScrapeRun.errorCount, ChannelScrapeRun.errorJson, ChannelScrapeRun.finishedAt, ChannelScrapeRun.matchedCount, ChannelScrapeRun.metaJson, ChannelScrapeRun.organization (+10 more)
 
-### Community 20 - "Channels schema"
+### Community 20 - "Orders schema"
+Cohesion: 0.14
+Nodes (18): Database ERD, Order.listing, Shipment.courierCode, Shipment.courierName, Shipment.createdAt, Shipment.deliveredAt, Shipment.deliveryDays, Shipment.listing (+10 more)
+
+### Community 21 - "Channels schema"
 Cohesion: 0.12
 Nodes (17): ChannelReconciliationItem.channelProductName, ChannelReconciliationItem.confidence, ChannelReconciliationItem.externalId, ChannelReconciliationItem.ignoredReason, ChannelReconciliationItem.lastObservedAt, ChannelReconciliationItem.legacyCode, ChannelReconciliationItem.linkedListingId, ChannelReconciliationItem.linkedMasterProductId (+9 more)
-
-### Community 21 - "Orders schema"
-Cohesion: 0.15
-Nodes (17): Database ERD, Shipment.courierCode, Shipment.courierName, Shipment.createdAt, Shipment.deliveredAt, Shipment.deliveryDays, Shipment.listing, Shipment.option (+9 more)
 
 ### Community 22 - "Finance schema"
 Cohesion: 0.15
@@ -205,13 +205,13 @@ Nodes (14): ExecutionLog.createdAt, ExecutionLog.message, ExecutionLog.payloadJs
 Cohesion: 0.14
 Nodes (14): AgentCostEvent.agentInstance, AgentCostEvent.biller, AgentCostEvent.billingType, AgentCostEvent.cachedInputTokens, AgentCostEvent.costMicros, AgentCostEvent.createdAt, AgentCostEvent.inputTokens, AgentCostEvent.metadata (+6 more)
 
-### Community 26 - "Core schema"
-Cohesion: 0.15
-Nodes (14): ChannelListing.channelPrice, ChannelListing.createdAt, ChannelListing.deletedAt, ChannelListing.deliveryChargeType, ChannelListing.deliveryInfo, ChannelListing.exposureStatus, ChannelListing.externalId, ChannelListing.freeShipOverAmount (+6 more)
-
-### Community 27 - "Orders schema"
+### Community 26 - "Orders schema"
 Cohesion: 0.15
 Nodes (13): CSRecord.assignee, CSRecord.content, CSRecord.createdBy, CSRecord.csStatus, CSRecord.csType, CSRecord.id, CSRecord.listing, CSRecord.order (+5 more)
+
+### Community 27 - "Core schema"
+Cohesion: 0.17
+Nodes (13): ChannelListing.channelPrice, ChannelListing.createdAt, ChannelListing.deletedAt, ChannelListing.deliveryChargeType, ChannelListing.deliveryInfo, ChannelListing.exposureStatus, ChannelListing.externalId, ChannelListing.freeShipOverAmount (+5 more)
 
 ### Community 28 - "Finance schema"
 Cohesion: 0.18
@@ -234,12 +234,12 @@ Cohesion: 0.21
 Nodes (12): AgentRunRequest.taskSession, AgentTaskSession.adapterType, AgentTaskSession.agentInstance, AgentTaskSession.createdAt, AgentTaskSession.lastRun, AgentTaskSession.metadata, AgentTaskSession.organization, AgentTaskSession.sessionDisplay (+4 more)
 
 ### Community 33 - "AI schema"
-Cohesion: 0.18
-Nodes (12): ThumbnailTracking.appliedAt, ThumbnailTracking.createdAt, ThumbnailTracking.ctrBefore, ThumbnailTracking.generation, ThumbnailTracking.originalGrade, ThumbnailTracking.originalScore, ThumbnailTracking.reviewsAfter, ThumbnailTracking.salesAfter (+4 more)
-
-### Community 34 - "AI schema"
 Cohesion: 0.2
 Nodes (12): prisma — Shared Schema, AI, LegalEntity.organization, ThumbnailGeneration.inputMeta, ThumbnailGeneration.organization, ThumbnailGenerationEvent.organization, ThumbnailGenerationInputImage.mimeType, ThumbnailRegistrationAttempt.errorMessage (+4 more)
+
+### Community 34 - "AI schema"
+Cohesion: 0.18
+Nodes (12): ThumbnailTracking.appliedAt, ThumbnailTracking.createdAt, ThumbnailTracking.ctrBefore, ThumbnailTracking.generation, ThumbnailTracking.originalGrade, ThumbnailTracking.originalScore, ThumbnailTracking.reviewsAfter, ThumbnailTracking.salesAfter (+4 more)
 
 ### Community 35 - "AI schema"
 Cohesion: 0.17
@@ -261,21 +261,21 @@ Nodes (10): AgentRunRequest.sourceWorkflowRun, WorkflowRun.contextData, Workflow
 Cohesion: 0.2
 Nodes (10): ThumbnailAnalysis.complianceAnalyzedAt, ThumbnailAnalysis.complianceGrade, ThumbnailAnalysis.method, ThumbnailAnalysis.organization, ThumbnailAnalysis.overallScore, ThumbnailAnalysis.qualityAnalyzedAt, ThumbnailAnalysis.recompose, ThumbnailAnalysis.scores (+2 more)
 
-### Community 40 - "Core schema"
-Cohesion: 0.24
-Nodes (10): GradeHistory.organization, Organization.createdAt, Organization.updatedAt, ProcessingCost.organization, SystemSetting.createdAt, SystemSetting.organization, SystemSetting.updatedAt, Organization (+2 more)
-
-### Community 41 - "Finance schema"
+### Community 40 - "Finance schema"
 Cohesion: 0.2
 Nodes (10): GradeHistory.calculatedAt, GradeHistory.marginScore, GradeHistory.newGrade, GradeHistory.oldGrade, GradeHistory.reason, GradeHistory.revenueScore, GradeHistory.score, GradeHistory.velocityScore (+2 more)
 
+### Community 41 - "Core schema"
+Cohesion: 0.24
+Nodes (10): GradeHistory.organization, Organization.createdAt, Organization.updatedAt, ProcessingCost.organization, SystemSetting.createdAt, SystemSetting.organization, SystemSetting.updatedAt, Organization (+2 more)
+
 ### Community 42 - "Advertising schema"
 Cohesion: 0.22
-Nodes (9): Advertising, ScrapeTarget.category, ScrapeTarget.createdAt, ScrapeTarget.isActive, ScrapeTarget.label, ScrapeTarget.lastScrapedAt, ScrapeTarget.organization, ScrapeTarget.url (+1 more)
+Nodes (9): ExecutionTask.worker, ExecutionWorker.createdAt, ExecutionWorker.currentPageType, ExecutionWorker.currentUrl, ExecutionWorker.lastHeartbeatAt, ExecutionWorker.metaJson, ExecutionWorker.organization, ExecutionWorker.status (+1 more)
 
 ### Community 43 - "Advertising schema"
 Cohesion: 0.22
-Nodes (9): ExecutionTask.worker, ExecutionWorker.createdAt, ExecutionWorker.currentPageType, ExecutionWorker.currentUrl, ExecutionWorker.lastHeartbeatAt, ExecutionWorker.metaJson, ExecutionWorker.organization, ExecutionWorker.status (+1 more)
+Nodes (9): Advertising, ScrapeTarget.category, ScrapeTarget.createdAt, ScrapeTarget.isActive, ScrapeTarget.label, ScrapeTarget.lastScrapedAt, ScrapeTarget.organization, ScrapeTarget.url (+1 more)
 
 ### Community 44 - "AI schema"
 Cohesion: 0.22
@@ -291,11 +291,11 @@ Nodes (9): UnshippedItem.createdAt, UnshippedItem.delayDays, UnshippedItem.isNot
 
 ### Community 47 - "Finance schema"
 Cohesion: 0.22
-Nodes (9): Finance, ManualLedger.amount, ManualLedger.category, ManualLedger.counterpart, ManualLedger.createdBy, ManualLedger.description, ManualLedger.memo, ManualLedger.organization (+1 more)
+Nodes (9): ProcessingCost.createdAt, ProcessingCost.date, ProcessingCost.master, ProcessingCost.processType, ProcessingCost.productName, ProcessingCost.quantity, ProcessingCost.totalCost, ProcessingCost.vendor (+1 more)
 
 ### Community 48 - "Finance schema"
 Cohesion: 0.22
-Nodes (9): ProcessingCost.createdAt, ProcessingCost.date, ProcessingCost.master, ProcessingCost.processType, ProcessingCost.productName, ProcessingCost.quantity, ProcessingCost.totalCost, ProcessingCost.vendor (+1 more)
+Nodes (9): Finance, ManualLedger.amount, ManualLedger.category, ManualLedger.counterpart, ManualLedger.createdBy, ManualLedger.description, ManualLedger.memo, ManualLedger.organization (+1 more)
 
 ### Community 49 - "Supply schema"
 Cohesion: 0.25
@@ -303,11 +303,11 @@ Nodes (8): SupplierPayment.amount, SupplierPayment.createdAt, SupplierPayment.or
 
 ### Community 50 - "AgentOS schema"
 Cohesion: 0.29
-Nodes (7): AgentRunEvent.agentInstance, AgentRunEvent.createdAt, AgentRunEvent.level, AgentRunEvent.logRef, AgentRunEvent.organization, AgentRunEvent, AgentRunEvent unique(runId, seq)
+Nodes (7): AgentApprovalRequest.actionSnapshot, AgentApprovalRequest.agentInstance, AgentApprovalRequest.decidedAt, AgentApprovalRequest.decisionReason, AgentApprovalRequest.organization, AgentApprovalRequest.status, AgentApprovalRequest
 
 ### Community 51 - "AgentOS schema"
 Cohesion: 0.29
-Nodes (7): AgentApprovalRequest.actionSnapshot, AgentApprovalRequest.agentInstance, AgentApprovalRequest.decidedAt, AgentApprovalRequest.decisionReason, AgentApprovalRequest.organization, AgentApprovalRequest.status, AgentApprovalRequest
+Nodes (7): AgentRunEvent.agentInstance, AgentRunEvent.createdAt, AgentRunEvent.level, AgentRunEvent.logRef, AgentRunEvent.organization, AgentRunEvent, AgentRunEvent unique(runId, seq)
 
 ### Community 52 - "Core schema"
 Cohesion: 0.38
@@ -332,11 +332,11 @@ Nodes (6): SupplierProduct.createdAt, SupplierProduct.option, SupplierProduct.su
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Database ERD` connect `Orders schema` to `Core schema`, `System schema`, `Core schema`, `Inventory schema`, `Core schema`, `AgentOS schema`, `Orders schema`, `System schema`, `Sourcing schema`, `Orders schema`, `System schema`, `Inventory schema`, `Advertising schema`, `Supply schema`, `AgentOS schema`, `AgentOS schema`, `Orders schema`, `AgentOS schema`, `Channels schema`, `Channels schema`, `Channels schema`, `Finance schema`, `Channels schema`, `Advertising schema`, `AgentOS schema`, `Core schema`, `Orders schema`, `Finance schema`, `Inventory schema`, `Supply schema`, `AgentOS schema`, `AgentOS schema`, `AI schema`, `AI schema`, `AI schema`, `Core schema`, `Orders schema`, `AgentOS schema`, `AI schema`, `Core schema`, `Finance schema`, `Advertising schema`, `Advertising schema`, `AI schema`, `Channels schema`, `Orders schema`, `Finance schema`, `Finance schema`, `Supply schema`, `AgentOS schema`, `AgentOS schema`, `Core schema`, `AI schema`, `Supply schema`, `Supply schema`?**
+- **Why does `Database ERD` connect `Orders schema` to `Core schema`, `System schema`, `Core schema`, `Inventory schema`, `Core schema`, `AgentOS schema`, `Orders schema`, `System schema`, `Sourcing schema`, `Orders schema`, `System schema`, `Inventory schema`, `Advertising schema`, `Supply schema`, `AgentOS schema`, `AgentOS schema`, `Orders schema`, `AgentOS schema`, `Channels schema`, `Channels schema`, `Channels schema`, `Finance schema`, `Channels schema`, `Advertising schema`, `AgentOS schema`, `Orders schema`, `Core schema`, `Finance schema`, `Inventory schema`, `Supply schema`, `AgentOS schema`, `AgentOS schema`, `AI schema`, `AI schema`, `AI schema`, `Core schema`, `Orders schema`, `AgentOS schema`, `AI schema`, `Finance schema`, `Core schema`, `Advertising schema`, `Advertising schema`, `AI schema`, `Channels schema`, `Orders schema`, `Finance schema`, `Finance schema`, `Supply schema`, `AgentOS schema`, `AgentOS schema`, `Core schema`, `AI schema`, `Supply schema`, `Supply schema`?**
   _High betweenness centrality (0.539) - this node is a cross-community bridge._
-- **Why does `Organization` connect `Core schema` to `Core schema`, `System schema`, `Core schema`, `Inventory schema`, `Core schema`, `AgentOS schema`, `Orders schema`, `System schema`, `Sourcing schema`, `Orders schema`, `System schema`, `Inventory schema`, `Advertising schema`, `Supply schema`, `AgentOS schema`, `AgentOS schema`, `Orders schema`, `AgentOS schema`, `Channels schema`, `Channels schema`, `Channels schema`, `Orders schema`, `Finance schema`, `Channels schema`, `AgentOS schema`, `Core schema`, `Orders schema`, `Finance schema`, `Inventory schema`, `Supply schema`, `AgentOS schema`, `AgentOS schema`, `AI schema`, `AI schema`, `AI schema`, `Core schema`, `Orders schema`, `AI schema`, `Finance schema`, `Advertising schema`, `Advertising schema`, `AI schema`, `Channels schema`, `Orders schema`, `Finance schema`, `Finance schema`, `Supply schema`, `AgentOS schema`, `AgentOS schema`, `Core schema`, `AI schema`?**
+- **Why does `Organization` connect `Core schema` to `Core schema`, `System schema`, `Core schema`, `Inventory schema`, `Core schema`, `AgentOS schema`, `Orders schema`, `System schema`, `Sourcing schema`, `Orders schema`, `System schema`, `Inventory schema`, `Advertising schema`, `Supply schema`, `AgentOS schema`, `AgentOS schema`, `Orders schema`, `AgentOS schema`, `Channels schema`, `Channels schema`, `Orders schema`, `Channels schema`, `Finance schema`, `Channels schema`, `AgentOS schema`, `Orders schema`, `Core schema`, `Finance schema`, `Inventory schema`, `Supply schema`, `AgentOS schema`, `AgentOS schema`, `AI schema`, `AI schema`, `AI schema`, `Core schema`, `Orders schema`, `AI schema`, `Finance schema`, `Advertising schema`, `Advertising schema`, `AI schema`, `Channels schema`, `Orders schema`, `Finance schema`, `Finance schema`, `Supply schema`, `AgentOS schema`, `AgentOS schema`, `Core schema`, `AI schema`?**
   _High betweenness centrality (0.285) - this node is a cross-community bridge._
-- **Why does `MasterProduct` connect `Core schema` to `Core schema`, `AI schema`, `Core schema`, `AI schema`, `Core schema`, `Finance schema`, `Sourcing schema`, `AI schema`, `Finance schema`, `Orders schema`, `Supply schema`, `Core schema`?**
+- **Why does `MasterProduct` connect `Core schema` to `Core schema`, `AI schema`, `Core schema`, `AI schema`, `Finance schema`, `Core schema`, `Sourcing schema`, `AI schema`, `Finance schema`, `Orders schema`, `Supply schema`, `Core schema`?**
   _High betweenness centrality (0.070) - this node is a cross-community bridge._
 - **What connects `AdAction.id`, `AdAction.actionType`, `AdAction.targetLabel` to the rest of the system?**
   _663 weakly-connected nodes found - possible documentation gaps or missing edges._

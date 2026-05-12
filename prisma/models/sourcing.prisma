@@ -21,7 +21,7 @@ model SourcingCandidate {
   costCny Decimal? @map("cost_cny") @db.Decimal(12, 2)
 
   status           String  @default("sourced")
-  promotedMasterId String? @unique @map("promoted_master_id") @db.Uuid
+  promotedMasterId String? @map("promoted_master_id") @db.Uuid
 
   rejectedReason   String?   @map("rejected_reason")
   rejectedAt       DateTime? @map("rejected_at") @db.Timestamptz

@@ -319,7 +319,7 @@ model MasterProduct {
   gradeHistory           GradeHistory[]
   processingCosts        ProcessingCost[]
   masterSupplierProducts MasterSupplierProduct[]
-  promotedFromCandidate  SourcingCandidate?      @relation("PromotedFromCandidate")
+  promotedFromCandidate  SourcingCandidate[]     @relation("PromotedFromCandidate")
 
   @@unique([organizationId, legacyCode], map: "master_products_organization_id_legacy_code_key", where: raw("is_deleted = false AND legacy_code IS NOT NULL"))
   @@index([organizationId])

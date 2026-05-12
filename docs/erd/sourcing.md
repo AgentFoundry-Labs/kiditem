@@ -50,7 +50,7 @@ erDiagram
     String imageUrl
     Decimal costCny
     String status
-    String promotedMasterId FK,UK
+    String promotedMasterId FK
     String rejectedReason
     DateTime rejectedAt
     String rejectedByUserId FK
