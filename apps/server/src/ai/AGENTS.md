@@ -123,10 +123,31 @@ The sourcing-candidate split (issue #192) introduces an inbound port for
 post-promotion AI generation:
 
 - Port: `POST_PROMOTION_AI_TRIGGER_PORT` in `application/port/in/`
-- Service: `PostPromotionAiService` — enqueues `detail_page_generate` +
-  `thumbnail_generate` with AI-domain-owned defaults
-  (`templateId='kids-playful'`, `mode='full'`)
-- Fire-and-forget: individual agent enqueue failures logged but not thrown
+- Service: `PostPromotionAiService` — mirrors
+  `DetailPageGenerationService.enqueueProductBoundGeneration` and
+  `ThumbnailGenerationJobService.enqueueEditorGeneration` so the Agent OS
+  bridge + sink path treats post-promotion runs identically to
+  user-initiated ones.
+- Fetches the master row + `MasterProductImage` gallery from Prisma to
+  build the agent payloads (`raw.rawTitle/rawCategory/rawDescription/imageUrls`
+  for detail-page, `mode='edit' + inputs[]` for thumbnail).
+- Creates `ContentGeneration` (`status='PROCESSING'`) and
+  `ThumbnailGeneration` (`status='pending'`) rows up front so the sink has
+  a writable target. `sourceResourceId` on the Agent OS request points at
+  the gen row id, never the master id.
+- AI-domain-owned defaults live as service constants:
+  `templateId='kids-playful'`, `heroImageMode='llm-pick'`,
+  `ageGroup='age-8-plus'`, `detailImageCount='auto'`, thumbnail
+  `mode='edit'` + `editCase='single'`, `method='generate'`.
+- `sourceType` uses dedicated origins (`AI_AGENT_SOURCE_TYPES.POST_PROMOTION_*`)
+  so operators/panel filters can distinguish auto-fired runs from
+  user-initiated ones. `sourceResourceType` still uses the existing gen
+  row table names (`content_generation` / `thumbnail_generation`).
+- Fire-and-forget: detail-page and thumbnail are independent
+  try/catch blocks. On `{ok:false}` or exception, the gen row flips to
+  `FAILED`/`failed`, the operation alert is failed, and the error is
+  logged — the method always resolves void. Master-not-found logs an
+  error and returns without creating rows or alerts.
 - Called by sourcing's `SourcingAgentGatewayAdapter.notifyPromoted` (Phase 2)
 
 ## ContentGeneration Master-Only Contract
