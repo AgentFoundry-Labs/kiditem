@@ -10,13 +10,11 @@
 
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../../prisma/prisma.service';
-import {
-  buildPerListingMetrics,
-  type PerListingMetrics,
-} from '../../../../../common/per-listing-profit';
+import { buildPerListingMetrics } from '../../../../../common/per-listing-profit';
 import type { AlertItemDashboard } from '@kiditem/shared/dashboard';
 import type {
   DashboardInventoryRepositoryPort,
+  DashboardPerListingMetrics,
   GradeCountRow,
   InventoryStockRow,
   GradeChangeRow,
@@ -96,7 +94,7 @@ export class DashboardInventoryRepositoryAdapter
     organizationId: string,
     monthStart: Date,
     monthEnd: Date,
-  ): Promise<PerListingMetrics[]> {
+  ): Promise<DashboardPerListingMetrics[]> {
     return buildPerListingMetrics(this.prisma, organizationId, monthStart, monthEnd);
   }
 

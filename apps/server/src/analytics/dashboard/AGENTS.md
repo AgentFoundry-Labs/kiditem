@@ -17,7 +17,7 @@ dashboard/
   adapter/in/http/                /api/dashboard/* controller + DTO
   adapter/out/repository/         8 *.repository.adapter.ts (PrismaService here only)
   application/port/out/           8 outgoing ports (Symbol tokens + interfaces)
-  application/service/            orchestration (Prisma-free); 4 services
+  application/service/            orchestration (Prisma-free); 5 services
   domain/                         pure context builder + util/effective-period + util/percent
   dashboard.module.ts             PrismaModule import + port useExisting bindings
 ```
@@ -45,12 +45,16 @@ Invariants enforced by `__tests__/dashboard.architecture.spec.ts`:
 - `application/service/**` does not import `adapter/out/**`; concrete
   adapters reach services only via Nest token bindings to
   `application/port/out/*`.
+- `adapter/in/http/**` does not import `application/port/out/**` or
+  `adapter/out/**`; incoming adapters call application services only.
 - `application/service/**` does not import other owner-domain services
   directly; if cross-owner reach appears it must go through an
   `adapter/out/{owner}/` port + adapter pair.
 - `domain/**` is free of NestJS, Prisma, `PrismaService`, HTTP DTO classes,
-  and incoming-adapter modules. The pure `buildDashboardContext()` and
-  `buildEffectivePeriod()` helpers live here.
+  incoming-adapter modules, and application contracts. The pure
+  `buildDashboardContext()` and `buildEffectivePeriod()` helpers live here.
+- `application/port/out/**` keeps local contract shapes and does not import
+  concrete adapters or DB-backed helper implementations.
 - No top-level `dto/`, `util/`, `helpers/`, `services/`, or
   `adapter/out/prisma/` folders remain. Final shape uses
   `adapter/in/http/dto/`, `domain/util/`, and `adapter/out/repository/`.

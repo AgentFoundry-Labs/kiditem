@@ -16,15 +16,37 @@ import { WingTrafficAggregationRepositoryAdapter } from '../adapter/out/reposito
 import { DashboardInventoryRepositoryAdapter } from '../adapter/out/repository/dashboard-inventory.repository.adapter';
 
 // application/service
+import { DashboardContextService } from '../application/service/dashboard-context.service';
 import { DashboardSalesService } from '../application/service/dashboard-sales.service';
 import { DashboardAdService } from '../application/service/dashboard-ad.service';
 import { DashboardInventoryService } from '../application/service/dashboard-inventory.service';
 import { DashboardTrendService } from '../application/service/dashboard-trend.service';
 
+// application/port/out tokens
+import { PROFIT_CALCULATION_REPOSITORY_PORT } from '../application/port/out/profit-calculation.repository.port';
+import { AD_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/ad-aggregation.repository.port';
+import { WING_AD_SUMMARY_REPOSITORY_PORT } from '../application/port/out/wing-ad-summary.repository.port';
+import { DASHBOARD_SALES_REPOSITORY_PORT } from '../application/port/out/dashboard-sales.repository.port';
+import { DASHBOARD_AD_REPOSITORY_PORT } from '../application/port/out/dashboard-ad.repository.port';
+import { DASHBOARD_TREND_REPOSITORY_PORT } from '../application/port/out/dashboard-trend.repository.port';
+import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/wing-traffic-aggregation.repository.port';
+import { DASHBOARD_INVENTORY_REPOSITORY_PORT } from '../application/port/out/dashboard-inventory.repository.port';
+
 const IMPORTS_KEY = 'imports';
 const CONTROLLERS_KEY = 'controllers';
 const PROVIDERS_KEY = 'providers';
 const PATH_KEY = 'path';
+
+const EXPECTED_PORT_BINDINGS = [
+  [PROFIT_CALCULATION_REPOSITORY_PORT, ProfitCalculationRepositoryAdapter],
+  [AD_AGGREGATION_REPOSITORY_PORT, AdAggregationRepositoryAdapter],
+  [WING_AD_SUMMARY_REPOSITORY_PORT, WingAdSummaryRepositoryAdapter],
+  [DASHBOARD_SALES_REPOSITORY_PORT, DashboardSalesRepositoryAdapter],
+  [DASHBOARD_AD_REPOSITORY_PORT, DashboardAdRepositoryAdapter],
+  [DASHBOARD_TREND_REPOSITORY_PORT, DashboardTrendRepositoryAdapter],
+  [WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT, WingTrafficAggregationRepositoryAdapter],
+  [DASHBOARD_INVENTORY_REPOSITORY_PORT, DashboardInventoryRepositoryAdapter],
+] as const;
 
 // Architecture-guard companion to dashboard.architecture.spec.ts. This spec
 // freezes the @Module()/@Controller() metadata so a missing provider, a
@@ -64,6 +86,7 @@ describe('DashboardModule capability wiring', () => {
     const providers: unknown[] =
       Reflect.getMetadata(PROVIDERS_KEY, DashboardModule) ?? [];
     for (const cls of [
+      DashboardContextService,
       DashboardSalesService,
       DashboardAdService,
       DashboardInventoryService,
@@ -84,9 +107,12 @@ describe('DashboardModule capability wiring', () => {
       (p): p is { provide: unknown; useExisting?: unknown } =>
         typeof p === 'object' && p !== null && 'provide' in p,
     );
-    expect(tokenProviders).toHaveLength(8);
-    for (const provider of tokenProviders) {
-      expect(provider.useExisting).toBeDefined();
+    expect(tokenProviders).toHaveLength(EXPECTED_PORT_BINDINGS.length);
+    for (const [token, adapterClass] of EXPECTED_PORT_BINDINGS) {
+      expect(tokenProviders).toContainEqual({
+        provide: token,
+        useExisting: adapterClass,
+      });
     }
   });
 

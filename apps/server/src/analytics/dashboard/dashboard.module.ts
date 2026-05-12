@@ -14,6 +14,7 @@ import { WingTrafficAggregationRepositoryAdapter } from './adapter/out/repositor
 import { DashboardInventoryRepositoryAdapter } from './adapter/out/repository/dashboard-inventory.repository.adapter';
 
 // application/service
+import { DashboardContextService } from './application/service/dashboard-context.service';
 import { DashboardSalesService } from './application/service/dashboard-sales.service';
 import { DashboardAdService } from './application/service/dashboard-ad.service';
 import { DashboardInventoryService } from './application/service/dashboard-inventory.service';
@@ -57,6 +58,7 @@ const REPOSITORY_PORT_BINDINGS = [
     WingTrafficAggregationRepositoryAdapter,
     DashboardInventoryRepositoryAdapter,
     // application/service
+    DashboardContextService,
     DashboardSalesService,
     DashboardAdService,
     DashboardInventoryService,

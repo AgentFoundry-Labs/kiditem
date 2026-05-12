@@ -6,7 +6,6 @@
 // counts (lowReviewProducts).
 
 import type { AlertItemDashboard } from '@kiditem/shared/dashboard';
-import type { PerListingMetrics } from '../../../../../common/per-listing-profit';
 
 export const DASHBOARD_INVENTORY_REPOSITORY_PORT = Symbol(
   'DashboardInventoryRepositoryPort',
@@ -31,6 +30,13 @@ export interface AGradeReviewRow {
   reviewCount: number;
 }
 
+export interface DashboardPerListingMetrics {
+  revenue: number;
+  adCost: number;
+  netProfit: number;
+  profitRate: number;
+}
+
 export interface DashboardInventoryRepositoryPort {
   countActiveProductsByGrade(organizationId: string): Promise<GradeCountRow[]>;
   findUnreadAlerts(
@@ -43,7 +49,7 @@ export interface DashboardInventoryRepositoryPort {
     organizationId: string,
     monthStart: Date,
     monthEnd: Date,
-  ): Promise<PerListingMetrics[]>;
+  ): Promise<DashboardPerListingMetrics[]>;
   findInventoryStockRows(organizationId: string): Promise<InventoryStockRow[]>;
   findGradeHistory(
     organizationId: string,

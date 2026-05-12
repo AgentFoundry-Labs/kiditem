@@ -13,13 +13,17 @@ import path from 'node:path';
 //   - `application/service/**` does not import `adapter/out/**`. Concrete
 //     adapters reach application code only via Nest token bindings to
 //     `application/port/out/*`.
+//   - Incoming HTTP adapters do not import outgoing ports or repository
+//     adapters directly; application services own orchestration.
 //   - `application/service/**` does not import other owner-domain services
 //     directly. Dashboard is analytics-owned and currently has no
 //     cross-owner reach; if one appears later it must go through a port
 //     under `adapter/out/{owner}/`.
 //   - Domain code (`analytics/dashboard/domain/**`) is free of NestJS,
 //     Prisma, PrismaService, HTTP DTO classes, and incoming-adapter
-//     modules.
+//     modules, and does not depend on application contracts.
+//   - Outgoing port contracts keep local DTO shapes and do not import
+//     concrete helpers or adapter implementations.
 //   - No legacy top-level `dto/`, `util/`, `helpers/`, or
 //     `adapter/out/prisma/` folders remain. Final shape uses
 //     `adapter/in/http/dto/`, `domain/util/`, and `adapter/out/repository/`.
@@ -99,6 +103,18 @@ describe('analytics/dashboard architecture contract', () => {
     ).toEqual([]);
   });
 
+  it('incoming HTTP adapters do not import outgoing ports or repository adapters', () => {
+    const dash = dashboardRel();
+    const httpGlob = path.join(dash, 'adapter/in/http') + '/**';
+    const hits = rg(
+      `--type ts --files-with-matches 'application/port/out|adapter/out/' --glob '${httpGlob}' --glob '!**/__tests__/**'`,
+    );
+    expect(
+      hits,
+      `incoming adapters must call application services, not outgoing ports/adapters:\n${hits.join('\n')}`,
+    ).toEqual([]);
+  });
+
   it('application/service/** does not import other owner-domain services directly', () => {
     const dash = dashboardRel();
     const serviceGlob = path.join(dash, 'application/service') + '/**';
@@ -123,6 +139,30 @@ describe('analytics/dashboard architecture contract', () => {
        --glob '${domainGlob}' --glob '!**/__tests__/**'`,
     );
     expect(hits, `domain code is importing infrastructure:\n${hits.join('\n')}`).toEqual([]);
+  });
+
+  it('domain layer does not depend on application contracts', () => {
+    const dash = dashboardRel();
+    const domainGlob = path.join(dash, 'domain') + '/**';
+    const hits = rg(
+      `--type ts --files-with-matches 'application/' --glob '${domainGlob}' --glob '!**/__tests__/**'`,
+    );
+    expect(
+      hits,
+      `domain code must stay inward-facing and not import application contracts:\n${hits.join('\n')}`,
+    ).toEqual([]);
+  });
+
+  it('outgoing port contracts do not import concrete helpers or adapters', () => {
+    const dash = dashboardRel();
+    const portGlob = path.join(dash, 'application/port/out') + '/**';
+    const hits = rg(
+      `--type ts --files-with-matches 'adapter/out|common/per-listing-profit|PrismaService|@prisma/client' --glob '${portGlob}' --glob '!**/__tests__/**'`,
+    );
+    expect(
+      hits,
+      `application ports should define local contracts, not depend on concrete implementations:\n${hits.join('\n')}`,
+    ).toEqual([]);
   });
 
   it('no legacy top-level dto/, util/, helpers/, or adapter/out/prisma/ folders remain', () => {
