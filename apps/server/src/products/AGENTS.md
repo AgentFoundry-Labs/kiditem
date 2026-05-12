@@ -57,11 +57,11 @@ retires or reconstructs it.
   service-layer code does not need to set it explicitly on create. Catalog
   count buckets are `activeCount / pausedCount / discontinuedCount /
   totalCount`.
-- `pipelineStep` and the legacy sourcing columns (`source_url`,
-  `source_platform`, `raw_data`, `cost_cny`, `margin_rate`) are retired from
-  `master_products` (Phase 8, #192). Nothing in `products/` should select,
-  filter on, or echo any of them. Sourcing history lives on
-  `SourcingCandidate` / `CandidateImage` (see `src/sourcing/`).
+- `master_products` does not carry sourcing-only columns: `pipelineStep`,
+  `source_url`, `source_platform`, `raw_data`, `cost_cny`, `margin_rate` are
+  not part of the schema. Nothing in `products/` should select, filter on, or
+  echo any of them. Sourcing history lives on `SourcingCandidate` /
+  `CandidateImage` (see `src/sourcing/`).
 
 ## Controller And Service Rules
 

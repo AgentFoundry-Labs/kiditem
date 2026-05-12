@@ -148,7 +148,7 @@ post-promotion AI generation:
   `FAILED`/`failed`, the operation alert is failed, and the error is
   logged — the method always resolves void. Master-not-found logs an
   error and returns without creating rows or alerts.
-- Called by sourcing's `SourcingAgentGatewayAdapter.notifyPromoted` (Phase 2)
+- Called by sourcing's `SourcingAgentGatewayAdapter.notifyPromoted`
 
 ## ContentGeneration Master-Only Contract
 

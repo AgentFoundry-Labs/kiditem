@@ -2,7 +2,7 @@
 
 Sourcing UI 는 두 단계: **후보 리스트** 와 **후보 상세 + 액션(promote / reject)**.
 
-Phase 7 (#192) 이후 후보 단계의 AI 편집기/상세페이지 편집기는 제거됨. AI 생성 / 편집은 master-side 기존 surfaces 재사용:
+후보 단계에는 AI 편집기 / 상세페이지 편집기 surface 가 없다. AI 생성 / 편집은 master-side 기존 surfaces 재사용:
 
 - 상세페이지 생성/편집 → `/generate?productId={master.id}` `(media-ai)/generate/`
 - 썸네일 편집 → `/thumbnail-editor/edit?productId={master.id}&mode=edit&editCase=single` `(media-ai)/thumbnail-editor/`
