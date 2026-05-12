@@ -1,34 +1,31 @@
-import { Inject, Injectable, InternalServerErrorException } from '@nestjs/common';
+import { Inject, Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import {
   AGENT_RUNNER_PORT,
   type AgentRunnerPort,
   type AgentRunnerResult,
 } from '../../../../agent-os/application/port/in/agent-runner.port';
+import {
+  POST_PROMOTION_AI_TRIGGER_PORT,
+  type PostPromotionAiTriggerPort,
+} from '../../../../ai/application/port/in/post-promotion-ai-trigger.port';
+import { OperationAlertService } from '../../../../automation/application/service/operation-alert.service';
 import type {
   SourcingAgentGatewayPort,
-  SourcingDetailPageGenerateRequest,
-  SourcingDetailPageGenerateResult,
+  SourcingNotifyPromotedRequest,
   SourcingScrapeRequest,
   SourcingScrapeResult,
 } from '../../../application/port/out/sourcing-agent.gateway.port';
 
-/**
- * Outgoing adapter that binds {@link SourcingAgentGatewayPort} to the Agent OS
- * {@link AgentRunnerPort}. The legacy `AgentRegistryService.runByType()` hop is
- * replaced; the port-level result shape (`{ taskId }`) is preserved so callers
- * (`SourcingService.scrapeUrl`) keep their existing contract.
- *
- * `AgentRunnerResult.runId` is the primary identifier returned to consumers as
- * `taskId`. We fall back to `requestId` only when the runner produced a
- * durable request without an immediate run (e.g. `requires_approval`). If
- * neither is present, we surface the runner's `reason` rather than silently
- * fabricating a task id (no silent fallback rule).
- */
 @Injectable()
 export class SourcingAgentGatewayAdapter implements SourcingAgentGatewayPort {
+  private readonly logger = new Logger(SourcingAgentGatewayAdapter.name);
+
   constructor(
     @Inject(AGENT_RUNNER_PORT)
     private readonly agentRunner: AgentRunnerPort,
+    @Inject(POST_PROMOTION_AI_TRIGGER_PORT)
+    private readonly postPromotionAi: PostPromotionAiTriggerPort,
+    private readonly operationAlerts: OperationAlertService,
   ) {}
 
   async scrapeUrl(request: SourcingScrapeRequest): Promise<SourcingScrapeResult> {
@@ -51,34 +48,29 @@ export class SourcingAgentGatewayAdapter implements SourcingAgentGatewayPort {
     };
   }
 
-  async generateDetailPage(
-    request: SourcingDetailPageGenerateRequest,
-  ): Promise<SourcingDetailPageGenerateResult> {
-    const result = await this.agentRunner.runByType('content', {
-      organizationId: request.organizationId,
-      sourceType: 'sourcing.generate_detail_page',
-      sourceResourceType: 'master_product',
-      sourceResourceId: request.productId,
-      reason: 'sourcing detail-page generate',
-      payload: {
-        productId: request.productId,
-        product_id: request.productId,
-        generation_mode: request.mode,
-        template_id: request.templateId,
-        ...(request.seed_hook_text && { seed_hook_text: request.seed_hook_text }),
-        ...(request.seed_hook_title_sub && { seed_hook_title_sub: request.seed_hook_title_sub }),
-        ...(request.seed_hero_image && { seed_hero_image: request.seed_hero_image }),
-      },
-    });
-    return { taskId: this.requireTaskId(result, 'sourcing.generate_detail_page') };
+  async notifyPromoted(request: SourcingNotifyPromotedRequest): Promise<void> {
+    try {
+      await this.postPromotionAi.fireForMaster(request.masterId, request.organizationId);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      this.logger.error(
+        `notifyPromoted failed for master=${request.masterId}; raising alert.`,
+        err instanceof Error ? err.stack : undefined,
+      );
+      await this.operationAlerts.start({
+        organizationId: request.organizationId,
+        operationKey: `post-promotion-ai:${request.masterId}`,
+        type: 'post_promotion_ai_failed',
+        title: '승격 후 AI 처리 실패',
+        sourceType: 'master_product',
+        sourceId: request.masterId,
+        actorUserId: null,
+        href: `/products/${request.masterId}`,
+        metadata: { error: errorMessage },
+      });
+    }
   }
 
-  /**
-   * Map AgentRunnerResult onto the legacy `taskId` contract.
-   * Prefer `runId` (live `AgentRun.id`); fall back to `requestId`
-   * (`AgentRunRequest.id`) only when the runner deferred execution.
-   * Refuses to invent a task id — surfaces the runner's `reason` instead.
-   */
   private requireTaskId(result: AgentRunnerResult, sourceType: string): string {
     const taskId = result.runId ?? result.requestId;
     if (!taskId) {

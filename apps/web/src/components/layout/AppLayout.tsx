@@ -11,7 +11,6 @@ import { PanelErrorBoundary } from '@/components/panel/PanelErrorBoundary';
 import { usePanelStream } from '@/components/panel/hooks/usePanelStream';
 import ReadinessModal from '@/components/ReadinessModal';
 import GlobalConfirmDialog from '@/components/GlobalConfirmDialog';
-import GenerationStatusFloater from '@/components/GenerationStatusFloater';
 import GenerationCompletionWatcher from '@/components/GenerationCompletionWatcher';
 
 const CopilotChat = dynamic(() => import('./CopilotChat'), { ssr: false });
@@ -64,7 +63,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       </PanelErrorBoundary>
       {showAutoReadinessModal && <ReadinessModal autoOpenWhen="collectionIssue" />}
       <GlobalConfirmDialog />
-      {!isEditorRoute && <GenerationStatusFloater />}
       <GenerationCompletionWatcher />
     </div>
   );

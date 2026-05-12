@@ -99,7 +99,7 @@ describe('MasterCatalogAdapter', () => {
     });
   });
 
-  it('attaches external Coupang image metadata without treating the CDN URL as the master sourceUrl', async () => {
+  it('attaches an external Coupang CDN URL as a MasterProductImage row + master.imageUrl cache', async () => {
     const { adapter, tx } = buildAdapter();
 
     const attached = await adapter.attachPrimaryImage({
@@ -121,7 +121,5 @@ describe('MasterCatalogAdapter', () => {
         }),
       }),
     );
-    const updateCall = tx.masterProduct.updateMany.mock.calls[0]?.[0];
-    expect(updateCall.data).not.toHaveProperty('sourceUrl');
   });
 });

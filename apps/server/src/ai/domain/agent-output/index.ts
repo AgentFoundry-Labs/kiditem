@@ -42,6 +42,15 @@ import {
 export const AI_AGENT_SOURCE_TYPES = {
   DETAIL_PAGE_GENERATE: 'ai.detail_page_generate' as const,
   THUMBNAIL_GENERATE: 'ai.thumbnail_generate' as const,
+  /**
+   * Post-promotion fire-and-forget triggers. `sourceType` distinguishes the
+   * trigger origin so operators / panel filters can tell auto-fire apart from
+   * user-initiated generation. `sourceResourceType` still points at the gen
+   * row tables (`content_generation` / `thumbnail_generation`), so the
+   * bridge + sink path is unchanged.
+   */
+  POST_PROMOTION_DETAIL_PAGE: 'post_promotion.detail_page' as const,
+  POST_PROMOTION_THUMBNAIL: 'post_promotion.thumbnail' as const,
 };
 
 /**

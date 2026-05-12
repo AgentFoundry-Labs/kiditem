@@ -66,10 +66,13 @@ export function mapCatalogCounts(rows: CatalogCountsRow[]): ProductCatalogCounts
     gradeC: rows.filter((r) => r.abcGrade === 'C').length,
     adCount: rows.filter((r) => !!r.adTier).length,
     noAdCount: rows.filter((r) => !r.adTier).length,
-    draftCount: rows.filter((r) => r.pipelineStep === 'draft').length,
-    processingCount: rows.filter((r) => r.pipelineStep === 'processing').length,
-    processedCount: rows.filter((r) => r.pipelineStep === 'processed').length,
-    discontinuedCount: rows.filter((r) => r.pipelineStep === 'discontinued').length,
+    // Phase 5 (#192): count buckets follow `lifecycleState`. `totalCount`
+    // mirrors `total` so consumers reading either bucket name see the same
+    // catalog total.
+    activeCount: rows.filter((r) => r.lifecycleState === 'active').length,
+    pausedCount: rows.filter((r) => r.lifecycleState === 'paused').length,
+    discontinuedCount: rows.filter((r) => r.lifecycleState === 'discontinued').length,
+    totalCount: rows.length,
     temporaryCount: rows.filter((r) => r.isTemporary).length,
   } satisfies ProductCatalogCounts;
 }

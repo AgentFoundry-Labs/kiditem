@@ -1,5 +1,5 @@
 'use client';
-import { Package, Box, ExternalLink } from "lucide-react";
+import { Package, Box } from "lucide-react";
 import { formatKRW } from "@/lib/utils";
 import { InfoCard, InfoRow } from "./ProductSidebar";
 import { categoryNames } from "./ProductMetrics";
@@ -31,22 +31,6 @@ export default function ProductInfoCards({ product, inventory }: ProductInfoCard
       <InfoCard title="상품 정보" icon={<Package size={16} />}>
         <InfoRow label="카테고리" value={categoryNames[product.category || ""] || product.category || "-"} />
         <InfoRow label="브랜드" value={product.brand ?? "-"} />
-        <InfoRow label="소싱 플랫폼" value={product.sourcePlatform ?? "-"} />
-        {product.sourceUrl && (
-          <InfoRow
-            label="소싱 URL"
-            value={
-              <a
-                href={product.sourceUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-purple-600 hover:underline flex items-center gap-1"
-              >
-                링크 <ExternalLink size={12} />
-              </a>
-            }
-          />
-        )}
         <InfoRow label="상품 코드" value={product.code} />
         {/* ADR-0022 — source barcode/EAN from kiditem_list. Distinct from
             option-level SKU/barcode below. May be shared across multiple

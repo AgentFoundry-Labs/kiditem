@@ -206,7 +206,6 @@ export class MasterCatalogAdapter implements MasterCatalogPort {
           where: { id: masterId, organizationId, isDeleted: false },
           data: {
             imageUrl: url,
-            sourcePlatform: 'coupang',
           },
         });
         return true;

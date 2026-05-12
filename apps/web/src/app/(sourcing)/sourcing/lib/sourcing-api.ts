@@ -1,39 +1,40 @@
 import { apiClient } from '@/lib/api-client';
+import type { SourcingCandidateStatus } from '@kiditem/shared/sourcing';
 
-// pipeline_step 직접 매핑 — Python ContentAgent 가 박는 값들 + 옛날 대문자 ('LISTED' 등) 호환
-export type ProductStatus =
-  | 'DRAFT'
-  | 'PROCESSING'         // legacy uppercase
-  | 'LISTED'
-  | 'DISCONTINUED'
-  | 'draft'              // 초기 scrape 완료
-  | 'processing'         // Step1 진행 중 (AI 카피 생성)
-  | 'content_ready'      // Step1 완료 (draft_content 적재)
-  | 'images_generating'  // Step2 진행 중 (이미지 생성)
-  | 'processed';         // Step2 완료 (processed_data 적재)
-
-/** 진행 중 상태 — 카드 spinner overlay + 폴링 트리거 조건. */
-export const IN_PROGRESS_STATUSES: ProductStatus[] = [
-  'PROCESSING',
-  'processing',
-  'images_generating',
-];
-export const isInProgress = (s: ProductStatus | undefined | null): boolean =>
-  !!s && IN_PROGRESS_STATUSES.includes(s);
-
+/**
+ * Sourcing list/detail entity — `SourcingCandidate` row mapped for UI use.
+ *
+ * Backed by `GET /api/sourcing/extension/products` (list, `status='sourced'`
+ * only) and `GET /api/sourcing/:id` (detail, any status). Phase 7 (#192)
+ * replaced the legacy `pipelineStep` shape with the 3-state candidate status
+ * machine (`sourced` | `promoted` | `rejected`).
+ */
 export interface SourcedProduct {
   id: string;
+  organizationId: string;
+  sourceUrl: string | null;
+  sourcePlatform: string;
   name: string;
-  status: ProductStatus;
-  source_platform: string;
-  source_url: string | null;
-  thumbnail_url: string | null;
-  price_krw: number | null;
-  cost_cny: number | null;
-  image_count: number;
-  is_processed: boolean;
-  created_at: string;
-  updated_at: string;
+  description: string;
+  category: string | null;
+  thumbnailUrl: string | null;
+  imageUrl: string | null;
+  costCny: number | null;
+  status: SourcingCandidateStatus;
+  promotedMasterId: string | null;
+  rejectedAt: string | null;
+  rejectedReason: string | null;
+  triggeredByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Convenience predicate — only `'sourced'` rows poll for changes (Phase 7,
+ * #192). Promoted/rejected candidates are terminal from the UI's perspective.
+ */
+export function isInProgress(status: SourcingCandidateStatus | undefined | null): boolean {
+  return status === 'sourced';
 }
 
 interface ProductListResponse {
@@ -46,26 +47,18 @@ export type SourcingSort = 'newest' | 'oldest' | 'name_asc';
 export interface ProductDetailResponse {
   id: string;
   name: string;
-  status: ProductStatus;
-  source_platform: string;
+  status: SourcingCandidateStatus;
+  promotedMasterId: string | null;
+  sourcePlatform: string;
   source_url: string | null;
   thumbnail_url: string | null;
-  price_krw: number | null;
   cost_cny: number | null;
   image_count: number;
-  is_processed: boolean;
   raw_data: Record<string, unknown> | null;
   processed_data: Record<string, unknown> | null;
   image_urls: string[];
   created_at: string;
   updated_at: string;
-}
-
-interface StatusResponse {
-  id: string;
-  status: ProductStatus;
-  is_processed: boolean;
-  error?: string;
 }
 
 interface ScrapeUrlResponse {
@@ -193,11 +186,21 @@ export function selectBestThumbnailImage(
     .sort((a, b) => b.score - a.score)[0]?.url ?? null;
 }
 
+/** Coerces backend Decimal/string `costCny` into a plain number. */
+function coerceCostCny(value: unknown): number | null {
+  if (value == null) return null;
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
 export const productsApi = {
   async list(params?: {
     page?: number;
     limit?: number;
-    status?: string;
     platform?: string;
     sort?: SourcingSort;
   }): Promise<ProductListResponse> {
@@ -211,31 +214,34 @@ export const productsApi = {
     const data = await apiClient.get<{ items: any[]; total: number; page: number; limit: number }>(`/api/sourcing/extension/products?${qs}`);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const items: SourcedProduct[] = data.items.map((p: any) => {
-      const rawData = p.rawData || {};
+      const rawData = (p.rawData as Record<string, unknown>) || {};
       const images = collectImageUrls(
         rawImageCandidates(rawData),
-        p.images,
         p.imageUrl,
         p.thumbnailUrl,
       );
       const thumbnailUrl = selectBestThumbnailImage(rawData, images, p.thumbnailUrl || p.imageUrl || null);
-      // status: pipelineStep 직접 매핑. 진행 중 / 완료 상태가 카드에서 시각적으로 구분되어야 함.
-      // 이전엔 (p.status || 'DRAFT').toUpperCase() 로 정상 fallback 됐는데 백엔드는 pipelineStep 만
-      // 보내고 status 컬럼이 없어서 무조건 'DRAFT' 였음 → AI 생성 중인 카드도 'DRAFT' 표시.
-      const rawStatus: string = p.pipelineStep || p.status || 'DRAFT';
+      // Phase 7 (#192): rows are SourcingCandidate. Status is the 3-state
+      // candidate machine; list endpoint filters to `status='sourced'` so this
+      // mapping is mostly a TS narrowing exercise.
       return {
         id: p.id,
-        name: p.name || rawData.title || '',
-        status: rawStatus as ProductStatus,
-        source_platform: p.sourcePlatform || rawData.source_platform || '',
-        source_url: p.sourceUrl || rawData.source_url || null,
-        thumbnail_url: thumbnailUrl,
-        price_krw: p.sellPrice || null,
-        cost_cny: p.costCny ? Number(p.costCny) : (rawData.price ? parseFloat(rawData.price) : null),
-        image_count: images.length,
-        is_processed: p.processedData != null,
-        created_at: p.createdAt || '',
-        updated_at: p.updatedAt || '',
+        organizationId: p.organizationId,
+        sourceUrl: p.sourceUrl ?? null,
+        sourcePlatform: p.sourcePlatform || (rawData.source_platform as string) || '',
+        name: p.name || (rawData.title as string) || '',
+        description: p.description ?? '',
+        category: p.category ?? null,
+        thumbnailUrl,
+        imageUrl: p.imageUrl ?? null,
+        costCny: coerceCostCny(p.costCny) ?? (typeof rawData.price === 'string' ? parseFloat(rawData.price) || null : null),
+        status: (p.status ?? 'sourced') as SourcingCandidateStatus,
+        promotedMasterId: p.promotedMasterId ?? null,
+        rejectedAt: p.rejectedAt ?? null,
+        rejectedReason: p.rejectedReason ?? null,
+        triggeredByUserId: p.triggeredByUserId ?? null,
+        createdAt: p.createdAt || '',
+        updatedAt: p.updatedAt || '',
       };
     });
     return { items, total: data.total };
@@ -244,10 +250,19 @@ export const productsApi = {
   async getDetail(id: string): Promise<ProductDetailResponse> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const p = await apiClient.get<any>(`/api/sourcing/${id}`);
-    const rawData = p.rawData || p.raw_data || {};
+    const rawData = (p.rawData as Record<string, unknown>) || {};
+    // Detail endpoint includes images[] (CandidateImage rows). Combine with raw
+    // candidates so the UI sees the full set without depending on Prisma
+    // ordering quirks.
+    const candidateImageUrls = Array.isArray(p.images)
+      ? (p.images
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .map((img: any) => (typeof img?.url === 'string' ? img.url : null))
+          .filter((u: string | null): u is string => !!u))
+      : [];
     const images = collectImageUrls(
+      candidateImageUrls,
       rawImageCandidates(rawData),
-      p.images,
       p.imageUrl,
       p.thumbnailUrl,
     );
@@ -255,17 +270,16 @@ export const productsApi = {
     const thumbnailUrl = selectBestThumbnailImage(hydratedRawData, images, p.thumbnailUrl || p.imageUrl || null);
     return {
       id: p.id,
-      name: p.name || rawData.title || '',
-      status: (p.pipelineStep || p.status || 'DRAFT') as ProductStatus,
-      source_platform: p.sourcePlatform || rawData.source_platform || '',
-      source_url: p.sourceUrl || rawData.source_url || null,
+      name: p.name || (rawData.title as string) || '',
+      status: (p.status ?? 'sourced') as SourcingCandidateStatus,
+      promotedMasterId: p.promotedMasterId ?? null,
+      sourcePlatform: p.sourcePlatform || (rawData.source_platform as string) || '',
+      source_url: p.sourceUrl ?? null,
       thumbnail_url: thumbnailUrl,
-      price_krw: p.sellPrice || null,
-      cost_cny: p.costCny ? Number(p.costCny) : (rawData.price ? parseFloat(rawData.price) : null),
+      cost_cny: coerceCostCny(p.costCny) ?? (typeof rawData.price === 'string' ? parseFloat(rawData.price) || null : null),
       image_count: images.length,
-      is_processed: p.processedData != null,
       raw_data: hydratedRawData,
-      processed_data: p.processedData || p.processed_data || null,
+      processed_data: null,
       image_urls: images,
       created_at: p.createdAt || '',
       updated_at: p.updatedAt || '',
@@ -275,47 +289,39 @@ export const productsApi = {
   async delete(id: string): Promise<{ ok: boolean }> {
     return apiClient.delete<{ ok: boolean }>(`/api/products/masters/${id}`);
   },
-
-  async addRawDataField(
-    id: string,
-    input: { key: string; value: string },
-  ): Promise<{ rawData: Record<string, unknown> }> {
-    return apiClient.post<{ rawData: Record<string, unknown> }>(`/api/products/${id}/raw-data`, input);
-  },
-
-  async process(
-    id: string,
-    opts?: { generation_mode?: string }
-  ): Promise<{ ok: boolean; message: string }> {
-    await apiClient.post<{ ok: boolean }>('/api/agent-os/runs', {
-      agentType: 'content',
-      sourceType: 'sourcing',
-      sourceId: id,
-      payload: { productId: id, ...(opts || {}) },
-    });
-    return { ok: true, message: 'AI 가공 작업이 시작되었습니다.' };
-  },
-
-  async cancel(id: string): Promise<{ ok: boolean }> {
-    return { ok: true };
-  },
-
-  async status(id: string): Promise<StatusResponse> {
-    const detail = await this.getDetail(id);
-    return {
-      id: detail.id,
-      status: detail.status,
-      is_processed: detail.is_processed,
-    };
-  },
-
-  async loadSample(): Promise<{ ok: boolean; message: string }> {
-    return apiClient.post<{ ok: boolean; message: string }>(`/api/products/sample`);
-  },
 };
 
 export const sourcingApi = {
   async scrapeUrl(url: string): Promise<ScrapeUrlResponse> {
     return apiClient.post<ScrapeUrlResponse>(`/api/sourcing/scrape-url`, { url });
   },
+};
+
+/**
+ * Promote/reject inputs for `POST /api/sourcing/candidates/:id/{promote,reject}`.
+ * Mirrors `PromoteCandidateBodyDto` and `RejectCandidateBodyDto` on the
+ * server side.
+ */
+export interface PromoteCandidateInput {
+  options: Array<{ optionName: string; legacyCode?: string; barcode?: string }>;
+  skipPostPromotionHooks?: boolean;
+}
+
+export interface PromoteCandidateResponse {
+  masterId: string;
+}
+
+export interface RejectCandidateResponse {
+  ok: true;
+}
+
+/**
+ * Sourcing candidate promotion/rejection helpers — wraps Phase 3 use cases
+ * `POST /api/sourcing/candidates/:id/promote` and `.../reject`.
+ */
+export const candidatesApi = {
+  promote: (id: string, body: PromoteCandidateInput) =>
+    apiClient.post<PromoteCandidateResponse>(`/api/sourcing/candidates/${id}/promote`, body),
+  reject: (id: string, reason?: string) =>
+    apiClient.post<RejectCandidateResponse>(`/api/sourcing/candidates/${id}/reject`, { reason }),
 };

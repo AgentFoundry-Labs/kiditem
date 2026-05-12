@@ -1,50 +1,35 @@
 import { Injectable } from '@nestjs/common';
-import { MastersService } from '../../../../products/application/service/masters.service';
+import type { Prisma } from '@prisma/client';
+import { MasterPromotionService } from '../../../../products/application/service/master-promotion.service';
 import type {
-  SourcingCreateMasterInput,
-  SourcingMasterHandle,
+  PromoteCandidateInput,
+  PromoteCandidateResult,
   SourcingProductsCatalogPort,
 } from '../../../application/port/out/products-catalog.port';
 
 /**
- * `SOURCING_PRODUCTS_CATALOG_PORT` 의 concrete adapter.
+ * Concrete adapter for `SOURCING_PRODUCTS_CATALOG_PORT`.
  *
- * 이 adapter 만 products domain 의 `MastersService` 를 import 한다. sourcing
- * application service 는 port 만 의존하므로 cross-domain 침범이 격리된다.
+ * This is the only sourcing-side file that imports a products-domain service,
+ * per sourcing/AGENTS.md "Boundary Rules" and apps/server/AGENTS.md
+ * "Reconstruction Rules" (application services depend on ports; concrete
+ * adapters bridge ports to other-domain services).
  *
- * `MastersService.create` 는 `MasterCodeService` 를 트랜잭션 내부에서
- * 호출하여 `MasterCodeCounter` 를 increment + `M-00000001` 형식의 code 를
- * 발급한다. 따라서 sourcing/AGENTS.md 가 요구하는 "Plan B3 (MasterCodeService
- * integration)" 전제는 이 어댑터를 통해 자연 충족된다.
+ * `MasterPromotionService.create` owns the products-side invariants:
+ * `MasterCodeService.generate(tx)` for the family code, master row write with
+ * `lifecycleState='active'`, image gallery createMany, and per-option
+ * `OptionsService.create` so SKU issuance + tenant guards run inside the same
+ * transaction.
  */
 @Injectable()
 export class SourcingProductsCatalogAdapter implements SourcingProductsCatalogPort {
-  constructor(private readonly masters: MastersService) {}
+  constructor(private readonly promotion: MasterPromotionService) {}
 
-  async createMaster(
+  async promoteCandidate(
+    tx: Prisma.TransactionClient,
     organizationId: string,
-    input: SourcingCreateMasterInput,
-  ): Promise<SourcingMasterHandle> {
-    const created = await this.masters.create(organizationId, {
-      name: input.name,
-      description: input.description,
-      thumbnailUrl: input.thumbnailUrl,
-      imageUrl: input.imageUrl,
-      images: input.images?.map((img) => ({
-        url: img.url,
-        role: img.role,
-        label: img.label ?? null,
-        sortOrder: img.sortOrder,
-        source: img.source,
-        isPrimary: img.isPrimary,
-      })),
-      costCny: input.costCny,
-      category: input.category,
-      tags: input.tags,
-      sourceUrl: input.sourceUrl,
-      sourcePlatform: input.sourcePlatform,
-      pipelineStep: input.pipelineStep,
-    });
-    return { id: created.id };
+    input: PromoteCandidateInput,
+  ): Promise<PromoteCandidateResult> {
+    return this.promotion.create(tx, organizationId, input);
   }
 }

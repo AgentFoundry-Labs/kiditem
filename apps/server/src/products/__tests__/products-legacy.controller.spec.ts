@@ -14,7 +14,7 @@ describe('ProductsLegacyController (GET-only alias, e2e)', () => {
     detail: vi.fn().mockResolvedValue({ id: 'm1', options: [] }),
     counts: vi.fn().mockResolvedValue({
       total: 0, gradeA: 0, gradeB: 0, gradeC: 0, adCount: 0, noAdCount: 0,
-      draftCount: 0, processingCount: 0, processedCount: 0, discontinuedCount: 0,
+      activeCount: 0, pausedCount: 0, discontinuedCount: 0, totalCount: 0,
       temporaryCount: 0,
     }),
   };
