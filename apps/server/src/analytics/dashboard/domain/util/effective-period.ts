@@ -1,7 +1,10 @@
 import type { DashboardEffectivePeriod } from '@kiditem/shared/dashboard';
-import type { CoupangAdsMetrics, WingTrafficMetrics } from '../adapter/out/repository/wing-traffic-aggregation.repository.adapter';
-import type { RangeProfitMetrics } from '../adapter/out/repository/profit-calculation.repository.adapter';
-import type { DashboardContext } from '../application/service/context';
+import type {
+  CoupangAdsMetrics,
+  WingTrafficMetrics,
+} from '../../application/port/out/wing-traffic-aggregation.repository.port';
+import type { RangeProfitMetrics } from '../../application/port/out/profit-calculation.repository.port';
+import type { DashboardContext } from '../context';
 
 export function buildEffectivePeriod(
   ctx: DashboardContext,

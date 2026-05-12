@@ -2,10 +2,18 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
 import { DashboardAdService } from '../application/service/dashboard-ad.service';
-import { buildDashboardContext } from '../application/service/context';
+import { buildDashboardContext } from '../domain/context';
 import { DashboardAdRepositoryAdapter } from '../adapter/out/repository/dashboard-ad.repository.adapter';
 import { WingTrafficAggregationRepositoryAdapter } from '../adapter/out/repository/wing-traffic-aggregation.repository.adapter';
+import { ProfitCalculationRepositoryAdapter } from '../adapter/out/repository/profit-calculation.repository.adapter';
+import { AdAggregationRepositoryAdapter } from '../adapter/out/repository/ad-aggregation.repository.adapter';
+import { WingAdSummaryRepositoryAdapter } from '../adapter/out/repository/wing-ad-summary.repository.adapter';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { PROFIT_CALCULATION_REPOSITORY_PORT } from '../application/port/out/profit-calculation.repository.port';
+import { AD_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/ad-aggregation.repository.port';
+import { WING_AD_SUMMARY_REPOSITORY_PORT } from '../application/port/out/wing-ad-summary.repository.port';
+import { DASHBOARD_AD_REPOSITORY_PORT } from '../application/port/out/dashboard-ad.repository.port';
+import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/wing-traffic-aggregation.repository.port';
 import {
   makeTestPrisma,
   resetDb,
@@ -28,7 +36,15 @@ describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows'
         DashboardAdService,
         DashboardAdRepositoryAdapter,
         WingTrafficAggregationRepositoryAdapter,
+        ProfitCalculationRepositoryAdapter,
+        AdAggregationRepositoryAdapter,
+        WingAdSummaryRepositoryAdapter,
         { provide: PrismaService, useValue: prisma },
+        { provide: PROFIT_CALCULATION_REPOSITORY_PORT, useExisting: ProfitCalculationRepositoryAdapter },
+        { provide: AD_AGGREGATION_REPOSITORY_PORT, useExisting: AdAggregationRepositoryAdapter },
+        { provide: WING_AD_SUMMARY_REPOSITORY_PORT, useExisting: WingAdSummaryRepositoryAdapter },
+        { provide: DASHBOARD_AD_REPOSITORY_PORT, useExisting: DashboardAdRepositoryAdapter },
+        { provide: WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT, useExisting: WingTrafficAggregationRepositoryAdapter },
       ],
     }).compile();
     service = m.get(DashboardAdService);
@@ -137,7 +153,7 @@ describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows'
     const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
 
     // TEST has 1 ad row this month with spend=500
-    // monthly.totalAdSpend comes from calculateProfitForRange helper (already organizationId-scoped)
+    // monthly.totalAdSpend comes from ProfitCalculationRepositoryAdapter (organizationId-scoped via port)
     // Just assert no sentinel bleed
     expect(result.monthly.totalAdSpend).not.toBe(IDOR_SENTINEL);
   });

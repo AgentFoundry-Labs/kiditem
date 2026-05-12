@@ -1,12 +1,15 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Inject, Query } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../../auth/decorators/current-organization.decorator';
 import { DashboardSalesService } from '../../../application/service/dashboard-sales.service';
 import { DashboardAdService } from '../../../application/service/dashboard-ad.service';
 import { DashboardInventoryService } from '../../../application/service/dashboard-inventory.service';
 import { DashboardTrendService } from '../../../application/service/dashboard-trend.service';
-import { buildDashboardContext } from '../../../application/service/context';
+import { buildDashboardContext } from '../../../domain/context';
 import { DashboardQueryDto, DashboardTrendQueryDto } from './dto/dashboard-query.dto';
-import { WingTrafficAggregationRepositoryAdapter } from '../../out/repository/wing-traffic-aggregation.repository.adapter';
+import {
+  WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT,
+  type WingTrafficAggregationRepositoryPort,
+} from '../../../application/port/out/wing-traffic-aggregation.repository.port';
 import type {
   DashboardSalesSummary,
   DashboardAdSummary,
@@ -21,7 +24,8 @@ export class DashboardController {
     private readonly adService: DashboardAdService,
     private readonly inventoryService: DashboardInventoryService,
     private readonly trendService: DashboardTrendService,
-    private readonly wingTrafficRepository: WingTrafficAggregationRepositoryAdapter,
+    @Inject(WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT)
+    private readonly wingTrafficRepository: WingTrafficAggregationRepositoryPort,
   ) {}
 
   /**

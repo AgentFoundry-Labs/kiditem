@@ -4,7 +4,11 @@ import type { PrismaClient } from '@prisma/client';
 import { DashboardTrendService } from '../application/service/dashboard-trend.service';
 import { DashboardTrendRepositoryAdapter } from '../adapter/out/repository/dashboard-trend.repository.adapter';
 import { WingTrafficAggregationRepositoryAdapter } from '../adapter/out/repository/wing-traffic-aggregation.repository.adapter';
+import { ProfitCalculationRepositoryAdapter } from '../adapter/out/repository/profit-calculation.repository.adapter';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { PROFIT_CALCULATION_REPOSITORY_PORT } from '../application/port/out/profit-calculation.repository.port';
+import { DASHBOARD_TREND_REPOSITORY_PORT } from '../application/port/out/dashboard-trend.repository.port';
+import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/wing-traffic-aggregation.repository.port';
 import {
   makeTestPrisma,
   resetDb,
@@ -33,7 +37,11 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
         DashboardTrendService,
         DashboardTrendRepositoryAdapter,
         WingTrafficAggregationRepositoryAdapter,
+        ProfitCalculationRepositoryAdapter,
         { provide: PrismaService, useValue: prisma },
+        { provide: PROFIT_CALCULATION_REPOSITORY_PORT, useExisting: ProfitCalculationRepositoryAdapter },
+        { provide: DASHBOARD_TREND_REPOSITORY_PORT, useExisting: DashboardTrendRepositoryAdapter },
+        { provide: WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT, useExisting: WingTrafficAggregationRepositoryAdapter },
       ],
     }).compile();
     service = m.get(DashboardTrendService);

@@ -1,28 +1,38 @@
-import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
-import { PrismaService } from '../../../../prisma/prisma.service';
+import {
+  Inject,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import type {
   DashboardSalesSummary,
   ProfitBreakdown,
   MonthlyTrendItem,
   TrafficKpi,
 } from '@kiditem/shared/dashboard';
-import type { DashboardContext } from './context';
+import type { DashboardContext } from '../../domain/context';
 import {
-  calculateProfitForRange,
+  PROFIT_CALCULATION_REPOSITORY_PORT,
+  type ProfitCalculationRepositoryPort,
   type RangeProfitMetrics,
-} from '../../adapter/out/repository/profit-calculation.repository.adapter';
+} from '../port/out/profit-calculation.repository.port';
 import {
-  fetchWingAdSummary,
+  WING_AD_SUMMARY_REPOSITORY_PORT,
+  type WingAdSummaryRepositoryPort,
   type WingAdSummaryResult,
-} from '../../adapter/out/repository/wing-ad-summary.repository.adapter';
-import { DashboardSalesRepositoryAdapter } from '../../adapter/out/repository/dashboard-sales.repository.adapter';
+} from '../port/out/wing-ad-summary.repository.port';
 import {
-  WingTrafficAggregationRepositoryAdapter,
+  DASHBOARD_SALES_REPOSITORY_PORT,
+  type DashboardSalesRepositoryPort,
+} from '../port/out/dashboard-sales.repository.port';
+import {
+  WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT,
+  type WingTrafficAggregationRepositoryPort,
   type CoupangAdsMetrics,
   type WingTrafficMetrics,
-} from '../../adapter/out/repository/wing-traffic-aggregation.repository.adapter';
-import { buildEffectivePeriod } from '../../helpers/effective-period';
-import { pct1 } from '../../helpers/percent';
+} from '../port/out/wing-traffic-aggregation.repository.port';
+import { buildEffectivePeriod } from '../../domain/util/effective-period';
+import { pct1 } from '../../domain/util/percent';
 
 /**
  * Dashboard sales summary.
@@ -48,9 +58,14 @@ export class DashboardSalesService {
   private readonly logger = new Logger(DashboardSalesService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly salesRepository: DashboardSalesRepositoryAdapter,
-    private readonly wingTrafficRepository: WingTrafficAggregationRepositoryAdapter,
+    @Inject(PROFIT_CALCULATION_REPOSITORY_PORT)
+    private readonly profitCalculation: ProfitCalculationRepositoryPort,
+    @Inject(WING_AD_SUMMARY_REPOSITORY_PORT)
+    private readonly wingAdSummary: WingAdSummaryRepositoryPort,
+    @Inject(DASHBOARD_SALES_REPOSITORY_PORT)
+    private readonly salesRepository: DashboardSalesRepositoryPort,
+    @Inject(WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT)
+    private readonly wingTrafficRepository: WingTrafficAggregationRepositoryPort,
   ) {}
 
   async getSummary(
@@ -59,7 +74,16 @@ export class DashboardSalesService {
   ): Promise<DashboardSalesSummary> {
     try {
       const startedAt = Date.now();
-      const { year, month, monthStart, monthEnd, prevMonthDate, dateRange, todayStart, todayEnd } = ctx;
+      const {
+        year,
+        month,
+        monthStart,
+        monthEnd,
+        prevMonthDate,
+        dateRange,
+        todayStart,
+        todayEnd,
+      } = ctx;
 
       const [
         curMonth,
@@ -80,15 +104,15 @@ export class DashboardSalesService {
         coupangAdsPrevMonth,
         latestDataDate,
       ] = await Promise.all([
-        calculateProfitForRange(this.prisma, organizationId, monthStart, monthEnd),
-        calculateProfitForRange(this.prisma, organizationId, prevMonthDate, monthStart),
-        calculateProfitForRange(this.prisma, organizationId, dateRange.start, dateRange.end),
-        calculateProfitForRange(this.prisma, organizationId, dateRange.prevStart, dateRange.prevEnd),
+        this.profitCalculation.calculateForRange(organizationId, monthStart, monthEnd),
+        this.profitCalculation.calculateForRange(organizationId, prevMonthDate, monthStart),
+        this.profitCalculation.calculateForRange(organizationId, dateRange.start, dateRange.end),
+        this.profitCalculation.calculateForRange(organizationId, dateRange.prevStart, dateRange.prevEnd),
         this.salesRepository.fetchTodayKpis(organizationId, todayStart, todayEnd),
         this.salesRepository.fetchTopProducts(organizationId, monthStart, monthEnd),
         this.salesRepository.fetchDailyRevenue(organizationId, monthStart, monthEnd),
         this.fetchMonthlyTrend(organizationId, monthStart),
-        fetchWingAdSummary(this.prisma, organizationId, year, month, monthStart),
+        this.wingAdSummary.fetchCurrentMonthSummary(organizationId, year, month, monthStart),
         this.wingTrafficRepository.aggregateTraffic(organizationId, monthStart, monthEnd),
         this.wingTrafficRepository.aggregateTraffic(organizationId, prevMonthDate, monthStart),
         this.wingTrafficRepository.aggregateTraffic(organizationId, dateRange.start, dateRange.end),
@@ -103,14 +127,16 @@ export class DashboardSalesService {
       const useWingRange = rangeCur.revenue === 0 && wingTrafficRange.hasData;
       const useWingToday = todayRows.revenue === 0 && wingTrafficToday.hasData;
       const useCoupangAdsForMonth =
-        coupangAdsMonth.hasData &&
-        coupangAdsMonth.spend > curMonth.adCost;
+        coupangAdsMonth.hasData && coupangAdsMonth.spend > curMonth.adCost;
 
       const today = useWingToday
         ? { revenue: wingTrafficToday.revenue, orders: wingTrafficToday.orders }
         : todayRows;
 
-      const wingLastSync = pickLatest(wing?.lastSyncAt ?? null, wingTrafficMonth.lastObservedAt);
+      const wingLastSync = pickLatest(
+        wing?.lastSyncAt ?? null,
+        wingTrafficMonth.lastObservedAt,
+      );
       const lastSyncAt = wingLastSync ?? coupangAdsMonth.lastObservedAt;
 
       this.logger.debug({
@@ -145,7 +171,13 @@ export class DashboardSalesService {
         ),
         topProducts: topProductRows,
         monthlyTrend,
-        profitDetail: this.buildProfitDetail(curMonth, wingTrafficMonth, coupangAdsMonth, useWingMonthly, useCoupangAdsForMonth),
+        profitDetail: this.buildProfitDetail(
+          curMonth,
+          wingTrafficMonth,
+          coupangAdsMonth,
+          useWingMonthly,
+          useCoupangAdsForMonth,
+        ),
         rangeKpi: this.buildRangeKpi(
           ctx.effectiveRange,
           rangeCur,
@@ -158,7 +190,13 @@ export class DashboardSalesService {
         ),
         dailyRevenue: dailyRevenueRows,
         planAchievement: null,
-        trafficKpi: this.buildTrafficKpi(rangeCur, wingTrafficRange, coupangAdsForRange, wing, useWingRange),
+        trafficKpi: this.buildTrafficKpi(
+          rangeCur,
+          wingTrafficRange,
+          coupangAdsForRange,
+          wing,
+          useWingRange,
+        ),
         lastSyncAt: lastSyncAt?.toISOString() ?? null,
         effectivePeriod: buildEffectivePeriod(
           ctx,
@@ -205,7 +243,9 @@ export class DashboardSalesService {
     const adRate = pct1(adCost, revenue);
     const prevAdRate = pct1(prevAdCost, prevRevenue);
     const revenueChange = pct1(revenue - prevRevenue, prevRevenue);
-    const profitChange = useWing ? 0 : pct1(profit - prevProfit, Math.abs(prevProfit));
+    const profitChange = useWing
+      ? 0
+      : pct1(profit - prevProfit, Math.abs(prevProfit));
 
     return {
       revenue,
@@ -268,7 +308,9 @@ export class DashboardSalesService {
     const profitRate = useWing ? 0 : pct1(profit, revenue);
     const prevProfitRate = useWing ? 0 : pct1(prevProfit, prevRevenue);
     const revenueChange = pct1(revenue - prevRevenue, prevRevenue);
-    const profitChange = useWing ? 0 : pct1(profit - prevProfit, Math.abs(prevProfit));
+    const profitChange = useWing
+      ? 0
+      : pct1(profit - prevProfit, Math.abs(prevProfit));
     return {
       range,
       revenue,
@@ -279,28 +321,36 @@ export class DashboardSalesService {
       profitChange,
       profitRate,
       prevProfitRate,
-      profitRateChange: useWing ? 0 : Math.round((profitRate - prevProfitRate) * 10) / 10,
+      profitRateChange: useWing
+        ? 0
+        : Math.round((profitRate - prevProfitRate) * 10) / 10,
     } satisfies NonNullable<DashboardSalesSummary['rangeKpi']>;
   }
 
-  // ── monthlyTrend = loop × 6 calculateProfitForRange ─────────────────────
+  // ── monthlyTrend = loop × 6 calculateForRange ───────────────────────────
   private async fetchMonthlyTrend(
     organizationId: string,
     currentMonthStart: Date,
   ): Promise<MonthlyTrendItem[]> {
     const offsets = [5, 4, 3, 2, 1, 0]; // chronological: oldest → current
-    const trends = await Promise.all(offsets.map(async (offset) => {
-      const start = new Date(currentMonthStart.getFullYear(), currentMonthStart.getMonth() - offset, 1);
-      const end = new Date(start.getFullYear(), start.getMonth() + 1, 1);
-      const [m, wing] = await Promise.all([
-        calculateProfitForRange(this.prisma, organizationId, start, end),
-        this.wingTrafficRepository.aggregateTraffic(organizationId, start, end),
-      ]);
-      const period = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}`;
-      const revenue = m.revenue > 0 ? m.revenue : wing.revenue;
-      const profit = m.revenue > 0 ? m.netProfit : 0;
-      return { period, revenue, profit, adCost: m.adCost } satisfies MonthlyTrendItem;
-    }));
+    const trends = await Promise.all(
+      offsets.map(async (offset) => {
+        const start = new Date(
+          currentMonthStart.getFullYear(),
+          currentMonthStart.getMonth() - offset,
+          1,
+        );
+        const end = new Date(start.getFullYear(), start.getMonth() + 1, 1);
+        const [m, wing] = await Promise.all([
+          this.profitCalculation.calculateForRange(organizationId, start, end),
+          this.wingTrafficRepository.aggregateTraffic(organizationId, start, end),
+        ]);
+        const period = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}`;
+        const revenue = m.revenue > 0 ? m.revenue : wing.revenue;
+        const profit = m.revenue > 0 ? m.netProfit : 0;
+        return { period, revenue, profit, adCost: m.adCost } satisfies MonthlyTrendItem;
+      }),
+    );
     return trends;
   }
 
@@ -350,7 +400,6 @@ export class DashboardSalesService {
       profitRate: pct1(cur.netProfit, cur.revenue),
     } satisfies TrafficKpi;
   }
-
 }
 
 function pickLatest(a: Date | null, b: Date | null): Date | null {
