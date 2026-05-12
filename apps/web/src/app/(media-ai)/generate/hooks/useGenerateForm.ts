@@ -519,8 +519,7 @@ async function createTemporaryProduct(input: {
       source: 'detail-page-generator',
       isPrimary: index === 0,
     })),
-    sourcePlatform: 'detail-page-generator',
-    pipelineStep: 'detail_page_generated',
+    lifecycleState: 'active',
     isTemporary: true,
     temporaryReason: '상세페이지 생성 페이지에서 직접 등록',
     memo: '상세페이지 생성 페이지에서 이미지와 핵심 정보로 자동 생성된 임시 상품',
@@ -559,6 +558,5 @@ function generationStatusToDialogPhase(
 
 function buildGenerationEditorUrl(item: KidsPlayfulGenerationItem): string | undefined {
   if (!item.productId) return undefined;
-  const queryKey = item.templateId === 'bold-vertical' ? 'boldId' : 'kpId';
-  return `/sourcing/${item.productId}/editor?${queryKey}=${item.id}`;
+  return `/generate?productId=${encodeURIComponent(item.productId)}`;
 }

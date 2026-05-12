@@ -2,10 +2,16 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
 import { DashboardSalesService } from '../application/service/dashboard-sales.service';
-import { buildDashboardContext } from '../application/service/context';
+import { buildDashboardContext } from '../domain/context';
 import { DashboardSalesRepositoryAdapter } from '../adapter/out/repository/dashboard-sales.repository.adapter';
 import { WingTrafficAggregationRepositoryAdapter } from '../adapter/out/repository/wing-traffic-aggregation.repository.adapter';
+import { ProfitCalculationRepositoryAdapter } from '../adapter/out/repository/profit-calculation.repository.adapter';
+import { WingAdSummaryRepositoryAdapter } from '../adapter/out/repository/wing-ad-summary.repository.adapter';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { PROFIT_CALCULATION_REPOSITORY_PORT } from '../application/port/out/profit-calculation.repository.port';
+import { WING_AD_SUMMARY_REPOSITORY_PORT } from '../application/port/out/wing-ad-summary.repository.port';
+import { DASHBOARD_SALES_REPOSITORY_PORT } from '../application/port/out/dashboard-sales.repository.port';
+import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/wing-traffic-aggregation.repository.port';
 import {
   makeTestPrisma,
   resetDb,
@@ -33,7 +39,13 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
         DashboardSalesService,
         DashboardSalesRepositoryAdapter,
         WingTrafficAggregationRepositoryAdapter,
+        ProfitCalculationRepositoryAdapter,
+        WingAdSummaryRepositoryAdapter,
         { provide: PrismaService, useValue: prisma },
+        { provide: PROFIT_CALCULATION_REPOSITORY_PORT, useExisting: ProfitCalculationRepositoryAdapter },
+        { provide: WING_AD_SUMMARY_REPOSITORY_PORT, useExisting: WingAdSummaryRepositoryAdapter },
+        { provide: DASHBOARD_SALES_REPOSITORY_PORT, useExisting: DashboardSalesRepositoryAdapter },
+        { provide: WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT, useExisting: WingTrafficAggregationRepositoryAdapter },
       ],
     }).compile();
     service = m.get(DashboardSalesService);

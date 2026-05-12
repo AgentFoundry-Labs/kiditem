@@ -3,6 +3,7 @@ import { NotFoundException } from '@nestjs/common';
 import type { Prisma, PrismaClient } from '@prisma/client';
 
 import { ActionBoardService } from '../action-board.service';
+import { ActionBoardRepositoryAdapter } from '../../../adapter/out/repository/action-board.repository.adapter';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -49,7 +50,9 @@ describe('ActionBoard mutations — real Postgres tenant guard', () => {
     vi.restoreAllMocks();
     await resetDb(prisma);
     await seedBaseFixture(prisma);
-    service = new ActionBoardService(prisma as any);
+    service = new ActionBoardService(
+      new ActionBoardRepositoryAdapter(prisma as any),
+    );
   });
 
   it('updateTask rejects a foreign-organization id and leaves the row unchanged', async () => {

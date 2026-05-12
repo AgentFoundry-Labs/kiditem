@@ -7,6 +7,10 @@ import { ChannelAccountController } from './adapter/in/http/channel-account.cont
 import { CoupangProviderAdapter } from './adapter/out/coupang/coupang-provider.adapter';
 import { ChannelSyncService } from './application/service/channel-sync.service';
 import { ChannelDashboardService } from './application/service/channel-dashboard.service';
+import { ChannelReconciliationMatcherService } from './application/service/channel-reconciliation-matcher.service';
+import { ChannelReconciliationQueryService } from './application/service/channel-reconciliation-query.service';
+import { ChannelReconciliationResolutionService } from './application/service/channel-reconciliation-resolution.service';
+import { ChannelReconciliationScanService } from './application/service/channel-reconciliation-scan.service';
 import { ChannelReconciliationService } from './application/service/channel-reconciliation.service';
 import { ChannelAccountService } from './application/service/channel-account.service';
 import { COUPANG_PROVIDER_PORT } from './application/port/out/coupang-provider.port';
@@ -22,6 +26,10 @@ import { COUPANG_PROVIDER_PORT } from './application/port/out/coupang-provider.p
   providers: [
     ChannelSyncService,
     ChannelDashboardService,
+    ChannelReconciliationMatcherService,
+    ChannelReconciliationQueryService,
+    ChannelReconciliationResolutionService,
+    ChannelReconciliationScanService,
     ChannelReconciliationService,
     ChannelAccountService,
     CoupangProviderAdapter,

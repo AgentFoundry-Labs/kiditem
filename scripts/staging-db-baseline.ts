@@ -11,11 +11,20 @@ import {
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdir, readFile, readdir, stat, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { promisify } from 'node:util';
+import {
+  bool,
+  parseRawArgs,
+  pushValue,
+  requiredValue,
+  value,
+  type ParsedArgs,
+} from './_shared/cli-args';
+import { fileSize, readJson, sha256, writeJson } from './_shared/fs';
 
 const execFileAsync = promisify(execFile);
 
@@ -49,13 +58,10 @@ BEGIN
 END $$;
 `;
 
-type Command = 'status' | 'export' | 'export-baseline' | 'verify' | 'restore' | 'restore-baseline' | 'help';
+const COMMANDS = ['status', 'export', 'export-baseline', 'verify', 'restore', 'restore-baseline', 'help'] as const;
+type Command = (typeof COMMANDS)[number];
 
-type CliArgs = {
-  command: Command;
-  values: Map<string, string[]>;
-  flags: Set<string>;
-};
+type CliArgs = ParsedArgs<Command>;
 
 export type BaselineObjectKeys = {
   dump: string;
@@ -103,51 +109,7 @@ type VerifiedBaseline = {
 };
 
 function parseArgs(argv = process.argv.slice(2)): CliArgs {
-  const command = (argv.shift() ?? 'status') as Command;
-  if (!['status', 'export', 'export-baseline', 'verify', 'restore', 'restore-baseline', 'help'].includes(command)) {
-    throw new Error(`Unknown command: ${command}`);
-  }
-
-  const values = new Map<string, string[]>();
-  const flags = new Set<string>();
-  for (let i = 0; i < argv.length; i += 1) {
-    const token = argv[i];
-    if (!token.startsWith('--')) throw new Error(`Unexpected argument: ${token}`);
-    const stripped = token.slice(2);
-    const eq = stripped.indexOf('=');
-    if (eq >= 0) {
-      pushValue(values, stripped.slice(0, eq), stripped.slice(eq + 1));
-      continue;
-    }
-    const next = argv[i + 1];
-    if (!next || next.startsWith('--')) {
-      flags.add(stripped);
-      continue;
-    }
-    pushValue(values, stripped, next);
-    i += 1;
-  }
-  return { command, values, flags };
-}
-
-function pushValue(values: Map<string, string[]>, key: string, item: string): void {
-  values.set(key, [...(values.get(key) ?? []), item]);
-}
-
-function value(args: CliArgs, key: string): string | undefined {
-  return args.values.get(key)?.at(-1);
-}
-
-function bool(args: CliArgs, key: string): boolean {
-  return args.flags.has(key) || value(args, key) === 'true';
-}
-
-function requiredValue(args: CliArgs, key: string, envName?: string): string {
-  const fromArgs = value(args, key);
-  const fromEnv = envName ? process.env[envName] : undefined;
-  const resolved = fromArgs ?? fromEnv;
-  if (!resolved) throw new Error(`Missing --${key}${envName ? ` or ${envName}` : ''}`);
-  return resolved;
+  return parseRawArgs(argv, { commands: COMMANDS, defaultCommand: 'status' });
 }
 
 export function safeProfileId(input: string): string {
@@ -278,14 +240,6 @@ function outputDirFor(profileId: string, args: CliArgs): string {
     repoRoot(),
     value(args, 'output-dir') ?? path.join(DEFAULT_OUTPUT_ROOT, safeProfileId(profileId)),
   );
-}
-
-async function sha256File(file: string): Promise<string> {
-  return createHash('sha256').update(await readFile(file)).digest('hex');
-}
-
-async function fileSize(file: string): Promise<number> {
-  return (await stat(file)).size;
 }
 
 async function removeKnownOutputFiles(...files: string[]): Promise<void> {
@@ -485,15 +439,6 @@ async function ensurePublicSchemaGrants(dbUrl: string): Promise<void> {
   ], { maxBuffer: 10 * 1024 * 1024 });
 }
 
-async function writeJson(file: string, data: unknown): Promise<void> {
-  await mkdir(path.dirname(file), { recursive: true });
-  await writeFile(file, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
-}
-
-async function readJson<T>(file: string): Promise<T> {
-  return JSON.parse(await readFile(file, 'utf8')) as T;
-}
-
 async function writeCurrentDbRecord(manifest: BaselineManifest, recordDirInput?: string): Promise<string | null> {
   const recordDir = recordDirInput ?? process.env.STAGING_DB_BASELINE_RECORD_DIR;
   if (!recordDir) return null;
@@ -555,7 +500,7 @@ async function commandExport(args: CliArgs): Promise<void> {
     sanitized: true,
     dump: {
       path: keys.dump,
-      sha256: await sha256File(dumpPath),
+      sha256: await sha256(dumpPath),
       bytes: await fileSize(dumpPath),
       format: 'pgcustom',
     },
@@ -567,7 +512,7 @@ async function commandExport(args: CliArgs): Promise<void> {
 
   const checksums = {
     [keys.dump]: manifest.dump.sha256,
-    [keys.manifest]: await sha256File(manifestPath),
+    [keys.manifest]: await sha256(manifestPath),
   };
   await writeFile(checksumsPath, buildChecksumsFile(checksums), 'utf8');
 
@@ -609,7 +554,7 @@ async function verifyBaseline(args: CliArgs): Promise<VerifiedBaseline> {
     dumpPath: keys.dump,
   });
   const checksums = parseChecksumsFile(await readFile(checksumsPath, 'utf8'));
-  const manifestSha = await sha256File(manifestPath);
+  const manifestSha = await sha256(manifestPath);
   const expectedManifestSha = checksums[keys.manifest];
   if (!expectedManifestSha) {
     throw new Error(`Checksum file is missing manifest entry: ${keys.manifest}`);
@@ -617,7 +562,7 @@ async function verifyBaseline(args: CliArgs): Promise<VerifiedBaseline> {
   if (expectedManifestSha !== manifestSha) {
     throw new Error(`Manifest checksum mismatch: ${manifestSha} != ${expectedManifestSha}`);
   }
-  const dumpSha = await sha256File(dumpPath);
+  const dumpSha = await sha256(dumpPath);
   if (manifest.dump.sha256 !== dumpSha) {
     throw new Error(`Dump checksum mismatch: ${dumpSha} != ${manifest.dump.sha256}`);
   }

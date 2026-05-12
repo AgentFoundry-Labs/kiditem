@@ -1,5 +1,9 @@
-import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
-import { PrismaService } from '../../../../prisma/prisma.service';
+import {
+  Inject,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import type {
   DashboardAdSummary,
   AdMetricsDetail,
@@ -7,27 +11,34 @@ import type {
   DailyAdItem,
   WingAdSummary,
 } from '@kiditem/shared/dashboard';
-import type { DashboardContext } from './context';
+import type { DashboardContext } from '../../domain/context';
 import {
-  calculateProfitForRange,
+  PROFIT_CALCULATION_REPOSITORY_PORT,
+  type ProfitCalculationRepositoryPort,
   type RangeProfitMetrics,
-} from '../../adapter/out/repository/profit-calculation.repository.adapter';
+} from '../port/out/profit-calculation.repository.port';
 import {
-  aggregateAdForRange,
+  AD_AGGREGATION_REPOSITORY_PORT,
+  type AdAggregationRepositoryPort,
   type RangeAdMetrics,
-} from '../../adapter/out/repository/ad-aggregation.repository.adapter';
+} from '../port/out/ad-aggregation.repository.port';
 import {
-  fetchWingAdSummary,
+  WING_AD_SUMMARY_REPOSITORY_PORT,
+  type WingAdSummaryRepositoryPort,
   type WingAdSummaryResult,
-} from '../../adapter/out/repository/wing-ad-summary.repository.adapter';
-import { DashboardAdRepositoryAdapter } from '../../adapter/out/repository/dashboard-ad.repository.adapter';
+} from '../port/out/wing-ad-summary.repository.port';
 import {
-  WingTrafficAggregationRepositoryAdapter,
+  DASHBOARD_AD_REPOSITORY_PORT,
+  type DashboardAdRepositoryPort,
+} from '../port/out/dashboard-ad.repository.port';
+import {
+  WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT,
+  type WingTrafficAggregationRepositoryPort,
   type CoupangAdsMetrics,
   type WingTrafficMetrics,
-} from '../../adapter/out/repository/wing-traffic-aggregation.repository.adapter';
-import { buildEffectivePeriod } from '../../helpers/effective-period';
-import { pct1, pct2 } from '../../helpers/percent';
+} from '../port/out/wing-traffic-aggregation.repository.port';
+import { buildEffectivePeriod } from '../../domain/util/effective-period';
+import { pct1, pct2 } from '../../domain/util/percent';
 import { kstDayStart } from '../../../../common/kst';
 
 @Injectable()
@@ -35,12 +46,22 @@ export class DashboardAdService {
   private readonly logger = new Logger(DashboardAdService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly adRepository: DashboardAdRepositoryAdapter,
-    private readonly wingTrafficRepository: WingTrafficAggregationRepositoryAdapter,
+    @Inject(PROFIT_CALCULATION_REPOSITORY_PORT)
+    private readonly profitCalculation: ProfitCalculationRepositoryPort,
+    @Inject(AD_AGGREGATION_REPOSITORY_PORT)
+    private readonly adAggregation: AdAggregationRepositoryPort,
+    @Inject(WING_AD_SUMMARY_REPOSITORY_PORT)
+    private readonly wingAdSummary: WingAdSummaryRepositoryPort,
+    @Inject(DASHBOARD_AD_REPOSITORY_PORT)
+    private readonly adRepository: DashboardAdRepositoryPort,
+    @Inject(WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT)
+    private readonly wingTrafficRepository: WingTrafficAggregationRepositoryPort,
   ) {}
 
-  async getSummary(ctx: DashboardContext, organizationId: string): Promise<DashboardAdSummary> {
+  async getSummary(
+    ctx: DashboardContext,
+    organizationId: string,
+  ): Promise<DashboardAdSummary> {
     try {
       const { year, month, monthStart, monthEnd, prevMonthDate, dateRange, anchor } = ctx;
 
@@ -69,16 +90,16 @@ export class DashboardAdService {
         wingTrafficCurMonth,
         latestDataDate,
       ] = await Promise.all([
-        aggregateAdForRange(this.prisma, organizationId, monthStart, monthEnd),
-        aggregateAdForRange(this.prisma, organizationId, prevMonthDate, monthStart),
-        aggregateAdForRange(this.prisma, organizationId, dateRange.start, dateRange.end),
-        aggregateAdForRange(this.prisma, organizationId, dateRange.prevStart, dateRange.prevEnd),
+        this.adAggregation.aggregateForRange(organizationId, monthStart, monthEnd),
+        this.adAggregation.aggregateForRange(organizationId, prevMonthDate, monthStart),
+        this.adAggregation.aggregateForRange(organizationId, dateRange.start, dateRange.end),
+        this.adAggregation.aggregateForRange(organizationId, dateRange.prevStart, dateRange.prevEnd),
         this.adRepository.fetchDailyAdCost(organizationId, thirtyDaysAgo),
-        calculateProfitForRange(this.prisma, organizationId, monthStart, monthEnd),
-        calculateProfitForRange(this.prisma, organizationId, prevMonthDate, monthStart),
-        calculateProfitForRange(this.prisma, organizationId, dateRange.start, dateRange.end),
-        calculateProfitForRange(this.prisma, organizationId, dateRange.prevStart, dateRange.prevEnd),
-        fetchWingAdSummary(this.prisma, organizationId, year, month, monthStart),
+        this.profitCalculation.calculateForRange(organizationId, monthStart, monthEnd),
+        this.profitCalculation.calculateForRange(organizationId, prevMonthDate, monthStart),
+        this.profitCalculation.calculateForRange(organizationId, dateRange.start, dateRange.end),
+        this.profitCalculation.calculateForRange(organizationId, dateRange.prevStart, dateRange.prevEnd),
+        this.wingAdSummary.fetchCurrentMonthSummary(organizationId, year, month, monthStart),
         this.wingTrafficRepository.aggregateCoupangAds(organizationId, monthStart, monthEnd),
         this.wingTrafficRepository.aggregateCoupangAds(organizationId, prevMonthDate, monthStart),
         this.wingTrafficRepository.aggregateCoupangAds(organizationId, dateRange.start, dateRange.end),
@@ -391,7 +412,6 @@ export class DashboardAdService {
       rawAdSummary: wingAdSummary.rawAdSummary ?? null,
     } satisfies WingAdSummary;
   }
-
 }
 
 function mergeAdMetrics(

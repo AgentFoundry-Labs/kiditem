@@ -1,9 +1,17 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { PrismaService } from '../../../../prisma/prisma.service';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { DashboardTrendItem } from '@kiditem/shared/dashboard';
-import { calculateProfitForRange } from '../../adapter/out/repository/profit-calculation.repository.adapter';
-import { DashboardTrendRepositoryAdapter } from '../../adapter/out/repository/dashboard-trend.repository.adapter';
-import { WingTrafficAggregationRepositoryAdapter } from '../../adapter/out/repository/wing-traffic-aggregation.repository.adapter';
+import {
+  PROFIT_CALCULATION_REPOSITORY_PORT,
+  type ProfitCalculationRepositoryPort,
+} from '../port/out/profit-calculation.repository.port';
+import {
+  DASHBOARD_TREND_REPOSITORY_PORT,
+  type DashboardTrendRepositoryPort,
+} from '../port/out/dashboard-trend.repository.port';
+import {
+  WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT,
+  type WingTrafficAggregationRepositoryPort,
+} from '../port/out/wing-traffic-aggregation.repository.port';
 import { kstInclusiveDaysStart } from '../../../../common/kst';
 
 @Injectable()
@@ -11,9 +19,12 @@ export class DashboardTrendService {
   private readonly logger = new Logger(DashboardTrendService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly trendRepository: DashboardTrendRepositoryAdapter,
-    private readonly wingTrafficRepository: WingTrafficAggregationRepositoryAdapter,
+    @Inject(PROFIT_CALCULATION_REPOSITORY_PORT)
+    private readonly profitCalculation: ProfitCalculationRepositoryPort,
+    @Inject(DASHBOARD_TREND_REPOSITORY_PORT)
+    private readonly trendRepository: DashboardTrendRepositoryPort,
+    @Inject(WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT)
+    private readonly wingTrafficRepository: WingTrafficAggregationRepositoryPort,
   ) {}
 
   async getTrend(organizationId: string, range: string): Promise<DashboardTrendItem[]> {
@@ -21,7 +32,11 @@ export class DashboardTrendService {
     const days = range === '7d' ? 7 : range === '90d' ? 90 : 30;
     const since = kstInclusiveDaysStart(days);
 
-    const profitMetrics = await calculateProfitForRange(this.prisma, organizationId, since, new Date());
+    const profitMetrics = await this.profitCalculation.calculateForRange(
+      organizationId,
+      since,
+      new Date(),
+    );
     const avgProfitRate =
       profitMetrics.revenue > 0 ? profitMetrics.netProfit / profitMetrics.revenue : 0;
 

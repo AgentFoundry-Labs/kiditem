@@ -2,7 +2,7 @@
  * KidsPlayfulRenderer (React) → 정적 HTML + Tailwind CDN 주입한 풀 문서.
  *
  * 사용처:
- * - sourcing/[id] DetailPagePreview 의 iframe srcDoc
+ * - /generate history preview iframe srcDoc
  * - sourcing/[id]/editor — GrapesJS canvas 의 init HTML
  * - 향후 다른 미리보기 영역
  *

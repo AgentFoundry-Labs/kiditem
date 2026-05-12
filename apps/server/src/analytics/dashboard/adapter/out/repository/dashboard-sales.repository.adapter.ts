@@ -1,13 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 import type { TopProduct, DailyRevenueItem } from '@kiditem/shared/dashboard';
+import type {
+  DashboardSalesRepositoryPort,
+  TodayKpiRow,
+} from '../../../application/port/out/dashboard-sales.repository.port';
 
-export interface TodayKpiRow {
-  revenue: number;
-  orders: number;
-}
-
-export interface TopProductRawRow {
+interface TopProductRawRow {
   id: string;
   name: string;
   organization: string | null;
@@ -26,7 +25,9 @@ export interface TopProductRawRow {
  * 2-hop joins assert the predicate on each tenant-owned table per ADR-0018.
  */
 @Injectable()
-export class DashboardSalesRepositoryAdapter {
+export class DashboardSalesRepositoryAdapter
+  implements DashboardSalesRepositoryPort
+{
   constructor(private readonly prisma: PrismaService) {}
 
   /**

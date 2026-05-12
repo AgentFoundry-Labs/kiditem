@@ -1,21 +1,27 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { PrismaService } from '../../../prisma/prisma.service';
-import { AdConfigService } from './ad-config.service';
-import { paginationParams } from '../../../common/pagination';
-import { kstInclusiveDaysStart } from '../../../common/kst';
-import { recomputeRoas } from '../../util/ratio-recompute';
-import { buildAdMetrics } from '../../domain/ad-metrics';
-import { findScopedAdListings } from '../../adapter/out/prisma/ad-listing.query';
 import type {
   AdsHubData,
   AdsHubSummary,
   AdsListItem,
   FindAllAdsResponse,
 } from '@kiditem/shared/advertising';
+import { AdConfigService } from './ad-config.service';
+import { paginationParams } from '../../../common/pagination';
+import { recomputeRoas } from '../../domain/util/ratio-recompute';
+import { buildAdMetrics } from '../../domain/ad-metrics';
+import {
+  AD_BENCHMARK_REPOSITORY_PORT,
+  type AdBenchmarkRepositoryPort,
+} from '../port/out/ad-benchmark.repository.port';
+import {
+  AD_LISTING_REPOSITORY_PORT,
+  type AdListingRepositoryPort,
+} from '../port/out/ad-listing.repository.port';
 
 const VALID_TIERS = ['1차', '2차', '3차', 'OFF'] as const;
 type ValidTier = (typeof VALID_TIERS)[number];
@@ -23,7 +29,10 @@ type ValidTier = (typeof VALID_TIERS)[number];
 @Injectable()
 export class AdvertisingService {
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(AD_BENCHMARK_REPOSITORY_PORT)
+    private readonly benchmarkRepo: AdBenchmarkRepositoryPort,
+    @Inject(AD_LISTING_REPOSITORY_PORT)
+    private readonly listingRepo: AdListingRepositoryPort,
     private readonly adConfigService: AdConfigService,
   ) {}
 
@@ -64,63 +73,37 @@ export class AdvertisingService {
     if (!(VALID_TIERS as readonly string[]).includes(adTier)) {
       throw new BadRequestException('유효하지 않은 티어입니다');
     }
-    const listing = await this.prisma.channelListing.findFirst({
-      where: { id, organizationId, isDeleted: false },
-      select: { masterId: true },
-    });
-    if (!listing) throw new NotFoundException('Ad not found');
-
     const nextTier: string | null =
       (adTier as ValidTier) === 'OFF' ? null : adTier;
-
-    const updated = await this.prisma.masterProduct.updateMany({
-      where: { id: listing.masterId, organizationId },
-      data: { adTier: nextTier },
-    });
-    if (updated.count !== 1) throw new NotFoundException('Ad not found');
-
+    const changed = await this.listingRepo.changeAdTier(
+      id,
+      organizationId,
+      nextTier,
+    );
+    if (!changed) throw new NotFoundException('Ad not found');
     return { ok: true };
   }
 
-  private async buildListingItems(organizationId: string): Promise<AdsListItem[]> {
-    const thirtyDaysAgo = kstInclusiveDaysStart(30);
+  private async buildListingItems(
+    organizationId: string,
+  ): Promise<AdsListItem[]> {
+    // Reuses the 30-day per-listing aggregate from the benchmark repository
+    // — the hub list and the diagnosis share the exact same source rows.
+    const aggregates =
+      await this.benchmarkRepo.findBenchmarkAggregates(organizationId);
+    if (aggregates.perListing.length === 0) return [];
 
-    const perListing = await this.prisma.channelListingDailySnapshot.groupBy({
-      by: ['listingId'],
-      where: { organizationId, businessDate: { gte: thirtyDaysAgo } },
-      _sum: {
-        adSpend: true,
-        adImpressions: true,
-        adClicks: true,
-        adConversions: true,
-        adRevenue: true,
-      },
-    });
-
-    if (perListing.length === 0) return [];
-
-    const listingMap = await findScopedAdListings(
-      this.prisma,
+    const listingMap = await this.listingRepo.findScopedAdListings(
       organizationId,
-      perListing.map((r) => r.listingId),
+      aggregates.perListing.map((r) => r.listingId),
     );
 
-    return perListing.flatMap((row) => {
-      if (!row.listingId) return [];
+    return aggregates.perListing.flatMap((row) => {
       const listing = listingMap.get(row.listingId);
       if (!listing) return [];
       const master = listing.masterProduct;
-
-      const metrics = buildAdMetrics({
-        spend: row._sum.adSpend ?? 0,
-        impressions: row._sum.adImpressions ?? 0,
-        clicks: row._sum.adClicks ?? 0,
-        conversions: row._sum.adConversions ?? 0,
-        revenue: row._sum.adRevenue ?? 0,
-      });
-
+      const metrics = buildAdMetrics(row.sums);
       const grade = (master.abcGrade ?? null) as 'A' | 'B' | 'C' | null;
-
       return [
         {
           listingId: listing.id,

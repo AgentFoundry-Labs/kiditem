@@ -1,20 +1,30 @@
-import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
-import { PrismaService } from '../../../../prisma/prisma.service';
+import {
+  Inject,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import type {
   DashboardInventorySummary,
   Warnings,
-  AlertItemDashboard,
   GradeChanges,
   DataFreshness,
 } from '@kiditem/shared/dashboard';
-import type { DashboardContext } from './context';
-import { buildPerListingMetrics } from '../../../../common/per-listing-profit';
+import type { DashboardContext } from '../../domain/context';
+import {
+  DASHBOARD_INVENTORY_REPOSITORY_PORT,
+  type DashboardInventoryRepositoryPort,
+  type GradeChangeRow,
+} from '../port/out/dashboard-inventory.repository.port';
 
 @Injectable()
 export class DashboardInventoryService {
   private readonly logger = new Logger(DashboardInventoryService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(DASHBOARD_INVENTORY_REPOSITORY_PORT)
+    private readonly repository: DashboardInventoryRepositoryPort,
+  ) {}
 
   async getSummary(
     ctx: DashboardContext,
@@ -33,81 +43,26 @@ export class DashboardInventoryService {
         inventoryRows,
         gradeChangesRows,
         lowCtrProducts,
-        lowReviewProductsRaw,
+        aGradeReviewRows,
       ] = await Promise.all([
-        // gradeCount — active products grouped by abcGrade (ADR-0018 Rule 1 organizationId)
-        this.prisma.masterProduct.groupBy({
-          by: ['abcGrade'],
-          _count: true,
-          where: {
-            organizationId,
-            isDeleted: false,
-            abcGrade: { in: ['A', 'B', 'C'] },
-            listings: { some: { organizationId, isDeleted: false } },
-          },
-        }),
-
-        // alerts — top-10 unread, newest first (legacy)
-        this.prisma.alert.findMany({
-          where: { organizationId, isRead: false },
-          orderBy: { createdAt: 'desc' },
-          take: 10,
-        }),
-
-        // totalProducts — active product count (legacy)
-        this.prisma.masterProduct.count({
-          where: { organizationId, isDeleted: false },
-        }),
-
-        this.prisma.masterProduct.count({
-          where: {
-            organizationId,
-            isDeleted: false,
-            listings: { some: { organizationId, isDeleted: false } },
-          },
-        }),
-
-        // Plan F1 T3 — replaces profitLoss.findMany; live aggregation via shared helper.
-        // ADR-0016 (no profitLoss reads), ADR-0018 (organizationId scoped via helper signature).
-        buildPerListingMetrics(this.prisma, organizationId, ctx.monthStart, ctx.monthEnd),
-
-        // inventoryRows for needReorder — JS-side filter per AGENTS.md
-        // Fetch rows with currentStock > 0, then filter currentStock <= reorderPoint in JS
-        // (legacy: fetch + JS filter, not DB count)
-        this.prisma.inventory.findMany({
-          where: { organizationId, currentStock: { gt: 0 } },
-          select: { currentStock: true, reorderPoint: true },
-        }),
-
-        // gradeChanges — last 7 days of grade history (legacy)
-        this.prisma.gradeHistory.findMany({
-          where: { organizationId, calculatedAt: { gte: sevenDaysAgo } },
-          select: { oldGrade: true, newGrade: true },
-        }),
-
-        // lowCtrProducts — CTR < 1.5%, ctr > 0 (legacy)
-        this.prisma.thumbnail.count({
-          where: { organizationId, ctr: { lt: 1.5, gt: 0 } },
-        }),
-
-        // lowReviewProducts — A-grade active products with review count (legacy)
-        // Review 는 ChannelListing 에 달려있음 (Plan A.5). MasterProduct 기준 집계는
-        // listings → reviews 로 경유. Filter _count.reviews < 10 in JS.
-        // 2-hop IDOR (ADR-0018 Rule 3): master.organizationId + listings.organizationId
-        this.prisma.masterProduct.findMany({
-          where: { organizationId, isDeleted: false, abcGrade: 'A' },
-          include: {
-            listings: {
-              where: { organizationId },
-              select: { _count: { select: { reviews: true } } },
-            },
-          },
-        }),
+        this.repository.countActiveProductsByGrade(organizationId),
+        this.repository.findUnreadAlerts(organizationId, 10),
+        this.repository.countActiveProducts(organizationId),
+        this.repository.countChannelLinkedProducts(organizationId),
+        this.repository.fetchPerListingMetrics(
+          organizationId,
+          ctx.monthStart,
+          ctx.monthEnd,
+        ),
+        this.repository.findInventoryStockRows(organizationId),
+        this.repository.findGradeHistory(organizationId, sevenDaysAgo),
+        this.repository.countLowCtrThumbnails(organizationId),
+        this.repository.findAGradeReviewCounts(organizationId),
       ]);
 
       // gradeCount assembly
       const gradeCount = gradeRows.reduce<Record<string, number>>(
-        (acc, g) => ({ ...acc, [g.abcGrade ?? 'C']: g._count }),
+        (acc, g) => ({ ...acc, [g.abcGrade ?? 'C']: g.count }),
         {},
       );
 
@@ -117,10 +72,8 @@ export class DashboardInventoryService {
       ).length;
 
       // lowReviewProducts — A-grade products with < 10 reviews (legacy)
-      // master 당 listings 전체 review 합산
-      const lowReviewProducts = lowReviewProductsRaw.filter(
-        (p) =>
-          p.listings.reduce((sum, l) => sum + l._count.reviews, 0) < 10,
+      const lowReviewProducts = aGradeReviewRows.filter(
+        (row) => row.reviewCount < 10,
       ).length;
 
       // warnings — F1 live aggregation via PerListingMetrics
@@ -148,31 +101,21 @@ export class DashboardInventoryService {
         lowReviewProducts,
       } satisfies Warnings;
 
-      // alerts — project to AlertItemDashboard shape (no organizationId)
-      const alerts: AlertItemDashboard[] = unreadAlerts.map((a) => ({
-        id: a.id,
-        kind: a.kind as AlertItemDashboard['kind'],
-        status: a.status as AlertItemDashboard['status'],
-        type: a.type,
-        severity: a.severity,
-        title: a.title,
-        message: a.message,
-        sourceType: a.sourceType,
-        href: a.href,
-        progress: a.progress,
-        targetType: a.targetType,
-        targetId: a.targetId,
-        isRead: a.isRead,
-        createdAt: a.createdAt,
-        updatedAt: a.updatedAt,
-      }));
+      this.logger.debug({
+        msg: 'dashboard-inventory.getSummary',
+        organizationId,
+        totalActiveProducts,
+        channelLinkedProducts,
+        alertsCount: unreadAlerts.length,
+        gradeChangesCount: gradeChangesRows.length,
+      });
 
       return {
         totalProducts: totalActiveProducts,
         channelLinkedProducts,
         channelUnlinkedProducts: Math.max(totalActiveProducts - channelLinkedProducts, 0),
         gradeCount,
-        alerts,
+        alerts: unreadAlerts,
         warnings,
         gradeChanges: this.computeGradeChanges(gradeChangesRows),
         dataFreshness: this.computeDataFreshness(ctx),
@@ -188,11 +131,10 @@ export class DashboardInventoryService {
    * Always returns an object (upgraded=0, downgraded=0, total=0 when no rows),
    * matching legacy behavior (always assigns gradeChanges, never undefined).
    */
-  private computeGradeChanges(
-    rows: Array<{ oldGrade: string | null; newGrade: string | null }>,
-  ): GradeChanges {
+  private computeGradeChanges(rows: GradeChangeRow[]): GradeChanges {
     const grades = ['D', 'C', 'B', 'A'] as const;
-    const gradeIndex = (g: string | null): number => grades.indexOf((g ?? 'D') as typeof grades[number]);
+    const gradeIndex = (g: string | null): number =>
+      grades.indexOf((g ?? 'D') as typeof grades[number]);
 
     const upgraded = rows.filter(
       (g) => gradeIndex(g.newGrade) > gradeIndex(g.oldGrade),

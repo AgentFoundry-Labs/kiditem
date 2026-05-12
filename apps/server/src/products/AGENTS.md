@@ -50,6 +50,18 @@ retires or reconstructs it.
 - Bundle component CRUD recomputes inline inside the transaction and uses the
   canonical row-lock helper in `adapter/out/prisma/bundle-stock.persistence.ts`.
 - Master and option use soft delete. BundleComponent uses hard delete.
+- `lifecycleState` is the master lifecycle on the API surface. Allowed values
+  are `active | paused | discontinued`, validated via
+  `@kiditem/shared/product`'s `PRODUCT_LIFECYCLE_STATES` /
+  `ProductLifecycleStateSchema`. The Prisma column defaults to `'active'`;
+  service-layer code does not need to set it explicitly on create. Catalog
+  count buckets are `activeCount / pausedCount / discontinuedCount /
+  totalCount`.
+- `master_products` does not carry sourcing-only columns: `pipelineStep`,
+  `source_url`, `source_platform`, `raw_data`, `cost_cny`, `margin_rate` are
+  not part of the schema. Nothing in `products/` should select, filter on, or
+  echo any of them. Sourcing history lives on `SourcingCandidate` /
+  `CandidateImage` (see `src/sourcing/`).
 
 ## Controller And Service Rules
 
@@ -65,11 +77,20 @@ retires or reconstructs it.
 
 ## Exports
 
-- Exported application services: `MastersService`, `OptionsService`,
-  `BundleComponentsService`, `ProductCatalogService`.
+- Exported application services: `MastersService`, `MasterPromotionService`,
+  `OptionsService`, `BundleComponentsService`, `ProductCatalogService`,
+  `ProductManagementService`.
 - `MasterCodeService` is not exported.
 - `BundleStockService` is restricted to inventory recompute integration. Other
   modules should not call it directly.
+- `MasterPromotionService` is the products-side composite for sourcing
+  candidate promotion (issue #192). Only sourcing's
+  `SOURCING_PRODUCTS_CATALOG_PORT` outgoing adapter is expected to consume it.
+  It owns the atomic master/options/images write inside a caller-supplied
+  `Prisma.TransactionClient`, calls `MasterCodeService.generate(tx)` for the
+  family code, sets `lifecycleState='active'`, and delegates per-option work
+  to `OptionsService.create` so SKU issuance + tenant guards stay inside the
+  transaction.
 
 ## Organization Scope
 

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ActionBoardService } from '../action-board.service';
+import { ActionBoardRepositoryAdapter } from '../../../adapter/out/repository/action-board.repository.adapter';
 
 function makePrisma() {
   return {
@@ -37,7 +38,9 @@ describe('ActionBoardService — claim/unclaim/list', () => {
 
   beforeEach(() => {
     prisma = makePrisma();
-    service = new ActionBoardService(prisma as any);
+    service = new ActionBoardService(
+      new ActionBoardRepositoryAdapter(prisma as any),
+    );
   });
 
   // ── claim ─────────────────────────────────────────────────────────────────

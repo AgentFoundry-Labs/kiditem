@@ -1,33 +1,46 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AdCampaignsService } from '../ad-campaigns.service';
+import type { AdCampaignRepositoryPort } from '../../port/out/ad-campaign.repository.port';
+import type { AdListingRepositoryPort } from '../../port/out/ad-listing.repository.port';
+import type { AdAccountKpiRepositoryPort } from '../../port/out/ad-account-kpi.repository.port';
+import {
+  buildMockAdCampaignRepo,
+  buildMockAdListingRepo,
+  buildMockAdAccountKpiRepo,
+  type MockAdCampaignRepo,
+  type MockAdListingRepo,
+  type MockAdAccountKpiRepo,
+} from '../../../__tests__/test-helpers/build-mock-ports';
 
 describe('AdCampaignsService', () => {
   let service: AdCampaignsService;
-  let prisma: any;
+  let campaignRepo: MockAdCampaignRepo;
+  let listingRepo: MockAdListingRepo;
+  let accountKpiRepo: MockAdAccountKpiRepo;
   let adConfig: any;
 
   beforeEach(() => {
-    prisma = {
-      // H3 — campaign rollup uses $queryRaw against ChannelAdTargetDailySnapshot;
-      // getTrends additionally reads coupang_ads_daily account KPI via $queryRaw.
-      // Default to empty so trends tests that don't care about account KPI still pass.
-      $queryRaw: vi.fn().mockResolvedValue([]),
-      channelListing: {
-        findMany: vi.fn(),
-      },
-      masterProduct: {
-        findMany: vi.fn().mockResolvedValue([]),
-      },
-      channelListingDailySnapshot: {
-        findMany: vi.fn(),
-      },
-    };
+    campaignRepo = buildMockAdCampaignRepo();
+    listingRepo = buildMockAdListingRepo();
+    accountKpiRepo = buildMockAdAccountKpiRepo();
+    // Sensible defaults — empty rollups + empty account KPI rows.
+    campaignRepo.findCampaignRollups.mockResolvedValue([]);
+    campaignRepo.findProductTargetRollups.mockResolvedValue([]);
+    campaignRepo.findAdTrendDailyRows.mockResolvedValue([]);
+    campaignRepo.findGradeBudgetTotals.mockResolvedValue({ A: 0, B: 0, C: 0 });
+    listingRepo.findScopedAdListings.mockResolvedValue(new Map());
+    accountKpiRepo.findCoupangAdsDaily.mockResolvedValue([]);
     adConfig = { getConfig: vi.fn() };
-    service = new AdCampaignsService(prisma, adConfig);
+    service = new AdCampaignsService(
+      campaignRepo as unknown as AdCampaignRepositoryPort,
+      listingRepo as unknown as AdListingRepositoryPort,
+      accountKpiRepo as unknown as AdAccountKpiRepositoryPort,
+      adConfig,
+    );
   });
 
   it('getCampaigns aggregates target-daily rows by targetKey + period (H3)', async () => {
-    prisma.$queryRaw.mockResolvedValue([
+    campaignRepo.findCampaignRollups.mockResolvedValue([
       {
         targetKey: 'campaign:CMP-1',
         campaignId: 'CMP-1',
@@ -41,23 +54,32 @@ describe('AdCampaignsService', () => {
         orders: 5,
       },
     ]);
-    prisma.channelListing.findMany.mockResolvedValue([
-      {
-        id: 'L1',
-        externalId: 'COUPANG-1',
-        channelName: '쿠팡',
-        masterId: 'M1',
-      },
-    ]);
-    prisma.masterProduct.findMany.mockResolvedValue([
-      { id: 'M1', code: 'M-00000001', name: '상품1', abcGrade: 'A', adTier: null, healthScore: null },
-    ]);
+    listingRepo.findScopedAdListings.mockResolvedValue(
+      new Map([
+        [
+          'L1',
+          {
+            id: 'L1',
+            externalId: 'COUPANG-1',
+            channelName: '쿠팡',
+            masterProduct: {
+              id: 'M1',
+              code: 'M-00000001',
+              name: '상품1',
+              abcGrade: 'A',
+              adTier: null,
+              healthScore: null,
+            },
+          },
+        ],
+      ]),
+    );
 
     const result = await service.getCampaigns('7d', undefined, 'organization-1');
 
     expect(result).toHaveLength(1);
-    expect(result[0].listing.listingId).toBe('L1');
-    expect(result[0].listing.masterProduct.code).toBe('M-00000001');
+    expect(result[0].listing!.listingId).toBe('L1');
+    expect(result[0].listing!.masterProduct.code).toBe('M-00000001');
     expect(result[0].campaignId).toBe('CMP-1');
     expect(result[0].campaignName).toBe('Campaign One');
     expect(result[0].period).toBe('7d');
@@ -67,7 +89,7 @@ describe('AdCampaignsService', () => {
   });
 
   it('getTrends aggregates listing-daily by businessDate + ABC grade (H3)', async () => {
-    prisma.channelListingDailySnapshot.findMany.mockResolvedValue([
+    campaignRepo.findAdTrendDailyRows.mockResolvedValue([
       {
         businessDate: new Date('2026-04-10T00:00:00Z'),
         adSpend: 1000,
@@ -105,12 +127,7 @@ describe('AdCampaignsService', () => {
         listingId: 'L1',
       },
     ]);
-    prisma.channelListing.findMany.mockResolvedValue([
-      { id: 'L1', masterId: 'M1' },
-    ]);
-    prisma.masterProduct.findMany.mockResolvedValue([
-      { id: 'M1', abcGrade: 'A' },
-    ]);
+    campaignRepo.findGradeBudgetTotals.mockResolvedValue({ A: 7000, B: 0, C: 0 });
 
     const result = await service.getTrends('14d', undefined, 'organization-1');
 
@@ -123,7 +140,7 @@ describe('AdCampaignsService', () => {
   });
 
   it('getTrends computes ABC gradeBudget allocation via listing.master.abcGrade', async () => {
-    prisma.channelListingDailySnapshot.findMany.mockResolvedValue([
+    campaignRepo.findAdTrendDailyRows.mockResolvedValue([
       {
         businessDate: new Date('2026-04-10T00:00:00Z'),
         adSpend: 10000,
@@ -161,18 +178,11 @@ describe('AdCampaignsService', () => {
         listingId: 'L4',
       },
     ]);
-    prisma.channelListing.findMany.mockResolvedValue([
-      { id: 'L1', masterId: 'M1' },
-      { id: 'L2', masterId: 'M2' },
-      { id: 'L3', masterId: 'M3' },
-      { id: 'L4', masterId: 'M4' },
-    ]);
-    prisma.masterProduct.findMany.mockResolvedValue([
-      { id: 'M1', abcGrade: 'A' },
-      { id: 'M2', abcGrade: 'B' },
-      { id: 'M3', abcGrade: 'C' },
-      { id: 'M4', abcGrade: null },
-    ]);
+    campaignRepo.findGradeBudgetTotals.mockResolvedValue({
+      A: 10000,
+      B: 5000,
+      C: 2000,
+    });
 
     const result = await service.getTrends('14d', undefined, 'organization-1');
 
@@ -182,7 +192,7 @@ describe('AdCampaignsService', () => {
   });
 
   it('getCampaigns surfaces listing-less rollups (Drive replay shape — campaign source has no productId)', async () => {
-    prisma.$queryRaw.mockResolvedValue([
+    campaignRepo.findCampaignRollups.mockResolvedValue([
       {
         targetKey: 'campaign:매출 TOP 제품',
         campaignId: null,
@@ -207,7 +217,7 @@ describe('AdCampaignsService', () => {
   });
 
   it('getCampaigns treats legacy conversions=revenue campaign rows as unknown conversion count', async () => {
-    prisma.$queryRaw.mockResolvedValue([
+    campaignRepo.findCampaignRollups.mockResolvedValue([
       {
         targetKey: 'campaign:매출 TOP 제품',
         campaignId: null,
@@ -231,7 +241,7 @@ describe('AdCampaignsService', () => {
   });
 
   it('getProducts reads product target facts with provider descriptors, not raw snapshots', async () => {
-    prisma.$queryRaw.mockResolvedValue([
+    campaignRepo.findProductTargetRollups.mockResolvedValue([
       {
         targetKey: 'product:VENDOR-1',
         campaignId: null,
@@ -274,25 +284,27 @@ describe('AdCampaignsService', () => {
   });
 
   it('getTrends folds in coupang_ads_daily account KPI when present', async () => {
-    prisma.channelListingDailySnapshot.findMany.mockResolvedValue([]);
-    // First $queryRaw call is account KPI (getTrends doesn't call campaign rollup).
-    prisma.$queryRaw.mockResolvedValue([
+    accountKpiRepo.findCoupangAdsDaily.mockResolvedValue([
       {
-        businessDate: new Date('2026-04-29T00:00:00Z'),
-        adSpend: 279486,
-        adRevenue: 1629780,
-        clicks: 1520,
-        impressions: 527984,
-        conversions: 1629780,
+        businessDate: '2026-04-29',
+        sums: {
+          spend: 279486,
+          revenue: 1629780,
+          clicks: 1520,
+          impressions: 527984,
+          conversions: 29,
+        },
         orders: 29,
       },
       {
-        businessDate: new Date('2026-04-30T00:00:00Z'),
-        adSpend: 40183,
-        adRevenue: 200250,
-        clicks: 206,
-        impressions: 65731,
-        conversions: 200250,
+        businessDate: '2026-04-30',
+        sums: {
+          spend: 40183,
+          revenue: 200250,
+          clicks: 206,
+          impressions: 65731,
+          conversions: 18,
+        },
         orders: 18,
       },
     ]);
@@ -318,9 +330,6 @@ describe('AdCampaignsService', () => {
   // organizationId propagation + period call-shape tests removed — covered by
   // check:idor / check:tenant-scope scanners and ad-strategy-flow integration.
   it('empty state — no daily rows returns explicit empty (legacy ignored)', async () => {
-    prisma.$queryRaw.mockResolvedValue([]);
-    prisma.channelListingDailySnapshot.findMany.mockResolvedValue([]);
-
     const campaigns = await service.getCampaigns('7d', undefined, 'organization-1');
     const trends = await service.getTrends('14d', undefined, 'organization-1');
 

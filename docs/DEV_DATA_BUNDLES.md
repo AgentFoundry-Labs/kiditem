@@ -554,3 +554,15 @@ Coupang replay verification
 - 기준 bundle 은 실제 쿠팡 스크래퍼 payload 를 사용한다.
 - 마스킹/샘플 데이터는 기본 개발 검증용으로 쓰지 않는다.
 - 실제 payload 는 내부 개발자만 접근하며 Git, PR, 이슈, 로그에 첨부하지 않는다.
+
+## #192 sourcing candidate split (2026-05-12)
+
+Schema breaking. `master_products` 는 `source_url` / `source_platform` /
+`raw_data` / `cost_cny` / `margin_rate` / `pipeline_step` 컬럼을 잃었고, 소싱
+히스토리는 `sourcing_candidates` + `sourcing_candidate_images` 로 이동했다.
+공동 개발자가 적용해야 할 단계:
+
+- `git pull` on develop
+- `npm run db:push -- --accept-data-loss` (drops columns)
+- `npx prisma generate`
+- 필요하면 backfill 된 후보 row 를 보려고 dev data bundle 을 재동기화한다.

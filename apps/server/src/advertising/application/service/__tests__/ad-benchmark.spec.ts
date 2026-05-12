@@ -1,9 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AdBenchmarkService } from '../ad-benchmark.service';
+import type { AdBenchmarkRepositoryPort } from '../../port/out/ad-benchmark.repository.port';
+import type { AdListingRepositoryPort } from '../../port/out/ad-listing.repository.port';
+import {
+  buildMockAdBenchmarkRepo,
+  buildMockAdListingRepo,
+  type MockAdBenchmarkRepo,
+  type MockAdListingRepo,
+} from '../../../__tests__/test-helpers/build-mock-ports';
 
 describe('AdBenchmarkService', () => {
   let service: AdBenchmarkService;
-  let prisma: any;
+  let benchmarkRepo: MockAdBenchmarkRepo;
+  let listingRepo: MockAdListingRepo;
   let adConfig: any;
 
   const baseConfig = {
@@ -18,64 +27,96 @@ describe('AdBenchmarkService', () => {
   };
 
   beforeEach(() => {
-    prisma = {
-      // H3 — benchmark reads moved from `prisma.ad` to
-      // `prisma.channelListingDailySnapshot`.
-      channelListingDailySnapshot: {
-        aggregate: vi.fn(),
-        groupBy: vi.fn(),
+    benchmarkRepo = buildMockAdBenchmarkRepo();
+    listingRepo = buildMockAdListingRepo();
+    // Default empty aggregates so trivial paths don't need to set this up.
+    benchmarkRepo.findBenchmarkAggregates.mockResolvedValue({
+      totals: {
+        spend: 0,
+        impressions: 0,
+        clicks: 0,
+        conversions: 0,
+        revenue: 0,
       },
-      channelListing: {
-        findMany: vi.fn(),
-      },
-      masterProduct: {
-        findMany: vi.fn().mockResolvedValue([]),
-      },
-    };
+      perListing: [],
+    });
+    listingRepo.findScopedAdListings.mockResolvedValue(new Map());
     adConfig = { getConfig: vi.fn().mockResolvedValue(baseConfig) };
-    service = new AdBenchmarkService(prisma, adConfig);
+    service = new AdBenchmarkService(
+      benchmarkRepo as unknown as AdBenchmarkRepositoryPort,
+      listingRepo as unknown as AdListingRepositoryPort,
+      adConfig,
+    );
   });
 
   it('returns diagnosis with listing-primary results', async () => {
-    prisma.channelListingDailySnapshot.aggregate.mockResolvedValue({
-      _sum: {
-        adSpend: 100000,
-        adImpressions: 10000,
-        adClicks: 150,
-        adConversions: 10,
-        adRevenue: 300000,
+    benchmarkRepo.findBenchmarkAggregates.mockResolvedValue({
+      totals: {
+        spend: 100000,
+        impressions: 10000,
+        clicks: 150,
+        conversions: 10,
+        revenue: 300000,
       },
+      perListing: [
+        {
+          listingId: 'L1',
+          sums: {
+            spend: 50000,
+            impressions: 5000,
+            clicks: 75,
+            conversions: 5,
+            revenue: 200000,
+          },
+        },
+        {
+          listingId: 'L2',
+          sums: {
+            spend: 50000,
+            impressions: 5000,
+            clicks: 75,
+            conversions: 5,
+            revenue: 100000,
+          },
+        },
+      ],
     });
-    prisma.channelListingDailySnapshot.groupBy.mockResolvedValue([
-      {
-        listingId: 'L1',
-        _sum: {
-          adSpend: 50000,
-          adImpressions: 5000,
-          adClicks: 75,
-          adConversions: 5,
-          adRevenue: 200000,
-        },
-      },
-      {
-        listingId: 'L2',
-        _sum: {
-          adSpend: 50000,
-          adImpressions: 5000,
-          adClicks: 75,
-          adConversions: 5,
-          adRevenue: 100000,
-        },
-      },
-    ]);
-    prisma.channelListing.findMany.mockResolvedValue([
-      { id: 'L1', externalId: 'COUPANG-1', channelName: '쿠팡', masterId: 'M1' },
-      { id: 'L2', externalId: 'COUPANG-2', channelName: '쿠팡', masterId: 'M2' },
-    ]);
-    prisma.masterProduct.findMany.mockResolvedValue([
-      { id: 'M1', code: 'M-00000001', name: '상품1', abcGrade: 'A', adTier: null, healthScore: null },
-      { id: 'M2', code: 'M-00000002', name: '상품2', abcGrade: 'B', adTier: null, healthScore: null },
-    ]);
+    listingRepo.findScopedAdListings.mockResolvedValue(
+      new Map([
+        [
+          'L1',
+          {
+            id: 'L1',
+            externalId: 'COUPANG-1',
+            channelName: '쿠팡',
+            masterProduct: {
+              id: 'M1',
+              code: 'M-00000001',
+              name: '상품1',
+              abcGrade: 'A',
+              adTier: null,
+              healthScore: null,
+            },
+          },
+        ],
+        [
+          'L2',
+          {
+            id: 'L2',
+            externalId: 'COUPANG-2',
+            channelName: '쿠팡',
+            masterProduct: {
+              id: 'M2',
+              code: 'M-00000002',
+              name: '상품2',
+              abcGrade: 'B',
+              adTier: null,
+              healthScore: null,
+            },
+          },
+        ],
+      ]),
+    );
 
     const result = await service.getDiagnosis('organization-1');
 
@@ -88,17 +129,16 @@ describe('AdBenchmarkService', () => {
   });
 
   it('computes delta against industry average (above / below / average)', async () => {
-    prisma.channelListingDailySnapshot.aggregate.mockResolvedValue({
-      _sum: {
-        adSpend: 100,
-        adImpressions: 10000,
-        adClicks: 250,
-        adConversions: 20,
-        adRevenue: 500,
+    benchmarkRepo.findBenchmarkAggregates.mockResolvedValue({
+      totals: {
+        spend: 100,
+        impressions: 10000,
+        clicks: 250,
+        conversions: 20,
+        revenue: 500,
       },
+      perListing: [],
     });
-    prisma.channelListingDailySnapshot.groupBy.mockResolvedValue([]);
-    prisma.channelListing.findMany.mockResolvedValue([]);
 
     const result = await service.getDiagnosis('organization-1');
 
@@ -115,18 +155,6 @@ describe('AdBenchmarkService', () => {
   // organizationId propagation removed — covered by check:idor / check:tenant-scope
   // and ad-benchmark-flow.pg.integration cross-tenant scenario #11.
   it('empty-state — no daily-fact rows returns null ratios (legacy Ad rows ignored)', async () => {
-    prisma.channelListingDailySnapshot.aggregate.mockResolvedValue({
-      _sum: {
-        adSpend: 0,
-        adImpressions: 0,
-        adClicks: 0,
-        adConversions: 0,
-        adRevenue: 0,
-      },
-    });
-    prisma.channelListingDailySnapshot.groupBy.mockResolvedValue([]);
-    prisma.channelListing.findMany.mockResolvedValue([]);
-
     const result = await service.getDiagnosis('organization-1');
 
     expect(result.ownMetrics.spend).toBe(0);

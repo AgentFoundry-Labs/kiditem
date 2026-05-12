@@ -109,7 +109,6 @@ cat > .secrets/staging/.env.staging.api <<'EOF'
 NODE_ENV=production
 PORT=4000
 DATABASE_URL=<supabase-session-pooler-url>
-DIRECT_URL=<supabase-session-pooler-url>
 SUPABASE_URL=<current-dev-supabase-url>
 CORS_ORIGINS=http://<ec2-public-ip>
 S3_REGION=ap-northeast-2

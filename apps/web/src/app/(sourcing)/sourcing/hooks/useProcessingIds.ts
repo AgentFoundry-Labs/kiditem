@@ -1,18 +1,26 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { isInProgress, type ProductStatus } from '../lib/sourcing-api';
+import type { SourcingCandidateStatus } from '@kiditem/shared/sourcing';
+import { isInProgress } from '../lib/sourcing-api';
 
 interface ProductLike {
   id: string;
-  status: ProductStatus;
+  status: SourcingCandidateStatus;
 }
 
+/**
+ * Tracks optimistic processing ids for the sourcing list page.
+ *
+ * Phase 7 (#192): the list endpoint filters to `status='sourced'`, so the
+ * polling-driven removal path now consumes the 3-state candidate machine.
+ * Optimistic adds remain client-only (no external API exposed here); rows
+ * naturally fall out of the list when the server flips them to
+ * `promoted`/`rejected`.
+ */
 export function useProcessingIds(products: ProductLike[]) {
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
 
-  // 사용자가 'AI 생성' 클릭한 직후 → optimistic 추가 / DB 가 처리 끝내면 자동 제거.
-  // 현재 hook 은 외부에서 add 하는 API 가 노출 안 돼있어서 폴링 → status 변화로만 제거.
   useEffect(() => {
     setProcessingIds((prev) => {
       if (prev.size === 0) return prev;
@@ -21,7 +29,7 @@ export function useProcessingIds(products: ProductLike[]) {
       let changed = false;
       Array.from(prev).forEach((id) => {
         const product = productMap.get(id);
-        if (product && !isInProgress(product.status)) {
+        if (!product || !isInProgress(product.status)) {
           next.delete(id);
           changed = true;
         }

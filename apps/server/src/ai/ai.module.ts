@@ -41,6 +41,9 @@ import { ThumbnailAgentReconcileService } from './application/service/thumbnail-
 import { ImageAiService } from './application/service/image-ai.service';
 import { TextAiService } from './application/service/text-ai.service';
 import { ThumbnailAnalysisService } from './application/service/thumbnail-analysis.service';
+import { ThumbnailAnalysisAnalyzerService } from './application/service/thumbnail-analysis-analyzer.service';
+import { ThumbnailAnalysisBatchService } from './application/service/thumbnail-analysis-batch.service';
+import { ThumbnailAnalysisQueryService } from './application/service/thumbnail-analysis-query.service';
 import { ThumbnailAutoService } from './application/service/thumbnail-auto.service';
 import { CoupangImageSyncService } from './application/service/coupang-image-sync.service';
 import { DetailPageHeroImageService } from './application/service/detail-page-hero-image.service';
@@ -50,13 +53,20 @@ import { DetailPageGenerationService } from './application/service/detail-page-g
 import { DetailPagePrefillService } from './application/service/detail-page-prefill.service';
 import { DetailPageQueryService } from './application/service/detail-page-query.service';
 import { DetailPageResultRefinerService } from './application/service/detail-page-result-refiner.service';
+import { PostPromotionAiService } from './application/service/post-promotion-ai.service';
+import { BoldVerticalRefinerService } from './application/service/bold-vertical-refiner.service';
+import { KidsPlayfulRefinerService } from './application/service/kids-playful-refiner.service';
 import { ThumbnailComplianceVerifierService } from './application/service/thumbnail-compliance-verifier.service';
 import { ThumbnailEditorAiService } from './application/service/thumbnail-editor-ai.service';
+import { ThumbnailGenerationJobService } from './application/service/thumbnail-generation-job.service';
 import { ThumbnailGenerationService } from './application/service/thumbnail-generation.service';
 import { ThumbnailRecomposeService } from './application/service/thumbnail-recompose.service';
 import { ThumbnailTrackingService } from './application/service/thumbnail-tracking.service';
 import { ThumbnailVisionAiService } from './application/service/thumbnail-vision-ai.service';
 import { ThumbnailWingService } from './application/service/thumbnail-wing.service';
+
+// application/port — in
+import { POST_PROMOTION_AI_TRIGGER_PORT } from './application/port/in/post-promotion-ai-trigger.port';
 
 // application/port — out
 import { DETAIL_PAGE_AGENT_OUTPUT_SINK_PORT } from './application/port/out/detail-page-agent-output-sink.port';
@@ -97,12 +107,19 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     DetailPagePrefillService,
     DetailPageQueryService,
     DetailPageResultRefinerService,
+    BoldVerticalRefinerService,
+    KidsPlayfulRefinerService,
+    PostPromotionAiService,
     TextAiService,
     ThumbnailAgentReconcileService,
     ThumbnailAnalysisService,
+    ThumbnailAnalysisAnalyzerService,
+    ThumbnailAnalysisBatchService,
+    ThumbnailAnalysisQueryService,
     ThumbnailAutoService,
     ThumbnailComplianceVerifierService,
     ThumbnailEditorAiService,
+    ThumbnailGenerationJobService,
     ThumbnailGenerationService,
     ThumbnailRecomposeService,
     ThumbnailTrackingService,
@@ -161,6 +178,11 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     { provide: MASTER_CATALOG_PORT, useExisting: MasterCatalogAdapter },
     { provide: TEXT_COMPLETION_PORT, useExisting: GeminiTextCompletionAdapter },
     { provide: THUMBNAIL_GENERATION_EVENT_PORT, useExisting: ThumbnailGenerationEventAdapter },
+
+    // Inbound port — sourcing's post-promotion gateway injects this to fire
+    // detail-page + thumbnail generation with AI-domain-owned defaults.
+    { provide: POST_PROMOTION_AI_TRIGGER_PORT, useExisting: PostPromotionAiService },
   ],
+  exports: [POST_PROMOTION_AI_TRIGGER_PORT],
 })
 export class AiModule {}

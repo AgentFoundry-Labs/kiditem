@@ -7,7 +7,7 @@ import type { PrismaClient } from '@prisma/client';
 import { AdSyncService } from '../application/service/ad-sync.service';
 import { ChannelScrapePersistenceService } from '../services/channel-scrape-persistence.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { ExtensionSyncDto } from '../dto/extension-sync.dto';
+import { ExtensionSyncDto } from '../adapter/in/http/dto/extension-sync.dto';
 import {
   makeTestPrisma,
   resetDb,
@@ -444,7 +444,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
           throw new Error('boom — simulated PG failure');
         }
         return original(...args);
-      }) as typeof original;
+      }) as unknown as typeof original;
 
     try {
       await expect(
@@ -537,7 +537,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
         ],
       },
       organizationId,
-    )) as {
+    )) as unknown as {
       scrapeRunId: string;
       scrapeSnapshotCount: number;
       scrapeMatchedCount: number;

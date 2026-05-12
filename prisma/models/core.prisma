@@ -120,6 +120,10 @@ model Organization {
   // Additional back-relations for FK rename additions
   gradeHistory GradeHistory[] // Task 8 Step 2 adds organizationId to GradeHistory
 
+  // Sourcing (issue #192)
+  sourcingCandidates SourcingCandidate[]
+  candidateImages    CandidateImage[]
+
   @@map("organizations")
 }
 
@@ -157,6 +161,10 @@ model User {
   requestedAgentApprovalRequests    AgentApprovalRequest[]    @relation("AgentApprovalRequestedBy")
   approverAgentApprovalRequests     AgentApprovalRequest[]    @relation("AgentApprovalApprover")
   decidedAgentApprovalRequests      AgentApprovalRequest[]    @relation("AgentApprovalDecidedBy")
+
+  // Sourcing (issue #192)
+  rejectedSourcingCandidates  SourcingCandidate[] @relation("SourcingCandidateRejectedBy")
+  triggeredSourcingCandidates SourcingCandidate[] @relation("SourcingCandidateTriggeredBy")
 
   @@index([agentInstanceId])
   @@map("users")
@@ -280,20 +288,15 @@ model MasterProduct {
   healthScore     Int?      @map("health_score")
   healthUpdatedAt DateTime? @map("health_updated_at") @db.Timestamptz
 
-  sourceUrl         String?  @map("source_url")
-  sourcePlatform    String?  @map("source_platform")
-  costCny           Decimal? @map("cost_cny") @db.Decimal(12, 2)
-  marginRate        Decimal? @map("margin_rate") @db.Decimal(5, 4)
-  rawData           Json?    @map("raw_data")
   processedData     Json?    @map("processed_data")
   draftContent      Json?    @map("draft_content")
-  pipelineStep      String?  @map("pipeline_step")
   detailPageUrl     String?  @map("detail_page_url")
   thumbnailStrategy String   @default("standard") @map("thumbnail_strategy")
 
   isDeleted       Boolean   @default(false) @map("is_deleted")
   deletedAt       DateTime? @map("deleted_at") @db.Timestamptz
   isTemporary     Boolean   @default(false) @map("is_temporary")
+  lifecycleState  String    @default("active") @map("lifecycle_state")
   temporaryReason String?   @map("temporary_reason")
   memo            String?
 
@@ -310,6 +313,7 @@ model MasterProduct {
   gradeHistory           GradeHistory[]
   processingCosts        ProcessingCost[]
   masterSupplierProducts MasterSupplierProduct[]
+  promotedFromCandidate  SourcingCandidate[]     @relation("PromotedFromCandidate")
 
   @@unique([organizationId, legacyCode], map: "master_products_organization_id_legacy_code_key", where: raw("is_deleted = false AND legacy_code IS NOT NULL"))
   @@index([organizationId])
@@ -318,7 +322,6 @@ model MasterProduct {
   @@index([organizationId, legacyCode])
   @@index([organizationId, barcode])
   @@index([abcGrade])
-  @@index([pipelineStep])
   @@index([category])
   @@index([brand])
   @@map("master_products")

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { WorkflowOrchestrationService } from '../workflow-orchestration.service';
 import { WorkflowRunnerService } from '../workflow-runner.service';
+import { WorkflowOrchestrationRepositoryAdapter } from '../../../adapter/out/repository/workflow-orchestration.repository.adapter';
 import { registerNode, getExecutor } from '../../../adapter/out/workflow-runner/executors';
 import '../../../adapter/out/workflow-runner/executors/builtin';
 
@@ -87,7 +88,11 @@ describe('WorkflowOrchestrationService', () => {
     prisma = makePrisma();
     runner = { runWorkflow: vi.fn(), runBatch: vi.fn() };
     const eventEmitter = { emit: vi.fn() };
-    service = new WorkflowOrchestrationService(prisma as any, runner as any, eventEmitter as any);
+    service = new WorkflowOrchestrationService(
+      new WorkflowOrchestrationRepositoryAdapter(prisma as any),
+      runner as any,
+      eventEmitter as any,
+    );
   });
 
   describe('triggerRun', () => {

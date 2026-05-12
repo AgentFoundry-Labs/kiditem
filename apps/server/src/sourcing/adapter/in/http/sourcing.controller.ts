@@ -1,9 +1,11 @@
 import { Controller, Get, Post, Body, Param, Query } from '@nestjs/common';
 import { SourcingService } from '../../../application/service/sourcing.service';
+import { SourcingPromotionService } from '../../../application/service/sourcing-promotion.service';
 import {
-  GenerateDetailPageBodyDto,
   ListExtensionProductsQueryDto,
+  PromoteCandidateBodyDto,
   ReceiveExtensionDataDto,
+  RejectCandidateBodyDto,
   ScrapeUrlBodyDto,
 } from './dto';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
@@ -14,17 +16,17 @@ import type { AuthUser } from '../../../../auth/auth.types';
 export class SourcingController {
   constructor(
     private readonly sourcingService: SourcingService,
+    private readonly promotionSvc: SourcingPromotionService,
   ) {}
 
   @Post('extension/product-data')
   async receiveExtensionData(
     @Body() body: ReceiveExtensionDataDto,
     @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
   ) {
-    // DTO 의 known field + extra escape hatch 를 평탄화. service 는 known
-    // field 는 DTO 타입에서, vendor-specific 키는 extra 에서 읽는다.
     const flat = { ...body, ...(body.extra ?? {}) };
-    return this.sourcingService.receiveExtensionData(flat, organizationId);
+    return this.sourcingService.receiveExtensionData(flat, organizationId, user.id ?? null);
   }
 
   @Post('scrape-url')
@@ -44,20 +46,30 @@ export class SourcingController {
     return this.sourcingService.listProducts(query, organizationId);
   }
 
+  @Post('candidates/:id/promote')
+  async promote(
+    @Param('id') id: string,
+    @Body() body: PromoteCandidateBodyDto,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return this.promotionSvc.promote(id, organizationId, body);
+  }
+
+  @Post('candidates/:id/reject')
+  async reject(
+    @Param('id') id: string,
+    @Body() body: RejectCandidateBodyDto,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.promotionSvc.reject(id, organizationId, body, user.id ?? null);
+  }
+
   @Get(':id')
   getProduct(
     @Param('id') id: string,
     @CurrentOrganization() organizationId: string,
   ) {
     return this.sourcingService.getProduct(id, organizationId);
-  }
-
-  @Post(':id/generate')
-  generateDetailPage(
-    @Param('id') id: string,
-    @Body() body: GenerateDetailPageBodyDto,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return this.sourcingService.generateDetailPage(id, body, organizationId);
   }
 }

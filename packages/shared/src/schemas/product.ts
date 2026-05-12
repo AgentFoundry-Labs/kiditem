@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { zIsoDate } from './common.js';
+import { ProductLifecycleStateSchema } from '../product/lifecycle-state.js';
 
 // ===== Image item =====
 // Role enum is the canonical source of truth; the web hub-roles config mirrors
@@ -78,11 +79,10 @@ export const MasterSchema = z.object({
   adBudgetLimit: z.number().int().nullable(),
   healthScore: z.number().int().nullable(),
   healthUpdatedAt: zIsoDate.nullable(),
-  sourceUrl: z.string().url().nullable(),
-  sourcePlatform: z.string().nullable(),
-  costCny: z.number().nullable(),
-  marginRate: z.number().nullable(),
-  pipelineStep: z.string().nullable(),
+  // Phase 8 (#192) retired `sourceUrl`/`sourcePlatform`/`costCny`/`marginRate`
+  // from `master_products`. Sourcing history lives on `SourcingCandidate`
+  // (see `@kiditem/shared/sourcing`).
+  lifecycleState: ProductLifecycleStateSchema,
   detailPageUrl: z.string().url().nullable(),
   thumbnailStrategy: z.enum(['standard', 'premium', 'custom']),
   isDeleted: z.boolean(),
@@ -170,10 +170,14 @@ export const ProductCatalogCountsSchema = z.object({
   gradeC: z.number().int().nonnegative(),
   adCount: z.number().int().nonnegative(),
   noAdCount: z.number().int().nonnegative(),
-  draftCount: z.number().int().nonnegative(),
-  processingCount: z.number().int().nonnegative(),
-  processedCount: z.number().int().nonnegative(),
+  // Catalog count buckets follow `lifecycleState` (Phase 5 #192). `totalCount`
+  // is the organization-scoped catalog total (== `total`). The legacy
+  // `pipelineStep`-based `draftCount/processingCount/processedCount` buckets
+  // were retired with the `pipeline_step` column in Phase 8.
+  activeCount: z.number().int().nonnegative(),
+  pausedCount: z.number().int().nonnegative(),
   discontinuedCount: z.number().int().nonnegative(),
+  totalCount: z.number().int().nonnegative(),
   temporaryCount: z.number().int().nonnegative(),
 });
 export type ProductCatalogCounts = z.infer<typeof ProductCatalogCountsSchema>;

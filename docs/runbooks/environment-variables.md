@@ -104,7 +104,6 @@ API container, current staging shape:
 NODE_ENV
 PORT
 DATABASE_URL
-DIRECT_URL
 SUPABASE_URL
 CORS_ORIGINS
 S3_REGION
@@ -143,7 +142,6 @@ same-origin `/api/*` routing.
 | `NODE_ENV` | API runtime | Yes | NestJS, storage, prod guards | `production` in staging/prod. |
 | `PORT` | API runtime | Yes | NestJS | `4000` for the API container. |
 | `DATABASE_URL` | API runtime | Yes | Prisma adapter | Main application database URL. |
-| `DIRECT_URL` | DB tooling | No for current API runtime | Prisma/tooling convention | Keep available for schema/data operations even though current API code reads `DATABASE_URL`. |
 | `SUPABASE_URL` | Auth | Yes | Supabase JWT/JWKS middleware | Must match the project issuing browser session cookies. |
 | `CORS_ORIGINS` | API runtime | Yes in production | Nest CORS | Comma-separated public origins. Same-origin `/api/*` still works through nginx. |
 | `API_SELF_URL` | API runtime | Optional | Action board service | Defaults to `http://localhost:4000`. Set if self-calls need the public or container URL. |
@@ -249,6 +247,13 @@ for them.
 | `DEV_WEB_ORIGIN` | Dev preview session callback bootstrap | `bin/dev-bootstrap.sh` | Must match the exact local browser origin. |
 | `KIDITEM_DEV_DATA_DRIVE_DIR` | Google Drive dev data sync | Dev data scripts | Local Google Drive Desktop path. |
 | `KIDITEM_DEV_ORGANIZATION_ID` | Dev data sync/import needs target org | Dev data scripts | Local/dev org scope. |
+| `KIDITEM_DEV_USER_ID` | Dev data API replay needs an actor | Dev data scripts | Optional explicit user id for replay. Prefer organization-scoped imports where possible. |
+| `KIDITEM_API_URL` | Dev data API replay targets a non-default API origin | Dev data scripts | Defaults to `http://localhost:4000`. |
+| `KIDITEM_DEV_DATA_CLOUD_STORAGE_ROOT` | Dev data cloud-storage bundle root is used | Dev data scripts | Optional alternative to local Drive path. |
+| `DEV_DEFAULT_USER_ID` | Dev data replay compatibility | Dev data scripts | Optional fallback local user id. Prefer explicit organization scope for imports. |
+| `AGENT_SEED_ORG_IDS` | Seeding Agent OS for only specific organizations | `scripts/seed-agent-os.ts` | Empty means seed every active local organization. |
+| `STAGING_URL` | Preparing a staging-targeted Coupang extension package | `scripts/prepare-coupang-extension.mjs`, staging workflow | Public staging origin. |
+| `EXTENSION_OUTPUT_DIR` | Custom extension package output directory is needed | `scripts/prepare-coupang-extension.mjs` | Optional; script has a default output directory. |
 
 ## Browser Automation
 
@@ -288,6 +293,7 @@ variables apply when running `agents/` as a separate runtime.
 | `TMAPI_BASE_URL` | Custom TMAPI endpoint needed | Python sourcing matcher | Defaults in code. |
 | `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | LLM tracing enabled | Python config/Langfuse | Both keys required to enable. |
 | `LANGFUSE_BASE_URL` | Custom Langfuse endpoint needed | Langfuse SDK | Defaults to Langfuse Cloud in examples. |
+| `LANGFUSE_HOST` | Migrating an old local agents env | Python config | Legacy alias mapped to `LANGFUSE_BASE_URL` when set and `LANGFUSE_BASE_URL` is empty. Prefer `LANGFUSE_BASE_URL`; it is intentionally omitted from new `.env.example` files. |
 | `LOG_LEVEL` | Custom logging verbosity needed | Python config | Defaults to `INFO`. |
 
 ## GitHub Actions Staging Environment
@@ -324,7 +330,7 @@ set +a
 
 ssh -i "$STAGING_SSH_KEY" "$STAGING_USER@$STAGING_HOST" '
   docker exec kiditem-staging-api sh -lc '"'"'
-    for k in NODE_ENV PORT DATABASE_URL DIRECT_URL SUPABASE_URL CORS_ORIGINS \
+    for k in NODE_ENV PORT DATABASE_URL SUPABASE_URL CORS_ORIGINS \
       S3_ENDPOINT S3_ACCESS_KEY S3_SECRET_KEY S3_BUCKET S3_PUBLIC_URL S3_REGION \
       PUPPETEER_EXECUTABLE_PATH; do
         eval v=\${$k-}

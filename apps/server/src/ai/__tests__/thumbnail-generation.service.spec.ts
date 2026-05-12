@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { ThumbnailGenerationJobService } from '../application/service/thumbnail-generation-job.service';
 import { ThumbnailGenerationService } from '../application/service/thumbnail-generation.service';
 import type { ThumbnailEditorInputImage } from '../domain/model/thumbnail-editor';
 
@@ -54,6 +55,38 @@ function makeOperationAlertsStub() {
     progress: vi.fn(async () => ({})),
     cancel: vi.fn(async () => ({})),
   };
+}
+
+function makeAgentRunnerStub() {
+  return {
+    runByType: vi.fn(async () => ({ ok: true })),
+  };
+}
+
+function makeService(input: {
+  prisma: unknown;
+  editorAi?: unknown;
+  trackingService?: unknown;
+  operationAlerts?: unknown;
+  agentRunner?: unknown;
+}) {
+  const operationAlerts = input.operationAlerts ?? makeOperationAlertsStub();
+  const editorAi = input.editorAi ?? {
+    resolveInputImage: vi.fn(),
+    generateEdit: vi.fn(),
+  };
+  const jobService = new ThumbnailGenerationJobService(
+    input.prisma as never,
+    editorAi as never,
+    operationAlerts as never,
+    (input.agentRunner ?? makeAgentRunnerStub()) as never,
+  );
+  return new ThumbnailGenerationService(
+    input.prisma as never,
+    (input.trackingService ?? { create: vi.fn() }) as never,
+    operationAlerts as never,
+    jobService,
+  );
 }
 
 function makeFullGenerationRow(over: Record<string, unknown> = {}) {
@@ -153,12 +186,7 @@ describe('ThumbnailGenerationService normalized persistence', () => {
         }),
       },
     };
-    const service = new ThumbnailGenerationService(
-      prisma as never,
-      { resolveInputImage: vi.fn(), generateEdit: vi.fn() } as never,
-      { create: vi.fn() } as never,
-      makeOperationAlertsStub() as never,
-    );
+    const service = makeService({ prisma });
     const id = await service.saveEditorResult({
       productId: PRODUCT_ID,
       organizationId: ORGANIZATION_ID,
@@ -198,12 +226,7 @@ describe('ThumbnailGenerationService normalized persistence', () => {
         create: vi.fn(async () => ({ id: GENERATION_ID })),
       },
     };
-    const service = new ThumbnailGenerationService(
-      prisma as never,
-      { resolveInputImage: vi.fn(), generateEdit: vi.fn() } as never,
-      { create: vi.fn() } as never,
-      makeOperationAlertsStub() as never,
-    );
+    const service = makeService({ prisma });
 
     await expect(
       service.saveEditorResult({
@@ -249,12 +272,7 @@ describe('ThumbnailGenerationService normalized persistence', () => {
         ]),
       },
     };
-    const service = new ThumbnailGenerationService(
-      prisma as never,
-      { resolveInputImage: vi.fn(), generateEdit: vi.fn() } as never,
-      { create: vi.fn() } as never,
-      makeOperationAlertsStub() as never,
-    );
+    const service = makeService({ prisma });
 
     const result = await service.findAll(ORGANIZATION_ID);
 
@@ -290,12 +308,7 @@ describe('ThumbnailGenerationService normalized persistence', () => {
         { url: 'u', storageKey: 'k', filename: 'a.png', mimeType: 'image/png', fileSize: 50 },
       ]),
     };
-    const service = new ThumbnailGenerationService(
-      prisma as never,
-      editorAi as never,
-      { create: vi.fn() } as never,
-      makeOperationAlertsStub() as never,
-    );
+    const service = makeService({ prisma, editorAi });
     const schedule = vi
       .spyOn(service as unknown as { scheduleEditJob: () => void }, 'scheduleEditJob')
       .mockImplementation(() => {});
@@ -354,12 +367,7 @@ describe('ThumbnailGenerationService normalized persistence', () => {
         { url: 'u', storageKey: 'k', filename: 'a.png', mimeType: 'image/png', fileSize: 50 },
       ]),
     };
-    const service = new ThumbnailGenerationService(
-      prisma as never,
-      editorAi as never,
-      { create: vi.fn() } as never,
-      makeOperationAlertsStub() as never,
-    );
+    const service = makeService({ prisma, editorAi });
 
     await (service as unknown as {
       processEditJob: (
@@ -416,12 +424,7 @@ describe('ThumbnailGenerationService normalized persistence', () => {
         { url: 'u', storageKey: 'k', filename: 'a.png', mimeType: 'image/png', fileSize: 50 },
       ]),
     };
-    const service = new ThumbnailGenerationService(
-      prisma as never,
-      editorAi as never,
-      { create: vi.fn() } as never,
-      makeOperationAlertsStub() as never,
-    );
+    const service = makeService({ prisma, editorAi });
     vi
       .spyOn(service as unknown as { scheduleEditJob: () => void }, 'scheduleEditJob')
       .mockImplementation(() => {});

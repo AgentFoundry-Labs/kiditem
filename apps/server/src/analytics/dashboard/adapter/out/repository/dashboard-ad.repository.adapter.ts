@@ -1,11 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../../prisma/prisma.service';
-
-export interface DailyAdCostRow {
-  date: string;
-  ad_cost: number;
-}
+import type {
+  DashboardAdRepositoryPort,
+  DailyAdCostRow,
+} from '../../../application/port/out/dashboard-ad.repository.port';
 
 /**
  * Ad-side raw SQL for the dashboard read model.
@@ -15,7 +14,7 @@ export interface DailyAdCostRow {
  * `organizationId` is bound via Prisma.sql tagged-template (ADR-0018).
  */
 @Injectable()
-export class DashboardAdRepositoryAdapter {
+export class DashboardAdRepositoryAdapter implements DashboardAdRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
   async fetchDailyAdCost(

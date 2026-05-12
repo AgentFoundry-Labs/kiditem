@@ -26,17 +26,45 @@ function parseArgs(argv) {
   return args;
 }
 
+function ghPrBody() {
+  try {
+    const out = execFileSync(
+      'gh',
+      ['pr', 'view', '--json', 'body', '--jq', '.body'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+    ).trim();
+    return out || null;
+  } catch {
+    return null;
+  }
+}
+
 function readPrBody({ body, bodyFile, event }) {
   if (body) return body;
-  const file = bodyFile || event || process.env.GITHUB_EVENT_PATH;
-  if (!file || !existsSync(file)) return '';
-  const raw = readFileSync(file, 'utf8');
-  try {
-    const parsed = JSON.parse(raw);
-    return parsed.pull_request?.body || parsed.body || '';
-  } catch {
-    return raw;
+
+  // In CI, the event payload (GITHUB_EVENT_PATH) is replayed verbatim when
+  // a workflow run is re-run, so a stale body can persist across reruns even
+  // after `gh pr edit`. Prefer `gh pr view` to read the live body, then fall
+  // back to the event file. The workflow exposes `GH_TOKEN` from GITHUB_TOKEN
+  // so this is authenticated automatically.
+  if (process.env.GITHUB_ACTIONS === 'true') {
+    const live = ghPrBody();
+    if (live) return live;
   }
+
+  const file = bodyFile || event || process.env.GITHUB_EVENT_PATH;
+  if (file && existsSync(file)) {
+    const raw = readFileSync(file, 'utf8');
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed.pull_request?.body || parsed.body || '';
+    } catch {
+      return raw;
+    }
+  }
+
+  const live = ghPrBody();
+  return live || '';
 }
 
 function changedFilesFromGit(base, head) {
@@ -111,9 +139,19 @@ export function analyzeReconstructionTriggers(files, lineCounts = {}) {
 export function missingBodyFields(body) {
   const missing = [];
   for (const label of REQUIRED_LABELS) {
-    const re = new RegExp(`${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[ \\t]*:[ \\t]*([^\\n\\r]*)`, 'i');
+    // Tolerate common Markdown decoration between the label and the colon:
+    //   "**Trigger**:", "*Trigger*:", "__Trigger__:", "`Trigger`:".
+    // The opening markers before the label do not need to match because the
+    // regex is unanchored. Trailing markdown that would otherwise consume the
+    // colon (e.g. `**Trigger**:` -> the second `**` sits between Trigger and `:`)
+    // is what we need to skip.
+    const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`${escapedLabel}[*_\`]*[ \\t]*:[ \\t]*([^\\n\\r]*)`, 'i');
     const match = body.match(re);
-    const value = match?.[1]?.trim() || '';
+    const value = (match?.[1] ?? '')
+      // Strip leading bold/italic/code openers on the value side as well.
+      .replace(/^[*_`]+/, '')
+      .trim();
     if (!value || /^(?:TBD|TODO|N\/A|-|_)$/i.test(value)) missing.push(label);
   }
   return missing;

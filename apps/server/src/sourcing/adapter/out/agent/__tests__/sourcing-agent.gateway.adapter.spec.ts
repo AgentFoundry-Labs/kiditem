@@ -2,10 +2,14 @@ import { describe, it, expect, vi } from 'vitest';
 import { InternalServerErrorException } from '@nestjs/common';
 import { SourcingAgentGatewayAdapter } from '../sourcing-agent.gateway.adapter';
 import type { AgentRunnerPort } from '../../../../../agent-os/application/port/in/agent-runner.port';
+import type { PostPromotionAiTriggerPort } from '../../../../../ai/application/port/in/post-promotion-ai-trigger.port';
+import type { OperationAlertService } from '../../../../../automation/application/service/operation-alert.service';
 
 function makeAdapter(runByType: ReturnType<typeof vi.fn>) {
   const runner = { runByType } as unknown as AgentRunnerPort;
-  return new SourcingAgentGatewayAdapter(runner);
+  const postPromotion = { fireForMaster: vi.fn().mockResolvedValue(undefined) } as unknown as PostPromotionAiTriggerPort;
+  const alerts = { start: vi.fn().mockResolvedValue({}) } as unknown as OperationAlertService;
+  return new SourcingAgentGatewayAdapter(runner, postPromotion, alerts);
 }
 
 describe('SourcingAgentGatewayAdapter', () => {

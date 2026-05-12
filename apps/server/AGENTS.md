@@ -10,8 +10,8 @@ npm run build
 docker compose up -d
 ```
 
-Env: `.env` -> `DATABASE_URL`, `CHANNEL_CREDENTIALS_ENCRYPTION_KEY`,
-`GEMINI_API_KEY`, and domain-specific provider keys.
+Env: `.env` follows `.env.example`. Keep it app-local; root `.env` is only a
+fallback for shared local tooling.
 
 ## Scope Instructions
 
@@ -85,6 +85,14 @@ reconstruction trigger; do not grow the flat service in place.
   that are not being reconstructed.
 - Do not add substantial behavior to 700+ line services/components. Changes to
   500+ line files require explicit reconstruction classification in PR review.
+- Line-count triggers (500+/700+) are classification gates, not split mandates.
+  Split only when DRY violation, shared mutable state, or distinct
+  responsibility makes the split net-positive after counting facade
+  indirection and spec maintenance cost.
+- When a service is split into sub-services, move overlapping facade spec
+  cases to the relevant sub-service spec in the same PR. The remaining facade
+  spec should be minimal — composition / dispatch only — per
+  [docs/TESTING.md `기존 테스트 정리 기준`](../../docs/TESTING.md#기존-테스트-정리-기준).
 - Review triggers: 10+ files, cross-layer controls, or LLM/provider/media/
   storage/fetch/runtime/sink/reconcile changes need explicit contract/test/gate
   classification before approval.
@@ -111,7 +119,8 @@ reconstruction trigger; do not grow the flat service in place.
 | Owner | Notes |
 |---|---|
 | `products` | catalog, categories compatibility, bundle stock writer |
-| `sourcing` | sourcing ingest/scrape, suppliers, procurement |
+| `sourcing` | Chinese new-product discovery (scraper ingest, SourcingCandidate inbox, candidate→master promotion) |
+| `supply` | supplier registry, master-supplier policy, purchase-order procurement |
 | `inventory` | inventory, unshipped, warehouses, stock transfers/audits, picking |
 | `orders` | orders, returns, CS/reviews, return-transfer surfaces |
 | `finance` | P&L, settlements, supplier payments, cost/plan analytics |
@@ -134,11 +143,11 @@ Read these before editing the matching path.
 
 | Path | Focus |
 |---|---|
-| [`src/advertising/AGENTS.md`](src/advertising/AGENTS.md) | ad operations, scrape ingest, daily facts |
+| [`src/advertising/AGENTS.md`](src/advertising/AGENTS.md) | ad operations, scrape ingest, daily facts; hexagonal-complete (`application/port/out/` + `adapter/out/repository/` + `adapter/out/automation/`, architecture spec, module wiring spec) |
 | [`src/agent-os/AGENTS.md`](src/agent-os/AGENTS.md) | Agent OS platform runtime |
 | [`src/ai/AGENTS.md`](src/ai/AGENTS.md) | media AI, prompts, provider ports, Agent OS sinks |
 | [`src/analytics/AGENTS.md`](src/analytics/AGENTS.md) | reporting/read models |
-| [`src/automation/AGENTS.md`](src/automation/AGENTS.md) | workflows, alerts, action board, panel projection |
+| [`src/automation/AGENTS.md`](src/automation/AGENTS.md) | workflows, alerts, action board, panel projection; hexagonal-complete (`application/port/out/` + `application/port/in/` for owner-side `OPERATION_ALERT_PORT` publish, `adapter/out/repository/`, architecture + wiring specs; `WorkflowRunnerService` PrismaService carve-out documented for the executor framework) |
 | [`src/auth/AGENTS.md`](src/auth/AGENTS.md) | auth guards, current org/user decorators |
 | [`src/channels/AGENTS.md`](src/channels/AGENTS.md) | Coupang sync/reconciliation/provider boundary |
 | [`src/chat/AGENTS.md`](src/chat/AGENTS.md) | CopilotKit runtime and Claude CLI adapter |
@@ -147,7 +156,8 @@ Read these before editing the matching path.
 | [`src/orders/AGENTS.md`](src/orders/AGENTS.md) | order/return channel-agnostic spine |
 | [`src/products/AGENTS.md`](src/products/AGENTS.md) | products/catalog and bundle stock |
 | [`src/rules/AGENTS.md`](src/rules/AGENTS.md) | rules evaluation and Agent OS delegation |
-| [`src/sourcing/AGENTS.md`](src/sourcing/AGENTS.md) | sourcing/procurement state machine |
+| [`src/sourcing/AGENTS.md`](src/sourcing/AGENTS.md) | Chinese new-product discovery, candidate inbox, promotion |
+| [`src/supply/AGENTS.md`](src/supply/AGENTS.md) | supplier registry, master-supplier policy, purchase-order procurement |
 | [`src/automation/adapter/out/panel-event/AGENTS.md`](src/automation/adapter/out/panel-event/AGENTS.md) | Live Ops SSE projection |
 | [`src/automation/adapter/out/workflow-runner/AGENTS.md`](src/automation/adapter/out/workflow-runner/AGENTS.md) | workflow executor adapter |
 

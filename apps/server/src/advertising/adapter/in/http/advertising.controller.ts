@@ -35,7 +35,7 @@ import {
   ReportDto,
   UpdateAdConfigDto,
   RegisterCampaignDto,
-} from '../../../dto';
+} from './dto';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 
 @Controller('ads')

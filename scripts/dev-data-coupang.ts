@@ -9,28 +9,32 @@ import {
   cp,
   mkdir,
   readdir,
-  readFile,
   rm,
   stat,
-  writeFile,
 } from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
+import {
+  bool,
+  parseRawArgs,
+  pushValue,
+  value,
+  values,
+  type ParsedArgs,
+} from './_shared/cli-args';
+import { readJson, readTextIfExists, sha256, writeJson } from './_shared/fs';
+import { assertSafeRelativePath, expandHome, repoPath } from './_shared/path';
 
 const SCHEMA_VERSION = 'kiditem.dev-data.coupang.v1';
 const LOCAL_DATA_ROOT = path.join('.data', 'coupang');
 const LEGACY_MARKET_DATA_SEED = 'scripts/seed-channel-market-data';
 
-type Command = 'replay' | 'sanitize' | 'export';
+const COMMANDS = ['replay', 'sanitize', 'export'] as const;
+type Command = (typeof COMMANDS)[number];
 type Lane = 'real' | 'demo';
 type ImportMode = 'upsert' | 'scoped-replace' | 'full-reset';
 
-type Args = {
-  command: Command;
-  values: Map<string, string[]>;
-  flags: Set<string>;
-};
+type Args = ParsedArgs<Command>;
 
 type BundlePayload = {
   path: string;
@@ -153,60 +157,7 @@ function selectReplayableCoupangImageUrl(
 }
 
 function parseArgs(raw = process.argv.slice(2)): Args {
-  const command = (raw.shift() ?? 'replay') as Command;
-  if (!['replay', 'sanitize', 'export'].includes(command)) {
-    throw new Error(`Unknown command: ${command}`);
-  }
-
-  const values = new Map<string, string[]>();
-  const flags = new Set<string>();
-  for (let i = 0; i < raw.length; i += 1) {
-    const token = raw[i];
-    if (!token.startsWith('--')) {
-      throw new Error(`Unexpected argument: ${token}`);
-    }
-    const stripped = token.slice(2);
-    const eq = stripped.indexOf('=');
-    if (eq >= 0) {
-      pushValue(values, stripped.slice(0, eq), stripped.slice(eq + 1));
-      continue;
-    }
-    const next = raw[i + 1];
-    if (!next || next.startsWith('--')) {
-      flags.add(stripped);
-      continue;
-    }
-    pushValue(values, stripped, next);
-    i += 1;
-  }
-
-  return { command, values, flags };
-}
-
-function pushValue(values: Map<string, string[]>, key: string, value: string): void {
-  values.set(key, [...(values.get(key) ?? []), value]);
-}
-
-function value(args: Args, key: string): string | undefined {
-  return args.values.get(key)?.at(-1);
-}
-
-function values(args: Args, key: string): string[] {
-  return args.values.get(key) ?? [];
-}
-
-function bool(args: Args, key: string): boolean {
-  return args.flags.has(key) || value(args, key) === 'true';
-}
-
-function expandHome(input: string): string {
-  if (input === '~') return os.homedir();
-  if (input.startsWith('~/')) return path.join(os.homedir(), input.slice(2));
-  return input;
-}
-
-function repoPath(...parts: string[]): string {
-  return path.resolve(process.cwd(), ...parts);
+  return parseRawArgs(raw, { commands: COMMANDS, defaultCommand: 'replay' });
 }
 
 function localDataRoot(args: Args): string {
@@ -219,11 +170,6 @@ function lane(args: Args): Lane {
     throw new Error(`Invalid lane: ${raw}`);
   }
   return raw;
-}
-
-async function readTextIfExists(file: string): Promise<string | null> {
-  if (!existsSync(file)) return null;
-  return (await readFile(file, 'utf8')).trim();
 }
 
 async function resolveDatasetId(args: Args, required = true): Promise<string> {
@@ -250,25 +196,6 @@ function localBundleDir(args: Args, datasetId: string): string {
 function assertSafeDatasetId(datasetId: string): void {
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(datasetId)) {
     throw new Error(`Unsafe dataset id: ${datasetId}`);
-  }
-}
-
-async function readJson<T>(file: string): Promise<T> {
-  return JSON.parse(await readFile(file, 'utf8')) as T;
-}
-
-async function writeJson(file: string, data: unknown): Promise<void> {
-  await mkdir(path.dirname(file), { recursive: true });
-  await writeFile(file, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
-}
-
-async function sha256(file: string): Promise<string> {
-  return createHash('sha256').update(await readFile(file)).digest('hex');
-}
-
-function assertSafeRelativePath(relativePath: string): void {
-  if (path.isAbsolute(relativePath) || relativePath.includes('..')) {
-    throw new Error(`Unsafe bundle path: ${relativePath}`);
   }
 }
 

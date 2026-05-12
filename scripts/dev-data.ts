@@ -1,21 +1,29 @@
 import 'dotenv/config';
 
 import { execFile } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { existsSync, readdirSync } from 'node:fs';
 import {
   cp,
   mkdir,
   readdir,
-  readFile,
   rm,
-  stat,
   writeFile,
 } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { runCoupangDevData } from './dev-data-coupang';
+import {
+  bool,
+  parseRawArgs,
+  pushValue,
+  requiredValue,
+  value,
+  values,
+  type ParsedArgs,
+} from './_shared/cli-args';
+import { fileSize, readJson, readTextIfExists, sha256, writeJson } from './_shared/fs';
+import { assertSafeRelativePath, expandHome, repoPath } from './_shared/path';
 
 const PACKAGE_SCHEMA_VERSION = 'kiditem.dev-data.package.v1';
 const PROFILE_SCHEMA_VERSION = 'kiditem.dev-data.profile.v1';
@@ -29,16 +37,13 @@ const CANONICAL_DRIVE_FOLDER_URL =
 
 const execFileAsync = promisify(execFile);
 
-type Command = 'status' | 'setup' | 'pull' | 'sync' | 'pack' | 'publish' | 'export' | 'sanitize' | 'replay';
+const COMMANDS = ['status', 'setup', 'pull', 'sync', 'pack', 'publish', 'export', 'sanitize', 'replay'] as const;
+type Command = (typeof COMMANDS)[number];
 type AdapterCommand = 'export' | 'sanitize' | 'replay';
 type Lane = 'real' | 'demo';
 type ReplayMode = 'upsert' | 'scoped-replace' | 'full-reset' | 'replace' | 'pull-only';
 
-type Args = {
-  command: Command;
-  values: Map<string, string[]>;
-  flags: Set<string>;
-};
+type Args = ParsedArgs<Command>;
 
 type BundlePayload = {
   path: string;
@@ -133,58 +138,7 @@ const PROJECT_REFERENCE_FILES = [
 ] as const;
 
 function parseArgs(): Args {
-  const raw = process.argv.slice(2);
-  const command = (raw.shift() ?? 'status') as Command;
-  if (!['status', 'setup', 'pull', 'sync', 'pack', 'publish', 'export', 'sanitize', 'replay'].includes(command)) {
-    throw new Error(`Unknown command: ${command}`);
-  }
-
-  const values = new Map<string, string[]>();
-  const flags = new Set<string>();
-  for (let i = 0; i < raw.length; i += 1) {
-    const token = raw[i];
-    if (!token.startsWith('--')) throw new Error(`Unexpected argument: ${token}`);
-    const stripped = token.slice(2);
-    const eq = stripped.indexOf('=');
-    if (eq >= 0) {
-      pushValue(values, stripped.slice(0, eq), stripped.slice(eq + 1));
-      continue;
-    }
-    const next = raw[i + 1];
-    if (!next || next.startsWith('--')) {
-      flags.add(stripped);
-      continue;
-    }
-    pushValue(values, stripped, next);
-    i += 1;
-  }
-  return { command, values, flags };
-}
-
-function pushValue(values: Map<string, string[]>, key: string, item: string): void {
-  values.set(key, [...(values.get(key) ?? []), item]);
-}
-
-function value(args: Args, key: string): string | undefined {
-  return args.values.get(key)?.at(-1);
-}
-
-function values(args: Args, key: string): string[] {
-  return args.values.get(key) ?? [];
-}
-
-function bool(args: Args, key: string): boolean {
-  return args.flags.has(key) || value(args, key) === 'true';
-}
-
-function expandHome(input: string): string {
-  if (input === '~') return os.homedir();
-  if (input.startsWith('~/')) return path.join(os.homedir(), input.slice(2));
-  return input;
-}
-
-function repoPath(...parts: string[]): string {
-  return path.resolve(process.cwd(), ...parts);
+  return parseRawArgs(process.argv.slice(2), { commands: COMMANDS, defaultCommand: 'status' });
 }
 
 function localDataRoot(args: Args): string {
@@ -199,12 +153,6 @@ function driveRoot(args: Args): string {
     );
   }
   return root;
-}
-
-function requiredValue(args: Args, key: string): string {
-  const item = value(args, key);
-  if (!item) throw new Error(`--${key} is required`);
-  return item;
 }
 
 function safeId(input: string, label: string): string {
@@ -235,12 +183,6 @@ function replayModeFrom(raw: string | undefined): ReplayMode | undefined {
   return raw as ReplayMode;
 }
 
-function assertSafeRelativePath(relativePath: string): void {
-  if (path.isAbsolute(relativePath) || relativePath.includes('..')) {
-    throw new Error(`Unsafe bundle path: ${relativePath}`);
-  }
-}
-
 function archiveFileName(domain: string, _lane: Lane, datasetId: string): string {
   return `kiditem-${safeDomain(domain)}-${safeId(datasetId, 'dataset id')}.zip`;
 }
@@ -268,28 +210,6 @@ function localBundleDir(args: Args, domain: string, datasetId: string): string {
 
 function localPackageDir(args: Args, domain: string): string {
   return path.join(localDataRoot(args), LOCAL_PACKAGE_DIR, safeDomain(domain));
-}
-
-async function readTextIfExists(file: string): Promise<string | null> {
-  if (!existsSync(file)) return null;
-  return (await readFile(file, 'utf8')).trim();
-}
-
-async function readJson<T>(file: string): Promise<T> {
-  return JSON.parse(await readFile(file, 'utf8')) as T;
-}
-
-async function writeJson(file: string, data: unknown): Promise<void> {
-  await mkdir(path.dirname(file), { recursive: true });
-  await writeFile(file, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
-}
-
-async function sha256(file: string): Promise<string> {
-  return createHash('sha256').update(await readFile(file)).digest('hex');
-}
-
-async function fileSize(file: string): Promise<number> {
-  return (await stat(file)).size;
 }
 
 async function loadManifest(bundleDir: string): Promise<BundleManifest> {

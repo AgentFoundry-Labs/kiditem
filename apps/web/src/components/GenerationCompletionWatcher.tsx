@@ -42,9 +42,8 @@ export default function GenerationCompletionWatcher() {
         TERMINAL_STATUSES.has(current)
       ) {
         const isBoldVertical = entry.templateId === 'bold-vertical';
-        const queryKey = isBoldVertical ? 'boldId' : 'kpId';
         const editorUrl = entry.productId
-          ? `/sourcing/${entry.productId}/editor?${queryKey}=${entry.id}`
+          ? `/generate?productId=${encodeURIComponent(entry.productId)}`
           : null;
         const productLabel = entry.productName || '상세페이지';
 

@@ -1,6 +1,6 @@
 # agents — Python Agent Server
 
-FastAPI HTTP 서버. NestJS python_http adapter가 호출. content, image_edit, sourcing 에이전트 실행.
+FastAPI HTTP 서버. NestJS python_http adapter가 호출. image_edit, sourcing 에이전트 실행.
 
 ## Run
 
@@ -56,4 +56,4 @@ Table/column names: snake_case (Prisma `@@map` mapped DB names).
 - No SQLAlchemy — asyncpg raw SQL only
 - No direct imports between agents — communicate via DB state only
 - No `app.` imports — all imports use `src.`
-- Use Langfuse `@observe` — integrated with content pipeline (SDK v4, `from langfuse import observe`)
+- Use Langfuse `@observe` for LLM/agent observability (SDK v4, `from langfuse import observe`)

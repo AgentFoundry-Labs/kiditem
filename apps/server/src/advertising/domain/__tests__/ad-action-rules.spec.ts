@@ -4,7 +4,7 @@ import {
   calcProfitRate,
   createActionCandidate,
 } from '../ad-action-rules';
-import type { LatestTargetRow } from '../../adapter/out/prisma/ad-action.query';
+import type { LatestTargetRow } from '../../application/port/out/ad-action.repository.port';
 
 /**
  * Pure decision logic for the 5 `AdAction` rules. The rules consume one

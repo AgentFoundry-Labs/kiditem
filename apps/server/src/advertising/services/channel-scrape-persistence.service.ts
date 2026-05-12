@@ -1,79 +1,97 @@
-// Transitional facade over the focused channels-namespace persistence
-// helpers. Kept inside `apps/server/src/advertising/services/` after the
-// Wave H2 Lane AD convergence move because the integration tests in
+// Transitional facade over the channels-namespace persistence adapters.
+// Kept inside `apps/server/src/advertising/services/` after the Wave H2
+// Lane AD convergence move because the integration tests in
 // `apps/server/src/advertising/__tests__/` (channel-scrape-dual-write,
 // ad-sync-flow) still inject this @Injectable wrapper by class name.
 //
-// The actual logic lives in `apps/server/src/advertising/adapter/out/prisma/*.ts`
-// (one module per concern: scrape-run lifecycle, daily-fact upserts,
-// account KPI). Ingest handlers call those persistence functions directly.
+// This facade now delegates to repository adapters via outgoing ports
+// (`application/port/out/*.repository.port.ts`), not to function helpers
+// directly. The actual persistence logic lives in the adapters bound to
+// those ports inside the advertising Nest module.
 //
-// New callers should import the persistence functions directly. This
-// facade may be removed once the integration tests stop relying on the
+// New callers should inject the repository ports directly. This facade
+// may be removed once the integration tests stop relying on the
 // class-name binding.
 
-import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
+import { Inject, Injectable } from '@nestjs/common';
 import {
-  appendScrapeSnapshot,
-  createScrapeRun,
-  finalizeScrapeRun,
+  AD_ACCOUNT_KPI_REPOSITORY_PORT,
+  type AdAccountKpiRepositoryPort,
+  type UpsertAccountKpiInput,
+} from '../application/port/out/ad-account-kpi.repository.port';
+import {
+  CHANNEL_LISTING_DAILY_REPOSITORY_PORT,
+  type ChannelListingDailyRepositoryPort,
+  type ListingDailyUpsertInput,
+} from '../application/port/out/channel-listing-daily.repository.port';
+import {
+  CHANNEL_OPTION_DAILY_REPOSITORY_PORT,
+  type ChannelOptionDailyRepositoryPort,
+  type ListingOptionDailyUpsertInput,
+} from '../application/port/out/channel-option-daily.repository.port';
+import {
+  CHANNEL_SCRAPE_REPOSITORY_PORT,
+  type ChannelScrapeRepositoryPort,
   type ScrapeRunFinalize,
   type ScrapeRunInput,
   type ScrapeSnapshotInput,
-} from '../adapter/out/prisma/channel-scrape-run.persistence';
+} from '../application/port/out/channel-scrape.repository.port';
 import {
-  upsertChannelAdTargetDaily,
-  upsertChannelListingDaily,
-  upsertChannelOptionDaily,
-  type ListingDailyUpsertInput,
-  type ListingOptionDailyUpsertInput,
+  CHANNEL_TARGET_DAILY_REPOSITORY_PORT,
+  type ChannelTargetDailyRepositoryPort,
   type UpsertAdTargetDailyInput,
-} from '../adapter/out/prisma/channel-daily-fact.persistence';
-import {
-  upsertChannelAccountKpi,
-  type UpsertAccountKpiInput,
-} from '../adapter/out/prisma/channel-account-kpi.persistence';
+} from '../application/port/out/channel-target-daily.repository.port';
 
 // Re-export public types so existing imports against this module keep
-// resolving while consumers migrate to the adapter/out/prisma/* modules.
+// resolving while consumers migrate to the port modules.
 export type { ScrapeMatchStatus } from '../domain/listing-match';
 export type {
   ListingDailyState,
   ListingDailyTrafficMetrics,
-  ListingOptionDailyState,
-  AdTargetDailyMetrics,
-} from '../adapter/out/prisma/channel-daily-fact.persistence';
+} from '../application/port/out/channel-listing-daily.repository.port';
+export type { ListingOptionDailyState } from '../application/port/out/channel-option-daily.repository.port';
+export type { AdTargetDailyMetrics } from '../application/port/out/channel-target-daily.repository.port';
 
 @Injectable()
 export class ChannelScrapePersistenceService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(CHANNEL_SCRAPE_REPOSITORY_PORT)
+    private readonly scrapeRepo: ChannelScrapeRepositoryPort,
+    @Inject(CHANNEL_LISTING_DAILY_REPOSITORY_PORT)
+    private readonly listingDailyRepo: ChannelListingDailyRepositoryPort,
+    @Inject(CHANNEL_OPTION_DAILY_REPOSITORY_PORT)
+    private readonly optionDailyRepo: ChannelOptionDailyRepositoryPort,
+    @Inject(CHANNEL_TARGET_DAILY_REPOSITORY_PORT)
+    private readonly targetDailyRepo: ChannelTargetDailyRepositoryPort,
+    @Inject(AD_ACCOUNT_KPI_REPOSITORY_PORT)
+    private readonly accountKpiRepo: AdAccountKpiRepositoryPort,
+  ) {}
 
   createRun(input: ScrapeRunInput) {
-    return createScrapeRun(this.prisma, input);
+    return this.scrapeRepo.createRun(input);
   }
 
   appendSnapshot(input: ScrapeSnapshotInput) {
-    return appendScrapeSnapshot(this.prisma, input);
+    return this.scrapeRepo.appendSnapshot(input);
   }
 
   finalizeRun(input: ScrapeRunFinalize) {
-    return finalizeScrapeRun(this.prisma, input);
+    return this.scrapeRepo.finalizeRun(input);
   }
 
   upsertListingDaily(input: ListingDailyUpsertInput) {
-    return upsertChannelListingDaily(this.prisma, input);
+    return this.listingDailyRepo.upsert(input);
   }
 
   upsertOptionDaily(input: ListingOptionDailyUpsertInput) {
-    return upsertChannelOptionDaily(this.prisma, input);
+    return this.optionDailyRepo.upsert(input);
   }
 
   upsertAdTargetDaily(input: UpsertAdTargetDailyInput) {
-    return upsertChannelAdTargetDaily(this.prisma, input);
+    return this.targetDailyRepo.upsert(input);
   }
 
   upsertAccountKpi(input: UpsertAccountKpiInput) {
-    return upsertChannelAccountKpi(this.prisma, input);
+    return this.accountKpiRepo.upsertAccountKpi(input);
   }
 }

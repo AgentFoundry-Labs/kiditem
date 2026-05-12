@@ -1,45 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../../prisma/prisma.service';
-
-export interface WingTrafficMetrics {
-  revenue: number;
-  orders: number;
-  salesQty: number;
-  visitors: number;
-  views: number;
-  cartAdds: number;
-  conversionRate: number; // 1-decimal percent (orders / visitors * 100)
-  hasData: boolean;
-  lastObservedAt: Date | null;
-}
-
-export interface CoupangAdsMetrics {
-  spend: number;
-  revenue: number;
-  impressions: number;
-  clicks: number;
-  conversions: number;
-  orders: number;
-  hasData: boolean;
-  lastObservedAt: Date | null;
-}
-
-export interface WingDailyTrendRow {
-  date: string;
-  revenue: number;
-  orders: number;
-  salesQty: number;
-  visitors: number;
-}
-
-export interface CoupangAdsDailyRow {
-  date: string;
-  ad_cost: number;
-  ad_revenue: number;
-  clicks: number;
-  impressions: number;
-}
+import type {
+  WingTrafficAggregationRepositoryPort,
+  WingTrafficMetrics,
+  CoupangAdsMetrics,
+  WingDailyTrendRow,
+  CoupangAdsDailyRow,
+} from '../../../application/port/out/wing-traffic-aggregation.repository.port';
 
 /**
  * Drive replay aggregations — Wing daily traffic + Coupang ads daily KPIs.
@@ -57,7 +25,9 @@ export interface CoupangAdsDailyRow {
  * against the calendar-date column.
  */
 @Injectable()
-export class WingTrafficAggregationRepositoryAdapter {
+export class WingTrafficAggregationRepositoryAdapter
+  implements WingTrafficAggregationRepositoryPort
+{
   constructor(private readonly prisma: PrismaService) {}
 
   async aggregateTraffic(

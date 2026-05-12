@@ -1,7 +1,7 @@
 // apps/server/src/products/dto/create-master.dto.ts
 import { Type } from 'class-transformer';
 import {
-  IsArray, IsBoolean, IsIn, IsInt, IsNotEmpty, IsNumber, IsOptional,
+  IsArray, IsBoolean, IsIn, IsInt, IsNotEmpty, IsOptional,
   IsString, IsUrl, Max, MaxLength, Min, ValidateIf, ValidateNested,
 } from 'class-validator';
 import { MasterImageItemDto } from './master-image-item.dto';
@@ -33,14 +33,15 @@ export class CreateMasterDto {
   @IsOptional() @IsString()
   adTier?: string;
 
-  @IsOptional() @IsString()
-  pipelineStep?: string;
+  // Phase 5 (#192): explicit lifecycle on create. Optional here — when
+  // omitted, the service layer defaults to 'active' (matches the Prisma
+  // `master_products.lifecycleState` default and the schema column added in
+  // Phase 1a). Replaces the legacy `pipelineStep` field on this DTO.
+  @IsOptional() @IsIn(['active', 'paused', 'discontinued'])
+  lifecycleState?: 'active' | 'paused' | 'discontinued';
 
   @IsOptional() @IsArray() @IsString({ each: true })
   tags?: string[];
-
-  @IsOptional() @IsUrl()
-  sourceUrl?: string;
 
   @IsOptional() @IsUrl()
   thumbnailUrl?: string;
@@ -50,15 +51,6 @@ export class CreateMasterDto {
 
   @IsOptional() @IsUrl()
   detailPageUrl?: string;
-
-  @IsOptional() @IsString()
-  sourcePlatform?: string;
-
-  @IsOptional() @IsNumber() @Min(0) @Max(99999999.99)
-  costCny?: number;
-
-  @IsOptional() @IsNumber() @Min(0) @Max(1)
-  marginRate?: number;
 
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => MasterImageItemDto)
   images?: MasterImageItemDto[];

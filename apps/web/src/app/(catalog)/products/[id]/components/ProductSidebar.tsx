@@ -50,7 +50,7 @@ export function InfoRow({
 }
 
 export default function ProductSidebar({ product }: ProductSidebarProps) {
-  const badge = getProductStatusBadge(product.pipelineStep ?? 'draft');
+  const badge = getProductStatusBadge(product.lifecycleState ?? 'active');
   const representativeOption = product.options[0] ?? null;
   const commissionRate = representativeOption?.commissionRate ?? null;
   const shippingCost = representativeOption?.shippingCost ?? null;
@@ -66,17 +66,11 @@ export default function ProductSidebar({ product }: ProductSidebarProps) {
       </InfoCard>
 
       <InfoCard title="링크">
-        {product.sourceUrl && (
-          <a href={product.sourceUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-sm text-purple-600 hover:underline py-1">
-            <ExternalLink size={13} /> 소싱 URL
-          </a>
-        )}
-        {product.detailPageUrl && (
+        {product.detailPageUrl ? (
           <a href={product.detailPageUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-sm text-purple-600 hover:underline py-1">
             <ExternalLink size={13} /> 상세페이지
           </a>
-        )}
-        {!product.sourceUrl && !product.detailPageUrl && (
+        ) : (
           <p className="text-sm text-slate-400">등록된 링크 없음</p>
         )}
       </InfoCard>

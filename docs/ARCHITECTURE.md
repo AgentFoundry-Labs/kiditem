@@ -85,7 +85,8 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/products` | Owner Domain | Catalog families, physical SKU options, bundle composition, categories compatibility. |
 | `apps/server/src/readiness` | Platform Capability | Readiness checks and health-style operational surface. |
 | `apps/server/src/rules` | Owner Domain | Business rules HTTP orchestration and Agent OS delegation. |
-| `apps/server/src/sourcing` | Owner Domain | Sourcing ingest/scrape, suppliers, and purchase-order procurement. |
+| `apps/server/src/sourcing` | Owner Domain | Chinese new-product discovery (scraper ingest, SourcingCandidate inbox, candidate→master promotion). |
+| `apps/server/src/supply` | Owner Domain | Supplier registry, master-supplier policy, purchase-order procurement. Extracted from sourcing/ during issue #192 follow-up Track A PR 1. |
 | `apps/server/src/test-helpers` | Test Support | Test-only Prisma and seed helpers. |
 | `apps/server/src/types` | Platform Support | Ambient/server TypeScript types. |
 | `apps/server/src/uploads` | Platform Capability | Upload endpoint and storage bridge. |
@@ -98,16 +99,16 @@ folders are intentionally absent from this map.
 | Path | Structure | Required / Optional Contract |
 |---|---|---|
 | `apps/server/src/activity-events` | Flat | module/controller/service/`dto/`. |
-| `apps/server/src/advertising` | Hexagonal | new ingest, daily-fact, and ad-action behavior uses adapter/application/domain lanes. |
+| `apps/server/src/advertising` | Hexagonal | port/adapter lanes complete; new ingest, daily-fact, and ad-action behavior uses `adapter/out/repository/` + `application/port/out/*` ports; architecture spec freezes invariants. |
 | `apps/server/src/advertising/services` | Flat | compatibility facade lane only; no new business logic. |
 | `apps/server/src/agent-os` | Hexagonal | runtime, queue, repository, policy, and event boundaries behind ports/adapters. |
 | `apps/server/src/ai` | Hexagonal | provider, runtime handler, bridge, sink, media, fetch, and storage boundaries behind ports/adapters. |
-| `apps/server/src/analytics/dashboard` | Hexagonal | raw SQL/report hydration behind repository adapters. |
+| `apps/server/src/analytics/dashboard` | Hexagonal | port/adapter lanes complete; 8 outgoing ports + repository adapters cover Prisma reads, application services are Prisma-free, architecture + module wiring specs freeze invariants. |
 | `apps/server/src/analytics/statistics` | Flat | read service. |
 | `apps/server/src/analytics/traffic` | Flat | read service plus operator upload mutation lane. |
 | `apps/server/src/analytics/supplier-stats` | Flat | supplier report service. |
 | `apps/server/src/auth` | Flat | guards/decorators/middleware/controller. |
-| `apps/server/src/automation` | Hexagonal | workflow, alert/action, marketplace, runner, and panel projection boundaries. |
+| `apps/server/src/automation` | Hexagonal | port/adapter lanes complete; 6 outgoing repository ports + `OPERATION_ALERT_PORT` owner-side incoming port published from `application/port/in/` for cross-domain producers; architecture + module wiring specs freeze invariants; `WorkflowRunnerService` PrismaService carve-out documented for the executor framework. |
 | `apps/server/src/channels` | Hexagonal | provider APIs use `application/port/out` plus `adapter/out/coupang`. |
 | `apps/server/src/channels/adapters` | Flat | compatibility shims only; new provider work uses `adapter/out/coupang/`. |
 | `apps/server/src/chat` | Flat | controller/service/Claude CLI adapter. |
@@ -121,6 +122,7 @@ folders are intentionally absent from this map.
 | `apps/server/src/readiness` | Flat | readiness controller/service. |
 | `apps/server/src/rules` | Flat | HTTP orchestration delegates execution to Agent OS ports. |
 | `apps/server/src/sourcing` | Hexagonal | sourcing agent/products boundaries behind ports/adapters. |
+| `apps/server/src/supply` | Flat | supplier CRUD + purchase-order procurement (transitional flat capability services). |
 | `apps/server/src/uploads` | Flat | upload controller/service/storage bridge. |
 
 ### Backend Structure Contracts
@@ -199,7 +201,8 @@ Kinds:
 | `apps/web/src/app/(inventory)` | Route Group | `_shared`, `inventory`, `inventory-hub`, `outbound`, `stock-ops`, `unshipped-items`, `warehouses` |
 | `apps/web/src/app/(media-ai)` | Route Group | `_shared`, `generate`, `image-hub`, `thumbnail-editor`, `thumbnails` |
 | `apps/web/src/app/(orders)` | Route Group | `_shared`, `cs-management`, `order-hub`, `order-status-hub`, `orders`, `return-scan`, `returns`, `reviews` |
-| `apps/web/src/app/(sourcing)` | Route Group | `purchase-orders`, `sourcing`, `sourcing-ai`, `suppliers` |
+| `apps/web/src/app/(sourcing)` | Route Group | `sourcing`, `sourcing-ai` |
+| `apps/web/src/app/(supply)` | Route Group | `purchase-orders`, `suppliers` |
 | `apps/web/src/app/agent-os` | App Internal | Fullscreen visualization surface, separate from `/agents`. |
 | `apps/web/src/app/auth` | App Internal | Auth callback subtree. |
 | `apps/web/src/app/fonts` | App Internal | Next font assets. |

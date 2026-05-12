@@ -4,6 +4,8 @@ import { AgentRuntimeHandlerRegistry } from '../../../../../agent-os/application
 import { AgentOsRuntimeError } from '../../../../../agent-os/domain/agent-os.errors';
 import type { AgentRuntimeExecutionContext } from '../../../../../agent-os/application/port/out/agent-runtime.port';
 import { DetailPageGenerateAgentOutputSchema } from '../../../../domain/agent-output';
+import { BoldVerticalRefinerService } from '../../../../application/service/bold-vertical-refiner.service';
+import { KidsPlayfulRefinerService } from '../../../../application/service/kids-playful-refiner.service';
 import { DetailPageResultRefinerService } from '../../../../application/service/detail-page-result-refiner.service';
 import type { TextCompletionPort } from '../../../../application/port/out/text-completion.port';
 
@@ -174,7 +176,10 @@ function makeHandler(textCompletion: TextCompletionPort) {
   const registry = new AgentRuntimeHandlerRegistry();
   // Real refiner without heroImageService — bold vertical color/package
   // refinement gracefully no-ops when heroImageService is absent.
-  const refiner = new DetailPageResultRefinerService(undefined);
+  const refiner = new DetailPageResultRefinerService(
+    new BoldVerticalRefinerService(),
+    new KidsPlayfulRefinerService(),
+  );
   const handler = new DetailPageGenerateRuntimeHandler(
     registry,
     textCompletion,

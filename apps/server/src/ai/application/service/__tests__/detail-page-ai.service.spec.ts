@@ -5,6 +5,8 @@ import { DetailPageGeneratedImagesService } from '../detail-page-generated-image
 import { DetailPagePrefillService } from '../detail-page-prefill.service';
 import { DetailPageQueryService } from '../detail-page-query.service';
 import { DetailPageResultRefinerService } from '../detail-page-result-refiner.service';
+import { BoldVerticalRefinerService } from '../bold-vertical-refiner.service';
+import { KidsPlayfulRefinerService } from '../kids-playful-refiner.service';
 import type { OperationAlertService } from '../../../../automation/application/service/operation-alert.service';
 import type { AgentRunnerPort } from '../../../../agent-os/application/port/in/agent-runner.port';
 
@@ -48,6 +50,13 @@ function makeAgentRunnerStub(
   };
 }
 
+function makeResultRefiner(heroImageService?: unknown): DetailPageResultRefinerService {
+  return new DetailPageResultRefinerService(
+    new BoldVerticalRefinerService(heroImageService as never),
+    new KidsPlayfulRefinerService(heroImageService as never),
+  );
+}
+
 function makeService(
   prisma: unknown,
   textCompletion: unknown,
@@ -56,7 +65,7 @@ function makeService(
   heroImageService?: unknown,
   agentRunner: AgentRunnerPort = makeAgentRunnerStub(),
 ): DetailPageAiService {
-  const resultRefiner = new DetailPageResultRefinerService(heroImageService as never);
+  const resultRefiner = makeResultRefiner(heroImageService);
   const generatedImages = new DetailPageGeneratedImagesService(heroImageService as never);
   const query = new DetailPageQueryService(prisma as never, resultRefiner);
   const generation = new DetailPageGenerationService(
@@ -591,9 +600,9 @@ describe('DetailPageAiService', () => {
   });
 
   it('uses inferred package images only in the package section for bold vertical', async () => {
-    const refiner = new DetailPageResultRefinerService({
+    const refiner = makeResultRefiner({
       inferPackageImagePositions: vi.fn().mockResolvedValue([3]),
-    } as never);
+    });
 
     const parsed = await refiner.refineBoldVerticalGeneration(
       {
@@ -644,9 +653,9 @@ describe('DetailPageAiService', () => {
   });
 
   it('prefers inferred retail display boxes over LLM-selected color lineups for package sections', async () => {
-    const refiner = new DetailPageResultRefinerService({
+    const refiner = makeResultRefiner({
       inferPackageImagePositions: vi.fn().mockResolvedValue([0]),
-    } as never);
+    });
 
     const parsed = await refiner.refineBoldVerticalGeneration(
       {
@@ -693,9 +702,9 @@ describe('DetailPageAiService', () => {
   });
 
   it('repairs LLM package-color collisions when package inference has no confident hit', async () => {
-    const refiner = new DetailPageResultRefinerService({
+    const refiner = makeResultRefiner({
       inferPackageImagePositions: vi.fn().mockResolvedValue([]),
-    } as never);
+    });
 
     const parsed = await refiner.refineBoldVerticalGeneration(
       {
@@ -742,9 +751,9 @@ describe('DetailPageAiService', () => {
   });
 
   it('does not promote package-opening usage product photos into package images', async () => {
-    const refiner = new DetailPageResultRefinerService({
+    const refiner = makeResultRefiner({
       inferPackageImagePositions: vi.fn().mockResolvedValue([]),
-    } as never);
+    });
 
     const parsed = await refiner.refineBoldVerticalGeneration(
       {
