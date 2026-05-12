@@ -1,21 +1,27 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { scrubSecrets } from '@kiditem/shared/security';
-import type { ActionTask, ActionTaskRelatedProduct } from '@kiditem/shared/action-task';
-import {
-  buildPerListingMetrics,
-  type PerListingMetrics,
-} from '../../../common/per-listing-profit';
+import type {
+  ActionTask,
+  ActionTaskRelatedProduct,
+} from '@kiditem/shared/action-task';
+import type { PerListingMetrics } from '../../../common/per-listing-profit';
 import { kstDayStart, kstMonthStart } from '../../../common/kst';
-import { PrismaService } from '../../../prisma/prisma.service';
 import { generateActionTaskSeeds } from '../../domain/policy/action-seeds';
+import {
+  ACTION_BOARD_REPOSITORY_PORT,
+  type ActionBoardRepositoryPort,
+} from '../port/out/action-board.repository.port';
 
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 type RelatedProduct = ActionTaskRelatedProduct;
 
 @Injectable()
 export class ActionBoardService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(ACTION_BOARD_REPOSITORY_PORT)
+    private readonly repository: ActionBoardRepositoryPort,
+  ) {}
 
   private resolveTodayContext(now: Date = new Date()) {
     const today = kstDayStart(now);
@@ -32,33 +38,17 @@ export class ActionBoardService {
   async getTasks(organizationId: string) {
     const { today, from, to } = this.resolveTodayContext();
 
-    // 1. Gather warnings data (same logic as dashboard)
-    const [metrics, inventoryRows, lowCtrCount, lowReviewCount] =
+    const [metrics, inventoryRows, lowCtrCount, aGradeReviewRows] =
       await Promise.all([
-        buildPerListingMetrics(this.prisma, organizationId, from, to),
-        this.prisma.inventory.findMany({
-          where: { organizationId, currentStock: { gt: 0 } },
-          select: { currentStock: true, reorderPoint: true },
-        }),
-        this.prisma.thumbnail.count({
-          where: { organizationId, ctr: { gt: 0, lt: 1.5 } },
-        }),
-        this.prisma.masterProduct
-          .findMany({
-            where: { organizationId, isDeleted: false, abcGrade: 'A' },
-            include: {
-              listings: {
-                where: { organizationId, isDeleted: false },
-                select: { _count: { select: { reviews: true } } },
-              },
-            },
-          })
-          .then((products) =>
-            products.filter(
-              (p) => p.listings.reduce((sum, l) => sum + l._count.reviews, 0) < 10,
-            ).length,
-          ),
+        this.repository.fetchPerListingMetrics(organizationId, from, to),
+        this.repository.findInventoryStockRows(organizationId),
+        this.repository.countLowCtrThumbnails(organizationId),
+        this.repository.findAGradeReviewCounts(organizationId),
       ]);
+
+    const lowReviewCount = aGradeReviewRows.filter(
+      (row) => row.reviewCount < 10,
+    ).length;
 
     const minusProducts = metrics.filter((metric) => metric.netProfit < 0).length;
     const lowProfitProducts = metrics.filter(
@@ -78,7 +68,6 @@ export class ActionBoardService {
     const totalAdCost = metrics.reduce((sum, metric) => sum + metric.adCost, 0);
     const adRate = totalRevenue > 0 ? (totalAdCost / totalRevenue) * 100 : 0;
 
-    // 2. Generate task seeds
     const seeds = generateActionTaskSeeds({
       minusProducts,
       lowProfitProducts,
@@ -89,47 +78,31 @@ export class ActionBoardService {
       lowReviewProducts: lowReviewCount,
     });
 
-    // 3. Upsert tasks for today
     for (const seed of seeds) {
-      await this.prisma.actionTask.upsert({
-        where: {
-          organizationId_taskKey_date: { organizationId, taskKey: seed.taskKey, date: today },
-        },
-        create: {
-          organizationId,
-          taskKey: seed.taskKey,
-          type: seed.type,
-          label: seed.label,
-          detail: seed.detail ?? null,
-          where: seed.where ?? null,
-          href: seed.href ?? null,
-          priority: seed.priority,
-          role: seed.role ?? null,
-          apiCall: (seed.apiCall ?? Prisma.JsonNull) as Prisma.InputJsonValue,
-          date: today,
-        },
-        update: {
-          label: seed.label,
-          detail: seed.detail ?? null,
-          priority: seed.priority,
-        },
+      await this.repository.upsertActionTaskSeed({
+        organizationId,
+        taskKey: seed.taskKey,
+        type: seed.type,
+        label: seed.label,
+        detail: seed.detail ?? null,
+        where: seed.where ?? null,
+        href: seed.href ?? null,
+        priority: seed.priority,
+        role: seed.role ?? null,
+        apiCall: (seed.apiCall ?? Prisma.JsonNull) as Prisma.InputJsonValue,
+        date: today,
       });
     }
 
-    // 4. Fetch today's tasks (sort by priority weight: urgent→high→medium)
     const priorityWeight: Record<string, number> = { urgent: 0, high: 1, medium: 2 };
-    const tasks = await this.prisma.actionTask.findMany({
-      where: { organizationId, date: today },
-      orderBy: { createdAt: 'asc' },
-    });
+    const tasks = await this.repository.findActionTasksForDay(organizationId, today);
     tasks.sort((a, b) =>
       (priorityWeight[a.priority] ?? 9) - (priorityWeight[b.priority] ?? 9),
     );
 
-    // 5. Attach related products
     const relatedMap = await this.getRelatedProducts(organizationId, metrics);
 
-    const result = tasks.map((t) => ({
+    return tasks.map((t) => ({
       ...t,
       apiCall: t.apiCall as ActionTask['apiCall'],
       result: t.result as ActionTask['result'],
@@ -140,12 +113,14 @@ export class ActionBoardService {
       updatedAt: t.updatedAt.toISOString(),
       relatedProducts: relatedMap[t.taskKey] ?? [],
     })) satisfies ActionTask[];
-
-    return result;
   }
 
-  async updateTask(id: string, organizationId: string, data: { status?: string; priority?: string }) {
-    const task = await this.prisma.actionTask.findFirst({ where: { id, organizationId } });
+  async updateTask(
+    id: string,
+    organizationId: string,
+    data: { status?: string; priority?: string },
+  ) {
+    const task = await this.repository.findActionTaskScoped(id, organizationId);
     if (!task) throw new NotFoundException('Task not found');
 
     const log = (task.activityLog as Array<Record<string, unknown>>) || [];
@@ -170,14 +145,14 @@ export class ActionBoardService {
       updates.priority = data.priority;
     }
 
-    return this.updateActionTaskOrThrow(id, organizationId, {
+    return this.repository.updateActionTaskOrThrow(id, organizationId, {
       ...updates,
       activityLog: log as unknown as Prisma.InputJsonValue,
     });
   }
 
   async addNote(id: string, organizationId: string, text: string) {
-    const task = await this.prisma.actionTask.findFirst({ where: { id, organizationId } });
+    const task = await this.repository.findActionTaskScoped(id, organizationId);
     if (!task) throw new NotFoundException('Task not found');
 
     const notes = (task.notes as Array<Record<string, unknown>>) || [];
@@ -186,14 +161,14 @@ export class ActionBoardService {
     const log = (task.activityLog as Array<Record<string, unknown>>) || [];
     log.push({ action: 'note_added', timestamp: new Date().toISOString() });
 
-    return this.updateActionTaskOrThrow(id, organizationId, {
+    return this.repository.updateActionTaskOrThrow(id, organizationId, {
       notes: notes as unknown as Prisma.InputJsonValue,
       activityLog: log as unknown as Prisma.InputJsonValue,
     });
   }
 
   async executeTask(id: string, organizationId: string) {
-    const task = await this.prisma.actionTask.findFirst({ where: { id, organizationId } });
+    const task = await this.repository.findActionTaskScoped(id, organizationId);
     if (!task) throw new NotFoundException('Task not found');
     if (!task.apiCall) throw new NotFoundException('No apiCall defined for this task');
 
@@ -219,7 +194,7 @@ export class ActionBoardService {
         success: res.ok,
       });
 
-      return this.updateActionTaskOrThrow(id, organizationId, {
+      return this.repository.updateActionTaskOrThrow(id, organizationId, {
         result: result as Prisma.InputJsonValue,
         status: 'done',
         activityLog: log as unknown as Prisma.InputJsonValue,
@@ -235,7 +210,7 @@ export class ActionBoardService {
         detail: err instanceof Error ? err.message : 'Unknown error',
       });
 
-      return this.updateActionTaskOrThrow(id, organizationId, {
+      return this.repository.updateActionTaskOrThrow(id, organizationId, {
         result: { error: scrubSecrets(err instanceof Error ? err.message : String(err)) } as Prisma.InputJsonValue,
         status: 'done',
         activityLog: log as unknown as Prisma.InputJsonValue,
@@ -243,28 +218,12 @@ export class ActionBoardService {
     }
   }
 
-  async claim(taskId: string, organizationId: string, userId: string) {
-    const { count } = await this.prisma.actionTask.updateMany({
-      where: { id: taskId, organizationId, assigneeUserId: null },
-      data: { assigneeUserId: userId },
-    });
-    if (count === 0) throw new ConflictException('Already claimed or task not found');
-    return this.prisma.actionTask.findFirstOrThrow({
-      where: { id: taskId, organizationId },
-      include: { assigneeUser: { select: { id: true, name: true } } },
-    });
+  claim(taskId: string, organizationId: string, userId: string) {
+    return this.repository.claimActionTask(taskId, organizationId, userId);
   }
 
-  async unclaim(taskId: string, organizationId: string, userId: string) {
-    const { count } = await this.prisma.actionTask.updateMany({
-      where: { id: taskId, organizationId, assigneeUserId: userId },
-      data: { assigneeUserId: null },
-    });
-    if (count === 0) throw new ConflictException('Not assigned to you or task not found');
-    return this.prisma.actionTask.findFirstOrThrow({
-      where: { id: taskId, organizationId },
-      include: { assigneeUser: { select: { id: true, name: true } } },
-    });
+  unclaim(taskId: string, organizationId: string, userId: string) {
+    return this.repository.unclaimActionTask(taskId, organizationId, userId);
   }
 
   async list(
@@ -272,50 +231,24 @@ export class ActionBoardService {
     currentUserId: string,
     opts: { assignedTo?: 'me' | 'team' | 'all' } = {},
   ) {
-    const { assignedTo = 'all' } = opts;
-    const where: Prisma.ActionTaskWhereInput = { organizationId };
-    if (assignedTo === 'me') {
-      where.assigneeUserId = currentUserId;
-    } else if (assignedTo === 'team') {
-      where.AND = [
-        { assigneeUserId: { not: null } },
-        { assigneeUserId: { not: currentUserId } },
-      ];
-    }
-
-    const tasks = await this.prisma.actionTask.findMany({
-      where,
-      include: { assigneeUser: { select: { id: true, name: true } } },
-      orderBy: [{ priority: 'asc' }, { date: 'desc' }],
+    const tasks = await this.repository.listActionTasks(organizationId, {
+      assignedTo: opts.assignedTo ?? 'all',
+      currentUserId,
     });
 
-    // Batch-load sourceAlerts (N+1 방지)
     const taskIds = tasks.map((t) => t.id);
-    const sourceAlerts = taskIds.length > 0
-      ? await this.prisma.alert.findMany({
-          where: { organizationId, actionTaskId: { in: taskIds } },
-          select: { id: true, actionTaskId: true, severity: true, type: true, title: true },
-        })
-      : [];
-    const alertByTaskId = new Map(sourceAlerts.map((a) => [a.actionTaskId!, a]));
+    const sourceAlerts = await this.repository.findAlertsByTaskIds(
+      organizationId,
+      taskIds,
+    );
+    const alertByTaskId = new Map(
+      sourceAlerts.map((a) => [a.actionTaskId!, a]),
+    );
 
     return tasks.map((t) => ({
       ...t,
       sourceAlert: alertByTaskId.get(t.id) ?? null,
     }));
-  }
-
-  private async updateActionTaskOrThrow(
-    id: string,
-    organizationId: string,
-    data: Prisma.ActionTaskUpdateManyMutationInput,
-  ) {
-    const { count } = await this.prisma.actionTask.updateMany({
-      where: { id, organizationId },
-      data,
-    });
-    if (count === 0) throw new NotFoundException('Task not found');
-    return this.prisma.actionTask.findFirstOrThrow({ where: { id, organizationId } });
   }
 
   // ── Private helpers ──
@@ -356,27 +289,21 @@ export class ActionBoardService {
     map['h-price-reset'] = minusProducts;
     map['analyze-deficit'] = minusProducts;
 
-    // Reorder products — Inventory → option → master (2-hop, B2c.dashboard C-03)
-    const invWithOption = await this.prisma.inventory.findMany({
-      where: {
-        organizationId,
-        currentStock: { gt: 0 },
-        reorderPoint: { gt: 0 },
-      },
-      include: {
-        option: { include: { master: { select: { id: true, name: true } } } },
-      },
-    });
-    map['h-reorder'] = invWithOption
-      .filter((inv) => inv.currentStock <= inv.reorderPoint)
+    // Reorder products — Inventory → option → master (2-hop)
+    const candidates = await this.repository.findInventoryReorderCandidates(
+      organizationId,
+    );
+    const reorderRows = candidates
+      .filter((c) => c.currentStock <= c.reorderPoint)
       .slice(0, 20)
-      .map((inv) => ({
-        id: inv.option?.master.id ?? inv.optionId,
-        name: inv.option?.master.name ?? 'N/A',
+      .map((c) => ({
+        id: c.masterId,
+        name: c.masterName,
         metric: '재고',
-        value: `${inv.currentStock}개 (기준 ${inv.reorderPoint})`,
+        value: `${c.currentStock}개 (기준 ${c.reorderPoint})`,
       })) satisfies ActionTaskRelatedProduct[];
-    map['analyze-stock'] = map['h-reorder'];
+    map['h-reorder'] = reorderRows;
+    map['analyze-stock'] = reorderRows;
 
     return map;
   }

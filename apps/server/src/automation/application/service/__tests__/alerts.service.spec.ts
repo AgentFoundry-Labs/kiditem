@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NotFoundException, ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AlertsService, type PromoteAlertInput } from '../alerts.service';
+import { AlertsRepositoryAdapter } from '../../../adapter/out/repository/alerts.repository.adapter';
 import { PANEL_EVENTS } from '../../../adapter/out/panel-event/panel-events';
 
 const ORGANIZATION_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
@@ -82,8 +83,9 @@ function makeEventEmitter() {
 function makeService() {
   const prisma = makePrisma();
   const eventEmitter = makeEventEmitter();
-  const service = new AlertsService(prisma as any, eventEmitter as any);
-  return { service, prisma, eventEmitter };
+  const repository = new AlertsRepositoryAdapter(prisma as any);
+  const service = new AlertsService(repository, eventEmitter as any);
+  return { service, prisma, eventEmitter, repository };
 }
 
 // Helper: wire $transaction to run the callback with a tx mock

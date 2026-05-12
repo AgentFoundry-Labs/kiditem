@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildPerListingMetrics } from '../../../../common/per-listing-profit';
 import { ActionBoardService } from '../action-board.service';
+import { ActionBoardRepositoryAdapter } from '../../../adapter/out/repository/action-board.repository.adapter';
 
 vi.mock('../../../../common/per-listing-profit', () => ({
   buildPerListingMetrics: vi.fn(),
@@ -55,7 +56,9 @@ describe('ActionBoardService.getTasks', () => {
 
   beforeEach(() => {
     prisma = makePrisma();
-    service = new ActionBoardService(prisma as any);
+    service = new ActionBoardService(
+      new ActionBoardRepositoryAdapter(prisma as any),
+    );
     mockedBuildPerListingMetrics.mockReset();
   });
 

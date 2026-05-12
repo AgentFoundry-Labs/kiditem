@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ActionBoardService } from '../action-board.service';
+import { ActionBoardRepositoryAdapter } from '../../../adapter/out/repository/action-board.repository.adapter';
 import { NotFoundException } from '@nestjs/common';
 import { ActionTaskSchema } from '@kiditem/shared/action-task';
 
@@ -34,7 +35,9 @@ describe('ActionBoardService — task 상태 전이', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     prisma = makePrisma();
-    service = new ActionBoardService(prisma as any);
+    service = new ActionBoardService(
+      new ActionBoardRepositoryAdapter(prisma as any),
+    );
   });
 
   describe('updateTask', () => {

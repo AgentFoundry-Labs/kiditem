@@ -32,6 +32,10 @@ import { PanelSseService } from '../panel-sse.service';
 import { PANEL_EVENTS } from '../panel-events';
 import { AlertsService } from '../../../../application/service/alerts.service';
 import { ActionBoardService } from '../../../../application/service/action-board.service';
+import { AlertsRepositoryAdapter } from '../../repository/alerts.repository.adapter';
+import { ActionBoardRepositoryAdapter } from '../../repository/action-board.repository.adapter';
+import { ALERTS_REPOSITORY_PORT } from '../../../../application/port/out/alerts.repository.port';
+import { ACTION_BOARD_REPOSITORY_PORT } from '../../../../application/port/out/action-board.repository.port';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -127,7 +131,11 @@ async function buildModule(prismaOverride?: ReturnType<typeof makePrisma>): Prom
       PanelSseService,
       AlertsService,
       ActionBoardService,
+      AlertsRepositoryAdapter,
+      ActionBoardRepositoryAdapter,
       { provide: PrismaService, useValue: prisma },
+      { provide: ALERTS_REPOSITORY_PORT, useExisting: AlertsRepositoryAdapter },
+      { provide: ACTION_BOARD_REPOSITORY_PORT, useExisting: ActionBoardRepositoryAdapter },
     ],
   }).compile();
 

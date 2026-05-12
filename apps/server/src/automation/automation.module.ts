@@ -1,58 +1,94 @@
 import { Module } from '@nestjs/common';
+import { PrismaModule } from '../prisma/prisma.module';
 import { AgentOsModule } from '../agent-os/agent-os.module';
-import { MarketplaceCatalogService } from './application/service/marketplace-catalog.service';
-import { MarketplaceInstallService } from './application/service/marketplace-install.service';
+
+// adapter/in/http
 import { ActionTaskController } from './adapter/in/http/action-task.controller';
 import { AlertsController } from './adapter/in/http/alerts.controller';
 import { MarketplaceController } from './adapter/in/http/marketplace.controller';
 import { OperationAlertLifecycleController } from './adapter/in/http/operation-alert-lifecycle.controller';
 import { PanelController } from './adapter/in/http/panel.controller';
-import { WorkflowsController, WorkflowRunsController } from './adapter/in/http/workflows.controller';
-import { PrismaMarketplaceInstallStoreAdapter } from './adapter/out/prisma/marketplace-install-store.adapter';
-import { MARKETPLACE_INSTALL_STORE_PORT } from './application/port/out/marketplace-install-store.port';
+import {
+  WorkflowsController,
+  WorkflowRunsController,
+} from './adapter/in/http/workflows.controller';
+
+// adapter/out/repository
+import { ActionBoardRepositoryAdapter } from './adapter/out/repository/action-board.repository.adapter';
+import { AlertsRepositoryAdapter } from './adapter/out/repository/alerts.repository.adapter';
+import { MarketplaceCatalogRepositoryAdapter } from './adapter/out/repository/marketplace-catalog.repository.adapter';
+import { MarketplaceInstallStoreRepositoryAdapter } from './adapter/out/repository/marketplace-install-store.repository.adapter';
+import { OperationAlertRepositoryAdapter } from './adapter/out/repository/operation-alert.repository.adapter';
+import { WorkflowOrchestrationRepositoryAdapter } from './adapter/out/repository/workflow-orchestration.repository.adapter';
+
+// adapter/out/panel-event
+import { PanelService } from './adapter/out/panel-event/panel.service';
+import { PanelSseService } from './adapter/out/panel-event/panel-sse.service';
+
+// application/service
 import { ActionBoardService } from './application/service/action-board.service';
 import { AgentRunOperationAlertBridge } from './application/service/agent-run-operation-alert.bridge';
 import { AlertsService } from './application/service/alerts.service';
+import { MarketplaceCatalogService } from './application/service/marketplace-catalog.service';
+import { MarketplaceInstallService } from './application/service/marketplace-install.service';
 import { OperationAlertService } from './application/service/operation-alert.service';
-import { PanelService } from './adapter/out/panel-event/panel.service';
-import { PanelSseService } from './adapter/out/panel-event/panel-sse.service';
 import { WorkflowOrchestrationService } from './application/service/workflow-orchestration.service';
 import { WorkflowRunnerService } from './application/service/workflow-runner.service';
 
+// application/port/in tokens (owner-side publish)
+import { OPERATION_ALERT_PORT } from './application/port/in/operation-alert.port';
+
+// application/port/out tokens
+import { ACTION_BOARD_REPOSITORY_PORT } from './application/port/out/action-board.repository.port';
+import { ALERTS_REPOSITORY_PORT } from './application/port/out/alerts.repository.port';
+import { MARKETPLACE_CATALOG_REPOSITORY_PORT } from './application/port/out/marketplace-catalog.repository.port';
+import { MARKETPLACE_INSTALL_STORE_PORT } from './application/port/out/marketplace-install-store.port';
+import { OPERATION_ALERT_REPOSITORY_PORT } from './application/port/out/operation-alert.repository.port';
+import { WORKFLOW_ORCHESTRATION_REPOSITORY_PORT } from './application/port/out/workflow-orchestration.repository.port';
+
 /**
  * `automation/` is the workflow-runner / action-board / alerts /
- * marketplace catalog / panel projection owner domain. Agent execution
- * (definition registry, instance, run request, run, runtime adapter,
- * observability) lives in the sibling `agent-os/` owner domain. This module imports
- * `AgentOsModule` so workflow runner nodes (`agent_task.create`) can
- * inject `AGENT_RUNNER_PORT` to delegate work without taking a hard
- * dependency on a runtime adapter.
+ * marketplace catalog / panel projection owner domain.
  *
- * Registered surfaces:
- * - `MarketplaceController` — workflow install/uninstall via
- *   `MarketplaceInstallService`. Agent install/uninstall returns
- *   `BadRequestException` until Agent OS catalog wiring lands; see
- *   `automation/adapter/out/panel-event/AGENTS.md` "Not yet wired".
- * - `PanelController` + `PanelService` / `PanelSseService` — read-only
- *   projection over workflow / image / alert sources. Live agent run
- *   projection was retired with the legacy `HeartbeatRun` /
- *   `AgentDefinition` models; Agent OS will own the next iteration.
- * - `WorkflowsController` / `WorkflowRunsController` +
- *   `WorkflowOrchestrationService` + `WorkflowRunnerService` — template
- *   CRUD, run creation, trusted tenant binding, DAG execution, panel
- *   emission, and Agent OS delegation for `agent_task.create` nodes.
- * - `ActionTaskController` + `ActionBoardService` — `/api/action-tasks/*`.
- *   Daily action seed thresholds live in pure
- *   `domain/policy/action-seeds.ts`.
- * - `AlertsController` + `AlertsService` — `/api/alerts/*` plus the
- *   promote/dismiss race guard and panel UPSERT/DISMISS contract.
+ * Hexagonal layout — application services depend on
+ * `application/port/out/*` tokens; concrete repository adapters bind via
+ * `useExisting`. Cross-owner-domain consumers (advertising, ai, channels,
+ * finance, rules, sourcing, analytics/traffic) bind their consumer-side
+ * `adapter/out/automation/operation-alert.adapter.ts` to the published
+ * owner-side `OPERATION_ALERT_PORT` token re-exported below instead of
+ * injecting `OperationAlertService` concretely.
  *
- * Consumers that previously injected `AGENT_RUNNER_PORT` from this
- * module should depend on `AgentOsModule` directly (re-exported here for
- * convenience during the migration).
+ * Transitional carve-out: `WorkflowRunnerService` still holds
+ * `PrismaService` because the workflow executor framework
+ * (`adapter/out/workflow-runner/executors/*`) takes a `PrismaService`
+ * argument by design. The architecture spec documents this exception;
+ * the follow-up PR will redesign the executor framework so the runner can
+ * depend on a port like every other service.
+ *
+ * Agent execution (definition registry, instance, run request, run, runtime
+ * adapter, observability) lives in the sibling `agent-os/` owner domain.
+ * `AgentOsModule` is imported so workflow runner nodes
+ * (`agent_task.create`) can inject `AGENT_RUNNER_PORT`.
  */
+
+// `application/port/out/*` ports bound to their adapters via `useExisting`
+// so application services depend on tokens, not concrete classes.
+const OUT_PORT_BINDINGS = [
+  { provide: ACTION_BOARD_REPOSITORY_PORT, useExisting: ActionBoardRepositoryAdapter },
+  { provide: ALERTS_REPOSITORY_PORT, useExisting: AlertsRepositoryAdapter },
+  { provide: MARKETPLACE_CATALOG_REPOSITORY_PORT, useExisting: MarketplaceCatalogRepositoryAdapter },
+  { provide: MARKETPLACE_INSTALL_STORE_PORT, useExisting: MarketplaceInstallStoreRepositoryAdapter },
+  { provide: OPERATION_ALERT_REPOSITORY_PORT, useExisting: OperationAlertRepositoryAdapter },
+  { provide: WORKFLOW_ORCHESTRATION_REPOSITORY_PORT, useExisting: WorkflowOrchestrationRepositoryAdapter },
+];
+
+// `application/port/in/*` published for cross-owner-domain consumers.
+const IN_PORT_BINDINGS = [
+  { provide: OPERATION_ALERT_PORT, useExisting: OperationAlertService },
+];
+
 @Module({
-  imports: [AgentOsModule],
+  imports: [PrismaModule, AgentOsModule],
   controllers: [
     MarketplaceController,
     PanelController,
@@ -63,23 +99,38 @@ import { WorkflowRunnerService } from './application/service/workflow-runner.ser
     WorkflowRunsController,
   ],
   providers: [
-    {
-      provide: MARKETPLACE_INSTALL_STORE_PORT,
-      useClass: PrismaMarketplaceInstallStoreAdapter,
-    },
+    // adapter/out/repository
+    ActionBoardRepositoryAdapter,
+    AlertsRepositoryAdapter,
+    MarketplaceCatalogRepositoryAdapter,
+    MarketplaceInstallStoreRepositoryAdapter,
+    OperationAlertRepositoryAdapter,
+    WorkflowOrchestrationRepositoryAdapter,
+    // adapter/out/panel-event
+    PanelService,
+    PanelSseService,
+    // application/service
     ActionBoardService,
     AgentRunOperationAlertBridge,
     AlertsService,
     OperationAlertService,
     MarketplaceCatalogService,
     MarketplaceInstallService,
-    PanelService,
-    PanelSseService,
     WorkflowOrchestrationService,
     WorkflowRunnerService,
+    // port bindings
+    ...OUT_PORT_BINDINGS,
+    ...IN_PORT_BINDINGS,
   ],
   exports: [
     AgentOsModule,
+    // Owner-side incoming port for cross-domain consumers
+    OPERATION_ALERT_PORT,
+    // Legacy class exports — kept while non-reconstructed consumers
+    // (ai, channels, finance, rules, sourcing, analytics/traffic) still
+    // inject these concretely. Each consumer's reconstruction PR will
+    // swap to OPERATION_ALERT_PORT and remove its direct class injection;
+    // once that completes these exports can be retired.
     ActionBoardService,
     OperationAlertService,
     PanelSseService,

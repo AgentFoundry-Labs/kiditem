@@ -16,6 +16,7 @@ import { ConflictException } from '@nestjs/common';
 import type { PrismaClient, ActionTask } from '@prisma/client';
 
 import { ActionBoardService } from '../action-board.service';
+import { ActionBoardRepositoryAdapter } from '../../../adapter/out/repository/action-board.repository.adapter';
 import {
   makeTestPrisma,
   resetDb,
@@ -58,7 +59,9 @@ describe('ActionBoardService.claim/unclaim — real Postgres race guard', () => 
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
-    service = new ActionBoardService(prisma as any);
+    service = new ActionBoardService(
+      new ActionBoardRepositoryAdapter(prisma as any),
+    );
   });
 
   it('단일 claim → assigneeUserId 세팅', async () => {
