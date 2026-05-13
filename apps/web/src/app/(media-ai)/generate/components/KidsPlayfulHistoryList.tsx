@@ -8,18 +8,30 @@
  * 클릭 시 풀스크린 KidsPlayfulRenderer 모달.
  * filterProductId 옵션 — sourcing 상세 페이지에서 그 product 만.
  */
-import { useEffect, useMemo, useState } from 'react';
-import { Calendar, History, Sparkles, Trash2, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import {
+  Calendar,
+  Download,
+  ExternalLink,
+  History,
+  Loader2,
+  Sparkles,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { API_BASE } from '@/lib/api';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
+import { downloadBlob } from '@/lib/browser-download';
 import { cn } from '@/lib/utils';
 import {
   SAME_ORIGIN_SCRIPTLESS_SANDBOX,
   stripSrcDocScripts,
 } from '@/app/(catalog)/product-content/lib/preview-sandbox';
 import { ensureStyledDetailHtml } from '@/app/(catalog)/product-content/lib/template-html';
+import { buildProductContentEditorHref } from '@/app/(catalog)/product-content/lib/product-content-routing';
 import {
   rowThumbnail,
   rowDisplaySubtitle,
@@ -49,6 +61,14 @@ function formatTs(iso: string): string {
 /** 카드에 표시할 상품명/타이틀 — "!" 제거. 실제 상세페이지 콘텐츠는 그대로 둠. */
 function stripExclamation(text: string): string {
   return text.replace(/!/g, '').trim();
+}
+
+function downloadFileName(entry: KidsPlayfulGenerationItem): string {
+  const base = stripExclamation(entry.productName || rowDisplayTitle(entry) || 'detail-page')
+    .replace(/[\\/:*?"<>|]+/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return `${base || 'detail-page'}.png`;
 }
 
 function canRenderGeneratedResult(entry: KidsPlayfulGenerationItem): boolean {
@@ -226,11 +246,13 @@ interface FullscreenViewerProps {
 }
 
 function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
+  const router = useRouter();
   const { data: latestEntry, isLoading: isEntryLoading } = useKidsPlayfulOne(entry.id);
   const previewEntry = latestEntry ?? entry;
   const [templateCss, setTemplateCss] = useState<string | null>(null);
   const [editedHtml, setEditedHtml] = useState<string | null>(null);
   const [editedHtmlLoaded, setEditedHtmlLoaded] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
   const isBoldVertical = previewEntry.templateId === 'bold-vertical';
 
   useEffect(() => {
@@ -291,25 +313,82 @@ function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
   }, [editedHtml, editedHtmlLoaded, isBoldVertical, previewEntry, templateCss]);
   const sandboxedHtml = useMemo(() => (html ? stripSrcDocScripts(html) : null), [html]);
   const isPreviewLoading = isEntryLoading || templateCss == null || !editedHtmlLoaded;
+  const editorHref = useMemo(
+    () => buildProductContentEditorHref({
+      productId: previewEntry.productId,
+      generationId: previewEntry.id,
+    }),
+    [previewEntry.id, previewEntry.productId],
+  );
+
+  const handleOpenEditor = useCallback(() => {
+    router.push(editorHref);
+  }, [editorHref, router]);
+
+  const handleDownloadImage = useCallback(async () => {
+    if (!html || isDownloading) return;
+    setIsDownloading(true);
+    try {
+      const res = await apiClient.fetchRaw('/api/render-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          html: stripSrcDocScripts(html),
+          viewportWidth: 860,
+          baseUrl: window.location.origin,
+        }),
+      });
+      if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+      downloadBlob(await res.blob(), downloadFileName(previewEntry));
+      toast.success('이미지를 다운로드했어요.');
+    } catch (err) {
+      console.error('[generate-history] detail image download failed', err);
+      toast.error('이미지 다운로드에 실패했습니다.');
+    } finally {
+      setIsDownloading(false);
+    }
+  }, [html, isDownloading, previewEntry]);
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-2">
       <div className="relative flex h-[98vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-slate-100 shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-3 shrink-0">
-          <div className="flex items-center gap-2 min-w-0">
+        <div className="flex shrink-0 flex-col gap-2 border-b border-slate-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <div className="flex min-w-0 items-center gap-2">
             <Sparkles size={18} className="text-violet-600 shrink-0" />
             <h3 className="text-base font-bold text-slate-900 truncate">
               {stripExclamation(rowDisplayTitle(previewEntry))}
             </h3>
             <span className="text-xs text-slate-400 font-mono truncate">{stripExclamation(previewEntry.productName)}</span>
           </div>
-          <button
-            onClick={onClose}
-            className="rounded-md p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 shrink-0"
-            aria-label="닫기"
-          >
-            <X size={20} />
-          </button>
+          <div className="flex shrink-0 items-center gap-2 sm:ml-4">
+            <button
+              type="button"
+              onClick={handleOpenEditor}
+              aria-label="에디터 열기"
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 shadow-sm transition-colors hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700"
+            >
+              <ExternalLink size={14} />
+              <span className="hidden sm:inline">에디터 열기</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleDownloadImage}
+              disabled={!html || isDownloading}
+              aria-label="이미지 다운로드"
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-500 px-3 text-xs font-bold text-white shadow-sm transition-colors hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isDownloading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+              <span className="hidden sm:inline">이미지 다운로드</span>
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+              aria-label="닫기"
+            >
+              <X size={20} />
+            </button>
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto bg-white">
           {isPreviewLoading ? (

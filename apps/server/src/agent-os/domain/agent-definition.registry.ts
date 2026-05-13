@@ -156,10 +156,11 @@ export function findAgentDefinitionByType(
 }
 
 export function resolveDefinitionDefaultModel(
-  definition: Pick<AgentDefinitionRecord, 'defaultModelEnv'>,
+  definition: Pick<AgentDefinitionRecord, 'defaultAdapterType' | 'defaultModelEnv'>,
 ): string | null {
   const specific = process.env[definition.defaultModelEnv];
   if (specific && specific.length > 0) return specific;
+  if (definition.defaultAdapterType === 'gemini_image') return null;
   const shared = process.env.AGENT_DEFAULT_MODEL;
   return shared && shared.length > 0 ? shared : null;
 }

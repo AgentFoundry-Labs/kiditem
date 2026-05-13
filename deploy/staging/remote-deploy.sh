@@ -68,6 +68,14 @@ validate_agent_os_runtime_env() {
   if [[ -z "${AGENT_THUMBNAIL_GENERATE_MODEL:-}" ]]; then
     fail "missing required API env: set AGENT_THUMBNAIL_GENERATE_MODEL in $API_ENV_FILE for thumbnail image generation"
   fi
+
+  if [[ -z "${AGENT_IMAGE_EDIT_MODEL:-}" ]]; then
+    fail "missing required API env: set AGENT_IMAGE_EDIT_MODEL in $API_ENV_FILE for image edit generation"
+  fi
+
+  if [[ -z "${AGENT_THUMBNAIL_AUTO_EDIT_MODEL:-}" ]]; then
+    fail "missing required API env: set AGENT_THUMBNAIL_AUTO_EDIT_MODEL in $API_ENV_FILE for thumbnail auto-edit generation"
+  fi
 }
 
 compose() (
