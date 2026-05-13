@@ -48,6 +48,7 @@ import {
 import { toast } from 'sonner';
 import { API_BASE } from '@/lib/api';
 import { apiClient } from '@/lib/api-client';
+import { getImageDownloadFetchInit } from '@/lib/browser-download';
 import { cn } from '@/lib/utils';
 import { useStore } from '@/store/useStore';
 import 'grapesjs/dist/css/grapes.min.css';
@@ -59,6 +60,7 @@ import EditorPagePanel from './EditorPagePanel';
 import EditorToolRail, { type EditorToolId } from './EditorToolRail';
 import { ImagePickerModal } from './ImagePickerModal';
 import { ImageSelectionPanel } from './ImageSelectionPanel';
+import { extractEditedImageUrl } from '../lib/image-edit-result';
 import {
   buildTemplateSectionBlockHtml,
   TEMPLATE_SECTION_PRESETS,
@@ -71,7 +73,7 @@ interface DetailPageEditorProps {
   productId?: string;
   rawImages?: string[];
   processedImages?: string[];
-  onSave: (html: string) => void;
+  onSave: (html: string) => Promise<void> | void;
   onClose: () => void;
 }
 
@@ -530,6 +532,134 @@ ${bodyMarkup}
 </html>`;
 }
 
+async function buildLiveEditorExportHtml(
+  editor: Editor,
+  parsed: ParsedHtml,
+  templateCss: string,
+): Promise<string> {
+  const iframeDoc = getEditorFrameEl(editor)?.contentDocument;
+  if (!iframeDoc?.documentElement) {
+    return buildPersistedEditorHtml(editor, parsed, templateCss);
+  }
+
+  const doc = new DOMParser().parseFromString(
+    `<!DOCTYPE html>${iframeDoc.documentElement.outerHTML}`,
+    'text/html',
+  );
+  scrubEditorRuntimeFromExport(doc);
+  normalizeExportHead(doc, parsed, templateCss);
+  await inlineExportImages(doc);
+  return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+}
+
+function getLiveEditorViewportWidth(editor: Editor, fallback: number): number {
+  const iframe = getEditorFrameEl(editor);
+  const docWidth = iframe?.contentDocument?.documentElement?.clientWidth;
+  if (docWidth && docWidth >= 320 && docWidth <= 1600) return Math.round(docWidth);
+
+  const rectWidth = iframe?.getBoundingClientRect().width;
+  if (rectWidth && rectWidth >= 320 && rectWidth <= 1600) return Math.round(rectWidth);
+
+  return fallback;
+}
+
+function scrubEditorRuntimeFromExport(doc: Document): void {
+  doc
+    .querySelectorAll('.gjs-selected, .gjs-selected-parent, .gjs-hovered')
+    .forEach((el) => {
+      el.classList.remove('gjs-selected', 'gjs-selected-parent', 'gjs-hovered');
+    });
+  doc.querySelectorAll('[data-gjs-highlightable]').forEach((el) => {
+    el.removeAttribute('data-gjs-highlightable');
+  });
+  doc.querySelectorAll('style').forEach((style) => {
+    const text = style.textContent ?? '';
+    if (/\.gjs-|scrollbar-width:\s*none|data-gjs-injected/i.test(text)) {
+      style.remove();
+      return;
+    }
+    style.textContent = absolutizeFontUrls(text);
+  });
+}
+
+function normalizeExportHead(doc: Document, parsed: ParsedHtml, templateCss: string): void {
+  const head = doc.head;
+  head.querySelectorAll('meta[charset], base, meta[name="viewport"]').forEach((el) => el.remove());
+  head.insertAdjacentHTML(
+    'afterbegin',
+    `<meta charset="UTF-8" />
+<meta name="viewport" content="${parsed.viewportContent.replace(/"/g, '&quot;')}" />
+<base href="${window.location.origin}/" />`,
+  );
+
+  const hasTemplateCss = Array.from(head.querySelectorAll('style')).some(
+    (style) => style.textContent === templateCss,
+  );
+  if (templateCss && !hasTemplateCss) {
+    const style = doc.createElement('style');
+    style.textContent = templateCss;
+    head.appendChild(style);
+  }
+
+  head.querySelectorAll<HTMLLinkElement>('link[href]').forEach((link) => {
+    const href = link.getAttribute('href');
+    if (!href || /^(?:[a-z][a-z\d+.-]*:|\/\/|data:|blob:)/i.test(href)) return;
+    link.setAttribute('href', new URL(href, window.location.origin).toString());
+  });
+}
+
+async function inlineExportImages(doc: Document): Promise<void> {
+  const elements = [
+    ...Array.from(doc.querySelectorAll<HTMLElement>('img[src], source[src], video[poster]')),
+  ];
+
+  await Promise.all(
+    elements.map(async (el) => {
+      const attr = el.hasAttribute('poster') ? 'poster' : 'src';
+      const src = el.getAttribute(attr);
+      if (!src || src.startsWith('data:') || src.startsWith('blob:')) return;
+      const dataUrl = await imageUrlToDataUrlForExport(src).catch((err) => {
+        console.warn('[detail-editor] export image inline failed', { src, err });
+        return null;
+      });
+      if (dataUrl) el.setAttribute(attr, dataUrl);
+    }),
+  );
+}
+
+async function imageUrlToDataUrlForExport(src: string): Promise<string | null> {
+  const response = await fetchExportImage(src);
+  if (!response.ok) return null;
+  const contentType = response.headers.get('content-type') || 'image/png';
+  const blob = await response.blob();
+  return blobToDataUrl(blob, contentType.split(';')[0] || 'image/png');
+}
+
+async function fetchExportImage(src: string): Promise<Response> {
+  const resolved = new URL(src, window.location.origin);
+  const apiBase = new URL(API_BASE || window.location.origin, window.location.origin);
+  if (resolved.origin === apiBase.origin && resolved.pathname.startsWith('/api/')) {
+    return apiClient.fetchRaw(`${resolved.pathname}${resolved.search}`, { method: 'GET' });
+  }
+  return fetch(resolved.toString(), getImageDownloadFetchInit(resolved.toString()));
+}
+
+function blobToDataUrl(blob: Blob, contentType: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error('Image export read failed'));
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      if (result) {
+        resolve(result);
+        return;
+      }
+      reject(new Error(`Image export failed for ${contentType}`));
+    };
+    reader.readAsDataURL(blob);
+  });
+}
+
 function parseFullHtml(fullHtml: string): ParsedHtml {
   const parser = new DOMParser();
   const doc = parser.parseFromString(fullHtml, 'text/html');
@@ -747,7 +877,7 @@ function EditorToolbar({
   productId?: string;
   templateCss: string;
   parsed: ParsedHtml;
-  onSave: (html: string) => void;
+  onSave: (html: string) => Promise<void> | void;
   onClose: () => void;
 }) {
   const editor = useEditor();
@@ -756,6 +886,7 @@ function EditorToolbar({
   const [canRedo, setCanRedo] = useState(false);
   const [hasSelection, setHasSelection] = useState(false);
   const [zoom, setZoom] = useState(100);
+  const [isSaving, setIsSaving] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [activeTool, setActiveTool] = useState('cursor');
   const [selectedVisible, setSelectedVisible] = useState(true);
@@ -807,13 +938,19 @@ function EditorToolbar({
     return () => window.removeEventListener('beforeunload', handler);
   }, [editor]);
 
-  const handleSave = useCallback(() => {
-    const fullHtml = buildPersistedEditorHtml(editor, parsed, templateCss);
-    // Save 후 dirty 해제 + UndoManager 클리어 → "방금 저장된 상태" 가 새 베이스.
-    setEditorDirty(false);
-    editor.UndoManager.clear();
-    onSave(fullHtml);
-  }, [editor, onSave, parsed, setEditorDirty, templateCss]);
+  const handleSave = useCallback(async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    try {
+      const fullHtml = buildPersistedEditorHtml(editor, parsed, templateCss);
+      await onSave(fullHtml);
+      // Save 성공 후 dirty 해제 + UndoManager 클리어 → "방금 저장된 상태" 가 새 베이스.
+      setEditorDirty(false);
+      editor.UndoManager.clear();
+    } finally {
+      setIsSaving(false);
+    }
+  }, [editor, isSaving, onSave, parsed, setEditorDirty, templateCss]);
 
   // 닫기 버튼 — Sidebar 가 아니라 toolbar 의 "닫기" 도 dirty 체크 필요.
   // (Sidebar 는 handleNavClick 이 가로채지만, onClose 는 editor 내부 router.push 라 별도 가드.)
@@ -832,36 +969,16 @@ function EditorToolbar({
   const handleExportPng = useCallback(async () => {
     setIsExporting(true);
     try {
-      const htmlStr = editor.getHtml();
-      const cssStr = editor.getCss({ avoidProtected: true }) ?? '';
-      const iframeDoc = getEditorFrameEl(editor)?.contentDocument;
-      const fontLinks = iframeDoc
-        ? Array.from(iframeDoc.head.querySelectorAll('link[rel="stylesheet"]'))
-            .map((l) => l.outerHTML).join('\n')
-        : '';
-      const styleEls = iframeDoc
-        ? Array.from(iframeDoc.head.querySelectorAll('style'))
-            .map((s) => s.outerHTML).join('\n')
-        : '';
-
-      const fullHtml = `<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8" />
-  <base href="${API_BASE}/" />
-  ${fontLinks}
-  ${styleEls}
-  <style>${templateCss}</style>
-  <style>${cssStr}</style>
-  <style>body { margin: 0; padding: 0; }</style>
-</head>
-<body>${htmlStr}</body>
-</html>`;
+      const fullHtml = await buildLiveEditorExportHtml(editor, parsed, templateCss);
 
       const res = await apiClient.fetchRaw('/api/render-image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ html: fullHtml }),
+        body: JSON.stringify({
+          html: fullHtml,
+          viewportWidth: getLiveEditorViewportWidth(editor, parsed.viewportWidth),
+          baseUrl: window.location.origin,
+        }),
       });
       if (!res.ok) throw new Error(`Export failed: ${res.status}`);
 
@@ -875,11 +992,11 @@ function EditorToolbar({
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (err) {
-      toast.error('이미지 내보내기에 실패했습니다.');
+      toast.error('PNG 다운로드에 실패했습니다.');
     } finally {
       setIsExporting(false);
     }
-  }, [editor, productName, templateCss]);
+  }, [editor, parsed, productName, templateCss]);
 
   const addElement = useCallback(
     (type: string) => {
@@ -1101,10 +1218,11 @@ function EditorToolbar({
         <button
           type="button"
           onClick={handleSave}
-          className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors"
+          disabled={isSaving}
+          className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <Save size={14} />
-          저장
+          {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+          {isSaving ? '저장 중...' : '저장'}
         </button>
         <button
           type="button"
@@ -1113,7 +1231,7 @@ function EditorToolbar({
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-emerald-500 hover:bg-emerald-600 rounded-lg transition-colors shadow-sm disabled:opacity-50"
         >
           {isExporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-          Export PNG
+          다운로드
         </button>
       </div>
 
@@ -1137,11 +1255,13 @@ function LeftPanel({
   onClose,
   onOpenAiPanel,
   rawImages = [],
+  onImagesUploaded,
 }: {
   activeTool: EditorToolId;
   onClose?: () => void;
   onOpenAiPanel: () => void;
   rawImages?: string[];
+  onImagesUploaded: (imageUrls: string[]) => void;
 }) {
   const editor = useEditor();
   return (
@@ -1165,6 +1285,7 @@ function LeftPanel({
         editor={editor}
         onOpenAiPanel={onOpenAiPanel}
         rawImages={rawImages}
+        onImagesUploaded={onImagesUploaded}
       />
     </aside>
   );
@@ -1175,15 +1296,25 @@ function LeftToolPanel({
   editor,
   onOpenAiPanel,
   rawImages,
+  onImagesUploaded,
 }: {
   activeTool: EditorToolId;
   editor: ReturnType<typeof useEditor>;
   onOpenAiPanel: () => void;
   rawImages: string[];
+  onImagesUploaded: (imageUrls: string[]) => void;
 }) {
   if (activeTool === 'pages') return <EditorPagePanel />;
   if (activeTool === 'text') return <TextToolPanel editor={editor} />;
-  if (activeTool === 'image') return <ImageToolPanel editor={editor} rawImages={rawImages} />;
+  if (activeTool === 'image') {
+    return (
+      <ImageToolPanel
+        editor={editor}
+        rawImages={rawImages}
+        onImagesUploaded={onImagesUploaded}
+      />
+    );
+  }
   if (activeTool === 'ai') return <AiToolPanel onOpenAiPanel={onOpenAiPanel} />;
   if (activeTool === 'ads') return <AdsToolPanel editor={editor} />;
   if (activeTool === 'shape') return <ShapeToolPanel editor={editor} />;
@@ -1276,9 +1407,11 @@ function TextToolPanel({ editor }: { editor: ReturnType<typeof useEditor> }) {
 function ImageToolPanel({
   editor,
   rawImages,
+  onImagesUploaded,
 }: {
   editor: ReturnType<typeof useEditor>;
   rawImages: string[];
+  onImagesUploaded: (imageUrls: string[]) => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageDragActiveRef = useRef(false);
@@ -1286,14 +1419,17 @@ function ImageToolPanel({
   const handleFiles = useCallback(
     async (files: FileList | null) => {
       if (!files?.length) return;
+      const uploadedUrls: string[] = [];
       for (const file of Array.from(files)) {
         const url = await readFileAsDataUrl(file);
+        uploadedUrls.push(url);
         editor.AssetManager.add({ type: 'image', src: url });
         insertImageIntoEditor(editor, url);
       }
+      if (uploadedUrls.length > 0) onImagesUploaded(uploadedUrls);
       if (fileInputRef.current) fileInputRef.current.value = '';
     },
-    [editor],
+    [editor, onImagesUploaded],
   );
 
   return (
@@ -1839,20 +1975,22 @@ function RightPanel({
   onGeneratingChange,
   rawImages = [],
   processedImages = [],
+  onImagesUploaded,
 }: {
   onClose?: () => void;
   selectedTextComponent: any;
   selectedImageComponent: any;
   isBusy: React.MutableRefObject<boolean>;
   selectedImageSrc: string | null;
-  onImageEdited: (newUrl: string) => void;
+  onImageEdited: (newUrl: string, component?: any) => void;
   onImageReplace: () => void;
   onImageClose: () => void;
   productId?: string;
   onAiFillComplete?: () => void;
-  onGeneratingChange?: (v: boolean) => void;
+  onGeneratingChange?: (v: boolean, component?: any, imageUrl?: string) => void;
   rawImages?: string[];
   processedImages?: string[];
+  onImagesUploaded: (imageUrls: string[]) => void;
 }) {
   const editor = useEditor();
   const [aiFillLoading, setAiFillLoading] = useState(false);
@@ -2046,34 +2184,23 @@ function RightPanel({
 
         const run = await apiClient.get<{ output?: unknown }>(`/api/agent-os/runs/${latestRunId}`);
         {
-          let output: Record<string, unknown> | null = null;
-          try {
-            output = typeof run.output === 'string' ? JSON.parse(run.output) : run.output;
-          } catch {
-            break;
-          }
+          const imageUrl = extractEditedImageUrl(run.output ?? null);
+          if (!imageUrl) throw new Error('색상 안내 이미지 URL을 찾지 못했습니다.');
 
-          if (output && Array.isArray(output.color_images)) {
-            const wrapper = editor.getWrapper();
-            if (wrapper) {
-              const resolveUrl = (url: string) =>
-                url.startsWith('/processed/') ? `${API_BASE}${url}` : url;
-              const sections = wrapper.find('[data-section="colorImages"]');
-              if (sections.length > 0) {
-                sections[0].removeClass('hidden');
-                const containers = wrapper.find('[data-container="colorImages"]');
-                if (containers.length > 0) {
-                  containers[0].components(
-                    (output.color_images as string[])
-                      .map((url) =>
-                        `<img src="${resolveUrl(url)}" alt="색상 안내" class="w-full h-auto rounded-[var(--theme-radius)] shadow-md" />`
-                      )
-                      .join('')
-                  );
-                }
-              }
-            }
+          const wrapper = editor.getWrapper();
+          if (!wrapper) throw new Error('에디터를 찾지 못했습니다.');
+
+          const resolveUrl = (url: string) =>
+            url.startsWith('/processed/') ? `${API_BASE}${url}` : url;
+          const sections = wrapper.find('[data-section="colorImages"]');
+          const containers = wrapper.find('[data-container="colorImages"]');
+          if (sections.length === 0 || containers.length === 0) {
+            throw new Error('색상 안내 섹션을 찾지 못했습니다.');
           }
+          sections[0].removeClass('hidden');
+          containers[0].components(
+            `<img src="${resolveUrl(imageUrl)}" alt="색상 안내" class="w-full h-auto rounded-[var(--theme-radius)] shadow-md" />`
+          );
           setColorImagesExist(true);
           setPostColorGuideOpen(false);
           break;
@@ -2131,6 +2258,7 @@ function RightPanel({
             isBusy={isBusy}
             onEditComplete={onImageEdited}
             onReplace={onImageReplace}
+            onGeneratingChange={onGeneratingChange}
             onClose={onImageClose}
           />
         ) : aiFillLoading ? (
@@ -2210,6 +2338,7 @@ function RightPanel({
                   open={showHeroPicker}
                   rawImages={rawImages}
                   processedImages={[]}
+                  onUploadImages={onImagesUploaded}
                   onSelect={(url) => {
                     setSeedHeroImage(url);
                     setShowHeroPicker(false);
@@ -2286,6 +2415,7 @@ function RightPanel({
                   open={showColorPicker}
                   rawImages={rawImages}
                   processedImages={processedImages}
+                  onUploadImages={onImagesUploaded}
                   onSelect={(url) => {
                     if (colorImageUrls.length < 6 && !colorImageUrls.includes(url)) {
                       setColorImageUrls(prev => [...prev, url]);
@@ -2426,12 +2556,22 @@ export default function DetailPageEditor({
   const [selectedImageComponent, setSelectedImageComponent] = useState<any>(null);
   const [selectedTextComponent, setSelectedTextComponent] = useState<any>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [imageEditTarget, setImageEditTarget] = useState<{ component: any; imageUrl: string } | null>(null);
+  const [imageEditOverlayRect, setImageEditOverlayRect] = useState<DOMRect | null>(null);
   const isBusyRef = useRef(false);
   const [showImagePicker, setShowImagePicker] = useState(false);
+  const [uploadedImages, setUploadedImages] = useState<string[]>([]);
   const [editorRef, setEditorRef] = useState<Editor | null>(null);
   const [showLeftPanel, setShowLeftPanel] = useState(true);
   const [showRightPanel, setShowRightPanel] = useState(true);
   const [activeLeftTool, setActiveLeftTool] = useState<EditorToolId>('pages');
+  const panelRawImages = useMemo(
+    () => Array.from(new Set([...rawImages, ...uploadedImages])),
+    [rawImages, uploadedImages],
+  );
+  const handleImagesUploaded = useCallback((imageUrls: string[]) => {
+    setUploadedImages((prev) => Array.from(new Set([...prev, ...imageUrls])));
+  }, []);
 
   useEffect(() => {
     const style = document.createElement('style');
@@ -2651,10 +2791,14 @@ export default function DetailPageEditor({
   );
 
   const applyImageSrcToComponent = useCallback(
-    (newUrl: string) => {
+    (newUrl: string, targetComponent?: any) => {
       if (!editorRef) return null;
-      const selected = selectedImageComponent ?? editorRef.getSelected();
+      const selected = targetComponent ?? selectedImageComponent ?? editorRef.getSelected();
       if (!selected) return null;
+      const shouldSelectAfterUpdate =
+        !targetComponent ||
+        targetComponent === selectedImageComponent ||
+        targetComponent === editorRef.getSelected();
 
       const attrs = selected.getAttributes?.() ?? {};
       selected.setAttributes?.({ ...attrs, src: newUrl });
@@ -2665,7 +2809,7 @@ export default function DetailPageEditor({
 
       requestAnimationFrame(() => {
         selected.view?.el?.setAttribute?.('src', newUrl);
-        editorRef.select(selected);
+        if (shouldSelectAfterUpdate) editorRef.select(selected);
         editorRef.refresh();
       });
 
@@ -2675,13 +2819,15 @@ export default function DetailPageEditor({
   );
 
   const handleImageEdited = useCallback(
-    (newUrl: string) => {
-      const selected = applyImageSrcToComponent(newUrl);
+    (newUrl: string, targetComponent?: any) => {
+      const selected = applyImageSrcToComponent(newUrl, targetComponent);
       if (!selected) return;
-      setSelectedImageComponent(selected);
-      setSelectedImageSrc(newUrl);
+      if (!targetComponent || targetComponent === selectedImageComponent || targetComponent === editorRef?.getSelected()) {
+        setSelectedImageComponent(selected);
+        setSelectedImageSrc(newUrl);
+      }
     },
-    [applyImageSrcToComponent],
+    [applyImageSrcToComponent, editorRef, selectedImageComponent],
   );
 
   const handleImageReplaced = useCallback(
@@ -2695,9 +2841,47 @@ export default function DetailPageEditor({
     [applyImageSrcToComponent],
   );
 
+  const handleImageGeneratingChange = useCallback((value: boolean, component?: any, imageUrl?: string) => {
+    setIsGenerating(value);
+    setImageEditTarget(value && component ? { component, imageUrl: imageUrl ?? '' } : null);
+  }, []);
+
   const refreshCanvas = useCallback(() => {
     if (editorRef) requestAnimationFrame(() => editorRef.refresh());
   }, [editorRef]);
+
+  useEffect(() => {
+    if (!isGenerating || !editorRef || !imageEditTarget?.component) {
+      setImageEditOverlayRect(null);
+      return;
+    }
+
+    let frameId = 0;
+    const updateRect = () => {
+      const frame = getEditorFrameEl(editorRef);
+      const imageEl = imageEditTarget.component.view?.el as HTMLElement | undefined;
+      if (!frame || !imageEl) {
+        setImageEditOverlayRect(null);
+        frameId = requestAnimationFrame(updateRect);
+        return;
+      }
+
+      const frameRect = frame.getBoundingClientRect();
+      const imageRect = imageEl.getBoundingClientRect();
+      setImageEditOverlayRect(
+        new DOMRect(
+          frameRect.left + imageRect.left,
+          frameRect.top + imageRect.top,
+          imageRect.width,
+          imageRect.height,
+        ),
+      );
+      frameId = requestAnimationFrame(updateRect);
+    };
+
+    frameId = requestAnimationFrame(updateRect);
+    return () => cancelAnimationFrame(frameId);
+  }, [editorRef, imageEditTarget, isGenerating]);
 
   return (
     <GjsEditor grapesjs={grapesjs} options={GRAPESJS_OPTIONS} onEditor={handleEditorInit}>
@@ -2724,14 +2908,33 @@ export default function DetailPageEditor({
                   setShowRightPanel(true);
                   refreshCanvas();
                 }}
-                rawImages={rawImages}
+                rawImages={panelRawImages}
+                onImagesUploaded={handleImagesUploaded}
               />
             </WithEditor>
           </div>
           <div className="relative min-w-0 flex-1 overflow-hidden bg-slate-100">
             <Canvas />
-            {isGenerating && (
-              <div className="absolute inset-0 bg-white/30 z-50 cursor-not-allowed" />
+            {isGenerating && imageEditOverlayRect && (
+              <div
+                className="pointer-events-none fixed z-50 flex items-center justify-center overflow-hidden rounded-[inherit] bg-slate-950/30 backdrop-blur-[1px]"
+                style={{
+                  left: imageEditOverlayRect.left,
+                  top: imageEditOverlayRect.top,
+                  width: imageEditOverlayRect.width,
+                  height: imageEditOverlayRect.height,
+                }}
+              >
+                <div className="flex min-w-[180px] max-w-[260px] flex-col items-center rounded-xl border border-white/70 bg-white/95 px-4 py-3 text-center shadow-xl">
+                  <Loader2 size={22} className="animate-spin text-emerald-500" />
+                  <p className="mt-2 text-xs font-black text-slate-800">
+                    AI 이미지 처리 중...
+                  </p>
+                  <p className="mt-0.5 text-[10px] font-medium text-slate-500">
+                    완료되면 이 이미지에 반영됩니다
+                  </p>
+                </div>
+              </div>
             )}
             {!showLeftPanel && (
               <button
@@ -2783,9 +2986,10 @@ export default function DetailPageEditor({
                 }}
                 productId={productId}
                 onAiFillComplete={handleAiFillComplete}
-                onGeneratingChange={setIsGenerating}
-                rawImages={rawImages}
+                onGeneratingChange={handleImageGeneratingChange}
+                rawImages={panelRawImages}
                 processedImages={processedImages}
+                onImagesUploaded={handleImagesUploaded}
               />
             </WithEditor>
           </div>
@@ -2794,8 +2998,9 @@ export default function DetailPageEditor({
 
       <ImagePickerModal
         open={showImagePicker}
-        rawImages={rawImages}
+        rawImages={panelRawImages}
         processedImages={processedImages}
+        onUploadImages={handleImagesUploaded}
         onSelect={handleImageReplaced}
         onClose={() => setShowImagePicker(false)}
       />
@@ -2804,8 +3009,9 @@ export default function DetailPageEditor({
         {({ open, select, close }) => (
           <ImagePickerModal
             open={open}
-            rawImages={rawImages}
+            rawImages={panelRawImages}
             processedImages={processedImages}
+            onUploadImages={handleImagesUploaded}
             onSelect={(url) => {
               if (!editorRef) return;
               const asset = editorRef.Assets.add({ type: 'image', src: url });

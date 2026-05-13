@@ -218,7 +218,7 @@ describe('DetailPageGeneratedImagesService', () => {
     );
   });
 
-  it('falls back to the sole package photo for non-package media when no normal product image remains', async () => {
+  it('keeps package-only photos out of non-package media when no normal product image remains', async () => {
     const heroImageService = {
       generateHeroBanner: vi.fn().mockResolvedValue('https://cdn.example.com/hero.png'),
       generateHeroProductImage: vi.fn().mockResolvedValue('https://cdn.example.com/hero-product.png'),
@@ -278,19 +278,17 @@ describe('DetailPageGeneratedImagesService', () => {
       expect.objectContaining({ imageUrls: packageOnlySource }),
     );
     expect(heroImageService.generateHeroBanner).toHaveBeenCalledWith(
-      expect.objectContaining({ imageUrls: packageOnlySource }),
+      expect.objectContaining({ imageUrls: [] }),
     );
-    expect(heroImageService.generateHeroProductImage).toHaveBeenCalledWith(
-      expect.objectContaining({ imageUrls: packageOnlySource }),
-    );
+    expect(heroImageService.generateHeroProductImage).not.toHaveBeenCalled();
     expect(heroImageService.generateSizeGuideImage).toHaveBeenCalledWith(
-      expect.objectContaining({ imageUrls: packageOnlySource }),
+      expect.objectContaining({ imageUrls: [] }),
     );
     for (const [input] of heroImageService.generateUsageGuideImage.mock.calls) {
-      expect(input.imageUrls).toEqual(packageOnlySource);
+      expect(input.imageUrls).toEqual([]);
     }
     for (const [input] of heroImageService.generateDetailCutImage.mock.calls) {
-      expect(input.imageUrls).toEqual(packageOnlySource);
+      expect(input.imageUrls).toEqual([]);
     }
   });
 

@@ -21,6 +21,11 @@ function makeService(runnerResult: AgentRunnerResult) {
     runByType: vi.fn(
       async (_type: string, _input: AgentRunnerInput): Promise<AgentRunnerResult> => runnerResult,
     ),
+    executeRequest: vi.fn().mockResolvedValue({
+      executed: true,
+      requestId: runnerResult.requestId,
+      runId: runnerResult.runId,
+    }),
   } satisfies AgentRunnerPort;
   const operationAlerts = makeOperationAlerts();
   const service = new ImageAiService(runner as never, operationAlerts as never);
@@ -127,10 +132,31 @@ describe('ImageAiService', () => {
     );
   });
 
+  it('kicks the queued image edit request immediately so the editor does not depend on a background worker tick', async () => {
+    const { service, runner } = makeService({
+      ok: true,
+      requestId: 'request-inline',
+      agentType: 'image_edit',
+      status: 'pending',
+    });
+
+    await service.createEditTask(
+      { image_url: 'https://example.com/a.png', preset: 'enhance' },
+      ORGANIZATION_ID,
+      USER_ID,
+    );
+
+    expect(runner.executeRequest).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      requestId: 'request-inline',
+      workerId: 'image-edit-inline',
+    });
+  });
+
   it('does NOT open an operation alert when the runner produced no requestId', async () => {
     // Runner returned only a runId — alert key contract requires requestId
     // because the FINALIZED bridge keys closeBySource on AgentRunRequest.id.
-    const { service, operationAlerts } = makeService({
+    const { service, runner, operationAlerts } = makeService({
       ok: true,
       runId: 'run-only',
       agentType: 'image_edit',
@@ -145,6 +171,7 @@ describe('ImageAiService', () => {
 
     expect(result).toEqual({ taskId: 'run-only' });
     expect(operationAlerts.start).not.toHaveBeenCalled();
+    expect(runner.executeRequest).not.toHaveBeenCalled();
   });
 
   it('throws instead of inventing an id when Agent OS cannot queue the request', async () => {

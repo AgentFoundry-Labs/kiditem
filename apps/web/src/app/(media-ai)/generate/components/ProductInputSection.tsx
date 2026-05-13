@@ -24,6 +24,7 @@ import {
 import { apiClient } from '@/lib/api-client';
 import { cn, formatTime } from '@/lib/utils';
 import { moveSafetyLabelImagesToEnd } from '../lib/detail-page-image-order';
+import { cropImageWhitespaceFile } from '../lib/image-whitespace-crop';
 import type {
   BoxSetStatus,
   ColorVariantStatus,
@@ -172,8 +173,12 @@ export default function ProductInputSection({
     try {
       const results = await Promise.allSettled(
         selectedFiles.map(async (file) => {
+          const uploadFile = await cropImageWhitespaceFile(file).catch((err) => {
+            console.warn('[generate] upload image whitespace crop failed, using original', err);
+            return file;
+          });
           const formData = new FormData();
-          formData.append('file', file);
+          formData.append('file', uploadFile);
           const result = await apiClient.upload<{ url: string }>(
             '/api/ai/detail-page/images',
             formData,

@@ -29,6 +29,12 @@ describe('detail-page media prompt builders', () => {
     expect(prompt).toContain('For 14+ products');
     expect(prompt).toContain('AGE 14+ HARD RULE');
     expect(prompt).toContain('elementary-looking model');
+    expect(prompt).toContain('TEXT-FREE HERO BANNER HARD RULE');
+    expect(prompt).toContain('ZERO readable text');
+    expect(prompt).toContain('DO NOT render as text');
+    expect(prompt).toContain('headline/subhead above are only semantic mood references');
+    expect(prompt).not.toContain('Headline mood: 퐁퐁 슬라임');
+    expect(prompt).not.toContain('Subhead: 쫀득하게 즐기는 슬라임');
   });
 
   it('instructs Gemini to keep a wide size-guide product horizontal', () => {

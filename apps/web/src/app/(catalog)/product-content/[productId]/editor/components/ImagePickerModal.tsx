@@ -9,6 +9,7 @@ type TabType = 'raw' | 'processed' | 'upload';
 interface ImagePickerModalProps {
   open: boolean;
   onSelect: (imageUrl: string) => void;
+  onUploadImages?: (imageUrls: string[]) => void;
   onClose: () => void;
   rawImages: string[];
   processedImages: string[];
@@ -20,7 +21,14 @@ const TABS: { id: TabType; label: string }[] = [
   { id: 'upload', label: '업로드' },
 ];
 
-export function ImagePickerModal({ open, onSelect, onClose, rawImages, processedImages }: ImagePickerModalProps) {
+export function ImagePickerModal({
+  open,
+  onSelect,
+  onUploadImages,
+  onClose,
+  rawImages,
+  processedImages,
+}: ImagePickerModalProps) {
   const [tab, setTab] = useState<TabType>('raw');
   const [selected, setSelected] = useState<string | null>(null);
   const [uploadPreview, setUploadPreview] = useState<string | null>(null);
@@ -41,6 +49,7 @@ export function ImagePickerModal({ open, onSelect, onClose, rawImages, processed
       const dataUrl = reader.result as string;
       setUploadPreview(dataUrl);
       setSelected(dataUrl);
+      onUploadImages?.([dataUrl]);
     };
     reader.readAsDataURL(file);
   }, []);

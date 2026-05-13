@@ -24,8 +24,9 @@ interface ImageSelectionPanelProps {
   editor: any;
   imageUrl: string;
   isBusy: MutableRefObject<boolean>;
-  onEditComplete: (newImageUrl: string) => void;
+  onEditComplete: (newImageUrl: string, component?: any) => void;
   onReplace: () => void;
+  onGeneratingChange?: (v: boolean, component?: any, imageUrl?: string) => void;
   onClose: () => void;
 }
 
@@ -142,6 +143,7 @@ export function ImageSelectionPanel({
   isBusy,
   onEditComplete,
   onReplace,
+  onGeneratingChange,
   onClose,
 }: ImageSelectionPanelProps) {
   const [width, setWidth] = useState(100);
@@ -181,9 +183,9 @@ export function ImageSelectionPanel({
   const handleEditComplete = useCallback(
     (newImageUrl: string) => {
       setCurrentImageUrl(newImageUrl);
-      onEditComplete(newImageUrl);
+      onEditComplete(newImageUrl, component);
     },
-    [onEditComplete],
+    [component, onEditComplete],
   );
 
   const commitWidth = useCallback(
@@ -446,6 +448,7 @@ export function ImageSelectionPanel({
         isBusy={isBusy}
         onEditComplete={handleEditComplete}
         onReplace={onReplace}
+        onGeneratingChange={(value) => onGeneratingChange?.(value, component, currentImageUrl)}
         onClose={onClose}
       />
     </div>

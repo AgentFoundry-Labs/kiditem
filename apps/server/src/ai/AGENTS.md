@@ -135,6 +135,23 @@ HTTP DTO
 The handler may call existing thumbnail editor services, but must not write
 Prisma rows directly.
 
+## Image Edit Flow
+
+Product-content image edits are Agent OS tool-wrapper runs executed inside the
+Nest AI domain:
+
+```text
+HTTP DTO or /api/agent-os/runs
+  -> AGENT_RUNNER_PORT.runByType('image_edit')
+  -> image-edit runtime handler
+  -> IMAGE_EDIT_MEDIA_PORT (Gemini image adapter)
+  -> Storage URL output { image_url }
+```
+
+The runtime uses `ctx.model` from Agent OS as the provider model. Do not read
+`AI_IMAGE_MODEL` or call Python for `image_edit`; missing `ctx.model` is an
+explicit runtime error.
+
 ## Post-Promotion Trigger
 
 The sourcing-candidate split (issue #192) introduces an inbound port for

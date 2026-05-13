@@ -16,7 +16,7 @@ apps/server
   -> Coupang Wing / channel providers
   -> Gemini / image providers
   -> Claude CLI Agent OS runtime
-  -> Python agents for generation/processing tasks
+  -> Python sourcing/scraping agents
 ```
 
 Frontend code never talks to the database directly. All app data flows through

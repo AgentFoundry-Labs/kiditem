@@ -1,4 +1,4 @@
-import { Inject, Injectable, InternalServerErrorException } from '@nestjs/common';
+import { Inject, Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import {
   AGENT_RUNNER_PORT,
   type AgentRunnerPort,
@@ -30,6 +30,8 @@ import { OperationAlertService } from '../../../automation/application/service/o
  */
 @Injectable()
 export class ImageAiService {
+  private readonly logger = new Logger(ImageAiService.name);
+
   constructor(
     @Inject(AGENT_RUNNER_PORT)
     private readonly agentRunner: AgentRunnerPort,
@@ -74,9 +76,30 @@ export class ImageAiService {
           preset: params.preset,
         },
       });
+      this.kickEnqueuedImageEditRequest({
+        organizationId,
+        requestId: result.requestId,
+      });
     }
 
     return { taskId };
+  }
+
+  private kickEnqueuedImageEditRequest(input: {
+    organizationId: string;
+    requestId: string;
+  }): void {
+    if (!this.agentRunner.executeRequest) return;
+
+    void this.agentRunner.executeRequest({
+      organizationId: input.organizationId,
+      requestId: input.requestId,
+      workerId: 'image-edit-inline',
+    }).catch((error) => {
+      this.logger.warn(
+        `Failed to kick image_edit request ${input.requestId}: ${error}`,
+      );
+    });
   }
 
   private requireTaskId(result: AgentRunnerResult, sourceType: string): string {

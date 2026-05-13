@@ -19,7 +19,9 @@ agent-config/
         └── chat.md
 ```
 
-Python 도구(content, image_edit)는 코드로 관리. 프롬프트 파일 불필요.
+비-Claude tool-wrapper는 각 owner domain 코드에서 실행 계약을 관리한다.
+예를 들어 `image_edit`은 AI 도메인의 Nest runtime handler와 prompt builder가
+소유한다.
 
 ## 프롬프트 관리
 

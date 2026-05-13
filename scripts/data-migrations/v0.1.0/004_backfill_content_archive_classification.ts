@@ -1,7 +1,7 @@
 import type { DataMigration } from '../types';
 
 export const backfillContentArchiveClassification: DataMigration = {
-  id: 'v0.1.0:003_backfill_content_archive_classification',
+  id: 'v0.1.0:004_backfill_content_archive_classification',
   releaseVersion: '0.1.0',
   name: 'Backfill content archive classification and workspace grouping',
   async run(tx) {
