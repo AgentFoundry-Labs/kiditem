@@ -60,6 +60,7 @@ import EditorPagePanel from './EditorPagePanel';
 import EditorToolRail, { type EditorToolId } from './EditorToolRail';
 import { ImagePickerModal } from './ImagePickerModal';
 import { ImageSelectionPanel } from './ImageSelectionPanel';
+import { extractEditedImageUrl } from '../lib/image-edit-result';
 import {
   buildTemplateSectionBlockHtml,
   TEMPLATE_SECTION_PRESETS,
@@ -2183,34 +2184,23 @@ function RightPanel({
 
         const run = await apiClient.get<{ output?: unknown }>(`/api/agent-os/runs/${latestRunId}`);
         {
-          let output: Record<string, unknown> | null = null;
-          try {
-            output = typeof run.output === 'string' ? JSON.parse(run.output) : run.output;
-          } catch {
-            break;
-          }
+          const imageUrl = extractEditedImageUrl(run.output ?? null);
+          if (!imageUrl) throw new Error('색상 안내 이미지 URL을 찾지 못했습니다.');
 
-          if (output && Array.isArray(output.color_images)) {
-            const wrapper = editor.getWrapper();
-            if (wrapper) {
-              const resolveUrl = (url: string) =>
-                url.startsWith('/processed/') ? `${API_BASE}${url}` : url;
-              const sections = wrapper.find('[data-section="colorImages"]');
-              if (sections.length > 0) {
-                sections[0].removeClass('hidden');
-                const containers = wrapper.find('[data-container="colorImages"]');
-                if (containers.length > 0) {
-                  containers[0].components(
-                    (output.color_images as string[])
-                      .map((url) =>
-                        `<img src="${resolveUrl(url)}" alt="색상 안내" class="w-full h-auto rounded-[var(--theme-radius)] shadow-md" />`
-                      )
-                      .join('')
-                  );
-                }
-              }
-            }
+          const wrapper = editor.getWrapper();
+          if (!wrapper) throw new Error('에디터를 찾지 못했습니다.');
+
+          const resolveUrl = (url: string) =>
+            url.startsWith('/processed/') ? `${API_BASE}${url}` : url;
+          const sections = wrapper.find('[data-section="colorImages"]');
+          const containers = wrapper.find('[data-container="colorImages"]');
+          if (sections.length === 0 || containers.length === 0) {
+            throw new Error('색상 안내 섹션을 찾지 못했습니다.');
           }
+          sections[0].removeClass('hidden');
+          containers[0].components(
+            `<img src="${resolveUrl(imageUrl)}" alt="색상 안내" class="w-full h-auto rounded-[var(--theme-radius)] shadow-md" />`
+          );
           setColorImagesExist(true);
           setPostColorGuideOpen(false);
           break;

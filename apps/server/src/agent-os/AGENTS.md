@@ -80,6 +80,11 @@ is `RoutingRuntimeAdapter`, which dispatches to handlers registered in
 `POST /api/agent-os/executor/claim-and-run` remains the manual drain/debug
 surface and does not replace the worker.
 
+`POST /api/agent-os/runs` creates an `AgentRunRequest` and immediately kicks
+that specific request through `AgentRunnerPort.executeRequest` when it is not
+scheduled or dry-run. This keeps user-triggered tool-wrapper runs observable
+through the generic API without depending on the global background worker.
+
 ## Finalized Event Contract
 
 The executor emits one global `agent.run.finalized` event. The event includes

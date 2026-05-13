@@ -1,7 +1,8 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, vi, afterEach } from 'vitest';
 import { ImageEditRuntimeHandler } from '../image-edit.runtime-handler';
 import { AgentRuntimeHandlerRegistry } from '../../../../../agent-os/application/service/agent-runtime-handler-registry.service';
 import type { AgentRuntimeExecutionContext } from '../../../../../agent-os/application/port/out/agent-runtime.port';
+import type { ImageEditMediaPort } from '../../../../application/port/out/image-edit-media.port';
 
 function makeCtx(
   overrides: Partial<AgentRuntimeExecutionContext> = {},
@@ -14,7 +15,7 @@ function makeCtx(
     runId: 'run-1',
     taskSessionId: 'sess-1',
     taskKey: 'default',
-    adapterType: 'python_http',
+    adapterType: 'gemini_image',
     model: 'gemini-3.1-flash-image-preview',
     promptPath: 'agent-config/prompts/agents/manager.md',
     input: {
@@ -28,18 +29,26 @@ function makeCtx(
   };
 }
 
-function makeHandler() {
+function makeMedia(overrides: Partial<ImageEditMediaPort> = {}): ImageEditMediaPort {
+  return {
+    editImage: vi.fn().mockResolvedValue({
+      imageUrl: 'https://cdn.example.com/image-edits/out.png',
+      storageKey: 'image-edits/org-1/out.png',
+      mimeType: 'image/png',
+      fileSize: 6,
+    }),
+    ...overrides,
+  };
+}
+
+function makeHandler(media = makeMedia()) {
   const registry = new AgentRuntimeHandlerRegistry();
-  const handler = new ImageEditRuntimeHandler(registry);
-  return { handler, registry };
+  const handler = new ImageEditRuntimeHandler(registry, media);
+  return { handler, registry, media };
 }
 
 describe('ImageEditRuntimeHandler', () => {
   const originalFetch = global.fetch;
-
-  beforeEach(() => {
-    vi.stubEnv('PYTHON_AGENTS_BASE_URL', 'http://python-agent.test');
-  });
 
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -52,39 +61,54 @@ describe('ImageEditRuntimeHandler', () => {
     expect(registry.registeredTypes()).toContain('image_edit');
   });
 
-  it('calls the Python image_edit agent and returns validated output', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      text: vi.fn().mockResolvedValue(JSON.stringify({
-        output: { image_url: 'data:image/png;base64,BBBB' },
-      })),
-    } as unknown as Response);
-    const { handler } = makeHandler();
+  it('delegates image_edit execution to the Nest media port and returns validated output', async () => {
+    global.fetch = vi.fn();
+    const { handler, media } = makeHandler();
 
     const result = await handler.execute(makeCtx());
 
-    expect(global.fetch).toHaveBeenCalledWith(
-      'http://python-agent.test/run',
-      expect.objectContaining({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          agent_type: 'image_edit',
-          input: {
-            image_url: 'data:image/png;base64,AAAA',
-            preset: 'custom',
-            user_prompt: '노란색 상품 하나 없애줘',
-          },
-        }),
-      }),
-    );
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(media.editImage).toHaveBeenCalledWith({
+      organizationId: 'org-1',
+      model: 'gemini-3.1-flash-image-preview',
+      preset: 'custom',
+      imageUrl: 'data:image/png;base64,AAAA',
+      imageUrls: undefined,
+      userPrompt: '노란색 상품 하나 없애줘',
+    });
     expect(result).toMatchObject({
-      output: { image_url: 'data:image/png;base64,BBBB' },
-      provider: 'python-http',
+      output: { image_url: 'https://cdn.example.com/image-edits/out.png' },
+      provider: 'gemini-image',
     });
   });
 
-  it('rejects invalid input before calling Python', async () => {
+  it('passes color_guide image_urls to the same Nest media port', async () => {
+    const { handler, media } = makeHandler();
+
+    await handler.execute(makeCtx({
+      input: {
+        preset: 'color_guide',
+        image_urls: [
+          'https://cdn.example.com/red.png',
+          'https://cdn.example.com/blue.png',
+        ],
+      },
+    }));
+
+    expect(media.editImage).toHaveBeenCalledWith({
+      organizationId: 'org-1',
+      model: 'gemini-3.1-flash-image-preview',
+      preset: 'color_guide',
+      imageUrl: undefined,
+      imageUrls: [
+        'https://cdn.example.com/red.png',
+        'https://cdn.example.com/blue.png',
+      ],
+      userPrompt: undefined,
+    });
+  });
+
+  it('rejects invalid input before calling media', async () => {
     global.fetch = vi.fn();
     const { handler } = makeHandler();
 
@@ -94,29 +118,38 @@ describe('ImageEditRuntimeHandler', () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
-  it('rejects Python output without image_url', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      text: vi.fn().mockResolvedValue(JSON.stringify({ output: { ok: true } })),
-    } as unknown as Response);
-    const { handler } = makeHandler();
+  it('rejects private HTTP image URLs before calling media', async () => {
+    global.fetch = vi.fn();
+    const media = makeMedia();
+    const { handler } = makeHandler(media);
+
+    await expect(
+      handler.execute(makeCtx({
+        input: {
+          image_url: 'http://127.0.0.1/internal.png',
+          preset: 'enhance',
+        },
+      })),
+    ).rejects.toMatchObject({
+      code: 'agent_input_invalid',
+    });
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(media.editImage).not.toHaveBeenCalled();
+  });
+
+  it('rejects media output without image_url', async () => {
+    const media = makeMedia({
+      editImage: vi.fn().mockResolvedValue({
+        imageUrl: '',
+        storageKey: null,
+        mimeType: 'image/png',
+        fileSize: 0,
+      }),
+    });
+    const { handler } = makeHandler(media);
 
     await expect(handler.execute(makeCtx())).rejects.toMatchObject({
       code: 'agent_output_invalid',
-    });
-  });
-
-  it('surfaces Python HTTP failures as runtime errors', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 500,
-      text: vi.fn().mockResolvedValue(JSON.stringify({ detail: 'Agent execution failed' })),
-    } as unknown as Response);
-    const { handler } = makeHandler();
-
-    await expect(handler.execute(makeCtx())).rejects.toMatchObject({
-      code: 'python_agent_failed',
-      message: 'Agent execution failed',
     });
   });
 });

@@ -1,4 +1,5 @@
 import {
+  Inject,
   Injectable,
   Logger,
   type OnModuleInit,
@@ -11,13 +12,19 @@ import type {
 import type { AgentTypeRuntimeHandler } from '../../../../agent-os/application/port/out/agent-runtime-handler.port';
 import { AgentRuntimeHandlerRegistry } from '../../../../agent-os/application/service/agent-runtime-handler-registry.service';
 import {
+  PublicUrlError,
+  assertPublicHttpUrl,
+} from '../../../../common/security/public-url';
+import {
   IMAGE_EDIT_AGENT_TYPE,
   ImageEditAgentInputSchema,
   ImageEditAgentOutputSchema,
   type ImageEditAgentOutput,
 } from '../../../domain/agent-output';
-
-const DEFAULT_PYTHON_AGENT_BASE_URL = 'http://localhost:8001';
+import {
+  IMAGE_EDIT_MEDIA_PORT,
+  type ImageEditMediaPort,
+} from '../../../application/port/out/image-edit-media.port';
 
 @Injectable()
 export class ImageEditRuntimeHandler
@@ -25,7 +32,11 @@ export class ImageEditRuntimeHandler
 {
   private readonly logger = new Logger(ImageEditRuntimeHandler.name);
 
-  constructor(private readonly registry: AgentRuntimeHandlerRegistry) {}
+  constructor(
+    private readonly registry: AgentRuntimeHandlerRegistry,
+    @Inject(IMAGE_EDIT_MEDIA_PORT)
+    private readonly imageEditMedia: ImageEditMediaPort,
+  ) {}
 
   onModuleInit(): void {
     this.registry.register(IMAGE_EDIT_AGENT_TYPE, this);
@@ -50,64 +61,28 @@ export class ImageEditRuntimeHandler
       );
     }
 
-    const output = await this.callPythonAgent(parsed.data);
+    this.assertSafeImageSources(parsed.data);
+
+    const result = await this.imageEditMedia.editImage({
+      organizationId: ctx.organizationId,
+      model: ctx.model,
+      preset: parsed.data.preset,
+      imageUrl: parsed.data.image_url,
+      imageUrls: parsed.data.image_urls,
+      userPrompt: parsed.data.user_prompt,
+    });
+    const output = this.validateOutput({ image_url: result.imageUrl });
     this.logger.debug(
-      `image_edit run=${ctx.runId} preset=${parsed.data.preset} output=${output.image_url.length} chars`,
+      `image_edit run=${ctx.runId} preset=${parsed.data.preset} output=${result.storageKey ?? result.imageUrl}`,
     );
 
     return {
       output,
-      provider: 'python-http',
+      provider: 'gemini-image',
     };
   }
 
-  private async callPythonAgent(
-    input: Record<string, unknown>,
-  ): Promise<ImageEditAgentOutput> {
-    const baseUrl = (
-      process.env.PYTHON_AGENTS_BASE_URL
-        || process.env.PYTHON_AGENTS_URL
-        || DEFAULT_PYTHON_AGENT_BASE_URL
-    ).replace(/\/+$/, '');
-
-    let response: Response;
-    let text = '';
-    try {
-      response = await fetch(`${baseUrl}/run`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          agent_type: IMAGE_EDIT_AGENT_TYPE,
-          input,
-        }),
-        signal: AbortSignal.timeout(190_000),
-      });
-      text = await response.text();
-    } catch (error) {
-      throw new AgentOsRuntimeError(
-        'python_agent_unreachable',
-        `Python image_edit agent is unreachable: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-
-    if (!response.ok) {
-      throw new AgentOsRuntimeError(
-        'python_agent_failed',
-        this.extractPythonErrorMessage(text) ?? `Python image_edit agent failed with HTTP ${response.status}.`,
-      );
-    }
-
-    let data: unknown;
-    try {
-      data = JSON.parse(text);
-    } catch (error) {
-      throw new AgentOsRuntimeError(
-        'python_agent_invalid_response',
-        `Python image_edit agent returned non-JSON response: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-
-    const candidate = this.readOutputEnvelope(data);
+  private validateOutput(candidate: unknown): ImageEditAgentOutput {
     const validated = ImageEditAgentOutputSchema.safeParse(candidate);
     if (!validated.success) {
       const issue = validated.error.issues[0];
@@ -121,20 +96,35 @@ export class ImageEditRuntimeHandler
     return validated.data;
   }
 
-  private readOutputEnvelope(data: unknown): unknown {
-    if (data && typeof data === 'object' && 'output' in data) {
-      return (data as { output: unknown }).output;
+  private assertSafeImageSources(input: Record<string, unknown>): void {
+    const imageUrl = input.image_url;
+    if (typeof imageUrl === 'string') {
+      this.assertSafeImageSource(imageUrl, 'image_url');
     }
-    return data;
+
+    const imageUrls = input.image_urls;
+    if (Array.isArray(imageUrls)) {
+      imageUrls.forEach((value, index) => {
+        if (typeof value === 'string') {
+          this.assertSafeImageSource(value, `image_urls.${index}`);
+        }
+      });
+    }
   }
 
-  private extractPythonErrorMessage(text: string): string | null {
-    if (!text.trim()) return null;
+  private assertSafeImageSource(value: string, path: string): void {
+    if (value.startsWith('data:image/')) return;
     try {
-      const parsed = JSON.parse(text) as { detail?: unknown };
-      return typeof parsed.detail === 'string' ? parsed.detail : null;
-    } catch {
-      return text.slice(0, 500);
+      assertPublicHttpUrl(value);
+    } catch (error) {
+      if (error instanceof PublicUrlError) {
+        throw new AgentOsRuntimeError(
+          'agent_input_invalid',
+          `${path}: ${error.message}`,
+        );
+      }
+      throw error;
     }
   }
+
 }
