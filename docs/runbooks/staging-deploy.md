@@ -122,6 +122,7 @@ GEMINI_API_KEY=<gemini-api-key>
 AI_TEXT_MODEL=gemini-2.5-flash
 AGENT_RUNTIME_WORKER_ENABLED=1
 AGENT_DEFAULT_MODEL=gemini-2.5-flash
+AGENT_THUMBNAIL_GENERATE_MODEL=gemini-3.1-flash-image-preview
 EOF
 
 cat > .secrets/staging/deploy.env <<'EOF'
@@ -344,13 +345,15 @@ compose stack. These values must be present in the API env file:
 ```text
 AGENT_RUNTIME_WORKER_ENABLED=1
 AGENT_DEFAULT_MODEL=gemini-2.5-flash
+AGENT_THUMBNAIL_GENERATE_MODEL=gemini-3.1-flash-image-preview
 ```
 
 `AGENT_DEFAULT_MODEL` may be replaced by a complete set of per-agent
 `AGENT_<TYPE>_MODEL` values, but the shared value is the normal staging
-configuration. The deploy will fail before touching the running containers if
-the worker is disabled, the model env is missing, or `AGENT_RUNTIME_ALLOW_NOOP`
-is enabled.
+configuration. `AGENT_THUMBNAIL_GENERATE_MODEL` is always explicit because
+thumbnail generation must use an image-capable model. The deploy will fail
+before touching the running containers if the worker is disabled, a required
+model env is missing, or `AGENT_RUNTIME_ALLOW_NOOP` is enabled.
 
 ## Host Nginx For IP-Only Smoke Test
 
