@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { OperationAlertService } from '../../../automation/application/service/operation-alert.service';
 import {
@@ -19,9 +20,9 @@ import type { DetailPageRawInput, DetailPageTemplateId } from './detail-page-ai.
 import {
   detailPageOperationKey,
   detailPageResultHref,
-  serializeDetailPageStoredJson,
 } from './detail-page-stored.helpers';
 import { ThumbnailEditorAiService } from './thumbnail-editor-ai.service';
+import { ContentAssetService } from './content-asset.service';
 import type { PostPromotionAiTriggerPort } from '../port/in/post-promotion-ai-trigger.port';
 
 /**
@@ -50,6 +51,7 @@ export class PostPromotionAiService implements PostPromotionAiTriggerPort {
     private readonly agentRunner: AgentRunnerPort,
     private readonly operationAlerts: OperationAlertService,
     private readonly editorAi: ThumbnailEditorAiService,
+    private readonly contentAssets: ContentAssetService,
   ) {}
 
   /**
@@ -117,24 +119,35 @@ export class PostPromotionAiService implements PostPromotionAiTriggerPort {
 
     let contentGenerationId: string | null = null;
     try {
+      const group = await this.ensureProductWorkspaceGroup({
+        organizationId,
+        productId: master.id,
+        title: master.name,
+      });
       const row = await this.prisma.contentGeneration.create({
         data: {
           organizationId,
-          masterId: master.id,
+          contentType: 'detail_page',
+          generationGroupId: group.id,
           triggeredByUserId: null,
-          originalImages: imageUrls,
-          processedImages: {},
-          generatedTitle: master.name.slice(0, 80),
-          detailPageHtml: serializeDetailPageStoredJson({
+          generationInput: rawInput as unknown as Prisma.InputJsonValue,
+          generationResult: {
             templateId: DEFAULT_TEMPLATE_ID,
             result: {},
             imageUrls,
-            rawInput,
-          }),
+            processedImages: {},
+          },
+          generatedTitle: master.name.slice(0, 80),
           status: 'PROCESSING',
         },
       });
       contentGenerationId = row.id;
+      await this.contentAssets.recordDetailPageInputAssets({
+        organizationId,
+        generationGroupId: group.id,
+        createdByUserId: null,
+        imageUrls,
+      });
 
       await this.operationAlerts.start({
         organizationId,
@@ -147,7 +160,7 @@ export class PostPromotionAiService implements PostPromotionAiTriggerPort {
         targetType: 'master',
         targetId: master.id,
         href: detailPageResultHref({
-          productId: master.id,
+          productId: group.targetMasterId,
           contentGenerationId: row.id,
           templateId: DEFAULT_TEMPLATE_ID,
         }),
@@ -359,6 +372,47 @@ export class PostPromotionAiService implements PostPromotionAiTriggerPort {
           agentReason: null,
         });
       }
+    }
+  }
+
+  private async ensureProductWorkspaceGroup(input: {
+    organizationId: string;
+    productId: string;
+    title: string;
+  }): Promise<{ id: string; targetMasterId: string | null }> {
+    const existing = await this.prisma.contentGenerationGroup.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        groupType: 'product_workspace',
+        targetMasterId: input.productId,
+      },
+      select: { id: true, targetMasterId: true },
+    });
+    if (existing) return existing;
+
+    try {
+      return await this.prisma.contentGenerationGroup.create({
+        data: {
+          organizationId: input.organizationId,
+          groupType: 'product_workspace',
+          targetMasterId: input.productId,
+          title: input.title.slice(0, 80),
+          createdByUserId: null,
+          metadata: { source: 'post_promotion' },
+        },
+        select: { id: true, targetMasterId: true },
+      });
+    } catch (error) {
+      const raced = await this.prisma.contentGenerationGroup.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          groupType: 'product_workspace',
+          targetMasterId: input.productId,
+        },
+        select: { id: true, targetMasterId: true },
+      });
+      if (raced) return raced;
+      throw error;
     }
   }
 

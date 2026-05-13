@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Throttle } from '@nestjs/throttler';
+import { IsString, MaxLength, MinLength } from 'class-validator';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import { Roles } from '../../../../auth/decorators/roles.decorator';
@@ -29,6 +30,13 @@ const ALLOWED_DETAIL_PAGE_IMAGE_MIME_TYPES = new Set([
   'image/png',
   'image/webp',
 ]);
+
+class SaveDetailPageEditedHtmlDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(2_000_000)
+  html!: string;
+}
 
 @Controller('ai/detail-page')
 export class DetailPageAiController {
@@ -91,6 +99,23 @@ export class DetailPageAiController {
     @CurrentOrganization() organizationId: string,
   ) {
     return this.service.getById(id, organizationId);
+  }
+
+  @Post(':id/edited-html')
+  saveEditedHtml(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentOrganization() organizationId: string,
+    @Body() body: SaveDetailPageEditedHtmlDto,
+  ) {
+    return this.service.saveEditedHtml(id, organizationId, body.html);
+  }
+
+  @Get(':id/edited-html')
+  getEditedHtml(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return this.service.getEditedHtml(id, organizationId);
   }
 
   @Post(':id/cancel')

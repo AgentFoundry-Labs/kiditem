@@ -17,6 +17,7 @@ const ORGANIZATION_ID = '11111111-1111-4111-8111-111111111111';
 const MASTER_ID = '22222222-2222-4222-8222-222222222222';
 const CONTENT_GEN_ID = '33333333-3333-4333-8333-333333333333';
 const THUMBNAIL_GEN_ID = '44444444-4444-4444-8444-444444444444';
+const CONTENT_GROUP_ID = '55555555-5555-4555-8555-555555555555';
 
 interface MockState {
   master: {
@@ -42,6 +43,9 @@ interface Mocks {
   editorAi: ThumbnailEditorAiService & {
     resolveInputImage: ReturnType<typeof vi.fn>;
   };
+  contentAssets: {
+    recordDetailPageInputAssets: ReturnType<typeof vi.fn>;
+  };
   contentGenerationCreate: ReturnType<typeof vi.fn>;
   contentGenerationUpdateMany: ReturnType<typeof vi.fn>;
   thumbnailGenerationCreate: ReturnType<typeof vi.fn>;
@@ -63,6 +67,16 @@ function buildMocks(state: MockState): Mocks {
   const prisma = {
     masterProduct: { findFirst: vi.fn().mockResolvedValue(state.master) },
     masterProductImage: { findMany: vi.fn().mockResolvedValue(state.images) },
+    contentGenerationGroup: {
+      findFirst: vi.fn().mockResolvedValue({
+        id: CONTENT_GROUP_ID,
+        targetMasterId: MASTER_ID,
+      }),
+      create: vi.fn().mockResolvedValue({
+        id: CONTENT_GROUP_ID,
+        targetMasterId: MASTER_ID,
+      }),
+    },
     contentGeneration: {
       create: contentGenerationCreate,
       updateMany: contentGenerationUpdateMany,
@@ -101,12 +115,16 @@ function buildMocks(state: MockState): Mocks {
   const editorAi = {
     resolveInputImage: vi.fn().mockResolvedValue(resolvedInput),
   } as unknown as Mocks['editorAi'];
+  const contentAssets = {
+    recordDetailPageInputAssets: vi.fn().mockResolvedValue([]),
+  };
 
   return {
     prisma,
     agentRunner,
     operationAlerts,
     editorAi,
+    contentAssets,
     contentGenerationCreate,
     contentGenerationUpdateMany,
     thumbnailGenerationCreate,
@@ -121,6 +139,7 @@ function makeService(mocks: Mocks): PostPromotionAiService {
     mocks.agentRunner,
     mocks.operationAlerts,
     mocks.editorAi,
+    mocks.contentAssets as never,
   );
 }
 
@@ -163,13 +182,31 @@ describe('PostPromotionAiService', () => {
     expect(mocks.contentGenerationCreate).toHaveBeenCalledTimes(1);
     const contentCall = mocks.contentGenerationCreate.mock.calls[0][0];
     expect(contentCall.data.organizationId).toBe(ORGANIZATION_ID);
-    expect(contentCall.data.masterId).toBe(MASTER_ID);
+    expect(contentCall.data.generationGroupId).toBe(CONTENT_GROUP_ID);
+    expect(contentCall.data.contentType).toBe('detail_page');
     expect(contentCall.data.status).toBe('PROCESSING');
     expect(contentCall.data.triggeredByUserId).toBeNull();
-    expect(contentCall.data.originalImages).toEqual([
+    expect(contentCall.data.generationInput.imageUrls).toEqual([
       'https://cdn.example.com/master/primary.jpg',
       'https://cdn.example.com/master/extra1.jpg',
     ]);
+    expect(contentCall.data.generationResult).toMatchObject({
+      templateId: 'kids-playful',
+      imageUrls: [
+        'https://cdn.example.com/master/primary.jpg',
+        'https://cdn.example.com/master/extra1.jpg',
+      ],
+      processedImages: {},
+    });
+    expect(mocks.contentAssets.recordDetailPageInputAssets).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      generationGroupId: CONTENT_GROUP_ID,
+      createdByUserId: null,
+      imageUrls: [
+        'https://cdn.example.com/master/primary.jpg',
+        'https://cdn.example.com/master/extra1.jpg',
+      ],
+    });
 
     // ThumbnailGeneration row created with pending + thumbnail input persisted
     expect(mocks.thumbnailGenerationCreate).toHaveBeenCalledTimes(1);

@@ -1,5 +1,5 @@
 interface ProductContentEditorHrefInput {
-  productId: string;
+  productId?: string | null;
   generationId?: string | null;
 }
 
@@ -7,10 +7,12 @@ export function buildProductContentEditorHref({
   productId,
   generationId,
 }: ProductContentEditorHrefInput): string {
+  if (generationId) {
+    return `/product-content/detail-pages/${encodeURIComponent(generationId)}/editor`;
+  }
+  if (!productId) return '/product-content';
   const encodedProductId = encodeURIComponent(productId);
-  if (!generationId) return `/product-content/${encodedProductId}/editor`;
-  const params = new URLSearchParams({ generationId });
-  return `/product-content/${encodedProductId}/editor?${params.toString()}`;
+  return `/product-content/${encodedProductId}/editor`;
 }
 
 export function normalizeProductContentHref(href: string | null): string | null {
@@ -19,9 +21,23 @@ export function normalizeProductContentHref(href: string | null): string | null 
   const legacyDetailPageEditor = href.match(
     /^\/sourcing\/([^/?#]+)\/editor(?:\?([^#]*))?(?:#.*)?$/,
   );
-  if (!legacyDetailPageEditor) return href;
+  if (legacyDetailPageEditor) {
+    const [, productId, rawQuery = ''] = legacyDetailPageEditor;
+    const query = new URLSearchParams(rawQuery);
+    const generationId =
+      query.get('generationId') ?? query.get('boldId') ?? query.get('kpId') ?? query.get('agentId');
+    return buildProductContentEditorHref({
+      productId: decodeURIComponent(productId),
+      generationId,
+    });
+  }
 
-  const [, productId, rawQuery = ''] = legacyDetailPageEditor;
+  const oldProductContentEditor = href.match(
+    /^\/product-content\/([^/?#]+)\/editor(?:\?([^#]*))?(?:#.*)?$/,
+  );
+  if (!oldProductContentEditor) return href;
+
+  const [, productId, rawQuery = ''] = oldProductContentEditor;
   const query = new URLSearchParams(rawQuery);
   const generationId =
     query.get('generationId') ?? query.get('boldId') ?? query.get('kpId') ?? query.get('agentId');

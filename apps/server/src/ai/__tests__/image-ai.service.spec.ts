@@ -28,7 +28,10 @@ function makeService(runnerResult: AgentRunnerResult) {
     }),
   } satisfies AgentRunnerPort;
   const operationAlerts = makeOperationAlerts();
-  const service = new ImageAiService(runner as never, operationAlerts as never);
+  const service = new ImageAiService(
+    runner as never,
+    operationAlerts as never,
+  );
   return { service, runner, operationAlerts };
 }
 
@@ -123,7 +126,7 @@ describe('ImageAiService', () => {
         sourceType: 'agent_run_request',
         sourceId: 'request-9',
         actorUserId: USER_ID,
-        href: '/image-hub',
+        href: '/product-content?contentType=image',
         metadata: expect.objectContaining({
           agentType: 'image_edit',
           preset: 'remove_background',
@@ -189,5 +192,43 @@ describe('ImageAiService', () => {
       ),
     ).rejects.toThrow(InternalServerErrorException);
     expect(operationAlerts.start).not.toHaveBeenCalled();
+  });
+
+  it('threads editor context without creating an image ContentGeneration ledger', async () => {
+    const { service, runner, operationAlerts } = makeService({
+      ok: true,
+      requestId: 'request-context',
+      agentType: 'image_edit',
+      status: 'pending',
+    });
+
+    await service.createEditTask(
+      {
+        image_url: 'https://example.com/a.png',
+        preset: 'custom',
+        user_prompt: '밝게',
+        productId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+        contentGenerationId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      },
+      ORGANIZATION_ID,
+      USER_ID,
+    );
+
+    const callInput = runner.runByType.mock.calls[0]![1];
+    expect(callInput).toEqual(expect.objectContaining({ sourceType: 'ai.image_edit' }));
+    expect(callInput).not.toHaveProperty('sourceResourceType');
+    expect(callInput).not.toHaveProperty('sourceResourceId');
+    expect(callInput.payload).toEqual(expect.objectContaining({
+      productId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+      contentGenerationId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    }));
+    expect(operationAlerts.start).toHaveBeenCalledWith(
+      expect.objectContaining({
+        href: '/product-content/detail-pages/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/editor',
+        metadata: expect.objectContaining({
+          contentGenerationId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        }),
+      }),
+    );
   });
 });

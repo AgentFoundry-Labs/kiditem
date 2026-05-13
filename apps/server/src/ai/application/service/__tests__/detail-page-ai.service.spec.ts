@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DetailPageAiService } from '../detail-page-ai.service';
+import { ContentAssetService } from '../content-asset.service';
 import { DetailPageGenerationService } from '../detail-page-generation.service';
-import { DetailPageGeneratedImagesService } from '../detail-page-generated-images.service';
 import { DetailPagePrefillService } from '../detail-page-prefill.service';
 import { DetailPageQueryService } from '../detail-page-query.service';
 import { DetailPageResultRefinerService } from '../detail-page-result-refiner.service';
@@ -15,6 +15,7 @@ const USER_ID = '99999999-9999-9999-9999-999999999999';
 const MASTER_ID = '22222222-2222-4222-8222-222222222222';
 const GENERATION_ID = '33333333-3333-4333-8333-333333333333';
 const REQUEST_ID = '44444444-4444-4444-4444-444444444444';
+const GENERATION_GROUP_ID = '55555555-5555-4555-8555-555555555555';
 
 function makeOperationAlertsStub(): OperationAlertService {
   return {
@@ -66,17 +67,20 @@ function makeService(
   agentRunner: AgentRunnerPort = makeAgentRunnerStub(),
 ): DetailPageAiService {
   const resultRefiner = makeResultRefiner(heroImageService);
-  const generatedImages = new DetailPageGeneratedImagesService(heroImageService as never);
-  const query = new DetailPageQueryService(prisma as never, resultRefiner);
+  const contentAssets = new ContentAssetService(prisma as never);
+  const query = new DetailPageQueryService(
+    prisma as never,
+    resultRefiner,
+    imageStorage as never,
+    contentAssets,
+  );
   const generation = new DetailPageGenerationService(
     prisma as never,
-    textCompletion as never,
     imageStorage as never,
     operationAlerts,
-    resultRefiner,
-    generatedImages,
     query,
     agentRunner,
+    contentAssets,
   );
   const prefill = new DetailPagePrefillService(textCompletion as never);
   return new DetailPageAiService(generation, prefill, query);
@@ -114,151 +118,77 @@ function boldVerticalResult() {
   };
 }
 
-function kidsPlayfulResult() {
-  return {
-    section1: {
-      subhead: '오감발달 놀이시간',
-      mainHeadline: '수제왁스팝',
-      heroImageIndex: 1,
-    },
-    section2: {
-      reviews: [
-        { usp: '촉감', headline: '손끝이 즐거워요', body: '말랑한 느낌이 좋아요' },
-        { usp: '소리', headline: '바삭 소리가나요', body: '누를 때 재미있어요' },
-        { usp: '색상', headline: '알록달록해요', body: '색깔 구경도 즐거워요' },
-        { usp: '놀이', headline: '혼자도 잘 놀아요', body: '집중해서 만져요' },
-      ],
-    },
-    section3: {
-      label: '촉감놀이 200%',
-      headline: '손끝 놀이 친구!',
-      subhead: '오감으로 즐기는 시간',
-      scenarios: [
-        { caption: '포장을 열고 왁스팝을 준비하세요', imageIndex: 1 },
-        { caption: '손으로 주무르며 모양을 느껴보세요', imageIndex: 0 },
-        { caption: '바삭한 소리를 들으며 놀아보세요', imageIndex: 0 },
-      ],
-    },
-    section4: {
-      intro: { line1: '놀이가 단조로우라', line2: '금방 지루해지는', line3: '낭패' },
-      cards: [
-        { title: '같은 장난감은 금방 질려요...', subtitle: '흥미 부족' },
-        { title: '딱딱한 놀이는 손이 아파요...', subtitle: '촉감 아쉬움' },
-      ],
-      moodImageIndex: 1,
-    },
-    section5: {
-      headlineLine1: '손끝으로',
-      headlineLine2: '바삭하게 즐겨요',
-      subcopy: ['말랑한 촉감 놀이', '바삭한 소리 재미', '알록달록 색상 구성'],
-      imageIndex: 1,
-    },
-    section6: {
-      label: '왁스팝 특징',
-      headline: '손으로 느끼는 즐거움',
-      bigHeadline: '오감발달!',
-      cards: [
-        { num: '01', title: '말랑촉감', subtitle: '손끝자극', imageIndex: 0 },
-        { num: '02', title: '바삭소리', subtitle: '놀이몰입', imageIndex: 1 },
-        { num: '03', title: '색상구성', subtitle: '랜덤재미', imageIndex: 2 },
-      ],
-    },
-    section7: {
-      tagText: 'KeyPoint',
-      headlineLine1: '말랑하게',
-      headlineLine2: '손끝자극',
-      emphasisInLine2: '자극',
-      body1: '누를 때마다 촉감이 살아나고',
-      body2: '손끝 감각을 즐겁게 깨워요',
-      bodyEmphasis: '오감 놀이에 딱 좋아요',
-      imageIndex: 1,
-    },
-    section8: {
-      introLine1: '바삭한 소리와 촉감',
-      introLine2: '오감발달 놀이시간',
-      introLine3: '수제왁스팝',
-      blocks: [
-        {
-          pillLabel: '01. 바삭소리',
-          headline: '누를수록\n재미있어요',
-          body: '손으로 누르면 바삭한 소리가 나요',
-          imageIndex: 1,
-        },
-        {
-          pillLabel: '02. 색상구성',
-          headline: '색마다\n다른 재미',
-          body: '랜덤 색상으로 고르는 재미가 있어요',
-          imageIndex: 2,
-        },
-      ],
-    },
-    section9: {
-      tagText: 'KeyPoint',
-      smallHeadline: '집에서도 즐거운 놀이',
-      bigHeadline: { line1: '가볍게', line2: '즐기는', line3: '촉감' },
-      emphasisInLine3: '촉감',
-      body: ['가방에 넣기 부담 없고', '꺼내서 바로 즐겨요'],
-      topic: '휴대성',
-    },
-    section10: {
-      cards: [
-        { smallHeadline: '실내놀이', bigHeadlineLine1: '집에서도', bigHeadlineLine2: 'OK', imageIndex: 1 },
-        { smallHeadline: '선물추천', bigHeadlineLine1: '아이들이', bigHeadlineLine2: '좋아해', imageIndex: 2 },
-        { smallHeadline: '간편보관', bigHeadlineLine1: '정리까지', bigHeadlineLine2: '깔끔', imageIndex: 0 },
-      ],
-    },
-    section11: {
-      galleryImageIndices: [0, 1],
-      symbolCard: { icon: 'Sparkles', text: 'TOY' },
-      closing: {
-        body: ['손끝으로 느끼는 즐거움', '오감 발달을 돕는 놀이'],
-        headline: ['지금 바로', '즐겨보세요!'],
-      },
-    },
-  };
-}
-
 function makePrisma() {
-  return {
+  const generationRow = makeGenerationRow();
+  const prisma = {
+    $transaction: vi.fn((callback: (tx: unknown) => unknown) => callback(prisma)),
     masterProduct: {
-      findFirst: vi.fn().mockResolvedValue({ id: MASTER_ID }),
+      findFirst: vi.fn().mockResolvedValue({ id: MASTER_ID, name: '원본 상품명' }),
     },
     contentGeneration: {
-      findFirst: vi.fn().mockResolvedValue({
-        id: GENERATION_ID,
-        masterId: MASTER_ID,
-        originalImages: ['https://example.com/image.jpg'],
-        processedImages: {},
-        generatedTitle: '원본 상품명',
-        detailPageHtml: JSON.stringify({
-          templateId: 'bold-vertical',
-          result: {},
-          imageUrls: ['https://example.com/image.jpg'],
-          rawInput: { rawTitle: '원본 상품명' },
-        }),
-        status: 'PROCESSING',
-        errorMessage: null,
-        createdAt: new Date('2026-05-04T00:00:00.000Z'),
-      }),
-      create: vi.fn().mockResolvedValue({
-        id: GENERATION_ID,
-        masterId: MASTER_ID,
-        originalImages: ['https://example.com/image.jpg'],
-        processedImages: {},
-        generatedTitle: '원본 상품명',
-        detailPageHtml: JSON.stringify({
-          templateId: 'bold-vertical',
-          result: {},
-          imageUrls: ['https://example.com/image.jpg'],
-          rawInput: { rawTitle: '원본 상품명' },
-        }),
-        status: 'PROCESSING',
-        errorMessage: null,
-        createdAt: new Date('2026-05-04T00:00:00.000Z'),
-      }),
+      findFirst: vi.fn().mockResolvedValue(generationRow),
+      create: vi.fn().mockResolvedValue(generationRow),
       update: vi.fn(),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
+    contentGenerationGroup: {
+      findFirst: vi.fn().mockResolvedValue({ id: GENERATION_GROUP_ID }),
+      create: vi.fn().mockResolvedValue({ id: GENERATION_GROUP_ID }),
+    },
+    contentGenerationSource: {
+      createMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
+    contentGenerationAssetUsage: {
+      deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+      createMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
+    contentAsset: {
+      createMany: vi.fn().mockResolvedValue({ count: 0 }),
+      findMany: vi.fn().mockResolvedValue([]),
+      count: vi.fn().mockResolvedValue(0),
+    },
+  };
+  return prisma;
+}
+
+function makeGenerationRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: GENERATION_ID,
+    organizationId: ORGANIZATION_ID,
+    generationGroupId: GENERATION_GROUP_ID,
+    contentType: 'detail_page',
+    templateId: 'bold-vertical',
+    generationInput: {
+      rawTitle: '원본 상품명',
+      rawCategory: '',
+      rawDescription: '',
+      rawOptions: '',
+      imageUrls: ['https://example.com/image.jpg'],
+      heroImageMode: 'first',
+      templateId: 'bold-vertical',
+    },
+    generationResult: {
+      templateId: 'bold-vertical',
+      result: {},
+      imageUrls: ['https://example.com/image.jpg'],
+      processedImages: {},
+    },
+    generatedTitle: '원본 상품명',
+    generatedDescription: null,
+    generatedCopy: null,
+    editedHtml: null,
+    editedHtmlSavedAt: null,
+    status: 'PROCESSING',
+    retryCount: 0,
+    errorMessage: null,
+    triggeredByUserId: USER_ID,
+    createdAt: new Date('2026-05-04T00:00:00.000Z'),
+    updatedAt: new Date('2026-05-04T00:00:00.000Z'),
+    generationGroup: {
+      id: GENERATION_GROUP_ID,
+      targetMasterId: MASTER_ID,
+    },
+    ...overrides,
   };
 }
 
@@ -317,9 +247,22 @@ describe('DetailPageAiService', () => {
     expect(prisma.contentGeneration.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         organizationId: ORGANIZATION_ID,
-        masterId: MASTER_ID,
+        generationGroupId: GENERATION_GROUP_ID,
+        contentType: 'detail_page',
+        generationInput: expect.objectContaining({
+          rawTitle: '휴대용목걸이비눗방울',
+          imageUrls: ['https://example.com/detail-1.jpg'],
+        }),
+        generationResult: expect.objectContaining({
+          templateId: 'bold-vertical',
+          imageUrls: ['https://example.com/detail-1.jpg'],
+          processedImages: {},
+        }),
         triggeredByUserId: USER_ID,
         status: 'PROCESSING',
+      }),
+      include: expect.objectContaining({
+        generationGroup: expect.any(Object),
       }),
     });
     // Runtime handler owns the LLM call now — service must not have reached out.
@@ -360,7 +303,7 @@ describe('DetailPageAiService', () => {
         operationKey: `detail-page:${GENERATION_ID}`,
         sourceType: 'content_generation',
         sourceId: GENERATION_ID,
-        href: `/product-content/${MASTER_ID}/editor?generationId=${GENERATION_ID}`,
+        href: `/product-content/detail-pages/${GENERATION_ID}/editor`,
       }),
     );
 
@@ -407,38 +350,11 @@ describe('DetailPageAiService', () => {
   it('cancels a processing product-bound generation and closes its alert', async () => {
     const prisma = makePrisma();
     prisma.contentGeneration.findFirst
-      .mockResolvedValueOnce({
-        id: GENERATION_ID,
-        masterId: MASTER_ID,
-        originalImages: ['https://example.com/image.jpg'],
-        processedImages: {},
-        generatedTitle: '원본 상품명',
-        detailPageHtml: JSON.stringify({
-          templateId: 'bold-vertical',
-          result: {},
-          imageUrls: ['https://example.com/image.jpg'],
-          rawInput: { rawTitle: '원본 상품명' },
-        }),
-        status: 'PROCESSING',
-        errorMessage: null,
-        createdAt: new Date('2026-05-04T00:00:00.000Z'),
-      })
-      .mockResolvedValueOnce({
-        id: GENERATION_ID,
-        masterId: MASTER_ID,
-        originalImages: ['https://example.com/image.jpg'],
-        processedImages: {},
-        generatedTitle: '원본 상품명',
-        detailPageHtml: JSON.stringify({
-          templateId: 'bold-vertical',
-          result: {},
-          imageUrls: ['https://example.com/image.jpg'],
-          rawInput: { rawTitle: '원본 상품명' },
-        }),
+      .mockResolvedValueOnce(makeGenerationRow({ status: 'PROCESSING' }))
+      .mockResolvedValueOnce(makeGenerationRow({
         status: 'CANCELLED',
         errorMessage: '사용자 요청으로 생성이 중단되었습니다.',
-        createdAt: new Date('2026-05-04T00:00:00.000Z'),
-      });
+      }));
     const operationAlerts = makeOperationAlertsStub();
     const agentRunner = makeAgentRunnerStub();
     const service = makeService(
@@ -479,159 +395,6 @@ describe('DetailPageAiService', () => {
       }),
     );
     expect(result.imageProcessingStatus).toBe('cancelled');
-  });
-
-  it('passes 14+ audience guidance into detail-page text prompts', async () => {
-    const prisma = makePrisma();
-    const textCompletion = {
-      complete: vi.fn().mockResolvedValue({
-        text: JSON.stringify(boldVerticalResult()),
-      }),
-    };
-    const imageStorage = {
-      save: vi.fn(),
-    };
-    const service = makeService(
-      prisma,
-      textCompletion,
-      imageStorage,
-      makeOperationAlertsStub(),
-    );
-
-    const result = await service.generate(
-      {
-        templateId: 'bold-vertical',
-        rawTitle: '학생용 말랑이',
-        rawCategory: '완구',
-        rawDescription: '중고등학생 취미용 말랑이',
-        rawOptions: 'DETAIL 이미지 수: 2개',
-        imageUrls: [
-          'https://example.com/product-main.jpg',
-          'https://example.com/action-closeup.jpg',
-          'https://example.com/detail.jpg',
-        ],
-        ageGroup: 'age-14-plus',
-        detailImageCount: '2',
-        usageSectionMode: 'exclude',
-      },
-      ORGANIZATION_ID,
-      USER_ID,
-    );
-
-    const call = textCompletion.complete.mock.calls[0]?.[0] ?? {};
-    expect(call.system).toContain('중고등학생·청소년·학생');
-    expect(call.user).toContain('사용 연령 기준: 14세 이상 상품');
-    expect(call.user).toContain('중고등학생·청소년');
-    expect(call.user).toContain('DETAIL 본문 이미지 수: 2개');
-    expect(call.user).toContain('사용법 영역: 만들지 않음');
-    expect(result.result).toMatchObject({
-      usageEnabled: false,
-      usage: { subtitle: '', imageIndices: [] },
-    });
-  });
-
-  it('skips generated usage guide images when the usage section is excluded', async () => {
-    const prisma = makePrisma();
-    const textCompletion = {
-      complete: vi.fn().mockResolvedValue({
-        text: JSON.stringify({
-          ...boldVerticalResult(),
-          detailImageIndices: [0],
-        }),
-      }),
-    };
-    const imageStorage = {
-      save: vi.fn(),
-    };
-    const heroImageService = {
-      inferPackageImagePositions: vi.fn().mockResolvedValue([]),
-      generateHeroBanner: vi.fn().mockResolvedValue('https://cdn.example.com/generated-hero.png'),
-      generateHeroProductImage: vi.fn().mockResolvedValue('https://cdn.example.com/generated-hero-product.png'),
-      generateSizeGuideImage: vi.fn().mockResolvedValue('https://cdn.example.com/generated-size.png'),
-      generateUsageGuideImage: vi.fn().mockResolvedValue('https://cdn.example.com/generated-usage.png'),
-      generateDetailCutImage: vi.fn().mockResolvedValue('https://cdn.example.com/generated-detail.png'),
-    };
-    const service = makeService(
-      prisma,
-      textCompletion,
-      imageStorage,
-      makeOperationAlertsStub(),
-      heroImageService,
-    );
-
-    const result = await service.generate(
-      {
-        templateId: 'bold-vertical',
-        rawTitle: '학생용 말랑이',
-        rawCategory: '완구',
-        rawDescription: '중고등학생 취미용 말랑이',
-        rawOptions: '색상 구성: 없음',
-        imageUrls: [
-          'https://example.com/product-main.jpg',
-          'https://example.com/detail-1.jpg',
-          'https://example.com/detail-2.jpg',
-        ],
-        detailImageCount: '2',
-        usageSectionMode: 'exclude',
-      },
-      ORGANIZATION_ID,
-      USER_ID,
-    );
-
-    expect(result.result).toMatchObject({
-      usageEnabled: false,
-      usage: { subtitle: '', imageIndices: [] },
-    });
-    expect(result.processedImages).not.toHaveProperty('__usageGuideImage1');
-    expect(heroImageService.generateUsageGuideImage).not.toHaveBeenCalled();
-  });
-
-  it('keeps explicit package images separate from detail images', async () => {
-    const prisma = makePrisma();
-    const textCompletion = {
-      complete: vi.fn().mockResolvedValue({
-        text: JSON.stringify({
-          ...boldVerticalResult(),
-          detailImageIndices: [0, 1, 2],
-          packageImageIndices: [1],
-          packageLabel: '박스 구성',
-        }),
-      }),
-    };
-    const imageStorage = {
-      save: vi.fn(),
-    };
-    const service = makeService(
-      prisma,
-      textCompletion,
-      imageStorage,
-      makeOperationAlertsStub(),
-    );
-
-    const result = await service.generate(
-      {
-        templateId: 'bold-vertical',
-        rawTitle: '휴대용목걸이비눗방울',
-        rawCategory: '완구',
-        rawDescription: '아이들이 가지고 놀기 좋은 장난감',
-        rawOptions: '박스/세트 정보: 있음',
-        imageUrls: [
-          'https://example.com/product-main.jpg',
-          'https://example.com/package-box.jpg',
-          'https://example.com/detail-closeup.jpg',
-        ],
-      },
-      ORGANIZATION_ID,
-      USER_ID,
-    );
-
-    const parsed = result.result as ReturnType<typeof boldVerticalResult> & {
-      packageImageIndices?: number[];
-      packageLabel?: string;
-    };
-    expect(parsed.detailImageIndices).toEqual([0, 2]);
-    expect(parsed.packageImageIndices).toEqual([1]);
-    expect(parsed.packageLabel).toBe('박스 구성');
   });
 
   it('uses inferred package images only in the package section for bold vertical', async () => {
@@ -827,230 +590,6 @@ describe('DetailPageAiService', () => {
     expect(parsed.packageLabel).toBe('1박스 12개입 구성');
   });
 
-  it('suppresses generated product info table when a KC safety label image exists', async () => {
-    const prisma = makePrisma();
-    const textCompletion = {
-      complete: vi.fn().mockResolvedValue({
-        text: JSON.stringify(boldVerticalResult()),
-      }),
-    };
-    const imageStorage = {
-      save: vi.fn(),
-    };
-    const service = makeService(
-      prisma,
-      textCompletion,
-      imageStorage,
-      makeOperationAlertsStub(),
-    );
-
-    const result = await service.generate(
-      {
-        templateId: 'bold-vertical',
-        rawTitle: '휴대용목걸이비눗방울',
-        rawCategory: '완구',
-        rawDescription: '아이들이 가지고 놀기 좋은 장난감',
-        rawOptions: '혼합 색상 / 사이즈 85*60mm',
-        imageUrls: [
-          'https://example.com/product.jpg',
-          'https://example.com/detail-page-inputs/org/safety-label-kc.jpg',
-        ],
-        kcCertificationStatus: 'exists',
-        kcCertificationNumber: 'CB061R1234-1001',
-      },
-      ORGANIZATION_ID,
-      USER_ID,
-    );
-
-    expect((result.result as ReturnType<typeof boldVerticalResult>).productInfo).toEqual([]);
-  });
-
-  it('adds KC certification number to productInfo when no safety label image exists', async () => {
-    const prisma = makePrisma();
-    const textCompletion = {
-      complete: vi.fn().mockResolvedValue({
-        text: JSON.stringify(boldVerticalResult()),
-      }),
-    };
-    const imageStorage = {
-      save: vi.fn(),
-    };
-    const service = makeService(
-      prisma,
-      textCompletion,
-      imageStorage,
-      makeOperationAlertsStub(),
-    );
-
-    const result = await service.generate(
-      {
-        templateId: 'bold-vertical',
-        rawTitle: '학생용 말랑이',
-        rawCategory: '완구',
-        rawDescription: '중고등학생 취미용 말랑이',
-        rawOptions: '색상 구성: 없음',
-        imageUrls: [
-          'https://example.com/product-main.jpg',
-          'https://example.com/detail-1.jpg',
-        ],
-        kcCertificationStatus: 'exists',
-        kcCertificationNumber: 'CB061R1234-1001',
-      },
-      ORGANIZATION_ID,
-      USER_ID,
-    );
-
-    const parsed = result.result as ReturnType<typeof boldVerticalResult>;
-    expect(parsed.productInfo).toContainEqual({
-      key: 'KC 인증번호',
-      value: 'CB061R1234-1001',
-    });
-    expect(textCompletion.complete).toHaveBeenCalledWith(
-      expect.objectContaining({
-        user: expect.stringContaining('KC 인증번호: CB061R1234-1001'),
-      }),
-    );
-  });
-
-  it('does not create package section when direct generator marks box set as absent', async () => {
-    const prisma = makePrisma();
-    const textCompletion = {
-      complete: vi.fn().mockResolvedValue({
-        text: JSON.stringify(boldVerticalResult()),
-      }),
-    };
-    const imageStorage = {
-      save: vi.fn(),
-    };
-    const heroImageService = {
-      inferColorImageSelection: vi.fn().mockResolvedValue([]),
-      inferColorSubtitle: vi.fn().mockResolvedValue('핑크 단일 색상'),
-      inferPackageImagePositions: vi.fn().mockResolvedValue([1]),
-      generateHeroBanner: vi.fn().mockResolvedValue('https://cdn.example.com/generated-hero.png'),
-      generateHeroProductImage: vi.fn().mockResolvedValue('https://cdn.example.com/generated-hero-product.png'),
-      generateSizeGuideImage: vi.fn().mockResolvedValue('https://cdn.example.com/generated-size.png'),
-      generateColorGuideImage: vi.fn().mockResolvedValue('https://cdn.example.com/generated-color.png'),
-      generateUsageGuideImage: vi.fn().mockResolvedValue('https://cdn.example.com/generated-usage.png'),
-      generateDetailCutImage: vi.fn()
-        .mockResolvedValueOnce('https://cdn.example.com/generated-detail-1.png')
-        .mockResolvedValueOnce('https://cdn.example.com/generated-detail-2.png'),
-    };
-    const service = makeService(
-      prisma,
-      textCompletion,
-      imageStorage,
-      makeOperationAlertsStub(),
-      heroImageService,
-    );
-
-    const result = await service.generate(
-      {
-        templateId: 'bold-vertical',
-        rawTitle: '고양이 꾹꾹 베개말랑이',
-        rawCategory: '완구',
-        rawDescription: '부드러운 말랑이 장난감',
-        rawOptions: '박스/세트 정보: 없음',
-        imageUrls: [
-          'https://example.com/product-main.jpg',
-          'https://example.com/package-like-photo.jpg',
-        ],
-      },
-      ORGANIZATION_ID,
-      USER_ID,
-    );
-
-    const parsed = result.result as ReturnType<typeof boldVerticalResult> & {
-      packageImageIndices?: number[];
-      packageLabel?: string;
-    };
-    expect(parsed.packageImageIndices).toEqual([]);
-    expect(parsed.packageLabel).toBe('');
-    expect(heroImageService.inferPackageImagePositions).not.toHaveBeenCalled();
-  });
-
-  it('keeps kids playful package images at the bottom and generates contextual replacements', async () => {
-    const prisma = makePrisma();
-    const textCompletion = {
-      complete: vi.fn().mockResolvedValue({
-        text: JSON.stringify(kidsPlayfulResult()),
-      }),
-    };
-    const imageStorage = {
-      save: vi.fn(),
-    };
-    const heroImageService = {
-      inferPackageImagePositions: vi.fn().mockResolvedValue([1]),
-      generateHeroBanner: vi.fn().mockResolvedValue('https://cdn.example.com/generated-hero.png'),
-      generateHeroProductImage: vi.fn().mockResolvedValue('https://cdn.example.com/generated-hero-product.png'),
-      generateUsageGuideImage: vi.fn()
-        .mockResolvedValueOnce('https://cdn.example.com/generated-usage-1.png')
-        .mockResolvedValueOnce('https://cdn.example.com/generated-usage-2.png')
-        .mockResolvedValueOnce('https://cdn.example.com/generated-usage-3.png'),
-      generateDetailCutImage: vi.fn()
-        .mockResolvedValueOnce('https://cdn.example.com/generated-detail-1.png')
-        .mockResolvedValueOnce('https://cdn.example.com/generated-detail-2.png')
-        .mockResolvedValueOnce('https://cdn.example.com/generated-detail-3.png'),
-    };
-    const service = makeService(
-      prisma,
-      textCompletion,
-      imageStorage,
-      makeOperationAlertsStub(),
-      heroImageService,
-    );
-
-    const result = await service.generate(
-      {
-        templateId: 'kids-playful',
-        rawTitle: '바삭바삭 수제왁스팝',
-        rawCategory: '완구',
-        rawDescription: '손으로 누르는 촉감 놀이 상품',
-        rawOptions: '박스/세트 정보: 있음',
-        imageUrls: [
-          'https://example.com/product-main.jpg',
-          'https://example.com/display-box.jpg',
-          'https://example.com/action-closeup.jpg',
-        ],
-      },
-      ORGANIZATION_ID,
-      USER_ID,
-    );
-
-    const prompt = textCompletion.complete.mock.calls[0]?.[0]?.user ?? '';
-    expect(prompt).toContain('하단 전용 패키지/박스 후보 인덱스: 1');
-    expect(heroImageService.generateHeroBanner).toHaveBeenCalledWith(
-      expect.objectContaining({
-        imageUrls: [
-          'https://example.com/product-main.jpg',
-          'https://example.com/action-closeup.jpg',
-        ],
-      }),
-    );
-
-    const parsed = result.result as ReturnType<typeof kidsPlayfulResult>;
-    const normalIndices = [
-      parsed.section1.heroImageIndex,
-      ...parsed.section3.scenarios.map((scenario) => scenario.imageIndex),
-      parsed.section4.moodImageIndex,
-      parsed.section5.imageIndex,
-      ...parsed.section6.cards.map((card) => card.imageIndex),
-      parsed.section7.imageIndex,
-      ...parsed.section8.blocks.map((block) => block.imageIndex),
-      ...parsed.section10.cards.map((card) => card.imageIndex),
-    ];
-    expect(normalIndices).not.toContain(1);
-    expect(parsed.section11.galleryImageIndices[1]).toBe(1);
-    expect(result.processedImages).toEqual(
-      expect.objectContaining({
-        __heroBanner: 'https://cdn.example.com/generated-hero.png',
-        __usageGuideImage1: 'https://cdn.example.com/generated-usage-1.png',
-        __detailImage1: 'https://cdn.example.com/generated-detail-1.png',
-      }),
-    );
-    expect(heroImageService.generateUsageGuideImage).toHaveBeenCalledTimes(1);
-    expect(heroImageService.generateDetailCutImage).toHaveBeenCalledTimes(1);
-  });
-
   it('marks the row FAILED and closes the alert when AgentRunCoordinator rejects the enqueue', async () => {
     // Producer-side enqueue failure (eg. agent_instance_not_found) — the AI
     // service must not leave a stranded PROCESSING row and must close the
@@ -1097,9 +636,13 @@ describe('DetailPageAiService', () => {
     expect(prisma.contentGeneration.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         organizationId: ORGANIZATION_ID,
-        masterId: MASTER_ID,
+        generationGroupId: GENERATION_GROUP_ID,
+        contentType: 'detail_page',
         triggeredByUserId: USER_ID,
         status: 'PROCESSING',
+      }),
+      include: expect.objectContaining({
+        generationGroup: expect.any(Object),
       }),
     });
     expect(operationAlerts.start).toHaveBeenCalledWith(
@@ -1108,7 +651,7 @@ describe('DetailPageAiService', () => {
         operationKey: `detail-page:${GENERATION_ID}`,
         sourceType: 'content_generation',
         sourceId: GENERATION_ID,
-        href: `/product-content/${MASTER_ID}/editor?generationId=${GENERATION_ID}`,
+        href: `/product-content/detail-pages/${GENERATION_ID}/editor`,
       }),
     );
     expect(prisma.contentGeneration.updateMany).toHaveBeenCalledWith({
@@ -1126,39 +669,132 @@ describe('DetailPageAiService', () => {
     expect(operationAlerts.succeed).not.toHaveBeenCalled();
   });
 
-  it('skips alert lifecycle when productId is omitted (standalone preview)', async () => {
+  it('product-less generate creates an unbound ContentGeneration, starts an alert, and enqueues Agent OS', async () => {
     const prisma = makePrisma();
     const operationAlerts = makeOperationAlertsStub();
-    const textCompletion = {
-      complete: vi.fn().mockRejectedValueOnce(new Error('gemini-timeout')),
-    };
+    prisma.contentGenerationGroup.findFirst.mockResolvedValueOnce(null);
+    prisma.contentGeneration.create.mockResolvedValueOnce({
+      ...makeGenerationRow({
+        generationGroupId: GENERATION_GROUP_ID,
+        templateId: 'kids-playful',
+        generationInput: {
+          rawTitle: 'standalone',
+          rawCategory: '',
+          rawDescription: '',
+          rawOptions: '',
+          imageUrls: ['https://example.com/standalone.jpg'],
+          heroImageMode: 'first',
+          templateId: 'kids-playful',
+        },
+        generationResult: {
+          templateId: 'kids-playful',
+          result: {},
+          imageUrls: ['https://example.com/standalone.jpg'],
+          processedImages: {},
+        },
+        generatedTitle: 'standalone',
+        generationGroup: {
+          id: GENERATION_GROUP_ID,
+          targetMasterId: null,
+        },
+      }),
+    });
+    prisma.contentGeneration.findFirst.mockResolvedValue(makeGenerationRow({
+      generationGroupId: GENERATION_GROUP_ID,
+      templateId: 'kids-playful',
+      generationInput: {
+        rawTitle: 'standalone',
+        rawCategory: '',
+        rawDescription: '',
+        rawOptions: '',
+        imageUrls: ['https://example.com/standalone.jpg'],
+        heroImageMode: 'first',
+        templateId: 'kids-playful',
+      },
+      generationResult: {
+        templateId: 'kids-playful',
+        result: {},
+        imageUrls: ['https://example.com/standalone.jpg'],
+        processedImages: {},
+      },
+      generatedTitle: 'standalone',
+      generationGroup: {
+        id: GENERATION_GROUP_ID,
+        targetMasterId: null,
+      },
+    }));
+    const textCompletion = { complete: vi.fn() };
     const imageStorage = { save: vi.fn() };
+    const agentRunner = makeAgentRunnerStub();
     const service = makeService(
       prisma,
       textCompletion,
       imageStorage,
       operationAlerts,
+      undefined,
+      agentRunner,
     );
 
-    await expect(
-      service.generate(
-        {
-          rawTitle: 'standalone',
-          rawCategory: '',
-          rawDescription: '',
-          rawOptions: '',
-          imageUrls: [],
-          heroImageMode: 'first',
-          templateId: 'kids-playful',
-        },
-        ORGANIZATION_ID,
-        USER_ID,
-      ),
-    ).rejects.toThrow();
+    const result = await service.generate(
+      {
+        rawTitle: 'standalone',
+        rawCategory: '',
+        rawDescription: '',
+        rawOptions: '',
+        imageUrls: ['https://example.com/standalone.jpg'],
+        heroImageMode: 'first',
+        templateId: 'kids-playful',
+      },
+      ORGANIZATION_ID,
+      USER_ID,
+    );
 
-    expect(prisma.contentGeneration.create).not.toHaveBeenCalled();
-    expect(operationAlerts.start).not.toHaveBeenCalled();
+    expect(prisma.masterProduct.findFirst).not.toHaveBeenCalled();
+    expect(prisma.contentGeneration.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        organizationId: ORGANIZATION_ID,
+        contentType: 'detail_page',
+        generationGroupId: GENERATION_GROUP_ID,
+        triggeredByUserId: USER_ID,
+        status: 'PROCESSING',
+      }),
+      include: expect.objectContaining({
+        generationGroup: expect.any(Object),
+      }),
+    });
+    expect(prisma.contentGenerationGroup.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        organizationId: ORGANIZATION_ID,
+        groupType: 'input_variation',
+        title: 'standalone',
+        createdByUserId: USER_ID,
+      }),
+      select: { id: true },
+    });
+    expect(textCompletion.complete).not.toHaveBeenCalled();
+    expect(agentRunner.runByType).toHaveBeenCalledWith(
+      'detail_page_generate',
+      expect.objectContaining({
+        organizationId: ORGANIZATION_ID,
+        sourceResourceType: 'content_generation',
+        sourceResourceId: GENERATION_ID,
+        reason: `detail_page_generate for unbound content ${GENERATION_ID}`,
+      }),
+    );
+    expect(operationAlerts.start).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: ORGANIZATION_ID,
+        operationKey: `detail-page:${GENERATION_ID}`,
+        sourceType: 'content_generation',
+        sourceId: GENERATION_ID,
+        targetType: 'content_generation',
+        targetId: GENERATION_ID,
+        href: `/product-content/detail-pages/${GENERATION_ID}/editor`,
+      }),
+    );
     expect(operationAlerts.fail).not.toHaveBeenCalled();
+    expect(result.productId).toBeNull();
+    expect(result.imageProcessingStatus).toBe('processing');
   });
 
   it('prefills direct generator fields from a product name', async () => {

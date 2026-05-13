@@ -71,10 +71,16 @@ interface DetailPageEditorProps {
   templateCss: string;
   productName: string;
   productId?: string;
+  contentGenerationId?: string;
   rawImages?: string[];
   processedImages?: string[];
-  onSave: (html: string) => Promise<void> | void;
+  onSave: (html: string) => Promise<DetailPageEditorSaveResult | void> | DetailPageEditorSaveResult | void;
   onClose: () => void;
+}
+
+interface DetailPageEditorSaveResult {
+  html?: string;
+  assetUrlMap?: Record<string, string>;
 }
 
 interface ParsedHtml {
@@ -532,6 +538,24 @@ ${bodyMarkup}
 </html>`;
 }
 
+function replaceImageSrcsInEditor(editor: Editor, assetUrlMap: Record<string, string>): void {
+  const entries = Object.entries(assetUrlMap);
+  if (entries.length === 0) return;
+  const wrapper = editor.getWrapper();
+  if (!wrapper) return;
+  for (const component of wrapper.find('img')) {
+    const attrs = component.getAttributes?.() ?? {};
+    const current = typeof attrs.src === 'string' ? attrs.src : '';
+    const next = assetUrlMap[current];
+    if (!next) continue;
+    component.setAttributes?.({ ...attrs, src: next });
+    component.view?.el?.setAttribute?.('src', next);
+    component.view?.render?.();
+    editor.trigger('component:update', component);
+  }
+  editor.refresh();
+}
+
 async function buildLiveEditorExportHtml(
   editor: Editor,
   parsed: ParsedHtml,
@@ -877,7 +901,7 @@ function EditorToolbar({
   productId?: string;
   templateCss: string;
   parsed: ParsedHtml;
-  onSave: (html: string) => Promise<void> | void;
+  onSave: (html: string) => Promise<DetailPageEditorSaveResult | void> | DetailPageEditorSaveResult | void;
   onClose: () => void;
 }) {
   const editor = useEditor();
@@ -943,7 +967,10 @@ function EditorToolbar({
     setIsSaving(true);
     try {
       const fullHtml = buildPersistedEditorHtml(editor, parsed, templateCss);
-      await onSave(fullHtml);
+      const saveResult = await onSave(fullHtml);
+      if (saveResult?.assetUrlMap && Object.keys(saveResult.assetUrlMap).length > 0) {
+        replaceImageSrcsInEditor(editor, saveResult.assetUrlMap);
+      }
       // Save 성공 후 dirty 해제 + UndoManager 클리어 → "방금 저장된 상태" 가 새 베이스.
       setEditorDirty(false);
       editor.UndoManager.clear();
@@ -1971,6 +1998,7 @@ function RightPanel({
   onImageReplace,
   onImageClose,
   productId,
+  contentGenerationId,
   onAiFillComplete,
   onGeneratingChange,
   rawImages = [],
@@ -1986,6 +2014,7 @@ function RightPanel({
   onImageReplace: () => void;
   onImageClose: () => void;
   productId?: string;
+  contentGenerationId?: string;
   onAiFillComplete?: () => void;
   onGeneratingChange?: (v: boolean, component?: any, imageUrl?: string) => void;
   rawImages?: string[];
@@ -2255,6 +2284,8 @@ function RightPanel({
             component={selectedImageComponent}
             editor={editor}
             imageUrl={selectedImageSrc}
+            productId={productId}
+            contentGenerationId={contentGenerationId}
             isBusy={isBusy}
             onEditComplete={onImageEdited}
             onReplace={onImageReplace}
@@ -2546,6 +2577,7 @@ export default function DetailPageEditor({
   templateCss,
   productName,
   productId,
+  contentGenerationId,
   rawImages = [],
   processedImages = [],
   onSave,
@@ -2985,6 +3017,7 @@ export default function DetailPageEditor({
                   setSelectedImageSrc(null);
                 }}
                 productId={productId}
+                contentGenerationId={contentGenerationId}
                 onAiFillComplete={handleAiFillComplete}
                 onGeneratingChange={handleImageGeneratingChange}
                 rawImages={panelRawImages}

@@ -271,13 +271,13 @@ erDiagram
 | ChannelListingOption | listingOption | referenced by external | Channels | ChannelListingOptionDailySnapshot |
 | ChannelListingOption | listingOption | referenced by external | Channels | ChannelScrapeSnapshot |
 | ChannelListingOption | listingOption | referenced by external | Orders | OrderLineItem |
-| MasterProduct | master | referenced by external | AI | ContentGeneration |
 | MasterProduct | master | referenced by external | AI | ThumbnailAnalysis |
 | MasterProduct | master | referenced by external | AI | ThumbnailGeneration |
 | MasterProduct | master | referenced by external | Finance | GradeHistory |
 | MasterProduct | master | referenced by external | Finance | ProcessingCost |
 | MasterProduct | master | referenced by external | Supply | MasterSupplierProduct |
 | MasterProduct | promotedMaster | referenced by external | Sourcing | SourcingCandidate |
+| MasterProduct | targetMaster | referenced by external | AI | ContentGenerationGroup |
 | MasterProductImage | masterImage | referenced by external | AI | ThumbnailGenerationInputImage |
 | Organization | organization | referenced by external | Advertising | AdAction |
 | Organization | organization | referenced by external | Advertising | ExecutionWorker |
@@ -293,7 +293,11 @@ erDiagram
 | Organization | organization | referenced by external | AgentOS | AgentRuntimeState |
 | Organization | organization | referenced by external | AgentOS | AgentTaskSession |
 | Organization | organization | referenced by external | AgentOS | WorkflowTemplate |
+| Organization | organization | referenced by external | AI | ContentAsset |
 | Organization | organization | referenced by external | AI | ContentGeneration |
+| Organization | organization | referenced by external | AI | ContentGenerationAssetUsage |
+| Organization | organization | referenced by external | AI | ContentGenerationGroup |
+| Organization | organization | referenced by external | AI | ContentGenerationSource |
 | Organization | organization | referenced by external | AI | Thumbnail |
 | Organization | organization | referenced by external | AI | ThumbnailAnalysis |
 | Organization | organization | referenced by external | AI | ThumbnailGeneration |
@@ -361,6 +365,7 @@ erDiagram
 | User | agentInstance | references external | AgentOS | AgentInstance |
 | User | approver | referenced by external | AgentOS | AgentApprovalRequest |
 | User | assigneeUser | referenced by external | System | ActionTask |
+| User | createdByUser | referenced by external | AI | ContentAsset |
 | User | decidedBy | referenced by external | AgentOS | AgentApprovalRequest |
 | User | decidedBy | referenced by external | AgentOS | AgentAuthorizationEvent |
 | User | rejectedByUser | referenced by external | Sourcing | SourcingCandidate |

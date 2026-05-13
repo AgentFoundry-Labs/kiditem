@@ -72,11 +72,11 @@ describe('detail-page stored JSON helpers', () => {
     });
   });
 
-  it('builds detail-page result links for the product-content editor surface', () => {
+  it('builds canonical detail-page result links for the product-content editor surface', () => {
     expect(detailPageResultHref({
       productId: 'product-123',
       contentGenerationId: 'generation-456',
       templateId: 'bold-vertical',
-    })).toBe('/product-content/product-123/editor?generationId=generation-456');
+    })).toBe('/product-content/detail-pages/generation-456/editor');
   });
 });

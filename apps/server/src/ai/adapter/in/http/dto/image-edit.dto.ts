@@ -1,4 +1,4 @@
-import { IsOptional, IsString, ValidateBy } from 'class-validator';
+import { IsOptional, IsString, IsUUID, ValidateBy } from 'class-validator';
 
 const DATA_IMAGE_URL_RE = /^data:image\/(?:png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=]+$/;
 
@@ -28,4 +28,6 @@ export class ImageEditBodyDto {
   @IsString() @IsHttpOrDataImageUrl() image_url: string;
   @IsString() preset: string;
   @IsString() @IsOptional() user_prompt?: string;
+  @IsUUID() @IsOptional() productId?: string;
+  @IsUUID() @IsOptional() contentGenerationId?: string;
 }

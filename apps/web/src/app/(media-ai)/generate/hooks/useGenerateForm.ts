@@ -12,11 +12,11 @@ import { API_BASE } from '@/lib/api';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { useProductImages } from '@/hooks/useProductImages';
-import { buildProductContentEditorHref } from '@/app/(catalog)/product-content/lib/product-content-routing';
 import { moveSafetyLabelImagesToEnd } from '../lib/detail-page-image-order';
 import { cropImageWhitespaceUrlToFile } from '../lib/image-whitespace-crop';
 import {
   type KidsPlayfulGenerationItem,
+  type KidsPlayfulGenerateBody,
   useKidsPlayfulGenerate,
   useKidsPlayfulOne,
 } from './useKidsPlayfulGenerate';
@@ -75,6 +75,7 @@ interface DetailPagePrefillResult {
 export function useGenerateForm() {
   const searchParams = useSearchParams();
   const productId = searchParams.get('productId');
+  const sourceReferences = getGenerateSourceReferences(searchParams, productId);
   const { images: savedImages, loading: imagesLoading } = useProductImages(productId);
   const detailPageMutation = useKidsPlayfulGenerate();
 
@@ -253,14 +254,6 @@ export function useGenerateForm() {
         colorVariantInstruction,
         boxSetInstruction,
       ].filter(Boolean).join('\n');
-      const linkedProductId = productId ?? await createTemporaryProduct({
-        rawTitle: title,
-        rawCategory: category,
-        target: generationTarget,
-        rawDescription: descriptionText,
-        rawOptions: optionsForPrompt,
-        images: generationImages,
-      });
       const description = [
         `카테고리: ${category}`,
         `주요 타겟: ${generationTarget}`,
@@ -281,8 +274,9 @@ export function useGenerateForm() {
         rawOptions: optionsForPrompt,
         imageUrls: generationImages,
         heroImageMode: 'llm-pick',
-        productId: linkedProductId,
+        productId: productId ?? undefined,
         templateId: apiTemplateId,
+        sourceReferences,
         ageGroup,
         detailImageCount,
         usageSectionMode,
@@ -371,6 +365,30 @@ export function useGenerateForm() {
     handlePrefill,
     handleSubmit,
   };
+}
+
+interface GenerateSourceParamReader {
+  get(name: string): string | null;
+  getAll(name: string): string[];
+}
+
+export function getGenerateSourceReferences(
+  searchParams: GenerateSourceParamReader,
+  productId: string | null,
+): NonNullable<KidsPlayfulGenerateBody['sourceReferences']> {
+  const references: NonNullable<KidsPlayfulGenerateBody['sourceReferences']> = [];
+  const candidateIds = new Set<string>();
+  for (const value of searchParams.getAll('sourceCandidateId')) {
+    if (value.trim()) candidateIds.add(value.trim());
+  }
+  for (const value of (searchParams.get('sourceCandidateIds') ?? '').split(',')) {
+    if (value.trim()) candidateIds.add(value.trim());
+  }
+  for (const sourceCandidateId of candidateIds) {
+    references.push({ sourceType: 'sourcing_candidate', sourceCandidateId });
+  }
+  void productId;
+  return references;
 }
 
 async function prepareGenerationImageUrls(imageUrls: string[]): Promise<string[]> {
@@ -558,63 +576,6 @@ function formatColorVariantNames(colorNames: string): string {
     .join(' / ');
 }
 
-async function createTemporaryProduct(input: {
-  rawTitle: string;
-  rawCategory: string;
-  target: string;
-  rawDescription: string;
-  rawOptions: string;
-  images: string[];
-}): Promise<string> {
-  const productImageUrls = input.images
-    .map(toMasterProductImageUrl)
-    .filter((url) => url !== '');
-  const representativeImage = productImageUrls[0];
-  const product = await apiClient.post<{ id: string }>('/api/products/masters', {
-    name: input.rawTitle,
-    description: [
-      input.target ? `주요 타겟: ${input.target}` : '',
-      input.rawDescription,
-      input.rawOptions,
-    ].filter(Boolean).join('\n\n'),
-    category: input.rawCategory || '키즈 상품',
-    imageUrl: representativeImage,
-    thumbnailUrl: representativeImage,
-    images: productImageUrls.map((url, index) => ({
-      url,
-      role: index === 0 ? 'product' : 'detail',
-      label: index === 0 ? '대표 이미지' : `상세 이미지 ${index + 1}`,
-      sortOrder: index,
-      source: 'detail-page-generator',
-      isPrimary: index === 0,
-    })),
-    lifecycleState: 'active',
-    isTemporary: true,
-    temporaryReason: '상세페이지 생성 페이지에서 직접 등록',
-    memo: '상세페이지 생성 페이지에서 이미지와 핵심 정보로 자동 생성된 임시 상품',
-  });
-  return product.id;
-}
-
-function toMasterProductImageUrl(url: string): string {
-  const trimmed = url.trim();
-  if (trimmed === '') return '';
-
-  const withOrigin = trimmed.startsWith('//')
-    ? `https:${trimmed}`
-    : trimmed.startsWith('/')
-      ? `${API_BASE.replace(/\/$/, '')}${trimmed}`
-      : trimmed;
-
-  try {
-    const parsed = new URL(withOrigin);
-    if (parsed.hostname === 'localhost') parsed.hostname = '127.0.0.1';
-    return parsed.toString();
-  } catch {
-    return withOrigin;
-  }
-}
-
 function generationStatusToDialogPhase(
   status: KidsPlayfulGenerationItem['imageProcessingStatus'],
 ): GenerationDialogPhase | null {
@@ -626,9 +587,5 @@ function generationStatusToDialogPhase(
 }
 
 function buildGenerationEditorUrl(item: KidsPlayfulGenerationItem): string | undefined {
-  if (!item.productId) return undefined;
-  return buildProductContentEditorHref({
-    productId: item.productId,
-    generationId: item.id,
-  });
+  return `/product-content/detail-pages/${encodeURIComponent(item.id)}/editor`;
 }

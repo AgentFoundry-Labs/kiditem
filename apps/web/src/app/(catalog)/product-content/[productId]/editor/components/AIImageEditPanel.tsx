@@ -17,6 +17,8 @@ import { extractEditedImageUrl } from '../lib/image-edit-result';
 
 interface AIImageEditPanelProps {
   imageUrl: string;
+  productId?: string;
+  contentGenerationId?: string;
   isBusy: React.MutableRefObject<boolean>;
   onEditComplete: (newImageUrl: string) => void;
   onReplace: () => void;
@@ -58,6 +60,8 @@ async function submitImageEdit(params: {
   image_url: string;
   preset: string;
   user_prompt: string;
+  productId?: string;
+  contentGenerationId?: string;
 }): Promise<{ taskId: string }> {
   return apiClient.post<{ taskId: string }>('/api/image-ai/edit', params);
 }
@@ -67,7 +71,7 @@ async function submitImageEdit(params: {
 // executor claims the request). We poll `/api/agent-os/requests/:id` and
 // pivot to the run via `latestRunId` once status leaves the pre-claim phase.
 async function pollTaskResult(taskId: string): Promise<{ image_url: string }> {
-  const maxAttempts = 95; // 95 * 2s = 190s max, matching the image_edit backend timeout.
+  const maxAttempts = 180; // Agent OS has no image-edit business timeout; this is only a UI polling guard.
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise(r => setTimeout(r, 2000));
     let request: {
@@ -94,11 +98,13 @@ async function pollTaskResult(taskId: string): Promise<{ image_url: string }> {
       return { image_url: imageUrl };
     }
   }
-  throw new Error('시간 초과: 이미지 편집이 너무 오래 걸립니다');
+  throw new Error('이미지 편집 결과 확인 시간이 초과되었습니다. 잠시 후 알림에서 결과를 확인해주세요.');
 }
 
 export function AIImageEditPanel({
   imageUrl,
+  productId,
+  contentGenerationId,
   isBusy,
   onEditComplete,
   onReplace,
@@ -126,6 +132,8 @@ export function AIImageEditPanel({
           image_url: imageUrl,
           preset: preset.id,
           user_prompt: presetInput[preset.id] || '',
+          productId,
+          contentGenerationId,
         });
         const result = await pollTaskResult(taskId);
         onEditComplete(result.image_url);
@@ -138,7 +146,7 @@ export function AIImageEditPanel({
         setLoadingPreset(null);
       }
     },
-    [imageUrl, presetInput, onEditComplete, isBusy, onGeneratingChange],
+    [imageUrl, productId, contentGenerationId, presetInput, onEditComplete, isBusy, onGeneratingChange],
   );
 
   const handleCustomSubmit = useCallback(async () => {
@@ -155,6 +163,8 @@ export function AIImageEditPanel({
         image_url: imageUrl,
         preset: 'custom',
         user_prompt: customPrompt.trim(),
+        productId,
+        contentGenerationId,
       });
       const result = await pollTaskResult(taskId);
       onEditComplete(result.image_url);
@@ -166,7 +176,7 @@ export function AIImageEditPanel({
       onGeneratingChange?.(false);
       setLoadingPreset(null);
     }
-  }, [imageUrl, customPrompt, onEditComplete, isBusy, onGeneratingChange]);
+  }, [imageUrl, productId, contentGenerationId, customPrompt, onEditComplete, isBusy, onGeneratingChange]);
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -174,7 +184,7 @@ export function AIImageEditPanel({
         {loading && (
           <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 rounded-lg border border-emerald-100">
             <Loader2 size={14} className="animate-spin text-emerald-600" />
-            <span className="text-xs font-medium text-emerald-700">AI 이미지 처리 중... (최대 190초)</span>
+            <span className="text-xs font-medium text-emerald-700">AI 이미지 처리 중...</span>
           </div>
         )}
 

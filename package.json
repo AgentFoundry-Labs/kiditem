@@ -99,5 +99,8 @@
     "postcss": "8.5.14",
     "protobufjs": "7.5.6",
     "uuid": "11.1.1"
+  },
+  "dependencies": {
+    "@ag-ui/client": "^0.0.53"
   }
 }

@@ -26,7 +26,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 |---|---:|
 | [Advertising](erd/advertising.md) | 5 |
 | [AgentOS](erd/agentos.md) | 13 |
-| [AI](erd/ai.md) | 10 |
+| [AI](erd/ai.md) | 14 |
 | [Channels](erd/channels.md) | 8 |
 | [Core](erd/core.md) | 13 |
 | [Finance](erd/finance.md) | 5 |
@@ -58,7 +58,11 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | AgentToolDefinition | AgentOS | `agent_tool_definitions` | Catalog of business tools agents may invoke. KidItem ships a curated set; not a generic HTTP/DB tool marketplace. |
 | WorkflowRun | AgentOS | `workflow_runs` | Workflow run record. Workflow runner triggers Agent OS via AgentRunnerPort with sourceWorkflowRunId. |
 | WorkflowTemplate | AgentOS | `workflow_templates` | Workflow definition. Trigger config + nodes/edges. |
+| ContentAsset | AI | `content_assets` | Generated/editable media workspace asset. Product gallery adoption copies selected rows into MasterProductImage. |
 | ContentGeneration | AI | `content_generations` | - |
+| ContentGenerationAssetUsage | AI | `content_generation_asset_usages` | Current image assets used by a generated content row. Asset location stays on ContentAsset; this table is the replace-on-save usage set. |
+| ContentGenerationGroup | AI | `content_generation_groups` | Same-input generation group. Product-less groups are top-level product-content workspaces; product-bound groups remain candidate lineage inside a Master workspace. |
+| ContentGenerationSource | AI | `content_generation_sources` | Generation-level provenance. The source of a generated work unit can be a sourcing candidate, input asset, or another generation. |
 | Thumbnail | AI | `thumbnails` | CTR 기반 썸네일 트래킹 (ThumbnailAnalysis 와 별도 시스템). |
 | ThumbnailAnalysis | AI | `thumbnail_analyses` | 5차원 scores(heroShot·composition·branding·mobile·differentiation) + complianceGrade(PASS/WARN/FAIL) + imageSpec(사전검수). 스펙 FAIL 시 AI 호출 생략. |
 | ThumbnailGeneration | AI | `thumbnail_generations` | 상태: pending→generating→ready/failed→applied/skipped. method=edit 만 사용 (generate Imagen 방식 삭제됨). |
@@ -781,20 +785,80 @@ erDiagram
     Json normalizedJson
     DateTime createdAt
   }
+  ContentAsset {
+    String id PK
+    String organizationId FK
+    String generationGroupId FK
+    String createdByUserId FK
+    String assetKey
+    String url
+    String storageKey
+    String assetType
+    String role
+    String label
+    Int sortOrder
+    String mimeType
+    Int width
+    Int height
+    Int fileSize
+    Json metadata
+    Boolean isDeleted
+    DateTime deletedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
   ContentGeneration {
     String id PK
     String organizationId FK
-    String masterId FK
-    Json originalImages
-    Json processedImages
+    String generationGroupId FK
+    String contentType
+    String templateId
+    Json generationInput
+    Json generationResult
     String generatedTitle
     String generatedDescription
     String generatedCopy
-    String detailPageHtml
+    String editedHtml
+    DateTime editedHtmlSavedAt
     String status
     Int retryCount
     String errorMessage
     String triggeredByUserId FK
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ContentGenerationAssetUsage {
+    String id PK
+    String organizationId FK
+    String contentGenerationId FK
+    String contentAssetId FK
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ContentGenerationGroup {
+    String id PK
+    String organizationId FK
+    String groupType
+    String targetMasterId FK
+    String baseContentGenerationId FK
+    String title
+    String inputFingerprint
+    Json metadata
+    String createdByUserId
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ContentGenerationSource {
+    String id PK
+    String organizationId FK
+    String contentGenerationId FK
+    String sourceType
+    String sourceCandidateId FK
+    String sourceContentGenerationId FK
+    String contentAssetId FK
+    String label
+    Int sortOrder
+    Json metadata
     DateTime createdAt
     DateTime updatedAt
   }
@@ -1734,11 +1798,19 @@ erDiagram
   ChannelScrapeSnapshot o|--o{ ChannelAdTargetDailySnapshot : "rawSnapshot"
   ChannelScrapeSnapshot o|--o{ ChannelListingDailySnapshot : "rawSnapshot"
   ChannelScrapeSnapshot o|--o{ ChannelListingOptionDailySnapshot : "rawSnapshot"
+  ContentAsset ||--o{ ContentGenerationAssetUsage : "contentAsset"
+  ContentAsset o|--o{ ContentGenerationSource : "contentAsset"
+  ContentGeneration ||--o{ ContentGenerationAssetUsage : "contentGeneration"
+  ContentGeneration o|--o{ ContentGenerationGroup : "baseContentGeneration"
+  ContentGeneration ||--o{ ContentGenerationSource : "contentGeneration"
+  ContentGeneration o|--o{ ContentGenerationSource : "sourceContentGeneration"
+  ContentGenerationGroup ||--o{ ContentAsset : "generationGroup"
+  ContentGenerationGroup ||--o{ ContentGeneration : "generationGroup"
   ExecutionTask ||--o{ ExecutionLog : "task"
   ExecutionWorker o|--o{ ExecutionTask : "worker"
   Marketplace o|--o{ WorkflowTemplate : "marketplace"
   MasterProduct ||--o{ ChannelListing : "master"
-  MasterProduct ||--o{ ContentGeneration : "master"
+  MasterProduct o|--o{ ContentGenerationGroup : "targetMaster"
   MasterProduct ||--o{ GradeHistory : "master"
   MasterProduct ||--o{ MasterProductImage : "master"
   MasterProduct ||--o{ MasterSupplierProduct : "master"
@@ -1784,7 +1856,11 @@ erDiagram
   Organization ||--o{ ChannelReconciliationRun : "organization"
   Organization ||--o{ ChannelScrapeRun : "organization"
   Organization ||--o{ ChannelScrapeSnapshot : "organization"
+  Organization ||--o{ ContentAsset : "organization"
   Organization ||--o{ ContentGeneration : "organization"
+  Organization ||--o{ ContentGenerationAssetUsage : "organization"
+  Organization ||--o{ ContentGenerationGroup : "organization"
+  Organization ||--o{ ContentGenerationSource : "organization"
   Organization ||--o{ CSRecord : "organization"
   Organization ||--o{ ExecutionWorker : "organization"
   Organization ||--o{ GradeHistory : "organization"
@@ -1849,6 +1925,7 @@ erDiagram
   PurchaseOrder ||--o{ PurchaseOrderItem : "order"
   PurchaseOrder o|--o{ SupplierPayment : "purchaseOrder"
   SourcingCandidate ||--o{ CandidateImage : "candidate"
+  SourcingCandidate o|--o{ ContentGenerationSource : "sourceCandidate"
   Supplier ||--o{ MasterSupplierProduct : "supplier"
   Supplier o|--o{ PurchaseOrder : "supplier"
   Supplier ||--o{ SupplierPayment : "supplier"
@@ -1868,6 +1945,7 @@ erDiagram
   User o|--o{ AgentAuthorizationEvent : "requestedBy"
   User o|--o{ AgentRunRequest : "requestedBy"
   User o|--o{ Alert : "actorUser"
+  User o|--o{ ContentAsset : "createdByUser"
   User o|--o{ ContentGeneration : "triggeredByUser"
   User o|--o{ OrganizationMembership : "invitedBy"
   User ||--o{ OrganizationMembership : "user"

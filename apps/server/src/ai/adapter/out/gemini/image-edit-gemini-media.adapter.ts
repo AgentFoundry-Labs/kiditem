@@ -161,7 +161,7 @@ export class ImageEditGeminiMediaAdapter implements ImageEditMediaPort {
     mimeType: string,
   ): string {
     const safePreset = preset.replace(/[^a-z0-9_-]/gi, '_') || 'custom';
-    return `image-edits/${organizationId}/${safePreset}-${randomUUID()}.${this.imageFetcher.extForMime(mimeType)}`;
+    return `tmp/image-edits/${organizationId}/${safePreset}-${randomUUID()}.${this.imageFetcher.extForMime(mimeType)}`;
   }
 
   private getClient(): GoogleGenAI {

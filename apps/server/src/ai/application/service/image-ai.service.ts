@@ -1,4 +1,9 @@
-import { Inject, Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import {
   AGENT_RUNNER_PORT,
   type AgentRunnerPort,
@@ -43,23 +48,35 @@ export class ImageAiService {
       image_url: string;
       preset: string;
       user_prompt?: string;
+      productId?: string;
+      contentGenerationId?: string;
     },
     organizationId: string,
     triggeredByUserId: string | null,
   ) {
-    const result = await this.agentRunner.runByType('image_edit', {
-      organizationId,
-      sourceType: 'ai.image_edit',
-      reason: 'image-ai edit',
-      payload: {
-        image_url: params.image_url,
-        preset: params.preset,
-        user_prompt: params.user_prompt ?? '',
-      },
-      ...(triggeredByUserId ? { requestedByUserId: triggeredByUserId } : {}),
-    });
+    let result: AgentRunnerResult;
+    try {
+      result = await this.agentRunner.runByType('image_edit', {
+        organizationId,
+        sourceType: 'ai.image_edit',
+        reason: 'image-ai edit',
+        payload: {
+          image_url: params.image_url,
+          preset: params.preset,
+          user_prompt: params.user_prompt ?? '',
+          ...(params.productId ? { productId: params.productId } : {}),
+          ...(params.contentGenerationId
+            ? { contentGenerationId: params.contentGenerationId }
+            : {}),
+        },
+        ...(triggeredByUserId ? { requestedByUserId: triggeredByUserId } : {}),
+      });
+    } catch (error) {
+      throw error;
+    }
 
-    const taskId = this.requireTaskId(result, 'ai.image_edit');
+    let taskId: string;
+    taskId = this.requireTaskId(result, 'ai.image_edit');
 
     if (result.requestId) {
       await this.operationAlerts.start({
@@ -70,10 +87,12 @@ export class ImageAiService {
         sourceType: 'agent_run_request',
         sourceId: result.requestId,
         actorUserId: triggeredByUserId,
-        href: '/image-hub',
+        href: this.imageEditHref(params),
         metadata: {
           agentType: 'image_edit',
           preset: params.preset,
+          productId: params.productId ?? null,
+          contentGenerationId: params.contentGenerationId ?? null,
         },
       });
       this.kickEnqueuedImageEditRequest({
@@ -83,6 +102,14 @@ export class ImageAiService {
     }
 
     return { taskId };
+  }
+
+  private imageEditHref(params: { productId?: string; contentGenerationId?: string }): string {
+    if (params.contentGenerationId) {
+      return `/product-content/detail-pages/${params.contentGenerationId}/editor`;
+    }
+    if (params.productId) return `/product-content/${params.productId}`;
+    return '/product-content?contentType=image';
   }
 
   private kickEnqueuedImageEditRequest(input: {
