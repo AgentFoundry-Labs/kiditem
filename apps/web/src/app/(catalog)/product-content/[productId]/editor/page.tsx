@@ -68,7 +68,6 @@ function ProductContentEditorPageContent() {
       apiClient.get<{ html: string | null; savedAt: string | null }>(
         `/api/products/${productId}/edited-html`,
       ),
-    enabled: !hasExplicitSource,
   });
 
   const previewData = editorData?.previewData ?? null;
@@ -103,8 +102,15 @@ function ProductContentEditorPageContent() {
       activeEntry.imageProcessingStatus === 'completed');
 
   const editorHtml = useMemo(() => {
-    if (!hasExplicitSource && editedHtmlRow?.html) {
-      return ensureStyledDetailHtml(editedHtmlRow.html, templateCss);
+    const savedEditedHtml = editedHtmlRow?.html ?? null;
+    const shouldUseSavedHtml = shouldUseSavedEditedHtml({
+      editedHtml: savedEditedHtml,
+      editedHtmlSavedAt: editedHtmlRow?.savedAt ?? null,
+      hasExplicitSource,
+      activeEntryCreatedAt: activeEntry?.createdAt ?? null,
+    });
+    if (shouldUseSavedHtml && savedEditedHtml) {
+      return ensureStyledDetailHtml(savedEditedHtml, templateCss);
     }
     if (entryReady && activeEntry) {
       return renderGenerationHtml(activeEntry, templateCss);
@@ -121,6 +127,7 @@ function ProductContentEditorPageContent() {
   }, [
     activeEntry,
     editedHtmlRow?.html,
+    editedHtmlRow?.savedAt,
     entryReady,
     hasExplicitSource,
     previewData,
@@ -135,16 +142,21 @@ function ProductContentEditorPageContent() {
         `/api/products/${productId}/edited-html`,
         { html },
       );
+      const savedAt = new Date().toISOString();
+      queryClient.setQueryData(
+        queryKeys.productContent.editedHtml(productId),
+        { html, savedAt },
+      );
       toast.success('상세페이지 저장 완료');
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.productContent.all }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.productContent.editedHtml(productId) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.productContent.preview(productId) }),
       ]);
-      router.push(`/product-content/${productId}`);
+      router.replace(`/product-content/${productId}/editor`);
     } catch (err) {
       const msg = isApiError(err) ? err.detail : '저장 실패';
       toast.error(msg);
+      throw err;
     }
   };
 
@@ -155,7 +167,7 @@ function ProductContentEditorPageContent() {
 
   if (
     isLoading ||
-    (!hasExplicitSource && isEditedHtmlLoading) ||
+    isEditedHtmlLoading ||
     (!hasExplicitSource && !editedHtmlRow?.html && (isKpListLoading || isBoldListLoading)) ||
     (!!generationId && isSelectedLoading) ||
     isEntryProcessing
@@ -202,6 +214,23 @@ function ProductContentEditorPageContent() {
       </div>
     </div>
   );
+}
+
+function shouldUseSavedEditedHtml(input: {
+  editedHtml: string | null;
+  editedHtmlSavedAt: string | null;
+  hasExplicitSource: boolean;
+  activeEntryCreatedAt: string | null;
+}): boolean {
+  if (!input.editedHtml) return false;
+  if (!input.hasExplicitSource) return true;
+  if (!input.activeEntryCreatedAt) return true;
+  if (!input.editedHtmlSavedAt) return false;
+
+  const savedAt = Date.parse(input.editedHtmlSavedAt);
+  const sourceCreatedAt = Date.parse(input.activeEntryCreatedAt);
+  if (!Number.isFinite(savedAt) || !Number.isFinite(sourceCreatedAt)) return false;
+  return savedAt >= sourceCreatedAt;
 }
 
 function renderGenerationHtml(entry: KidsPlayfulGenerationItem, templateCss: string): string {

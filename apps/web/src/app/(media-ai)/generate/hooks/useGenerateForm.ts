@@ -14,6 +14,7 @@ import { isApiError } from '@/lib/api-error';
 import { useProductImages } from '@/hooks/useProductImages';
 import { buildProductContentEditorHref } from '@/app/(catalog)/product-content/lib/product-content-routing';
 import { moveSafetyLabelImagesToEnd } from '../lib/detail-page-image-order';
+import { cropImageWhitespaceUrlToFile } from '../lib/image-whitespace-crop';
 import {
   type KidsPlayfulGenerationItem,
   useKidsPlayfulGenerate,
@@ -28,6 +29,7 @@ export type BoxSetStatus = 'auto' | 'none' | 'box' | 'set' | 'exists';
 export type ColorVariantStatus = 'auto' | 'none' | 'single' | 'multiple';
 const TITLE_REQUIRED_MESSAGE = '상품명을 먼저 입력해 주세요.';
 export const IMAGE_REQUIRED_MESSAGE = '상품 이미지를 최소 1장 추가해 주세요.';
+const DETAIL_PAGE_IMAGE_UPLOAD_PATH = '/api/ai/detail-page/images';
 
 export type GenerationDialogPhase =
   | 'submitting'
@@ -196,6 +198,10 @@ export function useGenerateForm() {
     });
     setError(null);
     try {
+      const generationImages = await prepareGenerationImageUrls(orderedImages);
+      if (hasImageUrlChanges(orderedImages, generationImages)) {
+        setImages(generationImages.slice(0, 15));
+      }
       const apiTemplateId = selectedTemplateId === 'kids-playful' ? 'kids-playful' : 'bold-vertical';
       let category = rawCategory.trim();
       let generationTarget = target.trim();
@@ -204,7 +210,7 @@ export function useGenerateForm() {
 
       if (!category || !descriptionText) {
         try {
-          const prefill = await requestPrefill(title, orderedImages);
+          const prefill = await requestPrefill(title, generationImages);
           category ||= prefill.category;
           generationTarget ||= prefill.target;
           descriptionText ||= prefill.description;
@@ -253,7 +259,7 @@ export function useGenerateForm() {
         target: generationTarget,
         rawDescription: descriptionText,
         rawOptions: optionsForPrompt,
-        images: orderedImages,
+        images: generationImages,
       });
       const description = [
         `카테고리: ${category}`,
@@ -273,7 +279,7 @@ export function useGenerateForm() {
         rawCategory: category,
         rawDescription: description,
         rawOptions: optionsForPrompt,
-        imageUrls: orderedImages,
+        imageUrls: generationImages,
         heroImageMode: 'llm-pick',
         productId: linkedProductId,
         templateId: apiTemplateId,
@@ -365,6 +371,41 @@ export function useGenerateForm() {
     handlePrefill,
     handleSubmit,
   };
+}
+
+async function prepareGenerationImageUrls(imageUrls: string[]): Promise<string[]> {
+  const prepared = await Promise.all(
+    imageUrls.map(async (imageUrl, index) => {
+      try {
+        return await cropAndUploadGenerationImage(imageUrl, index);
+      } catch (err) {
+        console.warn('[generate] image whitespace crop failed, using original', err);
+        return imageUrl;
+      }
+    }),
+  );
+  return moveSafetyLabelImagesToEnd(prepared);
+}
+
+async function cropAndUploadGenerationImage(imageUrl: string, index: number): Promise<string> {
+  const file = await cropImageWhitespaceUrlToFile(
+    imageUrl,
+    `detail-page-image-${index + 1}.png`,
+  );
+  if (!file) return imageUrl;
+
+  const formData = new FormData();
+  formData.append('file', file);
+  const result = await apiClient.upload<{ url: string }>(
+    DETAIL_PAGE_IMAGE_UPLOAD_PATH,
+    formData,
+  );
+  return result.url;
+}
+
+function hasImageUrlChanges(before: string[], after: string[]): boolean {
+  if (before.length !== after.length) return true;
+  return before.some((url, index) => url !== after[index]);
 }
 
 function buildAgeGroupInstruction(ageGroup: DetailPageAgeGroup): string {

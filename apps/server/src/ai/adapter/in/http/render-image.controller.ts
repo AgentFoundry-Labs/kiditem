@@ -8,6 +8,7 @@ import { RenderImageBodyDto } from './dto';
 const STATIC_ROOT = '/data/products';
 const PROCESSED_PREFIX = '/processed/';
 const RENDER_TIMEOUT_MS = 120_000;
+const DEFAULT_VIEWPORT_WIDTH = 860;
 
 function mimeFromExt(ext: string): string {
   const map: Record<string, string> = {
@@ -106,6 +107,17 @@ async function waitForPageAssets(page: Page): Promise<void> {
   });
 }
 
+function normalizeRenderBaseUrl(value: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    if (!['http:', 'https:'].includes(url.protocol)) return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
 @Controller('render-image')
 export class RenderImageController {
   private readonly logger = new Logger(RenderImageController.name);
@@ -125,7 +137,17 @@ export class RenderImageController {
       const page = await browser.newPage();
       page.setDefaultNavigationTimeout(RENDER_TIMEOUT_MS);
       page.setDefaultTimeout(RENDER_TIMEOUT_MS);
-      await page.setViewport({ width: 860, height: 1200 });
+      await page.setViewport({
+        width: body.viewportWidth ?? DEFAULT_VIEWPORT_WIDTH,
+        height: 1200,
+      });
+      const baseUrl = normalizeRenderBaseUrl(body.baseUrl);
+      if (baseUrl) {
+        await page.goto(baseUrl, {
+          waitUntil: 'domcontentloaded',
+          timeout: RENDER_TIMEOUT_MS,
+        });
+      }
       await page.setContent(inlinedHtml, {
         waitUntil: 'domcontentloaded',
         timeout: RENDER_TIMEOUT_MS,

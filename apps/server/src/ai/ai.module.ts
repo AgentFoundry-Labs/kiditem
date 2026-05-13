@@ -19,6 +19,7 @@ import { CoupangImageSyncController } from './adapter/in/http/coupang-image-sync
 import { DetailPageContentGenerationSinkAdapter } from './adapter/out/agent-output/detail-page-content-generation-sink.adapter';
 import { ThumbnailGenerationSinkAdapter } from './adapter/out/agent-output/thumbnail-generation-sink.adapter';
 import { DetailPageGenerateRuntimeHandler } from './adapter/out/agent-runtime/detail-page-generate.runtime-handler';
+import { ImageEditRuntimeHandler } from './adapter/out/agent-runtime/image-edit.runtime-handler';
 import { ThumbnailGenerateRuntimeHandler } from './adapter/out/agent-runtime/thumbnail-generate.runtime-handler';
 import { CoupangInventoryScrapeAdapter } from './adapter/out/coupang/coupang-inventory-scrape.adapter';
 import { CoupangProductSalesScrapeAdapter } from './adapter/out/coupang/coupang-product-sales-scrape.adapter';
@@ -137,6 +138,7 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     DetailPageContentGenerationSinkAdapter,
     DetailPageGeminiMediaAdapter,
     DetailPageGenerateRuntimeHandler,
+    ImageEditRuntimeHandler,
     ThumbnailGenerationSinkAdapter,
     ThumbnailGenerateRuntimeHandler,
     CoupangImageReconciliationAdapter,

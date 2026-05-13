@@ -19,6 +19,7 @@ interface AIImageEditPanelProps {
   isBusy: React.MutableRefObject<boolean>;
   onEditComplete: (newImageUrl: string) => void;
   onReplace: () => void;
+  onGeneratingChange?: (v: boolean) => void;
   onClose: () => void;
 }
 
@@ -122,7 +123,7 @@ function extractEditedImageUrl(output: unknown): string | null {
 // executor claims the request). We poll `/api/agent-os/requests/:id` and
 // pivot to the run via `latestRunId` once status leaves the pre-claim phase.
 async function pollTaskResult(taskId: string): Promise<{ image_url: string }> {
-  const maxAttempts = 60; // 60 * 2s = 120s max
+  const maxAttempts = 95; // 95 * 2s = 190s max, matching the image_edit backend timeout.
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise(r => setTimeout(r, 2000));
     let request: {
@@ -152,7 +153,14 @@ async function pollTaskResult(taskId: string): Promise<{ image_url: string }> {
   throw new Error('시간 초과: 이미지 편집이 너무 오래 걸립니다');
 }
 
-export function AIImageEditPanel({ imageUrl, isBusy, onEditComplete, onReplace, onClose }: AIImageEditPanelProps) {
+export function AIImageEditPanel({
+  imageUrl,
+  isBusy,
+  onEditComplete,
+  onReplace,
+  onGeneratingChange,
+  onClose,
+}: AIImageEditPanelProps) {
   const [loading, setLoading] = useState(false);
   const [loadingPreset, setLoadingPreset] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -166,6 +174,7 @@ export function AIImageEditPanel({ imageUrl, isBusy, onEditComplete, onReplace, 
 
       isBusy.current = true;
       setLoading(true);
+      onGeneratingChange?.(true);
       setLoadingPreset(preset.id);
       setError(null);
       try {
@@ -181,10 +190,11 @@ export function AIImageEditPanel({ imageUrl, isBusy, onEditComplete, onReplace, 
       } finally {
         isBusy.current = false;
         setLoading(false);
+        onGeneratingChange?.(false);
         setLoadingPreset(null);
       }
     },
-    [imageUrl, presetInput, onEditComplete, isBusy],
+    [imageUrl, presetInput, onEditComplete, isBusy, onGeneratingChange],
   );
 
   const handleCustomSubmit = useCallback(async () => {
@@ -193,6 +203,7 @@ export function AIImageEditPanel({ imageUrl, isBusy, onEditComplete, onReplace, 
 
     isBusy.current = true;
     setLoading(true);
+    onGeneratingChange?.(true);
     setLoadingPreset('custom');
     setError(null);
     try {
@@ -208,9 +219,10 @@ export function AIImageEditPanel({ imageUrl, isBusy, onEditComplete, onReplace, 
     } finally {
       isBusy.current = false;
       setLoading(false);
+      onGeneratingChange?.(false);
       setLoadingPreset(null);
     }
-  }, [imageUrl, customPrompt, onEditComplete, isBusy]);
+  }, [imageUrl, customPrompt, onEditComplete, isBusy, onGeneratingChange]);
 
   return (
     <div className="flex-1 overflow-y-auto">

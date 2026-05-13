@@ -43,7 +43,7 @@ PRESET_PROMPTS = {
 
 class ImageEditAgent(BaseAgent):
     agent_type = "image_edit"
-    timeout_seconds = 120
+    timeout_seconds = 180
 
     async def execute(self, pool, task_input: dict | None) -> dict:
         if not task_input:
