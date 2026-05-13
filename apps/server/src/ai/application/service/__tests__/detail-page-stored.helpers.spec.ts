@@ -17,7 +17,10 @@ describe('detail-page stored JSON helpers', () => {
         imageUrls: ['https://example.com/legacy.jpg'],
         heroImageMode: 'invalid',
         ageGroup: 'teen',
-        detailImageCount: '4',
+        detailImageCount: 'seven',
+        usageSectionMode: 'maybe',
+        kcCertificationStatus: 'maybe',
+        kcCertificationNumber: 12345,
       },
     }));
 
@@ -36,6 +39,9 @@ describe('detail-page stored JSON helpers', () => {
       templateId: 'bold-vertical',
       ageGroup: 'age-8-plus',
       detailImageCount: 'auto',
+      usageSectionMode: 'include',
+      kcCertificationStatus: 'unknown',
+      kcCertificationNumber: '',
     });
   });
 
@@ -50,7 +56,10 @@ describe('detail-page stored JSON helpers', () => {
         imageUrls: ['https://example.com/input.jpg'],
         heroImageMode: 'llm-pick',
         ageGroup: 'age-14-plus',
-        detailImageCount: '1',
+        detailImageCount: '6',
+        usageSectionMode: 'exclude',
+        kcCertificationStatus: 'exists',
+        kcCertificationNumber: 'CB061R1234-1001',
       },
     }));
 
@@ -68,7 +77,10 @@ describe('detail-page stored JSON helpers', () => {
       heroImageMode: 'llm-pick',
       templateId: 'kids-playful',
       ageGroup: 'age-14-plus',
-      detailImageCount: '1',
+      detailImageCount: '6',
+      usageSectionMode: 'exclude',
+      kcCertificationStatus: 'exists',
+      kcCertificationNumber: 'CB061R1234-1001',
     });
   });
 

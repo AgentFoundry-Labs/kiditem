@@ -313,6 +313,7 @@ export function buildDetailCutPrompt(input: GenerateDetailSectionPromptInput): s
     '- Alignment must look deliberate: product centered, level horizon, comfortable padding, no awkward tilt, and no accidental off-center crop.',
     '- Use at most ONE visible hand if a hand interaction is required. Never show two hands, both hands, two wrists, or two separate arms in a DETAIL generated image.',
     '- Prefer product-only detail shots when the action can be understood without a hand.',
+    sensoryContainerRules(input),
     '- Keep the product sharp and inspectable. Avoid haze, blur, low contrast, translucent overlay effects, vignette, or washed-out color.',
     '- Do not render the product name inside this image.',
     '- No Korean text, English text, numbers, fake KC marks, barcodes, certifications, brand logos, prices, watermarks, or long text.',
@@ -350,6 +351,7 @@ export function buildUsageGuidePrompt(input: GenerateUsageGuidePromptInput): str
     '- Show a realistic hand interaction only if it helps explain the step; use natural short nails, no manicure, no nail polish.',
     '- Use at most ONE visible hand. Never show two hands, both hands, two wrists, or two separate arms in a usage generated image.',
     '- If the action can be understood product-only, remove hands entirely and show the product/action cleanly.',
+    sensoryContainerRules(input),
     '- Keep the product sharp and inspectable. Avoid haze, blur, low contrast, translucent overlay effects, vignette, or washed-out color.',
     describePeopleRule(input.ageGroup),
     `- Variant ${variant}: choose a slightly different camera angle or hand position while keeping the product inspectable.`,
@@ -422,6 +424,30 @@ function studioProductPreservationRules(): string {
     '- DEFAULT NO-HAND: if hands, fingers, arms, or any body part appear in the reference photos, remove them by default and rebuild the product as a hand-free studio object. Only keep a single natural hand if the calling prompt EXPLICITLY requires a hand interaction (e.g., usage-guide step). Hero packshots, color guides, size guides, and isolated product shots must always be hand-free.',
     '- Never use KC/safety labels, barcode labels, instruction labels, or legal text images as a generated product scene; those must remain original safety images outside generated sections.',
   ].join('\n');
+}
+
+function sensoryContainerRules(input: DetailPageMediaPromptBaseInput): string {
+  if (!isSensorySlimeProduct(input)) return '';
+  return [
+    'SENSORY/SLIME CONTAINER HARD RULE:',
+    '- The playable material and the hard container are different objects. Slime, wax pop, clay, putty, squishy foam, or soft loose toy material may be touched; a plastic cup, jar, capsule, case, lid, cap, bottle, or retail container must stay rigid and untouched except for opening/holding lightly.',
+    '- Slime is NOT a liquid. Never depict it as water, juice, syrup, paint, soap solution, or a pourable liquid. Do not show it being poured, spilled, splashed, dripping, flowing, leaking, or filling a container like fluid.',
+    '- Show slime/putty/wax-pop as a cohesive stretchy gel or soft semi-solid blob that can be pressed, stretched slightly, folded, or lifted as one mass. It should keep a visible shape and surface texture.',
+    '- Never show a hand squeezing, kneading, stretching, folding, crushing, or deforming a plastic container, jar, cup, lid, capsule, case, or package as if it were slime.',
+    '- If the reference shows slime or putty inside a transparent/plastic container, a valid usage photo shows the container opened nearby and the exposed material being touched separately, or shows the closed container standing on the table with no squeezing hand.',
+    '- If the actual soft item is a squishy/말랑이 product with no hard container, then the soft item itself may be gently pressed. If there is any visible hard vessel or lid, do not press that vessel.',
+    '- Keep container edges, caps, lids, labels, and cases straight and physically rigid. Do not liquify, bend, dent, or merge them with the soft contents.',
+  ].join('\n');
+}
+
+function isSensorySlimeProduct(input: DetailPageMediaPromptBaseInput): boolean {
+  const text = [
+    input.productName,
+    input.category,
+    input.description,
+    input.options,
+  ].join(' ');
+  return /슬라임|말랑|주물럭|촉감|스퀴시|쫀득|왁스팝|putty|slime|squishy/i.test(text);
 }
 
 function describePeopleRule(ageGroup?: DetailPageAgeGroup): string {

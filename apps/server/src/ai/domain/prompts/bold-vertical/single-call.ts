@@ -18,6 +18,7 @@ import {
   formatDetailImageCountGuidance,
   formatImageCandidates,
   formatKcCertificationGuidance,
+  formatProductUseGuidance,
   formatUsageSectionGuidance,
   type RawProductInput,
 } from '../detail-page/types';
@@ -292,6 +293,8 @@ heroImageMode: ${heroImageMode}
 주요 옵션/스펙: ${raw.rawOptions}
 사용 연령/표현 기준:
 ${formatAudienceGuidance(raw.ageGroup)}
+상품군/사용법 흐름 기준:
+${formatProductUseGuidance(raw)}
 DETAIL 이미지 수 기준:
 ${formatDetailImageCountGuidance(raw.detailImageCount)}
 사용법 영역 기준:
