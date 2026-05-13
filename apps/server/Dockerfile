@@ -76,18 +76,18 @@ RUN npm ci \
       --no-audit \
       --no-fund
 
-# npm workspaces can hoist Nest packages to /app/node_modules while leaving
-# their rxjs peer under the server workspace. Keep the runtime resolver shape
-# explicit and fail the image build if Nest cannot load its runtime peers.
-RUN if [ ! -e node_modules/rxjs ] && [ -d apps/server/node_modules/rxjs ]; then \
-        ln -s ../apps/server/node_modules/rxjs node_modules/rxjs; \
-      fi \
-    && node -e "require('@nestjs/common'); require('rxjs/operators')"
+# npm workspaces can hoist runtime packages to /app/node_modules while leaving
+# peers/transitives under the server workspace. Fail the image build if the
+# production resolver cannot load representative server runtime dependencies.
+ENV NODE_PATH=/app/apps/server/node_modules:/app/node_modules
+RUN node -e "require('@nestjs/common'); require('rxjs/operators'); require('@ag-ui/mcp-apps-middleware'); require('@copilotkit/runtime')"
 
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma/client ./node_modules/@prisma/client
 COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
 COPY --from=builder /app/apps/server/dist ./apps/server/dist
+
+RUN node -e "require('./apps/server/dist/app.module.js')"
 
 WORKDIR /app/apps/server
 
