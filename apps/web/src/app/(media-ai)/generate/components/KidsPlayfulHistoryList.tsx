@@ -12,12 +12,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { Calendar, History, Sparkles, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { API_BASE } from '@/lib/api';
+import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
 import {
   SAME_ORIGIN_SCRIPTLESS_SANDBOX,
   stripSrcDocScripts,
 } from '@/app/(catalog)/product-content/lib/preview-sandbox';
+import { ensureStyledDetailHtml } from '@/app/(catalog)/product-content/lib/template-html';
 import {
   rowThumbnail,
   rowDisplaySubtitle,
@@ -219,7 +221,41 @@ interface FullscreenViewerProps {
 
 function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
   const [templateCss, setTemplateCss] = useState<string | null>(null);
+  const [editedHtml, setEditedHtml] = useState<string | null>(null);
+  const [editedHtmlLoaded, setEditedHtmlLoaded] = useState(false);
   const isBoldVertical = entry.templateId === 'bold-vertical';
+
+  useEffect(() => {
+    let cancelled = false;
+    setEditedHtml(null);
+    setEditedHtmlLoaded(false);
+
+    if (!entry.productId) {
+      setEditedHtmlLoaded(true);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    apiClient
+      .get<{ html: string | null }>(`/api/products/${encodeURIComponent(entry.productId)}/edited-html`)
+      .then((row) => {
+        if (cancelled) return;
+        const html = row.html?.trim() ?? '';
+        setEditedHtml(html.length > 0 ? html : null);
+      })
+      .catch(() => {
+        if (!cancelled) setEditedHtml(null);
+      })
+      .finally(() => {
+        if (!cancelled) setEditedHtmlLoaded(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [entry.id, entry.productId]);
+
   useEffect(() => {
     let cancelled = false;
     fetch('/templates-styles.css', { cache: 'no-store' })
@@ -234,8 +270,10 @@ function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
       cancelled = true;
     };
   }, []);
+
   const html = useMemo(() => {
     if (templateCss == null) return '';
+    if (editedHtmlLoaded && editedHtml) return ensureStyledDetailHtml(editedHtml, templateCss);
     if (isBoldVertical) {
       const adapted = adaptBoldVerticalToDetailPageData(
         entry.result as unknown as BoldVerticalGeneration,
@@ -246,8 +284,10 @@ function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
       return buildBoldVerticalHtml(adapted, templateCss);
     }
     return buildKidsPlayfulHtml(rowToRendererData(entry), templateCss);
-  }, [entry, isBoldVertical, templateCss]);
+  }, [editedHtml, editedHtmlLoaded, entry, isBoldVertical, templateCss]);
   const sandboxedHtml = useMemo(() => stripSrcDocScripts(html), [html]);
+  const isPreviewLoading = templateCss == null || !editedHtmlLoaded;
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-2">
       <div className="relative flex h-[98vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-slate-100 shadow-2xl">
@@ -268,9 +308,9 @@ function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
           </button>
         </div>
         <div className="flex-1 overflow-y-auto bg-white">
-          {templateCss == null ? (
+          {isPreviewLoading ? (
             <div className="flex h-full items-center justify-center text-sm font-semibold text-slate-400">
-              템플릿 스타일을 불러오는 중입니다.
+              상세페이지 미리보기를 불러오는 중입니다.
             </div>
           ) : (
             <iframe

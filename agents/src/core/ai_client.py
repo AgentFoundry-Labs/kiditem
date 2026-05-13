@@ -14,6 +14,7 @@ import logging
 import random
 import re
 from typing import TypeVar
+from urllib.parse import quote
 
 import fal_client
 import httpx
@@ -294,6 +295,41 @@ class AIClient:
 
         raise AssertionError("retry loop exited unexpectedly")
 
+    async def _direct_gemini_request(
+        self,
+        *,
+        parts: list[dict[str, object]],
+        model: str,
+        response_modalities: list[str] | None = None,
+        image_config: dict[str, str] | None = None,
+    ) -> dict:
+        if not cfg.GEMINI_API_KEY:
+            raise ValueError("GEMINI_API_KEY is required for direct Gemini image editing")
+
+        body: dict[str, object] = {"contents": [{"role": "user", "parts": parts}]}
+        gen_config: dict[str, object] = {}
+        if response_modalities:
+            gen_config["responseModalities"] = response_modalities
+        if image_config:
+            gen_config["imageConfig"] = image_config
+        if gen_config:
+            body["generationConfig"] = gen_config
+
+        normalized_model = model.removeprefix("models/")
+        url = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{quote(normalized_model, safe='')}:generateContent"
+        )
+        headers = {
+            "Content-Type": "application/json",
+            "x-goog-api-key": cfg.GEMINI_API_KEY,
+        }
+
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            resp = await client.post(url, json=body, headers=headers)
+            resp.raise_for_status()
+            return resp.json()
+
     @staticmethod
     def _extract_gemini_image(data: dict) -> bytes:
         for candidate in data.get("candidates", []):
@@ -331,8 +367,6 @@ class AIClient:
     ) -> bytes:
         if not model:
             raise ValueError("model parameter is required for edit_image()")
-        if not self._proxy_mode:
-            raise ValueError("edit_image requires proxy mode in kiditem")
 
         b64_data = base64.b64encode(image_bytes).decode()
         parts: list[dict[str, object]] = [
@@ -340,10 +374,16 @@ class AIClient:
             {"text": prompt},
         ]
         async with _IMAGE_SEMAPHORE:
-            data = await self._proxy_gemini_request(
-                parts=parts, model=model, response_modalities=["IMAGE", "TEXT"]
-            )
-            usage = _extract_proxy_usage(data)
+            if self._proxy_mode:
+                data = await self._proxy_gemini_request(
+                    parts=parts, model=model, response_modalities=["IMAGE", "TEXT"]
+                )
+                usage = _extract_proxy_usage(data)
+            else:
+                data = await self._direct_gemini_request(
+                    parts=parts, model=model, response_modalities=["IMAGE", "TEXT"]
+                )
+                usage = None
             try:
                 result = self._extract_gemini_image(data)
                 _report_image_usage(usage, model, f"<edited image {len(result)} bytes>")
@@ -460,8 +500,6 @@ class AIClient:
         """Multi-image edit via Gemini proxy. Returns bytes of generated composite image."""
         if not model:
             raise ValueError("model parameter is required for edit_images_multi()")
-        if not self._proxy_mode:
-            raise ValueError("edit_images_multi requires proxy mode")
         if not image_urls and not image_bytes_list:
             raise ValueError("At least one image source is required")
 
@@ -491,13 +529,21 @@ class AIClient:
         parts.append({"text": prompt})
 
         async with _IMAGE_SEMAPHORE:
-            data = await self._proxy_gemini_request(
-                parts=parts,
-                model=model,
-                response_modalities=["IMAGE", "TEXT"],
-            )
+            if self._proxy_mode:
+                data = await self._proxy_gemini_request(
+                    parts=parts,
+                    model=model,
+                    response_modalities=["IMAGE", "TEXT"],
+                )
+                usage = _extract_proxy_usage(data)
+            else:
+                data = await self._direct_gemini_request(
+                    parts=parts,
+                    model=model,
+                    response_modalities=["IMAGE", "TEXT"],
+                )
+                usage = None
             result = self._extract_gemini_image(data)
-            usage = _extract_proxy_usage(data)
             _report_image_usage(usage, model, f"<multi-edit {len(result)} bytes>")
             if usage:
                 _lf.update_current_span(

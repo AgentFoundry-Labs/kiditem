@@ -21,9 +21,7 @@ VECTORENGINE_API_KEY = os.getenv("VECTORENGINE_API_KEY", "")
 AI_BASE_URL = os.getenv("AI_BASE_URL", "")
 
 AI_TEXT_MODEL = os.getenv("AI_TEXT_MODEL", "")
-AI_IMAGE_MODEL = os.getenv("AI_IMAGE_MODEL", "")
 AI_IMAGE_ANALYSIS_MODEL = os.getenv("AI_IMAGE_ANALYSIS_MODEL", "")
-AI_IMAGE_EDIT_SIZE_MODEL = os.getenv("AI_IMAGE_EDIT_SIZE_MODEL", "")
 DETAIL_PAGE_TEMPLATE = os.getenv("DETAIL_PAGE_TEMPLATE", "bold_vertical")
 
 # ── 1688 matching (TMAPI) ──────────────────────────────────────────────────

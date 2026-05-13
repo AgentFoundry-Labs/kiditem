@@ -19,6 +19,7 @@ import { CoupangImageSyncController } from './adapter/in/http/coupang-image-sync
 import { DetailPageContentGenerationSinkAdapter } from './adapter/out/agent-output/detail-page-content-generation-sink.adapter';
 import { ThumbnailGenerationSinkAdapter } from './adapter/out/agent-output/thumbnail-generation-sink.adapter';
 import { DetailPageGenerateRuntimeHandler } from './adapter/out/agent-runtime/detail-page-generate.runtime-handler';
+import { ImageEditRuntimeHandler } from './adapter/out/agent-runtime/image-edit.runtime-handler';
 import { ThumbnailGenerateRuntimeHandler } from './adapter/out/agent-runtime/thumbnail-generate.runtime-handler';
 import { CoupangInventoryScrapeAdapter } from './adapter/out/coupang/coupang-inventory-scrape.adapter';
 import { CoupangProductSalesScrapeAdapter } from './adapter/out/coupang/coupang-product-sales-scrape.adapter';
@@ -26,6 +27,7 @@ import { CoupangImageReconciliationAdapter } from './adapter/out/channels/coupan
 import { DetailPageGeminiMediaAdapter } from './adapter/out/gemini/detail-page-gemini-media.adapter';
 import { GeminiTextCompletionAdapter } from './adapter/out/gemini/gemini-text-completion.adapter';
 import { GeminiThumbnailVisionAdapter } from './adapter/out/gemini/gemini-thumbnail-vision.adapter';
+import { ImageEditGeminiMediaAdapter } from './adapter/out/gemini/image-edit-gemini-media.adapter';
 import { ThumbnailReferenceImagesService } from './adapter/out/gemini/thumbnail-reference-images.adapter';
 import { ThumbnailImageFetcherService } from './adapter/out/image-fetch/thumbnail-image-fetcher.adapter';
 import { ThumbnailGenerationEventAdapter } from './adapter/out/prisma/thumbnail-generation-event.adapter';
@@ -75,6 +77,7 @@ import { THUMBNAIL_AGENT_OUTPUT_SINK_PORT } from './application/port/out/thumbna
 import { COUPANG_INVENTORY_SCRAPE_PORT } from './application/port/out/coupang-inventory-scrape.port';
 import { COUPANG_PRODUCT_SALES_SCRAPE_PORT } from './application/port/out/coupang-product-sales-scrape.port';
 import { COUPANG_IMAGE_RECONCILIATION_PORT } from './application/port/out/coupang-image-reconciliation.port';
+import { IMAGE_EDIT_MEDIA_PORT } from './application/port/out/image-edit-media.port';
 import { IMAGE_FETCH_PORT } from './application/port/out/image-fetch.port';
 import { IMAGE_STORAGE_PORT } from './application/port/out/image-storage.port';
 import { MASTER_CATALOG_PORT } from './application/port/out/master-catalog.port';
@@ -137,6 +140,7 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     DetailPageContentGenerationSinkAdapter,
     DetailPageGeminiMediaAdapter,
     DetailPageGenerateRuntimeHandler,
+    ImageEditRuntimeHandler,
     ThumbnailGenerationSinkAdapter,
     ThumbnailGenerateRuntimeHandler,
     CoupangImageReconciliationAdapter,
@@ -144,6 +148,7 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     CoupangProductSalesScrapeAdapter,
     GeminiTextCompletionAdapter,
     GeminiThumbnailVisionAdapter,
+    ImageEditGeminiMediaAdapter,
     MasterCatalogAdapter,
     ThumbnailGenerationEventAdapter,
     ThumbnailImageFetcherService,
@@ -173,6 +178,7 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
       useExisting: ThumbnailGenerationSinkAdapter,
     },
     { provide: IMAGE_FETCH_PORT, useExisting: ThumbnailImageFetcherService },
+    { provide: IMAGE_EDIT_MEDIA_PORT, useExisting: ImageEditGeminiMediaAdapter },
     { provide: IMAGE_STORAGE_PORT, useExisting: StorageService },
     { provide: DETAIL_PAGE_MEDIA_PORT, useExisting: DetailPageGeminiMediaAdapter },
     { provide: MASTER_CATALOG_PORT, useExisting: MasterCatalogAdapter },

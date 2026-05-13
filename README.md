@@ -17,9 +17,9 @@ npm install
 
 # 환경 변수
 cp apps/server/.env.example apps/server/.env   # NestJS — DB, Coupang, Gemini 키
-cp agents/.env.example agents/.env             # Python agents — AI 모델 키 (OpenAI, Gemini, fal, Langfuse)
+cp agents/.env.example agents/.env             # Python sourcing agents — DB, TMAPI, Langfuse
 
-# Python 가상환경 (agents 실행 시 필요)
+# Python 가상환경 (sourcing agents 실행 시 필요)
 cd agents && python -m venv .venv && .venv/bin/pip install -r requirements.txt && cd ..
 
 # DB 실행 + 스키마 적용
@@ -27,7 +27,7 @@ docker compose up -d                           # PostgreSQL만 (Docker)
 npm run db:push                                # 스키마 적용
 
 # 전체 실행 (한번에)
-npm run dev:all                                # Next.js + NestJS + Python Agents 동시 실행
+npm run dev:all                                # Next.js + NestJS + Python sourcing agents 동시 실행
 
 # 공유 개발 데이터 (선택, 서버 실행 후 다른 터미널에서 주요 화면 상태 맞추기)
 # Canonical Drive: https://drive.google.com/drive/folders/1sIuAiZAX6wAFOoEmmJGe6p0b5xwey1AO?usp=drive_link
@@ -47,13 +47,13 @@ npm run data:dev:sync -- --profile workspace --yes
 ```bash
 npm run dev                          # Next.js 프론트엔드만 (localhost:3000)
 npm run dev:server                   # NestJS 백엔드만 (localhost:4000)
-npm run dev:agents                   # Python Agents만
+npm run dev:agents                   # Python sourcing agents만
 npm run db:studio                    # Prisma Studio (DB GUI, localhost:5555)
 ```
 
 ### 상세페이지 생성 테스트
 
-1. `agents/.env`에 AI 키 설정: `OPENAI_API_KEY`, `GEMINI_API_KEY`, `FAL_KEY`
+1. `apps/server/.env`에 `GEMINI_API_KEY`와 필요한 `AGENT_*_MODEL` 설정
 2. `npm run dev:all`
 3. `localhost:3000/sourcing` → 상품 선택 → 에디터 → AI 생성 버튼
 
@@ -63,7 +63,7 @@ npm run db:studio                    # Prisma Studio (DB GUI, localhost:5555)
 |---|---|---|
 | Next.js | http://localhost:3000 | 로컬 (`npm run dev`) |
 | NestJS API | http://localhost:4000/api | 로컬 (`npm run dev:server`) |
-| Python Agents | — (워커) | 로컬 (`npm run dev:agents`) |
+| Python Agents | http://localhost:8001 | 로컬 sourcing/scraping FastAPI (`npm run dev:agents`) |
 | PostgreSQL | localhost:5433 | Docker |
 
 ## 구조
@@ -71,7 +71,7 @@ npm run db:studio                    # Prisma Studio (DB GUI, localhost:5555)
 ```
 apps/web/            — Next.js 16 프론트엔드
 apps/server/         — NestJS 11 백엔드 API
-agents/              — Python 3.11+ AI 에이전트 (백그라운드 워커)
+agents/              — Python 3.11+ sourcing/scraping 에이전트
 packages/shared/     — @kiditem/shared (Zod 스키마 + TypeScript 타입 + 에러 코드)
 packages/templates/  — 상세페이지 React 템플릿
 prisma/              — Prisma multi-file DB 스키마 (source of truth)
@@ -90,7 +90,7 @@ extensions/          — Chrome 익스텐션 (1688/Alibaba 스크래퍼)
 | 백엔드 | NestJS 11, TypeScript, class-validator DTO |
 | DB | PostgreSQL 17, Prisma v7 |
 | 공유 | Zod 스키마 (@kiditem/shared), ESM + CJS dual format |
-| AI | NestJS Gemini direct calls, Claude CLI Agent OS, Python agents (OpenAI/Gemini/fal) |
+| AI | NestJS Gemini direct calls, Claude CLI Agent OS, Python sourcing/scraping agents |
 | 인프라 | Docker Compose |
 
 ## 환경 변수
@@ -126,10 +126,6 @@ FAL_KEY=...
 # AI 모델
 AI_TEXT_MODEL=gemini-2.5-flash
 AI_IMAGE_ANALYSIS_MODEL=gemini-3.1-flash-lite-preview
-AI_IMAGE_MODEL=gemini-3.1-flash-image-preview
-AI_IMAGE_EDIT_MODEL=fal-ai/flux-2-pro/edit
-AI_IMAGE_DETAIL_MODEL=fal-ai/flux-pro/kontext/max
-AI_IMAGE_EDIT_SIZE_MODEL=gemini-3.1-flash-image-preview
 
 # Langfuse (선택)
 LANGFUSE_PUBLIC_KEY=pk-lf-...

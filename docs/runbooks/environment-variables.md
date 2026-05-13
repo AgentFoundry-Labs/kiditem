@@ -208,7 +208,7 @@ text/detail/thumbnail AI features are enabled.
 
 | Variable | Required when | Consumed by | Notes |
 |---|---|---|---|
-| `GEMINI_API_KEY` | Gemini text, image, or vision paths are used | Gemini text and thumbnail adapters | Missing key returns explicit service errors. |
+| `GEMINI_API_KEY` | Gemini text, image, or vision paths are used | Gemini text/media/thumbnail adapters | Missing key returns explicit service errors. |
 | `AI_TEXT_MODEL` | Text transform, detail page prefill, standalone detail generation | Text AI/detail page services | No silent fallback. Product-bound Agent OS detail generation uses `AGENT_DETAIL_PAGE_GENERATE_MODEL` or `AGENT_DEFAULT_MODEL` for its text call. |
 | `AI_IMAGE_MODEL` | Thumbnail editor image generation and detail-page generated images | Thumbnail Gemini config and detail-page media adapter | Reached only when image inputs exist; not used as the Agent OS run model. Do not use deprecated preview IDs called out by the config. |
 | `AI_IMAGE_ANALYSIS_MODEL` | Thumbnail/image analysis | Thumbnail Gemini config | No silent fallback. |
@@ -233,7 +233,7 @@ enabled and covered by an operator runbook.
 | `AGENT_AD_STRATEGY_MODEL` | Ad strategy agent enabled | Agent definition registry | Per-agent override. |
 | `AGENT_SOURCING_MODEL` | Sourcing agent enabled | Agent definition registry | Per-agent override. |
 | `AGENT_THUMBNAIL_ANALYST_MODEL` | Thumbnail analyst agent enabled | Agent definition registry | Per-agent override. |
-| `AGENT_IMAGE_EDIT_MODEL` | Python-backed image edit agent enabled | Agent definition registry | Use the image edit/generation model, currently `gemini-3.1-flash-image-preview`. Requires a Python agent runtime, not just the API container. |
+| `AGENT_IMAGE_EDIT_MODEL` | Image edit Agent OS tool-wrapper enabled | Agent definition registry and Nest image edit runtime | Use the image edit/generation model, currently `gemini-3.1-flash-image-preview`. The Nest API container executes this through the Gemini image adapter. |
 | `AGENT_THUMBNAIL_AUTO_EDIT_MODEL` | Python-backed auto edit agent enabled | Agent definition registry | Use the image edit/generation model, currently `gemini-3.1-flash-image-preview`. Requires a Python agent runtime, not just the API container. |
 | `AGENT_DETAIL_PAGE_GENERATE_MODEL` | Async detail page generation enabled | Agent definition registry | Text/detail content model. Required unless `AGENT_DEFAULT_MODEL` is set. |
 | `AGENT_THUMBNAIL_GENERATE_MODEL` | Async thumbnail generation enabled | Agent definition registry | Use the image edit/generation model, currently `gemini-3.1-flash-image-preview`; set explicitly so this agent does not inherit a text-only `AGENT_DEFAULT_MODEL`. |
@@ -295,9 +295,7 @@ variables apply when running `agents/` as a separate runtime.
 | `OPENAI_API_KEY` | Direct OpenAI model/provider path | Python AI client | Provider-specific direct mode. |
 | `GEMINI_API_KEY` | Direct Gemini model/provider path | Python AI client | Provider-specific direct mode. |
 | `AI_TEXT_MODEL` | Text generation agents | Python content agents | No silent fallback. |
-| `AI_IMAGE_MODEL` | Image generation/edit agents | Python image agents | Use the shared image generation/edit model, currently `gemini-3.1-flash-image-preview`. No silent fallback. |
 | `AI_IMAGE_ANALYSIS_MODEL` | Vision analysis agents | Python content agents | No silent fallback. |
-| `AI_IMAGE_EDIT_SIZE_MODEL` | Size chart / color-guide multi-image edit | Python image edit agent | Use `gemini-3.1-flash-image-preview`. Optional path-specific model. |
 | `DETAIL_PAGE_TEMPLATE` | Default template selection needed | Python config | Defaults to `bold_vertical`. |
 | `TMAPI_TOKEN` | 1688/TMAPI sourcing matcher enabled | Python sourcing matcher | Optional unless matcher is used. |
 | `TMAPI_BASE_URL` | Custom TMAPI endpoint needed | Python sourcing matcher | Defaults in code. |
@@ -364,6 +362,7 @@ ssh -i "$STAGING_SSH_KEY" "$STAGING_USER@$STAGING_HOST" '
       CHANNEL_CREDENTIALS_ENCRYPTION_KEY \
       AGENT_RUNTIME_WORKER_ENABLED AGENT_DEFAULT_MODEL \
       AGENT_DETAIL_PAGE_GENERATE_MODEL AGENT_THUMBNAIL_GENERATE_MODEL \
+      AGENT_IMAGE_EDIT_MODEL \
       ANTHROPIC_API_KEY \
       CLAUDE_CODE_OAUTH_TOKEN; do
         eval v=\${$k-}

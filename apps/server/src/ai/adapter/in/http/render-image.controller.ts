@@ -8,6 +8,7 @@ import { RenderImageBodyDto } from './dto';
 const STATIC_ROOT = '/data/products';
 const PROCESSED_PREFIX = '/processed/';
 const RENDER_TIMEOUT_MS = 120_000;
+const DEFAULT_VIEWPORT_WIDTH = 860;
 
 function mimeFromExt(ext: string): string {
   const map: Record<string, string> = {
@@ -125,7 +126,10 @@ export class RenderImageController {
       const page = await browser.newPage();
       page.setDefaultNavigationTimeout(RENDER_TIMEOUT_MS);
       page.setDefaultTimeout(RENDER_TIMEOUT_MS);
-      await page.setViewport({ width: 860, height: 1200 });
+      await page.setViewport({
+        width: body.viewportWidth ?? DEFAULT_VIEWPORT_WIDTH,
+        height: 1200,
+      });
       await page.setContent(inlinedHtml, {
         waitUntil: 'domcontentloaded',
         timeout: RENDER_TIMEOUT_MS,

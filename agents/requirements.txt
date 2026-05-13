@@ -9,5 +9,3 @@ structlog>=24.0.0
 langfuse>=4.0.0
 fastapi>=0.115.0
 uvicorn>=0.34.0
-Pillow>=10.0.0
-rembg[cpu]>=2.0.60
