@@ -288,6 +288,16 @@ model MasterProduct {
   healthScore     Int?      @map("health_score")
   healthUpdatedAt DateTime? @map("health_updated_at") @db.Timestamptz
 
+  // Deprecated sourcing columns retained for one expand/contract release.
+  // New code writes sourcing history to SourcingCandidate; cleanup drops these
+  // only after data_migration_runs confirms the backfill landed everywhere.
+  sourceUrl      String?  @map("source_url")
+  sourcePlatform String?  @map("source_platform")
+  costCny        Decimal? @map("cost_cny") @db.Decimal(12, 2)
+  marginRate     Decimal? @map("margin_rate") @db.Decimal(5, 4)
+  rawData        Json?    @map("raw_data")
+  pipelineStep   String?  @map("pipeline_step")
+
   processedData     Json?    @map("processed_data")
   draftContent      Json?    @map("draft_content")
   detailPageUrl     String?  @map("detail_page_url")
@@ -322,6 +332,7 @@ model MasterProduct {
   @@index([organizationId, legacyCode])
   @@index([organizationId, barcode])
   @@index([abcGrade])
+  @@index([pipelineStep])
   @@index([category])
   @@index([brand])
   @@map("master_products")

@@ -79,9 +79,9 @@ export const MasterSchema = z.object({
   adBudgetLimit: z.number().int().nullable(),
   healthScore: z.number().int().nullable(),
   healthUpdatedAt: zIsoDate.nullable(),
-  // Phase 8 (#192) retired `sourceUrl`/`sourcePlatform`/`costCny`/`marginRate`
-  // from `master_products`. Sourcing history lives on `SourcingCandidate`
-  // (see `@kiditem/shared/sourcing`).
+  // Phase 8 (#192) retired sourcing fields from the product API surface.
+  // The DB may retain deprecated MasterProduct columns during expand/backfill/
+  // contract, but sourcing history belongs to `SourcingCandidate`.
   lifecycleState: ProductLifecycleStateSchema,
   detailPageUrl: z.string().url().nullable(),
   thumbnailStrategy: z.enum(['standard', 'premium', 'custom']),
@@ -173,7 +173,8 @@ export const ProductCatalogCountsSchema = z.object({
   // Catalog count buckets follow `lifecycleState` (Phase 5 #192). `totalCount`
   // is the organization-scoped catalog total (== `total`). The legacy
   // `pipelineStep`-based `draftCount/processingCount/processedCount` buckets
-  // were retired with the `pipeline_step` column in Phase 8.
+  // are retired from the API even while the deprecated DB column is retained
+  // for expand/backfill/contract.
   activeCount: z.number().int().nonnegative(),
   pausedCount: z.number().int().nonnegative(),
   discontinuedCount: z.number().int().nonnegative(),

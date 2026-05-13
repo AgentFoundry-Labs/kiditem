@@ -131,6 +131,12 @@ erDiagram
     Int adBudgetLimit
     Int healthScore
     DateTime healthUpdatedAt
+    String sourceUrl
+    String sourcePlatform
+    Decimal costCny
+    Decimal marginRate
+    Json rawData
+    String pipelineStep
     Json processedData
     Json draftContent
     String detailPageUrl

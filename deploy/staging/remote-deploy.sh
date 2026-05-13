@@ -239,6 +239,7 @@ path = sys.argv[1]
 
 manifest = {
     "schemaVersion": "kiditem.staging.deploy.v1",
+    "appVersion": os.environ.get("APP_VERSION"),
     "deployedAt": os.environ.get("DEPLOYED_AT"),
     "operation": os.environ.get("DEPLOY_OPERATION", "deploy"),
     "gitSha": os.environ.get("GIT_SHA"),

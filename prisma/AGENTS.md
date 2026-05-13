@@ -18,6 +18,7 @@ prisma/
     finance.prisma
     inventory.prisma
     orders.prisma
+    sourcing.prisma
     supply.prisma
     system.prisma
 ```
@@ -166,6 +167,19 @@ expression index, or standalone sequence overlays.
 
 If Supabase direct DB/PostgREST access becomes a product surface, treat RLS as a
 separate platform migration with policies, indexes, verification, and runbook.
+
+## Data Migrations
+
+Prisma `db push` changes schema only. Any durable persisted-data rewrite lives
+under `scripts/data-migrations/v<app-version>/<sequence>_<name>.ts`, is
+executed by `npm run data:migrate`, and records `data_migration_runs` with
+migration id, release version, git SHA, Prisma schema hash, affected rows,
+details, and failure text. Use root `VERSION` as the app release source of
+truth and the directory boundary; package-local `version` fields are not the
+deployment version. Do not drop deprecated columns/tables in the same deploy
+that first needs their data; ship expand/backfill/contract and remove the
+legacy shape only after the ledger confirms the backfill has run in every
+shared environment.
 
 ## Generated Navigation
 

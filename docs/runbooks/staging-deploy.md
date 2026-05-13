@@ -57,6 +57,7 @@ Do not store secrets in git. Runtime secret files live only on the staging host.
   .env.staging.web
 
 /opt/kiditem/
+  VERSION
   docker-compose.staging.yml
   deploy/staging/nginx.conf
   deploy/staging/remote-deploy.sh
@@ -280,6 +281,10 @@ does not deploy automatically; an operator triggers the workflow manually. Do
 not create a long-lived `staging` branch; staging is a GitHub Environment, not a
 separate source branch.
 
+The deployable app release is recorded in root [`VERSION`](../../VERSION).
+Package-local `version` fields are package metadata and are not the staging
+release boundary.
+
 Image naming:
 
 ```text
@@ -302,12 +307,33 @@ Each deploy syncs only non-secret runtime assets to EC2:
 
 ```text
 docker-compose.staging.yml
+VERSION
 deploy/staging/nginx.conf
 deploy/staging/remote-deploy.sh
 ```
 
 The workflow never overwrites `/opt/kiditem/.env.staging.api` or
 `/opt/kiditem/.env.staging.web`.
+
+Before the EC2 image swap, the deploy job applies the Prisma schema to the
+staging Supabase database with `npx prisma db push` and no
+`--accept-data-loss`. Releases that need column/table drops must use a separate
+expand/backfill/contract plan instead of relying on the deploy workflow to drop
+data. After the new containers pass the EC2 smoke check, the workflow runs:
+
+```bash
+npm run data:migrate -- up
+```
+
+with `DATA_MIGRATION_TARGET=staging` and
+`DATA_MIGRATION_CONFIRM=APPLY_DATA_MIGRATIONS`. Each durable data migration is
+grouped by the application release in root [`VERSION`](../../VERSION) that
+requires it, for example `scripts/data-migrations/v0.1.0/001_<name>.ts`, and
+records a row in `data_migration_runs` with migration id, release version,
+status, git SHA, Prisma schema hash, affected rows, details, and error text
+when a run fails. For the detail-page content route migration, the deprecated
+`master_products` sourcing columns stay in the schema until the ledger confirms
+the sourcing backfill landed on every shared environment.
 
 Async Agent OS jobs are enabled on staging because product-bound detail page
 and thumbnail generation enqueue `AgentRunRequest` rows. Before every deploy,
@@ -488,6 +514,7 @@ curl -fsS http://127.0.0.1:8080/login
 curl -I http://<ec2-public-ip>/login
 curl -I https://<real-staging-domain>/login
 curl -I https://<real-staging-domain>/api/auth/me
+npm run data:migrate -- status --database-url "$STAGING_DATABASE_URL"
 ```
 
 Expected results:
@@ -498,9 +525,12 @@ Expected results:
 - Browser network requests to app APIs use `http://<ec2-public-ip>/api/*` or
   `https://<real-staging-domain>/api/*`, not `localhost:4000`.
 - `deployments/current.json` records the git SHA, image refs, image digests,
-  GitHub workflow run URL, and deploy operation.
+  root app version, GitHub workflow run URL, and deploy operation.
 - `deployments/current-db.json`, when present, records the staging DB baseline
   profile restored or exported by the separate DB baseline workflow.
+- `data_migration_runs` contains `succeeded` rows for the migration ids shipped
+  by the deployed commit. Legacy persisted detail editor alert hrefs should now
+  point at `/product-content/:productId/editor?generationId=:generationId`.
 
 ## Blocker Criteria
 
@@ -510,6 +540,9 @@ Stop and report instead of guessing if:
 - `docker compose config` fails.
 - nginx returns `502` after both containers are running.
 - Supabase connection errors mention the production project.
+- `npx prisma db push` reports destructive changes or asks for
+  `--accept-data-loss`.
+- `npm run data:migrate -- up` fails or writes a `failed` ledger row.
 - Any seed/import/baseline step would target production by accident.
 - DB baseline export/restore would use the public app asset bucket instead of
   the private DB baseline bucket.
@@ -521,11 +554,12 @@ Stop and report instead of guessing if:
 Report:
 
 - EC2 host and public staging URL.
-- Git branch or commit deployed.
+- Root app version and git branch or commit deployed.
 - Docker image refs and digests loaded on EC2.
 - GitHub Actions run URL.
 - Supabase project ref used for staging.
 - Supabase Storage bucket name used for staging.
 - DB baseline profile id and `deployments/current-db.json` state, if operated.
+- Data migration ledger statuses from `data_migration_runs`.
 - Compose service status.
 - Verification commands and results.

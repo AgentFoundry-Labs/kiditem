@@ -38,6 +38,7 @@ npm run test:scripts
 | `scripts/import-baseline-planner.ts` | pure planner used by product baseline import | `scripts/import-product-baseline.ts` |
 | `scripts/import-product-baseline.ts` | Drive reference workbook import | `npm run import:product-baseline` |
 | `scripts/prepare-coupang-extension.mjs` | staging browser-extension setup helper | `docs/runbooks/staging-deploy.md` |
+| `scripts/run-data-migrations.ts` | durable data migration runner; migration units live under root `VERSION` release folders such as `scripts/data-migrations/v0.1.0/` and record `data_migration_runs` ledger rows | `npm run data:migrate`, `docs/runbooks/staging-deploy.md` |
 | `scripts/seed-agent-os.ts` | local/dev Agent OS runtime seed wrapper | `npm run seed:agent-os` |
 | `scripts/staging-db-baseline.ts` | staging DB baseline export/verify/restore CLI | `npm run staging:db` |
 | `scripts/sync-supabase-user.ts` | Supabase auth mirror helper | `docs/runbooks/auth-supabase.md` |

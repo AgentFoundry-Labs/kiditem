@@ -22,6 +22,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'import-baseline-planner.ts',
   'import-product-baseline.ts',
   'prepare-coupang-extension.mjs',
+  'run-data-migrations.ts',
   'seed-agent-os.ts',
   'staging-db-baseline.ts',
   'sync-supabase-user.ts',

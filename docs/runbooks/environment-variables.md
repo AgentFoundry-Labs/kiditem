@@ -38,8 +38,9 @@ GitHub Environment `staging` variables
 
 GitHub Environment `staging` secrets
   -> SSH key and known_hosts for deployment only
-  -> staging DB URL and private DB baseline S3 credentials for manual
-     staging DB baseline workflow only
+  -> staging DB URL for deploy-time Prisma schema/data migrations
+  -> private DB baseline S3 credentials for manual staging DB baseline workflow
+     only
 
 /opt/kiditem/.env.staging.api
   -> runtime env_file for the API container
@@ -178,14 +179,16 @@ same-origin `/api/*` routing.
 
 ## Staging DB Baseline Operations
 
-These variables are not API/web runtime env. They are used only by
+These variables are not API/web runtime env. `STAGING_DATABASE_URL` is also
+used by `.github/workflows/staging-deploy.yml` for deploy-time Prisma
+schema/data migrations. The other baseline variables are used only by
 `.github/workflows/staging-db.yml` or an operator shell running
 `npm run staging:db`. The bucket should be private and separate from
 `S3_BUCKET`.
 
 | Variable | Owner | Required when | Notes |
 |---|---|---|---|
-| `STAGING_DATABASE_URL` | GitHub Environment secret | GitHub Actions `staging-db` workflow | Staging Supabase session pooler URL. The CLI receives it as `DATABASE_URL`. |
+| `STAGING_DATABASE_URL` | GitHub Environment secret | GitHub Actions `staging-deploy` and `staging-db` workflows | Staging Supabase session pooler URL. Deploy uses it for `prisma db push` and `npm run data:migrate`; DB baseline receives it as `DATABASE_URL`. |
 | `DATABASE_URL` | Operator shell | Local DB baseline operation | Staging DB URL only. The CLI refuses mutating operations unless target is explicitly staging. |
 | `STAGING_DB_BASELINE_TARGET` | Operator/workflow guard | Export or restore | Must be `staging`; prevents accidental generic DB mutation. |
 | `STAGING_DB_BASELINE_SANITIZED` | Operator/workflow guard | Export | Must be `true`; operator assertion that the dump contains no production/customer raw data. |

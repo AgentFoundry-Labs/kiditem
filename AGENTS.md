@@ -48,6 +48,17 @@ Precedence: the most-specific `AGENTS.md` wins, then parent `AGENTS.md` files.
   deploy workflow manually on `main`.
 - No direct push to `main`.
 
+### Release Version
+
+- Root [`VERSION`](VERSION) is the app release source of truth for deployable
+  code. Package-local `version` fields are package metadata and must not be
+  used as the staging/data-migration release boundary.
+- Durable data migrations are grouped by the release that requires them:
+  `scripts/data-migrations/v<VERSION>/<sequence>_<name>.ts`.
+- A PR that changes persisted schema/data behavior must either keep the current
+  `VERSION` with an explicit reason in the PR body or bump `VERSION` and place
+  matching data migrations under that version directory.
+
 ### 0. 환경 부트스트랩 — 새 워크트리 / 새 머신 / preview 인증 필요할 때
 
 ```bash
@@ -153,6 +164,7 @@ notes stay out of git.
 ## Structure
 
 ```
+VERSION              — deployable app release source of truth
 apps/web/            — Next.js 16 frontend        → apps/web/AGENTS.md
 apps/server/         — NestJS 11 backend API      → apps/server/AGENTS.md
 agents/              — Python 3.11+ workers       → agents/AGENTS.md
@@ -160,7 +172,7 @@ packages/shared/     — @kiditem/shared            → packages/shared/AGENTS.m
 packages/templates/  — React detail templates     → packages/templates/AGENTS.md
 prisma/              — DB schema source of truth  → prisma/AGENTS.md
   ├─ schema.prisma   — generator + datasource
-  └─ models/         — 10 domain files (/// @namespace + /// @describe comments). Prisma multi-file schema (v7 best-practice)
+  └─ models/         — 11 domain files (/// @namespace + /// @describe comments). Prisma multi-file schema (v7 best-practice)
 scripts/             — repo automation            → scripts/AGENTS.md
 extensions/          — Chrome extensions (product-scraper: 1688/Alibaba, coupang-ads-scraper: 쿠팡 광고센터+Wing)
 ```
@@ -170,7 +182,7 @@ extensions/          — Chrome extensions (product-scraper: 1688/Alibaba, coupa
 ## Reference (read when relevant)
 
 - [Design System](DESIGN.md) — 색상, 타이포, 스페이싱, 컴포넌트 패턴 (Tailwind + Lucide)
-- **DB schema + 도메인 분류**: [`prisma/models/`](prisma/models/) — 10 domain files. 각 모델 위의 `/// @namespace` + `/// @describe` 주석이 도메인 경계 + 의미를 담는다. `prisma generate` 로 자동 동기화 (drift 불가능).
+- **DB schema + 도메인 분류**: [`prisma/models/`](prisma/models/) — 11 domain files. 각 모델 위의 `/// @namespace` + `/// @describe` 주석이 도메인 경계 + 의미를 담는다. `prisma generate` 로 자동 동기화 (drift 불가능).
 - **Graphify navigation**: [`docs/GRAPHIFY.md`](docs/GRAPHIFY.md), [`docs/ERD.md`](docs/ERD.md), [`docs/erd/`](docs/erd/), [`graphify-out/schema/`](graphify-out/schema/), [`graphify-out/schema-consumers/`](graphify-out/schema-consumers/) — generated navigation aids only. Source of truth remains Prisma + source code. Regenerate with `npm run graphify:schema` after Prisma/schema-consumer/import-script changes.
 - **Runbooks**: [`docs/runbooks/`](docs/runbooks/) — AI-executable setup and operations procedures. Prefer these over chat memory for environment or collaboration setup.
 - [Architecture](docs/ARCHITECTURE.md) — current backend/frontend/reconstruction sources of truth

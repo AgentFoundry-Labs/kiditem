@@ -228,3 +228,26 @@ model MigrationCheckpoint {
   @@index([scriptName, status])
   @@map("migration_checkpoints")
 }
+
+/// @namespace System
+/// @describe 운영 data migration ledger. Schema-only db push와 별도로 영속 데이터 보정 실행 여부를 기록한다.
+model DataMigrationRun {
+  migrationId      String    @id @map("migration_id")
+  releaseVersion   String    @map("release_version")
+  name             String
+  status           String
+  gitSha           String?   @map("git_sha")
+  prismaSchemaHash String?   @map("prisma_schema_hash")
+  affectedRows     Int       @default(0) @map("affected_rows")
+  details          Json      @default("{}") @db.JsonB
+  error            String?
+  startedAt        DateTime  @default(now()) @map("started_at") @db.Timestamptz
+  completedAt      DateTime? @map("completed_at") @db.Timestamptz
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([status])
+  @@index([releaseVersion])
+  @@index([completedAt])
+  @@map("data_migration_runs")
+}

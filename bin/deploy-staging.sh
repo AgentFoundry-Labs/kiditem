@@ -122,6 +122,7 @@ ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "chmod 600 ${REMOTE_DIR_ESCAPED}/.env.staging
 echo "Syncing staging compose and nginx assets"
 rsync -az \
   -e "$RSYNC_SSH" \
+  "$ROOT_DIR/VERSION" \
   "$ROOT_DIR/docker-compose.staging.yml" \
   "$ROOT_DIR/deploy" \
   "$SSH_TARGET:$STAGING_REMOTE_DIR/"

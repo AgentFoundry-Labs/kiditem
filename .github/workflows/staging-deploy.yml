@@ -37,6 +37,7 @@ jobs:
       packages: write
     outputs:
       git_sha: ${{ steps.refs.outputs.git_sha }}
+      app_version: ${{ steps.refs.outputs.app_version }}
       api_image_ref: ${{ steps.image_refs.outputs.api_image_ref }}
       web_image_ref: ${{ steps.image_refs.outputs.web_image_ref }}
       api_image_tag: ${{ steps.refs.outputs.api_image_tag }}
@@ -60,7 +61,17 @@ jobs:
         id: refs
         run: |
           set -euo pipefail
+          app_version="$(tr -d '[:space:]' < VERSION)"
+          case "$app_version" in
+            [0-9]*.[0-9]*.[0-9]*)
+              ;;
+            *)
+              echo "Invalid root VERSION: $app_version" >&2
+              exit 2
+              ;;
+          esac
           echo "git_sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "app_version=${app_version}" >> "$GITHUB_OUTPUT"
           echo "api_image_tag=${API_IMAGE_BASE}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
           echo "web_image_tag=${WEB_IMAGE_BASE}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
 
@@ -85,6 +96,7 @@ jobs:
           labels: |
             org.opencontainers.image.title=KidItem Staging API
             org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.refs.outputs.app_version }}
 
       - name: Build and push API image
         id: build_api
@@ -112,6 +124,7 @@ jobs:
           labels: |
             org.opencontainers.image.title=KidItem Staging Web
             org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.refs.outputs.app_version }}
 
       - name: Build and push web image
         id: build_web
@@ -153,6 +166,44 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install DB migration dependencies
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts \
+            --fetch-timeout=600000 \
+            --fetch-retries=5 \
+            --fetch-retry-mintimeout=20000 \
+            --fetch-retry-maxtimeout=120000 \
+            --no-audit \
+            --no-fund
+
+      - name: Apply staging Prisma schema
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          : "${DATABASE_URL:?Set staging secret STAGING_DATABASE_URL}"
+          node <<'NODE'
+          const raw = process.env.DATABASE_URL || '';
+          let target = raw;
+          try {
+            const url = new URL(raw);
+            target = `${url.hostname} ${url.pathname}`;
+          } catch {}
+          if (/\bprod(?:uction)?\b/i.test(target)) {
+            console.error('DATABASE_URL host/path looks production-like');
+            process.exit(2);
+          }
+          NODE
+          npx prisma db push
+          npx prisma generate
+
       - name: Prepare SSH
         env:
           STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
@@ -182,7 +233,7 @@ jobs:
           case "$STAGING_REMOTE_DIR" in (*[!A-Za-z0-9_./-]*) echo "Invalid STAGING_REMOTE_DIR" >&2; exit 2 ;; esac
           target="${STAGING_USER}@${STAGING_HOST}"
           remote_dir_q="$(printf '%q' "$STAGING_REMOTE_DIR")"
-          tar -czf - docker-compose.staging.yml deploy/staging/nginx.conf deploy/staging/remote-deploy.sh \
+          tar -czf - VERSION docker-compose.staging.yml deploy/staging/nginx.conf deploy/staging/remote-deploy.sh \
             | ssh -i ~/.ssh/kiditem-staging "$target" \
                 "mkdir -p ${remote_dir_q} && tar -xzf - -C ${remote_dir_q} && chmod +x ${remote_dir_q}/deploy/staging/remote-deploy.sh"
 
@@ -201,6 +252,7 @@ jobs:
           API_IMAGE_DIGEST: ${{ needs.build.outputs.api_digest }}
           WEB_IMAGE_DIGEST: ${{ needs.build.outputs.web_digest }}
           GIT_SHA: ${{ needs.build.outputs.git_sha }}
+          APP_VERSION: ${{ needs.build.outputs.app_version }}
           GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -220,6 +272,7 @@ jobs:
           export API_IMAGE_DIGEST=$(q "$API_IMAGE_DIGEST")
           export WEB_IMAGE_DIGEST=$(q "$WEB_IMAGE_DIGEST")
           export GIT_SHA=$(q "$GIT_SHA")
+          export APP_VERSION=$(q "$APP_VERSION")
           export DEPLOY_OPERATION=deploy
           export STAGING_URL=$(q "${STAGING_URL:-}")
           export GITHUB_ACTOR=$(q "$GITHUB_ACTOR")
@@ -229,6 +282,16 @@ jobs:
           export GITHUB_RUN_URL=$(q "$GITHUB_RUN_URL")
           ./deploy/staging/remote-deploy.sh deploy
           REMOTE
+
+      - name: Run staging data migrations
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          DATA_MIGRATION_TARGET: staging
+          DATA_MIGRATION_CONFIRM: APPLY_DATA_MIGRATIONS
+        run: |
+          set -euo pipefail
+          : "${DATABASE_URL:?Set staging secret STAGING_DATABASE_URL}"
+          npm run data:migrate -- up
 
   rollback:
     name: Roll back staging
@@ -270,7 +333,7 @@ jobs:
           case "$STAGING_REMOTE_DIR" in (*[!A-Za-z0-9_./-]*) echo "Invalid STAGING_REMOTE_DIR" >&2; exit 2 ;; esac
           target="${STAGING_USER}@${STAGING_HOST}"
           remote_dir_q="$(printf '%q' "$STAGING_REMOTE_DIR")"
-          tar -czf - docker-compose.staging.yml deploy/staging/nginx.conf deploy/staging/remote-deploy.sh \
+          tar -czf - VERSION docker-compose.staging.yml deploy/staging/nginx.conf deploy/staging/remote-deploy.sh \
             | ssh -i ~/.ssh/kiditem-staging "$target" \
                 "mkdir -p ${remote_dir_q} && tar -xzf - -C ${remote_dir_q} && chmod +x ${remote_dir_q}/deploy/staging/remote-deploy.sh"
 
@@ -353,7 +416,7 @@ jobs:
           case "$STAGING_REMOTE_DIR" in (*[!A-Za-z0-9_./-]*) echo "Invalid STAGING_REMOTE_DIR" >&2; exit 2 ;; esac
           target="${STAGING_USER}@${STAGING_HOST}"
           remote_dir_q="$(printf '%q' "$STAGING_REMOTE_DIR")"
-          tar -czf - docker-compose.staging.yml deploy/staging/nginx.conf deploy/staging/remote-deploy.sh \
+          tar -czf - VERSION docker-compose.staging.yml deploy/staging/nginx.conf deploy/staging/remote-deploy.sh \
             | ssh -i ~/.ssh/kiditem-staging "$target" \
                 "mkdir -p ${remote_dir_q} && tar -xzf - -C ${remote_dir_q} && chmod +x ${remote_dir_q}/deploy/staging/remote-deploy.sh"
 

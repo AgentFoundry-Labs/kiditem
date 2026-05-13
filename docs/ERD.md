@@ -34,7 +34,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Orders](erd/orders.md) | 9 |
 | [Sourcing](erd/sourcing.md) | 2 |
 | [Supply](erd/supply.md) | 6 |
-| [System](erd/system.md) | 8 |
+| [System](erd/system.md) | 9 |
 
 ## Model Index
 
@@ -123,6 +123,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ActivityEvent | System | `activity_events` | - |
 | Alert | System | `alerts` | - |
 | BusinessRule | System | `business_rules` | 온톨로지 룰 엔진 (조건→액션 자동화). |
+| DataMigrationRun | System | `data_migration_runs` | 운영 data migration ledger. Schema-only db push와 별도로 영속 데이터 보정 실행 여부를 기록한다. |
 | FeatureGate | System | `feature_gates` | 피처 플래그. allowedOrganizations: string[] 로 회사별 enable. |
 | Marketplace | System | `marketplace` | type 으로 agent/workflow 카탈로그 통합. |
 | MigrationCheckpoint | System | `migration_checkpoints` | 이관 스크립트 체크포인트 (Plan C 용). 이관 완료 후 drop 가능. |
@@ -812,6 +813,21 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  DataMigrationRun {
+    String migrationId PK
+    String releaseVersion
+    String name
+    String status
+    String gitSha
+    String prismaSchemaHash
+    Int affectedRows
+    Json details
+    String error
+    DateTime startedAt
+    DateTime completedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
   ExecutionLog {
     String id PK
     String taskId FK
@@ -962,6 +978,12 @@ erDiagram
     Int adBudgetLimit
     Int healthScore
     DateTime healthUpdatedAt
+    String sourceUrl
+    String sourcePlatform
+    Decimal costCny
+    Decimal marginRate
+    Json rawData
+    String pipelineStep
     Json processedData
     Json draftContent
     String detailPageUrl
@@ -1529,6 +1551,7 @@ erDiagram
     Int sortOrder
     String source
     String masterImageId FK
+    String sourceCandidateId FK
     String mimeType
     Int width
     Int height
@@ -1835,6 +1858,7 @@ erDiagram
   ThumbnailGeneration ||--o{ ThumbnailGenerationInputImage : "generation"
   ThumbnailGeneration ||--o{ ThumbnailRegistrationAttempt : "generation"
   ThumbnailGeneration ||--o{ ThumbnailTracking : "generation"
+  ThumbnailGenerationCandidate o|--o{ ThumbnailGenerationInputImage : "sourceCandidate"
   ThumbnailTracking ||--o{ ThumbnailTrackingDailySnapshot : "tracking"
   User o|--o{ ActionTask : "assigneeUser"
   User o|--o{ AgentApprovalRequest : "approver"
