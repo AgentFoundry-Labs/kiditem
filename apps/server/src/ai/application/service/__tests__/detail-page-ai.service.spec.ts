@@ -153,6 +153,12 @@ function makePrisma() {
       update: vi.fn(),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
+    contentGenerationGroup: {
+      create: vi.fn().mockResolvedValue({ id: '55555555-5555-4555-8555-555555555555' }),
+    },
+    contentGenerationSource: {
+      createMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
     contentAsset: {
       createMany: vi.fn().mockResolvedValue({ count: 0 }),
       findMany: vi.fn().mockResolvedValue([]),
@@ -217,6 +223,7 @@ describe('DetailPageAiService', () => {
       data: expect.objectContaining({
         organizationId: ORGANIZATION_ID,
         masterId: MASTER_ID,
+        contentType: 'detail_page',
         triggeredByUserId: USER_ID,
         status: 'PROCESSING',
       }),
@@ -620,6 +627,7 @@ describe('DetailPageAiService', () => {
       data: expect.objectContaining({
         organizationId: ORGANIZATION_ID,
         masterId: MASTER_ID,
+        contentType: 'detail_page',
         triggeredByUserId: USER_ID,
         status: 'PROCESSING',
       }),
@@ -654,6 +662,7 @@ describe('DetailPageAiService', () => {
     prisma.contentGeneration.create.mockResolvedValueOnce({
       id: GENERATION_ID,
       masterId: null,
+      generationGroupId: '55555555-5555-4555-8555-555555555555',
       originalImages: ['https://example.com/standalone.jpg'],
       processedImages: {},
       generatedTitle: 'standalone',
@@ -698,9 +707,20 @@ describe('DetailPageAiService', () => {
       data: expect.objectContaining({
         organizationId: ORGANIZATION_ID,
         masterId: null,
+        contentType: 'detail_page',
+        generationGroupId: '55555555-5555-4555-8555-555555555555',
         triggeredByUserId: USER_ID,
         status: 'PROCESSING',
       }),
+    });
+    expect(prisma.contentGenerationGroup.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        organizationId: ORGANIZATION_ID,
+        groupType: 'input_variation',
+        title: 'standalone',
+        createdByUserId: USER_ID,
+      }),
+      select: { id: true },
     });
     expect(textCompletion.complete).not.toHaveBeenCalled();
     expect(agentRunner.runByType).toHaveBeenCalledWith(

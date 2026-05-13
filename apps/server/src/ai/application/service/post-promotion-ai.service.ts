@@ -121,6 +121,7 @@ export class PostPromotionAiService implements PostPromotionAiTriggerPort {
         data: {
           organizationId,
           masterId: master.id,
+          contentType: 'detail_page',
           triggeredByUserId: null,
           originalImages: imageUrls,
           processedImages: {},

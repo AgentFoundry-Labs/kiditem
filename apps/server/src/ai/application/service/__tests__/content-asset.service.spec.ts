@@ -11,6 +11,28 @@ describe('ContentAssetService', () => {
     const prisma = {
       contentAsset: {
         createMany: vi.fn().mockResolvedValue({ count: 2 }),
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'asset-input-1',
+            assetKey: `detail-page-input:${GENERATION_ID}:0`,
+            url: 'https://example.com/a.jpg',
+            role: 'source',
+            label: null,
+            sortOrder: 0,
+            usageType: 'input',
+            originType: 'manual_upload',
+          },
+          {
+            id: 'asset-input-2',
+            assetKey: `detail-page-input:${GENERATION_ID}:1`,
+            url: 'https://example.com/b.jpg',
+            role: 'source',
+            label: null,
+            sortOrder: 1,
+            usageType: 'input',
+            originType: 'manual_upload',
+          },
+        ]),
       },
     };
     const service = new ContentAssetService(prisma as never);
@@ -34,6 +56,9 @@ describe('ContentAssetService', () => {
           assetKey: `detail-page-input:${GENERATION_ID}:0`,
           url: 'https://example.com/a.jpg',
           sourceType: 'detail_page_input',
+          pipelineType: 'detail_page',
+          usageType: 'input',
+          originType: 'manual_upload',
           role: 'source',
           sortOrder: 0,
         }),
@@ -43,6 +68,29 @@ describe('ContentAssetService', () => {
           sortOrder: 1,
         }),
       ],
+    });
+    expect(prisma.contentAsset.findMany).toHaveBeenCalledWith({
+      where: {
+        organizationId: ORG,
+        assetKey: {
+          in: [
+            `detail-page-input:${GENERATION_ID}:0`,
+            `detail-page-input:${GENERATION_ID}:1`,
+          ],
+        },
+        isDeleted: false,
+      },
+      orderBy: { sortOrder: 'asc' },
+      select: {
+        id: true,
+        assetKey: true,
+        url: true,
+        role: true,
+        label: true,
+        sortOrder: true,
+        usageType: true,
+        originType: true,
+      },
     });
   });
 
@@ -74,6 +122,9 @@ describe('ContentAssetService', () => {
           assetKey: `detail-page-generated:${GENERATION_ID}:0`,
           url: 'https://cdn.example.com/cut.png',
           sourceType: 'detail_page_generated',
+          pipelineType: 'detail_page',
+          usageType: 'output',
+          originType: 'generated',
           role: '0',
           sortOrder: 0,
         }),
@@ -101,6 +152,9 @@ describe('ContentAssetService', () => {
             url: 'https://cdn.example.com/asset.png',
             assetType: 'image',
             sourceType: 'detail_page_generated',
+            pipelineType: 'detail_page',
+            usageType: 'output',
+            originType: 'generated',
             role: '__heroBanner',
             label: 'hero',
             sortOrder: 0,
@@ -129,6 +183,9 @@ describe('ContentAssetService', () => {
           url: 'https://cdn.example.com/asset.png',
           assetType: 'image',
           sourceType: 'detail_page_generated',
+          pipelineType: 'detail_page',
+          usageType: 'output',
+          originType: 'generated',
           role: '__heroBanner',
           label: 'hero',
           sortOrder: 0,

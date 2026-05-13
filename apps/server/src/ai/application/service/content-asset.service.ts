@@ -9,7 +9,21 @@ export interface ContentAssetListQuery {
   limit?: number;
   productId?: string | null;
   generationId?: string | null;
-  sourceType?: string | null;
+  pipelineType?: string | null;
+  usageType?: string | null;
+  originType?: string | null;
+  sourceType?: string | null; // legacy compatibility only
+}
+
+export interface PersistedContentAssetRef {
+  id: string;
+  assetKey: string;
+  url: string;
+  role: string | null;
+  label: string | null;
+  sortOrder: number;
+  usageType: string;
+  originType: string;
 }
 
 @Injectable()
@@ -22,7 +36,7 @@ export class ContentAssetService {
     masterId: NullableProductLink;
     createdByUserId: string | null;
     imageUrls: string[];
-  }): Promise<void> {
+  }): Promise<PersistedContentAssetRef[]> {
     const data = input.imageUrls
       .map((url, index) => url.trim() ? ({ url: url.trim(), index }) : null)
       .filter((item): item is { url: string; index: number } => item !== null)
@@ -35,14 +49,35 @@ export class ContentAssetService {
         url,
         assetType: 'image',
         sourceType: 'detail_page_input',
+        pipelineType: 'detail_page',
+        usageType: 'input',
+        originType: 'manual_upload',
         role: 'source',
         sortOrder: index,
         metadata: {},
       }));
-    if (data.length === 0) return;
+    if (data.length === 0) return [];
     await this.prisma.contentAsset.createMany({
       skipDuplicates: true,
       data,
+    });
+    return this.prisma.contentAsset.findMany({
+      where: {
+        organizationId: input.organizationId,
+        assetKey: { in: data.map((item) => item.assetKey) },
+        isDeleted: false,
+      },
+      orderBy: { sortOrder: 'asc' },
+      select: {
+        id: true,
+        assetKey: true,
+        url: true,
+        role: true,
+        label: true,
+        sortOrder: true,
+        usageType: true,
+        originType: true,
+      },
     });
   }
 
@@ -68,6 +103,9 @@ export class ContentAssetService {
         url,
         assetType: 'image',
         sourceType: 'detail_page_generated',
+        pipelineType: 'detail_page',
+        usageType: 'output',
+        originType: 'generated',
         role,
         sortOrder: index,
         metadata: {},
@@ -86,6 +124,9 @@ export class ContentAssetService {
       url: string;
       assetType: string;
       sourceType: string;
+      pipelineType: string;
+      usageType: string;
+      originType: string;
       role: string | null;
       label: string | null;
       sortOrder: number;
@@ -110,6 +151,9 @@ export class ContentAssetService {
       isDeleted: false,
       ...(query.productId ? { masterId: query.productId } : {}),
       ...(query.generationId ? { contentGenerationId: query.generationId } : {}),
+      ...(query.pipelineType ? { pipelineType: query.pipelineType } : {}),
+      ...(query.usageType ? { usageType: query.usageType } : {}),
+      ...(query.originType ? { originType: query.originType } : {}),
       ...(query.sourceType ? { sourceType: query.sourceType } : {}),
     };
     const [total, rows] = await Promise.all([
@@ -126,6 +170,9 @@ export class ContentAssetService {
           url: true,
           assetType: true,
           sourceType: true,
+          pipelineType: true,
+          usageType: true,
+          originType: true,
           role: true,
           label: true,
           sortOrder: true,
@@ -151,6 +198,9 @@ export class ContentAssetService {
         url: row.url,
         assetType: row.assetType,
         sourceType: row.sourceType,
+        pipelineType: row.pipelineType,
+        usageType: row.usageType,
+        originType: row.originType,
         role: row.role,
         label: row.label,
         sortOrder: row.sortOrder,

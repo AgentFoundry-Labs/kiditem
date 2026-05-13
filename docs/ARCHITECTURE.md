@@ -210,6 +210,15 @@ Kinds:
 | `apps/web/src/app/settings` | Route Leaf | Operational settings route. |
 | `apps/web/src/app/__tests__` | App Internal | App-route tests. |
 
+Notable route subtrees:
+
+- `apps/web/src/app/(catalog)/product-content` owns `/product-content`,
+  `/product-content/[productId]`, `/product-content/groups/[groupId]`, and the
+  canonical detail-page editor
+  `/product-content/detail-pages/[generationId]/editor`. The top-level route
+  is a produced-content workspace archive; raw source evidence remains under
+  `/sourcing`.
+
 ### Frontend Shared Map
 
 | Path | Kind | Notes |

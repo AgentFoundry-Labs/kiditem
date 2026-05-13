@@ -15,6 +15,7 @@ import { useProductImages } from '@/hooks/useProductImages';
 import { moveSafetyLabelImagesToEnd } from '../lib/detail-page-image-order';
 import {
   type KidsPlayfulGenerationItem,
+  type KidsPlayfulGenerateBody,
   useKidsPlayfulGenerate,
   useKidsPlayfulOne,
 } from './useKidsPlayfulGenerate';
@@ -72,6 +73,7 @@ interface DetailPagePrefillResult {
 export function useGenerateForm() {
   const searchParams = useSearchParams();
   const productId = searchParams.get('productId');
+  const sourceReferences = getGenerateSourceReferences(searchParams, productId);
   const { images: savedImages, loading: imagesLoading } = useProductImages(productId);
   const detailPageMutation = useKidsPlayfulGenerate();
 
@@ -268,6 +270,7 @@ export function useGenerateForm() {
         heroImageMode: 'llm-pick',
         productId: productId ?? undefined,
         templateId: apiTemplateId,
+        sourceReferences,
         ageGroup,
         detailImageCount,
         usageSectionMode,
@@ -356,6 +359,32 @@ export function useGenerateForm() {
     handlePrefill,
     handleSubmit,
   };
+}
+
+interface GenerateSourceParamReader {
+  get(name: string): string | null;
+  getAll(name: string): string[];
+}
+
+export function getGenerateSourceReferences(
+  searchParams: GenerateSourceParamReader,
+  productId: string | null,
+): NonNullable<KidsPlayfulGenerateBody['sourceReferences']> {
+  const references: NonNullable<KidsPlayfulGenerateBody['sourceReferences']> = [];
+  const candidateIds = new Set<string>();
+  for (const value of searchParams.getAll('sourceCandidateId')) {
+    if (value.trim()) candidateIds.add(value.trim());
+  }
+  for (const value of (searchParams.get('sourceCandidateIds') ?? '').split(',')) {
+    if (value.trim()) candidateIds.add(value.trim());
+  }
+  for (const sourceCandidateId of candidateIds) {
+    references.push({ sourceType: 'sourcing_candidate', sourceCandidateId });
+  }
+  if (productId) {
+    references.push({ sourceType: 'master_product', masterId: productId });
+  }
+  return references;
 }
 
 function buildAgeGroupInstruction(ageGroup: DetailPageAgeGroup): string {

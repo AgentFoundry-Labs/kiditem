@@ -38,15 +38,18 @@ import { normalizeKcCertificationNumber } from '../../domain/prompts/detail-page
 import type {
   DetailPageGenerationDto,
   DetailPageRawInput,
+  DetailPageSourceReference,
   DetailPageTemplateId,
 } from './detail-page-ai.types';
 import { DetailPageQueryService } from './detail-page-query.service';
 import {
   detailPageOperationKey,
   detailPageResultHref,
+  parseDetailPageStoredJson,
   serializeDetailPageStoredJson,
 } from './detail-page-stored.helpers';
 import { ContentAssetService } from './content-asset.service';
+import type { PersistedContentAssetRef } from './content-asset.service';
 
 const DETAIL_PAGE_PROCESSING_STATUSES = [
   'PENDING',
@@ -128,6 +131,12 @@ export class DetailPageGenerationService {
       kcCertificationStatus,
       kcCertificationNumber,
     };
+    const sourceReferences = await this.normalizeSourceReferences({
+      organizationId,
+      productId: dto.productId ?? null,
+      sourceReferences: dto.sourceReferences ?? [],
+    });
+    if (sourceReferences.length > 0) rawInput.sourceReferences = sourceReferences;
 
     return this.enqueueGeneration({
       organizationId,
@@ -138,6 +147,7 @@ export class DetailPageGenerationService {
       heroImageMode,
       imageUrls,
       rawInput,
+      sourceReferences,
     });
   }
 
@@ -150,6 +160,8 @@ export class DetailPageGenerationService {
     heroImageMode: 'first' | 'llm-pick';
     imageUrls: string[];
     rawInput: DetailPageRawInput;
+    sourceReferences: DetailPageSourceReference[];
+    generationGroupId?: string | null;
   }): Promise<DetailPageGenerationDto> {
     if (input.productId) {
       const master = await this.prisma.masterProduct.findFirst({
@@ -159,10 +171,22 @@ export class DetailPageGenerationService {
       if (!master) throw new NotFoundException('Product not found');
     }
 
+    const generationGroupId = input.generationGroupId
+      ?? (input.productId
+        ? null
+        : await this.createGenerationGroupForInput({
+          organizationId: input.organizationId,
+          triggeredByUserId: input.triggeredByUserId,
+          rawTitle: input.rawTitle,
+          templateId: input.templateId,
+        }));
+
     const row = await this.prisma.contentGeneration.create({
       data: {
         organizationId: input.organizationId,
         masterId: input.productId,
+        contentType: 'detail_page',
+        generationGroupId,
         triggeredByUserId: input.triggeredByUserId,
         templateId: input.templateId,
         originalImages: input.imageUrls,
@@ -178,12 +202,18 @@ export class DetailPageGenerationService {
       },
     });
 
-    await this.contentAssets.recordDetailPageInputAssets({
+    const inputAssets = await this.contentAssets.recordDetailPageInputAssets({
       organizationId: input.organizationId,
       contentGenerationId: row.id,
       masterId: input.productId,
       createdByUserId: input.triggeredByUserId,
       imageUrls: input.imageUrls,
+    });
+    await this.recordGenerationSources({
+      organizationId: input.organizationId,
+      contentGenerationId: row.id,
+      sourceReferences: input.sourceReferences,
+      inputAssets,
     });
 
     await this.operationAlerts.start({
@@ -274,6 +304,260 @@ export class DetailPageGenerationService {
     });
   }
 
+  async rerunSameInput(
+    generationId: string,
+    organizationId: string,
+    triggeredByUserId: string | null,
+  ): Promise<DetailPageGenerationDto> {
+    const base = await this.prisma.contentGeneration.findFirst({
+      where: { id: generationId, organizationId },
+      select: {
+        id: true,
+        masterId: true,
+        generationGroupId: true,
+        templateId: true,
+        generatedTitle: true,
+        originalImages: true,
+        detailPageHtml: true,
+      },
+    });
+    if (!base) throw new NotFoundException('Detail page generation not found');
+    const stored = parseDetailPageStoredJson(base.detailPageHtml);
+    const rawRecord = stored.rawInput && typeof stored.rawInput === 'object'
+      ? stored.rawInput as Record<string, unknown>
+      : {};
+    const imageUrls = stored.imageUrls.length > 0
+      ? stored.imageUrls
+      : (Array.isArray(base.originalImages)
+        ? base.originalImages.filter((item): item is string => typeof item === 'string')
+        : []);
+    if (imageUrls.length === 0) {
+      throw new BadRequestException(DETAIL_PAGE_IMAGE_REQUIRED_MESSAGE);
+    }
+    const templateId: DetailPageTemplateId =
+      base.templateId === 'bold-vertical' || stored.templateId === 'bold-vertical'
+        ? 'bold-vertical'
+        : 'kids-playful';
+    const generationGroupId = await this.ensureGenerationGroup({
+      organizationId,
+      baseGenerationId: base.id,
+      existingGroupId: base.generationGroupId,
+      productId: base.masterId,
+      title: pickRawString(rawRecord, 'rawTitle') ?? base.generatedTitle ?? '상세페이지 작업',
+      triggeredByUserId,
+    });
+    const rawInput: DetailPageRawInput = {
+      rawTitle: pickRawString(rawRecord, 'rawTitle') ?? base.generatedTitle ?? '상세페이지 작업',
+      rawCategory: pickRawString(rawRecord, 'rawCategory') ?? '',
+      rawDescription: pickRawString(rawRecord, 'rawDescription') ?? '',
+      rawOptions: pickRawString(rawRecord, 'rawOptions') ?? '',
+      imageUrls,
+      heroImageMode: rawRecord.heroImageMode === 'llm-pick' ? 'llm-pick' : 'first',
+      templateId,
+      ageGroup: rawRecord.ageGroup === 'age-14-plus' ? 'age-14-plus' : 'age-8-plus',
+      detailImageCount: pickDetailImageCount(rawRecord.detailImageCount),
+      usageSectionMode: rawRecord.usageSectionMode === 'exclude' ? 'exclude' : 'include',
+      kcCertificationStatus: pickKcCertificationStatus(rawRecord.kcCertificationStatus),
+      kcCertificationNumber: pickRawString(rawRecord, 'kcCertificationNumber') ?? undefined,
+      sourceReferences: Array.isArray(rawRecord.sourceReferences)
+        ? rawRecord.sourceReferences.filter(isDetailPageSourceReference)
+        : undefined,
+    };
+    return this.enqueueGeneration({
+      organizationId,
+      triggeredByUserId,
+      productId: base.masterId,
+      rawTitle: rawInput.rawTitle,
+      templateId,
+      heroImageMode: rawInput.heroImageMode,
+      imageUrls,
+      rawInput,
+      sourceReferences: rawInput.sourceReferences ?? [],
+      generationGroupId,
+    });
+  }
+
+  private async createGenerationGroupForInput(input: {
+    organizationId: string;
+    triggeredByUserId: string | null;
+    rawTitle: string;
+    templateId: DetailPageTemplateId;
+  }): Promise<string> {
+    const group = await this.prisma.contentGenerationGroup.create({
+      data: {
+        organizationId: input.organizationId,
+        groupType: 'input_variation',
+        title: input.rawTitle.slice(0, 80),
+        createdByUserId: input.triggeredByUserId,
+        metadata: {
+          source: 'detail_page_generation',
+          templateId: input.templateId,
+        },
+      },
+      select: { id: true },
+    });
+    return group.id;
+  }
+
+  private async ensureGenerationGroup(input: {
+    organizationId: string;
+    baseGenerationId: string;
+    existingGroupId: string | null;
+    productId: string | null;
+    title: string;
+    triggeredByUserId: string | null;
+  }): Promise<string> {
+    if (input.existingGroupId) return input.existingGroupId;
+    const group = await this.prisma.contentGenerationGroup.create({
+      data: {
+        organizationId: input.organizationId,
+        groupType: 'input_variation',
+        targetMasterId: input.productId,
+        baseContentGenerationId: input.baseGenerationId,
+        title: input.title.slice(0, 80),
+        createdByUserId: input.triggeredByUserId,
+        metadata: { source: 'same_input_rerun' },
+      },
+      select: { id: true },
+    });
+    await this.prisma.contentGeneration.updateMany({
+      where: { id: input.baseGenerationId, organizationId: input.organizationId },
+      data: { generationGroupId: group.id },
+    });
+    return group.id;
+  }
+
+  private async normalizeSourceReferences(input: {
+    organizationId: string;
+    productId: string | null;
+    sourceReferences: NonNullable<GenerateDetailPageBodyDto['sourceReferences']>;
+  }): Promise<DetailPageSourceReference[]> {
+    const out: DetailPageSourceReference[] = [];
+    for (const [index, ref] of input.sourceReferences.entries()) {
+      if (ref.sourceType === 'sourcing_candidate') {
+        if (!ref.sourceCandidateId) {
+          throw new BadRequestException(`sourceReferences[${index}].sourceCandidateId is required`);
+        }
+        const candidate = await this.prisma.sourcingCandidate.findFirst({
+          where: {
+            id: ref.sourceCandidateId,
+            organizationId: input.organizationId,
+            isDeleted: false,
+          },
+          select: { id: true, name: true, promotedMasterId: true },
+        });
+        if (!candidate) throw new NotFoundException('Sourcing candidate source not found');
+        if (
+          input.productId &&
+          candidate.promotedMasterId &&
+          candidate.promotedMasterId !== input.productId
+        ) {
+          throw new BadRequestException('source candidate is linked to a different product');
+        }
+        out.push({
+          sourceType: 'sourcing_candidate',
+          sourceCandidateId: candidate.id,
+          label: ref.label ?? candidate.name,
+        });
+        continue;
+      }
+
+      if (ref.sourceType === 'master_product') {
+        if (!ref.masterId) {
+          throw new BadRequestException(`sourceReferences[${index}].masterId is required`);
+        }
+        const master = await this.prisma.masterProduct.findFirst({
+          where: { id: ref.masterId, organizationId: input.organizationId, isDeleted: false },
+          select: { id: true, name: true },
+        });
+        if (!master) throw new NotFoundException('Master product source not found');
+        out.push({
+          sourceType: 'master_product',
+          masterId: master.id,
+          label: ref.label ?? master.name,
+        });
+        continue;
+      }
+
+      if (ref.sourceType === 'content_generation') {
+        if (!ref.sourceContentGenerationId) {
+          throw new BadRequestException(`sourceReferences[${index}].sourceContentGenerationId is required`);
+        }
+        const generation = await this.prisma.contentGeneration.findFirst({
+          where: { id: ref.sourceContentGenerationId, organizationId: input.organizationId },
+          select: { id: true, generatedTitle: true },
+        });
+        if (!generation) throw new NotFoundException('Content generation source not found');
+        out.push({
+          sourceType: 'content_generation',
+          sourceContentGenerationId: generation.id,
+          label: ref.label ?? generation.generatedTitle ?? 'Generated content',
+        });
+        continue;
+      }
+
+      if (ref.sourceType === 'input_asset') {
+        if (!ref.contentAssetId) {
+          throw new BadRequestException(`sourceReferences[${index}].contentAssetId is required`);
+        }
+        const asset = await this.prisma.contentAsset.findFirst({
+          where: {
+            id: ref.contentAssetId,
+            organizationId: input.organizationId,
+            usageType: 'input',
+            isDeleted: false,
+          },
+          select: { id: true, label: true, role: true },
+        });
+        if (!asset) throw new NotFoundException('Input asset source not found');
+        out.push({
+          sourceType: 'input_asset',
+          contentAssetId: asset.id,
+          label: ref.label ?? asset.label ?? asset.role ?? 'Input asset',
+        });
+      }
+    }
+    return out;
+  }
+
+  private async recordGenerationSources(input: {
+    organizationId: string;
+    contentGenerationId: string;
+    sourceReferences: DetailPageSourceReference[];
+    inputAssets: PersistedContentAssetRef[];
+  }): Promise<void> {
+    const explicitRows = input.sourceReferences.map((ref, index) => ({
+      organizationId: input.organizationId,
+      contentGenerationId: input.contentGenerationId,
+      sourceType: ref.sourceType,
+      sourceCandidateId: ref.sourceCandidateId ?? null,
+      masterId: ref.masterId ?? null,
+      sourceContentGenerationId: ref.sourceContentGenerationId ?? null,
+      contentAssetId: ref.contentAssetId ?? null,
+      label: ref.label ?? null,
+      sortOrder: index,
+      metadata: {},
+    }));
+    const inputAssetRows = input.inputAssets.map((asset, index) => ({
+      organizationId: input.organizationId,
+      contentGenerationId: input.contentGenerationId,
+      sourceType: 'input_asset',
+      sourceCandidateId: null,
+      masterId: null,
+      sourceContentGenerationId: null,
+      contentAssetId: asset.id,
+      label: asset.label ?? asset.role ?? 'Input asset',
+      sortOrder: explicitRows.length + index,
+      metadata: { originType: asset.originType, assetKey: asset.assetKey },
+    }));
+    const rows = [...explicitRows, ...inputAssetRows];
+    if (rows.length === 0) return;
+    await this.prisma.contentGenerationSource.createMany({
+      skipDuplicates: true,
+      data: rows,
+    });
+  }
+
   private kickEnqueuedAgentRequest(input: {
     organizationId: string;
     requestId?: string;
@@ -347,4 +631,32 @@ export class DetailPageGenerationService {
       return 'product';
     }
   }
+}
+
+function pickRawString(record: Record<string, unknown>, key: string): string | null {
+  const value = record[key];
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function pickDetailImageCount(value: unknown): DetailImageCount {
+  if (value === '1' || value === '2' || value === '3' || value === 'auto') return value;
+  return '2';
+}
+
+function pickKcCertificationStatus(value: unknown): KcCertificationStatus {
+  if (value === 'none' || value === 'exists') return value;
+  return 'unknown';
+}
+
+function isDetailPageSourceReference(value: unknown): value is DetailPageSourceReference {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Record<string, unknown>;
+  return (
+    record.sourceType === 'sourcing_candidate' ||
+    record.sourceType === 'master_product' ||
+    record.sourceType === 'input_asset' ||
+    record.sourceType === 'content_generation'
+  );
 }

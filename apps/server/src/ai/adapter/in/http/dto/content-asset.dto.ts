@@ -26,4 +26,16 @@ export class ListContentAssetsQueryDto {
   @IsOptional()
   @IsString()
   sourceType?: string;
+
+  @IsOptional()
+  @IsString()
+  pipelineType?: string;
+
+  @IsOptional()
+  @IsString()
+  usageType?: string;
+
+  @IsOptional()
+  @IsString()
+  originType?: string;
 }

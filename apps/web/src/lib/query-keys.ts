@@ -189,6 +189,14 @@ export const queryKeys = {
     all: ['product-content'] as const,
     cards: (params: Record<string, string>) =>
       [...queryKeys.productContent.all, 'cards', params] as const,
+    workspaces: (params: Record<string, string>) =>
+      [...queryKeys.productContent.all, 'workspaces', params] as const,
+    productWorkspace: (id: string, params?: Record<string, string>) =>
+      [...queryKeys.productContent.all, 'product-workspace', id, params] as const,
+    groupWorkspace: (id: string, params?: Record<string, string>) =>
+      [...queryKeys.productContent.all, 'group-workspace', id, params] as const,
+    sourcingLinks: (id: string, params?: Record<string, string>) =>
+      [...queryKeys.productContent.all, 'sourcing-links', id, params] as const,
     detail: (id: string) => [...queryKeys.productContent.all, 'detail', id] as const,
     preview: (id: string) => [...queryKeys.productContent.all, 'preview', id] as const,
     editedHtml: (id: string) => [...queryKeys.productContent.all, 'edited-html', id] as const,

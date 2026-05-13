@@ -35,11 +35,12 @@ model SourcingCandidate {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  promotedMaster  MasterProduct?   @relation("PromotedFromCandidate", fields: [promotedMasterId], references: [id], onDelete: SetNull)
-  rejectedByUser  User?            @relation("SourcingCandidateRejectedBy", fields: [rejectedByUserId], references: [id], onDelete: SetNull)
-  triggeredByUser User?            @relation("SourcingCandidateTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
-  images          CandidateImage[]
+  organization             Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  promotedMaster           MasterProduct?            @relation("PromotedFromCandidate", fields: [promotedMasterId], references: [id], onDelete: SetNull)
+  rejectedByUser           User?                     @relation("SourcingCandidateRejectedBy", fields: [rejectedByUserId], references: [id], onDelete: SetNull)
+  triggeredByUser          User?                     @relation("SourcingCandidateTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
+  images                   CandidateImage[]
+  contentGenerationSources ContentGenerationSource[]
 
   @@unique([organizationId, sourceUrl], map: "sourcing_candidates_organization_id_source_url_key", where: raw("is_deleted = false AND status = 'sourced'"))
   @@index([organizationId])
@@ -76,8 +77,9 @@ model CandidateImage {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  candidate    SourcingCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  organization  Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  candidate     SourcingCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  contentAssets ContentAsset[]
 
   @@index([organizationId])
   @@index([candidateId])

@@ -21,6 +21,7 @@ describe('data migration registry', () => {
     expect(DATA_MIGRATION_IDS).toEqual([
       'v0.1.0:001_backfill_sourcing_candidates_from_master_products',
       'v0.1.0:002_rewrite_legacy_detail_editor_alert_hrefs',
+      'v0.1.0:003_backfill_content_archive_classification',
     ]);
   });
 
@@ -32,6 +33,7 @@ describe('data migration registry', () => {
   it('ties migration ids and directories to the root app VERSION', () => {
     const rootVersion = normalizeReleaseVersion(readFileSync(join(repoRoot, 'VERSION'), 'utf8'));
     expect(dataMigrations.map((migration) => migration.releaseVersion)).toEqual([
+      rootVersion,
       rootVersion,
       rootVersion,
     ]);

@@ -164,6 +164,7 @@ describe('PostPromotionAiService', () => {
     const contentCall = mocks.contentGenerationCreate.mock.calls[0][0];
     expect(contentCall.data.organizationId).toBe(ORGANIZATION_ID);
     expect(contentCall.data.masterId).toBe(MASTER_ID);
+    expect(contentCall.data.contentType).toBe('detail_page');
     expect(contentCall.data.status).toBe('PROCESSING');
     expect(contentCall.data.triggeredByUserId).toBeNull();
     expect(contentCall.data.originalImages).toEqual([

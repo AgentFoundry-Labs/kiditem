@@ -1,43 +1,52 @@
-# web/product-content — Product Content Management
+# web/product-content — Product Content Workspace Archive
 
-`/product-content` is the canonical content management surface for
-detail-page work products and reusable image assets.
+`/product-content` is the canonical archive for AI-produced product content.
+Top-level cards are workspace summaries, not raw generated rows and not raw
+asset rows.
 
-Content work can be product-bound or standalone:
+Workspace identity:
 
-- primary work product: `ContentGeneration.id`
-- optional product attachment: `ContentGeneration.masterId`
-- edited HTML storage: `ContentGeneration.editedHtml`
-- reusable images: `ContentAsset`
-- adopted product gallery images: `MasterProductImage`
+- Product workspace: all `ContentGeneration` rows with the same
+  `masterId` / target `MasterProduct.id`.
+- Unlinked workspace: one `ContentGenerationGroup` containing product-less
+  generated rows.
+- Individual output: `ContentGeneration.id`.
+- Input/output/reference files: `ContentAsset`; never top-level cards.
+- Adopted product gallery images: `MasterProductImage`, still owned by the
+  products domain.
 
 `/generate` creates detail-page content. `/product-content` manages the
-resulting work products, asset library, product-bound cards, and detail-page
-editor.
+generated workspaces, reruns, product attachment, and detail-page editor.
 
 ## Layout
 
 ```text
 product-content/
-  page.tsx                         work product / assets / product-bound tabs
-  [productId]/page.tsx             one product's content cards
+  page.tsx                         product + unlinked workspace index
+  [productId]/page.tsx             product workspace sections
   [productId]/editor/page.tsx      legacy editor route; redirects by generationId
   detail-pages/[generationId]/editor/page.tsx
                                    canonical detail-page editor
+  groups/[groupId]/page.tsx        unlinked generation-group workspace
   components/                      route-local cards/grid
   lib/                             routing, API helpers, template HTML, preview sandbox
 ```
 
 ## Contracts
 
-- Work product list reads `GET /api/ai/detail-page`.
-- Asset list reads `GET /api/ai/content-assets`.
-- Product-bound card list reads `GET /api/products/content/cards`.
+- Workspace index reads `GET /api/ai/content-archive/workspaces`.
+- Product workspace reads `GET /api/ai/content-archive/products/:productId`.
+- Unlinked workspace reads `GET /api/ai/content-archive/groups/:groupId`.
+- Attach action calls
+  `POST /api/ai/content-archive/groups/:groupId/attach-product`.
+- Same-input rerun calls `POST /api/ai/content-archive/:generationId/rerun`.
 - Editor reads `GET /api/ai/detail-page/:generationId`.
 - Editor saves HTML through
   `POST /api/ai/detail-page/:generationId/edited-html`.
 - Alert/toast hrefs for completed detail-page generation point to
   `/product-content/detail-pages/{contentGenerationId}/editor`.
+- Product workspace `추가 생성` starts a new generation for that target
+  product. `동일 입력` reruns an existing generation into its explicit group.
 - Legacy `/sourcing/{id}/editor?kpId=...` and `?boldId=...` links normalize
   to the product-content editor. Legacy
   `/product-content/{masterId}/editor?generationId=...` also redirects to the

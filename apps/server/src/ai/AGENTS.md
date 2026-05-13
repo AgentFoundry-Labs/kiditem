@@ -36,7 +36,13 @@ ai/
 | `POST /api/image-ai/edit` | async Agent OS | returns request/run id for polling |
 | `POST /api/text-ai/transform` | sync | `TEXT_COMPLETION_PORT` only |
 | `POST /api/ai/detail-page/generate` with `productId` | async Agent OS | creates product-bound `ContentGeneration` ledger |
-| `POST /api/ai/detail-page/generate` without `productId` | async Agent OS | creates standalone `ContentGeneration` ledger |
+| `POST /api/ai/detail-page/generate` without `productId` | async Agent OS | creates standalone `ContentGeneration` ledger inside a `ContentGenerationGroup` |
+| `GET /api/ai/content-archive/workspaces` | read model | product-content workspace index grouped by product or unlinked generation group |
+| `GET /api/ai/content-archive/products/:productId` | read model | generated detail-page/image rows for one product workspace |
+| `GET /api/ai/content-archive/groups/:groupId` | read model | generated rows for one unlinked workspace |
+| `POST /api/ai/content-archive/groups/:groupId/attach-product` | mutation | attaches all group generations to a MasterProduct by setting `ContentGeneration.masterId` |
+| `POST /api/ai/content-archive/:generationId/rerun` | async Agent OS | creates a same-input rerun in the explicit generation group |
+| `GET /api/ai/content-archive/sourcing/:candidateId` | read model | sourcing-candidate provenance links into produced content |
 | `GET /api/ai/content-assets` | read model | lists reusable content image assets |
 | `POST /api/thumbnail-editor/generate` with `productId` | async Agent OS | creates `ThumbnailGeneration` ledger |
 | `POST /api/thumbnail-editor/generate` without `productId` | sync fallback | preview/test only |
@@ -88,7 +94,7 @@ Detail-page generation:
 ```text
 HTTP DTO
   -> DetailPageAiService facade
-  -> DetailPageGenerationService creates ContentGeneration + input ContentAsset rows + alert
+  -> DetailPageGenerationService creates ContentGeneration + optional ContentGenerationGroup + input ContentAsset rows + ContentGenerationSource rows + alert
   -> AGENT_RUNNER_PORT.runByType('detail_page_generate')
   -> detail-page runtime handler
   -> bridge
@@ -96,8 +102,15 @@ HTTP DTO
 ```
 
 `ContentGeneration.masterId` is nullable. Product-bound runs set it to the
-selected `MasterProduct.id`; standalone runs leave it null and still use the
-same ledger, sink, reconcile, and editor path.
+target `MasterProduct.id`; standalone runs leave it null and must belong to an
+explicit `ContentGenerationGroup`. Same-input reruns reuse/create a group and
+must not infer grouping from title or product-name similarity.
+
+`ContentGenerationSource` stores generation-level provenance. It may point to a
+sourcing candidate, Master product, input asset, or another generation. `sourceType`
+belongs here in the new design. `ContentAsset.sourceType` is retained only for
+legacy compatibility; active file semantics are `pipelineType`, `usageType`, and
+`originType`.
 
 Edited detail-page HTML is stored on `ContentGeneration.editedHtml`; do not
 write generated editor output back into `MasterProduct.draftContent`.
@@ -157,16 +170,22 @@ post-promotion AI generation:
 
 ## ContentGeneration Content Contract
 
-`ContentGeneration` is the detail-page work product source of truth. Its
-`masterId` is optional product attachment, not ownership of the work product.
-`ContentAsset` records generated/editable media assets; selecting an asset for
-the product gallery copies/adopts it into `MasterProductImage`.
+`ContentGeneration` is the produced content source of truth for archive work
+items (`contentType='detail_page' | 'image'`). Its `masterId` is optional target
+attachment, not ownership of the work product. `ContentGenerationGroup` is
+same-input lineage and the top-level workspace identity for product-less
+generated content.
 
-`ContentGeneration` is not a sourcing-candidate polymorphic target. The
-sourcing-candidate split design (issue #192) explicitly rejected mixing
-candidate ownership into this table. Candidate-stage preview still needs a
-separate candidate-owned table or a standalone generation that is attached to a
-master only after promotion.
+`ContentAsset` records generated/editable media files used by a generation:
+`usageType` answers input/output/reference, `originType` answers manual upload /
+external URL / generated / master image / source candidate image, and
+`pipelineType` answers which AI workflow consumed or produced the file.
+Selecting an asset for the product gallery copies/adopts it into
+`MasterProductImage`; adoption state does not live in the archive card.
+
+`ContentGeneration` is not a sourcing-candidate polymorphic target. Sourcing
+candidate provenance is represented by `ContentGenerationSource` rows and read
+through AI-domain archive APIs.
 
 ## Transitional Exceptions
 

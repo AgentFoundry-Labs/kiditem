@@ -29,8 +29,10 @@ model Organization {
   alerts                          Alert[]
 
   // Sourcing & Content
-  contentGenerations ContentGeneration[]
-  contentAssets      ContentAsset[]
+  contentGenerations       ContentGeneration[]
+  contentGenerationGroups  ContentGenerationGroup[]
+  contentGenerationSources ContentGenerationSource[]
+  contentAssets            ContentAsset[]
 
   // Workflow & Agent
   workflowTemplates WorkflowTemplate[]
@@ -319,14 +321,16 @@ model MasterProduct {
   options      ProductOption[]
   listings     ChannelListing[]
 
-  contentGenerations     ContentGeneration[]
-  contentAssets          ContentAsset[]
-  thumbnailAnalyses      ThumbnailAnalysis[]
-  thumbnailGenerations   ThumbnailGeneration[]
-  gradeHistory           GradeHistory[]
-  processingCosts        ProcessingCost[]
-  masterSupplierProducts MasterSupplierProduct[]
-  promotedFromCandidate  SourcingCandidate[]     @relation("PromotedFromCandidate")
+  contentGenerations       ContentGeneration[]
+  contentGenerationGroups  ContentGenerationGroup[]
+  contentGenerationSources ContentGenerationSource[]
+  contentAssets            ContentAsset[]
+  thumbnailAnalyses        ThumbnailAnalysis[]
+  thumbnailGenerations     ThumbnailGeneration[]
+  gradeHistory             GradeHistory[]
+  processingCosts          ProcessingCost[]
+  masterSupplierProducts   MasterSupplierProduct[]
+  promotedFromCandidate    SourcingCandidate[]       @relation("PromotedFromCandidate")
 
   @@unique([organizationId, legacyCode], map: "master_products_organization_id_legacy_code_key", where: raw("is_deleted = false AND legacy_code IS NOT NULL"))
   @@index([organizationId])
@@ -380,6 +384,7 @@ model MasterProductImage {
   organization              Organization                    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   master                    MasterProduct                   @relation(fields: [masterId], references: [id], onDelete: Cascade)
   thumbnailGenerationInputs ThumbnailGenerationInputImage[]
+  contentAssets             ContentAsset[]
 
   @@index([organizationId])
   @@index([masterId])

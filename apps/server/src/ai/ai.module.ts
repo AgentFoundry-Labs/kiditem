@@ -6,7 +6,11 @@ import { AutomationModule } from '../automation/automation.module';
 
 // adapter/in/http
 import { ImageAiController } from './adapter/in/http/image-ai.controller';
+import { ContentArchiveController } from './adapter/in/http/content-archive.controller';
+import { ContentArchiveLinkageController } from './adapter/in/http/content-archive-linkage.controller';
 import { ContentAssetController } from './adapter/in/http/content-asset.controller';
+import { ContentGenerationRerunController } from './adapter/in/http/content-generation-rerun.controller';
+import { ContentWorkspaceAttachmentController } from './adapter/in/http/content-workspace-attachment.controller';
 import { DetailPageAiController } from './adapter/in/http/detail-page-ai.controller';
 import { RenderImageController } from './adapter/in/http/render-image.controller';
 import { TextAiController } from './adapter/in/http/text-ai.controller';
@@ -66,6 +70,9 @@ import { ThumbnailRecomposeService } from './application/service/thumbnail-recom
 import { ThumbnailTrackingService } from './application/service/thumbnail-tracking.service';
 import { ThumbnailVisionAiService } from './application/service/thumbnail-vision-ai.service';
 import { ThumbnailWingService } from './application/service/thumbnail-wing.service';
+import { ContentArchiveService } from './application/service/content-archive.service';
+import { ContentGenerationRerunService } from './application/service/content-generation-rerun.service';
+import { ContentWorkspaceAttachmentService } from './application/service/content-workspace-attachment.service';
 
 // application/port — in
 import { POST_PROMOTION_AI_TRIGGER_PORT } from './application/port/in/post-promotion-ai-trigger.port';
@@ -87,7 +94,11 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
 @Module({
   imports: [ChannelsModule, AgentOsModule, AutomationModule],
   controllers: [
+    ContentArchiveController,
+    ContentArchiveLinkageController,
     ContentAssetController,
+    ContentGenerationRerunController,
+    ContentWorkspaceAttachmentController,
     CoupangImageSyncController,
     DetailPageAiController,
     ImageAiController,
@@ -105,7 +116,10 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     DetailPageAiService,
     DetailPageGenerationService,
     DetailPageAgentReconcileService,
+    ContentArchiveService,
     ContentAssetService,
+    ContentGenerationRerunService,
+    ContentWorkspaceAttachmentService,
     DetailPageGeneratedImagesService,
     DetailPageHeroImageService,
     DetailPagePrefillService,

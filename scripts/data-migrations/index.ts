@@ -1,5 +1,6 @@
 import { backfillSourcingCandidatesFromMasterProducts } from './v0.1.0/001_backfill_sourcing_candidates_from_master_products';
 import { rewriteLegacyDetailEditorAlertHrefs } from './v0.1.0/002_rewrite_legacy_detail_editor_alert_hrefs';
+import { backfillContentArchiveClassification } from './v0.1.0/003_backfill_content_archive_classification';
 import type { DataMigration } from './types';
 
 export {
@@ -10,6 +11,7 @@ export {
 export const dataMigrations: readonly DataMigration[] = [
   backfillSourcingCandidatesFromMasterProducts,
   rewriteLegacyDetailEditorAlertHrefs,
+  backfillContentArchiveClassification,
 ];
 
 export const DATA_MIGRATION_IDS = Object.freeze(

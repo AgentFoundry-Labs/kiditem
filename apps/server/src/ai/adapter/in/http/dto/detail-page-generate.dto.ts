@@ -7,7 +7,9 @@ import {
   IsUUID,
   MaxLength,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import {
   DETAIL_IMAGE_COUNTS,
   DETAIL_PAGE_AGE_GROUPS,
@@ -16,6 +18,32 @@ import {
   type DetailPageAgeGroup,
   type DetailPageTemplateId,
 } from '@kiditem/shared/ai';
+
+export class DetailPageSourceReferenceDto {
+  @IsIn(['sourcing_candidate', 'master_product', 'input_asset', 'content_generation'])
+  sourceType!: 'sourcing_candidate' | 'master_product' | 'input_asset' | 'content_generation';
+
+  @IsOptional()
+  @IsUUID()
+  sourceCandidateId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  masterId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  contentAssetId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  sourceContentGenerationId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  label?: string;
+}
 
 export class GenerateDetailPageBodyDto {
   @IsString()
@@ -69,6 +97,13 @@ export class GenerateDetailPageBodyDto {
   @IsString()
   @MaxLength(80)
   kcCertificationNumber?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => DetailPageSourceReferenceDto)
+  sourceReferences?: DetailPageSourceReferenceDto[];
 }
 
 export class PrefillDetailPageBodyDto {

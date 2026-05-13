@@ -25,7 +25,7 @@ export default function SourcingToolbar({
     <div className="flex items-center justify-between gap-3 px-5 h-12 border-b border-slate-200">
       <div className="flex items-center text-xs">
         <button className="px-3 h-7 font-semibold text-slate-900 border-b-2 border-emerald-500 -mb-[calc(0.75rem+1px)] pb-3">
-          콘텐츠 보관함
+          소스 후보
         </button>
       </div>
 
@@ -61,16 +61,16 @@ export default function SourcingToolbar({
           onClick={onToggleScrapeInput}
           className="h-7 px-3 border border-slate-200 bg-white text-slate-700 rounded-md font-medium hover:bg-slate-50 hover:border-slate-300"
         >
-          URL 수집
+          URL 소싱
         </button>
         <button className="h-7 px-3 border border-slate-200 bg-white text-slate-700 rounded-md font-medium hover:bg-slate-50 hover:border-slate-300">
-          엑셀 수집
+          엑셀 소싱
         </button>
         <Link
           href="/generate"
           className="h-7 px-3 ml-1 flex items-center bg-emerald-500 text-white rounded-md font-semibold hover:bg-emerald-600 transition-colors"
         >
-          상세페이지 일괄 생성
+          AI 생성 도구
         </Link>
       </div>
     </div>
