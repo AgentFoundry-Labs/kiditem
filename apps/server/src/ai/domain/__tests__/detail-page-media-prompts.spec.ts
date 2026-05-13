@@ -85,6 +85,12 @@ describe('detail-page media prompt builders', () => {
     expect(prompt).toContain('PRODUCT-LOCKED STUDIO CLEANUP');
     expect(prompt).toContain('replace only the background with a clean neutral white');
     expect(prompt).toContain('Never warp, bend, liquify, stretch, compress, mirror, or perspective-distort');
+    expect(prompt).toContain('SENSORY/SLIME CONTAINER HARD RULE');
+    expect(prompt).toContain('The playable material and the hard container are different objects');
+    expect(prompt).toContain('Slime is NOT a liquid');
+    expect(prompt).toContain('Never depict it as water, juice, syrup, paint, soap solution, or a pourable liquid');
+    expect(prompt).toContain('cohesive stretchy gel or soft semi-solid blob');
+    expect(prompt).toContain('Never show a hand squeezing, kneading, stretching, folding, crushing, or deforming a plastic container');
   });
 
   it('forces color guide images into clean centered studio product lineups', () => {
@@ -194,6 +200,8 @@ describe('detail-page media prompt builders', () => {
     expect(prompt).toContain('Alignment must look deliberate');
     expect(prompt).toContain('No split screen');
     expect(prompt).toContain('Keep original visible color variants and set quantity exactly as provided');
+    expect(prompt).toContain('SENSORY/SLIME CONTAINER HARD RULE');
+    expect(prompt).toContain('a valid usage photo shows the container opened nearby and the exposed material being touched separately');
   });
 
   it('keeps package inference from treating color lineups as package boxes', () => {

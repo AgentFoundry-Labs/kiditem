@@ -1,5 +1,9 @@
 import type { DetailImageCount, DetailPageAgeGroup } from '@kiditem/shared/ai';
 import type { DetailPageRawInput, DetailPageTemplateId } from './detail-page-ai.types';
+import type {
+  KcCertificationStatus,
+  UsageSectionMode,
+} from '../../domain/prompts/detail-page/types';
 
 /**
  * Helpers for the detail-page JSON snapshots stored on ContentGeneration.
@@ -136,6 +140,9 @@ export function normalizeStoredDetailPageRawInput(input: {
     templateId: input.templateId,
     ageGroup: pickStoredAgeGroup(rawInput),
     detailImageCount: pickStoredDetailImageCount(rawInput),
+    usageSectionMode: pickStoredUsageSectionMode(rawInput),
+    kcCertificationStatus: pickStoredKcCertificationStatus(rawInput),
+    kcCertificationNumber: pickStoredString(rawInput, 'kcCertificationNumber') ?? '',
   };
 }
 
@@ -211,6 +218,27 @@ function pickStoredAgeGroup(rawInput: unknown): DetailPageAgeGroup {
 function pickStoredDetailImageCount(rawInput: unknown): DetailImageCount {
   if (!rawInput || typeof rawInput !== 'object') return 'auto';
   const value = (rawInput as Record<string, unknown>).detailImageCount;
-  if (value === '1' || value === '2' || value === '3') return value;
+  if (
+    value === 'auto' ||
+    value === '1' ||
+    value === '2' ||
+    value === '3' ||
+    value === '4' ||
+    value === '5' ||
+    value === '6'
+  ) return value;
   return 'auto';
+}
+
+function pickStoredUsageSectionMode(rawInput: unknown): UsageSectionMode {
+  if (!rawInput || typeof rawInput !== 'object') return 'include';
+  const value = (rawInput as Record<string, unknown>).usageSectionMode;
+  return value === 'exclude' ? 'exclude' : 'include';
+}
+
+function pickStoredKcCertificationStatus(rawInput: unknown): KcCertificationStatus {
+  if (!rawInput || typeof rawInput !== 'object') return 'unknown';
+  const value = (rawInput as Record<string, unknown>).kcCertificationStatus;
+  if (value === 'none' || value === 'exists') return value;
+  return 'unknown';
 }

@@ -39,8 +39,11 @@ function resolveDefaultModel(definition: AgentDefinitionRecord): string {
   // Per-definition env first, then a single shared fallback.
   const value = resolveDefinitionDefaultModel(definition);
   if (!value || value.length === 0) {
+    const hint = definition.defaultAdapterType === 'gemini_image'
+      ? `set ${definition.defaultModelEnv} in .env for ${definition.defaultAdapterType}`
+      : `set ${definition.defaultModelEnv} or AGENT_DEFAULT_MODEL in .env`;
     throw new Error(
-      `Missing default model: set ${definition.defaultModelEnv} or AGENT_DEFAULT_MODEL in .env (no silent fallback).`,
+      `Missing default model: ${hint} (no silent fallback).`,
     );
   }
   return value;

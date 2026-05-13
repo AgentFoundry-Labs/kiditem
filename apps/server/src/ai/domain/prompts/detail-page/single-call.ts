@@ -25,6 +25,7 @@ import { Section11Schema } from './section-11-gallery';
 import {
   formatAudienceGuidance,
   formatImageCandidates,
+  formatProductUseGuidance,
   formatUsageSectionGuidance,
   type RawProductInput,
 } from './types';
@@ -219,6 +220,8 @@ heroImageMode: ${heroImageMode}
 주요 옵션/스펙: ${raw.rawOptions}
 사용 연령/표현 기준:
 ${formatAudienceGuidance(raw.ageGroup)}
+상품군/사용법 흐름 기준:
+${formatProductUseGuidance(raw)}
 사용법 영역 기준:
 ${formatUsageSectionGuidance(raw.usageSectionMode)}
 하단 전용 패키지/박스 후보 인덱스: ${reservedPackageImageIndices.length > 0 ? reservedPackageImageIndices.join(', ') : '없음'}
