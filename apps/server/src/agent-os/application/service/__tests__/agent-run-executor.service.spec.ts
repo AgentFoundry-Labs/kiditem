@@ -114,6 +114,7 @@ function makeExecutor(options: {
     : makeClaimedRequest();
   const repository = {
     claimNextRunRequest: vi.fn().mockResolvedValue(claimed),
+    claimRunRequestById: vi.fn().mockResolvedValue(claimed),
     findInstanceById: vi.fn().mockResolvedValue(instance),
     failClaimedRequest: vi.fn().mockResolvedValue(undefined),
     createRunForRequest: vi.fn().mockResolvedValue(makeRun()),
@@ -346,6 +347,45 @@ describe('AgentRunExecutor', () => {
         executed: false,
         reason: 'no_pending_request',
       });
+    });
+  });
+
+  describe('executeRequest', () => {
+    it('claims the requested row by id and runs the same execution path', async () => {
+      const { executor, repository } = makeExecutor({});
+      const result = await executor.executeRequest(
+        'detail-page-inline',
+        ORGANIZATION_ID,
+        REQUEST_ID,
+      );
+
+      expect(repository.claimRunRequestById).toHaveBeenCalledWith(
+        expect.objectContaining({
+          workerId: 'detail-page-inline',
+          organizationId: ORGANIZATION_ID,
+          requestId: REQUEST_ID,
+        }),
+      );
+      expect(repository.claimNextRunRequest).not.toHaveBeenCalled();
+      expect(result.executed).toBe(true);
+    });
+
+    it('returns request_not_claimable when the requested row is already claimed or terminal', async () => {
+      const { executor, repository } = makeExecutor({});
+      repository.claimRunRequestById.mockResolvedValueOnce(null);
+
+      const result = await executor.executeRequest(
+        'detail-page-inline',
+        ORGANIZATION_ID,
+        REQUEST_ID,
+      );
+
+      expect(result).toMatchObject({
+        executed: false,
+        requestId: REQUEST_ID,
+        reason: 'request_not_claimable',
+      });
+      expect(repository.findInstanceById).not.toHaveBeenCalled();
     });
   });
 

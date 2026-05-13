@@ -6,7 +6,7 @@
   src: url("/fonts/nanum-square-round/NanumSquareRoundOTFL.otf") format("opentype");
   font-weight: 300 500;
   font-style: normal;
-  font-display: swap;
+  font-display: block;
 }
 
 @font-face {
@@ -14,7 +14,7 @@
   src: url("/fonts/nanum-square-round/NanumSquareRoundOTFEB.otf") format("opentype");
   font-weight: 700 900;
   font-style: normal;
-  font-display: swap;
+  font-display: block;
 }
 
 @font-face {
@@ -22,7 +22,7 @@
   src: url("/fonts/jalnan2/Jalnan2TTF.ttf") format("truetype");
   font-weight: 400 900;
   font-style: normal;
-  font-display: swap;
+  font-display: block;
 }
 
 @theme {
@@ -32,5 +32,5 @@
 }
 
 img[data-field="heroImage"] {
-  mix-blend-mode: multiply;
+  mix-blend-mode: normal;
 }

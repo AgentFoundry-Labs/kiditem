@@ -13,9 +13,11 @@ import {
   ImagePlus,
   Images,
   Info,
+  ListChecks,
   Loader2,
   Package,
   Plus,
+  ShieldCheck,
   Sparkles,
   X,
 } from 'lucide-react';
@@ -27,6 +29,8 @@ import type {
   ColorVariantStatus,
   DetailImageCount,
   DetailPageAgeGroup,
+  KcCertificationStatus,
+  UsageSectionMode,
 } from '../hooks/useGenerateForm';
 
 const MAX_IMAGES = 15;
@@ -43,6 +47,12 @@ interface ProductInputSectionProps {
   setAgeGroup: (value: DetailPageAgeGroup) => void;
   detailImageCount: DetailImageCount;
   setDetailImageCount: (value: DetailImageCount) => void;
+  usageSectionMode: UsageSectionMode;
+  setUsageSectionMode: (value: UsageSectionMode) => void;
+  kcCertificationStatus: KcCertificationStatus;
+  setKcCertificationStatus: (value: KcCertificationStatus) => void;
+  kcCertificationNumber: string;
+  setKcCertificationNumber: (value: string) => void;
   rawDescription: string;
   setRawDescription: (value: string) => void;
   productSize: string;
@@ -83,10 +93,16 @@ const AGE_GROUP_OPTIONS: Array<{ value: DetailPageAgeGroup; label: string }> = [
 ];
 
 const DETAIL_IMAGE_COUNT_OPTIONS: Array<{ value: DetailImageCount; label: string }> = [
-  { value: 'auto', label: 'AI 추천 2~3개' },
-  { value: '1', label: '1개' },
   { value: '2', label: '2개' },
   { value: '3', label: '3개' },
+  { value: '4', label: '4개' },
+  { value: '5', label: '5개' },
+  { value: '6', label: '6개' },
+];
+
+const USAGE_SECTION_OPTIONS: Array<{ value: UsageSectionMode; label: string }> = [
+  { value: 'include', label: '포함' },
+  { value: 'exclude', label: '안 만듦' },
 ];
 
 export default function ProductInputSection({
@@ -100,6 +116,12 @@ export default function ProductInputSection({
   setAgeGroup,
   detailImageCount,
   setDetailImageCount,
+  usageSectionMode,
+  setUsageSectionMode,
+  kcCertificationStatus,
+  setKcCertificationStatus,
+  kcCertificationNumber,
+  setKcCertificationNumber,
   rawDescription,
   setRawDescription,
   productSize,
@@ -136,18 +158,19 @@ export default function ProductInputSection({
   };
 
   const handleImageUpload = async (e: ChangeEvent<HTMLInputElement>) => {
+    const input = e.currentTarget;
     const files = e.target.files;
     if (!files) return;
     const slotsLeft = Math.max(0, MAX_IMAGES - images.length);
     const selectedFiles = Array.from(files).slice(0, slotsLeft);
     if (selectedFiles.length === 0) {
-      e.currentTarget.value = '';
+      input.value = '';
       return;
     }
     setUploadError(null);
     setUploadingCount(selectedFiles.length);
     try {
-      const uploadedUrls = await Promise.all(
+      const results = await Promise.allSettled(
         selectedFiles.map(async (file) => {
           const formData = new FormData();
           formData.append('file', file);
@@ -155,17 +178,28 @@ export default function ProductInputSection({
             '/api/ai/detail-page/images',
             formData,
           );
-          return result.url;
+          return { name: file.name, url: result.url };
         }),
       );
-      setImages((prev) =>
-        moveSafetyLabelImagesToEnd([...prev, ...uploadedUrls]).slice(0, MAX_IMAGES),
-      );
-    } catch (err) {
-      setUploadError(err instanceof Error ? err.message : '이미지 업로드에 실패했습니다.');
+      const uploaded: string[] = [];
+      const failed: string[] = [];
+      results.forEach((r, idx) => {
+        if (r.status === 'fulfilled') uploaded.push(r.value.url);
+        else failed.push(selectedFiles[idx]?.name ?? `파일 ${idx + 1}`);
+      });
+      if (uploaded.length > 0) {
+        setImages((prev) =>
+          moveSafetyLabelImagesToEnd([...prev, ...uploaded]).slice(0, MAX_IMAGES),
+        );
+      }
+      if (failed.length > 0) {
+        setUploadError(
+          `${failed.length}개 이미지 업로드 실패: ${failed.join(', ')}`,
+        );
+      }
     } finally {
       setUploadingCount(0);
-      e.currentTarget.value = '';
+      input.value = '';
     }
   };
 
@@ -233,12 +267,12 @@ export default function ProductInputSection({
           </Field>
 
           <div className="grid gap-4 md:grid-cols-[1.25fr_0.75fr]">
-            <Field label="카테고리" required>
+            <Field label="카테고리">
               <input
                 type="text"
                 value={rawCategory}
                 onChange={(e) => setRawCategory(e.target.value)}
-                placeholder="예: 생활용품/리빙"
+                placeholder="비워두면 AI가 자동으로 채워요"
                 className="h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] px-3 text-sm font-medium text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--primary)]"
               />
             </Field>
@@ -247,7 +281,7 @@ export default function ProductInputSection({
             </Field>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-[1.2fr_0.8fr]">
+          <div className="grid gap-4 md:grid-cols-[1.2fr_0.8fr_0.8fr]">
             <Field label="사용 연령">
               <div className="grid grid-cols-2 gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] p-1">
                 {AGE_GROUP_OPTIONS.map((option) => (
@@ -263,6 +297,27 @@ export default function ProductInputSection({
                     )}
                   >
                     <GraduationCap size={15} />
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </Field>
+
+            <Field label="사용법 영역">
+              <div className="grid grid-cols-2 gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] p-1">
+                {USAGE_SECTION_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setUsageSectionMode(option.value)}
+                    className={cn(
+                      'inline-flex h-10 items-center justify-center gap-1.5 rounded-md text-sm font-black transition',
+                      usageSectionMode === option.value
+                        ? 'bg-[var(--surface)] text-[var(--primary)] shadow-sm ring-1 ring-[var(--border)]'
+                        : 'text-[var(--text-secondary)] hover:bg-[var(--surface)] hover:text-[var(--text-primary)]',
+                    )}
+                  >
+                    <ListChecks size={15} />
                     {option.label}
                   </button>
                 ))}
@@ -294,12 +349,40 @@ export default function ProductInputSection({
             </Field>
           </div>
 
-          <Field label="제품 주요 특징" required>
+          <Field label="KC 인증번호">
+            <div className="grid gap-3 md:grid-cols-[0.8fr_1.2fr]">
+              <SelectField
+                value={kcCertificationStatus}
+                onChange={(value) => setKcCertificationStatus(value as KcCertificationStatus)}
+                options={[
+                  { value: 'unknown', label: 'AI가 판단' },
+                  { value: 'none', label: '없음' },
+                  { value: 'exists', label: '있음' },
+                ]}
+              />
+              <div className="relative">
+                <ShieldCheck
+                  size={16}
+                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]"
+                />
+                <input
+                  type="text"
+                  value={kcCertificationNumber}
+                  onChange={(e) => setKcCertificationNumber(e.target.value)}
+                  placeholder="예: CB061R1234-1001"
+                  disabled={kcCertificationStatus === 'none'}
+                  className="h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] pl-9 pr-3 text-sm font-medium text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-50"
+                />
+              </div>
+            </div>
+          </Field>
+
+          <Field label="제품 주요 특징">
             <textarea
               value={rawDescription}
               onChange={(e) => setRawDescription(e.target.value)}
               rows={5}
-              placeholder="AI로 내용을 채우거나 직접 핵심 특징을 적어주세요."
+              placeholder="비워두면 AI가 채워요. 핵심 특징을 직접 적어도 됩니다."
               className="min-h-[132px] w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] px-4 py-3 text-sm leading-6 text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--primary)]"
             />
           </Field>
@@ -375,7 +458,7 @@ export default function ProductInputSection({
             </Field>
           </div>
 
-          <Field label="상품 이미지" required trailing={`${images.length} / ${MAX_IMAGES}`}>
+          <Field label="상품 이미지" required trailing={`필수 · ${images.length} / ${MAX_IMAGES}`}>
             <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] p-3">
               <div className="flex h-[116px] gap-3 overflow-x-auto pb-1">
                 <label
@@ -427,7 +510,7 @@ export default function ProductInputSection({
 
                 {images.length === 0 && (
                   <div className="flex h-[104px] min-w-[220px] items-center text-xs font-medium text-[var(--text-muted)]">
-                    상품 이미지를 추가하면 AI가 이미지 순서를 맞춰 상세페이지를 만듭니다.
+                    상세페이지 생성에는 상품 이미지가 최소 1장 필요합니다.
                   </div>
                 )}
               </div>
@@ -503,7 +586,7 @@ export default function ProductInputSection({
           <Info className="mt-0.5 shrink-0 text-[var(--primary)]" size={16} />
           <p className="text-xs font-semibold leading-5 text-[var(--text-secondary)]">
             생성 전 고지: 색상·디자인은 랜덤 출고될 수 있고 이미지와 구성품은 실제와 다를 수 있습니다.
-            사용법/설명서 이미지가 있으면 상세페이지에 사용법 안내 섹션으로 자동 반영됩니다.
+            사용법 영역은 생성 옵션 기준으로 포함하거나 숨길 수 있고, KC/바코드 이미지는 하단 안전표시로 분리됩니다.
           </p>
         </div>
         {isLoading && generationStartedAt && (
@@ -515,10 +598,10 @@ export default function ProductInputSection({
         <button
           type="button"
           onClick={onSubmit}
-          disabled={isLoading || !isFormValid}
+          disabled={isLoading || !isFormValid || uploadingCount > 0}
           className={cn(
             'inline-flex h-12 w-full max-w-[300px] items-center justify-center gap-2 rounded-full text-base font-bold text-white shadow-sm transition active:scale-[0.99]',
-            isLoading || !isFormValid
+            isLoading || !isFormValid || uploadingCount > 0
               ? 'cursor-not-allowed bg-[var(--text-muted)] opacity-60'
               : 'bg-neutral-950 hover:bg-neutral-800',
           )}
@@ -527,6 +610,11 @@ export default function ProductInputSection({
             <>
               <Loader2 size={18} className="animate-spin" />
               요청 등록 중
+            </>
+          ) : uploadingCount > 0 ? (
+            <>
+              <Loader2 size={18} className="animate-spin" />
+              이미지 업로드 중
             </>
           ) : (
             <>

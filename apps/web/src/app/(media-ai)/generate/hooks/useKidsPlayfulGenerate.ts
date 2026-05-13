@@ -26,6 +26,9 @@ export interface KidsPlayfulGenerateBody {
   heroImageMode?: 'first' | 'llm-pick';
   ageGroup?: DetailPageAgeGroup;
   detailImageCount?: DetailImageCount;
+  usageSectionMode?: 'include' | 'exclude';
+  kcCertificationStatus?: 'unknown' | 'none' | 'exists';
+  kcCertificationNumber?: string;
   /** sourcing MasterProduct.id — generate 페이지 직접 생성 시 omit */
   productId?: string;
   templateId?: DetailPageTemplateId;
@@ -42,8 +45,8 @@ export interface KidsPlayfulGenerationItem {
   imageUrls: string[];
   /** originalIndex → processed image URL (백그라운드로 채워짐) */
   processedImages: Record<string, string>;
-  /** "pending" | "processing" | "completed" | "failed" */
-  imageProcessingStatus: 'pending' | 'processing' | 'completed' | 'failed' | string;
+  /** "pending" | "processing" | "completed" | "failed" | "cancelled" */
+  imageProcessingStatus: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled' | string;
   imageProcessingError: string | null;
   createdAt: string;
 }
@@ -116,7 +119,7 @@ export function useKidsPlayfulGenerate() {
 
 /**
  * GET /api/ai/detail-page/:id — 단건 조회.
- * 에디터에서 ?kpId=... 쿼리로 진입 시 사용.
+ * product-content 에디터에서 ?generationId=... 쿼리로 진입 시 사용.
  *
  * 상세페이지 생성은 PR #213 부터 Agent OS 비동기 큐로 동작한다. 사용자가
  * 폼 제출 후 곧바로 에디터로 진입하면 row 가 아직 `pending`/`processing` 일
@@ -209,6 +212,46 @@ export function useKidsPlayfulGenerationDelete() {
     mutationFn: (id: string) =>
       apiClient.delete<{ ok: true }>(`/api/ai/detail-page/${id}`),
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['kp-generations'] });
+      qc.invalidateQueries({ queryKey: ['bold-generations'] });
+    },
+  });
+}
+
+/** POST /api/ai/detail-page/:id/cancel — 진행 중 생성 중단. */
+export function useKidsPlayfulGenerationCancel() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiClient.post<KidsPlayfulGenerationItem>(`/api/ai/detail-page/${id}/cancel`),
+    onMutate: async (id) => {
+      await Promise.all([
+        qc.cancelQueries({ queryKey: ['kp-generations'] }),
+        qc.cancelQueries({ queryKey: ['bold-generations'] }),
+      ]);
+      const markCancelled = (
+        old: KidsPlayfulGenerationItem[] | undefined,
+      ): KidsPlayfulGenerationItem[] | undefined =>
+        old?.map((item) =>
+          item.id === id
+            ? {
+                ...item,
+                imageProcessingStatus: 'cancelled',
+                imageProcessingError: '사용자 요청으로 생성이 중단되었습니다.',
+              }
+            : item,
+        );
+
+      qc.setQueriesData<KidsPlayfulGenerationItem[]>(
+        { queryKey: ['kp-generations'] },
+        markCancelled,
+      );
+      qc.setQueriesData<KidsPlayfulGenerationItem[]>(
+        { queryKey: ['bold-generations'] },
+        markCancelled,
+      );
+    },
+    onSettled: () => {
       qc.invalidateQueries({ queryKey: ['kp-generations'] });
       qc.invalidateQueries({ queryKey: ['bold-generations'] });
     },

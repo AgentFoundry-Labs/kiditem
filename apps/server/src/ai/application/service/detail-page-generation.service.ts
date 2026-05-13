@@ -5,6 +5,7 @@ import {
   HttpStatus,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -43,7 +44,13 @@ import {
   looksLikeSafetyLabelImage,
   moveSafetyLabelImagesToEnd,
 } from '../../domain/detail-page-image-order';
-import type { DetailImageCount, DetailPageAgeGroup } from '../../domain/prompts/detail-page/types';
+import type {
+  DetailImageCount,
+  DetailPageAgeGroup,
+  KcCertificationStatus,
+  UsageSectionMode,
+} from '../../domain/prompts/detail-page/types';
+import { normalizeKcCertificationNumber } from '../../domain/prompts/detail-page/types';
 import type {
   DetailPageGenerationDto,
   DetailPageRawInput,
@@ -54,13 +61,33 @@ import { DetailPageGeneratedImagesService } from './detail-page-generated-images
 import { DetailPageQueryService } from './detail-page-query.service';
 import { DetailPageResultRefinerService } from './detail-page-result-refiner.service';
 import {
-  detailPageEditorHref,
   detailPageOperationKey,
+  detailPageResultHref,
   serializeDetailPageStoredJson,
 } from './detail-page-stored.helpers';
 
+const DETAIL_PAGE_PROCESSING_STATUSES = [
+  'PENDING',
+  'PROCESSING',
+  'generating',
+  'pending',
+  'processing',
+];
+const DETAIL_PAGE_TERMINAL_STATUSES = new Set([
+  'READY',
+  'FAILED',
+  'CANCELLED',
+  'completed',
+  'failed',
+  'cancelled',
+]);
+const DETAIL_PAGE_CANCELLED_MESSAGE = '사용자 요청으로 생성이 중단되었습니다.';
+const DETAIL_PAGE_IMAGE_REQUIRED_MESSAGE = '상세페이지 생성에는 상품 이미지가 최소 1장 필요합니다.';
+
 @Injectable()
 export class DetailPageGenerationService {
+  private readonly logger = new Logger(DetailPageGenerationService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     @Inject(TEXT_COMPLETION_PORT)
@@ -100,8 +127,14 @@ export class DetailPageGenerationService {
     const heroImageMode = dto.heroImageMode ?? 'llm-pick';
     const templateId = dto.templateId ?? 'kids-playful';
     const ageGroup: DetailPageAgeGroup = dto.ageGroup ?? 'age-8-plus';
-    const detailImageCount: DetailImageCount = dto.detailImageCount ?? 'auto';
-    const imageUrls = moveSafetyLabelImagesToEnd(dto.imageUrls);
+    const detailImageCount: DetailImageCount = dto.detailImageCount ?? '2';
+    const usageSectionMode: UsageSectionMode = dto.usageSectionMode ?? 'include';
+    const kcCertificationStatus: KcCertificationStatus = dto.kcCertificationStatus ?? 'unknown';
+    const kcCertificationNumber = normalizeKcCertificationNumber(dto.kcCertificationNumber);
+    const imageUrls = moveSafetyLabelImagesToEnd(dto.imageUrls ?? []);
+    if (imageUrls.length === 0) {
+      throw new BadRequestException(DETAIL_PAGE_IMAGE_REQUIRED_MESSAGE);
+    }
     const rawInput: DetailPageRawInput = {
       rawTitle: dto.rawTitle,
       rawCategory: dto.rawCategory,
@@ -112,6 +145,9 @@ export class DetailPageGenerationService {
       templateId,
       ageGroup,
       detailImageCount,
+      usageSectionMode,
+      kcCertificationStatus,
+      kcCertificationNumber,
     };
 
     if (dto.productId) {
@@ -220,7 +256,7 @@ export class DetailPageGenerationService {
       actorUserId: input.triggeredByUserId,
       targetType: 'master',
       targetId: input.productId,
-      href: detailPageEditorHref({
+      href: detailPageResultHref({
         productId: input.productId,
         contentGenerationId: row.id,
         templateId: input.templateId,
@@ -247,6 +283,9 @@ export class DetailPageGenerationService {
             imageUrls: input.rawInput.imageUrls,
             ageGroup: input.rawInput.ageGroup,
             detailImageCount: input.rawInput.detailImageCount,
+            usageSectionMode: input.rawInput.usageSectionMode,
+            kcCertificationStatus: input.rawInput.kcCertificationStatus,
+            kcCertificationNumber: input.rawInput.kcCertificationNumber,
           },
           heroImageMode: input.heroImageMode,
         },
@@ -275,6 +314,11 @@ export class DetailPageGenerationService {
       throw new HttpException(errorMessage, HttpStatus.SERVICE_UNAVAILABLE);
     }
 
+    this.kickEnqueuedAgentRequest({
+      organizationId: input.organizationId,
+      requestId: enqueueResult.requestId,
+    });
+
     return this.query.toDto({
       id: row.id,
       masterId: row.masterId,
@@ -286,6 +330,66 @@ export class DetailPageGenerationService {
       errorMessage: null,
       createdAt: row.createdAt,
     });
+  }
+
+  private kickEnqueuedAgentRequest(input: {
+    organizationId: string;
+    requestId?: string;
+  }): void {
+    if (!input.requestId || !this.agentRunner.executeRequest) return;
+
+    void this.agentRunner.executeRequest({
+      organizationId: input.organizationId,
+      requestId: input.requestId,
+      workerId: 'detail-page-generate-inline',
+    }).catch((error) => {
+      this.logger.warn(
+        `Failed to kick detail_page_generate request ${input.requestId}: ${error}`,
+      );
+    });
+  }
+
+  async cancel(id: string, organizationId: string): Promise<DetailPageGenerationDto> {
+    const row = await this.prisma.contentGeneration.findFirst({
+      where: { id, organizationId },
+    });
+    if (!row) throw new NotFoundException('Detail page generation not found');
+
+    if (DETAIL_PAGE_TERMINAL_STATUSES.has(row.status)) {
+      return this.query.toDto(row);
+    }
+
+    const updated = await this.prisma.contentGeneration.updateMany({
+      where: {
+        id,
+        organizationId,
+        status: { in: DETAIL_PAGE_PROCESSING_STATUSES },
+      },
+      data: {
+        status: 'CANCELLED',
+        errorMessage: DETAIL_PAGE_CANCELLED_MESSAGE,
+      },
+    });
+
+    if (updated.count > 0) {
+      await this.agentRunner.cancelBySource?.({
+        organizationId,
+        sourceType: AI_AGENT_SOURCE_TYPES.DETAIL_PAGE_GENERATE,
+        sourceResourceType: 'content_generation',
+        sourceResourceId: id,
+        reason: DETAIL_PAGE_CANCELLED_MESSAGE,
+      });
+
+      await this.operationAlerts.cancel(organizationId, detailPageOperationKey(id), {
+        message: DETAIL_PAGE_CANCELLED_MESSAGE,
+        metadata: { errorCode: 'user_cancelled' },
+      });
+    }
+
+    const reloaded = await this.prisma.contentGeneration.findFirst({
+      where: { id, organizationId },
+    });
+    return this.query.toDto(reloaded ?? row);
   }
 
   private pickProductName(

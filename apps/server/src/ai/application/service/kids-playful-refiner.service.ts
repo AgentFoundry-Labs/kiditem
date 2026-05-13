@@ -48,7 +48,7 @@ export class KidsPlayfulRefinerService {
 
   applyKidsPlayfulImageSelectionRules(
     parsed: DetailPageGeneration,
-    rawInput: { imageUrls: string[] },
+    rawInput: { imageUrls: string[]; usageSectionMode?: 'include' | 'exclude' },
     context?: KidsPlayfulImageContext,
   ): DetailPageGeneration {
     const packageImageIndices = new Set(context?.packageImageIndices ?? []);
@@ -118,6 +118,7 @@ export class KidsPlayfulRefinerService {
 
     return {
       ...parsed,
+      usageEnabled: rawInput.usageSectionMode !== 'exclude',
       section1: {
         ...parsed.section1,
         heroImageIndex: section1HeroImageIndex,

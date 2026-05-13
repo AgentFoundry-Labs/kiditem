@@ -37,7 +37,10 @@ export const DetailPageGenerateAgentInputSchema = z.object({
       rawOptions: z.string().optional().default(''),
       imageUrls: z.array(z.string()).default([]),
       ageGroup: DetailPageAgeGroupSchema.optional().default('age-8-plus'),
-      detailImageCount: DetailImageCountSchema.optional().default('auto'),
+      detailImageCount: DetailImageCountSchema.optional().default('2'),
+      usageSectionMode: z.enum(['include', 'exclude']).optional().default('include'),
+      kcCertificationStatus: z.enum(['unknown', 'none', 'exists']).optional().default('unknown'),
+      kcCertificationNumber: z.string().max(80).optional().default(''),
     })
     .passthrough(),
   heroImageMode: z.enum(['first', 'llm-pick']).default('first'),

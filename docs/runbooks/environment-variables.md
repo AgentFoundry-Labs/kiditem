@@ -68,7 +68,13 @@ Local development:
   agents read `agents/.env` first, and root `.env` is only a fallback for
   shared local tooling values.
 - Root `.env` should stay narrow: Prisma CLI, Supabase bootstrap/admin sync,
-  and shared dev-data paths.
+  shared dev-data paths, and the Agent OS seed model used by
+  `npm run seed:agent-os`.
+- Product-bound detail page and thumbnail generation are Agent OS jobs even
+  when the local background worker is disabled. For local preview, keep a text
+  model in `AGENT_DEFAULT_MODEL` or `AGENT_DETAIL_PAGE_GENERATE_MODEL`, and set
+  `AGENT_THUMBNAIL_GENERATE_MODEL` explicitly to the image generation model in
+  `apps/server/.env`.
 - Local app env may include developer conveniences, local DB URLs, and optional
   provider keys for testing a feature.
 - Local env must not be copied to staging or production as-is.
@@ -123,6 +129,10 @@ AI_TEXT_MODEL
 AI_IMAGE_MODEL
 AI_IMAGE_ANALYSIS_MODEL
 AI_IMAGE_ANALYSIS_VERIFY_MODEL
+AGENT_RUNTIME_WORKER_ENABLED
+AGENT_DEFAULT_MODEL
+AGENT_DETAIL_PAGE_GENERATE_MODEL
+AGENT_THUMBNAIL_GENERATE_MODEL
 ```
 
 Web container, current staging shape:
@@ -196,8 +206,8 @@ text/detail/thumbnail AI features are enabled.
 | Variable | Required when | Consumed by | Notes |
 |---|---|---|---|
 | `GEMINI_API_KEY` | Gemini text, image, or vision paths are used | Gemini text and thumbnail adapters | Missing key returns explicit service errors. |
-| `AI_TEXT_MODEL` | Text transform, detail page prefill, standalone detail generation | Text AI/detail page services | No silent fallback. |
-| `AI_IMAGE_MODEL` | Thumbnail/image generation or editing | Thumbnail Gemini config | Do not use deprecated preview IDs called out by the config. |
+| `AI_TEXT_MODEL` | Text transform, detail page prefill, standalone detail generation | Text AI/detail page services | No silent fallback. Product-bound Agent OS detail generation uses `AGENT_DETAIL_PAGE_GENERATE_MODEL` or `AGENT_DEFAULT_MODEL` for its text call. |
+| `AI_IMAGE_MODEL` | Thumbnail editor image generation and detail-page generated images | Thumbnail Gemini config and detail-page media adapter | Reached only when image inputs exist; not used as the Agent OS run model. Do not use deprecated preview IDs called out by the config. |
 | `AI_IMAGE_ANALYSIS_MODEL` | Thumbnail/image analysis | Thumbnail Gemini config | No silent fallback. |
 | `AI_IMAGE_ANALYSIS_VERIFY_MODEL` | Thumbnail compliance verify path | Thumbnail Gemini config | No silent fallback. |
 | `OPENAI_API_KEY` | Not currently used by deployed API/web code | Python agents or future providers | Staging may have it set, but current API code does not read it directly. |
@@ -213,17 +223,17 @@ enabled and covered by an operator runbook.
 | `AGENT_RUNTIME_WORKER_ENABLED` | Background Agent OS execution should run | Agent run worker | Default is disabled. Use `1` or `true` only after handlers and model env are ready. |
 | `AGENT_RUNTIME_WORKER_INTERVAL_MS` | Worker enabled and custom tick interval needed | Agent run worker | Defaults to `2000`. |
 | `AGENT_RUNTIME_ALLOW_NOOP` | Isolated dev/test only | Routing runtime adapter | Never set in shared staging/prod. |
-| `AGENT_DEFAULT_MODEL` | Any Agent OS definition should share one default model | Agent definition registry | Used only when a per-agent model env is empty. |
+| `AGENT_DEFAULT_MODEL` | Any Agent OS definition should share one default model | Agent definition registry and Agent OS seed | Used only when a per-agent model env is empty. Local `npm run seed:agent-os` reads this from root `.env`; API runtime reads it from `apps/server/.env`. |
 | `AGENT_MANAGER_MODEL` | Manager agent enabled | Agent definition registry | Per-agent override. |
 | `AGENT_RULES_EVALUATION_MODEL` | Rules evaluation agent enabled | Agent definition registry | Per-agent override. |
 | `AGENT_RULES_SUGGEST_MODEL` | Rules suggestion agent enabled | Agent definition registry | Per-agent override. |
 | `AGENT_AD_STRATEGY_MODEL` | Ad strategy agent enabled | Agent definition registry | Per-agent override. |
 | `AGENT_SOURCING_MODEL` | Sourcing agent enabled | Agent definition registry | Per-agent override. |
 | `AGENT_THUMBNAIL_ANALYST_MODEL` | Thumbnail analyst agent enabled | Agent definition registry | Per-agent override. |
-| `AGENT_IMAGE_EDIT_MODEL` | Python-backed image edit agent enabled | Agent definition registry | Requires a Python agent runtime, not just the API container. |
-| `AGENT_THUMBNAIL_AUTO_EDIT_MODEL` | Python-backed auto edit agent enabled | Agent definition registry | Requires a Python agent runtime, not just the API container. |
-| `AGENT_DETAIL_PAGE_GENERATE_MODEL` | Async detail page generation enabled | Agent definition registry | Required unless `AGENT_DEFAULT_MODEL` is set. |
-| `AGENT_THUMBNAIL_GENERATE_MODEL` | Async thumbnail generation enabled | Agent definition registry | Required unless `AGENT_DEFAULT_MODEL` is set. |
+| `AGENT_IMAGE_EDIT_MODEL` | Python-backed image edit agent enabled | Agent definition registry | Use the image edit/generation model, currently `gemini-3.1-flash-image-preview`. Requires a Python agent runtime, not just the API container. |
+| `AGENT_THUMBNAIL_AUTO_EDIT_MODEL` | Python-backed auto edit agent enabled | Agent definition registry | Use the image edit/generation model, currently `gemini-3.1-flash-image-preview`. Requires a Python agent runtime, not just the API container. |
+| `AGENT_DETAIL_PAGE_GENERATE_MODEL` | Async detail page generation enabled | Agent definition registry | Text/detail content model. Required unless `AGENT_DEFAULT_MODEL` is set. |
+| `AGENT_THUMBNAIL_GENERATE_MODEL` | Async thumbnail generation enabled | Agent definition registry | Use the image edit/generation model, currently `gemini-3.1-flash-image-preview`; set explicitly so this agent does not inherit a text-only `AGENT_DEFAULT_MODEL`. |
 | `AGENT_CHAT_MODEL` | Chatbot agent enabled | Agent definition registry | Required unless `AGENT_DEFAULT_MODEL` is set. |
 | `ANTHROPIC_API_KEY` | Claude CLI uses Anthropic API key auth | Claude CLI env allowlist | Passed only to the Claude child process. |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Claude CLI uses OAuth token auth | Claude CLI env allowlist | Passed only to the Claude child process. |
@@ -281,13 +291,10 @@ variables apply when running `agents/` as a separate runtime.
 | `VECTORENGINE_API_KEY` | `AI_MODE=proxy` | Python AI client | Proxy API key. |
 | `OPENAI_API_KEY` | Direct OpenAI model/provider path | Python AI client | Provider-specific direct mode. |
 | `GEMINI_API_KEY` | Direct Gemini model/provider path | Python AI client | Provider-specific direct mode. |
-| `FAL_KEY` | fal.ai image edit models | Python AI/image clients | Server-only. |
 | `AI_TEXT_MODEL` | Text generation agents | Python content agents | No silent fallback. |
-| `AI_IMAGE_MODEL` | Image generation/edit agents | Python image agents | No silent fallback. |
+| `AI_IMAGE_MODEL` | Image generation/edit agents | Python image agents | Use the shared image generation/edit model, currently `gemini-3.1-flash-image-preview`. No silent fallback. |
 | `AI_IMAGE_ANALYSIS_MODEL` | Vision analysis agents | Python content agents | No silent fallback. |
-| `AI_IMAGE_EDIT_MODEL` | Template pipeline image edit | Python template pipeline | No silent fallback when feature is used. |
-| `AI_IMAGE_DETAIL_MODEL` | Detail image edit | Python template pipeline | Optional path-specific model. |
-| `AI_IMAGE_EDIT_SIZE_MODEL` | Size chart/image edit | Python image edit/template pipeline | Optional path-specific model. |
+| `AI_IMAGE_EDIT_SIZE_MODEL` | Size chart / color-guide multi-image edit | Python image edit agent | Use `gemini-3.1-flash-image-preview`. Optional path-specific model. |
 | `DETAIL_PAGE_TEMPLATE` | Default template selection needed | Python config | Defaults to `bold_vertical`. |
 | `TMAPI_TOKEN` | 1688/TMAPI sourcing matcher enabled | Python sourcing matcher | Optional unless matcher is used. |
 | `TMAPI_BASE_URL` | Custom TMAPI endpoint needed | Python sourcing matcher | Defaults in code. |
@@ -352,7 +359,9 @@ ssh -i "$STAGING_SSH_KEY" "$STAGING_USER@$STAGING_HOST" '
     for k in OPENAI_API_KEY GEMINI_API_KEY AI_TEXT_MODEL AI_IMAGE_MODEL \
       AI_IMAGE_ANALYSIS_MODEL AI_IMAGE_ANALYSIS_VERIFY_MODEL \
       CHANNEL_CREDENTIALS_ENCRYPTION_KEY \
-      AGENT_RUNTIME_WORKER_ENABLED AGENT_DEFAULT_MODEL ANTHROPIC_API_KEY \
+      AGENT_RUNTIME_WORKER_ENABLED AGENT_DEFAULT_MODEL \
+      AGENT_DETAIL_PAGE_GENERATE_MODEL AGENT_THUMBNAIL_GENERATE_MODEL \
+      ANTHROPIC_API_KEY \
       CLAUDE_CODE_OAUTH_TOKEN; do
         eval v=\${$k-}
         if [ -n "$v" ]; then

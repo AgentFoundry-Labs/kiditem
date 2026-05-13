@@ -11,17 +11,7 @@ import { KidsPlayfulRefinerService } from './kids-playful-refiner.service';
 
 /**
  * Public facade for detail-page result refinement. Composes two specialized
- * services per template:
- *
- *   - `BoldVerticalRefinerService` — owns the bold-vertical pipeline plus
- *     `suppressProductInfoWhenSafetyLabelExists` (used by
- *     `DetailPageQueryService` on stored bold-vertical results).
- *   - `KidsPlayfulRefinerService` — owns kids-playful pre-LLM context
- *     preparation and post-LLM image selection rules.
- *
- * Callers (`DetailPageGenerationService`, the agent runtime handler, and
- * `DetailPageQueryService`) bind to this facade so the public surface is
- * unchanged across the split.
+ * services per template while keeping the caller-facing API stable.
  */
 @Injectable()
 export class DetailPageResultRefinerService {
@@ -39,7 +29,7 @@ export class DetailPageResultRefinerService {
 
   applyKidsPlayfulImageSelectionRules(
     parsed: DetailPageGeneration,
-    rawInput: { imageUrls: string[] },
+    rawInput: { imageUrls: string[]; usageSectionMode?: 'include' | 'exclude' },
     context?: KidsPlayfulImageContext,
   ): DetailPageGeneration {
     return this.kidsPlayful.applyKidsPlayfulImageSelectionRules(parsed, rawInput, context);

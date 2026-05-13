@@ -54,6 +54,10 @@ export class DetailPageAiService {
     return this.query.getById(id, organizationId);
   }
 
+  cancel(id: string, organizationId: string): Promise<DetailPageGenerationDto> {
+    return this.generation.cancel(id, organizationId);
+  }
+
   remove(id: string, organizationId: string): Promise<{ ok: true }> {
     return this.query.remove(id, organizationId);
   }

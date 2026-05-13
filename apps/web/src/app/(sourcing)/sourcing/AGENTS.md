@@ -2,9 +2,10 @@
 
 Sourcing UI 는 두 단계: **후보 리스트** 와 **후보 상세 + 액션(promote / reject)**.
 
-후보 단계에는 AI 편집기 / 상세페이지 편집기 surface 가 없다. AI 생성 / 편집은 master-side 기존 surfaces 재사용:
+후보 단계에는 AI 편집기 / 상세페이지 편집기 surface 가 없다. AI 생성 / 편집은 master-side surfaces 재사용:
 
 - 상세페이지 생성/편집 → `/generate?productId={master.id}` `(media-ai)/generate/`
+- 상세페이지 결과 관리/에디터 → `/product-content/{master.id}` 또는 `/product-content/{master.id}/editor?generationId=...`
 - 썸네일 편집 → `/thumbnail-editor/edit?productId={master.id}&mode=edit&editCase=single` `(media-ai)/thumbnail-editor/`
 
 후보 페이지는 source 데이터 read-only 표시 + promote / reject 액션만.
@@ -27,7 +28,6 @@ sourcing/
     ThumbnailGrid.tsx, TagEditor.tsx
   hooks/                                            useProcessingIds, useScrapeUrl
   lib/sourcing-api.ts                               SourcedProduct + productsApi + candidatesApi
-  lib/template-html.tsx                             @kiditem/templates → 단일 HTML 문서. media-ai/generate 가 소비.
   lib/types.ts                                      ProductEditState, mapProcessedData, PLACEHOLDER_DATA
 ```
 
@@ -42,7 +42,7 @@ sourcing/
 ## Detail Page
 
 - `useProductDetail(candidateId)` → `productsApi.getDetail(id)` → `/api/sourcing/:id` 단건.
-- 탭: `basic` (기본정보 — 카테고리/이름/태그/상품정보, 편집은 로컬 미리보기 상태), `options` (placeholder), `detail` / `history` (master-side 안내 placeholder), `raw` (source rawData 표시 read-only).
+- 탭: `basic` (기본정보 — 카테고리/이름/태그/상품정보, 편집은 로컬 미리보기 상태), `options` (placeholder), `detail` / `history` (master-side product-content 안내 placeholder), `raw` (source rawData 표시 read-only).
 - **DB write 없음.** 후보 자체 mutation 은 promote / reject 두 use-case 만 (`candidatesApi.{promote,reject}`).
 
 ## Promote / Reject
@@ -53,7 +53,7 @@ sourcing/
 
 ## Hard Bans
 
-- 후보에 AI 생성/편집 surface 다시 추가하지 말 것. AI 작업은 master-side `(media-ai)/generate`, `(media-ai)/thumbnail-editor/edit` 가 소유.
+- 후보에 AI 생성/편집 surface 다시 추가하지 말 것. AI 작업은 master-side `(media-ai)/generate`, `(catalog)/product-content`, `(media-ai)/thumbnail-editor/edit` 가 소유.
 - Direct DB update from this page.
 - `setInterval` 폴링. `refetchInterval` 사용.
 - `organizationId` 를 body/query 에 보내지 말 것.
@@ -66,4 +66,4 @@ sourcing/
 | 후보 status 머신 | `@kiditem/shared/sourcing` candidate-status + backend service |
 | promote / reject DTO | `lib/sourcing-api.candidatesApi` + backend DTO |
 | 폴링 조건 | `isInProgress(status)` 사용 (status='sourced' 만 polling) |
-| master-side 편집 경로 | `(media-ai)/generate`, `(media-ai)/thumbnail-editor/edit` 라우트 + ProductTabContent 의 placeholder 링크 |
+| master-side 편집 경로 | `(catalog)/product-content`, `(media-ai)/generate`, `(media-ai)/thumbnail-editor/edit` 라우트 + ProductTabContent 의 placeholder 링크 |

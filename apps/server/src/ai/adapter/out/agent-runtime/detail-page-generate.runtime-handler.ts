@@ -122,6 +122,9 @@ export class DetailPageGenerateRuntimeHandler
       templateId,
       ageGroup: raw.ageGroup,
       detailImageCount: raw.detailImageCount,
+      usageSectionMode: raw.usageSectionMode,
+      kcCertificationStatus: raw.kcCertificationStatus,
+      kcCertificationNumber: raw.kcCertificationNumber,
     };
 
     // Kids-playful prompt + image-selection rules need the package /

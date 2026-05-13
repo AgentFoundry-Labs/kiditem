@@ -52,6 +52,7 @@ function HeroSection({ d }: { d: DetailPageData }) {
     .map((line) => line.trim())
     .filter(Boolean)
     .slice(0, 2);
+  const featureCopy = featureLines.join(' ');
 
   return (
     <section data-section="hero" className="bg-[var(--theme-bg-light)]">
@@ -108,14 +109,9 @@ function HeroSection({ d }: { d: DetailPageData }) {
         <div className="w-64 h-0.5 bg-[var(--theme-main)] opacity-40 mt-6" />
 
         <div data-field="description" className="mt-6 flex flex-col items-center gap-3 text-lg md:text-xl font-bold text-[var(--theme-text-primary)]">
-          {featureLines.length > 0 && (
+          {featureCopy && (
             <p className="leading-relaxed">
-              {featureLines.map((line, i) => (
-                <span key={i}>
-                  {line}
-                  {i < featureLines.length - 1 && <br />}
-                </span>
-              ))}
+              {featureCopy}
             </p>
           )}
           <p className="leading-relaxed text-[var(--theme-main)]">
@@ -131,13 +127,19 @@ function HeroSection({ d }: { d: DetailPageData }) {
       </div>
 
       {d.images.length > 0 && (
-        <div className="mt-16 bg-[var(--theme-bg-light)] px-4 py-8">
+        <div className="mt-16 h-[560px] w-full overflow-hidden bg-white md:h-[640px]">
           <img
             data-field="heroImage"
             src={d.images[0]}
             alt={d.title}
-            className="w-[70%] max-w-[70%] mx-auto h-auto"
-            style={{ mixBlendMode: 'multiply' }}
+            className="block h-full w-full max-w-none object-cover"
+            style={{
+              display: 'block',
+              width: '100%',
+              maxWidth: 'none',
+              height: '100%',
+              objectFit: 'cover',
+            }}
           />
         </div>
       )}
@@ -182,6 +184,13 @@ function SizeGuideSection({ d }: { d: DetailPageData }) {
   const showHeightGuide = d.sizeGuideOverlay && d.sizeHeightLabel.trim() !== '';
   const showWidthGuide = d.sizeGuideOverlay && d.sizeWidthLabel.trim() !== '';
   const productName = productSentenceName(d);
+  const sizeGuideLabelStyle: CSSProperties = {
+    color: '#111827',
+    fontSize: 'clamp(24px, 4vw, 34px)',
+    lineHeight: 1,
+    fontWeight: 900,
+    whiteSpace: 'nowrap',
+  };
 
   return (
     <div data-section="sizeImages">
@@ -213,14 +222,14 @@ function SizeGuideSection({ d }: { d: DetailPageData }) {
               <div
                 style={{
                   display: 'inline-grid',
-                  gridTemplateColumns: showHeightGuide ? '64px minmax(0, max-content)' : 'minmax(0, max-content)',
+                  gridTemplateColumns: showHeightGuide ? '52px minmax(0, max-content) 52px' : 'minmax(0, max-content)',
                   gridTemplateRows: showWidthGuide ? 'auto 58px' : 'auto',
-                  columnGap: showHeightGuide ? 16 : 0,
+                  columnGap: showHeightGuide ? 10 : 0,
                   alignItems: 'stretch',
                   justifyContent: 'center',
                   justifyItems: 'center',
                   maxWidth: '100%',
-                  width: '78%',
+                  width: 'fit-content',
                 }}
               >
                 {showHeightGuide && (
@@ -255,11 +264,7 @@ function SizeGuideSection({ d }: { d: DetailPageData }) {
                         left: '50%',
                         transform: 'translate(-50%, -50%) rotate(-90deg)',
                         transformOrigin: 'center',
-                        color: '#111827',
-                        fontSize: 'clamp(24px, 4vw, 34px)',
-                        lineHeight: 1,
-                        fontWeight: 900,
-                        whiteSpace: 'nowrap',
+                        ...sizeGuideLabelStyle,
                       }}
                     >
                       {d.sizeHeightLabel}
@@ -318,11 +323,7 @@ function SizeGuideSection({ d }: { d: DetailPageData }) {
                         left: '50%',
                         top: 14,
                         transform: 'translateX(-50%)',
-                        color: '#111827',
-                        fontSize: 'clamp(26px, 4.4vw, 38px)',
-                        lineHeight: 1,
-                        fontWeight: 900,
-                        whiteSpace: 'nowrap',
+                        ...sizeGuideLabelStyle,
                       }}
                     >
                       {d.sizeWidthLabel}
@@ -533,7 +534,7 @@ function PointSection({ d }: { d: DetailPageData }) {
           )}
 
           {packageSectionImages.length > 0 && (
-            <div data-container="detailPackageImages" className="mt-12 px-6 max-w-2xl mx-auto">
+            <div data-container="detailPackageImages" className="mt-24 px-6 max-w-2xl mx-auto">
               <div className="mb-6 text-center font-black text-[var(--theme-text-primary)]">
                 <p className="text-2xl md:text-3xl">{normalizePackageLabel(d.detailPackageLabel)}</p>
                 <p className="mt-3 inline-block rounded-full bg-sky-100 px-6 py-2 text-lg md:text-xl text-sky-700">

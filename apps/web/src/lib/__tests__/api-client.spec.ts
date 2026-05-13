@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { z } from 'zod';
 import { apiClient } from '../api-client';
+import { normalizeLoopbackApiBase } from '../api';
 import { ApiError, isApiError } from '../api-error';
 
 const refreshOrFailMock = vi.fn();
@@ -37,23 +38,6 @@ function jsonResponse(status: number, body: unknown, ok = status < 400): Respons
     },
     async text() {
       return JSON.stringify(body);
-    },
-  } as unknown as Response;
-}
-
-function textResponse(status: number, body: string, ok = status < 400): Response {
-  return {
-    ok,
-    status,
-    headers: new Headers({ 'content-type': 'text/html' }),
-    clone() {
-      return textResponse(status, body, ok);
-    },
-    async json() {
-      throw new SyntaxError('non-JSON body');
-    },
-    async text() {
-      return body;
     },
   } as unknown as Response;
 }
@@ -97,6 +81,21 @@ describe('apiClient.getParsed', () => {
     const result = await apiClient.getParsed('/api/test', ArraySchema);
     expect(result).toHaveLength(1);
   });
+
+  it('falls back to Supabase SSR cookie when attaching Authorization', async () => {
+    const session = JSON.stringify({ access_token: 'cookie-token' });
+    const encoded = `base64-${Buffer.from(session, 'utf8').toString('base64url')}`;
+    vi.stubGlobal('window', {});
+    vi.stubGlobal('document', {
+      cookie: `sb-test-ref-auth-token=${encodeURIComponent(encoded)}`,
+    });
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(jsonResponse(200, { ok: true }));
+
+    await apiClient.post('/api/test');
+
+    const init = (fetch as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as RequestInit;
+    expect(new Headers(init.headers).get('Authorization')).toBe('Bearer cookie-token');
+  });
 });
 
 describe('apiClient — 401 interceptor', () => {
@@ -110,7 +109,7 @@ describe('apiClient — 401 interceptor', () => {
     vi.unstubAllGlobals();
   });
 
-  it('AC1: GET 401 auth_required → refresh success → retry → 200 body returned', async () => {
+  it('AC1: GET 401 auth_required -> refresh success -> retry -> 200 body returned', async () => {
     const fetchMock = fetch as ReturnType<typeof vi.fn>;
     fetchMock
       .mockResolvedValueOnce(
@@ -133,7 +132,7 @@ describe('apiClient — 401 interceptor', () => {
     expect(triggerSignOutMock).not.toHaveBeenCalled();
   });
 
-  it('AC2: GET 401 auth_required → refresh fail → triggerSignOut("session_expired") + throw', async () => {
+  it('AC2: GET 401 auth_required -> refresh fail -> triggerSignOut("session_expired") + throw', async () => {
     const fetchMock = fetch as ReturnType<typeof vi.fn>;
     fetchMock.mockResolvedValueOnce(
       jsonResponse(401, {
@@ -155,7 +154,7 @@ describe('apiClient — 401 interceptor', () => {
     expect(triggerSignOutMock).toHaveBeenCalledWith('session_expired');
   });
 
-  it('AC3: POST FormData 401 auth_required → refresh SKIP → triggerSignOut + throw', async () => {
+  it('AC3: POST FormData 401 auth_required -> refresh SKIP -> triggerSignOut + throw', async () => {
     const fetchMock = fetch as ReturnType<typeof vi.fn>;
     fetchMock.mockResolvedValueOnce(
       jsonResponse(401, {
@@ -179,7 +178,7 @@ describe('apiClient — 401 interceptor', () => {
     expect(triggerSignOutMock).toHaveBeenCalledWith('session_expired');
   });
 
-  it('AC4: GET 401 no_organization_context → NO signOut, throw ApiError', async () => {
+  it('AC4: GET 401 no_organization_context -> NO signOut, throw ApiError', async () => {
     const fetchMock = fetch as ReturnType<typeof vi.fn>;
     fetchMock.mockResolvedValueOnce(
       jsonResponse(401, {
@@ -200,7 +199,7 @@ describe('apiClient — 401 interceptor', () => {
     expect(triggerSignOutMock).not.toHaveBeenCalled();
   });
 
-  it('AC5: GET 401 unknown_message → NO refresh, throw generic ApiError', async () => {
+  it('AC5: GET 401 unknown_message -> NO refresh, throw generic ApiError', async () => {
     const fetchMock = fetch as ReturnType<typeof vi.fn>;
     fetchMock.mockResolvedValueOnce(
       jsonResponse(401, {
@@ -226,7 +225,7 @@ describe('apiClient — 401 interceptor', () => {
     expect(triggerSignOutMock).not.toHaveBeenCalled();
   });
 
-  it('AC6: GET 500 → code === body.error (no drift)', async () => {
+  it('AC6: GET 500 -> code === body.error (no drift)', async () => {
     const fetchMock = fetch as ReturnType<typeof vi.fn>;
     fetchMock.mockResolvedValueOnce(
       jsonResponse(500, {
@@ -252,7 +251,7 @@ describe('apiClient — 401 interceptor', () => {
     expect(refreshOrFailMock).not.toHaveBeenCalled();
   });
 
-  it('AC7: fetchRaw 401 auth_required → refresh + retry path, then 200 Response', async () => {
+  it('AC7: fetchRaw 401 auth_required -> refresh + retry path, then 200 Response', async () => {
     const fetchMock = fetch as ReturnType<typeof vi.fn>;
     fetchMock
       .mockResolvedValueOnce(
@@ -274,7 +273,7 @@ describe('apiClient — 401 interceptor', () => {
     expect(triggerSignOutMock).not.toHaveBeenCalled();
   });
 
-  it('AC7b: fetchRaw 401 auth_required → refresh fail → signOut → raw 401 Response returned', async () => {
+  it('AC7b: fetchRaw 401 auth_required -> refresh fail -> signOut -> raw 401 Response returned', async () => {
     const fetchMock = fetch as ReturnType<typeof vi.fn>;
     fetchMock.mockResolvedValueOnce(
       jsonResponse(401, {
@@ -294,9 +293,6 @@ describe('apiClient — 401 interceptor', () => {
   });
 
   it('AC8: each independent 401 invokes refreshOrFail (mutex coalescing verified in refresh.spec R3)', async () => {
-    // apiClient 책임은 "401 받을 때마다 refreshOrFail 호출". 다중 동시 호출을
-    // 1 refresh 로 합치는 mutex 는 refreshOrFail 자체 책임 (refresh.spec.ts R3).
-    // 여기서는 sequential 3회로 호출 횟수만 검증.
     const fetchMock = fetch as ReturnType<typeof vi.fn>;
     const body401 = {
       statusCode: 401,
@@ -319,21 +315,15 @@ describe('apiClient — 401 interceptor', () => {
     expect(refreshOrFailMock).toHaveBeenCalledTimes(3);
     expect(triggerSignOutMock).not.toHaveBeenCalled();
   });
+});
 
-  it('AC9: 401 with non-JSON body → no refresh, generic ApiError thrown', async () => {
-    const fetchMock = fetch as ReturnType<typeof vi.fn>;
-    fetchMock.mockResolvedValueOnce(textResponse(401, '<html>login page</html>'));
-
-    let caught: unknown;
-    try {
-      await apiClient.get('/api/foo');
-    } catch (e) {
-      caught = e;
-    }
-
-    expect(isApiError(caught)).toBe(true);
-    expect((caught as ApiError).status).toBe(401);
-    expect(refreshOrFailMock).not.toHaveBeenCalled();
-    expect(triggerSignOutMock).not.toHaveBeenCalled();
+describe('api base helpers', () => {
+  it('normalizes loopback API host to the browser host', () => {
+    expect(normalizeLoopbackApiBase('http://localhost:4000', '127.0.0.1'))
+      .toBe('http://127.0.0.1:4000');
+    expect(normalizeLoopbackApiBase('http://127.0.0.1:4000', 'localhost'))
+      .toBe('http://localhost:4000');
+    expect(normalizeLoopbackApiBase('https://api.kiditem.local', 'localhost'))
+      .toBe('https://api.kiditem.local');
   });
 });

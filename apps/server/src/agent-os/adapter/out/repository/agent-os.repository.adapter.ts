@@ -117,6 +117,15 @@ export class AgentOsRepositoryAdapter implements AgentOsRepositoryPort {
     return this.requests.claimNextRunRequest(input);
   }
 
+  claimRunRequestById(input: {
+    workerId: string;
+    now: Date;
+    organizationId: string;
+    requestId: string;
+  }) {
+    return this.requests.claimRunRequestById(input);
+  }
+
   failClaimedRequest(input: FailClaimedRequestInput) {
     return this.requests.failClaimedRequest(input);
   }

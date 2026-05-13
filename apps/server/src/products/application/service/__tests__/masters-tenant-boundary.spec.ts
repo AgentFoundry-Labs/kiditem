@@ -75,4 +75,73 @@ describe('MastersService tenant boundary internals', () => {
       expect.objectContaining({ id: 'legacy-1' }),
     ]);
   });
+
+  it('lists master-bound AI detail-page generations as product content cards', async () => {
+    const createdAt = new Date('2026-05-12T10:00:00.000Z');
+    const prisma = {
+      contentGeneration: {
+        count: vi.fn().mockResolvedValue(1),
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'generation-1',
+            masterId: 'master-1',
+            generatedTitle: 'KIDITEM DESIGN 상세',
+            status: 'READY',
+            detailPageHtml: JSON.stringify({
+              templateId: 'bold-vertical',
+              rawInput: { rawTitle: '큐브 퍼즐' },
+              result: { hook: { text: '생각이 돌아가는 큐브', titleSub: '초등 고학년 집중 놀이' } },
+              imageUrls: ['https://example.com/source.jpg'],
+            }),
+            processedImages: { __heroBanner: '/processed/hero.png' },
+            errorMessage: null,
+            createdAt,
+            updatedAt: createdAt,
+            master: {
+              id: 'master-1',
+              code: 'M-00000001',
+              name: '큐브 퍼즐',
+              thumbnailUrl: 'https://example.com/thumb.jpg',
+              imageUrl: 'https://example.com/main.jpg',
+              isTemporary: true,
+              images: [{ url: 'https://example.com/gallery.jpg' }],
+              draftContent: { editedHtmlSavedAt: '2026-05-12T11:00:00.000Z' },
+            },
+          },
+        ]),
+      },
+    };
+    const svc = new MastersService(prisma as any, {} as any, {} as any);
+
+    await expect(svc.listContentCards('organization-1', { page: 1, limit: 20 })).resolves.toEqual({
+      items: [
+        {
+          generationId: 'generation-1',
+          productId: 'master-1',
+          productCode: 'M-00000001',
+          productName: '큐브 퍼즐',
+          title: 'KIDITEM DESIGN 상세',
+          subtitle: '초등 고학년 집중 놀이',
+          templateId: 'bold-vertical',
+          status: 'completed',
+          thumbnailUrl: '/processed/hero.png',
+          errorMessage: null,
+          isTemporaryProduct: true,
+          editedHtmlSavedAt: '2026-05-12T11:00:00.000Z',
+          createdAt: createdAt.toISOString(),
+          updatedAt: createdAt.toISOString(),
+        },
+      ],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+    expect(prisma.contentGeneration.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ organizationId: 'organization-1' }),
+        skip: 0,
+        take: 20,
+      }),
+    );
+  });
 });

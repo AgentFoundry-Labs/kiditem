@@ -40,7 +40,7 @@ describe('detail page generation adapters', () => {
     expect(data.safetyLabelImages).toEqual([PLAIN_BARCODE_URL, SAFETY_URL]);
     expect(data.productInfo).toEqual([]);
     expect(data.detailImages).toEqual(['https://cdn.example.com/product.jpg']);
-    expect(data.images).toEqual([]);
+    expect(data.images).toEqual(['https://cdn.example.com/product.jpg']);
     expect(data.keyPoints?.[1]?.images).toEqual([]);
   });
 
@@ -53,6 +53,39 @@ describe('detail page generation adapters', () => {
     expect(data.safetyLabelImageUrls).toEqual([SAFETY_URL]);
     expect(data.section1.heroImageUrl).toBeNull();
     expect(data.section11.galleryImageUrls).toEqual(['https://cdn.example.com/product.jpg', null]);
+  });
+
+  it('allows up to six bold vertical DETAIL images', () => {
+    const urls = Array.from(
+      { length: 6 },
+      (_, index) => `https://cdn.example.com/detail-${index + 1}.jpg`,
+    );
+    const data = adaptBoldVerticalToDetailPageData(
+      {
+        hook: {
+          subtext: '이달의 추천',
+          text: '학생용',
+          titleSub: '말랑이',
+          description: '가볍게 쥐고 푸는 촉감 놀이',
+          imageIndex: 0,
+          bannerImageIndex: null,
+        },
+        section: { name: '학생용', title: '말랑이', subtitle: '' },
+        keyPoints: [
+          { title: '가벼운 촉감', description: '손에 부담 없이 쥘 수 있어요', imageIndex: 0 },
+          { title: '책상 위 보관', description: '공간을 많이 차지하지 않아요', imageIndex: 1 },
+          { title: '선물 추천', description: '학생 선물로 잘 어울려요', imageIndex: 2 },
+        ],
+        size: { subtitle: '', imageIndices: [] },
+        color: { subtitle: '', imageIndices: [] },
+        usage: { subtitle: '', imageIndices: [] },
+        detailImageIndices: [0, 1, 2, 3, 4, 5],
+        productInfo: [],
+      },
+      urls,
+    );
+
+    expect(data.detailImages).toEqual(urls);
   });
 
   it('uses generated hero banner before raw hero images', () => {
@@ -91,6 +124,35 @@ describe('detail page generation adapters', () => {
     expect(bold.heroBanner).toBe(generatedHero);
     expect(bold.images).toEqual(['https://cdn.example.com/product.jpg']);
     expect(kids.section1.heroImageUrl).toBe(generatedHero);
+  });
+
+  it('prefers a plain product photo over color or usage crops for bold vertical hero product fallback', () => {
+    const data = adaptBoldVerticalToDetailPageData(
+      {
+        hook: {
+          subtext: '이달의 추천',
+          text: '퐁퐁',
+          titleSub: '젤리팝',
+          description: '말랑말랑 젤리 촉감',
+          imageIndex: 1,
+          bannerImageIndex: null,
+        },
+        section: { name: '놀이 포인트', title: '제품 정보', subtitle: '' },
+        keyPoints: [],
+        size: { subtitle: '', imageIndices: [] },
+        color: { subtitle: '옐로우 / 라벤더 / 스카이블루 / 핑크 4가지 색상', imageIndices: [2] },
+        usage: { subtitle: '제품을 손에 들고 사용하세요', imageIndices: [1] },
+        detailImageIndices: [],
+        productInfo: [],
+      },
+      [
+        'https://cdn.example.com/product-main.jpg',
+        'https://cdn.example.com/hand-pouring-usage.jpg',
+        'https://cdn.example.com/color-lineup.jpg',
+      ],
+    );
+
+    expect(data.images).toEqual(['https://cdn.example.com/product-main.jpg']);
   });
 
   it('routes generated kids playful section images into empty image slots', () => {
@@ -161,7 +223,37 @@ describe('detail page generation adapters', () => {
     expect(data.section10.cards[0]?.imageUrl).toBe('https://api.example.com/generated/usage-guide-1.png');
   });
 
-  it('maps bold vertical size guide labels and falls back to a standalone product image', () => {
+  it('suppresses kids playful usage section and usage-image fallbacks when disabled', () => {
+    const data = adaptToKidsPlayful(
+      {
+        ...makeKidsRaw(),
+        usageEnabled: false,
+        section3: {
+          label: '활용도 200%',
+          headline: '여기저기 활용',
+          subhead: '가볍게 쓰는 장면',
+          scenarios: [
+            { caption: '책상 위에 두고 사용해요', imageIndex: null },
+            { caption: '가방에 넣어 휴대해요', imageIndex: null },
+          ],
+        },
+        section10: {
+          cards: [
+            { smallHeadline: '휴대성', bigHeadlineLine1: '가볍게', bigHeadlineLine2: 'OK', imageIndex: null },
+          ],
+        },
+      },
+      ['https://cdn.example.com/product.jpg'],
+      { __usageGuideImage1: '/generated/usage-guide-1.png' },
+      'https://api.example.com',
+    );
+
+    expect(data.usageEnabled).toBe(false);
+    expect(data.section3.scenarios[0]?.imageUrl).toBeNull();
+    expect(data.section10.cards[0]?.imageUrl).toBeNull();
+  });
+
+  it('maps bold vertical size guide labels and keeps hero product separate from size cutout', () => {
     const data = adaptBoldVerticalToDetailPageData(
       {
         hook: {
@@ -191,11 +283,14 @@ describe('detail page generation adapters', () => {
         productInfo: [],
       },
       ['https://cdn.example.com/bubble-group.jpg', 'https://cdn.example.com/bubble-single.jpg'],
-      { __sizeGuideImage: '/generated/size-cutout.png' },
+      {
+        __heroProductImage: '/generated/hero-product.png',
+        __sizeGuideImage: '/generated/size-cutout.png',
+      },
       'https://api.example.com',
     );
 
-    expect(data.images).toEqual(['https://api.example.com/generated/size-cutout.png']);
+    expect(data.images).toEqual(['https://api.example.com/generated/hero-product.png']);
     expect(data.sectionSubtitle).toEqual([
       '목걸이 비눗방울 버블 파티의 상품정보 입니다.',
       '아래의 제품정보를 확인해 주세요.',
@@ -212,7 +307,81 @@ describe('detail page generation adapters', () => {
       '2. 제품을 세워 잡고 전원을 켜세요',
       '3. 입구가 얼굴을 향하지 않게 사용하세요',
     ].join('\n'));
-    expect(data.usageImages).toEqual(['https://cdn.example.com/bubble-single.jpg']);
+    expect(data.usageImages).toEqual([
+      'https://cdn.example.com/bubble-single.jpg',
+      'https://cdn.example.com/bubble-group.jpg',
+    ]);
+  });
+
+  it('does not reuse the generated color guide as the hero body product image fallback', () => {
+    const data = adaptBoldVerticalToDetailPageData(
+      {
+        hook: {
+          subtext: '이달의 추천',
+          text: '퐁퐁',
+          titleSub: '버블팝슬라임',
+          description: '쫀득하게 주무르며 즐기는 슬라임',
+          imageIndex: 0,
+          bannerImageIndex: null,
+        },
+        section: { name: '퐁퐁', title: '버블팝슬라임', subtitle: '' },
+        keyPoints: [],
+        size: { subtitle: '', heightLabel: '12cm', widthLabel: '3cm', guideOverlay: true, imageIndices: [0] },
+        color: { subtitle: '옐로우 / 퍼플 / 핑크 / 블루 4가지 색상', imageIndices: [1] },
+        usage: { subtitle: '', imageIndices: [] },
+        detailImageIndices: [],
+        productInfo: [],
+      },
+      [
+        'https://cdn.example.com/raw-product.jpg',
+        'https://cdn.example.com/raw-color-lineup.jpg',
+      ],
+      {
+        __heroBanner: '/generated/banner.png',
+        __colorGuideImage: '/generated/color-guide.png',
+      },
+      'https://api.example.com',
+    );
+
+    expect(data.images).toEqual(['https://cdn.example.com/raw-product.jpg']);
+    expect(data.colorImages).toEqual(['https://api.example.com/generated/color-guide.png']);
+    expect(data.images).not.toContain('https://cdn.example.com/raw-color-lineup.jpg');
+  });
+
+  it('fills missing generated DETAIL slots from selected raw detail images', () => {
+    const data = adaptBoldVerticalToDetailPageData(
+      {
+        hook: {
+          subtext: '이달의 추천',
+          text: '퐁퐁',
+          titleSub: '버블팝슬라임',
+          description: '쫀득하게 주무르며 즐기는 슬라임',
+          imageIndex: 0,
+          bannerImageIndex: null,
+        },
+        section: { name: '퐁퐁', title: '버블팝슬라임', subtitle: '' },
+        keyPoints: [],
+        size: { subtitle: '', heightLabel: '', widthLabel: '', guideOverlay: true, imageIndices: [] },
+        color: { subtitle: '', imageIndices: [] },
+        usage: { subtitle: '', imageIndices: [] },
+        detailImageIndices: [1, 2],
+        productInfo: [],
+      },
+      [
+        'https://cdn.example.com/product-main.jpg',
+        'https://cdn.example.com/raw-detail-1.jpg',
+        'https://cdn.example.com/raw-detail-2.jpg',
+      ],
+      {
+        __detailImage1: '/generated/detail-1.png',
+      },
+      'https://api.example.com',
+    );
+
+    expect(data.detailImages).toEqual([
+      'https://api.example.com/generated/detail-1.png',
+      'https://cdn.example.com/raw-detail-1.jpg',
+    ]);
   });
 
   it('keeps the DETAIL section visible when no dedicated detail image exists', () => {
@@ -283,11 +452,77 @@ describe('detail page generation adapters', () => {
     expect(data.usageImages).toEqual([
       'https://api.example.com/generated/usage-guide-1.png',
       'https://api.example.com/generated/usage-guide-2.png',
+      'https://cdn.example.com/product-main.jpg',
     ]);
     expect(data.detailImages).toEqual([
       'https://api.example.com/generated/detail-1.png',
       'https://api.example.com/generated/detail-2.png',
-      'https://cdn.example.com/product-main.jpg',
+    ]);
+  });
+
+  it('replaces incompatible soap-bubble hero copy for slime products', () => {
+    const data = adaptBoldVerticalToDetailPageData(
+      {
+        hook: {
+          subtext: '우리 아이 나들이 필수템!',
+          text: '퐁퐁',
+          titleSub: '버블팝슬라임!',
+          description: '목에 걸고 다니는\n귀여운 자동 비눗방울!',
+          imageIndex: 0,
+          bannerImageIndex: null,
+        },
+        section: { name: '퐁퐁', title: '버블팝슬라임!', subtitle: '' },
+        keyPoints: [],
+        size: { subtitle: '', heightLabel: '', widthLabel: '', guideOverlay: true, imageIndices: [] },
+        color: { subtitle: '', imageIndices: [] },
+        usage: { subtitle: '', imageIndices: [] },
+        detailImageIndices: [],
+        productInfo: [],
+      },
+      ['https://cdn.example.com/slime.jpg'],
+    );
+
+    expect(data.description).toEqual(['쫀득하게 주무르며 즐기는 슬라임!']);
+    expect(data.usageSubtitle).toContain('손으로 가볍게 눌러 촉감을 즐기세요');
+    expect(data.usageSubtitle).not.toContain('전원을 켜세요');
+  });
+
+  it('suppresses bold vertical usage fallback when the generation disables usage', () => {
+    const data = adaptBoldVerticalToDetailPageData(
+      {
+        hook: {
+          subtext: '이달의 추천',
+          text: '학생용 말랑이',
+          titleSub: '스트레스볼',
+          description: '가볍게 쥐고 푸는 촉감 놀이',
+          imageIndex: 0,
+          bannerImageIndex: null,
+        },
+        section: { name: '학생용 말랑이', title: '스트레스볼', subtitle: '' },
+        keyPoints: [
+          { title: '가벼운 촉감', description: '손에 부담 없이 쥘 수 있어요', imageIndex: 0 },
+          { title: '책상 위 보관', description: '공간을 많이 차지하지 않아요', imageIndex: 0 },
+          { title: '선물 추천', description: '학생 선물로 잘 어울려요', imageIndex: 0 },
+        ],
+        size: { subtitle: '', imageIndices: [] },
+        color: { subtitle: '', imageIndices: [] },
+        usage: { subtitle: '포장을 열고 제품을 확인하세요', imageIndices: [0] },
+        usageEnabled: false,
+        detailImageIndices: [0],
+        productInfo: [],
+      },
+      ['https://cdn.example.com/product-main.jpg'],
+      {
+        __usageGuideImage1: '/generated/usage-guide-1.png',
+        __detailImage1: '/generated/detail-1.png',
+      },
+      'https://api.example.com',
+    );
+
+    expect(data.usageSubtitle).toBe('');
+    expect(data.usageImages).toEqual([]);
+    expect(data.detailImages).toEqual([
+      'https://api.example.com/generated/detail-1.png',
     ]);
   });
 
@@ -312,7 +547,7 @@ describe('detail page generation adapters', () => {
         color: { subtitle: '', imageIndices: [] },
         usage: { subtitle: '포장을 열고 제품을 확인하세요', imageIndices: [1] },
         detailImageIndices: [0, 2, 1],
-        packageImageIndices: [1, 2],
+        packageImageIndices: [2],
         packageLabel: '1박스 9개입 구성',
         productInfo: [],
       },
@@ -329,6 +564,218 @@ describe('detail page generation adapters', () => {
     ]);
     expect(data.detailPackageImages).toEqual(['https://cdn.example.com/retail-box.jpg']);
     expect(data.detailPackageLabel).toBe('1박스 9개입 구성');
+  });
+
+  it('keeps package images out of hero, usage, and detail sections', () => {
+    const retailBox = 'https://cdn.example.com/retail-box.jpg';
+    const data = adaptBoldVerticalToDetailPageData(
+      {
+        hook: {
+          subtext: '이달의 추천',
+          text: '퐁퐁',
+          titleSub: '젤리팝',
+          description: '쫄깃하게 즐기는 젤리',
+          imageIndex: 2,
+          bannerImageIndex: null,
+        },
+        section: { name: '퐁퐁', title: '젤리팝', subtitle: '' },
+        keyPoints: [
+          { title: '달콤한 맛', description: '간편하게 즐겨요', imageIndex: 2 },
+        ],
+        size: { subtitle: '', heightLabel: '12cm', widthLabel: '3cm', guideOverlay: true, imageIndices: [2] },
+        color: { subtitle: '핑크 / 블루 2가지 색상', imageIndices: [2] },
+        usage: {
+          subtitle: [
+            '1. 포장을 열고 젤리를 꺼내세요',
+            '2. 쫄깃하게 즐겨보세요',
+            '3. 친구들과 나눠 먹어요',
+          ].join('\n'),
+          imageIndices: [2],
+        },
+        detailImageIndices: [2, 0],
+        packageImageIndices: [2],
+        packageLabel: '1박스 12개입 구성',
+        productInfo: [],
+      },
+      [
+        'https://cdn.example.com/product-main.jpg',
+        'https://cdn.example.com/hand-detail.jpg',
+        retailBox,
+      ],
+    );
+
+    expect(data.images).toEqual(['https://cdn.example.com/product-main.jpg']);
+    expect(data.keyPoints?.[0]?.images).toEqual([]);
+    expect(data.sizeImages).toEqual([]);
+    expect(data.colorImages).toEqual(['https://cdn.example.com/product-main.jpg']);
+    expect(data.colorImages).not.toContain(retailBox);
+    expect(data.usageImages).not.toContain(retailBox);
+    expect(data.detailImages).toEqual(['https://cdn.example.com/product-main.jpg']);
+    expect(data.detailPackageImages).toEqual([retailBox]);
+  });
+
+  it('keeps a selected color image visible when package inference also marked it but another package image exists', () => {
+    const colorLineup = 'https://cdn.example.com/color-lineup.jpg';
+    const retailBox = 'https://cdn.example.com/retail-box.jpg';
+    const data = adaptBoldVerticalToDetailPageData(
+      {
+        hook: {
+          subtext: '이달의 추천',
+          text: '퐁퐁',
+          titleSub: '버블팝슬라임',
+          description: '말랑한 촉감 놀이',
+          imageIndex: 0,
+          bannerImageIndex: null,
+        },
+        section: { name: '퐁퐁', title: '버블팝슬라임', subtitle: '' },
+        keyPoints: [],
+        size: { subtitle: '', heightLabel: '12cm', widthLabel: '5.5cm', guideOverlay: true, imageIndices: [] },
+        color: { subtitle: '옐로우 / 퍼플 / 핑크 / 블루 4가지 색상', imageIndices: [2] },
+        usage: { subtitle: '', imageIndices: [] },
+        detailImageIndices: [],
+        packageImageIndices: [3, 2],
+        packageLabel: '1박스 12개입 구성',
+        productInfo: [],
+      },
+      [
+        'https://cdn.example.com/product-main.jpg',
+        'https://cdn.example.com/product-detail.jpg',
+        colorLineup,
+        retailBox,
+      ],
+    );
+
+    expect(data.colorImages).toEqual([colorLineup]);
+    expect(data.detailPackageImages).toEqual([retailBox]);
+  });
+
+  it('repairs stale bold vertical results where the color lineup was mislabeled as the package image', () => {
+    const displayBox = 'https://cdn.example.com/display-box.jpg';
+    const handProduct = 'https://cdn.example.com/hand-product.jpg';
+    const usageShot = 'https://cdn.example.com/usage-shot.jpg';
+    const colorLineup = 'https://cdn.example.com/color-lineup.jpg';
+    const generatedHero = 'https://cdn.example.com/generated-hero.jpg';
+
+    const data = adaptBoldVerticalToDetailPageData(
+      {
+        hook: {
+          subtext: '우리 아이 나들이 필수템!',
+          text: '퐁퐁',
+          titleSub: '버블팝슬라임!',
+          description: '쫀득하게 주무르며 즐기는 슬라임!',
+          imageIndex: 0,
+          bannerImageIndex: null,
+        },
+        section: { name: '퐁퐁', title: '버블팝슬라임!', subtitle: '' },
+        keyPoints: [],
+        size: { subtitle: '', heightLabel: '12cm', widthLabel: '3cm', guideOverlay: true, imageIndices: [1] },
+        color: { subtitle: '옐로우 / 퍼플 / 블루 / 핑크 4가지 색상', imageIndices: [3] },
+        usage: {
+          subtitle: [
+            '1. 포장을 열고 슬라임을 꺼내세요',
+            '2. 마음껏 만지고 늘리며 즐기세요',
+            '3. 놀이 후 용기에 담아 보관하세요',
+          ].join('\n'),
+          imageIndices: [0, 1, 2],
+        },
+        detailImageIndices: [0, 1, 2, 3],
+        packageImageIndices: [3],
+        packageLabel: '1박스 12개입 구성',
+        productInfo: [],
+      },
+      [displayBox, handProduct, usageShot, colorLineup],
+      { __heroBanner: generatedHero },
+    );
+
+    expect(data.images).toEqual([handProduct]);
+    expect(data.images).not.toEqual([generatedHero]);
+    expect(data.colorImages).toEqual([colorLineup]);
+    expect(data.detailPackageImages).toEqual([displayBox]);
+    expect(data.usageImages).not.toContain(displayBox);
+    expect(data.detailImages).not.toContain(displayBox);
+  });
+
+  it('keeps a colliding package image instead of hiding the package block when no better box candidate exists', () => {
+    const actualPackage = 'https://cdn.example.com/actual-package-photo.jpg';
+    const colorLineup = 'https://cdn.example.com/color-lineup.jpg';
+    const data = adaptBoldVerticalToDetailPageData(
+      {
+        hook: {
+          subtext: '이달의 추천',
+          text: '퐁퐁',
+          titleSub: '버블팝슬라임',
+          description: '말랑한 촉감 놀이',
+          imageIndex: 0,
+          bannerImageIndex: null,
+        },
+        section: { name: '퐁퐁', title: '버블팝슬라임', subtitle: '' },
+        keyPoints: [],
+        size: { subtitle: '', heightLabel: '12cm', widthLabel: '3cm', guideOverlay: true, imageIndices: [] },
+        color: { subtitle: '옐로우 / 퍼플 / 핑크 / 블루 4가지 색상', imageIndices: [2] },
+        usage: { subtitle: '', imageIndices: [] },
+        detailImageIndices: [],
+        packageImageIndices: [2],
+        packageLabel: '1박스 12개입 구성',
+        productInfo: [],
+      },
+      [
+        'https://cdn.example.com/product-main.jpg',
+        colorLineup,
+        actualPackage,
+      ],
+    );
+
+    expect(data.detailPackageImages).toEqual([actualPackage]);
+    expect(data.colorImages).toEqual(['https://cdn.example.com/product-main.jpg']);
+  });
+
+  it('keeps generated usage images aligned with their step and fills missing slots', () => {
+    const data = adaptBoldVerticalToDetailPageData(
+      {
+        hook: {
+          subtext: '이달의 추천',
+          text: '바삭바삭수제',
+          titleSub: '왁스팝',
+          description: '손으로 누르며 즐기는 촉감 놀이',
+          imageIndex: 0,
+          bannerImageIndex: null,
+        },
+        section: { name: '놀이 포인트', title: '제품 정보', subtitle: '' },
+        keyPoints: [],
+        size: { subtitle: '', heightLabel: '', widthLabel: '', guideOverlay: true, imageIndices: [] },
+        color: { subtitle: '', imageIndices: [] },
+        usage: {
+          subtitle: [
+            '1. 포장을 열고 제품을 확인하세요',
+            '2. 손으로 눌러 촉감을 느껴보세요',
+            '3. 사용 후 깨끗하게 정리하세요',
+          ].join('\n'),
+          imageIndices: [],
+        },
+        detailImageIndices: [],
+        packageImageIndices: [3],
+        packageLabel: '1박스 9개입 구성',
+        productInfo: [],
+      },
+      [
+        'https://cdn.example.com/product-main.jpg',
+        'https://cdn.example.com/texture-closeup.jpg',
+        'https://cdn.example.com/color-row.jpg',
+        'https://cdn.example.com/retail-box.jpg',
+      ],
+      {
+        __usageGuideImage2: '/generated/usage-guide-2.png',
+        __usageGuideImage3: '/generated/usage-guide-3.png',
+      },
+      'https://api.example.com',
+    );
+
+    expect(data.usageImages).toEqual([
+      'https://cdn.example.com/product-main.jpg',
+      'https://api.example.com/generated/usage-guide-2.png',
+      'https://api.example.com/generated/usage-guide-3.png',
+    ]);
+    expect(data.detailPackageImages).toEqual(['https://cdn.example.com/retail-box.jpg']);
   });
 });
 

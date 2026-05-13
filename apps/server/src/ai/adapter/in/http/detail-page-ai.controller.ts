@@ -93,6 +93,14 @@ export class DetailPageAiController {
     return this.service.getById(id, organizationId);
   }
 
+  @Post(':id/cancel')
+  cancel(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return this.service.cancel(id, organizationId);
+  }
+
   @Delete(':id')
   remove(
     @Param('id', new ParseUUIDPipe()) id: string,

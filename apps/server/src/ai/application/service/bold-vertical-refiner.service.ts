@@ -3,6 +3,7 @@ import { isSafetyLabelImageUrl, looksLikeSafetyLabelImage } from '../../domain/d
 import { buildBoldVerticalProductTitle } from '../../domain/detail-page-product-title';
 import type { BoldVerticalGeneration } from '../../domain/prompts/bold-vertical/single-call';
 import {
+  normalizeKcCertificationNumber,
   resolveDetailImageCountLimit,
   type DetailImageCount,
 } from '../../domain/prompts/detail-page/types';
@@ -14,6 +15,7 @@ import {
   packageKind,
   packagePreference,
   pickSectionSourceImages,
+  shouldInferPackageImages,
 } from './detail-page-template-rules';
 import type { DetailPageRawInput, DetailPageTemplateId } from './detail-page-ai.types';
 import { DetailPageHeroImageService } from './detail-page-hero-image.service';
@@ -81,8 +83,16 @@ export class BoldVerticalRefinerService {
       rawInput,
       detectedSafetyLabelIndices,
     );
-    return this.suppressProductInfoWhenSafetyLabelExists(
+    const withUsagePreference = this.applyBoldVerticalUsagePreference(
       withImageSelectionRules,
+      rawInput,
+    );
+    const withProductInfoFallbacks = this.applyBoldVerticalProductInfoFallbacks(
+      withUsagePreference,
+      rawInput,
+    );
+    return this.suppressProductInfoWhenSafetyLabelExists(
+      withProductInfoFallbacks,
       'bold-vertical',
       rawInput.imageUrls,
       detectedSafetyLabelIndices,
@@ -304,39 +314,41 @@ export class BoldVerticalRefinerService {
       return { ...parsed, packageImageIndices: [], packageLabel: '' };
     }
 
-    const selected = parsed.detailImageIndices
-      .map((imageIndex, detailPosition) => ({
-        imageIndex,
-        detailPosition,
-        url: rawInput.imageUrls[imageIndex],
-      }))
-      .filter((item): item is { imageIndex: number; detailPosition: number; url: string } => (
-        typeof item.url === 'string' && item.url.trim() !== ''
-      ));
-
-    const packagePositions = this.heroImageService && selected.length > 0
+    const inferredPackageImageIndices = this.heroImageService && shouldInferPackageImages(rawInput)
       ? await this.heroImageService.inferPackageImagePositions({
-        imageUrls: selected.map((item) => item.url),
+        imageUrls: rawInput.imageUrls,
       }).catch(() => [])
       : [];
-
-    const packageDetailPositions = new Set(
-      packagePositions
-        .map((position) => selected[position]?.detailPosition)
-        .filter((position): position is number => Number.isInteger(position)),
-    );
+    const highConfidencePackageImageIndices = Array.from(new Set([
+      ...inferredPackageImageIndices,
+    ])).filter((index) => (
+      Number.isInteger(index) &&
+      index >= 0 &&
+      index < rawInput.imageUrls.length
+    ));
     const packageImageIndices = Array.from(new Set([
-      ...(parsed.packageImageIndices ?? []),
-      ...parsed.detailImageIndices.filter((_, position) => packageDetailPositions.has(position)),
-    ]));
+      ...(highConfidencePackageImageIndices.length > 0
+        ? highConfidencePackageImageIndices
+        : (parsed.packageImageIndices ?? [])),
+    ])).filter((index) => (
+      Number.isInteger(index) &&
+      index >= 0 &&
+      index < rawInput.imageUrls.length
+    ));
     const packageIndexSet = new Set(packageImageIndices);
 
     return {
       ...parsed,
       packageImageIndices,
-      detailImageIndices: parsed.detailImageIndices.filter((imageIndex, position) => (
-        !packageDetailPositions.has(position) && !packageIndexSet.has(imageIndex)
+      detailImageIndices: parsed.detailImageIndices.filter((imageIndex) => (
+        !packageIndexSet.has(imageIndex)
       )),
+      usage: {
+        ...parsed.usage,
+        imageIndices: parsed.usage.imageIndices.filter((imageIndex) => (
+          !packageIndexSet.has(imageIndex)
+        )),
+      },
     };
   }
 
@@ -446,10 +458,34 @@ export class BoldVerticalRefinerService {
       return result;
     };
     const packageChoice = packagePreference(rawInput);
-    const packageImageIndices = packageChoice === 'none'
+    const rawPackageImageIndices = packageChoice === 'none'
       ? []
       : cleanVisibleIndices(parsed.packageImageIndices, 3);
+    const packageImageIndices = resolveEffectivePackageImageIndices({
+      packageLabel: parsed.packageLabel,
+      packageImageIndices: rawPackageImageIndices,
+      colorImageIndices: parsed.color.imageIndices,
+      hookImageIndex: parsed.hook.imageIndex,
+      imageUrls: rawInput.imageUrls,
+    });
     const packageSet = new Set(packageImageIndices);
+    const blockedNormalImageIndices = new Set([
+      ...safetyIndices,
+      ...packageSet,
+    ]);
+    const cleanNormalIndices = (indices: number[] | undefined, max: number): number[] => (
+      cleanVisibleIndices(indices, max).filter((index) => !packageSet.has(index))
+    );
+    const cleanNormalIndex = (index: number | null | undefined): number | null => (
+      index !== null &&
+      index !== undefined &&
+      Number.isInteger(index) &&
+      index >= 0 &&
+      index < rawInput.imageUrls.length &&
+      !blockedNormalImageIndices.has(index)
+        ? index
+        : null
+    );
     const detailImageLimit = resolveDetailImageCountLimit(rawInput.detailImageCount);
     const detailImageIndices = cleanVisibleIndices(parsed.detailImageIndices, rawInput.imageUrls.length)
       .filter((index) => !packageSet.has(index));
@@ -457,28 +493,28 @@ export class BoldVerticalRefinerService {
 
     return {
       ...parsed,
+      hook: {
+        ...parsed.hook,
+        imageIndex: cleanNormalIndex(parsed.hook.imageIndex),
+        bannerImageIndex: cleanNormalIndex(parsed.hook.bannerImageIndex),
+      },
       keyPoints: parsed.keyPoints.map((point) => ({
         ...point,
-        imageIndex: point.imageIndex !== null &&
-          point.imageIndex !== undefined &&
-          !safetyIndices.has(point.imageIndex) &&
-          point.imageIndex < rawInput.imageUrls.length
-            ? point.imageIndex
-            : null,
+        imageIndex: cleanNormalIndex(point.imageIndex),
       })),
       size: {
         ...parsed.size,
-        imageIndices: cleanVisibleIndices(parsed.size.imageIndices, 1),
+        imageIndices: cleanNormalIndices(parsed.size.imageIndices, 1),
       },
       color: {
         ...parsed.color,
         subtitle: isNoColor ? '' : parsed.color.subtitle,
-        imageIndices: isNoColor ? [] : cleanVisibleIndices(parsed.color.imageIndices, 6),
+        imageIndices: isNoColor ? [] : cleanNormalIndices(parsed.color.imageIndices, 6),
       },
       usage: {
         ...parsed.usage,
         subtitle: normalizeUsageGuide(parsed.usage.subtitle, rawInput),
-        imageIndices: cleanVisibleIndices(parsed.usage.imageIndices, 4),
+        imageIndices: cleanNormalIndices(parsed.usage.imageIndices, 4),
       },
       detailImageIndices: detailImageIndices.slice(0, detailImageLimit),
       packageImageIndices,
@@ -489,4 +525,104 @@ export class BoldVerticalRefinerService {
         : parsed.productInfo,
     };
   }
+
+  private applyBoldVerticalUsagePreference(
+    parsed: BoldVerticalGeneration,
+    rawInput: { usageSectionMode?: 'include' | 'exclude' },
+  ): BoldVerticalGeneration {
+    if (rawInput.usageSectionMode !== 'exclude') {
+      return parsed;
+    }
+    return {
+      ...parsed,
+      usageEnabled: false,
+      usage: {
+        ...parsed.usage,
+        subtitle: '',
+        imageIndices: [],
+      },
+    };
+  }
+
+  private applyBoldVerticalProductInfoFallbacks(
+    parsed: BoldVerticalGeneration,
+    rawInput: Pick<DetailPageRawInput, 'kcCertificationStatus' | 'kcCertificationNumber'>,
+  ): BoldVerticalGeneration {
+    const productInfo = parsed.productInfo ?? [];
+    if (rawInput.kcCertificationStatus === 'none') {
+      return {
+        ...parsed,
+        productInfo: productInfo.filter((info) => !isKcCertificationInfoKey(info.key)).slice(0, 7),
+      };
+    }
+
+    const kcNumber = normalizeKcCertificationNumber(rawInput.kcCertificationNumber);
+    if (!kcNumber) {
+      return {
+        ...parsed,
+        productInfo: productInfo.slice(0, 7),
+      };
+    }
+
+    const withoutKc = productInfo.filter((info) => !isKcCertificationInfoKey(info.key));
+    return {
+      ...parsed,
+      productInfo: [
+        ...withoutKc.slice(0, 6),
+        { key: 'KC 인증번호', value: kcNumber },
+      ],
+    };
+  }
+}
+
+function isKcCertificationInfoKey(key: string): boolean {
+  return /(?:^|\s)(?:KC|케이씨)\s*(?:인증|번호)?|인증번호/u.test(key);
+}
+
+function resolveEffectivePackageImageIndices(input: {
+  packageLabel?: string;
+  packageImageIndices?: number[];
+  colorImageIndices?: number[];
+  hookImageIndex?: number | null;
+  imageUrls: string[];
+}): number[] {
+  if (!input.packageLabel?.trim()) return [];
+
+  const packageIndices = uniqueImageIndices(input.packageImageIndices ?? [], input.imageUrls.length).slice(0, 3);
+  if (packageIndices.length === 0) return [];
+
+  const colorIndexSet = new Set(uniqueImageIndices(input.colorImageIndices ?? [], input.imageUrls.length));
+  const nonColorPackageIndices = packageIndices.filter((index) => !colorIndexSet.has(index));
+  if (nonColorPackageIndices.length === packageIndices.length) return packageIndices;
+
+  if (
+    Number.isInteger(input.hookImageIndex) &&
+    input.hookImageIndex !== null &&
+    input.hookImageIndex !== undefined &&
+    packageIndices.includes(input.hookImageIndex)
+  ) {
+    return packageIndices;
+  }
+
+  if (nonColorPackageIndices.length > 0) return nonColorPackageIndices.slice(0, 3);
+
+  const promotedHookIndex = uniqueImageIndices([input.hookImageIndex], input.imageUrls.length)
+    .find((index) => !colorIndexSet.has(index) && looksLikePackageUrl(input.imageUrls[index] ?? ''));
+  return promotedHookIndex === undefined ? packageIndices : [promotedHookIndex];
+}
+
+function uniqueImageIndices(indices: Array<number | null | undefined>, imageCount: number): number[] {
+  const result: number[] = [];
+  const seen = new Set<number>();
+  for (const index of indices) {
+    if (!Number.isInteger(index) || index === null || index === undefined) continue;
+    if (index < 0 || index >= imageCount || seen.has(index)) continue;
+    seen.add(index);
+    result.push(index);
+  }
+  return result;
+}
+
+function looksLikePackageUrl(url: string): boolean {
+  return /(box|package|packaging|pkg|retail|display|case|carton|boxed|박스|상자|패키지|포장|구성)/iu.test(url);
 }

@@ -98,4 +98,29 @@ describe('DetailPageHeroImageService', () => {
       ],
     })).resolves.toEqual([0, 2]);
   });
+
+  it('generates a separate studio hero product image for bold vertical body sections', async () => {
+    const { service, media, storage } = makePortBackedService();
+
+    await expect(service.generateHeroProductImage({
+      organizationId: 'org-1',
+      productName: '퐁퐁 버블팝',
+      category: '완구',
+      description: '랜덤 색상 비눗방울',
+      options: '색상 구성: 여러 색상',
+      imageUrls: ['https://example.com/source.jpg'],
+    })).resolves.toBe('https://cdn.example.com/generated.png');
+
+    expect(media.generateImage).toHaveBeenCalledWith(expect.objectContaining({
+      aspectRatio: '4:3',
+      imageSize: '2K',
+      noImageErrorCode: 'detail_page_hero_product_image_returned_no_image',
+      prompt: expect.stringContaining('do NOT output one giant single unit'),
+    }));
+    expect(storage.save).toHaveBeenCalledWith(
+      expect.stringMatching(/^detail-page-hero-products\/org-1\/.+\.png$/),
+      Buffer.from('generated-image'),
+      'image/png',
+    );
+  });
 });

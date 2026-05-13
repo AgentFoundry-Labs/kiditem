@@ -142,10 +142,16 @@ export default function ProductTabContent({
                 <p className="font-medium text-slate-700">상세페이지/이력 편집은 마스터 페이지에서 진행하세요</p>
                 <div className="mt-4 flex flex-col items-center gap-2">
                   <Link
+                    href={`/product-content/${promotedMasterId}`}
+                    className="text-emerald-600 hover:text-emerald-700 underline"
+                  >
+                    상세페이지 콘텐츠 관리 →
+                  </Link>
+                  <Link
                     href={`/generate?productId=${promotedMasterId}`}
                     className="text-emerald-600 hover:text-emerald-700 underline"
                   >
-                    상세페이지 생성/편집 →
+                    새 상세페이지 생성 →
                   </Link>
                   <Link
                     href={`/thumbnail-editor/edit?productId=${promotedMasterId}&mode=edit&editCase=single`}

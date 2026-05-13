@@ -9,7 +9,10 @@
 // 사용자: "사이드바 상세페이지 생성 페이지... 앞에 템플릿 선택하고 이 페이지로 넘어오게"
 
 import { Suspense, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Sparkles, X } from 'lucide-react';
+import GenerationStartModal from './components/GenerationStartModal';
 import KidsPlayfulHistoryList from './components/KidsPlayfulHistoryList';
 import ProductInputSection from './components/ProductInputSection';
 import TemplatePickStep from './components/TemplatePickStep';
@@ -24,6 +27,8 @@ export default function GeneratePage() {
 }
 
 function GeneratePageContent() {
+  const router = useRouter();
+  const queryClient = useQueryClient();
   const [step, setStep] = useState<'template' | 'form'>('template');
   const [templateId, setTemplateId] = useState<GenerateTemplateId>('bold-vertical');
 
@@ -38,6 +43,12 @@ function GeneratePageContent() {
     setAgeGroup,
     detailImageCount,
     setDetailImageCount,
+    usageSectionMode,
+    setUsageSectionMode,
+    kcCertificationStatus,
+    setKcCertificationStatus,
+    kcCertificationNumber,
+    setKcCertificationNumber,
     rawDescription,
     setRawDescription,
     productSize,
@@ -61,9 +72,30 @@ function GeneratePageContent() {
     imagesLoading,
     isPrefilling,
     generationStartedAt,
+    generationDialog,
+    closeGenerationDialog,
     handlePrefill,
     handleSubmit,
   } = useGenerateForm();
+
+  const handleGenerationDialogAction = async () => {
+    const phase = generationDialog?.phase;
+    const isCompleted = phase === 'completed';
+    const targetUrl = isCompleted && generationDialog?.editorUrl
+      ? generationDialog.editorUrl
+      : '/product-content';
+    closeGenerationDialog();
+    if (isCompleted) {
+      // destination 페이지가 stale cache 를 보지 않도록 generation listing 을 먼저 동기 refetch
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['kp-generations'] }),
+        queryClient.invalidateQueries({ queryKey: ['bold-generations'] }),
+      ]);
+    }
+    if (isCompleted || phase === 'started') {
+      router.push(targetUrl);
+    }
+  };
 
   if (step === 'template') {
     return (
@@ -122,6 +154,12 @@ function GeneratePageContent() {
           setAgeGroup={setAgeGroup}
           detailImageCount={detailImageCount}
           setDetailImageCount={setDetailImageCount}
+          usageSectionMode={usageSectionMode}
+          setUsageSectionMode={setUsageSectionMode}
+          kcCertificationStatus={kcCertificationStatus}
+          setKcCertificationStatus={setKcCertificationStatus}
+          kcCertificationNumber={kcCertificationNumber}
+          setKcCertificationNumber={setKcCertificationNumber}
           rawDescription={rawDescription}
           setRawDescription={setRawDescription}
           productSize={productSize}
@@ -148,6 +186,11 @@ function GeneratePageContent() {
         />
       </div>
 
+      <GenerationStartModal
+        state={generationDialog}
+        onClose={closeGenerationDialog}
+        onAction={handleGenerationDialogAction}
+      />
     </div>
   );
 }

@@ -29,9 +29,18 @@ export interface RawProductInput {
   imageUrls: string[];
   /** 상세페이지 사용 연령 기준. 기본은 age-8-plus. */
   ageGroup?: DetailPageAgeGroup;
-  /** DETAIL 본문 이미지 수. 기본 auto = 2~3개. */
+  /** DETAIL 본문 이미지 수. 기본 2개. 기존 auto payload도 2개로 처리한다. */
   detailImageCount?: DetailImageCount;
+  /** 사용법 안내 영역 생성 여부. 기본 include. */
+  usageSectionMode?: UsageSectionMode;
+  /** KC 인증번호 입력 상태. 기본 unknown = AI 판단. */
+  kcCertificationStatus?: KcCertificationStatus;
+  /** 사용자가 직접 입력한 KC 인증번호. */
+  kcCertificationNumber?: string;
 }
+
+export type UsageSectionMode = 'include' | 'exclude';
+export type KcCertificationStatus = 'unknown' | 'none' | 'exists';
 
 export function formatAudienceGuidance(ageGroup?: DetailPageAgeGroup): string {
   if (ageGroup === 'age-14-plus') {
@@ -52,22 +61,63 @@ export function formatAudienceGuidance(ageGroup?: DetailPageAgeGroup): string {
 }
 
 export function resolveDetailImageCountLimit(detailImageCount?: DetailImageCount): number {
-  if (detailImageCount === '1') return 1;
-  if (detailImageCount === '2') return 2;
-  return 3;
+  if (detailImageCount === 'auto' || detailImageCount === undefined) return 2;
+  const parsed = Number(detailImageCount);
+  if (!Number.isInteger(parsed)) return 2;
+  return Math.min(6, Math.max(2, parsed));
 }
 
 export function formatDetailImageCountGuidance(detailImageCount?: DetailImageCount): string {
-  if (detailImageCount === '1') {
-    return 'DETAIL 본문 이미지 수: 1개. 핵심 디테일 컷 1장만 사용하고 패키지 이미지는 별도 packageImageIndices 로 분리한다.';
+  const count = resolveDetailImageCountLimit(detailImageCount);
+  return `DETAIL 본문 이미지 수: ${count}개. 서로 다른 디테일/라이프 컷 ${count}장을 사용하고 패키지 이미지는 별도 packageImageIndices 로 분리한다.`;
+}
+
+export function formatUsageSectionGuidance(usageSectionMode?: UsageSectionMode): string {
+  if (usageSectionMode === 'exclude') {
+    return [
+      '사용법 영역: 만들지 않음.',
+      '사용법 안내, 사용 순서, 튜토리얼, 설명서형 섹션을 생성하지 않는다.',
+      'bold-vertical 출력이면 usage.subtitle 는 빈 문자열, usage.imageIndices 는 빈 배열로 둔다.',
+      '사용법 전용 이미지를 새로 생성하지 않고 DETAIL 본문 이미지만 구성한다.',
+    ].join('\n');
   }
-  if (detailImageCount === '2') {
-    return 'DETAIL 본문 이미지 수: 2개. 서로 다른 디테일/라이프 컷 2장을 사용하고 패키지 이미지는 별도 packageImageIndices 로 분리한다.';
+
+  return [
+    '사용법 영역: 포함.',
+    '상품 특성상 실제 사용 흐름 설명이 필요하면 사용법 안내 섹션을 만든다.',
+    '사용법/설명서 이미지가 있으면 usage 전용 영역으로 분리한다.',
+  ].join('\n');
+}
+
+export function formatKcCertificationGuidance(
+  status?: KcCertificationStatus,
+  number?: string,
+): string {
+  const normalizedNumber = normalizeKcCertificationNumber(number);
+  if (status === 'none') {
+    return [
+      'KC 인증번호: 없음.',
+      'KC 인증번호를 추정해서 만들지 않는다.',
+      '안전표시/KC/바코드 이미지가 있으면 productInfo 표는 만들지 않고 하단 안전 이미지로 처리한다.',
+    ].join('\n');
   }
-  if (detailImageCount === '3') {
-    return 'DETAIL 본문 이미지 수: 3개. 서로 다른 디테일/라이프 컷 3장을 사용하고 패키지 이미지는 별도 packageImageIndices 로 분리한다.';
+  if (status === 'exists') {
+    return [
+      normalizedNumber ? `KC 인증번호: ${normalizedNumber}.` : 'KC 인증번호: 있음. 번호는 이미지/원문에서 확인 가능한 경우에만 사용한다.',
+      '안전표시/KC/바코드 이미지가 있으면 productInfo 표와 중복하지 않는다.',
+      normalizedNumber
+        ? '안전표시/KC/바코드 이미지가 없을 때 productInfo 에 {"key":"KC 인증번호","value":"입력된 번호"}를 포함한다.'
+        : '안전표시/KC/바코드 이미지가 없고 번호가 확인되면 productInfo 에 KC 인증번호 항목을 포함한다.',
+    ].join('\n');
   }
-  return 'DETAIL 본문 이미지 수: 기본 2~3개. 상품 이미지가 충분하면 3장, 부족하면 2장 정도로 자연스럽게 구성한다.';
+  return [
+    'KC 인증번호: AI가 원본 설명과 안전표시 이미지를 기준으로 판단.',
+    '안전표시/KC/바코드 이미지가 있으면 productInfo 표와 중복하지 않는다.',
+  ].join('\n');
+}
+
+export function normalizeKcCertificationNumber(value?: string): string {
+  return (value ?? '').trim().replace(/\s+/g, ' ').slice(0, 80);
 }
 
 /** 이미지 후보를 프롬프트에 삽입하는 표준 포맷터. */

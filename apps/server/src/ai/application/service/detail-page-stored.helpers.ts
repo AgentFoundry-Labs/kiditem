@@ -119,13 +119,13 @@ export function detailPageOperationKey(contentGenerationId: string): string {
   return `detail-page:${contentGenerationId}`;
 }
 
-export function detailPageEditorHref(input: {
+export function detailPageResultHref(input: {
   productId: string;
   contentGenerationId: string;
   templateId: DetailPageTemplateId;
 }): string {
-  const queryKey = input.templateId === 'bold-vertical' ? 'boldId' : 'kpId';
-  return `/sourcing/${input.productId}/editor?${queryKey}=${input.contentGenerationId}`;
+  const params = new URLSearchParams({ generationId: input.contentGenerationId });
+  return `/product-content/${input.productId}/editor?${params.toString()}`;
 }
 
 function pickStoredString(rawInput: unknown, key: string): string | null {

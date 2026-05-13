@@ -146,7 +146,46 @@ export class AgentOsRequestRepository {
 
     if (rows.length === 0) return null;
 
-    const row = rows[0];
+    return this.attachRawRunRequestContext(rows[0]);
+  }
+
+  async claimRunRequestById(input: {
+    workerId: string;
+    now: Date;
+    organizationId: string;
+    requestId: string;
+  }): Promise<AgentRunRequestRecord | null> {
+    const rows = await this.prisma.$queryRaw<RunRequestRow[]>`
+      WITH target_request AS (
+        SELECT "id"
+        FROM "agent_run_requests"
+        WHERE "id" = ${input.requestId}::uuid
+          AND "organization_id" = ${input.organizationId}::uuid
+          AND "status" = 'pending'
+          AND "scheduled_for" <= ${input.now}
+          AND "attempts" < "max_attempts"
+        FOR UPDATE SKIP LOCKED
+        LIMIT 1
+      )
+      UPDATE "agent_run_requests" req
+      SET
+        "status" = 'claimed',
+        "claimed_at" = ${input.now},
+        "claimed_by" = ${input.workerId},
+        "attempts" = req."attempts" + 1,
+        "updated_at" = ${input.now}
+      FROM target_request
+      WHERE req."id" = target_request."id"
+      RETURNING req.*
+    `;
+
+    if (rows.length === 0) return null;
+    return this.attachRawRunRequestContext(rows[0]);
+  }
+
+  private async attachRawRunRequestContext(
+    row: RunRequestRow,
+  ): Promise<AgentRunRequestRecord> {
     const session = await this.prisma.agentTaskSession.findFirst({
       where: {
         id: row.task_session_id,

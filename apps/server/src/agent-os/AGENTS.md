@@ -111,6 +111,12 @@ Reconcile jobs are the only code path that bypasses the event bus, and they
 must feed terminal run data through the same output schema and sink port used by
 the bridge.
 
+Owner domains that need immediate user-visible progress may call
+`AgentRunnerPort.executeRequest({ organizationId, requestId })` right after
+`runByType` succeeds. This claims only that specific pending request through the
+same executor path; it does not enable the global worker or drain unrelated
+queues.
+
 ## Bootstrap
 
 Fresh DBs need one `AgentInstance` per shipped code-owned definition and

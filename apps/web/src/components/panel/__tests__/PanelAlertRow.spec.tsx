@@ -208,6 +208,23 @@ describe('PanelAlertRow', () => {
       expect(link).toHaveAttribute('href', '/products/abc');
     });
 
+    it('normalizes legacy detail-page editor hrefs to product-content', () => {
+      render(
+        <PanelAlertRow
+          item={makeAlert({
+            alertKind: 'operation',
+            status: 'succeeded',
+            href: '/sourcing/product-123/editor?boldId=generation-456',
+          })}
+        />,
+      );
+      const link = screen.getByRole('link', { name: /이동/ });
+      expect(link).toHaveAttribute(
+        'href',
+        '/product-content/product-123/editor?generationId=generation-456',
+      );
+    });
+
     it('closes the panel when href link is clicked', () => {
       usePanelStore.getState().setOpen(true);
       render(

@@ -1,11 +1,11 @@
 import {
   ArrayMaxSize,
-  ArrayMinSize,
   IsArray,
   IsIn,
   IsOptional,
   IsString,
   IsUUID,
+  MaxLength,
   MinLength,
 } from 'class-validator';
 import {
@@ -31,11 +31,11 @@ export class GenerateDetailPageBodyDto {
   @IsString()
   rawOptions!: string;
 
+  @IsOptional()
   @IsArray()
-  @ArrayMinSize(1)
   @ArrayMaxSize(50)
   @IsString({ each: true })
-  imageUrls!: string[];
+  imageUrls?: string[];
 
   @IsOptional()
   @IsIn(['first', 'llm-pick'])
@@ -56,6 +56,19 @@ export class GenerateDetailPageBodyDto {
   @IsOptional()
   @IsIn(DETAIL_IMAGE_COUNTS)
   detailImageCount?: DetailImageCount;
+
+  @IsOptional()
+  @IsIn(['include', 'exclude'])
+  usageSectionMode?: 'include' | 'exclude';
+
+  @IsOptional()
+  @IsIn(['unknown', 'none', 'exists'])
+  kcCertificationStatus?: 'unknown' | 'none' | 'exists';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  kcCertificationNumber?: string;
 }
 
 export class PrefillDetailPageBodyDto {

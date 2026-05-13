@@ -124,6 +124,7 @@ export class DetailPageQueryService {
   private mapStatus(status: string): string {
     if (status === 'READY' || status === 'completed') return 'completed';
     if (status === 'FAILED' || status === 'failed') return 'failed';
+    if (status === 'CANCELLED' || status === 'cancelled') return 'cancelled';
     if (status === 'PROCESSING' || status === 'generating') return 'processing';
     return status.toLowerCase();
   }

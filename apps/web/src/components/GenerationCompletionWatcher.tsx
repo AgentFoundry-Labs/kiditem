@@ -8,9 +8,10 @@ import {
   useKidsPlayfulGenerationList,
   type KidsPlayfulGenerationItem,
 } from '@/app/(media-ai)/generate/hooks/useKidsPlayfulGenerate';
+import { buildProductContentEditorHref } from '@/app/(catalog)/product-content/lib/product-content-routing';
 
 const IN_PROGRESS_STATUSES = new Set(['pending', 'processing']);
-const TERMINAL_STATUSES = new Set(['completed', 'failed']);
+const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
 
 export default function GenerationCompletionWatcher() {
   const router = useRouter();
@@ -42,9 +43,11 @@ export default function GenerationCompletionWatcher() {
         TERMINAL_STATUSES.has(current)
       ) {
         const isBoldVertical = entry.templateId === 'bold-vertical';
-        const queryKey = isBoldVertical ? 'boldId' : 'kpId';
         const editorUrl = entry.productId
-          ? `/sourcing/${entry.productId}/editor?${queryKey}=${entry.id}`
+          ? buildProductContentEditorHref({
+              productId: entry.productId,
+              generationId: entry.id,
+            })
           : null;
         const productLabel = entry.productName || '상세페이지';
 
@@ -60,6 +63,11 @@ export default function GenerationCompletionWatcher() {
                   onClick: () => router.push(editorUrl),
                 }
               : undefined,
+          });
+        } else if (current === 'cancelled') {
+          toast.info(`${productLabel} 생성 중단됨`, {
+            description: '사용자 요청으로 상세페이지 생성을 멈췄습니다.',
+            duration: 5000,
           });
         } else {
           toast.error(`${productLabel} 생성 실패`, {
