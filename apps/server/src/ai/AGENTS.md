@@ -35,8 +35,9 @@ ai/
 |---|---|---|
 | `POST /api/image-ai/edit` | async Agent OS | returns request/run id for polling |
 | `POST /api/text-ai/transform` | sync | `TEXT_COMPLETION_PORT` only |
-| `POST /api/ai/detail-page/generate` with `productId` | async Agent OS | creates `ContentGeneration` ledger |
-| `POST /api/ai/detail-page/generate` without `productId` | sync fallback | preview/test only; no ledger/reconcile |
+| `POST /api/ai/detail-page/generate` with `productId` | async Agent OS | creates product-bound `ContentGeneration` ledger |
+| `POST /api/ai/detail-page/generate` without `productId` | async Agent OS | creates standalone `ContentGeneration` ledger |
+| `GET /api/ai/content-assets` | read model | lists reusable content image assets |
 | `POST /api/thumbnail-editor/generate` with `productId` | async Agent OS | creates `ThumbnailGeneration` ledger |
 | `POST /api/thumbnail-editor/generate` without `productId` | sync fallback | preview/test only |
 | `POST /api/*/reconcile-stuck` | admin recovery | replays terminal Agent OS runs through the same sink |
@@ -44,7 +45,7 @@ ai/
 
 ## Hard Rules
 
-- Image edit and product-bound thumbnail/detail generation delegate to
+- Image edit, thumbnail generation, and detail-page generation delegate to
   `AGENT_RUNNER_PORT.runByType(...)`. Do not call image providers directly from
   HTTP controllers.
 - Gemini/model selection is explicit. Missing model/env is an error; no
@@ -74,7 +75,7 @@ ai/
 - Bridges must route invalid output to `applyFailure({ errorCode:
   'agent_output_invalid' })`; do not throw at the event-bus level.
 - Sink adapters update `ContentGeneration` / `ThumbnailGeneration`, processed
-  images, and alerts with `(id, organizationId)` scope.
+  images, content assets, and alerts with `(id, organizationId)` scope.
 - Sinks are idempotent. If the downstream row is already terminal, replay is a
   no-op.
 - Reconcile services read terminal Agent OS runs and replay the same schema +
@@ -82,20 +83,24 @@ ai/
 
 ## Detail Page Flow
 
-Product-bound generation:
+Detail-page generation:
 
 ```text
 HTTP DTO
   -> DetailPageAiService facade
-  -> DetailPageGenerationService creates ContentGeneration + alert
+  -> DetailPageGenerationService creates ContentGeneration + input ContentAsset rows + alert
   -> AGENT_RUNNER_PORT.runByType('detail_page_generate')
   -> detail-page runtime handler
   -> bridge
-  -> sink READY/FAILED + generated images + alert close
+  -> sink READY/FAILED + generated images + generated ContentAsset rows + alert close
 ```
 
-Standalone generation (`productId` missing) uses `TEXT_COMPLETION_PORT` directly
-and intentionally bypasses `ContentGeneration`, Agent OS, and reconcile.
+`ContentGeneration.masterId` is nullable. Product-bound runs set it to the
+selected `MasterProduct.id`; standalone runs leave it null and still use the
+same ledger, sink, reconcile, and editor path.
+
+Edited detail-page HTML is stored on `ContentGeneration.editedHtml`; do not
+write generated editor output back into `MasterProduct.draftContent`.
 
 `DetailPageHeroImageService` selects source images, storage keys, and prompt
 inputs. `DetailPageGeminiMediaAdapter` owns GoogleGenAI response parsing and
@@ -150,15 +155,18 @@ post-promotion AI generation:
   error and returns without creating rows or alerts.
 - Called by sourcing's `SourcingAgentGatewayAdapter.notifyPromoted`
 
-## ContentGeneration Master-Only Contract
+## ContentGeneration Content Contract
 
-`ContentGeneration` and `ThumbnailGeneration` are master-only by contract
-(master_id FK is required; no polymorphic candidate target). The
-sourcing-candidate split design (issue #192) explicitly rejected
-polymorphism over implicit assumptions. If future requirements need
-candidate-stage AI preview, that would require a new
-`CandidateContentGeneration` table — not a polymorphic discriminator on
-`ContentGeneration`.
+`ContentGeneration` is the detail-page work product source of truth. Its
+`masterId` is optional product attachment, not ownership of the work product.
+`ContentAsset` records generated/editable media assets; selecting an asset for
+the product gallery copies/adopts it into `MasterProductImage`.
+
+`ContentGeneration` is not a sourcing-candidate polymorphic target. The
+sourcing-candidate split design (issue #192) explicitly rejected mixing
+candidate ownership into this table. Candidate-stage preview still needs a
+separate candidate-owned table or a standalone generation that is attached to a
+master only after promotion.
 
 ## Transitional Exceptions
 

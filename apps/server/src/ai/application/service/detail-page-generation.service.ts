@@ -15,26 +15,10 @@ import {
   type AgentRunnerPort,
 } from '../../../agent-os/application/port/in/agent-runner.port';
 import {
-  DetailPageGenerationSchema,
-  SINGLE_CALL_SYSTEM,
-  buildSingleCallUser,
-  type DetailPageGeneration,
-} from '../../domain/prompts/detail-page/single-call';
-import {
-  BoldVerticalGenerationSchema,
-  BOLD_VERTICAL_SYSTEM,
-  buildBoldVerticalUser,
-  type BoldVerticalGeneration,
-} from '../../domain/prompts/bold-vertical/single-call';
-import {
   AI_AGENT_SOURCE_TYPES,
   DETAIL_PAGE_GENERATE_AGENT_TYPE,
 } from '../../domain/agent-output';
 import type { GenerateDetailPageBodyDto } from '../../adapter/in/http/dto';
-import {
-  TEXT_COMPLETION_PORT,
-  type TextCompletionPort,
-} from '../port/out/text-completion.port';
 import {
   IMAGE_STORAGE_PORT,
   type ImageStoragePort,
@@ -55,16 +39,14 @@ import type {
   DetailPageGenerationDto,
   DetailPageRawInput,
   DetailPageTemplateId,
-  KidsPlayfulImageContext,
 } from './detail-page-ai.types';
-import { DetailPageGeneratedImagesService } from './detail-page-generated-images.service';
 import { DetailPageQueryService } from './detail-page-query.service';
-import { DetailPageResultRefinerService } from './detail-page-result-refiner.service';
 import {
   detailPageOperationKey,
   detailPageResultHref,
   serializeDetailPageStoredJson,
 } from './detail-page-stored.helpers';
+import { ContentAssetService } from './content-asset.service';
 
 const DETAIL_PAGE_PROCESSING_STATUSES = [
   'PENDING',
@@ -90,16 +72,13 @@ export class DetailPageGenerationService {
 
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(TEXT_COMPLETION_PORT)
-    private readonly textCompletion: TextCompletionPort,
     @Inject(IMAGE_STORAGE_PORT)
     private readonly imageStorage: ImageStoragePort,
     private readonly operationAlerts: OperationAlertService,
-    private readonly resultRefiner: DetailPageResultRefinerService,
-    private readonly generatedImages: DetailPageGeneratedImagesService,
     private readonly query: DetailPageQueryService,
     @Inject(AGENT_RUNNER_PORT)
     private readonly agentRunner: AgentRunnerPort,
+    private readonly contentAssets: ContentAssetService,
   ) {}
 
   async uploadInputImage(
@@ -150,89 +129,42 @@ export class DetailPageGenerationService {
       kcCertificationNumber,
     };
 
-    if (dto.productId) {
-      return this.enqueueProductBoundGeneration({
-        organizationId,
-        triggeredByUserId,
-        productId: dto.productId,
-        rawTitle: dto.rawTitle,
-        templateId,
-        heroImageMode,
-        imageUrls,
-        rawInput,
-      });
-    }
-
-    const model = process.env.AI_TEXT_MODEL;
-    if (!model) {
-      throw new HttpException(
-        'AI_TEXT_MODEL이 설정되지 않았습니다.',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-    const isBoldVertical = templateId === 'bold-vertical';
-    const kidsImageContext = await this.resultRefiner.prepareKidsPlayfulImageContext({
-      templateId,
-      rawInput,
-    });
-    const excludedImageIndices = [
-      ...kidsImageContext.packageImageIndices,
-      ...kidsImageContext.safetyLabelImageIndices,
-    ];
-    const parsed = await this.generateParsed({
-      rawInput,
-      heroImageMode,
-      templateId,
-      model,
-      isBoldVertical,
-      kidsImageContext,
-    });
-    const productName = this.pickProductName(parsed, templateId, dto.rawTitle);
-    const processedImages = await this.generatedImages.generateBestEffort({
+    return this.enqueueGeneration({
       organizationId,
-      parsed,
+      triggeredByUserId,
+      productId: dto.productId ?? null,
+      rawTitle: dto.rawTitle,
       templateId,
-      rawInput,
-      productName,
-      excludedImageIndices,
-    });
-
-    return {
-      id: `standalone-${randomUUID()}`,
-      productId: null,
-      templateId,
-      productName,
-      rawInput,
-      result: parsed,
+      heroImageMode,
       imageUrls,
-      processedImages,
-      imageProcessingStatus: 'completed',
-      imageProcessingError: null,
-      createdAt: new Date().toISOString(),
-    };
+      rawInput,
+    });
   }
 
-  private async enqueueProductBoundGeneration(input: {
+  private async enqueueGeneration(input: {
     organizationId: string;
     triggeredByUserId: string | null;
-    productId: string;
+    productId: string | null;
     rawTitle: string;
     templateId: DetailPageTemplateId;
     heroImageMode: 'first' | 'llm-pick';
     imageUrls: string[];
     rawInput: DetailPageRawInput;
   }): Promise<DetailPageGenerationDto> {
-    const master = await this.prisma.masterProduct.findFirst({
-      where: { id: input.productId, organizationId: input.organizationId, isDeleted: false },
-      select: { id: true },
-    });
-    if (!master) throw new NotFoundException('Product not found');
+    if (input.productId) {
+      const master = await this.prisma.masterProduct.findFirst({
+        where: { id: input.productId, organizationId: input.organizationId, isDeleted: false },
+        select: { id: true },
+      });
+      if (!master) throw new NotFoundException('Product not found');
+    }
 
     const row = await this.prisma.contentGeneration.create({
       data: {
         organizationId: input.organizationId,
         masterId: input.productId,
         triggeredByUserId: input.triggeredByUserId,
+        templateId: input.templateId,
         originalImages: input.imageUrls,
         processedImages: {},
         generatedTitle: input.rawTitle.slice(0, 80),
@@ -246,6 +178,14 @@ export class DetailPageGenerationService {
       },
     });
 
+    await this.contentAssets.recordDetailPageInputAssets({
+      organizationId: input.organizationId,
+      contentGenerationId: row.id,
+      masterId: input.productId,
+      createdByUserId: input.triggeredByUserId,
+      imageUrls: input.imageUrls,
+    });
+
     await this.operationAlerts.start({
       organizationId: input.organizationId,
       operationKey: detailPageOperationKey(row.id),
@@ -254,8 +194,8 @@ export class DetailPageGenerationService {
       sourceType: 'content_generation',
       sourceId: row.id,
       actorUserId: input.triggeredByUserId,
-      targetType: 'master',
-      targetId: input.productId,
+      targetType: input.productId ? 'master' : 'content_generation',
+      targetId: input.productId ?? row.id,
       href: detailPageResultHref({
         productId: input.productId,
         contentGenerationId: row.id,
@@ -272,7 +212,9 @@ export class DetailPageGenerationService {
         sourceType: AI_AGENT_SOURCE_TYPES.DETAIL_PAGE_GENERATE,
         sourceResourceType: 'content_generation',
         sourceResourceId: row.id,
-        reason: `detail_page_generate for product ${input.productId}`,
+        reason: input.productId
+          ? `detail_page_generate for product ${input.productId}`
+          : `detail_page_generate for unbound content ${row.id}`,
         payload: {
           templateId: input.templateId,
           raw: {
@@ -392,24 +334,6 @@ export class DetailPageGenerationService {
     return this.query.toDto(reloaded ?? row);
   }
 
-  private pickProductName(
-    parsed: unknown,
-    templateId: DetailPageTemplateId,
-    fallback: string,
-  ): string {
-    if (templateId === 'bold-vertical') {
-      const hookText = (parsed as { hook?: { text?: unknown } }).hook?.text;
-      const hookTitleSub = (parsed as { hook?: { titleSub?: unknown } }).hook?.titleSub;
-      const title = [
-        typeof hookText === 'string' ? hookText.trim() : '',
-        typeof hookTitleSub === 'string' ? hookTitleSub.trim() : '',
-      ].filter(Boolean).join(' ');
-      return title || fallback.slice(0, 50);
-    }
-    const headline = (parsed as { section1?: { mainHeadline?: unknown } }).section1?.mainHeadline;
-    return typeof headline === 'string' && headline.trim() ? headline.trim() : fallback.slice(0, 50);
-  }
-
   private extForMime(mimeType: string): string {
     if (mimeType === 'image/png') return 'png';
     if (mimeType === 'image/webp') return 'webp';
@@ -422,49 +346,5 @@ export class DetailPageGenerationService {
     } catch {
       return 'product';
     }
-  }
-
-  private async generateParsed(input: {
-    rawInput: DetailPageRawInput;
-    heroImageMode: 'first' | 'llm-pick';
-    templateId: DetailPageTemplateId;
-    model: string;
-    isBoldVertical: boolean;
-    kidsImageContext?: KidsPlayfulImageContext;
-  }): Promise<DetailPageGeneration | BoldVerticalGeneration> {
-    const { text: rawText } = await this.textCompletion.complete({
-      system: input.isBoldVertical ? BOLD_VERTICAL_SYSTEM : SINGLE_CALL_SYSTEM,
-      user: input.isBoldVertical
-        ? buildBoldVerticalUser({ raw: input.rawInput, heroImageMode: input.heroImageMode })
-        : buildSingleCallUser({
-            raw: input.rawInput,
-            heroImageMode: input.heroImageMode,
-            reservedPackageImageIndices: [...(input.kidsImageContext?.packageImageIndices ?? [])],
-            safetyLabelImageIndices: [...(input.kidsImageContext?.safetyLabelImageIndices ?? [])],
-          }),
-      temperature: 0.8,
-      responseMimeType: 'application/json',
-      model: input.model,
-    });
-    const parsed = (input.isBoldVertical ? BoldVerticalGenerationSchema : DetailPageGenerationSchema)
-      .parse(this.extractJson(rawText));
-    if (!input.isBoldVertical) {
-      return this.resultRefiner.applyKidsPlayfulImageSelectionRules(
-        parsed as DetailPageGeneration,
-        input.rawInput,
-        input.kidsImageContext,
-      );
-    }
-    return this.resultRefiner.refineBoldVerticalGeneration(
-      parsed as BoldVerticalGeneration,
-      input.rawInput,
-    );
-  }
-
-  private extractJson(raw: string): unknown {
-    const trimmed = raw.trim();
-    const fenced = trimmed.match(/^```(?:json)?\s*\n?([\s\S]+?)\n?```$/);
-    const body = fenced ? fenced[1] : trimmed;
-    return JSON.parse(body);
   }
 }

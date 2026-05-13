@@ -118,7 +118,7 @@ describe('ImageAiService', () => {
         sourceType: 'agent_run_request',
         sourceId: 'request-9',
         actorUserId: USER_ID,
-        href: '/image-hub',
+        href: '/product-content?tab=assets',
         metadata: expect.objectContaining({
           agentType: 'image_edit',
           preset: 'remove_background',

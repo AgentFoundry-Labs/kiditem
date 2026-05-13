@@ -10,7 +10,7 @@ import {
 
 type DetailPageGenerationRow = {
   id: string;
-  masterId: string;
+  masterId: string | null;
   originalImages: unknown;
   processedImages: unknown;
   generatedTitle: string | null;
@@ -65,6 +65,44 @@ export class DetailPageQueryService {
     if (!row) throw new NotFoundException('Detail page generation not found');
     await this.prisma.contentGeneration.delete({ where: { id } });
     return { ok: true };
+  }
+
+  async saveEditedHtml(
+    id: string,
+    organizationId: string,
+    html: string,
+  ): Promise<{ html: string; savedAt: string }> {
+    const savedAt = new Date();
+    const updated = await this.prisma.contentGeneration.updateMany({
+      where: { id, organizationId },
+      data: {
+        editedHtml: html,
+        editedHtmlSavedAt: savedAt,
+      },
+    });
+    if (updated.count === 0) {
+      throw new NotFoundException('Detail page generation not found');
+    }
+    return { html, savedAt: savedAt.toISOString() };
+  }
+
+  async getEditedHtml(
+    id: string,
+    organizationId: string,
+  ): Promise<{ html: string | null; savedAt: string | null }> {
+    const row = await this.prisma.contentGeneration.findFirst({
+      where: { id, organizationId },
+      select: {
+        id: true,
+        editedHtml: true,
+        editedHtmlSavedAt: true,
+      },
+    });
+    if (!row) throw new NotFoundException('Detail page generation not found');
+    return {
+      html: row.editedHtml,
+      savedAt: row.editedHtmlSavedAt?.toISOString() ?? null,
+    };
   }
 
   toDto(row: DetailPageGenerationRow): DetailPageGenerationDto {

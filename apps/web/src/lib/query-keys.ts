@@ -192,6 +192,8 @@ export const queryKeys = {
     detail: (id: string) => [...queryKeys.productContent.all, 'detail', id] as const,
     preview: (id: string) => [...queryKeys.productContent.all, 'preview', id] as const,
     editedHtml: (id: string) => [...queryKeys.productContent.all, 'edited-html', id] as const,
+    generationEditedHtml: (id: string) =>
+      [...queryKeys.productContent.all, 'generation-edited-html', id] as const,
   },
   organizations: {
     all: ['organizations'] as const,

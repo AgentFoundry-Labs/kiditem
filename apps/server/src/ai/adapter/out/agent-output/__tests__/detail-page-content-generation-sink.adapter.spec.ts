@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DetailPageContentGenerationSinkAdapter } from '../detail-page-content-generation-sink.adapter';
 import type { OperationAlertService } from '../../../../../automation/application/service/operation-alert.service';
 import type { DetailPageGeneratedImagesService } from '../../../../application/service/detail-page-generated-images.service';
+import type { ContentAssetService } from '../../../../application/service/content-asset.service';
 
 const ORG = '11111111-1111-1111-1111-111111111111';
 const OTHER_ORG = '22222222-2222-2222-2222-222222222222';
@@ -66,6 +67,12 @@ function makeImagesStub(): DetailPageGeneratedImagesService {
   } as unknown as DetailPageGeneratedImagesService;
 }
 
+function makeContentAssetsStub(): ContentAssetService {
+  return {
+    recordDetailPageGeneratedAssets: vi.fn().mockResolvedValue(undefined),
+  } as unknown as ContentAssetService;
+}
+
 const VALID_OUTPUT = {
   templateId: 'bold-vertical' as const,
   result: {
@@ -100,16 +107,19 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
   let prisma: ReturnType<typeof makePrismaStub>;
   let alerts: OperationAlertService;
   let images: DetailPageGeneratedImagesService;
+  let contentAssets: ContentAssetService;
   let sink: DetailPageContentGenerationSinkAdapter;
 
   beforeEach(() => {
     prisma = makePrismaStub(makeRow());
     alerts = makeAlertsStub();
     images = makeImagesStub();
+    contentAssets = makeContentAssetsStub();
     sink = new DetailPageContentGenerationSinkAdapter(
       prisma as never,
       alerts,
       images,
+      contentAssets,
     );
   });
 
@@ -135,6 +145,14 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
       };
       expect(updateCall.data.processedImages).toMatchObject({
         __heroBanner: 'https://cdn.example.com/hero.png',
+      });
+      expect(contentAssets.recordDetailPageGeneratedAssets).toHaveBeenCalledWith({
+        organizationId: ORG,
+        contentGenerationId: CG_ID,
+        masterId: 'master-1',
+        processedImages: {
+          __heroBanner: 'https://cdn.example.com/hero.png',
+        },
       });
       const stored = JSON.parse(updateCall.data.detailPageHtml);
       expect(stored.templateId).toBe('bold-vertical');
@@ -165,6 +183,7 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
           prisma as never,
           alerts,
           images,
+          contentAssets,
         );
 
         const pending = sink.applySuccess({
@@ -209,6 +228,7 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
           prisma as never,
           alerts,
           images,
+          contentAssets,
         );
 
         const pending = sink.applySuccess({
@@ -311,6 +331,7 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
         prisma as never,
         alerts,
         images,
+        contentAssets,
       );
       await sink.applySuccess({
         organizationId: ORG,
@@ -330,6 +351,7 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
         prisma as never,
         alerts,
         images,
+        contentAssets,
       );
       await sink.applySuccess({
         organizationId: ORG,
@@ -393,6 +415,7 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
         prisma as never,
         alerts,
         images,
+        contentAssets,
       );
       await sink.applyFailure({
         organizationId: ORG,
@@ -412,6 +435,7 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
         prisma as never,
         alerts,
         images,
+        contentAssets,
       );
       await sink.applyFailure({
         organizationId: ORG,

@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useMemo } from 'react';
+import { Suspense, useEffect, useMemo } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -51,6 +51,11 @@ function ProductContentEditorPageContent() {
   const generationId =
     search.get('generationId') ?? search.get('boldId') ?? search.get('kpId');
   const hasExplicitSource = !!generationId;
+
+  useEffect(() => {
+    if (!generationId) return;
+    router.replace(`/product-content/detail-pages/${encodeURIComponent(generationId)}/editor`);
+  }, [generationId, router]);
 
   const { data: editorData, isLoading, error: queryError } = useEditorData(productId);
   const {
@@ -152,6 +157,10 @@ function ProductContentEditorPageContent() {
     !!selectedEntry &&
     (selectedEntry.imageProcessingStatus === 'pending' ||
       selectedEntry.imageProcessingStatus === 'processing');
+
+  if (generationId) {
+    return <EditorLoadingScreen />;
+  }
 
   if (
     isLoading ||

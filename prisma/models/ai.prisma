@@ -310,30 +310,83 @@ model ThumbnailTrackingDailySnapshot {
 
 /// @namespace AI
 model ContentGeneration {
-  id                   String   @id @default(uuid()) @db.Uuid
-  organizationId       String   @map("organization_id") @db.Uuid
-  masterId             String   @map("master_id") @db.Uuid
-  originalImages       Json?    @map("original_images")
-  processedImages      Json?    @map("processed_images")
-  generatedTitle       String?  @map("generated_title")
-  generatedDescription String?  @map("generated_description")
-  generatedCopy        String?  @map("generated_copy")
-  detailPageHtml       String?  @map("detail_page_html")
-  status               String   @default("PENDING")
-  retryCount           Int      @default(0) @map("retry_count")
-  errorMessage         String?  @map("error_message")
-  triggeredByUserId    String?  @map("triggered_by_user_id") @db.Uuid
-  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt            DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  id                   String    @id @default(uuid()) @db.Uuid
+  organizationId       String    @map("organization_id") @db.Uuid
+  masterId             String?   @map("master_id") @db.Uuid
+  templateId           String?   @map("template_id")
+  originalImages       Json?     @map("original_images")
+  processedImages      Json?     @map("processed_images")
+  generatedTitle       String?   @map("generated_title")
+  generatedDescription String?   @map("generated_description")
+  generatedCopy        String?   @map("generated_copy")
+  detailPageHtml       String?   @map("detail_page_html")
+  editedHtml           String?   @map("edited_html")
+  editedHtmlSavedAt    DateTime? @map("edited_html_saved_at") @db.Timestamptz
+  status               String    @default("PENDING")
+  retryCount           Int       @default(0) @map("retry_count")
+  errorMessage         String?   @map("error_message")
+  triggeredByUserId    String?   @map("triggered_by_user_id") @db.Uuid
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  master          MasterProduct @relation(fields: [masterId], references: [id], onDelete: Cascade)
-  triggeredByUser User?         @relation("ContentGenerationTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
+  organization    Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  master          MasterProduct? @relation(fields: [masterId], references: [id], onDelete: SetNull)
+  triggeredByUser User?          @relation("ContentGenerationTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
+  assets          ContentAsset[]
 
   @@index([organizationId])
   @@index([masterId])
+  @@index([templateId])
+  @@index([organizationId, templateId])
   @@index([status])
   @@index([organizationId, triggeredByUserId])
   @@index([triggeredByUserId])
   @@map("content_generations")
+}
+
+/// @namespace AI
+/// @describe Generated/editable media workspace asset. Product gallery adoption copies selected rows into MasterProductImage.
+model ContentAsset {
+  id                  String  @id @default(uuid()) @db.Uuid
+  organizationId      String  @map("organization_id") @db.Uuid
+  masterId            String? @map("master_id") @db.Uuid
+  contentGenerationId String? @map("content_generation_id") @db.Uuid
+  createdByUserId     String? @map("created_by_user_id") @db.Uuid
+
+  assetKey   String  @map("asset_key")
+  url        String
+  storageKey String? @map("storage_key")
+  assetType  String  @default("image") @map("asset_type")
+  sourceType String  @map("source_type")
+  role       String?
+  label      String?
+  sortOrder  Int     @default(0) @map("sort_order")
+
+  mimeType String? @map("mime_type")
+  width    Int?
+  height   Int?
+  fileSize Int?    @map("file_size")
+  metadata Json    @default("{}")
+
+  isDeleted Boolean   @default(false) @map("is_deleted")
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  master            MasterProduct?     @relation(fields: [masterId], references: [id], onDelete: SetNull)
+  contentGeneration ContentGeneration? @relation(fields: [contentGenerationId], references: [id], onDelete: SetNull)
+  createdByUser     User?              @relation("ContentAssetCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, assetKey])
+  @@index([organizationId])
+  @@index([masterId])
+  @@index([contentGenerationId])
+  @@index([createdByUserId])
+  @@index([organizationId, sourceType])
+  @@index([organizationId, assetType])
+  @@index([organizationId, masterId])
+  @@index([organizationId, contentGenerationId])
+  @@map("content_assets")
 }

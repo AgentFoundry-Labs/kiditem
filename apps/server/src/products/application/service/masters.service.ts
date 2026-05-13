@@ -40,7 +40,10 @@ const SYSTEM_FIELDS = [
   'createdAt', 'updatedAt', 'images', 'imageUrl',
 ] as const;
 
+const AI_DETAIL_TEMPLATE_IDS = ['kids-playful', 'bold-vertical', 'simple-vertical'] as const;
+
 const AI_DETAIL_TEMPLATE_FILTERS: Prisma.ContentGenerationWhereInput[] = [
+  { templateId: { in: [...AI_DETAIL_TEMPLATE_IDS] } },
   { detailPageHtml: { contains: '"templateId":"kids-playful"' } },
   { detailPageHtml: { contains: '"templateId":"bold-vertical"' } },
   { detailPageHtml: { contains: '"templateId":"simple-vertical"' } },
@@ -381,7 +384,7 @@ export class MastersService {
     );
     const where: Prisma.ContentGenerationWhereInput = {
       organizationId,
-      ...(query.productId ? { masterId: query.productId } : {}),
+      masterId: query.productId ?? { not: null },
       OR: AI_DETAIL_TEMPLATE_FILTERS,
       master: { isDeleted: false },
     };
@@ -401,6 +404,7 @@ export class MastersService {
           detailPageHtml: true,
           processedImages: true,
           errorMessage: true,
+          editedHtmlSavedAt: true,
           createdAt: true,
           updatedAt: true,
           master: {
@@ -411,7 +415,6 @@ export class MastersService {
               thumbnailUrl: true,
               imageUrl: true,
               isTemporary: true,
-              draftContent: true,
               images: {
                 where: { isDeleted: false },
                 orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }],
@@ -422,9 +425,17 @@ export class MastersService {
         },
       }),
     ]);
+    type ProductContentRow = (typeof rows)[number];
+    type ProductBoundContentRow = ProductContentRow & {
+      masterId: string;
+      master: NonNullable<ProductContentRow['master']>;
+    };
+    const productRows = rows.filter((row): row is ProductBoundContentRow => (
+      row.masterId !== null && row.master !== null
+    ));
 
     return {
-      items: rows.map((row) => this.toProductContentCard(row)),
+      items: productRows.map((row) => this.toProductContentCard(row)),
       total,
       page,
       limit,
@@ -521,6 +532,7 @@ export class MastersService {
     detailPageHtml: string | null;
     processedImages: unknown;
     errorMessage: string | null;
+    editedHtmlSavedAt: Date | null;
     createdAt: Date;
     updatedAt: Date;
     master: {
@@ -530,7 +542,6 @@ export class MastersService {
       thumbnailUrl: string | null;
       imageUrl: string | null;
       isTemporary: boolean;
-      draftContent: unknown;
       images: Array<{ url: string }>;
     };
   }): ProductContentCard {
@@ -548,7 +559,7 @@ export class MastersService {
       thumbnailUrl: this.pickContentThumbnail(row, processedImages, stored),
       errorMessage: row.errorMessage,
       isTemporaryProduct: row.master.isTemporary,
-      editedHtmlSavedAt: this.pickEditedHtmlSavedAt(row.master.draftContent),
+      editedHtmlSavedAt: row.editedHtmlSavedAt?.toISOString() ?? null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };

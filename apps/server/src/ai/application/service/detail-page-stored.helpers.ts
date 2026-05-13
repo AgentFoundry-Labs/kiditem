@@ -120,10 +120,13 @@ export function detailPageOperationKey(contentGenerationId: string): string {
 }
 
 export function detailPageResultHref(input: {
-  productId: string;
+  productId: string | null;
   contentGenerationId: string;
   templateId: DetailPageTemplateId;
 }): string {
+  if (!input.productId) {
+    return `/product-content/detail-pages/${input.contentGenerationId}/editor`;
+  }
   const params = new URLSearchParams({ generationId: input.contentGenerationId });
   return `/product-content/${input.productId}/editor?${params.toString()}`;
 }

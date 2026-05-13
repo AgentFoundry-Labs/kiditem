@@ -6,6 +6,7 @@ import { AutomationModule } from '../automation/automation.module';
 
 // adapter/in/http
 import { ImageAiController } from './adapter/in/http/image-ai.controller';
+import { ContentAssetController } from './adapter/in/http/content-asset.controller';
 import { DetailPageAiController } from './adapter/in/http/detail-page-ai.controller';
 import { RenderImageController } from './adapter/in/http/render-image.controller';
 import { TextAiController } from './adapter/in/http/text-ai.controller';
@@ -48,6 +49,7 @@ import { ThumbnailAutoService } from './application/service/thumbnail-auto.servi
 import { CoupangImageSyncService } from './application/service/coupang-image-sync.service';
 import { DetailPageHeroImageService } from './application/service/detail-page-hero-image.service';
 import { DetailPageGeneratedImagesService } from './application/service/detail-page-generated-images.service';
+import { ContentAssetService } from './application/service/content-asset.service';
 import { DetailPageAiService } from './application/service/detail-page-ai.service';
 import { DetailPageGenerationService } from './application/service/detail-page-generation.service';
 import { DetailPagePrefillService } from './application/service/detail-page-prefill.service';
@@ -85,6 +87,7 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
 @Module({
   imports: [ChannelsModule, AgentOsModule, AutomationModule],
   controllers: [
+    ContentAssetController,
     CoupangImageSyncController,
     DetailPageAiController,
     ImageAiController,
@@ -102,6 +105,7 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     DetailPageAiService,
     DetailPageGenerationService,
     DetailPageAgentReconcileService,
+    ContentAssetService,
     DetailPageGeneratedImagesService,
     DetailPageHeroImageService,
     DetailPagePrefillService,

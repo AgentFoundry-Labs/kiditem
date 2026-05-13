@@ -13,6 +13,7 @@ import {
   parseDetailPageStoredJson,
   serializeDetailPageStoredJson,
 } from '../../../application/service/detail-page-stored.helpers';
+import { ContentAssetService } from '../../../application/service/content-asset.service';
 
 const TERMINAL_CONTENT_GENERATION_STATUSES = new Set([
   'READY',
@@ -63,6 +64,7 @@ export class DetailPageContentGenerationSinkAdapter
     private readonly prisma: PrismaService,
     private readonly operationAlerts: OperationAlertService,
     private readonly generatedImages: DetailPageGeneratedImagesService,
+    private readonly contentAssets: ContentAssetService,
   ) {}
 
   async applySuccess(input: {
@@ -116,6 +118,13 @@ export class DetailPageContentGenerationSinkAdapter
       result: input.output.result,
       imageUrls: input.output.imageUrls,
       rawInput: stored.rawInput,
+    });
+
+    await this.contentAssets.recordDetailPageGeneratedAssets({
+      organizationId: input.organizationId,
+      contentGenerationId: row.id,
+      masterId: row.masterId,
+      processedImages,
     });
 
     const updated = await this.prisma.contentGeneration.updateMany({

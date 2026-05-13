@@ -35,6 +35,7 @@ import { DetailPageAgentReconcileService } from '../application/service/detail-p
 import { DetailPageAgentOutputBridge } from '../application/service/detail-page-agent-output.bridge';
 import { DetailPageGenerationService } from '../application/service/detail-page-generation.service';
 import { DetailPageGeneratedImagesService } from '../application/service/detail-page-generated-images.service';
+import { ContentAssetService } from '../application/service/content-asset.service';
 import { DetailPagePrefillService } from '../application/service/detail-page-prefill.service';
 import { DetailPageQueryService } from '../application/service/detail-page-query.service';
 import { DetailPageResultRefinerService } from '../application/service/detail-page-result-refiner.service';
@@ -172,10 +173,12 @@ beforeAll(async () => {
   const generatedImages = {
     generateBestEffort: async () => ({}),
   } as unknown as DetailPageGeneratedImagesService;
+  const contentAssets = new ContentAssetService(prisma as never);
   sink = new DetailPageContentGenerationSinkAdapter(
     prisma as never,
     alerts as never,
     generatedImages,
+    contentAssets,
   );
 
   bridge = new DetailPageAgentOutputBridge(sink);
@@ -187,20 +190,17 @@ beforeAll(async () => {
     new BoldVerticalRefinerService(),
     new KidsPlayfulRefinerService(),
   );
-  // Stub TextCompletionPort + ImageStoragePort — DetailPageAiService only
-  // uses them on the standalone path, which we never exercise here. The
-  // enqueue path only touches Prisma + agentRunner + alerts + refiner.
+  // Stub TextCompletionPort for prefill only. Detail-page generation itself
+  // enqueues Agent OS and no longer calls the LLM directly.
   const textCompletion = { complete: async () => ({ text: '{}' }) };
   const query = new DetailPageQueryService(prisma as never, refiner);
   const generation = new DetailPageGenerationService(
     prisma as never,
-    textCompletion,
     { save: async () => '' },
     alerts as never,
-    refiner,
-    generatedImages,
     query,
     coordinator as unknown as AgentRunnerPort,
+    contentAssets,
   );
   const prefill = new DetailPagePrefillService(textCompletion);
   aiService = new DetailPageAiService(generation, prefill, query);

@@ -199,7 +199,7 @@ Kinds:
 | `apps/web/src/app/(catalog)` | Route Group | `product-content`, `product-hub`, `products` |
 | `apps/web/src/app/(finance)` | Route Group | `_shared`, `finance-hub`, `profit-loss`, `reports`, `sales-analysis`, `supplier-hub` |
 | `apps/web/src/app/(inventory)` | Route Group | `_shared`, `inventory`, `inventory-hub`, `outbound`, `stock-ops`, `unshipped-items`, `warehouses` |
-| `apps/web/src/app/(media-ai)` | Route Group | `_shared`, `generate`, `image-hub`, `thumbnail-editor`, `thumbnails` |
+| `apps/web/src/app/(media-ai)` | Route Group | `_shared`, `generate`, `thumbnail-editor`, `thumbnails` |
 | `apps/web/src/app/(orders)` | Route Group | `_shared`, `cs-management`, `order-hub`, `order-status-hub`, `orders`, `return-scan`, `returns`, `reviews` |
 | `apps/web/src/app/(sourcing)` | Route Group | `sourcing`, `sourcing-ai` |
 | `apps/web/src/app/(supply)` | Route Group | `purchase-orders`, `suppliers` |

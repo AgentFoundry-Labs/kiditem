@@ -30,6 +30,7 @@ model Organization {
 
   // Sourcing & Content
   contentGenerations ContentGeneration[]
+  contentAssets      ContentAsset[]
 
   // Workflow & Agent
   workflowTemplates WorkflowTemplate[]
@@ -151,6 +152,7 @@ model User {
   triggeredThumbnailGenerations  ThumbnailGeneration[]      @relation("ThumbnailGenerationTriggeredBy")
   thumbnailGenerationEvents      ThumbnailGenerationEvent[] @relation("ThumbnailGenerationEventActor")
   triggeredContentGenerations    ContentGeneration[]        @relation("ContentGenerationTriggeredBy")
+  createdContentAssets           ContentAsset[]             @relation("ContentAssetCreatedBy")
   actorAlerts                    Alert[]                    @relation("AlertActor")
   assignedActionTasks            ActionTask[]               @relation("ActionTaskAssignee")
 
@@ -298,10 +300,10 @@ model MasterProduct {
   rawData        Json?    @map("raw_data")
   pipelineStep   String?  @map("pipeline_step")
 
-  processedData     Json?    @map("processed_data")
-  draftContent      Json?    @map("draft_content")
-  detailPageUrl     String?  @map("detail_page_url")
-  thumbnailStrategy String   @default("standard") @map("thumbnail_strategy")
+  processedData     Json?   @map("processed_data")
+  draftContent      Json?   @map("draft_content")
+  detailPageUrl     String? @map("detail_page_url")
+  thumbnailStrategy String  @default("standard") @map("thumbnail_strategy")
 
   isDeleted       Boolean   @default(false) @map("is_deleted")
   deletedAt       DateTime? @map("deleted_at") @db.Timestamptz
@@ -318,6 +320,7 @@ model MasterProduct {
   listings     ChannelListing[]
 
   contentGenerations     ContentGeneration[]
+  contentAssets          ContentAsset[]
   thumbnailAnalyses      ThumbnailAnalysis[]
   thumbnailGenerations   ThumbnailGeneration[]
   gradeHistory           GradeHistory[]

@@ -68,7 +68,7 @@ export class ImageAiService {
         sourceType: 'agent_run_request',
         sourceId: result.requestId,
         actorUserId: triggeredByUserId,
-        href: '/image-hub',
+        href: '/product-content?tab=assets',
         metadata: {
           agentType: 'image_edit',
           preset: params.preset,
