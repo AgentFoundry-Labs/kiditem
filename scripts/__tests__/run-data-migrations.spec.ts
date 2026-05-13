@@ -10,6 +10,8 @@ import {
 import {
   APPLY_DATA_MIGRATIONS_CONFIRMATION,
   assertApplyDataMigrationsConfirmation,
+  dataMigrationTransactionTimeoutMs,
+  DEFAULT_DATA_MIGRATION_TRANSACTION_TIMEOUT_MS,
   isDefinitelyProductionDatabaseUrl,
   normalizeReleaseVersion,
 } from '../run-data-migrations';
@@ -81,5 +83,14 @@ describe('data migration CLI guardrails', () => {
     expect(isDefinitelyProductionDatabaseUrl('postgresql://u:p@staging-db.example.com/app')).toBe(
       false,
     );
+  });
+
+  it('uses a staging-safe interactive transaction timeout', () => {
+    expect(dataMigrationTransactionTimeoutMs(undefined)).toBe(
+      DEFAULT_DATA_MIGRATION_TRANSACTION_TIMEOUT_MS,
+    );
+    expect(dataMigrationTransactionTimeoutMs('45000')).toBe(45000);
+    expect(() => dataMigrationTransactionTimeoutMs('0')).toThrow(/positive integer/);
+    expect(() => dataMigrationTransactionTimeoutMs('soon')).toThrow(/positive integer/);
   });
 });

@@ -28,6 +28,7 @@ const execFileAsync = promisify(execFile);
 
 export const DATA_MIGRATIONS_SCHEMA_VERSION = 'kiditem.data-migrations.v1';
 export const APPLY_DATA_MIGRATIONS_CONFIRMATION = 'APPLY_DATA_MIGRATIONS';
+export const DEFAULT_DATA_MIGRATION_TRANSACTION_TIMEOUT_MS = 120_000;
 
 const COMMANDS = ['status', 'up', 'help'] as const;
 type Command = (typeof COMMANDS)[number];
@@ -86,6 +87,19 @@ function databaseUrl(args: CliArgs): string | null {
 function createPrisma(dbUrl: string): PrismaClient {
   const adapter = new PrismaPg({ connectionString: dbUrl });
   return new PrismaClient({ adapter });
+}
+
+export function dataMigrationTransactionTimeoutMs(
+  raw = process.env.DATA_MIGRATION_TRANSACTION_TIMEOUT_MS,
+): number {
+  if (raw === undefined || raw.trim() === '') {
+    return DEFAULT_DATA_MIGRATION_TRANSACTION_TIMEOUT_MS;
+  }
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error('DATA_MIGRATION_TRANSACTION_TIMEOUT_MS must be a positive integer.');
+  }
+  return value;
 }
 
 export function isDefinitelyProductionDatabaseUrl(databaseUrl: string): boolean {
@@ -235,7 +249,9 @@ async function runOneMigration(
 
   await markMigrationRunning(prisma, migration, schemaGitSha, schemaHash);
   try {
-    const result = await prisma.$transaction((tx) => migration.run(tx));
+    const result = await prisma.$transaction((tx) => migration.run(tx), {
+      timeout: dataMigrationTransactionTimeoutMs(),
+    });
     await markMigrationSucceeded(prisma, migration, schemaGitSha, schemaHash, result);
     return { migrationId: migration.id, status: 'succeeded', affectedRows: result.affectedRows };
   } catch (error) {
@@ -336,6 +352,8 @@ Env:
   DATABASE_URL                 Database URL used when --database-url is omitted.
   DATA_MIGRATION_TARGET        local or staging.
   DATA_MIGRATION_CONFIRM       ${APPLY_DATA_MIGRATIONS_CONFIRMATION}
+  DATA_MIGRATION_TRANSACTION_TIMEOUT_MS
+                               Interactive transaction timeout in ms. Defaults to ${DEFAULT_DATA_MIGRATION_TRANSACTION_TIMEOUT_MS}.
 `);
 }
 
