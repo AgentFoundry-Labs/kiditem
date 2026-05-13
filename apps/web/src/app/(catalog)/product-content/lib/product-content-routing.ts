@@ -23,7 +23,8 @@ export function normalizeProductContentHref(href: string | null): string | null 
 
   const [, productId, rawQuery = ''] = legacyDetailPageEditor;
   const query = new URLSearchParams(rawQuery);
-  const generationId = query.get('generationId') ?? query.get('boldId') ?? query.get('kpId');
+  const generationId =
+    query.get('generationId') ?? query.get('boldId') ?? query.get('kpId') ?? query.get('agentId');
   return buildProductContentEditorHref({
     productId: decodeURIComponent(productId),
     generationId,

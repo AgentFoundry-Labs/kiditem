@@ -18,6 +18,12 @@ describe('product content routing', () => {
     ).toBe('/product-content/product-123/editor?generationId=generation-456');
   });
 
+  it('normalizes legacy agentId editor hrefs to generationId', () => {
+    expect(
+      normalizeProductContentHref('/sourcing/product-123/editor?agentId=generation-456'),
+    ).toBe('/product-content/product-123/editor?generationId=generation-456');
+  });
+
   it('leaves unrelated hrefs unchanged', () => {
     expect(normalizeProductContentHref('/products/abc')).toBe('/products/abc');
   });
