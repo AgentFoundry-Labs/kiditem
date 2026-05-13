@@ -62,6 +62,10 @@ retires or reconstructs it.
   not part of the schema. Nothing in `products/` should select, filter on, or
   echo any of them. Sourcing history lives on `SourcingCandidate` /
   `CandidateImage` (see `src/sourcing/`).
+- Product content management is master-bound. `ProductContentController` owns
+  detail-page content card reads (`GET /api/products/content/cards`), preview,
+  edited HTML, and legacy non-AI history routes. It must scope all reads and
+  writes by `organizationId` and `MasterProduct.id`.
 
 ## Controller And Service Rules
 

@@ -25,7 +25,7 @@ import { CategoriesModule } from './categories/categories.module';
     OptionsController,
     BundleComponentsController,
     ProductCatalogController,
-    ProductContentController, // detail-page preview/history/edited-html
+    ProductContentController, // product-content cards + detail-page preview/history/edited-html
     ProductsLegacyController, // last — resolves after sibling /products/* controllers
   ],
   providers: [

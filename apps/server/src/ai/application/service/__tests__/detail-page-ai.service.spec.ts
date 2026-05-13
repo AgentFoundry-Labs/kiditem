@@ -360,13 +360,48 @@ describe('DetailPageAiService', () => {
         operationKey: `detail-page:${GENERATION_ID}`,
         sourceType: 'content_generation',
         sourceId: GENERATION_ID,
-        href: `/sourcing/${MASTER_ID}/editor?boldId=${GENERATION_ID}`,
+        href: `/product-content/${MASTER_ID}/editor?generationId=${GENERATION_ID}`,
       }),
     );
 
     expect(result.id).toBe(GENERATION_ID);
     expect(result.imageProcessingStatus).toBe('processing');
     expect(result.productId).toBe(MASTER_ID);
+  });
+
+  it('rejects product-bound generation without at least one product image', async () => {
+    const prisma = makePrisma();
+    const operationAlerts = makeOperationAlertsStub();
+    const agentRunner = makeAgentRunnerStub();
+    const service = makeService(
+      prisma,
+      { complete: vi.fn() },
+      { save: vi.fn() },
+      operationAlerts,
+      undefined,
+      agentRunner,
+    );
+
+    await expect(service.generate(
+      {
+        productId: MASTER_ID,
+        templateId: 'bold-vertical',
+        rawTitle: '휴대용목걸이비눗방울',
+        rawCategory: '완구',
+        rawDescription: '아이들이 가지고 놀기 좋은 장난감',
+        imageUrls: [],
+      },
+      ORGANIZATION_ID,
+      USER_ID,
+    )).rejects.toMatchObject({
+      response: {
+        message: '상세페이지 생성에는 상품 이미지가 최소 1장 필요합니다.',
+      },
+    });
+
+    expect(prisma.contentGeneration.create).not.toHaveBeenCalled();
+    expect(operationAlerts.start).not.toHaveBeenCalled();
+    expect(agentRunner.runByType).not.toHaveBeenCalled();
   });
 
   it('cancels a processing product-bound generation and closes its alert', async () => {
@@ -1073,7 +1108,7 @@ describe('DetailPageAiService', () => {
         operationKey: `detail-page:${GENERATION_ID}`,
         sourceType: 'content_generation',
         sourceId: GENERATION_ID,
-        href: `/sourcing/${MASTER_ID}/editor?kpId=${GENERATION_ID}`,
+        href: `/product-content/${MASTER_ID}/editor?generationId=${GENERATION_ID}`,
       }),
     );
     expect(prisma.contentGeneration.updateMany).toHaveBeenCalledWith({

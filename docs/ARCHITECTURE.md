@@ -196,7 +196,7 @@ Kinds:
 | `apps/web/src/app/(advertising)` | Route Group | `ad-ops` |
 | `apps/web/src/app/(analytics)` | Route Group | `dashboard` |
 | `apps/web/src/app/(automation)` | Route Group | `_shared`, `action-board`, `agents`, `marketplace`, `workflows` |
-| `apps/web/src/app/(catalog)` | Route Group | `product-hub`, `products` |
+| `apps/web/src/app/(catalog)` | Route Group | `product-content`, `product-hub`, `products` |
 | `apps/web/src/app/(finance)` | Route Group | `_shared`, `finance-hub`, `profit-loss`, `reports`, `sales-analysis`, `supplier-hub` |
 | `apps/web/src/app/(inventory)` | Route Group | `_shared`, `inventory`, `inventory-hub`, `outbound`, `stock-ops`, `unshipped-items`, `warehouses` |
 | `apps/web/src/app/(media-ai)` | Route Group | `_shared`, `generate`, `image-hub`, `thumbnail-editor`, `thumbnails` |

@@ -40,6 +40,35 @@ const SYSTEM_FIELDS = [
   'createdAt', 'updatedAt', 'images', 'imageUrl',
 ] as const;
 
+const AI_DETAIL_TEMPLATE_FILTERS: Prisma.ContentGenerationWhereInput[] = [
+  { detailPageHtml: { contains: '"templateId":"kids-playful"' } },
+  { detailPageHtml: { contains: '"templateId":"bold-vertical"' } },
+  { detailPageHtml: { contains: '"templateId":"simple-vertical"' } },
+];
+
+export interface ListContentCardsQuery {
+  page?: number;
+  limit?: number;
+  productId?: string | null;
+}
+
+export interface ProductContentCard {
+  generationId: string;
+  productId: string;
+  productCode: string;
+  productName: string;
+  title: string;
+  subtitle: string | null;
+  templateId: 'kids-playful' | 'bold-vertical';
+  status: string;
+  thumbnailUrl: string | null;
+  errorMessage: string | null;
+  isTemporaryProduct: boolean;
+  editedHtmlSavedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 function assertPublicHttpUrlForHttp(url: string): void {
   try {
     assertPublicHttpUrl(url);
@@ -334,6 +363,74 @@ export class MastersService {
     };
   }
 
+  async listContentCards(
+    organizationId: string,
+    query: ListContentCardsQuery = {},
+  ): Promise<{
+    items: ProductContentCard[];
+    total: number;
+    page: number;
+    limit: number;
+  }> {
+    const page = Number.isFinite(query.page) && query.page && query.page > 0
+      ? Math.floor(query.page)
+      : 1;
+    const limit = Math.min(
+      100,
+      Math.max(1, Number.isFinite(query.limit) && query.limit ? Math.floor(query.limit) : 20),
+    );
+    const where: Prisma.ContentGenerationWhereInput = {
+      organizationId,
+      ...(query.productId ? { masterId: query.productId } : {}),
+      OR: AI_DETAIL_TEMPLATE_FILTERS,
+      master: { isDeleted: false },
+    };
+
+    const [total, rows] = await Promise.all([
+      this.prisma.contentGeneration.count({ where }),
+      this.prisma.contentGeneration.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        select: {
+          id: true,
+          masterId: true,
+          generatedTitle: true,
+          status: true,
+          detailPageHtml: true,
+          processedImages: true,
+          errorMessage: true,
+          createdAt: true,
+          updatedAt: true,
+          master: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              thumbnailUrl: true,
+              imageUrl: true,
+              isTemporary: true,
+              draftContent: true,
+              images: {
+                where: { isDeleted: false },
+                orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }],
+                select: { url: true },
+              },
+            },
+          },
+        },
+      }),
+    ]);
+
+    return {
+      items: rows.map((row) => this.toProductContentCard(row)),
+      total,
+      page,
+      limit,
+    };
+  }
+
   async getGenerationHistory(
     organizationId: string,
     id: string,
@@ -414,6 +511,143 @@ export class MastersService {
     } catch {
       return false;
     }
+  }
+
+  private toProductContentCard(row: {
+    id: string;
+    masterId: string;
+    generatedTitle: string | null;
+    status: string;
+    detailPageHtml: string | null;
+    processedImages: unknown;
+    errorMessage: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+    master: {
+      id: string;
+      code: string;
+      name: string;
+      thumbnailUrl: string | null;
+      imageUrl: string | null;
+      isTemporary: boolean;
+      draftContent: unknown;
+      images: Array<{ url: string }>;
+    };
+  }): ProductContentCard {
+    const stored = this.parseAiDetailStoredJson(row.detailPageHtml);
+    const processedImages = this.asStringRecord(row.processedImages);
+    return {
+      generationId: row.id,
+      productId: row.master.id,
+      productCode: row.master.code,
+      productName: row.master.name,
+      title: row.generatedTitle ?? this.pickStoredRawTitle(stored) ?? row.master.name,
+      subtitle: this.pickDetailSubtitle(stored),
+      templateId: stored.templateId,
+      status: this.mapGenerationStatus(row.status),
+      thumbnailUrl: this.pickContentThumbnail(row, processedImages, stored),
+      errorMessage: row.errorMessage,
+      isTemporaryProduct: row.master.isTemporary,
+      editedHtmlSavedAt: this.pickEditedHtmlSavedAt(row.master.draftContent),
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+    };
+  }
+
+  private parseAiDetailStoredJson(raw: string | null): {
+    templateId: 'kids-playful' | 'bold-vertical';
+    rawInput: Record<string, unknown>;
+    result: Record<string, unknown>;
+  } {
+    if (!raw) return { templateId: 'kids-playful', rawInput: {}, result: {} };
+    try {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      return {
+        templateId:
+          parsed.templateId === 'bold-vertical' || parsed.templateId === 'simple-vertical'
+            ? 'bold-vertical'
+            : 'kids-playful',
+        rawInput: this.asRecord(parsed.rawInput),
+        result: this.asRecord(parsed.result),
+      };
+    } catch {
+      return { templateId: 'kids-playful', rawInput: {}, result: {} };
+    }
+  }
+
+  private pickStoredRawTitle(stored: { rawInput: Record<string, unknown> }): string | null {
+    return this.pickString(stored.rawInput, 'rawTitle');
+  }
+
+  private pickDetailSubtitle(stored: {
+    templateId: 'kids-playful' | 'bold-vertical';
+    result: Record<string, unknown>;
+  }): string | null {
+    if (stored.templateId === 'bold-vertical') {
+      const hook = this.asRecord(stored.result.hook);
+      return this.pickString(hook, 'titleSub') ?? this.pickString(hook, 'subtext');
+    }
+    const section1 = this.asRecord(stored.result.section1);
+    return this.pickString(section1, 'subhead');
+  }
+
+  private pickContentThumbnail(
+    row: {
+      master: {
+        thumbnailUrl: string | null;
+        imageUrl: string | null;
+        images: Array<{ url: string }>;
+      };
+    },
+    processedImages: Record<string, string>,
+    stored: { templateId: 'kids-playful' | 'bold-vertical'; result: Record<string, unknown> },
+  ): string | null {
+    if (processedImages.__heroBanner) return processedImages.__heroBanner;
+    const hook = this.asRecord(stored.result.hook);
+    const section1 = this.asRecord(stored.result.section1);
+    const heroIndex = stored.templateId === 'bold-vertical'
+      ? this.pickNumber(hook, 'imageIndex') ?? this.pickNumber(hook, 'bannerImageIndex')
+      : this.pickNumber(section1, 'heroImageIndex');
+    if (heroIndex !== null && processedImages[String(heroIndex)]) {
+      return processedImages[String(heroIndex)];
+    }
+    return row.master.thumbnailUrl ?? row.master.imageUrl ?? row.master.images[0]?.url ?? null;
+  }
+
+  private pickEditedHtmlSavedAt(value: unknown): string | null {
+    const draft = this.asRecord(value);
+    return this.pickString(draft, 'editedHtmlSavedAt');
+  }
+
+  private mapGenerationStatus(status: string): string {
+    if (status === 'READY' || status === 'completed') return 'completed';
+    if (status === 'FAILED' || status === 'failed') return 'failed';
+    if (status === 'CANCELLED' || status === 'cancelled') return 'cancelled';
+    if (status === 'PROCESSING' || status === 'generating') return 'processing';
+    return status.toLowerCase();
+  }
+
+  private asStringRecord(value: unknown): Record<string, string> {
+    if (!value || typeof value !== 'object') return {};
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).filter(
+        (entry): entry is [string, string] => typeof entry[1] === 'string',
+      ),
+    );
+  }
+
+  private asRecord(value: unknown): Record<string, unknown> {
+    return value && typeof value === 'object' ? value as Record<string, unknown> : {};
+  }
+
+  private pickString(record: Record<string, unknown>, key: string): string | null {
+    const value = record[key];
+    return typeof value === 'string' && value.trim() ? value : null;
+  }
+
+  private pickNumber(record: Record<string, unknown>, key: string): number | null {
+    const value = record[key];
+    return typeof value === 'number' && Number.isInteger(value) ? value : null;
   }
 
   private async createImageRowsTx(

@@ -61,8 +61,8 @@ import { DetailPageGeneratedImagesService } from './detail-page-generated-images
 import { DetailPageQueryService } from './detail-page-query.service';
 import { DetailPageResultRefinerService } from './detail-page-result-refiner.service';
 import {
-  detailPageEditorHref,
   detailPageOperationKey,
+  detailPageResultHref,
   serializeDetailPageStoredJson,
 } from './detail-page-stored.helpers';
 
@@ -82,6 +82,7 @@ const DETAIL_PAGE_TERMINAL_STATUSES = new Set([
   'cancelled',
 ]);
 const DETAIL_PAGE_CANCELLED_MESSAGE = '사용자 요청으로 생성이 중단되었습니다.';
+const DETAIL_PAGE_IMAGE_REQUIRED_MESSAGE = '상세페이지 생성에는 상품 이미지가 최소 1장 필요합니다.';
 
 @Injectable()
 export class DetailPageGenerationService {
@@ -131,6 +132,9 @@ export class DetailPageGenerationService {
     const kcCertificationStatus: KcCertificationStatus = dto.kcCertificationStatus ?? 'unknown';
     const kcCertificationNumber = normalizeKcCertificationNumber(dto.kcCertificationNumber);
     const imageUrls = moveSafetyLabelImagesToEnd(dto.imageUrls ?? []);
+    if (imageUrls.length === 0) {
+      throw new BadRequestException(DETAIL_PAGE_IMAGE_REQUIRED_MESSAGE);
+    }
     const rawInput: DetailPageRawInput = {
       rawTitle: dto.rawTitle,
       rawCategory: dto.rawCategory,
@@ -252,7 +256,7 @@ export class DetailPageGenerationService {
       actorUserId: input.triggeredByUserId,
       targetType: 'master',
       targetId: input.productId,
-      href: detailPageEditorHref({
+      href: detailPageResultHref({
         productId: input.productId,
         contentGenerationId: row.id,
         templateId: input.templateId,

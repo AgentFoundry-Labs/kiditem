@@ -185,6 +185,14 @@ export const queryKeys = {
     detail: (id: string) => [...queryKeys.sourcing.all, 'detail', id] as const,
     preview: (id: string) => [...queryKeys.sourcing.all, 'preview', id] as const,
   },
+  productContent: {
+    all: ['product-content'] as const,
+    cards: (params: Record<string, string>) =>
+      [...queryKeys.productContent.all, 'cards', params] as const,
+    detail: (id: string) => [...queryKeys.productContent.all, 'detail', id] as const,
+    preview: (id: string) => [...queryKeys.productContent.all, 'preview', id] as const,
+    editedHtml: (id: string) => [...queryKeys.productContent.all, 'edited-html', id] as const,
+  },
   organizations: {
     all: ['organizations'] as const,
     list: () => [...queryKeys.organizations.all, 'list'] as const,

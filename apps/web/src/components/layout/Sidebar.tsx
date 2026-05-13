@@ -72,7 +72,8 @@ const menuSections: MenuSection[] = [
     collapsible: true,
     items: [
       { href: '/sourcing-ai', label: '소싱 AI', icon: Search },
-      { href: '/sourcing', label: '상품 콘텐츠 관리', icon: FolderOpen },
+      { href: '/sourcing', label: '소싱 후보 관리', icon: Search },
+      { href: '/product-content', label: '상품 콘텐츠 관리', icon: FolderOpen },
       { href: '/generate', label: '상세페이지 생성', icon: Sparkles },
       { href: '/thumbnails', label: '썸네일 AI', icon: ImageIcon },
       { href: '/thumbnail-editor', label: '썸네일 편집기', icon: Wand2 },

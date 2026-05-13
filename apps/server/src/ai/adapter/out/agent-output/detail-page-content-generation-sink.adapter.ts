@@ -22,6 +22,7 @@ const TERMINAL_CONTENT_GENERATION_STATUSES = new Set([
   'failed',
   'cancelled',
 ]);
+const GENERATED_IMAGE_TIMEOUT_MS = 30_000;
 
 /**
  * Real `DetailPageAgentOutputSinkPort` adapter — applies a validated
@@ -99,11 +100,12 @@ export class DetailPageContentGenerationSinkAdapter
       stored.rawTitle ?? row.generatedTitle ?? '상세페이지',
     );
 
-    const processedImages = await this.runImageGenerationBestEffort({
+    const processedImages = await this.runImageGenerationBestEffortWithTimeout({
       organizationId: input.organizationId,
       output: input.output,
       productName,
       stored,
+      timeoutMs: GENERATED_IMAGE_TIMEOUT_MS,
     });
 
     const detailPageHtml = serializeDetailPageStoredJson({
@@ -220,11 +222,12 @@ export class DetailPageContentGenerationSinkAdapter
     );
   }
 
-  private async runImageGenerationBestEffort(input: {
+  private async runImageGenerationBestEffortWithTimeout(input: {
     organizationId: string;
     output: DetailPageGenerateAgentOutput;
     productName: string;
     stored: ReturnType<typeof parseDetailPageStoredJson>;
+    timeoutMs: number;
   }): Promise<Record<string, string>> {
     const rawInputForImages = normalizeStoredDetailPageRawInput({
       stored: input.stored,
@@ -236,22 +239,50 @@ export class DetailPageContentGenerationSinkAdapter
     const excludedImageIndices = collectExcludedImageIndices(input.output);
 
     try {
-      return await this.generatedImages.generateBestEffort({
-        organizationId: input.organizationId,
-        parsed: input.output.result as DetailPageGeneration | BoldVerticalGeneration,
-        templateId: input.output.templateId,
-        rawInput: rawInputForImages,
-        productName: input.productName,
-        excludedImageIndices,
-      });
+      return await withTimeout(
+        this.generatedImages.generateBestEffort({
+          organizationId: input.organizationId,
+          parsed: input.output.result as DetailPageGeneration | BoldVerticalGeneration,
+          templateId: input.output.templateId,
+          rawInput: rawInputForImages,
+          productName: input.productName,
+          excludedImageIndices,
+        }),
+        input.timeoutMs,
+        'detail_page_generate generated image best-effort timeout',
+      );
     } catch (err) {
       this.logger.warn(
-        `detail_page_generate image generation failed (request resource ${input.stored.imageUrls.length} imageUrls); ${
+        `detail_page_generate image generation skipped (request resource ${input.stored.imageUrls.length} imageUrls); ${
           err instanceof Error ? err.message : String(err)
         }`,
       );
       return {};
     }
+  }
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string,
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error(`${message} after ${timeoutMs}ms`)),
+          timeoutMs,
+        );
+        if (typeof timeout === 'object' && typeof timeout.unref === 'function') {
+          timeout.unref();
+        }
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
   }
 }
 

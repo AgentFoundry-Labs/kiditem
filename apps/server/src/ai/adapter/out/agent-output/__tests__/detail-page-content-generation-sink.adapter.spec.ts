@@ -148,6 +148,49 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
       );
     });
 
+    it('does not leave the row PROCESSING when generated images exceed the best-effort timeout', async () => {
+      vi.useFakeTimers();
+      try {
+        images = {
+          generateBestEffort: vi.fn().mockReturnValue(new Promise(() => {})),
+        } as unknown as DetailPageGeneratedImagesService;
+        sink = new DetailPageContentGenerationSinkAdapter(
+          prisma as never,
+          alerts,
+          images,
+        );
+
+        const pending = sink.applySuccess({
+          organizationId: ORG,
+          requestId: REQUEST,
+          runId: RUN,
+          sourceResourceId: CG_ID,
+          output: VALID_OUTPUT,
+        });
+
+        await vi.advanceTimersByTimeAsync(30_000);
+        await pending;
+
+        expect(prisma.contentGeneration.updateMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              status: 'READY',
+              processedImages: {},
+            }),
+          }),
+        );
+        expect(alerts.succeed).toHaveBeenCalledWith(
+          ORG,
+          `detail-page:${CG_ID}`,
+          expect.objectContaining({
+            metadata: expect.objectContaining({ heroImageCount: 0 }),
+          }),
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('passes kids-playful package and safety-label exclusions to generated image generation', async () => {
       await sink.applySuccess({
         organizationId: ORG,

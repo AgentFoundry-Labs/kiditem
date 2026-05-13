@@ -17,7 +17,7 @@ import { cn } from '@/lib/utils';
 import {
   SAME_ORIGIN_SCRIPTLESS_SANDBOX,
   stripSrcDocScripts,
-} from '@/app/(sourcing)/sourcing/[id]/lib/preview-sandbox';
+} from '@/app/(catalog)/product-content/lib/preview-sandbox';
 import {
   rowThumbnail,
   rowDisplaySubtitle,

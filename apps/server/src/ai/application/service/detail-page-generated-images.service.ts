@@ -112,10 +112,10 @@ export class DetailPageGeneratedImagesService {
           description: input.rawInput.rawDescription,
           options: input.rawInput.rawOptions,
           ageGroup: input.rawInput.ageGroup,
-          imageUrls: pickSectionSourceImages(
+          imageUrls: pickSectionSourceImagesWithFallback(
             bold.size?.imageIndices ?? [],
             input.rawInput.imageUrls,
-            sourcePolicy.blockedIndices,
+            sourcePolicy,
           ),
           heightLabel: bold.size?.heightLabel ?? '',
           widthLabel: bold.size?.widthLabel ?? '',
@@ -269,10 +269,10 @@ export class DetailPageGeneratedImagesService {
             description: input.rawInput.rawDescription,
             options: input.rawInput.rawOptions,
             ageGroup: input.rawInput.ageGroup,
-            imageUrls: pickSectionSourceImages(
+            imageUrls: pickSectionSourceImagesWithFallback(
               parsed.usage?.imageIndices ?? [],
               input.rawInput.imageUrls,
-              sourcePolicy.blockedIndices,
+              sourcePolicy,
             ),
             usageStep,
             variant: index + 1,
@@ -295,10 +295,10 @@ export class DetailPageGeneratedImagesService {
             description: input.rawInput.rawDescription,
             options: input.rawInput.rawOptions,
             ageGroup: input.rawInput.ageGroup,
-            imageUrls: pickSectionSourceImages(
+            imageUrls: pickSectionSourceImagesWithFallback(
               parsed.detailImageIndices ?? [],
               input.rawInput.imageUrls,
-              sourcePolicy.blockedIndices,
+              sourcePolicy,
             ),
             variant: index + 1,
           }),
@@ -537,10 +537,36 @@ function buildNormalSectionSourcePolicy(
     if (isSafetyLabelImageUrl(url)) blockedIndices.add(index);
   });
 
+  const normalImageUrls = pickSectionSourceImages([], imageUrls, blockedIndices);
+  if (normalImageUrls.length > 0) {
+    return { blockedIndices, normalImageUrls };
+  }
+
+  const safetyOnlyIndices = new Set<number>();
+  for (const index of bold.safetyLabelImageIndices ?? []) {
+    if (Number.isInteger(index)) safetyOnlyIndices.add(index);
+  }
+  imageUrls.forEach((url, index) => {
+    if (isSafetyLabelImageUrl(url)) safetyOnlyIndices.add(index);
+  });
+
   return {
     blockedIndices,
-    normalImageUrls: pickSectionSourceImages([], imageUrls, blockedIndices),
+    normalImageUrls: pickSectionSourceImages([], imageUrls, safetyOnlyIndices),
   };
+}
+
+function pickSectionSourceImagesWithFallback(
+  indices: number[],
+  imageUrls: string[],
+  sourcePolicy: { blockedIndices: Set<number>; normalImageUrls: string[] },
+): string[] {
+  const sectionImages = pickSectionSourceImages(
+    indices,
+    imageUrls,
+    sourcePolicy.blockedIndices,
+  );
+  return sectionImages.length > 0 ? sectionImages : sourcePolicy.normalImageUrls;
 }
 
 function collectBoldHeroProductSourceIndices(parsed: BoldVerticalGeneration): number[] {

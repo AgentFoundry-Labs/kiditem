@@ -64,6 +64,10 @@ validate_agent_os_runtime_env() {
   if [[ -z "${AGENT_DEFAULT_MODEL:-}" && -z "${AGENT_DETAIL_PAGE_GENERATE_MODEL:-}" ]]; then
     fail "missing required API env: set AGENT_DEFAULT_MODEL or AGENT_DETAIL_PAGE_GENERATE_MODEL in $API_ENV_FILE"
   fi
+
+  if [[ -z "${AGENT_THUMBNAIL_GENERATE_MODEL:-}" ]]; then
+    fail "missing required API env: set AGENT_THUMBNAIL_GENERATE_MODEL in $API_ENV_FILE for thumbnail image generation"
+  fi
 }
 
 compose() (

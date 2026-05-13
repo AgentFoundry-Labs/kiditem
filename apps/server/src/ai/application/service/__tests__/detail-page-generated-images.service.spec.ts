@@ -218,6 +218,82 @@ describe('DetailPageGeneratedImagesService', () => {
     );
   });
 
+  it('falls back to the sole package photo for non-package media when no normal product image remains', async () => {
+    const heroImageService = {
+      generateHeroBanner: vi.fn().mockResolvedValue('https://cdn.example.com/hero.png'),
+      generateHeroProductImage: vi.fn().mockResolvedValue('https://cdn.example.com/hero-product.png'),
+      generateSizeGuideImage: vi.fn().mockResolvedValue('https://cdn.example.com/size.png'),
+      generateColorGuideImage: vi.fn(),
+      generatePackageGuideImage: vi.fn().mockResolvedValue('https://cdn.example.com/package.png'),
+      generateUsageGuideImage: vi.fn().mockImplementation((input: { variant: number }) => (
+        Promise.resolve(`https://cdn.example.com/usage-${input.variant}.png`)
+      )),
+      generateDetailCutImage: vi.fn().mockImplementation((input: { variant: number }) => (
+        Promise.resolve(`https://cdn.example.com/detail-${input.variant}.png`)
+      )),
+    };
+    const service = new DetailPageGeneratedImagesService(heroImageService as never);
+    const packageOnlySource = ['https://example.com/retail-box.jpg'];
+
+    await service.generateBestEffort({
+      organizationId: 'org-1',
+      productName: '자석 다트게임',
+      templateId: 'bold-vertical',
+      rawInput: {
+        rawTitle: '자석 다트게임',
+        rawCategory: '키즈 완구',
+        rawDescription: '자석 다트판과 안전 자석 다트로 실내에서 즐기는 키즈 완구',
+        rawOptions: '색상 구성: 없음\n박스/세트 정보: AI가 업로드 이미지와 원본 설명으로 판단',
+        imageUrls: packageOnlySource,
+        detailImageCount: '2',
+        usageSectionMode: 'include',
+      },
+      parsed: {
+        hook: {
+          subtext: '신나는 실내 놀이',
+          text: '자석 다트게임',
+          titleSub: '온 가족이 즐기는 다트',
+          description: '벽 손상 걱정 없이 즐기는 자석 다트',
+          imageIndex: null,
+          bannerImageIndex: null,
+        },
+        section: { name: '놀이 포인트', title: '핵심 장점', subtitle: '실내 놀이' },
+        keyPoints: [],
+        size: { subtitle: '구성품 안내', imageIndices: [], heightLabel: '', widthLabel: '' },
+        color: { subtitle: '', imageIndices: [] },
+        usage: {
+          subtitle: '1. 다트판을 벽에 걸어주세요\n2. 자석 다트를 던져 점수를 겨뤄보세요',
+          imageIndices: [],
+        },
+        usageEnabled: true,
+        detailImageIndices: [],
+        packageImageIndices: [0],
+        packageLabel: '세트 구성',
+        productInfo: [],
+      },
+      excludedImageIndices: [0],
+    });
+
+    expect(heroImageService.generatePackageGuideImage).toHaveBeenCalledWith(
+      expect.objectContaining({ imageUrls: packageOnlySource }),
+    );
+    expect(heroImageService.generateHeroBanner).toHaveBeenCalledWith(
+      expect.objectContaining({ imageUrls: packageOnlySource }),
+    );
+    expect(heroImageService.generateHeroProductImage).toHaveBeenCalledWith(
+      expect.objectContaining({ imageUrls: packageOnlySource }),
+    );
+    expect(heroImageService.generateSizeGuideImage).toHaveBeenCalledWith(
+      expect.objectContaining({ imageUrls: packageOnlySource }),
+    );
+    for (const [input] of heroImageService.generateUsageGuideImage.mock.calls) {
+      expect(input.imageUrls).toEqual(packageOnlySource);
+    }
+    for (const [input] of heroImageService.generateDetailCutImage.mock.calls) {
+      expect(input.imageUrls).toEqual(packageOnlySource);
+    }
+  });
+
   it('repairs stale package source selection before generating package and normal media', async () => {
     const heroImageService = {
       generateHeroBanner: vi.fn().mockResolvedValue('https://cdn.example.com/hero.png'),

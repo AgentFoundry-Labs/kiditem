@@ -8,6 +8,7 @@ import {
   useKidsPlayfulGenerationList,
   type KidsPlayfulGenerationItem,
 } from '@/app/(media-ai)/generate/hooks/useKidsPlayfulGenerate';
+import { buildProductContentEditorHref } from '@/app/(catalog)/product-content/lib/product-content-routing';
 
 const IN_PROGRESS_STATUSES = new Set(['pending', 'processing']);
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
@@ -43,7 +44,10 @@ export default function GenerationCompletionWatcher() {
       ) {
         const isBoldVertical = entry.templateId === 'bold-vertical';
         const editorUrl = entry.productId
-          ? `/generate?productId=${encodeURIComponent(entry.productId)}`
+          ? buildProductContentEditorHref({
+              productId: entry.productId,
+              generationId: entry.id,
+            })
           : null;
         const productLabel = entry.productName || '상세페이지';
 

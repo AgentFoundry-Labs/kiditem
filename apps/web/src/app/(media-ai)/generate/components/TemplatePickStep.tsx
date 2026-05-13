@@ -19,8 +19,8 @@ import { cn } from '@/lib/utils';
 import {
   SAME_ORIGIN_SCRIPTLESS_SANDBOX,
   stripSrcDocScripts,
-} from '@/app/(sourcing)/sourcing/[id]/lib/preview-sandbox';
-import { renderTemplateToHtml } from '@/app/(sourcing)/sourcing/lib/template-html';
+} from '@/app/(catalog)/product-content/lib/preview-sandbox';
+import { renderTemplateToHtml } from '@/app/(catalog)/product-content/lib/template-html';
 
 // 카드 슬롯 정의 — 사용자 요구로 명시적 순서 + 브랜드명 + 일부 슬롯은 placeholder.
 //   1) KIDITEM DESIGN (bold-vertical 사용, KIDITEM 브랜드)

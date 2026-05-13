@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  detailPageResultHref,
   normalizeStoredDetailPageRawInput,
   parseDetailPageStoredJson,
 } from '../detail-page-stored.helpers';
@@ -69,5 +70,13 @@ describe('detail-page stored JSON helpers', () => {
       ageGroup: 'age-14-plus',
       detailImageCount: '1',
     });
+  });
+
+  it('builds detail-page result links for the product-content editor surface', () => {
+    expect(detailPageResultHref({
+      productId: 'product-123',
+      contentGenerationId: 'generation-456',
+      templateId: 'bold-vertical',
+    })).toBe('/product-content/product-123/editor?generationId=generation-456');
   });
 });

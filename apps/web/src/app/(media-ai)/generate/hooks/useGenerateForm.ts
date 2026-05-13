@@ -12,6 +12,7 @@ import { API_BASE } from '@/lib/api';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { useProductImages } from '@/hooks/useProductImages';
+import { buildProductContentEditorHref } from '@/app/(catalog)/product-content/lib/product-content-routing';
 import { moveSafetyLabelImagesToEnd } from '../lib/detail-page-image-order';
 import {
   type KidsPlayfulGenerationItem,
@@ -25,6 +26,9 @@ export type UsageSectionMode = 'include' | 'exclude';
 export type KcCertificationStatus = 'unknown' | 'none' | 'exists';
 export type BoxSetStatus = 'auto' | 'none' | 'box' | 'set' | 'exists';
 export type ColorVariantStatus = 'auto' | 'none' | 'single' | 'multiple';
+const TITLE_REQUIRED_MESSAGE = '상품명을 먼저 입력해 주세요.';
+export const IMAGE_REQUIRED_MESSAGE = '상품 이미지를 최소 1장 추가해 주세요.';
+
 export type GenerationDialogPhase =
   | 'submitting'
   | 'started'
@@ -41,6 +45,19 @@ export interface GenerationDialogState {
   generationId?: string;
   editorUrl?: string;
   errorMessage?: string | null;
+}
+
+export function getGenerateFormValidation(input: {
+  rawTitle: string;
+  imageCount: number;
+}): { isValid: boolean; message: string | null } {
+  if (input.rawTitle.trim() === '') {
+    return { isValid: false, message: TITLE_REQUIRED_MESSAGE };
+  }
+  if (input.imageCount < 1) {
+    return { isValid: false, message: IMAGE_REQUIRED_MESSAGE };
+  }
+  return { isValid: true, message: null };
 }
 
 interface DetailPagePrefillResult {
@@ -93,7 +110,11 @@ export function useGenerateForm() {
     if (valid.length > 0) setImages(moveSafetyLabelImagesToEnd(valid).slice(0, 15));
   }, [savedImages]);
 
-  const isFormValid = rawTitle.trim() !== '';
+  const formValidation = getGenerateFormValidation({
+    rawTitle,
+    imageCount: images.length,
+  });
+  const isFormValid = formValidation.isValid;
 
   useEffect(() => {
     const item = generationStatusQuery.data;
@@ -151,8 +172,15 @@ export function useGenerateForm() {
   const handleSubmit = async (selectedTemplateId: GenerateTemplateId) => {
     const title = rawTitle.trim();
     const orderedImages = moveSafetyLabelImagesToEnd(images);
-    if (!title) {
-      setError('상품명을 먼저 입력해 주세요.');
+    const validation = getGenerateFormValidation({
+      rawTitle: title,
+      imageCount: orderedImages.length,
+    });
+    if (!validation.isValid) {
+      setError(validation.message);
+      if (validation.message === IMAGE_REQUIRED_MESSAGE) {
+        toast.error(IMAGE_REQUIRED_MESSAGE);
+      }
       return;
     }
 
@@ -558,5 +586,8 @@ function generationStatusToDialogPhase(
 
 function buildGenerationEditorUrl(item: KidsPlayfulGenerationItem): string | undefined {
   if (!item.productId) return undefined;
-  return `/generate?productId=${encodeURIComponent(item.productId)}`;
+  return buildProductContentEditorHref({
+    productId: item.productId,
+    generationId: item.id,
+  });
 }

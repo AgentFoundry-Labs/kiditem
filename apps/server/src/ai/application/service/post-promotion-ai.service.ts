@@ -17,8 +17,8 @@ import type {
 } from '../../domain/model/thumbnail-editor';
 import type { DetailPageRawInput, DetailPageTemplateId } from './detail-page-ai.types';
 import {
-  detailPageEditorHref,
   detailPageOperationKey,
+  detailPageResultHref,
   serializeDetailPageStoredJson,
 } from './detail-page-stored.helpers';
 import { ThumbnailEditorAiService } from './thumbnail-editor-ai.service';
@@ -146,7 +146,7 @@ export class PostPromotionAiService implements PostPromotionAiTriggerPort {
         actorUserId: null,
         targetType: 'master',
         targetId: master.id,
-        href: detailPageEditorHref({
+        href: detailPageResultHref({
           productId: master.id,
           contentGenerationId: row.id,
           templateId: DEFAULT_TEMPLATE_ID,

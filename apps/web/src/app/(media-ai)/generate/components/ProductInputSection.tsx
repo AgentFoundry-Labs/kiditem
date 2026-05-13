@@ -458,7 +458,7 @@ export default function ProductInputSection({
             </Field>
           </div>
 
-          <Field label="상품 이미지" trailing={`${images.length} / ${MAX_IMAGES} (선택)`}>
+          <Field label="상품 이미지" required trailing={`필수 · ${images.length} / ${MAX_IMAGES}`}>
             <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] p-3">
               <div className="flex h-[116px] gap-3 overflow-x-auto pb-1">
                 <label
@@ -510,7 +510,7 @@ export default function ProductInputSection({
 
                 {images.length === 0 && (
                   <div className="flex h-[104px] min-w-[220px] items-center text-xs font-medium text-[var(--text-muted)]">
-                    상품 이미지를 추가하면 AI가 이미지 순서를 맞춰 상세페이지를 만듭니다.
+                    상세페이지 생성에는 상품 이미지가 최소 1장 필요합니다.
                   </div>
                 )}
               </div>

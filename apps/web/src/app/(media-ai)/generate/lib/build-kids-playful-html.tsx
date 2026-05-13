@@ -3,7 +3,6 @@
  *
  * 사용처:
  * - /generate history preview iframe srcDoc
- * - sourcing/[id]/editor — GrapesJS canvas 의 init HTML
  * - 향후 다른 미리보기 영역
  *
  * 주의: client-only 함수 (renderToStaticMarkup 사용). 'use client' 컴포넌트에서만 호출.
@@ -12,7 +11,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import {
   buildDetailFontReadyGateHead,
   toFontDisplayBlockUrl,
-} from '@/app/(sourcing)/sourcing/lib/template-html';
+} from '@/app/(catalog)/product-content/lib/template-html';
 import KidsPlayfulRenderer from '../components/KidsPlayfulRenderer';
 import type { KidsPlayfulData } from './kids-playful-types';
 

@@ -10,6 +10,7 @@ import { apiClient } from '@/lib/api-client';
 import { cn, timeAgo } from '@/lib/utils';
 import { PromoteToTaskModal } from './PromoteToTaskModal';
 import { usePanelStore } from './lib/panel-store';
+import { normalizeProductContentHref } from '@/app/(catalog)/product-content/lib/product-content-routing';
 import type { PanelAlertItem } from '@kiditem/shared/panel';
 
 function severityIcon(severity: string) {
@@ -59,6 +60,7 @@ export function PanelAlertRow({ item }: { item: PanelAlertItem }) {
 
   const isOperation = item.alertKind === 'operation';
   const badge = isOperation ? operationStatusBadge(item.status) : null;
+  const href = normalizePanelAlertHref(item.href);
   const showProgress =
     isOperation &&
     (item.status === 'running' || item.status === 'pending') &&
@@ -141,9 +143,9 @@ export function PanelAlertRow({ item }: { item: PanelAlertItem }) {
           <div className="flex items-center justify-between gap-2 mt-0.5">
             <div className="flex items-center gap-2 min-w-0">
               <div className="text-xs text-slate-400">{timeAgo(item.createdAt)}</div>
-              {item.href && (
+              {href && (
                 <Link
-                  href={item.href}
+                  href={href}
                   className="inline-flex items-center gap-0.5 text-xs text-purple-600 hover:underline"
                   onClick={(e) => {
                     e.stopPropagation();
@@ -200,4 +202,8 @@ export function PanelAlertRow({ item }: { item: PanelAlertItem }) {
       )}
     </>
   );
+}
+
+function normalizePanelAlertHref(href: string | null): string | null {
+  return normalizeProductContentHref(href);
 }
