@@ -425,13 +425,14 @@ export class MastersService {
       }),
     ]);
     type ProductContentRow = (typeof rows)[number];
+    type ProductContentGroup = NonNullable<ProductContentRow['generationGroup']>;
     type ProductBoundContentRow = ProductContentRow & {
-      generationGroup: ProductContentRow['generationGroup'] & {
-        targetMaster: NonNullable<ProductContentRow['generationGroup']['targetMaster']>;
+      generationGroup: ProductContentGroup & {
+        targetMaster: NonNullable<ProductContentGroup['targetMaster']>;
       };
     };
     const productRows = rows.filter((row): row is ProductBoundContentRow => (
-      row.generationGroup.targetMaster !== null
+      row.generationGroup?.targetMaster !== null && row.generationGroup?.targetMaster !== undefined
     ));
 
     return {

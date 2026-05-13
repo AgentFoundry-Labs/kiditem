@@ -811,13 +811,17 @@ erDiagram
     String id PK
     String organizationId FK
     String generationGroupId FK
+    String masterId FK
     String contentType
     String templateId
     Json generationInput
     Json generationResult
+    Json originalImages
+    Json processedImages
     String generatedTitle
     String generatedDescription
     String generatedCopy
+    String detailPageHtml
     String editedHtml
     DateTime editedHtmlSavedAt
     String status
@@ -1805,11 +1809,12 @@ erDiagram
   ContentGeneration ||--o{ ContentGenerationSource : "contentGeneration"
   ContentGeneration o|--o{ ContentGenerationSource : "sourceContentGeneration"
   ContentGenerationGroup ||--o{ ContentAsset : "generationGroup"
-  ContentGenerationGroup ||--o{ ContentGeneration : "generationGroup"
+  ContentGenerationGroup o|--o{ ContentGeneration : "generationGroup"
   ExecutionTask ||--o{ ExecutionLog : "task"
   ExecutionWorker o|--o{ ExecutionTask : "worker"
   Marketplace o|--o{ WorkflowTemplate : "marketplace"
   MasterProduct ||--o{ ChannelListing : "master"
+  MasterProduct o|--o{ ContentGeneration : "legacyMaster"
   MasterProduct o|--o{ ContentGenerationGroup : "targetMaster"
   MasterProduct ||--o{ GradeHistory : "master"
   MasterProduct ||--o{ MasterProductImage : "master"

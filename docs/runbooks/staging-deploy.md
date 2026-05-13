@@ -320,7 +320,8 @@ Before the EC2 image swap, the deploy job applies the Prisma schema to the
 staging Supabase database with `npx prisma db push` and no
 `--accept-data-loss`. Releases that need column/table drops must use a separate
 expand/backfill/contract plan instead of relying on the deploy workflow to drop
-data. After the new containers pass the EC2 smoke check, the workflow runs:
+data. The workflow then runs release data migrations before the image swap so
+new application code starts with any required backfill already present:
 
 ```bash
 npm run data:migrate -- up
@@ -332,7 +333,14 @@ grouped by the application release in root [`VERSION`](../../VERSION) that
 requires it, for example `scripts/data-migrations/v0.1.0/001_<name>.ts`, and
 records a row in `data_migration_runs` with migration id, release version,
 status, git SHA, Prisma schema hash, affected rows, details, and error text
-when a run fails. For the detail-page content route migration, the deprecated
+when a run fails. After the new containers pass the EC2 smoke check, the
+workflow verifies the migration ledger with:
+
+```bash
+npm run data:migrate -- status
+```
+
+For the detail-page content route migration, the deprecated
 `master_products` sourcing columns stay in the schema until the ledger confirms
 the sourcing backfill landed on every shared environment.
 

@@ -204,6 +204,16 @@ jobs:
           npx prisma db push
           npx prisma generate
 
+      - name: Run staging data migrations
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          DATA_MIGRATION_TARGET: staging
+          DATA_MIGRATION_CONFIRM: APPLY_DATA_MIGRATIONS
+        run: |
+          set -euo pipefail
+          : "${DATABASE_URL:?Set staging secret STAGING_DATABASE_URL}"
+          npm run data:migrate -- up
+
       - name: Prepare SSH
         env:
           STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
@@ -283,15 +293,13 @@ jobs:
           ./deploy/staging/remote-deploy.sh deploy
           REMOTE
 
-      - name: Run staging data migrations
+      - name: Verify staging data migration status
         env:
           DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
-          DATA_MIGRATION_TARGET: staging
-          DATA_MIGRATION_CONFIRM: APPLY_DATA_MIGRATIONS
         run: |
           set -euo pipefail
           : "${DATABASE_URL:?Set staging secret STAGING_DATABASE_URL}"
-          npm run data:migrate -- up
+          npm run data:migrate -- status
 
   rollback:
     name: Roll back staging

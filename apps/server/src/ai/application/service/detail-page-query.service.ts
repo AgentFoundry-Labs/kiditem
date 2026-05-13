@@ -53,7 +53,7 @@ export class DetailPageQueryService {
         organizationId,
         contentType: 'detail_page',
         ...(productId
-          ? { generationGroup: { targetMasterId: productId } }
+          ? { OR: [{ generationGroup: { targetMasterId: productId } }, { masterId: productId }] }
           : {}),
       },
       include: detailPageGenerationInclude,
@@ -98,6 +98,10 @@ export class DetailPageQueryService {
       },
     });
     if (!row) throw new NotFoundException('Detail page generation not found');
+    const generationGroupId = row.generationGroupId;
+    if (!generationGroupId) {
+      throw new BadRequestException('Detail page workspace is not backfilled yet');
+    }
 
     const promoted = await this.promoteEditableImageUrls({
       organizationId,
@@ -109,7 +113,7 @@ export class DetailPageQueryService {
     const updated = await this.prisma.$transaction(async (tx) => {
       await this.contentAssets.syncGenerationImageUsagesTx(tx, {
         organizationId,
-        generationGroupId: row.generationGroupId,
+        generationGroupId,
         contentGenerationId: id,
         createdByUserId: row.triggeredByUserId,
         imageUrls,
@@ -174,7 +178,7 @@ export class DetailPageQueryService {
     );
     return {
       id: row.id,
-      productId: row.generationGroup.targetMasterId,
+      productId: row.generationGroup?.targetMasterId ?? row.masterId ?? null,
       templateId: stored.templateId,
       productName,
       rawInput,

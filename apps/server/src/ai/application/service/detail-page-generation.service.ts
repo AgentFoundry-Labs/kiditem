@@ -339,7 +339,7 @@ export class DetailPageGenerationService {
       organizationId,
       baseGenerationId: base.id,
       existingGroupId: base.generationGroupId,
-      productId: base.generationGroup.targetMasterId,
+      productId: base.generationGroup?.targetMasterId ?? null,
       title: pickRawString(rawRecord, 'rawTitle') ?? base.generatedTitle ?? '상세페이지 작업',
       triggeredByUserId,
     });
@@ -363,7 +363,7 @@ export class DetailPageGenerationService {
     return this.enqueueGeneration({
       organizationId,
       triggeredByUserId,
-      productId: base.generationGroup.targetMasterId,
+      productId: base.generationGroup?.targetMasterId ?? null,
       rawTitle: rawInput.rawTitle,
       templateId,
       heroImageMode: rawInput.heroImageMode,

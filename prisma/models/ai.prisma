@@ -312,14 +312,22 @@ model ThumbnailTrackingDailySnapshot {
 model ContentGeneration {
   id                   String    @id @default(uuid()) @db.Uuid
   organizationId       String    @map("organization_id") @db.Uuid
-  generationGroupId    String    @map("generation_group_id") @db.Uuid
+  generationGroupId    String?   @map("generation_group_id") @db.Uuid
+  // Deprecated detail-page columns retained for one expand/backfill release.
+  // New code reads generationInput/generationResult/editedHtml; remove these
+  // only in a later contract PR after shared environments record migration
+  // success in data_migration_runs.
+  masterId             String?   @map("master_id") @db.Uuid
   contentType          String    @default("detail_page") @map("content_type")
   templateId           String?   @map("template_id")
   generationInput      Json      @default("{}") @map("generation_input")
   generationResult     Json      @default("{}") @map("generation_result")
+  originalImages       Json?     @map("original_images")
+  processedImages      Json?     @map("processed_images")
   generatedTitle       String?   @map("generated_title")
   generatedDescription String?   @map("generated_description")
   generatedCopy        String?   @map("generated_copy")
+  detailPageHtml       String?   @map("detail_page_html")
   editedHtml           String?   @map("edited_html")
   editedHtmlSavedAt    DateTime? @map("edited_html_saved_at") @db.Timestamptz
   status               String    @default("PENDING")
@@ -329,15 +337,17 @@ model ContentGeneration {
   createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization    Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  generationGroup ContentGenerationGroup    @relation("ContentGenerationGroupMembers", fields: [generationGroupId], references: [id], onDelete: Cascade)
-  triggeredByUser User?                     @relation("ContentGenerationTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
+  organization    Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  generationGroup ContentGenerationGroup?       @relation("ContentGenerationGroupMembers", fields: [generationGroupId], references: [id], onDelete: Cascade)
+  legacyMaster    MasterProduct?                @relation("LegacyContentGenerationMaster", fields: [masterId], references: [id], onDelete: SetNull)
+  triggeredByUser User?                         @relation("ContentGenerationTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
   assetUsages     ContentGenerationAssetUsage[]
-  sources         ContentGenerationSource[] @relation("ContentGenerationSources")
-  sourceLinks     ContentGenerationSource[] @relation("ContentGenerationDerivedSources")
-  baseForGroups   ContentGenerationGroup[]  @relation("ContentGenerationGroupBase")
+  sources         ContentGenerationSource[]     @relation("ContentGenerationSources")
+  sourceLinks     ContentGenerationSource[]     @relation("ContentGenerationDerivedSources")
+  baseForGroups   ContentGenerationGroup[]      @relation("ContentGenerationGroupBase")
 
   @@index([organizationId])
+  @@index([masterId])
   @@index([generationGroupId])
   @@index([organizationId, contentType])
   @@index([organizationId, generationGroupId])
