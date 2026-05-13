@@ -148,7 +148,58 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
       );
     });
 
-    it('does not leave the row PROCESSING when generated images exceed the best-effort timeout', async () => {
+    it('waits beyond 30 seconds because generated images can normally take longer', async () => {
+      vi.useFakeTimers();
+      try {
+        let resolveImages!: (value: Record<string, string>) => void;
+        images = {
+          generateBestEffort: vi
+            .fn()
+            .mockReturnValue(
+              new Promise<Record<string, string>>((resolve) => {
+                resolveImages = resolve;
+              }),
+            ),
+        } as unknown as DetailPageGeneratedImagesService;
+        sink = new DetailPageContentGenerationSinkAdapter(
+          prisma as never,
+          alerts,
+          images,
+        );
+
+        const pending = sink.applySuccess({
+          organizationId: ORG,
+          requestId: REQUEST,
+          runId: RUN,
+          sourceResourceId: CG_ID,
+          output: VALID_OUTPUT,
+        });
+
+        await vi.advanceTimersByTimeAsync(31_000);
+        expect(prisma.contentGeneration.updateMany).not.toHaveBeenCalled();
+
+        resolveImages({ __heroBanner: 'https://cdn.example.com/slow-hero.png' });
+        await pending;
+
+        const updateCall = prisma.contentGeneration.updateMany.mock.calls[0][0] as {
+          data: { processedImages: Record<string, string> };
+        };
+        expect(updateCall.data.processedImages).toMatchObject({
+          __heroBanner: 'https://cdn.example.com/slow-hero.png',
+        });
+        expect(alerts.succeed).toHaveBeenCalledWith(
+          ORG,
+          `detail-page:${CG_ID}`,
+          expect.objectContaining({
+            metadata: expect.objectContaining({ heroImageCount: 1 }),
+          }),
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('does not leave the row PROCESSING when generated images exceed the best-effort stall guard', async () => {
       vi.useFakeTimers();
       try {
         images = {
@@ -168,7 +219,7 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
           output: VALID_OUTPUT,
         });
 
-        await vi.advanceTimersByTimeAsync(30_000);
+        await vi.advanceTimersByTimeAsync(15 * 60_000);
         await pending;
 
         expect(prisma.contentGeneration.updateMany).toHaveBeenCalledWith(
