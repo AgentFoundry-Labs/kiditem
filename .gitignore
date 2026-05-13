@@ -67,6 +67,7 @@ coverage/
 .swarm/
 .mcp.json
 .gstack/
+.tmp/
 data/
 .data/
 .bkit/
