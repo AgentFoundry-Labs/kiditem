@@ -33,9 +33,8 @@ export interface KidsPlayfulGenerateBody {
   productId?: string;
   templateId?: DetailPageTemplateId;
   sourceReferences?: Array<{
-    sourceType: 'sourcing_candidate' | 'master_product' | 'input_asset' | 'content_generation';
+    sourceType: 'sourcing_candidate' | 'input_asset' | 'content_generation';
     sourceCandidateId?: string;
-    masterId?: string;
     contentAssetId?: string;
     sourceContentGenerationId?: string;
     label?: string;

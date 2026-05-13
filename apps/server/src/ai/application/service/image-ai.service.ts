@@ -3,23 +3,13 @@ import {
   Injectable,
   InternalServerErrorException,
   Logger,
-  NotFoundException,
 } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
 import {
   AGENT_RUNNER_PORT,
   type AgentRunnerPort,
   type AgentRunnerResult,
 } from '../../../agent-os/application/port/in/agent-runner.port';
 import { OperationAlertService } from '../../../automation/application/service/operation-alert.service';
-import { PrismaService } from '../../../prisma/prisma.service';
-import { ContentAssetService } from './content-asset.service';
-
-interface ImageEditLedger {
-  id: string;
-  masterId: string | null;
-  generationGroupId: string | null;
-}
 
 /**
  * Image edit entry point.
@@ -51,8 +41,6 @@ export class ImageAiService {
     @Inject(AGENT_RUNNER_PORT)
     private readonly agentRunner: AgentRunnerPort,
     private readonly operationAlerts: OperationAlertService,
-    private readonly prisma: PrismaService,
-    private readonly contentAssets: ContentAssetService,
   ) {}
 
   async createEditTask(
@@ -66,23 +54,11 @@ export class ImageAiService {
     organizationId: string,
     triggeredByUserId: string | null,
   ) {
-    const ledger = await this.createImageEditLedger({
-      organizationId,
-      triggeredByUserId,
-      params,
-    });
-
     let result: AgentRunnerResult;
     try {
       result = await this.agentRunner.runByType('image_edit', {
         organizationId,
         sourceType: 'ai.image_edit',
-        ...(ledger
-          ? {
-              sourceResourceType: 'content_generation',
-              sourceResourceId: ledger.id,
-            }
-          : {}),
         reason: 'image-ai edit',
         payload: {
           image_url: params.image_url,
@@ -96,21 +72,11 @@ export class ImageAiService {
         ...(triggeredByUserId ? { requestedByUserId: triggeredByUserId } : {}),
       });
     } catch (error) {
-      if (ledger) {
-        await this.markLedgerFailed(organizationId, ledger.id, error);
-      }
       throw error;
     }
 
     let taskId: string;
-    try {
-      taskId = this.requireTaskId(result, 'ai.image_edit');
-    } catch (error) {
-      if (ledger) {
-        await this.markLedgerFailed(organizationId, ledger.id, error);
-      }
-      throw error;
-    }
+    taskId = this.requireTaskId(result, 'ai.image_edit');
 
     if (result.requestId) {
       await this.operationAlerts.start({
@@ -121,11 +87,12 @@ export class ImageAiService {
         sourceType: 'agent_run_request',
         sourceId: result.requestId,
         actorUserId: triggeredByUserId,
-        href: this.imageEditHref(ledger),
+        href: this.imageEditHref(params),
         metadata: {
           agentType: 'image_edit',
           preset: params.preset,
-          contentGenerationId: ledger?.id ?? null,
+          productId: params.productId ?? null,
+          contentGenerationId: params.contentGenerationId ?? null,
         },
       });
       this.kickEnqueuedImageEditRequest({
@@ -137,162 +104,12 @@ export class ImageAiService {
     return { taskId };
   }
 
-  private async createImageEditLedger(input: {
-    organizationId: string;
-    triggeredByUserId: string | null;
-    params: {
-      image_url: string;
-      preset: string;
-      productId?: string;
-      contentGenerationId?: string;
-    };
-  }): Promise<ImageEditLedger | null> {
-    const { organizationId, params } = input;
-    if (!params.productId && !params.contentGenerationId) return null;
-
-    const sourceGeneration = params.contentGenerationId
-      ? await this.prisma.contentGeneration.findFirst({
-          where: { id: params.contentGenerationId, organizationId },
-          select: {
-            id: true,
-            masterId: true,
-            generationGroupId: true,
-            generatedTitle: true,
-          },
-        })
-      : null;
-    if (params.contentGenerationId && !sourceGeneration) {
-      throw new NotFoundException('Source content generation not found');
+  private imageEditHref(params: { productId?: string; contentGenerationId?: string }): string {
+    if (params.contentGenerationId) {
+      return `/product-content/detail-pages/${params.contentGenerationId}/editor`;
     }
-
-    const masterId = params.productId ?? sourceGeneration?.masterId ?? null;
-    if (params.productId) {
-      const master = await this.prisma.masterProduct.findFirst({
-        where: { id: params.productId, organizationId, isDeleted: false },
-        select: { id: true },
-      });
-      if (!master) throw new NotFoundException('Master product not found');
-    }
-
-    let generationGroupId = sourceGeneration?.generationGroupId ?? null;
-    if (!masterId && !generationGroupId) {
-      const group = await this.prisma.contentGenerationGroup.create({
-        data: {
-          organizationId,
-          groupType: 'image_edit',
-          title: '이미지 편집 작업',
-          baseContentGenerationId: sourceGeneration?.id ?? null,
-          createdByUserId: input.triggeredByUserId,
-          metadata: { preset: params.preset },
-        },
-        select: { id: true },
-      });
-      generationGroupId = group.id;
-    }
-
-    const generation = await this.prisma.contentGeneration.create({
-      data: {
-        organizationId,
-        masterId,
-        generationGroupId,
-        contentType: 'image',
-        originalImages: [params.image_url] as Prisma.InputJsonValue,
-        processedImages: {} as Prisma.InputJsonValue,
-        generatedTitle: this.imageEditTitle(params.preset),
-        status: 'PROCESSING',
-        triggeredByUserId: input.triggeredByUserId,
-      },
-      select: { id: true, masterId: true, generationGroupId: true },
-    });
-
-    const inputAsset = await this.contentAssets.recordImageEditInputAsset({
-      organizationId,
-      contentGenerationId: generation.id,
-      masterId,
-      createdByUserId: input.triggeredByUserId,
-      imageUrl: params.image_url,
-    });
-
-    const sourceRows: Prisma.ContentGenerationSourceCreateManyInput[] = [];
-    if (sourceGeneration) {
-      sourceRows.push({
-        organizationId,
-        contentGenerationId: generation.id,
-        sourceType: 'content_generation',
-        sourceContentGenerationId: sourceGeneration.id,
-        label: sourceGeneration.generatedTitle ?? 'Source detail page',
-        sortOrder: sourceRows.length,
-        metadata: {},
-      });
-    }
-    if (masterId) {
-      sourceRows.push({
-        organizationId,
-        contentGenerationId: generation.id,
-        sourceType: 'master_product',
-        masterId,
-        label: 'Master product',
-        sortOrder: sourceRows.length,
-        metadata: {},
-      });
-    }
-    if (inputAsset) {
-      sourceRows.push({
-        organizationId,
-        contentGenerationId: generation.id,
-        sourceType: 'input_asset',
-        contentAssetId: inputAsset.id,
-        label: inputAsset.label ?? inputAsset.role ?? 'Input image',
-        sortOrder: sourceRows.length,
-        metadata: {
-          originType: inputAsset.originType,
-          assetKey: inputAsset.assetKey,
-        },
-      });
-    }
-    if (sourceRows.length > 0) {
-      await this.prisma.contentGenerationSource.createMany({
-        skipDuplicates: true,
-        data: sourceRows,
-      });
-    }
-
-    return generation;
-  }
-
-  private async markLedgerFailed(
-    organizationId: string,
-    contentGenerationId: string,
-    error: unknown,
-  ): Promise<void> {
-    await this.prisma.contentGeneration.updateMany({
-      where: {
-        id: contentGenerationId,
-        organizationId,
-        status: 'PROCESSING',
-      },
-      data: {
-        status: 'FAILED',
-        errorMessage: error instanceof Error ? error.message : String(error),
-      },
-    });
-  }
-
-  private imageEditHref(ledger: ImageEditLedger | null): string {
-    if (!ledger) return '/product-content?contentType=image';
-    if (ledger.masterId) return `/product-content/${ledger.masterId}`;
-    if (ledger.generationGroupId) return `/product-content/groups/${ledger.generationGroupId}`;
+    if (params.productId) return `/product-content/${params.productId}`;
     return '/product-content?contentType=image';
-  }
-
-  private imageEditTitle(preset: string): string {
-    if (preset === 'remove_background') return '배경 제거 이미지';
-    if (preset === 'remove_text') return '텍스트 제거 이미지';
-    if (preset === 'replace_background') return '배경 교체 이미지';
-    if (preset === 'enhance') return '화질 개선 이미지';
-    if (preset === 'full_regenerate') return '재생성 이미지';
-    if (preset === 'color_guide') return '색상 안내 이미지';
-    return '이미지 편집 결과';
   }
 
   private kickEnqueuedImageEditRequest(input: {

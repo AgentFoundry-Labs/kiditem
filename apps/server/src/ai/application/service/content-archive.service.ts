@@ -48,7 +48,6 @@ export interface ProductContentGenerationItem {
     id: string;
     sourceType: string;
     sourceCandidateId: string | null;
-    masterId: string | null;
     sourceContentGenerationId: string | null;
     contentAssetId: string | null;
     label: string | null;
@@ -59,12 +58,24 @@ export interface ProductContentGenerationItem {
 }
 
 const generationInclude = {
-  master: { select: { id: true, code: true, name: true, thumbnailUrl: true, imageUrl: true } },
-  generationGroup: { select: { id: true, title: true, groupType: true } },
-  assets: {
-    where: { usageType: 'output', isDeleted: false },
-    orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-    select: { id: true, url: true, role: true, label: true },
+  generationGroup: {
+    select: {
+      id: true,
+      title: true,
+      groupType: true,
+      targetMasterId: true,
+      targetMaster: {
+        select: { id: true, code: true, name: true, thumbnailUrl: true, imageUrl: true },
+      },
+    },
+  },
+  assetUsages: {
+    orderBy: [{ createdAt: 'asc' }],
+    select: {
+      contentAsset: {
+        select: { id: true, url: true, role: true, label: true, sortOrder: true, createdAt: true },
+      },
+    },
   },
   sources: {
     orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
@@ -72,7 +83,6 @@ const generationInclude = {
       id: true,
       sourceType: true,
       sourceCandidateId: true,
-      masterId: true,
       sourceContentGenerationId: true,
       contentAssetId: true,
       label: true,
@@ -166,7 +176,7 @@ export class ContentArchiveService {
     const scopedWhere: Prisma.ContentGenerationWhereInput = {
       ...where,
       generationGroupId: groupId,
-      masterId: null,
+      generationGroup: { targetMasterId: null },
     };
     const [total, rows] = await Promise.all([
       this.prisma.contentGeneration.count({ where: scopedWhere }),
@@ -194,7 +204,7 @@ export class ContentArchiveService {
   ): Promise<{ ok: true; deletedGenerations: number; deletedAssets: number }> {
     return this.prisma.$transaction(async (tx) => {
       const rows = await tx.contentGeneration.findMany({
-        where: { organizationId, masterId: productId },
+        where: { organizationId, generationGroup: { targetMasterId: productId } },
         select: { id: true, generationGroupId: true },
       });
       if (rows.length === 0) {
@@ -234,7 +244,7 @@ export class ContentArchiveService {
       if (!group) throw new NotFoundException('Content generation group not found');
 
       const rows = await tx.contentGeneration.findMany({
-        where: { organizationId, generationGroupId: groupId, masterId: null },
+        where: { organizationId, generationGroupId: groupId, generationGroup: { targetMasterId: null } },
         select: { id: true },
       });
       if (rows.length === 0) {
@@ -306,11 +316,11 @@ export class ContentArchiveService {
   ): Prisma.ContentGenerationWhereInput {
     const masterScope: Prisma.ContentGenerationWhereInput =
       query.productId
-        ? { masterId: query.productId }
+        ? { generationGroup: { targetMasterId: query.productId } }
         : query.linkState === 'linked'
-          ? { masterId: { not: null } }
+          ? { generationGroup: { targetMasterId: { not: null } } }
           : query.linkState === 'unlinked'
-            ? { masterId: null, generationGroupId: { not: null } }
+            ? { generationGroup: { targetMasterId: null } }
             : {};
     return {
       organizationId,
@@ -326,8 +336,9 @@ export class ContentArchiveService {
   private groupWorkspaces(rows: GenerationRow[]): ProductContentWorkspaceItem[] {
     const grouped = new Map<string, GenerationRow[]>();
     for (const row of rows) {
-      const key = row.masterId
-        ? `product:${row.masterId}`
+      const productId = row.generationGroup.targetMasterId;
+      const key = productId
+        ? `product:${productId}`
         : row.generationGroupId
           ? `group:${row.generationGroupId}`
           : null;
@@ -352,7 +363,7 @@ export class ContentArchiveService {
     fallbackProduct?: { id: string; code: string; name: string; thumbnailUrl: string | null; imageUrl: string | null };
   }): ProductContentWorkspaceItem {
     const latest = input.rows[0] ?? null;
-    const product = latest?.master ?? input.fallbackProduct ?? null;
+    const product = latest?.generationGroup.targetMaster ?? input.fallbackProduct ?? null;
     const detailPageCount = input.rows.filter((row) => this.contentType(row) === 'detail_page').length;
     const imageCount = input.rows.filter((row) => this.contentType(row) === 'image').length;
     if (input.workspaceType === 'product') {
@@ -402,22 +413,21 @@ export class ContentArchiveService {
       id: row.id,
       contentType,
       title: row.generatedTitle ?? (contentType === 'image' ? '이미지 생성 결과' : '상세페이지 결과'),
-      subtitle: row.master?.name ?? (row.generationGroup ? '미연결 작업' : null),
+      subtitle: row.generationGroup.targetMaster?.name ?? (row.generationGroup ? '미연결 작업' : null),
       thumbnailUrl: this.pickThumbnail(row),
       href: contentType === 'detail_page' ? `/product-content/detail-pages/${encodeURIComponent(row.id)}/editor` : null,
       status: normalizeStatus(row.status),
-      productId: row.masterId,
+      productId: row.generationGroup.targetMasterId,
       generationGroupId: row.generationGroupId,
       sources: row.sources.map((source) => ({
         id: source.id,
         sourceType: source.sourceType,
         sourceCandidateId: source.sourceCandidateId,
-        masterId: source.masterId,
         sourceContentGenerationId: source.sourceContentGenerationId,
         contentAssetId: source.contentAssetId,
         label: source.label,
       })),
-      outputAssets: row.assets.map((asset) => ({
+      outputAssets: sortedUsedAssets(row).map((asset) => ({
         id: asset.id,
         url: asset.url,
         role: asset.role,
@@ -433,8 +443,8 @@ export class ContentArchiveService {
   }
 
   private pickThumbnail(row: GenerationRow): string | null {
-    const processed = asStringRecord(row.processedImages);
-    return processed.__heroBanner ?? row.assets[0]?.url ?? pickFirstString(row.originalImages);
+    const processed = asStringRecord((row.generationResult as Record<string, unknown>)?.processedImages);
+    return processed.__heroBanner ?? sortedUsedAssets(row)[0]?.url ?? pickFirstString((row.generationInput as Record<string, unknown>)?.imageUrls);
   }
 
   private async deleteGenerationRows(
@@ -442,14 +452,8 @@ export class ContentArchiveService {
     organizationId: string,
     generationIds: string[],
   ): Promise<{ ok: true; deletedGenerations: number; deletedAssets: number }> {
-    const now = new Date();
-    const assetResult = await tx.contentAsset.updateMany({
-      where: {
-        organizationId,
-        contentGenerationId: { in: generationIds },
-        isDeleted: false,
-      },
-      data: { isDeleted: true, deletedAt: now },
+    await tx.contentGenerationAssetUsage.deleteMany({
+      where: { organizationId, contentGenerationId: { in: generationIds } },
     });
     const generationResult = await tx.contentGeneration.deleteMany({
       where: { organizationId, id: { in: generationIds } },
@@ -457,7 +461,7 @@ export class ContentArchiveService {
     return {
       ok: true,
       deletedGenerations: generationResult.count,
-      deletedAssets: assetResult.count,
+      deletedAssets: 0,
     };
   }
 }
@@ -483,6 +487,19 @@ function asStringRecord(value: unknown): Record<string, string> {
 function pickFirstString(value: unknown): string | null {
   if (!Array.isArray(value)) return null;
   return value.find((item): item is string => typeof item === 'string') ?? null;
+}
+
+function sortedUsedAssets(row: GenerationRow): Array<{
+  id: string;
+  url: string;
+  role: string | null;
+  label: string | null;
+  sortOrder: number;
+  createdAt: Date;
+}> {
+  return row.assetUsages
+    .map((usage) => usage.contentAsset)
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt.getTime() - b.createdAt.getTime());
 }
 
 function normalizeStatus(status: string): string {

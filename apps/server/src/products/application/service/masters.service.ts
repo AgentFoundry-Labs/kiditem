@@ -42,13 +42,6 @@ const SYSTEM_FIELDS = [
 
 const AI_DETAIL_TEMPLATE_IDS = ['kids-playful', 'bold-vertical', 'simple-vertical'] as const;
 
-const AI_DETAIL_TEMPLATE_FILTERS: Prisma.ContentGenerationWhereInput[] = [
-  { templateId: { in: [...AI_DETAIL_TEMPLATE_IDS] } },
-  { detailPageHtml: { contains: '"templateId":"kids-playful"' } },
-  { detailPageHtml: { contains: '"templateId":"bold-vertical"' } },
-  { detailPageHtml: { contains: '"templateId":"simple-vertical"' } },
-];
-
 export interface ListContentCardsQuery {
   page?: number;
   limit?: number;
@@ -384,9 +377,12 @@ export class MastersService {
     );
     const where: Prisma.ContentGenerationWhereInput = {
       organizationId,
-      masterId: query.productId ?? { not: null },
-      OR: AI_DETAIL_TEMPLATE_FILTERS,
-      master: { isDeleted: false },
+      contentType: 'detail_page',
+      templateId: { in: [...AI_DETAIL_TEMPLATE_IDS] },
+      generationGroup: {
+        targetMasterId: query.productId ?? { not: null },
+        targetMaster: { isDeleted: false },
+      },
     };
 
     const [total, rows] = await Promise.all([
@@ -398,27 +394,30 @@ export class MastersService {
         take: limit,
         select: {
           id: true,
-          masterId: true,
           generatedTitle: true,
           status: true,
-          detailPageHtml: true,
-          processedImages: true,
+          generationInput: true,
+          generationResult: true,
           errorMessage: true,
           editedHtmlSavedAt: true,
           createdAt: true,
           updatedAt: true,
-          master: {
+          generationGroup: {
             select: {
-              id: true,
-              code: true,
-              name: true,
-              thumbnailUrl: true,
-              imageUrl: true,
-              isTemporary: true,
-              images: {
-                where: { isDeleted: false },
-                orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }],
-                select: { url: true },
+              targetMaster: {
+                select: {
+                  id: true,
+                  code: true,
+                  name: true,
+                  thumbnailUrl: true,
+                  imageUrl: true,
+                  isTemporary: true,
+                  images: {
+                    where: { isDeleted: false },
+                    orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }],
+                    select: { url: true },
+                  },
+                },
               },
             },
           },
@@ -427,11 +426,12 @@ export class MastersService {
     ]);
     type ProductContentRow = (typeof rows)[number];
     type ProductBoundContentRow = ProductContentRow & {
-      masterId: string;
-      master: NonNullable<ProductContentRow['master']>;
+      generationGroup: ProductContentRow['generationGroup'] & {
+        targetMaster: NonNullable<ProductContentRow['generationGroup']['targetMaster']>;
+      };
     };
     const productRows = rows.filter((row): row is ProductBoundContentRow => (
-      row.masterId !== null && row.master !== null
+      row.generationGroup.targetMaster !== null
     ));
 
     return {
@@ -456,26 +456,29 @@ export class MastersService {
   }>> {
     await this.findById(organizationId, id, {});
     const rows = await this.prisma.contentGeneration.findMany({
-      where: { masterId: id, organizationId },
+      where: {
+        organizationId,
+        generationGroup: { targetMasterId: id },
+        NOT: { contentType: 'detail_page' },
+      },
       orderBy: { createdAt: 'desc' },
       take: limit,
       select: {
         id: true,
         generatedTitle: true,
         status: true,
-        detailPageHtml: true,
+        generationResult: true,
         errorMessage: true,
         createdAt: true,
       },
     });
 
     return rows
-      .filter((row) => !this.isAiDetailGeneration(row.detailPageHtml))
       .map((row) => ({
         id: row.id,
         generatedTitle: row.generatedTitle,
         status: row.status,
-        detailPageData: this.parseDetailPageData(row.detailPageHtml),
+        detailPageData: this.parseDetailPageData(row.generationResult),
         errorMessage: row.errorMessage,
         createdAt: row.createdAt,
       }));
@@ -487,16 +490,20 @@ export class MastersService {
     generationId: string,
   ): Promise<{ ok: true }> {
     const { count } = await this.prisma.contentGeneration.deleteMany({
-      where: { id: generationId, masterId, organizationId },
+      where: {
+        id: generationId,
+        organizationId,
+        generationGroup: { targetMasterId: masterId },
+      },
     });
     if (count === 0) throw new NotFoundException('generation history row not found');
     return { ok: true };
   }
 
-  private parseDetailPageData(raw: string | null): Record<string, unknown> | null {
+  private parseDetailPageData(raw: unknown): Record<string, unknown> | null {
     if (!raw) return null;
     try {
-      const parsed = JSON.parse(raw);
+      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
       if (!parsed || typeof parsed !== 'object') return null;
       const record = parsed as Record<string, unknown>;
       const result = record.result;
@@ -512,78 +519,66 @@ export class MastersService {
     }
   }
 
-  private isAiDetailGeneration(raw: string | null): boolean {
-    if (!raw) return false;
-    try {
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      return parsed.templateId === 'kids-playful' ||
-        parsed.templateId === 'bold-vertical' ||
-        parsed.templateId === 'simple-vertical';
-    } catch {
-      return false;
-    }
-  }
-
   private toProductContentCard(row: {
     id: string;
-    masterId: string;
     generatedTitle: string | null;
     status: string;
-    detailPageHtml: string | null;
-    processedImages: unknown;
+    generationInput: unknown;
+    generationResult: unknown;
     errorMessage: string | null;
     editedHtmlSavedAt: Date | null;
     createdAt: Date;
     updatedAt: Date;
-    master: {
-      id: string;
-      code: string;
-      name: string;
-      thumbnailUrl: string | null;
-      imageUrl: string | null;
-      isTemporary: boolean;
-      images: Array<{ url: string }>;
+    generationGroup: {
+      targetMaster: {
+        id: string;
+        code: string;
+        name: string;
+        thumbnailUrl: string | null;
+        imageUrl: string | null;
+        isTemporary: boolean;
+        images: Array<{ url: string }>;
+      };
     };
   }): ProductContentCard {
-    const stored = this.parseAiDetailStoredJson(row.detailPageHtml);
-    const processedImages = this.asStringRecord(row.processedImages);
+    const stored = this.parseAiDetailStoredJson(row.generationInput, row.generationResult);
+    const processedImages = this.asStringRecord(stored.processedImages);
+    const master = row.generationGroup.targetMaster;
     return {
       generationId: row.id,
-      productId: row.master.id,
-      productCode: row.master.code,
-      productName: row.master.name,
-      title: row.generatedTitle ?? this.pickStoredRawTitle(stored) ?? row.master.name,
+      productId: master.id,
+      productCode: master.code,
+      productName: master.name,
+      title: row.generatedTitle ?? this.pickStoredRawTitle(stored) ?? master.name,
       subtitle: this.pickDetailSubtitle(stored),
       templateId: stored.templateId,
       status: this.mapGenerationStatus(row.status),
       thumbnailUrl: this.pickContentThumbnail(row, processedImages, stored),
       errorMessage: row.errorMessage,
-      isTemporaryProduct: row.master.isTemporary,
+      isTemporaryProduct: master.isTemporary,
       editedHtmlSavedAt: row.editedHtmlSavedAt?.toISOString() ?? null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };
   }
 
-  private parseAiDetailStoredJson(raw: string | null): {
+  private parseAiDetailStoredJson(generationInput: unknown, generationResult: unknown): {
     templateId: 'kids-playful' | 'bold-vertical';
     rawInput: Record<string, unknown>;
     result: Record<string, unknown>;
+    processedImages: Record<string, unknown>;
   } {
-    if (!raw) return { templateId: 'kids-playful', rawInput: {}, result: {} };
-    try {
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      return {
-        templateId:
-          parsed.templateId === 'bold-vertical' || parsed.templateId === 'simple-vertical'
-            ? 'bold-vertical'
-            : 'kids-playful',
-        rawInput: this.asRecord(parsed.rawInput),
-        result: this.asRecord(parsed.result),
-      };
-    } catch {
-      return { templateId: 'kids-playful', rawInput: {}, result: {} };
-    }
+    const inputRecord = this.asRecord(generationInput);
+    const resultRecord = this.asRecord(generationResult);
+    return {
+      templateId:
+        resultRecord.templateId === 'bold-vertical' || resultRecord.templateId === 'simple-vertical'
+          ? 'bold-vertical'
+          : 'kids-playful',
+      rawInput: this.asRecord(resultRecord.rawInput ?? inputRecord),
+      result: this.asRecord(resultRecord.result),
+      processedImages: this.asRecord(resultRecord.processedImages),
+    };
   }
 
   private pickStoredRawTitle(stored: { rawInput: Record<string, unknown> }): string | null {
@@ -604,10 +599,12 @@ export class MastersService {
 
   private pickContentThumbnail(
     row: {
-      master: {
-        thumbnailUrl: string | null;
-        imageUrl: string | null;
-        images: Array<{ url: string }>;
+      generationGroup: {
+        targetMaster: {
+          thumbnailUrl: string | null;
+          imageUrl: string | null;
+          images: Array<{ url: string }>;
+        };
       };
     },
     processedImages: Record<string, string>,
@@ -622,7 +619,8 @@ export class MastersService {
     if (heroIndex !== null && processedImages[String(heroIndex)]) {
       return processedImages[String(heroIndex)];
     }
-    return row.master.thumbnailUrl ?? row.master.imageUrl ?? row.master.images[0]?.url ?? null;
+    const master = row.generationGroup.targetMaster;
+    return master.thumbnailUrl ?? master.imageUrl ?? master.images[0]?.url ?? null;
   }
 
   private pickEditedHtmlSavedAt(value: unknown): string | null {

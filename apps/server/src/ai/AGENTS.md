@@ -42,7 +42,7 @@ ai/
 | `DELETE /api/ai/content-archive/products/:productId` | mutation | deletes generated content rows for one product workspace; does not delete `MasterProduct` |
 | `GET /api/ai/content-archive/groups/:groupId` | read model | generated rows for one unlinked workspace |
 | `DELETE /api/ai/content-archive/groups/:groupId` | mutation | deletes generated content rows for one unlinked workspace and its empty group row |
-| `POST /api/ai/content-archive/groups/:groupId/attach-product` | mutation | attaches all group generations to a MasterProduct by setting `ContentGeneration.masterId` |
+| `POST /api/ai/content-archive/groups/:groupId/attach-product` | mutation | attaches all group generations/assets to the product workspace group for a `MasterProduct` |
 | `POST /api/ai/content-archive/:generationId/rerun` | async Agent OS | creates a same-input rerun in the explicit generation group |
 | `GET /api/ai/content-archive/sourcing/:candidateId` | read model | sourcing-candidate provenance links into produced content |
 | `GET /api/ai/content-assets` | read model | lists reusable content image assets |
@@ -96,23 +96,31 @@ Detail-page generation:
 ```text
 HTTP DTO
   -> DetailPageAiService facade
-  -> DetailPageGenerationService creates ContentGeneration + optional ContentGenerationGroup + input ContentAsset rows + ContentGenerationSource rows + alert
+  -> DetailPageGenerationService creates ContentGeneration + required ContentGenerationGroup + input ContentAsset rows + ContentGenerationSource rows + alert
   -> AGENT_RUNNER_PORT.runByType('detail_page_generate')
   -> detail-page runtime handler
   -> bridge
   -> sink READY/FAILED + generated images + generated ContentAsset rows + alert close
 ```
 
-`ContentGeneration.masterId` is nullable. Product-bound runs set it to the
-target `MasterProduct.id`; standalone runs leave it null and must belong to an
-explicit `ContentGenerationGroup`. Same-input reruns reuse/create a group and
-must not infer grouping from title or product-name similarity.
+`ContentGenerationGroup` is the workspace identity. Product-bound runs use the
+canonical `groupType='product_workspace'` group with
+`targetMasterId=<MasterProduct.id>`; standalone runs use an unlinked
+`input_variation` group. `ContentGeneration.generationGroupId` is required.
+Same-input reruns reuse/create the explicit group and must not infer grouping
+from title or product-name similarity.
+
+`ContentGeneration` stores request/result snapshots in `generationInput` and
+`generationResult`. Do not add generated-detail payload columns back to the
+row.
 
 `ContentGenerationSource` stores generation-level provenance. It may point to a
-sourcing candidate, Master product, input asset, or another generation. `sourceType`
-belongs here in the new design. `ContentAsset.sourceType` is retained only for
-legacy compatibility; active file semantics are `pipelineType`, `usageType`, and
-`originType`.
+sourcing candidate, input asset, or another generation. Product target is the
+workspace group, not a source row.
+
+`ContentAsset` is the group library asset. Current images used by a generated
+row live in `ContentGenerationAssetUsage`; saving edited detail-page HTML
+replaces that usage set from the HTML `<img>` URLs.
 
 Edited detail-page HTML is stored on `ContentGeneration.editedHtml`; do not
 write generated editor output back into `MasterProduct.draftContent`.
@@ -144,18 +152,24 @@ Nest AI domain:
 
 ```text
 HTTP DTO or /api/agent-os/runs
-  -> ImageAiService creates ContentGeneration(contentType='image') when product/content context is provided
+  -> ImageAiService enqueues image_edit with optional product/content context
   -> AGENT_RUNNER_PORT.runByType('image_edit')
   -> image-edit runtime handler
   -> IMAGE_EDIT_MEDIA_PORT (Gemini image adapter)
-  -> Storage URL output { image_url }
-  -> bridge
-  -> sink READY/FAILED + generated ContentAsset output
+  -> temporary Storage URL output { image_url }
+  -> editor applies the URL to the selected image only
+  -> detail-page save promotes temporary edit URLs into permanent ContentAsset URLs
 ```
 
 The runtime uses `ctx.model` from Agent OS as the provider model. Do not read
 `AI_IMAGE_MODEL` or call Python for `image_edit`; missing `ctx.model` is an
 explicit runtime error.
+
+Image edits do not create `ContentGeneration(contentType='image')` ledgers.
+Until the user saves the detail page, edit outputs are temporary storage
+objects only. The edited HTML save path persists the selected-image change by
+rewriting temporary URLs to permanent asset URLs and syncing
+`ContentGenerationAssetUsage`.
 
 ## Post-Promotion Trigger
 
@@ -193,17 +207,17 @@ post-promotion AI generation:
 ## ContentGeneration Content Contract
 
 `ContentGeneration` is the produced content source of truth for archive work
-items (`contentType='detail_page' | 'image'`). Its `masterId` is optional target
-attachment, not ownership of the work product. `ContentGenerationGroup` is
-same-input lineage and the top-level workspace identity for product-less
-generated content.
+items (`contentType='detail_page' | 'image'`). Ownership/target attachment is
+resolved through `ContentGenerationGroup`; product-bound work lives under the
+canonical product workspace group, and product-less work lives under an
+unlinked group.
 
-`ContentAsset` records generated/editable media files used by a generation:
-`usageType` answers input/output/reference, `originType` answers manual upload /
-external URL / generated / master image / source candidate image, and
-`pipelineType` answers which AI workflow consumed or produced the file.
-Selecting an asset for the product gallery copies/adopts it into
-`MasterProductImage`; adoption state does not live in the archive card.
+`ContentAsset` records reusable media files in a workspace group. Direct
+uploads, generation inputs, generated images, and saved edit results all become
+group assets; current usage by a generation is represented by
+`ContentGenerationAssetUsage`. Selecting an asset for the product gallery
+copies/adopts it into `MasterProductImage`; adoption state does not live in the
+archive card.
 
 `ContentGeneration` is not a sourcing-candidate polymorphic target. Sourcing
 candidate provenance is represented by `ContentGenerationSource` rows and read

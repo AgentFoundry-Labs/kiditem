@@ -23,6 +23,7 @@ describe('data migration registry', () => {
       'v0.1.0:002_rewrite_legacy_detail_editor_alert_hrefs',
       'v0.1.0:003_relabel_image_edit_agent_instances_to_gemini_image',
       'v0.1.0:004_backfill_content_archive_classification',
+      'v0.1.1:001_backfill_content_generation_workspace_assets',
     ]);
   });
 
@@ -31,14 +32,9 @@ describe('data migration registry', () => {
     expect(() => normalizeReleaseVersion('latest')).toThrow(/Invalid root VERSION/);
   });
 
-  it('ties migration ids and directories to the root app VERSION', () => {
+  it('keeps migration ids tied to their versioned directories and includes the root app VERSION', () => {
     const rootVersion = normalizeReleaseVersion(readFileSync(join(repoRoot, 'VERSION'), 'utf8'));
-    expect(dataMigrations.map((migration) => migration.releaseVersion)).toEqual([
-      rootVersion,
-      rootVersion,
-      rootVersion,
-      rootVersion,
-    ]);
+    expect(dataMigrations.map((migration) => migration.releaseVersion)).toContain(rootVersion);
     for (const migration of dataMigrations) {
       expect(migration.id.startsWith(`v${migration.releaseVersion}:`)).toBe(true);
     }

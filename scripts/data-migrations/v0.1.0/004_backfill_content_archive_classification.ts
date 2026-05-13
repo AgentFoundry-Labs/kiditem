@@ -5,6 +5,35 @@ export const backfillContentArchiveClassification: DataMigration = {
   releaseVersion: '0.1.0',
   name: 'Backfill content archive classification and workspace grouping',
   async run(tx) {
+    const [legacyShape] = await tx.$queryRaw<Array<{
+      hasGenerationMasterId: boolean;
+      hasAssetUsageType: boolean;
+    }>>`
+      SELECT
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = current_schema()
+            AND table_name = 'content_generations'
+            AND column_name = 'master_id'
+        ) AS "hasGenerationMasterId",
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = current_schema()
+            AND table_name = 'content_assets'
+            AND column_name = 'usage_type'
+        ) AS "hasAssetUsageType"
+    `;
+    if (!legacyShape?.hasGenerationMasterId || !legacyShape.hasAssetUsageType) {
+      return {
+        affectedRows: 0,
+        details: {
+          skipped: 'legacy content archive columns are absent; superseded by v0.1.1 migration',
+        },
+      };
+    }
+
     const contentGenerationsClassified = await tx.$executeRaw`
       UPDATE content_generations
       SET content_type = COALESCE(NULLIF(content_type, ''), 'detail_page')

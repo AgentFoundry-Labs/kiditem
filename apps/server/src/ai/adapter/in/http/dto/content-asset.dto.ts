@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
+import { IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
 
 export class ListContentAssetsQueryDto {
   @IsOptional()
@@ -23,19 +23,4 @@ export class ListContentAssetsQueryDto {
   @IsUUID()
   generationId?: string;
 
-  @IsOptional()
-  @IsString()
-  sourceType?: string;
-
-  @IsOptional()
-  @IsString()
-  pipelineType?: string;
-
-  @IsOptional()
-  @IsString()
-  usageType?: string;
-
-  @IsOptional()
-  @IsString()
-  originType?: string;
 }

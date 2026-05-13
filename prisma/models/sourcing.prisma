@@ -79,7 +79,6 @@ model CandidateImage {
 
   organization  Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   candidate     SourcingCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
-  contentAssets ContentAsset[]
 
   @@index([organizationId])
   @@index([candidateId])

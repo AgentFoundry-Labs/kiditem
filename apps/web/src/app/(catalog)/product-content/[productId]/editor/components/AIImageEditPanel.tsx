@@ -71,7 +71,7 @@ async function submitImageEdit(params: {
 // executor claims the request). We poll `/api/agent-os/requests/:id` and
 // pivot to the run via `latestRunId` once status leaves the pre-claim phase.
 async function pollTaskResult(taskId: string): Promise<{ image_url: string }> {
-  const maxAttempts = 95; // 95 * 2s = 190s max, matching the image_edit backend timeout.
+  const maxAttempts = 180; // Agent OS has no image-edit business timeout; this is only a UI polling guard.
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise(r => setTimeout(r, 2000));
     let request: {
@@ -98,7 +98,7 @@ async function pollTaskResult(taskId: string): Promise<{ image_url: string }> {
       return { image_url: imageUrl };
     }
   }
-  throw new Error('시간 초과: 이미지 편집이 너무 오래 걸립니다');
+  throw new Error('이미지 편집 결과 확인 시간이 초과되었습니다. 잠시 후 알림에서 결과를 확인해주세요.');
 }
 
 export function AIImageEditPanel({
@@ -184,7 +184,7 @@ export function AIImageEditPanel({
         {loading && (
           <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 rounded-lg border border-emerald-100">
             <Loader2 size={14} className="animate-spin text-emerald-600" />
-            <span className="text-xs font-medium text-emerald-700">AI 이미지 처리 중... (최대 190초)</span>
+            <span className="text-xs font-medium text-emerald-700">AI 이미지 처리 중...</span>
           </div>
         )}
 

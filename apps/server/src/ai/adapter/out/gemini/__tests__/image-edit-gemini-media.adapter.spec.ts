@@ -74,12 +74,12 @@ describe('ImageEditGeminiMediaAdapter', () => {
     expect(prompt).toContain('transparent PNG');
     expect(prompt).toContain('Additional: crisp edges');
     expect(storage.save).toHaveBeenCalledWith(
-      expect.stringMatching(/^image-edits\/org-1\/remove_background-[\w-]+\.png$/),
+      expect.stringMatching(/^tmp\/image-edits\/org-1\/remove_background-[\w-]+\.png$/),
       Buffer.from('output'),
       'image/png',
     );
     expect(result).toMatchObject({
-      imageUrl: expect.stringContaining('https://cdn.example.com/image-edits/org-1/'),
+      imageUrl: expect.stringContaining('https://cdn.example.com/tmp/image-edits/org-1/'),
       mimeType: 'image/png',
       fileSize: 6,
     });

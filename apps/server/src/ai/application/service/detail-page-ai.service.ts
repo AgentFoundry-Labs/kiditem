@@ -58,7 +58,7 @@ export class DetailPageAiService {
     id: string,
     organizationId: string,
     html: string,
-  ): Promise<{ html: string; savedAt: string }> {
+  ): Promise<{ html: string; savedAt: string; assetUrlMap: Record<string, string> }> {
     return this.query.saveEditedHtml(id, organizationId, html);
   }
 

@@ -8,10 +8,10 @@ import type { BoldVerticalGeneration } from '../../../domain/prompts/bold-vertic
 import type { DetailPageGeneration } from '../../../domain/prompts/detail-page/single-call';
 import { DetailPageGeneratedImagesService } from '../../../application/service/detail-page-generated-images.service';
 import {
+  type DetailPageStoredJson,
   detailPageOperationKey,
   normalizeStoredDetailPageRawInput,
-  parseDetailPageStoredJson,
-  serializeDetailPageStoredJson,
+  toDetailPageStoredJson,
 } from '../../../application/service/detail-page-stored.helpers';
 import { ContentAssetService } from '../../../application/service/content-asset.service';
 
@@ -98,7 +98,11 @@ export class DetailPageContentGenerationSinkAdapter
       return;
     }
 
-    const stored = parseDetailPageStoredJson(row.detailPageHtml);
+    const stored = toDetailPageStoredJson({
+      templateId: input.output.templateId,
+      generationInput: row.generationInput,
+      generationResult: row.generationResult,
+    });
     const productName = pickProductName(
       input.output.result,
       input.output.templateId,
@@ -113,17 +117,10 @@ export class DetailPageContentGenerationSinkAdapter
       timeoutMs: GENERATED_IMAGE_TIMEOUT_MS,
     });
 
-    const detailPageHtml = serializeDetailPageStoredJson({
-      templateId: input.output.templateId,
-      result: input.output.result,
-      imageUrls: input.output.imageUrls,
-      rawInput: stored.rawInput,
-    });
-
     await this.contentAssets.recordDetailPageGeneratedAssets({
       organizationId: input.organizationId,
       contentGenerationId: row.id,
-      masterId: row.masterId,
+      generationGroupId: row.generationGroupId,
       processedImages,
     });
 
@@ -135,8 +132,12 @@ export class DetailPageContentGenerationSinkAdapter
       },
       data: {
         generatedTitle: productName,
-        detailPageHtml,
-        processedImages: processedImages as Prisma.InputJsonValue,
+        generationResult: {
+          templateId: input.output.templateId,
+          result: input.output.result,
+          imageUrls: input.output.imageUrls,
+          processedImages,
+        } as Prisma.InputJsonValue,
         status: 'READY',
         errorMessage: null,
       },
@@ -238,7 +239,7 @@ export class DetailPageContentGenerationSinkAdapter
     organizationId: string;
     output: DetailPageGenerateAgentOutput;
     productName: string;
-    stored: ReturnType<typeof parseDetailPageStoredJson>;
+    stored: DetailPageStoredJson;
     timeoutMs: number;
   }): Promise<Record<string, string>> {
     const rawInputForImages = normalizeStoredDetailPageRawInput({

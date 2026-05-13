@@ -32,8 +32,8 @@ function makeCtx(
 function makeMedia(overrides: Partial<ImageEditMediaPort> = {}): ImageEditMediaPort {
   return {
     editImage: vi.fn().mockResolvedValue({
-      imageUrl: 'https://cdn.example.com/image-edits/out.png',
-      storageKey: 'image-edits/org-1/out.png',
+      imageUrl: 'https://cdn.example.com/tmp/image-edits/out.png',
+      storageKey: 'tmp/image-edits/org-1/out.png',
       mimeType: 'image/png',
       fileSize: 6,
     }),
@@ -77,7 +77,7 @@ describe('ImageEditRuntimeHandler', () => {
       userPrompt: '노란색 상품 하나 없애줘',
     });
     expect(result).toMatchObject({
-      output: { image_url: 'https://cdn.example.com/image-edits/out.png' },
+      output: { image_url: 'https://cdn.example.com/tmp/image-edits/out.png' },
       provider: 'gemini-image',
     });
   });

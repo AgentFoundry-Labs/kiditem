@@ -18,7 +18,7 @@ describe('getGenerateFormValidation', () => {
 });
 
 describe('getGenerateSourceReferences', () => {
-  it('reads sourcing candidates and target product from generate query params', () => {
+  it('reads sourcing candidates from generate query params without duplicating the target product as a source', () => {
     const params = new URLSearchParams(
       'sourceCandidateId=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa&sourceCandidateIds=bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
     );
@@ -33,10 +33,6 @@ describe('getGenerateSourceReferences', () => {
       {
         sourceType: 'sourcing_candidate',
         sourceCandidateId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
-      },
-      {
-        sourceType: 'master_product',
-        masterId: '22222222-2222-4222-8222-222222222222',
       },
     ]);
   });

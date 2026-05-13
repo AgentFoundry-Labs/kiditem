@@ -22,7 +22,6 @@ import { CoupangImageSyncController } from './adapter/in/http/coupang-image-sync
 
 // adapter/out
 import { DetailPageContentGenerationSinkAdapter } from './adapter/out/agent-output/detail-page-content-generation-sink.adapter';
-import { ImageEditContentGenerationSinkAdapter } from './adapter/out/agent-output/image-edit-content-generation-sink.adapter';
 import { ThumbnailGenerationSinkAdapter } from './adapter/out/agent-output/thumbnail-generation-sink.adapter';
 import { DetailPageGenerateRuntimeHandler } from './adapter/out/agent-runtime/detail-page-generate.runtime-handler';
 import { ImageEditRuntimeHandler } from './adapter/out/agent-runtime/image-edit.runtime-handler';
@@ -44,7 +43,6 @@ import { WingAutomationRunner } from './adapter/out/wing/wing-automation-runner'
 // application/service
 import { DetailPageAgentOutputBridge } from './application/service/detail-page-agent-output.bridge';
 import { DetailPageAgentReconcileService } from './application/service/detail-page-agent-reconcile.service';
-import { ImageEditAgentOutputBridge } from './application/service/image-edit-agent-output.bridge';
 import { ThumbnailAgentOutputBridge } from './application/service/thumbnail-agent-output.bridge';
 import { ThumbnailAgentReconcileService } from './application/service/thumbnail-agent-reconcile.service';
 import { ImageAiService } from './application/service/image-ai.service';
@@ -84,7 +82,6 @@ import { POST_PROMOTION_AI_TRIGGER_PORT } from './application/port/in/post-promo
 // application/port — out
 import { DETAIL_PAGE_AGENT_OUTPUT_SINK_PORT } from './application/port/out/detail-page-agent-output-sink.port';
 import { DETAIL_PAGE_MEDIA_PORT } from './application/port/out/detail-page-media.port';
-import { IMAGE_EDIT_AGENT_OUTPUT_SINK_PORT } from './application/port/out/image-edit-agent-output-sink.port';
 import { THUMBNAIL_AGENT_OUTPUT_SINK_PORT } from './application/port/out/thumbnail-agent-output-sink.port';
 import { COUPANG_INVENTORY_SCRAPE_PORT } from './application/port/out/coupang-inventory-scrape.port';
 import { COUPANG_PRODUCT_SALES_SCRAPE_PORT } from './application/port/out/coupang-product-sales-scrape.port';
@@ -155,14 +152,12 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     // both write back to their owner row (`ContentGeneration` /
     // `ThumbnailGeneration`).
     DetailPageAgentOutputBridge,
-    ImageEditAgentOutputBridge,
     ThumbnailAgentOutputBridge,
 
     // outgoing adapters
     DetailPageContentGenerationSinkAdapter,
     DetailPageGeminiMediaAdapter,
     DetailPageGenerateRuntimeHandler,
-    ImageEditContentGenerationSinkAdapter,
     ImageEditRuntimeHandler,
     ThumbnailGenerationSinkAdapter,
     ThumbnailGenerateRuntimeHandler,
@@ -199,10 +194,6 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
       // wiring shipped in PR #213.
       provide: THUMBNAIL_AGENT_OUTPUT_SINK_PORT,
       useExisting: ThumbnailGenerationSinkAdapter,
-    },
-    {
-      provide: IMAGE_EDIT_AGENT_OUTPUT_SINK_PORT,
-      useExisting: ImageEditContentGenerationSinkAdapter,
     },
     { provide: IMAGE_FETCH_PORT, useExisting: ThumbnailImageFetcherService },
     { provide: IMAGE_EDIT_MEDIA_PORT, useExisting: ImageEditGeminiMediaAdapter },

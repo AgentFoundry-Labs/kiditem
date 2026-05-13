@@ -17,10 +17,6 @@ export class ContentAssetController {
       limit: query.limit,
       productId: query.productId ?? null,
       generationId: query.generationId ?? null,
-      pipelineType: query.pipelineType ?? null,
-      usageType: query.usageType ?? null,
-      originType: query.originType ?? null,
-      sourceType: query.sourceType ?? null,
     });
   }
 }

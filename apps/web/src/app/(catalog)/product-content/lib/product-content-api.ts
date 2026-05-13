@@ -39,13 +39,9 @@ export interface ProductContentWorkProductItem {
 export interface ProductContentAssetItem {
   id: string;
   productId: string | null;
-  generationId: string | null;
+  generationGroupId: string;
   url: string;
   assetType: string;
-  sourceType: string;
-  pipelineType: string;
-  usageType: string;
-  originType: string;
   role: string | null;
   label: string | null;
   sortOrder: number;
@@ -97,7 +93,6 @@ export interface ProductContentGenerationItem {
     id: string;
     sourceType: string;
     sourceCandidateId: string | null;
-    masterId: string | null;
     sourceContentGenerationId: string | null;
     contentAssetId: string | null;
     label: string | null;

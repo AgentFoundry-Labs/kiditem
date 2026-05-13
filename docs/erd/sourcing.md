@@ -68,7 +68,6 @@ erDiagram
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
 | CandidateImage | organization | references external | Core | Organization |
-| CandidateImage | sourceCandidateImage | referenced by external | AI | ContentAsset |
 | SourcingCandidate | organization | references external | Core | Organization |
 | SourcingCandidate | promotedMaster | references external | Core | MasterProduct |
 | SourcingCandidate | rejectedByUser | references external | Core | User |

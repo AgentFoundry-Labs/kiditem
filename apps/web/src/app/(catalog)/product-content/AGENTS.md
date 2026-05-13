@@ -6,12 +6,13 @@ asset rows.
 
 Workspace identity:
 
-- Product workspace: all `ContentGeneration` rows with the same
-  `masterId` / target `MasterProduct.id`.
+- Product workspace: the canonical `ContentGenerationGroup` with
+  `groupType='product_workspace'` and `targetMasterId=<MasterProduct.id>`.
 - Unlinked workspace: one `ContentGenerationGroup` containing product-less
   generated rows.
 - Individual output: `ContentGeneration.id`.
-- Input/output/reference files: `ContentAsset`; never top-level cards.
+- Asset library files: `ContentAsset`; never top-level cards. The images
+  currently used by one generated output are `ContentGenerationAssetUsage`.
 - Adopted product gallery images: `MasterProductImage`, still owned by the
   products domain.
 
@@ -43,6 +44,9 @@ product-content/
 - Editor reads `GET /api/ai/detail-page/:generationId`.
 - Editor saves HTML through
   `POST /api/ai/detail-page/:generationId/edited-html`.
+- Editor save is the persistence boundary for AI image edits. Temporary
+  edit-output URLs are promoted to permanent asset URLs, the editor HTML is
+  rewritten, and the current image usage set is synced on save.
 - Alert/toast hrefs for completed detail-page generation point to
   `/product-content/detail-pages/{contentGenerationId}/editor`.
 - Product workspace `추가 생성` starts a new generation for that target

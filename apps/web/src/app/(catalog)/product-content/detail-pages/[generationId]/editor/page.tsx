@@ -97,7 +97,7 @@ function ContentGenerationEditorPageContent() {
 
   const handleSave = async (html: string) => {
     try {
-      await apiClient.post<{ html: string; savedAt: string }>(
+      const result = await apiClient.post<{ html: string; savedAt: string; assetUrlMap?: Record<string, string> }>(
         `/api/ai/detail-page/${generationId}/edited-html`,
         { html },
       );
@@ -109,9 +109,11 @@ function ContentGenerationEditorPageContent() {
         }),
       ]);
       handleClose();
+      return result;
     } catch (err) {
       const msg = isApiError(err) ? err.detail : '저장 실패';
       toast.error(msg);
+      throw err;
     }
   };
 

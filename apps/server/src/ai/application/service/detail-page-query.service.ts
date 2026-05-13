@@ -1,30 +1,43 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { createHash } from 'node:crypto';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { moveSafetyLabelImagesToEnd } from '../../domain/detail-page-image-order';
-import type { DetailPageGenerationDto } from './detail-page-ai.types';
+import type { DetailPageGenerationDto, DetailPageTemplateId } from './detail-page-ai.types';
 import { DetailPageResultRefinerService } from './detail-page-result-refiner.service';
 import {
   normalizeStoredDetailPageRawInput,
-  parseDetailPageStoredJson,
+  toDetailPageStoredJson,
 } from './detail-page-stored.helpers';
+import {
+  IMAGE_STORAGE_PORT,
+  type ImageStoragePort,
+} from '../port/out/image-storage.port';
+import { ContentAssetService } from './content-asset.service';
 
-type DetailPageGenerationRow = {
-  id: string;
-  masterId: string | null;
-  originalImages: unknown;
-  processedImages: unknown;
-  generatedTitle: string | null;
-  detailPageHtml: string | null;
-  status: string;
-  errorMessage: string | null;
-  createdAt: Date;
-};
+const detailPageGenerationInclude = {
+  generationGroup: {
+    select: {
+      id: true,
+      targetMasterId: true,
+    },
+  },
+} satisfies Prisma.ContentGenerationInclude;
+
+type DetailPageGenerationRow = Prisma.ContentGenerationGetPayload<{
+  include: typeof detailPageGenerationInclude;
+}>;
 
 @Injectable()
 export class DetailPageQueryService {
+  private readonly logger = new Logger(DetailPageQueryService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly resultRefiner: DetailPageResultRefinerService,
+    @Inject(IMAGE_STORAGE_PORT)
+    private readonly imageStorage: ImageStoragePort,
+    private readonly contentAssets: ContentAssetService,
   ) {}
 
   async list(
@@ -38,13 +51,16 @@ export class DetailPageQueryService {
     const rows = await this.prisma.contentGeneration.findMany({
       where: {
         organizationId,
-        ...(productId ? { masterId: productId } : {}),
+        contentType: 'detail_page',
+        ...(productId
+          ? { generationGroup: { targetMasterId: productId } }
+          : {}),
       },
+      include: detailPageGenerationInclude,
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
     return rows
-      .filter((row) => this.isStoredAiDetail(row.detailPageHtml))
       .map((row) => this.toDto(row))
       .filter((row) => (templateId ? row.templateId === templateId : true));
   }
@@ -52,6 +68,7 @@ export class DetailPageQueryService {
   async getById(id: string, organizationId: string): Promise<DetailPageGenerationDto> {
     const row = await this.prisma.contentGeneration.findFirst({
       where: { id, organizationId },
+      include: detailPageGenerationInclude,
     });
     if (!row) throw new NotFoundException('Detail page generation not found');
     return this.toDto(row);
@@ -71,19 +88,50 @@ export class DetailPageQueryService {
     id: string,
     organizationId: string,
     html: string,
-  ): Promise<{ html: string; savedAt: string }> {
-    const savedAt = new Date();
-    const updated = await this.prisma.contentGeneration.updateMany({
+  ): Promise<{ html: string; savedAt: string; assetUrlMap: Record<string, string> }> {
+    const row = await this.prisma.contentGeneration.findFirst({
       where: { id, organizationId },
-      data: {
-        editedHtml: html,
-        editedHtmlSavedAt: savedAt,
+      select: {
+        id: true,
+        generationGroupId: true,
+        triggeredByUserId: true,
       },
+    });
+    if (!row) throw new NotFoundException('Detail page generation not found');
+
+    const promoted = await this.promoteEditableImageUrls({
+      organizationId,
+      contentGenerationId: id,
+      html,
+    });
+    const imageUrls = extractImageSrcs(promoted.html);
+    const savedAt = new Date();
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await this.contentAssets.syncGenerationImageUsagesTx(tx, {
+        organizationId,
+        generationGroupId: row.generationGroupId,
+        contentGenerationId: id,
+        createdByUserId: row.triggeredByUserId,
+        imageUrls,
+      });
+      return tx.contentGeneration.updateMany({
+        where: { id, organizationId },
+        data: {
+          editedHtml: promoted.html,
+          editedHtmlSavedAt: savedAt,
+        },
+      });
     });
     if (updated.count === 0) {
       throw new NotFoundException('Detail page generation not found');
     }
-    return { html, savedAt: savedAt.toISOString() };
+
+    void this.deleteTmpImagesBestEffort(promoted.tmpKeysToDelete);
+    return {
+      html: promoted.html,
+      savedAt: savedAt.toISOString(),
+      assetUrlMap: promoted.assetUrlMap,
+    };
   }
 
   async getEditedHtml(
@@ -106,11 +154,12 @@ export class DetailPageQueryService {
   }
 
   toDto(row: DetailPageGenerationRow): DetailPageGenerationDto {
-    const stored = parseDetailPageStoredJson(row.detailPageHtml);
-    const imageUrls = stored.imageUrls.length > 0
-      ? stored.imageUrls
-      : (Array.isArray(row.originalImages) ? row.originalImages.filter((x): x is string => typeof x === 'string') : []);
-    const orderedImageUrls = moveSafetyLabelImagesToEnd(imageUrls);
+    const stored = toDetailPageStoredJson({
+      templateId: this.normalizeTemplateId(row.templateId),
+      generationInput: row.generationInput,
+      generationResult: row.generationResult,
+    });
+    const orderedImageUrls = moveSafetyLabelImagesToEnd(stored.imageUrls);
     const productName = row.generatedTitle ?? stored.rawTitle ?? '상세페이지';
     const rawInput = normalizeStoredDetailPageRawInput({
       stored,
@@ -125,38 +174,68 @@ export class DetailPageQueryService {
     );
     return {
       id: row.id,
-      productId: row.masterId,
+      productId: row.generationGroup.targetMasterId,
       templateId: stored.templateId,
       productName,
       rawInput,
       result,
       imageUrls: orderedImageUrls,
-      processedImages: this.asStringRecord(row.processedImages),
+      processedImages: stored.processedImages,
       imageProcessingStatus: this.mapStatus(row.status),
       imageProcessingError: row.errorMessage,
       createdAt: row.createdAt.toISOString(),
     };
   }
 
-  private isStoredAiDetail(raw: string | null): boolean {
-    if (!raw) return false;
-    try {
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      return parsed.templateId === 'kids-playful' ||
-        parsed.templateId === 'bold-vertical' ||
-        parsed.templateId === 'simple-vertical';
-    } catch {
-      return false;
+  private async promoteEditableImageUrls(input: {
+    organizationId: string;
+    contentGenerationId: string;
+    html: string;
+  }): Promise<{
+    html: string;
+    assetUrlMap: Record<string, string>;
+    tmpKeysToDelete: string[];
+  }> {
+    const uniqueUrls = [...new Set(extractImageSrcs(input.html))];
+    const assetUrlMap: Record<string, string> = {};
+    const tmpKeysToDelete: string[] = [];
+
+    for (const url of uniqueUrls) {
+      const key = this.imageStorage.extractKey(url);
+      if (!key || !isEditableTmpImageKey(key)) continue;
+      const promotedKey = permanentAssetKey({
+        organizationId: input.organizationId,
+        contentGenerationId: input.contentGenerationId,
+        sourceKey: key,
+      });
+      const promotedUrl = await this.imageStorage.copy(key, promotedKey);
+      assetUrlMap[url] = promotedUrl;
+      tmpKeysToDelete.push(key);
+    }
+
+    let html = input.html;
+    for (const [from, to] of Object.entries(assetUrlMap).sort((a, b) => b[0].length - a[0].length)) {
+      html = html.split(from).join(to);
+    }
+    return { html, assetUrlMap, tmpKeysToDelete };
+  }
+
+  private async deleteTmpImagesBestEffort(keys: string[]): Promise<void> {
+    for (const key of keys) {
+      try {
+        await this.imageStorage.delete(key);
+      } catch (error) {
+        this.logger.warn(
+          `Failed to delete tmp edited image ${key}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
     }
   }
 
-  private asStringRecord(value: unknown): Record<string, string> {
-    if (!value || typeof value !== 'object') return {};
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).filter((entry): entry is [string, string] => (
-        typeof entry[1] === 'string'
-      )),
-    );
+  private normalizeTemplateId(value: string | null): DetailPageTemplateId {
+    return value === 'bold-vertical' ? 'bold-vertical' : 'kids-playful';
   }
 
   private mapStatus(status: string): string {
@@ -166,4 +245,42 @@ export class DetailPageQueryService {
     if (status === 'PROCESSING' || status === 'generating') return 'processing';
     return status.toLowerCase();
   }
+}
+
+export function extractImageSrcs(html: string): string[] {
+  const out: string[] = [];
+  const quoted = /<img\b[^>]*?\bsrc\s*=\s*(["'])(.*?)\1/gi;
+  for (const match of html.matchAll(quoted)) {
+    const value = match[2]?.trim();
+    if (value) out.push(value);
+  }
+  const unquoted = /<img\b[^>]*?\bsrc\s*=\s*([^"'\s>]+)/gi;
+  for (const match of html.matchAll(unquoted)) {
+    const value = match[1]?.trim();
+    if (value) out.push(value);
+  }
+  return [...new Set(out)];
+}
+
+function isEditableTmpImageKey(key: string): boolean {
+  return key.startsWith('tmp/image-edits/') || key.startsWith('image-edits/');
+}
+
+function permanentAssetKey(input: {
+  organizationId: string;
+  contentGenerationId: string;
+  sourceKey: string;
+}): string {
+  const ext = extensionFromKey(input.sourceKey);
+  const hash = createHash('sha256').update(input.sourceKey).digest('hex').slice(0, 32);
+  return `content-assets/${input.organizationId}/${input.contentGenerationId}/${hash}.${ext}`;
+}
+
+function extensionFromKey(key: string): string {
+  const segment = key.split('/').pop() ?? '';
+  const ext = segment.includes('.') ? segment.split('.').pop()?.toLowerCase() : null;
+  if (ext === 'png' || ext === 'jpg' || ext === 'jpeg' || ext === 'webp' || ext === 'gif') {
+    return ext === 'jpeg' ? 'jpg' : ext;
+  }
+  return 'png';
 }

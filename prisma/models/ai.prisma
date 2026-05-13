@@ -312,16 +312,14 @@ model ThumbnailTrackingDailySnapshot {
 model ContentGeneration {
   id                   String    @id @default(uuid()) @db.Uuid
   organizationId       String    @map("organization_id") @db.Uuid
-  masterId             String?   @map("master_id") @db.Uuid
-  generationGroupId    String?   @map("generation_group_id") @db.Uuid
+  generationGroupId    String    @map("generation_group_id") @db.Uuid
   contentType          String    @default("detail_page") @map("content_type")
   templateId           String?   @map("template_id")
-  originalImages       Json?     @map("original_images")
-  processedImages      Json?     @map("processed_images")
+  generationInput      Json      @default("{}") @map("generation_input")
+  generationResult     Json      @default("{}") @map("generation_result")
   generatedTitle       String?   @map("generated_title")
   generatedDescription String?   @map("generated_description")
   generatedCopy        String?   @map("generated_copy")
-  detailPageHtml       String?   @map("detail_page_html")
   editedHtml           String?   @map("edited_html")
   editedHtmlSavedAt    DateTime? @map("edited_html_saved_at") @db.Timestamptz
   status               String    @default("PENDING")
@@ -332,19 +330,16 @@ model ContentGeneration {
   updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization    Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  master          MasterProduct?            @relation(fields: [masterId], references: [id], onDelete: SetNull)
-  generationGroup ContentGenerationGroup?   @relation("ContentGenerationGroupMembers", fields: [generationGroupId], references: [id], onDelete: SetNull)
+  generationGroup ContentGenerationGroup    @relation("ContentGenerationGroupMembers", fields: [generationGroupId], references: [id], onDelete: Cascade)
   triggeredByUser User?                     @relation("ContentGenerationTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
-  assets          ContentAsset[]
+  assetUsages     ContentGenerationAssetUsage[]
   sources         ContentGenerationSource[] @relation("ContentGenerationSources")
   sourceLinks     ContentGenerationSource[] @relation("ContentGenerationDerivedSources")
   baseForGroups   ContentGenerationGroup[]  @relation("ContentGenerationGroupBase")
 
   @@index([organizationId])
-  @@index([masterId])
   @@index([generationGroupId])
   @@index([organizationId, contentType])
-  @@index([organizationId, masterId])
   @@index([organizationId, generationGroupId])
   @@index([templateId])
   @@index([organizationId, templateId])
@@ -374,7 +369,9 @@ model ContentGenerationGroup {
   targetMaster          MasterProduct?      @relation(fields: [targetMasterId], references: [id], onDelete: SetNull)
   baseContentGeneration ContentGeneration?  @relation("ContentGenerationGroupBase", fields: [baseContentGenerationId], references: [id], onDelete: SetNull)
   generations           ContentGeneration[] @relation("ContentGenerationGroupMembers")
+  assets                ContentAsset[]
 
+  @@unique([organizationId, targetMasterId], map: "content_generation_groups_product_workspace_unique", where: raw("target_master_id IS NOT NULL AND group_type = 'product_workspace'"))
   @@index([organizationId])
   @@index([organizationId, groupType])
   @@index([organizationId, targetMasterId])
@@ -384,7 +381,7 @@ model ContentGenerationGroup {
 }
 
 /// @namespace AI
-/// @describe Generation-level provenance. The source of a generated work unit can be a sourcing candidate, Master product, input asset, or another generation.
+/// @describe Generation-level provenance. The source of a generated work unit can be a sourcing candidate, input asset, or another generation.
 model ContentGenerationSource {
   id                  String @id @default(uuid()) @db.Uuid
   organizationId      String @map("organization_id") @db.Uuid
@@ -392,7 +389,6 @@ model ContentGenerationSource {
 
   sourceType                String  @map("source_type")
   sourceCandidateId         String? @map("source_candidate_id") @db.Uuid
-  masterId                  String? @map("master_id") @db.Uuid
   sourceContentGenerationId String? @map("source_content_generation_id") @db.Uuid
   contentAssetId            String? @map("content_asset_id") @db.Uuid
   label                     String?
@@ -405,7 +401,6 @@ model ContentGenerationSource {
   organization            Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   contentGeneration       ContentGeneration  @relation("ContentGenerationSources", fields: [contentGenerationId], references: [id], onDelete: Cascade)
   sourceCandidate         SourcingCandidate? @relation(fields: [sourceCandidateId], references: [id], onDelete: SetNull)
-  master                  MasterProduct?     @relation(fields: [masterId], references: [id], onDelete: SetNull)
   sourceContentGeneration ContentGeneration? @relation("ContentGenerationDerivedSources", fields: [sourceContentGenerationId], references: [id], onDelete: SetNull)
   contentAsset            ContentAsset?      @relation(fields: [contentAssetId], references: [id], onDelete: SetNull)
 
@@ -415,7 +410,6 @@ model ContentGenerationSource {
   @@index([organizationId, sourceType])
   @@index([sourceCandidateId])
   @@index([organizationId, sourceCandidateId])
-  @@index([masterId])
   @@index([sourceContentGenerationId])
   @@index([contentAssetId])
   @@map("content_generation_sources")
@@ -426,20 +420,13 @@ model ContentGenerationSource {
 model ContentAsset {
   id                  String  @id @default(uuid()) @db.Uuid
   organizationId      String  @map("organization_id") @db.Uuid
-  masterId            String? @map("master_id") @db.Uuid
-  contentGenerationId String? @map("content_generation_id") @db.Uuid
+  generationGroupId   String  @map("generation_group_id") @db.Uuid
   createdByUserId     String? @map("created_by_user_id") @db.Uuid
 
   assetKey               String  @map("asset_key")
   url                    String
   storageKey             String? @map("storage_key")
   assetType              String  @default("image") @map("asset_type")
-  sourceType             String  @map("source_type")
-  pipelineType           String  @default("detail_page") @map("pipeline_type")
-  usageType              String  @default("output") @map("usage_type")
-  originType             String  @default("generated") @map("origin_type")
-  sourceMasterImageId    String? @map("source_master_image_id") @db.Uuid
-  sourceCandidateImageId String? @map("source_candidate_image_id") @db.Uuid
   role                   String?
   label                  String?
   sortOrder              Int     @default(0) @map("sort_order")
@@ -457,26 +444,39 @@ model ContentAsset {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization         Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  master               MasterProduct?            @relation(fields: [masterId], references: [id], onDelete: SetNull)
-  contentGeneration    ContentGeneration?        @relation(fields: [contentGenerationId], references: [id], onDelete: SetNull)
+  generationGroup      ContentGenerationGroup    @relation(fields: [generationGroupId], references: [id], onDelete: Cascade)
   createdByUser        User?                     @relation("ContentAssetCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  sourceMasterImage    MasterProductImage?       @relation(fields: [sourceMasterImageId], references: [id], onDelete: SetNull)
-  sourceCandidateImage CandidateImage?           @relation(fields: [sourceCandidateImageId], references: [id], onDelete: SetNull)
+  usages               ContentGenerationAssetUsage[]
   generationSources    ContentGenerationSource[]
 
   @@unique([organizationId, assetKey])
   @@index([organizationId])
-  @@index([masterId])
-  @@index([contentGenerationId])
+  @@index([generationGroupId])
   @@index([createdByUserId])
-  @@index([organizationId, sourceType])
-  @@index([organizationId, pipelineType])
-  @@index([organizationId, usageType])
-  @@index([organizationId, originType])
-  @@index([sourceMasterImageId])
-  @@index([sourceCandidateImageId])
   @@index([organizationId, assetType])
-  @@index([organizationId, masterId])
-  @@index([organizationId, contentGenerationId])
+  @@index([organizationId, generationGroupId])
   @@map("content_assets")
+}
+
+/// @namespace AI
+/// @describe Current image assets used by a generated content row. Asset location stays on ContentAsset; this table is the replace-on-save usage set.
+model ContentGenerationAssetUsage {
+  id                  String @id @default(uuid()) @db.Uuid
+  organizationId      String @map("organization_id") @db.Uuid
+  contentGenerationId String @map("content_generation_id") @db.Uuid
+  contentAssetId      String @map("content_asset_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization      Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  contentGeneration ContentGeneration @relation(fields: [contentGenerationId], references: [id], onDelete: Cascade)
+  contentAsset      ContentAsset      @relation(fields: [contentAssetId], references: [id], onDelete: Cascade)
+
+  @@unique([contentGenerationId, contentAssetId])
+  @@index([organizationId])
+  @@index([contentGenerationId])
+  @@index([contentAssetId])
+  @@index([organizationId, contentGenerationId])
+  @@map("content_generation_asset_usages")
 }

@@ -16,31 +16,6 @@ function makeOperationAlerts() {
   };
 }
 
-function makePrisma() {
-  return {
-    contentGeneration: {
-      findFirst: vi.fn(),
-      create: vi.fn(),
-      updateMany: vi.fn(),
-    },
-    contentGenerationGroup: {
-      create: vi.fn(),
-    },
-    contentGenerationSource: {
-      createMany: vi.fn(),
-    },
-    masterProduct: {
-      findFirst: vi.fn(),
-    },
-  };
-}
-
-function makeContentAssets() {
-  return {
-    recordImageEditInputAsset: vi.fn(),
-  };
-}
-
 function makeService(runnerResult: AgentRunnerResult) {
   const runner = {
     runByType: vi.fn(
@@ -53,15 +28,11 @@ function makeService(runnerResult: AgentRunnerResult) {
     }),
   } satisfies AgentRunnerPort;
   const operationAlerts = makeOperationAlerts();
-  const prisma = makePrisma();
-  const contentAssets = makeContentAssets();
   const service = new ImageAiService(
     runner as never,
     operationAlerts as never,
-    prisma as never,
-    contentAssets as never,
   );
-  return { service, runner, operationAlerts, prisma, contentAssets };
+  return { service, runner, operationAlerts };
 }
 
 describe('ImageAiService', () => {
@@ -223,36 +194,12 @@ describe('ImageAiService', () => {
     expect(operationAlerts.start).not.toHaveBeenCalled();
   });
 
-  it('creates an image ContentGeneration ledger when called from the product-content editor', async () => {
-    const { service, runner, prisma, contentAssets, operationAlerts } = makeService({
+  it('threads editor context without creating an image ContentGeneration ledger', async () => {
+    const { service, runner, operationAlerts } = makeService({
       ok: true,
-      requestId: 'request-ledger',
+      requestId: 'request-context',
       agentType: 'image_edit',
       status: 'pending',
-    });
-    prisma.contentGeneration.findFirst.mockResolvedValue({
-      id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-      masterId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
-      generationGroupId: null,
-      generatedTitle: '상세페이지',
-    });
-    prisma.masterProduct.findFirst.mockResolvedValue({
-      id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
-    });
-    prisma.contentGeneration.create.mockResolvedValue({
-      id: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
-      masterId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
-      generationGroupId: null,
-    });
-    contentAssets.recordImageEditInputAsset.mockResolvedValue({
-      id: 'dddddddd-dddd-dddd-dddd-dddddddddddd',
-      assetKey: 'image-edit-input:cccccccc-cccc-cccc-cccc-cccccccccccc:0',
-      url: 'https://example.com/a.png',
-      role: 'source',
-      label: null,
-      sortOrder: 0,
-      usageType: 'input',
-      originType: 'external_url',
     });
 
     await service.createEditTask(
@@ -267,29 +214,19 @@ describe('ImageAiService', () => {
       USER_ID,
     );
 
-    expect(prisma.contentGeneration.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          organizationId: ORGANIZATION_ID,
-          masterId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
-          contentType: 'image',
-          status: 'PROCESSING',
-        }),
-      }),
-    );
-    expect(prisma.contentGenerationSource.createMany).toHaveBeenCalled();
-    expect(runner.runByType).toHaveBeenCalledWith(
-      'image_edit',
-      expect.objectContaining({
-        sourceResourceType: 'content_generation',
-        sourceResourceId: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
-      }),
-    );
+    const callInput = runner.runByType.mock.calls[0]![1];
+    expect(callInput).toEqual(expect.objectContaining({ sourceType: 'ai.image_edit' }));
+    expect(callInput).not.toHaveProperty('sourceResourceType');
+    expect(callInput).not.toHaveProperty('sourceResourceId');
+    expect(callInput.payload).toEqual(expect.objectContaining({
+      productId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+      contentGenerationId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    }));
     expect(operationAlerts.start).toHaveBeenCalledWith(
       expect.objectContaining({
-        href: '/product-content/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+        href: '/product-content/detail-pages/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/editor',
         metadata: expect.objectContaining({
-          contentGenerationId: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+          contentGenerationId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
         }),
       }),
     );

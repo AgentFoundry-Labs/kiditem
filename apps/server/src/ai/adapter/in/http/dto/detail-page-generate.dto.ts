@@ -20,16 +20,12 @@ import {
 } from '@kiditem/shared/ai';
 
 export class DetailPageSourceReferenceDto {
-  @IsIn(['sourcing_candidate', 'master_product', 'input_asset', 'content_generation'])
-  sourceType!: 'sourcing_candidate' | 'master_product' | 'input_asset' | 'content_generation';
+  @IsIn(['sourcing_candidate', 'input_asset', 'content_generation'])
+  sourceType!: 'sourcing_candidate' | 'input_asset' | 'content_generation';
 
   @IsOptional()
   @IsUUID()
   sourceCandidateId?: string;
-
-  @IsOptional()
-  @IsUUID()
-  masterId?: string;
 
   @IsOptional()
   @IsUUID()

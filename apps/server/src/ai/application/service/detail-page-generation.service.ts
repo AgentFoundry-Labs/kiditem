@@ -8,6 +8,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { OperationAlertService } from '../../../automation/application/service/operation-alert.service';
 import {
@@ -45,8 +46,7 @@ import { DetailPageQueryService } from './detail-page-query.service';
 import {
   detailPageOperationKey,
   detailPageResultHref,
-  parseDetailPageStoredJson,
-  serializeDetailPageStoredJson,
+  toDetailPageStoredJson,
 } from './detail-page-stored.helpers';
 import { ContentAssetService } from './content-asset.service';
 import type { PersistedContentAssetRef } from './content-asset.service';
@@ -163,17 +163,22 @@ export class DetailPageGenerationService {
     sourceReferences: DetailPageSourceReference[];
     generationGroupId?: string | null;
   }): Promise<DetailPageGenerationDto> {
-    if (input.productId) {
-      const master = await this.prisma.masterProduct.findFirst({
+    const targetMaster = input.productId
+      ? await this.prisma.masterProduct.findFirst({
         where: { id: input.productId, organizationId: input.organizationId, isDeleted: false },
-        select: { id: true },
-      });
-      if (!master) throw new NotFoundException('Product not found');
-    }
+        select: { id: true, name: true },
+      })
+      : null;
+    if (input.productId && !targetMaster) throw new NotFoundException('Product not found');
 
-    const generationGroupId = input.generationGroupId
-      ?? (input.productId
-        ? null
+    const generationGroupId = input.generationGroupId ??
+      (targetMaster
+        ? await this.ensureProductWorkspaceGroup({
+          organizationId: input.organizationId,
+          productId: targetMaster.id,
+          title: targetMaster.name,
+          triggeredByUserId: input.triggeredByUserId,
+        })
         : await this.createGenerationGroupForInput({
           organizationId: input.organizationId,
           triggeredByUserId: input.triggeredByUserId,
@@ -184,28 +189,30 @@ export class DetailPageGenerationService {
     const row = await this.prisma.contentGeneration.create({
       data: {
         organizationId: input.organizationId,
-        masterId: input.productId,
         contentType: 'detail_page',
         generationGroupId,
         triggeredByUserId: input.triggeredByUserId,
         templateId: input.templateId,
-        originalImages: input.imageUrls,
-        processedImages: {},
-        generatedTitle: input.rawTitle.slice(0, 80),
-        detailPageHtml: serializeDetailPageStoredJson({
+        generationInput: input.rawInput as unknown as Prisma.InputJsonValue,
+        generationResult: {
           templateId: input.templateId,
           result: {},
           imageUrls: input.imageUrls,
-          rawInput: input.rawInput,
-        }),
+          processedImages: {},
+        },
+        generatedTitle: input.rawTitle.slice(0, 80),
         status: 'PROCESSING',
+      },
+      include: {
+        generationGroup: {
+          select: { targetMasterId: true },
+        },
       },
     });
 
     const inputAssets = await this.contentAssets.recordDetailPageInputAssets({
       organizationId: input.organizationId,
-      contentGenerationId: row.id,
-      masterId: input.productId,
+      generationGroupId,
       createdByUserId: input.triggeredByUserId,
       imageUrls: input.imageUrls,
     });
@@ -227,7 +234,7 @@ export class DetailPageGenerationService {
       targetType: input.productId ? 'master' : 'content_generation',
       targetId: input.productId ?? row.id,
       href: detailPageResultHref({
-        productId: input.productId,
+        productId: targetMaster?.id ?? null,
         contentGenerationId: row.id,
         templateId: input.templateId,
       }),
@@ -291,17 +298,7 @@ export class DetailPageGenerationService {
       requestId: enqueueResult.requestId,
     });
 
-    return this.query.toDto({
-      id: row.id,
-      masterId: row.masterId,
-      originalImages: row.originalImages,
-      processedImages: {},
-      generatedTitle: row.generatedTitle,
-      detailPageHtml: row.detailPageHtml,
-      status: 'PROCESSING',
-      errorMessage: null,
-      createdAt: row.createdAt,
-    });
+    return this.query.getById(row.id, input.organizationId);
   }
 
   async rerunSameInput(
@@ -313,24 +310,24 @@ export class DetailPageGenerationService {
       where: { id: generationId, organizationId },
       select: {
         id: true,
-        masterId: true,
         generationGroupId: true,
+        generationInput: true,
+        generationResult: true,
+        generationGroup: { select: { targetMasterId: true } },
         templateId: true,
         generatedTitle: true,
-        originalImages: true,
-        detailPageHtml: true,
       },
     });
     if (!base) throw new NotFoundException('Detail page generation not found');
-    const stored = parseDetailPageStoredJson(base.detailPageHtml);
+    const stored = toDetailPageStoredJson({
+      templateId: this.normalizeTemplateId(base.templateId),
+      generationInput: base.generationInput,
+      generationResult: base.generationResult,
+    });
     const rawRecord = stored.rawInput && typeof stored.rawInput === 'object'
       ? stored.rawInput as Record<string, unknown>
       : {};
-    const imageUrls = stored.imageUrls.length > 0
-      ? stored.imageUrls
-      : (Array.isArray(base.originalImages)
-        ? base.originalImages.filter((item): item is string => typeof item === 'string')
-        : []);
+    const imageUrls = stored.imageUrls;
     if (imageUrls.length === 0) {
       throw new BadRequestException(DETAIL_PAGE_IMAGE_REQUIRED_MESSAGE);
     }
@@ -342,7 +339,7 @@ export class DetailPageGenerationService {
       organizationId,
       baseGenerationId: base.id,
       existingGroupId: base.generationGroupId,
-      productId: base.masterId,
+      productId: base.generationGroup.targetMasterId,
       title: pickRawString(rawRecord, 'rawTitle') ?? base.generatedTitle ?? '상세페이지 작업',
       triggeredByUserId,
     });
@@ -366,7 +363,7 @@ export class DetailPageGenerationService {
     return this.enqueueGeneration({
       organizationId,
       triggeredByUserId,
-      productId: base.masterId,
+      productId: base.generationGroup.targetMasterId,
       rawTitle: rawInput.rawTitle,
       templateId,
       heroImageMode: rawInput.heroImageMode,
@@ -397,6 +394,49 @@ export class DetailPageGenerationService {
       select: { id: true },
     });
     return group.id;
+  }
+
+  private async ensureProductWorkspaceGroup(input: {
+    organizationId: string;
+    productId: string;
+    title: string;
+    triggeredByUserId: string | null;
+  }): Promise<string> {
+    const existing = await this.prisma.contentGenerationGroup.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        groupType: 'product_workspace',
+        targetMasterId: input.productId,
+      },
+      select: { id: true },
+    });
+    if (existing) return existing.id;
+
+    try {
+      const group = await this.prisma.contentGenerationGroup.create({
+        data: {
+          organizationId: input.organizationId,
+          groupType: 'product_workspace',
+          targetMasterId: input.productId,
+          title: input.title.slice(0, 80),
+          createdByUserId: input.triggeredByUserId,
+          metadata: { source: 'product_workspace' },
+        },
+        select: { id: true },
+      });
+      return group.id;
+    } catch (error) {
+      const raced = await this.prisma.contentGenerationGroup.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          groupType: 'product_workspace',
+          targetMasterId: input.productId,
+        },
+        select: { id: true },
+      });
+      if (raced) return raced.id;
+      throw error;
+    }
   }
 
   private async ensureGenerationGroup(input: {
@@ -462,23 +502,6 @@ export class DetailPageGenerationService {
         continue;
       }
 
-      if (ref.sourceType === 'master_product') {
-        if (!ref.masterId) {
-          throw new BadRequestException(`sourceReferences[${index}].masterId is required`);
-        }
-        const master = await this.prisma.masterProduct.findFirst({
-          where: { id: ref.masterId, organizationId: input.organizationId, isDeleted: false },
-          select: { id: true, name: true },
-        });
-        if (!master) throw new NotFoundException('Master product source not found');
-        out.push({
-          sourceType: 'master_product',
-          masterId: master.id,
-          label: ref.label ?? master.name,
-        });
-        continue;
-      }
-
       if (ref.sourceType === 'content_generation') {
         if (!ref.sourceContentGenerationId) {
           throw new BadRequestException(`sourceReferences[${index}].sourceContentGenerationId is required`);
@@ -504,7 +527,6 @@ export class DetailPageGenerationService {
           where: {
             id: ref.contentAssetId,
             organizationId: input.organizationId,
-            usageType: 'input',
             isDeleted: false,
           },
           select: { id: true, label: true, role: true },
@@ -531,7 +553,6 @@ export class DetailPageGenerationService {
       contentGenerationId: input.contentGenerationId,
       sourceType: ref.sourceType,
       sourceCandidateId: ref.sourceCandidateId ?? null,
-      masterId: ref.masterId ?? null,
       sourceContentGenerationId: ref.sourceContentGenerationId ?? null,
       contentAssetId: ref.contentAssetId ?? null,
       label: ref.label ?? null,
@@ -543,12 +564,11 @@ export class DetailPageGenerationService {
       contentGenerationId: input.contentGenerationId,
       sourceType: 'input_asset',
       sourceCandidateId: null,
-      masterId: null,
       sourceContentGenerationId: null,
       contentAssetId: asset.id,
       label: asset.label ?? asset.role ?? 'Input asset',
       sortOrder: explicitRows.length + index,
-      metadata: { originType: asset.originType, assetKey: asset.assetKey },
+      metadata: { assetKey: asset.assetKey },
     }));
     const rows = [...explicitRows, ...inputAssetRows];
     if (rows.length === 0) return;
@@ -582,7 +602,7 @@ export class DetailPageGenerationService {
     if (!row) throw new NotFoundException('Detail page generation not found');
 
     if (DETAIL_PAGE_TERMINAL_STATUSES.has(row.status)) {
-      return this.query.toDto(row);
+      return this.query.getById(id, organizationId);
     }
 
     const updated = await this.prisma.contentGeneration.updateMany({
@@ -612,10 +632,11 @@ export class DetailPageGenerationService {
       });
     }
 
-    const reloaded = await this.prisma.contentGeneration.findFirst({
-      where: { id, organizationId },
-    });
-    return this.query.toDto(reloaded ?? row);
+    return this.query.getById(id, organizationId);
+  }
+
+  private normalizeTemplateId(value: string | null): DetailPageTemplateId {
+    return value === 'bold-vertical' ? 'bold-vertical' : 'kids-playful';
   }
 
   private extForMime(mimeType: string): string {
@@ -655,7 +676,6 @@ function isDetailPageSourceReference(value: unknown): value is DetailPageSourceR
   const record = value as Record<string, unknown>;
   return (
     record.sourceType === 'sourcing_candidate' ||
-    record.sourceType === 'master_product' ||
     record.sourceType === 'input_asset' ||
     record.sourceType === 'content_generation'
   );

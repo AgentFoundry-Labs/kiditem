@@ -1,18 +1,13 @@
+import { createHash } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
-
-type NullableProductLink = string | null;
 
 export interface ContentAssetListQuery {
   page?: number;
   limit?: number;
   productId?: string | null;
   generationId?: string | null;
-  pipelineType?: string | null;
-  usageType?: string | null;
-  originType?: string | null;
-  sourceType?: string | null; // legacy compatibility only
 }
 
 export interface PersistedContentAssetRef {
@@ -22,9 +17,9 @@ export interface PersistedContentAssetRef {
   role: string | null;
   label: string | null;
   sortOrder: number;
-  usageType: string;
-  originType: string;
 }
+
+type AssetTx = Prisma.TransactionClient | PrismaService;
 
 @Injectable()
 export class ContentAssetService {
@@ -32,59 +27,25 @@ export class ContentAssetService {
 
   async recordDetailPageInputAssets(input: {
     organizationId: string;
-    contentGenerationId: string;
-    masterId: NullableProductLink;
+    generationGroupId: string;
     createdByUserId: string | null;
     imageUrls: string[];
   }): Promise<PersistedContentAssetRef[]> {
-    const data = input.imageUrls
-      .map((url, index) => url.trim() ? ({ url: url.trim(), index }) : null)
-      .filter((item): item is { url: string; index: number } => item !== null)
-      .map(({ url, index }) => ({
+    return this.prisma.$transaction((tx) =>
+      this.upsertGroupImageAssetsTx(tx, {
         organizationId: input.organizationId,
-        masterId: input.masterId,
-        contentGenerationId: input.contentGenerationId,
+        generationGroupId: input.generationGroupId,
         createdByUserId: input.createdByUserId,
-        assetKey: `detail-page-input:${input.contentGenerationId}:${index}`,
-        url,
-        assetType: 'image',
-        sourceType: 'detail_page_input',
-        pipelineType: 'detail_page',
-        usageType: 'input',
-        originType: 'manual_upload',
+        imageUrls: input.imageUrls,
         role: 'source',
-        sortOrder: index,
-        metadata: {},
-      }));
-    if (data.length === 0) return [];
-    await this.prisma.contentAsset.createMany({
-      skipDuplicates: true,
-      data,
-    });
-    return this.prisma.contentAsset.findMany({
-      where: {
-        organizationId: input.organizationId,
-        assetKey: { in: data.map((item) => item.assetKey) },
-        isDeleted: false,
-      },
-      orderBy: { sortOrder: 'asc' },
-      select: {
-        id: true,
-        assetKey: true,
-        url: true,
-        role: true,
-        label: true,
-        sortOrder: true,
-        usageType: true,
-        originType: true,
-      },
-    });
+      }),
+    );
   }
 
   async recordDetailPageGeneratedAssets(input: {
     organizationId: string;
+    generationGroupId: string;
     contentGenerationId: string;
-    masterId: NullableProductLink;
     processedImages: Record<string, string>;
   }): Promise<void> {
     const entries = Object.entries(input.processedImages)
@@ -93,100 +54,60 @@ export class ContentAssetService {
       ))
       .sort(([a], [b]) => compareAssetRoles(a, b));
     if (entries.length === 0) return;
-    await this.prisma.contentAsset.createMany({
-      skipDuplicates: true,
-      data: entries.map(([role, url], index) => ({
+
+    const imageUrls = entries.map(([, url]) => url);
+    const roleByUrl = new Map(entries.map(([role, url]) => [url, role]));
+    await this.prisma.$transaction(async (tx) => {
+      const assets = await this.upsertGroupImageAssetsTx(tx, {
         organizationId: input.organizationId,
-        masterId: input.masterId,
+        generationGroupId: input.generationGroupId,
+        createdByUserId: null,
+        imageUrls,
+        roleForUrl: (url) => roleByUrl.get(url) ?? null,
+      });
+      await this.replaceGenerationAssetUsagesTx(tx, {
+        organizationId: input.organizationId,
         contentGenerationId: input.contentGenerationId,
-        assetKey: `detail-page-generated:${input.contentGenerationId}:${role}`,
-        url,
-        assetType: 'image',
-        sourceType: 'detail_page_generated',
-        pipelineType: 'detail_page',
-        usageType: 'output',
-        originType: 'generated',
-        role,
-        sortOrder: index,
-        metadata: {},
-      })),
+        contentAssetIds: assets.map((asset) => asset.id),
+      });
     });
   }
 
-  async recordImageEditInputAsset(input: {
+  async syncGenerationImageUsages(input: {
     organizationId: string;
+    generationGroupId: string;
     contentGenerationId: string;
-    masterId: NullableProductLink;
     createdByUserId: string | null;
-    imageUrl: string;
-  }): Promise<PersistedContentAssetRef | null> {
-    const url = input.imageUrl.trim();
-    if (!url) return null;
-    const assetKey = `image-edit-input:${input.contentGenerationId}:0`;
-    await this.prisma.contentAsset.createMany({
-      skipDuplicates: true,
-      data: [{
-        organizationId: input.organizationId,
-        masterId: input.masterId,
-        contentGenerationId: input.contentGenerationId,
-        createdByUserId: input.createdByUserId,
-        assetKey,
-        url,
-        assetType: 'image',
-        sourceType: 'image_edit_input',
-        pipelineType: 'image_edit',
-        usageType: 'input',
-        originType: 'external_url',
-        role: 'source',
-        sortOrder: 0,
-        metadata: {},
-      }],
-    });
-    return this.prisma.contentAsset.findFirst({
-      where: {
-        organizationId: input.organizationId,
-        assetKey,
-        isDeleted: false,
-      },
-      select: {
-        id: true,
-        assetKey: true,
-        url: true,
-        role: true,
-        label: true,
-        sortOrder: true,
-        usageType: true,
-        originType: true,
-      },
-    });
+    imageUrls: string[];
+  }): Promise<PersistedContentAssetRef[]> {
+    return this.prisma.$transaction((tx) =>
+      this.syncGenerationImageUsagesTx(tx, input),
+    );
   }
 
-  async recordImageEditOutputAsset(input: {
-    organizationId: string;
-    contentGenerationId: string;
-    masterId: NullableProductLink;
-    imageUrl: string;
-  }): Promise<void> {
-    const url = input.imageUrl.trim();
-    if (!url) return;
-    await this.prisma.contentAsset.createMany({
-      skipDuplicates: true,
-      data: [{
-        organizationId: input.organizationId,
-        masterId: input.masterId,
-        contentGenerationId: input.contentGenerationId,
-        assetKey: `image-edit-output:${input.contentGenerationId}:0`,
-        url,
-        assetType: 'image',
-        sourceType: 'image_edit_generated',
-        pipelineType: 'image_edit',
-        usageType: 'output',
-        originType: 'generated',
-        role: 'edited',
-        sortOrder: 0,
-        metadata: {},
-      }],
+  async syncGenerationImageUsagesTx(
+    tx: Prisma.TransactionClient,
+    input: {
+      organizationId: string;
+      generationGroupId: string;
+      contentGenerationId: string;
+      createdByUserId: string | null;
+      imageUrls: string[];
+    },
+  ): Promise<PersistedContentAssetRef[]> {
+    const assets = await this.upsertGroupImageAssetsTx(tx, {
+      organizationId: input.organizationId,
+      generationGroupId: input.generationGroupId,
+      createdByUserId: input.createdByUserId,
+      imageUrls: input.imageUrls,
+      role: 'used',
     });
+    await this.replaceGenerationAssetUsagesTx(tx, {
+      organizationId: input.organizationId,
+      contentGenerationId: input.contentGenerationId,
+      contentAssetIds: assets.map((asset) => asset.id),
+    });
+    return assets;
   }
 
   async listAssets(
@@ -196,13 +117,9 @@ export class ContentAssetService {
     items: Array<{
       id: string;
       productId: string | null;
-      generationId: string | null;
+      generationGroupId: string;
       url: string;
       assetType: string;
-      sourceType: string;
-      pipelineType: string;
-      usageType: string;
-      originType: string;
       role: string | null;
       label: string | null;
       sortOrder: number;
@@ -225,12 +142,12 @@ export class ContentAssetService {
     const where: Prisma.ContentAssetWhereInput = {
       organizationId,
       isDeleted: false,
-      ...(query.productId ? { masterId: query.productId } : {}),
-      ...(query.generationId ? { contentGenerationId: query.generationId } : {}),
-      ...(query.pipelineType ? { pipelineType: query.pipelineType } : {}),
-      ...(query.usageType ? { usageType: query.usageType } : {}),
-      ...(query.originType ? { originType: query.originType } : {}),
-      ...(query.sourceType ? { sourceType: query.sourceType } : {}),
+      ...(query.productId
+        ? { generationGroup: { targetMasterId: query.productId } }
+        : {}),
+      ...(query.generationId
+        ? { usages: { some: { contentGenerationId: query.generationId } } }
+        : {}),
     };
     const [total, rows] = await Promise.all([
       this.prisma.contentAsset.count({ where }),
@@ -241,25 +158,24 @@ export class ContentAssetService {
         take: limit,
         select: {
           id: true,
-          masterId: true,
-          contentGenerationId: true,
+          generationGroupId: true,
           url: true,
           assetType: true,
-          sourceType: true,
-          pipelineType: true,
-          usageType: true,
-          originType: true,
           role: true,
           label: true,
           sortOrder: true,
           metadata: true,
           createdAt: true,
           updatedAt: true,
-          master: {
+          generationGroup: {
             select: {
-              id: true,
-              code: true,
-              name: true,
+              targetMaster: {
+                select: {
+                  id: true,
+                  code: true,
+                  name: true,
+                },
+              },
             },
           },
         },
@@ -269,19 +185,15 @@ export class ContentAssetService {
     return {
       items: rows.map((row) => ({
         id: row.id,
-        productId: row.masterId,
-        generationId: row.contentGenerationId,
+        productId: row.generationGroup.targetMaster?.id ?? null,
+        generationGroupId: row.generationGroupId,
         url: row.url,
         assetType: row.assetType,
-        sourceType: row.sourceType,
-        pipelineType: row.pipelineType,
-        usageType: row.usageType,
-        originType: row.originType,
         role: row.role,
         label: row.label,
         sortOrder: row.sortOrder,
         metadata: row.metadata,
-        product: row.master,
+        product: row.generationGroup.targetMaster,
         createdAt: row.createdAt.toISOString(),
         updatedAt: row.updatedAt.toISOString(),
       })),
@@ -290,6 +202,100 @@ export class ContentAssetService {
       limit,
     };
   }
+
+  private async upsertGroupImageAssetsTx(
+    tx: AssetTx,
+    input: {
+      organizationId: string;
+      generationGroupId: string;
+      createdByUserId: string | null;
+      imageUrls: string[];
+      role?: string;
+      roleForUrl?: (url: string) => string | null;
+    },
+  ): Promise<PersistedContentAssetRef[]> {
+    const entries = normalizeImageUrls(input.imageUrls);
+    if (entries.length === 0) return [];
+    const data = entries.map(({ url, firstIndex }) => {
+      const hash = hashUrl(url);
+      return {
+        organizationId: input.organizationId,
+        generationGroupId: input.generationGroupId,
+        createdByUserId: input.createdByUserId,
+        assetKey: groupUrlAssetKey(input.generationGroupId, url),
+        url,
+        assetType: 'image',
+        role: input.roleForUrl?.(url) ?? input.role ?? null,
+        sortOrder: firstIndex,
+        metadata: { urlHash: hash },
+      };
+    });
+    await tx.contentAsset.createMany({
+      skipDuplicates: true,
+      data,
+    });
+    return tx.contentAsset.findMany({
+      where: {
+        organizationId: input.organizationId,
+        generationGroupId: input.generationGroupId,
+        assetKey: { in: data.map((item) => item.assetKey) },
+        isDeleted: false,
+      },
+      orderBy: { sortOrder: 'asc' },
+      select: {
+        id: true,
+        assetKey: true,
+        url: true,
+        role: true,
+        label: true,
+        sortOrder: true,
+      },
+    });
+  }
+
+  private async replaceGenerationAssetUsagesTx(
+    tx: AssetTx,
+    input: {
+      organizationId: string;
+      contentGenerationId: string;
+      contentAssetIds: string[];
+    },
+  ): Promise<void> {
+    await tx.contentGenerationAssetUsage.deleteMany({
+      where: {
+        organizationId: input.organizationId,
+        contentGenerationId: input.contentGenerationId,
+      },
+    });
+    const uniqueAssetIds = [...new Set(input.contentAssetIds)];
+    if (uniqueAssetIds.length === 0) return;
+    await tx.contentGenerationAssetUsage.createMany({
+      skipDuplicates: true,
+      data: uniqueAssetIds.map((contentAssetId) => ({
+        organizationId: input.organizationId,
+        contentGenerationId: input.contentGenerationId,
+        contentAssetId,
+      })),
+    });
+  }
+}
+
+export function groupUrlAssetKey(generationGroupId: string, url: string): string {
+  return `group-url:${generationGroupId}:${hashUrl(url).slice(0, 32)}`;
+}
+
+function normalizeImageUrls(imageUrls: string[]): Array<{ url: string; firstIndex: number }> {
+  const seen = new Map<string, number>();
+  for (const [index, raw] of imageUrls.entries()) {
+    const url = raw.trim();
+    if (!url || seen.has(url)) continue;
+    seen.set(url, index);
+  }
+  return [...seen.entries()].map(([url, firstIndex]) => ({ url, firstIndex }));
+}
+
+function hashUrl(url: string): string {
+  return createHash('sha256').update(url).digest('hex');
 }
 
 function compareAssetRoles(a: string, b: string): number {

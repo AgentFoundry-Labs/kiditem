@@ -276,9 +276,12 @@ describe('Detail-page Agent OS pipeline (real Postgres)', () => {
     expect(finalRow.status).toBe('READY');
     expect(finalRow.errorMessage).toBeNull();
     expect(finalRow.generatedTitle).toBe('더블샷 슈퍼워터건');
-    const stored = JSON.parse(finalRow.detailPageHtml ?? '{}');
+    const stored = finalRow.generationResult as {
+      templateId?: string;
+      result?: { hook?: { text?: string } };
+    };
     expect(stored.templateId).toBe('bold-vertical');
-    expect(stored.result.hook.text).toBeDefined();
+    expect(stored.result?.hook?.text).toBeDefined();
 
     expect(alerts.starts).toHaveLength(1);
     expect(alerts.succeeds).toHaveLength(1);

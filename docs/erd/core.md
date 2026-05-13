@@ -271,9 +271,6 @@ erDiagram
 | ChannelListingOption | listingOption | referenced by external | Channels | ChannelListingOptionDailySnapshot |
 | ChannelListingOption | listingOption | referenced by external | Channels | ChannelScrapeSnapshot |
 | ChannelListingOption | listingOption | referenced by external | Orders | OrderLineItem |
-| MasterProduct | master | referenced by external | AI | ContentAsset |
-| MasterProduct | master | referenced by external | AI | ContentGeneration |
-| MasterProduct | master | referenced by external | AI | ContentGenerationSource |
 | MasterProduct | master | referenced by external | AI | ThumbnailAnalysis |
 | MasterProduct | master | referenced by external | AI | ThumbnailGeneration |
 | MasterProduct | master | referenced by external | Finance | GradeHistory |
@@ -282,7 +279,6 @@ erDiagram
 | MasterProduct | promotedMaster | referenced by external | Sourcing | SourcingCandidate |
 | MasterProduct | targetMaster | referenced by external | AI | ContentGenerationGroup |
 | MasterProductImage | masterImage | referenced by external | AI | ThumbnailGenerationInputImage |
-| MasterProductImage | sourceMasterImage | referenced by external | AI | ContentAsset |
 | Organization | organization | referenced by external | Advertising | AdAction |
 | Organization | organization | referenced by external | Advertising | ExecutionWorker |
 | Organization | organization | referenced by external | Advertising | ScrapeTarget |
@@ -299,6 +295,7 @@ erDiagram
 | Organization | organization | referenced by external | AgentOS | WorkflowTemplate |
 | Organization | organization | referenced by external | AI | ContentAsset |
 | Organization | organization | referenced by external | AI | ContentGeneration |
+| Organization | organization | referenced by external | AI | ContentGenerationAssetUsage |
 | Organization | organization | referenced by external | AI | ContentGenerationGroup |
 | Organization | organization | referenced by external | AI | ContentGenerationSource |
 | Organization | organization | referenced by external | AI | Thumbnail |

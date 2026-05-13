@@ -387,9 +387,7 @@ export function getGenerateSourceReferences(
   for (const sourceCandidateId of candidateIds) {
     references.push({ sourceType: 'sourcing_candidate', sourceCandidateId });
   }
-  if (productId) {
-    references.push({ sourceType: 'master_product', masterId: productId });
-  }
+  void productId;
   return references;
 }
 
