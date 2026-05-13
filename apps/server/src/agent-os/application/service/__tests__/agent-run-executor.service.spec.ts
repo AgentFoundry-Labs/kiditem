@@ -207,6 +207,41 @@ describe('AgentRunExecutor', () => {
     );
   });
 
+  it('does not fall back to AGENT_DEFAULT_MODEL for gemini image runtimes', async () => {
+    vi.stubEnv('AGENT_IMAGE_EDIT_MODEL', '');
+    const { executor, repository, eventEmitter } = makeExecutor({
+      instance: makeInstance({
+        type: 'image_edit',
+        adapterType: 'gemini_image',
+      }),
+      claimed: makeClaimedRequest({
+        agentType: 'image_edit',
+        adapterType: 'gemini_image',
+        source: 'ai.image_edit',
+      }),
+    });
+
+    const result = await executor.executeNext('worker-1', ORGANIZATION_ID);
+
+    expect(result).toMatchObject({
+      executed: false,
+      requestId: REQUEST_ID,
+      errorCode: 'model_required',
+    });
+    expect(repository.createRunForRequest).not.toHaveBeenCalled();
+    expect(eventEmitter.emit).toHaveBeenCalledWith(
+      AGENT_RUN_EVENTS.FINALIZED,
+      expect.objectContaining({
+        organizationId: ORGANIZATION_ID,
+        requestId: REQUEST_ID,
+        agentType: 'image_edit',
+        source: 'ai.image_edit',
+        status: 'failed',
+        errorCode: 'model_required',
+      }),
+    );
+  });
+
   it('emits a succeeded FINALIZED event with the runtime output on success', async () => {
     const { executor, eventEmitter, repository } = makeExecutor({
       claimed: makeClaimedRequest({
