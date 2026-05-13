@@ -161,20 +161,14 @@ describe('ContentArchiveService', () => {
     expect(prisma.contentGeneration.count).toHaveBeenCalledWith({
       where: {
         organizationId: ORG,
-        OR: [
-          { generationGroup: { targetMasterId: PRODUCT_ID } },
-          { masterId: PRODUCT_ID },
-        ],
+        generationGroup: { targetMasterId: PRODUCT_ID },
       },
     });
     expect(prisma.contentGeneration.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
           organizationId: ORG,
-          OR: [
-            { generationGroup: { targetMasterId: PRODUCT_ID } },
-            { masterId: PRODUCT_ID },
-          ],
+          generationGroup: { targetMasterId: PRODUCT_ID },
         },
       }),
     );

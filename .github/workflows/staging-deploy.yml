@@ -16,6 +16,11 @@ on:
         description: Existing GHCR tag for rollback. Use a git SHA tag, not "staging".
         required: false
         type: string
+      accept_data_loss:
+        description: Allow Prisma db push --accept-data-loss for reviewed contract cleanup deploys.
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: staging
@@ -186,6 +191,7 @@ jobs:
       - name: Apply staging Prisma schema
         env:
           DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          ACCEPT_DATA_LOSS: ${{ inputs.accept_data_loss }}
         run: |
           set -euo pipefail
           : "${DATABASE_URL:?Set staging secret STAGING_DATABASE_URL}"
@@ -201,7 +207,12 @@ jobs:
             process.exit(2);
           }
           NODE
-          npx prisma db push
+          if [ "${ACCEPT_DATA_LOSS}" = "true" ]; then
+            echo "::warning::Running Prisma db push with --accept-data-loss for a reviewed staging contract cleanup."
+            npx prisma db push --accept-data-loss
+          else
+            npx prisma db push
+          fi
           npx prisma generate
 
       - name: Run staging data migrations

@@ -110,12 +110,6 @@ canonical `groupType='product_workspace'` group with
 Same-input reruns reuse/create the explicit group and must not infer grouping
 from title or product-name similarity.
 
-During the staging expand/backfill release for product-content workspaces, the
-database column may remain nullable to avoid destructive `db push` behavior
-against existing rows. New application writes must still set it; read paths may
-use legacy `masterId` only as a transition fallback until the contract PR makes
-the column non-null again.
-
 `ContentGeneration` stores request/result snapshots in `generationInput` and
 `generationResult`. Do not add generated-detail payload columns back to the
 row.

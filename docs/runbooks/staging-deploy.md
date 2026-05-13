@@ -317,11 +317,15 @@ The workflow never overwrites `/opt/kiditem/.env.staging.api` or
 `/opt/kiditem/.env.staging.web`.
 
 Before the EC2 image swap, the deploy job applies the Prisma schema to the
-staging Supabase database with `npx prisma db push` and no
-`--accept-data-loss`. Releases that need column/table drops must use a separate
-expand/backfill/contract plan instead of relying on the deploy workflow to drop
-data. The workflow then runs release data migrations before the image swap so
-new application code starts with any required backfill already present:
+staging Supabase database with `npx prisma db push`. The default workflow input
+keeps `accept_data_loss=false`, so destructive Prisma changes still block the
+deploy. A reviewed contract-cleanup deploy may set `accept_data_loss=true`,
+which runs `npx prisma db push --accept-data-loss` only for that manual staging
+run. Use it only after the expand/backfill release has a succeeded
+`data_migration_runs` ledger row and the PR explicitly calls out the columns or
+tables being dropped. The workflow then runs release data migrations before the
+image swap so new application code starts with any required backfill already
+present:
 
 ```bash
 npm run data:migrate -- up
@@ -542,6 +546,9 @@ Expected results:
 - `data_migration_runs` contains `succeeded` rows for the migration ids shipped
   by the deployed commit. Legacy persisted detail editor alert hrefs should now
   point at `/product-content/:productId/editor?generationId=:generationId`.
+- Contract-cleanup deploys that intentionally dropped columns were run with
+  `accept_data_loss=true`, and the workflow log shows the explicit warning
+  before Prisma schema apply.
 
 ## Blocker Criteria
 
@@ -552,7 +559,9 @@ Stop and report instead of guessing if:
 - nginx returns `502` after both containers are running.
 - Supabase connection errors mention the production project.
 - `npx prisma db push` reports destructive changes or asks for
-  `--accept-data-loss`.
+  `--accept-data-loss` during a normal deploy. Stop unless the PR is a reviewed
+  contract cleanup with confirmed backfill ledger rows; in that case rerun the
+  manual staging deploy with `accept_data_loss=true`.
 - `npm run data:migrate -- up` fails or writes a `failed` ledger row.
 - Any seed/import/baseline step would target production by accident.
 - DB baseline export/restore would use the public app asset bucket instead of
