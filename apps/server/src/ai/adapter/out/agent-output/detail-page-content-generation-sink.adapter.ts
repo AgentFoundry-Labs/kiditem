@@ -97,27 +97,6 @@ export class DetailPageContentGenerationSinkAdapter
       );
       return;
     }
-    if (!row.generationGroupId) {
-      const errorMessage = 'ContentGeneration is missing generationGroupId; run content workspace data migration.';
-      this.logger.error(`detail_page_generate success: ${row.id} cannot apply generated assets. ${errorMessage}`);
-      await this.prisma.contentGeneration.updateMany({
-        where: { id: row.id, organizationId: input.organizationId },
-        data: { status: 'FAILED', errorMessage },
-      });
-      await this.operationAlerts.fail(
-        input.organizationId,
-        detailPageOperationKey(row.id),
-        {
-          message: errorMessage,
-          metadata: {
-            errorCode: 'content_generation_group_missing',
-            agentRequestId: input.requestId,
-            agentRunId: input.runId ?? null,
-          },
-        },
-      );
-      return;
-    }
 
     const stored = toDetailPageStoredJson({
       templateId: input.output.templateId,

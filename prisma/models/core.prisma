@@ -323,7 +323,6 @@ model MasterProduct {
   listings     ChannelListing[]
 
   contentGenerationGroups  ContentGenerationGroup[]
-  legacyContentGenerations ContentGeneration[]      @relation("LegacyContentGenerationMaster")
   thumbnailAnalyses        ThumbnailAnalysis[]
   thumbnailGenerations     ThumbnailGeneration[]
   gradeHistory             GradeHistory[]
