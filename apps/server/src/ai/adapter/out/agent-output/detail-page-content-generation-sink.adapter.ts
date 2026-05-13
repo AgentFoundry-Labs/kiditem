@@ -22,7 +22,10 @@ const TERMINAL_CONTENT_GENERATION_STATUSES = new Set([
   'failed',
   'cancelled',
 ]);
-const GENERATED_IMAGE_TIMEOUT_MS = 30_000;
+// This wraps the whole best-effort media phase, not a single provider call.
+// Gemini image generation can legitimately take longer than 30s per image, so
+// keep this as a last-resort stall guard.
+const GENERATED_IMAGE_TIMEOUT_MS = 15 * 60_000;
 
 /**
  * Real `DetailPageAgentOutputSinkPort` adapter — applies a validated
