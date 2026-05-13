@@ -69,9 +69,6 @@ const generationInclude = {
       },
     },
   },
-  legacyMaster: {
-    select: { id: true, code: true, name: true, thumbnailUrl: true, imageUrl: true },
-  },
   assetUsages: {
     orderBy: [{ createdAt: 'asc' }],
     select: {
@@ -319,9 +316,9 @@ export class ContentArchiveService {
   ): Prisma.ContentGenerationWhereInput {
     const masterScope: Prisma.ContentGenerationWhereInput =
       query.productId
-        ? { OR: [{ generationGroup: { targetMasterId: query.productId } }, { masterId: query.productId }] }
+        ? { generationGroup: { targetMasterId: query.productId } }
         : query.linkState === 'linked'
-          ? { OR: [{ generationGroup: { targetMasterId: { not: null } } }, { masterId: { not: null } }] }
+          ? { generationGroup: { targetMasterId: { not: null } } }
           : query.linkState === 'unlinked'
             ? { generationGroup: { targetMasterId: null } }
             : {};
@@ -339,13 +336,10 @@ export class ContentArchiveService {
   private groupWorkspaces(rows: GenerationRow[]): ProductContentWorkspaceItem[] {
     const grouped = new Map<string, GenerationRow[]>();
     for (const row of rows) {
-      const productId = row.generationGroup?.targetMasterId ?? row.masterId;
+      const productId = row.generationGroup.targetMasterId;
       const key = productId
         ? `product:${productId}`
-        : row.generationGroupId
-          ? `group:${row.generationGroupId}`
-          : null;
-      if (!key) continue;
+        : `group:${row.generationGroupId}`;
       const bucket = grouped.get(key);
       if (bucket) bucket.push(row);
       else grouped.set(key, [row]);
@@ -366,7 +360,7 @@ export class ContentArchiveService {
     fallbackProduct?: { id: string; code: string; name: string; thumbnailUrl: string | null; imageUrl: string | null };
   }): ProductContentWorkspaceItem {
     const latest = input.rows[0] ?? null;
-    const product = latest?.generationGroup?.targetMaster ?? latest?.legacyMaster ?? input.fallbackProduct ?? null;
+    const product = latest?.generationGroup.targetMaster ?? input.fallbackProduct ?? null;
     const detailPageCount = input.rows.filter((row) => this.contentType(row) === 'detail_page').length;
     const imageCount = input.rows.filter((row) => this.contentType(row) === 'image').length;
     if (input.workspaceType === 'product') {
@@ -412,12 +406,12 @@ export class ContentArchiveService {
 
   private toGenerationItem(row: GenerationRow): ProductContentGenerationItem {
     const contentType = this.contentType(row);
-    const productId = row.generationGroup?.targetMasterId ?? row.masterId ?? null;
+    const productId = row.generationGroup.targetMasterId;
     return {
       id: row.id,
       contentType,
       title: row.generatedTitle ?? (contentType === 'image' ? '이미지 생성 결과' : '상세페이지 결과'),
-      subtitle: row.generationGroup?.targetMaster?.name ?? row.legacyMaster?.name ?? (row.generationGroup ? '미연결 작업' : null),
+      subtitle: row.generationGroup.targetMaster?.name ?? '미연결 작업',
       thumbnailUrl: this.pickThumbnail(row),
       href: contentType === 'detail_page' ? `/product-content/detail-pages/${encodeURIComponent(row.id)}/editor` : null,
       status: normalizeStatus(row.status),

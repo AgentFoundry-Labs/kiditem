@@ -54,17 +54,13 @@ erDiagram
     String id PK
     String organizationId FK
     String generationGroupId FK
-    String masterId FK
     String contentType
     String templateId
     Json generationInput
     Json generationResult
-    Json originalImages
-    Json processedImages
     String generatedTitle
     String generatedDescription
     String generatedCopy
-    String detailPageHtml
     String editedHtml
     DateTime editedHtmlSavedAt
     String status
@@ -269,7 +265,7 @@ erDiagram
   ContentGeneration ||--o{ ContentGenerationSource : "contentGeneration"
   ContentGeneration o|--o{ ContentGenerationSource : "sourceContentGeneration"
   ContentGenerationGroup ||--o{ ContentAsset : "generationGroup"
-  ContentGenerationGroup o|--o{ ContentGeneration : "generationGroup"
+  ContentGenerationGroup ||--o{ ContentGeneration : "generationGroup"
   ThumbnailGeneration ||--o{ ThumbnailGenerationCandidate : "generation"
   ThumbnailGeneration ||--o{ ThumbnailGenerationEvent : "generation"
   ThumbnailGeneration ||--o{ ThumbnailGenerationInputImage : "generation"
@@ -285,7 +281,6 @@ erDiagram
 |---|---|---|---|---|
 | ContentAsset | createdByUser | references external | Core | User |
 | ContentAsset | organization | references external | Core | Organization |
-| ContentGeneration | legacyMaster | references external | Core | MasterProduct |
 | ContentGeneration | organization | references external | Core | Organization |
 | ContentGeneration | triggeredByUser | references external | Core | User |
 | ContentGenerationAssetUsage | organization | references external | Core | Organization |
