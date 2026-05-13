@@ -9,7 +9,11 @@
 
 | Model | Table | Description |
 |---|---|---|
+| ContentAsset | `content_assets` | Generated/editable media workspace asset. Product gallery adoption copies selected rows into MasterProductImage. |
 | ContentGeneration | `content_generations` | - |
+| ContentGenerationAssetUsage | `content_generation_asset_usages` | Current image assets used by a generated content row. Asset location stays on ContentAsset; this table is the replace-on-save usage set. |
+| ContentGenerationGroup | `content_generation_groups` | Same-input generation group. Product-less groups are top-level product-content workspaces; product-bound groups remain candidate lineage inside a Master workspace. |
+| ContentGenerationSource | `content_generation_sources` | Generation-level provenance. The source of a generated work unit can be a sourcing candidate, input asset, or another generation. |
 | Thumbnail | `thumbnails` | CTR 기반 썸네일 트래킹 (ThumbnailAnalysis 와 별도 시스템). |
 | ThumbnailAnalysis | `thumbnail_analyses` | 5차원 scores(heroShot·composition·branding·mobile·differentiation) + complianceGrade(PASS/WARN/FAIL) + imageSpec(사전검수). 스펙 FAIL 시 AI 호출 생략. |
 | ThumbnailGeneration | `thumbnail_generations` | 상태: pending→generating→ready/failed→applied/skipped. method=edit 만 사용 (generate Imagen 방식 삭제됨). |
@@ -24,20 +28,84 @@
 
 ```mermaid
 erDiagram
+  ContentAsset {
+    String id PK
+    String organizationId FK
+    String generationGroupId FK
+    String createdByUserId FK
+    String assetKey
+    String url
+    String storageKey
+    String assetType
+    String role
+    String label
+    Int sortOrder
+    String mimeType
+    Int width
+    Int height
+    Int fileSize
+    Json metadata
+    Boolean isDeleted
+    DateTime deletedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
   ContentGeneration {
     String id PK
     String organizationId FK
+    String generationGroupId FK
     String masterId FK
+    String contentType
+    String templateId
+    Json generationInput
+    Json generationResult
     Json originalImages
     Json processedImages
     String generatedTitle
     String generatedDescription
     String generatedCopy
     String detailPageHtml
+    String editedHtml
+    DateTime editedHtmlSavedAt
     String status
     Int retryCount
     String errorMessage
     String triggeredByUserId FK
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ContentGenerationAssetUsage {
+    String id PK
+    String organizationId FK
+    String contentGenerationId FK
+    String contentAssetId FK
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ContentGenerationGroup {
+    String id PK
+    String organizationId FK
+    String groupType
+    String targetMasterId FK
+    String baseContentGenerationId FK
+    String title
+    String inputFingerprint
+    Json metadata
+    String createdByUserId
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ContentGenerationSource {
+    String id PK
+    String organizationId FK
+    String contentGenerationId FK
+    String sourceType
+    String sourceCandidateId FK
+    String sourceContentGenerationId FK
+    String contentAssetId FK
+    String label
+    Int sortOrder
+    Json metadata
     DateTime createdAt
     DateTime updatedAt
   }
@@ -194,6 +262,14 @@ erDiagram
     String errorMessage
     DateTime createdAt
   }
+  ContentAsset ||--o{ ContentGenerationAssetUsage : "contentAsset"
+  ContentAsset o|--o{ ContentGenerationSource : "contentAsset"
+  ContentGeneration ||--o{ ContentGenerationAssetUsage : "contentGeneration"
+  ContentGeneration o|--o{ ContentGenerationGroup : "baseContentGeneration"
+  ContentGeneration ||--o{ ContentGenerationSource : "contentGeneration"
+  ContentGeneration o|--o{ ContentGenerationSource : "sourceContentGeneration"
+  ContentGenerationGroup ||--o{ ContentAsset : "generationGroup"
+  ContentGenerationGroup o|--o{ ContentGeneration : "generationGroup"
   ThumbnailGeneration ||--o{ ThumbnailGenerationCandidate : "generation"
   ThumbnailGeneration ||--o{ ThumbnailGenerationEvent : "generation"
   ThumbnailGeneration ||--o{ ThumbnailGenerationInputImage : "generation"
@@ -207,9 +283,16 @@ erDiagram
 
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
-| ContentGeneration | master | references external | Core | MasterProduct |
+| ContentAsset | createdByUser | references external | Core | User |
+| ContentAsset | organization | references external | Core | Organization |
+| ContentGeneration | legacyMaster | references external | Core | MasterProduct |
 | ContentGeneration | organization | references external | Core | Organization |
 | ContentGeneration | triggeredByUser | references external | Core | User |
+| ContentGenerationAssetUsage | organization | references external | Core | Organization |
+| ContentGenerationGroup | organization | references external | Core | Organization |
+| ContentGenerationGroup | targetMaster | references external | Core | MasterProduct |
+| ContentGenerationSource | organization | references external | Core | Organization |
+| ContentGenerationSource | sourceCandidate | references external | Sourcing | SourcingCandidate |
 | Thumbnail | listing | references external | Core | ChannelListing |
 | Thumbnail | organization | references external | Core | Organization |
 | ThumbnailAnalysis | master | references external | Core | MasterProduct |

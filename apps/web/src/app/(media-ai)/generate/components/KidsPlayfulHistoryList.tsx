@@ -12,12 +12,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { Calendar, History, Sparkles, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { API_BASE } from '@/lib/api';
+import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
 import {
   SAME_ORIGIN_SCRIPTLESS_SANDBOX,
   stripSrcDocScripts,
 } from '@/app/(catalog)/product-content/lib/preview-sandbox';
+import { ensureStyledDetailHtml } from '@/app/(catalog)/product-content/lib/template-html';
 import {
   rowThumbnail,
   rowDisplaySubtitle,
@@ -27,6 +29,7 @@ import {
   useBoldVerticalGenerationList,
   useKidsPlayfulGenerationDelete,
   useKidsPlayfulGenerationList,
+  useKidsPlayfulOne,
   type KidsPlayfulGenerationItem,
 } from '../hooks/useKidsPlayfulGenerate';
 import { buildKidsPlayfulHtml } from '../lib/build-kids-playful-html';
@@ -46,6 +49,11 @@ function formatTs(iso: string): string {
 /** 카드에 표시할 상품명/타이틀 — "!" 제거. 실제 상세페이지 콘텐츠는 그대로 둠. */
 function stripExclamation(text: string): string {
   return text.replace(/!/g, '').trim();
+}
+
+function canRenderGeneratedResult(entry: KidsPlayfulGenerationItem): boolean {
+  if (entry.imageProcessingStatus !== 'completed') return false;
+  return !!entry.result && typeof entry.result === 'object' && Object.keys(entry.result).length > 0;
 }
 
 interface KidsPlayfulHistoryListProps {
@@ -218,8 +226,39 @@ interface FullscreenViewerProps {
 }
 
 function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
+  const { data: latestEntry, isLoading: isEntryLoading } = useKidsPlayfulOne(entry.id);
+  const previewEntry = latestEntry ?? entry;
   const [templateCss, setTemplateCss] = useState<string | null>(null);
-  const isBoldVertical = entry.templateId === 'bold-vertical';
+  const [editedHtml, setEditedHtml] = useState<string | null>(null);
+  const [editedHtmlLoaded, setEditedHtmlLoaded] = useState(false);
+  const isBoldVertical = previewEntry.templateId === 'bold-vertical';
+
+  useEffect(() => {
+    let cancelled = false;
+    setEditedHtml(null);
+    setEditedHtmlLoaded(false);
+
+    apiClient
+      .get<{ html: string | null }>(
+        `/api/ai/detail-page/${encodeURIComponent(entry.id)}/edited-html`,
+      )
+      .then((row) => {
+        if (cancelled) return;
+        const html = row.html?.trim() ?? '';
+        setEditedHtml(html.length > 0 ? html : null);
+      })
+      .catch(() => {
+        if (!cancelled) setEditedHtml(null);
+      })
+      .finally(() => {
+        if (!cancelled) setEditedHtmlLoaded(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [entry.id]);
+
   useEffect(() => {
     let cancelled = false;
     fetch('/templates-styles.css', { cache: 'no-store' })
@@ -234,20 +273,25 @@ function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
       cancelled = true;
     };
   }, []);
-  const html = useMemo(() => {
+
+  const html = useMemo((): string | null => {
     if (templateCss == null) return '';
+    if (editedHtmlLoaded && editedHtml) return ensureStyledDetailHtml(editedHtml, templateCss);
+    if (!canRenderGeneratedResult(previewEntry)) return null;
     if (isBoldVertical) {
       const adapted = adaptBoldVerticalToDetailPageData(
-        entry.result as unknown as BoldVerticalGeneration,
-        entry.imageUrls,
-        entry.processedImages,
+        previewEntry.result as unknown as BoldVerticalGeneration,
+        previewEntry.imageUrls,
+        previewEntry.processedImages,
         API_BASE,
       );
       return buildBoldVerticalHtml(adapted, templateCss);
     }
-    return buildKidsPlayfulHtml(rowToRendererData(entry), templateCss);
-  }, [entry, isBoldVertical, templateCss]);
-  const sandboxedHtml = useMemo(() => stripSrcDocScripts(html), [html]);
+    return buildKidsPlayfulHtml(rowToRendererData(previewEntry), templateCss);
+  }, [editedHtml, editedHtmlLoaded, isBoldVertical, previewEntry, templateCss]);
+  const sandboxedHtml = useMemo(() => (html ? stripSrcDocScripts(html) : null), [html]);
+  const isPreviewLoading = isEntryLoading || templateCss == null || !editedHtmlLoaded;
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-2">
       <div className="relative flex h-[98vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-slate-100 shadow-2xl">
@@ -255,9 +299,9 @@ function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
           <div className="flex items-center gap-2 min-w-0">
             <Sparkles size={18} className="text-violet-600 shrink-0" />
             <h3 className="text-base font-bold text-slate-900 truncate">
-              {stripExclamation(rowDisplayTitle(entry))}
+              {stripExclamation(rowDisplayTitle(previewEntry))}
             </h3>
-            <span className="text-xs text-slate-400 font-mono truncate">{stripExclamation(entry.productName)}</span>
+            <span className="text-xs text-slate-400 font-mono truncate">{stripExclamation(previewEntry.productName)}</span>
           </div>
           <button
             onClick={onClose}
@@ -268,9 +312,13 @@ function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
           </button>
         </div>
         <div className="flex-1 overflow-y-auto bg-white">
-          {templateCss == null ? (
+          {isPreviewLoading ? (
             <div className="flex h-full items-center justify-center text-sm font-semibold text-slate-400">
-              템플릿 스타일을 불러오는 중입니다.
+              상세페이지 미리보기를 불러오는 중입니다.
+            </div>
+          ) : !sandboxedHtml ? (
+            <div className="flex h-full items-center justify-center px-6 text-center text-sm font-semibold text-slate-400">
+              생성된 상세페이지 결과물이 아직 없습니다.
             </div>
           ) : (
             <iframe

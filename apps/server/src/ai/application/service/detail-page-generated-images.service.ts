@@ -542,17 +542,23 @@ function buildNormalSectionSourcePolicy(
     return { blockedIndices, normalImageUrls };
   }
 
-  const safetyOnlyIndices = new Set<number>();
+  const fallbackBlockedIndices = new Set<number>();
+  for (const index of excludedImageIndices) {
+    if (Number.isInteger(index)) fallbackBlockedIndices.add(index);
+  }
+  for (const index of packageIndicesToBlock) {
+    if (Number.isInteger(index)) fallbackBlockedIndices.add(index);
+  }
   for (const index of bold.safetyLabelImageIndices ?? []) {
-    if (Number.isInteger(index)) safetyOnlyIndices.add(index);
+    if (Number.isInteger(index)) fallbackBlockedIndices.add(index);
   }
   imageUrls.forEach((url, index) => {
-    if (isSafetyLabelImageUrl(url)) safetyOnlyIndices.add(index);
+    if (isSafetyLabelImageUrl(url)) fallbackBlockedIndices.add(index);
   });
 
   return {
     blockedIndices,
-    normalImageUrls: pickSectionSourceImages([], imageUrls, safetyOnlyIndices),
+    normalImageUrls: pickSectionSourceImages([], imageUrls, fallbackBlockedIndices),
   };
 }
 

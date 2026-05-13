@@ -8,11 +8,12 @@ import type { BoldVerticalGeneration } from '../../../domain/prompts/bold-vertic
 import type { DetailPageGeneration } from '../../../domain/prompts/detail-page/single-call';
 import { DetailPageGeneratedImagesService } from '../../../application/service/detail-page-generated-images.service';
 import {
+  type DetailPageStoredJson,
   detailPageOperationKey,
   normalizeStoredDetailPageRawInput,
-  parseDetailPageStoredJson,
-  serializeDetailPageStoredJson,
+  toDetailPageStoredJson,
 } from '../../../application/service/detail-page-stored.helpers';
+import { ContentAssetService } from '../../../application/service/content-asset.service';
 
 const TERMINAL_CONTENT_GENERATION_STATUSES = new Set([
   'READY',
@@ -63,6 +64,7 @@ export class DetailPageContentGenerationSinkAdapter
     private readonly prisma: PrismaService,
     private readonly operationAlerts: OperationAlertService,
     private readonly generatedImages: DetailPageGeneratedImagesService,
+    private readonly contentAssets: ContentAssetService,
   ) {}
 
   async applySuccess(input: {
@@ -95,8 +97,33 @@ export class DetailPageContentGenerationSinkAdapter
       );
       return;
     }
+    if (!row.generationGroupId) {
+      const errorMessage = 'ContentGeneration is missing generationGroupId; run content workspace data migration.';
+      this.logger.error(`detail_page_generate success: ${row.id} cannot apply generated assets. ${errorMessage}`);
+      await this.prisma.contentGeneration.updateMany({
+        where: { id: row.id, organizationId: input.organizationId },
+        data: { status: 'FAILED', errorMessage },
+      });
+      await this.operationAlerts.fail(
+        input.organizationId,
+        detailPageOperationKey(row.id),
+        {
+          message: errorMessage,
+          metadata: {
+            errorCode: 'content_generation_group_missing',
+            agentRequestId: input.requestId,
+            agentRunId: input.runId ?? null,
+          },
+        },
+      );
+      return;
+    }
 
-    const stored = parseDetailPageStoredJson(row.detailPageHtml);
+    const stored = toDetailPageStoredJson({
+      templateId: input.output.templateId,
+      generationInput: row.generationInput,
+      generationResult: row.generationResult,
+    });
     const productName = pickProductName(
       input.output.result,
       input.output.templateId,
@@ -111,11 +138,11 @@ export class DetailPageContentGenerationSinkAdapter
       timeoutMs: GENERATED_IMAGE_TIMEOUT_MS,
     });
 
-    const detailPageHtml = serializeDetailPageStoredJson({
-      templateId: input.output.templateId,
-      result: input.output.result,
-      imageUrls: input.output.imageUrls,
-      rawInput: stored.rawInput,
+    await this.contentAssets.recordDetailPageGeneratedAssets({
+      organizationId: input.organizationId,
+      contentGenerationId: row.id,
+      generationGroupId: row.generationGroupId,
+      processedImages,
     });
 
     const updated = await this.prisma.contentGeneration.updateMany({
@@ -126,8 +153,12 @@ export class DetailPageContentGenerationSinkAdapter
       },
       data: {
         generatedTitle: productName,
-        detailPageHtml,
-        processedImages: processedImages as Prisma.InputJsonValue,
+        generationResult: {
+          templateId: input.output.templateId,
+          result: input.output.result,
+          imageUrls: input.output.imageUrls,
+          processedImages,
+        } as Prisma.InputJsonValue,
         status: 'READY',
         errorMessage: null,
       },
@@ -229,7 +260,7 @@ export class DetailPageContentGenerationSinkAdapter
     organizationId: string;
     output: DetailPageGenerateAgentOutput;
     productName: string;
-    stored: ReturnType<typeof parseDetailPageStoredJson>;
+    stored: DetailPageStoredJson;
     timeoutMs: number;
   }): Promise<Record<string, string>> {
     const rawInputForImages = normalizeStoredDetailPageRawInput({

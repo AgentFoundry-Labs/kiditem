@@ -54,6 +54,21 @@ export class DetailPageAiService {
     return this.query.getById(id, organizationId);
   }
 
+  saveEditedHtml(
+    id: string,
+    organizationId: string,
+    html: string,
+  ): Promise<{ html: string; savedAt: string; assetUrlMap: Record<string, string> }> {
+    return this.query.saveEditedHtml(id, organizationId, html);
+  }
+
+  getEditedHtml(
+    id: string,
+    organizationId: string,
+  ): Promise<{ html: string | null; savedAt: string | null }> {
+    return this.query.getEditedHtml(id, organizationId);
+  }
+
   cancel(id: string, organizationId: string): Promise<DetailPageGenerationDto> {
     return this.generation.cancel(id, organizationId);
   }

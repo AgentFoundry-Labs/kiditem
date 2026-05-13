@@ -25,6 +25,15 @@ export interface DetailPageRawInput {
   usageSectionMode?: UsageSectionMode;
   kcCertificationStatus?: KcCertificationStatus;
   kcCertificationNumber?: string;
+  sourceReferences?: DetailPageSourceReference[];
+}
+
+export interface DetailPageSourceReference {
+  sourceType: 'sourcing_candidate' | 'input_asset' | 'content_generation';
+  sourceCandidateId?: string;
+  contentAssetId?: string;
+  sourceContentGenerationId?: string;
+  label?: string;
 }
 
 export interface KidsPlayfulImageContext {

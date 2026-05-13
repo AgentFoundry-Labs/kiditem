@@ -71,4 +71,5 @@ erDiagram
 | SourcingCandidate | organization | references external | Core | Organization |
 | SourcingCandidate | promotedMaster | references external | Core | MasterProduct |
 | SourcingCandidate | rejectedByUser | references external | Core | User |
+| SourcingCandidate | sourceCandidate | referenced by external | AI | ContentGenerationSource |
 | SourcingCandidate | triggeredByUser | references external | Core | User |

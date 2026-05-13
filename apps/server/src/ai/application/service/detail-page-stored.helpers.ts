@@ -2,11 +2,9 @@ import type { DetailImageCount, DetailPageAgeGroup } from '@kiditem/shared/ai';
 import type { DetailPageRawInput, DetailPageTemplateId } from './detail-page-ai.types';
 
 /**
- * Helpers for the polymorphic JSON we stash in
- * `ContentGeneration.detailPageHtml`. Both `DetailPageAiService` (producer
- * side) and `DetailPageContentGenerationSinkAdapter` (consumer side) rely
- * on the same shape, so the parse/serialize lives here instead of being
- * duplicated.
+ * Helpers for the detail-page JSON snapshots stored on ContentGeneration.
+ * `generationInput` preserves the request/input snapshot. `generationResult`
+ * preserves the validated AI result plus generated media URLs.
  *
  * Shape:
  * ```
@@ -27,6 +25,7 @@ export interface DetailPageStoredJson {
   templateId: DetailPageTemplateId;
   result: unknown;
   imageUrls: string[];
+  processedImages: Record<string, string>;
   rawInput: unknown;
   rawTitle: string | null;
 }
@@ -37,6 +36,7 @@ export function parseDetailPageStoredJson(raw: string | null): DetailPageStoredJ
       templateId: 'kids-playful',
       result: {},
       imageUrls: [],
+      processedImages: {},
       rawInput: {},
       rawTitle: null,
     };
@@ -51,6 +51,7 @@ export function parseDetailPageStoredJson(raw: string | null): DetailPageStoredJ
       ? parsed.imageUrls.filter((x): x is string => typeof x === 'string')
       : [];
     const rawInput = parsed.rawInput ?? {};
+    const processedImages = asStringRecord(parsed.processedImages);
     const rawTitle =
       rawInput &&
       typeof rawInput === 'object' &&
@@ -61,6 +62,7 @@ export function parseDetailPageStoredJson(raw: string | null): DetailPageStoredJ
       templateId,
       result: parsed.result ?? parsed,
       imageUrls,
+      processedImages,
       rawInput,
       rawTitle,
     };
@@ -69,10 +71,38 @@ export function parseDetailPageStoredJson(raw: string | null): DetailPageStoredJ
       templateId: 'kids-playful',
       result: {},
       imageUrls: [],
+      processedImages: {},
       rawInput: {},
       rawTitle: null,
     };
   }
+}
+
+export function toDetailPageStoredJson(input: {
+  templateId: DetailPageTemplateId;
+  generationInput: unknown;
+  generationResult: unknown;
+}): DetailPageStoredJson {
+  const resultRecord = asRecord(input.generationResult);
+  const inputRecord = asRecord(input.generationInput);
+  const rawInput = resultRecord.rawInput ?? input.generationInput ?? {};
+  const imageUrls = pickStringArray(resultRecord.imageUrls) ??
+    pickStringArray(inputRecord.imageUrls) ??
+    [];
+  const rawTitle =
+    rawInput &&
+    typeof rawInput === 'object' &&
+    typeof (rawInput as { rawTitle?: unknown }).rawTitle === 'string'
+      ? (rawInput as { rawTitle: string }).rawTitle
+      : null;
+  return {
+    templateId: pickTemplateId(resultRecord.templateId ?? input.templateId),
+    result: resultRecord.result ?? {},
+    imageUrls,
+    processedImages: asStringRecord(resultRecord.processedImages),
+    rawInput,
+    rawTitle,
+  };
 }
 
 export function serializeDetailPageStoredJson(input: {
@@ -120,12 +150,39 @@ export function detailPageOperationKey(contentGenerationId: string): string {
 }
 
 export function detailPageResultHref(input: {
-  productId: string;
+  productId: string | null;
   contentGenerationId: string;
   templateId: DetailPageTemplateId;
 }): string {
-  const params = new URLSearchParams({ generationId: input.contentGenerationId });
-  return `/product-content/${input.productId}/editor?${params.toString()}`;
+  void input.productId;
+  void input.templateId;
+  return `/product-content/detail-pages/${input.contentGenerationId}/editor`;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function asStringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object') return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).filter((entry): entry is [string, string] => (
+      typeof entry[1] === 'string'
+    )),
+  );
+}
+
+function pickStringArray(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  return value.filter((item): item is string => typeof item === 'string');
+}
+
+function pickTemplateId(value: unknown): DetailPageTemplateId {
+  return value === 'bold-vertical' || value === 'simple-vertical'
+    ? 'bold-vertical'
+    : 'kids-playful';
 }
 
 function pickStoredString(rawInput: unknown, key: string): string | null {

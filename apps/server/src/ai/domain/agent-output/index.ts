@@ -24,11 +24,22 @@ export {
   type ThumbnailGenerateAgentInputImage,
   type ThumbnailGenerateAgentOutput,
 } from './thumbnail-generate.schema';
+export {
+  IMAGE_EDIT_AGENT_TYPE,
+  ImageEditAgentInputSchema,
+  ImageEditAgentOutputSchema,
+  type ImageEditAgentInput,
+  type ImageEditAgentOutput,
+} from './image-edit.schema';
 
 import {
   DETAIL_PAGE_GENERATE_AGENT_TYPE,
   DetailPageGenerateAgentOutputSchema,
 } from './detail-page-generate.schema';
+import {
+  IMAGE_EDIT_AGENT_TYPE,
+  ImageEditAgentOutputSchema,
+} from './image-edit.schema';
 import {
   THUMBNAIL_GENERATE_AGENT_TYPE,
   ThumbnailGenerateAgentOutputSchema,
@@ -63,4 +74,5 @@ export const AI_AGENT_SOURCE_TYPES = {
 export const AI_AGENT_OUTPUT_SCHEMAS = {
   [DETAIL_PAGE_GENERATE_AGENT_TYPE]: DetailPageGenerateAgentOutputSchema,
   [THUMBNAIL_GENERATE_AGENT_TYPE]: ThumbnailGenerateAgentOutputSchema,
+  [IMAGE_EDIT_AGENT_TYPE]: ImageEditAgentOutputSchema,
 } as const;

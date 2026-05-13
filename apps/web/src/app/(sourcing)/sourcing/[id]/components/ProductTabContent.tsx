@@ -9,6 +9,7 @@ import RawDataTab from '../../components/detail/RawDataTab';
 import { CATEGORIES } from '../lib/types';
 import type { EditTabType } from '../../components/detail/ProductEditTabs';
 import type { ProductEditState } from '../lib/types';
+import { LinkedProducedContentPanel } from './LinkedProducedContentPanel';
 
 interface Props {
   activeTab: EditTabType;
@@ -136,7 +137,11 @@ export default function ProductTabContent({
     case 'history':
       return (
         <div className="p-5">
-          <div className="card p-8 text-center text-sm text-slate-500">
+          <div className="card space-y-4 p-8 text-center text-sm text-slate-500">
+            <LinkedProducedContentPanel
+              candidateId={productId}
+              promotedMasterId={promotedMasterId}
+            />
             {promotedMasterId ? (
               <>
                 <p className="font-medium text-slate-700">상세페이지/이력 편집은 마스터 페이지에서 진행하세요</p>
@@ -148,7 +153,7 @@ export default function ProductTabContent({
                     상세페이지 콘텐츠 관리 →
                   </Link>
                   <Link
-                    href={`/generate?productId=${promotedMasterId}`}
+                    href={`/generate?productId=${promotedMasterId}&sourceCandidateId=${productId}`}
                     className="text-emerald-600 hover:text-emerald-700 underline"
                   >
                     새 상세페이지 생성 →
@@ -162,7 +167,15 @@ export default function ProductTabContent({
                 </div>
               </>
             ) : (
-              <p>이 기능은 마스터 승격 후 사용 가능합니다.</p>
+              <>
+                <p>상품 연결 없이도 AI 콘텐츠를 먼저 생성할 수 있습니다.</p>
+                <Link
+                  href={`/generate?sourceCandidateId=${productId}`}
+                  className="inline-flex text-emerald-600 hover:text-emerald-700 underline"
+                >
+                  미연결 상세페이지 생성 →
+                </Link>
+              </>
             )}
           </div>
         </div>

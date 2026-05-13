@@ -32,6 +32,13 @@ export interface KidsPlayfulGenerateBody {
   /** sourcing MasterProduct.id — generate 페이지 직접 생성 시 omit */
   productId?: string;
   templateId?: DetailPageTemplateId;
+  sourceReferences?: Array<{
+    sourceType: 'sourcing_candidate' | 'input_asset' | 'content_generation';
+    sourceCandidateId?: string;
+    contentAssetId?: string;
+    sourceContentGenerationId?: string;
+    label?: string;
+  }>;
 }
 
 /** Server endpoint 응답 형 (POST generate / GET list 공용). */

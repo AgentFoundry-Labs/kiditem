@@ -86,7 +86,7 @@ const DEFINITIONS: readonly AgentDefinitionSeed[] = [
     name: 'Image Edit',
     description: '이미지 편집 tool-wrapper.',
     promptPath: `${PROMPT_BASE}/manager.md`,
-    defaultAdapterType: 'python_http',
+    defaultAdapterType: 'gemini_image',
     defaultModelEnv: 'AGENT_IMAGE_EDIT_MODEL',
     defaultRuntimeConfig: {},
     defaultCapabilities: {},

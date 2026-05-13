@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getGenerateFormValidation } from './useGenerateForm';
+import { getGenerateFormValidation, getGenerateSourceReferences } from './useGenerateForm';
 
 describe('getGenerateFormValidation', () => {
   it('requires at least one product image before generation', () => {
@@ -14,5 +14,26 @@ describe('getGenerateFormValidation', () => {
       isValid: true,
       message: null,
     });
+  });
+});
+
+describe('getGenerateSourceReferences', () => {
+  it('reads sourcing candidates from generate query params without duplicating the target product as a source', () => {
+    const params = new URLSearchParams(
+      'sourceCandidateId=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa&sourceCandidateIds=bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    );
+
+    expect(
+      getGenerateSourceReferences(params, '22222222-2222-4222-8222-222222222222'),
+    ).toEqual([
+      {
+        sourceType: 'sourcing_candidate',
+        sourceCandidateId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      },
+      {
+        sourceType: 'sourcing_candidate',
+        sourceCandidateId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      },
+    ]);
   });
 });

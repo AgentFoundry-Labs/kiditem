@@ -26,7 +26,7 @@ describe('ProductContentCard', () => {
 
     expect(screen.getByRole('link')).toHaveAttribute(
       'href',
-      '/product-content/product-123/editor?generationId=generation-456',
+      '/product-content/detail-pages/generation-456/editor',
     );
     expect(screen.getByText('KIDITEM DESIGN 상세')).toBeInTheDocument();
   });

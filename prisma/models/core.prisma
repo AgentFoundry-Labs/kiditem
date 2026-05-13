@@ -29,7 +29,11 @@ model Organization {
   alerts                          Alert[]
 
   // Sourcing & Content
-  contentGenerations ContentGeneration[]
+  contentGenerations       ContentGeneration[]
+  contentGenerationGroups  ContentGenerationGroup[]
+  contentGenerationSources ContentGenerationSource[]
+  contentAssets            ContentAsset[]
+  contentGenerationAssetUsages ContentGenerationAssetUsage[]
 
   // Workflow & Agent
   workflowTemplates WorkflowTemplate[]
@@ -151,6 +155,7 @@ model User {
   triggeredThumbnailGenerations  ThumbnailGeneration[]      @relation("ThumbnailGenerationTriggeredBy")
   thumbnailGenerationEvents      ThumbnailGenerationEvent[] @relation("ThumbnailGenerationEventActor")
   triggeredContentGenerations    ContentGeneration[]        @relation("ContentGenerationTriggeredBy")
+  createdContentAssets           ContentAsset[]             @relation("ContentAssetCreatedBy")
   actorAlerts                    Alert[]                    @relation("AlertActor")
   assignedActionTasks            ActionTask[]               @relation("ActionTaskAssignee")
 
@@ -298,10 +303,10 @@ model MasterProduct {
   rawData        Json?    @map("raw_data")
   pipelineStep   String?  @map("pipeline_step")
 
-  processedData     Json?    @map("processed_data")
-  draftContent      Json?    @map("draft_content")
-  detailPageUrl     String?  @map("detail_page_url")
-  thumbnailStrategy String   @default("standard") @map("thumbnail_strategy")
+  processedData     Json?   @map("processed_data")
+  draftContent      Json?   @map("draft_content")
+  detailPageUrl     String? @map("detail_page_url")
+  thumbnailStrategy String  @default("standard") @map("thumbnail_strategy")
 
   isDeleted       Boolean   @default(false) @map("is_deleted")
   deletedAt       DateTime? @map("deleted_at") @db.Timestamptz
@@ -317,13 +322,14 @@ model MasterProduct {
   options      ProductOption[]
   listings     ChannelListing[]
 
-  contentGenerations     ContentGeneration[]
-  thumbnailAnalyses      ThumbnailAnalysis[]
-  thumbnailGenerations   ThumbnailGeneration[]
-  gradeHistory           GradeHistory[]
-  processingCosts        ProcessingCost[]
-  masterSupplierProducts MasterSupplierProduct[]
-  promotedFromCandidate  SourcingCandidate[]     @relation("PromotedFromCandidate")
+  contentGenerationGroups  ContentGenerationGroup[]
+  legacyContentGenerations ContentGeneration[]      @relation("LegacyContentGenerationMaster")
+  thumbnailAnalyses        ThumbnailAnalysis[]
+  thumbnailGenerations     ThumbnailGeneration[]
+  gradeHistory             GradeHistory[]
+  processingCosts          ProcessingCost[]
+  masterSupplierProducts   MasterSupplierProduct[]
+  promotedFromCandidate    SourcingCandidate[]       @relation("PromotedFromCandidate")
 
   @@unique([organizationId, legacyCode], map: "master_products_organization_id_legacy_code_key", where: raw("is_deleted = false AND legacy_code IS NOT NULL"))
   @@index([organizationId])

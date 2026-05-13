@@ -45,5 +45,6 @@ describe('Agent OS seed catalog', () => {
     expect(definitions.get('thumbnail_generate')?.runtimeKind).toBe('tool_wrapper');
     expect(definitions.get('detail_page_generate')?.runtimeKind).toBe('tool_wrapper');
     expect(definitions.get('image_edit')?.runtimeKind).toBe('tool_wrapper');
+    expect(definitions.get('image_edit')?.defaultAdapterType).toBe('gemini_image');
   });
 });

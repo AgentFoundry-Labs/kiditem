@@ -36,7 +36,7 @@ describe('MastersService tenant boundary internals', () => {
     expect(tx.masterProduct.findUniqueOrThrow).not.toHaveBeenCalled();
   });
 
-  it('excludes AI detail-page generations from legacy history', async () => {
+  it('queries legacy generation history outside detail-page content cards', async () => {
     const prisma = {
       masterProduct: {
         findFirst: vi.fn().mockResolvedValue({
@@ -51,18 +51,10 @@ describe('MastersService tenant boundary internals', () => {
       contentGeneration: {
         findMany: vi.fn().mockResolvedValue([
           {
-            id: 'bold-1',
-            generatedTitle: 'KIDITEM DESIGN',
-            status: 'READY',
-            detailPageHtml: JSON.stringify({ templateId: 'bold-vertical', result: {} }),
-            errorMessage: null,
-            createdAt: new Date('2026-05-07T00:00:00.000Z'),
-          },
-          {
             id: 'legacy-1',
             generatedTitle: 'CA result',
             status: 'READY',
-            detailPageHtml: JSON.stringify({ title: 'legacy detail page' }),
+            generationResult: { title: 'legacy result' },
             errorMessage: null,
             createdAt: new Date('2026-05-06T00:00:00.000Z'),
           },
@@ -74,6 +66,15 @@ describe('MastersService tenant boundary internals', () => {
     await expect(svc.getGenerationHistory('organization-1', 'master-1', 10)).resolves.toEqual([
       expect.objectContaining({ id: 'legacy-1' }),
     ]);
+    expect(prisma.contentGeneration.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          organizationId: 'organization-1',
+          generationGroup: { targetMasterId: 'master-1' },
+          NOT: { contentType: 'detail_page' },
+        }),
+      }),
+    );
   });
 
   it('lists master-bound AI detail-page generations as product content cards', async () => {
@@ -84,28 +85,32 @@ describe('MastersService tenant boundary internals', () => {
         findMany: vi.fn().mockResolvedValue([
           {
             id: 'generation-1',
-            masterId: 'master-1',
             generatedTitle: 'KIDITEM DESIGN 상세',
             status: 'READY',
-            detailPageHtml: JSON.stringify({
+            generationInput: {
+              rawTitle: '큐브 퍼즐',
+              imageUrls: ['https://example.com/source.jpg'],
+            },
+            generationResult: {
               templateId: 'bold-vertical',
-              rawInput: { rawTitle: '큐브 퍼즐' },
               result: { hook: { text: '생각이 돌아가는 큐브', titleSub: '초등 고학년 집중 놀이' } },
               imageUrls: ['https://example.com/source.jpg'],
-            }),
-            processedImages: { __heroBanner: '/processed/hero.png' },
+              processedImages: { __heroBanner: '/processed/hero.png' },
+            },
             errorMessage: null,
+            editedHtmlSavedAt: new Date('2026-05-12T11:00:00.000Z'),
             createdAt,
             updatedAt: createdAt,
-            master: {
-              id: 'master-1',
-              code: 'M-00000001',
-              name: '큐브 퍼즐',
-              thumbnailUrl: 'https://example.com/thumb.jpg',
-              imageUrl: 'https://example.com/main.jpg',
-              isTemporary: true,
-              images: [{ url: 'https://example.com/gallery.jpg' }],
-              draftContent: { editedHtmlSavedAt: '2026-05-12T11:00:00.000Z' },
+            generationGroup: {
+              targetMaster: {
+                id: 'master-1',
+                code: 'M-00000001',
+                name: '큐브 퍼즐',
+                thumbnailUrl: 'https://example.com/thumb.jpg',
+                imageUrl: 'https://example.com/main.jpg',
+                isTemporary: true,
+                images: [{ url: 'https://example.com/gallery.jpg' }],
+              },
             },
           },
         ]),
@@ -138,7 +143,12 @@ describe('MastersService tenant boundary internals', () => {
     });
     expect(prisma.contentGeneration.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ organizationId: 'organization-1' }),
+        where: expect.objectContaining({
+          organizationId: 'organization-1',
+          generationGroup: expect.objectContaining({
+            targetMasterId: { not: null },
+          }),
+        }),
         skip: 0,
         take: 20,
       }),

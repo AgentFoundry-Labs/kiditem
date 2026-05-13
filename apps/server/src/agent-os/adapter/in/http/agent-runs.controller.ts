@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Inject,
+  Logger,
   NotFoundException,
   Param,
   Post,
@@ -35,6 +36,8 @@ import type {
 
 @Controller('agent-os')
 export class AgentRunsController {
+  private readonly logger = new Logger(AgentRunsController.name);
+
   constructor(
     @Inject(AGENT_RUNNER_PORT)
     private readonly runner: AgentRunnerPort,
@@ -67,7 +70,33 @@ export class AgentRunsController {
       scheduledFor: body.scheduledFor ? new Date(body.scheduledFor) : undefined,
       dryRun: body.dryRun,
     });
+    this.kickImmediateHttpRequest({
+      organizationId,
+      requestId: result.requestId,
+      scheduledFor: body.scheduledFor,
+      dryRun: body.dryRun,
+    });
     return result;
+  }
+
+  private kickImmediateHttpRequest(input: {
+    organizationId: string;
+    requestId?: string;
+    scheduledFor?: string;
+    dryRun?: boolean;
+  }): void {
+    if (!input.requestId || input.scheduledFor || input.dryRun) return;
+    if (!this.runner.executeRequest) return;
+
+    void this.runner.executeRequest({
+      organizationId: input.organizationId,
+      requestId: input.requestId,
+      workerId: 'agent-os-http',
+    }).catch((error) => {
+      this.logger.warn(
+        `Failed to kick Agent OS request ${input.requestId}: ${error}`,
+      );
+    });
   }
 
   @Post('executor/claim-and-run')

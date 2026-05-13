@@ -13,12 +13,16 @@ import {
   X,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
+import { extractEditedImageUrl } from '../lib/image-edit-result';
 
 interface AIImageEditPanelProps {
   imageUrl: string;
+  productId?: string;
+  contentGenerationId?: string;
   isBusy: React.MutableRefObject<boolean>;
   onEditComplete: (newImageUrl: string) => void;
   onReplace: () => void;
+  onGeneratingChange?: (v: boolean) => void;
   onClose: () => void;
 }
 
@@ -56,65 +60,10 @@ async function submitImageEdit(params: {
   image_url: string;
   preset: string;
   user_prompt: string;
+  productId?: string;
+  contentGenerationId?: string;
 }): Promise<{ taskId: string }> {
   return apiClient.post<{ taskId: string }>('/api/image-ai/edit', params);
-}
-
-function parseJsonMaybe(value: unknown): unknown {
-  if (typeof value !== 'string') return value;
-  try {
-    return JSON.parse(value);
-  } catch {
-    return value;
-  }
-}
-
-function readPath(source: unknown, path: string[]): unknown {
-  let cursor = parseJsonMaybe(source);
-  for (const key of path) {
-    if (!cursor || typeof cursor !== 'object' || !(key in cursor)) return null;
-    cursor = parseJsonMaybe((cursor as Record<string, unknown>)[key]);
-  }
-  return cursor;
-}
-
-function readStringPath(source: unknown, path: string[]): string | null {
-  const cursor = readPath(source, path);
-  return typeof cursor === 'string' && cursor.trim() ? cursor : null;
-}
-
-function firstStringFromArray(source: unknown, path: string[]): string | null {
-  const value = path.length === 0 ? parseJsonMaybe(source) : readPath(source, path);
-  if (!Array.isArray(value) || value.length === 0) return null;
-  const first = parseJsonMaybe(value[0]);
-  if (typeof first === 'string' && first.trim()) return first;
-  if (first && typeof first === 'object') {
-    return readStringPath(first, ['url'])
-      ?? readStringPath(first, ['image_url'])
-      ?? readStringPath(first, ['imageUrl']);
-  }
-  return null;
-}
-
-function extractEditedImageUrl(output: unknown): string | null {
-  const parsed = parseJsonMaybe(output);
-  return (
-    readStringPath(parsed, ['image_url'])
-    ?? readStringPath(parsed, ['imageUrl'])
-    ?? readStringPath(parsed, ['url'])
-    ?? readStringPath(parsed, ['result_url'])
-    ?? readStringPath(parsed, ['resultUrl'])
-    ?? readStringPath(parsed, ['output', 'image_url'])
-    ?? readStringPath(parsed, ['output', 'imageUrl'])
-    ?? readStringPath(parsed, ['output', 'url'])
-    ?? readStringPath(parsed, ['result', 'image_url'])
-    ?? readStringPath(parsed, ['result', 'imageUrl'])
-    ?? readStringPath(parsed, ['result', 'url'])
-    ?? firstStringFromArray(parsed, ['images'])
-    ?? firstStringFromArray(parsed, ['image_urls'])
-    ?? firstStringFromArray(parsed, ['imageUrls'])
-    ?? firstStringFromArray(parsed, ['output', 'images'])
-  );
 }
 
 // Agent OS: `/api/image-ai/edit` returns `{ taskId }` where taskId is the
@@ -122,7 +71,7 @@ function extractEditedImageUrl(output: unknown): string | null {
 // executor claims the request). We poll `/api/agent-os/requests/:id` and
 // pivot to the run via `latestRunId` once status leaves the pre-claim phase.
 async function pollTaskResult(taskId: string): Promise<{ image_url: string }> {
-  const maxAttempts = 60; // 60 * 2s = 120s max
+  const maxAttempts = 180; // Agent OS has no image-edit business timeout; this is only a UI polling guard.
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise(r => setTimeout(r, 2000));
     let request: {
@@ -149,10 +98,19 @@ async function pollTaskResult(taskId: string): Promise<{ image_url: string }> {
       return { image_url: imageUrl };
     }
   }
-  throw new Error('시간 초과: 이미지 편집이 너무 오래 걸립니다');
+  throw new Error('이미지 편집 결과 확인 시간이 초과되었습니다. 잠시 후 알림에서 결과를 확인해주세요.');
 }
 
-export function AIImageEditPanel({ imageUrl, isBusy, onEditComplete, onReplace, onClose }: AIImageEditPanelProps) {
+export function AIImageEditPanel({
+  imageUrl,
+  productId,
+  contentGenerationId,
+  isBusy,
+  onEditComplete,
+  onReplace,
+  onGeneratingChange,
+  onClose,
+}: AIImageEditPanelProps) {
   const [loading, setLoading] = useState(false);
   const [loadingPreset, setLoadingPreset] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -166,6 +124,7 @@ export function AIImageEditPanel({ imageUrl, isBusy, onEditComplete, onReplace, 
 
       isBusy.current = true;
       setLoading(true);
+      onGeneratingChange?.(true);
       setLoadingPreset(preset.id);
       setError(null);
       try {
@@ -173,6 +132,8 @@ export function AIImageEditPanel({ imageUrl, isBusy, onEditComplete, onReplace, 
           image_url: imageUrl,
           preset: preset.id,
           user_prompt: presetInput[preset.id] || '',
+          productId,
+          contentGenerationId,
         });
         const result = await pollTaskResult(taskId);
         onEditComplete(result.image_url);
@@ -181,10 +142,11 @@ export function AIImageEditPanel({ imageUrl, isBusy, onEditComplete, onReplace, 
       } finally {
         isBusy.current = false;
         setLoading(false);
+        onGeneratingChange?.(false);
         setLoadingPreset(null);
       }
     },
-    [imageUrl, presetInput, onEditComplete, isBusy],
+    [imageUrl, productId, contentGenerationId, presetInput, onEditComplete, isBusy, onGeneratingChange],
   );
 
   const handleCustomSubmit = useCallback(async () => {
@@ -193,6 +155,7 @@ export function AIImageEditPanel({ imageUrl, isBusy, onEditComplete, onReplace, 
 
     isBusy.current = true;
     setLoading(true);
+    onGeneratingChange?.(true);
     setLoadingPreset('custom');
     setError(null);
     try {
@@ -200,6 +163,8 @@ export function AIImageEditPanel({ imageUrl, isBusy, onEditComplete, onReplace, 
         image_url: imageUrl,
         preset: 'custom',
         user_prompt: customPrompt.trim(),
+        productId,
+        contentGenerationId,
       });
       const result = await pollTaskResult(taskId);
       onEditComplete(result.image_url);
@@ -208,9 +173,10 @@ export function AIImageEditPanel({ imageUrl, isBusy, onEditComplete, onReplace, 
     } finally {
       isBusy.current = false;
       setLoading(false);
+      onGeneratingChange?.(false);
       setLoadingPreset(null);
     }
-  }, [imageUrl, customPrompt, onEditComplete, isBusy]);
+  }, [imageUrl, productId, contentGenerationId, customPrompt, onEditComplete, isBusy, onGeneratingChange]);
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -218,7 +184,7 @@ export function AIImageEditPanel({ imageUrl, isBusy, onEditComplete, onReplace, 
         {loading && (
           <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 rounded-lg border border-emerald-100">
             <Loader2 size={14} className="animate-spin text-emerald-600" />
-            <span className="text-xs font-medium text-emerald-700">AI 이미지 처리 중... (최대 120초)</span>
+            <span className="text-xs font-medium text-emerald-700">AI 이미지 처리 중...</span>
           </div>
         )}
 

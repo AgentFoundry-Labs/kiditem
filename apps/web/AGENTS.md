@@ -103,7 +103,7 @@ Route groups do not affect URLs:
 | `(inventory)` | inventory, inventory-hub, stock-ops, warehouses, unshipped-items, outbound |
 | `(orders)` | orders, order-hub, order-status-hub, returns, reviews, return-scan, cs-management |
 | `(finance)` | finance-hub, profit-loss, sales-analysis, supplier-hub, reports |
-| `(media-ai)` | thumbnails, thumbnail-editor, image-hub, generate |
+| `(media-ai)` | thumbnails, thumbnail-editor, generate |
 
 ## Large Components
 
