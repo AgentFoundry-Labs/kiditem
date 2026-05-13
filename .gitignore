@@ -9,6 +9,9 @@ build/
 
 # Generated files
 generated-thumbnails/
+# Next.js rewrites this with mode-specific route type imports
+# (`.next/types` during build, `.next/dev/types` during dev).
+apps/web/next-env.d.ts
 
 # Graphify — keep committed curated outputs, ignore temp build artifacts
 graphify-out/.erd-corpus/
