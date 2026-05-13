@@ -30,7 +30,12 @@ export default function RootLayout({
         <QueryProvider>
           <AppLayout>{children}</AppLayout>
         </QueryProvider>
-        <Toaster richColors position="top-right" />
+        <Toaster
+          richColors
+          closeButton
+          position="top-right"
+          toastOptions={{ closeButtonAriaLabel: "닫기" }}
+        />
       </body>
     </html>
   );

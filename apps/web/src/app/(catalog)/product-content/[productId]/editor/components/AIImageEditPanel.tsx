@@ -17,6 +17,8 @@ import { extractEditedImageUrl } from '../lib/image-edit-result';
 
 interface AIImageEditPanelProps {
   imageUrl: string;
+  productId?: string;
+  contentGenerationId?: string;
   isBusy: React.MutableRefObject<boolean>;
   onEditComplete: (newImageUrl: string) => void;
   onReplace: () => void;
@@ -58,6 +60,8 @@ async function submitImageEdit(params: {
   image_url: string;
   preset: string;
   user_prompt: string;
+  productId?: string;
+  contentGenerationId?: string;
 }): Promise<{ taskId: string }> {
   return apiClient.post<{ taskId: string }>('/api/image-ai/edit', params);
 }
@@ -99,6 +103,8 @@ async function pollTaskResult(taskId: string): Promise<{ image_url: string }> {
 
 export function AIImageEditPanel({
   imageUrl,
+  productId,
+  contentGenerationId,
   isBusy,
   onEditComplete,
   onReplace,
@@ -126,6 +132,8 @@ export function AIImageEditPanel({
           image_url: imageUrl,
           preset: preset.id,
           user_prompt: presetInput[preset.id] || '',
+          productId,
+          contentGenerationId,
         });
         const result = await pollTaskResult(taskId);
         onEditComplete(result.image_url);
@@ -138,7 +146,7 @@ export function AIImageEditPanel({
         setLoadingPreset(null);
       }
     },
-    [imageUrl, presetInput, onEditComplete, isBusy, onGeneratingChange],
+    [imageUrl, productId, contentGenerationId, presetInput, onEditComplete, isBusy, onGeneratingChange],
   );
 
   const handleCustomSubmit = useCallback(async () => {
@@ -155,6 +163,8 @@ export function AIImageEditPanel({
         image_url: imageUrl,
         preset: 'custom',
         user_prompt: customPrompt.trim(),
+        productId,
+        contentGenerationId,
       });
       const result = await pollTaskResult(taskId);
       onEditComplete(result.image_url);
@@ -166,7 +176,7 @@ export function AIImageEditPanel({
       onGeneratingChange?.(false);
       setLoadingPreset(null);
     }
-  }, [imageUrl, customPrompt, onEditComplete, isBusy, onGeneratingChange]);
+  }, [imageUrl, productId, contentGenerationId, customPrompt, onEditComplete, isBusy, onGeneratingChange]);
 
   return (
     <div className="flex-1 overflow-y-auto">

@@ -113,6 +113,82 @@ export class ContentAssetService {
     });
   }
 
+  async recordImageEditInputAsset(input: {
+    organizationId: string;
+    contentGenerationId: string;
+    masterId: NullableProductLink;
+    createdByUserId: string | null;
+    imageUrl: string;
+  }): Promise<PersistedContentAssetRef | null> {
+    const url = input.imageUrl.trim();
+    if (!url) return null;
+    const assetKey = `image-edit-input:${input.contentGenerationId}:0`;
+    await this.prisma.contentAsset.createMany({
+      skipDuplicates: true,
+      data: [{
+        organizationId: input.organizationId,
+        masterId: input.masterId,
+        contentGenerationId: input.contentGenerationId,
+        createdByUserId: input.createdByUserId,
+        assetKey,
+        url,
+        assetType: 'image',
+        sourceType: 'image_edit_input',
+        pipelineType: 'image_edit',
+        usageType: 'input',
+        originType: 'external_url',
+        role: 'source',
+        sortOrder: 0,
+        metadata: {},
+      }],
+    });
+    return this.prisma.contentAsset.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        assetKey,
+        isDeleted: false,
+      },
+      select: {
+        id: true,
+        assetKey: true,
+        url: true,
+        role: true,
+        label: true,
+        sortOrder: true,
+        usageType: true,
+        originType: true,
+      },
+    });
+  }
+
+  async recordImageEditOutputAsset(input: {
+    organizationId: string;
+    contentGenerationId: string;
+    masterId: NullableProductLink;
+    imageUrl: string;
+  }): Promise<void> {
+    const url = input.imageUrl.trim();
+    if (!url) return;
+    await this.prisma.contentAsset.createMany({
+      skipDuplicates: true,
+      data: [{
+        organizationId: input.organizationId,
+        masterId: input.masterId,
+        contentGenerationId: input.contentGenerationId,
+        assetKey: `image-edit-output:${input.contentGenerationId}:0`,
+        url,
+        assetType: 'image',
+        sourceType: 'image_edit_generated',
+        pipelineType: 'image_edit',
+        usageType: 'output',
+        originType: 'generated',
+        role: 'edited',
+        sortOrder: 0,
+        metadata: {},
+      }],
+    });
+  }
+
   async listAssets(
     organizationId: string,
     query: ContentAssetListQuery = {},

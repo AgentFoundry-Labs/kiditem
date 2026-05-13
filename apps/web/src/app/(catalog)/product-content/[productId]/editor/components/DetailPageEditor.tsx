@@ -71,6 +71,7 @@ interface DetailPageEditorProps {
   templateCss: string;
   productName: string;
   productId?: string;
+  contentGenerationId?: string;
   rawImages?: string[];
   processedImages?: string[];
   onSave: (html: string) => Promise<void> | void;
@@ -1971,6 +1972,7 @@ function RightPanel({
   onImageReplace,
   onImageClose,
   productId,
+  contentGenerationId,
   onAiFillComplete,
   onGeneratingChange,
   rawImages = [],
@@ -1986,6 +1988,7 @@ function RightPanel({
   onImageReplace: () => void;
   onImageClose: () => void;
   productId?: string;
+  contentGenerationId?: string;
   onAiFillComplete?: () => void;
   onGeneratingChange?: (v: boolean, component?: any, imageUrl?: string) => void;
   rawImages?: string[];
@@ -2255,6 +2258,8 @@ function RightPanel({
             component={selectedImageComponent}
             editor={editor}
             imageUrl={selectedImageSrc}
+            productId={productId}
+            contentGenerationId={contentGenerationId}
             isBusy={isBusy}
             onEditComplete={onImageEdited}
             onReplace={onImageReplace}
@@ -2546,6 +2551,7 @@ export default function DetailPageEditor({
   templateCss,
   productName,
   productId,
+  contentGenerationId,
   rawImages = [],
   processedImages = [],
   onSave,
@@ -2985,6 +2991,7 @@ export default function DetailPageEditor({
                   setSelectedImageSrc(null);
                 }}
                 productId={productId}
+                contentGenerationId={contentGenerationId}
                 onAiFillComplete={handleAiFillComplete}
                 onGeneratingChange={handleImageGeneratingChange}
                 rawImages={panelRawImages}

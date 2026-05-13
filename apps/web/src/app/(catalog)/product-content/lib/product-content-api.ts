@@ -122,6 +122,12 @@ export interface ProductContentWorkspaceDetailResponse {
   limit: number;
 }
 
+export interface DeleteProductContentWorkspaceResponse {
+  ok: true;
+  deletedGenerations: number;
+  deletedAssets: number;
+}
+
 export interface ProductContentWorkspaceParams {
   page?: number;
   limit?: number;
@@ -182,6 +188,21 @@ export const productContentApi = {
     return apiClient.get<ProductContentWorkspaceDetailResponse>(
       `/api/ai/content-archive/groups/${encodeURIComponent(groupId)}?${workspaceParams(params)}`,
     );
+  },
+  deleteWorkspace(
+    item: ProductContentWorkspaceItem,
+  ): Promise<DeleteProductContentWorkspaceResponse> {
+    if (item.workspaceType === 'product' && item.productId) {
+      return apiClient.delete<DeleteProductContentWorkspaceResponse>(
+        `/api/ai/content-archive/products/${encodeURIComponent(item.productId)}`,
+      );
+    }
+    if (item.workspaceType === 'unlinked_group' && item.generationGroupId) {
+      return apiClient.delete<DeleteProductContentWorkspaceResponse>(
+        `/api/ai/content-archive/groups/${encodeURIComponent(item.generationGroupId)}`,
+      );
+    }
+    throw new Error('Invalid product-content workspace');
   },
   listSourcingLinks(
     candidateId: string,

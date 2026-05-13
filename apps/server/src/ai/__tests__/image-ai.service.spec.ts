@@ -16,6 +16,31 @@ function makeOperationAlerts() {
   };
 }
 
+function makePrisma() {
+  return {
+    contentGeneration: {
+      findFirst: vi.fn(),
+      create: vi.fn(),
+      updateMany: vi.fn(),
+    },
+    contentGenerationGroup: {
+      create: vi.fn(),
+    },
+    contentGenerationSource: {
+      createMany: vi.fn(),
+    },
+    masterProduct: {
+      findFirst: vi.fn(),
+    },
+  };
+}
+
+function makeContentAssets() {
+  return {
+    recordImageEditInputAsset: vi.fn(),
+  };
+}
+
 function makeService(runnerResult: AgentRunnerResult) {
   const runner = {
     runByType: vi.fn(
@@ -28,8 +53,15 @@ function makeService(runnerResult: AgentRunnerResult) {
     }),
   } satisfies AgentRunnerPort;
   const operationAlerts = makeOperationAlerts();
-  const service = new ImageAiService(runner as never, operationAlerts as never);
-  return { service, runner, operationAlerts };
+  const prisma = makePrisma();
+  const contentAssets = makeContentAssets();
+  const service = new ImageAiService(
+    runner as never,
+    operationAlerts as never,
+    prisma as never,
+    contentAssets as never,
+  );
+  return { service, runner, operationAlerts, prisma, contentAssets };
 }
 
 describe('ImageAiService', () => {
@@ -123,7 +155,7 @@ describe('ImageAiService', () => {
         sourceType: 'agent_run_request',
         sourceId: 'request-9',
         actorUserId: USER_ID,
-        href: '/product-content?tab=assets',
+        href: '/product-content?contentType=image',
         metadata: expect.objectContaining({
           agentType: 'image_edit',
           preset: 'remove_background',
@@ -189,5 +221,77 @@ describe('ImageAiService', () => {
       ),
     ).rejects.toThrow(InternalServerErrorException);
     expect(operationAlerts.start).not.toHaveBeenCalled();
+  });
+
+  it('creates an image ContentGeneration ledger when called from the product-content editor', async () => {
+    const { service, runner, prisma, contentAssets, operationAlerts } = makeService({
+      ok: true,
+      requestId: 'request-ledger',
+      agentType: 'image_edit',
+      status: 'pending',
+    });
+    prisma.contentGeneration.findFirst.mockResolvedValue({
+      id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      masterId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+      generationGroupId: null,
+      generatedTitle: '상세페이지',
+    });
+    prisma.masterProduct.findFirst.mockResolvedValue({
+      id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+    });
+    prisma.contentGeneration.create.mockResolvedValue({
+      id: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+      masterId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+      generationGroupId: null,
+    });
+    contentAssets.recordImageEditInputAsset.mockResolvedValue({
+      id: 'dddddddd-dddd-dddd-dddd-dddddddddddd',
+      assetKey: 'image-edit-input:cccccccc-cccc-cccc-cccc-cccccccccccc:0',
+      url: 'https://example.com/a.png',
+      role: 'source',
+      label: null,
+      sortOrder: 0,
+      usageType: 'input',
+      originType: 'external_url',
+    });
+
+    await service.createEditTask(
+      {
+        image_url: 'https://example.com/a.png',
+        preset: 'custom',
+        user_prompt: '밝게',
+        productId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+        contentGenerationId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      },
+      ORGANIZATION_ID,
+      USER_ID,
+    );
+
+    expect(prisma.contentGeneration.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          organizationId: ORGANIZATION_ID,
+          masterId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+          contentType: 'image',
+          status: 'PROCESSING',
+        }),
+      }),
+    );
+    expect(prisma.contentGenerationSource.createMany).toHaveBeenCalled();
+    expect(runner.runByType).toHaveBeenCalledWith(
+      'image_edit',
+      expect.objectContaining({
+        sourceResourceType: 'content_generation',
+        sourceResourceId: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+      }),
+    );
+    expect(operationAlerts.start).toHaveBeenCalledWith(
+      expect.objectContaining({
+        href: '/product-content/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+        metadata: expect.objectContaining({
+          contentGenerationId: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+        }),
+      }),
+    );
   });
 });

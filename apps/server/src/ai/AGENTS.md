@@ -39,7 +39,9 @@ ai/
 | `POST /api/ai/detail-page/generate` without `productId` | async Agent OS | creates standalone `ContentGeneration` ledger inside a `ContentGenerationGroup` |
 | `GET /api/ai/content-archive/workspaces` | read model | product-content workspace index grouped by product or unlinked generation group |
 | `GET /api/ai/content-archive/products/:productId` | read model | generated detail-page/image rows for one product workspace |
+| `DELETE /api/ai/content-archive/products/:productId` | mutation | deletes generated content rows for one product workspace; does not delete `MasterProduct` |
 | `GET /api/ai/content-archive/groups/:groupId` | read model | generated rows for one unlinked workspace |
+| `DELETE /api/ai/content-archive/groups/:groupId` | mutation | deletes generated content rows for one unlinked workspace and its empty group row |
 | `POST /api/ai/content-archive/groups/:groupId/attach-product` | mutation | attaches all group generations to a MasterProduct by setting `ContentGeneration.masterId` |
 | `POST /api/ai/content-archive/:generationId/rerun` | async Agent OS | creates a same-input rerun in the explicit generation group |
 | `GET /api/ai/content-archive/sourcing/:candidateId` | read model | sourcing-candidate provenance links into produced content |
@@ -142,10 +144,13 @@ Nest AI domain:
 
 ```text
 HTTP DTO or /api/agent-os/runs
+  -> ImageAiService creates ContentGeneration(contentType='image') when product/content context is provided
   -> AGENT_RUNNER_PORT.runByType('image_edit')
   -> image-edit runtime handler
   -> IMAGE_EDIT_MEDIA_PORT (Gemini image adapter)
   -> Storage URL output { image_url }
+  -> bridge
+  -> sink READY/FAILED + generated ContentAsset output
 ```
 
 The runtime uses `ctx.model` from Agent OS as the provider model. Do not read

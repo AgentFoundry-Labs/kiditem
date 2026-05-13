@@ -39,14 +39,14 @@ product-content/
 - Unlinked workspace reads `GET /api/ai/content-archive/groups/:groupId`.
 - Attach action calls
   `POST /api/ai/content-archive/groups/:groupId/attach-product`.
-- Same-input rerun calls `POST /api/ai/content-archive/:generationId/rerun`.
+- `재생성` calls `POST /api/ai/content-archive/:generationId/rerun`.
 - Editor reads `GET /api/ai/detail-page/:generationId`.
 - Editor saves HTML through
   `POST /api/ai/detail-page/:generationId/edited-html`.
 - Alert/toast hrefs for completed detail-page generation point to
   `/product-content/detail-pages/{contentGenerationId}/editor`.
 - Product workspace `추가 생성` starts a new generation for that target
-  product. `동일 입력` reruns an existing generation into its explicit group.
+  product. `재생성` reruns an existing generation into its explicit group.
 - Legacy `/sourcing/{id}/editor?kpId=...` and `?boldId=...` links normalize
   to the product-content editor. Legacy
   `/product-content/{masterId}/editor?generationId=...` also redirects to the

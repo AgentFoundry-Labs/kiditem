@@ -3,9 +3,11 @@
 import { Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Sparkles } from 'lucide-react';
+import { toast } from 'sonner';
 import { Pagination } from '@/components/ui/Pagination';
+import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { formatNumber } from '@/lib/utils';
 import { ProductContentWorkspaceCard } from './components/ProductContentWorkspaceCard';
@@ -16,6 +18,7 @@ import {
 import { productContentApi } from './lib/product-content-api';
 
 const PAGE_SIZE = 24;
+type WorkspaceItem = Awaited<ReturnType<typeof productContentApi.listWorkspaces>>['items'][number];
 
 export default function ProductContentPage() {
   return (
@@ -28,6 +31,7 @@ export default function ProductContentPage() {
 function ProductContentWorkspace() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
   const [page, setPage] = useState(Number(searchParams.get('page') ?? '1') || 1);
   const filters: ProductContentWorkspaceFilterValue = {
     contentType: parseContentType(searchParams.get('contentType')),
@@ -43,6 +47,16 @@ function ProductContentWorkspace() {
     queryKey: queryKeys.productContent.workspaces(toQueryKey(params)),
     queryFn: () => productContentApi.listWorkspaces(params),
   });
+  const deleteWorkspace = useMutation({
+    mutationFn: productContentApi.deleteWorkspace,
+    onSuccess: async () => {
+      toast.success('workspace를 삭제했습니다.');
+      await queryClient.invalidateQueries({ queryKey: queryKeys.productContent.all });
+    },
+    onError: (err) => {
+      toast.error(isApiError(err) ? err.detail : 'workspace 삭제에 실패했습니다.');
+    },
+  });
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
 
@@ -52,6 +66,10 @@ function ProductContentWorkspace() {
     if (next.contentType) qs.set('contentType', next.contentType);
     if (next.linkState) qs.set('linkState', next.linkState);
     router.replace(qs.size > 0 ? `/product-content?${qs}` : '/product-content');
+  };
+  const handleDeleteWorkspace = (item: WorkspaceItem) => {
+    if (!confirm(`"${item.title}" workspace와 생성 결과를 삭제할까요?`)) return;
+    deleteWorkspace.mutate(item);
   };
 
   return (
@@ -81,7 +99,12 @@ function ProductContentWorkspace() {
             {formatNumber(total)} workspace
           </div>
         </div>
-        <WorkspaceGrid items={items} isLoading={isLoading} />
+        <WorkspaceGrid
+          items={items}
+          isLoading={isLoading}
+          deletingWorkspaceId={deleteWorkspace.isPending ? deleteWorkspace.variables?.id ?? null : null}
+          onDeleteWorkspace={handleDeleteWorkspace}
+        />
         <div className="mt-5">
           <Pagination
             page={page}
@@ -104,9 +127,13 @@ function ProductContentWorkspace() {
 function WorkspaceGrid({
   items,
   isLoading,
+  deletingWorkspaceId,
+  onDeleteWorkspace,
 }: {
-  items: Awaited<ReturnType<typeof productContentApi.listWorkspaces>>['items'];
+  items: WorkspaceItem[];
   isLoading: boolean;
+  deletingWorkspaceId: string | null;
+  onDeleteWorkspace: (item: WorkspaceItem) => void;
 }) {
   if (isLoading) return <GridSkeleton />;
   if (items.length === 0) {
@@ -125,7 +152,12 @@ function WorkspaceGrid({
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
       {items.map((item) => (
-        <ProductContentWorkspaceCard key={item.id} item={item} />
+        <ProductContentWorkspaceCard
+          key={item.id}
+          item={item}
+          isDeleting={deletingWorkspaceId === item.id}
+          onDelete={() => onDeleteWorkspace(item)}
+        />
       ))}
     </div>
   );

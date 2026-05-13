@@ -214,6 +214,7 @@ function ProductContentEditorPageContent() {
             templateCss={templateCss}
             productName={editorData?.productName ?? ''}
             productId={productId}
+            contentGenerationId={activeEntry?.id}
             rawImages={editorData?.rawImages ?? []}
             processedImages={editorData?.processedImages ?? []}
             onSave={handleSave}

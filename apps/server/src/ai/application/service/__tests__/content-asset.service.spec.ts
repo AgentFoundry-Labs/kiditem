@@ -138,6 +138,70 @@ describe('ContentAssetService', () => {
     });
   });
 
+  it('records image-edit input and output assets under the image_edit pipeline', async () => {
+    const prisma = {
+      contentAsset: {
+        createMany: vi.fn().mockResolvedValue({ count: 1 }),
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'asset-input',
+          assetKey: `image-edit-input:${GENERATION_ID}:0`,
+          url: 'https://example.com/source.jpg',
+          role: 'source',
+          label: null,
+          sortOrder: 0,
+          usageType: 'input',
+          originType: 'external_url',
+        }),
+      },
+    };
+    const service = new ContentAssetService(prisma as never);
+
+    await expect(
+      service.recordImageEditInputAsset({
+        organizationId: ORG,
+        contentGenerationId: GENERATION_ID,
+        masterId: MASTER_ID,
+        createdByUserId: USER_ID,
+        imageUrl: 'https://example.com/source.jpg',
+      }),
+    ).resolves.toEqual(expect.objectContaining({ id: 'asset-input' }));
+
+    await service.recordImageEditOutputAsset({
+      organizationId: ORG,
+      contentGenerationId: GENERATION_ID,
+      masterId: MASTER_ID,
+      imageUrl: 'https://cdn.example.com/edited.jpg',
+    });
+
+    expect(prisma.contentAsset.createMany).toHaveBeenNthCalledWith(1, {
+      skipDuplicates: true,
+      data: [
+        expect.objectContaining({
+          assetKey: `image-edit-input:${GENERATION_ID}:0`,
+          sourceType: 'image_edit_input',
+          pipelineType: 'image_edit',
+          usageType: 'input',
+          originType: 'external_url',
+          role: 'source',
+        }),
+      ],
+    });
+    expect(prisma.contentAsset.createMany).toHaveBeenNthCalledWith(2, {
+      skipDuplicates: true,
+      data: [
+        expect.objectContaining({
+          assetKey: `image-edit-output:${GENERATION_ID}:0`,
+          url: 'https://cdn.example.com/edited.jpg',
+          sourceType: 'image_edit_generated',
+          pipelineType: 'image_edit',
+          usageType: 'output',
+          originType: 'generated',
+          role: 'edited',
+        }),
+      ],
+    });
+  });
+
   it('lists non-deleted assets with organization and optional product scope', async () => {
     const createdAt = new Date('2026-05-13T09:00:00.000Z');
     const updatedAt = new Date('2026-05-13T09:30:00.000Z');

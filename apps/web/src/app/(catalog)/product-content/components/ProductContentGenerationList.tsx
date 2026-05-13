@@ -30,7 +30,7 @@ export function ProductContentGenerationList({
   const rerun = useMutation({
     mutationFn: (generationId: string) => productContentApi.rerunSameInput(generationId),
     onSuccess: () => {
-      toast.success('동일 입력으로 다시 생성을 시작했습니다.');
+      toast.success('재생성을 시작했습니다.');
       void queryClient.invalidateQueries({ queryKey: queryKeys.productContent.all });
     },
     onError: () => toast.error('다시 생성 요청에 실패했습니다.'),
@@ -126,7 +126,7 @@ export function ProductContentGenerationList({
                   className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-black text-[var(--text-primary)] transition hover:bg-[var(--surface-sunken)] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <RefreshCw size={13} className={rerun.isPending ? 'animate-spin' : undefined} />
-                  동일 입력
+                  재생성
                 </button>
               )}
             </div>

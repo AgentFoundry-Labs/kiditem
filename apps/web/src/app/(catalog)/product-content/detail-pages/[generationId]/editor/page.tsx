@@ -149,6 +149,7 @@ function ContentGenerationEditorPageContent() {
             templateCss={templateCss}
             productName={entry.productName ?? ''}
             productId={entry.productId ?? undefined}
+            contentGenerationId={generationId}
             rawImages={entry.imageUrls}
             processedImages={Object.values(entry.processedImages)}
             onSave={handleSave}

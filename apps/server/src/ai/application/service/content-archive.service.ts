@@ -188,6 +188,75 @@ export class ContentArchiveService {
     };
   }
 
+  async deleteProductWorkspace(
+    organizationId: string,
+    productId: string,
+  ): Promise<{ ok: true; deletedGenerations: number; deletedAssets: number }> {
+    return this.prisma.$transaction(async (tx) => {
+      const rows = await tx.contentGeneration.findMany({
+        where: { organizationId, masterId: productId },
+        select: { id: true, generationGroupId: true },
+      });
+      if (rows.length === 0) {
+        throw new NotFoundException('Product content workspace not found');
+      }
+
+      const result = await this.deleteGenerationRows(
+        tx,
+        organizationId,
+        rows.map((row) => row.id),
+      );
+      const groupIds = [...new Set(rows
+        .map((row) => row.generationGroupId)
+        .filter((id): id is string => typeof id === 'string'))];
+      if (groupIds.length > 0) {
+        await tx.contentGenerationGroup.deleteMany({
+          where: {
+            organizationId,
+            id: { in: groupIds },
+            generations: { none: {} },
+          },
+        });
+      }
+      return result;
+    });
+  }
+
+  async deleteGroupWorkspace(
+    organizationId: string,
+    groupId: string,
+  ): Promise<{ ok: true; deletedGenerations: number; deletedAssets: number }> {
+    return this.prisma.$transaction(async (tx) => {
+      const group = await tx.contentGenerationGroup.findFirst({
+        where: { id: groupId, organizationId },
+        select: { id: true },
+      });
+      if (!group) throw new NotFoundException('Content generation group not found');
+
+      const rows = await tx.contentGeneration.findMany({
+        where: { organizationId, generationGroupId: groupId, masterId: null },
+        select: { id: true },
+      });
+      if (rows.length === 0) {
+        throw new NotFoundException('Unlinked content workspace not found');
+      }
+
+      const result = await this.deleteGenerationRows(
+        tx,
+        organizationId,
+        rows.map((row) => row.id),
+      );
+      await tx.contentGenerationGroup.deleteMany({
+        where: {
+          id: groupId,
+          organizationId,
+          generations: { none: {} },
+        },
+      });
+      return result;
+    });
+  }
+
   async listForSourcingCandidate(
     organizationId: string,
     candidateId: string,
@@ -366,6 +435,30 @@ export class ContentArchiveService {
   private pickThumbnail(row: GenerationRow): string | null {
     const processed = asStringRecord(row.processedImages);
     return processed.__heroBanner ?? row.assets[0]?.url ?? pickFirstString(row.originalImages);
+  }
+
+  private async deleteGenerationRows(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    generationIds: string[],
+  ): Promise<{ ok: true; deletedGenerations: number; deletedAssets: number }> {
+    const now = new Date();
+    const assetResult = await tx.contentAsset.updateMany({
+      where: {
+        organizationId,
+        contentGenerationId: { in: generationIds },
+        isDeleted: false,
+      },
+      data: { isDeleted: true, deletedAt: now },
+    });
+    const generationResult = await tx.contentGeneration.deleteMany({
+      where: { organizationId, id: { in: generationIds } },
+    });
+    return {
+      ok: true,
+      deletedGenerations: generationResult.count,
+      deletedAssets: assetResult.count,
+    };
   }
 }
 
