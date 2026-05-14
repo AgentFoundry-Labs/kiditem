@@ -1,99 +1,25 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense } from 'react';
 import Link from 'next/link';
-import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import {
   ClipboardList, Sparkles, Play, Check, X,
   RefreshCw, ExternalLink, Loader2, ChevronDown,
   MessageSquare, Clock, Send, Package, User,
 } from 'lucide-react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
 import PageSkeleton from '@/components/ui/PageSkeleton';
-import { apiClient } from '@/lib/api-client';
-import { isApiError } from '@/lib/api-error';
-import { queryKeys } from '@/lib/query-keys';
 import { cn } from '@/lib/utils';
-import { useAuth } from '@/hooks/useAuth';
-import { parseActionResult, type ActionResult } from './lib/actions';
-import type { ActionTask } from '@kiditem/shared/action-task';
-
-type ViewMode = 'status' | 'role' | 'priority';
-type Scope = 'me' | 'team' | 'all';
-
-const VIEW_TABS: { key: ViewMode; label: string }[] = [
-  { key: 'status', label: '상태별' },
-  { key: 'role', label: '역할별' },
-  { key: 'priority', label: '우선순위별' },
-];
-
-const SCOPE_TABS: { key: Scope; label: string }[] = [
-  { key: 'all', label: '전체' },
-  { key: 'me', label: '내 것' },
-  { key: 'team', label: '팀' },
-];
-
-const STATUS_COLS = [
-  { key: 'pending', label: '대기', dot: 'bg-slate-400', badge: 'bg-slate-100 text-slate-600' },
-  { key: 'active', label: '진행 중', dot: 'bg-blue-500', badge: 'bg-blue-100 text-blue-700' },
-  { key: 'done', label: '완료', dot: 'bg-emerald-500', badge: 'bg-emerald-100 text-emerald-700' },
-];
-
-const ROLE_COLS = [
-  { key: 'ad', label: '광고', dot: 'bg-rose-500', badge: 'bg-rose-100 text-rose-700' },
-  { key: 'inventory', label: '재고/소싱', dot: 'bg-amber-500', badge: 'bg-amber-100 text-amber-700' },
-  { key: 'finance', label: '재무/분석', dot: 'bg-violet-500', badge: 'bg-violet-100 text-violet-700' },
-  { key: 'data', label: '데이터', dot: 'bg-cyan-500', badge: 'bg-cyan-100 text-cyan-700' },
-];
-
-const PRIORITY_COLS = [
-  { key: 'urgent', label: '긴급', dot: 'bg-red-500', badge: 'bg-red-100 text-red-700' },
-  { key: 'high', label: '높음', dot: 'bg-amber-500', badge: 'bg-amber-100 text-amber-700' },
-  { key: 'medium', label: '보통', dot: 'bg-blue-500', badge: 'bg-blue-100 text-blue-700' },
-];
-
-const STATUS_OPTIONS = [
-  { value: 'pending', label: '대기', color: 'bg-slate-100 text-slate-600' },
-  { value: 'active', label: '진행중', color: 'bg-blue-100 text-blue-700' },
-  { value: 'done', label: '완료', color: 'bg-emerald-100 text-emerald-700' },
-];
-
-const PRIORITY_OPTIONS = [
-  { value: 'urgent', label: '긴급', color: 'bg-red-100 text-red-700' },
-  { value: 'high', label: '높음', color: 'bg-amber-100 text-amber-700' },
-  { value: 'medium', label: '보통', color: 'bg-blue-100 text-blue-700' },
-];
-
-const ROLE_LABELS: Record<string, string> = {
-  ad: '광고', inventory: '재고/소싱', finance: '재무/분석', data: '데이터',
-};
-
-function getRole(taskKey: string): string {
-  if (/ad|roas|campaign/.test(taskKey)) return 'ad';
-  if (/stock|reorder|inventory/.test(taskKey)) return 'inventory';
-  if (/profit|category|grade|deficit|price/.test(taskKey)) return 'finance';
-  if (/sync|scrape|ctr|csv|thumbnail|review/.test(taskKey)) return 'data';
-  return 'ad';
-}
-
-function formatLogTime(ts: string) {
-  try {
-    return new Date(ts).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
-  } catch {
-    return ts;
-  }
-}
-
-export function severityBgColor(severity: string): string {
-  switch (severity) {
-    case 'info': return 'bg-blue-100 text-blue-700';
-    case 'warning': return 'bg-amber-100 text-amber-700';
-    case 'error': return 'bg-red-100 text-red-700';
-    case 'critical': return 'bg-red-200 text-red-800';
-    default: return 'bg-slate-100 text-slate-600';
-  }
-}
+import { useActionBoardWorkflow } from './hooks/useActionBoardWorkflow';
+import {
+  PRIORITY_OPTIONS,
+  ROLE_LABELS,
+  SCOPE_TABS,
+  STATUS_OPTIONS,
+  VIEW_TABS,
+  formatActionBoardTime,
+  getActionTaskRole,
+  severityBgColor,
+} from './lib/action-board-columns';
 
 export default function ActionBoardPage() {
   return (
@@ -104,131 +30,29 @@ export default function ActionBoardPage() {
 }
 
 function ActionBoardContent() {
-  const queryClient = useQueryClient();
-  const searchParams = useSearchParams();
-  const router = useRouter();
-  const pathname = usePathname();
-
-  const [viewMode, setViewMode] = useState<ViewMode>('status');
-  const [selectedTask, setSelectedTask] = useState<ActionTask | null>(null);
-  const [noteText, setNoteText] = useState('');
-  const [drawerResult, setDrawerResult] = useState<ActionResult[] | null>(null);
-
-  const scope = (searchParams.get('scope') as Scope | null) ?? 'all';
-
-  const setScope = (next: Scope) => {
-    const params = new URLSearchParams(searchParams.toString());
-    if (next === 'all') params.delete('scope');
-    else params.set('scope', next);
-    const qs = params.toString();
-    router.push(qs ? `${pathname}?${qs}` : pathname);
-  };
-
-  const { user } = useAuth();
-  const currentUserId = user?.id ?? null;
-
-  // ── Data fetching ──
-  const { data: tasks = [], isLoading } = useQuery({
-    queryKey: queryKeys.actionTasks.list(scope),
-    queryFn: () => apiClient.get<ActionTask[]>(
-      scope === 'all' ? '/api/action-tasks' : `/api/action-tasks?assignedTo=${scope}`,
-    ),
-    refetchInterval: 60_000,
-  });
-
-  // ── Mutations ──
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: queryKeys.actionTasks.all });
-
-  const updateMutation = useMutation({
-    mutationFn: ({ id, ...body }: { id: string; status?: string; priority?: string }) =>
-      apiClient.patch<ActionTask>(`/api/action-tasks/${id}`, body),
-    onSuccess: (updated) => {
-      invalidate();
-      if (selectedTask?.id === updated.id) setSelectedTask(updated);
-    },
-  });
-
-  const noteMutation = useMutation({
-    mutationFn: ({ id, text }: { id: string; text: string }) =>
-      apiClient.post<ActionTask>(`/api/action-tasks/${id}/notes`, { text }),
-    onSuccess: (updated) => {
-      invalidate();
-      if (selectedTask?.id === updated.id) setSelectedTask(updated);
-      setNoteText('');
-    },
-  });
-
-  const executeMutation = useMutation({
-    mutationFn: (id: string) =>
-      apiClient.post<ActionTask>(`/api/action-tasks/${id}/execute`),
-    onSuccess: (updated) => {
-      invalidate();
-      if (selectedTask?.id === updated.id) {
-        setSelectedTask(updated);
-        if (updated.result) {
-          setDrawerResult(parseActionResult(updated.taskKey, updated.result));
-        }
-      }
-    },
-    onError: (err) => {
-      const msg = isApiError(err) ? err.detail : err instanceof Error ? err.message : '실행 실패';
-      setDrawerResult([{ label: '오류', value: msg, highlight: true }]);
-    },
-  });
-
-  const claimMutation = useMutation({
-    mutationFn: (taskId: string) => apiClient.patch<ActionTask>(`/api/action-tasks/${taskId}/claim`, {}),
-    onSuccess: () => {
-      invalidate();
-      toast.success('맡았습니다');
-    },
-    onError: (err) => {
-      if (isApiError(err) && err.status === 409) {
-        toast.error('이미 다른 사람이 맡았습니다');
-      } else {
-        toast.error('실패');
-      }
-    },
-  });
-
-  const unclaimMutation = useMutation({
-    mutationFn: (taskId: string) => apiClient.patch<ActionTask>(`/api/action-tasks/${taskId}/unclaim`, {}),
-    onSuccess: () => {
-      invalidate();
-      toast.success('해제했습니다');
-    },
-    onError: (err) => {
-      if (isApiError(err) && err.status === 409) {
-        toast.error('본인 담당 업무만 해제할 수 있습니다');
-      } else {
-        toast.error('실패');
-      }
-    },
-  });
-
-  // ── Helpers ──
-  function getColumnKey(task: ActionTask): string {
-    if (viewMode === 'status') return task.status;
-    if (viewMode === 'role') return task.role || getRole(task.taskKey);
-    return task.priority;
-  }
-
-  function getColumns() {
-    if (viewMode === 'status') return STATUS_COLS;
-    if (viewMode === 'role') return ROLE_COLS;
-    return PRIORITY_COLS;
-  }
-
-  function openDrawer(task: ActionTask) {
-    setSelectedTask(task);
-    setDrawerResult(null);
-    setNoteText('');
-    if (task.type === 'ai' && task.result) {
-      setDrawerResult(parseActionResult(task.taskKey, task.result));
-    }
-  }
-
-  const columns = getColumns();
+  const {
+    viewMode,
+    setViewMode,
+    selectedTask,
+    noteText,
+    setNoteText,
+    drawerResult,
+    scope,
+    setScope,
+    currentUserId,
+    tasks,
+    isLoading,
+    refreshTasks,
+    updateMutation,
+    noteMutation,
+    executeMutation,
+    claimMutation,
+    unclaimMutation,
+    getColumnKey,
+    columns,
+    openDrawer,
+    closeDrawer,
+  } = useActionBoardWorkflow();
 
   if (isLoading) return <PageSkeleton variant="table" />;
 
@@ -261,7 +85,7 @@ function ActionBoardContent() {
             ))}
           </div>
           <button
-            onClick={() => invalidate()}
+            onClick={() => refreshTasks()}
             className="p-1.5 text-slate-400 hover:text-slate-600 rounded-md hover:bg-slate-100 transition-colors"
           >
             <RefreshCw size={16} />
@@ -322,7 +146,7 @@ function ActionBoardContent() {
                         onClick={() => openDrawer(task)}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') openDrawer(task);
-                          if (e.key === 'Escape') setSelectedTask(null);
+                          if (e.key === 'Escape') closeDrawer();
                         }}
                         className={cn(
                           'rounded-lg border p-3 shadow-sm cursor-pointer transition-all hover:shadow-md',
@@ -462,7 +286,7 @@ function ActionBoardContent() {
       {selectedTask && (
         <div
           className="fixed inset-0 bg-black/20 z-40"
-          onClick={() => setSelectedTask(null)}
+          onClick={closeDrawer}
         />
       )}
 
@@ -470,7 +294,7 @@ function ActionBoardContent() {
       <div
         role="dialog"
         aria-label="상세 정보"
-        onKeyDown={(e) => { if (e.key === 'Escape') setSelectedTask(null); }}
+        onKeyDown={(e) => { if (e.key === 'Escape') closeDrawer(); }}
         className={cn(
           'fixed right-0 top-0 h-full w-[420px] bg-white shadow-2xl border-l border-slate-200 z-50',
           'transform transition-transform duration-300',
@@ -494,7 +318,7 @@ function ActionBoardContent() {
                 )}
               </div>
               <button
-                onClick={() => setSelectedTask(null)}
+                onClick={closeDrawer}
                 className="p-1 text-slate-400 hover:text-slate-600 rounded"
               >
                 <X size={16} />
@@ -540,9 +364,9 @@ function ActionBoardContent() {
                 </div>
 
                 {/* Role tag */}
-                {(selectedTask.role || getRole(selectedTask.taskKey)) && (
+                {(selectedTask.role || getActionTaskRole(selectedTask.taskKey)) && (
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 font-medium">
-                    {ROLE_LABELS[selectedTask.role || getRole(selectedTask.taskKey)] ?? selectedTask.role}
+                    {ROLE_LABELS[selectedTask.role || getActionTaskRole(selectedTask.taskKey)] ?? selectedTask.role}
                   </span>
                 )}
               </div>
@@ -723,7 +547,7 @@ function ActionBoardContent() {
                   <div className="space-y-2">
                     {[...selectedTask.notes].reverse().map((note, i) => (
                       <div key={i} className="text-[11px] text-slate-500 flex gap-2">
-                        <span className="text-slate-400 shrink-0">{formatLogTime(note.createdAt)}</span>
+                        <span className="text-slate-400 shrink-0">{formatActionBoardTime(note.createdAt)}</span>
                         <span>{note.text}</span>
                       </div>
                     ))}
@@ -753,7 +577,7 @@ function ActionBoardContent() {
                           {log.action === 'note_added' && '메모 추가'}
                           {log.action === 'executed' && 'AI 실행 완료'}
                         </span>
-                        <span className="text-slate-300 ml-auto shrink-0">{formatLogTime(log.timestamp)}</span>
+                        <span className="text-slate-300 ml-auto shrink-0">{formatActionBoardTime(log.timestamp)}</span>
                       </div>
                     ))}
                   </div>
