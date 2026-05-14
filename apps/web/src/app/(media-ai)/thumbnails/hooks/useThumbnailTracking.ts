@@ -2,13 +2,13 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type {
   ThumbnailTrackingListResponse,
   ThumbnailTrackingRecord,
-  UpdateThumbnailTrackingMetricsInput,
+  UpdateThumbnailTrackingMetrics,
 } from '@kiditem/shared/ai';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 
 export type { ThumbnailTrackingRecord };
-export type UpdateMetricsInput = UpdateThumbnailTrackingMetricsInput;
+export type UpdateMetricsInput = UpdateThumbnailTrackingMetrics;
 type TrackingStatus = ThumbnailTrackingRecord['status'];
 
 export function useTrackingList(

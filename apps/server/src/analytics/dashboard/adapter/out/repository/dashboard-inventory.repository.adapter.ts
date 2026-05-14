@@ -11,7 +11,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 import { buildPerListingMetrics } from '../../../../../common/per-listing-profit';
-import type { AlertItemDashboard } from '@kiditem/shared/dashboard';
+import type { DashboardAlertItem } from '@kiditem/shared/dashboard';
 import type {
   DashboardInventoryRepositoryPort,
   DashboardPerListingMetrics,
@@ -49,7 +49,7 @@ export class DashboardInventoryRepositoryAdapter
   async findUnreadAlerts(
     organizationId: string,
     limit: number,
-  ): Promise<AlertItemDashboard[]> {
+  ): Promise<DashboardAlertItem[]> {
     const rows = await this.prisma.alert.findMany({
       where: { organizationId, isRead: false },
       orderBy: { createdAt: 'desc' },
@@ -57,8 +57,8 @@ export class DashboardInventoryRepositoryAdapter
     });
     return rows.map((a) => ({
       id: a.id,
-      kind: a.kind as AlertItemDashboard['kind'],
-      status: a.status as AlertItemDashboard['status'],
+      kind: a.kind as DashboardAlertItem['kind'],
+      status: a.status as DashboardAlertItem['status'],
       type: a.type,
       severity: a.severity,
       title: a.title,
@@ -71,7 +71,7 @@ export class DashboardInventoryRepositoryAdapter
       isRead: a.isRead,
       createdAt: a.createdAt,
       updatedAt: a.updatedAt,
-    } satisfies AlertItemDashboard));
+    } satisfies DashboardAlertItem));
   }
 
   async countActiveProducts(organizationId: string): Promise<number> {
