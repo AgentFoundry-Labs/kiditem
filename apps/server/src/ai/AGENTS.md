@@ -37,7 +37,7 @@ ai/
 | `POST /api/text-ai/transform` | sync | `TEXT_COMPLETION_PORT` only |
 | `POST /api/ai/detail-page/generate` with `productId` | async Agent OS | creates product-bound `ContentGeneration` ledger |
 | `POST /api/ai/detail-page/generate` without `productId` | async Agent OS | creates standalone `ContentGeneration` ledger inside a `ContentGenerationGroup` |
-| `GET /api/ai/content-archive/workspaces` | read model | product-content workspace index grouped by product or unlinked generation group |
+| `GET /api/ai/content-archive/workspaces` | read model | generated content workspace index grouped by product or unlinked generation group |
 | `GET /api/ai/content-archive/products/:productId` | read model | generated detail-page/image rows for one product workspace |
 | `DELETE /api/ai/content-archive/products/:productId` | mutation | deletes generated content rows for one product workspace; does not delete `MasterProduct` |
 | `GET /api/ai/content-archive/groups/:groupId` | read model | generated rows for one unlinked workspace |

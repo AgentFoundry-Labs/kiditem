@@ -47,10 +47,10 @@ export function LinkedProducedContentPanel({
         </div>
         {promotedMasterId && (
           <Link
-            href={`/product-content/${promotedMasterId}`}
+            href={`/sourcing?masterId=${encodeURIComponent(promotedMasterId)}`}
             className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 hover:text-emerald-700"
           >
-            상품 workspace
+            상품 연결
             <ExternalLink size={12} />
           </Link>
         )}
@@ -66,7 +66,7 @@ export function LinkedProducedContentPanel({
           {items.map((item) => (
             <Link
               key={item.id}
-              href={item.href ?? (item.productId ? `/product-content/${item.productId}` : '/product-content')}
+              href={item.href ?? '/sourcing'}
               className="flex items-center justify-between gap-3 rounded-md border border-slate-200 px-3 py-2 transition hover:bg-slate-50"
             >
               <span className="min-w-0">

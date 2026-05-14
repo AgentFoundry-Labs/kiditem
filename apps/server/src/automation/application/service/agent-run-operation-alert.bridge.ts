@@ -38,7 +38,7 @@ import { OperationAlertService } from './operation-alert.service';
  * `/dashboard` so the user at least sees the failure in their Alert inbox.
  */
 function mapSourceToHref(source: string): string {
-  if (source === 'ai.image_edit') return '/product-content?tab=assets';
+  if (source === 'ai.image_edit') return '/sourcing?contentType=image';
   if (source === 'advertising.ad_strategy.manual') return '/ad-ops';
   if (source === 'sourcing.scrape_url') return '/sourcing';
   if (

@@ -29,9 +29,9 @@ import { cn } from '@/lib/utils';
 import {
   SAME_ORIGIN_SCRIPTLESS_SANDBOX,
   stripSrcDocScripts,
-} from '@/app/(catalog)/product-content/lib/preview-sandbox';
-import { ensureStyledDetailHtml } from '@/app/(catalog)/product-content/lib/template-html';
-import { buildProductContentEditorHref } from '@/app/(catalog)/product-content/lib/product-content-routing';
+} from '@/app/(sourcing)/sourcing/lib/preview-sandbox';
+import { ensureStyledDetailHtml } from '@/app/(sourcing)/sourcing/lib/template-html';
+import { buildSourcingEditorHref } from '@/app/(sourcing)/sourcing/lib/sourcing-routing';
 import {
   rowThumbnail,
   rowDisplaySubtitle,
@@ -314,11 +314,11 @@ function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
   const sandboxedHtml = useMemo(() => (html ? stripSrcDocScripts(html) : null), [html]);
   const isPreviewLoading = isEntryLoading || templateCss == null || !editedHtmlLoaded;
   const editorHref = useMemo(
-    () => buildProductContentEditorHref({
-      productId: previewEntry.productId,
+    () => buildSourcingEditorHref({
+      candidateId: sourceCandidateIdFromGeneration(previewEntry),
       generationId: previewEntry.id,
     }),
-    [previewEntry.id, previewEntry.productId],
+    [previewEntry],
   );
 
   const handleOpenEditor = useCallback(() => {
@@ -411,4 +411,22 @@ function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
       </div>
     </div>
   );
+}
+
+function sourceCandidateIdFromGeneration(entry: KidsPlayfulGenerationItem): string | null {
+  const rawInput = entry.rawInput;
+  if (!rawInput || typeof rawInput !== 'object') return null;
+  const sourceReferences = (rawInput as { sourceReferences?: unknown }).sourceReferences;
+  if (!Array.isArray(sourceReferences)) return null;
+  for (const ref of sourceReferences) {
+    if (
+      ref &&
+      typeof ref === 'object' &&
+      (ref as { sourceType?: unknown }).sourceType === 'sourcing_candidate' &&
+      typeof (ref as { sourceCandidateId?: unknown }).sourceCandidateId === 'string'
+    ) {
+      return (ref as { sourceCandidateId: string }).sourceCandidateId;
+    }
+  }
+  return null;
 }

@@ -222,6 +222,9 @@ export class DetailPageGenerationService {
       sourceReferences: input.sourceReferences,
       inputAssets,
     });
+    const primarySourceCandidateId =
+      input.sourceReferences.find((ref) => ref.sourceType === 'sourcing_candidate')
+        ?.sourceCandidateId ?? null;
 
     await this.operationAlerts.start({
       organizationId: input.organizationId,
@@ -235,10 +238,15 @@ export class DetailPageGenerationService {
       targetId: input.productId ?? row.id,
       href: detailPageResultHref({
         productId: targetMaster?.id ?? null,
+        sourceCandidateId: primarySourceCandidateId,
         contentGenerationId: row.id,
         templateId: input.templateId,
       }),
-      metadata: { templateId: input.templateId, imageCount: input.imageUrls.length },
+      metadata: {
+        templateId: input.templateId,
+        imageCount: input.imageUrls.length,
+        sourceCandidateId: primarySourceCandidateId,
+      },
     });
 
     const enqueueResult = await this.agentRunner.runByType(

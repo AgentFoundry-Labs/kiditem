@@ -12,11 +12,15 @@ import {
   Sparkles,
   XCircle,
 } from 'lucide-react';
+import type { DetailPageTemplateId } from '@kiditem/shared/ai';
 import type { SourcingCandidateStatus } from '@kiditem/shared/sourcing';
 import { cn } from '@/lib/utils';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { useKidsPlayfulInProgress } from '@/app/(media-ai)/generate/hooks/useKidsPlayfulGenerate';
+import { useGenerateDetailPage, type GenerateMode } from '../../[id]/hooks/useGenerateDetailPage';
+import { useKidsPlayfulFromSourcing } from '../../[id]/hooks/useKidsPlayfulFromSourcing';
+import TemplateSelectionModal from '../../[id]/components/TemplateSelectionModal';
 import {
   candidatesApi,
   type PromoteCandidateResponse,
@@ -25,15 +29,15 @@ import {
 interface ProductEditHeaderProps {
   productName: string;
   productId: string;
-  /** Current candidate status (Phase 7, #192). Drives promote/reject visibility. */
   status?: SourcingCandidateStatus;
-  /** Master id after promotion — links to catalog when present. */
   promotedMasterId?: string | null;
   isEditComplete: boolean;
   isLocked: boolean;
   onToggleEditComplete: () => void;
   onToggleLocked: () => void;
   onBack: () => void;
+  rawData?: Record<string, unknown> | null;
+  imageUrls?: string[];
 }
 
 export default function ProductEditHeader({
@@ -46,24 +50,22 @@ export default function ProductEditHeader({
   onToggleEditComplete,
   onToggleLocked,
   onBack,
+  rawData = null,
+  imageUrls = [],
 }: ProductEditHeaderProps) {
   const queryClient = useQueryClient();
-  const [rejectReason, setRejectReason] = useState<string>('');
+  const [modalOpen, setModalOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
   const [rejectInputOpen, setRejectInputOpen] = useState(false);
-
-  // Live progress badge: KP/Bold generation may be running against the
-  // promoted master (post-promotion auto-fire from sourcing → ai). When the
-  // candidate is still `sourced`, fall back to the candidate id so the badge
-  // continues to surface anything keyed there by older flows.
+  const { mutate: runGenerate, isPending } = useGenerateDetailPage(promotedMasterId ?? productId);
+  const kp = useKidsPlayfulFromSourcing();
   const trackingId = promotedMasterId ?? productId;
   const kpInProgress = useKidsPlayfulInProgress(trackingId);
+  const generateBusy = isPending || kp.isPending || !!kpInProgress;
 
   const promoteMutation = useMutation({
     mutationFn: () =>
       candidatesApi.promote(productId, {
-        // Minimal promote: a single default option until the user wires
-        // option editing for sourcing candidates. The server requires at
-        // least one option payload per the Phase 3 DTO.
         options: [{ optionName: '기본' }],
       }),
     onSuccess: (data: PromoteCandidateResponse) => {
@@ -93,6 +95,21 @@ export default function ProductEditHeader({
       toast.error(isApiError(err) ? err.detail : '반려 처리에 실패했습니다.');
     },
   });
+
+  const handleConfirm = (templateId: string, mode: GenerateMode) => {
+    if (templateId === 'kids-playful' || templateId === 'bold-vertical') {
+      kp.trigger({
+        sourceCandidateId: productId,
+        productId: promotedMasterId,
+        productName,
+        rawData,
+        templateId: templateId as DetailPageTemplateId,
+        imageUrls,
+      });
+      return;
+    }
+    runGenerate({ mode, templateId });
+  };
 
   const canPromote = status === 'sourced' && !promoteMutation.isPending && !rejectMutation.isPending;
   const canReject = status === 'sourced' && !promoteMutation.isPending && !rejectMutation.isPending;
@@ -138,6 +155,29 @@ export default function ProductEditHeader({
             })()}
           </span>
         )}
+
+        <button
+          type="button"
+          onClick={() => setModalOpen(true)}
+          disabled={generateBusy}
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors',
+            generateBusy ? 'cursor-wait bg-violet-400' : 'bg-violet-600 hover:bg-violet-700',
+          )}
+          title="템플릿 + 모드 선택 후 생성"
+        >
+          {generateBusy ? (
+            <Loader2 size={12} className="animate-spin" />
+          ) : (
+            <Sparkles size={12} />
+          )}
+          {generateBusy ? '생성 중...' : '상세페이지 생성'}
+        </button>
+        <TemplateSelectionModal
+          isOpen={modalOpen}
+          onClose={() => setModalOpen(false)}
+          onConfirm={handleConfirm}
+        />
 
         {status === 'sourced' && (
           <>

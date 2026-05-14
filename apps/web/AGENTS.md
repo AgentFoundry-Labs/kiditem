@@ -97,7 +97,7 @@ Route groups do not affect URLs:
 | `(advertising)` | ad-ops |
 | `(analytics)` | dashboard |
 | `(automation)` | agents, workflows, marketplace, action-board |
-| `(catalog)` | products, product-hub, product-content |
+| `(catalog)` | products, product-hub |
 | `(sourcing)` | sourcing, sourcing-ai |
 | `(supply)` | suppliers, purchase-orders |
 | `(inventory)` | inventory, inventory-hub, stock-ops, warehouses, unshipped-items, outbound |
@@ -131,8 +131,7 @@ Read these before editing the matching route:
 | [`src/app/(media-ai)/thumbnail-editor/AGENTS.md`](<src/app/(media-ai)/thumbnail-editor/AGENTS.md>) | thumbnail editor generation workflow |
 | [`src/app/(media-ai)/thumbnails/AGENTS.md`](<src/app/(media-ai)/thumbnails/AGENTS.md>) | thumbnails polling/batch UI |
 | [`src/app/(orders)/return-scan/AGENTS.md`](<src/app/(orders)/return-scan/AGENTS.md>) | local-only scan flow |
-| [`src/app/(catalog)/product-content/AGENTS.md`](<src/app/(catalog)/product-content/AGENTS.md>) | product content cards and detail-page editor |
-| [`src/app/(sourcing)/sourcing/AGENTS.md`](<src/app/(sourcing)/sourcing/AGENTS.md>) | sourcing candidate inbox and promote/reject actions |
+| [`src/app/(sourcing)/sourcing/AGENTS.md`](<src/app/(sourcing)/sourcing/AGENTS.md>) | sourcing candidate workspace, generated content, and detail-page editor |
 
 ## Local Exceptions
 

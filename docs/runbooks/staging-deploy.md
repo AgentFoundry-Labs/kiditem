@@ -545,7 +545,8 @@ Expected results:
   profile restored or exported by the separate DB baseline workflow.
 - `data_migration_runs` contains `succeeded` rows for the migration ids shipped
   by the deployed commit. Legacy persisted detail editor alert hrefs should now
-  point at `/product-content/:productId/editor?generationId=:generationId`.
+  point at `/sourcing/:candidateId/editor?generationId=:generationId` or
+  `/sourcing/detail-pages/:generationId/editor`.
 - Contract-cleanup deploys that intentionally dropped columns were run with
   `accept_data_loss=true`, and the workflow log shows the explicit warning
   before Prisma schema apply.

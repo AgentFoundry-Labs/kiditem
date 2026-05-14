@@ -4,9 +4,11 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { useAllGenerationsInProgress } from '@/app/(media-ai)/generate/hooks/useKidsPlayfulGenerate';
 import { Pagination } from '@/components/ui/Pagination';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
+import { GenerationProgressBannerStack } from './[id]/components/GenerationProgressBanner';
 import ProductList from './components/list/ProductList';
 import ScrapeUrlInput from './components/list/ScrapeUrlInput';
 import SourcingHeader from './components/list/SourcingHeader';
@@ -29,9 +31,7 @@ export default function SourcingPage() {
   const { data: productData, isLoading } = useQuery({
     queryKey: queryKeys.sourcing.list({ page: String(page), limit: String(pageSize), sort }),
     queryFn: () => productsApi.list({ page, limit: pageSize, sort }),
-    // Phase 7 (#192): the list endpoint only returns `status='sourced'` rows;
-    // poll while any row exists so post-promotion/rejected mutations refresh
-    // the list state without explicit invalidation races.
+    // 후보 inbox 는 sourced 상태가 작업 대상이다. 진행 중 AI 생성은 별도 배너 쿼리가 맡는다.
     refetchInterval: (query) => {
       const items = query.state.data?.items ?? [];
       return items.some((p) => isInProgress(p.status)) ? 10000 : false;
@@ -54,6 +54,9 @@ export default function SourcingPage() {
   return (
     <div className="flex flex-col h-full bg-slate-50">
       <SourcingHeader />
+
+      {/* productId 없이 호출 — Trend/KIDITEM 전체에서 진행 중인 첫 entry 반환 */}
+      <GenerationInProgressBannerSlot products={products} />
 
       <SourcingStats
         draftCount={products.filter((p) => p.status === 'sourced').length}
@@ -97,6 +100,7 @@ export default function SourcingPage() {
           deletingId={deletingId}
           onDelete={deleteMutation.mutate}
           onNavigate={(id) => router.push(`/sourcing/${id}`)}
+          onOpenEditor={(id) => router.push(`/sourcing/${id}/editor`)}
         />
 
         <div className="mt-4">
@@ -105,4 +109,33 @@ export default function SourcingPage() {
       </div>
     </div>
   );
+}
+
+/**
+ * 리스트 페이지 상단 진행 배너 슬롯.
+ *
+ * `useAllGenerationsInProgress(null)` 는 productId 필터 없이 Trend+KIDITEM 전체 list polling
+ * → 진행 중인 모든 entry 반환 → 다건이면 stacked 배너로 모두 표시.
+ */
+function GenerationInProgressBannerSlot({
+  products,
+}: {
+  products: Array<{ id: string; name: string }>;
+}) {
+  const inProgressEntries = useAllGenerationsInProgress(null);
+  if (inProgressEntries.length === 0) return null;
+
+  const entries = inProgressEntries.map((e) => {
+    const product = e.productId ? products.find((p) => p.id === e.productId) : null;
+    return {
+      id: e.id,
+      templateId: e.templateId,
+      status: e.imageProcessingStatus,
+      processedCount: Object.keys(e.processedImages || {}).length,
+      totalCount: e.imageUrls?.length ?? 0,
+      productName: product?.name ?? e.productName ?? '',
+    };
+  });
+
+  return <GenerationProgressBannerStack entries={entries} />;
 }

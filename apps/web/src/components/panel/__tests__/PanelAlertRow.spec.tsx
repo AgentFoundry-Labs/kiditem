@@ -208,20 +208,20 @@ describe('PanelAlertRow', () => {
       expect(link).toHaveAttribute('href', '/products/abc');
     });
 
-    it('normalizes legacy detail-page editor hrefs to product-content', () => {
+    it('normalizes retired product-content detail-page editor hrefs to sourcing', () => {
       render(
         <PanelAlertRow
           item={makeAlert({
             alertKind: 'operation',
             status: 'succeeded',
-            href: '/sourcing/product-123/editor?boldId=generation-456',
+            href: '/product-content/product-123/editor?generationId=generation-456',
           })}
         />,
       );
       const link = screen.getByRole('link', { name: /이동/ });
       expect(link).toHaveAttribute(
         'href',
-        '/product-content/product-123/editor?generationId=generation-456',
+        '/sourcing/detail-pages/generation-456/editor',
       );
     });
 

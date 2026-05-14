@@ -274,10 +274,10 @@ function HubTab({ role, productId, images, loading, onPick }: HubTabProps) {
           <ImageIcon size={20} className="mx-auto mb-2 text-gray-300" />
           <div className="text-[11px] text-gray-500 mb-1.5">허브에 등록된 이미지 없음</div>
           <Link
-            href={`/product-content?tab=assets&productId=${productId}`}
+            href={`/sourcing?masterId=${encodeURIComponent(productId)}`}
             className="inline-flex items-center gap-1 text-[11px] text-violet-600 hover:text-violet-700"
           >
-            <ArrowRight size={11} /> 상품 콘텐츠에서 등록
+            <ArrowRight size={11} /> 소싱 화면에서 확인
           </Link>
         </div>
       ) : (

@@ -3,7 +3,7 @@
 import { AlertCircle } from 'lucide-react';
 import SkeletonCard from './SkeletonCard';
 import ProductCard from './ProductCard';
-import type { SourcedProduct } from '../../lib/sourcing-api';
+import { isInProgress, type SourcedProduct } from '../../lib/sourcing-api';
 
 interface Props {
   isLoading: boolean;
@@ -12,6 +12,7 @@ interface Props {
   deletingId: string | null;
   onDelete: (id: string) => void;
   onNavigate: (id: string) => void;
+  onOpenEditor: (id: string) => void;
 }
 
 export default function ProductList({
@@ -21,6 +22,7 @@ export default function ProductList({
   deletingId,
   onDelete,
   onNavigate,
+  onOpenEditor,
 }: Props) {
   return (
     <>
@@ -49,10 +51,11 @@ export default function ProductList({
             <ProductCard
               key={product.id}
               product={product}
-              isProcessing={processingIds.has(product.id)}
+              isProcessing={processingIds.has(product.id) || isInProgress(product.status)}
               isDeleting={deletingId === product.id}
               onDelete={onDelete}
               onNavigate={onNavigate}
+              onOpenEditor={onOpenEditor}
             />
           ))}
         </div>

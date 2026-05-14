@@ -1,0 +1,480 @@
+'use client';
+
+import { renderToStaticMarkup } from 'react-dom/server';
+import { API_BASE } from '@/lib/api';
+import { buildSizeGuideFrameHtml } from './size-guide-frame';
+
+interface TemplateData {
+  title?: string;
+  [key: string]: unknown;
+}
+
+interface TemplateConfigLike {
+  fonts: string[];
+  fontFamily: string;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyComponent = React.ComponentType<any>;
+
+const API_BASE_ROOT = API_BASE.replace(/\/$/, '');
+const FONT_READY_GATE_ATTR = 'data-kiditem-font-ready-gate';
+
+function getWebOrigin(): string {
+  if (typeof window === 'undefined') return '';
+  return window.location.origin;
+}
+
+function absolutizeFontUrls(css: string): string {
+  const webOrigin = getWebOrigin();
+  if (!webOrigin) return css;
+  return css.replace(/url\(\s*(['"]?)\/fonts\//g, `url($1${webOrigin}/fonts/`);
+}
+
+function normalizeFontDisplayPolicy(css: string): string {
+  return css.replace(/font-display:\s*swap\s*;/gi, 'font-display: block;');
+}
+
+function prepareTemplateCss(css: string): string {
+  return normalizeFontDisplayPolicy(absolutizeFontUrls(css));
+}
+
+export function toFontDisplayBlockUrl(fontUrl: string): string {
+  if (!/fonts\.googleapis\.com/i.test(fontUrl)) return fontUrl;
+  try {
+    const url = new URL(fontUrl);
+    url.searchParams.set('display', 'block');
+    return url.toString();
+  } catch {
+    return fontUrl.replace(/([?&]display=)swap\b/i, '$1block');
+  }
+}
+
+export function buildDetailFontReadyGateHead(): string {
+  return `<style ${FONT_READY_GATE_ATTR}>
+    html.kiditem-font-loading body {
+      opacity: 0;
+    }
+    html.kiditem-font-ready body {
+      opacity: 1;
+      transition: opacity 120ms ease-out;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html.kiditem-font-ready body {
+        transition: none;
+      }
+    }
+    @media print {
+      html.kiditem-font-loading body {
+        opacity: 1;
+      }
+    }
+  </style>
+  <script ${FONT_READY_GATE_ATTR}>
+    (function () {
+      var root = document.documentElement;
+      if (!root || root.dataset.kiditemFontGate === 'ready') return;
+      root.classList.add('kiditem-font-loading');
+      var done = false;
+      function reveal() {
+        if (done) return;
+        done = true;
+        root.classList.remove('kiditem-font-loading');
+        root.classList.add('kiditem-font-ready');
+        root.dataset.kiditemFontGate = 'ready';
+      }
+      function revealAfterPaint() {
+        var raf = window.requestAnimationFrame || function (callback) { return window.setTimeout(callback, 16); };
+        raf(function () { raf(reveal); });
+      }
+      var timeout = window.setTimeout(reveal, 2500);
+      function finish() {
+        window.clearTimeout(timeout);
+        revealAfterPaint();
+      }
+      if (document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(finish).catch(reveal);
+      } else if (document.readyState === 'complete') {
+        finish();
+      } else {
+        window.addEventListener('load', finish, { once: true });
+      }
+    })();
+  </script>`;
+}
+
+function toApiAssetUrl(value: string): string {
+  const url = value.trim();
+  if (!url || /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(url)) return value;
+  if (/^\/(?:processed|uploads|api)\//i.test(url)) return `${API_BASE_ROOT}${url}`;
+  return value;
+}
+
+function normalizeElementUrl(el: Element, attr: string): void {
+  const value = el.getAttribute(attr);
+  if (!value) return;
+  el.setAttribute(attr, toApiAssetUrl(value));
+}
+
+function normalizeDocumentAssetUrls(doc: Document): void {
+  doc.querySelectorAll('img[src], source[src], video[src]').forEach((el) => {
+    normalizeElementUrl(el, 'src');
+  });
+  doc.querySelectorAll('img[srcset], source[srcset]').forEach((el) => {
+    normalizeElementUrl(el, 'srcset');
+  });
+  doc.querySelectorAll('video[poster]').forEach((el) => {
+    normalizeElementUrl(el, 'poster');
+  });
+}
+
+function normalizeEditedHtmlAssets(html: string): string {
+  const source = prepareTemplateCss(html);
+  const isFullDocument = /<html[\s>]/i.test(source);
+  const startsWithBody = /^<body[\s>]/i.test(source.trim());
+  const doc = new DOMParser().parseFromString(source, 'text/html');
+
+  doc.head.querySelectorAll('base').forEach((el) => el.remove());
+  doc.head.querySelectorAll('style').forEach((style) => {
+    style.textContent = prepareTemplateCss(style.textContent ?? '');
+  });
+  normalizeDocumentAssetUrls(doc);
+
+  if (isFullDocument) return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+  if (startsWithBody) return doc.body.outerHTML;
+  return doc.body.innerHTML;
+}
+
+function buildThemeVarsCss(data: TemplateData): string {
+  const vars: Record<string, string | undefined> = {
+    '--theme-main': data.themeColorMain as string | undefined,
+    '--theme-bg-light': data.themeColorBgLight as string | undefined,
+    '--theme-badge-1': data.themeColorBadge1 as string | undefined,
+    '--theme-badge-2': data.themeColorBadge2 as string | undefined,
+    '--theme-section-bg': data.themeSectionBg as string | undefined,
+    '--theme-text-primary': data.themeTextPrimary as string | undefined,
+    '--theme-text-secondary': data.themeTextSecondary as string | undefined,
+    '--theme-radius': data.themeBorderRadius as string | undefined,
+  };
+  const lines = Object.entries(vars)
+    .filter(([, v]) => v != null)
+    .map(([k, v]) => `${k}: ${v};`);
+  if (lines.length === 0) return '';
+  return `:root { ${lines.join(' ')} }`;
+}
+
+export function renderTemplateToHtml(
+  Component: AnyComponent,
+  data: TemplateData,
+  config: TemplateConfigLike,
+  templateCss = '',
+): string {
+  const bodyHtml = renderToStaticMarkup(<Component data={data} />);
+  const themeVarsCss = buildThemeVarsCss(data);
+
+  const fontLinks = config.fonts
+    .map((fontUrl: string) => `<link rel="stylesheet" href="${toFontDisplayBlockUrl(fontUrl)}" />`)
+    .join('\n    ');
+
+  return `<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${data.title ?? '상세페이지'}</title>
+  <style>${prepareTemplateCss(templateCss)}</style>
+  ${fontLinks}
+  ${buildDetailFontReadyGateHead()}
+  <style>
+    ${themeVarsCss}
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: ${config.fontFamily};
+      -webkit-font-smoothing: antialiased;
+    }
+  </style>
+</head>
+<body>
+  ${bodyHtml}
+</body>
+</html>`;
+}
+
+function looksLikeTailwindMarkup(html: string): boolean {
+  return /class=["'][^"']*(?:\bbg-|\btext-|\bflex\b|\bgrid\b|\bp[trblxy]?-|\bm[trblxy]?-|\bw-|\bh-|\bmax-w-|\bmin-h-|\brounded|\bshadow|\bfont-|\bleading-|\btracking-|\baspect-|\bobject-|\babsolute\b|\brelative\b|\binset-|\bz-)/i.test(html);
+}
+
+interface EditedHtmlStyleProfile {
+  fontLinks: string[];
+  bodyFontFamily: string;
+  viewportWidth: number;
+}
+
+function inferEditedHtmlStyleProfile(html: string): EditedHtmlStyleProfile {
+  if (/\bfont-display\b|data-field=["']hookText["']|data-field=["']sectionTitle["']/i.test(html)) {
+    return {
+      fontLinks: [
+        'https://hangeul.pstatic.net/hangeul_static/css/nanum-pen.css',
+      ],
+      bodyFontFamily: "'NanumSquareRoundLocal', 'Noto Sans KR', sans-serif",
+      viewportWidth: 860,
+    };
+  }
+
+  if (/\bmax-w-\[720px\]\b|찐 사용 후기|KeyPoint/i.test(html)) {
+    return {
+      fontLinks: [
+        'https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap',
+      ],
+      bodyFontFamily: "'Noto Sans KR', system-ui, sans-serif",
+      viewportWidth: 720,
+    };
+  }
+
+  if (/--theme-|bg-\[var\(--theme-/i.test(html)) {
+    return {
+      fontLinks: [
+        'https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css',
+      ],
+      bodyFontFamily: "'Pretendard', system-ui, sans-serif",
+      viewportWidth: 860,
+    };
+  }
+
+  return {
+    fontLinks: [
+      'https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap',
+    ],
+    bodyFontFamily: "'Noto Sans KR', system-ui, sans-serif",
+    viewportWidth: 860,
+  };
+}
+
+const EDITED_HTML_FALLBACK_CSS = `
+  :root {
+    --theme-main: #ff866d;
+    --theme-bg-light: #eef8ff;
+    --theme-badge-1: #6ec6ff;
+    --theme-badge-2: #68c7ff;
+    --theme-section-bg: #fffaf1;
+    --theme-text-primary: #44403c;
+    --theme-text-secondary: #57534e;
+    --theme-radius: 24px;
+    --font-display: "Jalnan2Local", "NanumSquareRoundLocal", "NanumSquareNeoHeavy", "NanumSquareNeoExtraBold", sans-serif;
+    --font-sans: "NanumSquareRoundLocal", "Noto Sans KR", "Pretendard", system-ui, sans-serif;
+  }
+  @font-face {
+    font-family: "Jalnan2Local";
+    src: url("/fonts/jalnan2/Jalnan2TTF.ttf") format("truetype");
+    font-weight: 400 900;
+    font-style: normal;
+    font-display: swap;
+  }
+  .bg-gradient-to-b { background-image: linear-gradient(to bottom, var(--tw-gradient-stops)); }
+  .bg-gradient-to-t { background-image: linear-gradient(to top, var(--tw-gradient-stops)); }
+  .from-\\[\\#1a1a1a\\] {
+    --tw-gradient-from: #1a1a1a;
+    --tw-gradient-to: rgb(26 26 26 / 0);
+    --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+  }
+  .to-\\[\\#2d2d2d\\] { --tw-gradient-to: #2d2d2d; }
+  .from-\\[\\#e1edf9\\] {
+    --tw-gradient-from: #e1edf9;
+    --tw-gradient-to: rgb(225 237 249 / 0);
+    --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+  }
+  .from-gray-900 {
+    --tw-gradient-from: #111827;
+    --tw-gradient-to: rgb(17 24 39 / 0);
+    --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+  }
+  .from-white {
+    --tw-gradient-from: #fff;
+    --tw-gradient-to: rgb(255 255 255 / 0);
+    --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+  }
+  .via-transparent {
+    --tw-gradient-to: rgb(0 0 0 / 0);
+    --tw-gradient-stops: var(--tw-gradient-from), transparent, var(--tw-gradient-to);
+  }
+  .to-transparent { --tw-gradient-to: transparent; }
+  .to-white { --tw-gradient-to: #fff; }
+  .bg-\\[\\#e5e7eb\\] { background-color: #e5e7eb; }
+  .bg-\\[\\#dfd9c9\\] { background-color: #dfd9c9; }
+  .bg-\\[\\#1e2d4d\\] { background-color: #1e2d4d; }
+  .bg-\\[\\#2d3436\\] { background-color: #2d3436; }
+  .bg-\\[var\\(--theme-main\\)\\] { background-color: var(--theme-main); }
+  .bg-\\[var\\(--theme-bg-light\\)\\] { background-color: var(--theme-bg-light); }
+  .bg-\\[var\\(--theme-badge-1\\)\\] { background-color: var(--theme-badge-1); }
+  .bg-\\[var\\(--theme-badge-2\\)\\] { background-color: var(--theme-badge-2); }
+  .bg-\\[var\\(--theme-section-bg\\)\\] { background-color: var(--theme-section-bg); }
+  .text-\\[\\#4a4030\\] { color: #4a4030; }
+  .text-\\[var\\(--theme-main\\)\\] { color: var(--theme-main); }
+  .text-\\[var\\(--theme-badge-2\\)\\] { color: var(--theme-badge-2); }
+  .text-\\[var\\(--theme-text-primary\\)\\] { color: var(--theme-text-primary); }
+  .text-\\[var\\(--theme-text-secondary\\)\\] { color: var(--theme-text-secondary); }
+  .font-display { font-family: var(--font-display); }
+  .rounded-\\[2rem\\] { border-radius: 2rem; }
+  .rounded-\\[24px\\] { border-radius: 24px; }
+  .rounded-\\[var\\(--theme-radius\\)\\] { border-radius: var(--theme-radius); }
+  .rounded-b-\\[4rem\\] { border-bottom-left-radius: 4rem; border-bottom-right-radius: 4rem; }
+  .brightness-\\[0\\.7\\] { filter: brightness(0.7); }
+  .h-\\[400px\\] { height: 400px; }
+  .h-\\[500px\\] { height: 500px; }
+  .h-\\[800px\\] { height: 800px; }
+  .aspect-\\[21\\/9\\] { aspect-ratio: 21 / 9; }
+  .aspect-\\[4\\/3\\] { aspect-ratio: 4 / 3; }
+  .aspect-\\[4\\/5\\] { aspect-ratio: 4 / 5; }
+  .aspect-\\[3\\/4\\] { aspect-ratio: 3 / 4; }
+  .px-6.py-20.text-center.relative.z-10.\\-mt-20 {
+    margin-top: -6rem;
+    padding-top: 4rem;
+    padding-bottom: 4rem;
+  }
+  .pointer-events-none { pointer-events: none; }
+  .h-48 { height: 12rem; }
+  .\\-mt-24 { margin-top: -6rem; }
+  .pt-16 { padding-top: 4rem; }
+  .pb-16 { padding-bottom: 4rem; }
+  .relative > img.h-\\[500px\\] + .absolute.inset-0.bg-gradient-to-t.from-white.via-transparent.to-transparent {
+    display: none;
+  }
+  section[class*="from-[#1a1a1a]"] {
+    background: linear-gradient(to bottom, #1a1a1a, #2d2d2d) !important;
+  }
+  section[class*="from-[#1a1a1a]"] .text-white,
+  section[class*="from-[#1a1a1a]"] h1 {
+    color: #fff !important;
+  }
+  section[class*="from-[#1a1a1a]"] .text-gray-300 {
+    color: #d1d5db !important;
+  }
+`;
+
+function repairSizeGuideFrameHtml(html: string): string {
+  if (!html.includes('data-container="sizeImages"')) {
+    return html;
+  }
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const container = doc.querySelector<HTMLElement>('[data-container="sizeImages"]');
+  const frame = container?.querySelector<HTMLElement>('[data-role="size-guide-frame"]');
+  const img = (frame ?? container)?.querySelector<HTMLImageElement>('img');
+  if (!container || !img) return html;
+  const heightLabel = (frame ?? container)
+    .querySelector<HTMLElement>('[data-field="sizeHeightLabel"]')
+    ?.textContent?.trim() ?? '';
+  const widthLabel = (frame ?? container)
+    .querySelector<HTMLElement>('[data-field="sizeWidthLabel"]')
+    ?.textContent?.trim() ?? '';
+  const repairedFrame = buildSizeGuideFrameHtml({
+    src: img.getAttribute('src') ?? '',
+    alt: img.getAttribute('alt') ?? '제품 사이즈',
+    heightLabel,
+    widthLabel,
+  });
+  if (frame) {
+    frame.outerHTML = repairedFrame;
+  } else {
+    container.innerHTML = repairedFrame;
+  }
+  return /<html[\s>]/i.test(html) ? `<!DOCTYPE html>\n${doc.documentElement.outerHTML}` : doc.body.innerHTML;
+}
+
+function repairProductInfoTableWidthHtml(html: string): string {
+  if (!html.includes('data-container="productInfo"')) return html;
+
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const container = doc.querySelector<HTMLElement>('[data-container="productInfo"]');
+  if (!container) return html;
+  const safetyLabelContainer = doc.querySelector<HTMLElement>('[data-container="safetyLabelImages"]');
+  if (safetyLabelContainer?.querySelector('img')) {
+    container.remove();
+    return /<html[\s>]/i.test(html) ? `<!DOCTYPE html>\n${doc.documentElement.outerHTML}` : doc.body.innerHTML;
+  }
+
+  container.style.width = '82%';
+  container.style.maxWidth = '500px';
+  container.style.marginLeft = 'auto';
+  container.style.marginRight = 'auto';
+  return /<html[\s>]/i.test(html) ? `<!DOCTYPE html>\n${doc.documentElement.outerHTML}` : doc.body.innerHTML;
+}
+
+function stripLegacyTemplateStyleMixing(html: string): string {
+  if (!/<html[\s>]/i.test(html) && !/<head[\s>]/i.test(html)) return html;
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  doc.head.querySelectorAll('script[src]').forEach((script) => {
+    const src = script.getAttribute('src') ?? '';
+    if (/cdn\.tailwindcss\.com/i.test(src)) script.remove();
+  });
+  doc.head.querySelectorAll('link[rel="stylesheet"]').forEach((link) => {
+    const href = link.getAttribute('href') ?? '';
+    if (/Black\+Han\+Sans|Black\s*Han\s*Sans/i.test(href)) link.remove();
+  });
+  doc.head.querySelectorAll('style').forEach((style) => {
+    const text = style.textContent ?? '';
+    const isLegacyFallback =
+      text.includes('section[class*="from-[#1a1a1a]"]') ||
+      text.includes('relative > img.h-\\[500px\\]') ||
+      text.includes('.brightness-\\[0\\.7\\]');
+    if (/Black\s*Han\s*Sans/i.test(text) || isLegacyFallback) style.remove();
+  });
+  return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+}
+
+/**
+ * GrapesJS 저장본은 body fragment 만 남을 수 있다. 그 경우 Tailwind/template CSS 를
+ * 다시 붙여 상세 미리보기와 다음 에디터 진입에서 원래 디자인을 유지한다.
+ */
+export function ensureStyledDetailHtml(html: string, templateCss = ''): string {
+  const baseSource = normalizeEditedHtmlAssets(
+    repairProductInfoTableWidthHtml(repairSizeGuideFrameHtml(html.trim())),
+  );
+  if (!baseSource) return html;
+
+  const compiledTemplateCss = absolutizeFontUrls(templateCss);
+  const hasTemplateCss = compiledTemplateCss.trim() !== '';
+  const source = hasTemplateCss ? stripLegacyTemplateStyleMixing(baseSource) : baseSource;
+  const profile = inferEditedHtmlStyleProfile(source);
+  const hasTailwindRuntime = /cdn\.tailwindcss\.com/i.test(source);
+  const hasCompiledTailwind =
+    /tailwindcss v/i.test(source) || /tailwindcss v/i.test(compiledTemplateCss);
+  const needsTailwindRuntime =
+    looksLikeTailwindMarkup(source) &&
+    !hasTailwindRuntime &&
+    !hasCompiledTailwind &&
+    !hasTemplateCss;
+  const fontLinks = profile.fontLinks
+    .filter((fontUrl) => !source.includes(fontUrl))
+    .map((fontUrl) => `<link rel="stylesheet" href="${fontUrl}" />`)
+    .join('\n  ');
+  const headExtra = `
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=${profile.viewportWidth}, initial-scale=1" />
+  ${needsTailwindRuntime ? '<script src="https://cdn.tailwindcss.com"></script>' : ''}
+  ${fontLinks}
+  ${hasTemplateCss ? `<style>${compiledTemplateCss}</style>` : ''}
+  ${hasTemplateCss ? '' : `<style>${EDITED_HTML_FALLBACK_CSS}</style>`}
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: ${profile.bodyFontFamily};
+      -webkit-font-smoothing: antialiased;
+    }
+  </style>`;
+
+  if (/<html[\s>]/i.test(source)) {
+    if (/<head[\s>]/i.test(source)) {
+      return source.replace(/<\/head>/i, `${headExtra}\n</head>`);
+    }
+    return source.replace(/<html(\s[^>]*)?>/i, (match) => `${match}<head>${headExtra}</head>`);
+  }
+
+  const bodyMarkup = /^<body[\s>]/i.test(source) ? source : `<body>${source}</body>`;
+  return `<!DOCTYPE html>
+<html lang="ko">
+<head>${headExtra}</head>
+${bodyMarkup}
+</html>`;
+}

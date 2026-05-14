@@ -42,6 +42,8 @@ export interface ProductContentGenerationItem {
   thumbnailUrl: string | null;
   href: string | null;
   status: string;
+  detailPageData: Record<string, unknown> | null;
+  errorMessage: string | null;
   productId: string | null;
   generationGroupId: string | null;
   sources: Array<{
@@ -374,7 +376,7 @@ export class ContentArchiveService {
         productId,
         product: product ? { id: product.id, code: product.code, name: product.name } : null,
         generationGroupId: null,
-        href: `/product-content/${encodeURIComponent(productId)}`,
+        href: `/sourcing?masterId=${encodeURIComponent(productId)}`,
         generationCount: input.rows.length,
         detailPageCount,
         imageCount,
@@ -394,7 +396,7 @@ export class ContentArchiveService {
       productId: null,
       product: null,
       generationGroupId: groupId,
-      href: `/product-content/groups/${encodeURIComponent(groupId)}`,
+      href: `/sourcing?generationGroupId=${encodeURIComponent(groupId)}`,
       generationCount: input.rows.length,
       detailPageCount,
       imageCount,
@@ -407,14 +409,23 @@ export class ContentArchiveService {
   private toGenerationItem(row: GenerationRow): ProductContentGenerationItem {
     const contentType = this.contentType(row);
     const productId = row.generationGroup.targetMasterId;
+    const sourceCandidateId = row.sources.find((source) => source.sourceCandidateId)?.sourceCandidateId ?? null;
     return {
       id: row.id,
       contentType,
       title: row.generatedTitle ?? (contentType === 'image' ? '이미지 생성 결과' : '상세페이지 결과'),
       subtitle: row.generationGroup.targetMaster?.name ?? '미연결 작업',
       thumbnailUrl: this.pickThumbnail(row),
-      href: contentType === 'detail_page' ? `/product-content/detail-pages/${encodeURIComponent(row.id)}/editor` : null,
+      href: contentType === 'detail_page'
+        ? sourceCandidateId
+          ? `/sourcing/${encodeURIComponent(sourceCandidateId)}/editor?generationId=${encodeURIComponent(row.id)}`
+          : `/sourcing/detail-pages/${encodeURIComponent(row.id)}/editor`
+        : null,
       status: normalizeStatus(row.status),
+      detailPageData: contentType === 'detail_page'
+        ? detailPageDataFromGenerationResult(row.generationResult)
+        : null,
+      errorMessage: row.errorMessage,
       productId,
       generationGroupId: row.generationGroupId,
       sources: row.sources.map((source) => ({
@@ -485,6 +496,22 @@ function asStringRecord(value: unknown): Record<string, string> {
 function pickFirstString(value: unknown): string | null {
   if (!Array.isArray(value)) return null;
   return value.find((item): item is string => typeof item === 'string') ?? null;
+}
+
+function asPlainRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function detailPageDataFromGenerationResult(value: unknown): Record<string, unknown> | null {
+  const record = asPlainRecord(value);
+  if (!record) return null;
+  return (
+    asPlainRecord(record.result) ??
+    asPlainRecord(record.detailPageData) ??
+    asPlainRecord(record.detail_page_data) ??
+    asPlainRecord(record.data)
+  );
 }
 
 function sortedUsedAssets(row: GenerationRow): Array<{

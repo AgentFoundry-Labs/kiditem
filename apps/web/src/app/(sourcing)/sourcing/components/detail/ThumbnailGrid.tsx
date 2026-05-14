@@ -1,19 +1,25 @@
 'use client';
 
-import { GripVertical, Plus } from 'lucide-react';
+import { GripVertical, Loader2, Plus, Sparkles } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface ThumbnailGridProps {
   thumbnails: string[];
   onThumbnailsChange: (thumbnails: string[]) => void;
+  onGenerateThumbnail?: () => void;
+  isGeneratingThumbnail?: boolean;
 }
 
 export default function ThumbnailGrid({
   thumbnails,
   onThumbnailsChange,
+  onGenerateThumbnail,
+  isGeneratingThumbnail = false,
 }: ThumbnailGridProps) {
   const handleRemove = (index: number) => {
     onThumbnailsChange(thumbnails.filter((_, i) => i !== index));
   };
+  const canGenerate = thumbnails.length > 0 && !!onGenerateThumbnail && !isGeneratingThumbnail;
 
   return (
     <div className="space-y-3">
@@ -30,6 +36,26 @@ export default function ThumbnailGrid({
           <span className="rounded-full bg-[var(--surface-sunken)] px-2.5 py-1 text-xs font-semibold text-[var(--text-secondary)]">
             {thumbnails.length}/10장
           </span>
+          {onGenerateThumbnail && (
+            <button
+              type="button"
+              onClick={onGenerateThumbnail}
+              disabled={!canGenerate}
+              className={cn(
+                'inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-xs font-bold transition-all',
+                'bg-violet-600 text-white shadow-sm shadow-violet-500/20 hover:bg-violet-700',
+                'disabled:cursor-not-allowed disabled:bg-[var(--surface-sunken)] disabled:text-[var(--text-muted)] disabled:shadow-none',
+              )}
+              title={thumbnails.length === 0 ? '먼저 원본 이미지를 추가하세요' : '대표 이미지로 AI 썸네일 생성'}
+            >
+              {isGeneratingThumbnail ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <Sparkles size={14} />
+              )}
+              AI 썸네일 생성
+            </button>
+          )}
         </div>
       </div>
       <div className="flex gap-2 flex-wrap">

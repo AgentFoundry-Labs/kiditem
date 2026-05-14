@@ -158,12 +158,17 @@ export function detailPageOperationKey(contentGenerationId: string): string {
 
 export function detailPageResultHref(input: {
   productId: string | null;
+  sourceCandidateId?: string | null;
   contentGenerationId: string;
   templateId: DetailPageTemplateId;
 }): string {
   void input.productId;
   void input.templateId;
-  return `/product-content/detail-pages/${input.contentGenerationId}/editor`;
+  const generationId = encodeURIComponent(input.contentGenerationId);
+  if (input.sourceCandidateId) {
+    return `/sourcing/${encodeURIComponent(input.sourceCandidateId)}/editor?generationId=${generationId}`;
+  }
+  return `/sourcing/detail-pages/${generationId}/editor`;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

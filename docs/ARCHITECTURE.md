@@ -196,7 +196,7 @@ Kinds:
 | `apps/web/src/app/(advertising)` | Route Group | `ad-ops` |
 | `apps/web/src/app/(analytics)` | Route Group | `dashboard` |
 | `apps/web/src/app/(automation)` | Route Group | `_shared`, `action-board`, `agents`, `marketplace`, `workflows` |
-| `apps/web/src/app/(catalog)` | Route Group | `product-content`, `product-hub`, `products` |
+| `apps/web/src/app/(catalog)` | Route Group | `product-hub`, `products` |
 | `apps/web/src/app/(finance)` | Route Group | `_shared`, `finance-hub`, `profit-loss`, `reports`, `sales-analysis`, `supplier-hub` |
 | `apps/web/src/app/(inventory)` | Route Group | `_shared`, `inventory`, `inventory-hub`, `outbound`, `stock-ops`, `unshipped-items`, `warehouses` |
 | `apps/web/src/app/(media-ai)` | Route Group | `_shared`, `generate`, `thumbnail-editor`, `thumbnails` |
@@ -212,12 +212,10 @@ Kinds:
 
 Notable route subtrees:
 
-- `apps/web/src/app/(catalog)/product-content` owns `/product-content`,
-  `/product-content/[productId]`, `/product-content/groups/[groupId]`, and the
-  canonical detail-page editor
-  `/product-content/detail-pages/[generationId]/editor`. The top-level route
-  is a produced-content workspace archive; raw source evidence remains under
-  `/sourcing`.
+- `apps/web/src/app/(sourcing)/sourcing` owns `/sourcing`, source candidate
+  detail workspaces, generated content links, and the canonical detail-page
+  editor routes `/sourcing/[candidateId]/editor?generationId=...` and
+  `/sourcing/detail-pages/[generationId]/editor`.
 
 ### Frontend Shared Map
 

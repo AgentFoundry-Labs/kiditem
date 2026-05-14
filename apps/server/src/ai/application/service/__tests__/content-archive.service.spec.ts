@@ -4,6 +4,7 @@ import { ContentArchiveService } from '../content-archive.service';
 const ORG = '11111111-1111-4111-8111-111111111111';
 const PRODUCT_ID = '22222222-2222-4222-8222-222222222222';
 const GROUP_ID = '33333333-3333-4333-8333-333333333333';
+const CANDIDATE_ID = '44444444-4444-4444-8444-444444444444';
 
 function row(overrides: Record<string, unknown>) {
   return {
@@ -114,7 +115,7 @@ describe('ContentArchiveService', () => {
           title: '키즈 퍼즐',
           detailPageCount: 1,
           imageCount: 0,
-          href: `/product-content/${PRODUCT_ID}`,
+          href: `/sourcing?masterId=${PRODUCT_ID}`,
         },
         {
           workspaceType: 'unlinked_group',
@@ -122,7 +123,7 @@ describe('ContentArchiveService', () => {
           title: '미연결 작업',
           detailPageCount: 0,
           imageCount: 1,
-          href: `/product-content/groups/${GROUP_ID}`,
+          href: `/sourcing?generationGroupId=${GROUP_ID}`,
         },
       ],
     });
@@ -169,6 +170,51 @@ describe('ContentArchiveService', () => {
         where: {
           organizationId: ORG,
           generationGroup: { targetMasterId: PRODUCT_ID },
+        },
+      }),
+    );
+  });
+
+  it('links sourcing candidate generations to the candidate-scoped editor route', async () => {
+    const candidateRow = row({
+      id: '55555555-5555-4555-8555-555555555555',
+      sources: [
+        {
+          id: 'source-1',
+          sourceType: 'sourcing_candidate',
+          sourceCandidateId: CANDIDATE_ID,
+          sourceContentGenerationId: null,
+          contentAssetId: null,
+          label: null,
+        },
+      ],
+    });
+    const prisma = {
+      sourcingCandidate: {
+        findFirst: vi.fn().mockResolvedValue({ id: CANDIDATE_ID, promotedMasterId: null }),
+      },
+      contentGeneration: {
+        findMany: vi.fn().mockResolvedValue([candidateRow]),
+      },
+    };
+    const service = new ContentArchiveService(prisma as never);
+
+    await expect(service.listForSourcingCandidate(ORG, CANDIDATE_ID)).resolves.toMatchObject({
+      items: [
+        {
+          id: candidateRow.id,
+          href: `/sourcing/${CANDIDATE_ID}/editor?generationId=${candidateRow.id}`,
+          detailPageData: {},
+        },
+      ],
+      total: 1,
+    });
+
+    expect(prisma.contentGeneration.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          organizationId: ORG,
+          sources: { some: { sourceCandidateId: CANDIDATE_ID } },
         },
       }),
     );

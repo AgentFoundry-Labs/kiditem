@@ -303,7 +303,7 @@ describe('DetailPageAiService', () => {
         operationKey: `detail-page:${GENERATION_ID}`,
         sourceType: 'content_generation',
         sourceId: GENERATION_ID,
-        href: `/product-content/detail-pages/${GENERATION_ID}/editor`,
+        href: `/sourcing/detail-pages/${GENERATION_ID}/editor`,
       }),
     );
 
@@ -651,7 +651,7 @@ describe('DetailPageAiService', () => {
         operationKey: `detail-page:${GENERATION_ID}`,
         sourceType: 'content_generation',
         sourceId: GENERATION_ID,
-        href: `/product-content/detail-pages/${GENERATION_ID}/editor`,
+        href: `/sourcing/detail-pages/${GENERATION_ID}/editor`,
       }),
     );
     expect(prisma.contentGeneration.updateMany).toHaveBeenCalledWith({
@@ -789,7 +789,7 @@ describe('DetailPageAiService', () => {
         sourceId: GENERATION_ID,
         targetType: 'content_generation',
         targetId: GENERATION_ID,
-        href: `/product-content/detail-pages/${GENERATION_ID}/editor`,
+        href: `/sourcing/detail-pages/${GENERATION_ID}/editor`,
       }),
     );
     expect(operationAlerts.fail).not.toHaveBeenCalled();

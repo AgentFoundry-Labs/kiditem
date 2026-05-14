@@ -350,7 +350,7 @@ model ContentGeneration {
 }
 
 /// @namespace AI
-/// @describe Same-input generation group. Product-less groups are top-level product-content workspaces; product-bound groups remain candidate lineage inside a Master workspace.
+/// @describe Same-input generation group. Product-less groups are standalone generated-content workspaces; product-bound groups remain candidate lineage inside a Master workspace.
 model ContentGenerationGroup {
   id                      String  @id @default(uuid()) @db.Uuid
   organizationId          String  @map("organization_id") @db.Uuid

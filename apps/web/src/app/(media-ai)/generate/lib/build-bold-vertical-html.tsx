@@ -4,7 +4,7 @@
 import type { ComponentType } from 'react';
 import { getTemplate, parseDetailPageData } from '@kiditem/templates';
 import type { DetailPageData } from '@kiditem/templates';
-import { renderTemplateToHtml } from '@/app/(catalog)/product-content/lib/template-html';
+import { renderTemplateToHtml } from '@/app/(sourcing)/sourcing/lib/template-html';
 
 export function buildBoldVerticalHtml(
   partial: Partial<DetailPageData>,

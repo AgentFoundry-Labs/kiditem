@@ -186,7 +186,7 @@ export const queryKeys = {
     preview: (id: string) => [...queryKeys.sourcing.all, 'preview', id] as const,
   },
   productContent: {
-    all: ['product-content'] as const,
+    all: ['content-archive'] as const,
     cards: (params: Record<string, string>) =>
       [...queryKeys.productContent.all, 'cards', params] as const,
     workspaces: (params: Record<string, string>) =>
