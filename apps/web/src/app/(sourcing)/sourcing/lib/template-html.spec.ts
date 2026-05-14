@@ -77,4 +77,101 @@ describe('sourcing detail template HTML repair', () => {
 
     expect(output.match(/data-kiditem-font-ready-gate/g)).toHaveLength(1);
   });
+
+  it('repairs bold vertical hero title spacing and replaces the loose divider with word underlines', () => {
+    const html = `<body>
+  <div>
+    <div class="py-10" style="min-height: 1800px;">
+      <div class="max-w-3xl mx-auto bg-white shadow-2xl" style="height: 1600px;">
+        <style>#iwwc{background-color:#dbeafe;min-height:1800px;}#keep{min-height:300px;}</style>
+        <section data-section="hero">
+          <div class="text-center mt-16 px-4 flex flex-col items-center">
+            <p data-field="hookSubtext" class="mb-4 text-2xl">손으로 딸깍!</p>
+            <h1 class="font-display text-[80px] md:text-[96px] leading-[1.02]">
+              <span data-field="hookText" id="ieo7c">퐁퐁</span><br>
+              <span data-field="hookTitleSub" id="ixmpj">슬라임!</span>
+            </h1>
+            <div class="w-64 h-0.5 bg-[var(--theme-main)] opacity-40 mt-6"></div>
+            <div data-field="description" class="mt-6 flex flex-col items-center">설명</div>
+          </div>
+        </section>
+        <section data-section="point">
+          <div class="absolute left-1/2 -translate-x-1/2 top-14 w-14 h-14 bg-black text-white rounded-full">
+            <span>POINT</span><span>1</span>
+          </div>
+        </section>
+        <div data-container="detailPackageImages">
+          <p>1박스 12개입 구성</p>
+          <p>박스 구성 확인</p>
+          <div><img src="/box.png" alt="박스"></div>
+        </div>
+        <section data-section="detailImages">
+          <div>
+            <div>DETAIL</div>
+            <div data-container="detailImages">
+              <div><img src="/detail.png" alt="디테일"></div>
+            </div>
+          </div>
+        </section>
+        <section data-section="specs">
+          <div data-container="safetyLabelImages">
+            <img src="/barcode.png" alt="바코드">
+          </div>
+        </section>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>`;
+
+    const output = repairBoldVerticalEditedHtml(html);
+    const doc = new DOMParser().parseFromString(output, 'text/html');
+    const hookText = doc.querySelector<HTMLElement>('[data-field="hookText"]');
+    const hookTitleSub = doc.querySelector<HTMLElement>('[data-field="hookTitleSub"]');
+    const separator = doc.querySelector('.w-64.h-0\\.5');
+    const description = doc.querySelector<HTMLElement>('[data-field="description"]');
+    const pointBadge = doc.querySelector<HTMLElement>('[data-role="point-droplet"]');
+    const pointIcon = doc.querySelector<SVGElement>('[data-role="point-droplet-icon"]');
+    const outerFrame = doc.querySelector<HTMLElement>('body > div > div');
+    const innerFrame = doc.querySelector<HTMLElement>('body > div > div > div');
+    const packageLabels = Array.from(doc.querySelectorAll('[data-container="detailPackageImages"] p'))
+      .map((el) => el.textContent);
+    const detailDescription = doc.querySelector<HTMLElement>('[data-field="detailDescription"]');
+    const packageImageFrame = doc.querySelector<HTMLElement>('[data-role="package-image-frame"]');
+    const safetyLabelFrame = doc.querySelector<HTMLElement>('[data-role="safety-label-frame"]');
+
+    expect(outerFrame?.className).not.toContain('py-10');
+    expect(outerFrame?.style.paddingTop).toBe('0px');
+    expect(outerFrame?.style.minHeight).toBe('');
+    expect(innerFrame?.className).not.toContain('max-w-3xl');
+    expect(innerFrame?.className).not.toContain('shadow-2xl');
+    expect(innerFrame?.className).toContain('w-full');
+    expect(innerFrame?.style.maxWidth).toBe('none');
+    expect(innerFrame?.style.boxShadow).toBe('none');
+    expect(innerFrame?.style.height).toBe('');
+    expect(output).not.toContain('min-height:1800px');
+    expect(output).toContain('min-height:300px');
+    expect(hookText?.style.textDecorationLine).toBe('underline');
+    expect(hookText?.style.paddingTop).toBe('6px');
+    expect(hookTitleSub?.textContent).toBe('슬라임');
+    expect(hookTitleSub?.style.marginTop).toBe('0px');
+    expect(hookTitleSub?.style.textDecorationLine).toBe('underline');
+    expect(separator).toBeNull();
+    expect(description?.className).toContain('mt-5');
+    expect(pointBadge?.className).not.toContain('rounded-full');
+    expect(pointBadge?.className).not.toContain('w-14');
+    expect(pointBadge?.className).toContain('mx-auto');
+    expect(pointBadge?.style.width).toBe('104px');
+    expect(pointBadge?.style.height).toBe('122px');
+    expect(pointBadge?.querySelectorAll('span')[0]?.style.marginTop).toBe('12px');
+    expect(pointBadge?.querySelectorAll('span')[1]?.style.marginTop).toBe('10px');
+    expect(pointIcon).not.toBeNull();
+    expect(pointIcon?.getAttribute('viewBox')).toBe('0 0 256 256');
+    expect(packageLabels).toEqual(['1BOX 12개입 구성', '세트 구매시 참고']);
+    expect(detailDescription?.textContent).toBe('퐁퐁 슬라임의 디테일 이미지입니다.');
+    expect(packageImageFrame?.style.background).toBe('rgb(234, 246, 255)');
+    expect(packageImageFrame?.querySelector('img')?.getAttribute('style') ?? '').toContain('mix-blend-mode: multiply');
+    expect(safetyLabelFrame?.style.background).toBe('rgb(143, 162, 207)');
+    expect(safetyLabelFrame?.querySelector('img')?.getAttribute('style') ?? '').toContain('border: 1px solid rgba(0, 0, 0, 0.2)');
+  });
 });

@@ -5,6 +5,7 @@
  * Uses Tailwind CSS utility classes + CSS custom properties for theming.
  */
 import type { CSSProperties } from 'react';
+import { PiDropSimpleFill } from 'react-icons/pi';
 import type { DetailPageData } from '../types';
 
 interface BoldVerticalProps {
@@ -44,6 +45,30 @@ function titleGradientTextStyle(): CSSProperties {
   };
 }
 
+function titleUnderlineStyle(): CSSProperties {
+  return {
+    paddingTop: 6,
+    lineHeight: 1.08,
+    textDecorationLine: 'underline',
+    textDecorationColor: 'rgba(196, 178, 150, 0.78)',
+    textDecorationThickness: 1.5,
+    textUnderlineOffset: 4,
+    textDecorationSkipInk: 'none',
+  };
+}
+
+function PointDropletIcon({ className }: { className?: string }) {
+  return <PiDropSimpleFill aria-hidden="true" className={className} />;
+}
+
+function stripTrailingBang(value: string): string {
+  return value.replace(/[!！]+$/u, '').trim();
+}
+
+function softenTrailingBang(value: string): string {
+  return value.replace(/[!！]+$/u, '~').trim();
+}
+
 // ─── Hero Section (heroes/bold_v1.html) ─────────────────────────────────────
 
 function HeroSection({ d }: { d: DetailPageData }) {
@@ -71,7 +96,7 @@ function HeroSection({ d }: { d: DetailPageData }) {
         {d.hookSubtext && (
           <p
             data-field="hookSubtext"
-            className="mb-4 text-2xl md:text-3xl text-[var(--theme-text-primary)]"
+            className="mb-3 text-2xl md:text-3xl text-[var(--theme-text-primary)]"
             style={{
               fontFamily: 'NanumPen, cursive',
               transform: 'rotate(-4deg)',
@@ -86,10 +111,15 @@ function HeroSection({ d }: { d: DetailPageData }) {
             </span>
           </p>
         )}
-        <h1 className="font-display text-[80px] md:text-[96px] leading-[1.02]">
+        <h1 className="font-display text-[80px] md:text-[96px] leading-[1.08]">
           <span
             data-field="hookText"
-            style={{ ...titleGradientTextStyle(), fontWeight: 900 }}
+            style={{
+              ...titleGradientTextStyle(),
+              ...titleUnderlineStyle(),
+              display: 'inline-block',
+              fontWeight: 900,
+            }}
           >
             {d.hookText}
           </span>
@@ -99,19 +129,23 @@ function HeroSection({ d }: { d: DetailPageData }) {
               <span
                 data-field="hookTitleSub"
                 className="text-[#111827]"
-                style={{ fontWeight: 900 }}
+                style={{
+                  ...titleUnderlineStyle(),
+                  display: 'inline-block',
+                  fontWeight: 900,
+                  marginTop: 0,
+                }}
               >
-                {d.hookTitleSub}
+                {stripTrailingBang(d.hookTitleSub)}
               </span>
             </>
           )}
         </h1>
-        <div className="w-64 h-0.5 bg-[var(--theme-main)] opacity-40 mt-6" />
 
-        <div data-field="description" className="mt-6 flex flex-col items-center gap-3 text-lg md:text-xl font-bold text-[var(--theme-text-primary)]">
+        <div data-field="description" className="mt-5 flex flex-col items-center gap-3 text-lg md:text-xl font-bold text-[#111827]">
           {featureCopy && (
             <p className="leading-relaxed">
-              {featureCopy}
+              {softenTrailingBang(featureCopy)}
             </p>
           )}
           <p className="leading-relaxed text-[var(--theme-main)]">
@@ -120,7 +154,7 @@ function HeroSection({ d }: { d: DetailPageData }) {
             </span>
             <span>은 선택할 수 없으며 랜덤출고 됩니다.</span>
           </p>
-          <p className="max-w-xl rounded-[var(--theme-radius)] bg-white/80 px-6 py-4 text-base md:text-lg leading-relaxed shadow-sm border border-white/80 text-[var(--theme-text-secondary)]">
+          <p className="max-w-xl rounded-[var(--theme-radius)] bg-white/80 px-6 py-3 text-base md:text-lg leading-relaxed shadow-sm border border-white/80 text-[var(--theme-text-secondary)]">
             이미지와 제품의 구성품은 실제와 다를 수 있습니다
           </p>
         </div>
@@ -197,7 +231,7 @@ function SizeGuideSection({ d }: { d: DetailPageData }) {
       <div className="text-center mt-16 px-4">
         <SubSectionBadge label="제품 사이즈 및 구성품" />
 
-        <p className="mt-6 text-[var(--theme-text-primary)] font-bold text-lg md:text-xl">
+        <p className="mt-4 text-[#111827] font-bold text-xl md:text-2xl">
           {productName}의 사이즈 및 구성품 안내 입니다.
         </p>
 
@@ -386,13 +420,23 @@ function PointSection({ d }: { d: DetailPageData }) {
   const hasDetailSection = detailSectionImages.length > 0 || packageSectionImages.length > 0;
 
   return (
-    <section data-section="point" className="bg-white pb-20 pt-28 relative">
-      <div className="absolute left-1/2 -translate-x-1/2 top-14 w-14 h-14 bg-black text-white rounded-full flex flex-col items-center justify-center shadow-lg z-10">
-        <span className="text-[10px] font-bold leading-none mt-1 tracking-widest">POINT</span>
-        <span className="text-2xl font-display leading-none mt-0.5">1</span>
+    <section data-section="point" className="bg-white pb-20 pt-40 relative">
+      <div
+        data-role="point-droplet"
+        className="relative mx-auto flex flex-col items-center justify-center text-white z-10"
+        style={{
+          width: 104,
+          height: 122,
+          color: '#000',
+          filter: 'none',
+        }}
+      >
+        <PointDropletIcon className="absolute inset-0 h-full w-full" />
+        <span className="relative z-10 text-[10px] font-bold leading-none tracking-widest text-white" style={{ marginTop: 12 }}>POINT</span>
+        <span className="relative z-10 text-2xl font-display leading-none text-white" style={{ marginTop: 10 }}>1</span>
       </div>
 
-      <div className="text-center pt-24 px-4">
+      <div className="text-center mt-0 px-4">
         <h2 className="font-display text-[80px] md:text-[96px] leading-[1.02]">
           {sectionName && (
             <>
@@ -407,15 +451,15 @@ function PointSection({ d }: { d: DetailPageData }) {
           )}
           <span
             data-field="sectionTitle"
-            className="text-[#111827] relative inline-block mt-2"
+            className="text-[#111827] relative inline-block mt-0"
             style={{ fontWeight: 900 }}
           >
-            {sectionTitle}
+            {stripTrailingBang(sectionTitle)}
             <div className="absolute bottom-1 left-0 w-full h-3 bg-[var(--theme-main)] opacity-20" />
           </span>
         </h2>
 
-        <p data-field="sectionSubtitle" className="mt-8 text-[var(--theme-text-secondary)] font-bold text-lg md:text-xl">
+        <p data-field="sectionSubtitle" className="mt-5 text-[#111827] font-bold text-xl md:text-2xl">
           <span>{productName}의 상품정보 입니다.</span>
           <br />
           <span>아래의 제품정보를 확인해 주세요.</span>
@@ -518,9 +562,12 @@ function PointSection({ d }: { d: DetailPageData }) {
         <div className="text-center mt-16">
           <div style={{ width: 384, height: 2 }} className="bg-[#2d3436] opacity-40 mx-auto mb-12" />
           <SubSectionBadge label="DETAIL" />
+          <p data-field="detailDescription" className="mt-4 text-[#111827] font-bold text-xl md:text-2xl">
+            {productName}의 디테일 이미지입니다.
+          </p>
 
           {detailSectionImages.length > 0 && (
-            <div data-container="detailImages" className="mt-10 flex flex-col gap-6 px-6 max-w-2xl mx-auto">
+            <div data-container="detailImages" className="mt-8 flex flex-col gap-6 px-6 max-w-2xl mx-auto">
               {detailSectionImages.map((dimg, i) => (
                 <div key={i}>
                   <img
@@ -543,11 +590,16 @@ function PointSection({ d }: { d: DetailPageData }) {
               </div>
               <div className="flex flex-col gap-6">
                 {packageSectionImages.map((dimg, i) => (
-                  <div key={i}>
+                  <div
+                    key={i}
+                    data-role="package-image-frame"
+                    className="overflow-hidden rounded-[34px] border border-[#d8ebf7] bg-[#eaf6ff] p-8 md:p-10"
+                  >
                     <img
                       src={dimg}
                       alt={normalizePackageLabel(d.detailPackageLabel)}
                       className="w-full h-auto rounded-[var(--theme-radius)]"
+                      style={{ mixBlendMode: 'multiply' }}
                     />
                   </div>
                 ))}
@@ -566,16 +618,17 @@ function uniqueImageUrls(urls: string[]): string[] {
 
 function normalizePackageLabel(label: string): string {
   const trimmed = label.trim();
-  if (!trimmed) return '박스/세트 구성 이미지';
+  if (!trimmed) return 'BOX/세트 구성 이미지';
   return trimmed
-    .replace(/^1\s*box\b/i, '1박스')
+    .replace(/^1\s*box\b/i, '1BOX')
+    .replace(/^1\s*박스/u, '1BOX')
     .replace(/\s*이미지$/u, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
 function packageHelperText(label: string): string {
-  if (/박스|box|BOX|개입/u.test(label)) return '박스 구성 확인';
+  if (/박스|box|BOX|개입/u.test(label)) return '세트 구매시 참고';
   if (/세트|구성품/u.test(label)) return '세트 구성 확인';
   return '구성 확인';
 }
@@ -625,12 +678,19 @@ function SpecsSection({ d }: { d: DetailPageData }) {
       {hasSafetyLabelImage && (
         <div data-container="safetyLabelImages" className="mt-10 max-w-2xl mx-auto flex flex-col gap-6">
           {d.safetyLabelImages.map((src, i) => (
-            <img
+            <div
               key={i}
-              src={src}
-              alt="제품 안전 품질표시"
-              className="w-full h-auto rounded-2xl border border-white/70"
-            />
+              data-role="safety-label-frame"
+              className="rounded-[44px] bg-[#8fa2cf] p-7 md:p-9"
+            >
+              <div className="rounded-[34px] bg-white px-8 py-8 md:px-10 md:py-10">
+                <img
+                  src={src}
+                  alt="제품 안전 품질표시"
+                  className="w-full h-auto border border-black/20 bg-white"
+                />
+              </div>
+            </div>
           ))}
         </div>
       )}
@@ -833,8 +893,8 @@ export function BoldVertical({ data: d }: BoldVerticalProps) {
         backgroundColor: 'var(--theme-section-bg)',
       }}
     >
-      <div className="py-10">
-        <div className="max-w-3xl mx-auto bg-white shadow-2xl">
+      <div>
+        <div className="w-full bg-white">
           {!disabled.has('main_hook') && <HeroSection d={d} />}
 
           {hasPointContent && <PointSection d={d} />}

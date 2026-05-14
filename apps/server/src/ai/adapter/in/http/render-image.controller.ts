@@ -8,7 +8,8 @@ import { RenderImageBodyDto } from './dto';
 const STATIC_ROOT = '/data/products';
 const PROCESSED_PREFIX = '/processed/';
 const RENDER_TIMEOUT_MS = 120_000;
-const DEFAULT_VIEWPORT_WIDTH = 860;
+const ASSET_READY_TIMEOUT_MS = 8_000;
+const DEFAULT_VIEWPORT_WIDTH = 720;
 
 function mimeFromExt(ext: string): string {
   const map: Record<string, string> = {
@@ -87,12 +88,18 @@ async function inlineImages(html: string): Promise<string> {
 }
 
 async function waitForPageAssets(page: Page): Promise<void> {
-  await page.evaluate(async () => {
+  await page.evaluate(async (timeoutMs) => {
+    const timeoutTask = new Promise<void>((resolve) => {
+      window.setTimeout(resolve, timeoutMs);
+    });
     const imageTasks = Array.from(document.images).map((img) => {
       if (img.complete) return Promise.resolve();
       return new Promise<void>((resolve) => {
+        const timeout = window.setTimeout(resolve, timeoutMs);
         img.onload = () => resolve();
         img.onerror = () => resolve();
+        img.addEventListener('load', () => window.clearTimeout(timeout), { once: true });
+        img.addEventListener('error', () => window.clearTimeout(timeout), { once: true });
       });
     });
 
@@ -103,8 +110,57 @@ async function waitForPageAssets(page: Page): Promise<void> {
             .catch(() => undefined)
         : Promise.resolve();
 
-    await Promise.all([...imageTasks, fontTask]);
-  });
+    await Promise.race([
+      Promise.all([...imageTasks, fontTask]).then(() => undefined),
+      timeoutTask,
+    ]);
+  }, ASSET_READY_TIMEOUT_MS);
+}
+
+async function getContentClip(page: Page, viewportWidth: number) {
+  return page.evaluate((width) => {
+    const selectors = [
+      'section',
+      'img',
+      'table',
+      '[data-section]',
+      '[data-container]',
+      '[data-field]',
+      '[data-role]',
+      'h1',
+      'h2',
+      'h3',
+      'h4',
+      'h5',
+      'h6',
+      'p',
+      'ul',
+      'ol',
+      'li',
+    ].join(',');
+    const contentElements = Array.from(document.body.querySelectorAll(selectors)) as HTMLElement[];
+    const candidates = contentElements.length > 0 ? contentElements : Array.from(document.body.children) as HTMLElement[];
+    const rects = candidates
+      .filter((el) => !el.closest('.gjs-selected, .gjs-selected-parent, .gjs-hovered'))
+      .map((el) => el.getBoundingClientRect())
+      .filter((rect) => rect.width > 0 && rect.height > 0);
+
+    if (rects.length === 0) return null;
+
+    const left = Math.max(0, Math.floor(Math.min(...rects.map((rect) => rect.left))));
+    const top = Math.max(0, Math.floor(Math.min(...rects.map((rect) => rect.top))));
+    const right = Math.min(width, Math.ceil(Math.max(...rects.map((rect) => rect.right))));
+    const bottom = Math.ceil(Math.max(...rects.map((rect) => rect.bottom)));
+    const clipWidth = Math.max(1, right - left);
+    const clipHeight = Math.max(1, bottom - top);
+
+    return {
+      x: left,
+      y: top,
+      width: clipWidth,
+      height: clipHeight,
+    };
+  }, viewportWidth);
 }
 
 @Controller('render-image')
@@ -126,19 +182,53 @@ export class RenderImageController {
       const page = await browser.newPage();
       page.setDefaultNavigationTimeout(RENDER_TIMEOUT_MS);
       page.setDefaultTimeout(RENDER_TIMEOUT_MS);
+      const viewportWidth = body.viewportWidth ?? DEFAULT_VIEWPORT_WIDTH;
+      const renderScale = body.outputWidth
+        ? body.outputWidth / viewportWidth
+        : body.renderScale ?? 1;
       await page.setViewport({
-        width: body.viewportWidth ?? DEFAULT_VIEWPORT_WIDTH,
+        width: viewportWidth,
         height: 1200,
+        deviceScaleFactor: renderScale,
       });
       await page.setContent(inlinedHtml, {
         waitUntil: 'domcontentloaded',
         timeout: RENDER_TIMEOUT_MS,
       });
+      await page.addStyleTag({
+        content: `
+          html,
+          body {
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #fff !important;
+          }
+
+          body > div:first-child {
+            background: #fff !important;
+          }
+
+          body > div:first-child > .py-10 {
+            padding-top: 0 !important;
+            padding-bottom: 0 !important;
+          }
+
+          body > div:first-child > .py-10 > div {
+            width: 100% !important;
+            max-width: none !important;
+            margin-left: 0 !important;
+            margin-right: 0 !important;
+            box-shadow: none !important;
+          }
+        `,
+      });
       await waitForPageAssets(page);
       const format = body.format ?? 'png';
+      const clip = await getContentClip(page, viewportWidth);
       const buffer = await page.screenshot({
-        fullPage: true,
+        ...(clip ? { clip } : { fullPage: true }),
         type: format,
+        omitBackground: false,
         quality: format === 'jpeg' ? body.quality ?? 92 : undefined,
       });
       res.setHeader('Content-Type', format === 'jpeg' ? 'image/jpeg' : 'image/png');
