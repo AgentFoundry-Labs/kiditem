@@ -27,6 +27,7 @@ describe('data migration registry', () => {
       'v0.1.0:004_backfill_content_archive_classification',
       'v0.1.1:001_backfill_content_generation_workspace_assets',
       'v0.1.1:002_backfill_detail_page_artifacts',
+      'v0.1.1:003_backfill_sourcing_candidate_images',
     ]);
   });
 

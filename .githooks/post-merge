@@ -8,9 +8,9 @@ CHANGED=$(git diff-tree -r --name-only ORIG_HEAD HEAD)
 
 NEED_SYNC=0
 
-if echo "$CHANGED" | grep -q "prisma/schema.prisma"; then
+if echo "$CHANGED" | grep -Eq "^(prisma/schema\.prisma|prisma/models/|prisma\.config\.ts)"; then
   echo ""
-  echo "⚠️  prisma/schema.prisma 변경됨 → npx prisma db push + generate 필요"
+  echo "⚠️  Prisma schema 변경됨 → npm run db:push + npx prisma generate 필요"
   NEED_SYNC=1
 fi
 
@@ -21,6 +21,11 @@ fi
 
 if echo "$CHANGED" | grep -q "prisma/init.sql.gz"; then
   echo "ℹ️  prisma/init.sql.gz 갱신됨 → fresh-volume snapshot 이 필요한 경우에만 사용하세요."
+fi
+
+if echo "$CHANGED" | grep -q "scripts/data-migrations/"; then
+  echo "⚠️  release data migration 변경됨 → 필요한 환경에서 npm run data:migrate 실행"
+  NEED_SYNC=1
 fi
 
 if [ "$NEED_SYNC" -eq 1 ]; then

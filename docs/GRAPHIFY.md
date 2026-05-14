@@ -32,7 +32,10 @@ That full graph is useful for repo onboarding and cross-domain architecture ques
 
 ## Install
 
-Requires Python 3.10+. Official package name is `graphifyy`; the CLI command is `graphify`.
+Requires Python 3.10+ and `uv` on `PATH`. The package script
+`npm run graphify:schema` calls `uv run --with graphifyy`, so a machine without
+`uv` can still run `npm run db:erd` but cannot refresh `graphify-out/**`.
+Official package name is `graphifyy`; the CLI command is `graphify`.
 
 ```bash
 uv tool install graphifyy

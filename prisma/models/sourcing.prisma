@@ -80,8 +80,8 @@ model CandidateImage {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  candidate    SourcingCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  organization              Organization                    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  candidate                 SourcingCandidate               @relation(fields: [candidateId], references: [id], onDelete: Cascade)
   thumbnailGenerationInputs ThumbnailGenerationInputImage[]
 
   @@index([organizationId])

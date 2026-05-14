@@ -169,42 +169,42 @@ model AgentRunRequest {
 /// @namespace AgentOS
 /// @describe Accepted execution attempt. Replaces HeartbeatRun. Always starts at status="running"; queue state lives on AgentRunRequest.
 model AgentRun {
-  id                     String    @id @default(uuid()) @db.Uuid
-  organizationId         String    @map("organization_id") @db.Uuid
-  agentInstanceId        String    @map("agent_instance_id") @db.Uuid
-  requestId              String    @map("request_id") @db.Uuid
-  taskSessionId          String    @map("task_session_id") @db.Uuid
-  retryOfRunId           String?   @map("retry_of_run_id") @db.Uuid
-  status                 String    @default("running")
-  attempt                Int       @default(1)
-  invocationSource       String    @map("invocation_source")
-  adapterType            String    @map("adapter_type")
-  model                  String
-  provider               String?
-  taskKey                String?   @map("task_key")
-  sessionDisplayBefore   String?   @map("session_display_before")
-  sessionDisplayAfter    String?   @map("session_display_after")
-  input                  Json      @default("{}") @db.JsonB
-  output                 Json?     @db.JsonB
-  startedAt              DateTime  @default(now()) @map("started_at") @db.Timestamptz
-  finishedAt             DateTime? @map("finished_at") @db.Timestamptz
-  heartbeatAt            DateTime? @map("heartbeat_at") @db.Timestamptz
-  exitCode               Int?      @map("exit_code")
-  signal                 String?
-  errorCode              String?   @map("error_code")
-  errorMessage           String?   @map("error_message") @db.Text
-  usageJson              Json?     @map("usage_json") @db.JsonB
-  resultJson             Json?     @map("result_json") @db.JsonB
-  logStore               String?   @map("log_store")
-  logRef                 String?   @map("log_ref")
-  logSha256              String?   @map("log_sha256")
-  logBytes               BigInt?   @map("log_bytes")
-  logCompressed          Boolean   @default(false) @map("log_compressed")
-  stdoutExcerpt          String?   @map("stdout_excerpt") @db.Text
-  stderrExcerpt          String?   @map("stderr_excerpt") @db.Text
-  lastEventSeq           Int       @default(0) @map("last_event_seq")
-  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  id                   String    @id @default(uuid()) @db.Uuid
+  organizationId       String    @map("organization_id") @db.Uuid
+  agentInstanceId      String    @map("agent_instance_id") @db.Uuid
+  requestId            String    @map("request_id") @db.Uuid
+  taskSessionId        String    @map("task_session_id") @db.Uuid
+  retryOfRunId         String?   @map("retry_of_run_id") @db.Uuid
+  status               String    @default("running")
+  attempt              Int       @default(1)
+  invocationSource     String    @map("invocation_source")
+  adapterType          String    @map("adapter_type")
+  model                String
+  provider             String?
+  taskKey              String?   @map("task_key")
+  sessionDisplayBefore String?   @map("session_display_before")
+  sessionDisplayAfter  String?   @map("session_display_after")
+  input                Json      @default("{}") @db.JsonB
+  output               Json?     @db.JsonB
+  startedAt            DateTime  @default(now()) @map("started_at") @db.Timestamptz
+  finishedAt           DateTime? @map("finished_at") @db.Timestamptz
+  heartbeatAt          DateTime? @map("heartbeat_at") @db.Timestamptz
+  exitCode             Int?      @map("exit_code")
+  signal               String?
+  errorCode            String?   @map("error_code")
+  errorMessage         String?   @map("error_message") @db.Text
+  usageJson            Json?     @map("usage_json") @db.JsonB
+  resultJson           Json?     @map("result_json") @db.JsonB
+  logStore             String?   @map("log_store")
+  logRef               String?   @map("log_ref")
+  logSha256            String?   @map("log_sha256")
+  logBytes             BigInt?   @map("log_bytes")
+  logCompressed        Boolean   @default(false) @map("log_compressed")
+  stdoutExcerpt        String?   @map("stdout_excerpt") @db.Text
+  stderrExcerpt        String?   @map("stderr_excerpt") @db.Text
+  lastEventSeq         Int       @default(0) @map("last_event_seq")
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization        Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   agentInstance       AgentInstance             @relation(fields: [agentInstanceId], references: [id], onDelete: Cascade)
@@ -259,17 +259,17 @@ model AgentRunEvent {
 /// @namespace AgentOS
 /// @describe Catalog of business tools agents may invoke. KidItem ships a curated set; not a generic HTTP/DB tool marketplace.
 model AgentToolDefinition {
-  id              String   @id @default(uuid()) @db.Uuid
-  key             String   @unique
-  name            String
-  description     String?
-  riskLevel       String   @default("low") @map("risk_level")
-  credentialKind  String   @default("none") @map("credential_kind")
-  inputSchemaJson Json?    @map("input_schema_json") @db.JsonB
-  outputSchemaJson Json?   @map("output_schema_json") @db.JsonB
-  isActive        Boolean  @default(true) @map("is_active")
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  id               String   @id @default(uuid()) @db.Uuid
+  key              String   @unique
+  name             String
+  description      String?
+  riskLevel        String   @default("low") @map("risk_level")
+  credentialKind   String   @default("none") @map("credential_kind")
+  inputSchemaJson  Json?    @map("input_schema_json") @db.JsonB
+  outputSchemaJson Json?    @map("output_schema_json") @db.JsonB
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   instancePolicies    AgentInstanceToolPolicy[]
   authorizationEvents AgentAuthorizationEvent[]

@@ -50,7 +50,7 @@ git pull
 npm install --legacy-peer-deps
 npm run db:push -- --accept-data-loss   # only when drops are expected
 npx prisma generate
-npm run db:erd
+npm run data:migrate                    # when new release data migrations exist
 npm run graphify:schema
 ```
 

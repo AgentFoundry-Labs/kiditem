@@ -159,7 +159,7 @@ Prisma rows directly.
 
 ## Image Edit Flow
 
-Product-content image edits are Agent OS tool-wrapper runs executed inside the
+Generated-content image edits are Agent OS tool-wrapper runs executed inside the
 Nest AI domain:
 
 ```text
