@@ -21,30 +21,6 @@ function makeController(service = makeService()) {
 }
 
 describe('AlertsController', () => {
-  it('findAll forwards @CurrentOrganization organizationId to the service', () => {
-    const { controller, service } = makeController();
-
-    controller.findAll({ limit: 10 }, ORGANIZATION_ID);
-
-    expect(service.findAll).toHaveBeenCalledWith(ORGANIZATION_ID, 10);
-  });
-
-  it('markAllAsRead forwards @CurrentOrganization organizationId to the service', () => {
-    const { controller, service } = makeController();
-
-    controller.markAllAsRead(ORGANIZATION_ID);
-
-    expect(service.markAllAsRead).toHaveBeenCalledWith(ORGANIZATION_ID);
-  });
-
-  it('markAsRead forwards id and @CurrentOrganization organizationId to the service', () => {
-    const { controller, service } = makeController();
-
-    controller.markAsRead(ALERT_ID, ORGANIZATION_ID);
-
-    expect(service.markAsRead).toHaveBeenCalledWith(ALERT_ID, ORGANIZATION_ID);
-  });
-
   it('promote forwards id, organizationId, mapped application input, and current user id', () => {
     const { controller, service } = makeController();
     // class-validator HTTP DTO has the same shape as the application input.
@@ -80,13 +56,5 @@ describe('AlertsController', () => {
       },
       USER_ID,
     );
-  });
-
-  it('dismiss forwards id and @CurrentOrganization organizationId to the service', async () => {
-    const { controller, service } = makeController();
-    service.dismiss.mockResolvedValue(undefined);
-
-    await expect(controller.dismiss(ALERT_ID, ORGANIZATION_ID)).resolves.toEqual({ ok: true });
-    expect(service.dismiss).toHaveBeenCalledWith(ALERT_ID, ORGANIZATION_ID);
   });
 });

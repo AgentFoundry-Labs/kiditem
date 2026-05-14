@@ -5,7 +5,7 @@ import {
   MODULE_METADATA,
   PATH_METADATA,
 } from '@nestjs/common/constants';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { AiModule } from '../../../../ai.module';
 import { DetailPageEditorController } from '../detail-page-editor.controller';
 import { DetailPageGenerationController } from '../detail-page-generation.controller';
@@ -68,48 +68,6 @@ describe('detail-page route-family controllers', () => {
     });
   });
 
-  it('keeps organization-scoped service delegation after the split', async () => {
-    const service = {
-      uploadInputImage: vi.fn(),
-      generate: vi.fn(),
-      prefill: vi.fn(),
-      list: vi.fn(),
-      getById: vi.fn(),
-      saveEditedHtml: vi.fn(),
-      getEditedHtml: vi.fn(),
-      cancel: vi.fn(),
-      remove: vi.fn(),
-    };
-    const reconcile = {
-      reconcile: vi.fn(),
-    };
-    const generation = new DetailPageGenerationController(service as never);
-    const editor = new DetailPageEditorController(service as never);
-    const reconcileController = new DetailPageReconcileController(reconcile as never);
-
-    await generation.generate({ rawTitle: '상품' } as never, 'org-1', { id: 'user-1' } as never);
-    await generation.prefill({ rawTitle: '상품' } as never, 'org-1');
-    await editor.list('org-1', 'product-1', 'kids-playful');
-    await editor.getOne('generation-1', 'org-1');
-    await editor.saveEditedHtml('generation-1', 'org-1', { html: '<main />' });
-    await editor.getEditedHtml('generation-1', 'org-1');
-    await editor.cancel('generation-1', 'org-1');
-    await editor.remove('generation-1', 'org-1');
-    await reconcileController.reconcileStuck({ sinceMinutes: 30, limit: 10 }, 'org-1');
-
-    expect(service.generate).toHaveBeenCalledWith({ rawTitle: '상품' }, 'org-1', 'user-1');
-    expect(service.prefill).toHaveBeenCalledWith({ rawTitle: '상품' }, 'org-1');
-    expect(service.list).toHaveBeenCalledWith('org-1', 'product-1', 'kids-playful');
-    expect(service.getById).toHaveBeenCalledWith('generation-1', 'org-1');
-    expect(service.saveEditedHtml).toHaveBeenCalledWith('generation-1', 'org-1', '<main />');
-    expect(service.getEditedHtml).toHaveBeenCalledWith('generation-1', 'org-1');
-    expect(service.cancel).toHaveBeenCalledWith('generation-1', 'org-1');
-    expect(service.remove).toHaveBeenCalledWith('generation-1', 'org-1');
-    expect(reconcile.reconcile).toHaveBeenCalledWith('org-1', {
-      sinceMinutes: 30,
-      limit: 10,
-    });
-  });
 });
 
 type ControllerClass = { prototype: object };

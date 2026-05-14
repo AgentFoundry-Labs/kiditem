@@ -98,6 +98,97 @@ describe('apiClient.getParsed', () => {
   });
 });
 
+describe('apiClient HTTP method envelopes', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+    refreshOrFailMock.mockReset();
+    triggerSignOutMock.mockReset();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('GET sends credentials and returns parsed JSON', async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      jsonResponse(200, { data: 'ok' }),
+    );
+
+    await expect(apiClient.get('/api/products')).resolves.toEqual({ data: 'ok' });
+
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/products',
+      expect.objectContaining({ credentials: 'include' }),
+    );
+  });
+
+  it('POST sends JSON body only when a body is provided', async () => {
+    const fetchMock = fetch as ReturnType<typeof vi.fn>;
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(200, { id: 1 }))
+      .mockResolvedValueOnce(jsonResponse(200, { ok: true }));
+
+    await expect(apiClient.post('/api/orders', { item: 'a' })).resolves.toEqual({ id: 1 });
+    await expect(apiClient.post('/api/trigger')).resolves.toEqual({ ok: true });
+
+    const firstInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(firstInit.method).toBe('POST');
+    expect(new Headers(firstInit.headers).get('Content-Type')).toBe('application/json');
+    expect(firstInit.body).toBe(JSON.stringify({ item: 'a' }));
+
+    const secondInit = fetchMock.mock.calls[1]?.[1] as RequestInit;
+    expect(secondInit.method).toBe('POST');
+    expect(secondInit.body).toBeUndefined();
+  });
+
+  it('PATCH, PUT, and DELETE use the expected HTTP methods and JSON envelopes', async () => {
+    const fetchMock = fetch as ReturnType<typeof vi.fn>;
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(200, {}))
+      .mockResolvedValueOnce(jsonResponse(200, {}))
+      .mockResolvedValueOnce(jsonResponse(200, {}))
+      .mockResolvedValueOnce(jsonResponse(200, {}));
+
+    await apiClient.patch('/api/products/1', { name: 'new' });
+    await apiClient.put('/api/products/1', { name: 'next' });
+    await apiClient.delete('/api/products/1');
+    await apiClient.delete('/api/products/1', { reason: 'duplicate' });
+
+    expect((fetchMock.mock.calls[0]?.[1] as RequestInit).method).toBe('PATCH');
+    expect((fetchMock.mock.calls[0]?.[1] as RequestInit).body).toBe(JSON.stringify({ name: 'new' }));
+    expect((fetchMock.mock.calls[1]?.[1] as RequestInit).method).toBe('PUT');
+    expect((fetchMock.mock.calls[1]?.[1] as RequestInit).body).toBe(JSON.stringify({ name: 'next' }));
+    expect((fetchMock.mock.calls[2]?.[1] as RequestInit).method).toBe('DELETE');
+    expect((fetchMock.mock.calls[2]?.[1] as RequestInit).body).toBeUndefined();
+    expect((fetchMock.mock.calls[3]?.[1] as RequestInit).method).toBe('DELETE');
+    expect((fetchMock.mock.calls[3]?.[1] as RequestInit).body).toBe(JSON.stringify({ reason: 'duplicate' }));
+  });
+
+  it('uses message, detail, then status fallback when building non-401 ApiError details', async () => {
+    const fetchMock = fetch as ReturnType<typeof vi.fn>;
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(400, { error: 'COMMON_BAD_REQUEST', message: 'Invalid input' }))
+      .mockResolvedValueOnce(jsonResponse(422, { error: 'VALIDATION', detail: 'Field X required' }))
+      .mockResolvedValueOnce(jsonResponse(500, {}, false));
+
+    await expect(apiClient.get('/api/message')).rejects.toMatchObject({
+      status: 400,
+      code: 'COMMON_BAD_REQUEST',
+      detail: 'Invalid input',
+    });
+    await expect(apiClient.post('/api/detail', {})).rejects.toMatchObject({
+      status: 422,
+      code: 'VALIDATION',
+      detail: 'Field X required',
+    });
+    await expect(apiClient.get('/api/fallback')).rejects.toMatchObject({
+      status: 500,
+      code: null,
+      detail: 'API error: 500',
+    });
+  });
+});
+
 describe('apiClient — 401 interceptor', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());

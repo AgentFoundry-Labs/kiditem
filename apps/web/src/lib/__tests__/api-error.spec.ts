@@ -36,6 +36,25 @@ describe('friendlyError', () => {
   });
 });
 
+describe('ApiError', () => {
+  it('stores HTTP error fields and uses detail as Error.message', () => {
+    const err = new ApiError(404, 'NOT_FOUND', 'Item missing');
+
+    expect(err).toBeInstanceOf(Error);
+    expect(err.name).toBe('ApiError');
+    expect(err.status).toBe(404);
+    expect(err.code).toBe('NOT_FOUND');
+    expect(err.detail).toBe('Item missing');
+    expect(err.message).toBe('Item missing');
+  });
+
+  it('allows null code for non-JSON or uncategorized API errors', () => {
+    const err = new ApiError(502, null, 'Bad Gateway');
+
+    expect(err.code).toBeNull();
+  });
+});
+
 describe('isApiError', () => {
   it('is true for ApiError instance', () => {
     expect(isApiError(new ApiError(500, null, 'x'))).toBe(true);
