@@ -1,0 +1,24 @@
+# Existing public Zod contract names that predate the PascalCaseSchema rule.
+# Remove entries as each shared subpath is renamed.
+packages/shared/src/panel/types.ts:PanelAlertItem
+packages/shared/src/panel/types.ts:PanelDismissEvent
+packages/shared/src/panel/types.ts:PanelEvent
+packages/shared/src/panel/types.ts:PanelItem
+packages/shared/src/panel/types.ts:PanelSnapshotEvent
+packages/shared/src/panel/types.ts:PanelUpsertEvent
+packages/shared/src/schemas/agent-os.ts:agentApprovalStatusSchema
+packages/shared/src/schemas/agent-os.ts:agentAuthorizationDecisionSchema
+packages/shared/src/schemas/agent-os.ts:agentAuthorizationEventSummarySchema
+packages/shared/src/schemas/agent-os.ts:agentCostEventSummarySchema
+packages/shared/src/schemas/agent-os.ts:agentDefinitionRuntimeKindSchema
+packages/shared/src/schemas/agent-os.ts:agentDefinitionSummarySchema
+packages/shared/src/schemas/agent-os.ts:agentInstanceLifecycleStatusSchema
+packages/shared/src/schemas/agent-os.ts:agentInstanceSummarySchema
+packages/shared/src/schemas/agent-os.ts:agentRunEventSummarySchema
+packages/shared/src/schemas/agent-os.ts:agentRunRequestStatusSchema
+packages/shared/src/schemas/agent-os.ts:agentRunRequestSummarySchema
+packages/shared/src/schemas/agent-os.ts:agentRunStatusSchema
+packages/shared/src/schemas/agent-os.ts:agentRunSummarySchema
+packages/shared/src/schemas/agent-os.ts:agentRunnerResultSchema
+packages/shared/src/schemas/agent-os.ts:agentToolPolicyEffectSchema
+packages/shared/src/schemas/agent-os.ts:createAgentRunRequestSchema
