@@ -28,9 +28,9 @@ import {
   Layout,
   Loader2,
   Palette,
+  Plus,
 
   Minus,
-  MousePointer2,
   PanelLeft,
   PanelRight,
   Redo2,
@@ -95,9 +95,93 @@ interface ParsedHtml {
   inlineScripts: string[];
 }
 
+type ImageInsertMode = 'replace' | 'after-selected' | 'viewport';
+type TextPanelTab = 'text' | 'font';
+
+const DETAIL_EDITOR_FONT_CSS = `
+  @font-face {
+    font-family: "NanumSquareRoundLocal";
+    src: url("/fonts/nanum-square-round/NanumSquareRoundOTFL.otf") format("opentype");
+    font-weight: 300 500;
+    font-style: normal;
+    font-display: block;
+  }
+  @font-face {
+    font-family: "NanumSquareRoundLocal";
+    src: url("/fonts/nanum-square-round/NanumSquareRoundOTFEB.otf") format("opentype");
+    font-weight: 700 900;
+    font-style: normal;
+    font-display: block;
+  }
+  @font-face {
+    font-family: "Jalnan2Local";
+    src: url("/fonts/jalnan2/Jalnan2TTF.ttf") format("truetype");
+    font-weight: 400 900;
+    font-style: normal;
+    font-display: block;
+  }
+  :root {
+    --font-display: "Jalnan2Local", "NanumSquareRoundLocal", "NanumSquareNeoHeavy", "NanumSquareNeoExtraBold", sans-serif;
+    --font-sans: "NanumSquareRoundLocal", "Noto Sans KR", "Pretendard", system-ui, sans-serif;
+  }
+`;
+const DETAIL_EDITOR_FONT_STYLE_ATTR = 'data-kiditem-editor-fonts';
+
+const DETAIL_EDITOR_BODY_FONT = 'var(--font-sans)';
+const DETAIL_EDITOR_DISPLAY_FONT = 'var(--font-display)';
+const DETAIL_EDITOR_TEXT_TAGS = new Set(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'span', 'li', 'strong', 'em']);
+const TEXT_FONT_SIZE_MIN_PX = 8;
+const TEXT_FONT_SIZE_MAX_PX = 180;
+const TEXT_FONT_SIZE_STEP_PX = 2;
+const DETAIL_EDITOR_FONT_PRESETS = [
+  {
+    label: '잘난체 2',
+    description: '메인 타이틀 / 강조 문구',
+    cssValue: DETAIL_EDITOR_DISPLAY_FONT,
+    previewStyle: { fontFamily: '"Jalnan2Local", "NanumSquareRoundLocal", sans-serif', fontWeight: 900 },
+  },
+  {
+    label: '나눔스퀘어라운드',
+    description: '본문 / 설명 문구',
+    cssValue: DETAIL_EDITOR_BODY_FONT,
+    previewStyle: { fontFamily: '"NanumSquareRoundLocal", "Noto Sans KR", sans-serif', fontWeight: 800 },
+  },
+] as const;
+
+const TEXT_GRADIENT_PRESETS = [
+  {
+    label: '코랄',
+    css: 'linear-gradient(90deg, #ff7a59 0%, #ffbf69 100%)',
+  },
+  {
+    label: '핑크',
+    css: 'linear-gradient(90deg, #ec4899 0%, #f97316 100%)',
+  },
+  {
+    label: '블루',
+    css: 'linear-gradient(90deg, #2563eb 0%, #06b6d4 100%)',
+  },
+  {
+    label: '민트',
+    css: 'linear-gradient(90deg, #10b981 0%, #84cc16 100%)',
+  },
+  {
+    label: '퍼플',
+    css: 'linear-gradient(90deg, #7c3aed 0%, #db2777 100%)',
+  },
+  {
+    label: '골드',
+    css: 'linear-gradient(90deg, #b45309 0%, #facc15 100%)',
+  },
+] as const;
+
+const EDITOR_SAVE_TIMEOUT_MS = 45_000;
+
 const CANVAS_CSS = `
+  ${DETAIL_EDITOR_FONT_CSS}
   html, body {
     overflow-y: auto !important;
+    font-family: var(--font-sans);
   }
   *, html, body {
     scrollbar-width: none !important;
@@ -223,19 +307,19 @@ const GRAPESJS_OPTIONS: Parameters<typeof GjsEditor>[0]['options'] = {
         id: 'heading1',
         label: 'H1 제목',
         category: '기본',
-        content: '<h1 style="font-size:32px;font-weight:bold;padding:10px;">제목을 입력하세요</h1>',
+        content: `<h1 style="font-family:${DETAIL_EDITOR_DISPLAY_FONT};font-size:32px;font-weight:900;line-height:1.15;letter-spacing:0;padding:10px;">제목을 입력하세요</h1>`,
       },
       {
         id: 'heading2',
         label: 'H2 부제목',
         category: '기본',
-        content: '<h2 style="font-size:24px;font-weight:bold;padding:10px;">부제목을 입력하세요</h2>',
+        content: `<h2 style="font-family:${DETAIL_EDITOR_DISPLAY_FONT};font-size:24px;font-weight:900;line-height:1.2;letter-spacing:0;padding:10px;">부제목을 입력하세요</h2>`,
       },
       {
         id: 'text-block',
         label: '본문',
         category: '기본',
-        content: '<p style="font-size:16px;line-height:1.6;padding:10px;">본문 텍스트를 입력하세요.</p>',
+        content: `<p style="font-family:${DETAIL_EDITOR_BODY_FONT};font-size:16px;font-weight:500;line-height:1.6;padding:10px;">본문 텍스트를 입력하세요.</p>`,
       },
       {
         id: 'rectangle',
@@ -340,6 +424,103 @@ function sanitizeEditorCss(css: string): string {
     .trim();
 }
 
+function buildDetailEditorFontStyleTag(): string {
+  return `<style ${DETAIL_EDITOR_FONT_STYLE_ATTR}>${absolutizeFontUrls(DETAIL_EDITOR_FONT_CSS).trim()}</style>`;
+}
+
+function ensureDetailEditorFontStyle(head: HTMLHeadElement): void {
+  const hasEditorFonts = Array.from(head.querySelectorAll('style')).some((style) => {
+    const text = style.textContent ?? '';
+    return style.hasAttribute(DETAIL_EDITOR_FONT_STYLE_ATTR) ||
+      (/@font-face/i.test(text) && /Jalnan2Local|NanumSquareRoundLocal/.test(text));
+  });
+  if (hasEditorFonts) return;
+
+  const style = head.ownerDocument.createElement('style');
+  style.setAttribute(DETAIL_EDITOR_FONT_STYLE_ATTR, '');
+  style.textContent = absolutizeFontUrls(DETAIL_EDITOR_FONT_CSS).trim();
+  head.appendChild(style);
+}
+
+function extractPersistedEditorCss(headHtml: string): string {
+  if (!headHtml.trim()) return '';
+  const doc = new DOMParser().parseFromString(`<head>${headHtml}</head>`, 'text/html');
+  return Array.from(doc.head.querySelectorAll('style'))
+    .map((style) => style.textContent ?? '')
+    .map((text) => absolutizeFontUrls(text).trim())
+    .filter((text) =>
+      /#i[\w-]+\{/.test(text) &&
+      !/tailwindcss v|@font-face|\.kiditem-|html\s*\{|body\s*\{|\.gjs-/i.test(text),
+    )
+    .join('\n');
+}
+
+function findElementByCssId(doc: Document, id: string): HTMLElement | null {
+  const escapedId =
+    typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+      ? CSS.escape(id)
+      : id.replace(/([ !"#$%&'()*+,./:;<=>?@[\\\]^`{|}~])/g, '\\$1');
+  return doc.getElementById(id) as HTMLElement | null ?? doc.querySelector<HTMLElement>(`#${escapedId}`);
+}
+
+function inlineCssRuleStylesIntoDocument(
+  doc: Document,
+  rules: CSSRuleList | undefined,
+): void {
+  if (!rules) return;
+  for (const rule of Array.from(rules)) {
+    if (rule instanceof CSSStyleRule) {
+      const selectors = rule.selectorText.split(',');
+      for (const selector of selectors) {
+        const idMatch = selector.trim().match(/^#([\w-]+)$/);
+        if (!idMatch) continue;
+        const element = findElementByCssId(doc, idMatch[1]);
+        if (!element) continue;
+        for (const property of Array.from(rule.style)) {
+          element.style.setProperty(
+            property,
+            rule.style.getPropertyValue(property),
+            rule.style.getPropertyPriority(property),
+          );
+        }
+      }
+      continue;
+    }
+
+    if ('cssRules' in rule) {
+      inlineCssRuleStylesIntoDocument(doc, (rule as CSSMediaRule | CSSSupportsRule).cssRules);
+    }
+  }
+}
+
+function inlineEditorCssIntoHtml(rawHtml: string, css: string): string {
+  if (!css.trim()) return rawHtml;
+
+  const source = rawHtml.trim();
+  const isFullDocument = /^<!doctype\s+html/i.test(source) || /<html[\s>]/i.test(source);
+  const startsWithBody = /^<body[\s>]/i.test(source);
+  const doc = new DOMParser().parseFromString(
+    isFullDocument ? source : startsWithBody ? source : `<body>${source}</body>`,
+    'text/html',
+  );
+  const style = doc.createElement('style');
+  style.textContent = css;
+  doc.head.appendChild(style);
+
+  try {
+    inlineCssRuleStylesIntoDocument(doc, style.sheet?.cssRules);
+  } catch {
+    // If the browser cannot parse a generated CSS rule, keep the original
+    // stylesheet. The save path still includes `css` in the document head.
+  } finally {
+    style.remove();
+  }
+
+  if (isFullDocument) return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+  if (startsWithBody) return doc.body.outerHTML;
+  return doc.body.innerHTML;
+}
+
 const API_BASE_ROOT = API_BASE.replace(/\/$/, '');
 
 function getWebOrigin(): string {
@@ -378,6 +559,10 @@ function normalizeBodyAssetUrls(doc: Document): void {
   });
 }
 
+function removeHeadOnlyElementsFromBody(doc: Document): void {
+  doc.body.querySelectorAll('meta, base, title, link, script, style').forEach((el) => el.remove());
+}
+
 function sanitizePersistedHead(headHtml: string, viewportContent: string): string {
   const doc = new DOMParser().parseFromString(`<head>${headHtml}</head>`, 'text/html');
   const head = doc.head;
@@ -386,6 +571,9 @@ function sanitizePersistedHead(headHtml: string, viewportContent: string): strin
   );
 
   head.querySelectorAll('meta[charset], base, meta[name="viewport"]').forEach((el) => el.remove());
+  head
+    .querySelectorAll('link[rel="preload"], link[rel="modulepreload"], link[rel="preconnect"], link[rel="dns-prefetch"]')
+    .forEach((el) => el.remove());
   head.insertAdjacentHTML(
     'afterbegin',
     `<meta charset="UTF-8" />
@@ -433,11 +621,15 @@ function sanitizePersistedHead(headHtml: string, viewportContent: string): strin
         text.includes('.brightness-\\[0\\.7\\]') ||
         /Black\s*Han\s*Sans/i.test(text));
     const normalizedText = absolutizeFontUrls(text).trim();
+    const isPersistedEditorComponentStyle =
+      /#i[\w-]+\{/.test(normalizedText) &&
+      !/tailwindcss v|@font-face|\.kiditem-|html\s*\{|body\s*\{/i.test(normalizedText);
 
     if (
       isEditorWrapperStyle ||
       isEditorCanvasStyle ||
       isLegacyEditedHtmlFallbackStyle ||
+      isPersistedEditorComponentStyle ||
       (normalizedText && seenStyleText.has(normalizedText))
     ) {
       style.remove();
@@ -456,6 +648,7 @@ function normalizeBodyMarkup(rawHtml: string, bodyAttrs: string): string {
   const source = rawHtml.trim();
   const bodySource = /^<body[\s>]/i.test(source) ? source : `<body>${source}</body>`;
   const doc = new DOMParser().parseFromString(bodySource, 'text/html');
+  removeHeadOnlyElementsFromBody(doc);
   normalizeBodyAssetUrls(doc);
   return `<body${bodyAttrs ? ` ${bodyAttrs}` : ''}>${doc.body.innerHTML}</body>`;
 }
@@ -513,16 +706,418 @@ function getLiveEditorHeadHtml(editor: Editor): string {
   return iframeDoc?.head.innerHTML ?? '';
 }
 
+function setImageComponentSrc(
+  editor: Editor | ReturnType<typeof useEditor>,
+  component: any,
+  src: string,
+): void {
+  const imageComponent = getEditableImageComponent(component) ?? component;
+  preserveImageFrameForReplacement(imageComponent);
+
+  const attrs = imageComponent?.getAttributes?.() ?? {};
+  imageComponent?.set?.('src', src);
+  imageComponent?.addAttributes?.({ ...attrs, src });
+  imageComponent?.setAttributes?.({ ...attrs, src });
+  imageComponent?.getEl?.()?.setAttribute?.('src', src);
+  imageComponent?.view?.el?.setAttribute?.('src', src);
+  imageComponent?.view?.render?.();
+  if (imageComponent !== component) editor.trigger?.('component:update', imageComponent);
+  editor.trigger?.('component:update', component);
+  editor.refresh?.();
+}
+
+function preserveImageFrameForReplacement(component: any): void {
+  const target = getEditableImageComponent(component) ?? component;
+  const element = target?.getEl?.() as HTMLImageElement | null | undefined;
+  if (!target || !element) return;
+
+  const rect = element.getBoundingClientRect();
+  if (!Number.isFinite(rect.width) || !Number.isFinite(rect.height) || rect.width <= 1 || rect.height <= 1) return;
+
+  const style = target.getStyle?.() ?? {};
+  const existingWidth = String(style.width ?? '').trim();
+  const existingHeight = String(style.height ?? '').trim();
+  const existingMaxWidth = String(style['max-width'] ?? '').trim();
+  const frameWidth = `${Math.round(rect.width)}px`;
+  const frameHeight = `${Math.round(rect.height)}px`;
+  const frameStyle: Record<string, string> = {
+    display: 'block',
+    width: existingWidth || frameWidth,
+    height: existingHeight && existingHeight !== 'auto' ? existingHeight : frameHeight,
+    'aspect-ratio': `${Math.round(rect.width)} / ${Math.round(rect.height)}`,
+    'object-fit': String(style['object-fit'] ?? '').trim() || 'cover',
+    'object-position': String(style['object-position'] ?? '').trim() || 'center',
+  };
+
+  if (!existingMaxWidth) frameStyle['max-width'] = '100%';
+  target.addStyle?.(frameStyle);
+  target.addAttributes?.({ 'data-preserve-frame': 'true' });
+}
+
+function isBrokenImageComponent(component: any): boolean {
+  const attrs = component?.getAttributes?.() ?? {};
+  const attrSrc = typeof attrs.src === 'string' ? attrs.src.trim() : '';
+  const modelSrc = typeof component?.get?.('src') === 'string' ? component.get('src').trim() : '';
+  const element = component?.getEl?.() as HTMLImageElement | null | undefined;
+  const elementSrc = element?.getAttribute?.('src')?.trim() ?? '';
+  const src = elementSrc || attrSrc || modelSrc;
+
+  if (!src || src === '#' || src === 'undefined' || src === 'null' || src.includes('placehold.co')) return true;
+  if (!element || element.tagName?.toLowerCase() !== 'img') return false;
+
+  return element.complete && element.naturalWidth === 0 && element.naturalHeight === 0;
+}
+
+function removeImageComponent(editor: Editor | ReturnType<typeof useEditor>, component: any): void {
+  if (!component) return;
+  const target = getEditableImageComponent(component) ?? component;
+  target.remove?.();
+  editor.select?.(undefined);
+  editor.trigger?.('component:remove', target);
+  editor.trigger?.('update');
+  editor.refresh?.();
+}
+
+function syncImageSourcesFromCanvas(editor: Editor): void {
+  const wrapper = editor.getWrapper();
+  if (!wrapper) return;
+
+  for (const component of wrapper.find('img')) {
+    if (isBrokenImageComponent(component)) {
+      removeImageComponent(editor, component);
+      continue;
+    }
+
+    const liveSrc = component.getEl?.()?.getAttribute?.('src') ?? '';
+    if (!liveSrc) continue;
+    const attrs = component.getAttributes?.() ?? {};
+    if (attrs.src === liveSrc) continue;
+    component.set?.('src', liveSrc);
+    component.addAttributes?.({ src: liveSrc });
+    component.setAttributes?.({ ...attrs, src: liveSrc });
+  }
+}
+
+function isImageComponent(component: any): boolean {
+  const type = (component?.get?.('type') as string) ?? '';
+  const tag = ((component?.get?.('tagName') as string) ?? '').toLowerCase();
+  return type === 'image' || tag === 'img';
+}
+
+function isTextComponent(component: any): boolean {
+  const type = (component?.get?.('type') as string) ?? '';
+  const tag = ((component?.get?.('tagName') as string) ?? '').toLowerCase();
+  return type === 'text' || type === 'text-ext' || DETAIL_EDITOR_TEXT_TAGS.has(tag);
+}
+
+function getEditableTextComponent(component: any): any | null {
+  if (!component) return null;
+  if (isTextComponent(component)) return component;
+
+  const textChildren = component.find?.(
+    Array.from(DETAIL_EDITOR_TEXT_TAGS).join(','),
+  ) ?? [];
+  return textChildren.length === 1 ? textChildren[0] : null;
+}
+
+function getEditableImageComponent(component: any): any | null {
+  if (!component) return null;
+  if (isImageComponent(component)) return component;
+
+  const images = component.find?.('img') ?? [];
+  if (images.length === 1) return images[0];
+
+  return null;
+}
+
+function isAttachedComponent(component: any): boolean {
+  return Boolean(component?.parent?.());
+}
+
+function isStructuralDuplicateBoundary(component: any, wrapper: any): boolean {
+  if (!component || component === wrapper) return true;
+
+  const tag = ((component.get?.('tagName') as string) ?? '').toLowerCase();
+  const attrs = component.getAttributes?.() ?? {};
+  return tag === 'body' || tag === 'main' || Boolean(attrs['data-section'] || attrs['data-container']);
+}
+
+function getComponentChildren(component: any): any[] {
+  return component?.components?.()?.models ?? [];
+}
+
+function getImageDuplicateTarget(component: any, wrapper: any): any {
+  if (!isImageComponent(component)) return component;
+
+  const parent = component.parent?.();
+  if (!parent || isStructuralDuplicateBoundary(parent, wrapper)) return component;
+
+  const children = getComponentChildren(parent);
+  const imageChildren = children.filter(isImageComponent);
+
+  return children.length === 1 && imageChildren.length === 1 ? parent : component;
+}
+
+function componentContainsImage(component: any): boolean {
+  return isImageComponent(component) || (component?.find?.('img') ?? []).length > 0;
+}
+
+function ensureImageDuplicateSpacing(component: any): void {
+  const style = component.getStyle?.() ?? {};
+  const current = Number.parseFloat(String(style['margin-top'] ?? '0'));
+  const currentBottom = Number.parseFloat(String(style['margin-bottom'] ?? '0'));
+
+  const nextStyle: Record<string, string> = {};
+  if (!Number.isFinite(current) || current < 24) {
+    nextStyle['margin-top'] = '24px';
+  }
+  if (!Number.isFinite(currentBottom) || currentBottom < 24) {
+    nextStyle['margin-bottom'] = '24px';
+  }
+  if (isImageComponent(component)) {
+    nextStyle.display = 'block';
+  }
+  if (Object.keys(nextStyle).length > 0) {
+    component.addStyle?.(nextStyle);
+  }
+}
+
+function ensureImageGapAfter(component: any): void {
+  if (!componentContainsImage(component)) return;
+  const style = component.getStyle?.() ?? {};
+  const currentBottom = Number.parseFloat(String(style['margin-bottom'] ?? '0'));
+  if (!Number.isFinite(currentBottom) || currentBottom < 24) {
+    component.addStyle?.({ 'margin-bottom': '24px' });
+  }
+  if (isImageComponent(component)) {
+    component.addStyle?.({ display: 'block' });
+  }
+}
+
+function makeImageComponentInteractive(component: any): void {
+  if (!component) return;
+  const target = getEditableImageComponent(component) ?? component;
+  target.set?.({
+    selectable: true,
+    hoverable: true,
+    draggable: true,
+    movable: true,
+    copyable: true,
+    removable: true,
+    resizable: true,
+  });
+  if (isImageComponent(target)) {
+    target.addStyle?.({
+      display: 'block',
+      cursor: 'move',
+    });
+  }
+}
+
+function isDetailImagesContext(component: any): boolean {
+  let current = component;
+  for (let depth = 0; current && depth < 8; depth++) {
+    const attrs = current.getAttributes?.() ?? {};
+    const text = [attrs['data-section'], attrs['data-container'], attrs.class, attrs.alt]
+      .filter(Boolean)
+      .join(' ');
+    if (text.includes('detailImages') || text.includes('디테일 이미지')) return true;
+    current = current.parent?.();
+  }
+  return false;
+}
+
+function getDetailImageStackItem(component: any): any | null {
+  let item = component;
+  let parent = component?.parent?.();
+  for (let depth = 0; item && parent && depth < 8; depth++) {
+    const attrs = parent.getAttributes?.() ?? {};
+    if (attrs['data-container'] === 'detailImages') return item;
+    item = parent;
+    parent = parent.parent?.();
+  }
+  return null;
+}
+
+function normalizeDetailImageSpacing(editor: Editor | ReturnType<typeof useEditor>): void {
+  const wrapper = editor.getWrapper?.();
+  if (!wrapper) return;
+
+  for (const image of wrapper.find('img')) {
+    if (!isDetailImagesContext(image)) continue;
+    const stackItem = getDetailImageStackItem(image);
+    const stackParent = stackItem?.parent?.();
+    const stackSiblings = stackParent ? getComponentChildren(stackParent).filter(componentContainsImage) : [];
+    const stackIndex = stackItem ? stackSiblings.indexOf(stackItem) : -1;
+    const imageParent = image.parent?.();
+    const imageSiblings = imageParent ? getComponentChildren(imageParent).filter(componentContainsImage) : [];
+    const imageIndex = imageSiblings.indexOf(image);
+    const effectiveIndex = stackIndex >= 0 ? stackIndex : imageIndex;
+
+    if (stackItem && stackItem !== image) {
+      stackItem.addStyle?.({
+        display: 'block',
+        'margin-top': stackIndex > 0 ? '24px' : '0',
+        'margin-bottom': '24px',
+      });
+    }
+
+    image.addStyle?.({
+      display: 'block',
+      'margin-left': 'auto',
+      'margin-right': 'auto',
+      'margin-top': stackItem && stackItem !== image ? '0' : effectiveIndex > 0 ? '24px' : '0',
+      'margin-bottom': stackItem && stackItem !== image ? '0' : '24px',
+    });
+  }
+  editor.refresh?.();
+}
+
+function buildStackedImageHtml(url: string, alt: string): string {
+  return `<img src="${url}" alt="${alt}" class="w-full h-auto rounded-[var(--theme-radius)] shadow-md" style="display:block;margin:0 auto 24px;" />`;
+}
+
+function isSafetyLabelImageContext(component: any): boolean {
+  let current = component;
+  for (let depth = 0; current && depth < 8; depth++) {
+    const attrs = current.getAttributes?.() ?? {};
+    const text = [
+      attrs['data-container'],
+      attrs.alt,
+      attrs.title,
+      attrs.class,
+      attrs.src,
+      current.get?.('tagName'),
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+
+    if (
+      text.includes('safetylabelimages') ||
+      text.includes('safety-label') ||
+      text.includes('barcode') ||
+      text.includes('bar-code') ||
+      text.includes('kc-label') ||
+      text.includes('품질표시') ||
+      text.includes('안전') ||
+      text.includes('바코드')
+    ) {
+      return true;
+    }
+
+    current = current.parent?.();
+  }
+
+  return false;
+}
+
+async function trimWhiteImageWhitespace(imageUrl: string): Promise<string> {
+  if (!imageUrl || imageUrl.includes('placehold.co') || typeof window === 'undefined') return imageUrl;
+
+  try {
+    const image = await loadImageForCanvas(imageUrl);
+    const sourceWidth = image.naturalWidth || image.width;
+    const sourceHeight = image.naturalHeight || image.height;
+    if (sourceWidth <= 0 || sourceHeight <= 0) return imageUrl;
+
+    const sourceCanvas = document.createElement('canvas');
+    sourceCanvas.width = sourceWidth;
+    sourceCanvas.height = sourceHeight;
+    const sourceContext = sourceCanvas.getContext('2d', { willReadFrequently: true });
+    if (!sourceContext) return imageUrl;
+
+    sourceContext.drawImage(image, 0, 0, sourceWidth, sourceHeight);
+    const imageData = sourceContext.getImageData(0, 0, sourceWidth, sourceHeight);
+    const bounds = findNonWhiteImageBounds(imageData.data, sourceWidth, sourceHeight);
+    if (!bounds) return imageUrl;
+
+    const padding = Math.max(8, Math.round(Math.min(sourceWidth, sourceHeight) * 0.012));
+    const left = Math.max(0, bounds.left - padding);
+    const top = Math.max(0, bounds.top - padding);
+    const right = Math.min(sourceWidth - 1, bounds.right + padding);
+    const bottom = Math.min(sourceHeight - 1, bounds.bottom + padding);
+    const width = right - left + 1;
+    const height = bottom - top + 1;
+
+    if (width / sourceWidth > 0.985 && height / sourceHeight > 0.985) return imageUrl;
+
+    const outputCanvas = document.createElement('canvas');
+    outputCanvas.width = width;
+    outputCanvas.height = height;
+    const outputContext = outputCanvas.getContext('2d');
+    if (!outputContext) return imageUrl;
+
+    outputContext.drawImage(sourceCanvas, left, top, width, height, 0, 0, width, height);
+    return outputCanvas.toDataURL('image/png');
+  } catch {
+    return imageUrl;
+  }
+}
+
+function loadImageForCanvas(imageUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    if (!imageUrl.startsWith('data:') && !imageUrl.startsWith('blob:')) {
+      image.crossOrigin = 'anonymous';
+    }
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('Image failed to load'));
+    image.src = imageUrl;
+  });
+}
+
+function findNonWhiteImageBounds(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+): { left: number; top: number; right: number; bottom: number } | null {
+  let left = width;
+  let top = height;
+  let right = -1;
+  let bottom = -1;
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const offset = (y * width + x) * 4;
+      const alpha = data[offset + 3];
+      const r = data[offset];
+      const g = data[offset + 1];
+      const b = data[offset + 2];
+      const max = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      const isWhite = alpha <= 12 || (min >= 248 && max - min <= 18);
+      if (isWhite) continue;
+
+      left = Math.min(left, x);
+      top = Math.min(top, y);
+      right = Math.max(right, x);
+      bottom = Math.max(bottom, y);
+    }
+  }
+
+  return right >= left && bottom >= top ? { left, top, right, bottom } : null;
+}
+
+async function prepareImageForComponent(imageUrl: string, component?: any): Promise<string> {
+  return component && isSafetyLabelImageContext(component)
+    ? trimWhiteImageWhitespace(imageUrl)
+    : imageUrl;
+}
+
 function buildPersistedEditorHtml(
   editor: Editor,
   parsed: ParsedHtml,
   templateCss: string,
 ): string {
-  const html = editor.getHtml();
-  const css = sanitizeEditorCss(editor.getCss({ avoidProtected: true }) ?? '');
-  const liveHeadHtml = getLiveEditorHeadHtml(editor);
+  syncImageSourcesFromCanvas(editor);
+  normalizeDetailImageSpacing(editor);
+  const css = sanitizeEditorCss(
+    `${extractPersistedEditorCss(parsed.headHtml)}\n${editor.getCss({ avoidProtected: true }) ?? ''}`,
+  );
+  const html = inlineEditorCssIntoHtml(editor.getHtml(), css);
   const headResources = sanitizePersistedHead(
-    `${parsed.headHtml}\n${liveHeadHtml}\n${templateCss ? `<style>${templateCss}</style>` : ''}`,
+    `${parsed.headHtml}\n${buildDetailEditorFontStyleTag()}\n${templateCss ? `<style>${templateCss}</style>` : ''}`,
     parsed.viewportContent,
   );
   const bodyMarkup = normalizeBodyMarkup(html, parsed.bodyAttrs);
@@ -536,6 +1131,27 @@ function buildPersistedEditorHtml(
 </head>
 ${bodyMarkup}
 </html>`;
+}
+
+function withEditorSaveTimeout<T>(promise: Promise<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      const error = new Error('저장 요청이 오래 걸리고 있어요. 네트워크나 서버 상태를 확인한 뒤 다시 저장해주세요.');
+      error.name = 'EditorSaveTimeoutError';
+      reject(error);
+    }, EDITOR_SAVE_TIMEOUT_MS);
+
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }
 
 function replaceImageSrcsInEditor(editor: Editor, assetUrlMap: Record<string, string>): void {
@@ -624,6 +1240,7 @@ function normalizeExportHead(doc: Document, parsed: ParsedHtml, templateCss: str
     style.textContent = templateCss;
     head.appendChild(style);
   }
+  ensureDetailEditorFontStyle(head);
 
   head.querySelectorAll<HTMLLinkElement>('link[href]').forEach((link) => {
     const href = link.getAttribute('href');
@@ -689,6 +1306,7 @@ function parseFullHtml(fullHtml: string): ParsedHtml {
   const doc = parser.parseFromString(fullHtml, 'text/html');
   repairSizeGuideFrameInDocument(doc);
   repairProductInfoTableWidthInDocument(doc);
+  removeHeadOnlyElementsFromBody(doc);
   const viewportContent =
     doc.head.querySelector<HTMLMetaElement>('meta[name="viewport"]')?.content ||
     `width=${inferViewportWidth(fullHtml, '')}, initial-scale=1`;
@@ -912,7 +1530,6 @@ function EditorToolbar({
   const [zoom, setZoom] = useState(100);
   const [isSaving, setIsSaving] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-  const [activeTool, setActiveTool] = useState('cursor');
   const [selectedVisible, setSelectedVisible] = useState(true);
 
   useEffect(() => {
@@ -967,13 +1584,17 @@ function EditorToolbar({
     setIsSaving(true);
     try {
       const fullHtml = buildPersistedEditorHtml(editor, parsed, templateCss);
-      const saveResult = await onSave(fullHtml);
+      const saveResult = await withEditorSaveTimeout(Promise.resolve().then(() => onSave(fullHtml)));
       if (saveResult?.assetUrlMap && Object.keys(saveResult.assetUrlMap).length > 0) {
         replaceImageSrcsInEditor(editor, saveResult.assetUrlMap);
       }
       // Save 성공 후 dirty 해제 + UndoManager 클리어 → "방금 저장된 상태" 가 새 베이스.
       setEditorDirty(false);
       editor.UndoManager.clear();
+    } catch (err) {
+      if (err instanceof Error && err.name === 'EditorSaveTimeoutError') {
+        toast.error(err.message);
+      }
     } finally {
       setIsSaving(false);
     }
@@ -1025,50 +1646,45 @@ function EditorToolbar({
     }
   }, [editor, parsed, productName, templateCss]);
 
-  const addElement = useCallback(
-    (type: string) => {
-      const wrapper = editor.getWrapper();
-      if (!wrapper) return;
-      const contentMap: Record<string, string> = {
-        text: '<p style="padding:10px;font-size:16px;">텍스트를 입력하세요</p>',
-        rectangle: '<div style="width:200px;height:150px;border:2px solid #d1d5db;"></div>',
-        circle: '<div style="width:150px;height:150px;border-radius:50%;border:2px solid #d1d5db;"></div>',
-        line: '<hr style="border:none;border-top:2px solid #d1d5db;width:100%;" />',
-      };
-      if (type === 'image') {
-        editor.runCommand('core:open-assets');
-        return;
-      }
-      const html = contentMap[type];
-      if (html) insertEditorHtml(editor, html);
-    },
-    [editor],
-  );
-
-  const handleToolClick = useCallback(
-    (tool: string) => {
-      setActiveTool(tool);
-      if (tool !== 'cursor') {
-        addElement(tool);
-        setTimeout(() => setActiveTool('cursor'), 400);
-      }
-    },
-    [addElement],
-  );
-
   const handleDuplicate = useCallback(() => {
     const selected = editor.getSelected();
     if (!selected) return;
-    const parent = selected.parent();
+    const duplicateTarget = getImageDuplicateTarget(selected, editor.getWrapper());
+    const parent = duplicateTarget.parent();
     if (!parent) return;
-    const clone = selected.clone();
-    parent.components().add(clone, { at: selected.index() + 1 });
-    editor.select(clone);
+    const clone = duplicateTarget.clone();
+    if (componentContainsImage(selected) || componentContainsImage(duplicateTarget)) {
+      ensureImageGapAfter(duplicateTarget);
+      ensureImageDuplicateSpacing(clone);
+    }
+    const result = parent.components().add(clone, { at: duplicateTarget.index() + 1 });
+    const component = Array.isArray(result) ? result[0] : result;
+    if (component && componentContainsImage(component)) {
+      ensureImageDuplicateSpacing(component);
+      makeImageComponentInteractive(component);
+      normalizeDetailImageSpacing(editor);
+      editor.trigger('component:update', component);
+      editor.refresh();
+    }
+    if (component) editor.select(component);
+  }, [editor]);
+
+  const handleAddImageBelow = useCallback(() => {
+    const selected = editor.getSelected();
+    const selectedImage = getEditableImageComponent(selected);
+    const src = selectedImage?.getEl?.()?.getAttribute?.('src')
+      ?? selectedImage?.getAttributes?.()?.src
+      ?? selectedImage?.get?.('src');
+    if (!selectedImage || !src) {
+      toast.error('이미지를 선택한 뒤 아래 추가를 눌러주세요.');
+      return;
+    }
+    insertImageAfterComponent(editor, selectedImage, src);
   }, [editor]);
 
   const handleDelete = useCallback(() => {
     const selected = editor.getSelected();
-    if (selected) selected.remove();
+    if (selected) removeImageComponent(editor, selected);
   }, [editor]);
 
   const handleMoveUp = useCallback(() => {
@@ -1157,43 +1773,6 @@ function EditorToolbar({
         </button>
         <div className="w-px h-5 bg-slate-200 mx-1" />
         <h2 className="text-xs font-medium text-slate-600 truncate max-w-[160px] mr-2">{productName}</h2>
-        <div className="w-px h-5 bg-slate-200 mx-1" />
-        <ToolBtn
-          icon={<MousePointer2 size={16} />}
-          title="선택 (V)"
-          active={activeTool === 'cursor'}
-          onClick={() => handleToolClick('cursor')}
-        />
-        <ToolBtn
-          icon={<Type size={16} />}
-          title="텍스트 추가"
-          active={activeTool === 'text'}
-          onClick={() => handleToolClick('text')}
-        />
-        <ToolBtn
-          icon={<ImagePlus size={16} />}
-          title="이미지 추가"
-          active={activeTool === 'image'}
-          onClick={() => handleToolClick('image')}
-        />
-        <ToolBtn
-          icon={<Square size={16} />}
-          title="사각형 추가"
-          active={activeTool === 'rectangle'}
-          onClick={() => handleToolClick('rectangle')}
-        />
-        <ToolBtn
-          icon={<Circle size={16} />}
-          title="원형 추가"
-          active={activeTool === 'circle'}
-          onClick={() => handleToolClick('circle')}
-        />
-        <ToolBtn
-          icon={<Minus size={16} />}
-          title="선 추가"
-          active={activeTool === 'line'}
-          onClick={() => handleToolClick('line')}
-        />
       </div>
 
       <div className="flex items-center gap-0.5">
@@ -1211,6 +1790,7 @@ function EditorToolbar({
         />
         <div className="w-px h-5 bg-slate-200 mx-1" />
         <ToolBtn icon={<Files size={16} />} title="복제" onClick={handleDuplicate} disabled={!hasSelection} />
+        <ToolBtn icon={<Plus size={16} />} title="선택 이미지 아래 추가" onClick={handleAddImageBelow} disabled={!hasSelection} />
         <ToolBtn
           icon={<Trash2 size={16} />}
           title="삭제 (Delete)"
@@ -1283,12 +1863,14 @@ function LeftPanel({
   onOpenAiPanel,
   rawImages = [],
   onImagesUploaded,
+  selectedImageComponent,
 }: {
   activeTool: EditorToolId;
   onClose?: () => void;
   onOpenAiPanel: () => void;
   rawImages?: string[];
   onImagesUploaded: (imageUrls: string[]) => void;
+  selectedImageComponent?: any;
 }) {
   const editor = useEditor();
   return (
@@ -1313,6 +1895,7 @@ function LeftPanel({
         onOpenAiPanel={onOpenAiPanel}
         rawImages={rawImages}
         onImagesUploaded={onImagesUploaded}
+        selectedImageComponent={selectedImageComponent}
       />
     </aside>
   );
@@ -1324,12 +1907,14 @@ function LeftToolPanel({
   onOpenAiPanel,
   rawImages,
   onImagesUploaded,
+  selectedImageComponent,
 }: {
   activeTool: EditorToolId;
   editor: ReturnType<typeof useEditor>;
   onOpenAiPanel: () => void;
   rawImages: string[];
   onImagesUploaded: (imageUrls: string[]) => void;
+  selectedImageComponent?: any;
 }) {
   if (activeTool === 'pages') return <EditorPagePanel />;
   if (activeTool === 'text') return <TextToolPanel editor={editor} />;
@@ -1339,6 +1924,7 @@ function LeftToolPanel({
         editor={editor}
         rawImages={rawImages}
         onImagesUploaded={onImagesUploaded}
+        selectedImageComponent={selectedImageComponent}
       />
     );
   }
@@ -1350,24 +1936,69 @@ function LeftToolPanel({
 }
 
 function TextToolPanel({ editor }: { editor: ReturnType<typeof useEditor> }) {
+  const [tab, setTab] = useState<TextPanelTab>('text');
+  const applyFont = useCallback(
+    (fontFamily: string) => {
+      const selected = getEditableTextComponent(editor.getSelected());
+      if (!selected) {
+        toast.error('폰트를 적용할 텍스트를 먼저 선택해주세요.');
+        return;
+      }
+      applyComponentStyle(editor, selected, { 'font-family': fontFamily, 'letter-spacing': '0' });
+    },
+    [editor],
+  );
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
       <div className="mb-4 grid grid-cols-2 rounded-lg border border-slate-200 bg-slate-50 p-1">
-        <button type="button" className="rounded-md bg-white py-2 text-xs font-black text-slate-900 shadow-sm">
+        <button
+          type="button"
+          onClick={() => setTab('text')}
+          className={cn(
+            'rounded-md py-2 text-xs font-black transition',
+            tab === 'text' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700',
+          )}
+        >
           텍스트
         </button>
-        <button type="button" className="rounded-md py-2 text-xs font-bold text-slate-500">
+        <button
+          type="button"
+          onClick={() => setTab('font')}
+          className={cn(
+            'rounded-md py-2 text-xs font-black transition',
+            tab === 'font' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700',
+          )}
+        >
           폰트
         </button>
       </div>
 
+      {tab === 'font' ? (
+        <div className="space-y-3">
+          {DETAIL_EDITOR_FONT_PRESETS.map((font) => (
+            <button
+              key={font.label}
+              type="button"
+              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-left transition hover:border-blue-300 hover:bg-blue-50"
+              onClick={() => applyFont(font.cssValue)}
+            >
+              <span className="block text-lg leading-none text-slate-900" style={font.previewStyle}>
+                {font.label}
+              </span>
+              <span className="mt-1 block text-xs font-semibold text-slate-400">{font.description}</span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <>
       <div className="space-y-2">
         <QuickInsertButton
           label="메인 카피 텍스트 추가"
           onClick={() =>
             insertEditorHtml(
               editor,
-              '<h2 style="font-size:42px;font-weight:900;line-height:1.16;letter-spacing:0;color:#111827;text-align:center;margin:24px 0;">메인 카피를 입력하세요</h2>',
+              `<h2 style="font-family:${DETAIL_EDITOR_DISPLAY_FONT};font-size:42px;font-weight:900;line-height:1.16;letter-spacing:0;color:#111827;text-align:center;margin:24px 0;">메인 카피를 입력하세요</h2>`,
             )
           }
         />
@@ -1376,7 +2007,7 @@ function TextToolPanel({ editor }: { editor: ReturnType<typeof useEditor> }) {
           onClick={() =>
             insertEditorHtml(
               editor,
-              '<p style="font-size:24px;font-weight:800;line-height:1.45;color:#374151;text-align:center;margin:18px 0;">서브 카피를 입력하세요</p>',
+              `<p style="font-family:${DETAIL_EDITOR_BODY_FONT};font-size:24px;font-weight:800;line-height:1.45;color:#374151;text-align:center;margin:18px 0;">서브 카피를 입력하세요</p>`,
             )
           }
         />
@@ -1385,7 +2016,7 @@ function TextToolPanel({ editor }: { editor: ReturnType<typeof useEditor> }) {
           onClick={() =>
             insertEditorHtml(
               editor,
-              '<p style="font-size:18px;font-weight:500;line-height:1.75;color:#4b5563;text-align:center;margin:16px 0;">본문 내용을 입력하세요.</p>',
+              `<p style="font-family:${DETAIL_EDITOR_BODY_FONT};font-size:18px;font-weight:500;line-height:1.75;color:#4b5563;text-align:center;margin:16px 0;">본문 내용을 입력하세요.</p>`,
             )
           }
         />
@@ -1400,7 +2031,7 @@ function TextToolPanel({ editor }: { editor: ReturnType<typeof useEditor> }) {
           onSelect={(label) =>
             insertEditorHtml(
               editor,
-              `<div style="margin:22px auto;padding:20px;border-radius:16px;background:#f8fafc;color:#111827;max-width:520px;"><strong>${label}</strong><p style="margin:8px 0 0;color:#64748b;">내용을 입력하세요.</p></div>`,
+              `<div style="font-family:${DETAIL_EDITOR_BODY_FONT};margin:22px auto;padding:20px;border-radius:16px;background:#f8fafc;color:#111827;max-width:520px;"><strong style="font-family:${DETAIL_EDITOR_DISPLAY_FONT};font-weight:900;">${label}</strong><p style="margin:8px 0 0;color:#64748b;">내용을 입력하세요.</p></div>`,
             )
           }
         />
@@ -1415,7 +2046,7 @@ function TextToolPanel({ editor }: { editor: ReturnType<typeof useEditor> }) {
           onSelect={(label) =>
             insertEditorHtml(
               editor,
-              `<div style="margin:24px auto;padding:28px;background:#ffffff;text-align:center;"><h3 style="font-size:30px;font-weight:900;margin:0 0 10px;">${label}</h3><p style="font-size:17px;color:#64748b;margin:0;">내용을 입력해 주세요.</p></div>`,
+              `<div style="font-family:${DETAIL_EDITOR_BODY_FONT};margin:24px auto;padding:28px;background:#ffffff;text-align:center;"><h3 style="font-family:${DETAIL_EDITOR_DISPLAY_FONT};font-size:30px;font-weight:900;letter-spacing:0;margin:0 0 10px;">${label}</h3><p style="font-size:17px;color:#64748b;margin:0;">내용을 입력해 주세요.</p></div>`,
             )
           }
         />
@@ -1427,6 +2058,8 @@ function TextToolPanel({ editor }: { editor: ReturnType<typeof useEditor> }) {
           onSelect={(_, item) => insertEditorHtml(editor, buildTemplateSectionBlockHtml(item.kind))}
         />
       </ToolSection>
+        </>
+      )}
     </div>
   );
 }
@@ -1435,13 +2068,19 @@ function ImageToolPanel({
   editor,
   rawImages,
   onImagesUploaded,
+  selectedImageComponent,
 }: {
   editor: ReturnType<typeof useEditor>;
   rawImages: string[];
   onImagesUploaded: (imageUrls: string[]) => void;
+  selectedImageComponent?: any;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageDragActiveRef = useRef(false);
+  const imageClickHandledRef = useRef(false);
+  const [insertMode, setInsertMode] = useState<ImageInsertMode>('replace');
+  const canReplaceSelectedImage = Boolean(selectedImageComponent && isAttachedComponent(selectedImageComponent));
+  const activeInsertMode: ImageInsertMode = canReplaceSelectedImage ? insertMode : 'viewport';
 
   const handleFiles = useCallback(
     async (files: FileList | null) => {
@@ -1451,12 +2090,28 @@ function ImageToolPanel({
         const url = await readFileAsDataUrl(file);
         uploadedUrls.push(url);
         editor.AssetManager.add({ type: 'image', src: url });
-        insertImageIntoEditor(editor, url);
+        await insertImageIntoEditor(editor, url, selectedImageComponent, activeInsertMode);
       }
       if (uploadedUrls.length > 0) onImagesUploaded(uploadedUrls);
       if (fileInputRef.current) fileInputRef.current.value = '';
     },
-    [editor, onImagesUploaded],
+    [activeInsertMode, editor, onImagesUploaded, selectedImageComponent],
+  );
+
+  const handleThumbnailActivate = useCallback(
+    (event: React.MouseEvent<HTMLElement> | React.PointerEvent<HTMLElement>, url: string) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (imageClickHandledRef.current) return;
+      if (!canReplaceSelectedImage && imageDragActiveRef.current) return;
+      imageClickHandledRef.current = true;
+      imageDragActiveRef.current = false;
+      void insertImageIntoEditor(editor, url, selectedImageComponent, activeInsertMode);
+      window.setTimeout(() => {
+        imageClickHandledRef.current = false;
+      }, 0);
+    },
+    [activeInsertMode, canReplaceSelectedImage, editor, selectedImageComponent],
   );
 
   return (
@@ -1494,6 +2149,41 @@ function ImageToolPanel({
         onChange={(event) => handleFiles(event.target.files)}
       />
 
+      <div className="mb-3 grid grid-cols-3 rounded-lg bg-slate-100 p-1 text-[11px] font-black text-slate-500">
+        <button
+          type="button"
+          disabled={!canReplaceSelectedImage}
+          onClick={() => setInsertMode('replace')}
+          className={cn(
+            'rounded-md px-2 py-1.5 transition disabled:cursor-not-allowed disabled:text-slate-300',
+            activeInsertMode === 'replace' && 'bg-white text-slate-900 shadow-sm',
+          )}
+        >
+          교체
+        </button>
+        <button
+          type="button"
+          disabled={!canReplaceSelectedImage}
+          onClick={() => setInsertMode('after-selected')}
+          className={cn(
+            'rounded-md px-2 py-1.5 transition disabled:cursor-not-allowed disabled:text-slate-300',
+            activeInsertMode === 'after-selected' && 'bg-white text-slate-900 shadow-sm',
+          )}
+        >
+          아래 추가
+        </button>
+        <button
+          type="button"
+          onClick={() => setInsertMode('viewport')}
+          className={cn(
+            'rounded-md px-2 py-1.5 transition',
+            activeInsertMode === 'viewport' && 'bg-white text-slate-900 shadow-sm',
+          )}
+        >
+          현재 위치
+        </button>
+      </div>
+
       <BlocksProvider>
         {({ blocks, dragStart, dragStop }) => {
           const imageBlocks = blocks.filter((block) => block.getId().startsWith('raw-image-'));
@@ -1519,10 +2209,23 @@ function ImageToolPanel({
                 return (
                   <div
                     key={block.getId()}
-                    draggable
+                    draggable={activeInsertMode === 'viewport'}
                     className="aspect-square cursor-grab overflow-hidden rounded-xl border border-slate-200 bg-slate-50"
-                    title="드래그하여 배치 · 클릭하여 배치"
+                    title={
+                      activeInsertMode === 'replace'
+                        ? '선택한 이미지 교체'
+                        : activeInsertMode === 'after-selected'
+                          ? '선택한 이미지 아래 추가'
+                          : '현재 보고 있는 위치에 추가 · 드래그하여 배치'
+                    }
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onPointerUp={(event) => handleThumbnailActivate(event, thumbUrl)}
                     onDragStart={(event) => {
+                      if (activeInsertMode !== 'viewport') {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        return;
+                      }
                       imageDragActiveRef.current = true;
                       event.stopPropagation();
                       dragStart(block, event.nativeEvent);
@@ -1533,12 +2236,8 @@ function ImageToolPanel({
                         imageDragActiveRef.current = false;
                       }, 0);
                     }}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      if (imageDragActiveRef.current) return;
-                      insertImageIntoEditor(editor, thumbUrl);
-                    }}
+                    onMouseUp={(event) => handleThumbnailActivate(event, thumbUrl)}
+                    onClick={(event) => handleThumbnailActivate(event, thumbUrl)}
                   >
                     <img src={thumbUrl} alt="" className="h-full w-full object-cover" />
                   </div>
@@ -1549,12 +2248,18 @@ function ImageToolPanel({
                   key={url}
                   type="button"
                   className="group relative aspect-square overflow-hidden rounded-xl border border-slate-200 bg-slate-50"
-                  title="클릭하여 배치"
+                  title={
+                    activeInsertMode === 'replace'
+                      ? '선택한 이미지 교체'
+                      : activeInsertMode === 'after-selected'
+                        ? '선택한 이미지 아래 추가'
+                        : '현재 보고 있는 위치에 추가'
+                  }
                   onMouseDown={(event) => event.stopPropagation()}
                   onClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
-                    insertImageIntoEditor(editor, url);
+                    void insertImageIntoEditor(editor, url, selectedImageComponent, activeInsertMode);
                   }}
                 >
                   <img src={url} alt="" className="h-full w-full object-cover transition group-hover:scale-105" />
@@ -1781,6 +2486,66 @@ function insertEditorHtml(editor: ReturnType<typeof useEditor>, html: string) {
   }
 }
 
+function buildInsertedImageHtml(url: string, wrap = false): string {
+  const imageHtml = `<img src="${url}" data-role="editable-image" style="display:block;width:100%;max-width:640px;margin:24px auto 24px;object-fit:cover;cursor:move;" />`;
+  return wrap
+    ? `<div data-role="inserted-image" style="display:block;margin:24px auto;">${imageHtml}</div>`
+    : imageHtml;
+}
+
+function insertImageHtmlAt(
+  editor: ReturnType<typeof useEditor>,
+  parent: any,
+  at: number,
+  html: string,
+): any | null {
+  const added = parent
+    ? parent.components().add(html, { at })
+    : editor.addComponents(html);
+  const component = Array.isArray(added) ? added[0] : added;
+  if (component) {
+    makeImageComponentInteractive(component);
+    ensureImageDuplicateSpacing(component);
+    normalizeDetailImageSpacing(editor);
+    editor.select(component);
+    editor.trigger?.('component:update', component);
+    editor.refresh?.();
+    requestAnimationFrame(() => scrollComponentIntoCanvasView(editor, component));
+  }
+  return component ?? null;
+}
+
+function getImageInsertionTargetAfter(
+  editor: ReturnType<typeof useEditor>,
+  component: any,
+): { parent: any; at: number; wrap: boolean; previous: any } | null {
+  const wrapper = editor.getWrapper();
+  const image = getEditableImageComponent(component);
+  if (!wrapper || !image || !isAttachedComponent(image)) return null;
+
+  const duplicateTarget = getImageDuplicateTarget(image, wrapper);
+  const parent = duplicateTarget?.parent?.();
+  if (!parent) return null;
+
+  return {
+    parent,
+    at: duplicateTarget.index() + 1,
+    wrap: !isImageComponent(duplicateTarget),
+    previous: duplicateTarget,
+  };
+}
+
+function insertImageAfterComponent(
+  editor: ReturnType<typeof useEditor>,
+  component: any,
+  url: string,
+): any | null {
+  const target = getImageInsertionTargetAfter(editor, component);
+  if (!target) return null;
+  ensureImageGapAfter(target.previous);
+  return insertImageHtmlAt(editor, target.parent, target.at, buildInsertedImageHtml(url, target.wrap));
+}
+
 function getInsertionTarget(editor: ReturnType<typeof useEditor>): { parent: any | null; at: number } {
   const wrapper = editor.getWrapper();
   const children = wrapper?.components?.();
@@ -1960,23 +2725,280 @@ function scrollComponentIntoCanvasView(editor: ReturnType<typeof useEditor>, com
   frameWindow.scrollTo({ top: nextTop, behavior: 'auto' });
 }
 
-function insertImageIntoEditor(editor: ReturnType<typeof useEditor>, url: string) {
-  const selected = editor.getSelected();
-  const type = (selected?.get('type') as string) ?? '';
-  const tag = ((selected?.get('tagName') as string) ?? '').toLowerCase();
-  if (selected && (type === 'image' || tag === 'img')) {
-    selected.setAttributes({ src: url });
+async function insertImageIntoEditor(
+  editor: ReturnType<typeof useEditor>,
+  url: string,
+  targetComponent?: any,
+  mode: ImageInsertMode = 'replace',
+): Promise<void> {
+  const currentSelection = editor.getSelected();
+  const currentImage = getEditableImageComponent(currentSelection);
+  const targetImage = getEditableImageComponent(targetComponent);
+  const selected = currentImage && isAttachedComponent(currentImage)
+    ? currentImage
+    : targetImage && isAttachedComponent(targetImage)
+      ? targetImage
+      : currentSelection;
+  const selectedImage = getEditableImageComponent(selected);
+  const preparedUrl = await prepareImageForComponent(url, selectedImage ?? selected);
+
+  if (mode === 'replace' && selectedImage && isAttachedComponent(selectedImage)) {
+    setImageComponentSrc(editor, selectedImage, preparedUrl);
+    makeImageComponentInteractive(selectedImage);
+    editor.select(selectedImage);
     return;
   }
-  insertEditorHtml(
-    editor,
-    `<img src="${url}" style="display:block;width:100%;max-width:640px;margin:0 auto;object-fit:cover;" />`,
-  );
+
+  if (mode === 'after-selected' && selectedImage && isAttachedComponent(selectedImage)) {
+    const inserted = insertImageAfterComponent(editor, selectedImage, preparedUrl);
+    if (inserted) return;
+  }
+
+  const target = getInsertionTarget(editor);
+  insertImageHtmlAt(editor, target.parent, target.at, buildInsertedImageHtml(preparedUrl));
 }
 
 function applySelectedStyle(editor: ReturnType<typeof useEditor>, style: Record<string, string>) {
   const target = editor.getSelected() ?? editor.getWrapper();
-  target?.addStyle?.(style);
+  applyComponentStyle(editor, target, style);
+}
+
+function TextSizePanel({
+  editor,
+  component,
+  compact = false,
+}: {
+  editor: Editor | ReturnType<typeof useEditor>;
+  component?: any;
+  compact?: boolean;
+}) {
+  const [fontSize, setFontSize] = useState(() => getTextFontSizePx(component ?? editor.getSelected?.()));
+
+  useEffect(() => {
+    setFontSize(getTextFontSizePx(component ?? editor.getSelected?.()));
+  }, [component, editor]);
+
+  const handleAdjust = useCallback(
+    (delta: number) => {
+      const applied = adjustTextFontSize(editor, component, delta);
+      if (applied != null) setFontSize(applied);
+    },
+    [component, editor],
+  );
+
+  const handleInputChange = useCallback(
+    (value: string) => {
+      const numericValue = Number(value);
+      if (!Number.isFinite(numericValue)) return;
+      const applied = applyTextFontSize(editor, component, numericValue);
+      if (applied != null) setFontSize(applied);
+    },
+    [component, editor],
+  );
+
+  return (
+    <div className={cn('rounded-xl border border-slate-200 bg-white p-3', compact && 'bg-slate-50')}>
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-xs font-black text-slate-700">글자 크기</span>
+        <span className="text-[10px] font-bold text-slate-400">{fontSize}px</span>
+      </div>
+      <div className="grid grid-cols-[42px_1fr_42px] items-center gap-2">
+        <button
+          type="button"
+          onClick={() => handleAdjust(-TEXT_FONT_SIZE_STEP_PX)}
+          className="flex h-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700"
+          title="글자 크기 줄이기"
+          aria-label="글자 크기 줄이기"
+        >
+          <Minus size={16} />
+        </button>
+        <input
+          type="number"
+          min={TEXT_FONT_SIZE_MIN_PX}
+          max={TEXT_FONT_SIZE_MAX_PX}
+          value={fontSize}
+          onChange={(event) => {
+            const next = Number(event.target.value);
+            setFontSize(Number.isFinite(next) ? clampTextFontSize(next) : fontSize);
+          }}
+          onBlur={(event) => handleInputChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              handleInputChange((event.currentTarget as HTMLInputElement).value);
+            }
+          }}
+          className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-center text-sm font-black text-slate-800 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
+          aria-label="글자 크기 입력"
+        />
+        <button
+          type="button"
+          onClick={() => handleAdjust(TEXT_FONT_SIZE_STEP_PX)}
+          className="flex h-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700"
+          title="글자 크기 키우기"
+          aria-label="글자 크기 키우기"
+        >
+          <Plus size={16} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function mergeInlineStyleText(currentStyle: string, nextStyle: Record<string, string>): string {
+  const entries = new Map<string, string>();
+  currentStyle
+    .split(';')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .forEach((declaration) => {
+      const separatorIndex = declaration.indexOf(':');
+      if (separatorIndex <= 0) return;
+      const key = declaration.slice(0, separatorIndex).trim();
+      const value = declaration.slice(separatorIndex + 1).trim();
+      if (!key || !value) return;
+      entries.set(key, value);
+    });
+
+  Object.entries(nextStyle).forEach(([key, value]) => {
+    if (!value) return;
+    entries.set(key, value);
+  });
+
+  return Array.from(entries.entries())
+    .map(([key, value]) => `${key}:${value}`)
+    .join(';');
+}
+
+function applyComponentStyle(
+  editor: Editor | ReturnType<typeof useEditor>,
+  component: any,
+  style: Record<string, string>,
+): void {
+  if (!component) return;
+  component.addStyle?.(style);
+
+  const attrs = component.getAttributes?.() ?? {};
+  const inlineStyle = mergeInlineStyleText(String(attrs.style ?? ''), style);
+  component.addAttributes?.({ ...attrs, style: inlineStyle });
+  component.setAttributes?.({ ...attrs, style: inlineStyle });
+
+  const element = component.getEl?.() as HTMLElement | null | undefined;
+  if (element) {
+    Object.entries(style).forEach(([property, value]) => {
+      element.style.setProperty(property, value);
+    });
+  }
+
+  component.view?.render?.();
+  editor.trigger?.('component:update', component);
+  editor.trigger?.('update');
+  editor.refresh?.();
+}
+
+function clampTextFontSize(size: number): number {
+  if (!Number.isFinite(size)) return 24;
+  return Math.min(TEXT_FONT_SIZE_MAX_PX, Math.max(TEXT_FONT_SIZE_MIN_PX, Math.round(size)));
+}
+
+function parsePixelFontSize(value: unknown): number | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const pxMatch = trimmed.match(/^(-?\d+(?:\.\d+)?)px$/i);
+  if (pxMatch) return clampTextFontSize(Number(pxMatch[1]));
+  const numberMatch = trimmed.match(/^(-?\d+(?:\.\d+)?)$/);
+  if (numberMatch) return clampTextFontSize(Number(numberMatch[1]));
+  return null;
+}
+
+function readInlineStyleProperty(styleText: unknown, property: string): string | null {
+  if (typeof styleText !== 'string') return null;
+  const propertyName = property.toLowerCase();
+  for (const declaration of styleText.split(';')) {
+    const separatorIndex = declaration.indexOf(':');
+    if (separatorIndex <= 0) continue;
+    const key = declaration.slice(0, separatorIndex).trim().toLowerCase();
+    if (key !== propertyName) continue;
+    return declaration.slice(separatorIndex + 1).trim();
+  }
+  return null;
+}
+
+function getTextFontSizePx(component: any): number {
+  const target = getEditableTextComponent(component) ?? component;
+  const style = target?.getStyle?.() ?? {};
+  const fromModel = parsePixelFontSize(style['font-size']);
+  if (fromModel != null) return fromModel;
+
+  const attrs = target?.getAttributes?.() ?? {};
+  const fromAttr = parsePixelFontSize(readInlineStyleProperty(attrs.style, 'font-size'));
+  if (fromAttr != null) return fromAttr;
+
+  const element = target?.getEl?.() as HTMLElement | null | undefined;
+  if (element && typeof window !== 'undefined') {
+    const fromComputed = parsePixelFontSize(window.getComputedStyle(element).fontSize);
+    if (fromComputed != null) return fromComputed;
+  }
+
+  return 24;
+}
+
+function applyTextFontSize(
+  editor: Editor | ReturnType<typeof useEditor>,
+  component: any,
+  nextSize: number,
+): number | null {
+  const selected = component && isAttachedComponent(component) ? component : editor.getSelected?.();
+  const target = getEditableTextComponent(selected);
+  if (!target) {
+    toast.error('크기를 조절할 텍스트를 먼저 선택해주세요.');
+    return null;
+  }
+
+  const clamped = clampTextFontSize(nextSize);
+  applyComponentStyle(editor, target, { 'font-size': `${clamped}px`, 'letter-spacing': '0' });
+  return clamped;
+}
+
+function adjustTextFontSize(
+  editor: Editor | ReturnType<typeof useEditor>,
+  component: any,
+  delta: number,
+): number | null {
+  const selected = component && isAttachedComponent(component) ? component : editor.getSelected?.();
+  const target = getEditableTextComponent(selected);
+  if (!target) {
+    toast.error('크기를 조절할 텍스트를 먼저 선택해주세요.');
+    return null;
+  }
+  return applyTextFontSize(editor, target, getTextFontSizePx(target) + delta);
+}
+
+function applyTextGradient(
+  editor: ReturnType<typeof useEditor>,
+  component: any,
+  gradientCss: string,
+): void {
+  const selected = component && isAttachedComponent(component) ? component : editor.getSelected();
+  const target = getEditableTextComponent(selected);
+  if (!target) {
+    toast.error('그라데이션을 적용할 텍스트를 먼저 선택해주세요.');
+    return;
+  }
+
+  applyComponentStyle(editor, target, {
+    'background-image': gradientCss,
+    'background-repeat': 'repeat',
+    'background-size': '100%',
+    '-webkit-background-clip': 'text',
+    'background-clip': 'text',
+    '-webkit-text-fill-color': 'transparent',
+    color: 'transparent',
+    'box-decoration-break': 'clone',
+    '-webkit-box-decoration-break': 'clone',
+    'letter-spacing': '0',
+  });
 }
 
 function readFileAsDataUrl(file: File): Promise<string> {
@@ -1986,6 +3008,90 @@ function readFileAsDataUrl(file: File): Promise<string> {
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(file);
   });
+}
+
+function TextGradientPanel({
+  editor,
+  component,
+}: {
+  editor: ReturnType<typeof useEditor>;
+  component: any;
+}) {
+  const [startColor, setStartColor] = useState('#ff7a59');
+  const [endColor, setEndColor] = useState('#ffbf69');
+
+  const applyCustomGradient = useCallback(() => {
+    applyTextGradient(editor, component, `linear-gradient(90deg, ${startColor} 0%, ${endColor} 100%)`);
+  }, [component, editor, endColor, startColor]);
+
+  return (
+    <div className="shrink-0 border-b border-slate-100 bg-white px-3 py-3">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="flex items-center gap-1.5 text-xs font-black text-slate-700">
+          <Palette size={13} className="text-emerald-500" />
+          그라데이션
+        </span>
+        <span className="text-[10px] font-bold text-slate-400">텍스트 색상</span>
+      </div>
+
+      <div className="grid grid-cols-3 gap-1.5">
+        {TEXT_GRADIENT_PRESETS.map((preset) => (
+          <button
+            key={preset.label}
+            type="button"
+            onClick={() => applyTextGradient(editor, component, preset.css)}
+            className="group rounded-lg border border-slate-200 bg-white p-1.5 text-left transition hover:border-emerald-300 hover:bg-emerald-50"
+            title={`${preset.label} 그라데이션 적용`}
+            aria-label={`${preset.label} 그라데이션 적용`}
+          >
+            <span
+              className="block h-7 rounded-md shadow-inner ring-1 ring-black/5"
+              style={{ backgroundImage: preset.css }}
+            />
+            <span className="mt-1 block text-center text-[10px] font-black text-slate-500 group-hover:text-emerald-700">
+              {preset.label}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-2">
+        <div className="grid grid-cols-[1fr_1fr_auto] items-end gap-2">
+          <label className="space-y-1">
+            <span className="block text-[10px] font-bold text-slate-400">시작</span>
+            <input
+              type="color"
+              value={startColor}
+              onChange={(event) => setStartColor(event.target.value)}
+              className="h-9 w-full rounded-md border border-slate-200 bg-white p-1"
+              aria-label="그라데이션 시작 색상"
+            />
+          </label>
+          <label className="space-y-1">
+            <span className="block text-[10px] font-bold text-slate-400">끝</span>
+            <input
+              type="color"
+              value={endColor}
+              onChange={(event) => setEndColor(event.target.value)}
+              className="h-9 w-full rounded-md border border-slate-200 bg-white p-1"
+              aria-label="그라데이션 끝 색상"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={applyCustomGradient}
+            className="h-9 rounded-lg bg-emerald-500 px-3 text-[11px] font-black text-white shadow-sm transition hover:bg-emerald-600"
+          >
+            적용
+          </button>
+        </div>
+        <div
+          className="mt-2 h-2 rounded-full ring-1 ring-black/5"
+          style={{ backgroundImage: `linear-gradient(90deg, ${startColor} 0%, ${endColor} 100%)` }}
+        />
+      </div>
+    </div>
+  );
 }
 
 function RightPanel({
@@ -2069,8 +3175,9 @@ function RightPanel({
         return;
       }
       containers[0].components(
-        urls.map((u) => `<img src="${resolve(u)}" alt="${alt}" class="w-full h-auto rounded-[var(--theme-radius)] shadow-md" />`).join('')
+        urls.map((u) => buildStackedImageHtml(resolve(u), alt)).join('')
       );
+      normalizeDetailImageSpacing(editor);
     };
 
     if (typeof imgs.main_image === 'string') setImg('heroImage', imgs.main_image);
@@ -2273,12 +3380,18 @@ function RightPanel({
           </div>
         )}
         {selectedTextComponent ? (
-          <AITextEditPanel
-            component={selectedTextComponent}
-            editor={editor}
-            isBusy={isBusy}
-            onClose={() => {/* deselect handled by parent */}}
-          />
+          <>
+            <div className="shrink-0 border-b border-slate-100 bg-white px-3 py-3">
+              <TextSizePanel editor={editor} component={selectedTextComponent} compact />
+            </div>
+            <TextGradientPanel editor={editor} component={selectedTextComponent} />
+            <AITextEditPanel
+              component={selectedTextComponent}
+              editor={editor}
+              isBusy={isBusy}
+              onClose={() => {/* deselect handled by parent */}}
+            />
+          </>
         ) : selectedImageSrc && selectedImageComponent ? (
           <ImageSelectionPanel
             component={selectedImageComponent}
@@ -2587,6 +3700,7 @@ export default function DetailPageEditor({
   const [selectedImageSrc, setSelectedImageSrc] = useState<string | null>(null);
   const [selectedImageComponent, setSelectedImageComponent] = useState<any>(null);
   const [selectedTextComponent, setSelectedTextComponent] = useState<any>(null);
+  const lastSelectedImageComponentRef = useRef<any>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [imageEditTarget, setImageEditTarget] = useState<{ component: any; imageUrl: string } | null>(null);
   const [imageEditOverlayRect, setImageEditOverlayRect] = useState<DOMRect | null>(null);
@@ -2677,8 +3791,9 @@ export default function DetailPageEditor({
           return;
         }
         containers[0].components(
-          urls.map((url) => `<img src="${resolveUrl(url)}" alt="${alt}" class="w-full h-auto rounded-[var(--theme-radius)] shadow-md" />`).join('')
+          urls.map((url) => buildStackedImageHtml(resolveUrl(url), alt)).join('')
         );
+        normalizeDetailImageSpacing(editorRef);
       };
 
       const sizeImgs = d.size_images ?? d.sizeImages ?? [];
@@ -2718,14 +3833,17 @@ export default function DetailPageEditor({
       });
 
       editor.on('component:selected', (component: any) => {
+        const imageComponent = getEditableImageComponent(component);
         const type = (component.get('type') as string) ?? '';
         const tagName = ((component.get('tagName') as string) ?? '').toLowerCase();
         const TEXT_TAGS = ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'span', 'li'];
         const BLOCK_TAGS = new Set(['div', 'section', 'article', 'header', 'footer', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'table', 'blockquote', 'figure']);
 
-        if (type === 'image' || tagName === 'img') {
-          setSelectedImageComponent(component);
-          setSelectedImageSrc(component.getAttributes().src ?? '');
+        if (imageComponent) {
+          makeImageComponentInteractive(imageComponent);
+          lastSelectedImageComponentRef.current = imageComponent;
+          setSelectedImageComponent(imageComponent);
+          setSelectedImageSrc(imageComponent.getAttributes().src ?? '');
           setSelectedTextComponent(null);
         } else if (type === 'text' || type === 'text-ext' || TEXT_TAGS.includes(tagName)) {
           const children = component.components();
@@ -2736,25 +3854,24 @@ export default function DetailPageEditor({
           if (hasBlockChild) {
             setSelectedImageComponent(null);
             setSelectedImageSrc(null);
+            lastSelectedImageComponentRef.current = null;
             setSelectedTextComponent(null);
           } else {
             setSelectedTextComponent(component);
             setSelectedImageComponent(null);
             setSelectedImageSrc(null);
+            lastSelectedImageComponentRef.current = null;
           }
         } else {
           setSelectedImageComponent(null);
           setSelectedImageSrc(null);
+          lastSelectedImageComponentRef.current = null;
           setSelectedTextComponent(null);
         }
       });
       editor.on('component:deselected', () => {
-        setSelectedImageComponent(null);
-        setSelectedImageSrc(null);
         setSelectedTextComponent(null);
       });
-
-      const PLACEHOLDER_SRC = 'https://placehold.co/860x860/e2e8f0/94a3b8?text=%5B%EC%9D%B4%EB%AF%B8%EC%A7%80%5D';
 
       editor.on('canvas:frame:load:body', ({ window: iframeWin }: { window: Window }) => {
         iframeWin.document.addEventListener('keydown', (e: KeyboardEvent) => {
@@ -2766,13 +3883,14 @@ export default function DetailPageEditor({
           if (t === 'image' || tag === 'img') {
             e.preventDefault();
             e.stopPropagation();
-            sel.setAttributes({ src: PLACEHOLDER_SRC });
+            removeImageComponent(editor, sel);
           }
         }, { capture: true });
       });
 
       editor.on('component:add', (component: any) => {
         if (component.get('type') !== 'image') return;
+        makeImageComponentInteractive(component);
         const src = component.getAttributes()?.src;
         if (!src || src.includes('placehold.co')) return;
         const parent = component.parent();
@@ -2792,8 +3910,17 @@ export default function DetailPageEditor({
           }
         }
       });
+      const handleComponentRemove = (component: any) => {
+        scheduleFrameHeightSync();
+        if (isImageComponent(component) || !isAttachedComponent(lastSelectedImageComponentRef.current)) {
+          lastSelectedImageComponentRef.current = null;
+          setSelectedImageComponent(null);
+          setSelectedImageSrc(null);
+        }
+      };
+
       editor.on('component:update', scheduleFrameHeightSync);
-      editor.on('component:remove', scheduleFrameHeightSync);
+      editor.on('component:remove', handleComponentRemove);
       editor.on('component:add', scheduleFrameHeightSync);
 
       rawImages.forEach((url, i) => {
@@ -2801,7 +3928,7 @@ export default function DetailPageEditor({
           label: `원본 ${i + 1}`,
           category: '원본 이미지',
           // display:block + margin auto 로 가운데 정렬 — 기본 img inline 동작이 좌측 쏠림 유발
-          content: `<img src="${url}" style="display:block;width:100%;max-width:600px;margin-left:auto;margin-right:auto;" />`,
+          content: buildInsertedImageHtml(url),
           media: `<img src="${url}" style="width:60px;height:60px;object-fit:cover;" />`,
         });
       });
@@ -2809,6 +3936,7 @@ export default function DetailPageEditor({
       const um = editor.UndoManager;
       um.stop();
       editor.setComponents(parsed.bodyHtml);
+      normalizeDetailImageSpacing(editor);
       um.clear();
       um.start();
 
@@ -2825,24 +3953,27 @@ export default function DetailPageEditor({
   const applyImageSrcToComponent = useCallback(
     (newUrl: string, targetComponent?: any) => {
       if (!editorRef) return null;
-      const selected = targetComponent ?? selectedImageComponent ?? editorRef.getSelected();
+      const requested = targetComponent && isAttachedComponent(targetComponent)
+        ? targetComponent
+        : selectedImageComponent && isAttachedComponent(selectedImageComponent)
+          ? selectedImageComponent
+          : lastSelectedImageComponentRef.current && isAttachedComponent(lastSelectedImageComponentRef.current)
+            ? lastSelectedImageComponentRef.current
+            : editorRef.getSelected();
+      const selected = getEditableImageComponent(requested);
       if (!selected) return null;
       const shouldSelectAfterUpdate =
         !targetComponent ||
         targetComponent === selectedImageComponent ||
+        targetComponent === lastSelectedImageComponentRef.current ||
         targetComponent === editorRef.getSelected();
 
-      const attrs = selected.getAttributes?.() ?? {};
-      selected.setAttributes?.({ ...attrs, src: newUrl });
-      selected.view?.el?.setAttribute?.('src', newUrl);
-      selected.view?.render?.();
-      editorRef.trigger('component:update', selected);
-      editorRef.refresh();
+      setImageComponentSrc(editorRef, selected, newUrl);
+      lastSelectedImageComponentRef.current = selected;
 
       requestAnimationFrame(() => {
-        selected.view?.el?.setAttribute?.('src', newUrl);
+        setImageComponentSrc(editorRef, selected, newUrl);
         if (shouldSelectAfterUpdate) editorRef.select(selected);
-        editorRef.refresh();
       });
 
       return selected;
@@ -2855,6 +3986,7 @@ export default function DetailPageEditor({
       const selected = applyImageSrcToComponent(newUrl, targetComponent);
       if (!selected) return;
       if (!targetComponent || targetComponent === selectedImageComponent || targetComponent === editorRef?.getSelected()) {
+        lastSelectedImageComponentRef.current = selected;
         setSelectedImageComponent(selected);
         setSelectedImageSrc(newUrl);
       }
@@ -2863,14 +3995,21 @@ export default function DetailPageEditor({
   );
 
   const handleImageReplaced = useCallback(
-    (newUrl: string) => {
-      const selected = applyImageSrcToComponent(newUrl);
+    async (newUrl: string) => {
+      const target = selectedImageComponent && isAttachedComponent(selectedImageComponent)
+        ? selectedImageComponent
+        : lastSelectedImageComponentRef.current && isAttachedComponent(lastSelectedImageComponentRef.current)
+          ? lastSelectedImageComponentRef.current
+          : editorRef?.getSelected();
+      const preparedUrl = await prepareImageForComponent(newUrl, target);
+      const selected = applyImageSrcToComponent(preparedUrl, target);
       setShowImagePicker(false);
       if (!selected) return;
+      lastSelectedImageComponentRef.current = selected;
       setSelectedImageComponent(selected);
-      setSelectedImageSrc(newUrl);
+      setSelectedImageSrc(preparedUrl);
     },
-    [applyImageSrcToComponent],
+    [applyImageSrcToComponent, editorRef, selectedImageComponent],
   );
 
   const handleImageGeneratingChange = useCallback((value: boolean, component?: any, imageUrl?: string) => {
@@ -2915,6 +4054,13 @@ export default function DetailPageEditor({
     return () => cancelAnimationFrame(frameId);
   }, [editorRef, imageEditTarget, isGenerating]);
 
+  const imageReplacementComponent =
+    selectedImageComponent && isAttachedComponent(selectedImageComponent)
+      ? selectedImageComponent
+      : lastSelectedImageComponentRef.current && isAttachedComponent(lastSelectedImageComponentRef.current)
+        ? lastSelectedImageComponentRef.current
+        : null;
+
   return (
     <GjsEditor grapesjs={grapesjs} options={GRAPESJS_OPTIONS} onEditor={handleEditorInit}>
       <div className="flex flex-col h-screen bg-[#F5F7F8]">
@@ -2942,6 +4088,7 @@ export default function DetailPageEditor({
                 }}
                 rawImages={panelRawImages}
                 onImagesUploaded={handleImagesUploaded}
+                selectedImageComponent={imageReplacementComponent}
               />
             </WithEditor>
           </div>
@@ -3015,6 +4162,7 @@ export default function DetailPageEditor({
                 onImageClose={() => {
                   setSelectedImageComponent(null);
                   setSelectedImageSrc(null);
+                  lastSelectedImageComponentRef.current = null;
                 }}
                 productId={productId}
                 contentGenerationId={contentGenerationId}

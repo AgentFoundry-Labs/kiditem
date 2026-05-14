@@ -20,7 +20,7 @@ import {
   adaptBoldVerticalToDetailPageData,
   type BoldVerticalGeneration,
 } from '@/app/(media-ai)/generate/lib/bold-vertical-types';
-import { ensureStyledDetailHtml } from '../../../lib/template-html';
+import { ensureStyledDetailHtml, isRenderableDetailHtml } from '../../../lib/template-html';
 import DetailPageEditor from '../../../[productId]/editor/components/DetailPageEditor';
 import EditorErrorScreen from '../../../[productId]/editor/components/EditorErrorScreen';
 import EditorLoadingScreen from '../../../[productId]/editor/components/EditorLoadingScreen';
@@ -80,16 +80,19 @@ function ContentGenerationEditorPageContent() {
       ? entryError.detail
       : '선택한 생성 이력을 불러올 수 없습니다.'
     : activeFailureMessage;
+  const validEditedHtml = isRenderableDetailHtml(editedHtmlRow?.html)
+    ? editedHtmlRow.html
+    : null;
 
   const editorHtml = useMemo(() => {
-    if (editedHtmlRow?.html) {
-      return ensureStyledDetailHtml(editedHtmlRow.html, templateCss);
+    if (validEditedHtml) {
+      return ensureStyledDetailHtml(validEditedHtml, templateCss);
     }
     if (entryReady && entry) {
       return renderGenerationHtml(entry, templateCss);
     }
     return '';
-  }, [editedHtmlRow?.html, entry, entryReady, templateCss]);
+  }, [entry, entryReady, templateCss, validEditedHtml]);
 
   const handleClose = () => {
     router.push(entry?.productId ? `/product-content/${entry.productId}` : '/product-content');
@@ -121,7 +124,7 @@ function ContentGenerationEditorPageContent() {
     return <EditorLoadingScreen />;
   }
 
-  if (error || !entry || (!editedHtmlRow?.html && !entryReady)) {
+  if (error || !entry || (!validEditedHtml && !entryReady)) {
     return (
       <EditorErrorScreen
         error={error ?? '편집할 상세페이지 작업물을 찾을 수 없습니다.'}

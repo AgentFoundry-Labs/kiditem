@@ -787,8 +787,8 @@ describe('DetailPageAiService', () => {
         operationKey: `detail-page:${GENERATION_ID}`,
         sourceType: 'content_generation',
         sourceId: GENERATION_ID,
-        targetType: 'content_generation',
-        targetId: GENERATION_ID,
+        targetType: null,
+        targetId: null,
         href: `/product-content/detail-pages/${GENERATION_ID}/editor`,
       }),
     );

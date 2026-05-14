@@ -30,8 +30,11 @@ import {
   SAME_ORIGIN_SCRIPTLESS_SANDBOX,
   stripSrcDocScripts,
 } from '@/app/(catalog)/product-content/lib/preview-sandbox';
-import { ensureStyledDetailHtml } from '@/app/(catalog)/product-content/lib/template-html';
 import { buildProductContentEditorHref } from '@/app/(catalog)/product-content/lib/product-content-routing';
+import {
+  ensureStyledDetailHtml,
+  isRenderableDetailHtml,
+} from '@/app/(catalog)/product-content/lib/template-html';
 import {
   rowThumbnail,
   rowDisplaySubtitle,
@@ -267,7 +270,7 @@ function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
       .then((row) => {
         if (cancelled) return;
         const html = row.html?.trim() ?? '';
-        setEditedHtml(html.length > 0 ? html : null);
+        setEditedHtml(isRenderableDetailHtml(html) ? html : null);
       })
       .catch(() => {
         if (!cancelled) setEditedHtml(null);

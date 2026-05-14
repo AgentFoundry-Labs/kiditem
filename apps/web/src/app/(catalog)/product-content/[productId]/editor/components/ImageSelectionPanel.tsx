@@ -251,8 +251,12 @@ export function ImageSelectionPanel({
 
   const handleDelete = useCallback(() => {
     component?.remove?.();
+    editor?.select?.(null);
+    editor?.trigger?.('component:remove', component);
+    editor?.trigger?.('update');
+    editor?.refresh?.();
     onClose();
-  }, [component, onClose]);
+  }, [component, editor, onClose]);
 
   const handleRestoreOriginal = useCallback(() => {
     if (!originalImageUrl) return;

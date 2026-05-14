@@ -412,10 +412,30 @@ function setStyleProperties(el: HTMLElement, styles: Record<string, string>): vo
   }
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function hasDocumentStyleProperty(el: HTMLElement, property: string): boolean {
+  const id = el.getAttribute('id');
+  if (!id) return false;
+  const pattern = new RegExp(`#${escapeRegExp(id)}\\s*\\{[^}]*${escapeRegExp(property)}\\s*:`, 'i');
+  return Array.from(el.ownerDocument.querySelectorAll('style')).some((style) =>
+    pattern.test(style.textContent ?? ''),
+  );
+}
+
+function setMissingStyleProperties(el: HTMLElement, styles: Record<string, string>): void {
+  for (const [key, value] of Object.entries(styles)) {
+    if (el.style.getPropertyValue(key) || hasDocumentStyleProperty(el, key)) continue;
+    el.style.setProperty(key, value);
+  }
+}
+
 function repairBoldVerticalDocumentStyles(doc: Document): void {
   doc.querySelectorAll<HTMLElement>('[data-field="hookText"], [data-field="sectionName"]')
     .forEach((el) => {
-      setStyleProperties(el, {
+      setMissingStyleProperties(el, {
         'background-image': 'linear-gradient(90deg, var(--theme-badge-2) 0%, #596783 52%, var(--theme-badge-1) 100%)',
         'background-clip': 'text',
         '-webkit-background-clip': 'text',
@@ -427,7 +447,7 @@ function repairBoldVerticalDocumentStyles(doc: Document): void {
 
   doc.querySelectorAll<HTMLElement>('[data-field="hookTitleSub"], [data-field="sectionTitle"]')
     .forEach((el) => {
-      setStyleProperties(el, {
+      setMissingStyleProperties(el, {
         color: '#111827',
         'font-family': 'var(--font-display)',
         'font-weight': '900',
@@ -436,7 +456,7 @@ function repairBoldVerticalDocumentStyles(doc: Document): void {
 
   doc.querySelectorAll<HTMLElement>('h1.font-display, h2.font-display')
     .forEach((el) => {
-      setStyleProperties(el, {
+      setMissingStyleProperties(el, {
         'font-family': 'var(--font-display)',
         'line-height': '1.02',
       });
@@ -444,7 +464,7 @@ function repairBoldVerticalDocumentStyles(doc: Document): void {
 
   doc.querySelectorAll<HTMLElement>('[data-field="hookSubtext"]')
     .forEach((el) => {
-      setStyleProperties(el, {
+      setMissingStyleProperties(el, {
         'font-family': 'NanumPen, cursive',
         transform: 'rotate(-4deg)',
         'text-underline-offset': '5px',
@@ -543,6 +563,12 @@ export function ensureStyledDetailHtml(html: string, templateCss = ''): string {
   const hasTailwindRuntime = /cdn\.tailwindcss\.com/i.test(source);
   const hasCompiledTailwind =
     /tailwindcss v/i.test(source) || /tailwindcss v/i.test(compiledTemplateCss);
+  const sourceAlreadyHasStyledHead =
+    /<head[\s>]/i.test(source) &&
+    /data-kiditem-font-ready-gate/i.test(source) &&
+    (!hasTemplateCss || /tailwindcss v/i.test(source));
+  if (sourceAlreadyHasStyledHead) return source;
+
   const needsTailwindRuntime =
     looksLikeTailwindMarkup(source) &&
     !hasTailwindRuntime &&
@@ -583,4 +609,16 @@ export function ensureStyledDetailHtml(html: string, templateCss = ''): string {
 <head>${headExtra}</head>
 ${bodyMarkup}
 </html>`;
+}
+
+export function isRenderableDetailHtml(html: string | null | undefined): html is string {
+  const source = html?.trim();
+  if (!source) return false;
+  if (source.startsWith('{') || source.startsWith('[')) return false;
+  return (
+    /^<!doctype\s+html/i.test(source) ||
+    /^<html[\s>]/i.test(source) ||
+    /^<body[\s>]/i.test(source) ||
+    /<\/?[a-z][\s\S]*>/i.test(source)
+  );
 }
