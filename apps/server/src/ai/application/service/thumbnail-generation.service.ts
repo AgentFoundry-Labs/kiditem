@@ -116,13 +116,22 @@ export class ThumbnailGenerationService {
     return this.generationJobs.enqueueEditorGeneration(input);
   }
 
+  async enqueueCandidateGeneration(
+    input: Parameters<ThumbnailGenerationJobService['enqueueCandidateGeneration']>[0],
+  ): Promise<{ generationId: string; status: 'pending' }> {
+    return this.generationJobs.enqueueCandidateGeneration(input);
+  }
+
   async findAll(
     organizationId: string,
-    opts: { productId?: string | null; limit?: number | null } = {},
+    opts: { productId?: string | null; sourceCandidateId?: string | null; limit?: number | null } = {},
   ): Promise<ThumbnailGenerationListResponse> {
     const rows = await findGenerationRows(this.prisma, organizationId, opts);
     const masters = await findGenerationMasters(this.prisma, rows, organizationId);
-    const items = rows.map((r) => toThumbnailGenerationItem(r, masters.get(r.masterId)));
+    const items = rows.map((r) => toThumbnailGenerationItem(
+      r,
+      r.masterId ? masters.get(r.masterId) : null,
+    ));
     return { items, total: items.length } satisfies ThumbnailGenerationListResponse;
   }
 
@@ -161,6 +170,9 @@ export class ThumbnailGenerationService {
     actorUserId: string | null = null,
   ): Promise<ThumbnailGenerationItem> {
     const existing = await findGenerationWithCandidatesOrThrow(this.prisma, id, organizationId);
+    if (!existing.masterId) {
+      throw new BadRequestException('소싱 후보 썸네일은 상품 승격 시 등록 payload 로만 적용할 수 있습니다');
+    }
     const master = await findGenerationMaster(this.prisma, existing.masterId, organizationId);
     if (!master) throw new NotFoundException(`MasterProduct ${existing.masterId} not found`);
 

@@ -29,7 +29,7 @@ export default function ThumbnailGrid({
             썸네일 이미지
           </label>
           <p className="mt-0.5 text-xs text-[var(--text-tertiary)]">
-            첫 번째 이미지가 상세 미리보기 대표 이미지로 사용됩니다.
+            첫 번째 이미지가 등록 대표 썸네일과 상세 미리보기 대표 이미지로 사용됩니다.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -78,7 +78,7 @@ export default function ThumbnailGrid({
             </div>
             {index === 0 && (
               <span className="absolute bottom-0 left-0 right-0 bg-emerald-600 text-white text-xs text-center py-1 font-semibold">
-                대표
+                등록 대표
               </span>
             )}
             <button

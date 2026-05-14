@@ -14,7 +14,7 @@ interface GenerationStartModalProps {
 
 const TEMPLATE_LABEL: Record<string, string> = {
   'bold-vertical': 'KIDITEM DESIGN',
-  'kids-playful': 'Trend Vertical',
+  'kids-playful': '트렌드 광고형 템플릿',
 };
 
 export default function GenerationStartModal({ state, onClose, onAction }: GenerationStartModalProps) {

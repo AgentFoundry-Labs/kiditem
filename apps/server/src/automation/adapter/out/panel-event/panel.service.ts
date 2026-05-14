@@ -105,6 +105,7 @@ export class PanelService {
       const thumbnailGens = await this.prisma.thumbnailGeneration.findMany({
         where: {
           organizationId,
+          masterId: { not: null },
           OR: [
             { status: { in: ['pending', 'running'] } },
             { updatedAt: { gte: twentyFourHoursAgo } },
@@ -116,6 +117,7 @@ export class PanelService {
       });
 
       for (const gen of thumbnailGens) {
+        if (!gen.master) continue;
         // Per-generation operation alerts are the user-facing work item for
         // thumbnail edit jobs. Keep the legacy image run projection only when
         // there is no matching alert in the current panel window.

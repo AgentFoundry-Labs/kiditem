@@ -30,7 +30,7 @@ interface GenerationProgressBannerProps extends GenerationEntry {
 }
 
 const TEMPLATE_LABEL: Record<string, string> = {
-  'kids-playful': 'Trend Vertical',
+  'kids-playful': '트렌드 광고형 템플릿',
   'bold-vertical': 'KIDITEM DESIGN',
 };
 

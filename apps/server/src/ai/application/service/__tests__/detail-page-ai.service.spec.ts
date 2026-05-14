@@ -16,6 +16,7 @@ const MASTER_ID = '22222222-2222-4222-8222-222222222222';
 const GENERATION_ID = '33333333-3333-4333-8333-333333333333';
 const REQUEST_ID = '44444444-4444-4444-4444-444444444444';
 const GENERATION_GROUP_ID = '55555555-5555-4555-8555-555555555555';
+const CANDIDATE_ID = '66666666-6666-4666-8666-666666666666';
 
 function makeOperationAlertsStub(): OperationAlertService {
   return {
@@ -124,6 +125,13 @@ function makePrisma() {
     $transaction: vi.fn((callback: (tx: unknown) => unknown) => callback(prisma)),
     masterProduct: {
       findFirst: vi.fn().mockResolvedValue({ id: MASTER_ID, name: '원본 상품명' }),
+    },
+    sourcingCandidate: {
+      findFirst: vi.fn().mockResolvedValue({
+        id: CANDIDATE_ID,
+        name: '소싱 후보 상품',
+        promotedMasterId: MASTER_ID,
+      }),
     },
     contentGeneration: {
       findFirst: vi.fn().mockResolvedValue(generationRow),
@@ -310,6 +318,81 @@ describe('DetailPageAiService', () => {
     expect(result.id).toBe(GENERATION_ID);
     expect(result.imageProcessingStatus).toBe('processing');
     expect(result.productId).toBe(MASTER_ID);
+  });
+
+  it('stores the primary sourcing candidate directly on the ContentGeneration row', async () => {
+    const prisma = makePrisma();
+    const textCompletion = { complete: vi.fn() };
+    const imageStorage = { save: vi.fn() };
+    const operationAlerts = makeOperationAlertsStub();
+    const agentRunner = makeAgentRunnerStub();
+    const service = makeService(
+      prisma,
+      textCompletion,
+      imageStorage,
+      operationAlerts,
+      undefined,
+      agentRunner,
+    );
+
+    await service.generate(
+      {
+        productId: MASTER_ID,
+        templateId: 'bold-vertical',
+        rawTitle: '소싱 후보 상품',
+        rawCategory: '완구',
+        rawDescription: '아이들이 가지고 놀기 좋은 장난감',
+        rawOptions: '혼합 색상 / 사이즈 85*60mm',
+        imageUrls: ['https://example.com/detail-1.jpg'],
+        sourceReferences: [
+          {
+            sourceType: 'sourcing_candidate',
+            sourceCandidateId: CANDIDATE_ID,
+          },
+        ],
+      },
+      ORGANIZATION_ID,
+      USER_ID,
+    );
+
+    expect(prisma.contentGeneration.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        organizationId: ORGANIZATION_ID,
+        sourceCandidateId: CANDIDATE_ID,
+        generationInput: expect.objectContaining({
+          sourceReferences: [
+            expect.objectContaining({
+              sourceType: 'sourcing_candidate',
+              sourceCandidateId: CANDIDATE_ID,
+              label: '소싱 후보 상품',
+            }),
+          ],
+        }),
+      }),
+      include: expect.objectContaining({
+        generationGroup: expect.any(Object),
+      }),
+    });
+    expect(prisma.contentGenerationSource.createMany).toHaveBeenCalledWith({
+      skipDuplicates: true,
+      data: expect.arrayContaining([
+        expect.objectContaining({
+          organizationId: ORGANIZATION_ID,
+          contentGenerationId: GENERATION_ID,
+          sourceType: 'sourcing_candidate',
+          sourceCandidateId: CANDIDATE_ID,
+          label: '소싱 후보 상품',
+        }),
+      ]),
+    });
+    expect(operationAlerts.start).toHaveBeenCalledWith(
+      expect.objectContaining({
+        href: `/sourcing/${CANDIDATE_ID}/editor?generationId=${GENERATION_ID}`,
+        metadata: expect.objectContaining({
+          sourceCandidateId: CANDIDATE_ID,
+        }),
+      }),
+    );
   });
 
   it('rejects product-bound generation without at least one product image', async () => {

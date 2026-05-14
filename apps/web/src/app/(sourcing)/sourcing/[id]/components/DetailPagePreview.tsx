@@ -13,6 +13,7 @@
 
 import { useRef, useEffect, useMemo, useState, useCallback } from 'react';
 import Link from 'next/link';
+import { useQuery } from '@tanstack/react-query';
 import { Download, Pencil, Sparkles, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -34,6 +35,10 @@ import {
 } from '@/app/(media-ai)/generate/lib/bold-vertical-types';
 import { ensureStyledDetailHtml, renderTemplateToHtml } from '../../lib/template-html';
 import {
+  buildGenerationHistoryHtml,
+  generatedDetailTemplateLabel,
+} from '../lib/generated-detail-html';
+import {
   DETAIL_PREVIEW_SCROLL_MESSAGE,
   SCRIPTED_PREVIEW_SANDBOX,
   buildDetailPreviewLayoutMetrics,
@@ -46,6 +51,7 @@ import {
 } from '../../lib/preview-sandbox';
 import { useGenerationHistory } from '../hooks/useGenerationHistory';
 import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-keys';
 
 interface Props {
   productId: string;
@@ -128,6 +134,29 @@ export default function DetailPagePreview({
     () => (selectedAgentId ? agentHistory.find((h) => h.id === selectedAgentId) ?? null : null),
     [selectedAgentId, agentHistory],
   );
+  const autoAgentEntry = useMemo(() => {
+    if (selectedAgentId || selectedKidsPlayfulId || selectedBoldVerticalId || editedHtml) return null;
+    return agentHistory.find((entry) => (
+      entry.status === 'COMPLETED' &&
+      (entry.detailPageArtifactId || entry.detailPageData)
+    )) ?? null;
+  }, [agentHistory, editedHtml, selectedAgentId, selectedBoldVerticalId, selectedKidsPlayfulId]);
+  const activeAgentEntry = selectedAgentEntry ?? autoAgentEntry;
+  const { data: selectedAgentEditedHtml } = useQuery({
+    queryKey: activeAgentEntry?.id
+      ? queryKeys.productContent.generationEditedHtml(activeAgentEntry.id)
+      : queryKeys.productContent.generationEditedHtml(''),
+    queryFn: () => {
+      if (!activeAgentEntry?.id) {
+        throw new Error('detail page generation id is required');
+      }
+      return apiClient.get<{ html: string | null; savedAt: string | null }>(
+        `/api/ai/detail-page/${activeAgentEntry.id}/edited-html`,
+      );
+    },
+    enabled: !!activeAgentEntry?.id,
+    staleTime: 30_000,
+  });
   // optimistic placeholder (`id: 'optimistic-...'`) 는 진행 배너 용도라 auto-select 대상에서 제외.
   // 클릭 시 실제 row id 가 아니라 404 → 에디터 "불러올 수 없다" 에러 발생하던 버그 픽스.
   const realKpEntries = useMemo(
@@ -188,27 +217,23 @@ export default function DetailPagePreview({
     }
   }, [boldEntry, templateCss]);
 
-  // selectedAgentId 가 있으면 그 row 의 detailPageData 로 HTML rebuild,
-  // 아니면 KP 우선, 아니면 default (master_products) HTML.
+  // selectedAgentId 가 있으면 artifact/revision HTML 을 우선 사용하고,
+  // legacy row 만 detailPageData 로 HTML rebuild. 아니면 KP/default 순서.
   const agentSelectedHtml = useMemo(() => {
-    if (!selectedAgentEntry?.detailPageData) return null;
+    if (selectedAgentEditedHtml?.html) {
+      return ensureStyledDetailHtml(selectedAgentEditedHtml.html, templateCss);
+    }
+    if (!activeAgentEntry?.detailPageData) return null;
     try {
-      const data = parseDetailPageData(selectedAgentEntry.detailPageData);
-      const config = getTemplate('bold-vertical');
-      return renderTemplateToHtml(
-        config.component as React.ComponentType<unknown>,
-        data,
-        config,
-        templateCss,
-      );
+      return buildGenerationHistoryHtml(activeAgentEntry, templateCss);
     } catch {
       return null;
     }
-  }, [selectedAgentEntry, templateCss]);
+  }, [activeAgentEntry, selectedAgentEditedHtml?.html, templateCss]);
 
   // ⚡ 깜빡임 방지: 의미적으로 같은 컨텐츠인 동안 srcDoc 안 갱신.
-  const previewKey = selectedAgentEntry
-    ? `agent:${selectedAgentEntry.id}`
+  const previewKey = activeAgentEntry
+    ? `agent:${activeAgentEntry.id}:${selectedAgentEditedHtml?.savedAt ?? 'generated'}`
     : kpEntry
       ? `kp:${kpEntry.id}:${kpEntry.imageProcessingStatus}`
       : boldEntry
@@ -315,9 +340,9 @@ export default function DetailPagePreview({
       <div className="flex items-center justify-between">
         <h3 className="text-base font-bold text-slate-800 inline-flex items-center gap-2">
           생성된 상세페이지
-          {selectedAgentEntry ? (
+          {activeAgentEntry ? (
             <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
-              AGENT
+              {generatedDetailTemplateLabel(activeAgentEntry)}
             </span>
           ) : kpData ? (
             <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-bold text-violet-700">
@@ -338,8 +363,8 @@ export default function DetailPagePreview({
                 ? `/sourcing/${productId}/editor?kpId=${kpEntry.id}`
                 : boldEntry
                   ? `/sourcing/${productId}/editor?boldId=${boldEntry.id}`
-                  : selectedAgentEntry
-                    ? `/sourcing/${productId}/editor?agentId=${selectedAgentEntry.id}`
+                  : activeAgentEntry
+                    ? `/sourcing/${productId}/editor?agentId=${activeAgentEntry.id}`
                     : `/sourcing/${productId}/editor`
             }
             className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"

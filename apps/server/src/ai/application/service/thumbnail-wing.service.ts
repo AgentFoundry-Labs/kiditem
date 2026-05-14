@@ -174,6 +174,9 @@ export class ThumbnailWingService {
     if (!selectedUrl) {
       throw new NotFoundException('Generation not found or no selected image');
     }
+    if (!gen.masterId) {
+      throw new BadRequestException('소싱 후보 썸네일은 상품 승격 후 등록할 수 있습니다');
+    }
 
     const master = await this.persistence.findRegistrableMaster(gen.masterId, organizationId);
     if (!master) throw new NotFoundException(`MasterProduct ${gen.masterId} not found`);

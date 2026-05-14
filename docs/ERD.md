@@ -26,7 +26,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 |---|---:|
 | [Advertising](erd/advertising.md) | 5 |
 | [AgentOS](erd/agentos.md) | 13 |
-| [AI](erd/ai.md) | 14 |
+| [AI](erd/ai.md) | 16 |
 | [Channels](erd/channels.md) | 8 |
 | [Core](erd/core.md) | 13 |
 | [Finance](erd/finance.md) | 5 |
@@ -63,6 +63,8 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ContentGenerationAssetUsage | AI | `content_generation_asset_usages` | Current image assets used by a generated content row. Asset location stays on ContentAsset; this table is the replace-on-save usage set. |
 | ContentGenerationGroup | AI | `content_generation_groups` | Same-input generation group. Product-less groups are standalone generated-content workspaces; product-bound groups remain candidate lineage inside a Master workspace. |
 | ContentGenerationSource | AI | `content_generation_sources` | Generation-level provenance. The source of a generated work unit can be a sourcing candidate, input asset, or another generation. |
+| DetailPageArtifact | AI | `detail_page_artifacts` | Candidate-centered editable detail-page artifact. One artifact owns the user-visible draft line; revisions keep generated/manual HTML history. |
+| DetailPageRevision | AI | `detail_page_revisions` | Append-only detail-page HTML revision. Editor saves create rows; DetailPageArtifact.currentRevisionId selects the active version. |
 | Thumbnail | AI | `thumbnails` | CTR 기반 썸네일 트래킹 (ThumbnailAnalysis 와 별도 시스템). |
 | ThumbnailAnalysis | AI | `thumbnail_analyses` | 5차원 scores(heroShot·composition·branding·mobile·differentiation) + complianceGrade(PASS/WARN/FAIL) + imageSpec(사전검수). 스펙 FAIL 시 AI 호출 생략. |
 | ThumbnailGeneration | AI | `thumbnail_generations` | 상태: pending→generating→ready/failed→applied/skipped. method=edit 만 사용 (generate Imagen 방식 삭제됨). |
@@ -811,6 +813,8 @@ erDiagram
     String id PK
     String organizationId FK
     String generationGroupId FK
+    String sourceCandidateId FK
+    String detailPageArtifactId FK
     String contentType
     String templateId
     Json generationInput
@@ -891,6 +895,32 @@ erDiagram
     DateTime completedAt
     DateTime createdAt
     DateTime updatedAt
+  }
+  DetailPageArtifact {
+    String id PK
+    String organizationId FK
+    String sourceCandidateId FK
+    String targetMasterId FK
+    String sourceContentGenerationId FK
+    String currentRevisionId FK
+    String title
+    String status
+    Json metadata
+    String createdByUserId FK
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  DetailPageRevision {
+    String id PK
+    String organizationId FK
+    String artifactId FK
+    String contentGenerationId FK
+    String revisionType
+    String html
+    Json assetUrlMap
+    Json imageUrls
+    String createdByUserId FK
+    DateTime createdAt
   }
   ExecutionLog {
     String id PK
@@ -1556,6 +1586,7 @@ erDiagram
     String id PK
     String organizationId FK
     String masterId FK
+    String sourceCandidateId FK
     String originalUrl
     String selectedUrl
     String status
@@ -1615,7 +1646,8 @@ erDiagram
     Int sortOrder
     String source
     String masterImageId FK
-    String sourceCandidateId FK
+    String candidateImageId FK
+    String sourceThumbnailCandidateId FK
     String mimeType
     Int width
     Int height
@@ -1773,6 +1805,7 @@ erDiagram
   AgentTaskSession ||--o{ AgentRunRequest : "taskSession"
   AgentToolDefinition o|--o{ AgentAuthorizationEvent : "tool"
   AgentToolDefinition ||--o{ AgentInstanceToolPolicy : "tool"
+  CandidateImage o|--o{ ThumbnailGenerationInputImage : "candidateImage"
   ChannelAdTargetDailySnapshot o|--o{ AdAction : "adTargetDaily"
   ChannelListing o|--o{ AdAction : "listing"
   ChannelListing o|--o{ ChannelAdTargetDailySnapshot : "listing"
@@ -1804,13 +1837,19 @@ erDiagram
   ContentGeneration o|--o{ ContentGenerationGroup : "baseContentGeneration"
   ContentGeneration ||--o{ ContentGenerationSource : "contentGeneration"
   ContentGeneration o|--o{ ContentGenerationSource : "sourceContentGeneration"
+  ContentGeneration o|--o{ DetailPageArtifact : "sourceContentGeneration"
+  ContentGeneration o|--o{ DetailPageRevision : "contentGeneration"
   ContentGenerationGroup ||--o{ ContentAsset : "generationGroup"
   ContentGenerationGroup ||--o{ ContentGeneration : "generationGroup"
+  DetailPageArtifact o|--o{ ContentGeneration : "detailPageArtifact"
+  DetailPageArtifact ||--o{ DetailPageRevision : "artifact"
+  DetailPageRevision o|--o{ DetailPageArtifact : "currentRevision"
   ExecutionTask ||--o{ ExecutionLog : "task"
   ExecutionWorker o|--o{ ExecutionTask : "worker"
   Marketplace o|--o{ WorkflowTemplate : "marketplace"
   MasterProduct ||--o{ ChannelListing : "master"
   MasterProduct o|--o{ ContentGenerationGroup : "targetMaster"
+  MasterProduct o|--o{ DetailPageArtifact : "targetMaster"
   MasterProduct ||--o{ GradeHistory : "master"
   MasterProduct ||--o{ MasterProductImage : "master"
   MasterProduct ||--o{ MasterSupplierProduct : "master"
@@ -1818,7 +1857,7 @@ erDiagram
   MasterProduct ||--|| ProductOption : "master"
   MasterProduct o|--o{ SourcingCandidate : "promotedMaster"
   MasterProduct ||--|| ThumbnailAnalysis : "master"
-  MasterProduct ||--o{ ThumbnailGeneration : "master"
+  MasterProduct o|--o{ ThumbnailGeneration : "master"
   MasterProductImage o|--o{ ThumbnailGenerationInputImage : "masterImage"
   Order o|--o{ CSRecord : "order"
   Order ||--o{ OrderLineItem : "order"
@@ -1862,6 +1901,8 @@ erDiagram
   Organization ||--o{ ContentGenerationGroup : "organization"
   Organization ||--o{ ContentGenerationSource : "organization"
   Organization ||--o{ CSRecord : "organization"
+  Organization ||--o{ DetailPageArtifact : "organization"
+  Organization ||--o{ DetailPageRevision : "organization"
   Organization ||--o{ ExecutionWorker : "organization"
   Organization ||--o{ GradeHistory : "organization"
   Organization ||--o{ Inventory : "organization"
@@ -1925,7 +1966,10 @@ erDiagram
   PurchaseOrder ||--o{ PurchaseOrderItem : "order"
   PurchaseOrder o|--o{ SupplierPayment : "purchaseOrder"
   SourcingCandidate ||--o{ CandidateImage : "candidate"
+  SourcingCandidate o|--o{ ContentGeneration : "sourceCandidate"
   SourcingCandidate o|--o{ ContentGenerationSource : "sourceCandidate"
+  SourcingCandidate o|--o{ DetailPageArtifact : "sourceCandidate"
+  SourcingCandidate o|--o{ ThumbnailGeneration : "sourceCandidate"
   Supplier ||--o{ MasterSupplierProduct : "supplier"
   Supplier o|--o{ PurchaseOrder : "supplier"
   Supplier ||--o{ SupplierPayment : "supplier"
@@ -1935,7 +1979,7 @@ erDiagram
   ThumbnailGeneration ||--o{ ThumbnailGenerationInputImage : "generation"
   ThumbnailGeneration ||--o{ ThumbnailRegistrationAttempt : "generation"
   ThumbnailGeneration ||--o{ ThumbnailTracking : "generation"
-  ThumbnailGenerationCandidate o|--o{ ThumbnailGenerationInputImage : "sourceCandidate"
+  ThumbnailGenerationCandidate o|--o{ ThumbnailGenerationInputImage : "sourceThumbnailCandidate"
   ThumbnailTracking ||--o{ ThumbnailTrackingDailySnapshot : "tracking"
   User o|--o{ ActionTask : "assigneeUser"
   User o|--o{ AgentApprovalRequest : "approver"
@@ -1947,6 +1991,8 @@ erDiagram
   User o|--o{ Alert : "actorUser"
   User o|--o{ ContentAsset : "createdByUser"
   User o|--o{ ContentGeneration : "triggeredByUser"
+  User o|--o{ DetailPageArtifact : "createdByUser"
+  User o|--o{ DetailPageRevision : "createdByUser"
   User o|--o{ OrganizationMembership : "invitedBy"
   User ||--o{ OrganizationMembership : "user"
   User o|--o{ SourcingCandidate : "rejectedByUser"

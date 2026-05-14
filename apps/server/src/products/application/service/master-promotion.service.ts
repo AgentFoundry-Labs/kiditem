@@ -18,6 +18,10 @@ export interface MasterPromotionImageInput {
   source: string;
   role: string;
   label: string | null;
+  mimeType?: string | null;
+  width?: number | null;
+  height?: number | null;
+  fileSize?: number | null;
 }
 
 export interface MasterPromotionOptionInput {
@@ -129,6 +133,10 @@ export class MasterPromotionService {
             sortOrder: img.sortOrder,
             source: img.source,
             isPrimary: img.isPrimary,
+            mimeType: img.mimeType ?? null,
+            width: img.width ?? null,
+            height: img.height ?? null,
+            fileSize: img.fileSize ?? null,
           })),
         });
       }

@@ -26,6 +26,7 @@ describe('data migration registry', () => {
       'v0.1.0:003_relabel_image_edit_agent_instances_to_gemini_image',
       'v0.1.0:004_backfill_content_archive_classification',
       'v0.1.1:001_backfill_content_generation_workspace_assets',
+      'v0.1.1:002_backfill_detail_page_artifacts',
     ]);
   });
 

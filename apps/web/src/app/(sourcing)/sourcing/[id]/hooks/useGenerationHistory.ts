@@ -8,8 +8,14 @@ export interface GenerationHistoryItem {
   id: string;
   generatedTitle: string | null;
   status: string;
+  templateId: string | null;
   detailPageData: Record<string, unknown> | null;
+  imageUrls: string[];
+  processedImages: Record<string, string>;
+  detailPageArtifactId: string | null;
+  detailPageRevisionId: string | null;
   errorMessage: string | null;
+  productId: string | null;
   createdAt: string;
 }
 
@@ -18,8 +24,14 @@ interface SourcingContentArchiveResponse {
     id: string;
     title: string;
     status: string;
+    templateId: string | null;
     detailPageData: Record<string, unknown> | null;
+    imageUrls: string[];
+    processedImages: Record<string, string>;
+    detailPageArtifactId: string | null;
+    detailPageRevisionId: string | null;
     errorMessage: string | null;
+    productId: string | null;
     createdAt: string;
   }>;
 }
@@ -47,8 +59,14 @@ export function useGenerationHistory(productId: string) {
         id: item.id,
         generatedTitle: item.title,
         status: toLegacyStatus(item.status),
+        templateId: item.templateId,
         detailPageData: item.detailPageData,
+        imageUrls: item.imageUrls,
+        processedImages: item.processedImages,
+        detailPageArtifactId: item.detailPageArtifactId,
+        detailPageRevisionId: item.detailPageRevisionId,
         errorMessage: item.errorMessage,
+        productId: item.productId,
         createdAt: item.createdAt,
       }));
     },

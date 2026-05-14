@@ -211,7 +211,8 @@ export type ThumbnailRegistrationStatus = (typeof THUMBNAIL_REGISTRATION_STATUSE
 
 export const ThumbnailGenerationItemSchema = z.object({
   id: z.string(),
-  productId: z.string(),
+  productId: z.string().nullable(),
+  sourceCandidateId: z.string().nullable().optional(),
   originalUrl: z.string().nullable(),
   candidates: z.array(z.object({
     id: z.string().uuid().optional(),
@@ -243,7 +244,7 @@ export const ThumbnailGenerationItemSchema = z.object({
     category: z.string().nullable(),
     hasBoxImage: z.boolean().optional(),
     hasColorVariantImages: z.boolean().optional(),
-  }),
+  }).nullable(),
 });
 
 export const ThumbnailGenerationListResponseSchema = z.object({

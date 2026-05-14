@@ -185,12 +185,16 @@ export class DetailPageGenerationService {
           rawTitle: input.rawTitle,
           templateId: input.templateId,
         }));
+    const primarySourceCandidateId =
+      input.sourceReferences.find((ref) => ref.sourceType === 'sourcing_candidate')
+        ?.sourceCandidateId ?? null;
 
     const row = await this.prisma.contentGeneration.create({
       data: {
         organizationId: input.organizationId,
         contentType: 'detail_page',
         generationGroupId,
+        sourceCandidateId: primarySourceCandidateId,
         triggeredByUserId: input.triggeredByUserId,
         templateId: input.templateId,
         generationInput: input.rawInput as unknown as Prisma.InputJsonValue,
@@ -222,9 +226,6 @@ export class DetailPageGenerationService {
       sourceReferences: input.sourceReferences,
       inputAssets,
     });
-    const primarySourceCandidateId =
-      input.sourceReferences.find((ref) => ref.sourceType === 'sourcing_candidate')
-        ?.sourceCandidateId ?? null;
 
     await this.operationAlerts.start({
       organizationId: input.organizationId,

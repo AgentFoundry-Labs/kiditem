@@ -1,12 +1,16 @@
 'use client';
 
+import { useEffect, useMemo } from 'react';
 import { ChevronDown, Settings } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import ThumbnailGrid from '../../components/detail/ThumbnailGrid';
 import TagEditor from '../../components/detail/TagEditor';
 import RawDataTab from '../../components/detail/RawDataTab';
-import { useGenerateSourcingThumbnail } from '../hooks/useGenerateSourcingThumbnail';
+import {
+  useGenerateSourcingThumbnail,
+  useSourcingThumbnailGenerations,
+} from '../hooks/useGenerateSourcingThumbnail';
 import { CATEGORIES } from '../lib/types';
 import GenerationHistoryTab from './GenerationHistoryTab';
 import DetailPagePreview from './DetailPagePreview';
@@ -59,6 +63,31 @@ export default function ProductTabContent({
   onSelectAgent,
 }: Props) {
   const generateThumbnail = useGenerateSourcingThumbnail();
+  const thumbnailGenerations = useSourcingThumbnailGenerations(productId);
+  const generatedThumbnailUrls = useMemo(() => {
+    const urls = (thumbnailGenerations.data ?? [])
+      .flatMap((generation) => generation.candidates.map((candidate) => candidate.url))
+      .filter((url): url is string => typeof url === 'string' && url.length > 0);
+    return [...new Set(urls)];
+  }, [thumbnailGenerations.data]);
+  const hasThumbnailGenerationInProgress = (thumbnailGenerations.data ?? []).some(
+    (generation) => generation.status === 'pending' || generation.status === 'running',
+  );
+
+  useEffect(() => {
+    if (generatedThumbnailUrls.length === 0) return;
+    const nextThumbnails = [
+      ...generatedThumbnailUrls,
+      ...editData.thumbnails.filter((url) => !generatedThumbnailUrls.includes(url)),
+    ].slice(0, 10);
+    if (
+      nextThumbnails.length === editData.thumbnails.length &&
+      nextThumbnails.every((url, index) => url === editData.thumbnails[index])
+    ) {
+      return;
+    }
+    updateField('thumbnails', nextThumbnails);
+  }, [editData.thumbnails, generatedThumbnailUrls, updateField]);
 
   const handleGenerateThumbnail = async () => {
     const productImage = editData.thumbnails[0];
@@ -69,10 +98,16 @@ export default function ProductTabContent({
 
     try {
       const result = await generateThumbnail.mutateAsync({
+        sourceCandidateId: productId,
         productImage,
+        productName: editData.name,
         productDescription: editData.name,
       });
       const generatedUrls = result.candidates.map((candidate) => candidate.url).filter(Boolean);
+      if (result.status === 'pending' || result.generationId) {
+        toast.success('AI 썸네일 생성이 시작되었습니다');
+        return;
+      }
       if (generatedUrls.length === 0) {
         toast.error('생성된 썸네일이 없습니다');
         return;
@@ -98,7 +133,7 @@ export default function ProductTabContent({
               thumbnails={editData.thumbnails}
               onThumbnailsChange={(v) => updateField('thumbnails', v)}
               onGenerateThumbnail={handleGenerateThumbnail}
-              isGeneratingThumbnail={generateThumbnail.isPending}
+              isGeneratingThumbnail={generateThumbnail.isPending || hasThumbnailGenerationInProgress}
             />
           </div>
 

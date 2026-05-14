@@ -97,7 +97,7 @@ export function NeedsFixSection() {
   // 필터: analyzed + needsThumbnailFix (FAIL[evidence 있음] || grade C/F) + 편집 파이프라인에 없는 것.
   // generation 이 하나라도 있으면 (pending/running/ready/applied/failed 무관) 제외 — AI 편집 탭에서 추적됨.
   const generatedProductIds = useMemo(
-    () => new Set(generations.map((g) => g.productId)),
+    () => new Set(generations.map((g) => g.productId).filter((id): id is string => Boolean(id))),
     [generations],
   );
 

@@ -3,8 +3,9 @@
 `/sourcing` is the canonical productization workspace. It starts from
 `SourcingCandidate`, can promote a candidate into `MasterProduct`, shows content
 generated from the candidate, and opens the GrapesJS detail-page editor for
-`ContentGeneration` rows. Do not reintroduce `/product-content`; generated
-content navigation belongs under `/sourcing`.
+`ContentGeneration` rows backed by detail-page artifacts/revisions. Do not
+reintroduce `/product-content`; generated content navigation belongs under
+`/sourcing`.
 
 ## Subroute Map
 
@@ -30,7 +31,11 @@ sourcing/
 - `SourcingCandidate` is the raw source/opportunity workspace.
 - `MasterProduct` means the candidate has been promoted into inventory/catalog
   product state.
-- `ContentGeneration` is the source of truth for generated detail pages and
+- `ContentGeneration` is the source of truth for generation request/result
+  snapshots and direct candidate lineage.
+- `DetailPageArtifact` + `DetailPageRevision` are the source of truth for saved
+  editor HTML versions.
+- `ContentAsset` + `ContentGenerationAssetUsage` are the source of truth for
   generated/edited images.
 - Candidate-scoped generated content must link to
   `/sourcing/{candidateId}/editor?generationId={contentGenerationId}`.
@@ -70,3 +75,12 @@ and prefer small surrounding components/hooks for new behavior.
 | Candidate promotion/rejection | `components/detail/ProductEditHeader.tsx`, server sourcing candidate APIs |
 | Generated content list for candidate | `[id]/components/LinkedProducedContentPanel.tsx`, `GET /api/ai/content-archive/sourcing/:candidateId` |
 | Template render/sandbox | `lib/template-html.tsx`, `lib/preview-sandbox.ts` |
+
+## Registration Selection
+
+The product registration button uses the existing
+`POST /api/sourcing/candidates/{id}/promote` command. Pass the current primary
+thumbnail URL and, when the operator applied an Agent detail-page history row,
+the selected `ContentGeneration.id`; the server resolves that to
+`DetailPageArtifact`/`DetailPageRevision` inside the promotion transaction. Do
+not persist this as a separate registration draft from the frontend.

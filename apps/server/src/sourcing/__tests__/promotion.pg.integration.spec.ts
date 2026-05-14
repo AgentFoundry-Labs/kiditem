@@ -25,7 +25,12 @@ import {
   it,
 } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { ConflictException, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import { SourcingPromotionService } from '../application/service/sourcing-promotion.service';
 import { MasterPromotionService } from '../../products/application/service/master-promotion.service';
 import { MasterCodeService } from '../../products/adapter/out/prisma/master-code.service';
@@ -106,6 +111,73 @@ async function seedCandidate(
   return { id: candidate.id, organizationId };
 }
 
+async function seedDetailPageArtifact(
+  prisma: PrismaClient,
+  seed: {
+    candidateId: string;
+    organizationId: string;
+    generationSourceCandidateId?: string | null;
+    artifactSourceCandidateId?: string | null;
+  },
+): Promise<{ contentGenerationId: string; artifactId: string; revisionId: string }> {
+  const group = await prisma.contentGenerationGroup.create({
+    data: {
+      organizationId: seed.organizationId,
+      groupType: 'input_variation',
+      title: 'Candidate detail page',
+    },
+    select: { id: true },
+  });
+  const generation = await prisma.contentGeneration.create({
+    data: {
+      organizationId: seed.organizationId,
+      generationGroupId: group.id,
+      sourceCandidateId: seed.generationSourceCandidateId === undefined
+        ? seed.candidateId
+        : seed.generationSourceCandidateId,
+      contentType: 'detail_page',
+      generatedTitle: 'Generated detail page',
+      status: 'READY',
+    },
+    select: { id: true },
+  });
+  const artifact = await prisma.detailPageArtifact.create({
+    data: {
+      organizationId: seed.organizationId,
+      sourceCandidateId: seed.artifactSourceCandidateId === undefined
+        ? seed.candidateId
+        : seed.artifactSourceCandidateId,
+      sourceContentGenerationId: generation.id,
+      title: 'Generated detail page',
+      status: 'draft',
+    },
+    select: { id: true },
+  });
+  const revision = await prisma.detailPageRevision.create({
+    data: {
+      organizationId: seed.organizationId,
+      artifactId: artifact.id,
+      contentGenerationId: generation.id,
+      revisionType: 'manual_edit',
+      html: '<main>selected detail page</main>',
+    },
+    select: { id: true },
+  });
+  await prisma.detailPageArtifact.update({
+    where: { id: artifact.id },
+    data: { currentRevisionId: revision.id },
+  });
+  await prisma.contentGeneration.update({
+    where: { id: generation.id },
+    data: { detailPageArtifactId: artifact.id },
+  });
+  return {
+    contentGenerationId: generation.id,
+    artifactId: artifact.id,
+    revisionId: revision.id,
+  };
+}
+
 describe('SourcingPromotionService (PG integration)', () => {
   let prisma: PrismaClient;
   let service: SourcingPromotionService;
@@ -183,6 +255,160 @@ describe('SourcingPromotionService (PG integration)', () => {
       organizationId,
       masterId: result.masterId,
     });
+  });
+
+  it('promotion uses the operator-selected thumbnail as the promoted master primary image', async () => {
+    const { id: candidateId, organizationId } = await seedCandidate(prisma);
+
+    const result = await service.promote(candidateId, organizationId, {
+      options: [{ optionName: 'Red' }],
+      selectedThumbnailUrl: 'https://example.com/1.jpg',
+    });
+
+    const master = await prisma.masterProduct.findFirst({
+      where: { id: result.masterId, organizationId },
+      select: { thumbnailUrl: true, imageUrl: true },
+    });
+    expect(master).toEqual({
+      thumbnailUrl: 'https://example.com/1.jpg',
+      imageUrl: 'https://example.com/1.jpg',
+    });
+
+    const images = await prisma.masterProductImage.findMany({
+      where: { masterId: result.masterId, organizationId },
+      orderBy: { sortOrder: 'asc' },
+    });
+    expect(images.map((img) => ({ url: img.url, isPrimary: img.isPrimary }))).toEqual([
+      { url: 'https://example.com/1.jpg', isPrimary: true },
+      { url: 'https://example.com/0.jpg', isPrimary: false },
+    ]);
+  });
+
+  it('promotion copies the selected candidate-bound thumbnail generation output into the master gallery', async () => {
+    const { id: candidateId, organizationId } = await seedCandidate(prisma);
+    const generation = await prisma.thumbnailGeneration.create({
+      data: {
+        organizationId,
+        masterId: null,
+        sourceCandidateId: candidateId,
+        originalUrl: 'https://example.com/0.jpg',
+        method: 'generate',
+        status: 'succeeded',
+        phase: 'ready',
+      },
+    });
+    const generated = await prisma.thumbnailGenerationCandidate.create({
+      data: {
+        organizationId,
+        generationId: generation.id,
+        url: 'http://storage.local/kiditem/thumbnail-generations/generated.png',
+        storageKey: 'thumbnail-generations/generated.png',
+        filename: 'generated.png',
+        sortOrder: 0,
+        mimeType: 'image/png',
+        width: 1024,
+        height: 1024,
+        fileSize: 123456,
+      },
+    });
+
+    const result = await service.promote(candidateId, organizationId, {
+      options: [{ optionName: 'Red' }],
+      selectedThumbnailGenerationCandidateId: generated.id,
+    });
+
+    const master = await prisma.masterProduct.findFirst({
+      where: { id: result.masterId, organizationId },
+      select: { thumbnailUrl: true, imageUrl: true },
+    });
+    expect(master).toEqual({
+      thumbnailUrl: generated.url,
+      imageUrl: generated.url,
+    });
+
+    const images = await prisma.masterProductImage.findMany({
+      where: { masterId: result.masterId, organizationId },
+      orderBy: { sortOrder: 'asc' },
+    });
+    expect(images[0]).toMatchObject({
+      url: generated.url,
+      storageKey: 'thumbnail-generations/generated.png',
+      source: 'thumbnail_generation',
+      role: 'product',
+      label: 'AI thumbnail',
+      isPrimary: true,
+      mimeType: 'image/png',
+      width: 1024,
+      height: 1024,
+      fileSize: 123456,
+    });
+  });
+
+  it('promotion links the selected detail-page generation artifact to the promoted master', async () => {
+    const { id: candidateId, organizationId } = await seedCandidate(prisma);
+    const detail = await seedDetailPageArtifact(prisma, { candidateId, organizationId });
+
+    const result = await service.promote(candidateId, organizationId, {
+      options: [{ optionName: 'Red' }],
+      selectedDetailPageGenerationId: detail.contentGenerationId,
+    });
+
+    const artifact = await prisma.detailPageArtifact.findFirst({
+      where: { id: detail.artifactId, organizationId },
+      select: { targetMasterId: true, currentRevisionId: true },
+    });
+    expect(artifact).toEqual({
+      targetMasterId: result.masterId,
+      currentRevisionId: detail.revisionId,
+    });
+  });
+
+  it('promotion accepts a selected detail-page generation linked to the candidate through its artifact', async () => {
+    const { id: candidateId, organizationId } = await seedCandidate(prisma);
+    const detail = await seedDetailPageArtifact(prisma, {
+      candidateId,
+      organizationId,
+      generationSourceCandidateId: null,
+    });
+
+    const result = await service.promote(candidateId, organizationId, {
+      options: [{ optionName: 'Red' }],
+      selectedDetailPageGenerationId: detail.contentGenerationId,
+    });
+
+    const artifact = await prisma.detailPageArtifact.findFirst({
+      where: { id: detail.artifactId, organizationId },
+      select: { targetMasterId: true, currentRevisionId: true },
+    });
+    expect(artifact).toEqual({
+      targetMasterId: result.masterId,
+      currentRevisionId: detail.revisionId,
+    });
+  });
+
+  it('promotion rejects a selected detail-page generation from another candidate', async () => {
+    const { id: candidateId, organizationId } = await seedCandidate(prisma);
+    const { id: otherCandidateId } = await seedCandidate(prisma, {
+      sourceUrl: 'https://1688.com/item/other-candidate',
+      name: 'Other candidate',
+    });
+    const detail = await seedDetailPageArtifact(prisma, {
+      candidateId: otherCandidateId,
+      organizationId,
+    });
+
+    await expect(
+      service.promote(candidateId, organizationId, {
+        options: [{ optionName: 'Red' }],
+        selectedDetailPageGenerationId: detail.contentGenerationId,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    const candidate = await prisma.sourcingCandidate.findFirst({
+      where: { id: candidateId, organizationId },
+      select: { status: true, promotedMasterId: true },
+    });
+    expect(candidate).toEqual({ status: 'sourced', promotedMasterId: null });
   });
 
   it('mid-transaction failure (duplicate legacy code in options) rolls back master + candidate', async () => {

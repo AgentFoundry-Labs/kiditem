@@ -79,6 +79,8 @@ export async function saveEditorResult(
               sortOrder: img.sortOrder,
               source: normalizeInputSource(img.source),
               masterImageId: img.masterImageId ?? null,
+              candidateImageId: img.candidateImageId ?? null,
+              sourceThumbnailCandidateId: img.sourceThumbnailCandidateId ?? null,
               mimeType: img.mimeType,
               width: null,
               height: null,
@@ -126,6 +128,40 @@ export async function createPendingEditJob(
     include: generationInclude(args.organizationId),
   });
   return generation as unknown as GenerationRow;
+}
+
+/**
+ * Build a pending thumbnail generation for a sourcing candidate workspace.
+ * Candidate-bound rows intentionally have no `masterId`; they become product
+ * gallery images only if promotion copies a selected candidate into
+ * `MasterProductImage`.
+ */
+export async function createPendingCandidateJob(
+  prisma: PrismaService,
+  args: {
+    organizationId: string;
+    sourceCandidateId: string;
+    originalUrl: string;
+    method: string;
+    inputMeta: Prisma.InputJsonValue;
+    triggeredByUserId?: string | null;
+  },
+): Promise<{ id: string }> {
+  return prisma.thumbnailGeneration.create({
+    data: {
+      organizationId: args.organizationId,
+      masterId: null,
+      sourceCandidateId: args.sourceCandidateId,
+      originalUrl: args.originalUrl,
+      method: args.method,
+      status: 'pending',
+      phase: null,
+      inputMeta: args.inputMeta,
+      editAnalysis: Prisma.JsonNull,
+      triggeredByUserId: args.triggeredByUserId ?? null,
+    },
+    select: { id: true },
+  });
 }
 
 /**
@@ -432,6 +468,8 @@ export async function replaceGenerationResult(
           sortOrder: img.sortOrder,
           source: normalizeInputSource(img.source),
           masterImageId: img.masterImageId ?? null,
+          candidateImageId: img.candidateImageId ?? null,
+          sourceThumbnailCandidateId: img.sourceThumbnailCandidateId ?? null,
           mimeType: img.mimeType,
           width: null,
           height: null,
@@ -552,6 +590,8 @@ export async function persistPendingInputImages(
       sortOrder: img.sortOrder,
       source: normalizeInputSource(img.source),
       masterImageId: img.masterImageId ?? null,
+      candidateImageId: img.candidateImageId ?? null,
+      sourceThumbnailCandidateId: img.sourceThumbnailCandidateId ?? null,
       mimeType: img.mimeType,
       width: null,
       height: null,

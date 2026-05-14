@@ -29,19 +29,19 @@ interface TemplateOption {
 const TEMPLATES: TemplateOption[] = [
   {
     id: 'bold-vertical',
-    name: 'Bold Vertical',
+    name: 'KIDITEM DESIGN',
     description:
-      '풀 파이프라인(Step1 → Step2). hero/studio/detail 이미지 다양하게 생성 — 식품·완구·강한 시각 임팩트 필요할 때. 1~3.5분.',
+      '키디아이템 자체 시그니처 — 굵직한 헤드라인 + 풀세트 섹션. 키디아이템 브랜드 라인 / 식품·완구·키즈.',
     status: 'ready',
-    thumbnailEmoji: '✨',
+    thumbnailEmoji: '👑',
   },
   {
     id: 'kids-playful',
-    name: 'Trend Vertical',
+    name: '트렌드 광고형 템플릿',
     description:
-      '귀엽고 발랄한 톤 — pain-point 핑크 섹션 + 넘버드 포인트 + 라이프스타일 갤러리. 유아·키즈·트렌디 카테고리.',
+      '광고 reel 스타일 — 컬러 블록 + 라이프스타일 + 강한 CTA. 여름·계절 한정·이벤트성 상품.',
     status: 'ready',
-    thumbnailEmoji: '⚡',
+    thumbnailEmoji: '📣',
   },
 ];
 
@@ -227,7 +227,7 @@ export default function TemplateSelectionModal({
           ) : (
             <section className="rounded-lg border border-violet-200 bg-violet-50/50 p-4">
               <h3 className="text-sm font-semibold text-slate-900 mb-1">
-                Trend Vertical — 1-call 자동 생성
+                트렌드 광고형 템플릿 — 1-call 자동 생성
               </h3>
               <p className="text-[11px] leading-relaxed text-slate-500">
                 상품 raw 데이터 + 이미지로 11 섹션 카피와 이미지 매칭을 한 번에 생성합니다.

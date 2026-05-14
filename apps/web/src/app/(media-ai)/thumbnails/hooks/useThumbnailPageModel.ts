@@ -48,16 +48,19 @@ export function useThumbnailPageModel({
   return useMemo(() => {
     const effectiveScanResult = scanResult ?? EMPTY_ANALYSIS_RESPONSE;
     const { allResults, unclassified = [] } = effectiveScanResult;
+    const productGenerations = generations.filter(
+      (g): g is ThumbnailGenerationItem & { productId: string } => Boolean(g.productId),
+    );
 
     const generatedProductIds = new Set(
-      generations.filter((g) => g.status !== 'failed').map((g) => g.productId),
+      productGenerations.filter((g) => g.status !== 'failed').map((g) => g.productId),
     );
-    const activeGenerations = generations.filter(
+    const activeGenerations = productGenerations.filter(
       (g) => g.status === 'pending' || g.status === 'running' || isReady(g),
     );
 
     const genByProductId = new Map<string, ThumbnailGenerationItem>();
-    for (const generation of generations) {
+    for (const generation of productGenerations) {
       const existing = genByProductId.get(generation.productId);
       if (!existing || new Date(generation.createdAt) > new Date(existing.createdAt)) {
         genByProductId.set(generation.productId, generation);
@@ -77,7 +80,7 @@ export function useThumbnailPageModel({
 
     const needsFixIds = new Set(needsFixProducts.map((p) => p.productId));
     const validActiveGenerations = activeGenerations.filter((g) => needsFixIds.has(g.productId));
-    const aiEditCount = generations.filter(
+    const aiEditCount = productGenerations.filter(
       (g) =>
         needsFixIds.has(g.productId) &&
         (
@@ -180,7 +183,7 @@ export function useThumbnailPageModel({
       .filter((r) => !genByProductId.has(r.productId) && needsThumbnailFix(r))
       .slice(0, 7);
     const inGeneration = validActiveGenerations.slice(0, 7);
-    const recentApplied = generations
+    const recentApplied = productGenerations
       .filter(
         (g) =>
           isApplied(g) &&

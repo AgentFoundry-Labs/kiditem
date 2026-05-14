@@ -61,7 +61,7 @@ export default function ProductCard({
   // 진행 중 라벨 — pipeline_step 별 다른 메시지 (사용자 가시성 강화)
   // Trend/KIDITEM 생성 진행 중이면 그것 우선 (templateId 로 라벨 구분).
   const inProgressTemplateLabel =
-    kpInProgress?.templateId === 'bold-vertical' ? 'KIDITEM DESIGN' : 'Trend Vertical';
+    kpInProgress?.templateId === 'bold-vertical' ? 'KIDITEM DESIGN' : '트렌드 광고형 템플릿';
   const progressLabel = kpInProgress
     ? kpInProgress.imageProcessingStatus === 'pending'
       ? `${inProgressTemplateLabel} 카피 생성 중...`

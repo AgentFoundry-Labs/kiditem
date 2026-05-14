@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { toDetailPageStoredJson } from './detail-page-stored.helpers';
 
 type ArchiveContentType = 'detail_page' | 'image';
 type ArchiveLinkState = 'linked' | 'unlinked';
@@ -42,10 +43,21 @@ export interface ProductContentGenerationItem {
   thumbnailUrl: string | null;
   href: string | null;
   status: string;
+  templateId: string | null;
   detailPageData: Record<string, unknown> | null;
+  imageUrls: string[];
+  processedImages: Record<string, string>;
   errorMessage: string | null;
   productId: string | null;
   generationGroupId: string | null;
+  sourceCandidateId: string | null;
+  detailPageArtifactId: string | null;
+  detailPageRevisionId: string | null;
+  detailPageRevisions: Array<{
+    id: string;
+    revisionType: string;
+    createdAt: string;
+  }>;
   sources: Array<{
     id: string;
     sourceType: string;
@@ -88,6 +100,29 @@ const generationInclude = {
       sourceContentGenerationId: true,
       contentAssetId: true,
       label: true,
+    },
+  },
+  detailPageArtifact: {
+    select: {
+      id: true,
+      sourceCandidateId: true,
+      currentRevisionId: true,
+      currentRevision: {
+        select: {
+          id: true,
+          revisionType: true,
+          createdAt: true,
+        },
+      },
+      revisions: {
+        orderBy: [{ createdAt: 'desc' }],
+        take: 20,
+        select: {
+          id: true,
+          revisionType: true,
+          createdAt: true,
+        },
+      },
     },
   },
 } satisfies Prisma.ContentGenerationInclude;
@@ -280,33 +315,40 @@ export class ContentArchiveService {
     });
     if (!candidate) throw new NotFoundException('Sourcing candidate not found');
     const { page, limit } = normalizePage(query.page, query.limit);
-    const where = this.generationWhere(organizationId, {
+    let where = this.generationWhere(organizationId, {
       ...query,
       sourceCandidateId: candidate.id,
     });
-    let rows = await this.prisma.contentGeneration.findMany({
-      where,
-      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
-      skip: (page - 1) * limit,
-      take: limit,
-      include: generationInclude,
-    });
-    if (rows.length === 0 && candidate.promotedMasterId) {
-      rows = await this.prisma.contentGeneration.findMany({
-        where: this.generationWhere(organizationId, {
-          ...query,
-          productId: candidate.promotedMasterId,
-          linkState: 'linked',
-        }),
+    let [total, rows] = await Promise.all([
+      this.prisma.contentGeneration.count({ where }),
+      this.prisma.contentGeneration.findMany({
+        where,
         orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
         skip: (page - 1) * limit,
         take: limit,
         include: generationInclude,
+      }),
+    ]);
+    if (total === 0 && candidate.promotedMasterId) {
+      where = this.generationWhere(organizationId, {
+        ...query,
+        productId: candidate.promotedMasterId,
+        linkState: 'linked',
       });
+      [total, rows] = await Promise.all([
+        this.prisma.contentGeneration.count({ where }),
+        this.prisma.contentGeneration.findMany({
+          where,
+          orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+          skip: (page - 1) * limit,
+          take: limit,
+          include: generationInclude,
+        }),
+      ]);
     }
     return {
       items: rows.map((row) => this.toGenerationItem(row)),
-      total: rows.length,
+      total,
       page,
       limit,
     };
@@ -330,7 +372,13 @@ export class ContentArchiveService {
       ...(query.status ? { status: query.status } : {}),
       ...masterScope,
       ...(query.sourceCandidateId
-        ? { sources: { some: { sourceCandidateId: query.sourceCandidateId } } }
+        ? {
+            OR: [
+              { sourceCandidateId: query.sourceCandidateId },
+              { sources: { some: { sourceCandidateId: query.sourceCandidateId } } },
+              { detailPageArtifact: { is: { sourceCandidateId: query.sourceCandidateId } } },
+            ],
+          }
         : {}),
     };
   }
@@ -409,7 +457,22 @@ export class ContentArchiveService {
   private toGenerationItem(row: GenerationRow): ProductContentGenerationItem {
     const contentType = this.contentType(row);
     const productId = row.generationGroup.targetMasterId;
-    const sourceCandidateId = row.sources.find((source) => source.sourceCandidateId)?.sourceCandidateId ?? null;
+    const detailPageStored = contentType === 'detail_page'
+      ? toDetailPageStoredJson({
+        templateId: normalizeDetailPageTemplateId(row.templateId),
+        generationInput: row.generationInput,
+        generationResult: row.generationResult,
+      })
+      : null;
+    const sourceCandidateId =
+      row.sourceCandidateId ??
+      row.detailPageArtifact?.sourceCandidateId ??
+      row.sources.find((source) => source.sourceCandidateId)?.sourceCandidateId ??
+      null;
+    const detailPageRevisionId =
+      row.detailPageArtifact?.currentRevisionId ??
+      row.detailPageArtifact?.currentRevision?.id ??
+      null;
     return {
       id: row.id,
       contentType,
@@ -422,12 +485,23 @@ export class ContentArchiveService {
           : `/sourcing/detail-pages/${encodeURIComponent(row.id)}/editor`
         : null,
       status: normalizeStatus(row.status),
-      detailPageData: contentType === 'detail_page'
-        ? detailPageDataFromGenerationResult(row.generationResult)
+      templateId: detailPageStored?.templateId ?? null,
+      detailPageData: detailPageStored
+        ? asPlainRecord(detailPageStored.result)
         : null,
+      imageUrls: detailPageStored?.imageUrls ?? [],
+      processedImages: detailPageStored?.processedImages ?? {},
       errorMessage: row.errorMessage,
       productId,
       generationGroupId: row.generationGroupId,
+      sourceCandidateId,
+      detailPageArtifactId: row.detailPageArtifactId,
+      detailPageRevisionId,
+      detailPageRevisions: (row.detailPageArtifact?.revisions ?? []).map((revision) => ({
+        id: revision.id,
+        revisionType: revision.revisionType,
+        createdAt: revision.createdAt.toISOString(),
+      })),
       sources: row.sources.map((source) => ({
         id: source.id,
         sourceType: source.sourceType,
@@ -503,15 +577,10 @@ function asPlainRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
-function detailPageDataFromGenerationResult(value: unknown): Record<string, unknown> | null {
-  const record = asPlainRecord(value);
-  if (!record) return null;
-  return (
-    asPlainRecord(record.result) ??
-    asPlainRecord(record.detailPageData) ??
-    asPlainRecord(record.detail_page_data) ??
-    asPlainRecord(record.data)
-  );
+function normalizeDetailPageTemplateId(value: unknown): 'kids-playful' | 'bold-vertical' {
+  return value === 'bold-vertical' || value === 'simple-vertical'
+    ? 'bold-vertical'
+    : 'kids-playful';
 }
 
 function sortedUsedAssets(row: GenerationRow): Array<{

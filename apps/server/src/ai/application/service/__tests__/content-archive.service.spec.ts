@@ -28,6 +28,8 @@ function row(overrides: Record<string, unknown>) {
     generatedCopy: null,
     editedHtml: null,
     editedHtmlSavedAt: null,
+    sourceCandidateId: null,
+    detailPageArtifactId: null,
     status: 'READY',
     retryCount: 0,
     errorMessage: null,
@@ -43,6 +45,7 @@ function row(overrides: Record<string, unknown>) {
     },
     assetUsages: [],
     sources: [],
+    detailPageArtifact: null,
     ...overrides,
   };
 }
@@ -178,6 +181,7 @@ describe('ContentArchiveService', () => {
   it('links sourcing candidate generations to the candidate-scoped editor route', async () => {
     const candidateRow = row({
       id: '55555555-5555-4555-8555-555555555555',
+      sourceCandidateId: CANDIDATE_ID,
       sources: [
         {
           id: 'source-1',
@@ -194,6 +198,7 @@ describe('ContentArchiveService', () => {
         findFirst: vi.fn().mockResolvedValue({ id: CANDIDATE_ID, promotedMasterId: null }),
       },
       contentGeneration: {
+        count: vi.fn().mockResolvedValue(1),
         findMany: vi.fn().mockResolvedValue([candidateRow]),
       },
     };
@@ -214,10 +219,68 @@ describe('ContentArchiveService', () => {
       expect.objectContaining({
         where: {
           organizationId: ORG,
-          sources: { some: { sourceCandidateId: CANDIDATE_ID } },
+          OR: [
+            { sourceCandidateId: CANDIDATE_ID },
+            { sources: { some: { sourceCandidateId: CANDIDATE_ID } } },
+            { detailPageArtifact: { is: { sourceCandidateId: CANDIDATE_ID } } },
+          ],
         },
       }),
     );
+  });
+
+  it('links artifact-only sourcing candidate generations through detailPageArtifact', async () => {
+    const candidateRow = row({
+      id: '66666666-6666-4666-8666-666666666666',
+      detailPageArtifactId: 'artifact-1',
+      detailPageArtifact: {
+        id: 'artifact-1',
+        sourceCandidateId: CANDIDATE_ID,
+        currentRevisionId: 'revision-1',
+        currentRevision: {
+          id: 'revision-1',
+          revisionType: 'manual_edit',
+          createdAt: new Date('2026-05-13T10:00:00.000Z'),
+        },
+        revisions: [
+          {
+            id: 'revision-1',
+            revisionType: 'manual_edit',
+            createdAt: new Date('2026-05-13T10:00:00.000Z'),
+          },
+        ],
+      },
+    });
+    const prisma = {
+      sourcingCandidate: {
+        findFirst: vi.fn().mockResolvedValue({ id: CANDIDATE_ID, promotedMasterId: null }),
+      },
+      contentGeneration: {
+        count: vi.fn().mockResolvedValue(1),
+        findMany: vi.fn().mockResolvedValue([candidateRow]),
+      },
+    };
+    const service = new ContentArchiveService(prisma as never);
+
+    await expect(service.listForSourcingCandidate(ORG, CANDIDATE_ID)).resolves.toMatchObject({
+      items: [
+        {
+          id: candidateRow.id,
+          sourceCandidateId: CANDIDATE_ID,
+          detailPageArtifactId: 'artifact-1',
+          detailPageRevisionId: 'revision-1',
+          detailPageRevisions: [
+            {
+              id: 'revision-1',
+              revisionType: 'manual_edit',
+              createdAt: '2026-05-13T10:00:00.000Z',
+            },
+          ],
+          href: `/sourcing/${CANDIDATE_ID}/editor?generationId=${candidateRow.id}`,
+        },
+      ],
+      total: 1,
+    });
   });
 
   it('deletes a product workspace without deleting the MasterProduct row', async () => {

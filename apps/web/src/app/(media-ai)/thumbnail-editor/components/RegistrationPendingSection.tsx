@@ -37,6 +37,7 @@ type RegGroup = {
 function groupByProduct(items: ThumbnailGenerationItem[]): RegGroup[] {
   const map = new Map<string, ThumbnailGenerationItem[]>();
   for (const g of items) {
+    if (!g.productId) continue;
     const bucket = map.get(g.productId);
     if (bucket) bucket.push(g);
     else map.set(g.productId, [g]);
@@ -294,6 +295,7 @@ function RegistrationPendingCard({
   const fullSelected = selectedCount === group.items.length;
   const partialSelected = selectedCount > 0 && !fullSelected;
   const multi = group.items.length > 1;
+  const productName = item.product?.name ?? '상품 정보 없음';
 
   return (
     <div
@@ -306,7 +308,7 @@ function RegistrationPendingCard({
     >
       <div className="aspect-square bg-white relative overflow-hidden">
         {resolved && (
-          <ImgWithSkeleton src={resolved} alt={item.product.name} fit="cover" />
+          <ImgWithSkeleton src={resolved} alt={productName} fit="cover" />
         )}
 
         <button
@@ -336,7 +338,7 @@ function RegistrationPendingCard({
         )}
       </div>
       <div className="px-1 py-1 bg-white">
-        <p className="text-[11px] font-bold text-gray-900 truncate">{item.product.name}</p>
+        <p className="text-[11px] font-bold text-gray-900 truncate">{productName}</p>
         {anyFailed && (
           <div className="flex items-start gap-1 mt-0.5">
             <p
@@ -386,14 +388,14 @@ function BatchProgressDialog({
     results
       ? results.map((r) => ({
           id: r.id,
-          name: itemsById.get(r.id)?.product.name ?? r.id,
+          name: itemsById.get(r.id)?.product?.name ?? r.id,
           state: r.success ? 'ok' : 'fail',
           error: r.error,
           screenshotPath: r.screenshotPath,
         }))
       : runningIds.map((id) => ({
           id,
-          name: itemsById.get(id)?.product.name ?? id,
+          name: itemsById.get(id)?.product?.name ?? id,
           state: 'running',
         }));
 

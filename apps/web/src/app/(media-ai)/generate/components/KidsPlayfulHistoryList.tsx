@@ -131,7 +131,7 @@ export default function KidsPlayfulHistoryList({
             </h2>
             {!compact && (
               <p className="text-xs text-slate-500 mt-1">
-                KIDITEM DESIGN / Trend Vertical 생성 결과 — 카드 클릭하면 다시 볼 수 있어요.{' '}
+                KIDITEM DESIGN / 트렌드 광고형 템플릿 생성 결과 — 카드 클릭하면 다시 볼 수 있어요.{' '}
                 <span className="text-slate-400">(DB 영구 저장, 회사 단위)</span>
               </p>
             )}

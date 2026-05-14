@@ -31,6 +31,7 @@ import {
   findJobMaster,
 } from '../../adapter/out/prisma/thumbnail-generation.query';
 import {
+  createPendingCandidateJob,
   createPendingEditJob,
   lockGenerationForProcessing,
   markGenerationFailed,
@@ -55,6 +56,18 @@ export interface ThumbnailEditorGenerationEnqueueInput {
   organizationId: string;
   productId: string;
   productName: string;
+  triggeredByUserId: string | null;
+  inputs: ThumbnailEditorInputImage[];
+  inputMeta: Prisma.InputJsonValue;
+  method: 'generate' | 'creative';
+  originalUrl: string;
+  agentPayload: Record<string, unknown>;
+}
+
+export interface ThumbnailCandidateGenerationEnqueueInput {
+  organizationId: string;
+  sourceCandidateId: string;
+  productName: string | null;
   triggeredByUserId: string | null;
   inputs: ThumbnailEditorInputImage[];
   inputMeta: Prisma.InputJsonValue;
@@ -170,6 +183,126 @@ export class ThumbnailGenerationJobService {
       throw new BadRequestException(errorMessage);
     }
 
+    this.kickEnqueuedAgentRequest({
+      organizationId: input.organizationId,
+      requestId: enqueueResult.requestId,
+    });
+
+    return { generationId: generation.id, status: 'pending' };
+  }
+
+  async enqueueCandidateGeneration(
+    input: ThumbnailCandidateGenerationEnqueueInput,
+  ): Promise<{ generationId: string; status: 'pending' }> {
+    const candidate = await this.prisma.sourcingCandidate.findFirst({
+      where: {
+        id: input.sourceCandidateId,
+        organizationId: input.organizationId,
+        isDeleted: false,
+      },
+      select: { id: true, name: true, category: true },
+    });
+    if (!candidate) {
+      throw new BadRequestException('sourceCandidateId 에 해당하는 소싱 후보를 찾을 수 없습니다');
+    }
+
+    const generation = await createPendingCandidateJob(this.prisma, {
+      organizationId: input.organizationId,
+      sourceCandidateId: input.sourceCandidateId,
+      originalUrl: input.originalUrl,
+      method: input.method,
+      inputMeta: input.inputMeta,
+      triggeredByUserId: input.triggeredByUserId,
+    });
+
+    await persistPendingInputImages(this.prisma, {
+      generationId: generation.id,
+      organizationId: input.organizationId,
+      inputImages: input.inputs,
+    });
+
+    await this.emitStatusChange({
+      organizationId: input.organizationId,
+      generationId: generation.id,
+      fromStatus: null,
+      toStatus: 'pending',
+      fromPhase: null,
+      toPhase: null,
+      actorUserId: input.triggeredByUserId,
+      payload: {
+        method: input.method,
+        sourceCandidateId: input.sourceCandidateId,
+        inputCount: input.inputs.length,
+      },
+    });
+
+    await this.operationAlerts.start({
+      organizationId: input.organizationId,
+      operationKey: this.editJobOperationKey(generation.id),
+      type: 'thumbnail_edit_job',
+      title: `소싱 썸네일 ${input.method === 'creative' ? 'AI 연출' : '편집'}: ${(input.productName ?? candidate.name).slice(0, 40)}`,
+      sourceType: 'thumbnail_generation',
+      sourceId: generation.id,
+      actorUserId: input.triggeredByUserId,
+      targetType: 'sourcing_candidate',
+      targetId: input.sourceCandidateId,
+      href: `/sourcing/${encodeURIComponent(input.sourceCandidateId)}`,
+      metadata: {
+        method: input.method,
+        sourceCandidateId: input.sourceCandidateId,
+        inputCount: input.inputs.length,
+      },
+    });
+
+    const enqueueResult = await this.agentRunner.runByType(
+      THUMBNAIL_GENERATE_AGENT_TYPE,
+      {
+        organizationId: input.organizationId,
+        requestedByUserId: input.triggeredByUserId ?? undefined,
+        sourceType: AI_AGENT_SOURCE_TYPES.THUMBNAIL_GENERATE,
+        sourceResourceType: 'thumbnail_generation',
+        sourceResourceId: generation.id,
+        reason: `thumbnail_generate for sourcing candidate ${input.sourceCandidateId}`,
+        payload: input.agentPayload,
+      },
+    );
+
+    if (!enqueueResult.ok) {
+      const errorMessage = enqueueResult.reason
+        ? `Agent OS enqueue failed: ${enqueueResult.reason}`
+        : 'Agent OS enqueue failed.';
+      const lock = await lockGenerationForProcessing(
+        this.prisma,
+        generation.id,
+        input.organizationId,
+      );
+      if (lock) {
+        await markGenerationFailed(
+          this.prisma,
+          generation.id,
+          input.organizationId,
+          errorMessage,
+        );
+      }
+      await this.operationAlerts.fail(
+        input.organizationId,
+        this.editJobOperationKey(generation.id),
+        {
+          message: errorMessage,
+          metadata: {
+            errorCode: 'agent_enqueue_failed',
+            agentReason: enqueueResult.reason ?? null,
+          },
+        },
+      );
+      throw new BadRequestException(errorMessage);
+    }
+
+    this.kickEnqueuedAgentRequest({
+      organizationId: input.organizationId,
+      requestId: enqueueResult.requestId,
+    });
+
     return { generationId: generation.id, status: 'pending' };
   }
 
@@ -223,6 +356,9 @@ export class ThumbnailGenerationJobService {
     try {
       const existing = await findGenerationWithInputImages(this.prisma, id, organizationId);
       if (!existing) return;
+      if (!existing.masterId) {
+        throw new BadRequestException('소싱 후보 썸네일은 후보 생성 작업 경로에서만 실행할 수 있습니다');
+      }
       const master = await findJobMaster(this.prisma, existing.masterId, organizationId);
       if (!master) {
         throw new BadRequestException('상품 정보를 찾을 수 없습니다');
@@ -388,6 +524,23 @@ export class ThumbnailGenerationJobService {
 
   private thumbnailGenerationHref(generationId: string): string {
     return `/thumbnails?generationId=${encodeURIComponent(generationId)}`;
+  }
+
+  private kickEnqueuedAgentRequest(input: {
+    organizationId: string;
+    requestId?: string;
+  }): void {
+    if (!input.requestId || !this.agentRunner.executeRequest) return;
+
+    void this.agentRunner.executeRequest({
+      organizationId: input.organizationId,
+      requestId: input.requestId,
+      workerId: 'thumbnail-generate-inline',
+    }).catch((error) => {
+      this.logger.warn(
+        `Failed to kick thumbnail_generate request ${input.requestId}: ${error}`,
+      );
+    });
   }
 
   private async emitStatusChange(

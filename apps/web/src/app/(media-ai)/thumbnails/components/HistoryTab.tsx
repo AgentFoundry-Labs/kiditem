@@ -104,7 +104,7 @@ export function HistoryTab({
                       gen.originalUrl,
                       gen.product?.imageUrl,
                     )}
-                    name={gen.product.name}
+                    name={gen.product?.name ?? '상품 정보 없음'}
                     badge={<ThumbnailStatusBadge status={gen.status} phase={gen.phase ?? null} />}
                     overlay={
                       gen.status === 'running' || gen.status === 'pending'

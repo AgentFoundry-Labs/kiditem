@@ -21,6 +21,10 @@ export class ThumbnailEditorDto {
 
   @IsOptional()
   @IsString()
+  sourceCandidateId?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(200)
   productName?: string;
 

@@ -16,6 +16,7 @@ import ProductTabContent from './components/ProductTabContent';
 import { GenerationProgressBannerStack } from './components/GenerationProgressBanner';
 import { useAllGenerationsInProgress } from '@/app/(media-ai)/generate/hooks/useKidsPlayfulGenerate';
 import { useProductDetail } from './hooks/useProductDetail';
+import { useSourcingThumbnailGenerations } from './hooks/useGenerateSourcingThumbnail';
 import { PLACEHOLDER_DATA, type ProductEditState } from './lib/types';
 
 export default function ProductDetailPage() {
@@ -53,6 +54,16 @@ export default function ProductDetailPage() {
   const editedHtml = fetchedData?.editedHtml ?? null;
   const templateCss = fetchedData?.templateCss ?? '';
   const inProgressEntries = useAllGenerationsInProgress(productId);
+  const thumbnailGenerations = useSourcingThumbnailGenerations(productId);
+  const selectedThumbnailGenerationCandidateId = useMemo(() => {
+    const selectedUrl = editData.thumbnails[0];
+    if (!selectedUrl) return null;
+    for (const generation of thumbnailGenerations.data ?? []) {
+      const candidate = generation.candidates.find((item) => item.url === selectedUrl);
+      if (candidate?.id) return candidate.id;
+    }
+    return null;
+  }, [editData.thumbnails, thumbnailGenerations.data]);
   const loadError = queryError
     ? isApiError(queryError)
       ? queryError.detail
@@ -110,6 +121,9 @@ export default function ProductDetailPage() {
         promotedMasterId={promotedMasterId}
         isEditComplete={isEditComplete}
         isLocked={isLocked}
+        selectedThumbnailUrl={editData.thumbnails[0] ?? product?.thumbnail_url ?? null}
+        selectedThumbnailGenerationCandidateId={selectedThumbnailGenerationCandidateId}
+        selectedDetailPageGenerationId={selectedAgentId}
         onToggleEditComplete={() => setIsEditComplete((v) => !v)}
         onToggleLocked={() => setIsLocked((v) => !v)}
         onBack={goBack}

@@ -99,6 +99,14 @@ export function ContentGenerationEditorSurface({
         queryClient.invalidateQueries({
           queryKey: queryKeys.productContent.generationEditedHtml(generationId),
         }),
+        ...(candidateId
+          ? [
+              queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(candidateId) }),
+              queryClient.invalidateQueries({
+                queryKey: [...queryKeys.sourcing.detail(candidateId), 'history'],
+              }),
+            ]
+          : []),
       ]);
       handleClose();
     } catch (err) {

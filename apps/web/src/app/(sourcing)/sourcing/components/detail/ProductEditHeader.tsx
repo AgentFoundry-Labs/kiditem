@@ -7,6 +7,8 @@ import {
   ArrowLeft,
   Check,
   CheckCircle2,
+  FileText,
+  Image as ImageIcon,
   Loader2,
   Lock,
   Sparkles,
@@ -33,6 +35,9 @@ interface ProductEditHeaderProps {
   promotedMasterId?: string | null;
   isEditComplete: boolean;
   isLocked: boolean;
+  selectedThumbnailUrl?: string | null;
+  selectedThumbnailGenerationCandidateId?: string | null;
+  selectedDetailPageGenerationId?: string | null;
   onToggleEditComplete: () => void;
   onToggleLocked: () => void;
   onBack: () => void;
@@ -47,6 +52,9 @@ export default function ProductEditHeader({
   promotedMasterId = null,
   isEditComplete,
   isLocked,
+  selectedThumbnailUrl = null,
+  selectedThumbnailGenerationCandidateId = null,
+  selectedDetailPageGenerationId = null,
   onToggleEditComplete,
   onToggleLocked,
   onBack,
@@ -67,6 +75,9 @@ export default function ProductEditHeader({
     mutationFn: () =>
       candidatesApi.promote(productId, {
         options: [{ optionName: '기본' }],
+        selectedThumbnailUrl,
+        selectedThumbnailGenerationCandidateId,
+        selectedDetailPageGenerationId,
       }),
     onSuccess: (data: PromoteCandidateResponse) => {
       toast.success('마스터로 등록 완료 — 자동 AI 생성 큐 진입');
@@ -113,6 +124,16 @@ export default function ProductEditHeader({
 
   const canPromote = status === 'sourced' && !promoteMutation.isPending && !rejectMutation.isPending;
   const canReject = status === 'sourced' && !promoteMutation.isPending && !rejectMutation.isPending;
+  const hasRegistrationThumbnail = !!selectedThumbnailUrl;
+  const hasRegistrationDetailPage = !!selectedDetailPageGenerationId;
+  const registrationAssetsTitle = [
+    hasRegistrationThumbnail
+      ? '등록 대표 썸네일: 현재 첫 번째 썸네일'
+      : '등록 대표 썸네일: 없음',
+    hasRegistrationDetailPage
+      ? '등록 상세페이지: 생성 이력에서 선택됨'
+      : '등록 상세페이지: 미선택',
+  ].join('\n');
 
   return (
     <div className="h-12 border-b border-slate-200 flex items-center justify-between px-4 shrink-0">
@@ -141,6 +162,42 @@ export default function ProductEditHeader({
       </div>
 
       <div className="flex items-center gap-3 shrink-0 ml-4 text-xs">
+        <div
+          className="hidden min-w-0 max-w-[240px] items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] font-semibold text-slate-600 lg:flex"
+          title={registrationAssetsTitle}
+        >
+          {hasRegistrationThumbnail && selectedThumbnailUrl ? (
+            <img
+              src={selectedThumbnailUrl}
+              alt="등록 대표 썸네일"
+              className="h-5 w-5 shrink-0 rounded border border-white object-cover shadow-sm"
+            />
+          ) : (
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded border border-slate-200 bg-white text-slate-400">
+              <ImageIcon size={12} />
+            </span>
+          )}
+          <span className="min-w-0 truncate">
+            등록 썸네일
+          </span>
+          <span className="text-slate-300">·</span>
+          <FileText
+            size={12}
+            className={cn(
+              'shrink-0',
+              hasRegistrationDetailPage ? 'text-emerald-600' : 'text-slate-300',
+            )}
+          />
+          <span
+            className={cn(
+              'shrink-0',
+              hasRegistrationDetailPage ? 'text-emerald-700' : 'text-slate-400',
+            )}
+          >
+            {hasRegistrationDetailPage ? '상세 선택' : '상세 미선택'}
+          </span>
+        </div>
+
         {kpInProgress && (
           <span className="inline-flex items-center gap-1.5 rounded-md bg-violet-50 border border-violet-200 px-2.5 py-1 text-[11px] font-semibold text-violet-700">
             <Loader2 size={11} className="animate-spin" />
@@ -148,7 +205,7 @@ export default function ProductEditHeader({
               const label =
                 kpInProgress.templateId === 'bold-vertical'
                   ? 'KIDITEM DESIGN'
-                  : 'Trend Vertical';
+                  : '트렌드 광고형 템플릿';
               return kpInProgress.imageProcessingStatus === 'pending'
                 ? `${label} 카피 생성 중...`
                 : `${label} 이미지 생성 중...`;
@@ -191,7 +248,7 @@ export default function ProductEditHeader({
                   ? 'bg-emerald-600 hover:bg-emerald-700'
                   : 'cursor-not-allowed bg-emerald-300',
               )}
-              title="제품으로 등록 (Master 생성 + AI 자동 생성 트리거)"
+              title={`제품으로 등록\n${registrationAssetsTitle}`}
             >
               {promoteMutation.isPending ? (
                 <Loader2 size={12} className="animate-spin" />

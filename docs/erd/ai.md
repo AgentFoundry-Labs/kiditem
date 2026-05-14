@@ -14,6 +14,8 @@
 | ContentGenerationAssetUsage | `content_generation_asset_usages` | Current image assets used by a generated content row. Asset location stays on ContentAsset; this table is the replace-on-save usage set. |
 | ContentGenerationGroup | `content_generation_groups` | Same-input generation group. Product-less groups are standalone generated-content workspaces; product-bound groups remain candidate lineage inside a Master workspace. |
 | ContentGenerationSource | `content_generation_sources` | Generation-level provenance. The source of a generated work unit can be a sourcing candidate, input asset, or another generation. |
+| DetailPageArtifact | `detail_page_artifacts` | Candidate-centered editable detail-page artifact. One artifact owns the user-visible draft line; revisions keep generated/manual HTML history. |
+| DetailPageRevision | `detail_page_revisions` | Append-only detail-page HTML revision. Editor saves create rows; DetailPageArtifact.currentRevisionId selects the active version. |
 | Thumbnail | `thumbnails` | CTR 기반 썸네일 트래킹 (ThumbnailAnalysis 와 별도 시스템). |
 | ThumbnailAnalysis | `thumbnail_analyses` | 5차원 scores(heroShot·composition·branding·mobile·differentiation) + complianceGrade(PASS/WARN/FAIL) + imageSpec(사전검수). 스펙 FAIL 시 AI 호출 생략. |
 | ThumbnailGeneration | `thumbnail_generations` | 상태: pending→generating→ready/failed→applied/skipped. method=edit 만 사용 (generate Imagen 방식 삭제됨). |
@@ -54,6 +56,8 @@ erDiagram
     String id PK
     String organizationId FK
     String generationGroupId FK
+    String sourceCandidateId FK
+    String detailPageArtifactId FK
     String contentType
     String templateId
     Json generationInput
@@ -105,6 +109,32 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  DetailPageArtifact {
+    String id PK
+    String organizationId FK
+    String sourceCandidateId FK
+    String targetMasterId FK
+    String sourceContentGenerationId FK
+    String currentRevisionId FK
+    String title
+    String status
+    Json metadata
+    String createdByUserId FK
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  DetailPageRevision {
+    String id PK
+    String organizationId FK
+    String artifactId FK
+    String contentGenerationId FK
+    String revisionType
+    String html
+    Json assetUrlMap
+    Json imageUrls
+    String createdByUserId FK
+    DateTime createdAt
+  }
   Thumbnail {
     String id PK
     String organizationId FK
@@ -144,6 +174,7 @@ erDiagram
     String id PK
     String organizationId FK
     String masterId FK
+    String sourceCandidateId FK
     String originalUrl
     String selectedUrl
     String status
@@ -203,7 +234,8 @@ erDiagram
     Int sortOrder
     String source
     String masterImageId FK
-    String sourceCandidateId FK
+    String candidateImageId FK
+    String sourceThumbnailCandidateId FK
     String mimeType
     Int width
     Int height
@@ -264,14 +296,19 @@ erDiagram
   ContentGeneration o|--o{ ContentGenerationGroup : "baseContentGeneration"
   ContentGeneration ||--o{ ContentGenerationSource : "contentGeneration"
   ContentGeneration o|--o{ ContentGenerationSource : "sourceContentGeneration"
+  ContentGeneration o|--o{ DetailPageArtifact : "sourceContentGeneration"
+  ContentGeneration o|--o{ DetailPageRevision : "contentGeneration"
   ContentGenerationGroup ||--o{ ContentAsset : "generationGroup"
   ContentGenerationGroup ||--o{ ContentGeneration : "generationGroup"
+  DetailPageArtifact o|--o{ ContentGeneration : "detailPageArtifact"
+  DetailPageArtifact ||--o{ DetailPageRevision : "artifact"
+  DetailPageRevision o|--o{ DetailPageArtifact : "currentRevision"
   ThumbnailGeneration ||--o{ ThumbnailGenerationCandidate : "generation"
   ThumbnailGeneration ||--o{ ThumbnailGenerationEvent : "generation"
   ThumbnailGeneration ||--o{ ThumbnailGenerationInputImage : "generation"
   ThumbnailGeneration ||--o{ ThumbnailRegistrationAttempt : "generation"
   ThumbnailGeneration ||--o{ ThumbnailTracking : "generation"
-  ThumbnailGenerationCandidate o|--o{ ThumbnailGenerationInputImage : "sourceCandidate"
+  ThumbnailGenerationCandidate o|--o{ ThumbnailGenerationInputImage : "sourceThumbnailCandidate"
   ThumbnailTracking ||--o{ ThumbnailTrackingDailySnapshot : "tracking"
 ```
 
@@ -282,22 +319,31 @@ erDiagram
 | ContentAsset | createdByUser | references external | Core | User |
 | ContentAsset | organization | references external | Core | Organization |
 | ContentGeneration | organization | references external | Core | Organization |
+| ContentGeneration | sourceCandidate | references external | Sourcing | SourcingCandidate |
 | ContentGeneration | triggeredByUser | references external | Core | User |
 | ContentGenerationAssetUsage | organization | references external | Core | Organization |
 | ContentGenerationGroup | organization | references external | Core | Organization |
 | ContentGenerationGroup | targetMaster | references external | Core | MasterProduct |
 | ContentGenerationSource | organization | references external | Core | Organization |
 | ContentGenerationSource | sourceCandidate | references external | Sourcing | SourcingCandidate |
+| DetailPageArtifact | createdByUser | references external | Core | User |
+| DetailPageArtifact | organization | references external | Core | Organization |
+| DetailPageArtifact | sourceCandidate | references external | Sourcing | SourcingCandidate |
+| DetailPageArtifact | targetMaster | references external | Core | MasterProduct |
+| DetailPageRevision | createdByUser | references external | Core | User |
+| DetailPageRevision | organization | references external | Core | Organization |
 | Thumbnail | listing | references external | Core | ChannelListing |
 | Thumbnail | organization | references external | Core | Organization |
 | ThumbnailAnalysis | master | references external | Core | MasterProduct |
 | ThumbnailAnalysis | organization | references external | Core | Organization |
 | ThumbnailGeneration | master | references external | Core | MasterProduct |
 | ThumbnailGeneration | organization | references external | Core | Organization |
+| ThumbnailGeneration | sourceCandidate | references external | Sourcing | SourcingCandidate |
 | ThumbnailGeneration | triggeredByUser | references external | Core | User |
 | ThumbnailGenerationCandidate | organization | references external | Core | Organization |
 | ThumbnailGenerationEvent | actor | references external | Core | User |
 | ThumbnailGenerationEvent | organization | references external | Core | Organization |
+| ThumbnailGenerationInputImage | candidateImage | references external | Sourcing | CandidateImage |
 | ThumbnailGenerationInputImage | masterImage | references external | Core | MasterProductImage |
 | ThumbnailGenerationInputImage | organization | references external | Core | Organization |
 | ThumbnailRegistrationAttempt | organization | references external | Core | Organization |

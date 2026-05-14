@@ -348,11 +348,20 @@ export const sourcingApi = {
 
 export interface PromoteCandidateInput {
   options: Array<{ optionName: string; legacyCode?: string; barcode?: string }>;
+  selectedThumbnailUrl?: string | null;
+  selectedThumbnailGenerationCandidateId?: string | null;
+  selectedDetailPageGenerationId?: string | null;
+  selectedDetailPageArtifactId?: string | null;
+  selectedDetailPageRevisionId?: string | null;
   skipPostPromotionHooks?: boolean;
 }
 
 export interface PromoteCandidateResponse {
   masterId: string;
+  masterCode?: string;
+  selectedThumbnailUrl?: string | null;
+  selectedDetailPageArtifactId?: string | null;
+  selectedDetailPageRevisionId?: string | null;
 }
 
 export interface RejectCandidateResponse {

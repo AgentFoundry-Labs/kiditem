@@ -67,9 +67,13 @@ erDiagram
 
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
+| CandidateImage | candidateImage | referenced by external | AI | ThumbnailGenerationInputImage |
 | CandidateImage | organization | references external | Core | Organization |
 | SourcingCandidate | organization | references external | Core | Organization |
 | SourcingCandidate | promotedMaster | references external | Core | MasterProduct |
 | SourcingCandidate | rejectedByUser | references external | Core | User |
+| SourcingCandidate | sourceCandidate | referenced by external | AI | ContentGeneration |
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ContentGenerationSource |
+| SourcingCandidate | sourceCandidate | referenced by external | AI | DetailPageArtifact |
+| SourcingCandidate | sourceCandidate | referenced by external | AI | ThumbnailGeneration |
 | SourcingCandidate | triggeredByUser | references external | Core | User |

@@ -83,6 +83,11 @@ export class DetailPageContentGenerationSinkAdapter
 
     const row = await this.prisma.contentGeneration.findFirst({
       where: { id: input.sourceResourceId, organizationId: input.organizationId },
+      include: {
+        generationGroup: {
+          select: { targetMasterId: true },
+        },
+      },
     });
     if (!row) {
       this.logger.warn(
@@ -124,6 +129,14 @@ export class DetailPageContentGenerationSinkAdapter
       processedImages,
     });
 
+    const detailPageArtifactId = await this.ensureDetailPageArtifact({
+      organizationId: input.organizationId,
+      row,
+      productName,
+      requestId: input.requestId,
+      runId: input.runId,
+    });
+
     const updated = await this.prisma.contentGeneration.updateMany({
       where: {
         id: row.id,
@@ -131,6 +144,7 @@ export class DetailPageContentGenerationSinkAdapter
         status: { notIn: [...TERMINAL_CONTENT_GENERATION_STATUSES] },
       },
       data: {
+        detailPageArtifactId,
         generatedTitle: productName,
         generationResult: {
           templateId: input.output.templateId,
@@ -165,6 +179,37 @@ export class DetailPageContentGenerationSinkAdapter
     this.logger.log(
       `detail_page_generate applied success → ContentGeneration ${row.id} READY (request=${input.requestId}).`,
     );
+  }
+
+  private async ensureDetailPageArtifact(input: {
+    organizationId: string;
+    row: Prisma.ContentGenerationGetPayload<{
+      include: { generationGroup: { select: { targetMasterId: true } } };
+    }>;
+    productName: string;
+    requestId: string;
+    runId: string | undefined;
+  }): Promise<string> {
+    if (input.row.detailPageArtifactId) return input.row.detailPageArtifactId;
+
+    const artifact = await this.prisma.detailPageArtifact.create({
+      data: {
+        organizationId: input.organizationId,
+        sourceCandidateId: input.row.sourceCandidateId,
+        targetMasterId: input.row.generationGroup.targetMasterId,
+        sourceContentGenerationId: input.row.id,
+        title: input.productName,
+        status: 'generated',
+        createdByUserId: input.row.triggeredByUserId,
+        metadata: {
+          source: 'detail_page_generation_success',
+          agentRequestId: input.requestId,
+          agentRunId: input.runId ?? null,
+        },
+      },
+      select: { id: true },
+    });
+    return artifact.id;
   }
 
   async applyFailure(input: {

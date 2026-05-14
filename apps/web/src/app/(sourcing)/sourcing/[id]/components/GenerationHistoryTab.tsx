@@ -7,7 +7,7 @@
 // 이 탭에서 옛날 버전 비교 + 다시 적용 가능.
 
 import { useState, useMemo, useCallback } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   CheckCircle2,
   XCircle,
@@ -28,6 +28,10 @@ import {
   placeholderDetailPageData,
 } from '@kiditem/templates';
 import { ensureStyledDetailHtml, renderTemplateToHtml } from '../../lib/template-html';
+import {
+  buildGenerationHistoryHtml,
+  generatedDetailTemplateLabel,
+} from '../lib/generated-detail-html';
 import {
   useGenerationHistory,
   useGenerationHistoryDelete,
@@ -136,6 +140,7 @@ export default function GenerationHistoryTab({
     deleteCa.mutate(id, {
       onSuccess: () => {
         if (selectedKey === `ca:${id}`) setSelectedKey(null);
+        if (selectedAgentId === id) onSelectAgent(null);
       },
       onError: (err) => {
         toast.error(isApiError(err) ? err.detail : '삭제 실패');
@@ -189,6 +194,23 @@ export default function GenerationHistoryTab({
     return null;
   }, [selectedKey, history, kpEntries, boldEntries]);
 
+  const selectedCaGenerationId = selected?.kind === 'ca' ? selected.item.id : null;
+  const { data: selectedCaEditedHtml, isLoading: isSelectedCaHtmlLoading } = useQuery({
+    queryKey: selectedCaGenerationId
+      ? queryKeys.productContent.generationEditedHtml(selectedCaGenerationId)
+      : queryKeys.productContent.generationEditedHtml(''),
+    queryFn: () => {
+      if (!selectedCaGenerationId) {
+        throw new Error('detail page generation id is required');
+      }
+      return apiClient.get<{ html: string | null; savedAt: string | null }>(
+        `/api/ai/detail-page/${selectedCaGenerationId}/edited-html`,
+      );
+    },
+    enabled: !!selectedCaGenerationId,
+    staleTime: 30_000,
+  });
+
   const styledCurrentPreviewHtml = useMemo(
     () => ensureStyledDetailHtml(currentPreviewHtml, templateCss),
     [currentPreviewHtml, templateCss],
@@ -215,34 +237,38 @@ export default function GenerationHistoryTab({
           templateCss,
         );
       }
+      if (selectedCaGenerationId === target.item.id && selectedCaEditedHtml?.html) {
+        return selectedCaEditedHtml.html;
+      }
       if (!target.item.detailPageData) {
         throw new Error('선택한 이력에 상세페이지 데이터가 없습니다.');
       }
-      const data = parseDetailPageData(target.item.detailPageData);
-      const config = getTemplate('bold-vertical');
-      return renderTemplateToHtml(
-        config.component as React.ComponentType<unknown>,
-        data,
-        config,
-        templateCss,
-      );
+      return buildGenerationHistoryHtml(target.item, templateCss);
     },
-    [templateCss],
+    [selectedCaEditedHtml?.html, selectedCaGenerationId, templateCss],
   );
 
   const handleApplySelected = useCallback(async () => {
     if (!selectedKey || !selected) return;
     try {
       setApplyingKey(selectedKey);
+      if (selected.kind === 'ca' && selected.item.detailPageArtifactId) {
+        onSelectAgent(selected.item.id);
+        toast.success('선택한 상세페이지를 등록 상세로 적용했습니다.');
+        return;
+      }
+
       const html = buildSelectedHtml(selected);
+      if (selected.kind === 'ca' && selectedCaEditedHtml?.html) {
+        onSelectAgent(selected.item.id);
+        toast.success('선택한 상세페이지를 등록 상세로 적용했습니다.');
+        return;
+      }
       const savePath =
         selected.kind === 'ca'
           ? `/api/ai/detail-page/${selected.item.id}/edited-html`
           : `/api/products/${productId}/edited-html`;
-      await apiClient.post<{ ok: true }>(
-        savePath,
-        { html },
-      );
+      await apiClient.post<{ ok: true }>(savePath, { html });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['edited-html', productId] }),
         queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(productId) }),
@@ -273,26 +299,23 @@ export default function GenerationHistoryTab({
     productId,
     queryClient,
     selected,
+    selectedCaEditedHtml?.html,
     selectedKey,
   ]);
 
   // 선택된 row 의 미리보기 HTML — ContentAgent 한정. KP 는 React 로 렌더.
   const previewHtml = useMemo(() => {
     if (!selected || selected.kind !== 'ca') return styledCurrentPreviewHtml;
+    if (selectedCaEditedHtml?.html) {
+      return ensureStyledDetailHtml(selectedCaEditedHtml.html, templateCss);
+    }
     if (!selected.item.detailPageData) return styledCurrentPreviewHtml;
     try {
-      const data = parseDetailPageData(selected.item.detailPageData);
-      const config = getTemplate('bold-vertical');
-      return renderTemplateToHtml(
-        config.component as React.ComponentType<unknown>,
-        data,
-        config,
-        templateCss,
-      );
+      return buildGenerationHistoryHtml(selected.item, templateCss);
     } catch {
       return styledCurrentPreviewHtml;
     }
-  }, [selected, styledCurrentPreviewHtml, templateCss]);
+  }, [selected, selectedCaEditedHtml?.html, styledCurrentPreviewHtml, templateCss]);
 
   const safePreviewHtml = useMemo(
     () => stripSrcDocScripts(previewHtml),
@@ -363,6 +386,7 @@ export default function GenerationHistoryTab({
               const key = `ca:${item.id}`;
               const isSelected = selectedKey === key;
               const isApplied = selectedAgentId === item.id;
+              const templateLabel = generatedDetailTemplateLabel(item);
               return (
                 <li key={key}>
                   <button
@@ -378,11 +402,11 @@ export default function GenerationHistoryTab({
                         {isApplied && (
                           <span className="inline-flex items-center gap-0.5 rounded bg-emerald-100 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700">
                             <CheckCircle2 size={9} />
-                            적용중
+                            등록 상세
                           </span>
                         )}
                         <span className="text-[9px] font-bold tracking-wider text-slate-400">
-                          AGENT
+                          {templateLabel}
                         </span>
                       </div>
                     </div>
@@ -433,7 +457,7 @@ export default function GenerationHistoryTab({
                         {isApplied && (
                           <span className="inline-flex items-center gap-0.5 rounded bg-emerald-100 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700">
                             <CheckCircle2 size={9} />
-                            적용중
+                            미리보기 적용
                           </span>
                         )}
                         {isLatest && (
@@ -479,7 +503,7 @@ export default function GenerationHistoryTab({
                       {isApplied && (
                         <span className="inline-flex items-center gap-0.5 rounded bg-emerald-100 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700">
                           <CheckCircle2 size={9} />
-                          적용중
+                          미리보기 적용
                         </span>
                       )}
                       {isLatest && (
@@ -510,7 +534,7 @@ export default function GenerationHistoryTab({
             if (!selectedKey) {
               return (
                 <p className="text-[11px] text-slate-400 text-center w-full py-1">
-                  좌측에서 항목을 선택하세요
+                  등록할 상세페이지를 선택하세요
                 </p>
               );
             }
@@ -527,6 +551,13 @@ export default function GenerationHistoryTab({
                   ? selectedBoldVerticalId === id
                   : selectedAgentId === id;
             const isApplying = applyingKey === selectedKey;
+            const selectedCaHasArtifact =
+              kind === 'ca' &&
+              selected?.kind === 'ca' &&
+              selected.item.id === id &&
+              !!selected.item.detailPageArtifactId;
+            const isPreparing = kind === 'ca' && !selectedCaHasArtifact && isSelectedCaHtmlLoading;
+            const isRegistrationDetail = kind === 'ca';
             const applyColor =
               kind === 'kp'
                 ? 'bg-violet-600 hover:bg-violet-700'
@@ -538,26 +569,33 @@ export default function GenerationHistoryTab({
                 <button
                   type="button"
                   onClick={() => void handleApplySelected()}
-                  disabled={isApplied || isApplying}
+                  disabled={isApplied || isApplying || isPreparing}
                   className={cn(
                     'flex-1 inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-bold transition-colors text-white',
-                    isApplied || isApplying ? 'bg-emerald-500 cursor-default' : applyColor,
+                    isApplied || isApplying || isPreparing
+                      ? 'bg-emerald-500 cursor-default'
+                      : applyColor,
                   )}
                 >
-                  {isApplying ? (
+                  {isPreparing ? (
                     <>
                       <Clock size={12} />
-                      적용 중...
+                      불러오는 중...
+                    </>
+                  ) : isApplying ? (
+                    <>
+                      <Clock size={12} />
+                      {isRegistrationDetail ? '등록 적용 중...' : '적용 중...'}
                     </>
                   ) : isApplied ? (
                     <>
                       <CheckCircle2 size={12} />
-                      적용 중
+                      {isRegistrationDetail ? '등록 상세페이지' : '미리보기 적용됨'}
                     </>
                   ) : (
                     <>
                       <Sparkles size={12} />
-                      상세페이지에 적용
+                      {isRegistrationDetail ? '등록 상세로 적용' : '미리보기에 적용'}
                     </>
                   )}
                 </button>
@@ -584,10 +622,10 @@ export default function GenerationHistoryTab({
           <Eye size={12} />
           {selected
             ? selected.kind === 'kp'
-              ? `Trend Vertical — ${formatDateTime(new Date(selected.entry.createdAt))}`
+              ? `트렌드 광고형 템플릿 — ${formatDateTime(new Date(selected.entry.createdAt))}`
               : selected.kind === 'bold'
                 ? `KIDITEM DESIGN — ${formatDateTime(new Date(selected.entry.createdAt))}`
-                : `Agent — ${formatDateTime(new Date(selected.item.createdAt))}`
+                : `${generatedDetailTemplateLabel(selected.item)} — ${formatDateTime(new Date(selected.item.createdAt))}`
             : '현재 상세페이지'}
         </div>
         <div className="flex-1 overflow-y-auto">

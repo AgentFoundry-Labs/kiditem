@@ -5,6 +5,7 @@ import type { ThumbnailEditorInputImage } from '../domain/model/thumbnail-editor
 
 const ORGANIZATION_ID = 'organization-1';
 const PRODUCT_ID = '7d000000-0000-4000-8000-000000000001';
+const SOURCE_CANDIDATE_ID = '7d000000-0000-4000-8000-000000000002';
 
 function makeInput(
   url: string,
@@ -53,6 +54,10 @@ function makeController(opts: { withProduct?: boolean } = {}) {
     ),
     enqueueEditorGeneration: vi.fn(async () => ({
       generationId: 'generation-async-1',
+      status: 'pending' as const,
+    })),
+    enqueueCandidateGeneration: vi.fn(async () => ({
+      generationId: 'candidate-generation-async-1',
       status: 'pending' as const,
     })),
     saveEditorResult: vi.fn(async () => 'generation-1'),
@@ -146,6 +151,34 @@ describe('ThumbnailEditorController product-bound (async Agent OS)', () => {
 });
 
 describe('ThumbnailEditorController standalone (no productId — sync fallback)', () => {
+  it('creates a persisted candidate-bound generation when sourceCandidateId is provided', async () => {
+    const { controller, editorAi, generationService } = makeController({ withProduct: false });
+    const body = {
+      sourceCandidateId: SOURCE_CANDIDATE_ID,
+      productImage: 'candidate-product-url',
+      productName: 'Candidate toy',
+      purpose: 'compliance',
+      mode: 'edit',
+    } satisfies ThumbnailEditorDto;
+
+    const result = await controller.generate(body, ORGANIZATION_ID);
+
+    expect(result).toEqual({
+      candidates: [],
+      generationId: 'candidate-generation-async-1',
+      status: 'pending',
+    });
+    expect(editorAi.generateEdit).not.toHaveBeenCalled();
+    expect(generationService.enqueueCandidateGeneration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: ORGANIZATION_ID,
+        sourceCandidateId: SOURCE_CANDIDATE_ID,
+        productName: 'Candidate toy',
+        originalUrl: 'candidate-product-url',
+      }),
+    );
+  });
+
   it('keeps the synchronous Gemini path when productId is omitted', async () => {
     const { controller, editorAi, generationService } = makeController({ withProduct: false });
     const body = {
