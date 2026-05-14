@@ -1,34 +1,28 @@
 'use client';
 
-import { Suspense, useEffect, useRef, useState } from 'react';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { Suspense, useState, type ComponentProps } from 'react';
 import { toast } from 'sonner';
 import { ErrorState, EmptyState } from '@/components/ui/EmptyState';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { isApplied, isReady } from '../_shared/lib/thumbnail-status';
 import { useGenerationList } from '../_shared/hooks/useThumbnailGenerations';
-import { DetailModal } from '../_shared/components/thumbnails/DetailModal';
 import { useAnalysisList } from './hooks/useThumbnailAnalysis';
 import { useTrackingList } from './hooks/useThumbnailTracking';
 import { useBatchAnalysis } from './hooks/useBatchAnalysis';
 import { useThumbnailActions } from './hooks/useThumbnailActions';
 import { useCoupangImageSync } from './hooks/useCoupangImageSync';
+import { useThumbnailDeepLinkSelection } from './hooks/useThumbnailDeepLinkSelection';
 import { useThumbnailPageModel } from './hooks/useThumbnailPageModel';
+import { useThumbnailSyncFeedback } from './hooks/useThumbnailSyncFeedback';
 import { InspectionDrawer } from './components/InspectionDrawer';
 import { ThumbnailHeader } from './components/ThumbnailHeader';
 import { BatchProgressBanner } from './components/BatchProgressBanner';
 import { UnmatchedReconciliationBanner } from './components/UnmatchedReconciliationBanner';
-import { GradeDistributionDonut } from './components/GradeDistributionDonut';
-import { AiActionCenter } from './components/AiActionCenter';
-import { ComplianceCard } from './components/ComplianceCard';
-import { AnalyticsCard } from './components/AnalyticsCard';
 import { PipelineVisualization, type PipelineTab } from './components/PipelineVisualization';
 import { ThumbnailMainTabs, type MainTabKey } from './components/ThumbnailMainTabs';
-import { UnclassifiedTab } from './components/UnclassifiedTab';
-import { ScanResultsTab } from './components/ScanResultsTab';
-import { AiEditTab } from './components/AiEditTab';
-import { HistoryTab } from './components/HistoryTab';
+import { ThumbnailDetailModalHost } from './components/workspace/ThumbnailDetailModalHost';
+import { ThumbnailInsightsGrid } from './components/workspace/ThumbnailInsightsGrid';
+import { ThumbnailTabWorkspace } from './components/workspace/ThumbnailTabWorkspace';
 import { needsThumbnailFix } from './lib/thumbnail-classification';
 import type { ThumbnailAnalysisResult, ThumbnailGenerationItem } from '@kiditem/shared/ai';
 
@@ -44,10 +38,6 @@ export default function ThumbnailsPage() {
 }
 
 function ThumbnailsPageContent() {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const deepLinkGenerationId = searchParams.get('generationId');
   const analysisQuery = useAnalysisList();
   const generationQuery = useGenerationList();
   const trackingQuery = useTrackingList();
@@ -69,7 +59,6 @@ function ThumbnailsPageContent() {
   const [historyPage, setHistoryPage] = useState(1);
   const [unclassifiedPage, setUnclassifiedPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
-  const handledDeepLinkRef = useRef<string | null>(null);
 
   // AI Action Center "AI 편집" 클릭 시 확인 다이얼로그.
   // 이전 동작: 클릭 즉시 N건 일괄 mutation 발화 (LLM 비용 + 큐 점유). KPI 타일이 탭 이동처럼
@@ -86,58 +75,14 @@ function ThumbnailsPageContent() {
 
   const batch = useBatchAnalysis();
   const sync = useCoupangImageSync();
-  const syncStatus = sync.status;
-  const lastSyncRefreshAt = useRef(0);
-
-  // 매칭 센터 CTA 배너 — 이미지 동기화가 끝났을 때 unmatched > 0 이면 표시.
-  // sync.reset() 이 status 를 비워도 사용자가 명시적으로 닫기 전까지 유지.
-  const [unmatchedBanner, setUnmatchedBanner] = useState<{ count: number } | null>(null);
-
-  useEffect(() => {
-    if (!sync.startError) return;
-    if (sync.isCancelledError) {
-      toast.info('이미지 수집을 중단했습니다');
-      return;
-    }
-    toast.error(
-      `이미지 동기화 실패: ${
-        sync.startError instanceof Error ? sync.startError.message : '알 수 없는 오류'
-      }`,
-    );
-  }, [sync.startError, sync.isCancelledError]);
-
-  useEffect(() => {
-    if (!syncStatus || syncStatus.status === 'running') return;
-    if (syncStatus.status === 'failed') {
-      toast.error(`이미지 동기화 실패: ${syncStatus.error ?? '알 수 없는 오류'}`);
-    } else if (syncStatus.total === 0) {
-      toast.info('동기화할 이미지가 없습니다 (모든 상품에 이미지가 이미 있음)');
-    } else {
-      toast.success(
-        `이미지 동기화 완료 — 성공 ${syncStatus.succeeded}건${
-          syncStatus.unmatched ? ` / 매칭 필요 ${syncStatus.unmatched}건` : ''
-        }${syncStatus.failed ? ` / 실패 ${syncStatus.failed}건` : ''}`,
-      );
-      analysisQuery.refetch();
-      if (syncStatus.unmatched > 0) {
-        setUnmatchedBanner({ count: syncStatus.unmatched });
-      }
-    }
-    const t = setTimeout(() => sync.reset(), 2000);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [syncStatus?.status, syncStatus?.jobId]);
-
-  useEffect(() => {
-    if (!syncStatus || syncStatus.status !== 'running') return;
-    if (syncStatus.phase !== 'linking' || syncStatus.processed <= 0) return;
-
-    const now = Date.now();
-    if (now - lastSyncRefreshAt.current < 5000) return;
-    lastSyncRefreshAt.current = now;
-    void analysisQuery.refetch();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [syncStatus?.processed, syncStatus?.phase, syncStatus?.status]);
+  const {
+    syncStatus,
+    unmatchedBanner,
+    dismissUnmatchedBanner,
+  } = useThumbnailSyncFeedback({
+    sync,
+    refetchAnalysis: analysisQuery.refetch,
+  });
 
   const runBatch = async (
     items: ThumbnailAnalysisResult[],
@@ -165,54 +110,15 @@ function ThumbnailsPageContent() {
 
   const scanResult = analysisQuery.data;
   const generations: ThumbnailGenerationItem[] = generationQuery.data ?? [];
-
-  useEffect(() => {
-    if (!selectedGen) return;
-    const latest = generations.find((g) => g.id === selectedGen.id);
-    if (!latest) return;
-    const changed =
-      latest.status !== selectedGen.status ||
-      latest.candidates.length !== selectedGen.candidates.length ||
-      latest.selectedUrl !== selectedGen.selectedUrl;
-    if (changed) setSelectedGen(latest);
-  }, [generations, selectedGen]);
-
-  useEffect(() => {
-    if (!deepLinkGenerationId) return;
-    if (handledDeepLinkRef.current === deepLinkGenerationId) return;
-
-    const generation = generations.find((g) => g.id === deepLinkGenerationId);
-    if (!generation) return;
-
-    handledDeepLinkRef.current = deepLinkGenerationId;
-    setSelectedProduct(null);
-    setSelectedGen(generation);
-    if (isApplied(generation)) {
-      setActiveTab('history');
-      setHistorySubTab('history');
-    } else if (generation.status === 'failed' || generation.status === 'cancelled') {
-      setActiveTab('ai-edit');
-      setEditFilter('failed');
-    } else if (generation.status === 'pending' || generation.status === 'running') {
-      setActiveTab('ai-edit');
-      setEditFilter('generating');
-    } else {
-      setActiveTab('ai-edit');
-      setEditFilter('ready');
-    }
-  }, [deepLinkGenerationId, generations]);
-
-  const closeDetailModal = () => {
-    setSelectedProduct(null);
-    setSelectedGen(null);
-    if (!deepLinkGenerationId) return;
-
-    const next = new URLSearchParams(searchParams.toString());
-    next.delete('generationId');
-    const query = next.toString();
-    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
-    handledDeepLinkRef.current = null;
-  };
+  const { closeDetailModal } = useThumbnailDeepLinkSelection({
+    generations,
+    selectedGen,
+    setSelectedProduct,
+    setSelectedGen,
+    setActiveTab,
+    setHistorySubTab,
+    setEditFilter,
+  });
 
   const pageModel = useThumbnailPageModel({
     scanResult,
@@ -292,7 +198,7 @@ function ThumbnailsPageContent() {
     else if (tab === 'all') setGradeFilter('all');
   };
 
-  const handleMainTabChange: React.ComponentProps<typeof ThumbnailMainTabs>['onChangeTab'] = (
+  const handleMainTabChange: ComponentProps<typeof ThumbnailMainTabs>['onChangeTab'] = (
     tab,
     opts,
   ) => {
@@ -352,56 +258,48 @@ function ThumbnailsPageContent() {
       {unmatchedBanner && (
         <UnmatchedReconciliationBanner
           unmatchedCount={unmatchedBanner.count}
-          onDismiss={() => setUnmatchedBanner(null)}
+          onDismiss={dismissUnmatchedBanner}
         />
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
-        <GradeDistributionDonut
-          analyzedCount={analyzedCount}
-          avgScore={avgScore}
-          healthGrade={healthGrade}
-          gradeDistribution={gradeDistribution}
-          onSelectGrade={handleSelectGrade}
-        />
-        <AiActionCenter
-          unclassifiedWithImageCount={unclassifiedWithImage.length}
-          needsRegenCount={pendingProducts.length}
-          noImageCount={unclassifiedNoImage.length}
-          batchAnalyzing={batch.isBatchRunning}
-          editJobsPending={actions.editJobsPending}
-          onClassify={() => runBatch(unclassifiedWithImage)}
-          onEdit={() => {
-            // AI 편집 = N건 일괄 LLM 호출. 확인 다이얼로그로 사고 방지.
-            if (pendingProducts.length === 0) {
-              // 대기 0건이면 그냥 탭 이동만
-              setActiveTab('ai-edit');
-              setEditFilter('generating');
-              return;
-            }
-            setEditBatchConfirmOpen(true);
-          }}
-          onShowNoImage={() => {
-            setActiveTab('unclassified');
-            setUnclassifiedSubTab('no-image');
-            setUnclassifiedPage(1);
-          }}
-        />
-        <ComplianceCard
-          failCount={failCount}
-          warnCount={warnCount}
-          passCount={passCount}
-          onClick={() => {
-            setActiveTab('needsfix');
-            setPage(1);
-          }}
-        />
-        <AnalyticsCard
-          appliedCount={appliedCount}
-          reviewedCount={reviewedCount}
-          onClick={() => setActiveTab('history')}
-        />
-      </div>
+      <ThumbnailInsightsGrid
+        analyzedCount={analyzedCount}
+        avgScore={avgScore}
+        healthGrade={healthGrade}
+        gradeDistribution={gradeDistribution}
+        unclassifiedWithImageCount={unclassifiedWithImage.length}
+        needsRegenCount={pendingProducts.length}
+        noImageCount={unclassifiedNoImage.length}
+        batchAnalyzing={batch.isBatchRunning}
+        editJobsPending={actions.editJobsPending}
+        failCount={failCount}
+        warnCount={warnCount}
+        passCount={passCount}
+        appliedCount={appliedCount}
+        reviewedCount={reviewedCount}
+        onSelectGrade={handleSelectGrade}
+        onClassify={() => runBatch(unclassifiedWithImage)}
+        onEdit={() => {
+          // AI 편집 = N건 일괄 LLM 호출. 확인 다이얼로그로 사고 방지.
+          if (pendingProducts.length === 0) {
+            // 대기 0건이면 그냥 탭 이동만
+            setActiveTab('ai-edit');
+            setEditFilter('generating');
+            return;
+          }
+          setEditBatchConfirmOpen(true);
+        }}
+        onShowNoImage={() => {
+          setActiveTab('unclassified');
+          setUnclassifiedSubTab('no-image');
+          setUnclassifiedPage(1);
+        }}
+        onShowCompliance={() => {
+          setActiveTab('needsfix');
+          setPage(1);
+        }}
+        onShowHistory={() => setActiveTab('history')}
+      />
 
       <PipelineVisualization
         unclassifiedCount={unclassifiedCount}
@@ -418,189 +316,126 @@ function ThumbnailsPageContent() {
         onSelectStep={handlePipelineSelect}
       />
 
-      <ThumbnailMainTabs
+      <ThumbnailTabWorkspace
         activeTab={activeTab}
-        unclassifiedCount={unclassifiedCount}
-        analyzedCount={analyzedCount}
-        needsFixCount={needsFixCount}
-        aiEditCount={aiEditCount}
-        historyCount={historyByProduct.length}
-        onChangeTab={handleMainTabChange}
+        tabs={{
+          activeTab,
+          unclassifiedCount,
+          analyzedCount,
+          needsFixCount,
+          aiEditCount,
+          historyCount: historyByProduct.length,
+          onChangeTab: handleMainTabChange,
+        }}
+        unclassified={{
+          unclassifiedWithImage,
+          unclassifiedNoImage,
+          subTab: unclassifiedSubTab,
+          onChangeSubTab: (s) => {
+            setUnclassifiedSubTab(s);
+            setUnclassifiedPage(1);
+          },
+          page: unclassifiedPage,
+          pageSize,
+          onChangePage: setUnclassifiedPage,
+          onChangePageSize: (s) => {
+            setPageSize(s);
+            setUnclassifiedPage(1);
+          },
+          batchAnalyzing: batch.isBatchRunning,
+          aiResults: actions.aiResults,
+          onRunBatch: (items, scope) => runBatch(items, scope),
+          onSelectProduct: (p) => {
+            setSelectedProduct(p);
+            setSelectedGen(null);
+          },
+        }}
+        scanResults={{
+          classifiedResults,
+          needsFixProducts,
+          needsFixCount,
+          filtered,
+          paged,
+          page,
+          totalPages,
+          pageSize,
+          gradeFilter,
+          gradeDistribution,
+          genByProductId,
+          selectedNeedsFixIds,
+          onToggleNeedsFix: toggleNeedsFix,
+          onSelectAllUnEdited: (ids) => setSelectedNeedsFixIds(new Set(ids ?? [])),
+          aiResults: actions.aiResults,
+          batchAnalyzing: batch.isBatchRunning,
+          onChangePage: setPage,
+          onChangePageSize: (s) => {
+            setPageSize(s);
+            setPage(1);
+          },
+          onChangeGradeFilter: (f) => {
+            setGradeFilter(f);
+            setPage(1);
+          },
+          onSelectProduct: (p) => {
+            setSelectedProduct(p);
+            setSelectedGen(null);
+          },
+          onShowAiEditTab: () => setActiveTab('ai-edit'),
+          onRunBatchPaged: () => runBatch(paged),
+        }}
+        aiEdit={{
+          generations,
+          pendingProducts,
+          editFilter,
+          onChangeFilter: setEditFilter,
+          editJobsPending: actions.editJobsPending,
+          wingRegisteringIds: actions.wingRegisteringIds,
+          onSelectGen: setSelectedGen,
+          onEditSingle: (productId, variantKey) => {
+            actions.editSingle(productId, 'compliance', variantKey);
+            // 단일 편집 트리거 후 곧장 생성 중 탭으로 이동 — 폴링으로 진행 추적.
+            setEditFilter('generating');
+          },
+          onEditBatch: actions.editBatch,
+          onSelectCandidate: actions.selectCandidate,
+          onOpenCoupangEdit: actions.openCoupangEdit,
+        }}
+        history={{
+          subTab: historySubTab,
+          onChangeSubTab: setHistorySubTab,
+          historyByProduct,
+          pagedHistory,
+          page: historyPage,
+          totalPages: historyTotalPages,
+          pageSize,
+          onChangePage: setHistoryPage,
+          onChangePageSize: (s) => {
+            setPageSize(s);
+            setHistoryPage(1);
+          },
+          onSelectGen: (g) => {
+            setSelectedGen(g);
+            setSelectedProduct(null);
+          },
+          trackingLoading: trackingQuery.isLoading,
+          trackingItems: trackingQuery.data?.items ?? [],
+          trackingTotal: trackingQuery.data?.total ?? 0,
+        }}
       />
 
-      {/* 탭 본문 높이 고정 — 탭 전환 시 페이지 shrink/jump 방지.
-          min-h 로 가장 긴 탭(AiEdit, History)의 평균 높이 기준 여유 있게 잡는다. */}
-      <div className="min-h-[1100px]">
-        {activeTab === 'unclassified' && (
-          <UnclassifiedTab
-            unclassifiedWithImage={unclassifiedWithImage}
-            unclassifiedNoImage={unclassifiedNoImage}
-            subTab={unclassifiedSubTab}
-            onChangeSubTab={(s) => {
-              setUnclassifiedSubTab(s);
-              setUnclassifiedPage(1);
-            }}
-            page={unclassifiedPage}
-            pageSize={pageSize}
-            onChangePage={setUnclassifiedPage}
-            onChangePageSize={(s) => {
-              setPageSize(s);
-              setUnclassifiedPage(1);
-            }}
-            batchAnalyzing={batch.isBatchRunning}
-            aiResults={actions.aiResults}
-            onRunBatch={(items, scope) => runBatch(items, scope)}
-            onSelectProduct={(p) => {
-              setSelectedProduct(p);
-              setSelectedGen(null);
-            }}
-          />
-        )}
-
-        {(activeTab === 'all' || activeTab === 'needsfix') && (
-          <ScanResultsTab
-            mode={activeTab}
-            classifiedResults={classifiedResults}
-            needsFixProducts={needsFixProducts}
-            needsFixCount={needsFixCount}
-            filtered={filtered}
-            paged={paged}
-            page={page}
-            totalPages={totalPages}
-            pageSize={pageSize}
-            gradeFilter={gradeFilter}
-            gradeDistribution={gradeDistribution}
-            genByProductId={genByProductId}
-            selectedNeedsFixIds={selectedNeedsFixIds}
-            onToggleNeedsFix={toggleNeedsFix}
-            onSelectAllUnEdited={(ids) => setSelectedNeedsFixIds(new Set(ids ?? []))}
-            aiResults={actions.aiResults}
-            batchAnalyzing={batch.isBatchRunning}
-            onChangePage={setPage}
-            onChangePageSize={(s) => {
-              setPageSize(s);
-              setPage(1);
-            }}
-            onChangeGradeFilter={(f) => {
-              setGradeFilter(f);
-              setPage(1);
-            }}
-            onSelectProduct={(p) => {
-              setSelectedProduct(p);
-              setSelectedGen(null);
-            }}
-            onShowAiEditTab={() => setActiveTab('ai-edit')}
-            onRunBatchPaged={() => runBatch(paged)}
-          />
-        )}
-
-        {activeTab === 'ai-edit' && (
-          <AiEditTab
-            generations={generations}
-            pendingProducts={pendingProducts}
-            editFilter={editFilter}
-            onChangeFilter={setEditFilter}
-            editJobsPending={actions.editJobsPending}
-            wingRegisteringIds={actions.wingRegisteringIds}
-            onSelectGen={setSelectedGen}
-            onEditSingle={(productId, variantKey) => {
-              actions.editSingle(productId, 'compliance', variantKey);
-              // 단일 편집 트리거 후 곧장 생성 중 탭으로 이동 — 폴링으로 진행 추적.
-              setEditFilter('generating');
-            }}
-            onEditBatch={actions.editBatch}
-            onSelectCandidate={actions.selectCandidate}
-            onOpenCoupangEdit={actions.openCoupangEdit}
-          />
-        )}
-
-        {activeTab === 'history' && (
-          <HistoryTab
-            subTab={historySubTab}
-            onChangeSubTab={setHistorySubTab}
-            historyByProduct={historyByProduct}
-            pagedHistory={pagedHistory}
-            page={historyPage}
-            totalPages={historyTotalPages}
-            pageSize={pageSize}
-            onChangePage={setHistoryPage}
-            onChangePageSize={(s) => {
-              setPageSize(s);
-              setHistoryPage(1);
-            }}
-            onSelectGen={(g) => {
-              setSelectedGen(g);
-              setSelectedProduct(null);
-            }}
-            trackingLoading={trackingQuery.isLoading}
-            trackingItems={trackingQuery.data?.items ?? []}
-            trackingTotal={trackingQuery.data?.total ?? 0}
-          />
-        )}
-      </div>
-
-      {(selectedProduct || selectedGen) && (() => {
-        // 모달은 selectedProduct (분석 카드 클릭) 또는 selectedGen (편집/이력 카드 클릭)
-        // 둘 중 하나로 열린다. AI 분석 결과 / 진행 상태는 productId 기준이므로
-        // 어느 경로로 열었든 같은 productId 로 조회해야 모달 안에서 재분석 시
-        // 결과가 즉시 반영되고 spinner 도 보인다.
-        const modalProductId = selectedProduct?.productId ?? selectedGen?.productId ?? null;
-        return (
-        <DetailModal
-          product={selectedProduct}
-          gen={selectedGen || activeGenForProduct}
-          hideEdit={activeTab === 'unclassified'}
-          productGenerations={generations.filter(
-            (g) => g.productId === modalProductId,
-          )}
-          aiResult={modalProductId ? actions.aiResults[modalProductId] : undefined}
-          isAiAnalyzing={modalProductId ? actions.aiAnalyzingId === modalProductId : false}
-          imageSpec={selectedProduct?.imageSpec ?? null}
-          generatedProductIds={generatedProductIds}
-          onClose={closeDetailModal}
-          onAiAnalyze={() => {
-            const pid = selectedProduct?.productId ?? selectedGen?.productId;
-            if (pid) actions.runAiAnalysis(pid);
-          }}
-          onEditCompliance={(variantKey) => {
-            const pid = selectedProduct?.productId ?? selectedGen?.productId;
-            if (pid) {
-              actions.editSingle(pid, 'compliance', variantKey);
-              // picker 클릭 시 모달 닫고 AI 편집 탭으로 자동 전환 — 사용자가 진행 상태 즉시 볼 수 있게.
-              setSelectedProduct(null);
-              setSelectedGen(null);
-              setActiveTab('ai-edit');
-            }
-          }}
-          onEditQuality={(variantKey) => {
-            const pid = selectedProduct?.productId ?? selectedGen?.productId;
-            if (pid) {
-              actions.editSingle(pid, 'quality', variantKey);
-              setSelectedProduct(null);
-              setSelectedGen(null);
-              setActiveTab('ai-edit');
-            }
-          }}
-          onSelectCandidate={(url) => {
-            const g = selectedGen || activeGenForProduct;
-            if (g) actions.selectCandidate(g.id, url);
-          }}
-          onApply={() => {
-            const g = selectedGen || activeGenForProduct;
-            if (g) actions.openCoupangEdit(g);
-          }}
-          onSkip={() => {
-            const g = selectedGen || activeGenForProduct;
-            if (g) actions.skipGeneration(g.id);
-          }}
-          onDelete={() => {
-            const g = selectedGen || activeGenForProduct;
-            if (g) actions.deleteGeneration(g.id);
-          }}
-          onSelectGen={(g) => setSelectedGen(g)}
-        />
-        );
-      })()}
+      <ThumbnailDetailModalHost
+        activeTab={activeTab}
+        selectedProduct={selectedProduct}
+        selectedGen={selectedGen}
+        activeGenForProduct={activeGenForProduct}
+        generations={generations}
+        generatedProductIds={generatedProductIds}
+        actions={actions}
+        onClose={closeDetailModal}
+        onSelectProduct={setSelectedProduct}
+        onSelectGen={setSelectedGen}
+        onChangeTab={setActiveTab}
+      />
 
       <InspectionDrawer
         open={inspectOpen}

@@ -154,3 +154,5 @@ export function useActionBoardWorkflow() {
     closeDrawer,
   };
 }
+
+export type ActionBoardWorkflowState = ReturnType<typeof useActionBoardWorkflow>;
