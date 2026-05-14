@@ -232,35 +232,6 @@ export function buildColorImageSelectionPrompt(input: InferColorPromptInput): st
   ].filter(Boolean).join('\n');
 }
 
-export function buildPackageGuidePrompt(input: DetailPageMediaPromptBaseInput): string {
-  const audience = describeAudience(input.ageGroup);
-  const style = describeAudienceStyle(input.ageGroup);
-  return [
-    'Create one bright clean studio packshot of the product retail package/display box for the "박스 구성 확인" section of a Korean ecommerce detail page.',
-    `Product name: ${input.productName}`,
-    `Category: ${input.category}`,
-    `Target age/audience: ${audience}`,
-    `Product notes: ${input.description}`,
-    input.options ? `Options/specs: ${input.options}` : '',
-    '',
-    'Composition requirements:',
-    '- This is an image-generation/recomposition task, not image selection. Use the uploaded package/display-box photo only as a reference for the box shape, printed artwork, and contents, then synthesize a NEW bright studio photo of the same package.',
-    '- DEFAULT NO-HAND: never include hands, fingers, arms, people, body parts, or human presence. Show the package on its own.',
-    '- SINGLE PHOTO ONLY: output one continuous photorealistic camera shot. No split screen, before/after comparison, collage, side-by-side layout, grid, poster panel, product sheet, or multi-frame composition.',
-    '- BRIGHTNESS RULE: dramatically brighten the scene. The reference photo is dim/dark/muddy; the output must look like a fresh well-lit ecommerce packshot with corrected exposure and clean shadows, never a dim or yellow-cast photo.',
-    '- BACKGROUND RULE: always restage the package on a clean white (#FFFFFF) or very light warm studio background. Do not keep the original gray, blue, yellow, dusty, shadowy, tabletop, wall, or room background.',
-    '- Preserve the exact package shape, header card, display tray, printed characters, label artwork, color print, "12EA" or similar print, and visible product units inside as faithfully as possible. Do not redesign the package, do not invent new characters, do not change the printed artwork.',
-    '- Recompose the camera angle slightly so the box looks newly photographed (straight-on or gently angled retail packshot), not a copy of the uploaded photo. Straighten any tilt, center the box, and balance the padding.',
-    '- The package must fill most of the 4:3 frame with comfortable padding, and the background should stay quiet and secondary.',
-    '- Use soft three-point studio lighting, corrected white balance, subtle contact shadow under the box. Make the box look bright, polished, and crisp.',
-    '- Do NOT add Korean text, English text, watermarks, price badges, UI elements, callout labels, captions, or stickers that are not already printed on the package itself.',
-    '- Do not output the raw uploaded photo, a crop of the raw photo, a background-removed raw photo, or a lightly color-corrected raw photo. Rebuild it as a new studio photograph.',
-    '- INVALID RESULT: if the final image keeps the same camera angle, same crop, same dim lighting, same gray/blue/yellow color cast, or same background as the uploaded source, regenerate it as a new bright studio packshot.',
-    `- Keep a bright polished ${style} ecommerce look, clean and package-focused.`,
-    '- Photorealistic commercial retail packshot, not a flat illustration.',
-  ].filter(Boolean).join('\n');
-}
-
 export function buildPackageImagePositionsPrompt(): string {
   return [
     'Classify which candidate images are primarily retail packaging, package boxes, display boxes, outer cartons, or product-in-box composition photos.',
