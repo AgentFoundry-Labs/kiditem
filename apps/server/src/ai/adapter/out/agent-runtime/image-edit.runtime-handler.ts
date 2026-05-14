@@ -25,6 +25,10 @@ import {
   IMAGE_EDIT_MEDIA_PORT,
   type ImageEditMediaPort,
 } from '../../../application/port/out/image-edit-media.port';
+import {
+  IMAGE_STORAGE_PORT,
+  type ImageStoragePort,
+} from '../../../application/port/out/image-storage.port';
 
 @Injectable()
 export class ImageEditRuntimeHandler
@@ -36,6 +40,8 @@ export class ImageEditRuntimeHandler
     private readonly registry: AgentRuntimeHandlerRegistry,
     @Inject(IMAGE_EDIT_MEDIA_PORT)
     private readonly imageEditMedia: ImageEditMediaPort,
+    @Inject(IMAGE_STORAGE_PORT)
+    private readonly imageStorage: ImageStoragePort,
   ) {}
 
   onModuleInit(): void {
@@ -114,6 +120,7 @@ export class ImageEditRuntimeHandler
 
   private assertSafeImageSource(value: string, path: string): void {
     if (value.startsWith('data:image/')) return;
+    if (this.imageStorage.extractKey(value)) return;
     try {
       assertPublicHttpUrl(value);
     } catch (error) {

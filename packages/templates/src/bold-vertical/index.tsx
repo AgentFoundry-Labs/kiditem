@@ -593,13 +593,12 @@ function PointSection({ d }: { d: DetailPageData }) {
                   <div
                     key={i}
                     data-role="package-image-frame"
-                    className="overflow-hidden rounded-[34px] border border-[#d8ebf7] bg-[#eaf6ff] p-8 md:p-10"
+                    className="overflow-hidden rounded-[34px]"
                   >
                     <img
                       src={dimg}
                       alt={normalizePackageLabel(d.detailPackageLabel)}
                       className="w-full h-auto rounded-[var(--theme-radius)]"
-                      style={{ mixBlendMode: 'multiply' }}
                     />
                   </div>
                 ))}
@@ -681,9 +680,9 @@ function SpecsSection({ d }: { d: DetailPageData }) {
             <div
               key={i}
               data-role="safety-label-frame"
-              className="rounded-[44px] bg-[#8fa2cf] p-7 md:p-9"
+              className="rounded-[36px] bg-[#8fa2cf] p-3 md:p-4"
             >
-              <div className="rounded-[34px] bg-white px-8 py-8 md:px-10 md:py-10">
+              <div className="rounded-[28px] bg-white px-5 py-5 md:px-6 md:py-6">
                 <img
                   src={src}
                   alt="제품 안전 품질표시"

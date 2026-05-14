@@ -687,6 +687,7 @@ function normalizeBodyMarkup(rawHtml: string, bodyAttrs: string): string {
   const doc = new DOMParser().parseFromString(bodySource, 'text/html');
   removeHeadOnlyElementsFromBody(doc);
   normalizeBodyAssetUrls(doc);
+  repairBoldVerticalFramesInDocument(doc);
   return `<body${bodyAttrs ? ` ${bodyAttrs}` : ''}>${doc.body.innerHTML}</body>`;
 }
 
@@ -730,6 +731,41 @@ function repairProductInfoTableWidthInDocument(doc: Document) {
   container.style.marginRight = 'auto';
 }
 
+function repairPackageImageFramesInDocument(doc: Document) {
+  doc.querySelectorAll<HTMLElement>('[data-role="package-image-frame"]').forEach((frame) => {
+    frame.style.overflow = 'hidden';
+    frame.style.borderRadius = '34px';
+    frame.style.background = 'transparent';
+    frame.style.border = '0';
+    frame.style.padding = '0';
+    frame.querySelectorAll<HTMLImageElement>('img').forEach((img) => {
+      img.style.mixBlendMode = '';
+      img.style.display = 'block';
+      img.style.width = '100%';
+      img.style.height = 'auto';
+    });
+  });
+}
+
+function repairSafetyLabelFramesInDocument(doc: Document) {
+  doc.querySelectorAll<HTMLElement>('[data-role="safety-label-frame"]').forEach((frame) => {
+    frame.style.background = '#8fa2cf';
+    frame.style.borderRadius = '36px';
+    frame.style.padding = '16px';
+    const inner = Array.from(frame.children).find((child) => child.querySelector?.('img')) as HTMLElement | undefined;
+    if (inner) {
+      inner.style.background = '#ffffff';
+      inner.style.borderRadius = '28px';
+      inner.style.padding = '20px';
+    }
+  });
+}
+
+function repairBoldVerticalFramesInDocument(doc: Document) {
+  repairPackageImageFramesInDocument(doc);
+  repairSafetyLabelFramesInDocument(doc);
+}
+
 function getEditorFrameEl(
   editor: Editor | ReturnType<typeof useEditor> | null | undefined,
 ): HTMLIFrameElement | null {
@@ -760,6 +796,7 @@ function setImageComponentSrc(
   imageComponent?.view?.render?.();
   if (imageComponent !== component) editor.trigger?.('component:update', imageComponent);
   editor.trigger?.('component:update', component);
+  editor.trigger?.('update');
   editor.refresh?.();
 }
 
@@ -865,6 +902,16 @@ function getEditableImageComponent(component: any): any | null {
   if (images.length === 1) return images[0];
 
   return null;
+}
+
+function getImageComponentSrc(component: any): string {
+  const attrs = component?.getAttributes?.() ?? {};
+  const attrSrc = typeof attrs.src === 'string' ? attrs.src.trim() : '';
+  if (attrSrc) return toApiAssetUrl(attrSrc);
+  const modelSrc = typeof component?.get?.('src') === 'string' ? component.get('src').trim() : '';
+  if (modelSrc) return toApiAssetUrl(modelSrc);
+  const element = component?.getEl?.() as HTMLImageElement | null | undefined;
+  return element?.src ?? '';
 }
 
 function isAttachedComponent(component: any): boolean {
@@ -1435,6 +1482,7 @@ function parseFullHtml(fullHtml: string): ParsedHtml {
   const doc = parser.parseFromString(fullHtml, 'text/html');
   repairSizeGuideFrameInDocument(doc);
   repairProductInfoTableWidthInDocument(doc);
+  repairBoldVerticalFramesInDocument(doc);
   removeHeadOnlyElementsFromBody(doc);
   const viewportContent =
     doc.head.querySelector<HTMLMetaElement>('meta[name="viewport"]')?.content ||
@@ -4044,7 +4092,7 @@ export default function DetailPageEditor({
           makeImageComponentInteractive(imageComponent);
           lastSelectedImageComponentRef.current = imageComponent;
           setSelectedImageComponent(imageComponent);
-          setSelectedImageSrc(imageComponent.getAttributes().src ?? '');
+          setSelectedImageSrc(getImageComponentSrc(imageComponent));
           setSelectedTextComponent(null);
         } else if (type === 'text' || type === 'text-ext' || TEXT_TAGS.includes(tagName)) {
           const children = component.components();

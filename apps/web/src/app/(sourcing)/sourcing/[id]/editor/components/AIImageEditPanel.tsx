@@ -1,7 +1,7 @@
 'use client';
 
-import type { ReactNode } from 'react';
-import { useCallback, useState } from 'react';
+import type { PointerEvent, ReactNode } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   Check,
   Crop,
@@ -43,7 +43,15 @@ type CropRect = {
   height: number;
 };
 
-type CropRectKey = keyof CropRect;
+type CropHandle = 'move' | 'n' | 's' | 'e' | 'w' | 'nw' | 'ne' | 'sw' | 'se';
+
+type CropDragState = {
+  handle: CropHandle;
+  pointerId: number;
+  startX: number;
+  startY: number;
+  startRect: CropRect;
+};
 
 interface PresetItem {
   id: PresetType;
@@ -69,11 +77,19 @@ const PRESETS: PresetItem[] = [
 
 const DEFAULT_CROP_RECT: CropRect = { x: 0, y: 0, width: 100, height: 100 };
 
-const CROP_CONTROLS: Array<{ key: CropRectKey; label: string }> = [
-  { key: 'x', label: '왼쪽' },
-  { key: 'y', label: '위쪽' },
-  { key: 'width', label: '폭' },
-  { key: 'height', label: '높이' },
+const CROP_HANDLES: Array<{
+  id: Exclude<CropHandle, 'move'>;
+  className: string;
+  cursor: string;
+}> = [
+  { id: 'nw', className: 'left-0 top-0 -translate-x-1/2 -translate-y-1/2', cursor: 'nwse-resize' },
+  { id: 'n', className: 'left-1/2 top-0 -translate-x-1/2 -translate-y-1/2', cursor: 'ns-resize' },
+  { id: 'ne', className: 'right-0 top-0 translate-x-1/2 -translate-y-1/2', cursor: 'nesw-resize' },
+  { id: 'e', className: 'right-0 top-1/2 translate-x-1/2 -translate-y-1/2', cursor: 'ew-resize' },
+  { id: 'se', className: 'bottom-0 right-0 translate-x-1/2 translate-y-1/2', cursor: 'nwse-resize' },
+  { id: 's', className: 'bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2', cursor: 'ns-resize' },
+  { id: 'sw', className: 'bottom-0 left-0 -translate-x-1/2 translate-y-1/2', cursor: 'nesw-resize' },
+  { id: 'w', className: 'left-0 top-1/2 -translate-x-1/2 -translate-y-1/2', cursor: 'ew-resize' },
 ];
 
 function clamp(value: number, min: number, max: number): number {
@@ -90,6 +106,47 @@ function normalizeCropRect(rect: CropRect): CropRect {
     width: clamp(rect.width, 1, 100 - x),
     height: clamp(rect.height, 1, 100 - y),
   };
+}
+
+function getCropPoint(event: PointerEvent<HTMLElement>, surface: HTMLElement): { x: number; y: number } {
+  const rect = surface.getBoundingClientRect();
+  return {
+    x: clamp(((event.clientX - rect.left) / Math.max(1, rect.width)) * 100, 0, 100),
+    y: clamp(((event.clientY - rect.top) / Math.max(1, rect.height)) * 100, 0, 100),
+  };
+}
+
+function resizeCropRect(drag: CropDragState, x: number, y: number): CropRect {
+  const dx = x - drag.startX;
+  const dy = y - drag.startY;
+  const source = drag.startRect;
+  const sourceRight = source.x + source.width;
+  const sourceBottom = source.y + source.height;
+
+  if (drag.handle === 'move') {
+    return normalizeCropRect({
+      ...source,
+      x: clamp(source.x + dx, 0, 100 - source.width),
+      y: clamp(source.y + dy, 0, 100 - source.height),
+    });
+  }
+
+  let left = source.x;
+  let top = source.y;
+  let right = sourceRight;
+  let bottom = sourceBottom;
+
+  if (drag.handle.includes('w')) left = clamp(source.x + dx, 0, right - 1);
+  if (drag.handle.includes('e')) right = clamp(sourceRight + dx, left + 1, 100);
+  if (drag.handle.includes('n')) top = clamp(source.y + dy, 0, bottom - 1);
+  if (drag.handle.includes('s')) bottom = clamp(sourceBottom + dy, top + 1, 100);
+
+  return normalizeCropRect({
+    x: left,
+    y: top,
+    width: right - left,
+    height: bottom - top,
+  });
 }
 
 function isFullCrop(rect: CropRect): boolean {
@@ -193,15 +250,46 @@ export function AIImageEditPanel({
   const [cropOpen, setCropOpen] = useState(false);
   const [cropRect, setCropRect] = useState<CropRect>(DEFAULT_CROP_RECT);
   const [cropping, setCropping] = useState(false);
-
-  const updateCropRect = useCallback((key: CropRectKey, value: number) => {
-    setCropRect((current) => normalizeCropRect({ ...current, [key]: value }));
-  }, []);
+  const cropSurfaceRef = useRef<HTMLDivElement | null>(null);
+  const cropDragRef = useRef<CropDragState | null>(null);
 
   const resolveImageUrlForEdit = useCallback(async () => {
     if (!cropOpen || isFullCrop(cropRect)) return imageUrl;
     return cropImageToDataUrl(imageUrl, cropRect);
   }, [cropOpen, cropRect, imageUrl]);
+
+  const startCropDrag = useCallback((event: PointerEvent<HTMLElement>, handle: CropHandle) => {
+    if (!cropOpen || cropping || loading) return;
+    const surface = cropSurfaceRef.current;
+    if (!surface) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const point = getCropPoint(event, surface);
+    cropDragRef.current = {
+      handle,
+      pointerId: event.pointerId,
+      startX: point.x,
+      startY: point.y,
+      startRect: cropRect,
+    };
+    surface.setPointerCapture?.(event.pointerId);
+  }, [cropOpen, cropRect, cropping, loading]);
+
+  const handleCropPointerMove = useCallback((event: PointerEvent<HTMLDivElement>) => {
+    const drag = cropDragRef.current;
+    const surface = cropSurfaceRef.current;
+    if (!drag || !surface || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    const point = getCropPoint(event, surface);
+    setCropRect(resizeCropRect(drag, point.x, point.y));
+  }, []);
+
+  const handleCropPointerEnd = useCallback((event: PointerEvent<HTMLDivElement>) => {
+    const drag = cropDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    cropDragRef.current = null;
+    cropSurfaceRef.current?.releasePointerCapture?.(event.pointerId);
+  }, []);
 
   const handleApplyCrop = useCallback(async () => {
     if (isBusy.current) return;
@@ -306,21 +394,50 @@ export function AIImageEditPanel({
           </div>
         )}
 
-        <div className="relative rounded-lg overflow-hidden border border-slate-200 bg-slate-50">
-          <img src={imageUrl} alt="편집 대상" className="block w-full max-h-[220px] object-contain" />
-          {cropOpen && (
-            <div className="absolute inset-0 pointer-events-none">
-              <div
-                className="absolute border-2 border-emerald-400 shadow-[0_0_0_9999px_rgba(15,23,42,0.42)]"
-                style={{
-                  left: `${cropRect.x}%`,
-                  top: `${cropRect.y}%`,
-                  width: `${cropRect.width}%`,
-                  height: `${cropRect.height}%`,
-                }}
+        <div className="rounded-lg overflow-hidden border border-slate-200 bg-slate-50 p-2">
+          <div className="flex justify-center">
+            <div
+              ref={cropSurfaceRef}
+              className="relative max-w-full touch-none select-none"
+              onPointerMove={handleCropPointerMove}
+              onPointerUp={handleCropPointerEnd}
+              onPointerCancel={handleCropPointerEnd}
+            >
+              <img
+                src={imageUrl}
+                alt="편집 대상"
+                draggable={false}
+                className="block max-h-[220px] max-w-full object-contain"
               />
+              {cropOpen && (
+                <div className="absolute inset-0">
+                  <div className="absolute inset-0 bg-slate-950/35" />
+                  <div
+                    className="absolute border-2 border-emerald-400 bg-transparent shadow-[0_0_0_9999px_rgba(15,23,42,0.42)]"
+                    style={{
+                      left: `${cropRect.x}%`,
+                      top: `${cropRect.y}%`,
+                      width: `${cropRect.width}%`,
+                      height: `${cropRect.height}%`,
+                      cursor: 'move',
+                    }}
+                    onPointerDown={(event) => startCropDrag(event, 'move')}
+                  >
+                    {CROP_HANDLES.map((handle) => (
+                      <button
+                        key={handle.id}
+                        type="button"
+                        aria-label={`crop-${handle.id}`}
+                        className={`absolute h-2.5 w-2.5 rounded-[2px] border border-blue-600 bg-white shadow-sm ${handle.className}`}
+                        style={{ cursor: handle.cursor }}
+                        onPointerDown={(event) => startCropDrag(event, handle.id)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
 
         <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
@@ -339,30 +456,6 @@ export function AIImageEditPanel({
 
           {cropOpen && (
             <div className="space-y-2">
-              {CROP_CONTROLS.map((control) => (
-                <label key={control.key} className="grid grid-cols-[42px_1fr_48px] items-center gap-2 text-[11px] text-slate-600">
-                  <span className="font-medium">{control.label}</span>
-                  <input
-                    type="range"
-                    min={control.key === 'width' || control.key === 'height' ? 1 : 0}
-                    max={control.key === 'width' ? 100 - cropRect.x : control.key === 'height' ? 100 - cropRect.y : 99}
-                    value={cropRect[control.key]}
-                    onChange={(e) => updateCropRect(control.key, Number(e.target.value))}
-                    disabled={busy}
-                    className="w-full accent-emerald-500"
-                  />
-                  <input
-                    type="number"
-                    min={control.key === 'width' || control.key === 'height' ? 1 : 0}
-                    max={control.key === 'width' ? 100 - cropRect.x : control.key === 'height' ? 100 - cropRect.y : 99}
-                    value={Math.round(cropRect[control.key])}
-                    onChange={(e) => updateCropRect(control.key, Number(e.target.value))}
-                    disabled={busy}
-                    className="w-12 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-right text-[11px] text-slate-700 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                  />
-                </label>
-              ))}
-
               <div className="flex gap-1.5 pt-1">
                 <button
                   type="button"
@@ -383,7 +476,7 @@ export function AIImageEditPanel({
                 </button>
               </div>
               <p className="text-[11px] leading-4 text-slate-500">
-                영역을 잡아둔 상태에서 아래 AI 편집을 누르면 잘린 이미지 기준으로 편집됩니다.
+                이미지 위 네모 핸들을 드래그해서 영역을 잡으세요. 영역을 잡아둔 상태에서 아래 AI 편집을 누르면 잘린 이미지 기준으로 편집됩니다.
               </p>
             </div>
           )}
