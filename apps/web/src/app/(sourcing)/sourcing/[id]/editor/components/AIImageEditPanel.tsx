@@ -3,6 +3,8 @@
 import type { ReactNode } from 'react';
 import { useCallback, useState } from 'react';
 import {
+  Check,
+  Crop,
   Eraser,
   Loader2,
   Paintbrush,
@@ -34,6 +36,15 @@ type PresetType =
   | 'full_regenerate'
   | 'custom';
 
+type CropRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+type CropRectKey = keyof CropRect;
+
 interface PresetItem {
   id: PresetType;
   label: string;
@@ -55,6 +66,69 @@ const PRESETS: PresetItem[] = [
   { id: 'enhance', label: '화질 개선', icon: <Sparkles size={13} /> },
   { id: 'full_regenerate', label: '재생성', icon: <RefreshCw size={13} /> },
 ];
+
+const DEFAULT_CROP_RECT: CropRect = { x: 0, y: 0, width: 100, height: 100 };
+
+const CROP_CONTROLS: Array<{ key: CropRectKey; label: string }> = [
+  { key: 'x', label: '왼쪽' },
+  { key: 'y', label: '위쪽' },
+  { key: 'width', label: '폭' },
+  { key: 'height', label: '높이' },
+];
+
+function clamp(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, value));
+}
+
+function normalizeCropRect(rect: CropRect): CropRect {
+  const x = clamp(rect.x, 0, 99);
+  const y = clamp(rect.y, 0, 99);
+  return {
+    x,
+    y,
+    width: clamp(rect.width, 1, 100 - x),
+    height: clamp(rect.height, 1, 100 - y),
+  };
+}
+
+function isFullCrop(rect: CropRect): boolean {
+  return rect.x === 0 && rect.y === 0 && rect.width === 100 && rect.height === 100;
+}
+
+function loadImageForCanvas(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    if (!src.startsWith('data:') && !src.startsWith('blob:')) {
+      image.crossOrigin = 'anonymous';
+    }
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('이미지를 불러오지 못했습니다'));
+    image.src = src;
+  });
+}
+
+async function cropImageToDataUrl(src: string, cropRect: CropRect): Promise<string> {
+  const image = await loadImageForCanvas(src);
+  const rect = normalizeCropRect(cropRect);
+  const sourceWidth = image.naturalWidth || image.width;
+  const sourceHeight = image.naturalHeight || image.height;
+  const sx = Math.round((sourceWidth * rect.x) / 100);
+  const sy = Math.round((sourceHeight * rect.y) / 100);
+  const sw = Math.max(1, Math.round((sourceWidth * rect.width) / 100));
+  const sh = Math.max(1, Math.round((sourceHeight * rect.height) / 100));
+  const canvas = document.createElement('canvas');
+  canvas.width = sw;
+  canvas.height = sh;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('자르기 캔버스를 만들지 못했습니다');
+  context.drawImage(image, sx, sy, sw, sh, 0, 0, sw, sh);
+  try {
+    return canvas.toDataURL('image/png');
+  } catch {
+    throw new Error('이 이미지는 브라우저에서 바로 자를 수 없습니다. 이미지 교체 후 다시 시도해주세요.');
+  }
+}
 
 async function submitImageEdit(params: {
   image_url: string;
@@ -116,6 +190,39 @@ export function AIImageEditPanel({
   const [error, setError] = useState<string | null>(null);
   const [customPrompt, setCustomPrompt] = useState('');
   const [presetInput, setPresetInput] = useState<Record<string, string>>({});
+  const [cropOpen, setCropOpen] = useState(false);
+  const [cropRect, setCropRect] = useState<CropRect>(DEFAULT_CROP_RECT);
+  const [cropping, setCropping] = useState(false);
+
+  const updateCropRect = useCallback((key: CropRectKey, value: number) => {
+    setCropRect((current) => normalizeCropRect({ ...current, [key]: value }));
+  }, []);
+
+  const resolveImageUrlForEdit = useCallback(async () => {
+    if (!cropOpen || isFullCrop(cropRect)) return imageUrl;
+    return cropImageToDataUrl(imageUrl, cropRect);
+  }, [cropOpen, cropRect, imageUrl]);
+
+  const handleApplyCrop = useCallback(async () => {
+    if (isBusy.current) return;
+
+    isBusy.current = true;
+    setCropping(true);
+    setLoadingPreset('crop');
+    setError(null);
+    try {
+      const croppedImageUrl = await cropImageToDataUrl(imageUrl, cropRect);
+      onEditComplete(croppedImageUrl);
+      setCropOpen(false);
+      setCropRect(DEFAULT_CROP_RECT);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '이미지 자르기에 실패했습니다');
+    } finally {
+      isBusy.current = false;
+      setCropping(false);
+      setLoadingPreset(null);
+    }
+  }, [cropRect, imageUrl, isBusy, onEditComplete]);
 
   const handlePresetClick = useCallback(
     async (preset: PresetItem) => {
@@ -128,8 +235,9 @@ export function AIImageEditPanel({
       setLoadingPreset(preset.id);
       setError(null);
       try {
+        const editImageUrl = await resolveImageUrlForEdit();
         const { taskId } = await submitImageEdit({
-          image_url: imageUrl,
+          image_url: editImageUrl,
           preset: preset.id,
           user_prompt: presetInput[preset.id] || '',
           productId,
@@ -146,7 +254,7 @@ export function AIImageEditPanel({
         setLoadingPreset(null);
       }
     },
-    [imageUrl, productId, contentGenerationId, presetInput, onEditComplete, isBusy, onGeneratingChange],
+    [productId, contentGenerationId, presetInput, onEditComplete, isBusy, onGeneratingChange, resolveImageUrlForEdit],
   );
 
   const handleCustomSubmit = useCallback(async () => {
@@ -159,8 +267,9 @@ export function AIImageEditPanel({
     setLoadingPreset('custom');
     setError(null);
     try {
+      const editImageUrl = await resolveImageUrlForEdit();
       const { taskId } = await submitImageEdit({
-        image_url: imageUrl,
+        image_url: editImageUrl,
         preset: 'custom',
         user_prompt: customPrompt.trim(),
         productId,
@@ -176,7 +285,9 @@ export function AIImageEditPanel({
       onGeneratingChange?.(false);
       setLoadingPreset(null);
     }
-  }, [imageUrl, productId, contentGenerationId, customPrompt, onEditComplete, isBusy, onGeneratingChange]);
+  }, [productId, contentGenerationId, customPrompt, onEditComplete, isBusy, onGeneratingChange, resolveImageUrlForEdit]);
+
+  const busy = loading || cropping;
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -188,8 +299,94 @@ export function AIImageEditPanel({
           </div>
         )}
 
-        <div className="rounded-lg overflow-hidden border border-slate-200 bg-slate-50">
-          <img src={imageUrl} alt="편집 대상" className="w-full h-[180px] object-contain" />
+        {cropping && (
+          <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 rounded-lg border border-emerald-100">
+            <Loader2 size={14} className="animate-spin text-emerald-600" />
+            <span className="text-xs font-medium text-emerald-700">이미지 자르는 중...</span>
+          </div>
+        )}
+
+        <div className="relative rounded-lg overflow-hidden border border-slate-200 bg-slate-50">
+          <img src={imageUrl} alt="편집 대상" className="block w-full max-h-[220px] object-contain" />
+          {cropOpen && (
+            <div className="absolute inset-0 pointer-events-none">
+              <div
+                className="absolute border-2 border-emerald-400 shadow-[0_0_0_9999px_rgba(15,23,42,0.42)]"
+                style={{
+                  left: `${cropRect.x}%`,
+                  top: `${cropRect.y}%`,
+                  width: `${cropRect.width}%`,
+                  height: `${cropRect.height}%`,
+                }}
+              />
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
+          <button
+            type="button"
+            onClick={() => setCropOpen((open) => !open)}
+            disabled={busy}
+            className="w-full flex items-center justify-between gap-2 px-3 py-2 text-xs font-medium text-slate-700 bg-white hover:bg-emerald-50 hover:text-emerald-700 border border-slate-200 hover:border-emerald-200 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <span className="flex items-center gap-2">
+              <Crop size={13} />
+              이미지 자르기
+            </span>
+            <span className="text-[11px] text-slate-400">{cropOpen ? '영역 조절 중' : '열기'}</span>
+          </button>
+
+          {cropOpen && (
+            <div className="space-y-2">
+              {CROP_CONTROLS.map((control) => (
+                <label key={control.key} className="grid grid-cols-[42px_1fr_48px] items-center gap-2 text-[11px] text-slate-600">
+                  <span className="font-medium">{control.label}</span>
+                  <input
+                    type="range"
+                    min={control.key === 'width' || control.key === 'height' ? 1 : 0}
+                    max={control.key === 'width' ? 100 - cropRect.x : control.key === 'height' ? 100 - cropRect.y : 99}
+                    value={cropRect[control.key]}
+                    onChange={(e) => updateCropRect(control.key, Number(e.target.value))}
+                    disabled={busy}
+                    className="w-full accent-emerald-500"
+                  />
+                  <input
+                    type="number"
+                    min={control.key === 'width' || control.key === 'height' ? 1 : 0}
+                    max={control.key === 'width' ? 100 - cropRect.x : control.key === 'height' ? 100 - cropRect.y : 99}
+                    value={Math.round(cropRect[control.key])}
+                    onChange={(e) => updateCropRect(control.key, Number(e.target.value))}
+                    disabled={busy}
+                    className="w-12 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-right text-[11px] text-slate-700 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  />
+                </label>
+              ))}
+
+              <div className="flex gap-1.5 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setCropRect(DEFAULT_CROP_RECT)}
+                  disabled={busy}
+                  className="flex-1 px-2.5 py-1.5 text-xs font-medium text-slate-600 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg disabled:opacity-50"
+                >
+                  초기화
+                </button>
+                <button
+                  type="button"
+                  onClick={handleApplyCrop}
+                  disabled={busy}
+                  className="flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-white bg-emerald-500 hover:bg-emerald-600 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loadingPreset === 'crop' ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+                  자르기 적용
+                </button>
+              </div>
+              <p className="text-[11px] leading-4 text-slate-500">
+                영역을 잡아둔 상태에서 아래 AI 편집을 누르면 잘린 이미지 기준으로 편집됩니다.
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="space-y-1.5">
@@ -198,7 +395,7 @@ export function AIImageEditPanel({
               <button
                 type="button"
                 onClick={() => !preset.needsInput && handlePresetClick(preset)}
-                disabled={loading}
+                disabled={busy}
                 className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-700 bg-slate-50 hover:bg-emerald-50 hover:text-emerald-700 border border-slate-200 hover:border-emerald-200 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loadingPreset === preset.id ? <Loader2 size={13} className="animate-spin" /> : preset.icon}
@@ -211,14 +408,14 @@ export function AIImageEditPanel({
                     value={presetInput[preset.id] || ''}
                     onChange={(e) => setPresetInput((p) => ({ ...p, [preset.id]: e.target.value }))}
                     placeholder={preset.inputPlaceholder}
-                    disabled={loading}
+                    disabled={busy}
                     className="flex-1 px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500"
                     onKeyDown={(e) => e.key === 'Enter' && handlePresetClick(preset)}
                   />
                   <button
                     type="button"
                     onClick={() => handlePresetClick(preset)}
-                    disabled={loading || !presetInput[preset.id]}
+                    disabled={busy || !presetInput[preset.id]}
                     className="px-3 py-1.5 text-xs font-medium text-white bg-emerald-500 hover:bg-emerald-600 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   >
                     적용
@@ -231,7 +428,7 @@ export function AIImageEditPanel({
           <button
             type="button"
             onClick={onReplace}
-            disabled={loading}
+            disabled={busy}
             className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-700 bg-slate-50 hover:bg-indigo-50 hover:text-indigo-700 border border-slate-200 hover:border-indigo-200 rounded-lg transition-colors disabled:opacity-50"
           >
             <Replace size={13} />
@@ -250,14 +447,14 @@ export function AIImageEditPanel({
               }
             }}
             placeholder="원하는 편집 내용을 입력하세요..."
-            disabled={loading}
+            disabled={busy}
             rows={2}
             className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg resize-none focus:outline-none focus:ring-1 focus:ring-emerald-500 placeholder:text-slate-400"
           />
           <button
             type="button"
             onClick={handleCustomSubmit}
-            disabled={loading || !customPrompt.trim()}
+            disabled={busy || !customPrompt.trim()}
             className="w-full mt-1.5 py-2 text-xs font-medium text-white bg-emerald-500 hover:bg-emerald-600 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {loadingPreset === 'custom' ? <Loader2 size={14} className="animate-spin mx-auto" /> : 'AI 편집 적용'}
