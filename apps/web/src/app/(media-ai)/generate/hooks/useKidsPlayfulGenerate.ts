@@ -32,6 +32,7 @@ export interface KidsPlayfulGenerateBody {
   /** sourcing MasterProduct.id — generate 페이지 직접 생성 시 omit */
   productId?: string;
   templateId?: DetailPageTemplateId;
+  generationMode?: 'draft' | 'image' | 'full';
   sourceReferences?: Array<{
     sourceType: 'sourcing_candidate' | 'input_asset' | 'content_generation';
     sourceCandidateId?: string;

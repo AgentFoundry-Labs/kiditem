@@ -370,6 +370,36 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
       );
     });
 
+    it('skips generated media for draft-only detail-page runs', async () => {
+      prisma = makePrismaStub(makeRow({
+        generationInput: {
+          ...STORED_RAW_INPUT,
+          generationMode: 'draft',
+        },
+      }));
+      sink = new DetailPageContentGenerationSinkAdapter(
+        prisma as never,
+        alerts,
+        images,
+        contentAssets,
+      );
+
+      await sink.applySuccess({
+        organizationId: ORG,
+        requestId: REQUEST,
+        runId: RUN,
+        sourceResourceId: CG_ID,
+        output: VALID_OUTPUT,
+      });
+
+      expect(images.generateBestEffort).not.toHaveBeenCalled();
+      expect(contentAssets.recordDetailPageGeneratedAssets).not.toHaveBeenCalled();
+      const updateCall = prisma.contentGeneration.updateMany.mock.calls[0][0] as {
+        data: { generationResult: { processedImages: Record<string, string> } };
+      };
+      expect(updateCall.data.generationResult.processedImages).toEqual({});
+    });
+
     it('scopes the lookup by organizationId (cross-tenant attempt is a no-op)', async () => {
       await sink.applySuccess({
         organizationId: OTHER_ORG,

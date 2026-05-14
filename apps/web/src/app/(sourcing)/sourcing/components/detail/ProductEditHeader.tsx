@@ -115,6 +115,7 @@ export default function ProductEditHeader({
         productName,
         rawData,
         templateId: templateId as DetailPageTemplateId,
+        generationMode: templateId === 'kids-playful' ? 'full' : mode,
         imageUrls,
       });
       return;
@@ -128,7 +129,7 @@ export default function ProductEditHeader({
   const hasRegistrationDetailPage = !!selectedDetailPageGenerationId;
   const registrationAssetsTitle = [
     hasRegistrationThumbnail
-      ? '등록 대표 썸네일: 현재 첫 번째 썸네일'
+      ? '등록 대표 썸네일: 사용자가 선택한 이미지'
       : '등록 대표 썸네일: 없음',
     hasRegistrationDetailPage
       ? '등록 상세페이지: 생성 이력에서 선택됨'

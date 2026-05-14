@@ -14,6 +14,7 @@ import { toast } from 'sonner';
 import type { DetailPageTemplateId } from '@kiditem/shared/ai';
 import { isApiError } from '@/lib/api-error';
 import { useKidsPlayfulGenerate } from '@/app/(media-ai)/generate/hooks/useKidsPlayfulGenerate';
+import type { GenerateMode } from './useGenerateDetailPage';
 
 function pickString(raw: Record<string, unknown> | null, keys: string[]): string {
   if (!raw) return '';
@@ -92,6 +93,7 @@ interface TriggerInput {
   rawData: Record<string, unknown> | null;
   /** 'kids-playful' (default) 또는 'bold-vertical' */
   templateId?: DetailPageTemplateId;
+  generationMode?: GenerateMode;
   imageUrls?: string[];
 }
 
@@ -105,6 +107,7 @@ export function useKidsPlayfulFromSourcing() {
       productName,
       rawData,
       templateId,
+      generationMode = 'full',
       imageUrls: suppliedImageUrls,
     }: TriggerInput) => {
       const rawTitle =
@@ -149,6 +152,7 @@ export function useKidsPlayfulFromSourcing() {
           heroImageMode: 'llm-pick',
           productId: productId ?? undefined,
           templateId: templateId ?? 'kids-playful',
+          generationMode,
           sourceReferences: [
             { sourceType: 'sourcing_candidate', sourceCandidateId },
           ],

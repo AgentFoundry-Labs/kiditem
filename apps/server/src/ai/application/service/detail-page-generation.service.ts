@@ -108,6 +108,7 @@ export class DetailPageGenerationService {
   ): Promise<DetailPageGenerationDto> {
     const heroImageMode = dto.heroImageMode ?? 'llm-pick';
     const templateId = dto.templateId ?? 'kids-playful';
+    const generationMode = dto.generationMode ?? 'full';
     const ageGroup: DetailPageAgeGroup = dto.ageGroup ?? 'age-8-plus';
     const detailImageCount: DetailImageCount = dto.detailImageCount ?? '2';
     const usageSectionMode: UsageSectionMode = dto.usageSectionMode ?? 'include';
@@ -125,6 +126,7 @@ export class DetailPageGenerationService {
       imageUrls,
       heroImageMode,
       templateId,
+      generationMode,
       ageGroup,
       detailImageCount,
       usageSectionMode,
@@ -137,6 +139,23 @@ export class DetailPageGenerationService {
       sourceReferences: dto.sourceReferences ?? [],
     });
     if (sourceReferences.length > 0) rawInput.sourceReferences = sourceReferences;
+    const primarySourceCandidateId =
+      sourceReferences.find((ref) => ref.sourceType === 'sourcing_candidate')
+        ?.sourceCandidateId ?? null;
+    const imageOnlyBase = generationMode === 'image'
+      ? await this.findImageOnlyBaseGeneration({
+        organizationId,
+        productId: dto.productId ?? null,
+        sourceCandidateId: primarySourceCandidateId,
+        templateId,
+      })
+      : null;
+    if (generationMode === 'image') {
+      if (!imageOnlyBase) {
+        throw new BadRequestException('이미지만 생성하려면 먼저 같은 후보/템플릿의 카피 생성 결과가 필요합니다.');
+      }
+      rawInput.baseContentGenerationId = imageOnlyBase.id;
+    }
 
     return this.enqueueGeneration({
       organizationId,
@@ -148,6 +167,7 @@ export class DetailPageGenerationService {
       imageUrls,
       rawInput,
       sourceReferences,
+      existingResult: imageOnlyBase?.result,
     });
   }
 
@@ -161,6 +181,7 @@ export class DetailPageGenerationService {
     imageUrls: string[];
     rawInput: DetailPageRawInput;
     sourceReferences: DetailPageSourceReference[];
+    existingResult?: unknown;
     generationGroupId?: string | null;
   }): Promise<DetailPageGenerationDto> {
     const targetMaster = input.productId
@@ -276,6 +297,10 @@ export class DetailPageGenerationService {
             kcCertificationNumber: input.rawInput.kcCertificationNumber,
           },
           heroImageMode: input.heroImageMode,
+          generationMode: input.rawInput.generationMode ?? 'full',
+          ...(input.existingResult !== undefined
+            ? { existingResult: input.existingResult }
+            : {}),
         },
       },
     );
@@ -381,6 +406,52 @@ export class DetailPageGenerationService {
       sourceReferences: rawInput.sourceReferences ?? [],
       generationGroupId,
     });
+  }
+
+  private async findImageOnlyBaseGeneration(input: {
+    organizationId: string;
+    productId: string | null;
+    sourceCandidateId: string | null;
+    templateId: DetailPageTemplateId;
+  }): Promise<{ id: string; result: unknown } | null> {
+    const sourceCandidateId = input.sourceCandidateId;
+    if (!input.productId && !sourceCandidateId) return null;
+    const where: Prisma.ContentGenerationWhereInput = {
+      organizationId: input.organizationId,
+      contentType: 'detail_page',
+      templateId: input.templateId,
+      status: { in: ['READY', 'completed'] },
+      ...(input.productId
+        ? { generationGroup: { targetMasterId: input.productId } }
+        : {
+            OR: [
+              { sourceCandidateId },
+              { sources: { some: { sourceCandidateId } } },
+              { detailPageArtifact: { is: { sourceCandidateId } } },
+            ],
+          }),
+    };
+    const row = await this.prisma.contentGeneration.findFirst({
+      where,
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        generationInput: true,
+        generationResult: true,
+        templateId: true,
+        generatedTitle: true,
+      },
+    });
+    if (!row) return null;
+    const stored = toDetailPageStoredJson({
+      templateId: this.normalizeTemplateId(row.templateId),
+      generationInput: row.generationInput,
+      generationResult: row.generationResult,
+    });
+    if (!stored.result || typeof stored.result !== 'object' || Object.keys(stored.result).length === 0) {
+      return null;
+    }
+    return { id: row.id, result: stored.result };
   }
 
   private async createGenerationGroupForInput(input: {

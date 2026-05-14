@@ -303,6 +303,13 @@ describe('ThumbnailGenerationService normalized persistence', () => {
           id: SOURCE_CANDIDATE_ID,
           name: 'Candidate toy',
           category: 'Toys',
+          images: [
+            {
+              id: 'candidate-image-1',
+              url: 'http://storage.local/kiditem/thumbnail-inputs/x.jpg',
+              storageKey: 'thumbnail-inputs/x.jpg',
+            },
+          ],
         })),
       },
       thumbnailGeneration: {
@@ -332,7 +339,15 @@ describe('ThumbnailGenerationService normalized persistence', () => {
     expect(result).toEqual({ generationId: GENERATION_ID, status: 'pending' });
     expect(prisma.sourcingCandidate.findFirst).toHaveBeenCalledWith({
       where: { id: SOURCE_CANDIDATE_ID, organizationId: ORGANIZATION_ID, isDeleted: false },
-      select: { id: true, name: true, category: true },
+      select: {
+        id: true,
+        name: true,
+        category: true,
+        images: {
+          where: { isDeleted: false },
+          select: { id: true, url: true, storageKey: true },
+        },
+      },
     });
     expect(prisma.thumbnailGeneration.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
@@ -349,6 +364,8 @@ describe('ThumbnailGenerationService normalized persistence', () => {
           organizationId: ORGANIZATION_ID,
           generationId: GENERATION_ID,
           source: 'sourcing_candidate',
+          candidateImageId: 'candidate-image-1',
+          storageKey: 'thumbnail-inputs/x.jpg',
         }),
       ],
     });

@@ -29,6 +29,8 @@ export const DETAIL_PAGE_GENERATE_AGENT_TYPE = 'detail_page_generate' as const;
  */
 export const DetailPageGenerateAgentInputSchema = z.object({
   templateId: DetailPageTemplateIdSchema,
+  generationMode: z.enum(['draft', 'image', 'full']).optional().default('full'),
+  existingResult: z.unknown().optional(),
   raw: z
     .object({
       rawTitle: z.string(),

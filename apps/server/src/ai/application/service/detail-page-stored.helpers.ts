@@ -138,12 +138,21 @@ export function normalizeStoredDetailPageRawInput(input: {
     imageUrls: input.imageUrls,
     heroImageMode: pickStoredHeroMode(rawInput),
     templateId: input.templateId,
+    generationMode: pickStoredGenerationMode(rawInput),
+    baseContentGenerationId: pickStoredString(rawInput, 'baseContentGenerationId') ?? undefined,
     ageGroup: pickStoredAgeGroup(rawInput),
     detailImageCount: pickStoredDetailImageCount(rawInput),
     usageSectionMode: pickStoredUsageSectionMode(rawInput),
     kcCertificationStatus: pickStoredKcCertificationStatus(rawInput),
     kcCertificationNumber: pickStoredString(rawInput, 'kcCertificationNumber') ?? '',
   };
+}
+
+function pickStoredGenerationMode(rawInput: unknown): 'draft' | 'image' | 'full' {
+  if (!rawInput || typeof rawInput !== 'object') return 'full';
+  const value = (rawInput as Record<string, unknown>).generationMode;
+  if (value === 'draft' || value === 'image') return value;
+  return 'full';
 }
 
 /**

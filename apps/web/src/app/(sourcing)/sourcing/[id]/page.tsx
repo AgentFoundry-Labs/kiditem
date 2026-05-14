@@ -17,6 +17,9 @@ import { GenerationProgressBannerStack } from './components/GenerationProgressBa
 import { useAllGenerationsInProgress } from '@/app/(media-ai)/generate/hooks/useKidsPlayfulGenerate';
 import { useProductDetail } from './hooks/useProductDetail';
 import { useSourcingThumbnailGenerations } from './hooks/useGenerateSourcingThumbnail';
+import {
+  selectedThumbnailGenerationCandidateId as resolveSelectedThumbnailGenerationCandidateId,
+} from '../lib/registration-selection';
 import { PLACEHOLDER_DATA, type ProductEditState } from './lib/types';
 
 export default function ProductDetailPage() {
@@ -38,6 +41,7 @@ export default function ProductDetailPage() {
   const [selectedKidsPlayfulId, setSelectedKidsPlayfulId] = useState<string | null>(null);
   const [selectedBoldVerticalId, setSelectedBoldVerticalId] = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [selectedRegistrationThumbnailUrl, setSelectedRegistrationThumbnailUrl] = useState<string | null>(null);
 
   const goBack = () => router.push('/sourcing');
 
@@ -56,14 +60,11 @@ export default function ProductDetailPage() {
   const inProgressEntries = useAllGenerationsInProgress(productId);
   const thumbnailGenerations = useSourcingThumbnailGenerations(productId);
   const selectedThumbnailGenerationCandidateId = useMemo(() => {
-    const selectedUrl = editData.thumbnails[0];
-    if (!selectedUrl) return null;
-    for (const generation of thumbnailGenerations.data ?? []) {
-      const candidate = generation.candidates.find((item) => item.url === selectedUrl);
-      if (candidate?.id) return candidate.id;
-    }
-    return null;
-  }, [editData.thumbnails, thumbnailGenerations.data]);
+    return resolveSelectedThumbnailGenerationCandidateId(
+      selectedRegistrationThumbnailUrl,
+      thumbnailGenerations.data ?? [],
+    );
+  }, [selectedRegistrationThumbnailUrl, thumbnailGenerations.data]);
   const loadError = queryError
     ? isApiError(queryError)
       ? queryError.detail
@@ -80,6 +81,12 @@ export default function ProductDetailPage() {
     value: ProductEditState[K],
   ) => {
     setEditData((prev) => ({ ...prev, [field]: value }));
+    if (field === 'thumbnails') {
+      const next = value as string[];
+      setSelectedRegistrationThumbnailUrl((selected) =>
+        selected && !next.includes(selected) ? null : selected,
+      );
+    }
   };
 
   const detailPreviewHtml = useMemo(() => {
@@ -121,7 +128,7 @@ export default function ProductDetailPage() {
         promotedMasterId={promotedMasterId}
         isEditComplete={isEditComplete}
         isLocked={isLocked}
-        selectedThumbnailUrl={editData.thumbnails[0] ?? product?.thumbnail_url ?? null}
+        selectedThumbnailUrl={selectedRegistrationThumbnailUrl}
         selectedThumbnailGenerationCandidateId={selectedThumbnailGenerationCandidateId}
         selectedDetailPageGenerationId={selectedAgentId}
         onToggleEditComplete={() => setIsEditComplete((v) => !v)}
@@ -192,6 +199,8 @@ export default function ProductDetailPage() {
                 }
                 setActiveTab('detail');
               }}
+              selectedRegistrationThumbnailUrl={selectedRegistrationThumbnailUrl}
+              onSelectRegistrationThumbnail={setSelectedRegistrationThumbnailUrl}
             />
           </div>
         </div>
@@ -201,7 +210,9 @@ export default function ProductDetailPage() {
             <MobilePreview
               name={editData.name}
               mainImage={
-                editData.thumbnails[0] ?? 'https://placehold.co/400x400/e2e8f0/64748b?text=No+Image'
+                selectedRegistrationThumbnailUrl ??
+                editData.thumbnails[0] ??
+                'https://placehold.co/400x400/e2e8f0/64748b?text=No+Image'
               }
               salePrice={editData.salePrice}
               originalPrice={editData.originalPrice}

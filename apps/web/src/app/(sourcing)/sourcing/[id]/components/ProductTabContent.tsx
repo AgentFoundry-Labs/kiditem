@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo } from 'react';
+import { useMemo } from 'react';
 import { ChevronDown, Settings } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -15,6 +15,7 @@ import { CATEGORIES } from '../lib/types';
 import GenerationHistoryTab from './GenerationHistoryTab';
 import DetailPagePreview from './DetailPagePreview';
 import { LinkedProducedContentPanel } from './LinkedProducedContentPanel';
+import { buildRegistrationThumbnailOptions } from '../../lib/registration-selection';
 import type { EditTabType } from '../../components/detail/ProductEditTabs';
 import type { ProductEditState } from '../lib/types';
 
@@ -40,6 +41,8 @@ interface Props {
   onSelectKidsPlayful: (id: string | null) => void;
   onSelectBoldVertical: (id: string | null) => void;
   onSelectAgent: (id: string | null) => void;
+  selectedRegistrationThumbnailUrl: string | null;
+  onSelectRegistrationThumbnail: (url: string | null) => void;
 }
 
 export default function ProductTabContent({
@@ -61,36 +64,23 @@ export default function ProductTabContent({
   onSelectKidsPlayful,
   onSelectBoldVertical,
   onSelectAgent,
+  selectedRegistrationThumbnailUrl,
+  onSelectRegistrationThumbnail,
 }: Props) {
   const generateThumbnail = useGenerateSourcingThumbnail();
   const thumbnailGenerations = useSourcingThumbnailGenerations(productId);
-  const generatedThumbnailUrls = useMemo(() => {
-    const urls = (thumbnailGenerations.data ?? [])
-      .flatMap((generation) => generation.candidates.map((candidate) => candidate.url))
-      .filter((url): url is string => typeof url === 'string' && url.length > 0);
-    return [...new Set(urls)];
-  }, [thumbnailGenerations.data]);
+  const thumbnailOptions = useMemo(() => {
+    return buildRegistrationThumbnailOptions({
+      sourceImageUrls: editData.thumbnails,
+      generations: thumbnailGenerations.data ?? [],
+    });
+  }, [editData.thumbnails, thumbnailGenerations.data]);
   const hasThumbnailGenerationInProgress = (thumbnailGenerations.data ?? []).some(
     (generation) => generation.status === 'pending' || generation.status === 'running',
   );
 
-  useEffect(() => {
-    if (generatedThumbnailUrls.length === 0) return;
-    const nextThumbnails = [
-      ...generatedThumbnailUrls,
-      ...editData.thumbnails.filter((url) => !generatedThumbnailUrls.includes(url)),
-    ].slice(0, 10);
-    if (
-      nextThumbnails.length === editData.thumbnails.length &&
-      nextThumbnails.every((url, index) => url === editData.thumbnails[index])
-    ) {
-      return;
-    }
-    updateField('thumbnails', nextThumbnails);
-  }, [editData.thumbnails, generatedThumbnailUrls, updateField]);
-
   const handleGenerateThumbnail = async () => {
-    const productImage = editData.thumbnails[0];
+    const productImage = selectedRegistrationThumbnailUrl ?? editData.thumbnails[0];
     if (!productImage) {
       toast.error('먼저 원본 썸네일 이미지를 추가해주세요');
       return;
@@ -103,21 +93,16 @@ export default function ProductTabContent({
         productName: editData.name,
         productDescription: editData.name,
       });
-      const generatedUrls = result.candidates.map((candidate) => candidate.url).filter(Boolean);
       if (result.status === 'pending' || result.generationId) {
         toast.success('AI 썸네일 생성이 시작되었습니다');
         return;
       }
+      const generatedUrls = result.candidates.map((candidate) => candidate.url).filter(Boolean);
       if (generatedUrls.length === 0) {
         toast.error('생성된 썸네일이 없습니다');
         return;
       }
 
-      const nextThumbnails = [
-        ...generatedUrls,
-        ...editData.thumbnails.filter((url) => !generatedUrls.includes(url)),
-      ].slice(0, 10);
-      updateField('thumbnails', nextThumbnails);
       toast.success(`AI 썸네일 ${generatedUrls.length}장 생성 완료`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'AI 썸네일 생성 실패');
@@ -131,6 +116,9 @@ export default function ProductTabContent({
           <div className="card p-5">
             <ThumbnailGrid
               thumbnails={editData.thumbnails}
+              registrationOptions={thumbnailOptions}
+              selectedRegistrationThumbnailUrl={selectedRegistrationThumbnailUrl}
+              onSelectRegistrationThumbnail={onSelectRegistrationThumbnail}
               onThumbnailsChange={(v) => updateField('thumbnails', v)}
               onGenerateThumbnail={handleGenerateThumbnail}
               isGeneratingThumbnail={generateThumbnail.isPending || hasThumbnailGenerationInProgress}

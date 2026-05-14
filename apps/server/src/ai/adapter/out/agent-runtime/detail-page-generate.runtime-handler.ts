@@ -105,6 +105,8 @@ export class DetailPageGenerateRuntimeHandler
 
     const {
       templateId,
+      generationMode,
+      existingResult,
       raw,
       heroImageMode,
       reservedPackageImageIndices,
@@ -126,6 +128,36 @@ export class DetailPageGenerateRuntimeHandler
       kcCertificationStatus: raw.kcCertificationStatus,
       kcCertificationNumber: raw.kcCertificationNumber,
     };
+
+    if (generationMode === 'image') {
+      if (existingResult === undefined) {
+        throw new AgentOsRuntimeError(
+          'existing_detail_page_result_required',
+          'image-only detail_page_generate requires an existing detail-page result.',
+        );
+      }
+      const schema = isBoldVertical
+        ? BoldVerticalGenerationSchema
+        : DetailPageGenerationSchema;
+      const validated = schema.parse(existingResult);
+      const output = isBoldVertical
+        ? {
+            templateId: 'bold-vertical' as const,
+            result: validated as BoldVerticalGeneration,
+            imageUrls: rawInput.imageUrls,
+          }
+        : {
+            templateId: 'kids-playful' as const,
+            result: validated as DetailPageGeneration,
+            imageUrls: rawInput.imageUrls,
+            reservedPackageImageIndices: [],
+            safetyLabelImageIndices: [],
+          };
+      return {
+        output,
+        provider: 'stored-detail-page',
+      };
+    }
 
     // Kids-playful prompt + image-selection rules need the package /
     // safety-label image hints. The producer side used to pre-compute

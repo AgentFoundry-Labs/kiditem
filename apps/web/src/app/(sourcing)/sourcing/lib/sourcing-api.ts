@@ -18,6 +18,7 @@ export interface SourcedProduct {
   thumbnailUrl: string | null;
   thumbnail_url: string | null;
   imageUrl?: string | null;
+  images?: Array<{ id?: string; url: string; sortOrder?: number | null; isPrimary?: boolean | null }>;
   promotedMasterId: string | null;
   rejectedAt?: string | null;
   rejectedReason?: string | null;
@@ -55,6 +56,7 @@ export interface ProductDetailResponse {
   raw_data: Record<string, unknown> | null;
   processed_data: Record<string, unknown> | null;
   image_urls: string[];
+  images: Array<{ id?: string; url: string; sortOrder?: number | null; isPrimary?: boolean | null }>;
   created_at: string;
   updated_at: string;
 }
@@ -221,7 +223,14 @@ export const productsApi = {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const items: SourcedProduct[] = data.items.map((p: any) => {
       const rawData = (p.rawData as Record<string, unknown>) || {};
+      const candidateImageUrls = Array.isArray(p.images)
+        ? (p.images
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .map((img: any) => (typeof img?.url === 'string' ? img.url : null))
+            .filter((u: string | null): u is string => !!u))
+        : [];
       const images = collectImageUrls(
+        candidateImageUrls,
         rawImageCandidates(rawData),
         p.imageUrl,
         p.thumbnailUrl,
@@ -240,6 +249,7 @@ export const productsApi = {
         thumbnailUrl,
         thumbnail_url: thumbnailUrl,
         imageUrl: p.imageUrl ?? null,
+        images: Array.isArray(p.images) ? p.images : [],
         promotedMasterId: p.promotedMasterId ?? null,
         rejectedAt: p.rejectedAt ?? null,
         rejectedReason: p.rejectedReason ?? null,
@@ -293,6 +303,7 @@ export const productsApi = {
       raw_data: hydratedRawData,
       processed_data: p.processedData || p.processed_data || null,
       image_urls: images,
+      images: Array.isArray(p.images) ? p.images : [],
       created_at: p.createdAt || '',
       updated_at: p.updatedAt || '',
     };

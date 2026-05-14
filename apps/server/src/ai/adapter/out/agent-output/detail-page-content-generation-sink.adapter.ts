@@ -122,12 +122,14 @@ export class DetailPageContentGenerationSinkAdapter
       timeoutMs: GENERATED_IMAGE_TIMEOUT_MS,
     });
 
-    await this.contentAssets.recordDetailPageGeneratedAssets({
-      organizationId: input.organizationId,
-      contentGenerationId: row.id,
-      generationGroupId: row.generationGroupId,
-      processedImages,
-    });
+    if (Object.keys(processedImages).length > 0) {
+      await this.contentAssets.recordDetailPageGeneratedAssets({
+        organizationId: input.organizationId,
+        contentGenerationId: row.id,
+        generationGroupId: row.generationGroupId,
+        processedImages,
+      });
+    }
 
     const detailPageArtifactId = await this.ensureDetailPageArtifact({
       organizationId: input.organizationId,
@@ -293,6 +295,10 @@ export class DetailPageContentGenerationSinkAdapter
       templateId: input.output.templateId,
       productName: input.productName,
     });
+    if (input.stored.rawInput && typeof input.stored.rawInput === 'object') {
+      const generationMode = (input.stored.rawInput as Record<string, unknown>).generationMode;
+      if (generationMode === 'draft') return {};
+    }
 
     const excludedImageIndices = collectExcludedImageIndices(input.output);
 

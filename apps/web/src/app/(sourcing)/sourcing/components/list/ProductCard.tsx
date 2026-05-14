@@ -48,6 +48,7 @@ export default function ProductCard({
           productName: product.name,
           rawData: detail.raw_data,
           templateId: templateId as DetailPageTemplateId,
+          generationMode: templateId === 'kids-playful' ? 'full' : mode,
           imageUrls: detail.image_urls,
         });
       } catch {
