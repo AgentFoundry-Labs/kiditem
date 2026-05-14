@@ -20,10 +20,16 @@ import {
   adaptBoldVerticalToDetailPageData,
   type BoldVerticalGeneration,
 } from '@/app/(media-ai)/generate/lib/bold-vertical-types';
-import { ensureStyledDetailHtml } from '../../../lib/template-html';
+import { ensureStyledDetailHtml, isRenderableDetailHtml } from '../../../lib/template-html';
 import DetailPageEditor from './DetailPageEditor';
 import EditorErrorScreen from './EditorErrorScreen';
 import EditorLoadingScreen from './EditorLoadingScreen';
+
+interface EditedHtmlResponse {
+  html: string | null;
+  savedAt: string | null;
+  assetUrlMap?: Record<string, string>;
+}
 
 export function ContentGenerationEditorSurface({
   generationId,
@@ -44,7 +50,7 @@ export function ContentGenerationEditorSurface({
   const { data: editedHtmlRow, isLoading: isEditedHtmlLoading } = useQuery({
     queryKey: queryKeys.productContent.generationEditedHtml(generationId),
     queryFn: () =>
-      apiClient.get<{ html: string | null; savedAt: string | null }>(
+      apiClient.get<EditedHtmlResponse>(
         `/api/ai/detail-page/${encodeURIComponent(generationId)}/edited-html`,
       ),
   });
@@ -72,16 +78,19 @@ export function ContentGenerationEditorSurface({
       ? entryError.detail
       : '선택한 생성 이력을 불러올 수 없습니다.'
     : activeFailureMessage;
+  const validEditedHtml = isRenderableDetailHtml(editedHtmlRow?.html)
+    ? editedHtmlRow.html
+    : null;
 
   const editorHtml = useMemo(() => {
-    if (editedHtmlRow?.html) {
-      return ensureStyledDetailHtml(editedHtmlRow.html, templateCss);
+    if (validEditedHtml) {
+      return ensureStyledDetailHtml(validEditedHtml, templateCss);
     }
     if (entryReady && entry) {
       return renderGenerationHtml(entry, templateCss);
     }
     return '';
-  }, [editedHtmlRow?.html, entry, entryReady, templateCss]);
+  }, [entry, entryReady, templateCss, validEditedHtml]);
 
   const handleClose = () => {
     router.push(closeHref);
@@ -89,7 +98,7 @@ export function ContentGenerationEditorSurface({
 
   const handleSave = async (html: string) => {
     try {
-      await apiClient.post<{ html: string; savedAt: string; assetUrlMap?: Record<string, string> }>(
+      const saved = await apiClient.post<EditedHtmlResponse>(
         `/api/ai/detail-page/${encodeURIComponent(generationId)}/edited-html`,
         { html },
       );
@@ -109,6 +118,7 @@ export function ContentGenerationEditorSurface({
           : []),
       ]);
       handleClose();
+      return saved;
     } catch (err) {
       const msg = isApiError(err) ? err.detail : '저장 실패';
       toast.error(msg);
@@ -120,7 +130,7 @@ export function ContentGenerationEditorSurface({
     return <EditorLoadingScreen />;
   }
 
-  if (error || !entry || (!editedHtmlRow?.html && !entryReady)) {
+  if (error || !entry || (!validEditedHtml && !entryReady)) {
     return (
       <EditorErrorScreen
         error={error ?? '편집할 상세페이지 작업물을 찾을 수 없습니다.'}
@@ -150,6 +160,7 @@ export function ContentGenerationEditorSurface({
             templateCss={templateCss}
             productName={entry.productName ?? ''}
             productId={entry.productId ?? candidateId ?? undefined}
+            contentGenerationId={generationId}
             rawImages={entry.imageUrls}
             processedImages={Object.values(entry.processedImages)}
             onSave={handleSave}

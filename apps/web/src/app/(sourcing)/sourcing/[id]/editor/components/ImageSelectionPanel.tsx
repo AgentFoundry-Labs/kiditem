@@ -23,9 +23,12 @@ interface ImageSelectionPanelProps {
   component: any;
   editor: any;
   imageUrl: string;
+  productId?: string;
+  contentGenerationId?: string;
   isBusy: MutableRefObject<boolean>;
-  onEditComplete: (newImageUrl: string) => void;
+  onEditComplete: (newImageUrl: string, component?: any) => void;
   onReplace: () => void;
+  onGeneratingChange?: (v: boolean, component?: any, imageUrl?: string) => void;
   onClose: () => void;
 }
 
@@ -139,9 +142,12 @@ export function ImageSelectionPanel({
   component,
   editor,
   imageUrl,
+  productId,
+  contentGenerationId,
   isBusy,
   onEditComplete,
   onReplace,
+  onGeneratingChange,
   onClose,
 }: ImageSelectionPanelProps) {
   const [width, setWidth] = useState(100);
@@ -181,9 +187,9 @@ export function ImageSelectionPanel({
   const handleEditComplete = useCallback(
     (newImageUrl: string) => {
       setCurrentImageUrl(newImageUrl);
-      onEditComplete(newImageUrl);
+      onEditComplete(newImageUrl, component);
     },
-    [onEditComplete],
+    [component, onEditComplete],
   );
 
   const commitWidth = useCallback(
@@ -245,8 +251,12 @@ export function ImageSelectionPanel({
 
   const handleDelete = useCallback(() => {
     component?.remove?.();
+    editor?.select?.(null);
+    editor?.trigger?.('component:remove', component);
+    editor?.trigger?.('update');
+    editor?.refresh?.();
     onClose();
-  }, [component, onClose]);
+  }, [component, editor, onClose]);
 
   const handleRestoreOriginal = useCallback(() => {
     if (!originalImageUrl) return;
@@ -443,9 +453,12 @@ export function ImageSelectionPanel({
 
       <AIImageEditPanel
         imageUrl={currentImageUrl}
+        productId={productId}
+        contentGenerationId={contentGenerationId}
         isBusy={isBusy}
         onEditComplete={handleEditComplete}
         onReplace={onReplace}
+        onGeneratingChange={(value) => onGeneratingChange?.(value, component, currentImageUrl)}
         onClose={onClose}
       />
     </div>

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   looksLikeSafetyLabelImage,
   moveSafetyLabelImagesToEnd,
+  trimSafetyLabelWhitespace,
 } from '../detail-page-image-order';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -36,6 +37,20 @@ describe('detail-page-image-order', () => {
       .toBuffer();
 
     await expect(looksLikeSafetyLabelImage(buffer)).resolves.toBe(false);
+  });
+
+  it('trims outer white whitespace from safety label images', async () => {
+    const buffer = await sharp(Buffer.from(buildSafetyLabelWithWhiteMarginSvg()))
+      .png()
+      .toBuffer();
+
+    const trimmed = await trimSafetyLabelWhitespace(buffer);
+    const metadata = await sharp(trimmed).metadata();
+
+    expect(metadata.width).toBeLessThan(760);
+    expect(metadata.height).toBeLessThan(520);
+    expect(metadata.width).toBeGreaterThan(560);
+    expect(metadata.height).toBeGreaterThan(300);
   });
 });
 
@@ -80,6 +95,26 @@ function buildProductCutSvg(): string {
       <rect width="800" height="800" fill="#fff"/>
       <circle cx="400" cy="390" r="190" fill="#50a7f2"/>
       <rect x="270" y="520" width="260" height="80" rx="28" fill="#f7d34f"/>
+    </svg>
+  `;
+}
+
+function buildSafetyLabelWithWhiteMarginSvg(): string {
+  return `
+    <svg xmlns="http://www.w3.org/2000/svg" width="820" height="620" viewBox="0 0 820 620">
+      <rect width="820" height="620" fill="#fff"/>
+      <rect x="90" y="150" width="640" height="340" fill="#f8f6f0" stroke="#111" stroke-width="6"/>
+      <rect x="120" y="178" width="260" height="24" fill="#111"/>
+      <rect x="120" y="222" width="260" height="12" fill="#111"/>
+      <rect x="120" y="252" width="360" height="12" fill="#111"/>
+      <rect x="120" y="282" width="310" height="12" fill="#111"/>
+      ${Array.from({ length: 56 }, (_, i) => {
+        const x = 190 + i * 7;
+        const width = i % 5 === 0 ? 5 : i % 2 === 0 ? 3 : 1;
+        return `<rect x="${x}" y="330" width="${width}" height="100" fill="#111"/>`;
+      }).join('')}
+      <rect x="150" y="450" width="72" height="24" fill="#111"/>
+      <rect x="590" y="215" width="88" height="88" fill="none" stroke="#111" stroke-width="14"/>
     </svg>
   `;
 }

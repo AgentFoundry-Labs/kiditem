@@ -28,6 +28,7 @@ import type { MulterFile } from '../../../common/types';
 import {
   looksLikeSafetyLabelImage,
   moveSafetyLabelImagesToEnd,
+  trimSafetyLabelWhitespace,
 } from '../../domain/detail-page-image-order';
 import type {
   DetailImageCount,
@@ -93,9 +94,12 @@ export class DetailPageGenerationService {
     }
     const ext = this.extForMime(file.mimetype);
     const fileRole = await this.detectUploadedImageRole(file.buffer);
+    const buffer = fileRole === 'safety-label'
+      ? await this.trimSafetyLabelImage(file.buffer)
+      : file.buffer;
     const url = await this.imageStorage.save(
       `detail-page-inputs/${organizationId}/${fileRole}-${randomUUID()}.${ext}`,
-      file.buffer,
+      buffer,
       file.mimetype,
     );
     return { url };
@@ -256,8 +260,8 @@ export class DetailPageGenerationService {
       sourceType: 'content_generation',
       sourceId: row.id,
       actorUserId: input.triggeredByUserId,
-      targetType: input.productId ? 'master' : 'content_generation',
-      targetId: input.productId ?? row.id,
+      targetType: input.productId ? 'master' : null,
+      targetId: input.productId ?? null,
       href: detailPageResultHref({
         productId: targetMaster?.id ?? null,
         sourceCandidateId: primarySourceCandidateId,
@@ -730,6 +734,15 @@ export class DetailPageGenerationService {
       return await looksLikeSafetyLabelImage(buffer) ? 'safety-label' : 'product';
     } catch {
       return 'product';
+    }
+  }
+
+  private async trimSafetyLabelImage(buffer: Buffer): Promise<Buffer> {
+    try {
+      return await trimSafetyLabelWhitespace(buffer);
+    } catch (error) {
+      this.logger.warn(`Failed to trim safety label image whitespace: ${error instanceof Error ? error.message : String(error)}`);
+      return buffer;
     }
   }
 }
