@@ -5,7 +5,11 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { AgentOsModule } from '../../agent-os/agent-os.module';
 import { AutomationModule } from '../../automation/automation.module';
 
-import { AdvertisingController } from '../adapter/in/http/advertising.controller';
+import { AdvertisingActionsController } from '../adapter/in/http/advertising-actions.controller';
+import { AdvertisingConfigController } from '../adapter/in/http/advertising-config.controller';
+import { AdvertisingExecutionController } from '../adapter/in/http/advertising-execution.controller';
+import { AdvertisingIngestController } from '../adapter/in/http/advertising-ingest.controller';
+import { AdvertisingWorkspaceController } from '../adapter/in/http/advertising-workspace.controller';
 import { AdStrategyAgentController } from '../adapter/in/http/ad-strategy-agent.controller';
 
 // adapter/out/repository
@@ -72,7 +76,14 @@ describe('AdvertisingModule capability wiring', () => {
     const controllers: unknown[] =
       Reflect.getMetadata(CONTROLLERS_KEY, AdvertisingModule) ?? [];
     expect(new Set(controllers)).toEqual(
-      new Set([AdvertisingController, AdStrategyAgentController]),
+      new Set([
+        AdvertisingActionsController,
+        AdvertisingConfigController,
+        AdvertisingExecutionController,
+        AdvertisingIngestController,
+        AdvertisingWorkspaceController,
+        AdStrategyAgentController,
+      ]),
     );
   });
 
@@ -145,7 +156,15 @@ describe('AdvertisingModule capability wiring', () => {
   });
 
   it('keeps public /api route prefixes for ads + ad-agent', () => {
-    expect(Reflect.getMetadata(PATH_KEY, AdvertisingController)).toBe('ads');
+    for (const controller of [
+      AdvertisingActionsController,
+      AdvertisingConfigController,
+      AdvertisingExecutionController,
+      AdvertisingIngestController,
+      AdvertisingWorkspaceController,
+    ]) {
+      expect(Reflect.getMetadata(PATH_KEY, controller)).toBe('ads');
+    }
     expect(Reflect.getMetadata(PATH_KEY, AdStrategyAgentController)).toBe('ad-agent');
   });
 });

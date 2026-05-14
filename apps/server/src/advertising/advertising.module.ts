@@ -3,7 +3,11 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { AgentOsModule } from '../agent-os/agent-os.module';
 import { AutomationModule } from '../automation/automation.module';
 
-import { AdvertisingController } from './adapter/in/http/advertising.controller';
+import { AdvertisingActionsController } from './adapter/in/http/advertising-actions.controller';
+import { AdvertisingConfigController } from './adapter/in/http/advertising-config.controller';
+import { AdvertisingExecutionController } from './adapter/in/http/advertising-execution.controller';
+import { AdvertisingIngestController } from './adapter/in/http/advertising-ingest.controller';
+import { AdvertisingWorkspaceController } from './adapter/in/http/advertising-workspace.controller';
 import { AdStrategyAgentController } from './adapter/in/http/ad-strategy-agent.controller';
 
 // adapter/out/repository
@@ -84,7 +88,14 @@ const REPOSITORY_PORT_BINDINGS = [
 
 @Module({
   imports: [PrismaModule, AgentOsModule, AutomationModule],
-  controllers: [AdvertisingController, AdStrategyAgentController],
+  controllers: [
+    AdvertisingConfigController,
+    AdvertisingWorkspaceController,
+    AdvertisingIngestController,
+    AdvertisingActionsController,
+    AdvertisingExecutionController,
+    AdStrategyAgentController,
+  ],
   providers: [
     // adapter/out/repository
     ScrapeTargetRepositoryAdapter,

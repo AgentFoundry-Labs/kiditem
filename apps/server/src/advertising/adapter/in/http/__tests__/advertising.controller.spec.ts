@@ -5,7 +5,11 @@ vi.mock('../../../../application/service/ad-strategy.service', () => ({
   AdStrategyService: class AdStrategyService {},
 }));
 
-import { AdvertisingController } from '../advertising.controller';
+import { AdvertisingActionsController } from '../advertising-actions.controller';
+import { AdvertisingConfigController } from '../advertising-config.controller';
+import { AdvertisingExecutionController } from '../advertising-execution.controller';
+import { AdvertisingIngestController } from '../advertising-ingest.controller';
+import { AdvertisingWorkspaceController } from '../advertising-workspace.controller';
 
 // Controller wiring: this spec keeps the cases where the controller does
 // real work — defaults, body→service transformations, command/sub-action
@@ -62,44 +66,79 @@ function makeServices() {
   };
 }
 
-function makeController(svcs = makeServices()) {
-  const ctrl = new AdvertisingController(
+function makeControllers(svcs = makeServices()) {
+  const workspaceCtrl = new AdvertisingWorkspaceController(
     svcs.advertising as any,
     svcs.campaigns as any,
     svcs.strategy as any,
     svcs.benchmark as any,
+  );
+  const ingestCtrl = new AdvertisingIngestController(
     svcs.collect as any,
     svcs.sync as any,
-    svcs.action as any,
-    svcs.execution as any,
-    svcs.config as any,
   );
-  return { ctrl, svcs };
+  const actionCtrl = new AdvertisingActionsController(svcs.action as any);
+  const executionCtrl = new AdvertisingExecutionController(svcs.execution as any);
+  const configCtrl = new AdvertisingConfigController(svcs.config as any);
+
+  return {
+    workspaceCtrl,
+    ingestCtrl,
+    actionCtrl,
+    executionCtrl,
+    configCtrl,
+    svcs,
+  };
+}
+
+function makeActionController(svcs = makeServices()) {
+  const { actionCtrl, svcs: services } = makeControllers(svcs);
+  return { ctrl: actionCtrl, svcs: services };
+}
+
+function makeIngestController(svcs = makeServices()) {
+  const { ingestCtrl, svcs: services } = makeControllers(svcs);
+  return { ctrl: ingestCtrl, svcs: services };
+}
+
+function makeExecutionController(svcs = makeServices()) {
+  const { executionCtrl, svcs: services } = makeControllers(svcs);
+  return { ctrl: executionCtrl, svcs: services };
+}
+
+function makeConfigController(svcs = makeServices()) {
+  const { configCtrl, svcs: services } = makeControllers(svcs);
+  return { ctrl: configCtrl, svcs: services };
+}
+
+function makeWorkspaceController(svcs = makeServices()) {
+  const { workspaceCtrl, svcs: services } = makeControllers(svcs);
+  return { ctrl: workspaceCtrl, svcs: services };
 }
 
 const COMPANY = 'organization-1';
 
 describe('AdvertisingController — defaults + body transformations', () => {
   it('PATCH /:id/tier extracts adTier from body before delegating', () => {
-    const { ctrl, svcs } = makeController();
+    const { ctrl, svcs } = makeWorkspaceController();
     ctrl.changeTier('ad-1', { adTier: 'A' } as any, COMPANY);
     expect(svcs.advertising.changeTier).toHaveBeenCalledWith('ad-1', 'A', COMPANY);
   });
 
   it('GET /campaigns falls back to period 7d when query omitted', () => {
-    const { ctrl, svcs } = makeController();
+    const { ctrl, svcs } = makeWorkspaceController();
     ctrl.getCampaigns({} as any, COMPANY);
     expect(svcs.campaigns.getCampaigns).toHaveBeenCalledWith('7d', undefined, COMPANY);
   });
 
   it('GET /strategy/rules falls back to period 14d when query omitted', () => {
-    const { ctrl, svcs } = makeController();
+    const { ctrl, svcs } = makeWorkspaceController();
     ctrl.getRules({} as any, COMPANY);
     expect(svcs.strategy.getRules).toHaveBeenCalledWith('14d', COMPANY);
   });
 
   it('POST /execution/lease bundles label/pageType/limit into options object', () => {
-    const { ctrl, svcs } = makeController();
+    const { ctrl, svcs } = makeExecutionController();
     ctrl.executionLease(
       { workerKey: 'w1', label: 'L', pageType: 'campaign', limit: 3 } as any,
       COMPANY,
@@ -112,7 +151,7 @@ describe('AdvertisingController — defaults + body transformations', () => {
   });
 
   it('POST /execution/heartbeat bundles currentUrl/currentPageType into meta', () => {
-    const { ctrl, svcs } = makeController();
+    const { ctrl, svcs } = makeExecutionController();
     ctrl.executionHeartbeat(
       { workerKey: 'w1', currentUrl: 'http://x', currentPageType: 'keyword' } as any,
       COMPANY,
@@ -125,7 +164,7 @@ describe('AdvertisingController — defaults + body transformations', () => {
   });
 
   it('PATCH /config/:key prefixes the key with "ads." before delegating', () => {
-    const { ctrl, svcs } = makeController();
+    const { ctrl, svcs } = makeConfigController();
     ctrl.updateConfig('minRoas', { value: 200 } as any, COMPANY);
     expect(svcs.config.updateConfig).toHaveBeenCalledWith('ads.minRoas', 200, COMPANY);
   });
@@ -133,13 +172,13 @@ describe('AdvertisingController — defaults + body transformations', () => {
 
 describe('AdvertisingController — POST /scrape-targets dispatch', () => {
   it('action=markScraped → sync.markScraped(id, organizationId)', () => {
-    const { ctrl, svcs } = makeController();
+    const { ctrl, svcs } = makeIngestController();
     ctrl.handleScrapeTarget({ action: 'markScraped', id: 'target-1' } as any, COMPANY);
     expect(svcs.sync.markScraped).toHaveBeenCalledWith('target-1', COMPANY);
   });
 
   it('create body → sync.createScrapeTarget(url, label, category, organizationId)', () => {
-    const { ctrl, svcs } = makeController();
+    const { ctrl, svcs } = makeIngestController();
     ctrl.handleScrapeTarget(
       { url: 'https://example.com', label: 'L', category: 'C' } as any,
       COMPANY,
@@ -155,10 +194,10 @@ describe('AdvertisingController — POST /scrape-targets dispatch', () => {
 
 describe('AdvertisingController — POST /actions sub-action dispatch', () => {
   let svcs: ReturnType<typeof makeServices>;
-  let ctrl: AdvertisingController;
+  let ctrl: AdvertisingActionsController;
 
   beforeEach(() => {
-    ({ ctrl, svcs } = makeController());
+    ({ ctrl, svcs } = makeActionController());
   });
 
   it('action=generate → action.generateActions(organizationId)', () => {
@@ -242,7 +281,7 @@ describe('AdvertisingController — POST /actions sub-action dispatch', () => {
 
 describe('AdvertisingController — organizationId 격리 (ADR-0006)', () => {
   it('서로 다른 organizationId 는 각각 전파 (cross-tenant 흘림 없음)', () => {
-    const { ctrl, svcs } = makeController();
+    const { ctrl, svcs } = makeWorkspaceController();
     ctrl.getHub('organization-a');
     ctrl.getHub('organization-b');
     expect(svcs.advertising.getHubData).toHaveBeenNthCalledWith(1, 'organization-a');

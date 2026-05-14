@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { AgentRunsController } from '../agent-runs.controller';
+import { AgentRunRequestsController } from '../agent-run-requests.controller';
 import type { AgentRunnerPort } from '../../../../application/port/in/agent-runner.port';
 import type { AuthUser } from '../../../../../auth/auth.types';
 
@@ -12,10 +12,8 @@ function makeController(result: Awaited<ReturnType<AgentRunnerPort['runByType']>
       runId: result.runId,
     }),
   } satisfies AgentRunnerPort;
-  const controller = new AgentRunsController(
+  const controller = new AgentRunRequestsController(
     runner as never,
-    {} as never,
-    {} as never,
     {} as never,
   );
   return { controller, runner };
@@ -23,7 +21,7 @@ function makeController(result: Awaited<ReturnType<AgentRunnerPort['runByType']>
 
 const USER = { id: 'user-1' } as AuthUser;
 
-describe('AgentRunsController', () => {
+describe('AgentRunRequestsController', () => {
   it('starts an immediately-created run request so /api/agent-os/runs callers do not depend on the background worker', async () => {
     const { controller, runner } = makeController({
       ok: true,
