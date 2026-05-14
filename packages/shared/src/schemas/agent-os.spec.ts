@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
-  agentInstanceLifecycleStatusSchema,
-  agentRunRequestStatusSchema,
-  agentRunStatusSchema,
-  agentToolPolicyEffectSchema,
-  createAgentRunRequestSchema,
+  AgentInstanceLifecycleStatusSchema,
+  AgentRunRequestStatusSchema,
+  AgentRunStatusSchema,
+  AgentToolPolicyEffectSchema,
+  CreateAgentRunRequestSchema,
 } from './agent-os';
 
 describe('agent-os schemas', () => {
   it('defaults taskKey to default at the API boundary', () => {
-    const parsed = createAgentRunRequestSchema.parse({
+    const parsed = CreateAgentRunRequestSchema.parse({
       agentType: 'listing-writer',
       sourceType: 'manual',
     });
@@ -22,38 +22,38 @@ describe('agent-os schemas', () => {
 
   it('rejects empty agent type', () => {
     expect(() =>
-      createAgentRunRequestSchema.parse({ agentType: '', sourceType: 'manual' }),
+      CreateAgentRunRequestSchema.parse({ agentType: '', sourceType: 'manual' }),
     ).toThrow();
   });
 
   it('does not allow queued as a run status', () => {
-    expect(() => agentRunStatusSchema.parse('queued')).toThrow();
-    expect(agentRunStatusSchema.parse('running')).toBe('running');
+    expect(() => AgentRunStatusSchema.parse('queued')).toThrow();
+    expect(AgentRunStatusSchema.parse('running')).toBe('running');
   });
 
   it('keeps queue status names on AgentRunRequest', () => {
-    expect(agentRunRequestStatusSchema.parse('pending')).toBe('pending');
-    expect(agentRunRequestStatusSchema.parse('claimed')).toBe('claimed');
-    expect(agentRunRequestStatusSchema.parse('coalesced')).toBe('coalesced');
-    expect(agentRunRequestStatusSchema.parse('requires_approval')).toBe(
+    expect(AgentRunRequestStatusSchema.parse('pending')).toBe('pending');
+    expect(AgentRunRequestStatusSchema.parse('claimed')).toBe('claimed');
+    expect(AgentRunRequestStatusSchema.parse('coalesced')).toBe('coalesced');
+    expect(AgentRunRequestStatusSchema.parse('requires_approval')).toBe(
       'requires_approval',
     );
-    expect(() => agentRunRequestStatusSchema.parse('running')).toThrow();
+    expect(() => AgentRunRequestStatusSchema.parse('running')).toThrow();
   });
 
   it('accepts the three lifecycle states', () => {
-    expect(agentInstanceLifecycleStatusSchema.parse('active')).toBe('active');
-    expect(agentInstanceLifecycleStatusSchema.parse('paused')).toBe('paused');
-    expect(agentInstanceLifecycleStatusSchema.parse('disabled')).toBe(
+    expect(AgentInstanceLifecycleStatusSchema.parse('active')).toBe('active');
+    expect(AgentInstanceLifecycleStatusSchema.parse('paused')).toBe('paused');
+    expect(AgentInstanceLifecycleStatusSchema.parse('disabled')).toBe(
       'disabled',
     );
-    expect(() => agentInstanceLifecycleStatusSchema.parse('idle')).toThrow();
+    expect(() => AgentInstanceLifecycleStatusSchema.parse('idle')).toThrow();
   });
 
   it('captures three tool policy effects', () => {
-    expect(agentToolPolicyEffectSchema.parse('allow')).toBe('allow');
-    expect(agentToolPolicyEffectSchema.parse('deny')).toBe('deny');
-    expect(agentToolPolicyEffectSchema.parse('approval_required')).toBe(
+    expect(AgentToolPolicyEffectSchema.parse('allow')).toBe('allow');
+    expect(AgentToolPolicyEffectSchema.parse('deny')).toBe('deny');
+    expect(AgentToolPolicyEffectSchema.parse('approval_required')).toBe(
       'approval_required',
     );
   });

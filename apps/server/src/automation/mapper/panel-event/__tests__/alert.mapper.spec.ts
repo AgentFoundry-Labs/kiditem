@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PanelAlertItem } from '@kiditem/shared/panel';
+import { PanelAlertItemSchema } from '@kiditem/shared/panel';
 import { alertPanelMapper } from '../alert.mapper';
 import type { Alert } from '@prisma/client';
 
@@ -40,7 +40,7 @@ const baseAlert: Alert = {
 describe('alertPanelMapper', () => {
   it('maps a valid alert to PanelAlertItem, passing schema validation', () => {
     const item = alertPanelMapper.mapToItem(baseAlert);
-    const result = PanelAlertItem.safeParse(item);
+    const result = PanelAlertItemSchema.safeParse(item);
     expect(result.success).toBe(true);
   });
 
@@ -82,7 +82,7 @@ describe('alertPanelMapper', () => {
     });
     expect(item.targetType).toBeNull();
     expect(item.targetId).toBeNull();
-    const result = PanelAlertItem.safeParse(item);
+    const result = PanelAlertItemSchema.safeParse(item);
     expect(result.success).toBe(true);
   });
 
@@ -94,13 +94,13 @@ describe('alertPanelMapper', () => {
     });
     expect(item.targetType).toBe('product');
     expect(item.targetId).toBe(TARGET_ID);
-    expect(PanelAlertItem.safeParse(item).success).toBe(true);
+    expect(PanelAlertItemSchema.safeParse(item).success).toBe(true);
   });
 
   it('handles null message', () => {
     const item = alertPanelMapper.mapToItem({ ...baseAlert, message: null });
     expect(item.message).toBeNull();
-    const result = PanelAlertItem.safeParse(item);
+    const result = PanelAlertItemSchema.safeParse(item);
     expect(result.success).toBe(true);
   });
 
@@ -109,7 +109,7 @@ describe('alertPanelMapper', () => {
     (severity) => {
       const item = alertPanelMapper.mapToItem({ ...baseAlert, severity });
       expect(item.severity).toBe(severity);
-      expect(PanelAlertItem.safeParse(item).success).toBe(true);
+      expect(PanelAlertItemSchema.safeParse(item).success).toBe(true);
     },
   );
 
@@ -121,13 +121,13 @@ describe('alertPanelMapper', () => {
   it('actionTaskId null pass-through', () => {
     const item = alertPanelMapper.mapToItem({ ...baseAlert, actionTaskId: null });
     expect(item.actionTaskId).toBeNull();
-    expect(PanelAlertItem.safeParse(item).success).toBe(true);
+    expect(PanelAlertItemSchema.safeParse(item).success).toBe(true);
   });
 
   it('actionTaskId uuid pass-through', () => {
     const item = alertPanelMapper.mapToItem({ ...baseAlert, actionTaskId: ACTION_TASK_ID });
     expect(item.actionTaskId).toBe(ACTION_TASK_ID);
-    expect(PanelAlertItem.safeParse(item).success).toBe(true);
+    expect(PanelAlertItemSchema.safeParse(item).success).toBe(true);
   });
 
   it('maps operation ledger fields', () => {

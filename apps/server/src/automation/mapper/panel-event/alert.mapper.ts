@@ -1,4 +1,5 @@
-import { PanelAlertItem } from '@kiditem/shared/panel';
+import { PanelAlertItemSchema } from '@kiditem/shared/panel';
+import type { PanelAlertItem } from '@kiditem/shared/panel';
 import type { AlertRecord, JsonValue } from '../../application/port/persistence-records';
 
 /**
@@ -13,7 +14,7 @@ function jsonObject(value: JsonValue): Record<string, unknown> {
 
 export const alertPanelMapper = {
   mapToItem(alert: AlertRecord): PanelAlertItem {
-    return PanelAlertItem.parse({
+    return PanelAlertItemSchema.parse({
       kind: 'alert',
       id: alert.id,
       alertKind: alert.kind,
