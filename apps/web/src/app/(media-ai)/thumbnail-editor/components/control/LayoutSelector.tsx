@@ -1,7 +1,7 @@
 'use client';
 
 import { cn } from '@/lib/utils';
-import type { LayoutKindLite } from '../edit/lib/slots';
+import type { LayoutKindLite } from '../../edit/lib/slots';
 
 /**
  * 낱개/세트 합성 시 배치 프리셋 선택 chip row.

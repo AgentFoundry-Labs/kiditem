@@ -1,7 +1,7 @@
 'use client';
 
 import { ArrowLeft, ChevronRight, Scissors, Sparkles } from 'lucide-react';
-import type { EditUseCase } from '../../components/UseCaseSelection';
+import type { EditUseCase } from '../../components/control/UseCaseSelection';
 import { EDIT_CASE_LABEL, type EditorMode } from '../lib/edit-page-types';
 
 interface Props {

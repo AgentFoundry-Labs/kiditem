@@ -3,7 +3,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { X, Scissors, Sparkles, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { EditUseCase } from './UseCaseSelection';
-import type { EditorMode } from '../edit/page';
+import type { EditorMode } from '../../edit/page';
 
 interface Props {
   open: boolean;

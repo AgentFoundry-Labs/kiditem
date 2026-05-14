@@ -1,5 +1,5 @@
-import type { EditUseCase } from '../../components/UseCaseSelection';
-import type { SupplementaryLabel } from '../../components/EditorInputPanel';
+import type { EditUseCase } from '../../components/control/UseCaseSelection';
+import type { SupplementaryLabel } from '../../components/input/EditorInputPanel';
 import {
   pickCaseFromSlots,
   slotsToDto,

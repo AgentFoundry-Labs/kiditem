@@ -3,9 +3,9 @@
 import { Plus, ChevronDown, Eraser, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { MasterImageItem } from '@kiditem/shared/product';
-import type { Slot, SlotPick, SlotSource } from '../edit/lib/slots';
+import type { Slot, SlotPick, SlotSource } from '../../edit/lib/slots';
 import { ImageSourceDrawer, type DrawerTabKey } from './ImageSourceDrawer';
-import { ImgWithSkeleton } from './ImgWithSkeleton';
+import { ImgWithSkeleton } from '../shared/ImgWithSkeleton';
 
 const SOURCE_LABELS: Record<SlotSource, string> = {
   upload: '업로드',

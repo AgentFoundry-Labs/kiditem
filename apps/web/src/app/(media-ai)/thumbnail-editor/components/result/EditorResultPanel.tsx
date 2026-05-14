@@ -9,9 +9,9 @@ import {
 import { cn } from '@/lib/utils';
 import { resolveImageUrl } from '@/lib/resolve-url';
 import { CoupangSearchCardPreview, CoupangDetailPreview } from '@/components/coupang/CoupangPreview';
-import { ImgWithSkeleton } from './ImgWithSkeleton';
+import { ImgWithSkeleton } from '../shared/ImgWithSkeleton';
 
-import type { EditorMode, HistoryCandidate } from '../edit/page';
+import type { EditorMode, HistoryCandidate } from '../../edit/page';
 
 type ResultViewTab = 'result' | 'coupang-search' | 'coupang-detail';
 

@@ -11,7 +11,7 @@ import {
   listRecentThumbnailEditorUploads,
   readThumbnailEditorUpload,
   type ThumbnailEditorRecentUpload,
-} from '../edit/lib/upload-session';
+} from '../../edit/lib/upload-session';
 
 export function DirectUploadJobsSection() {
   const router = useRouter();

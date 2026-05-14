@@ -6,13 +6,13 @@ import Link from 'next/link';
 import { useAnalysisList } from '@/app/(media-ai)/thumbnails/hooks/useThumbnailAnalysis';
 
 import { useGenerationList } from '../_shared/hooks/useThumbnailGenerations';
-import { HubUploadZone, type HubUploadZoneHandle } from './components/HubUploadZone';
-import { ModeShowcase } from './components/ModeShowcase';
-import { PendingSection } from './components/PendingSection';
-import { RegistrationPendingSection } from './components/RegistrationPendingSection';
-import { NeedsFixSection } from './components/NeedsFixSection';
-import { AutoEditSection } from './components/AutoEditSection';
-import { DirectUploadJobsSection } from './components/DirectUploadJobsSection';
+import { HubUploadZone, type HubUploadZoneHandle } from './components/hub/HubUploadZone';
+import { ModeShowcase } from './components/hub/ModeShowcase';
+import { PendingSection } from './components/hub/PendingSection';
+import { RegistrationPendingSection } from './components/hub/RegistrationPendingSection';
+import { NeedsFixSection } from './components/hub/NeedsFixSection';
+import { AutoEditSection } from './components/hub/AutoEditSection';
+import { DirectUploadJobsSection } from './components/hub/DirectUploadJobsSection';
 
 export default function ThumbnailEditorHubPage() {
   const { data: generations = [] } = useGenerationList();

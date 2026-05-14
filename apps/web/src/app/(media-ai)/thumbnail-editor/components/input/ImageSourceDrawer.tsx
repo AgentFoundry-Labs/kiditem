@@ -14,14 +14,14 @@ import {
 } from '@kiditem/shared/product';
 import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
 
-import { useRecentGenerations } from '../hooks/useRecentGenerations';
+import { useRecentGenerations } from '../../hooks/useRecentGenerations';
 import { apiClient } from '@/lib/api-client';
-import { HUB_ROLE_CONFIG, type MasterImageRole } from '../../_shared/lib/hub-roles';
+import { HUB_ROLE_CONFIG, type MasterImageRole } from '../../../_shared/lib/hub-roles';
 import { queryKeys } from '@/lib/query-keys';
 import { cn } from '@/lib/utils';
 
-import { ImgWithSkeleton } from './ImgWithSkeleton';
-import type { SlotPick } from '../edit/lib/slots';
+import { ImgWithSkeleton } from '../shared/ImgWithSkeleton';
+import type { SlotPick } from '../../edit/lib/slots';
 
 export type DrawerTabKey = 'upload' | 'hub' | 'recent' | 'other';
 

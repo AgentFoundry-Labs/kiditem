@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 
 import { cn } from '@/lib/utils';
 
-import { writeThumbnailEditorUpload } from '../edit/lib/upload-session';
+import { writeThumbnailEditorUpload } from '../../edit/lib/upload-session';
 
 export type HubUploadZoneHandle = {
   openFilePicker: (mode?: 'edit' | 'creative' | null) => void;

@@ -5,13 +5,13 @@ import { useRouter } from 'next/navigation';
 import { ChevronLeft, ChevronRight, Loader2, PlayCircle, X } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { useDeleteGeneration, useGenerationList } from '../../_shared/hooks/useThumbnailGenerations';
+import { useDeleteGeneration, useGenerationList } from '../../../_shared/hooks/useThumbnailGenerations';
 import { resolveImageUrl } from '@/lib/resolve-url';
 import { cn } from '@/lib/utils';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
 
-import { ImgWithSkeleton } from './ImgWithSkeleton';
+import { ImgWithSkeleton } from '../shared/ImgWithSkeleton';
 
 function navigate(router: ReturnType<typeof useRouter>, productId: string, generationId: string) {
   const params = new URLSearchParams({ productId, generationId });

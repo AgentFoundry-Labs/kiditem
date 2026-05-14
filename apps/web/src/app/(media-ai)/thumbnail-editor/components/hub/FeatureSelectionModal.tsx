@@ -5,7 +5,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { ArrowRight, Pencil, Scissors, Sparkles, Wand2, X } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
-import type { EditUseCase } from './UseCaseSelection';
+import type { EditUseCase } from '../control/UseCaseSelection';
 
 type CreativeScene = 'white-studio' | 'lifestyle' | 'outdoor' | 'concept';
 

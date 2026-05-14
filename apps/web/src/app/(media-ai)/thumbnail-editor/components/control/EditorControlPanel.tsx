@@ -3,8 +3,8 @@ import { Loader2, Wand2, ExternalLink, Sparkles, Scissors, RotateCcw } from 'luc
 import { cn } from '@/lib/utils';
 import type { EditUseCase } from './UseCaseSelection';
 
-import type { EditorMode } from '../edit/page';
-import type { LayoutKindLite } from '../edit/lib/slots';
+import type { EditorMode } from '../../edit/page';
+import type { LayoutKindLite } from '../../edit/lib/slots';
 import { LayoutSelector } from './LayoutSelector';
 
 function CoupangWordmark({ className }: { className?: string }) {

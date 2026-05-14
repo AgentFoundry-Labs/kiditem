@@ -11,12 +11,12 @@ import {
   useBatchWingRegister,
   useClearRegistrationError,
   type WingBatchItemResult,
-} from '../../_shared/hooks/useThumbnailGenerations';
+} from '../../../_shared/hooks/useThumbnailGenerations';
 import { resolveImageUrl } from '@/lib/resolve-url';
 import { cn } from '@/lib/utils';
 import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
 
-import { ImgWithSkeleton } from './ImgWithSkeleton';
+import { ImgWithSkeleton } from '../shared/ImgWithSkeleton';
 
 function isPendingRegistration(g: ThumbnailGenerationItem): boolean {
   if (g.phase !== 'applied') return false;

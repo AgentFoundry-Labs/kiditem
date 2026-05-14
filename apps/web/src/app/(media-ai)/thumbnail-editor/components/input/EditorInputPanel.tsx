@@ -1,9 +1,9 @@
 'use client';
 import { Download, Scissors, Sparkles, Package, Palette, Layers, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import type { EditUseCase } from './UseCaseSelection';
+import type { EditUseCase } from '../control/UseCaseSelection';
 import type { MasterImageItem } from '@kiditem/shared/product';
-import type { EditorMode, HistoryCandidate } from '../edit/page';
+import type { EditorMode, HistoryCandidate } from '../../edit/page';
 import { timeAgo } from '@/lib/utils';
 import {
   addPicksToGroup,
@@ -14,12 +14,12 @@ import {
   type Slot,
   type SlotKind,
   type SlotPick,
-} from '../edit/lib/slots';
+} from '../../edit/lib/slots';
 import { SlotCard, AddSlotTile } from './SlotCard';
 import { resolveImageUrl } from '@/lib/resolve-url';
 import { cn } from '@/lib/utils';
 import { downloadImageFile } from '@/lib/browser-download';
-import { ImgWithSkeleton } from './ImgWithSkeleton';
+import { ImgWithSkeleton } from '../shared/ImgWithSkeleton';
 
 const SUPPLEMENTARY_LABELS = ['박스', '세트구성', '포장', '부속품', '기타'] as const;
 export type SupplementaryLabel = (typeof SUPPLEMENTARY_LABELS)[number];

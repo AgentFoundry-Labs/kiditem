@@ -7,13 +7,13 @@ import { CheckCircle2, Loader2, Scissors, Sparkles, Wrench } from 'lucide-react'
 import { useAnalysisList } from '@/app/(media-ai)/thumbnails/hooks/useThumbnailAnalysis';
 import { needsThumbnailFix } from '@/app/(media-ai)/thumbnails/lib/thumbnail-classification';
 import { Pagination } from '@/components/ui/Pagination';
-import { useGenerationList } from '../../_shared/hooks/useThumbnailGenerations';
+import { useGenerationList } from '../../../_shared/hooks/useThumbnailGenerations';
 import { resolveImageUrl } from '@/lib/resolve-url';
 import { cn } from '@/lib/utils';
 import type { ThumbnailAnalysisResult } from '@kiditem/shared/ai';
 
 import { FeatureSelectionModal, type FeatureSelection } from './FeatureSelectionModal';
-import { ImgWithSkeleton } from './ImgWithSkeleton';
+import { ImgWithSkeleton } from '../shared/ImgWithSkeleton';
 
 const PAGE_SIZE = 24;
 
