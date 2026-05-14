@@ -118,7 +118,7 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
     limit: number;
     sort: 'newest' | 'oldest' | 'name_asc';
     platform?: string;
-  }): Promise<{ items: CandidateRow[]; total: number }> {
+  }): Promise<{ items: Array<CandidateRow & { images: CandidateImageRow[] }>; total: number }> {
     const where = {
       organizationId: query.organizationId,
       isDeleted: false,
@@ -136,9 +136,21 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
         orderBy,
         skip: (query.page - 1) * query.limit,
         take: query.limit,
+        include: {
+          images: {
+            where: { isDeleted: false },
+            orderBy: { sortOrder: 'asc' },
+          },
+        },
       }),
     ]);
-    return { total, items: rows.map(toRow) };
+    return {
+      total,
+      items: rows.map((row) => ({
+        ...toRow(row),
+        images: row.images.map(toImageRow),
+      })),
+    };
   }
 
   private async ensureImages(

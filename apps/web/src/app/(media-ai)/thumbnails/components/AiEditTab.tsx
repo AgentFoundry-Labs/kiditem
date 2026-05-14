@@ -443,11 +443,13 @@ function FailedSection({
                 {reEditMutation.isPending ? <Loader2 size={10} className="animate-spin" /> : <Wand2 size={10} />}
                 다시 생성
               </button>
-              <Link href={buildEditHref({ productId: g.productId, generationId: g.id, imageUrl: g.product?.imageUrl })}>
-                <button className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-colors bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-100">
-                  <Wand2 size={10} /> 편집 화면으로
-                </button>
-              </Link>
+              {g.productId && (
+                <Link href={buildEditHref({ productId: g.productId, generationId: g.id, imageUrl: g.product?.imageUrl })}>
+                  <button className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-colors bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-100">
+                    <Wand2 size={10} /> 편집 화면으로
+                  </button>
+                </Link>
+              )}
             </div>
           ))}
         </div>

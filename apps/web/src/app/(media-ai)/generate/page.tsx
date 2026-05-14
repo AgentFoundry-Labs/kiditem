@@ -83,7 +83,7 @@ function GeneratePageContent() {
     const isCompleted = phase === 'completed';
     const targetUrl = isCompleted && generationDialog?.editorUrl
       ? generationDialog.editorUrl
-      : '/product-content';
+      : '/sourcing';
     closeGenerationDialog();
     if (isCompleted) {
       // destination 페이지가 stale cache 를 보지 않도록 generation listing 을 먼저 동기 refetch

@@ -32,6 +32,7 @@ export interface KidsPlayfulGenerateBody {
   /** sourcing MasterProduct.id — generate 페이지 직접 생성 시 omit */
   productId?: string;
   templateId?: DetailPageTemplateId;
+  generationMode?: 'draft' | 'image' | 'full';
   sourceReferences?: Array<{
     sourceType: 'sourcing_candidate' | 'input_asset' | 'content_generation';
     sourceCandidateId?: string;
@@ -126,7 +127,7 @@ export function useKidsPlayfulGenerate() {
 
 /**
  * GET /api/ai/detail-page/:id — 단건 조회.
- * product-content 에디터에서 ?generationId=... 쿼리로 진입 시 사용.
+ * sourcing 에디터에서 ?generationId=... 쿼리로 진입 시 사용.
  *
  * 상세페이지 생성은 PR #213 부터 Agent OS 비동기 큐로 동작한다. 사용자가
  * 폼 제출 후 곧바로 에디터로 진입하면 row 가 아직 `pending`/`processing` 일

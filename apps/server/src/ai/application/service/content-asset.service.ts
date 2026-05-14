@@ -1,7 +1,11 @@
 import { createHash } from 'node:crypto';
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
+import {
+  IMAGE_STORAGE_PORT,
+  type ImageStoragePort,
+} from '../port/out/image-storage.port';
 
 export interface ContentAssetListQuery {
   page?: number;
@@ -23,7 +27,12 @@ type AssetTx = Prisma.TransactionClient | PrismaService;
 
 @Injectable()
 export class ContentAssetService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional()
+    @Inject(IMAGE_STORAGE_PORT)
+    private readonly imageStorage?: ImageStoragePort,
+  ) {}
 
   async recordDetailPageInputAssets(input: {
     organizationId: string;
@@ -224,6 +233,7 @@ export class ContentAssetService {
         createdByUserId: input.createdByUserId,
         assetKey: groupUrlAssetKey(input.generationGroupId, url),
         url,
+        storageKey: this.imageStorage?.extractKey(url) ?? null,
         assetType: 'image',
         role: input.roleForUrl?.(url) ?? input.role ?? null,
         sortOrder: firstIndex,

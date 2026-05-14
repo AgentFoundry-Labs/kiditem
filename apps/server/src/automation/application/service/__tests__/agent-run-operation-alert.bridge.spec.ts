@@ -116,7 +116,7 @@ describe('AgentRunOperationAlertBridge', () => {
         sourceType: 'agent_run_request',
         sourceId: REQUEST_ID,
         actorUserId: USER_ID,
-        href: '/product-content?tab=assets',
+        href: '/sourcing?contentType=image',
         severity: 'error',
         metadata: expect.objectContaining({
           agentType: 'image_edit',
@@ -139,7 +139,7 @@ describe('AgentRunOperationAlertBridge', () => {
   });
 
   it.each([
-    { source: 'ai.image_edit', href: '/product-content?tab=assets' },
+    { source: 'ai.image_edit', href: '/sourcing?contentType=image' },
     { source: 'advertising.ad_strategy.manual', href: '/ad-ops' },
     { source: 'sourcing.scrape_url', href: '/sourcing' },
     { source: 'ai.thumbnail_auto_edit', href: '/thumbnails' },

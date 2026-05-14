@@ -27,6 +27,7 @@ type ProductGroup = {
 function groupByProduct(items: ThumbnailGenerationItem[]): ProductGroup[] {
   const map = new Map<string, ThumbnailGenerationItem[]>();
   for (const g of items) {
+    if (!g.productId) continue;
     const bucket = map.get(g.productId);
     if (bucket) bucket.push(g);
     else map.set(g.productId, [g]);
@@ -142,7 +143,7 @@ export function PendingSection() {
           deleteTarget ? (
             <>
               <span className="font-semibold text-[var(--text-primary,#0f172a)]">
-                {deleteTarget.representative.product.name}
+                {deleteTarget.representative.product?.name ?? '상품 정보 없음'}
               </span>
               의 AI 생성 작업이 삭제됩니다. 복구할 수 없습니다.
             </>
@@ -203,10 +204,11 @@ function PendingCard({
 }) {
   const item = group.representative;
   const running = item.status === 'running' || item.status === 'pending';
-  const preview = item.candidates?.[0]?.url ?? item.originalUrl ?? item.product.imageUrl;
+  const productName = item.product?.name ?? '상품 정보 없음';
+  const preview = item.candidates?.[0]?.url ?? item.originalUrl ?? item.product?.imageUrl;
   const resolved = resolveImageUrl(preview);
-  const hasBox = item.product.hasBoxImage;
-  const hasColor = item.product.hasColorVariantImages;
+  const hasBox = Boolean(item.product?.hasBoxImage);
+  const hasColor = Boolean(item.product?.hasColorVariantImages);
 
   return (
     <div
@@ -229,7 +231,7 @@ function PendingCard({
         {resolved && (
           <ImgWithSkeleton
             src={resolved}
-            alt={item.product.name}
+            alt={productName}
             fit="cover"
             className={cn(running && 'blur-[2px] opacity-70')}
           />
@@ -257,7 +259,7 @@ function PendingCard({
             !hasBox && !hasColor && 'text-gray-900',
           )}
         >
-          {item.product.name}
+          {productName}
         </p>
         {(hasBox || hasColor) && (
           <span className="flex items-center gap-0.5 text-[11px] leading-none flex-shrink-0">

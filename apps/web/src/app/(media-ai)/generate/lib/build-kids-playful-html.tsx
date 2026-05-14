@@ -11,7 +11,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import {
   buildDetailFontReadyGateHead,
   toFontDisplayBlockUrl,
-} from '@/app/(catalog)/product-content/lib/template-html';
+} from '@/app/(sourcing)/sourcing/lib/template-html';
 import KidsPlayfulRenderer from '../components/KidsPlayfulRenderer';
 import type { KidsPlayfulData } from './kids-playful-types';
 

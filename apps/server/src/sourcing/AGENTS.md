@@ -68,6 +68,11 @@ sourcing/
   (4) flips the candidate row to `status='promoted' + promotedMasterId=<new>`.
   The row lock enforces 1:1 in current use-case while the D2 schema permits
   the future N:1 case (multiple candidates → one master).
+- Promotion may receive registration selections in the existing command body:
+  `selectedThumbnailUrl` becomes the promoted master's primary image, and
+  `selectedDetailPageGenerationId` / `selectedDetailPageArtifactId` attaches
+  the chosen `DetailPageArtifact` to the new master. Do not add a
+  `RegistrationDraft` table for this pre-submit choice.
 - Promotion fires `SOURCING_AGENT_GATEWAY_PORT.notifyPromoted` after commit;
   failures are absorbed by the gateway (`OperationAlert`) so the HTTP path
   always reports the promotion outcome. `body.skipPostPromotionHooks=true`

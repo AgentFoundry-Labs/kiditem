@@ -31,6 +31,9 @@ import {
 } from '../../../application/port/out/image-storage.port';
 import { requireGeminiApiKey } from './thumbnail-gemini-config';
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const sharp: typeof import('sharp') = require('sharp');
+
 interface InlineImagePart {
   inlineData: {
     data: string;
@@ -82,17 +85,21 @@ export class ImageEditGeminiMediaAdapter implements ImageEditMediaPort {
       throw new ServiceUnavailableException('image_edit_returned_no_image');
     }
 
-    const mimeType = inlineData.mimeType ?? 'image/png';
-    this.imageFetcher.assertSupportedMime(mimeType);
-    const buffer = Buffer.from(inlineData.data, 'base64');
-    const storageKey = this.outputStorageKey(command.organizationId, preset, mimeType);
-    const imageUrl = await this.storage.save(storageKey, buffer, mimeType);
+    const responseMimeType = inlineData.mimeType ?? 'image/png';
+    this.imageFetcher.assertSupportedMime(responseMimeType);
+    const normalized = await this.normalizeOutputImage(
+      Buffer.from(inlineData.data, 'base64'),
+      responseMimeType,
+      preset,
+    );
+    const storageKey = this.outputStorageKey(command.organizationId, preset, normalized.mimeType);
+    const imageUrl = await this.storage.save(storageKey, normalized.buffer, normalized.mimeType);
 
     return {
       imageUrl,
       storageKey,
-      mimeType,
-      fileSize: buffer.length,
+      mimeType: normalized.mimeType,
+      fileSize: normalized.buffer.length,
     };
   }
 
@@ -162,6 +169,27 @@ export class ImageEditGeminiMediaAdapter implements ImageEditMediaPort {
   ): string {
     const safePreset = preset.replace(/[^a-z0-9_-]/gi, '_') || 'custom';
     return `tmp/image-edits/${organizationId}/${safePreset}-${randomUUID()}.${this.imageFetcher.extForMime(mimeType)}`;
+  }
+
+  private async normalizeOutputImage(
+    buffer: Buffer,
+    mimeType: string,
+    preset: string,
+  ): Promise<{ buffer: Buffer; mimeType: string }> {
+    if (preset !== 'remove_background') return { buffer, mimeType };
+
+    try {
+      return {
+        buffer: await sharp(buffer)
+          .flatten({ background: '#FFFFFF' })
+          .png()
+          .toBuffer(),
+        mimeType: 'image/png',
+      };
+    } catch (error) {
+      this.logger.warn(`Failed to flatten remove_background output: ${error instanceof Error ? error.message : String(error)}`);
+      return { buffer, mimeType };
+    }
   }
 
   private getClient(): GoogleGenAI {

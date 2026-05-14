@@ -11,10 +11,9 @@ const PRODUCT_PRESERVATION_RULES = (
 
 const PRESET_PROMPTS: Record<string, string> = {
   remove_background:
-    'Remove the entire background and return a clean product cutout as a transparent PNG ' +
-    'with an alpha channel. Keep only the visible main subject, preserve the original product ' +
-    'shape and edges, do not redraw the product, do not add text, and do not replace the ' +
-    'background with white, gray, color, studio, or shadow-only scenery.',
+    'Remove the entire photo/background around the visible main product, then place the product on a clean pure white (#FFFFFF) background. ' +
+    'Do not output transparency, alpha channel, checkerboard, checkered grid, gray grid, or any transparency-preview pattern. ' +
+    'Keep only the visible main subject, preserve the original product shape and edges, do not redraw the product, and do not add text.',
   remove_text:
     'Remove all overlay text and watermarks from the image and inpaint those areas cleanly. ' +
     'Do not remove text, logos, graphics, or labels that are physically printed on the product or packaging.',

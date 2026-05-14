@@ -1,9 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { Database, ImageIcon, Package, Tag } from 'lucide-react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Database, ImageIcon, Package, Plus, Tag } from 'lucide-react';
+import { toast } from 'sonner';
 import { formatNumber } from '@/lib/utils';
-import { selectBestThumbnailImage } from '../../lib/sourcing-api';
+import { queryKeys } from '@/lib/query-keys';
+import { productsApi, selectBestThumbnailImage } from '../../lib/sourcing-api';
 
 interface RawDataTabProps {
   productId: string;
@@ -62,8 +65,24 @@ function collectImages(values: unknown[]): string[] {
   return Array.from(new Set(urls));
 }
 
-export default function RawDataTab({ rawData, imageUrls, thumbnailUrl }: RawDataTabProps) {
+export default function RawDataTab({ productId, rawData, imageUrls, thumbnailUrl }: RawDataTabProps) {
+  const queryClient = useQueryClient();
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
+  const [rawKey, setRawKey] = useState('');
+  const [rawValue, setRawValue] = useState('');
+  const [addedRows, setAddedRows] = useState<Array<{ key: string; value: string }>>([]);
+
+  const addRawData = useMutation({
+    mutationFn: () => productsApi.addRawDataField(productId, { key: rawKey.trim(), value: rawValue.trim() }),
+    onSuccess: () => {
+      setAddedRows((prev) => [{ key: rawKey.trim(), value: rawValue.trim() }, ...prev]);
+      setRawKey('');
+      setRawValue('');
+      queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(productId) });
+      toast.success('원본 데이터를 추가했습니다.');
+    },
+    onError: () => toast.error('원본 데이터 추가에 실패했습니다.'),
+  });
 
   const safeRawData = rawData ?? {};
   const productImages = collectImages([
@@ -88,6 +107,8 @@ export default function RawDataTab({ rawData, imageUrls, thumbnailUrl }: RawData
     : typeof safeRawData.category === 'string'
       ? safeRawData.category
       : null;
+  const canAddRawData = rawKey.trim().length > 0 && rawValue.trim().length > 0 && !addRawData.isPending;
+
   return (
     <div className="space-y-4 p-5">
       {enlargedImage && (
@@ -162,6 +183,57 @@ export default function RawDataTab({ rawData, imageUrls, thumbnailUrl }: RawData
             </div>
           </div>
         </div>
+      </div>
+
+      <div className="card p-4">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Plus size={14} className="text-sky-500" />
+            <h2 className="text-sm font-semibold text-slate-900">원본 데이터 추가</h2>
+          </div>
+          {!rawData && <span className="text-[11px] font-medium text-slate-400">저장 후 원본 데이터로 표시됩니다</span>}
+        </div>
+
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-[180px_1fr_auto]">
+          <input
+            value={rawKey}
+            onChange={(event) => setRawKey(event.target.value)}
+            className="h-9 rounded-md border border-slate-200 bg-slate-50 px-3 text-xs font-medium text-slate-800 outline-none transition-colors focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/10"
+            placeholder="항목명 예: 재질"
+            maxLength={80}
+          />
+          <input
+            value={rawValue}
+            onChange={(event) => setRawValue(event.target.value)}
+            className="h-9 rounded-md border border-slate-200 bg-slate-50 px-3 text-xs font-medium text-slate-800 outline-none transition-colors focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/10"
+            placeholder="값 예: ABS 플라스틱"
+            maxLength={10000}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && canAddRawData) addRawData.mutate();
+            }}
+          />
+          <button
+            type="button"
+            disabled={!canAddRawData}
+            onClick={() => addRawData.mutate()}
+            className="h-9 rounded-md bg-slate-900 px-4 text-xs font-bold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+          >
+            {addRawData.isPending ? '추가 중' : '추가'}
+          </button>
+        </div>
+
+        {addedRows.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {addedRows.map((row, index) => (
+              <span
+                key={`${row.key}-${index}`}
+                className="rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-[11px] font-semibold text-emerald-800"
+              >
+                {row.key}: {row.value}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="card p-4">

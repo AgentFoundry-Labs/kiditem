@@ -20,6 +20,8 @@ export interface DetailPageRawInput {
   imageUrls: string[];
   heroImageMode: 'first' | 'llm-pick';
   templateId: DetailPageTemplateId;
+  generationMode?: 'draft' | 'image' | 'full';
+  baseContentGenerationId?: string;
   ageGroup?: DetailPageAgeGroup;
   detailImageCount?: DetailImageCount;
   usageSectionMode?: UsageSectionMode;

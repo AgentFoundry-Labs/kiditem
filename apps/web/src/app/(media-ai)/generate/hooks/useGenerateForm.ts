@@ -76,6 +76,9 @@ export function useGenerateForm() {
   const searchParams = useSearchParams();
   const productId = searchParams.get('productId');
   const sourceReferences = getGenerateSourceReferences(searchParams, productId);
+  const primarySourceCandidateId =
+    sourceReferences.find((reference) => reference.sourceType === 'sourcing_candidate')
+      ?.sourceCandidateId ?? null;
   const { images: savedImages, loading: imagesLoading } = useProductImages(productId);
   const detailPageMutation = useKidsPlayfulGenerate();
 
@@ -127,7 +130,7 @@ export function useGenerateForm() {
 
     setGenerationDialog((prev) => {
       if (!prev?.open || prev.generationId !== item.id) return prev;
-      const editorUrl = buildGenerationEditorUrl(item);
+      const editorUrl = buildGenerationEditorUrl(item, primarySourceCandidateId);
       if (
         prev.phase === phase &&
         prev.editorUrl === editorUrl &&
@@ -143,7 +146,7 @@ export function useGenerateForm() {
         errorMessage: item.imageProcessingError,
       };
     });
-  }, [generationStatusQuery.data]);
+  }, [generationStatusQuery.data, primarySourceCandidateId]);
 
   const requestPrefill = async (title: string, orderedImages: string[]) =>
     apiClient.post<DetailPagePrefillResult>('/api/ai/detail-page/prefill', {
@@ -290,7 +293,7 @@ export function useGenerateForm() {
               ...prev,
               phase: nextPhase,
               generationId: generated.id,
-              editorUrl: buildGenerationEditorUrl(generated),
+              editorUrl: buildGenerationEditorUrl(generated, primarySourceCandidateId),
               errorMessage: generated.imageProcessingError,
             }
           : {
@@ -300,7 +303,7 @@ export function useGenerateForm() {
               productName: title,
               templateId: selectedTemplateId,
               generationId: generated.id,
-              editorUrl: buildGenerationEditorUrl(generated),
+              editorUrl: buildGenerationEditorUrl(generated, primarySourceCandidateId),
               errorMessage: generated.imageProcessingError,
             },
       );
@@ -586,6 +589,12 @@ function generationStatusToDialogPhase(
   return null;
 }
 
-function buildGenerationEditorUrl(item: KidsPlayfulGenerationItem): string | undefined {
-  return `/product-content/detail-pages/${encodeURIComponent(item.id)}/editor`;
+function buildGenerationEditorUrl(
+  item: KidsPlayfulGenerationItem,
+  sourceCandidateId?: string | null,
+): string | undefined {
+  if (sourceCandidateId) {
+    return `/sourcing/${encodeURIComponent(sourceCandidateId)}/editor?generationId=${encodeURIComponent(item.id)}`;
+  }
+  return `/sourcing/detail-pages/${encodeURIComponent(item.id)}/editor`;
 }

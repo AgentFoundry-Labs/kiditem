@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Inject,
   Injectable,
@@ -6,6 +7,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   SOURCING_AGENT_GATEWAY_PORT,
@@ -18,6 +20,18 @@ import {
 } from '../port/out/products-catalog.port';
 import type { PromoteCandidateBodyDto } from '../../adapter/in/http/dto/promote-candidate.dto';
 import type { RejectCandidateBodyDto } from '../../adapter/in/http/dto/reject-candidate.dto';
+
+interface SelectedThumbnailImage {
+  url: string;
+  storageKey: string | null;
+  source: string;
+  role: string;
+  label: string | null;
+  mimeType?: string | null;
+  width?: number | null;
+  height?: number | null;
+  fileSize?: number | null;
+}
 
 /**
  * Sourcing-domain use-cases for the candidate state machine:
@@ -67,7 +81,13 @@ export class SourcingPromotionService {
     candidateId: string,
     organizationId: string,
     body: PromoteCandidateBodyDto,
-  ): Promise<{ masterId: string; masterCode: string }> {
+  ): Promise<{
+    masterId: string;
+    masterCode: string;
+    selectedThumbnailUrl: string | null;
+    selectedDetailPageArtifactId: string | null;
+    selectedDetailPageRevisionId: string | null;
+  }> {
     const result = await this.prisma.$transaction(
       async (tx) => {
         // 1. tenant-scoped pre-check — null is 404, non-sourced is 422.
@@ -108,6 +128,26 @@ export class SourcingPromotionService {
           );
         }
 
+        const selectedThumbnail = await this.resolveSelectedThumbnail(tx, {
+          organizationId,
+          candidateId,
+          selectedThumbnailUrl: body.selectedThumbnailUrl,
+          selectedThumbnailGenerationCandidateId: body.selectedThumbnailGenerationCandidateId,
+        });
+        const selectedThumbnailUrl = selectedThumbnail?.url ?? null;
+
+        const selectedDetailPage = await this.resolveSelectedDetailPage(tx, {
+          organizationId,
+          candidateId,
+          contentGenerationId: body.selectedDetailPageGenerationId,
+          artifactId: body.selectedDetailPageArtifactId,
+          revisionId: body.selectedDetailPageRevisionId,
+        });
+        const promotionImages = this.buildPromotionImages(
+          locked.images,
+          selectedThumbnail,
+        );
+
         // 3. delegate master creation to products domain via the outgoing port.
         const promotionInput: PromoteCandidateInput = {
           candidateSnapshot: {
@@ -116,17 +156,9 @@ export class SourcingPromotionService {
             category: locked.category,
             brand: null,
             tags: this.parseTags(locked.tags),
-            thumbnailUrl: locked.thumbnailUrl,
-            imageUrl: locked.imageUrl,
-            sourceImages: locked.images.map((img) => ({
-              url: img.url,
-              storageKey: img.storageKey,
-              sortOrder: img.sortOrder,
-              isPrimary: img.isPrimary,
-              source: img.source,
-              role: img.role,
-              label: img.label,
-            })),
+            thumbnailUrl: selectedThumbnailUrl ?? locked.thumbnailUrl,
+            imageUrl: selectedThumbnailUrl ?? locked.imageUrl,
+            sourceImages: promotionImages,
           },
           options: body.options.map((opt) => ({
             optionName: opt.optionName,
@@ -151,7 +183,21 @@ export class SourcingPromotionService {
           },
         });
 
-        return promotion;
+        if (selectedDetailPage) {
+          await this.attachSelectedDetailPageArtifact(tx, {
+            organizationId,
+            artifactId: selectedDetailPage.artifactId,
+            targetMasterId: promotion.masterId,
+            revisionId: selectedDetailPage.revisionId,
+          });
+        }
+
+        return {
+          ...promotion,
+          selectedThumbnailUrl,
+          selectedDetailPageArtifactId: selectedDetailPage?.artifactId ?? null,
+          selectedDetailPageRevisionId: selectedDetailPage?.revisionId ?? null,
+        };
       },
       { timeout: 15000 },
     );
@@ -225,5 +271,291 @@ export class SourcingPromotionService {
   private parseTags(raw: unknown): string[] {
     if (!Array.isArray(raw)) return [];
     return raw.filter((t): t is string => typeof t === 'string');
+  }
+
+  private normalizeSelectedThumbnailUrl(value: string | undefined): string | null {
+    const selected = value?.trim();
+    if (!selected) return null;
+    if (/^(https?:\/\/|data:image\/)/i.test(selected)) return selected;
+    throw new BadRequestException('selectedThumbnailUrl must be an http(s) URL or data:image URL');
+  }
+
+  private async resolveSelectedThumbnail(
+    tx: Prisma.TransactionClient,
+    input: {
+      organizationId: string;
+      candidateId: string;
+      selectedThumbnailUrl?: string;
+      selectedThumbnailGenerationCandidateId?: string;
+    },
+  ): Promise<SelectedThumbnailImage | null> {
+    const selectedUrl = this.normalizeSelectedThumbnailUrl(input.selectedThumbnailUrl);
+    const generationCandidateId = input.selectedThumbnailGenerationCandidateId?.trim() || null;
+    if (!generationCandidateId) {
+      return selectedUrl
+        ? {
+            url: selectedUrl,
+            storageKey: null,
+            source: 'sourcing-registration-selection',
+            role: 'product',
+            label: 'selected thumbnail',
+          }
+        : null;
+    }
+
+    const generated = await tx.thumbnailGenerationCandidate.findFirst({
+      where: {
+        id: generationCandidateId,
+        organizationId: input.organizationId,
+        generation: {
+          organizationId: input.organizationId,
+          sourceCandidateId: input.candidateId,
+        },
+      },
+      select: {
+        url: true,
+        storageKey: true,
+        mimeType: true,
+        width: true,
+        height: true,
+        fileSize: true,
+      },
+    });
+    if (!generated) {
+      throw new BadRequestException(
+        'selectedThumbnailGenerationCandidateId must belong to this sourcing candidate',
+      );
+    }
+    if (selectedUrl && selectedUrl !== generated.url) {
+      throw new BadRequestException(
+        'selectedThumbnailUrl must match selectedThumbnailGenerationCandidateId',
+      );
+    }
+    return {
+      url: generated.url,
+      storageKey: generated.storageKey,
+      source: 'thumbnail_generation',
+      role: 'product',
+      label: 'AI thumbnail',
+      mimeType: generated.mimeType,
+      width: generated.width,
+      height: generated.height,
+      fileSize: generated.fileSize,
+    };
+  }
+
+  private buildPromotionImages(
+    images: Array<{
+      url: string;
+      storageKey: string | null;
+      sortOrder: number;
+      isPrimary: boolean;
+      source: string;
+      role: string;
+      label: string | null;
+    }>,
+    selectedThumbnail: SelectedThumbnailImage | null,
+  ): PromoteCandidateInput['candidateSnapshot']['sourceImages'] {
+    const ordered = [...images].sort((a, b) => a.sortOrder - b.sortOrder);
+    const mapped = ordered.map((img) => ({
+      url: img.url,
+      storageKey: img.storageKey,
+      sortOrder: img.sortOrder,
+      isPrimary: img.isPrimary,
+      source: img.source,
+      role: img.role,
+      label: img.label,
+    }));
+
+    if (!selectedThumbnail) {
+      return mapped.map((img, index) => ({
+        ...img,
+        sortOrder: index,
+        isPrimary: index === 0,
+      }));
+    }
+
+    const selectedIndex = mapped.findIndex((img) => img.url === selectedThumbnail.url);
+    const selected = selectedIndex >= 0
+      ? mapped.splice(selectedIndex, 1)[0]
+      : {
+          url: selectedThumbnail.url,
+          storageKey: selectedThumbnail.storageKey,
+          sortOrder: 0,
+          isPrimary: true,
+          source: selectedThumbnail.source,
+          role: selectedThumbnail.role,
+          label: selectedThumbnail.label,
+          mimeType: selectedThumbnail.mimeType ?? null,
+          width: selectedThumbnail.width ?? null,
+          height: selectedThumbnail.height ?? null,
+          fileSize: selectedThumbnail.fileSize ?? null,
+        };
+
+    return [selected, ...mapped].map((img, index) => ({
+      ...img,
+      sortOrder: index,
+      isPrimary: index === 0,
+    }));
+  }
+
+  private async resolveSelectedDetailPage(
+    tx: Prisma.TransactionClient,
+    input: {
+      organizationId: string;
+      candidateId: string;
+      contentGenerationId?: string;
+      artifactId?: string;
+      revisionId?: string;
+    },
+  ): Promise<{ artifactId: string; revisionId: string | null } | null> {
+    const artifactId = input.artifactId?.trim() || null;
+    const contentGenerationId = input.contentGenerationId?.trim() || null;
+    const revisionId = input.revisionId?.trim() || null;
+
+    if (!artifactId && !contentGenerationId) {
+      if (revisionId) {
+        throw new BadRequestException(
+          'selectedDetailPageRevisionId requires a selected detail-page artifact or generation',
+        );
+      }
+      return null;
+    }
+
+    const selected = artifactId
+      ? await this.resolveSelectedDetailPageArtifact(tx, {
+          organizationId: input.organizationId,
+          candidateId: input.candidateId,
+          artifactId,
+          contentGenerationId,
+        })
+      : await this.resolveSelectedDetailPageGeneration(tx, {
+          organizationId: input.organizationId,
+          candidateId: input.candidateId,
+          contentGenerationId: contentGenerationId!,
+        });
+
+    if (revisionId) {
+      const revision = await tx.detailPageRevision.findFirst({
+        where: {
+          id: revisionId,
+          organizationId: input.organizationId,
+          artifactId: selected.artifactId,
+        },
+        select: { id: true },
+      });
+      if (!revision) {
+        throw new BadRequestException(
+          'selectedDetailPageRevisionId must belong to the selected detail-page artifact',
+        );
+      }
+      return { artifactId: selected.artifactId, revisionId: revision.id };
+    }
+
+    return selected;
+  }
+
+  private async resolveSelectedDetailPageGeneration(
+    tx: Prisma.TransactionClient,
+    input: {
+      organizationId: string;
+      candidateId: string;
+      contentGenerationId: string;
+    },
+  ): Promise<{ artifactId: string; revisionId: string | null }> {
+    const generation = await tx.contentGeneration.findFirst({
+      where: {
+        id: input.contentGenerationId,
+        organizationId: input.organizationId,
+        contentType: 'detail_page',
+        OR: [
+          { sourceCandidateId: input.candidateId },
+          { sources: { some: { sourceCandidateId: input.candidateId } } },
+          { detailPageArtifact: { is: { sourceCandidateId: input.candidateId } } },
+        ],
+      },
+      select: {
+        detailPageArtifactId: true,
+        detailPageArtifact: {
+          select: {
+            currentRevisionId: true,
+          },
+        },
+      },
+    });
+    if (!generation?.detailPageArtifactId) {
+      throw new BadRequestException(
+        'selectedDetailPageGenerationId must belong to this sourcing candidate and have a detail-page artifact',
+      );
+    }
+
+    return {
+      artifactId: generation.detailPageArtifactId,
+      revisionId: generation.detailPageArtifact?.currentRevisionId ?? null,
+    };
+  }
+
+  private async resolveSelectedDetailPageArtifact(
+    tx: Prisma.TransactionClient,
+    input: {
+      organizationId: string;
+      candidateId: string;
+      artifactId: string;
+      contentGenerationId: string | null;
+    },
+  ): Promise<{ artifactId: string; revisionId: string | null }> {
+    const artifact = await tx.detailPageArtifact.findFirst({
+      where: {
+        id: input.artifactId,
+        organizationId: input.organizationId,
+        OR: [
+          { sourceCandidateId: input.candidateId },
+          { sourceContentGeneration: { is: { sourceCandidateId: input.candidateId } } },
+          {
+            sourceContentGeneration: {
+              is: { sources: { some: { sourceCandidateId: input.candidateId } } },
+            },
+          },
+        ],
+      },
+      select: {
+        id: true,
+        sourceContentGenerationId: true,
+        currentRevisionId: true,
+      },
+    });
+    if (!artifact) {
+      throw new BadRequestException(
+        'selectedDetailPageArtifactId must belong to this sourcing candidate',
+      );
+    }
+    if (input.contentGenerationId && artifact.sourceContentGenerationId !== input.contentGenerationId) {
+      throw new BadRequestException(
+        'selectedDetailPageArtifactId does not match selectedDetailPageGenerationId',
+      );
+    }
+
+    return { artifactId: artifact.id, revisionId: artifact.currentRevisionId ?? null };
+  }
+
+  private async attachSelectedDetailPageArtifact(
+    tx: Prisma.TransactionClient,
+    input: {
+      organizationId: string;
+      artifactId: string;
+      targetMasterId: string;
+      revisionId: string | null;
+    },
+  ): Promise<void> {
+    const updated = await tx.detailPageArtifact.updateMany({
+      where: { id: input.artifactId, organizationId: input.organizationId },
+      data: {
+        targetMasterId: input.targetMasterId,
+        ...(input.revisionId ? { currentRevisionId: input.revisionId } : {}),
+      },
+    });
+    if (updated.count === 0) {
+      throw new BadRequestException('selected detail-page artifact could not be attached');
+    }
   }
 }

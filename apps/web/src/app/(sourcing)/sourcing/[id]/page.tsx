@@ -1,17 +1,25 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
+import { getTemplate, placeholderDetailPageData } from '@kiditem/templates';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import MobilePreview from '../components/detail/MobilePreview';
 import ProductEditHeader from '../components/detail/ProductEditHeader';
 import ProductEditTabs, { type EditTabType } from '../components/detail/ProductEditTabs';
+import { renderTemplateToHtml } from '../lib/template-html';
 import ProductErrorView from './components/ProductErrorView';
 import ProductLoadingView from './components/ProductLoadingView';
 import ProductTabContent from './components/ProductTabContent';
+import { GenerationProgressBannerStack } from './components/GenerationProgressBanner';
+import { useAllGenerationsInProgress } from '@/app/(media-ai)/generate/hooks/useKidsPlayfulGenerate';
 import { useProductDetail } from './hooks/useProductDetail';
+import { useSourcingThumbnailGenerations } from './hooks/useGenerateSourcingThumbnail';
+import {
+  selectedThumbnailGenerationCandidateId as resolveSelectedThumbnailGenerationCandidateId,
+} from '../lib/registration-selection';
 import { PLACEHOLDER_DATA, type ProductEditState } from './lib/types';
 
 export default function ProductDetailPage() {
@@ -25,6 +33,15 @@ export default function ProductDetailPage() {
   const [isLocked, setIsLocked] = useState(false);
   const [editData, setEditData] = useState<ProductEditState>(PLACEHOLDER_DATA);
   const [editInitialized, setEditInitialized] = useState(false);
+  /**
+   * 사용자가 생성 이력 탭에서 선택해서 상세페이지 탭에 띄우려는 항목.
+   * null = 자동 (이 product 의 최신 Trend/KIDITEM 이력 우선).
+   * 한 번에 한 종류만 active — Trend / KIDITEM / Agent.
+   */
+  const [selectedKidsPlayfulId, setSelectedKidsPlayfulId] = useState<string | null>(null);
+  const [selectedBoldVerticalId, setSelectedBoldVerticalId] = useState<string | null>(null);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [selectedRegistrationThumbnailUrl, setSelectedRegistrationThumbnailUrl] = useState<string | null>(null);
 
   const goBack = () => router.push('/sourcing');
 
@@ -37,6 +54,17 @@ export default function ProductDetailPage() {
       ?.promoted_master_id ??
     (product as { promotedMasterId?: string | null } | null)?.promotedMasterId ??
     null;
+  const detailPageData = fetchedData?.detailPageData ?? placeholderDetailPageData;
+  const editedHtml = fetchedData?.editedHtml ?? null;
+  const templateCss = fetchedData?.templateCss ?? '';
+  const inProgressEntries = useAllGenerationsInProgress(productId);
+  const thumbnailGenerations = useSourcingThumbnailGenerations(productId);
+  const selectedThumbnailGenerationCandidateId = useMemo(() => {
+    return resolveSelectedThumbnailGenerationCandidateId(
+      selectedRegistrationThumbnailUrl,
+      thumbnailGenerations.data ?? [],
+    );
+  }, [selectedRegistrationThumbnailUrl, thumbnailGenerations.data]);
   const loadError = queryError
     ? isApiError(queryError)
       ? queryError.detail
@@ -53,7 +81,23 @@ export default function ProductDetailPage() {
     value: ProductEditState[K],
   ) => {
     setEditData((prev) => ({ ...prev, [field]: value }));
+    if (field === 'thumbnails') {
+      const next = value as string[];
+      setSelectedRegistrationThumbnailUrl((selected) =>
+        selected && !next.includes(selected) ? null : selected,
+      );
+    }
   };
+
+  const detailPreviewHtml = useMemo(() => {
+    const config = getTemplate('bold-vertical');
+    return renderTemplateToHtml(
+      config.component as React.ComponentType<unknown>,
+      detailPageData,
+      config,
+      templateCss,
+    );
+  }, [detailPageData, templateCss]);
 
   if (isLoadingProduct) {
     return <ProductLoadingView productId={productId} onBack={goBack} />;
@@ -84,10 +128,28 @@ export default function ProductDetailPage() {
         promotedMasterId={promotedMasterId}
         isEditComplete={isEditComplete}
         isLocked={isLocked}
+        selectedThumbnailUrl={selectedRegistrationThumbnailUrl}
+        selectedThumbnailGenerationCandidateId={selectedThumbnailGenerationCandidateId}
+        selectedDetailPageGenerationId={selectedAgentId}
         onToggleEditComplete={() => setIsEditComplete((v) => !v)}
         onToggleLocked={() => setIsLocked((v) => !v)}
         onBack={goBack}
+        rawData={product?.raw_data ?? null}
+        imageUrls={product?.image_urls ?? []}
       />
+
+      {inProgressEntries.length > 0 && (
+        <GenerationProgressBannerStack
+          entries={inProgressEntries.map((e) => ({
+            id: e.id,
+            templateId: e.templateId,
+            status: e.imageProcessingStatus,
+            processedCount: Object.keys(e.processedImages || {}).length,
+            totalCount: e.imageUrls?.length ?? 0,
+            // detail 페이지는 product 단일이라 productName 생략 — 헤더에 이미 표시
+          }))}
+        />
+      )}
 
       <div className="flex flex-1 overflow-hidden">
         <div
@@ -103,10 +165,42 @@ export default function ProductDetailPage() {
               updateField={updateField}
               nameLength={nameLength}
               productId={productId}
+              promotedMasterId={promotedMasterId}
+              detailPreviewHtml={detailPreviewHtml}
+              editedHtml={editedHtml}
+              templateCss={templateCss}
               rawData={product?.raw_data ?? null}
               imageUrls={product?.image_urls ?? []}
               thumbnailUrl={product?.thumbnail_url ?? null}
-              promotedMasterId={promotedMasterId}
+              selectedKidsPlayfulId={selectedKidsPlayfulId}
+              selectedBoldVerticalId={selectedBoldVerticalId}
+              selectedAgentId={selectedAgentId}
+              onSelectKidsPlayful={(id) => {
+                setSelectedKidsPlayfulId(id);
+                if (id) {
+                  setSelectedBoldVerticalId(null);
+                  setSelectedAgentId(null);
+                }
+                setActiveTab('detail');
+              }}
+              onSelectBoldVertical={(id) => {
+                setSelectedBoldVerticalId(id);
+                if (id) {
+                  setSelectedKidsPlayfulId(null);
+                  setSelectedAgentId(null);
+                }
+                setActiveTab('detail');
+              }}
+              onSelectAgent={(id) => {
+                setSelectedAgentId(id);
+                if (id) {
+                  setSelectedKidsPlayfulId(null);
+                  setSelectedBoldVerticalId(null);
+                }
+                setActiveTab('detail');
+              }}
+              selectedRegistrationThumbnailUrl={selectedRegistrationThumbnailUrl}
+              onSelectRegistrationThumbnail={setSelectedRegistrationThumbnailUrl}
             />
           </div>
         </div>
@@ -116,7 +210,9 @@ export default function ProductDetailPage() {
             <MobilePreview
               name={editData.name}
               mainImage={
-                editData.thumbnails[0] ?? 'https://placehold.co/400x400/e2e8f0/64748b?text=No+Image'
+                selectedRegistrationThumbnailUrl ??
+                editData.thumbnails[0] ??
+                'https://placehold.co/400x400/e2e8f0/64748b?text=No+Image'
               }
               salePrice={editData.salePrice}
               originalPrice={editData.originalPrice}

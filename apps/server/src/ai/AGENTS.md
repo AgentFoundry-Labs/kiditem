@@ -37,7 +37,7 @@ ai/
 | `POST /api/text-ai/transform` | sync | `TEXT_COMPLETION_PORT` only |
 | `POST /api/ai/detail-page/generate` with `productId` | async Agent OS | creates product-bound `ContentGeneration` ledger |
 | `POST /api/ai/detail-page/generate` without `productId` | async Agent OS | creates standalone `ContentGeneration` ledger inside a `ContentGenerationGroup` |
-| `GET /api/ai/content-archive/workspaces` | read model | product-content workspace index grouped by product or unlinked generation group |
+| `GET /api/ai/content-archive/workspaces` | read model | generated content workspace index grouped by product or unlinked generation group |
 | `GET /api/ai/content-archive/products/:productId` | read model | generated detail-page/image rows for one product workspace |
 | `DELETE /api/ai/content-archive/products/:productId` | mutation | deletes generated content rows for one product workspace; does not delete `MasterProduct` |
 | `GET /api/ai/content-archive/groups/:groupId` | read model | generated rows for one unlinked workspace |
@@ -100,30 +100,42 @@ HTTP DTO
   -> AGENT_RUNNER_PORT.runByType('detail_page_generate')
   -> detail-page runtime handler
   -> bridge
-  -> sink READY/FAILED + generated images + generated ContentAsset rows + alert close
+  -> sink READY/FAILED + DetailPageArtifact identity + generated images + generated ContentAsset rows + alert close
 ```
 
-`ContentGenerationGroup` is the workspace identity. Product-bound runs use the
-canonical `groupType='product_workspace'` group with
+`ContentGenerationGroup` is the transitional archive/media workspace identity.
+Product-bound runs use the canonical `groupType='product_workspace'` group with
 `targetMasterId=<MasterProduct.id>`; standalone runs use an unlinked
-`input_variation` group. `ContentGeneration.generationGroupId` is required.
-Same-input reruns reuse/create the explicit group and must not infer grouping
-from title or product-name similarity.
+`input_variation` group. `ContentGeneration.generationGroupId` is required
+while the archive UI still groups workspaces through it. Same-input reruns
+reuse/create the explicit group and must not infer grouping from title or
+product-name similarity.
 
 `ContentGeneration` stores request/result snapshots in `generationInput` and
-`generationResult`. Do not add generated-detail payload columns back to the
-row.
+`generationResult`, plus direct candidate lineage in `sourceCandidateId` when a
+sourcing candidate is the primary source. Do not add generated-detail payload
+columns back to the row.
+
+On successful detail-page generation the sink creates or reuses a
+`DetailPageArtifact` and writes its id to
+`ContentGeneration.detailPageArtifactId`. Initial generated output still lives
+in `generationResult`; editor saves append `DetailPageRevision` rows.
 
 `ContentGenerationSource` stores generation-level provenance. It may point to a
-sourcing candidate, input asset, or another generation. Product target is the
-workspace group, not a source row.
+sourcing candidate, input asset, or another generation. Keep it as the
+multi-source ledger; the primary candidate shortcut belongs on
+`ContentGeneration.sourceCandidateId`. Product target is the workspace group,
+not a source row.
 
 `ContentAsset` is the group library asset. Current images used by a generated
 row live in `ContentGenerationAssetUsage`; saving edited detail-page HTML
 replaces that usage set from the HTML `<img>` URLs.
 
-Edited detail-page HTML is stored on `ContentGeneration.editedHtml`; do not
-write generated editor output back into `MasterProduct.draftContent`.
+Editable detail-page HTML is stored as append-only `DetailPageRevision` rows;
+`DetailPageArtifact.currentRevisionId` selects the active version. The
+`/edited-html` API remains the compatibility endpoint, but new saves must not
+write editor output to `ContentGeneration.editedHtml` or
+`MasterProduct.draftContent`.
 
 `DetailPageHeroImageService` selects source images, storage keys, and prompt
 inputs. `DetailPageGeminiMediaAdapter` owns GoogleGenAI response parsing and
@@ -219,9 +231,10 @@ group assets; current usage by a generation is represented by
 copies/adopts it into `MasterProductImage`; adoption state does not live in the
 archive card.
 
-`ContentGeneration` is not a sourcing-candidate polymorphic target. Sourcing
-candidate provenance is represented by `ContentGenerationSource` rows and read
-through AI-domain archive APIs.
+`ContentGeneration` is not a sourcing-candidate polymorphic target. Primary
+sourcing lineage is `ContentGeneration.sourceCandidateId`; additional
+provenance remains in `ContentGenerationSource` rows and is read through
+AI-domain archive APIs.
 
 ## Transitional Exceptions
 

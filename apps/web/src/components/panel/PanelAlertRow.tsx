@@ -10,7 +10,7 @@ import { apiClient } from '@/lib/api-client';
 import { cn, timeAgo } from '@/lib/utils';
 import { PromoteToTaskModal } from './PromoteToTaskModal';
 import { usePanelStore } from './lib/panel-store';
-import { normalizeProductContentHref } from '@/app/(catalog)/product-content/lib/product-content-routing';
+import { normalizeSourcingHref } from '@/app/(sourcing)/sourcing/lib/sourcing-routing';
 import type { PanelAlertItem } from '@kiditem/shared/panel';
 
 function severityIcon(severity: string) {
@@ -205,5 +205,5 @@ export function PanelAlertRow({ item }: { item: PanelAlertItem }) {
 }
 
 function normalizePanelAlertHref(href: string | null): string | null {
-  return normalizeProductContentHref(href);
+  return normalizeSourcingHref(href);
 }

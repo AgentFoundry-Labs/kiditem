@@ -13,7 +13,7 @@ thumbnail-editor/
 │   ├── EditorInputPanel.tsx       # editCase 분기 렌더 (2슬롯 / multi-drop / 1슬롯 / creative)
 │   ├── EditorResultPanel.tsx
 │   ├── SlotCard.tsx               # 슬롯별 이미지 source drawer 진입점
-│   ├── ImageSourceDrawer.tsx      # upload / product-content assets / prev-gen / other-product 선택
+│   ├── ImageSourceDrawer.tsx      # upload / generated assets / prev-gen / other-product 선택
 │   ├── HubUploadZone.tsx          # FileReader → dataURL 업로드
 │   └── EditorControlPanel.tsx     # editCase 분기 (pieceCount · supplementaryLabel · scene presets 5개)
 ├── edit/                          # generationId 기반 edit page + slot helpers/history hook
@@ -76,7 +76,7 @@ Generation 후 `queryClient.invalidateQueries(queryKeys.thumbnailAnalysis.genera
 ### 8. SlotCard / ImageSourceDrawer — 이미지 source 추상화
 
 `components/SlotCard.tsx` — 슬롯 UI 와 source badge / clear / remove 동작을 소유한다.
-`components/ImageSourceDrawer.tsx` — upload / product-content assets / prev-gen / other-product source 선택을 소유한다.
+`components/ImageSourceDrawer.tsx` — upload / generated assets / prev-gen / other-product source 선택을 소유한다.
 `components/HubUploadZone.tsx` — File → dataURL 변환을 소유한다.
 색상별/번들 multi-add 는 `EditorInputPanel` 의 `AddSlotTile` + `ImageSourceDrawer` multi 모드로 처리한다.
 

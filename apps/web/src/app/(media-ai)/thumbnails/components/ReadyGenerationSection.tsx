@@ -248,11 +248,13 @@ export function ReadyGenerationSection({
                   >
                     {g.product?.name}
                   </p>
-                  <Link href={buildEditHref({ productId: g.productId, generationId: g.id, imageUrl: g.product?.imageUrl })}>
-                    <button className="w-full flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-colors bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-100">
-                      <Wand2 size={10} /> AI 편집하기
-                    </button>
-                  </Link>
+                  {g.productId && (
+                    <Link href={buildEditHref({ productId: g.productId, generationId: g.id, imageUrl: g.product?.imageUrl })}>
+                      <button className="w-full flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-colors bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-100">
+                        <Wand2 size={10} /> AI 편집하기
+                      </button>
+                    </Link>
+                  )}
                 </div>
               </div>
             );

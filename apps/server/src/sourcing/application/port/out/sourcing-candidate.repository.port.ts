@@ -89,5 +89,5 @@ export interface SourcingCandidateRepositoryPort {
     limit: number;
     sort: 'newest' | 'oldest' | 'name_asc';
     platform?: string;
-  }): Promise<{ items: CandidateRow[]; total: number }>;
+  }): Promise<{ items: Array<CandidateRow & { images: CandidateImageRow[] }>; total: number }>;
 }

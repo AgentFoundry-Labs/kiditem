@@ -78,8 +78,8 @@ export function DetailModal({
   const analysisMethodLabel =
     display?.method === 'ai' ? 'Gemini' : display?.method === 'rule' ? '룰 기반' : 'AI';
   const candidates = gen?.candidates || [];
-  const productName = gen?.product.name || product?.productName || '';
-  const originalImage = resolveImageUrl(gen?.originalUrl || gen?.product.imageUrl || product?.imageUrl || null);
+  const productName = gen?.product?.name || product?.productName || '';
+  const originalImage = resolveImageUrl(gen?.originalUrl || gen?.product?.imageUrl || product?.imageUrl || null);
   const hasCandidates = candidates.length > 0;
   const hasAnalysis = !!(display?.scores || display?.complianceScores);
   // 이미지 생성 + 분석 데이터가 둘 다 있으면 combined 뷰: 위 Before/After, 아래 분석.
@@ -89,7 +89,7 @@ export function DetailModal({
   const editHref = buildEditHref({
     productId: product?.productId ?? gen?.productId ?? '',
     generationId: gen?.id,
-    imageUrl: product?.imageUrl ?? gen?.product.imageUrl ?? null,
+    imageUrl: product?.imageUrl ?? gen?.product?.imageUrl ?? null,
   });
   const grade = display?.grade;
   const gradeConf = grade ? GRADE_CONFIG[grade] : null;

@@ -84,11 +84,20 @@ describe('detail-page stored JSON helpers', () => {
     });
   });
 
-  it('builds canonical detail-page result links for the product-content editor surface', () => {
+  it('builds canonical detail-page result links for the sourcing editor surface', () => {
     expect(detailPageResultHref({
       productId: 'product-123',
       contentGenerationId: 'generation-456',
       templateId: 'bold-vertical',
-    })).toBe('/product-content/detail-pages/generation-456/editor');
+    })).toBe('/sourcing/detail-pages/generation-456/editor');
+  });
+
+  it('builds candidate-scoped detail-page result links when sourcing provenance exists', () => {
+    expect(detailPageResultHref({
+      productId: 'product-123',
+      sourceCandidateId: 'candidate-123',
+      contentGenerationId: 'generation-456',
+      templateId: 'bold-vertical',
+    })).toBe('/sourcing/candidate-123/editor?generationId=generation-456');
   });
 });

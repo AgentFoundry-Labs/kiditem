@@ -56,6 +56,9 @@ export class ThumbnailEditorController {
     @CurrentUser() authUser?: AuthUser,
   ): Promise<EnqueueResponse | SyncResponse> {
     const mode = body.mode ?? 'edit';
+    if (body.productId && body.sourceCandidateId) {
+      throw new BadRequestException('productId 와 sourceCandidateId 는 동시에 사용할 수 없습니다');
+    }
     const product = body.productId
       ? await this.generationService.findProductForEditor(body.productId, organizationId)
       : null;
@@ -94,6 +97,36 @@ export class ThumbnailEditorController {
           productName,
           category,
         }),
+      });
+      return {
+        candidates: [],
+        generationId: enqueueResult.generationId,
+        status: 'pending',
+      } satisfies EnqueueResponse;
+    }
+
+    if (body.sourceCandidateId) {
+      const enqueueResult = await this.generationService.enqueueCandidateGeneration({
+        organizationId,
+        sourceCandidateId: body.sourceCandidateId,
+        productName,
+        triggeredByUserId: authUser?.id ?? null,
+        inputs,
+        inputMeta: this.inputMeta(body, mode, editCase, inputs),
+        method: mode === 'creative' ? 'creative' : 'generate',
+        originalUrl: inputs[0]?.url ?? '',
+        agentPayload: {
+          ...this.agentPayload({
+            body,
+            mode,
+            editCase,
+            composition,
+            inputs,
+            productName,
+            category,
+          }),
+          sourceCandidateId: body.sourceCandidateId,
+        },
       });
       return {
         candidates: [],

@@ -260,6 +260,36 @@ describe('DetailPageGenerateRuntimeHandler', () => {
     expect(call?.user).toContain('KC 인증번호: CB061R1234-1001');
   });
 
+  it('reuses an existing result for image-only runs without calling text completion', async () => {
+    const textCompletion: TextCompletionPort = {
+      complete: vi.fn(),
+    };
+    const { handler } = makeHandler(textCompletion);
+
+    const result = await handler.execute(makeCtx({
+      input: {
+        templateId: 'bold-vertical',
+        generationMode: 'image',
+        existingResult: JSON.parse(VALID_BOLD_VERTICAL_TEXT),
+        raw: {
+          rawTitle: '키즈 텀블러',
+          rawCategory: '유아용품',
+          rawDescription: '아이가 사용하기 좋은 텀블러',
+          rawOptions: '핑크/블루',
+          imageUrls: ['https://example.com/p1.jpg'],
+        },
+        heroImageMode: 'llm-pick',
+      },
+    }));
+
+    expect(textCompletion.complete).not.toHaveBeenCalled();
+    expect(result.provider).toBe('stored-detail-page');
+    expect(result.output).toMatchObject({
+      templateId: 'bold-vertical',
+      imageUrls: ['https://example.com/p1.jpg'],
+    });
+  });
+
   it('returns kids-playful package and safety-label exclusions for the sink', async () => {
     const textCompletion: TextCompletionPort = {
       complete: vi.fn().mockResolvedValue({ text: VALID_KIDS_PLAYFUL_TEXT }),

@@ -19,6 +19,8 @@ import {
   type DetailPageTemplateId,
 } from '@kiditem/shared/ai';
 
+const DETAIL_PAGE_GENERATION_MODES = ['draft', 'image', 'full'] as const;
+
 export class DetailPageSourceReferenceDto {
   @IsIn(['sourcing_candidate', 'input_asset', 'content_generation'])
   sourceType!: 'sourcing_candidate' | 'input_asset' | 'content_generation';
@@ -72,6 +74,10 @@ export class GenerateDetailPageBodyDto {
   @IsOptional()
   @IsIn(DETAIL_PAGE_TEMPLATE_IDS)
   templateId?: DetailPageTemplateId;
+
+  @IsOptional()
+  @IsIn(DETAIL_PAGE_GENERATION_MODES)
+  generationMode?: 'draft' | 'image' | 'full';
 
   @IsOptional()
   @IsIn(DETAIL_PAGE_AGE_GROUPS)

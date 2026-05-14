@@ -105,7 +105,7 @@ export function PipelineVisualization({
       tab: 'ai-edit',
       desc: '가이드라인 수정 · 품질 개선',
       tasks: inGeneration.map((g) => ({
-        name: g.product.name,
+        name: g.product?.name ?? '상품 정보 없음',
         status: g.status === 'running' ? '생성 중' : isReady(g) ? '준비됨' : '대기',
       })),
       emptyText: '생성 작업 없음',
@@ -117,7 +117,7 @@ export function PipelineVisualization({
       icon: CheckCircle,
       tab: 'history',
       desc: '쿠팡 반영됨',
-      tasks: recentApplied.map((g) => ({ name: g.product.name, status: '완료' })),
+      tasks: recentApplied.map((g) => ({ name: g.product?.name ?? '상품 정보 없음', status: '완료' })),
       emptyText: '최근 적용 없음',
     },
   ];

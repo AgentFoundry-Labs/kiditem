@@ -92,7 +92,15 @@ export class DetailPageQueryService {
       select: {
         id: true,
         generationGroupId: true,
+        detailPageArtifactId: true,
+        generatedTitle: true,
+        sourceCandidateId: true,
         triggeredByUserId: true,
+        generationGroup: {
+          select: {
+            targetMasterId: true,
+          },
+        },
       },
     });
     if (!row) throw new NotFoundException('Detail page generation not found');
@@ -104,7 +112,7 @@ export class DetailPageQueryService {
     });
     const imageUrls = extractImageSrcs(promoted.html);
     const savedAt = new Date();
-    const updated = await this.prisma.$transaction(async (tx) => {
+    const revision = await this.prisma.$transaction(async (tx) => {
       await this.contentAssets.syncGenerationImageUsagesTx(tx, {
         organizationId,
         generationGroupId: row.generationGroupId,
@@ -112,22 +120,66 @@ export class DetailPageQueryService {
         createdByUserId: row.triggeredByUserId,
         imageUrls,
       });
-      return tx.contentGeneration.updateMany({
-        where: { id, organizationId },
+
+      const artifactId = row.detailPageArtifactId ?? (await tx.detailPageArtifact.create({
         data: {
-          editedHtml: promoted.html,
-          editedHtmlSavedAt: savedAt,
+          organizationId,
+          sourceCandidateId: row.sourceCandidateId,
+          targetMasterId: row.generationGroup.targetMasterId,
+          sourceContentGenerationId: id,
+          title: row.generatedTitle ?? '상세페이지',
+          status: 'draft',
+          createdByUserId: row.triggeredByUserId,
+          metadata: { source: 'detail_page_editor_save' },
+        },
+        select: { id: true },
+      })).id;
+
+      const createdRevision = await tx.detailPageRevision.create({
+        data: {
+          organizationId,
+          artifactId,
+          contentGenerationId: id,
+          revisionType: 'manual_edit',
+          html: promoted.html,
+          assetUrlMap: promoted.assetUrlMap as Prisma.InputJsonValue,
+          imageUrls: imageUrls as Prisma.InputJsonValue,
+          createdByUserId: row.triggeredByUserId,
+          createdAt: savedAt,
+        },
+        select: {
+          id: true,
+          html: true,
+          createdAt: true,
         },
       });
+
+      const artifactUpdated = await tx.detailPageArtifact.updateMany({
+        where: { id: artifactId, organizationId },
+        data: {
+          currentRevisionId: createdRevision.id,
+          status: 'draft',
+        },
+      });
+      if (artifactUpdated.count === 0) {
+        throw new NotFoundException('Detail page artifact not found');
+      }
+
+      const generationUpdated = await tx.contentGeneration.updateMany({
+        where: { id, organizationId },
+        data: { detailPageArtifactId: artifactId },
+      });
+      if (generationUpdated.count === 0) {
+        throw new NotFoundException('Detail page generation not found');
+      }
+
+      return createdRevision;
     });
-    if (updated.count === 0) {
-      throw new NotFoundException('Detail page generation not found');
-    }
 
     void this.deleteTmpImagesBestEffort(promoted.tmpKeysToDelete);
     return {
-      html: promoted.html,
-      savedAt: savedAt.toISOString(),
+      html: revision.html,
+      savedAt: revision.createdAt.toISOString(),
       assetUrlMap: promoted.assetUrlMap,
     };
   }
@@ -142,9 +194,26 @@ export class DetailPageQueryService {
         id: true,
         editedHtml: true,
         editedHtmlSavedAt: true,
+        detailPageArtifact: {
+          select: {
+            currentRevision: {
+              select: {
+                html: true,
+                createdAt: true,
+              },
+            },
+          },
+        },
       },
     });
     if (!row) throw new NotFoundException('Detail page generation not found');
+    const currentRevision = row.detailPageArtifact?.currentRevision;
+    if (currentRevision) {
+      return {
+        html: currentRevision.html,
+        savedAt: currentRevision.createdAt.toISOString(),
+      };
+    }
     return {
       html: row.editedHtml,
       savedAt: row.editedHtmlSavedAt?.toISOString() ?? null,

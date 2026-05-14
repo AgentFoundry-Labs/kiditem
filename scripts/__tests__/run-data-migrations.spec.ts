@@ -26,6 +26,7 @@ describe('data migration registry', () => {
       'v0.1.0:003_relabel_image_edit_agent_instances_to_gemini_image',
       'v0.1.0:004_backfill_content_archive_classification',
       'v0.1.1:001_backfill_content_generation_workspace_assets',
+      'v0.1.1:002_backfill_detail_page_artifacts',
     ]);
   });
 
@@ -44,20 +45,29 @@ describe('data migration registry', () => {
 });
 
 describe('legacy detail editor alert href migration', () => {
-  it('rewrites legacy sourcing editor hrefs to the product-content editor', () => {
+  it('rewrites legacy sourcing editor hrefs to the sourcing editor', () => {
     expect(
       rewriteLegacyDetailEditorHref('/sourcing/product-123/editor?boldId=generation-456'),
-    ).toBe('/product-content/product-123/editor?generationId=generation-456');
+    ).toBe('/sourcing/product-123/editor?generationId=generation-456');
   });
 
   it('normalizes legacy agentId and generationId query keys', () => {
     expect(
       rewriteLegacyDetailEditorHref('/sourcing/product-123/editor?agentId=generation-456'),
-    ).toBe('/product-content/product-123/editor?generationId=generation-456');
+    ).toBe('/sourcing/product-123/editor?generationId=generation-456');
 
     expect(
       rewriteLegacyDetailEditorHref('/sourcing/product-123/editor?generationId=generation-456'),
-    ).toBe('/product-content/product-123/editor?generationId=generation-456');
+    ).toBe('/sourcing/product-123/editor?generationId=generation-456');
+  });
+
+  it('rewrites retired product-content editor hrefs to sourcing generation editor hrefs', () => {
+    expect(
+      rewriteLegacyDetailEditorHref('/product-content/detail-pages/generation-456/editor'),
+    ).toBe('/sourcing/detail-pages/generation-456/editor');
+    expect(
+      rewriteLegacyDetailEditorHref('/product-content/product-123/editor?generationId=generation-456'),
+    ).toBe('/sourcing/detail-pages/generation-456/editor');
   });
 
   it('leaves unrelated hrefs unchanged', () => {

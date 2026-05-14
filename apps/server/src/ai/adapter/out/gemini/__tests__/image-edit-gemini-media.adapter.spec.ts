@@ -71,7 +71,8 @@ describe('ImageEditGeminiMediaAdapter', () => {
       model: 'gemini-image-from-agent-os',
     }));
     const prompt = requestParts(generateContent).find((part) => part.text)?.text ?? '';
-    expect(prompt).toContain('transparent PNG');
+    expect(prompt).toContain('pure white (#FFFFFF) background');
+    expect(prompt).toContain('checkerboard');
     expect(prompt).toContain('Additional: crisp edges');
     expect(storage.save).toHaveBeenCalledWith(
       expect.stringMatching(/^tmp\/image-edits\/org-1\/remove_background-[\w-]+\.png$/),

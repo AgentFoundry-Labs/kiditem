@@ -8,7 +8,7 @@ import {
   useKidsPlayfulGenerationList,
   type KidsPlayfulGenerationItem,
 } from '@/app/(media-ai)/generate/hooks/useKidsPlayfulGenerate';
-import { buildProductContentEditorHref } from '@/app/(catalog)/product-content/lib/product-content-routing';
+import { buildSourcingEditorHref } from '@/app/(sourcing)/sourcing/lib/sourcing-routing';
 
 const IN_PROGRESS_STATUSES = new Set(['pending', 'processing']);
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
@@ -43,12 +43,10 @@ export default function GenerationCompletionWatcher() {
         TERMINAL_STATUSES.has(current)
       ) {
         const isBoldVertical = entry.templateId === 'bold-vertical';
-        const editorUrl = entry.productId
-          ? buildProductContentEditorHref({
-              productId: entry.productId,
-              generationId: entry.id,
-            })
-          : null;
+        const editorUrl = buildSourcingEditorHref({
+          candidateId: sourceCandidateIdFromGeneration(entry),
+          generationId: entry.id,
+        });
         const productLabel = entry.productName || '상세페이지';
 
         if (current === 'completed') {
@@ -57,12 +55,10 @@ export default function GenerationCompletionWatcher() {
               isBoldVertical ? 'KIDITEM DESIGN' : 'Trend Vertical'
             } - 상세페이지로 이동하시겠습니까?`,
             duration: Infinity,
-            action: editorUrl
-              ? {
-                  label: '상세페이지로 이동',
-                  onClick: () => router.push(editorUrl),
-                }
-              : undefined,
+            action: {
+              label: '상세페이지로 이동',
+              onClick: () => router.push(editorUrl),
+            },
           });
         } else if (current === 'cancelled') {
           toast.info(`${productLabel} 생성 중단됨`, {
@@ -81,5 +77,23 @@ export default function GenerationCompletionWatcher() {
     prevStatusRef.current = currentStatus;
   }, [kpList, boldList, router]);
 
+  return null;
+}
+
+function sourceCandidateIdFromGeneration(entry: KidsPlayfulGenerationItem): string | null {
+  const rawInput = entry.rawInput;
+  if (!rawInput || typeof rawInput !== 'object') return null;
+  const sourceReferences = (rawInput as { sourceReferences?: unknown }).sourceReferences;
+  if (!Array.isArray(sourceReferences)) return null;
+  for (const ref of sourceReferences) {
+    if (
+      ref &&
+      typeof ref === 'object' &&
+      (ref as { sourceType?: unknown }).sourceType === 'sourcing_candidate' &&
+      typeof (ref as { sourceCandidateId?: unknown }).sourceCandidateId === 'string'
+    ) {
+      return (ref as { sourceCandidateId: string }).sourceCandidateId;
+    }
+  }
   return null;
 }
