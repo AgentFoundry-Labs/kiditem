@@ -34,13 +34,26 @@ prisma/              Prisma multi-file schema source of truth
 extensions/          Browser extensions for sourcing / marketplace ingest
 ```
 
+## Shared Contract Architecture
+
+`packages/shared` exposes frontend/backend contracts through focused subpath
+exports. New or rebuilt domains add `@kiditem/shared/{domain}` entrypoints
+instead of expanding the root barrel.
+
+Exported Zod schema values use PascalCase `FooSchema`; exported TypeScript
+types use `export type Foo = z.infer<typeof FooSchema>`. Existing violations
+remain protected by the baseline checker until migrated, and new aliases should
+not be added for them.
+
 ## Backend Directory Architecture
 
 Backend folders are owner domains, owner capabilities, platforms, or support
 folders. They are not DB-table mirrors or frontend page names. Implementation
 structure has only two classifications for business/platform code:
-`Hexagonal` or `Flat`. Support folders have no business implementation
-structure.
+`Hexagonal` or `Flat`. Flat is a valid structure, not merely a waiting room for
+hexagonal conversion; when complexity appears, first make caller/route-family,
+workflow-stage, and shared-interface names visible, then add ports only for
+real seams. Support folders have no business implementation structure.
 
 Kinds:
 
@@ -162,11 +175,14 @@ Required: module file plus controller/service files for HTTP capabilities.
 Optional: `dto/` when there is no HTTP input contract and sub-capability folders
 only when they remain owned by the same folder.
 
-Flat capability code may stay flat only while it has no provider SDK, Agent OS
-runtime, workflow integration, cross-domain mutation, raw SQL/row-lock
-transaction, shared use-case consumer, meaningful pure domain policy,
-LLM/prompt/media/storage/fetch boundary, or 500+ line service pressure. Adding
-one of those is a reconstruction trigger for the touched capability.
+Flat capability code may stay flat until complexity creates a real boundary
+seam: provider SDK, Agent OS runtime, workflow integration, cross-domain
+mutation, raw SQL/row-lock transaction, shared use-case consumer, meaningful
+pure domain policy, LLM/prompt/media/storage/fetch boundary, or 500+ line
+service pressure. Adding one of those is a reconstruction trigger for the
+touched capability, but the response is the smallest structure that exposes
+the seam. Incoming controllers may split by route family or use case without
+forcing a full `application/domain/port` structure.
 
 Platform support folders do not own business workflows. New top-level backend
 folders must be added to this directory map in the same PR and justified by
@@ -245,6 +261,11 @@ apps/web/src/app/(group)/{route}/
 Required: `page.tsx`. Optional: route-local `components/`, `hooks/`, `lib/`, and
 `__tests__/` when the route needs them. Add route-local `AGENTS.md` for complex
 or high-risk route contracts.
+
+Route-local folders may group components, hooks, and helpers by workflow stage
+or route family when complexity already exists. Keep these groupings local until
+2+ routes need the same interface; app-wide abstractions are for shared
+interfaces, not single-route tidying.
 
 Route-group shared code lives only in `app/(group)/_shared/` and only when 2+
 sibling routes use it. App-wide shared code lives only in `src/components`,
