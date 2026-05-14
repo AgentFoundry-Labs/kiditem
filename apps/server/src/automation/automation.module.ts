@@ -5,13 +5,16 @@ import { AgentOsModule } from '../agent-os/agent-os.module';
 // adapter/in/http
 import { ActionTaskController } from './adapter/in/http/action-task.controller';
 import { AlertsController } from './adapter/in/http/alerts.controller';
-import { MarketplaceController } from './adapter/in/http/marketplace.controller';
+import { MarketplaceAgentsController } from './adapter/in/http/marketplace-agents.controller';
+import { MarketplaceWorkflowsController } from './adapter/in/http/marketplace-workflows.controller';
 import { OperationAlertLifecycleController } from './adapter/in/http/operation-alert-lifecycle.controller';
 import { PanelController } from './adapter/in/http/panel.controller';
 import {
-  WorkflowsController,
+  WorkflowRunDetailsController,
   WorkflowRunsController,
-} from './adapter/in/http/workflows.controller';
+} from './adapter/in/http/workflow-runs.controller';
+import { WorkflowRunCommandsController } from './adapter/in/http/workflow-run-commands.controller';
+import { WorkflowTemplatesController } from './adapter/in/http/workflow-templates.controller';
 
 // adapter/out/repository
 import { ActionBoardRepositoryAdapter } from './adapter/out/repository/action-board.repository.adapter';
@@ -90,13 +93,16 @@ const IN_PORT_BINDINGS = [
 @Module({
   imports: [PrismaModule, AgentOsModule],
   controllers: [
-    MarketplaceController,
+    MarketplaceWorkflowsController,
+    MarketplaceAgentsController,
     PanelController,
     ActionTaskController,
     AlertsController,
     OperationAlertLifecycleController,
-    WorkflowsController,
+    WorkflowTemplatesController,
+    WorkflowRunCommandsController,
     WorkflowRunsController,
+    WorkflowRunDetailsController,
   ],
   providers: [
     // adapter/out/repository

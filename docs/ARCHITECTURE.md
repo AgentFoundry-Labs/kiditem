@@ -296,8 +296,10 @@ Agent OS is a backend platform capability. Runtime execution and run accounting
 live under `apps/server/src/agent-os/`; schema ownership is documented in
 `prisma/AGENTS.md`:
 
-- Public workflow routes live under
-  `apps/server/src/automation/adapter/in/http/workflows.controller.ts`.
+- Public workflow routes live under the route-family controllers in
+  `apps/server/src/automation/adapter/in/http/workflow-templates.controller.ts`,
+  `workflow-run-commands.controller.ts`, and
+  `workflow-runs.controller.ts`.
 - Public action-board routes live under
   `apps/server/src/automation/adapter/in/http/action-task.controller.ts`.
 - Manager routes live under

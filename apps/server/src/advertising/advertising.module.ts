@@ -4,10 +4,13 @@ import { AgentOsModule } from '../agent-os/agent-os.module';
 import { AutomationModule } from '../automation/automation.module';
 
 import { AdvertisingActionsController } from './adapter/in/http/advertising-actions.controller';
+import { AdvertisingCampaignsController } from './adapter/in/http/advertising-campaigns.controller';
 import { AdvertisingConfigController } from './adapter/in/http/advertising-config.controller';
+import { AdvertisingDiagnosticsController } from './adapter/in/http/advertising-diagnostics.controller';
 import { AdvertisingExecutionController } from './adapter/in/http/advertising-execution.controller';
 import { AdvertisingIngestController } from './adapter/in/http/advertising-ingest.controller';
-import { AdvertisingWorkspaceController } from './adapter/in/http/advertising-workspace.controller';
+import { AdvertisingOverviewController } from './adapter/in/http/advertising-overview.controller';
+import { AdvertisingStrategyController } from './adapter/in/http/advertising-strategy.controller';
 import { AdStrategyAgentController } from './adapter/in/http/ad-strategy-agent.controller';
 
 // adapter/out/repository
@@ -90,7 +93,10 @@ const REPOSITORY_PORT_BINDINGS = [
   imports: [PrismaModule, AgentOsModule, AutomationModule],
   controllers: [
     AdvertisingConfigController,
-    AdvertisingWorkspaceController,
+    AdvertisingOverviewController,
+    AdvertisingCampaignsController,
+    AdvertisingStrategyController,
+    AdvertisingDiagnosticsController,
     AdvertisingIngestController,
     AdvertisingActionsController,
     AdvertisingExecutionController,

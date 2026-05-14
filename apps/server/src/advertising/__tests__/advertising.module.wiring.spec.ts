@@ -6,10 +6,13 @@ import { AgentOsModule } from '../../agent-os/agent-os.module';
 import { AutomationModule } from '../../automation/automation.module';
 
 import { AdvertisingActionsController } from '../adapter/in/http/advertising-actions.controller';
+import { AdvertisingCampaignsController } from '../adapter/in/http/advertising-campaigns.controller';
 import { AdvertisingConfigController } from '../adapter/in/http/advertising-config.controller';
+import { AdvertisingDiagnosticsController } from '../adapter/in/http/advertising-diagnostics.controller';
 import { AdvertisingExecutionController } from '../adapter/in/http/advertising-execution.controller';
 import { AdvertisingIngestController } from '../adapter/in/http/advertising-ingest.controller';
-import { AdvertisingWorkspaceController } from '../adapter/in/http/advertising-workspace.controller';
+import { AdvertisingOverviewController } from '../adapter/in/http/advertising-overview.controller';
+import { AdvertisingStrategyController } from '../adapter/in/http/advertising-strategy.controller';
 import { AdStrategyAgentController } from '../adapter/in/http/ad-strategy-agent.controller';
 
 // adapter/out/repository
@@ -58,6 +61,17 @@ const CONTROLLERS_KEY = 'controllers';
 const PROVIDERS_KEY = 'providers';
 const PATH_KEY = 'path';
 
+const ADS_CONTROLLERS = [
+  AdvertisingActionsController,
+  AdvertisingCampaignsController,
+  AdvertisingConfigController,
+  AdvertisingDiagnosticsController,
+  AdvertisingExecutionController,
+  AdvertisingIngestController,
+  AdvertisingOverviewController,
+  AdvertisingStrategyController,
+];
+
 // Architecture-guard companion to advertising.architecture.spec.ts and the
 // dev:server boot check in the advertising AGENTS.md verification gate. This
 // spec freezes only the @Module()/@Controller() metadata so a missing
@@ -72,19 +86,10 @@ describe('AdvertisingModule capability wiring', () => {
     );
   });
 
-  it('mounts the ads + ad-agent controllers from adapter/in/http', () => {
+  it('mounts route-family ads + ad-agent controllers from adapter/in/http', () => {
     const controllers: unknown[] =
       Reflect.getMetadata(CONTROLLERS_KEY, AdvertisingModule) ?? [];
-    expect(new Set(controllers)).toEqual(
-      new Set([
-        AdvertisingActionsController,
-        AdvertisingConfigController,
-        AdvertisingExecutionController,
-        AdvertisingIngestController,
-        AdvertisingWorkspaceController,
-        AdStrategyAgentController,
-      ]),
-    );
+    expect(new Set(controllers)).toEqual(new Set([...ADS_CONTROLLERS, AdStrategyAgentController]));
   });
 
   it('declares every repository + automation adapter as a provider', () => {
@@ -156,13 +161,7 @@ describe('AdvertisingModule capability wiring', () => {
   });
 
   it('keeps public /api route prefixes for ads + ad-agent', () => {
-    for (const controller of [
-      AdvertisingActionsController,
-      AdvertisingConfigController,
-      AdvertisingExecutionController,
-      AdvertisingIngestController,
-      AdvertisingWorkspaceController,
-    ]) {
+    for (const controller of ADS_CONTROLLERS) {
       expect(Reflect.getMetadata(PATH_KEY, controller)).toBe('ads');
     }
     expect(Reflect.getMetadata(PATH_KEY, AdStrategyAgentController)).toBe('ad-agent');

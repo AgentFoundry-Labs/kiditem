@@ -6,10 +6,13 @@ vi.mock('../../../../application/service/ad-strategy.service', () => ({
 }));
 
 import { AdvertisingActionsController } from '../advertising-actions.controller';
+import { AdvertisingCampaignsController } from '../advertising-campaigns.controller';
 import { AdvertisingConfigController } from '../advertising-config.controller';
+import { AdvertisingDiagnosticsController } from '../advertising-diagnostics.controller';
 import { AdvertisingExecutionController } from '../advertising-execution.controller';
 import { AdvertisingIngestController } from '../advertising-ingest.controller';
-import { AdvertisingWorkspaceController } from '../advertising-workspace.controller';
+import { AdvertisingOverviewController } from '../advertising-overview.controller';
+import { AdvertisingStrategyController } from '../advertising-strategy.controller';
 
 // Controller wiring: this spec keeps the cases where the controller does
 // real work — defaults, body→service transformations, command/sub-action
@@ -67,12 +70,13 @@ function makeServices() {
 }
 
 function makeControllers(svcs = makeServices()) {
-  const workspaceCtrl = new AdvertisingWorkspaceController(
-    svcs.advertising as any,
+  const overviewCtrl = new AdvertisingOverviewController(svcs.advertising as any);
+  const campaignsCtrl = new AdvertisingCampaignsController(
     svcs.campaigns as any,
     svcs.strategy as any,
-    svcs.benchmark as any,
   );
+  const strategyCtrl = new AdvertisingStrategyController(svcs.strategy as any);
+  const diagnosticsCtrl = new AdvertisingDiagnosticsController(svcs.benchmark as any);
   const ingestCtrl = new AdvertisingIngestController(
     svcs.collect as any,
     svcs.sync as any,
@@ -82,7 +86,10 @@ function makeControllers(svcs = makeServices()) {
   const configCtrl = new AdvertisingConfigController(svcs.config as any);
 
   return {
-    workspaceCtrl,
+    overviewCtrl,
+    campaignsCtrl,
+    strategyCtrl,
+    diagnosticsCtrl,
     ingestCtrl,
     actionCtrl,
     executionCtrl,
@@ -111,28 +118,38 @@ function makeConfigController(svcs = makeServices()) {
   return { ctrl: configCtrl, svcs: services };
 }
 
-function makeWorkspaceController(svcs = makeServices()) {
-  const { workspaceCtrl, svcs: services } = makeControllers(svcs);
-  return { ctrl: workspaceCtrl, svcs: services };
+function makeOverviewController(svcs = makeServices()) {
+  const { overviewCtrl, svcs: services } = makeControllers(svcs);
+  return { ctrl: overviewCtrl, svcs: services };
+}
+
+function makeCampaignsController(svcs = makeServices()) {
+  const { campaignsCtrl, svcs: services } = makeControllers(svcs);
+  return { ctrl: campaignsCtrl, svcs: services };
+}
+
+function makeStrategyController(svcs = makeServices()) {
+  const { strategyCtrl, svcs: services } = makeControllers(svcs);
+  return { ctrl: strategyCtrl, svcs: services };
 }
 
 const COMPANY = 'organization-1';
 
 describe('AdvertisingController — defaults + body transformations', () => {
   it('PATCH /:id/tier extracts adTier from body before delegating', () => {
-    const { ctrl, svcs } = makeWorkspaceController();
+    const { ctrl, svcs } = makeOverviewController();
     ctrl.changeTier('ad-1', { adTier: 'A' } as any, COMPANY);
     expect(svcs.advertising.changeTier).toHaveBeenCalledWith('ad-1', 'A', COMPANY);
   });
 
   it('GET /campaigns falls back to period 7d when query omitted', () => {
-    const { ctrl, svcs } = makeWorkspaceController();
+    const { ctrl, svcs } = makeCampaignsController();
     ctrl.getCampaigns({} as any, COMPANY);
     expect(svcs.campaigns.getCampaigns).toHaveBeenCalledWith('7d', undefined, COMPANY);
   });
 
   it('GET /strategy/rules falls back to period 14d when query omitted', () => {
-    const { ctrl, svcs } = makeWorkspaceController();
+    const { ctrl, svcs } = makeStrategyController();
     ctrl.getRules({} as any, COMPANY);
     expect(svcs.strategy.getRules).toHaveBeenCalledWith('14d', COMPANY);
   });
@@ -281,7 +298,7 @@ describe('AdvertisingController — POST /actions sub-action dispatch', () => {
 
 describe('AdvertisingController — organizationId 격리 (ADR-0006)', () => {
   it('서로 다른 organizationId 는 각각 전파 (cross-tenant 흘림 없음)', () => {
-    const { ctrl, svcs } = makeWorkspaceController();
+    const { ctrl, svcs } = makeOverviewController();
     ctrl.getHub('organization-a');
     ctrl.getHub('organization-b');
     expect(svcs.advertising.getHubData).toHaveBeenNthCalledWith(1, 'organization-a');
