@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import puppeteer from 'puppeteer';
+import { DetailPageRasterizationService } from '../../../../application/service/detail-page-rasterization.service';
 import { RenderImageController } from '../render-image.controller';
 
 vi.mock('puppeteer', () => ({
@@ -23,6 +24,7 @@ describe('RenderImageController', () => {
     newPage: vi.fn(),
     close: vi.fn(),
   };
+  const makeController = () => new RenderImageController(new DetailPageRasterizationService());
 
   beforeEach(() => {
     vi.mocked(puppeteer.launch).mockResolvedValue(browser as never);
@@ -36,7 +38,7 @@ describe('RenderImageController', () => {
   });
 
   it('does not navigate to a request-controlled baseUrl before rendering HTML', async () => {
-    const controller = new RenderImageController();
+    const controller = makeController();
     const res = {
       setHeader: vi.fn(),
       send: vi.fn(),
@@ -66,7 +68,7 @@ describe('RenderImageController', () => {
   });
 
   it('uses renderScale as device scale without changing the CSS viewport width', async () => {
-    const controller = new RenderImageController();
+    const controller = makeController();
     const res = {
       setHeader: vi.fn(),
       send: vi.fn(),
@@ -91,7 +93,7 @@ describe('RenderImageController', () => {
     page.evaluate
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({ x: 0, y: 0, width: 720, height: 2400 });
-    const controller = new RenderImageController();
+    const controller = makeController();
     const res = {
       setHeader: vi.fn(),
       send: vi.fn(),
@@ -110,5 +112,48 @@ describe('RenderImageController', () => {
     expect(page.screenshot).toHaveBeenCalledWith(expect.not.objectContaining({
       fullPage: true,
     }));
+  });
+
+  it('rejects output widths that would exceed the server scale budget', async () => {
+    const controller = makeController();
+    const res = {
+      setHeader: vi.fn(),
+      send: vi.fn(),
+    };
+
+    await expect(controller.render(
+      {
+        html: '<main><h1>too large</h1></main>',
+        viewportWidth: 320,
+        outputWidth: 2400,
+      },
+      res as never,
+    )).rejects.toThrow('render scale too large');
+
+    expect(page.screenshot).not.toHaveBeenCalled();
+    expect(puppeteer.launch).not.toHaveBeenCalled();
+  });
+
+  it('rejects measured content that would exceed the screenshot pixel budget', async () => {
+    page.evaluate
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ x: 0, y: 0, width: 720, height: 30_000 });
+    const controller = makeController();
+    const res = {
+      setHeader: vi.fn(),
+      send: vi.fn(),
+    };
+
+    await expect(controller.render(
+      {
+        html: '<main><h1>very tall</h1></main>',
+        viewportWidth: 720,
+        outputWidth: 1440,
+      },
+      res as never,
+    )).rejects.toThrow('render output too large');
+
+    expect(page.screenshot).not.toHaveBeenCalled();
+    expect(browser.close).toHaveBeenCalled();
   });
 });

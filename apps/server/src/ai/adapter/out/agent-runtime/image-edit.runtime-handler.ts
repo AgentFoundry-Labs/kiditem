@@ -13,6 +13,7 @@ import type { AgentTypeRuntimeHandler } from '../../../../agent-os/application/p
 import { AgentRuntimeHandlerRegistry } from '../../../../agent-os/application/service/agent-runtime-handler-registry.service';
 import {
   PublicUrlError,
+  assertHttpUrl,
   assertPublicHttpUrl,
 } from '../../../../common/security/public-url';
 import {
@@ -120,8 +121,11 @@ export class ImageEditRuntimeHandler
 
   private assertSafeImageSource(value: string, path: string): void {
     if (value.startsWith('data:image/')) return;
-    if (this.imageStorage.extractKey(value)) return;
     try {
+      if (this.imageStorage.extractKey(value)) {
+        assertHttpUrl(value);
+        return;
+      }
       assertPublicHttpUrl(value);
     } catch (error) {
       if (error instanceof PublicUrlError) {

@@ -153,40 +153,6 @@ function isFullCrop(rect: CropRect): boolean {
   return rect.x === 0 && rect.y === 0 && rect.width === 100 && rect.height === 100;
 }
 
-function loadImageForCanvas(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    if (!src.startsWith('data:') && !src.startsWith('blob:')) {
-      image.crossOrigin = 'anonymous';
-    }
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error('이미지를 불러오지 못했습니다'));
-    image.src = src;
-  });
-}
-
-async function cropImageToDataUrl(src: string, cropRect: CropRect): Promise<string> {
-  const image = await loadImageForCanvas(src);
-  const rect = normalizeCropRect(cropRect);
-  const sourceWidth = image.naturalWidth || image.width;
-  const sourceHeight = image.naturalHeight || image.height;
-  const sx = Math.round((sourceWidth * rect.x) / 100);
-  const sy = Math.round((sourceHeight * rect.y) / 100);
-  const sw = Math.max(1, Math.round((sourceWidth * rect.width) / 100));
-  const sh = Math.max(1, Math.round((sourceHeight * rect.height) / 100));
-  const canvas = document.createElement('canvas');
-  canvas.width = sw;
-  canvas.height = sh;
-  const context = canvas.getContext('2d');
-  if (!context) throw new Error('자르기 캔버스를 만들지 못했습니다');
-  context.drawImage(image, sx, sy, sw, sh, 0, 0, sw, sh);
-  try {
-    return canvas.toDataURL('image/png');
-  } catch {
-    throw new Error('이 이미지는 브라우저에서 바로 자를 수 없습니다. 이미지 교체 후 다시 시도해주세요.');
-  }
-}
-
 async function submitImageEdit(params: {
   image_url: string;
   preset: string;
@@ -195,6 +161,13 @@ async function submitImageEdit(params: {
   contentGenerationId?: string;
 }): Promise<{ taskId: string }> {
   return apiClient.post<{ taskId: string }>('/api/image-ai/edit', params);
+}
+
+async function submitImageCrop(params: {
+  imageUrl: string;
+  crop: CropRect;
+}): Promise<{ imageUrl: string }> {
+  return apiClient.post<{ imageUrl: string }>('/api/image-ai/crop', params);
 }
 
 // Agent OS: `/api/image-ai/edit` returns `{ taskId }` where taskId is the
@@ -255,7 +228,8 @@ export function AIImageEditPanel({
 
   const resolveImageUrlForEdit = useCallback(async () => {
     if (!cropOpen || isFullCrop(cropRect)) return imageUrl;
-    return cropImageToDataUrl(imageUrl, cropRect);
+    const cropped = await submitImageCrop({ imageUrl, crop: cropRect });
+    return cropped.imageUrl;
   }, [cropOpen, cropRect, imageUrl]);
 
   const startCropDrag = useCallback((event: PointerEvent<HTMLElement>, handle: CropHandle) => {
@@ -299,8 +273,8 @@ export function AIImageEditPanel({
     setLoadingPreset('crop');
     setError(null);
     try {
-      const croppedImageUrl = await cropImageToDataUrl(imageUrl, cropRect);
-      onEditComplete(croppedImageUrl);
+      const cropped = await submitImageCrop({ imageUrl, crop: cropRect });
+      onEditComplete(cropped.imageUrl);
       setCropOpen(false);
       setCropRect(DEFAULT_CROP_RECT);
     } catch (err) {
