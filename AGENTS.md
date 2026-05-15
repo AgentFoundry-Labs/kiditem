@@ -145,19 +145,21 @@ notes stay out of git.
 - **Boundary exception is narrow** — organization guards, raw SQL policy, scanner scripts, shared export topology, and dependency tooling may cross domains. Business logic rewrites still use one owner domain per PR.
 - **Organization service contract** — organization-owned services receive `organizationId` as an explicit argument from `@CurrentOrganization()`. Client-provided `organizationId` is not trusted.
 - **Raw SQL contract** — production raw SQL uses Prisma tagged templates only. Unsafe raw SQL APIs remain banned even when inputs appear sanitized.
-- **Shared contract** — do not expand the `@kiditem/shared` root barrel for new domains. Add or use domain subpath exports instead.
+- **Shared contract** — do not expand the `@kiditem/shared` root barrel for new domains. Add or use domain subpath exports instead. Exported Zod schema values use PascalCase `FooSchema` with `export type Foo = z.infer<typeof FooSchema>`; existing naming violations stay behind the baseline checker until migrated.
 - **Large-file contract** — do not add substantial behavior to 700+ line services/components. Write a split/replacement plan first.
 - **Frontend DB boundary** — frontend packages must not depend on Prisma, `pg`, or direct database access. Data flows through NestJS APIs.
 - **Verification contract** — every reconstruction PR reports the exact gate it made green. If a gate itself is broken, fix the gate before using it as evidence.
 - **Backend architecture contract** — backend reconstruction follows the
   backend contract in [`apps/server/AGENTS.md`](apps/server/AGENTS.md):
   Domain-first modular architecture with Application orchestration and
-  selective Hexagonal Ports.
+  selective Hexagonal Ports. Do not convert flat modules to hexagonal by
+  default; make caller/route-family, workflow-stage, and shared-interface names
+  visible where complexity already exists, and add ports only for real seams.
 - **Owner domain boundary** — backend top-level folders represent owner domains/platforms, not DB tables or frontend pages. Boundaries are chosen by data ownership, mutation authority, transaction boundary, and invariants.
 - **Pure domain rule** — reconstructed `domain/` code must not depend on NestJS, Prisma, HTTP/provider SDKs, workflow runtime, AgentRegistry, filesystem, or panel/event infrastructure.
 - **Application port rule** — reconstructed application services depend on `application/port/out/*` contracts for DB, cross-domain, provider, Agent OS, workflow, filesystem, and panel/event boundaries. Nest modules bind those ports to outgoing adapters. Do not import concrete `adapter/out/**` implementations or other owner-domain services directly from `application/service/**`.
 - **Adapter naming rule** — reconstructed DB access lives behind application ports and outgoing adapters. The scoped plan chooses the concrete adapter lane and concise names, for example Inventory uses `adapter/out/repository/*.repository.adapter.ts`. Do not force global DAO/Repository naming, do not keep `*persistence.ts` as final naming, and do not repeat folder roles in file names unless multiple implementations require a qualifier such as `prisma`, `memory`, or a provider name.
-- **Legacy module rule** — flat `Controller -> Service -> PrismaService` modules are tolerated only as transitional legacy CRUD. New or materially rewritten domains should move behavior behind `adapter/application/domain` structure using port/adapter boundaries.
+- **Legacy module rule** — flat `Controller -> Service -> PrismaService` modules are tolerated for simple owner capabilities and transitional legacy CRUD. New or materially rewritten domains move behavior behind `adapter/application/domain` only when real IO seams, pure domain policy, shared use cases, or orchestration complexity require port/adapter boundaries.
 - **Backend folder rule** — adding a new `apps/server/src/{top-level}` folder requires owner-domain justification in the scoped plan or instruction file. Small table-shaped modules should be folded into their owner domain during reconstruction.
 - **Directory architecture rule** — backend and web directory ownership/structure live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Adding, moving, or changing a top-level backend folder, frontend route group, route leaf, or shared frontend root must update that directory map in the same PR.
 

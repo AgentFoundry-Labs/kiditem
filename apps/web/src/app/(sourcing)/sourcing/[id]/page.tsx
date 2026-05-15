@@ -146,6 +146,7 @@ export default function ProductDetailPage() {
             status: e.imageProcessingStatus,
             processedCount: Object.keys(e.processedImages || {}).length,
             totalCount: e.imageUrls?.length ?? 0,
+            rawInput: e.rawInput,
             // detail 페이지는 product 단일이라 productName 생략 — 헤더에 이미 표시
           }))}
         />

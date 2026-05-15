@@ -39,7 +39,11 @@ import { ErrorCodes } from '@kiditem/shared/errors';                      // err
 
 ## Rules
 
-- Zod 스키마 → `z.infer<typeof Schema>`로 타입 추론. 별도 interface 금지.
+- Exported Zod schema values use PascalCase `FooSchema`; exported TypeScript
+  types use `export type Foo = z.infer<typeof FooSchema>`. Existing violations
+  stay behind the baseline checker until migrated; do not add new aliases for
+  them.
+- Zod 스키마 → `z.infer<typeof FooSchema>`로 타입 추론. 별도 interface 금지.
 - Date 필드는 `zIsoDate` (`z.union([z.string(), z.date()])`) 사용 — Prisma Date 반환 + JSON string 수신 양쪽 대응.
 - 응답이 엔티티 부분집합일 때 `.omit()` 파생 스키마 사용: `AgentListItemSchema = AgentSchema.omit({ promptTemplate: true })`
 - 도메인별 파일 분리: `schemas/product.ts`, `schemas/order.ts`, etc.

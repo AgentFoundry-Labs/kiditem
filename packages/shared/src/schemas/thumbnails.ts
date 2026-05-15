@@ -343,4 +343,4 @@ export type CoupangImageSyncSourceCapability = z.infer<typeof CoupangImageSyncSo
 export type CoupangImageSyncCapabilities = z.infer<typeof CoupangImageSyncCapabilitiesSchema>;
 export type ThumbnailTrackingRecord = z.infer<typeof ThumbnailTrackingRecordSchema>;
 export type ThumbnailTrackingListResponse = z.infer<typeof ThumbnailTrackingListResponseSchema>;
-export type UpdateThumbnailTrackingMetricsInput = z.infer<typeof UpdateThumbnailTrackingMetricsSchema>;
+export type UpdateThumbnailTrackingMetrics = z.infer<typeof UpdateThumbnailTrackingMetricsSchema>;

@@ -9,7 +9,8 @@
  * 표준 EventSource API 와 달리 fetch() 옵션을 받으므로 헤더/credentials 둘 다 가능.
  */
 import { fetchEventSource } from '@microsoft/fetch-event-source';
-import { PanelEvent } from '@kiditem/shared/panel';
+import { PanelEventSchema } from '@kiditem/shared/panel';
+import type { PanelEvent } from '@kiditem/shared/panel';
 import { API_BASE } from '@/lib/api';
 import { createSupabaseBrowserClient } from '@/lib/supabase/client';
 
@@ -83,7 +84,7 @@ export class PanelSseClient {
           if (msg.id) this.lastEventId = msg.id;
           if (!msg.data || msg.data === '') return; // ping
           try {
-            const parsed = PanelEvent.parse(JSON.parse(msg.data));
+            const parsed = PanelEventSchema.parse(JSON.parse(msg.data));
             this.options.onMessage(parsed);
           } catch (err) {
             this.options.onError?.(err);

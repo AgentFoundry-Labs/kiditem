@@ -152,13 +152,13 @@ model Alert {
   targetType String? @map("target_type")
   targetId   String? @map("target_id") @db.Uuid
 
-  kind     String @default("signal")
-  status   String @default("open")
+  kind     String    @default("signal")
+  status   String    @default("open")
   type     String
-  severity String  @default("warning")
+  severity String    @default("warning")
   title    String
   message  String?
-  isRead   Boolean @default(false) @map("is_read")
+  isRead   Boolean   @default(false) @map("is_read")
   readAt   DateTime? @map("read_at") @db.Timestamptz
 
   operationKey String? @map("operation_key")

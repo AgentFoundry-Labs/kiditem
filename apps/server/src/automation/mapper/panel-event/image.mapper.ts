@@ -1,4 +1,4 @@
-import { PanelRunItem } from '@kiditem/shared/panel';
+import { PanelRunItemSchema } from '@kiditem/shared/panel';
 import type { PanelRunItem as PanelRunItemType } from '@kiditem/shared/panel';
 import type { ThumbnailGeneration } from '@prisma/client';
 import type { PanelRunMapper } from './types';
@@ -19,7 +19,7 @@ export interface ImageAdapterInput {
 }
 
 // shared Zod enum에서 유효 상태 집합을 파생 — 드리프트 시 tsc가 감지
-const VALID_STATUS = new Set<PanelRunItemType['status']>(PanelRunItem.shape.status.options);
+const VALID_STATUS = new Set<PanelRunItemType['status']>(PanelRunItemSchema.shape.status.options);
 
 export const imagePanelMapper: PanelRunMapper<ImageAdapterInput> = {
   source: 'image',

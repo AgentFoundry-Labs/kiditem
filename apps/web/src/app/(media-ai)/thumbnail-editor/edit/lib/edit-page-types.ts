@@ -1,4 +1,4 @@
-import type { EditUseCase } from '../../components/UseCaseSelection';
+import type { EditUseCase } from '../../components/control/UseCaseSelection';
 
 export type EditorMode = 'edit' | 'creative';
 

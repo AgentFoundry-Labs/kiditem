@@ -22,12 +22,12 @@ import { resolveImageUrl } from '@/lib/resolve-url';
 import { useProductImages } from '../../_shared/hooks/useProductImages';
 
 import { useGenerateThumbnail } from '../hooks/useThumbnailEditor';
-import { EditorInputPanel } from '../components/EditorInputPanel';
-import { EditorResultPanel } from '../components/EditorResultPanel';
-import { EditorControlPanel } from '../components/EditorControlPanel';
-import { ModeCaseModal } from '../components/ModeCaseModal';
-import type { EditUseCase } from '../components/UseCaseSelection';
-import type { SupplementaryLabel } from '../components/EditorInputPanel';
+import { EditorInputPanel } from '../components/input/EditorInputPanel';
+import { EditorResultPanel } from '../components/result/EditorResultPanel';
+import { EditorControlPanel } from '../components/control/EditorControlPanel';
+import { ModeCaseModal } from '../components/control/ModeCaseModal';
+import type { EditUseCase } from '../components/control/UseCaseSelection';
+import type { SupplementaryLabel } from '../components/input/EditorInputPanel';
 import {
   buildInitialSlots, selectProductValue, setFirstSlotValueByKind,
   type Slot,

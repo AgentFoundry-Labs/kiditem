@@ -85,6 +85,11 @@ Shared directories (`src/components`, `src/hooks`, `src/lib`) are only for code
 used by 2+ domains. Route-group private shared code can live in
 `app/(group)/_shared/`.
 
+Route-local `components/`, `hooks/`, and `lib/` may be grouped by workflow
+stage or route family when a page already has visible complexity. Keep those
+names local to the route until 2+ routes need the same interface; do not create
+global abstractions just to tidy a single workflow.
+
 The current frontend directory map and route/shared structure contracts live in
 [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md#frontend-directory-architecture).
 When a PR adds a route group, moves a route, or changes shared ownership,

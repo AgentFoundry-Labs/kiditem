@@ -178,3 +178,5 @@ export function useThumbnailActions(
     runAiAnalysis,
   };
 }
+
+export type ThumbnailActions = ReturnType<typeof useThumbnailActions>;

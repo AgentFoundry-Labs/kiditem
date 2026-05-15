@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import type { QueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Megaphone, MinusCircle, ShieldCheck, Truck } from 'lucide-react';
-import { type AlertItemDashboard } from '@kiditem/shared/dashboard';
+import { type DashboardAlertItem } from '@kiditem/shared/dashboard';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { cn } from '@/lib/utils';
@@ -13,7 +13,7 @@ function alertIcon(type: string) {
   return <AlertTriangle size={14} className="text-slate-400 shrink-0" />;
 }
 
-function alertStatusLabel(status: AlertItemDashboard['status']): string | null {
+function alertStatusLabel(status: DashboardAlertItem['status']): string | null {
   if (status === 'running') return '진행 중';
   if (status === 'pending') return '대기 중';
   if (status === 'succeeded') return '완료';
@@ -23,7 +23,7 @@ function alertStatusLabel(status: AlertItemDashboard['status']): string | null {
   return null;
 }
 
-function alertStatusClass(status: AlertItemDashboard['status']): string {
+function alertStatusClass(status: DashboardAlertItem['status']): string {
   if (status === 'succeeded') return 'bg-emerald-50 text-emerald-700';
   if (status === 'failed') return 'bg-red-50 text-red-700';
   if (status === 'running' || status === 'pending') return 'bg-blue-50 text-blue-700';
@@ -34,7 +34,7 @@ export function DashboardSidePanel({
   alerts,
   queryClient,
 }: {
-  alerts: AlertItemDashboard[];
+  alerts: DashboardAlertItem[];
   queryClient: QueryClient;
 }) {
   const markAllRead = async () => {

@@ -51,6 +51,7 @@ import {
 } from './detail-page-stored.helpers';
 import { ContentAssetService } from './content-asset.service';
 import type { PersistedContentAssetRef } from './content-asset.service';
+import { kickEnqueuedAgentRequest as kickInlineAgentRequest } from './agent-inline-execution';
 
 const DETAIL_PAGE_PROCESSING_STATUSES = [
   'PENDING',
@@ -435,9 +436,10 @@ export class DetailPageGenerationService {
             ],
           }),
     };
-    const row = await this.prisma.contentGeneration.findFirst({
+    const rows = await this.prisma.contentGeneration.findMany({
       where,
       orderBy: { createdAt: 'desc' },
+      take: 10,
       select: {
         id: true,
         generationInput: true,
@@ -446,16 +448,19 @@ export class DetailPageGenerationService {
         generatedTitle: true,
       },
     });
-    if (!row) return null;
-    const stored = toDetailPageStoredJson({
-      templateId: this.normalizeTemplateId(row.templateId),
-      generationInput: row.generationInput,
-      generationResult: row.generationResult,
-    });
-    if (!stored.result || typeof stored.result !== 'object' || Object.keys(stored.result).length === 0) {
-      return null;
+    for (const row of rows) {
+      const stored = toDetailPageStoredJson({
+        templateId: this.normalizeTemplateId(row.templateId),
+        generationInput: row.generationInput,
+        generationResult: row.generationResult,
+      });
+      if (this.storedGenerationMode(stored.rawInput) === 'image') continue;
+      if (!stored.result || typeof stored.result !== 'object' || Object.keys(stored.result).length === 0) {
+        continue;
+      }
+      return { id: row.id, result: stored.result };
     }
-    return { id: row.id, result: stored.result };
+    return null;
   }
 
   private async createGenerationGroupForInput(input: {
@@ -668,15 +673,21 @@ export class DetailPageGenerationService {
   }): void {
     if (!input.requestId || !this.agentRunner.executeRequest) return;
 
-    void this.agentRunner.executeRequest({
+    kickInlineAgentRequest({
+      agentRunner: this.agentRunner,
       organizationId: input.organizationId,
       requestId: input.requestId,
       workerId: 'detail-page-generate-inline',
-    }).catch((error) => {
-      this.logger.warn(
-        `Failed to kick detail_page_generate request ${input.requestId}: ${error}`,
-      );
+      logger: this.logger,
+      label: 'detail_page_generate',
     });
+  }
+
+  private storedGenerationMode(rawInput: unknown): 'draft' | 'image' | 'full' {
+    if (!rawInput || typeof rawInput !== 'object') return 'full';
+    const value = (rawInput as Record<string, unknown>).generationMode;
+    if (value === 'draft' || value === 'image') return value;
+    return 'full';
   }
 
   async cancel(id: string, organizationId: string): Promise<DetailPageGenerationDto> {

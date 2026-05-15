@@ -32,6 +32,10 @@ import {
   type TextCompletionPort,
 } from '../../../application/port/out/text-completion.port';
 import { DetailPageResultRefinerService } from '../../../application/service/detail-page-result-refiner.service';
+import { DetailPageGeneratedImagesService } from '../../../application/service/detail-page-generated-images.service';
+import type { DetailPageRawInput } from '../../../application/service/detail-page-ai.types';
+
+const GENERATED_IMAGE_TIMEOUT_MS = 15 * 60_000;
 
 /**
  * `detail_page_generate` runtime handler.
@@ -51,9 +55,9 @@ import { DetailPageResultRefinerService } from '../../../application/service/det
  *      apply it onto the originating `ContentGeneration` row.
  *
  * The handler does NOT touch Prisma. Persistence is the sink's job — see
- * `DetailPageContentGenerationSinkAdapter`. Image generation
- * (`DetailPageGeneratedImagesService.generateBestEffort`) is also deferred
- * to the sink because it depends on storage + the validated parse output.
+ * `DetailPageContentGenerationSinkAdapter`. Generated image work also runs
+ * here so AgentRun remains the durable record for the full AI/media execution,
+ * while the sink stays a quick DB projection.
  *
  * Registration — handlers must register themselves with
  * `AgentRuntimeHandlerRegistry` so the agent-os routing adapter can
@@ -73,6 +77,7 @@ export class DetailPageGenerateRuntimeHandler
     @Inject(TEXT_COMPLETION_PORT)
     private readonly textCompletion: TextCompletionPort,
     private readonly resultRefiner: DetailPageResultRefinerService,
+    private readonly generatedImages: DetailPageGeneratedImagesService,
   ) {}
 
   onModuleInit(): void {
@@ -154,7 +159,12 @@ export class DetailPageGenerateRuntimeHandler
             safetyLabelImageIndices: [],
           };
       return {
-        output,
+        output: await this.attachProcessedImages({
+          organizationId: ctx.organizationId,
+          output,
+          rawInput,
+          generationMode,
+        }),
         provider: 'stored-detail-page',
       };
     }
@@ -236,9 +246,64 @@ export class DetailPageGenerateRuntimeHandler
         };
 
     return {
-      output,
+      output: await this.attachProcessedImages({
+        organizationId: ctx.organizationId,
+        output,
+        rawInput,
+        generationMode,
+      }),
       provider: 'gemini-text',
     };
+  }
+
+  private async attachProcessedImages(input: {
+    organizationId: string;
+    output:
+      | {
+          templateId: 'bold-vertical';
+          result: BoldVerticalGeneration;
+          imageUrls: string[];
+        }
+      | {
+          templateId: 'kids-playful';
+          result: DetailPageGeneration;
+          imageUrls: string[];
+          reservedPackageImageIndices: number[];
+          safetyLabelImageIndices: number[];
+        };
+    rawInput: DetailPageRawInput;
+    generationMode: 'draft' | 'image' | 'full';
+  }) {
+    if (input.generationMode === 'draft') {
+      return { ...input.output, processedImages: {} };
+    }
+    const productName = pickProductName(
+      input.output.result,
+      input.output.templateId,
+      input.rawInput.rawTitle,
+    );
+    try {
+      const processedImages = await withTimeout(
+        this.generatedImages.generateBestEffort({
+          organizationId: input.organizationId,
+          parsed: input.output.result,
+          templateId: input.output.templateId,
+          rawInput: input.rawInput,
+          productName,
+          excludedImageIndices: collectExcludedImageIndices(input.output),
+        }),
+        GENERATED_IMAGE_TIMEOUT_MS,
+        'detail_page_generate generated image runtime timeout',
+      );
+      return { ...input.output, processedImages };
+    } catch (err) {
+      this.logger.warn(
+        `detail_page_generate generated image work skipped: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return { ...input.output, processedImages: {} };
+    }
   }
 
   private async resolveKidsImageContext(input: {
@@ -279,4 +344,78 @@ export class DetailPageGenerateRuntimeHandler
     const body = fenced ? fenced[1] : trimmed;
     return JSON.parse(body);
   }
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string,
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error(`${message} after ${timeoutMs}ms`)),
+          timeoutMs,
+        );
+        if (typeof timeout === 'object' && typeof timeout.unref === 'function') {
+          timeout.unref();
+        }
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+function pickProductName(
+  parsed: unknown,
+  templateId: 'kids-playful' | 'bold-vertical',
+  fallback: string,
+): string {
+  if (templateId === 'bold-vertical') {
+    const hookText = (parsed as { hook?: { text?: unknown } }).hook?.text;
+    const hookTitleSub = (parsed as { hook?: { titleSub?: unknown } }).hook
+      ?.titleSub;
+    const title = [
+      typeof hookText === 'string' ? hookText.trim() : '',
+      typeof hookTitleSub === 'string' ? hookTitleSub.trim() : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+    return title || fallback.slice(0, 50);
+  }
+  const headline = (parsed as { section1?: { mainHeadline?: unknown } }).section1
+    ?.mainHeadline;
+  return typeof headline === 'string' && headline.trim()
+    ? headline.trim()
+    : fallback.slice(0, 50);
+}
+
+function collectExcludedImageIndices(input: {
+  templateId: 'kids-playful' | 'bold-vertical';
+  result: DetailPageGeneration | BoldVerticalGeneration;
+  reservedPackageImageIndices?: number[];
+  safetyLabelImageIndices?: number[];
+}): number[] {
+  const indices = new Set<number>();
+  if (input.templateId === 'kids-playful') {
+    for (const idx of input.reservedPackageImageIndices ?? []) {
+      if (Number.isInteger(idx) && idx >= 0) indices.add(idx);
+    }
+    for (const idx of input.safetyLabelImageIndices ?? []) {
+      if (Number.isInteger(idx) && idx >= 0) indices.add(idx);
+    }
+    return Array.from(indices).sort((a, b) => a - b);
+  }
+  const result = input.result as BoldVerticalGeneration;
+  for (const idx of result.packageImageIndices ?? []) {
+    if (Number.isInteger(idx) && idx >= 0) indices.add(idx);
+  }
+  for (const idx of result.safetyLabelImageIndices ?? []) {
+    if (Number.isInteger(idx) && idx >= 0) indices.add(idx);
+  }
+  return Array.from(indices).sort((a, b) => a - b);
 }

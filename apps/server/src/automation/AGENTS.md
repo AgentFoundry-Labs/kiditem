@@ -20,7 +20,7 @@ prisma as an argument by design.
 ```text
 automation/
   automation.module.ts
-  adapter/in/http/                /api/{workflows,workflow-runs,alerts,operation-alerts,action-tasks,marketplace,panel}/* controllers + DTO
+  adapter/in/http/                /api/{workflows,workflow-runs,alerts,operation-alerts,action-tasks,marketplace/*,panel}/* route-family controllers + DTO
   adapter/out/repository/         6 *.repository.adapter.ts (PrismaService here only, plus carve-outs)
   adapter/out/panel-event/        SSE projection adapter (panel.service, panel-sse.service, panel-events constants)
   adapter/out/workflow-runner/    slim-core executor framework (executors/* take PrismaService directly)
@@ -84,7 +84,7 @@ Invariants enforced by `__tests__/automation.architecture.spec.ts`:
   and `adapter/out/repository/`.
 
 `__tests__/automation.module.wiring.spec.ts` freezes the @Module()
-metadata: imports, controllers (7), repository adapters (6) +
+metadata: imports, controllers (10), repository adapters (6) +
 panel-event services, application services (8), 7 port bindings via
 `useExisting` (6 outgoing + 1 incoming), the `OPERATION_ALERT_PORT`
 export, and every controller's public `/api/...` route prefix.

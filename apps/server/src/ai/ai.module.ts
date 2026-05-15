@@ -11,10 +11,15 @@ import { ContentArchiveLinkageController } from './adapter/in/http/content-archi
 import { ContentAssetController } from './adapter/in/http/content-asset.controller';
 import { ContentGenerationRerunController } from './adapter/in/http/content-generation-rerun.controller';
 import { ContentWorkspaceAttachmentController } from './adapter/in/http/content-workspace-attachment.controller';
-import { DetailPageAiController } from './adapter/in/http/detail-page-ai.controller';
+import { DetailPageEditorController } from './adapter/in/http/detail-page-editor.controller';
+import { DetailPageGenerationController } from './adapter/in/http/detail-page-generation.controller';
+import { DetailPageReconcileController } from './adapter/in/http/detail-page-reconcile.controller';
 import { RenderImageController } from './adapter/in/http/render-image.controller';
 import { TextAiController } from './adapter/in/http/text-ai.controller';
 import { ThumbnailAnalysisController } from './adapter/in/http/thumbnail-analysis.controller';
+import { ThumbnailAnalysisEditJobsController } from './adapter/in/http/thumbnail-analysis-edit-jobs.controller';
+import { ThumbnailAnalysisGenerationReviewController } from './adapter/in/http/thumbnail-analysis-generation-review.controller';
+import { ThumbnailAnalysisWingController } from './adapter/in/http/thumbnail-analysis-wing.controller';
 import { ThumbnailAutoController } from './adapter/in/http/thumbnail-auto.controller';
 import { ThumbnailEditorController } from './adapter/in/http/thumbnail-editor.controller';
 import { ThumbnailTrackingController } from './adapter/in/http/thumbnail-tracking.controller';
@@ -105,11 +110,16 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     ContentGenerationRerunController,
     ContentWorkspaceAttachmentController,
     CoupangImageSyncController,
-    DetailPageAiController,
+    DetailPageEditorController,
+    DetailPageGenerationController,
+    DetailPageReconcileController,
     ImageAiController,
     RenderImageController,
     TextAiController,
     ThumbnailAnalysisController,
+    ThumbnailAnalysisEditJobsController,
+    ThumbnailAnalysisGenerationReviewController,
+    ThumbnailAnalysisWingController,
     ThumbnailAutoController,
     ThumbnailEditorController,
     ThumbnailTrackingController,

@@ -25,7 +25,7 @@ Route shape is frozen.
 ```text
 sourcing/
   sourcing.module.ts
-  adapter/in/http/        sourcing candidate ingest + scrape + promote/reject controllers + DTOs
+  adapter/in/http/        route-family controllers: extension ingest/scrape, candidate workspace + DTOs
   adapter/out/agent/      SOURCING_AGENT_GATEWAY_PORT implementation
   adapter/out/products/   products catalog port adapter
   adapter/out/repository/ SOURCING_CANDIDATE_REPOSITORY_PORT adapter

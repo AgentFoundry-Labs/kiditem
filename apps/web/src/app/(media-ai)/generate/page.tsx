@@ -8,15 +8,13 @@
 //
 // 사용자: "사이드바 상세페이지 생성 페이지... 앞에 템플릿 선택하고 이 페이지로 넘어오게"
 
-import { Suspense, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { useQueryClient } from '@tanstack/react-query';
+import { Suspense } from 'react';
 import { ArrowLeft, Sparkles, X } from 'lucide-react';
 import GenerationStartModal from './components/GenerationStartModal';
 import KidsPlayfulHistoryList from './components/KidsPlayfulHistoryList';
 import ProductInputSection from './components/ProductInputSection';
 import TemplatePickStep from './components/TemplatePickStep';
-import { useGenerateForm, type GenerateTemplateId } from './hooks/useGenerateForm';
+import { useGenerateWorkflow } from './hooks/useGenerateWorkflow';
 
 export default function GeneratePage() {
   return (
@@ -27,11 +25,14 @@ export default function GeneratePage() {
 }
 
 function GeneratePageContent() {
-  const router = useRouter();
-  const queryClient = useQueryClient();
-  const [step, setStep] = useState<'template' | 'form'>('template');
-  const [templateId, setTemplateId] = useState<GenerateTemplateId>('bold-vertical');
-
+  const {
+    step,
+    templateId,
+    form,
+    pickTemplate,
+    returnToTemplatePick,
+    handleGenerationDialogAction,
+  } = useGenerateWorkflow();
   const {
     rawTitle,
     setRawTitle,
@@ -76,36 +77,14 @@ function GeneratePageContent() {
     closeGenerationDialog,
     handlePrefill,
     handleSubmit,
-  } = useGenerateForm();
-
-  const handleGenerationDialogAction = async () => {
-    const phase = generationDialog?.phase;
-    const isCompleted = phase === 'completed';
-    const targetUrl = isCompleted && generationDialog?.editorUrl
-      ? generationDialog.editorUrl
-      : '/sourcing';
-    closeGenerationDialog();
-    if (isCompleted) {
-      // destination 페이지가 stale cache 를 보지 않도록 generation listing 을 먼저 동기 refetch
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['kp-generations'] }),
-        queryClient.invalidateQueries({ queryKey: ['bold-generations'] }),
-      ]);
-    }
-    if (isCompleted || phase === 'started') {
-      router.push(targetUrl);
-    }
-  };
+  } = form;
 
   if (step === 'template') {
     return (
       <div className="flex h-full flex-col overflow-y-auto bg-[var(--surface-sunken)]">
         <TemplatePickStep
           defaultTemplateId="bold-vertical"
-          onPick={(tid) => {
-            setTemplateId(tid === 'kids-playful' ? 'kids-playful' : 'bold-vertical');
-            setStep('form');
-          }}
+          onPick={pickTemplate}
         />
         <KidsPlayfulHistoryList />
       </div>
@@ -118,7 +97,7 @@ function GeneratePageContent() {
         <div className="mx-auto flex w-full max-w-[960px] items-center justify-between">
           <button
             type="button"
-            onClick={() => setStep('template')}
+            onClick={returnToTemplatePick}
             className="inline-flex items-center gap-1.5 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           >
             <ArrowLeft size={14} />

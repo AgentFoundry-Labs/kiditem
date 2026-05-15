@@ -8,14 +8,18 @@
 thumbnail-editor/
 ├── page.tsx                       # 상태 기계 (mode + editCase) + 케이스별 payload 조립
 ├── components/
-│   ├── ModeShowcase.tsx           # 허브 진입 카드 (edit/creative)
-│   ├── ModeCaseModal.tsx          # edit workspace 모드/케이스 선택
-│   ├── EditorInputPanel.tsx       # editCase 분기 렌더 (2슬롯 / multi-drop / 1슬롯 / creative)
-│   ├── EditorResultPanel.tsx
-│   ├── SlotCard.tsx               # 슬롯별 이미지 source drawer 진입점
-│   ├── ImageSourceDrawer.tsx      # upload / generated assets / prev-gen / other-product 선택
-│   ├── HubUploadZone.tsx          # FileReader → dataURL 업로드
-│   └── EditorControlPanel.tsx     # editCase 분기 (pieceCount · supplementaryLabel · scene presets 5개)
+│   ├── hub/                       # standalone hub entry, queues, fix-needed sections
+│   │   ├── ModeShowcase.tsx       # 허브 진입 카드 (edit/creative)
+│   │   └── HubUploadZone.tsx      # FileReader → dataURL 업로드
+│   ├── input/                     # slot/image source workflow
+│   │   ├── EditorInputPanel.tsx   # editCase 분기 렌더 (2슬롯 / multi-drop / 1슬롯 / creative)
+│   │   ├── SlotCard.tsx           # 슬롯별 이미지 source drawer 진입점
+│   │   └── ImageSourceDrawer.tsx  # upload / generated assets / prev-gen / other-product 선택
+│   ├── control/                   # mode/use-case/layout controls
+│   │   ├── ModeCaseModal.tsx      # edit workspace 모드/케이스 선택
+│   │   └── EditorControlPanel.tsx # editCase 분기 (pieceCount · supplementaryLabel · scene presets 5개)
+│   ├── result/                    # generated candidate result selection
+│   └── shared/                    # route-local presentational primitives
 ├── edit/                          # generationId 기반 edit page + slot helpers/history hook
 └── hooks/
     └── useThumbnailEditor.ts      # useGenerateThumbnail (GenerateRequest 타입)
@@ -75,9 +79,9 @@ Generation 후 `queryClient.invalidateQueries(queryKeys.thumbnailAnalysis.genera
 
 ### 8. SlotCard / ImageSourceDrawer — 이미지 source 추상화
 
-`components/SlotCard.tsx` — 슬롯 UI 와 source badge / clear / remove 동작을 소유한다.
-`components/ImageSourceDrawer.tsx` — upload / generated assets / prev-gen / other-product source 선택을 소유한다.
-`components/HubUploadZone.tsx` — File → dataURL 변환을 소유한다.
+`components/input/SlotCard.tsx` — 슬롯 UI 와 source badge / clear / remove 동작을 소유한다.
+`components/input/ImageSourceDrawer.tsx` — upload / generated assets / prev-gen / other-product source 선택을 소유한다.
+`components/hub/HubUploadZone.tsx` — File → dataURL 변환을 소유한다.
 색상별/번들 multi-add 는 `EditorInputPanel` 의 `AddSlotTile` + `ImageSourceDrawer` multi 모드로 처리한다.
 
 ## Rules
@@ -108,14 +112,14 @@ Generation 후 `queryClient.invalidateQueries(queryKeys.thumbnailAnalysis.genera
 
 | 수정 시 | 같이 봐야 할 파일 |
 |---|---|
-| editCase 타입 / 용도 추가 | `UseCaseSelection.tsx` (`EditUseCase` type boundary) + `ModeCaseModal.tsx` + `edit/page.tsx` mode/case 전환 + `EditorInputPanel.tsx` 분기 + `EditorControlPanel.tsx` 분기 |
-| supplementaryLabel 옵션 변경 | `EditorInputPanel.tsx` `SUPPLEMENTARY_LABELS` 상수 (export) + `page.tsx` 기본값 |
-| 씬 프리셋 추가/변경 | `EditorControlPanel.tsx` `SCENE_PRESETS` + 백엔드 `CREATIVE_PROMPT` scene 블록 (쌍으로) |
+| editCase 타입 / 용도 추가 | `components/control/UseCaseSelection.tsx` (`EditUseCase` type boundary) + `components/control/ModeCaseModal.tsx` + `edit/page.tsx` mode/case 전환 + `components/input/EditorInputPanel.tsx` 분기 + `components/control/EditorControlPanel.tsx` 분기 |
+| supplementaryLabel 옵션 변경 | `components/input/EditorInputPanel.tsx` `SUPPLEMENTARY_LABELS` 상수 (export) + `page.tsx` 기본값 |
+| 씬 프리셋 추가/변경 | `components/control/EditorControlPanel.tsx` `SCENE_PRESETS` + 백엔드 `CREATIVE_PROMPT` scene 블록 (쌍으로) |
 | Payload 필드 추가 | `hooks/useThumbnailEditor.ts` `GenerateRequest` + 백엔드 `thumbnail-editor.dto.ts` (DTO whitelisted) + `page.tsx` `handleGenerate` |
-| colorImages min/max 변경 | `EditorInputPanel.tsx` 의 `GROUP_MIN/GROUP_MAX` + 백엔드 `thumbnail-editor.dto.ts` `ArrayMinSize/MaxSize` (쌍으로) |
-| Candidate 표시 변경 | `EditorResultPanel.tsx` |
-| Image source 추가 (단일 슬롯) | `SlotCard.tsx` + `ImageSourceDrawer.tsx` + `HubUploadZone.tsx` |
-| Multi-drop 업로더 변경 | `EditorInputPanel.tsx` `AddSlotTile` + `ImageSourceDrawer.tsx` multi 모드 |
-| ROLE_CONFIG 변경 (role 추가 등) | `apps/web/src/app/(media-ai)/_shared/lib/hub-roles.ts` (단일 source) + `ImageSourceDrawer.tsx` |
-| 허브 role → 편집기 슬롯 매핑 규칙 | `EditorInputPanel.tsx` 의 `SlotCard` / `AddSlotTile` role prop. role-slot 매핑 변경 시 EditorInputPanel 해당 case 블록 수정 |
+| colorImages min/max 변경 | `components/input/EditorInputPanel.tsx` 의 `GROUP_MIN/GROUP_MAX` + 백엔드 `thumbnail-editor.dto.ts` `ArrayMinSize/MaxSize` (쌍으로) |
+| Candidate 표시 변경 | `components/result/EditorResultPanel.tsx` |
+| Image source 추가 (단일 슬롯) | `components/input/SlotCard.tsx` + `components/input/ImageSourceDrawer.tsx` + `components/hub/HubUploadZone.tsx` |
+| Multi-drop 업로더 변경 | `components/input/EditorInputPanel.tsx` `AddSlotTile` + `components/input/ImageSourceDrawer.tsx` multi 모드 |
+| ROLE_CONFIG 변경 (role 추가 등) | `apps/web/src/app/(media-ai)/_shared/lib/hub-roles.ts` (단일 source) + `components/input/ImageSourceDrawer.tsx` |
+| 허브 role → 편집기 슬롯 매핑 규칙 | `components/input/EditorInputPanel.tsx` 의 `SlotCard` / `AddSlotTile` role prop. role-slot 매핑 변경 시 EditorInputPanel 해당 case 블록 수정 |
 | ProductSelector / URL 동기화 | `page.tsx` `handleProductSelect`, `handleClearProduct` + `useRouter`. 검색 컴포넌트 변경 시 `apps/web/src/components/product/ProductSelector.tsx` |

@@ -10,6 +10,7 @@ import { useKidsPlayfulInProgress } from '@/app/(media-ai)/generate/hooks/useKid
 import TemplateSelectionModal from '../../[id]/components/TemplateSelectionModal';
 import { productsApi, type SourcedProduct } from '../../lib/sourcing-api';
 import type { DetailPageTemplateId } from '@kiditem/shared/ai';
+import { getInlineGenerationProgressLabel } from '../../lib/generation-progress-label';
 
 interface Props {
   product: SourcedProduct;
@@ -64,9 +65,11 @@ export default function ProductCard({
   const inProgressTemplateLabel =
     kpInProgress?.templateId === 'bold-vertical' ? 'KIDITEM DESIGN' : '트렌드 광고형 템플릿';
   const progressLabel = kpInProgress
-    ? kpInProgress.imageProcessingStatus === 'pending'
-      ? `${inProgressTemplateLabel} 카피 생성 중...`
-      : `${inProgressTemplateLabel} 이미지 생성 중...`
+    ? getInlineGenerationProgressLabel({
+        templateLabel: inProgressTemplateLabel,
+        imageProcessingStatus: kpInProgress.imageProcessingStatus,
+        rawInput: kpInProgress.rawInput,
+      })
     : null;
 
   const showProgress = (isProcessing || !!kpInProgress) && !!progressLabel;

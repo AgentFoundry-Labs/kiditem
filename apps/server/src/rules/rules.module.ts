@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
-import { RulesController } from './controllers/rules.controller';
+import { RuleEvaluationController } from './controllers/rule-evaluation.controller';
+import { RuleSuggestionsController } from './controllers/rule-suggestions.controller';
+import { RulesManagementController } from './controllers/rules-management.controller';
 import { RulesService } from './services/rules.service';
 import { AgentOsModule } from '../agent-os/agent-os.module';
 import { AutomationModule } from '../automation/automation.module';
@@ -18,7 +20,11 @@ import { AutomationModule } from '../automation/automation.module';
 // here. Rules now owns only `/api/rules/*` evaluation + rule CRUD.
 @Module({
   imports: [AgentOsModule, AutomationModule],
-  controllers: [RulesController],
+  controllers: [
+    RuleEvaluationController,
+    RulesManagementController,
+    RuleSuggestionsController,
+  ],
   providers: [RulesService],
 })
 export class RulesModule {}

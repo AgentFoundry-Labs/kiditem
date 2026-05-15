@@ -65,9 +65,9 @@ model ThumbnailAnalysis {
 /// @namespace AI
 /// @describe 상태: pending→generating→ready/failed→applied/skipped. method=edit 만 사용 (generate Imagen 방식 삭제됨).
 model ThumbnailGeneration {
-  id             String @id @default(uuid()) @db.Uuid
-  organizationId String @map("organization_id") @db.Uuid
-  masterId       String? @map("master_id") @db.Uuid
+  id                String  @id @default(uuid()) @db.Uuid
+  organizationId    String  @map("organization_id") @db.Uuid
+  masterId          String? @map("master_id") @db.Uuid
   sourceCandidateId String? @map("source_candidate_id") @db.Uuid
 
   originalUrl          String?                         @map("original_url")
@@ -148,14 +148,14 @@ model ThumbnailGenerationInputImage {
   organizationId String @map("organization_id") @db.Uuid
   generationId   String @map("generation_id") @db.Uuid
 
-  url               String
-  storageKey        String? @map("storage_key")
-  role              String  @default("product")
-  label             String?
-  sortOrder         Int     @default(0) @map("sort_order")
-  source            String  @default("upload")
-  masterImageId     String? @map("master_image_id") @db.Uuid
-  candidateImageId  String? @map("candidate_image_id") @db.Uuid
+  url                        String
+  storageKey                 String? @map("storage_key")
+  role                       String  @default("product")
+  label                      String?
+  sortOrder                  Int     @default(0) @map("sort_order")
+  source                     String  @default("upload")
+  masterImageId              String? @map("master_image_id") @db.Uuid
+  candidateImageId           String? @map("candidate_image_id") @db.Uuid
   sourceThumbnailCandidateId String? @map("source_candidate_id") @db.Uuid
 
   mimeType String? @map("mime_type")
@@ -166,10 +166,10 @@ model ThumbnailGenerationInputImage {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization    Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  generation      ThumbnailGeneration           @relation(fields: [generationId], references: [id], onDelete: Cascade)
-  masterImage     MasterProductImage?           @relation(fields: [masterImageId], references: [id], onDelete: SetNull)
-  candidateImage   CandidateImage?              @relation(fields: [candidateImageId], references: [id], onDelete: SetNull)
+  organization             Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  generation               ThumbnailGeneration           @relation(fields: [generationId], references: [id], onDelete: Cascade)
+  masterImage              MasterProductImage?           @relation(fields: [masterImageId], references: [id], onDelete: SetNull)
+  candidateImage           CandidateImage?               @relation(fields: [candidateImageId], references: [id], onDelete: SetNull)
   sourceThumbnailCandidate ThumbnailGenerationCandidate? @relation(fields: [sourceThumbnailCandidateId], references: [id], onDelete: SetNull)
 
   @@index([organizationId])

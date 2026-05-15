@@ -4,13 +4,10 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import { OperationAlertService } from '../../../../automation/application/service/operation-alert.service';
 import type { DetailPageAgentOutputSinkPort } from '../../../application/port/out/detail-page-agent-output-sink.port';
 import type { DetailPageGenerateAgentOutput } from '../../../domain/agent-output';
-import type { BoldVerticalGeneration } from '../../../domain/prompts/bold-vertical/single-call';
-import type { DetailPageGeneration } from '../../../domain/prompts/detail-page/single-call';
 import { DetailPageGeneratedImagesService } from '../../../application/service/detail-page-generated-images.service';
 import {
   type DetailPageStoredJson,
   detailPageOperationKey,
-  normalizeStoredDetailPageRawInput,
   toDetailPageStoredJson,
 } from '../../../application/service/detail-page-stored.helpers';
 import { ContentAssetService } from '../../../application/service/content-asset.service';
@@ -23,11 +20,6 @@ const TERMINAL_CONTENT_GENERATION_STATUSES = new Set([
   'failed',
   'cancelled',
 ]);
-// This wraps the whole best-effort media phase, not a single provider call.
-// Gemini image generation can legitimately take longer than 30s per image, so
-// keep this as a last-resort stall guard.
-const GENERATED_IMAGE_TIMEOUT_MS = 15 * 60_000;
-
 /**
  * Real `DetailPageAgentOutputSinkPort` adapter — applies a validated
  * `detail_page_generate` runtime result back onto the originating
@@ -36,10 +28,9 @@ const GENERATED_IMAGE_TIMEOUT_MS = 15 * 60_000;
  * Boundary contract — the sink is the only piece on the AI side that owns
  * Prisma writes for ContentGeneration after enqueue. The runtime handler
  * (`DetailPageGenerateRuntimeHandler`) and the bridge
- * (`DetailPageAgentOutputBridge`) never call Prisma. Image generation
- * (`DetailPageGeneratedImagesService.generateBestEffort`) lives here too
- * because it needs the validated parse output and the bound storage port,
- * neither of which the runtime adapter contract exposes.
+ * (`DetailPageAgentOutputBridge`) never call Prisma. Generated image work
+ * belongs to the runtime output so AgentRun remains the durable record for
+ * AI/media execution; this sink only projects that output into domain tables.
  *
  * Organization scope — every Prisma write goes through `findFirst({ id,
  * organizationId })` + `updateMany({ id, organizationId })`. The sink
@@ -63,7 +54,7 @@ export class DetailPageContentGenerationSinkAdapter
   constructor(
     private readonly prisma: PrismaService,
     private readonly operationAlerts: OperationAlertService,
-    private readonly generatedImages: DetailPageGeneratedImagesService,
+    private readonly _generatedImages: DetailPageGeneratedImagesService,
     private readonly contentAssets: ContentAssetService,
   ) {}
 
@@ -114,13 +105,7 @@ export class DetailPageContentGenerationSinkAdapter
       stored.rawTitle ?? row.generatedTitle ?? '상세페이지',
     );
 
-    const processedImages = await this.runImageGenerationBestEffortWithTimeout({
-      organizationId: input.organizationId,
-      output: input.output,
-      productName,
-      stored,
-      timeoutMs: GENERATED_IMAGE_TIMEOUT_MS,
-    });
+    const processedImages = input.output.processedImages ?? {};
 
     if (Object.keys(processedImages).length > 0) {
       await this.contentAssets.recordDetailPageGeneratedAssets({
@@ -282,72 +267,6 @@ export class DetailPageContentGenerationSinkAdapter
     );
   }
 
-  private async runImageGenerationBestEffortWithTimeout(input: {
-    organizationId: string;
-    output: DetailPageGenerateAgentOutput;
-    productName: string;
-    stored: DetailPageStoredJson;
-    timeoutMs: number;
-  }): Promise<Record<string, string>> {
-    const rawInputForImages = normalizeStoredDetailPageRawInput({
-      stored: input.stored,
-      imageUrls: input.output.imageUrls,
-      templateId: input.output.templateId,
-      productName: input.productName,
-    });
-    if (input.stored.rawInput && typeof input.stored.rawInput === 'object') {
-      const generationMode = (input.stored.rawInput as Record<string, unknown>).generationMode;
-      if (generationMode === 'draft') return {};
-    }
-
-    const excludedImageIndices = collectExcludedImageIndices(input.output);
-
-    try {
-      return await withTimeout(
-        this.generatedImages.generateBestEffort({
-          organizationId: input.organizationId,
-          parsed: input.output.result as DetailPageGeneration | BoldVerticalGeneration,
-          templateId: input.output.templateId,
-          rawInput: rawInputForImages,
-          productName: input.productName,
-          excludedImageIndices,
-        }),
-        input.timeoutMs,
-        'detail_page_generate generated image best-effort timeout',
-      );
-    } catch (err) {
-      this.logger.warn(
-        `detail_page_generate image generation skipped (request resource ${input.stored.imageUrls.length} imageUrls); ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
-      return {};
-    }
-  }
-}
-
-async function withTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  message: string,
-): Promise<T> {
-  let timeout: ReturnType<typeof setTimeout> | null = null;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<T>((_, reject) => {
-        timeout = setTimeout(
-          () => reject(new Error(`${message} after ${timeoutMs}ms`)),
-          timeoutMs,
-        );
-        if (typeof timeout === 'object' && typeof timeout.unref === 'function') {
-          timeout.unref();
-        }
-      }),
-    ]);
-  } finally {
-    if (timeout) clearTimeout(timeout);
-  }
 }
 
 function pickProductName(
@@ -372,27 +291,4 @@ function pickProductName(
   return typeof headline === 'string' && headline.trim()
     ? headline.trim()
     : fallback.slice(0, 50);
-}
-
-function collectExcludedImageIndices(
-  output: DetailPageGenerateAgentOutput,
-): number[] {
-  const indices = new Set<number>();
-  if (output.templateId === 'kids-playful') {
-    for (const idx of output.reservedPackageImageIndices ?? []) {
-      if (Number.isInteger(idx) && idx >= 0) indices.add(idx);
-    }
-    for (const idx of output.safetyLabelImageIndices ?? []) {
-      if (Number.isInteger(idx) && idx >= 0) indices.add(idx);
-    }
-    return Array.from(indices).sort((a, b) => a - b);
-  }
-  const result = output.result as BoldVerticalGeneration;
-  for (const idx of result.packageImageIndices ?? []) {
-    if (Number.isInteger(idx) && idx >= 0) indices.add(idx);
-  }
-  for (const idx of result.safetyLabelImageIndices ?? []) {
-    if (Number.isInteger(idx) && idx >= 0) indices.add(idx);
-  }
-  return Array.from(indices).sort((a, b) => a - b);
 }
