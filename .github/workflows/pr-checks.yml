@@ -25,6 +25,7 @@ jobs:
     # re-runs replay the original body).
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      DATABASE_URL: postgresql://kiditem_ci:kiditem_ci@localhost:5432/kiditem_ci
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
