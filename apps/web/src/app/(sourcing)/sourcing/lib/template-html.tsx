@@ -271,6 +271,14 @@ const EDITED_HTML_FALLBACK_CSS = `
     font-style: normal;
     font-display: block;
   }
+  @font-face {
+    font-family: "NanumPen";
+    src: url("https://hangeul.pstatic.net/hangeul_static/webfont/NanumBrush/NanumPen.woff") format("woff"),
+      url("https://hangeul.pstatic.net/hangeul_static/webfont/NanumBrush/NanumPen.ttf") format("truetype");
+    font-weight: 400;
+    font-style: normal;
+    font-display: block;
+  }
   .bg-gradient-to-b { background-image: linear-gradient(to bottom, var(--tw-gradient-stops)); }
   .bg-gradient-to-t { background-image: linear-gradient(to top, var(--tw-gradient-stops)); }
   .from-\\[\\#1a1a1a\\] {
@@ -432,7 +440,273 @@ function setMissingStyleProperties(el: HTMLElement, styles: Record<string, strin
   }
 }
 
+const BOLD_VERTICAL_TITLE_UNDERLINE_STYLE = {
+  'padding-top': '6px',
+  'line-height': '1.08',
+  'text-decoration-line': 'underline',
+  'text-decoration-color': 'rgba(196, 178, 150, 0.78)',
+  'text-decoration-thickness': '1.5px',
+  'text-underline-offset': '4px',
+  'text-decoration-skip-ink': 'none',
+  display: 'inline-block',
+} satisfies Record<string, string>;
+
+const BOLD_VERTICAL_TITLE_BOUNDS_STYLE = {
+  'padding-top': '6px',
+  'line-height': '1.08',
+  display: 'inline-block',
+} satisfies Record<string, string>;
+
+const POINT_DROPLET_ICON_SVG = `
+<svg aria-hidden="true" data-role="point-droplet-icon" viewBox="0 0 256 256" preserveAspectRatio="xMidYMid meet" style="position:absolute;inset:0;width:100%;height:100%;color:#000;">
+  <path d="M174,47.75a254.19,254.19,0,0,0-41.45-38.3,8,8,0,0,0-9.18,0A254.19,254.19,0,0,0,82,47.75C54.51,79.32,40,112.6,40,144a88,88,0,0,0,176,0C216,112.6,201.49,79.32,174,47.75Z" fill="currentColor"></path>
+</svg>`;
+
+function stripTrailingBang(value: string): string {
+  return value.replace(/[!！]+$/u, '').trim();
+}
+
+function softenTrailingBang(value: string): string {
+  return value.replace(/[!！]+$/u, '~').trim();
+}
+
+function removeClassNames(el: Element, classNames: string[]): void {
+  const nextClassNames = new Set((el.getAttribute('class') ?? '').split(/\s+/u).filter(Boolean));
+  classNames.forEach((className) => nextClassNames.delete(className));
+  el.setAttribute('class', Array.from(nextClassNames).join(' '));
+}
+
+function addClassNames(el: Element, classNames: string[]): void {
+  const nextClassNames = new Set((el.getAttribute('class') ?? '').split(/\s+/u).filter(Boolean));
+  classNames.forEach((className) => nextClassNames.add(className));
+  el.setAttribute('class', Array.from(nextClassNames).join(' '));
+}
+
+function parseCssPixelLength(value: string): number | null {
+  const match = value.trim().match(/^(-?\d+(?:\.\d+)?)px$/i);
+  return match ? Number(match[1]) : null;
+}
+
+function stripLargeGeneratedHeightCss(css: string): string {
+  return css.replace(
+    /\b(min-height|height)\s*:\s*(-?\d+(?:\.\d+)?)px\s*;?/gi,
+    (full, property: string, rawValue: string) => {
+      const value = Number(rawValue);
+      if (!Number.isFinite(value)) return full;
+      if (property.toLowerCase() === 'min-height' && value >= 720) return '';
+      if (property.toLowerCase() === 'height' && value >= 1200) return '';
+      return full;
+    },
+  );
+}
+
+function removeLargeHeightArtifacts(el: HTMLElement, allowHeightRemoval: boolean): void {
+  const minHeight = parseCssPixelLength(el.style.minHeight);
+  if (minHeight !== null && minHeight >= 720) {
+    el.style.removeProperty('min-height');
+  }
+
+  const height = parseCssPixelLength(el.style.height);
+  if (allowHeightRemoval && height !== null && height >= 1200) {
+    el.style.removeProperty('height');
+  }
+}
+
+function trimBoldVerticalHeightArtifacts(doc: Document): void {
+  doc.querySelectorAll<HTMLStyleElement>('style').forEach((style) => {
+    const text = style.textContent ?? '';
+    const next = stripLargeGeneratedHeightCss(text);
+    if (next !== text) style.textContent = next;
+  });
+
+  const candidates = new Set<HTMLElement>();
+  [doc.documentElement, doc.body].forEach((el) => candidates.add(el));
+  Array.from(doc.body.children).forEach((el) => {
+    if (el instanceof HTMLElement) candidates.add(el);
+  });
+  doc.querySelectorAll<HTMLElement>('[data-section], [data-container]').forEach((el) => {
+    candidates.add(el);
+    let parent = el.parentElement;
+    while (parent && parent !== doc.body) {
+      candidates.add(parent);
+      parent = parent.parentElement;
+    }
+  });
+
+  candidates.forEach((el) => {
+    const isRootish = el === doc.documentElement || el === doc.body || el.parentElement === doc.body;
+    const containsSection = el.querySelector('[data-section]') !== null;
+    removeLargeHeightArtifacts(el, isRootish || containsSection);
+  });
+}
+
+function replaceBoldVerticalPackageText(doc: Document): void {
+  doc.querySelectorAll<HTMLElement>('p, span, strong').forEach((el) => {
+    const text = el.textContent?.trim();
+    if (text === '박스 구성 확인') {
+      el.textContent = '세트 구매시 참고';
+      return;
+    }
+    if (!text) return;
+    if (/^1\s*박스/u.test(text)) {
+      el.textContent = text.replace(/^1\s*박스/u, '1BOX');
+    }
+  });
+}
+
+function inferBoldVerticalProductName(doc: Document): string {
+  const subtitle = doc
+    .querySelector<HTMLElement>('[data-field="sectionSubtitle"]')
+    ?.textContent
+    ?.replace(/\s+/g, ' ')
+    .trim();
+  if (subtitle) {
+    const match = subtitle.match(/^(.+?)의\s*상품정보/u);
+    if (match?.[1]) return stripTrailingBang(match[1].trim());
+  }
+
+  const name = [
+    doc.querySelector<HTMLElement>('[data-field="sectionName"]')?.textContent?.trim(),
+    doc.querySelector<HTMLElement>('[data-field="sectionTitle"]')?.textContent?.trim(),
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (name) return stripTrailingBang(name);
+
+  const heroName = [
+    doc.querySelector<HTMLElement>('[data-field="hookText"]')?.textContent?.trim(),
+    doc.querySelector<HTMLElement>('[data-field="hookTitleSub"]')?.textContent?.trim(),
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return stripTrailingBang(heroName || '상품');
+}
+
+function ensureBoldVerticalDetailDescription(doc: Document): void {
+  doc.querySelectorAll<HTMLElement>('[data-section="detailImages"]').forEach((section) => {
+    if (section.querySelector('[data-field="detailDescription"]')) return;
+
+    const detailBadge = Array.from(section.querySelectorAll<HTMLElement>('div, span, p'))
+      .find((el) => el.textContent?.trim() === 'DETAIL');
+    if (!detailBadge) return;
+
+    const description = doc.createElement('p');
+    description.setAttribute('data-field', 'detailDescription');
+    description.setAttribute('class', 'mt-4 text-[#111827] font-bold text-xl md:text-2xl');
+    description.textContent = `${inferBoldVerticalProductName(doc)}의 디테일 이미지입니다.`;
+    setStyleProperties(description, {
+      'margin-top': '16px',
+      color: '#111827',
+      'font-weight': '700',
+      'font-size': '24px',
+      'line-height': '1.35',
+    });
+
+    detailBadge.insertAdjacentElement('afterend', description);
+  });
+}
+
+function repairBoldVerticalImageFrames(doc: Document): void {
+  doc.querySelectorAll<HTMLImageElement>('[data-container="detailPackageImages"] img')
+    .forEach((img) => {
+      let frame = img.closest<HTMLElement>('[data-role="package-image-frame"]');
+      if (!frame) {
+        const parent = img.parentElement;
+        if (!parent) return;
+        frame = parent;
+        frame.setAttribute('data-role', 'package-image-frame');
+      }
+
+      addClassNames(frame, ['overflow-hidden']);
+      setStyleProperties(frame, {
+        overflow: 'hidden',
+        'border-radius': '34px',
+        border: '1px solid #d8ebf7',
+        background: '#eaf6ff',
+        padding: '40px',
+      });
+      setStyleProperties(img, {
+        display: 'block',
+        width: '100%',
+        height: 'auto',
+        'object-fit': 'contain',
+        'border-radius': '24px',
+        'mix-blend-mode': 'multiply',
+      });
+    });
+
+  doc.querySelectorAll<HTMLImageElement>('[data-container="safetyLabelImages"] img')
+    .forEach((img) => {
+      if (!img.closest('[data-role="safety-label-frame"]')) {
+        const outer = doc.createElement('div');
+        outer.setAttribute('data-role', 'safety-label-frame');
+        const inner = doc.createElement('div');
+        inner.setAttribute('data-role', 'safety-label-inner');
+        img.parentElement?.insertBefore(outer, img);
+        outer.appendChild(inner);
+        inner.appendChild(img);
+      }
+
+      const outer = img.closest<HTMLElement>('[data-role="safety-label-frame"]');
+      const inner = img.closest<HTMLElement>('[data-role="safety-label-inner"]') ?? img.parentElement;
+      if (outer) {
+        setStyleProperties(outer, {
+          'border-radius': '44px',
+          background: '#8fa2cf',
+          padding: '36px',
+        });
+      }
+      if (inner) {
+        setStyleProperties(inner, {
+          'border-radius': '34px',
+          background: '#fff',
+          padding: '40px',
+        });
+      }
+      setStyleProperties(img, {
+        display: 'block',
+        width: '100%',
+        height: 'auto',
+        background: '#fff',
+        border: '1px solid rgba(0, 0, 0, 0.2)',
+      });
+    });
+}
+
 function repairBoldVerticalDocumentStyles(doc: Document): void {
+  trimBoldVerticalHeightArtifacts(doc);
+  replaceBoldVerticalPackageText(doc);
+  ensureBoldVerticalDetailDescription(doc);
+  repairBoldVerticalImageFrames(doc);
+
+  doc.querySelectorAll<HTMLElement>('body > div > div.py-10')
+    .forEach((el) => {
+      removeClassNames(el, ['py-10']);
+      setStyleProperties(el, {
+        'padding-top': '0',
+        'padding-bottom': '0',
+      });
+    });
+
+  doc.querySelectorAll<HTMLElement>('body > div > div > div.max-w-3xl')
+    .forEach((el) => {
+      removeClassNames(el, ['max-w-3xl', 'mx-auto', 'shadow-2xl']);
+      addClassNames(el, ['w-full']);
+      setStyleProperties(el, {
+        width: '100%',
+        'max-width': 'none',
+        'margin-left': '0',
+        'margin-right': '0',
+        'box-shadow': 'none',
+      });
+    });
+
   doc.querySelectorAll<HTMLElement>('[data-field="hookText"], [data-field="sectionName"]')
     .forEach((el) => {
       setMissingStyleProperties(el, {
@@ -443,6 +717,30 @@ function repairBoldVerticalDocumentStyles(doc: Document): void {
         'font-family': 'var(--font-display)',
         'font-weight': '900',
       });
+    });
+
+  doc.querySelectorAll<HTMLElement>('[data-field="hookText"]')
+    .forEach((el) => {
+      setStyleProperties(el, BOLD_VERTICAL_TITLE_UNDERLINE_STYLE);
+    });
+
+  doc.querySelectorAll<HTMLElement>('[data-field="sectionName"]')
+    .forEach((el) => {
+      setStyleProperties(el, BOLD_VERTICAL_TITLE_BOUNDS_STYLE);
+    });
+
+  doc.querySelectorAll<HTMLElement>('[data-field="hookTitleSub"]')
+    .forEach((el) => {
+      el.textContent = stripTrailingBang(el.textContent ?? '');
+      setStyleProperties(el, {
+        ...BOLD_VERTICAL_TITLE_UNDERLINE_STYLE,
+        'margin-top': '0',
+      });
+    });
+
+  doc.querySelectorAll<HTMLElement>('[data-field="sectionTitle"]')
+    .forEach((el) => {
+      el.textContent = stripTrailingBang(el.textContent ?? '');
     });
 
   doc.querySelectorAll<HTMLElement>('[data-field="hookTitleSub"], [data-field="sectionTitle"]')
@@ -458,8 +756,50 @@ function repairBoldVerticalDocumentStyles(doc: Document): void {
     .forEach((el) => {
       setMissingStyleProperties(el, {
         'font-family': 'var(--font-display)',
-        'line-height': '1.02',
       });
+      setStyleProperties(el, { 'line-height': '1.08' });
+    });
+
+  doc.querySelectorAll<HTMLElement>('section[data-section="point"] h2.font-display')
+    .forEach((el) => {
+      setStyleProperties(el, { 'line-height': '1.02' });
+    });
+
+  doc.querySelectorAll<HTMLElement>('h1.font-display')
+    .forEach((heading) => {
+      const separator = heading.nextElementSibling;
+      const className = separator?.getAttribute('class') ?? '';
+      if (
+        separator?.nodeType === Node.ELEMENT_NODE &&
+        /\bw-64\b/.test(className) &&
+        /\bh-0\.5\b/.test(className) &&
+        /bg-\[var\(--theme-main\)\]/.test(className)
+      ) {
+        separator.remove();
+      }
+
+      const description = heading.nextElementSibling;
+      if (description?.nodeType === Node.ELEMENT_NODE && description.getAttribute('data-field') === 'description') {
+        const descriptionClasses = new Set((description.getAttribute('class') ?? '').split(/\s+/u).filter(Boolean));
+        descriptionClasses.delete('mt-6');
+        descriptionClasses.delete('mt-7');
+        descriptionClasses.add('mt-5');
+        descriptionClasses.delete('text-[var(--theme-text-primary)]');
+        descriptionClasses.add('text-[#111827]');
+        description.setAttribute('class', Array.from(descriptionClasses).join(' '));
+        const feature = description.querySelector<HTMLElement>('p:first-child');
+        if (feature) {
+          feature.textContent = softenTrailingBang(feature.textContent ?? '');
+          setStyleProperties(feature, { color: '#111827' });
+        }
+        description.querySelectorAll<HTMLElement>('p').forEach((paragraph) => {
+          if (!(paragraph.textContent ?? '').includes('이미지와 제품의 구성품은 실제와 다를 수 있습니다')) return;
+          const noticeClasses = new Set((paragraph.getAttribute('class') ?? '').split(/\s+/u).filter(Boolean));
+          noticeClasses.delete('py-4');
+          noticeClasses.add('py-3');
+          paragraph.setAttribute('class', Array.from(noticeClasses).join(' '));
+        });
+      }
     });
 
   doc.querySelectorAll<HTMLElement>('[data-field="hookSubtext"]')
@@ -472,6 +812,113 @@ function repairBoldVerticalDocumentStyles(doc: Document): void {
         'text-decoration-color': 'var(--theme-main)',
         'text-decoration-thickness': '2px',
       });
+      const classNames = new Set((el.getAttribute('class') ?? '').split(/\s+/u).filter(Boolean));
+      classNames.delete('mb-4');
+      classNames.add('mb-3');
+      el.setAttribute('class', Array.from(classNames).join(' '));
+    });
+
+  doc.querySelectorAll<HTMLElement>('section[data-section="point"] > div')
+    .forEach((el) => {
+      if (!(el.textContent ?? '').includes('POINT')) return;
+      const section = el.closest<HTMLElement>('section[data-section="point"]');
+      if (section) setStyleProperties(section, { 'padding-top': '10rem' });
+      const classNames = new Set((el.getAttribute('class') ?? '').split(/\s+/u).filter(Boolean));
+      classNames.delete('rounded-full');
+      classNames.delete('absolute');
+      classNames.delete('left-1/2');
+      classNames.delete('-translate-x-1/2');
+      classNames.delete('top-14');
+      classNames.delete('w-14');
+      classNames.delete('h-14');
+      classNames.delete('bg-black');
+      classNames.delete('shadow-lg');
+      classNames.add('relative');
+      classNames.add('mx-auto');
+      el.setAttribute('class', Array.from(classNames).join(' '));
+      el.setAttribute('data-role', 'point-droplet');
+      setStyleProperties(el, {
+        position: 'relative',
+        width: '104px',
+        height: '122px',
+        color: '#000',
+        background: 'transparent',
+        'box-shadow': 'none',
+        filter: 'none',
+      });
+      if (!el.querySelector('[data-role="point-droplet-icon"]')) {
+        el.insertAdjacentHTML('afterbegin', POINT_DROPLET_ICON_SVG);
+      } else {
+        el.querySelector('[data-role="point-droplet-icon"]')?.remove();
+        el.insertAdjacentHTML('afterbegin', POINT_DROPLET_ICON_SVG);
+      }
+      el.querySelectorAll<HTMLElement>('span').forEach((span, index) => {
+        setStyleProperties(span, {
+          position: 'relative',
+          'z-index': '1',
+          color: '#fff',
+          'line-height': '1',
+        });
+        if (index === 0) {
+          setStyleProperties(span, {
+            'font-size': '10px',
+            'font-weight': '700',
+            'letter-spacing': '0.12em',
+            'margin-top': '12px',
+          });
+        } else if (index === 1) {
+          setStyleProperties(span, {
+            'font-size': '24px',
+            'font-family': 'var(--font-display)',
+            'margin-top': '10px',
+          });
+        }
+      });
+      const content = el.nextElementSibling;
+      if (content?.nodeType === Node.ELEMENT_NODE) {
+        const contentClasses = new Set((content.getAttribute('class') ?? '').split(/\s+/u).filter(Boolean));
+        contentClasses.delete('pt-24');
+        contentClasses.delete('mt-6');
+        contentClasses.delete('mt-5');
+        contentClasses.delete('mt-2');
+        contentClasses.add('mt-0');
+        content.setAttribute('class', Array.from(contentClasses).join(' '));
+        (content as HTMLElement).style.removeProperty('padding-top');
+        content.querySelectorAll<HTMLElement>('[data-field="sectionTitle"]').forEach((sectionTitle) => {
+          const sectionTitleClasses = new Set((sectionTitle.getAttribute('class') ?? '').split(/\s+/u).filter(Boolean));
+          sectionTitleClasses.delete('mt-2');
+          sectionTitleClasses.add('mt-0');
+          sectionTitle.setAttribute('class', Array.from(sectionTitleClasses).join(' '));
+        });
+        content.querySelectorAll<HTMLElement>('[data-field="sectionSubtitle"]').forEach((subtitle) => {
+          const subtitleClasses = new Set((subtitle.getAttribute('class') ?? '').split(/\s+/u).filter(Boolean));
+          subtitleClasses.delete('mt-8');
+          subtitleClasses.add('mt-5');
+          subtitleClasses.delete('text-[var(--theme-text-secondary)]');
+          subtitleClasses.delete('text-lg');
+          subtitleClasses.delete('md:text-xl');
+          subtitleClasses.add('text-[#111827]');
+          subtitleClasses.add('text-xl');
+          subtitleClasses.add('md:text-2xl');
+          subtitle.setAttribute('class', Array.from(subtitleClasses).join(' '));
+          setStyleProperties(subtitle, { color: '#111827' });
+        });
+      }
+    });
+
+  doc.querySelectorAll<HTMLElement>('[data-section="sizeImages"] > div > p')
+    .forEach((paragraph) => {
+      const classes = new Set((paragraph.getAttribute('class') ?? '').split(/\s+/u).filter(Boolean));
+      classes.delete('mt-6');
+      classes.add('mt-4');
+      classes.delete('text-[var(--theme-text-primary)]');
+      classes.delete('text-lg');
+      classes.delete('md:text-xl');
+      classes.add('text-[#111827]');
+      classes.add('text-xl');
+      classes.add('md:text-2xl');
+      paragraph.setAttribute('class', Array.from(classes).join(' '));
+      setStyleProperties(paragraph, { color: '#111827' });
     });
 
   doc.querySelectorAll<HTMLImageElement>('img[data-field="heroImage"]')

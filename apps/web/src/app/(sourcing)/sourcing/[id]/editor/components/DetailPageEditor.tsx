@@ -29,7 +29,6 @@ import {
   Loader2,
   Palette,
   Plus,
-
   Minus,
   PanelLeft,
   PanelRight,
@@ -57,6 +56,10 @@ import { buildSizeGuideFrameHtml } from '../../../lib/size-guide-frame';
 import TemplateSelectionModal from '../../components/TemplateSelectionModal';
 import { useGenerateDetailPage, type GenerateMode } from '../../hooks/useGenerateDetailPage';
 import { AITextEditPanel } from './AITextEditPanel';
+import {
+  DownloadOptionsModal,
+  type DetailPageDownloadOptions,
+} from '../../../components/DownloadOptionsModal';
 import EditorDetailMinimap from './EditorDetailMinimap';
 import EditorPagePanel from './EditorPagePanel';
 import EditorToolRail, { type EditorToolId } from './EditorToolRail';
@@ -122,6 +125,14 @@ const DETAIL_EDITOR_FONT_CSS = `
     font-style: normal;
     font-display: block;
   }
+  @font-face {
+    font-family: "NanumPen";
+    src: url("https://hangeul.pstatic.net/hangeul_static/webfont/NanumBrush/NanumPen.woff") format("woff"),
+      url("https://hangeul.pstatic.net/hangeul_static/webfont/NanumBrush/NanumPen.ttf") format("truetype");
+    font-weight: 400;
+    font-style: normal;
+    font-display: block;
+  }
   :root {
     --font-display: "Jalnan2Local", "NanumSquareRoundLocal", "NanumSquareNeoHeavy", "NanumSquareNeoExtraBold", sans-serif;
     --font-sans: "NanumSquareRoundLocal", "Noto Sans KR", "Pretendard", system-ui, sans-serif;
@@ -148,7 +159,21 @@ const DETAIL_EDITOR_FONT_PRESETS = [
     cssValue: DETAIL_EDITOR_BODY_FONT,
     previewStyle: { fontFamily: '"NanumSquareRoundLocal", "Noto Sans KR", sans-serif', fontWeight: 800 },
   },
+  {
+    label: '나눔펜',
+    description: '손글씨 느낌 문구',
+    cssValue: '"NanumPen", cursive',
+    previewStyle: { fontFamily: '"NanumPen", cursive', fontWeight: 400 },
+  },
 ] as const;
+
+const DEFAULT_DOWNLOAD_OPTIONS: DetailPageDownloadOptions = {
+  format: 'jpeg',
+  quality: 92,
+  viewportWidth: 720,
+  renderScale: 2,
+  outputWidth: 860,
+};
 
 const TEXT_GRADIENT_PRESETS = [
   {
@@ -423,6 +448,14 @@ function sanitizeEditorCss(css: string): string {
   return css
     .replace(/#[\w-]+\{background-color:#ffffff;min-height:\d+px;\}/g, '')
     .replace(/#[\w-]+\{min-height:\d+px;background-color:#ffffff;\}/g, '')
+    .replace(/\bmin-height\s*:\s*(\d+(?:\.\d+)?)px\s*;?/gi, (full, rawValue: string) => {
+      const value = Number(rawValue);
+      return Number.isFinite(value) && value >= 720 ? '' : full;
+    })
+    .replace(/\bheight\s*:\s*(\d+(?:\.\d+)?)px\s*;?/gi, (full, rawValue: string) => {
+      const value = Number(rawValue);
+      return Number.isFinite(value) && value >= 1200 ? '' : full;
+    })
     .trim();
 }
 
@@ -517,6 +550,8 @@ function inlineEditorCssIntoHtml(rawHtml: string, css: string): string {
   } finally {
     style.remove();
   }
+
+  trimEditorDocumentHeightArtifacts(doc);
 
   if (isFullDocument) return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
   if (startsWithBody) return doc.body.outerHTML;
@@ -652,6 +687,7 @@ function normalizeBodyMarkup(rawHtml: string, bodyAttrs: string): string {
   const doc = new DOMParser().parseFromString(bodySource, 'text/html');
   removeHeadOnlyElementsFromBody(doc);
   normalizeBodyAssetUrls(doc);
+  repairBoldVerticalFramesInDocument(doc);
   return `<body${bodyAttrs ? ` ${bodyAttrs}` : ''}>${doc.body.innerHTML}</body>`;
 }
 
@@ -695,6 +731,41 @@ function repairProductInfoTableWidthInDocument(doc: Document) {
   container.style.marginRight = 'auto';
 }
 
+function repairPackageImageFramesInDocument(doc: Document) {
+  doc.querySelectorAll<HTMLElement>('[data-role="package-image-frame"]').forEach((frame) => {
+    frame.style.overflow = 'hidden';
+    frame.style.borderRadius = '34px';
+    frame.style.background = 'transparent';
+    frame.style.border = '0';
+    frame.style.padding = '0';
+    frame.querySelectorAll<HTMLImageElement>('img').forEach((img) => {
+      img.style.mixBlendMode = '';
+      img.style.display = 'block';
+      img.style.width = '100%';
+      img.style.height = 'auto';
+    });
+  });
+}
+
+function repairSafetyLabelFramesInDocument(doc: Document) {
+  doc.querySelectorAll<HTMLElement>('[data-role="safety-label-frame"]').forEach((frame) => {
+    frame.style.background = '#8fa2cf';
+    frame.style.borderRadius = '36px';
+    frame.style.padding = '16px';
+    const inner = Array.from(frame.children).find((child) => child.querySelector?.('img')) as HTMLElement | undefined;
+    if (inner) {
+      inner.style.background = '#ffffff';
+      inner.style.borderRadius = '28px';
+      inner.style.padding = '20px';
+    }
+  });
+}
+
+function repairBoldVerticalFramesInDocument(doc: Document) {
+  repairPackageImageFramesInDocument(doc);
+  repairSafetyLabelFramesInDocument(doc);
+}
+
 function getEditorFrameEl(
   editor: Editor | ReturnType<typeof useEditor> | null | undefined,
 ): HTMLIFrameElement | null {
@@ -725,6 +796,7 @@ function setImageComponentSrc(
   imageComponent?.view?.render?.();
   if (imageComponent !== component) editor.trigger?.('component:update', imageComponent);
   editor.trigger?.('component:update', component);
+  editor.trigger?.('update');
   editor.refresh?.();
 }
 
@@ -830,6 +902,16 @@ function getEditableImageComponent(component: any): any | null {
   if (images.length === 1) return images[0];
 
   return null;
+}
+
+function getImageComponentSrc(component: any): string {
+  const attrs = component?.getAttributes?.() ?? {};
+  const attrSrc = typeof attrs.src === 'string' ? attrs.src.trim() : '';
+  if (attrSrc) return toApiAssetUrl(attrSrc);
+  const modelSrc = typeof component?.get?.('src') === 'string' ? component.get('src').trim() : '';
+  if (modelSrc) return toApiAssetUrl(modelSrc);
+  const element = component?.getEl?.() as HTMLImageElement | null | undefined;
+  return element?.src ?? '';
 }
 
 function isAttachedComponent(component: any): boolean {
@@ -1205,7 +1287,99 @@ function getLiveEditorViewportWidth(editor: Editor, fallback: number): number {
   return fallback;
 }
 
+function parseCssPixelLength(value: string): number | null {
+  const match = value.trim().match(/^(-?\d+(?:\.\d+)?)px$/i);
+  return match ? Number(match[1]) : null;
+}
+
+function removeLargeDomHeightArtifacts(el: HTMLElement, allowHeightRemoval: boolean): void {
+  const minHeight = parseCssPixelLength(el.style.minHeight);
+  if (minHeight !== null && minHeight >= 720) {
+    el.style.removeProperty('min-height');
+  }
+
+  const height = parseCssPixelLength(el.style.height);
+  if (allowHeightRemoval && height !== null && height >= 1200) {
+    el.style.removeProperty('height');
+  }
+}
+
+function trimEditorDocumentHeightArtifacts(doc: Document): void {
+  doc.querySelectorAll<HTMLStyleElement>('style').forEach((style) => {
+    const text = style.textContent ?? '';
+    const next = sanitizeEditorCss(text);
+    if (next !== text) style.textContent = next;
+  });
+
+  const candidates = new Set<HTMLElement>();
+  [doc.documentElement, doc.body].forEach((el) => candidates.add(el));
+  Array.from(doc.body.children).forEach((el) => {
+    if (el instanceof HTMLElement) candidates.add(el);
+  });
+  doc.querySelectorAll<HTMLElement>('[data-section], [data-container]').forEach((el) => {
+    candidates.add(el);
+    let parent = el.parentElement;
+    while (parent && parent !== doc.body) {
+      candidates.add(parent);
+      parent = parent.parentElement;
+    }
+  });
+
+  candidates.forEach((el) => {
+    const isRootish = el === doc.documentElement || el === doc.body || el.parentElement === doc.body;
+    const containsSection = el.querySelector('[data-section]') !== null;
+    removeLargeDomHeightArtifacts(el, isRootish || containsSection);
+  });
+}
+
+function getDetailContentExtent(doc: Document): { top: number; bottom: number; height: number } | null {
+  const selectors = [
+    'section',
+    'img',
+    'table',
+    '[data-section]',
+    '[data-container]',
+    '[data-field]',
+    '[data-role]',
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+    'h5',
+    'h6',
+    'p',
+    'ul',
+    'ol',
+    'li',
+  ].join(',');
+  const rects = Array.from(doc.body.querySelectorAll<HTMLElement>(selectors))
+    .filter((el) => !el.closest('.gjs-selected, .gjs-selected-parent, .gjs-hovered'))
+    .map((el) => el.getBoundingClientRect())
+    .filter((rect) => rect.width > 0 && rect.height > 0);
+
+  if (rects.length === 0) return null;
+
+  const top = Math.max(0, Math.floor(Math.min(...rects.map((rect) => rect.top))));
+  const bottom = Math.ceil(Math.max(...rects.map((rect) => rect.bottom)));
+  return {
+    top,
+    bottom,
+    height: Math.max(1, bottom - top),
+  };
+}
+
+function getEditorContentHeight(editor: Editor): number {
+  const iframe = getEditorFrameEl(editor);
+  const doc = iframe?.contentDocument;
+  if (!doc?.body) return 1200;
+  trimEditorDocumentHeightArtifacts(doc);
+  const extent = getDetailContentExtent(doc);
+  if (extent) return Math.max(240, extent.bottom);
+  return Math.max(240, doc.body.scrollHeight, doc.documentElement.scrollHeight);
+}
+
 function scrubEditorRuntimeFromExport(doc: Document): void {
+  trimEditorDocumentHeightArtifacts(doc);
   doc
     .querySelectorAll('.gjs-selected, .gjs-selected-parent, .gjs-hovered')
     .forEach((el) => {
@@ -1308,6 +1482,7 @@ function parseFullHtml(fullHtml: string): ParsedHtml {
   const doc = parser.parseFromString(fullHtml, 'text/html');
   repairSizeGuideFrameInDocument(doc);
   repairProductInfoTableWidthInDocument(doc);
+  repairBoldVerticalFramesInDocument(doc);
   removeHeadOnlyElementsFromBody(doc);
   const viewportContent =
     doc.head.querySelector<HTMLMetaElement>('meta[name="viewport"]')?.content ||
@@ -1427,15 +1602,7 @@ function syncEditorFrameHeight(editor: Editor) {
 
   const framesEl = canvas.getFramesEl();
   const frameWrapper = iframe.closest<HTMLElement>('.gjs-frame-wrapper');
-  const viewportHeight = canvas.getElement()?.clientHeight ?? 800;
-  const contentHeight = Math.max(
-    doc.documentElement.scrollHeight,
-    doc.body.scrollHeight,
-    doc.documentElement.offsetHeight,
-    doc.body.offsetHeight,
-    viewportHeight,
-    800,
-  );
+  const contentHeight = Math.max(240, getEditorContentHeight(editor));
   const frameHeight = Math.ceil(contentHeight);
   const heightPx = `${frameHeight}px`;
   const zoom = Math.max(0.2, (canvas.getZoom?.() ?? 100) / 100);
@@ -1451,7 +1618,14 @@ function syncEditorFrameHeight(editor: Editor) {
   frameWrapper?.style.setProperty('bottom', 'auto');
   frameWrapper?.style.setProperty('margin-top', '0');
   frameWrapper?.style.setProperty('margin-bottom', '0');
-  framesEl?.style.setProperty('min-height', `${Math.ceil(frameHeight * zoom + 48)}px`);
+  const scaledFrameHeight = `${Math.ceil(frameHeight * zoom + 48)}px`;
+  framesEl?.style.setProperty('height', scaledFrameHeight);
+  framesEl?.style.setProperty('min-height', scaledFrameHeight);
+  const canvasElement = canvas.getElement();
+  if (canvasElement) {
+    const maxScrollTop = Math.max(0, canvasElement.scrollHeight - canvasElement.clientHeight);
+    if (canvasElement.scrollTop > maxScrollTop) canvasElement.scrollTop = maxScrollTop;
+  }
   const coords = canvas.getCoords?.() ?? { x: 0, y: 0 };
   canvas.setCoords(coords.x ?? 0, 0);
   editor.refresh();
@@ -1532,6 +1706,9 @@ function EditorToolbar({
   const [zoom, setZoom] = useState(100);
   const [isSaving, setIsSaving] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [downloadModalOpen, setDownloadModalOpen] = useState(false);
+  const [downloadOptions, setDownloadOptions] = useState<DetailPageDownloadOptions>(DEFAULT_DOWNLOAD_OPTIONS);
+  const [downloadContentHeight, setDownloadContentHeight] = useState(1200);
   const [selectedVisible, setSelectedVisible] = useState(true);
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
 
@@ -1638,7 +1815,17 @@ function EditorToolbar({
     onClose();
   }, [editor, onClose, setEditorDirty]);
 
-  const handleExportPng = useCallback(async () => {
+  const openDownloadOptions = useCallback(() => {
+    setDownloadOptions((current) => ({
+      ...current,
+      viewportWidth: 720,
+    }));
+    setDownloadContentHeight(getEditorContentHeight(editor));
+    setDownloadModalOpen(true);
+  }, [editor]);
+
+  const handleExportImage = useCallback(async (options: DetailPageDownloadOptions) => {
+    if (isExporting) return;
     setIsExporting(true);
     try {
       const fullHtml = await buildLiveEditorExportHtml(editor, parsed, templateCss);
@@ -1648,8 +1835,11 @@ function EditorToolbar({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           html: fullHtml,
-          viewportWidth: getLiveEditorViewportWidth(editor, parsed.viewportWidth),
+          viewportWidth: 720,
+          outputWidth: options.outputWidth,
           baseUrl: window.location.origin,
+          format: options.format,
+          quality: options.format === 'jpeg' ? options.quality : undefined,
         }),
       });
       if (!res.ok) throw new Error(`Export failed: ${res.status}`);
@@ -1658,17 +1848,20 @@ function EditorToolbar({
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${productName || 'page'}.png`;
+      a.download = `${productName || 'page'}.${options.format === 'jpeg' ? 'jpg' : 'png'}`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+      setDownloadModalOpen(false);
+      toast.success('이미지를 다운로드했어요.');
     } catch (err) {
-      toast.error('PNG 다운로드에 실패했습니다.');
+      console.error('[detail-editor] image download failed', err);
+      toast.error('이미지 다운로드에 실패했습니다.');
     } finally {
       setIsExporting(false);
     }
-  }, [editor, parsed, productName, templateCss]);
+  }, [editor, isExporting, parsed, productName, templateCss]);
 
   const handleDuplicate = useCallback(() => {
     const selected = editor.getSelected();
@@ -1785,6 +1978,7 @@ function EditorToolbar({
   }, [applyCanvasZoom]);
 
   return (
+    <>
     <div className="flex items-center justify-between px-3 py-1.5 bg-white border-b border-slate-200">
       <div className="flex items-center gap-1">
         <button
@@ -1866,7 +2060,7 @@ function EditorToolbar({
         </button>
         <button
           type="button"
-          onClick={handleExportPng}
+          onClick={openDownloadOptions}
           disabled={isExporting}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-emerald-500 hover:bg-emerald-600 rounded-lg transition-colors shadow-sm disabled:opacity-50"
         >
@@ -1888,6 +2082,16 @@ function EditorToolbar({
         </div>
       )}
     </div>
+    <DownloadOptionsModal
+      open={downloadModalOpen}
+      options={downloadOptions}
+      isDownloading={isExporting}
+      contentHeight={downloadContentHeight}
+      onOptionsChange={setDownloadOptions}
+      onClose={() => setDownloadModalOpen(false)}
+      onDownload={handleExportImage}
+    />
+    </>
   );
 }
 
@@ -3888,7 +4092,7 @@ export default function DetailPageEditor({
           makeImageComponentInteractive(imageComponent);
           lastSelectedImageComponentRef.current = imageComponent;
           setSelectedImageComponent(imageComponent);
-          setSelectedImageSrc(imageComponent.getAttributes().src ?? '');
+          setSelectedImageSrc(getImageComponentSrc(imageComponent));
           setSelectedTextComponent(null);
         } else if (type === 'text' || type === 'text-ext' || TEXT_TAGS.includes(tagName)) {
           const children = component.components();

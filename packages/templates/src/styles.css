@@ -25,6 +25,15 @@
   font-display: block;
 }
 
+@font-face {
+  font-family: "NanumPen";
+  src: url("https://hangeul.pstatic.net/hangeul_static/webfont/NanumBrush/NanumPen.woff") format("woff"),
+    url("https://hangeul.pstatic.net/hangeul_static/webfont/NanumBrush/NanumPen.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
 @theme {
   --font-display: "Jalnan2Local", "NanumSquareRoundLocal", "NanumSquareNeoHeavy", "NanumSquareNeoExtraBold", sans-serif;
   --font-hand: "NanumPen", cursive;

@@ -3,6 +3,7 @@ import { ImageEditRuntimeHandler } from '../image-edit.runtime-handler';
 import { AgentRuntimeHandlerRegistry } from '../../../../../agent-os/application/service/agent-runtime-handler-registry.service';
 import type { AgentRuntimeExecutionContext } from '../../../../../agent-os/application/port/out/agent-runtime.port';
 import type { ImageEditMediaPort } from '../../../../application/port/out/image-edit-media.port';
+import type { ImageStoragePort } from '../../../../application/port/out/image-storage.port';
 
 function makeCtx(
   overrides: Partial<AgentRuntimeExecutionContext> = {},
@@ -41,10 +42,20 @@ function makeMedia(overrides: Partial<ImageEditMediaPort> = {}): ImageEditMediaP
   };
 }
 
-function makeHandler(media = makeMedia()) {
+function makeStorage(overrides: Partial<ImageStoragePort> = {}): ImageStoragePort {
+  return {
+    save: vi.fn(),
+    copy: vi.fn(),
+    delete: vi.fn(),
+    extractKey: vi.fn(() => null),
+    ...overrides,
+  } as unknown as ImageStoragePort;
+}
+
+function makeHandler(media = makeMedia(), storage = makeStorage()) {
   const registry = new AgentRuntimeHandlerRegistry();
-  const handler = new ImageEditRuntimeHandler(registry, media);
-  return { handler, registry, media };
+  const handler = new ImageEditRuntimeHandler(registry, media, storage);
+  return { handler, registry, media, storage };
 }
 
 describe('ImageEditRuntimeHandler', () => {
@@ -135,6 +146,32 @@ describe('ImageEditRuntimeHandler', () => {
     });
     expect(global.fetch).not.toHaveBeenCalled();
     expect(media.editImage).not.toHaveBeenCalled();
+  });
+
+  it('allows own-storage localhost image URLs before delegating to the media port', async () => {
+    global.fetch = vi.fn();
+    const media = makeMedia();
+    const storage = makeStorage({
+      extractKey: vi.fn((url: string) => (
+        url === 'http://localhost:9000/kiditem/tmp/source.png'
+          ? 'tmp/source.png'
+          : null
+      )),
+    });
+    const { handler } = makeHandler(media, storage);
+
+    await handler.execute(makeCtx({
+      input: {
+        image_url: 'http://localhost:9000/kiditem/tmp/source.png',
+        preset: 'enhance',
+      },
+    }));
+
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(media.editImage).toHaveBeenCalledWith(expect.objectContaining({
+      imageUrl: 'http://localhost:9000/kiditem/tmp/source.png',
+      preset: 'enhance',
+    }));
   });
 
   it('rejects media output without image_url', async () => {

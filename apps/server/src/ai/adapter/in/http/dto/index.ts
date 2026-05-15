@@ -1,5 +1,6 @@
 export { TextTransformBodyDto } from './text-transform.dto';
 export { ImageEditBodyDto } from './image-edit.dto';
+export { ImageCropBodyDto, ImageCropRectDto } from './image-crop.dto';
 export { RenderImageBodyDto } from './render-image.dto';
 export {
   DetailPageSourceReferenceDto,

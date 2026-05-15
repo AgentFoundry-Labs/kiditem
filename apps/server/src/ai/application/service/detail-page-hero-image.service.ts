@@ -8,7 +8,6 @@ import {
   buildDetailCutPrompt,
   buildHeroBannerPrompt,
   buildHeroProductImagePrompt,
-  buildPackageGuidePrompt,
   buildPackageImagePositionsPrompt,
   buildSizeGuidePrompt,
   buildUsageGuidePrompt,
@@ -128,25 +127,6 @@ export class DetailPageHeroImageService {
     });
     this.imageFetcher.assertSupportedMime(generated.mimeType);
     const key = `detail-page-section-images/${input.organizationId}/color-guide-${randomUUID()}.${this.imageFetcher.extForMime(generated.mimeType)}`;
-    return this.storage.save(key, generated.buffer, generated.mimeType);
-  }
-
-  async generatePackageGuideImage(input: GenerateSizeGuideImageInput): Promise<string> {
-    const images = await this.fetchInputImages(input.imageUrls, 4);
-    if (images.length === 0) {
-      throw new ServiceUnavailableException('detail_page_package_image_no_inputs');
-    }
-
-    const generated = await this.media.generateImage({
-      images,
-      prompt: buildPackageGuidePrompt(input),
-      aspectRatio: '4:3',
-      imageSize: '2K',
-      noImageErrorCode: 'detail_page_package_image_returned_no_image',
-      logContext: 'Gemini detail package',
-    });
-    this.imageFetcher.assertSupportedMime(generated.mimeType);
-    const key = `detail-page-section-images/${input.organizationId}/package-guide-${randomUUID()}.${this.imageFetcher.extForMime(generated.mimeType)}`;
     return this.storage.save(key, generated.buffer, generated.mimeType);
   }
 

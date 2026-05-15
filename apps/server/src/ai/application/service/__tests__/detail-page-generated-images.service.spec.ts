@@ -124,6 +124,7 @@ describe('DetailPageGeneratedImagesService', () => {
     expect(result.__usageGuideImage1).toBeUndefined();
     expect(result.__usageGuideImage2).toBe('https://cdn.example.com/usage-2.png');
     expect(result.__usageGuideImage3).toBe('https://cdn.example.com/usage-3.png');
+    expect(heroImageService.generatePackageGuideImage).not.toHaveBeenCalled();
     expect(heroImageService.generateUsageGuideImage).toHaveBeenCalledTimes(2);
     expect(heroImageService.generateUsageGuideImage).toHaveBeenNthCalledWith(
       1,
@@ -210,6 +211,7 @@ describe('DetailPageGeneratedImagesService', () => {
     expect(heroImageService.generateColorGuideImage).toHaveBeenCalledWith(
       expect.objectContaining({ imageUrls: normalSources }),
     );
+    expect(heroImageService.generatePackageGuideImage).not.toHaveBeenCalled();
     for (const [input] of heroImageService.generateUsageGuideImage.mock.calls) {
       expect(input.imageUrls).toEqual(normalSources);
     }
@@ -274,9 +276,7 @@ describe('DetailPageGeneratedImagesService', () => {
       excludedImageIndices: [0],
     });
 
-    expect(heroImageService.generatePackageGuideImage).toHaveBeenCalledWith(
-      expect.objectContaining({ imageUrls: packageOnlySource }),
-    );
+    expect(heroImageService.generatePackageGuideImage).not.toHaveBeenCalled();
     expect(heroImageService.generateHeroBanner).toHaveBeenCalledWith(
       expect.objectContaining({ imageUrls: [] }),
     );
@@ -292,7 +292,7 @@ describe('DetailPageGeneratedImagesService', () => {
     }
   });
 
-  it('repairs stale package source selection before generating package and normal media', async () => {
+  it('repairs stale package source selection before generating normal media', async () => {
     const heroImageService = {
       generateHeroBanner: vi.fn().mockResolvedValue('https://cdn.example.com/hero.png'),
       generateHeroProductImage: vi.fn().mockResolvedValue('https://cdn.example.com/hero-product.png'),
@@ -344,11 +344,7 @@ describe('DetailPageGeneratedImagesService', () => {
       },
     });
 
-    expect(heroImageService.generatePackageGuideImage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        imageUrls: ['https://example.com/display-box.jpg'],
-      }),
-    );
+    expect(heroImageService.generatePackageGuideImage).not.toHaveBeenCalled();
     expect(heroImageService.generateHeroProductImage).toHaveBeenCalledWith(
       expect.objectContaining({
         imageUrls: [

@@ -58,9 +58,11 @@ import { DetailPageGeneratedImagesService } from './application/service/detail-p
 import { ContentAssetService } from './application/service/content-asset.service';
 import { DetailPageAiService } from './application/service/detail-page-ai.service';
 import { DetailPageGenerationService } from './application/service/detail-page-generation.service';
+import { DetailPageRasterizationService } from './application/service/detail-page-rasterization.service';
 import { DetailPagePrefillService } from './application/service/detail-page-prefill.service';
 import { DetailPageQueryService } from './application/service/detail-page-query.service';
 import { DetailPageResultRefinerService } from './application/service/detail-page-result-refiner.service';
+import { ImageAssetOperationService } from './application/service/image-asset-operation.service';
 import { PostPromotionAiService } from './application/service/post-promotion-ai.service';
 import { BoldVerticalRefinerService } from './application/service/bold-vertical-refiner.service';
 import { KidsPlayfulRefinerService } from './application/service/kids-playful-refiner.service';
@@ -115,9 +117,11 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
   providers: [
     // application services
     ImageAiService,
+    ImageAssetOperationService,
     CoupangImageSyncService,
     DetailPageAiService,
     DetailPageGenerationService,
+    DetailPageRasterizationService,
     DetailPageAgentReconcileService,
     ContentArchiveService,
     ContentAssetService,

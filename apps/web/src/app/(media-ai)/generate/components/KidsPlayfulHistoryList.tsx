@@ -8,7 +8,7 @@
  * 클릭 시 풀스크린 KidsPlayfulRenderer 모달.
  * filterProductId 옵션 — sourcing 상세 페이지에서 그 product 만.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Calendar,
@@ -27,11 +27,18 @@ import { isApiError } from '@/lib/api-error';
 import { downloadBlob } from '@/lib/browser-download';
 import { cn } from '@/lib/utils';
 import {
+  DownloadOptionsModal,
+  type DetailPageDownloadOptions,
+} from '@/app/(sourcing)/sourcing/components/DownloadOptionsModal';
+import {
   SAME_ORIGIN_SCRIPTLESS_SANDBOX,
   stripSrcDocScripts,
 } from '@/app/(sourcing)/sourcing/lib/preview-sandbox';
-import { ensureStyledDetailHtml } from '@/app/(sourcing)/sourcing/lib/template-html';
 import { buildSourcingEditorHref } from '@/app/(sourcing)/sourcing/lib/sourcing-routing';
+import {
+  ensureStyledDetailHtml,
+  isRenderableDetailHtml,
+} from '@/app/(sourcing)/sourcing/lib/template-html';
 import {
   rowThumbnail,
   rowDisplaySubtitle,
@@ -63,12 +70,20 @@ function stripExclamation(text: string): string {
   return text.replace(/!/g, '').trim();
 }
 
-function downloadFileName(entry: KidsPlayfulGenerationItem): string {
+const DEFAULT_HISTORY_DOWNLOAD_OPTIONS: DetailPageDownloadOptions = {
+  format: 'jpeg',
+  quality: 92,
+  viewportWidth: 720,
+  renderScale: 2,
+  outputWidth: 860,
+};
+
+function downloadFileName(entry: KidsPlayfulGenerationItem, format: DetailPageDownloadOptions['format']): string {
   const base = stripExclamation(entry.productName || rowDisplayTitle(entry) || 'detail-page')
     .replace(/[\\/:*?"<>|]+/g, '-')
     .replace(/\s+/g, ' ')
     .trim();
-  return `${base || 'detail-page'}.png`;
+  return `${base || 'detail-page'}.${format === 'jpeg' ? 'jpg' : 'png'}`;
 }
 
 function canRenderGeneratedResult(entry: KidsPlayfulGenerationItem): boolean {
@@ -249,10 +264,14 @@ function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
   const router = useRouter();
   const { data: latestEntry, isLoading: isEntryLoading } = useKidsPlayfulOne(entry.id);
   const previewEntry = latestEntry ?? entry;
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   const [templateCss, setTemplateCss] = useState<string | null>(null);
   const [editedHtml, setEditedHtml] = useState<string | null>(null);
   const [editedHtmlLoaded, setEditedHtmlLoaded] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadModalOpen, setDownloadModalOpen] = useState(false);
+  const [downloadOptions, setDownloadOptions] = useState<DetailPageDownloadOptions>(DEFAULT_HISTORY_DOWNLOAD_OPTIONS);
+  const [previewContentHeight, setPreviewContentHeight] = useState(1200);
   const isBoldVertical = previewEntry.templateId === 'bold-vertical';
 
   useEffect(() => {
@@ -267,7 +286,7 @@ function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
       .then((row) => {
         if (cancelled) return;
         const html = row.html?.trim() ?? '';
-        setEditedHtml(html.length > 0 ? html : null);
+        setEditedHtml(isRenderableDetailHtml(html) ? html : null);
       })
       .catch(() => {
         if (!cancelled) setEditedHtml(null);
@@ -325,7 +344,29 @@ function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
     router.push(editorHref);
   }, [editorHref, router]);
 
-  const handleDownloadImage = useCallback(async () => {
+  const syncPreviewContentHeight = useCallback(() => {
+    const doc = iframeRef.current?.contentDocument;
+    if (!doc?.documentElement || !doc.body) return;
+    const height = Math.max(
+      1,
+      Math.ceil(
+        Math.max(
+          doc.documentElement.scrollHeight,
+          doc.documentElement.offsetHeight,
+          doc.body.scrollHeight,
+          doc.body.offsetHeight,
+        ),
+      ),
+    );
+    setPreviewContentHeight(height);
+  }, []);
+
+  const openDownloadOptions = useCallback(() => {
+    syncPreviewContentHeight();
+    setDownloadModalOpen(true);
+  }, [syncPreviewContentHeight]);
+
+  const handleDownloadImage = useCallback(async (options: DetailPageDownloadOptions) => {
     if (!html || isDownloading) return;
     setIsDownloading(true);
     try {
@@ -334,12 +375,16 @@ function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           html: stripSrcDocScripts(html),
-          viewportWidth: 860,
+          viewportWidth: options.viewportWidth,
+          outputWidth: options.outputWidth,
           baseUrl: window.location.origin,
+          format: options.format,
+          quality: options.format === 'jpeg' ? options.quality : undefined,
         }),
       });
       if (!res.ok) throw new Error(`Download failed: ${res.status}`);
-      downloadBlob(await res.blob(), downloadFileName(previewEntry));
+      downloadBlob(await res.blob(), downloadFileName(previewEntry, options.format));
+      setDownloadModalOpen(false);
       toast.success('이미지를 다운로드했어요.');
     } catch (err) {
       console.error('[generate-history] detail image download failed', err);
@@ -372,7 +417,7 @@ function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
             </button>
             <button
               type="button"
-              onClick={handleDownloadImage}
+              onClick={openDownloadOptions}
               disabled={!html || isDownloading}
               aria-label="이미지 다운로드"
               className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-500 px-3 text-xs font-bold text-white shadow-sm transition-colors hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
@@ -401,14 +446,25 @@ function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
             </div>
           ) : (
             <iframe
+              ref={iframeRef}
               title="상세페이지 생성 이력 미리보기"
               srcDoc={sandboxedHtml}
               className="h-full w-full border-0"
               sandbox={SAME_ORIGIN_SCRIPTLESS_SANDBOX}
+              onLoad={syncPreviewContentHeight}
             />
           )}
         </div>
       </div>
+      <DownloadOptionsModal
+        open={downloadModalOpen}
+        options={downloadOptions}
+        isDownloading={isDownloading}
+        contentHeight={previewContentHeight}
+        onOptionsChange={setDownloadOptions}
+        onClose={() => setDownloadModalOpen(false)}
+        onDownload={handleDownloadImage}
+      />
     </div>
   );
 }
