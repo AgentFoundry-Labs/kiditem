@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { PanelRunSourceSchema } from './sources.js';
 import { AlertKindSchema, AlertStatusSchema } from '../schemas/alerts.js';
 
-const PanelItemBase = z.object({
+const PanelItemBaseSchema = z.object({
   id: z.string(),
   // organizationId는 서버 내부에서만 사용, 와이어에서는 drop됨
   seq: z.number().int(),
@@ -15,7 +15,7 @@ const PanelItemBase = z.object({
   visibility: z.enum(['organization', 'user']),
 });
 
-export const PanelRunItem = PanelItemBase.extend({
+export const PanelRunItemSchema = PanelItemBaseSchema.extend({
   kind: z.literal('run'),
   source: PanelRunSourceSchema,
   sourceId: z.string(),
@@ -35,7 +35,7 @@ export const PanelRunItem = PanelItemBase.extend({
 // `kind` is the panel discriminant and must stay literal "alert". The DB
 // ledger kind (`Alert.kind`) is exposed as `alertKind` to avoid colliding with
 // `PanelItem = run | alert`.
-export const PanelAlertItem = z.object({
+export const PanelAlertItemSchema = z.object({
   kind: z.literal('alert'),
   id: z.string().uuid(),
   alertKind: AlertKindSchema,
@@ -64,27 +64,34 @@ export const PanelAlertItem = z.object({
 export const PANEL_ITEM_KINDS = ['run', 'alert'] as const;
 export type PanelItemKind = (typeof PANEL_ITEM_KINDS)[number];
 
-export const PanelItem = z.discriminatedUnion('kind', [PanelRunItem, PanelAlertItem]);
-export type PanelItem = z.infer<typeof PanelItem>;
-export type PanelRunItem = z.infer<typeof PanelRunItem>;
-export type PanelAlertItem = z.infer<typeof PanelAlertItem>;
+export const PanelItemSchema = z.discriminatedUnion('kind', [
+  PanelRunItemSchema,
+  PanelAlertItemSchema,
+]);
+export type PanelItem = z.infer<typeof PanelItemSchema>;
+export type PanelRunItem = z.infer<typeof PanelRunItemSchema>;
+export type PanelAlertItem = z.infer<typeof PanelAlertItemSchema>;
 
 // Wire events — dismiss는 itemId만 전송 (IMPORTANT #2)
-export const PanelUpsertEvent = z.object({
+export const PanelUpsertEventSchema = z.object({
   type: z.literal('upsert'),
   seq: z.number().int(),
-  item: PanelItem,
+  item: PanelItemSchema,
 });
-export const PanelDismissEvent = z.object({
+export const PanelDismissEventSchema = z.object({
   type: z.literal('dismiss'),
   seq: z.number().int(),
   itemId: z.string(),
 });
-export const PanelSnapshotEvent = z.object({
+export const PanelSnapshotEventSchema = z.object({
   type: z.literal('snapshot'),
   seq: z.number().int(),
-  items: z.array(PanelItem),
+  items: z.array(PanelItemSchema),
   resetClient: z.literal(true), // CRITICAL #9 — 서버 재시작 시 seq 리셋 핸드셰이크
 });
-export const PanelEvent = z.discriminatedUnion('type', [PanelUpsertEvent, PanelDismissEvent, PanelSnapshotEvent]);
-export type PanelEvent = z.infer<typeof PanelEvent>;
+export const PanelEventSchema = z.discriminatedUnion('type', [
+  PanelUpsertEventSchema,
+  PanelDismissEventSchema,
+  PanelSnapshotEventSchema,
+]);
+export type PanelEvent = z.infer<typeof PanelEventSchema>;

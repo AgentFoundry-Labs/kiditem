@@ -10,6 +10,7 @@ import {
   type AgentRunnerResult,
 } from '../../../agent-os/application/port/in/agent-runner.port';
 import { OperationAlertService } from '../../../automation/application/service/operation-alert.service';
+import { kickEnqueuedAgentRequest } from './agent-inline-execution';
 
 /**
  * Image edit entry point.
@@ -106,10 +107,10 @@ export class ImageAiService {
 
   private imageEditHref(params: { productId?: string; contentGenerationId?: string }): string {
     if (params.contentGenerationId) {
-      return `/product-content/detail-pages/${params.contentGenerationId}/editor`;
+      return `/product-pipeline/detail-pages/${encodeURIComponent(params.contentGenerationId)}/editor`;
     }
-    if (params.productId) return `/product-content/${params.productId}`;
-    return '/product-content?contentType=image';
+    if (params.productId) return `/product-pipeline/registered-products?masterId=${params.productId}`;
+    return '/product-pipeline/registered-products?contentType=image';
   }
 
   private kickEnqueuedImageEditRequest(input: {
@@ -118,14 +119,13 @@ export class ImageAiService {
   }): void {
     if (!this.agentRunner.executeRequest) return;
 
-    void this.agentRunner.executeRequest({
+    kickEnqueuedAgentRequest({
+      agentRunner: this.agentRunner,
       organizationId: input.organizationId,
       requestId: input.requestId,
       workerId: 'image-edit-inline',
-    }).catch((error) => {
-      this.logger.warn(
-        `Failed to kick image_edit request ${input.requestId}: ${error}`,
-      );
+      logger: this.logger,
+      label: 'image_edit',
     });
   }
 

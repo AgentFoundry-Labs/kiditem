@@ -5,6 +5,8 @@ import type { ThumbnailEditorInputImage } from '../domain/model/thumbnail-editor
 
 const ORGANIZATION_ID = 'organization-1';
 const PRODUCT_ID = '7d000000-0000-4000-8000-000000000001';
+const SOURCE_CANDIDATE_ID = '7d000000-0000-4000-8000-000000000002';
+const GENERATED_CANDIDATE_ID = '7d000000-0000-4000-8000-000000000003';
 
 function makeInput(
   url: string,
@@ -55,15 +57,30 @@ function makeController(opts: { withProduct?: boolean } = {}) {
       generationId: 'generation-async-1',
       status: 'pending' as const,
     })),
+    enqueueCandidateGeneration: vi.fn(async () => ({
+      generationId: 'candidate-generation-async-1',
+      status: 'pending' as const,
+    })),
+    enqueueStandaloneGeneration: vi.fn(async () => ({
+      generationId: 'standalone-generation-async-1',
+      status: 'pending' as const,
+    })),
     saveEditorResult: vi.fn(async () => 'generation-1'),
   };
   const reconcile = { reconcile: vi.fn() };
+  const generatedCandidates = {
+    createFromThumbnailInputs: vi.fn(async () => ({
+      id: GENERATED_CANDIDATE_ID,
+      name: 'Manual thumbnail candidate',
+      category: null,
+    })),
+  };
   const controller = new ThumbnailEditorController(
     editorAi as never,
     generationService as never,
     reconcile as never,
   );
-  return { controller, editorAi, generationService };
+  return { controller, editorAi, generationService, generatedCandidates };
 }
 
 describe('ThumbnailEditorController product-bound (async Agent OS)', () => {
@@ -145,21 +162,60 @@ describe('ThumbnailEditorController product-bound (async Agent OS)', () => {
   });
 });
 
-describe('ThumbnailEditorController standalone (no productId — sync fallback)', () => {
-  it('keeps the synchronous Gemini path when productId is omitted', async () => {
+describe('ThumbnailEditorController candidate-bound generation', () => {
+  it('creates a persisted candidate-bound generation when sourceCandidateId is provided', async () => {
     const { controller, editorAi, generationService } = makeController({ withProduct: false });
     const body = {
+      sourceCandidateId: SOURCE_CANDIDATE_ID,
+      productImage: 'candidate-product-url',
+      productName: 'Candidate toy',
+      purpose: 'compliance',
+      mode: 'edit',
+    } satisfies ThumbnailEditorDto;
+
+    const result = await controller.generate(body, ORGANIZATION_ID);
+
+    expect(result).toEqual({
+      candidates: [],
+      generationId: 'candidate-generation-async-1',
+      status: 'pending',
+    });
+    expect(editorAi.generateEdit).not.toHaveBeenCalled();
+    expect(generationService.enqueueCandidateGeneration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: ORGANIZATION_ID,
+        sourceCandidateId: SOURCE_CANDIDATE_ID,
+        productName: 'Candidate toy',
+        originalUrl: 'candidate-product-url',
+      }),
+    );
+  });
+
+  it('enqueues a standalone generation without creating a sourcing candidate when productId and sourceCandidateId are omitted', async () => {
+    const { controller, editorAi, generationService, generatedCandidates } = makeController({ withProduct: false });
+    const body = {
       productImage: 'main-product-url',
+      productName: 'Uploaded toy',
       purpose: 'compliance',
       mode: 'edit',
     } satisfies ThumbnailEditorDto;
 
     const result = await controller.generate(body, ORGANIZATION_ID);
     expect(generationService.enqueueEditorGeneration).not.toHaveBeenCalled();
-    expect(editorAi.generateEdit).toHaveBeenCalledTimes(1);
-    expect(result).toMatchObject({
-      candidates: expect.any(Array),
-      generationId: null,
+    expect(generationService.enqueueCandidateGeneration).not.toHaveBeenCalled();
+    expect(editorAi.generateEdit).not.toHaveBeenCalled();
+    expect(generatedCandidates.createFromThumbnailInputs).not.toHaveBeenCalled();
+    expect(generationService.enqueueStandaloneGeneration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: ORGANIZATION_ID,
+        productName: 'Uploaded toy',
+        originalUrl: 'main-product-url',
+      }),
+    );
+    expect(result).toEqual({
+      candidates: [],
+      generationId: 'standalone-generation-async-1',
+      status: 'pending',
     });
   });
 });

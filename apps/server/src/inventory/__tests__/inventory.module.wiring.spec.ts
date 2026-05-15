@@ -1,7 +1,12 @@
 import 'reflect-metadata';
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { InventoryModule } from '../inventory.module';
-import { InventoryController } from '../adapter/in/http/inventory.controller';
+import { InventoryAssetsController } from '../adapter/in/http/inventory-assets.controller';
+import { InventoryItemsController } from '../adapter/in/http/inventory-items.controller';
+import { InventoryStockMutationsController } from '../adapter/in/http/inventory-stock-mutations.controller';
+import { InventoryTransactionsController } from '../adapter/in/http/inventory-transactions.controller';
 import { UnshippedController } from '../adapter/in/http/unshipped.controller';
 import { WarehousesController } from '../adapter/in/http/warehouses.controller';
 import { TransfersController } from '../adapter/in/http/transfers.controller';
@@ -29,6 +34,14 @@ const CONTROLLERS_KEY = 'controllers';
 const PROVIDERS_KEY = 'providers';
 const EXPORTS_KEY = 'exports';
 const PATH_KEY = 'path';
+const INVENTORY_ROOT = path.resolve(__dirname, '..');
+
+const INVENTORY_HTTP_CONTROLLER_FILES = [
+  ['InventoryItemsController', 'inventory-items.controller.ts'],
+  ['InventoryTransactionsController', 'inventory-transactions.controller.ts'],
+  ['InventoryStockMutationsController', 'inventory-stock-mutations.controller.ts'],
+  ['InventoryAssetsController', 'inventory-assets.controller.ts'],
+] as const;
 
 // Architecture-guard companion to inventory.architecture.spec.ts and the
 // dev:server boot check listed in the inventory AGENTS.md verification gate.
@@ -45,13 +58,38 @@ describe('InventoryModule capability wiring', () => {
     const controllers: unknown[] = Reflect.getMetadata(CONTROLLERS_KEY, InventoryModule) ?? [];
     expect(new Set(controllers)).toEqual(
       new Set([
-        InventoryController,
+        InventoryTransactionsController,
+        InventoryAssetsController,
+        InventoryItemsController,
+        InventoryStockMutationsController,
         UnshippedController,
         WarehousesController,
         TransfersController,
         AuditsController,
         PickingController,
       ]),
+    );
+  });
+
+  it('splits /api/inventory HTTP routes by route family', () => {
+    const moduleSource = readFileSync(path.join(INVENTORY_ROOT, 'inventory.module.ts'), 'utf8');
+
+    for (const [className, fileName] of INVENTORY_HTTP_CONTROLLER_FILES) {
+      expect(
+        existsSync(path.join(INVENTORY_ROOT, 'adapter/in/http', fileName)),
+        `${fileName} should own a route family under /api/inventory`,
+      ).toBe(true);
+      expect(moduleSource).toContain(className);
+    }
+  });
+
+  it('registers static /api/inventory GET families before item id routes', () => {
+    const controllers: unknown[] = Reflect.getMetadata(CONTROLLERS_KEY, InventoryModule) ?? [];
+    expect(controllers.indexOf(InventoryTransactionsController)).toBeLessThan(
+      controllers.indexOf(InventoryItemsController),
+    );
+    expect(controllers.indexOf(InventoryAssetsController)).toBeLessThan(
+      controllers.indexOf(InventoryItemsController),
     );
   });
 
@@ -91,7 +129,10 @@ describe('InventoryModule capability wiring', () => {
   });
 
   it('keeps public /api route prefixes for inventory + every capability', () => {
-    expect(Reflect.getMetadata(PATH_KEY, InventoryController)).toBe('inventory');
+    expect(Reflect.getMetadata(PATH_KEY, InventoryTransactionsController)).toBe('inventory');
+    expect(Reflect.getMetadata(PATH_KEY, InventoryAssetsController)).toBe('inventory');
+    expect(Reflect.getMetadata(PATH_KEY, InventoryItemsController)).toBe('inventory');
+    expect(Reflect.getMetadata(PATH_KEY, InventoryStockMutationsController)).toBe('inventory');
     expect(Reflect.getMetadata(PATH_KEY, UnshippedController)).toBe('unshipped');
     expect(Reflect.getMetadata(PATH_KEY, WarehousesController)).toBe('warehouses');
     expect(Reflect.getMetadata(PATH_KEY, TransfersController)).toBe('stock-transfers');

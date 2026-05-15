@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
 import { AgentCatalogController } from './adapter/in/http/agent-catalog.controller';
-import { AgentRunsController } from './adapter/in/http/agent-runs.controller';
+import { AgentExecutorController } from './adapter/in/http/agent-executor.controller';
+import { AgentRunObservabilityController } from './adapter/in/http/agent-run-observability.controller';
+import { AgentRunRequestsController } from './adapter/in/http/agent-run-requests.controller';
+import { AgentRunsQueryController } from './adapter/in/http/agent-runs-query.controller';
 import { AgentOsRepositoryAdapter } from './adapter/out/repository/agent-os.repository.adapter';
 import { FilesystemAgentLogStoreAdapter } from './adapter/out/log-store/filesystem-agent-log-store.adapter';
 import { RoutingRuntimeAdapter } from './adapter/out/runtime/routing-runtime.adapter';
@@ -17,7 +20,13 @@ import { AgentRunWorker } from './application/service/agent-run-worker.service';
 import { AgentRuntimeHandlerRegistry } from './application/service/agent-runtime-handler-registry.service';
 
 @Module({
-  controllers: [AgentCatalogController, AgentRunsController],
+  controllers: [
+    AgentCatalogController,
+    AgentRunRequestsController,
+    AgentExecutorController,
+    AgentRunsQueryController,
+    AgentRunObservabilityController,
+  ],
   providers: [
     AgentCatalogService,
     AgentObservabilityService,

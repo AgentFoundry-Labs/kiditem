@@ -17,7 +17,7 @@ class SaveEditedHtmlDto {
  * `/api/products/masters/...`) because the frontend already calls these paths.
  * They are NEW features (preview / edited-html / generation history) that
  * complement `MastersController` writes; `content/cards` powers the canonical
- * `/product-content` frontend route. These routes are not part of the
+ * generated-content frontend surfaces. These routes are not part of the
  * deprecated `ProductsLegacyController` cross-domain compat surface.
  *
  * Keep the route prefix `'products'` (no trailing segment) so that

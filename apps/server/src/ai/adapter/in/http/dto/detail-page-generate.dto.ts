@@ -5,6 +5,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   MaxLength,
   MinLength,
   ValidateNested,
@@ -18,6 +19,10 @@ import {
   type DetailPageAgeGroup,
   type DetailPageTemplateId,
 } from '@kiditem/shared/ai';
+
+const DETAIL_PAGE_GENERATION_MODES = ['draft', 'image', 'full'] as const;
+const PRODUCT_TITLE_MESSAGE = '상품명은 한글, 영문, 숫자, 공백만 사용할 수 있습니다.';
+const PRODUCT_TITLE_PATTERN = /^(?=.*[\p{L}\p{N}])[\p{L}\p{N}\s]+$/u;
 
 export class DetailPageSourceReferenceDto {
   @IsIn(['sourcing_candidate', 'input_asset', 'content_generation'])
@@ -44,6 +49,7 @@ export class DetailPageSourceReferenceDto {
 export class GenerateDetailPageBodyDto {
   @IsString()
   @MinLength(1)
+  @Matches(PRODUCT_TITLE_PATTERN, { message: PRODUCT_TITLE_MESSAGE })
   rawTitle!: string;
 
   @IsString()
@@ -70,8 +76,16 @@ export class GenerateDetailPageBodyDto {
   productId?: string;
 
   @IsOptional()
+  @IsUUID()
+  registrationWorkspaceId?: string;
+
+  @IsOptional()
   @IsIn(DETAIL_PAGE_TEMPLATE_IDS)
   templateId?: DetailPageTemplateId;
+
+  @IsOptional()
+  @IsIn(DETAIL_PAGE_GENERATION_MODES)
+  generationMode?: 'draft' | 'image' | 'full';
 
   @IsOptional()
   @IsIn(DETAIL_PAGE_AGE_GROUPS)
@@ -105,6 +119,7 @@ export class GenerateDetailPageBodyDto {
 export class PrefillDetailPageBodyDto {
   @IsString()
   @MinLength(1)
+  @Matches(PRODUCT_TITLE_PATTERN, { message: PRODUCT_TITLE_MESSAGE })
   rawTitle!: string;
 
   @IsOptional()

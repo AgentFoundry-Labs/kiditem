@@ -16,7 +16,6 @@ const GENERATED_HERO_BANNER_KEY = '__heroBanner';
 const GENERATED_HERO_PRODUCT_IMAGE_KEY = '__heroProductImage';
 const GENERATED_SIZE_GUIDE_IMAGE_KEY = '__sizeGuideImage';
 const GENERATED_COLOR_GUIDE_IMAGE_KEY = '__colorGuideImage';
-const GENERATED_PACKAGE_GUIDE_IMAGE_KEY = '__packageGuideImage';
 const GENERATED_USAGE_IMAGE_KEYS = ['__usageGuideImage1', '__usageGuideImage2', '__usageGuideImage3'] as const;
 const GENERATED_DETAIL_IMAGE_KEYS = [
   '__detailImage1',
@@ -215,34 +214,9 @@ export class DetailPageGeneratedImagesService {
       });
     }
 
-    const packageImageIndices = resolveEffectivePackageImageIndices({
-      packageLabel: parsed.packageLabel,
-      packageImageIndices: parsed.packageImageIndices,
-      colorImageIndices: parsed.color?.imageIndices,
-      hookImageIndex: parsed.hook?.imageIndex,
-      imageUrls: input.rawInput.imageUrls,
-    });
-    if (packageImageIndices.length > 0 && (parsed.packageLabel ?? '').trim() !== '') {
-      const packageSourceImageUrls = packageImageIndices
-        .map((idx) => input.rawInput.imageUrls[idx])
-        .filter((url): url is string => typeof url === 'string' && url.trim() !== '');
-      if (packageSourceImageUrls.length > 0) {
-        await this.generateInto(
-          processedImages,
-          GENERATED_PACKAGE_GUIDE_IMAGE_KEY,
-          'detail package guide image',
-          () => this.heroImageService!.generatePackageGuideImage({
-            organizationId: input.organizationId,
-            productName: input.rawInput.rawTitle,
-            category: input.rawInput.rawCategory,
-            description: input.rawInput.rawDescription,
-            options: input.rawInput.rawOptions,
-            ageGroup: input.rawInput.ageGroup,
-            imageUrls: packageSourceImageUrls,
-          }),
-        );
-      }
-    }
+    // Package/display-box sections intentionally render the selected source
+    // photo as-is via packageImageIndices. Re-generating it changes camera
+    // angle/artwork, which is wrong for operator-provided package photos.
 
     const usageSteps = parsed.usageEnabled === false || input.rawInput.usageSectionMode === 'exclude'
       ? []

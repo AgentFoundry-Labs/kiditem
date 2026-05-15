@@ -10,6 +10,7 @@ import { PATH_METADATA } from '@nestjs/common/constants';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ProductsModule } from '../products.module';
 import { MastersController } from '../adapter/in/http/masters.controller';
+import { MasterImagesController } from '../adapter/in/http/master-images.controller';
 import { OptionsController } from '../adapter/in/http/options.controller';
 import { BundleComponentsController } from '../adapter/in/http/bundle-components.controller';
 import { MastersService } from '../application/service/masters.service';
@@ -54,8 +55,9 @@ describe('ProductsModule DI', () => {
 
   afterAll(async () => { if (moduleRef) await moduleRef.close(); });
 
-  it('resolves all three controllers', () => {
+  it('resolves all product controllers', () => {
     expect(moduleRef.get(MastersController)).toBeDefined();
+    expect(moduleRef.get(MasterImagesController)).toBeDefined();
     expect(moduleRef.get(OptionsController)).toBeDefined();
     expect(moduleRef.get(BundleComponentsController)).toBeDefined();
     expect(moduleRef.get(CategoriesController)).toBeDefined();

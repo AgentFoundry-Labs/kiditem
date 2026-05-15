@@ -1,11 +1,12 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { ArchiveX, Bell, X } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/hooks/useAuth';
 import { isActivePanelItem, usePanelStore } from './lib/panel-store';
+import { recoverStalePanelOperations } from './lib/panel-recovery';
 import { PanelItemRow } from './PanelItemRow';
 import type { PanelItem } from '@kiditem/shared/panel';
 
@@ -16,6 +17,8 @@ export function PanelSheet() {
   const byId = usePanelStore((s) => s.byId);
   const dismissItem = usePanelStore((s) => s.dismissItem);
   const connectionStatus = usePanelStore((s) => s.connectionStatus);
+  const recoveryLastRunRef = useRef(0);
+  const recoveryInFlightRef = useRef(false);
 
   const { user } = useAuth();
   const currentUserId = user?.id ?? null;
@@ -35,6 +38,27 @@ export function PanelSheet() {
     () => partitionPanelItems([...active, ...recent], currentUserId),
     [active, recent, currentUserId],
   );
+
+  useEffect(() => {
+    if (!isOpen || connectionStatus === 'connected') return;
+    const now = Date.now();
+    if (recoveryInFlightRef.current || now - recoveryLastRunRef.current < 30_000) {
+      return;
+    }
+    recoveryInFlightRef.current = true;
+    recoveryLastRunRef.current = now;
+    const afterSeq = usePanelStore.getState().lastSeq;
+    void recoverStalePanelOperations(afterSeq)
+      .then((items) => {
+        usePanelStore.getState().handleSnapshot(items, true);
+      })
+      .catch((err) => {
+        console.warn('[panel] stale operation recovery failed', err);
+      })
+      .finally(() => {
+        recoveryInFlightRef.current = false;
+      });
+  }, [connectionStatus, isOpen]);
 
   const clearDismissableAlerts = async () => {
     if (isClearing || dismissableAlerts.length === 0) return;

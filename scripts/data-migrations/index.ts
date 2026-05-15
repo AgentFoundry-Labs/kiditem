@@ -3,12 +3,21 @@ import { rewriteLegacyDetailEditorAlertHrefs } from './v0.1.0/002_rewrite_legacy
 import { relabelImageEditAgentInstancesToGeminiImage } from './v0.1.0/003_relabel_image_edit_agent_instances_to_gemini_image';
 import { backfillContentArchiveClassification } from './v0.1.0/004_backfill_content_archive_classification';
 import { backfillContentGenerationWorkspaceAssets } from './v0.1.1/001_backfill_content_generation_workspace_assets';
+import { backfillDetailPageArtifacts } from './v0.1.1/002_backfill_detail_page_artifacts';
+import { backfillSourcingCandidateImages } from './v0.1.1/003_backfill_sourcing_candidate_images';
+import { backfillGeneratedContentCandidates } from './v0.1.1/004_backfill_generated_content_candidates';
+import { rewriteProductContentRouteHrefs } from './v0.1.1/005_rewrite_product_content_route_hrefs';
+import { backfillRegistrationWorkspaces } from './v0.1.1/006_backfill_registration_workspaces';
 import type { DataMigration } from './types';
 
 export {
   isLegacyDetailEditorHref,
   rewriteLegacyDetailEditorHref,
 } from './v0.1.0/002_rewrite_legacy_detail_editor_alert_hrefs';
+export {
+  isProductContentRouteHrefRewriteNeeded,
+  rewriteProductContentRouteHref,
+} from './v0.1.1/005_rewrite_product_content_route_hrefs';
 
 export const dataMigrations: readonly DataMigration[] = [
   backfillSourcingCandidatesFromMasterProducts,
@@ -16,6 +25,11 @@ export const dataMigrations: readonly DataMigration[] = [
   relabelImageEditAgentInstancesToGeminiImage,
   backfillContentArchiveClassification,
   backfillContentGenerationWorkspaceAssets,
+  backfillDetailPageArtifacts,
+  backfillSourcingCandidateImages,
+  backfillGeneratedContentCandidates,
+  rewriteProductContentRouteHrefs,
+  backfillRegistrationWorkspaces,
 ];
 
 export const DATA_MIGRATION_IDS = Object.freeze(

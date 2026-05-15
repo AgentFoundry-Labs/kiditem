@@ -5,9 +5,11 @@ import { AiModule } from '../ai/ai.module';
 import { AutomationModule } from '../automation/automation.module';
 import { ProductsModule } from '../products/products.module';
 
-import { SourcingController } from './adapter/in/http/sourcing.controller';
+import { SourcingCandidateWorkspaceController } from './adapter/in/http/sourcing-candidate-workspace.controller';
+import { SourcingExtensionIngestController } from './adapter/in/http/sourcing-extension-ingest.controller';
 import { SourcingService } from './application/service/sourcing.service';
 import { SourcingPromotionService } from './application/service/sourcing-promotion.service';
+import { SourcingWorkspaceArchiveService } from './application/service/sourcing-workspace-archive.service';
 
 import { SourcingAgentGatewayAdapter } from './adapter/out/agent/sourcing-agent.gateway.adapter';
 import { SourcingProductsCatalogAdapter } from './adapter/out/products/products-catalog.adapter';
@@ -40,11 +42,13 @@ import { SOURCING_CANDIDATE_REPOSITORY_PORT } from './application/port/out/sourc
 @Module({
   imports: [PrismaModule, AgentOsModule, AiModule, AutomationModule, ProductsModule],
   controllers: [
-    SourcingController,
+    SourcingExtensionIngestController,
+    SourcingCandidateWorkspaceController,
   ],
   providers: [
     SourcingService,
     SourcingPromotionService,
+    SourcingWorkspaceArchiveService,
     SourcingAgentGatewayAdapter,
     SourcingProductsCatalogAdapter,
     SourcingCandidateRepositoryAdapter,

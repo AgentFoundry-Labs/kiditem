@@ -37,6 +37,8 @@ describe('detail-page stored JSON helpers', () => {
       imageUrls: ['https://example.com/output.jpg'],
       heroImageMode: 'first',
       templateId: 'bold-vertical',
+      generationMode: 'full',
+      baseContentGenerationId: undefined,
       ageGroup: 'age-8-plus',
       detailImageCount: 'auto',
       usageSectionMode: 'include',
@@ -76,6 +78,8 @@ describe('detail-page stored JSON helpers', () => {
       imageUrls: ['https://example.com/output.jpg'],
       heroImageMode: 'llm-pick',
       templateId: 'kids-playful',
+      generationMode: 'full',
+      baseContentGenerationId: undefined,
       ageGroup: 'age-14-plus',
       detailImageCount: '6',
       usageSectionMode: 'exclude',
@@ -84,11 +88,20 @@ describe('detail-page stored JSON helpers', () => {
     });
   });
 
-  it('builds canonical detail-page result links for the product-content editor surface', () => {
+  it('builds canonical detail-page result links for the sourcing editor surface', () => {
     expect(detailPageResultHref({
       productId: 'product-123',
       contentGenerationId: 'generation-456',
       templateId: 'bold-vertical',
-    })).toBe('/product-content/detail-pages/generation-456/editor');
+    })).toBe('/product-pipeline/detail-pages/generation-456/editor');
+  });
+
+  it('builds candidate-scoped detail-page result links when sourcing provenance exists', () => {
+    expect(detailPageResultHref({
+      productId: 'product-123',
+      sourceCandidateId: 'candidate-123',
+      contentGenerationId: 'generation-456',
+      templateId: 'bold-vertical',
+    })).toBe('/product-pipeline/detail-pages/generation-456/editor?sourceCandidateId=candidate-123&returnTo=%2Fproduct-pipeline%2Fcollected-products%2Fcandidate-123');
   });
 });

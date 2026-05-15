@@ -1,0 +1,2 @@
+# Existing public Zod contract names that predate the PascalCaseSchema rule.
+# Keep this file empty when there are no grandfathered violations.

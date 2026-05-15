@@ -45,7 +45,8 @@ export type GenerationRow = {
   phase: string | null;
   grade: string;
   score: number;
-  masterId: string;
+  masterId: string | null;
+  sourceCandidateId?: string | null;
   method: string;
   originalUrl: string | null;
   selectedUrl: string | null;
@@ -95,6 +96,7 @@ export function toThumbnailGenerationItem(
     grade: row.grade,
     score: row.score,
     productId: row.masterId,
+    sourceCandidateId: row.sourceCandidateId ?? null,
     method: row.method,
     originalUrl: row.originalUrl,
     selectedUrl: row.selectedUrl,
@@ -114,12 +116,14 @@ export function toThumbnailGenerationItem(
     registrationStatus: toRegistrationStatus(row.registrationAttempts[0]?.status),
     registrationCheckedAt: registrationCheckedAt(row.registrationAttempts[0]),
     registrationError: row.registrationAttempts[0]?.errorMessage ?? null,
-    product: {
-      id: master?.id ?? row.masterId,
-      name: master?.name ?? '',
-      imageUrl: master?.imageUrl ?? null,
-      coupangProductId: null,
-      category: master?.category ?? null,
-    },
+    product: master
+      ? {
+          id: master.id,
+          name: master.name,
+          imageUrl: master.imageUrl,
+          coupangProductId: null,
+          category: master.category,
+        }
+      : null,
   } satisfies ThumbnailGenerationItem;
 }

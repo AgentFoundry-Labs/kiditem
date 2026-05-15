@@ -124,7 +124,7 @@ describe('OperationAlertLifecycleController.start', () => {
           type: 'thumbnail_edit_job',
           title: '임의 조작',
           sourceType: 'thumbnail_generation',
-          href: '/thumbnails',
+          href: '/product-pipeline/thumbnail-generation',
         },
         ORGANIZATION_ID,
         { id: USER_ID } as any,
@@ -159,7 +159,7 @@ describe('OperationAlertLifecycleController.start', () => {
         title: '썸네일 AI 분류',
         sourceType: 'browser_batch',
         sourceId: 'all',
-        href: '/thumbnails',
+        href: '/product-pipeline/thumbnail-generation',
       }),
     );
 
@@ -185,7 +185,7 @@ describe('OperationAlertLifecycleController.start', () => {
         title: '썸네일 AI 분류',
         sourceType: 'browser_batch',
         sourceId: 'all',
-        href: '/thumbnails',
+        href: '/product-pipeline/thumbnail-generation',
       }),
     );
   });

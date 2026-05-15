@@ -2,9 +2,8 @@
 
 Supply owns supplier registry, master-supplier policy (`MasterSupplierProduct`),
 and purchase-order procurement. Suppliers are organization-private.
-Extracted from `sourcing/` during issue #192 follow-up Track A PR 1 — the
-sourcing/supply boundary reflects different actors (sourcing buyer vs vendor
-manager) doing different work against different mutation surfaces.
+The sourcing/supply boundary reflects different actors (sourcing buyer vs
+vendor manager) working against different mutation surfaces.
 
 `supplier-payments` is a finance capability and lives in `finance/`.
 `supplier-stats` is a read-model and lives in `analytics/supplier-stats/`.
@@ -35,8 +34,8 @@ supply/
   `@CurrentOrganization()` and persist `organization_id`.
 - `MasterSupplierProduct` is the master-supplier policy table. Currently
   has **no write path** in the codebase — only `analytics/supplier-stats`
-  consumes it via read-only join. PR 2 introduces the first writer via
-  `SUPPLY_ATTACH_PORT` (called from sourcing's promotion path).
+  consumes it via read-only join. New writers must use a supply-owned port
+  such as `SUPPLY_ATTACH_PORT`.
 - Purchase orders are state-machine controlled. Transitions use the pure
   domain policy in `domain/policy/purchase-order-status.ts`.
 - supplier-payments writes go through finance services; supply does **not**

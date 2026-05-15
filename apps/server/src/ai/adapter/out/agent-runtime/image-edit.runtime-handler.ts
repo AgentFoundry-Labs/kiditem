@@ -13,6 +13,7 @@ import type { AgentTypeRuntimeHandler } from '../../../../agent-os/application/p
 import { AgentRuntimeHandlerRegistry } from '../../../../agent-os/application/service/agent-runtime-handler-registry.service';
 import {
   PublicUrlError,
+  assertHttpUrl,
   assertPublicHttpUrl,
 } from '../../../../common/security/public-url';
 import {
@@ -25,6 +26,10 @@ import {
   IMAGE_EDIT_MEDIA_PORT,
   type ImageEditMediaPort,
 } from '../../../application/port/out/image-edit-media.port';
+import {
+  IMAGE_STORAGE_PORT,
+  type ImageStoragePort,
+} from '../../../application/port/out/image-storage.port';
 
 @Injectable()
 export class ImageEditRuntimeHandler
@@ -36,6 +41,8 @@ export class ImageEditRuntimeHandler
     private readonly registry: AgentRuntimeHandlerRegistry,
     @Inject(IMAGE_EDIT_MEDIA_PORT)
     private readonly imageEditMedia: ImageEditMediaPort,
+    @Inject(IMAGE_STORAGE_PORT)
+    private readonly imageStorage: ImageStoragePort,
   ) {}
 
   onModuleInit(): void {
@@ -115,6 +122,10 @@ export class ImageEditRuntimeHandler
   private assertSafeImageSource(value: string, path: string): void {
     if (value.startsWith('data:image/')) return;
     try {
+      if (this.imageStorage.extractKey(value)) {
+        assertHttpUrl(value);
+        return;
+      }
       assertPublicHttpUrl(value);
     } catch (error) {
       if (error instanceof PublicUrlError) {

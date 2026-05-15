@@ -35,6 +35,7 @@ import { DetailPageAgentReconcileService } from '../application/service/detail-p
 import { DetailPageAgentOutputBridge } from '../application/service/detail-page-agent-output.bridge';
 import { DetailPageGenerationService } from '../application/service/detail-page-generation.service';
 import { DetailPageGeneratedImagesService } from '../application/service/detail-page-generated-images.service';
+import { GeneratedContentCandidateService } from '../application/service/generated-content-candidate.service';
 import { ContentAssetService } from '../application/service/content-asset.service';
 import { DetailPagePrefillService } from '../application/service/detail-page-prefill.service';
 import { DetailPageQueryService } from '../application/service/detail-page-query.service';
@@ -201,6 +202,7 @@ beforeAll(async () => {
     query,
     coordinator as unknown as AgentRunnerPort,
     contentAssets,
+    new GeneratedContentCandidateService(prisma as never),
   );
   const prefill = new DetailPagePrefillService(textCompletion);
   aiService = new DetailPageAiService(generation, prefill, query);

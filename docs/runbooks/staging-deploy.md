@@ -383,7 +383,7 @@ sudo systemctl reload nginx
 
 Use `http://<ec2-public-ip>` for the first smoke test.
 
-If `/thumbnails` Coupang image sync is tested from the staging web app, the
+If `/product-pipeline/thumbnail-generation` Coupang image sync is tested from the staging web app, the
 local Chrome extension must allow the same public origin. Do not commit the
 real staging origin into the default extension manifest; create a local-only
 copy instead:
@@ -405,7 +405,7 @@ env and redeploy:
 COUPANG_IMAGE_SYNC_SERVER_SCRAPER_ENABLED=true
 ```
 
-Before running `/thumbnails` image sync without the extension, verify:
+Before running `/product-pipeline/thumbnail-generation` image sync without the extension, verify:
 
 ```bash
 curl -s http://127.0.0.1:8080/api/coupang-image-sync/capabilities
@@ -544,8 +544,10 @@ Expected results:
 - `deployments/current-db.json`, when present, records the staging DB baseline
   profile restored or exported by the separate DB baseline workflow.
 - `data_migration_runs` contains `succeeded` rows for the migration ids shipped
-  by the deployed commit. Legacy persisted detail editor alert hrefs should now
-  point at `/product-content/:productId/editor?generationId=:generationId`.
+  by the deployed commit. Persisted detail editor alert hrefs should now point
+  at `/product-pipeline/detail-pages/:generationId/editor`, with
+  `sourceCandidateId` and `returnTo` query params when the source is a collected
+  product.
 - Contract-cleanup deploys that intentionally dropped columns were run with
   `accept_data_loss=true`, and the workflow log shows the explicit warning
   before Prisma schema apply.

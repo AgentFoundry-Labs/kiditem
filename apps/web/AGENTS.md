@@ -85,6 +85,11 @@ Shared directories (`src/components`, `src/hooks`, `src/lib`) are only for code
 used by 2+ domains. Route-group private shared code can live in
 `app/(group)/_shared/`.
 
+Route-local `components/`, `hooks/`, and `lib/` may be grouped by workflow
+stage or route family when a page already has visible complexity. Keep those
+names local to the route until 2+ routes need the same interface; do not create
+global abstractions just to tidy a single workflow.
+
 The current frontend directory map and route/shared structure contracts live in
 [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md#frontend-directory-architecture).
 When a PR adds a route group, moves a route, or changes shared ownership,
@@ -97,13 +102,13 @@ Route groups do not affect URLs:
 | `(advertising)` | ad-ops |
 | `(analytics)` | dashboard |
 | `(automation)` | agents, workflows, marketplace, action-board |
-| `(catalog)` | products, product-hub, product-content |
-| `(sourcing)` | sourcing, sourcing-ai |
+| `(catalog)` | products, product-hub |
+| `(sourcing-ai)` | sourcing-ai |
+| `(product-pipeline)` | product-pipeline/collected-products, product-pipeline/registered-products, product-pipeline/detail-template-generation, product-pipeline/thumbnail-ai, product-pipeline/thumbnail-generation, product-pipeline/thumbnail-generation/edit |
 | `(supply)` | suppliers, purchase-orders |
 | `(inventory)` | inventory, inventory-hub, stock-ops, warehouses, unshipped-items, outbound |
 | `(orders)` | orders, order-hub, order-status-hub, returns, reviews, return-scan, cs-management |
 | `(finance)` | finance-hub, profit-loss, sales-analysis, supplier-hub, reports |
-| `(media-ai)` | thumbnails, thumbnail-editor, generate |
 
 ## Large Components
 
@@ -128,11 +133,10 @@ Read these before editing the matching route:
 |---|---|
 | [`src/app/(automation)/workflows/AGENTS.md`](<src/app/(automation)/workflows/AGENTS.md>) | workflow page/query behavior |
 | [`src/app/(catalog)/product-hub/matching/AGENTS.md`](<src/app/(catalog)/product-hub/matching/AGENTS.md>) | product matching |
-| [`src/app/(media-ai)/thumbnail-editor/AGENTS.md`](<src/app/(media-ai)/thumbnail-editor/AGENTS.md>) | thumbnail editor generation workflow |
-| [`src/app/(media-ai)/thumbnails/AGENTS.md`](<src/app/(media-ai)/thumbnails/AGENTS.md>) | thumbnails polling/batch UI |
+| [`src/app/(product-pipeline)/product-pipeline/collected-products/AGENTS.md`](<src/app/(product-pipeline)/product-pipeline/collected-products/AGENTS.md>) | collected product workspace |
+| [`src/app/(product-pipeline)/product-pipeline/thumbnail-generation/AGENTS.md`](<src/app/(product-pipeline)/product-pipeline/thumbnail-generation/AGENTS.md>) | thumbnail generation workflow |
+| [`src/app/(product-pipeline)/product-pipeline/thumbnail-ai/AGENTS.md`](<src/app/(product-pipeline)/product-pipeline/thumbnail-ai/AGENTS.md>) | thumbnails polling/batch UI |
 | [`src/app/(orders)/return-scan/AGENTS.md`](<src/app/(orders)/return-scan/AGENTS.md>) | local-only scan flow |
-| [`src/app/(catalog)/product-content/AGENTS.md`](<src/app/(catalog)/product-content/AGENTS.md>) | product content cards and detail-page editor |
-| [`src/app/(sourcing)/sourcing/AGENTS.md`](<src/app/(sourcing)/sourcing/AGENTS.md>) | sourcing candidate inbox and promote/reject actions |
 
 ## Local Exceptions
 

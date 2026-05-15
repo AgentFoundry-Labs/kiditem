@@ -20,10 +20,10 @@
       "import": "./dist/product/index.js",
       "require": "./dist/product/index.cjs"
     },
-    "./sourcing": {
-      "types": "./dist/sourcing/index.d.ts",
-      "import": "./dist/sourcing/index.js",
-      "require": "./dist/sourcing/index.cjs"
+    "./product-content": {
+      "types": "./dist/product-content/index.d.ts",
+      "import": "./dist/product-content/index.js",
+      "require": "./dist/product-content/index.cjs"
     },
     "./order": {
       "types": "./dist/order.d.ts",
@@ -177,7 +177,8 @@
     "*": {
       "schemas": ["dist/schemas/index.d.ts"],
       "product": ["dist/product/index.d.ts"],
-      "sourcing": ["dist/sourcing/index.d.ts"],
+      "product-content": ["dist/product-content/index.d.ts"],
+      "sourcing": ["dist/product-content/index.d.ts"],
       "order": ["dist/order.d.ts"],
       "inventory": ["dist/inventory.d.ts"],
       "ai": ["dist/ai.d.ts"],

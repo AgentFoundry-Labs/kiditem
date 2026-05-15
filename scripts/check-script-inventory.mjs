@@ -8,10 +8,12 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'check-directory-architecture.mjs',
   'check-frontend-db-boundary.sh',
   'check-pr-reconstruction-contract.mjs',
+  'check-pr-release-contract.mjs',
   'check-queryraw-tenancy.sh',
   'check-raw-snapshot-read-models.sh',
   'check-schema-artifact-sync.mjs',
   'check-script-inventory.mjs',
+  'check-shared-interface-names.mjs',
   'check-shared-root-imports.sh',
   'check-tenant-scope.sh',
   'create-dev-preview-session.mjs',
@@ -30,6 +32,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
 ]);
 
 const SUPPORT_FILES = new Set([
+  '.shared-interface-names-baseline.txt',
   '.shared-root-imports-baseline.txt',
   '.tenant-scope-allowlist.txt',
   'README.md',
@@ -69,8 +72,14 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
   if (!packageScripts['check:schema-artifact-sync']) {
     missingPackageHooks.push('check:schema-artifact-sync');
   }
+  if (!packageScripts['check:pr-release-contract']) {
+    missingPackageHooks.push('check:pr-release-contract');
+  }
   if (!packageScripts['check:directory-architecture']) {
     missingPackageHooks.push('check:directory-architecture');
+  }
+  if (!packageScripts['check:shared-interface-names']) {
+    missingPackageHooks.push('check:shared-interface-names');
   }
   if (!packageScripts['test:scripts']) {
     missingPackageHooks.push('test:scripts');
@@ -83,6 +92,9 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
   }
   if (!packageScripts['check:conventions']?.includes('check:directory-architecture')) {
     missingPackageHooks.push('check:conventions -> check:directory-architecture');
+  }
+  if (!packageScripts['check:conventions']?.includes('check:shared-interface-names')) {
+    missingPackageHooks.push('check:conventions -> check:shared-interface-names');
   }
 
   return { unexpected, missing, undocumented, missingPackageHooks };

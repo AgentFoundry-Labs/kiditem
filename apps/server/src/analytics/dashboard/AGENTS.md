@@ -33,7 +33,7 @@ The 8 ports / adapters:
 | `dashboard-ad.repository.port` | 30-day daily ad cost window raw SQL. |
 | `dashboard-trend.repository.port` | Per-day revenue + per-day ad cost trend series. |
 | `wing-traffic-aggregation.repository.port` | Wing traffic + Coupang ads daily aggregations, latest data date, daily trend/ads series. |
-| `dashboard-inventory.repository.port` | Grade counts, alerts, active product counts, per-listing metrics, inventory stock rows, grade history, low-CTR thumbnails, A-grade review counts. |
+| `dashboard-inventory.repository.port` | Inventory tile rows, grade counts/history, alerts, listing metrics, low-CTR thumbnails, and A-grade review counts. |
 
 ## Architecture Guards
 

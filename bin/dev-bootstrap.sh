@@ -6,12 +6,13 @@
 # What it does (idempotent, safe to re-run):
 #   1. Symlinks .env files from a canonical checkout if the current tree doesn't
 #      have them. Resolves the "git worktrees don't carry .env" friction.
-#   2. Runs `npm install --legacy-peer-deps` if node_modules is missing.
-#   3. Verifies SUPABASE_URL + SUPABASE_SECRET_KEY are set.
-#   4. Calls scripts/create-dev-preview-session.mjs with the configured dev user,
+#   2. Enables repo-managed Git hooks from `.githooks`.
+#   3. Runs `npm install --legacy-peer-deps` if node_modules is missing.
+#   4. Verifies SUPABASE_URL + SUPABASE_SECRET_KEY are set.
+#   5. Calls scripts/create-dev-preview-session.mjs with the configured dev user,
 #      verifies local User + active OrganizationMembership, and writes the
 #      resulting callback URL to .dev-auth/callback.url (gitignored).
-#   5. Prints a one-liner the AI/preview agent can navigate to in order to
+#   6. Prints a one-liner the AI/preview agent can navigate to in order to
 #      hydrate the auth cookie in a fresh Chromium without typing a password.
 #
 # Usage:
@@ -132,9 +133,15 @@ echo "==> step 1: env files"
 link_env_if_missing ".env" "$CANONICAL/.env"
 link_env_if_missing "apps/web/.env.local" "$CANONICAL/apps/web/.env.local"
 
-# ---------- step 2: dependencies --------------------------------------------
+# ---------- step 2: git hooks -----------------------------------------------
 
-echo "==> step 2: node modules"
+echo "==> step 2: git hooks"
+git config core.hooksPath .githooks
+echo "  · core.hooksPath=.githooks"
+
+# ---------- step 3: dependencies --------------------------------------------
+
+echo "==> step 3: node modules"
 if [[ "$SKIP_INSTALL" -eq 1 ]]; then
   echo "  · skipped (--skip-install)"
 elif [[ -d node_modules ]]; then
@@ -143,9 +150,9 @@ else
   npm install --legacy-peer-deps
 fi
 
-# ---------- step 3: env sanity check ----------------------------------------
+# ---------- step 4: env sanity check ----------------------------------------
 
-echo "==> step 3: env sanity"
+echo "==> step 4: env sanity"
 if [[ ! -f .env ]]; then
   echo "  ✗ .env not found. Either supply --canonical <path> or copy .env.example."
   exit 1
@@ -182,9 +189,9 @@ if [[ ! "$WEB_ORIGIN" =~ ^https?://[^/]+(:[0-9]+)?$ ]]; then
 fi
 echo "  · DEV_WEB_ORIGIN=${WEB_ORIGIN}"
 
-# ---------- step 4: mint a dev preview session callback URL -----------------
+# ---------- step 5: mint a dev preview session callback URL -----------------
 
-echo "==> step 4: dev preview session for ${DEV_EMAIL}"
+echo "==> step 5: dev preview session for ${DEV_EMAIL}"
 mkdir -p .dev-auth
 
 CALLBACK_OUTPUT="$(SUPABASE_URL="$SUPABASE_URL" SUPABASE_SECRET_KEY="$SUPABASE_SECRET_KEY" DEV_WEB_ORIGIN="$WEB_ORIGIN" node scripts/create-dev-preview-session.mjs "$DEV_EMAIL" "/" 2>&1 || true)"
@@ -216,7 +223,7 @@ printf '%s\n' "$CALLBACK_URL" > .dev-auth/callback.url
 echo "  · wrote .dev-auth/callback.url"
 echo "  · verified user=${PREVIEW_USER_EMAIL} organization=${PREVIEW_ORGANIZATION_ID}"
 
-# ---------- step 5: print AI-preview snippet --------------------------------
+# ---------- step 6: print AI-preview snippet --------------------------------
 
 cat <<EOF
 

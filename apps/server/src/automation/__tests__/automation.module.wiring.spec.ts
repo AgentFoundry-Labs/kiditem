@@ -7,13 +7,16 @@ import { AgentOsModule } from '../../agent-os/agent-os.module';
 // adapter/in/http
 import { ActionTaskController } from '../adapter/in/http/action-task.controller';
 import { AlertsController } from '../adapter/in/http/alerts.controller';
-import { MarketplaceController } from '../adapter/in/http/marketplace.controller';
+import { MarketplaceAgentsController } from '../adapter/in/http/marketplace-agents.controller';
+import { MarketplaceWorkflowsController } from '../adapter/in/http/marketplace-workflows.controller';
 import { OperationAlertLifecycleController } from '../adapter/in/http/operation-alert-lifecycle.controller';
 import { PanelController } from '../adapter/in/http/panel.controller';
 import {
-  WorkflowsController,
+  WorkflowRunDetailsController,
   WorkflowRunsController,
-} from '../adapter/in/http/workflows.controller';
+} from '../adapter/in/http/workflow-runs.controller';
+import { WorkflowRunCommandsController } from '../adapter/in/http/workflow-run-commands.controller';
+import { WorkflowTemplatesController } from '../adapter/in/http/workflow-templates.controller';
 
 // adapter/out/repository
 import { ActionBoardRepositoryAdapter } from '../adapter/out/repository/action-board.repository.adapter';
@@ -81,12 +84,15 @@ describe('AutomationModule capability wiring', () => {
       Reflect.getMetadata(CONTROLLERS_KEY, AutomationModule) ?? [];
     expect(new Set(controllers)).toEqual(
       new Set([
-        MarketplaceController,
+        MarketplaceAgentsController,
+        MarketplaceWorkflowsController,
         PanelController,
         ActionTaskController,
         AlertsController,
         OperationAlertLifecycleController,
-        WorkflowsController,
+        WorkflowRunCommandsController,
+        WorkflowRunDetailsController,
+        WorkflowTemplatesController,
         WorkflowRunsController,
       ]),
     );
@@ -155,12 +161,25 @@ describe('AutomationModule capability wiring', () => {
   it('keeps the public /api route prefixes', () => {
     expect(Reflect.getMetadata(PATH_KEY, ActionTaskController)).toBe('action-tasks');
     expect(Reflect.getMetadata(PATH_KEY, AlertsController)).toBe('alerts');
-    expect(Reflect.getMetadata(PATH_KEY, MarketplaceController)).toBe('marketplace');
+    expect(Reflect.getMetadata(PATH_KEY, MarketplaceAgentsController)).toBe(
+      'marketplace/agents',
+    );
+    expect(Reflect.getMetadata(PATH_KEY, MarketplaceWorkflowsController)).toBe(
+      'marketplace/workflows',
+    );
     expect(Reflect.getMetadata(PATH_KEY, OperationAlertLifecycleController)).toBe(
       'operation-alerts',
     );
     expect(Reflect.getMetadata(PATH_KEY, PanelController)).toBe('panel');
-    expect(Reflect.getMetadata(PATH_KEY, WorkflowsController)).toBe('workflows');
-    expect(Reflect.getMetadata(PATH_KEY, WorkflowRunsController)).toBe('workflow-runs');
+    expect(Reflect.getMetadata(PATH_KEY, WorkflowRunCommandsController)).toBe(
+      'workflows',
+    );
+    expect(Reflect.getMetadata(PATH_KEY, WorkflowRunDetailsController)).toBe(
+      'workflow-runs',
+    );
+    expect(Reflect.getMetadata(PATH_KEY, WorkflowTemplatesController)).toBe(
+      'workflows',
+    );
+    expect(Reflect.getMetadata(PATH_KEY, WorkflowRunsController)).toBe('workflows');
   });
 });

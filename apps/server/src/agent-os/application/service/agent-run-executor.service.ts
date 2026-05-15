@@ -70,13 +70,14 @@ export class AgentRunExecutor {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
-  private emitFinalized(event: AgentRunFinalizedEvent): void {
+  private async emitFinalized(event: AgentRunFinalizedEvent): Promise<void> {
     try {
-      this.eventEmitter.emit(AGENT_RUN_EVENTS.FINALIZED, event);
+      await this.eventEmitter.emitAsync(AGENT_RUN_EVENTS.FINALIZED, event);
     } catch (err) {
-      // Bus emit must never poison the executor — listeners are observability
-      // (operation-alert bridge etc.). Worst case the alert stays running and
-      // the user dismisses it manually.
+      // Finalized listeners are the owner-domain sink/reconcile hot path.
+      // Await them so inline execution can return only after immediate
+      // business projections have had a chance to apply, but never let a
+      // listener exception poison the durable Agent OS terminal state.
       const target = event.runId
         ? `run ${event.runId}`
         : `request ${event.requestId}`;
@@ -99,7 +100,7 @@ export class AgentRunExecutor {
       errorCode: input.errorCode,
       errorMessage: input.errorMessage,
     });
-    this.emitFinalized({
+    await this.emitFinalized({
       organizationId: input.organizationId,
       requestId: input.requestId,
       ...input.routing,
@@ -315,7 +316,7 @@ export class AgentRunExecutor {
         },
       });
 
-      this.emitFinalized({
+      await this.emitFinalized({
         organizationId: run.organizationId,
         requestId: claimed.id,
         runId: run.id,
@@ -358,7 +359,7 @@ export class AgentRunExecutor {
         });
         // Emit FINALIZED only when the request itself is terminal — retries
         // (status: 'pending') will run again and emit on their final attempt.
-        this.emitFinalized({
+        await this.emitFinalized({
           organizationId: claimed.organizationId,
           requestId: claimed.id,
           runId: run.id,

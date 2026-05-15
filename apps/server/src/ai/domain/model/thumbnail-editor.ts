@@ -11,6 +11,8 @@ export interface ThumbnailEditorInputImage {
   sortOrder: number;
   source: string;
   masterImageId?: string | null;
+  candidateImageId?: string | null;
+  sourceThumbnailCandidateId?: string | null;
   fileSize: number | null;
 }
 

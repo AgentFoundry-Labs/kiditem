@@ -111,7 +111,7 @@ function imagePayload(overrides: Partial<RunItem> = {}): PanelUpsertInternal {
       source: 'image',
       sourceId: 'gen-1',
       title: '아동 레깅스',
-      deepLink: '/products/prod-1/thumbnails',
+      deepLink: '/product-pipeline/thumbnail-generation?productId=prod-1',
       ...overrides,
     }),
   };

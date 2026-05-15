@@ -152,8 +152,8 @@ export function useProductActions({ productId, product, workflows }: UseProductA
       window.location.href = `/product-hub/${actionParams.productId}`;
     } else if (type.startsWith("product.")) {
       // Write path (adjust_price / stop_ads / discontinue / change_grade) is unwired
-      // in this slice. UI action triggers stay rendered; backend wiring lands with
-      // the agent/workflow redesign (see TODOS.md "Agent/Workflow 재설계").
+      // in this slice. Keep UI triggers rendered but non-mutating until canonical
+      // product write endpoints own master-level and option-level actions.
       toast.info(`${action.label}: 기능 준비 중`, { duration: 3000 });
     } else if (type === "inventory.create_purchase_order") {
       window.location.href = `/purchase-orders/new?productId=${actionParams.productId}&quantity=${actionParams.quantity ?? ""}`;

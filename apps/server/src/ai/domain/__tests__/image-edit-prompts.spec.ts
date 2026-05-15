@@ -13,17 +13,18 @@ describe('image edit prompts', () => {
 
     expect(prompt).toContain('Preserve the exact product identity');
     expect(prompt).toContain('Change only the ribbon to yellow');
-    expect(prompt).not.toContain('transparent PNG');
+    expect(prompt).not.toContain('checkerboard');
   });
 
-  it('uses transparent cutout instructions only for remove_background', () => {
+  it('uses white-background cutout instructions for remove_background', () => {
     const prompt = buildImageEditPrompt({
       preset: 'remove_background',
       userPrompt: 'crisp edges',
     });
 
-    expect(prompt).toContain('transparent PNG');
-    expect(prompt).toContain('alpha channel');
+    expect(prompt).toContain('pure white (#FFFFFF) background');
+    expect(prompt).toContain('Do not output transparency');
+    expect(prompt).toContain('checkerboard');
     expect(prompt).toContain('Additional: crisp edges');
   });
 

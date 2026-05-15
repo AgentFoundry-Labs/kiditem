@@ -46,13 +46,25 @@ function makePrisma() {
 describe('ContentAssetService', () => {
   it('dedupes detail-page input image URLs into group-scoped content assets', async () => {
     const { prisma, tx } = makePrisma();
-    const service = new ContentAssetService(prisma as never);
+    const storage = {
+      extractKey: vi.fn((url: string) => {
+        if (url === 'http://storage.local/kiditem/detail-page-inputs/a.jpg') {
+          return 'detail-page-inputs/a.jpg';
+        }
+        return null;
+      }),
+    };
+    const service = new ContentAssetService(prisma as never, storage as never);
 
     await service.recordDetailPageInputAssets({
       organizationId: ORG,
       generationGroupId: GROUP_ID,
       createdByUserId: USER_ID,
-      imageUrls: ['https://example.com/a.jpg', 'https://example.com/a.jpg', 'https://example.com/b.jpg'],
+      imageUrls: [
+        'http://storage.local/kiditem/detail-page-inputs/a.jpg',
+        'http://storage.local/kiditem/detail-page-inputs/a.jpg',
+        'https://example.com/b.jpg',
+      ],
     });
 
     expect(tx.contentAsset.createMany).toHaveBeenCalledWith({
@@ -63,13 +75,15 @@ describe('ContentAssetService', () => {
           generationGroupId: GROUP_ID,
           createdByUserId: USER_ID,
           assetKey: expect.stringMatching(new RegExp(`^group-url:${GROUP_ID}:`)),
-          url: 'https://example.com/a.jpg',
+          url: 'http://storage.local/kiditem/detail-page-inputs/a.jpg',
+          storageKey: 'detail-page-inputs/a.jpg',
           assetType: 'image',
           role: 'source',
           sortOrder: 0,
         }),
         expect.objectContaining({
           url: 'https://example.com/b.jpg',
+          storageKey: null,
           sortOrder: 2,
         }),
       ],

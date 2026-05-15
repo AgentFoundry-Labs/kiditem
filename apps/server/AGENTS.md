@@ -37,20 +37,24 @@ src/{owner-domain}/
   mapper/                 row/DTO/domain mapping
 ```
 
-Flat `controller -> service -> PrismaService` modules are tolerated only for
-small legacy CRUD. A new top-level folder needs owner-domain justification:
-data ownership, mutation authority, transaction boundary, and invariants.
+Flat `controller -> service -> PrismaService` modules are valid for simple
+owner capabilities and transitional legacy CRUD. Do not convert flat modules to
+hexagonal by default; first make caller/route-family, workflow-stage, and
+shared-interface names visible where complexity already exists. A new top-level
+folder needs owner-domain justification: data ownership, mutation authority,
+transaction boundary, and invariants.
 
 The current backend directory map and structure contracts live in
 [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md#backend-directory-architecture).
 When a PR adds a top-level folder, moves a capability, or changes a folder's
 implementation shape, update that map in the same PR.
 
-Flat folders stay flat only while they have no provider SDK, Agent OS/runtime,
-workflow integration, cross-domain mutation, raw SQL/row-lock transaction,
-shared use-case consumer, meaningful pure domain policy, LLM/prompt/media/
-storage/fetch boundary, or 500+ line service pressure. Adding any of those is a
-reconstruction trigger; do not grow the flat service in place.
+Flat folders stay flat until complexity creates a real boundary seam: provider
+SDK, Agent OS/runtime, workflow integration, cross-domain mutation, raw SQL/
+row-lock transaction, shared use-case consumer, meaningful pure domain policy,
+LLM/prompt/media/storage/fetch boundary, or 500+ line service pressure. Adding
+one of those is a reconstruction trigger; choose the smallest structure that
+exposes the seam instead of growing the flat service in place.
 
 ## Global HTTP Rules
 
@@ -83,6 +87,10 @@ reconstruction trigger; do not grow the flat service in place.
   more than one incoming adapter.
 - Ports may be deferred for tiny legacy CRUD and low-risk read-only endpoints
   that are not being reconstructed.
+- Incoming HTTP controllers may split by route family or use case under
+  `adapter/in/http/` or `controllers/` without forcing a full
+  `application/domain/port` structure. Ports are for real seams, not naming
+  symmetry.
 - Do not add substantial behavior to 700+ line services/components. Changes to
   500+ line files require explicit reconstruction classification in PR review.
 - Line-count triggers (500+/700+) are classification gates, not split mandates.
@@ -131,7 +139,7 @@ reconstruction trigger; do not grow the flat service in place.
 | `agent-os` | platform runtime for agent catalog, queue, execution, policy, cost |
 | `automation` | workflows, alerts, action board, panel projection |
 | `analytics` | reporting/read models |
-| `platform` | auth, organizations, feature-gate, common, prisma |
+| `platform` | auth, organizations, feature-gate, common, prisma, uploads, readiness, shared infrastructure |
 
 Small table-shaped modules should fold into their owner domain during
 reconstruction. `/api/categories` remains a products/catalog compatibility
@@ -143,11 +151,12 @@ Read these before editing the matching path.
 
 | Path | Focus |
 |---|---|
-| [`src/advertising/AGENTS.md`](src/advertising/AGENTS.md) | ad operations, scrape ingest, daily facts; hexagonal-complete (`application/port/out/` + `adapter/out/repository/` + `adapter/out/automation/`, architecture spec, module wiring spec) |
+| [`src/advertising/AGENTS.md`](src/advertising/AGENTS.md) | ad operations, scrape ingest, daily facts |
 | [`src/agent-os/AGENTS.md`](src/agent-os/AGENTS.md) | Agent OS platform runtime |
 | [`src/ai/AGENTS.md`](src/ai/AGENTS.md) | media AI, prompts, provider ports, Agent OS sinks |
 | [`src/analytics/AGENTS.md`](src/analytics/AGENTS.md) | reporting/read models |
-| [`src/automation/AGENTS.md`](src/automation/AGENTS.md) | workflows, alerts, action board, panel projection; hexagonal-complete (`application/port/out/` + `application/port/in/` for owner-side `OPERATION_ALERT_PORT` publish, `adapter/out/repository/`, architecture + wiring specs; `WorkflowRunnerService` PrismaService carve-out documented for the executor framework) |
+| [`src/analytics/dashboard/AGENTS.md`](src/analytics/dashboard/AGENTS.md) | dashboard read-model implementation |
+| [`src/automation/AGENTS.md`](src/automation/AGENTS.md) | workflows, alerts, action board, panel projection |
 | [`src/auth/AGENTS.md`](src/auth/AGENTS.md) | auth guards, current org/user decorators |
 | [`src/channels/AGENTS.md`](src/channels/AGENTS.md) | Coupang sync/reconciliation/provider boundary |
 | [`src/chat/AGENTS.md`](src/chat/AGENTS.md) | CopilotKit runtime and Claude CLI adapter |

@@ -29,6 +29,8 @@ export const DETAIL_PAGE_GENERATE_AGENT_TYPE = 'detail_page_generate' as const;
  */
 export const DetailPageGenerateAgentInputSchema = z.object({
   templateId: DetailPageTemplateIdSchema,
+  generationMode: z.enum(['draft', 'image', 'full']).optional().default('full'),
+  existingResult: z.unknown().optional(),
   raw: z
     .object({
       rawTitle: z.string(),
@@ -59,6 +61,7 @@ export const DetailPageGenerateAgentOutputSchema = z.discriminatedUnion(
       templateId: z.literal('kids-playful'),
       result: DetailPageGenerationSchema,
       imageUrls: z.array(z.string()).default([]),
+      processedImages: z.record(z.string(), z.string()).default({}),
       reservedPackageImageIndices: z
         .array(z.number().int().nonnegative())
         .default([]),
@@ -70,6 +73,7 @@ export const DetailPageGenerateAgentOutputSchema = z.discriminatedUnion(
       templateId: z.literal('bold-vertical'),
       result: RefinedBoldVerticalGenerationSchema,
       imageUrls: z.array(z.string()).default([]),
+      processedImages: z.record(z.string(), z.string()).default({}),
     }),
   ],
 );

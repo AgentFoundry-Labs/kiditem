@@ -2,7 +2,7 @@ import { IsOptional, IsString, IsUUID, ValidateBy } from 'class-validator';
 
 const DATA_IMAGE_URL_RE = /^data:image\/(?:png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=]+$/;
 
-function IsHttpOrDataImageUrl() {
+export function IsHttpOrDataImageUrl() {
   return ValidateBy({
     name: 'isHttpOrDataImageUrl',
     validator: {

@@ -62,7 +62,7 @@ retires or reconstructs it.
   `margin_rate` may exist for expand/backfill/contract compatibility, but
   nothing in `products/` should select, filter on, or echo any of them.
   Sourcing history lives on `SourcingCandidate` / `CandidateImage` (see
-  `src/sourcing/`).
+  `src/product-content/`).
 - Product content management is master-bound. `ProductContentController` owns
   detail-page content card reads (`GET /api/products/content/cards`), preview,
   edited HTML, and legacy non-AI history routes. It must scope all reads and
@@ -89,7 +89,7 @@ retires or reconstructs it.
 - `BundleStockService` is restricted to inventory recompute integration. Other
   modules should not call it directly.
 - `MasterPromotionService` is the products-side composite for sourcing
-  candidate promotion (issue #192). Only sourcing's
+  candidate promotion. Only sourcing's
   `SOURCING_PRODUCTS_CATALOG_PORT` outgoing adapter is expected to consume it.
   It owns the atomic master/options/images write inside a caller-supplied
   `Prisma.TransactionClient`, calls `MasterCodeService.generate(tx)` for the

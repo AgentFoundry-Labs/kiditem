@@ -55,7 +55,7 @@ export class ThumbnailGenerationSinkAdapter
 
   static readonly OPERATION_KEY_PREFIX = 'thumbnail-edit:';
   static readonly RESULT_HREF = (id: string) =>
-    `/thumbnails?generationId=${encodeURIComponent(id)}`;
+    `/product-pipeline/thumbnail-generation?generationId=${encodeURIComponent(id)}`;
 
   async applySuccess(input: {
     organizationId: string;

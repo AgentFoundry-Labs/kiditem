@@ -43,7 +43,7 @@ export function resolveBrowserOperationProducer(
     return { title: '광고 동기화', href: '/ad-ops' };
   }
   if (input.type === 'thumbnail_analysis' && input.sourceType === 'browser_batch') {
-    return { title: '썸네일 AI 분류', href: '/thumbnails' };
+    return { title: '썸네일 AI 분류', href: '/product-pipeline/thumbnail-generation' };
   }
   return null;
 }

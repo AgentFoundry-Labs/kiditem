@@ -2,7 +2,10 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ProductsModule } from '../products/products.module';
 
-import { InventoryController } from './adapter/in/http/inventory.controller';
+import { InventoryAssetsController } from './adapter/in/http/inventory-assets.controller';
+import { InventoryItemsController } from './adapter/in/http/inventory-items.controller';
+import { InventoryStockMutationsController } from './adapter/in/http/inventory-stock-mutations.controller';
+import { InventoryTransactionsController } from './adapter/in/http/inventory-transactions.controller';
 import { UnshippedController } from './adapter/in/http/unshipped.controller';
 import { WarehousesController } from './adapter/in/http/warehouses.controller';
 import { TransfersController } from './adapter/in/http/transfers.controller';
@@ -67,7 +70,10 @@ const APPLICATION_PORT_BINDINGS = [
 @Module({
   imports: [PrismaModule, ProductsModule],
   controllers: [
-    InventoryController,
+    InventoryTransactionsController,
+    InventoryAssetsController,
+    InventoryItemsController,
+    InventoryStockMutationsController,
     UnshippedController,
     WarehousesController,
     TransfersController,

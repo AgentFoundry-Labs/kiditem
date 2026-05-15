@@ -9,7 +9,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import type { Alert } from '@prisma/client';
-import { PanelAlertItem } from '@kiditem/shared/panel';
+import { PanelAlertItemSchema } from '@kiditem/shared/panel';
 
 // Compile-time drift guard — if Alert model loses one of these fields, tsc fails.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -70,7 +70,7 @@ describe('PanelAlertItem drift detection', () => {
       finishedAt: null,
       createdAt: '2026-04-15T00:00:00Z',
     };
-    const result = PanelAlertItem.parse(alertLike);
+    const result = PanelAlertItemSchema.parse(alertLike);
     expect(result.kind).toBe('alert');
     expect(result.id).toBe(ALERT_ID);
     expect(result.severity).toBe('warning');
@@ -109,7 +109,7 @@ describe('PanelAlertItem drift detection', () => {
       finishedAt: '2026-04-15T12:00:01Z',
       createdAt: '2026-04-15T12:00:00Z',
     };
-    const result = PanelAlertItem.parse(alertLike);
+    const result = PanelAlertItemSchema.parse(alertLike);
     expect(result.targetType).toBe('master');
     expect(result.targetId).toBe(TARGET_ID);
     expect(result.message).toBe('Margin is below 10%');

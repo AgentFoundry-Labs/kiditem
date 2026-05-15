@@ -10,6 +10,9 @@ const REQUEST = '33333333-3333-3333-3333-333333333333';
 const RUN = '44444444-4444-4444-4444-444444444444';
 const CG_ID = '55555555-5555-5555-5555-555555555555';
 const GROUP_ID = '66666666-6666-4666-8666-666666666666';
+const CANDIDATE_ID = '77777777-7777-4777-8777-777777777777';
+const ARTIFACT_ID = '88888888-8888-4888-8888-888888888888';
+const REGISTRATION_WORKSPACE_ID = '99999999-9999-4999-8999-999999999999';
 
 const STORED_RAW_INPUT = {
   rawTitle: '키즈 텀블러',
@@ -38,9 +41,16 @@ function makeRow(overrides: Record<string, unknown> = {}) {
       processedImages: {},
     },
     generatedTitle: '키즈 텀블러',
+    sourceCandidateId: CANDIDATE_ID,
+    registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
+    detailPageArtifactId: null,
+    triggeredByUserId: 'user-1',
     status: 'PROCESSING',
     errorMessage: null,
     createdAt: new Date('2026-05-08T00:00:00.000Z'),
+    generationGroup: {
+      targetMasterId: null,
+    },
     ...overrides,
   };
 }
@@ -49,6 +59,12 @@ function makePrismaStub(row: ReturnType<typeof makeRow> | null) {
   return {
     contentGeneration: {
       findFirst: vi.fn().mockResolvedValue(row),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    },
+    detailPageArtifact: {
+      create: vi.fn().mockResolvedValue({ id: ARTIFACT_ID }),
+    },
+    registrationWorkspace: {
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
   };
@@ -103,6 +119,9 @@ const VALID_OUTPUT = {
     ],
   },
   imageUrls: ['https://example.com/p1.jpg'],
+  processedImages: {
+    __heroBanner: 'https://cdn.example.com/hero.png',
+  },
 };
 
 describe('DetailPageContentGenerationSinkAdapter', () => {
@@ -135,13 +154,46 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
         output: VALID_OUTPUT,
       });
 
-      expect(images.generateBestEffort).toHaveBeenCalledTimes(1);
+      expect(images.generateBestEffort).not.toHaveBeenCalled();
       expect(prisma.contentGeneration.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({ id: CG_ID, organizationId: ORG }),
-          data: expect.objectContaining({ status: 'READY', errorMessage: null }),
+          data: expect.objectContaining({
+            detailPageArtifactId: ARTIFACT_ID,
+            status: 'READY',
+            errorMessage: null,
+          }),
         }),
       );
+      expect(prisma.detailPageArtifact.create).toHaveBeenCalledWith({
+        data: {
+          organizationId: ORG,
+          registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
+          sourceCandidateId: CANDIDATE_ID,
+          targetMasterId: null,
+          sourceContentGenerationId: CG_ID,
+          title: '키즈 텀블러 안심 음수',
+          status: 'generated',
+          createdByUserId: 'user-1',
+          metadata: {
+            source: 'detail_page_generation_success',
+            agentRequestId: REQUEST,
+            agentRunId: RUN,
+          },
+        },
+        select: { id: true },
+      });
+      expect(prisma.registrationWorkspace.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: REGISTRATION_WORKSPACE_ID,
+          organizationId: ORG,
+          isDeleted: false,
+        },
+        data: {
+          currentDetailPageArtifactId: ARTIFACT_ID,
+          status: 'active',
+        },
+      });
       const updateCall = prisma.contentGeneration.updateMany.mock.calls[0][0] as {
         data: { generationResult: { processedImages: Record<string, string>; result: { hook?: { text?: string } }; templateId: string } };
       };
@@ -167,131 +219,15 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
       );
     });
 
-    it('waits beyond 30 seconds because generated images can normally take longer', async () => {
-      vi.useFakeTimers();
-      try {
-        let resolveImages!: (value: Record<string, string>) => void;
-        images = {
-          generateBestEffort: vi
-            .fn()
-            .mockReturnValue(
-              new Promise<Record<string, string>>((resolve) => {
-                resolveImages = resolve;
-              }),
-            ),
-        } as unknown as DetailPageGeneratedImagesService;
-        sink = new DetailPageContentGenerationSinkAdapter(
-          prisma as never,
-          alerts,
-          images,
-          contentAssets,
-        );
-
-        const pending = sink.applySuccess({
-          organizationId: ORG,
-          requestId: REQUEST,
-          runId: RUN,
-          sourceResourceId: CG_ID,
-          output: VALID_OUTPUT,
-        });
-
-        await vi.advanceTimersByTimeAsync(31_000);
-        expect(prisma.contentGeneration.updateMany).not.toHaveBeenCalled();
-
-        resolveImages({ __heroBanner: 'https://cdn.example.com/slow-hero.png' });
-        await pending;
-
-        const updateCall = prisma.contentGeneration.updateMany.mock.calls[0][0] as {
-          data: { generationResult: { processedImages: Record<string, string> } };
-        };
-        expect(updateCall.data.generationResult.processedImages).toMatchObject({
-          __heroBanner: 'https://cdn.example.com/slow-hero.png',
-        });
-        expect(alerts.succeed).toHaveBeenCalledWith(
-          ORG,
-          `detail-page:${CG_ID}`,
-          expect.objectContaining({
-            metadata: expect.objectContaining({ heroImageCount: 1 }),
-          }),
-        );
-      } finally {
-        vi.useRealTimers();
-      }
-    });
-
-    it('does not leave the row PROCESSING when generated images exceed the best-effort stall guard', async () => {
-      vi.useFakeTimers();
-      try {
-        images = {
-          generateBestEffort: vi.fn().mockReturnValue(new Promise(() => {})),
-        } as unknown as DetailPageGeneratedImagesService;
-        sink = new DetailPageContentGenerationSinkAdapter(
-          prisma as never,
-          alerts,
-          images,
-          contentAssets,
-        );
-
-        const pending = sink.applySuccess({
-          organizationId: ORG,
-          requestId: REQUEST,
-          runId: RUN,
-          sourceResourceId: CG_ID,
-          output: VALID_OUTPUT,
-        });
-
-        await vi.advanceTimersByTimeAsync(15 * 60_000);
-        await pending;
-
-        expect(prisma.contentGeneration.updateMany).toHaveBeenCalledWith(
-          expect.objectContaining({
-            data: expect.objectContaining({
-              status: 'READY',
-              generationResult: expect.objectContaining({
-                processedImages: {},
-              }),
-            }),
-          }),
-        );
-        expect(alerts.succeed).toHaveBeenCalledWith(
-          ORG,
-          `detail-page:${CG_ID}`,
-          expect.objectContaining({
-            metadata: expect.objectContaining({ heroImageCount: 0 }),
-          }),
-        );
-      } finally {
-        vi.useRealTimers();
-      }
-    });
-
-    it('passes kids-playful package and safety-label exclusions to generated image generation', async () => {
-      await sink.applySuccess({
-        organizationId: ORG,
-        requestId: REQUEST,
-        runId: RUN,
-        sourceResourceId: CG_ID,
-        output: {
-          templateId: 'kids-playful',
-          result: {},
-          imageUrls: [
-            'https://example.com/product.jpg',
-            'https://example.com/package.jpg',
-            'https://example.com/safety.jpg',
-          ],
-          reservedPackageImageIndices: [1],
-          safetyLabelImageIndices: [2],
-        } as never,
-      });
-
-      expect(images.generateBestEffort).toHaveBeenCalledWith(
-        expect.objectContaining({
-          excludedImageIndices: [1, 2],
-        }),
+    it('reuses an existing detail page artifact on replay-compatible success', async () => {
+      prisma = makePrismaStub(makeRow({ detailPageArtifactId: ARTIFACT_ID }));
+      sink = new DetailPageContentGenerationSinkAdapter(
+        prisma as never,
+        alerts,
+        images,
+        contentAssets,
       );
-    });
 
-    it('passes stored audience controls to generated image generation', async () => {
       await sink.applySuccess({
         organizationId: ORG,
         requestId: REQUEST,
@@ -300,14 +236,48 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
         output: VALID_OUTPUT,
       });
 
-      expect(images.generateBestEffort).toHaveBeenCalledWith(
+      expect(prisma.detailPageArtifact.create).not.toHaveBeenCalled();
+      expect(prisma.contentGeneration.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          rawInput: expect.objectContaining({
-            ageGroup: 'age-14-plus',
-            detailImageCount: '1',
+          data: expect.objectContaining({
+            detailPageArtifactId: ARTIFACT_ID,
+            status: 'READY',
           }),
         }),
       );
+    });
+
+    it('trusts runtime output for draft-only detail-page runs', async () => {
+      prisma = makePrismaStub(makeRow({
+        generationInput: {
+          ...STORED_RAW_INPUT,
+          generationMode: 'draft',
+        },
+      }));
+      sink = new DetailPageContentGenerationSinkAdapter(
+        prisma as never,
+        alerts,
+        images,
+        contentAssets,
+      );
+
+      await sink.applySuccess({
+        organizationId: ORG,
+        requestId: REQUEST,
+          runId: RUN,
+          sourceResourceId: CG_ID,
+          output: {
+            ...VALID_OUTPUT,
+            processedImages: {},
+          },
+        });
+
+      expect(images.generateBestEffort).not.toHaveBeenCalled();
+      expect(contentAssets.recordDetailPageGeneratedAssets).not.toHaveBeenCalled();
+      const updateCall = prisma.contentGeneration.updateMany.mock.calls[0][0] as {
+        data: { generationResult: { processedImages: Record<string, string> } };
+      };
+      expect(updateCall.data.generationResult.processedImages).toEqual({});
     });
 
     it('scopes the lookup by organizationId (cross-tenant attempt is a no-op)', async () => {

@@ -20,6 +20,8 @@ export interface DetailPageRawInput {
   imageUrls: string[];
   heroImageMode: 'first' | 'llm-pick';
   templateId: DetailPageTemplateId;
+  generationMode?: 'draft' | 'image' | 'full';
+  baseContentGenerationId?: string;
   ageGroup?: DetailPageAgeGroup;
   detailImageCount?: DetailImageCount;
   usageSectionMode?: UsageSectionMode;
@@ -56,6 +58,8 @@ export interface DetailPagePrefillDto {
 export interface DetailPageGenerationDto {
   id: string;
   productId: string | null;
+  sourceCandidateId: string | null;
+  registrationWorkspaceId: string | null;
   templateId: DetailPageTemplateId;
   productName: string;
   rawInput: DetailPageRawInput;

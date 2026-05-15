@@ -20,7 +20,7 @@ prisma as an argument by design.
 ```text
 automation/
   automation.module.ts
-  adapter/in/http/                /api/{workflows,workflow-runs,alerts,operation-alerts,action-tasks,marketplace,panel}/* controllers + DTO
+  adapter/in/http/                /api/{workflows,workflow-runs,alerts,operation-alerts,action-tasks,marketplace/*,panel}/* route-family controllers + DTO
   adapter/out/repository/         6 *.repository.adapter.ts (PrismaService here only, plus carve-outs)
   adapter/out/panel-event/        SSE projection adapter (panel.service, panel-sse.service, panel-events constants)
   adapter/out/workflow-runner/    slim-core executor framework (executors/* take PrismaService directly)
@@ -41,14 +41,18 @@ automation/
 | `alerts.repository.port` | unread feed; mark read/all-read; transactional promote-to-task with P2002 race guard + ownership claim; dismiss |
 | `marketplace-catalog.repository.port` | published workflow + agent rows; per-org install lookup via `WorkflowTemplate` |
 | `marketplace-install-store.port` | workflow install/uninstall + install-count delta |
-| `operation-alert.repository.port` | `Alert.kind='operation'` upsert keyed on `(organizationId, operationKey)`; transition state machine; source/key lookups; stale-close criteria |
+| `operation-alert.repository.port` | Operation alert upsert, transitions, source/key lookups, and stale-close criteria |
 | `workflow-orchestration.repository.port` | template CRUD; scoped run create + read; panel envelope hydration |
 
 ### Incoming port — owner-side publish
 
 | Port | Capability |
 |---|---|
-| `application/port/in/operation-alert.port` | `start / progress / succeed / fail / cancel / closeStaleOperations` for `Alert.kind='operation'` rows; cross-owner-domain producers bind their consumer-side adapter to this token instead of injecting `OperationAlertService` |
+| `application/port/in/operation-alert.port` | Operation lifecycle publish port for cross-owner-domain producers |
+
+`operation-alert.repository.port` keys operation alerts by
+`(organizationId, operationKey)`. Cross-owner producers bind their consumer-side
+adapter to `OPERATION_ALERT_PORT` instead of injecting `OperationAlertService`.
 
 ## Architecture Guards
 
@@ -84,7 +88,7 @@ Invariants enforced by `__tests__/automation.architecture.spec.ts`:
   and `adapter/out/repository/`.
 
 `__tests__/automation.module.wiring.spec.ts` freezes the @Module()
-metadata: imports, controllers (7), repository adapters (6) +
+metadata: imports, controllers (10), repository adapters (6) +
 panel-event services, application services (8), 7 port bindings via
 `useExisting` (6 outgoing + 1 incoming), the `OPERATION_ALERT_PORT`
 export, and every controller's public `/api/...` route prefix.

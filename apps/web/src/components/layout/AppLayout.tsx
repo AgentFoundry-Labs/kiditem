@@ -6,12 +6,14 @@ import { usePathname } from 'next/navigation';
 import { useStore } from '@/store/useStore';
 import { cn } from '@/lib/utils';
 import Sidebar from './Sidebar';
+import PageSkeleton from '@/components/ui/PageSkeleton';
 import { PanelSheet } from '@/components/panel/PanelSheet';
 import { PanelErrorBoundary } from '@/components/panel/PanelErrorBoundary';
 import { usePanelStream } from '@/components/panel/hooks/usePanelStream';
 import ReadinessModal from '@/components/ReadinessModal';
 import GlobalConfirmDialog from '@/components/GlobalConfirmDialog';
 import GenerationCompletionWatcher from '@/components/GenerationCompletionWatcher';
+import { useAuthSession } from '@/components/providers/AuthProvider';
 
 const CopilotChat = dynamic(() => import('./CopilotChat'), { ssr: false });
 
@@ -22,6 +24,7 @@ function PanelMount() {
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { sidebarOpen } = useStore();
+  const { isLoading: authLoading } = useAuthSession();
   const pathname = usePathname();
   const [chatMounted, setChatMounted] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
@@ -46,6 +49,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const isEditorRoute = pathname.includes('/editor');
   const collapsedForEditor = isEditorRoute || !sidebarOpen;
   const showAutoReadinessModal = pathname === '/dashboard';
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-[var(--background)] p-6">
+        <PageSkeleton variant={pathname === '/dashboard' ? 'dashboard' : 'table'} />
+      </div>
+    );
+  }
 
   const content = (
     <div className="min-h-screen bg-[var(--background)]">

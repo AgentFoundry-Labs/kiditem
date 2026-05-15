@@ -34,13 +34,26 @@ prisma/              Prisma multi-file schema source of truth
 extensions/          Browser extensions for sourcing / marketplace ingest
 ```
 
+## Shared Contract Architecture
+
+`packages/shared` exposes frontend/backend contracts through focused subpath
+exports. New or rebuilt domains add `@kiditem/shared/{domain}` entrypoints
+instead of expanding the root barrel.
+
+Exported Zod schema values use PascalCase `FooSchema`; exported TypeScript
+types use `export type Foo = z.infer<typeof FooSchema>`. Existing violations
+remain protected by the baseline checker until migrated, and new aliases should
+not be added for them.
+
 ## Backend Directory Architecture
 
 Backend folders are owner domains, owner capabilities, platforms, or support
 folders. They are not DB-table mirrors or frontend page names. Implementation
 structure has only two classifications for business/platform code:
-`Hexagonal` or `Flat`. Support folders have no business implementation
-structure.
+`Hexagonal` or `Flat`. Flat is a valid structure, not merely a waiting room for
+hexagonal conversion; when complexity appears, first make caller/route-family,
+workflow-stage, and shared-interface names visible, then add ports only for
+real seams. Support folders have no business implementation structure.
 
 Kinds:
 
@@ -162,11 +175,14 @@ Required: module file plus controller/service files for HTTP capabilities.
 Optional: `dto/` when there is no HTTP input contract and sub-capability folders
 only when they remain owned by the same folder.
 
-Flat capability code may stay flat only while it has no provider SDK, Agent OS
-runtime, workflow integration, cross-domain mutation, raw SQL/row-lock
-transaction, shared use-case consumer, meaningful pure domain policy,
-LLM/prompt/media/storage/fetch boundary, or 500+ line service pressure. Adding
-one of those is a reconstruction trigger for the touched capability.
+Flat capability code may stay flat until complexity creates a real boundary
+seam: provider SDK, Agent OS runtime, workflow integration, cross-domain
+mutation, raw SQL/row-lock transaction, shared use-case consumer, meaningful
+pure domain policy, LLM/prompt/media/storage/fetch boundary, or 500+ line
+service pressure. Adding one of those is a reconstruction trigger for the
+touched capability, but the response is the smallest structure that exposes
+the seam. Incoming controllers may split by route family or use case without
+forcing a full `application/domain/port` structure.
 
 Platform support folders do not own business workflows. New top-level backend
 folders must be added to this directory map in the same PR and justified by
@@ -196,12 +212,12 @@ Kinds:
 | `apps/web/src/app/(advertising)` | Route Group | `ad-ops` |
 | `apps/web/src/app/(analytics)` | Route Group | `dashboard` |
 | `apps/web/src/app/(automation)` | Route Group | `_shared`, `action-board`, `agents`, `marketplace`, `workflows` |
-| `apps/web/src/app/(catalog)` | Route Group | `product-content`, `product-hub`, `products` |
+| `apps/web/src/app/(catalog)` | Route Group | `product-hub`, `products` |
 | `apps/web/src/app/(finance)` | Route Group | `_shared`, `finance-hub`, `profit-loss`, `reports`, `sales-analysis`, `supplier-hub` |
 | `apps/web/src/app/(inventory)` | Route Group | `_shared`, `inventory`, `inventory-hub`, `outbound`, `stock-ops`, `unshipped-items`, `warehouses` |
-| `apps/web/src/app/(media-ai)` | Route Group | `_shared`, `generate`, `thumbnail-editor`, `thumbnails` |
 | `apps/web/src/app/(orders)` | Route Group | `_shared`, `cs-management`, `order-hub`, `order-status-hub`, `orders`, `return-scan`, `returns`, `reviews` |
-| `apps/web/src/app/(sourcing)` | Route Group | `sourcing`, `sourcing-ai` |
+| `apps/web/src/app/(sourcing-ai)` | Route Group | `sourcing-ai` |
+| `apps/web/src/app/(product-pipeline)` | Route Group | `product-pipeline/collected-products`, `product-pipeline/registered-products`, `product-pipeline/detail-template-generation`, `product-pipeline/thumbnail-ai`, `product-pipeline/thumbnail-generation`, `product-pipeline/thumbnail-generation/edit` |
 | `apps/web/src/app/(supply)` | Route Group | `purchase-orders`, `suppliers` |
 | `apps/web/src/app/agent-os` | App Internal | Fullscreen visualization surface, separate from `/agents`. |
 | `apps/web/src/app/auth` | App Internal | Auth callback subtree. |
@@ -212,18 +228,31 @@ Kinds:
 
 Notable route subtrees:
 
-- `apps/web/src/app/(catalog)/product-content` owns `/product-content`,
-  `/product-content/[productId]`, `/product-content/groups/[groupId]`, and the
-  canonical detail-page editor
-  `/product-content/detail-pages/[generationId]/editor`. The top-level route
-  is a produced-content workspace archive; raw source evidence remains under
-  `/sourcing`.
+- `apps/web/src/app/(product-pipeline)/product-pipeline/collected-products`
+  owns `/product-pipeline/collected-products`, the 1688/imported
+  `SourcingCandidate` inbox, candidate detail workspaces, and candidate-scoped
+  generated content links.
+- `apps/web/src/app/(product-pipeline)/product-pipeline/registered-products`
+  owns `/product-pipeline/registered-products`, the detail-page generation
+  workspace inbox backed by `RegistrationWorkspace`.
+- `apps/web/src/app/(product-pipeline)/product-pipeline/detail-pages`
+  owns the shared generated detail-page editor route
+  `/product-pipeline/detail-pages/[generationId]/editor` for both collected and
+  registered product workspaces.
+- `apps/web/src/app/(product-pipeline)/product-pipeline/detail-template-generation`
+  owns the independent detail template generation tool.
+- `apps/web/src/app/(product-pipeline)/product-pipeline/thumbnail-ai`
+  owns the independent thumbnail AI analysis and batch UI.
+- `apps/web/src/app/(product-pipeline)/product-pipeline/thumbnail-generation`
+  owns the standalone thumbnail generation hub and edit flow. It is opened from
+  product workspaces or direct URLs, not from the sidebar.
 
 ### Frontend Shared Map
 
 | Path | Kind | Notes |
 |---|---|---|
 | `apps/web/src/__tests__` | Test Support | App-shell and proxy tests. |
+| `apps/web/src/app/(product-pipeline)/product-pipeline/_shared` | Route-Group Shared | Product pipeline route constructors, shared detail-page editor/render helpers, inbox shells, and thumbnail UI shared by sibling product-pipeline routes. |
 | `apps/web/src/components` | App-Wide Shared | Layout, panel, product, provider, chat, Coupang, and UI components. |
 | `apps/web/src/hooks` | App-Wide Shared | Shared hooks used across routes. |
 | `apps/web/src/lib` | App-Wide Shared | API client, query keys, auth, formatting, Supabase helpers. |
@@ -247,6 +276,11 @@ apps/web/src/app/(group)/{route}/
 Required: `page.tsx`. Optional: route-local `components/`, `hooks/`, `lib/`, and
 `__tests__/` when the route needs them. Add route-local `AGENTS.md` for complex
 or high-risk route contracts.
+
+Route-local folders may group components, hooks, and helpers by workflow stage
+or route family when complexity already exists. Keep these groupings local until
+2+ routes need the same interface; app-wide abstractions are for shared
+interfaces, not single-route tidying.
 
 Route-group shared code lives only in `app/(group)/_shared/` and only when 2+
 sibling routes use it. App-wide shared code lives only in `src/components`,
@@ -277,8 +311,10 @@ Agent OS is a backend platform capability. Runtime execution and run accounting
 live under `apps/server/src/agent-os/`; schema ownership is documented in
 `prisma/AGENTS.md`:
 
-- Public workflow routes live under
-  `apps/server/src/automation/adapter/in/http/workflows.controller.ts`.
+- Public workflow routes live under the route-family controllers in
+  `apps/server/src/automation/adapter/in/http/workflow-templates.controller.ts`,
+  `workflow-run-commands.controller.ts`, and
+  `workflow-runs.controller.ts`.
 - Public action-board routes live under
   `apps/server/src/automation/adapter/in/http/action-task.controller.ts`.
 - Manager routes live under

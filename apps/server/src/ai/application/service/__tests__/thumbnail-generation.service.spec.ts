@@ -141,7 +141,7 @@ describe('ThumbnailGenerationService operation alerts', () => {
         sourceType: 'thumbnail_generation',
         sourceId: GENERATION_ID,
         actorUserId: USER_ID,
-        href: `/thumbnails?generationId=${GENERATION_ID}`,
+        href: `/product-pipeline/thumbnail-generation?generationId=${GENERATION_ID}`,
       }),
     );
   });

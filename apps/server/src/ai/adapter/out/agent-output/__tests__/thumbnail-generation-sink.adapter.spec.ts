@@ -93,7 +93,7 @@ describe('ThumbnailGenerationSinkAdapter', () => {
         ORG,
         `thumbnail-edit:${GEN_ID}`,
         expect.objectContaining({
-          href: `/thumbnails?generationId=${encodeURIComponent(GEN_ID)}`,
+          href: `/product-pipeline/thumbnail-generation?generationId=${encodeURIComponent(GEN_ID)}`,
           metadata: expect.objectContaining({
             candidateCount: 1,
             agentRequestId: REQUEST,

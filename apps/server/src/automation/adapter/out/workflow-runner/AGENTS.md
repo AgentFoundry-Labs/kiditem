@@ -1,7 +1,9 @@
 # workflow-runner — Slim-Core Executor Adapter
 
 This folder owns the Automation outgoing workflow-runner adapter. Public HTTP
-routes live in `automation/adapter/in/http/workflows.controller.ts`.
+workflow routes live in `automation/adapter/in/http/workflow-run-commands.controller.ts`
+and `automation/adapter/in/http/workflow-runs.controller.ts`; template CRUD
+lives in `automation/adapter/in/http/workflow-templates.controller.ts`.
 
 The workflow engine is a trusted DAG runner with WorkflowRun audit records,
 panel projection, and Agent OS delegation. It is not a generic DB/HTTP/LLM/data
@@ -18,7 +20,9 @@ processing engine.
 
 ```text
 automation/
-  adapter/in/http/workflows.controller.ts
+  adapter/in/http/workflow-templates.controller.ts
+  adapter/in/http/workflow-run-commands.controller.ts
+  adapter/in/http/workflow-runs.controller.ts
   adapter/in/http/dto/workflows/
   application/service/workflow-orchestration.service.ts
   application/service/workflow-runner.service.ts

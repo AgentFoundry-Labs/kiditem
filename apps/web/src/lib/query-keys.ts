@@ -186,7 +186,7 @@ export const queryKeys = {
     preview: (id: string) => [...queryKeys.sourcing.all, 'preview', id] as const,
   },
   productContent: {
-    all: ['product-content'] as const,
+    all: ['content-archive'] as const,
     cards: (params: Record<string, string>) =>
       [...queryKeys.productContent.all, 'cards', params] as const,
     workspaces: (params: Record<string, string>) =>
@@ -202,6 +202,14 @@ export const queryKeys = {
     editedHtml: (id: string) => [...queryKeys.productContent.all, 'edited-html', id] as const,
     generationEditedHtml: (id: string) =>
       [...queryKeys.productContent.all, 'generation-edited-html', id] as const,
+  },
+  registrationWorkspaces: {
+    all: ['registration-workspaces'] as const,
+    list: (params: Record<string, string>) =>
+      [...queryKeys.registrationWorkspaces.all, 'list', params] as const,
+    detail: (id: string) => [...queryKeys.registrationWorkspaces.all, 'detail', id] as const,
+    duplicate: (title: string) =>
+      [...queryKeys.registrationWorkspaces.all, 'duplicate', title] as const,
   },
   organizations: {
     all: ['organizations'] as const,

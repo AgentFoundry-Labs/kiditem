@@ -11,6 +11,7 @@ import { ProductManagementFactsService } from './application/service/product-man
 import { ProductManagementGradeService } from './application/service/product-management-grade.service';
 import { ProductManagementService } from './application/service/product-management.service';
 import { MastersController } from './adapter/in/http/masters.controller';
+import { MasterImagesController } from './adapter/in/http/master-images.controller';
 import { OptionsController } from './adapter/in/http/options.controller';
 import { BundleComponentsController } from './adapter/in/http/bundle-components.controller';
 import { ProductCatalogController } from './adapter/in/http/product-catalog.controller';
@@ -22,10 +23,11 @@ import { CategoriesModule } from './categories/categories.module';
   imports: [CategoriesModule],
   controllers: [
     MastersController,
+    MasterImagesController,
     OptionsController,
     BundleComponentsController,
     ProductCatalogController,
-    ProductContentController, // product-content cards + detail-page preview/history/edited-html
+    ProductContentController, // generated content cards + detail-page preview/history/edited-html
     ProductsLegacyController, // last — resolves after sibling /products/* controllers
   ],
   providers: [

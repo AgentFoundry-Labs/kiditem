@@ -5,7 +5,7 @@
 // count, and A-grade master products with their channel-listing review
 // counts (lowReviewProducts).
 
-import type { AlertItemDashboard } from '@kiditem/shared/dashboard';
+import type { DashboardAlertItem } from '@kiditem/shared/dashboard';
 
 export const DASHBOARD_INVENTORY_REPOSITORY_PORT = Symbol(
   'DashboardInventoryRepositoryPort',
@@ -42,7 +42,7 @@ export interface DashboardInventoryRepositoryPort {
   findUnreadAlerts(
     organizationId: string,
     limit: number,
-  ): Promise<AlertItemDashboard[]>;
+  ): Promise<DashboardAlertItem[]>;
   countActiveProducts(organizationId: string): Promise<number>;
   countChannelLinkedProducts(organizationId: string): Promise<number>;
   fetchPerListingMetrics(

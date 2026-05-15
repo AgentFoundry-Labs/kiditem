@@ -33,10 +33,8 @@ import {
   Wallet,
   Bell,
   Zap,
-  Wand2,
   Link2,
   LogOut,
-  FolderOpen,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -57,7 +55,7 @@ interface MenuSection {
   items: MenuItem[];
 }
 
-const menuSections: MenuSection[] = [
+export const menuSections: MenuSection[] = [
   {
     label: '',
     collapsible: false,
@@ -65,18 +63,17 @@ const menuSections: MenuSection[] = [
       { href: '/dashboard', label: '대시보드', icon: LayoutDashboard },
       { href: '/ad-ops', label: '광고전략 AI', icon: Zap },
       { href: '/action-board', label: '액션 보드', icon: ClipboardList },
+      { href: '/sourcing-ai', label: '소싱 AI', icon: Search },
     ],
   },
   {
     label: '상품 파이프라인',
     collapsible: true,
     items: [
-      { href: '/sourcing-ai', label: '소싱 AI', icon: Search },
-      { href: '/sourcing', label: '소싱 후보 관리', icon: Search },
-      { href: '/product-content', label: '상품 콘텐츠 관리', icon: FolderOpen },
-      { href: '/generate', label: '상세페이지 생성', icon: Sparkles },
-      { href: '/thumbnails', label: '썸네일 AI', icon: ImageIcon },
-      { href: '/thumbnail-editor', label: '썸네일 편집기', icon: Wand2 },
+      { href: '/product-pipeline/collected-products', label: '수집 상품', icon: Search },
+      { href: '/product-pipeline/registered-products', label: '등록 상품', icon: Package },
+      { href: '/product-pipeline/detail-template-generation', label: '상세 템플릿 생성', icon: Sparkles },
+      { href: '/product-pipeline/thumbnail-ai', label: '썸네일 AI', icon: ImageIcon },
     ],
   },
   {

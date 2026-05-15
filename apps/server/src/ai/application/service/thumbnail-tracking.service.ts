@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { THUMBNAIL_TRACKING_STATUSES, type ThumbnailTrackingListResponse, type ThumbnailTrackingRecord, type ThumbnailTrackingStatus, type UpdateThumbnailTrackingMetricsInput } from '@kiditem/shared/ai';
+import { THUMBNAIL_TRACKING_STATUSES, type ThumbnailTrackingListResponse, type ThumbnailTrackingRecord, type ThumbnailTrackingStatus, type UpdateThumbnailTrackingMetrics } from '@kiditem/shared/ai';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   COUPANG_PRODUCT_SALES_SCRAPE_PORT,
@@ -171,7 +171,7 @@ export class ThumbnailTrackingService {
 
   async updateMetrics(
     id: string,
-    input: UpdateThumbnailTrackingMetricsInput,
+    input: UpdateThumbnailTrackingMetrics,
     organizationId: string,
   ): Promise<ThumbnailTrackingRecord> {
     const existing = await this.prisma.thumbnailTracking.findFirst({

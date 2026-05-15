@@ -45,6 +45,10 @@ export interface PromoteCandidateInput {
       source: string;
       role: string;
       label: string | null;
+      mimeType?: string | null;
+      width?: number | null;
+      height?: number | null;
+      fileSize?: number | null;
     }>;
   };
   options: Array<{

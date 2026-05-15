@@ -8,6 +8,7 @@ import { BoldVerticalRefinerService } from '../../../../application/service/bold
 import { KidsPlayfulRefinerService } from '../../../../application/service/kids-playful-refiner.service';
 import { DetailPageResultRefinerService } from '../../../../application/service/detail-page-result-refiner.service';
 import type { TextCompletionPort } from '../../../../application/port/out/text-completion.port';
+import type { DetailPageGeneratedImagesService } from '../../../../application/service/detail-page-generated-images.service';
 
 function makeCtx(
   overrides: Partial<AgentRuntimeExecutionContext> = {},
@@ -172,7 +173,18 @@ const VALID_KIDS_PLAYFUL_TEXT = JSON.stringify({
   },
 });
 
-function makeHandler(textCompletion: TextCompletionPort) {
+function makeImagesStub(
+  processedImages: Record<string, string> = {},
+): DetailPageGeneratedImagesService {
+  return {
+    generateBestEffort: vi.fn().mockResolvedValue(processedImages),
+  } as unknown as DetailPageGeneratedImagesService;
+}
+
+function makeHandler(
+  textCompletion: TextCompletionPort,
+  images: DetailPageGeneratedImagesService = makeImagesStub(),
+) {
   const registry = new AgentRuntimeHandlerRegistry();
   // Real refiner without heroImageService — bold vertical color/package
   // refinement gracefully no-ops when heroImageService is absent.
@@ -184,8 +196,9 @@ function makeHandler(textCompletion: TextCompletionPort) {
     registry,
     textCompletion,
     refiner,
+    images,
   );
-  return { handler, registry };
+  return { handler, registry, images };
 }
 
 describe('DetailPageGenerateRuntimeHandler', () => {
@@ -215,6 +228,7 @@ describe('DetailPageGenerateRuntimeHandler', () => {
     expect(result.output).toMatchObject({
       templateId: 'bold-vertical',
       imageUrls: ['https://example.com/p1.jpg'],
+      processedImages: {},
     });
     expect(result.provider).toBe('gemini-text');
     // Bold-vertical refiner splits the rawTitle into hook.text +
@@ -231,7 +245,10 @@ describe('DetailPageGenerateRuntimeHandler', () => {
     const textCompletion: TextCompletionPort = {
       complete: vi.fn().mockResolvedValue({ text: VALID_BOLD_VERTICAL_TEXT }),
     };
-    const { handler } = makeHandler(textCompletion);
+    const images = makeImagesStub({
+      __heroBanner: 'https://cdn.example.com/hero.png',
+    });
+    const { handler } = makeHandler(textCompletion, images);
 
     await handler.execute(makeCtx({
       input: {
@@ -260,11 +277,94 @@ describe('DetailPageGenerateRuntimeHandler', () => {
     expect(call?.user).toContain('KC 인증번호: CB061R1234-1001');
   });
 
+  it('reuses an existing result for image-only runs without calling text completion', async () => {
+    const textCompletion: TextCompletionPort = {
+      complete: vi.fn(),
+    };
+    const images = makeImagesStub({
+      __heroBanner: 'https://cdn.example.com/hero.png',
+    });
+    const { handler } = makeHandler(textCompletion, images);
+
+    const result = await handler.execute(makeCtx({
+      input: {
+        templateId: 'bold-vertical',
+        generationMode: 'image',
+        existingResult: JSON.parse(VALID_BOLD_VERTICAL_TEXT),
+        raw: {
+          rawTitle: '키즈 텀블러',
+          rawCategory: '유아용품',
+          rawDescription: '아이가 사용하기 좋은 텀블러',
+          rawOptions: '핑크/블루',
+          imageUrls: ['https://example.com/p1.jpg'],
+        },
+        heroImageMode: 'llm-pick',
+      },
+    }));
+
+    expect(textCompletion.complete).not.toHaveBeenCalled();
+    expect(images.generateBestEffort).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: 'org-1',
+        productName: '키즈 텀블러 안심 음수',
+        templateId: 'bold-vertical',
+      }),
+    );
+    expect(result.provider).toBe('stored-detail-page');
+    expect(result.output).toMatchObject({
+      templateId: 'bold-vertical',
+      imageUrls: ['https://example.com/p1.jpg'],
+      processedImages: {
+        __heroBanner: 'https://cdn.example.com/hero.png',
+      },
+    });
+  });
+
+  it('does not leave image-only runs open forever when generated image work stalls', async () => {
+    vi.useFakeTimers();
+    try {
+      const textCompletion: TextCompletionPort = {
+        complete: vi.fn(),
+      };
+      const images = {
+        generateBestEffort: vi.fn().mockReturnValue(new Promise(() => {})),
+      } as unknown as DetailPageGeneratedImagesService;
+      const { handler } = makeHandler(textCompletion, images);
+
+      const pending = handler.execute(makeCtx({
+        input: {
+          templateId: 'bold-vertical',
+          generationMode: 'image',
+          existingResult: JSON.parse(VALID_BOLD_VERTICAL_TEXT),
+          raw: {
+            rawTitle: '키즈 텀블러',
+            rawCategory: '유아용품',
+            rawDescription: '아이가 사용하기 좋은 텀블러',
+            rawOptions: '핑크/블루',
+            imageUrls: ['https://example.com/p1.jpg'],
+          },
+          heroImageMode: 'llm-pick',
+        },
+      }));
+
+      await vi.advanceTimersByTimeAsync(15 * 60_000);
+      const result = await pending;
+
+      expect(result.output).toMatchObject({
+        templateId: 'bold-vertical',
+        processedImages: {},
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('returns kids-playful package and safety-label exclusions for the sink', async () => {
     const textCompletion: TextCompletionPort = {
       complete: vi.fn().mockResolvedValue({ text: VALID_KIDS_PLAYFUL_TEXT }),
     };
-    const { handler } = makeHandler(textCompletion);
+    const images = makeImagesStub();
+    const { handler } = makeHandler(textCompletion, images);
 
     const result = await handler.execute(makeCtx({
       input: {
@@ -289,12 +389,18 @@ describe('DetailPageGenerateRuntimeHandler', () => {
 
     expect(result.output).toMatchObject({
       templateId: 'kids-playful',
+      processedImages: {},
       reservedPackageImageIndices: [1],
       safetyLabelImageIndices: [2],
       result: {
         usageEnabled: false,
       },
     });
+    expect(images.generateBestEffort).toHaveBeenCalledWith(
+      expect.objectContaining({
+        excludedImageIndices: [1, 2],
+      }),
+    );
     expect(textCompletion.complete.mock.calls[0]?.[0]?.user).toContain('사용법 영역: 만들지 않음');
   });
 

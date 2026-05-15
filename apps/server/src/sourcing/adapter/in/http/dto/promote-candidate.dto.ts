@@ -5,6 +5,8 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
+  MaxLength,
   ValidateNested,
 } from 'class-validator';
 
@@ -41,6 +43,21 @@ export class PromoteCandidateBodyDto {
   @ValidateNested({ each: true })
   @Type(() => PromoteOptionDto)
   options!: PromoteOptionDto[];
+
+  @IsOptional() @IsString() @MaxLength(4000)
+  selectedThumbnailUrl?: string;
+
+  @IsOptional() @IsUUID()
+  selectedThumbnailGenerationCandidateId?: string;
+
+  @IsOptional() @IsUUID()
+  selectedDetailPageGenerationId?: string;
+
+  @IsOptional() @IsUUID()
+  selectedDetailPageArtifactId?: string;
+
+  @IsOptional() @IsUUID()
+  selectedDetailPageRevisionId?: string;
 
   @IsOptional() @IsBoolean()
   skipPostPromotionHooks?: boolean;

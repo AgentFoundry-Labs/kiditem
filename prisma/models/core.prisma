@@ -29,11 +29,14 @@ model Organization {
   alerts                          Alert[]
 
   // Sourcing & Content
-  contentGenerations       ContentGeneration[]
-  contentGenerationGroups  ContentGenerationGroup[]
-  contentGenerationSources ContentGenerationSource[]
-  contentAssets            ContentAsset[]
+  contentGenerations           ContentGeneration[]
+  contentGenerationGroups      ContentGenerationGroup[]
+  contentGenerationSources     ContentGenerationSource[]
+  contentAssets                ContentAsset[]
   contentGenerationAssetUsages ContentGenerationAssetUsage[]
+  registrationWorkspaces       RegistrationWorkspace[]
+  detailPageArtifacts          DetailPageArtifact[]
+  detailPageRevisions          DetailPageRevision[]
 
   // Workflow & Agent
   workflowTemplates WorkflowTemplate[]
@@ -156,6 +159,9 @@ model User {
   thumbnailGenerationEvents      ThumbnailGenerationEvent[] @relation("ThumbnailGenerationEventActor")
   triggeredContentGenerations    ContentGeneration[]        @relation("ContentGenerationTriggeredBy")
   createdContentAssets           ContentAsset[]             @relation("ContentAssetCreatedBy")
+  createdRegistrationWorkspaces  RegistrationWorkspace[]    @relation("RegistrationWorkspaceCreatedBy")
+  createdDetailPageArtifacts     DetailPageArtifact[]       @relation("DetailPageArtifactCreatedBy")
+  createdDetailPageRevisions     DetailPageRevision[]       @relation("DetailPageRevisionCreatedBy")
   actorAlerts                    Alert[]                    @relation("AlertActor")
   assignedActionTasks            ActionTask[]               @relation("ActionTaskAssignee")
 
@@ -322,13 +328,15 @@ model MasterProduct {
   options      ProductOption[]
   listings     ChannelListing[]
 
-  contentGenerationGroups  ContentGenerationGroup[]
-  thumbnailAnalyses        ThumbnailAnalysis[]
-  thumbnailGenerations     ThumbnailGeneration[]
-  gradeHistory             GradeHistory[]
-  processingCosts          ProcessingCost[]
-  masterSupplierProducts   MasterSupplierProduct[]
-  promotedFromCandidate    SourcingCandidate[]       @relation("PromotedFromCandidate")
+  contentGenerationGroups ContentGenerationGroup[]
+  detailPageArtifacts     DetailPageArtifact[]     @relation("DetailPageArtifactTargetMaster")
+  registrationWorkspaces  RegistrationWorkspace[]  @relation("RegistrationWorkspaceTargetMaster")
+  thumbnailAnalyses       ThumbnailAnalysis[]
+  thumbnailGenerations    ThumbnailGeneration[]
+  gradeHistory            GradeHistory[]
+  processingCosts         ProcessingCost[]
+  masterSupplierProducts  MasterSupplierProduct[]
+  promotedFromCandidate   SourcingCandidate[]      @relation("PromotedFromCandidate")
 
   @@unique([organizationId, legacyCode], map: "master_products_organization_id_legacy_code_key", where: raw("is_deleted = false AND legacy_code IS NOT NULL"))
   @@index([organizationId])

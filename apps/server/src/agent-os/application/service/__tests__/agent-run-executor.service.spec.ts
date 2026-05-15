@@ -128,7 +128,10 @@ function makeExecutor(options: {
       return options.runtimeResult ?? { output: { ok: true } };
     }),
   };
-  const eventEmitter = { emit: vi.fn() };
+  const eventEmitter = {
+    emit: vi.fn(),
+    emitAsync: vi.fn().mockResolvedValue([]),
+  };
   const executor = new AgentRunExecutor(
     repository as never,
     runtime as never,
@@ -191,7 +194,7 @@ describe('AgentRunExecutor', () => {
     expect(repository.createRunForRequest).not.toHaveBeenCalled();
     // Pre-run failures must still carry routing metadata so AI bridges can
     // correlate runtime_not_configured-style failures with their domain row.
-    expect(eventEmitter.emit).toHaveBeenCalledWith(
+    expect(eventEmitter.emitAsync).toHaveBeenCalledWith(
       AGENT_RUN_EVENTS.FINALIZED,
       expect.objectContaining({
         organizationId: ORGANIZATION_ID,
@@ -229,7 +232,7 @@ describe('AgentRunExecutor', () => {
       errorCode: 'model_required',
     });
     expect(repository.createRunForRequest).not.toHaveBeenCalled();
-    expect(eventEmitter.emit).toHaveBeenCalledWith(
+    expect(eventEmitter.emitAsync).toHaveBeenCalledWith(
       AGENT_RUN_EVENTS.FINALIZED,
       expect.objectContaining({
         organizationId: ORGANIZATION_ID,
@@ -259,7 +262,7 @@ describe('AgentRunExecutor', () => {
     expect(repository.finalizeRun).toHaveBeenCalledWith(
       expect.objectContaining({ status: 'succeeded' }),
     );
-    expect(eventEmitter.emit).toHaveBeenCalledWith(
+    expect(eventEmitter.emitAsync).toHaveBeenCalledWith(
       AGENT_RUN_EVENTS.FINALIZED,
       expect.objectContaining({
         status: 'succeeded',
@@ -302,7 +305,7 @@ describe('AgentRunExecutor', () => {
     );
     // Failure path must surface routing metadata even though `output` is
     // absent — review #2: bridges cannot fall back on envelope sniffing.
-    expect(eventEmitter.emit).toHaveBeenCalledWith(
+    expect(eventEmitter.emitAsync).toHaveBeenCalledWith(
       AGENT_RUN_EVENTS.FINALIZED,
       expect.objectContaining({
         status: 'failed',
@@ -330,7 +333,7 @@ describe('AgentRunExecutor', () => {
 
     await executor.executeNext('worker-1', ORGANIZATION_ID);
 
-    expect(eventEmitter.emit).toHaveBeenCalledWith(
+    expect(eventEmitter.emitAsync).toHaveBeenCalledWith(
       AGENT_RUN_EVENTS.FINALIZED,
       expect.objectContaining({
         status: 'failed',
@@ -354,10 +357,36 @@ describe('AgentRunExecutor', () => {
     expect(repository.markRequestStatus).toHaveBeenCalledWith(
       expect.objectContaining({ status: 'pending' }),
     );
-    const finalizedEmits = eventEmitter.emit.mock.calls.filter(
+    const finalizedEmits = eventEmitter.emitAsync.mock.calls.filter(
       ([eventName]: [string]) => eventName === AGENT_RUN_EVENTS.FINALIZED,
     );
     expect(finalizedEmits).toHaveLength(0);
+  });
+
+  it('waits for async finalized listeners before resolving a terminal success', async () => {
+    let sinkApplied = false;
+    const { executor, eventEmitter } = makeExecutor({
+      claimed: makeClaimedRequest({
+        agentType: 'detail_page_generate',
+        source: 'ai.detail_page_generate',
+        sourceResourceType: 'content_generation',
+        sourceResourceId: 'cg-inline',
+      }),
+    });
+    eventEmitter.emitAsync.mockImplementationOnce(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      sinkApplied = true;
+      return [];
+    });
+
+    const result = await executor.executeRequest(
+      'detail-page-inline',
+      ORGANIZATION_ID,
+      REQUEST_ID,
+    );
+
+    expect(result).toMatchObject({ executed: true, requestId: REQUEST_ID });
+    expect(sinkApplied).toBe(true);
   });
 
   describe('executeNextUnscoped', () => {

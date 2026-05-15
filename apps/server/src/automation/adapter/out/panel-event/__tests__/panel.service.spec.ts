@@ -153,7 +153,7 @@ describe('PanelService', () => {
         sourceType: 'thumbnail_generation',
         sourceId: '11111111-1111-4111-8111-111111111111',
         actorUserId: 'aaaaaaaa-1111-4111-8111-aaaaaaaa1111',
-        href: '/thumbnails?generationId=11111111-1111-4111-8111-111111111111',
+        href: '/product-pipeline/thumbnail-generation?generationId=11111111-1111-4111-8111-111111111111',
         progress: 0,
         metadata: {},
         isRead: false,

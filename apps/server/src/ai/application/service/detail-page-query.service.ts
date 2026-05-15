@@ -51,6 +51,7 @@ export class DetailPageQueryService {
     const rows = await this.prisma.contentGeneration.findMany({
       where: {
         organizationId,
+        isDeleted: false,
         contentType: 'detail_page',
         ...(productId ? { generationGroup: { targetMasterId: productId } } : {}),
       },
@@ -65,7 +66,7 @@ export class DetailPageQueryService {
 
   async getById(id: string, organizationId: string): Promise<DetailPageGenerationDto> {
     const row = await this.prisma.contentGeneration.findFirst({
-      where: { id, organizationId },
+      where: { id, organizationId, isDeleted: false },
       include: detailPageGenerationInclude,
     });
     if (!row) throw new NotFoundException('Detail page generation not found');
@@ -74,11 +75,14 @@ export class DetailPageQueryService {
 
   async remove(id: string, organizationId: string): Promise<{ ok: true }> {
     const row = await this.prisma.contentGeneration.findFirst({
-      where: { id, organizationId },
+      where: { id, organizationId, isDeleted: false },
       select: { id: true },
     });
     if (!row) throw new NotFoundException('Detail page generation not found');
-    await this.prisma.contentGeneration.delete({ where: { id } });
+    await this.prisma.contentGeneration.update({
+      where: { id },
+      data: { isDeleted: true, deletedAt: new Date() },
+    });
     return { ok: true };
   }
 
@@ -88,11 +92,20 @@ export class DetailPageQueryService {
     html: string,
   ): Promise<{ html: string; savedAt: string; assetUrlMap: Record<string, string> }> {
     const row = await this.prisma.contentGeneration.findFirst({
-      where: { id, organizationId },
+      where: { id, organizationId, isDeleted: false },
       select: {
         id: true,
         generationGroupId: true,
+        registrationWorkspaceId: true,
+        detailPageArtifactId: true,
+        generatedTitle: true,
+        sourceCandidateId: true,
         triggeredByUserId: true,
+        generationGroup: {
+          select: {
+            targetMasterId: true,
+          },
+        },
       },
     });
     if (!row) throw new NotFoundException('Detail page generation not found');
@@ -104,7 +117,7 @@ export class DetailPageQueryService {
     });
     const imageUrls = extractImageSrcs(promoted.html);
     const savedAt = new Date();
-    const updated = await this.prisma.$transaction(async (tx) => {
+    const revision = await this.prisma.$transaction(async (tx) => {
       await this.contentAssets.syncGenerationImageUsagesTx(tx, {
         organizationId,
         generationGroupId: row.generationGroupId,
@@ -112,22 +125,77 @@ export class DetailPageQueryService {
         createdByUserId: row.triggeredByUserId,
         imageUrls,
       });
-      return tx.contentGeneration.updateMany({
-        where: { id, organizationId },
+
+      const artifactId = row.detailPageArtifactId ?? (await tx.detailPageArtifact.create({
         data: {
-          editedHtml: promoted.html,
-          editedHtmlSavedAt: savedAt,
+          organizationId,
+          registrationWorkspaceId: row.registrationWorkspaceId,
+          sourceCandidateId: row.sourceCandidateId,
+          targetMasterId: row.generationGroup.targetMasterId,
+          sourceContentGenerationId: id,
+          title: row.generatedTitle ?? '상세페이지',
+          status: 'draft',
+          createdByUserId: row.triggeredByUserId,
+          metadata: { source: 'detail_page_editor_save' },
+        },
+        select: { id: true },
+      })).id;
+
+      const createdRevision = await tx.detailPageRevision.create({
+        data: {
+          organizationId,
+          artifactId,
+          contentGenerationId: id,
+          revisionType: 'manual_edit',
+          html: promoted.html,
+          assetUrlMap: promoted.assetUrlMap as Prisma.InputJsonValue,
+          imageUrls: imageUrls as Prisma.InputJsonValue,
+          createdByUserId: row.triggeredByUserId,
+          createdAt: savedAt,
+        },
+        select: {
+          id: true,
+          html: true,
+          createdAt: true,
         },
       });
+
+      const artifactUpdated = await tx.detailPageArtifact.updateMany({
+        where: { id: artifactId, organizationId },
+        data: {
+          currentRevisionId: createdRevision.id,
+          status: 'draft',
+        },
+      });
+      if (artifactUpdated.count === 0) {
+        throw new NotFoundException('Detail page artifact not found');
+      }
+
+      const generationUpdated = await tx.contentGeneration.updateMany({
+        where: { id, organizationId },
+        data: { detailPageArtifactId: artifactId },
+      });
+      if (generationUpdated.count === 0) {
+        throw new NotFoundException('Detail page generation not found');
+      }
+
+      if (row.registrationWorkspaceId) {
+        await tx.registrationWorkspace.updateMany({
+          where: { id: row.registrationWorkspaceId, organizationId, isDeleted: false },
+          data: {
+            currentDetailPageArtifactId: artifactId,
+            currentDetailPageRevisionId: createdRevision.id,
+          },
+        });
+      }
+
+      return createdRevision;
     });
-    if (updated.count === 0) {
-      throw new NotFoundException('Detail page generation not found');
-    }
 
     void this.deleteTmpImagesBestEffort(promoted.tmpKeysToDelete);
     return {
-      html: promoted.html,
-      savedAt: savedAt.toISOString(),
+      html: revision.html,
+      savedAt: revision.createdAt.toISOString(),
       assetUrlMap: promoted.assetUrlMap,
     };
   }
@@ -137,14 +205,32 @@ export class DetailPageQueryService {
     organizationId: string,
   ): Promise<{ html: string | null; savedAt: string | null }> {
     const row = await this.prisma.contentGeneration.findFirst({
-      where: { id, organizationId },
+      where: { id, organizationId, isDeleted: false },
       select: {
         id: true,
         editedHtml: true,
         editedHtmlSavedAt: true,
+        detailPageArtifact: {
+          select: {
+            isDeleted: true,
+            currentRevision: {
+              select: {
+                html: true,
+                createdAt: true,
+              },
+            },
+          },
+        },
       },
     });
     if (!row) throw new NotFoundException('Detail page generation not found');
+    const currentRevision = row.detailPageArtifact?.currentRevision;
+    if (currentRevision && row.detailPageArtifact?.isDeleted === false) {
+      return {
+        html: currentRevision.html,
+        savedAt: currentRevision.createdAt.toISOString(),
+      };
+    }
     return {
       html: row.editedHtml,
       savedAt: row.editedHtmlSavedAt?.toISOString() ?? null,
@@ -173,6 +259,8 @@ export class DetailPageQueryService {
     return {
       id: row.id,
       productId: row.generationGroup.targetMasterId,
+      sourceCandidateId: row.sourceCandidateId,
+      registrationWorkspaceId: row.registrationWorkspaceId,
       templateId: stored.templateId,
       productName,
       rawInput,

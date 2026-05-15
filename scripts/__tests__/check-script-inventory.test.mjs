@@ -9,9 +9,11 @@ test('accepts complete script inventory metadata', () => {
     packageScripts: {
       'check:scripts-inventory': 'node scripts/check-script-inventory.mjs',
       'check:schema-artifact-sync': 'node scripts/check-schema-artifact-sync.mjs',
+      'check:pr-release-contract': 'node scripts/check-pr-release-contract.mjs',
       'check:directory-architecture': 'node scripts/check-directory-architecture.mjs',
+      'check:shared-interface-names': 'node scripts/check-shared-interface-names.mjs',
       'test:scripts': 'vitest run --config scripts/vitest.config.ts && node --test scripts/__tests__/*.test.mjs',
-      'check:conventions': 'npm run check:scripts-inventory && npm run check:schema-artifact-sync && npm run check:directory-architecture',
+      'check:conventions': 'npm run check:scripts-inventory && npm run check:schema-artifact-sync && npm run check:directory-architecture && npm run check:shared-interface-names',
     },
   });
 
@@ -34,10 +36,13 @@ test('reports unregistered scripts and missing hooks', () => {
   assert.deepEqual(result.missingPackageHooks, [
     'check:scripts-inventory',
     'check:schema-artifact-sync',
+    'check:pr-release-contract',
     'check:directory-architecture',
+    'check:shared-interface-names',
     'test:scripts',
     'check:conventions -> check:scripts-inventory',
     'check:conventions -> check:schema-artifact-sync',
     'check:conventions -> check:directory-architecture',
+    'check:conventions -> check:shared-interface-names',
   ]);
 });

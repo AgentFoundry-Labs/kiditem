@@ -1,12 +1,12 @@
 import { z } from 'zod';
 
-export const agentInstanceLifecycleStatusSchema = z.enum([
+export const AgentInstanceLifecycleStatusSchema = z.enum([
   'active',
   'paused',
   'disabled',
 ]);
 
-export const agentRunRequestStatusSchema = z.enum([
+export const AgentRunRequestStatusSchema = z.enum([
   'pending',
   'claimed',
   'coalesced',
@@ -17,26 +17,26 @@ export const agentRunRequestStatusSchema = z.enum([
   'cancelled',
 ]);
 
-export const agentRunStatusSchema = z.enum([
+export const AgentRunStatusSchema = z.enum([
   'running',
   'succeeded',
   'failed',
   'cancelled',
 ]);
 
-export const agentToolPolicyEffectSchema = z.enum([
+export const AgentToolPolicyEffectSchema = z.enum([
   'allow',
   'deny',
   'approval_required',
 ]);
 
-export const agentAuthorizationDecisionSchema = z.enum([
+export const AgentAuthorizationDecisionSchema = z.enum([
   'allowed',
   'denied',
   'approval_required',
 ]);
 
-export const agentApprovalStatusSchema = z.enum([
+export const AgentApprovalStatusSchema = z.enum([
   'pending',
   'approved',
   'rejected',
@@ -44,13 +44,13 @@ export const agentApprovalStatusSchema = z.enum([
   'cancelled',
 ]);
 
-export const agentDefinitionRuntimeKindSchema = z.enum([
+export const AgentDefinitionRuntimeKindSchema = z.enum([
   'agent',
   'coordinator',
   'tool_wrapper',
 ]);
 
-export const createAgentRunRequestSchema = z.object({
+export const CreateAgentRunRequestSchema = z.object({
   agentType: z.string().min(1),
   taskKey: z.string().min(1).default('default'),
   idempotencyKey: z.string().min(1).optional(),
@@ -68,7 +68,7 @@ export const createAgentRunRequestSchema = z.object({
   dryRun: z.boolean().default(false),
 });
 
-export const agentRunnerResultSchema = z.object({
+export const AgentRunnerResultSchema = z.object({
   ok: z.boolean(),
   requestId: z.string().optional(),
   runId: z.string().optional(),
@@ -78,7 +78,7 @@ export const agentRunnerResultSchema = z.object({
   reason: z.string().optional(),
 });
 
-export const agentDefinitionSummarySchema = z.object({
+export const AgentDefinitionSummarySchema = z.object({
   id: z.string(),
   type: z.string(),
   name: z.string(),
@@ -88,12 +88,12 @@ export const agentDefinitionSummarySchema = z.object({
   defaultModelEnv: z.string(),
   defaultRuntimeConfig: z.record(z.string(), z.unknown()),
   defaultCapabilities: z.record(z.string(), z.unknown()),
-  runtimeKind: agentDefinitionRuntimeKindSchema,
+  runtimeKind: AgentDefinitionRuntimeKindSchema,
   catalogStatus: z.string(),
   marketplaceId: z.string().nullable(),
 });
 
-export const agentInstanceSummarySchema = z.object({
+export const AgentInstanceSummarySchema = z.object({
   id: z.string(),
   organizationId: z.string(),
   type: z.string(),
@@ -102,7 +102,7 @@ export const agentInstanceSummarySchema = z.object({
   title: z.string().nullable(),
   icon: z.string().nullable(),
   reportsToId: z.string().nullable(),
-  lifecycleStatus: agentInstanceLifecycleStatusSchema,
+  lifecycleStatus: AgentInstanceLifecycleStatusSchema,
   pauseReason: z.string().nullable(),
   trustLevel: z.number().int(),
   adapterType: z.string(),
@@ -110,7 +110,7 @@ export const agentInstanceSummarySchema = z.object({
   effectiveModel: z.string(),
 });
 
-export const agentRunRequestSummarySchema = z.object({
+export const AgentRunRequestSummarySchema = z.object({
   id: z.string(),
   organizationId: z.string(),
   agentInstanceId: z.string(),
@@ -120,7 +120,7 @@ export const agentRunRequestSummarySchema = z.object({
   sourceResourceType: z.string().nullable(),
   sourceResourceId: z.string().nullable(),
   sourceWorkflowRunId: z.string().nullable(),
-  status: agentRunRequestStatusSchema,
+  status: AgentRunRequestStatusSchema,
   priority: z.number().int(),
   attempts: z.number().int(),
   maxAttempts: z.number().int(),
@@ -141,14 +141,14 @@ export const agentRunRequestSummarySchema = z.object({
 // raw run-row response without forcing the server to do extra joins on every
 // list call. Consumers that need them should fetch through the dedicated cost
 // endpoint or instance lookup.
-export const agentRunSummarySchema = z.object({
+export const AgentRunSummarySchema = z.object({
   id: z.string(),
   organizationId: z.string(),
   requestId: z.string(),
   agentInstanceId: z.string(),
   agentType: z.string().optional(),
   taskKey: z.string().nullable(),
-  status: agentRunStatusSchema,
+  status: AgentRunStatusSchema,
   attempt: z.number().int(),
   invocationSource: z.string(),
   adapterType: z.string(),
@@ -164,7 +164,7 @@ export const agentRunSummarySchema = z.object({
   costMicros: z.string().nullable().optional(),
 });
 
-export const agentRunEventSummarySchema = z.object({
+export const AgentRunEventSummarySchema = z.object({
   id: z.string(),
   runId: z.string(),
   seq: z.number().int(),
@@ -177,7 +177,7 @@ export const agentRunEventSummarySchema = z.object({
   createdAt: z.string(),
 });
 
-export const agentCostEventSummarySchema = z.object({
+export const AgentCostEventSummarySchema = z.object({
   id: z.string(),
   organizationId: z.string(),
   agentInstanceId: z.string(),
@@ -192,7 +192,7 @@ export const agentCostEventSummarySchema = z.object({
   occurredAt: z.string(),
 });
 
-export const agentAuthorizationEventSummarySchema = z.object({
+export const AgentAuthorizationEventSummarySchema = z.object({
   id: z.string(),
   organizationId: z.string(),
   agentInstanceId: z.string(),
@@ -200,7 +200,7 @@ export const agentAuthorizationEventSummarySchema = z.object({
   runId: z.string().nullable(),
   toolKey: z.string().nullable(),
   action: z.string(),
-  decision: agentAuthorizationDecisionSchema,
+  decision: AgentAuthorizationDecisionSchema,
   reasonCode: z.string().nullable(),
   reason: z.string().nullable(),
   resourceType: z.string().nullable(),
@@ -208,19 +208,19 @@ export const agentAuthorizationEventSummarySchema = z.object({
   createdAt: z.string(),
 });
 
-export type AgentInstanceLifecycleStatus = z.infer<typeof agentInstanceLifecycleStatusSchema>;
-export type AgentRunRequestStatus = z.infer<typeof agentRunRequestStatusSchema>;
-export type AgentRunStatus = z.infer<typeof agentRunStatusSchema>;
-export type AgentToolPolicyEffect = z.infer<typeof agentToolPolicyEffectSchema>;
-export type AgentAuthorizationDecision = z.infer<typeof agentAuthorizationDecisionSchema>;
-export type AgentApprovalStatus = z.infer<typeof agentApprovalStatusSchema>;
-export type AgentDefinitionRuntimeKind = z.infer<typeof agentDefinitionRuntimeKindSchema>;
-export type CreateAgentRunRequestInput = z.infer<typeof createAgentRunRequestSchema>;
-export type AgentRunnerResult = z.infer<typeof agentRunnerResultSchema>;
-export type AgentDefinitionSummary = z.infer<typeof agentDefinitionSummarySchema>;
-export type AgentInstanceSummary = z.infer<typeof agentInstanceSummarySchema>;
-export type AgentRunRequestSummary = z.infer<typeof agentRunRequestSummarySchema>;
-export type AgentRunSummary = z.infer<typeof agentRunSummarySchema>;
-export type AgentRunEventSummary = z.infer<typeof agentRunEventSummarySchema>;
-export type AgentCostEventSummary = z.infer<typeof agentCostEventSummarySchema>;
-export type AgentAuthorizationEventSummary = z.infer<typeof agentAuthorizationEventSummarySchema>;
+export type AgentInstanceLifecycleStatus = z.infer<typeof AgentInstanceLifecycleStatusSchema>;
+export type AgentRunRequestStatus = z.infer<typeof AgentRunRequestStatusSchema>;
+export type AgentRunStatus = z.infer<typeof AgentRunStatusSchema>;
+export type AgentToolPolicyEffect = z.infer<typeof AgentToolPolicyEffectSchema>;
+export type AgentAuthorizationDecision = z.infer<typeof AgentAuthorizationDecisionSchema>;
+export type AgentApprovalStatus = z.infer<typeof AgentApprovalStatusSchema>;
+export type AgentDefinitionRuntimeKind = z.infer<typeof AgentDefinitionRuntimeKindSchema>;
+export type CreateAgentRunRequest = z.infer<typeof CreateAgentRunRequestSchema>;
+export type AgentRunnerResult = z.infer<typeof AgentRunnerResultSchema>;
+export type AgentDefinitionSummary = z.infer<typeof AgentDefinitionSummarySchema>;
+export type AgentInstanceSummary = z.infer<typeof AgentInstanceSummarySchema>;
+export type AgentRunRequestSummary = z.infer<typeof AgentRunRequestSummarySchema>;
+export type AgentRunSummary = z.infer<typeof AgentRunSummarySchema>;
+export type AgentRunEventSummary = z.infer<typeof AgentRunEventSummarySchema>;
+export type AgentCostEventSummary = z.infer<typeof AgentCostEventSummarySchema>;
+export type AgentAuthorizationEventSummary = z.infer<typeof AgentAuthorizationEventSummarySchema>;

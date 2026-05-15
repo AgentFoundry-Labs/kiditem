@@ -72,6 +72,47 @@ export async function looksLikeSafetyLabelImage(buffer: Buffer): Promise<boolean
   );
 }
 
+export async function trimSafetyLabelWhitespace(buffer: Buffer): Promise<Buffer> {
+  const image = sharp(buffer).rotate();
+  const metadata = await image.metadata();
+  const originalWidth = metadata.width ?? 0;
+  const originalHeight = metadata.height ?? 0;
+  if (originalWidth <= 0 || originalHeight <= 0) return buffer;
+
+  const { data, info } = await image
+    .clone()
+    .resize({ width: 1024, height: 1024, fit: 'inside', withoutEnlargement: true })
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const bounds = findNonWhiteBounds(data, info.width, info.height, info.channels);
+  if (!bounds) return buffer;
+
+  const scanPadding = Math.max(3, Math.round(Math.min(info.width, info.height) * 0.01));
+  const left = Math.max(0, bounds.left - scanPadding);
+  const top = Math.max(0, bounds.top - scanPadding);
+  const right = Math.min(info.width - 1, bounds.right + scanPadding);
+  const bottom = Math.min(info.height - 1, bounds.bottom + scanPadding);
+
+  const scaleX = originalWidth / info.width;
+  const scaleY = originalHeight / info.height;
+  const cropLeft = Math.max(0, Math.floor(left * scaleX));
+  const cropTop = Math.max(0, Math.floor(top * scaleY));
+  const cropRight = Math.min(originalWidth, Math.ceil((right + 1) * scaleX));
+  const cropBottom = Math.min(originalHeight, Math.ceil((bottom + 1) * scaleY));
+  const cropWidth = cropRight - cropLeft;
+  const cropHeight = cropBottom - cropTop;
+
+  if (cropWidth <= 0 || cropHeight <= 0) return buffer;
+  if (cropWidth / originalWidth > 0.985 && cropHeight / originalHeight > 0.985) return buffer;
+
+  return image
+    .clone()
+    .extract({ left: cropLeft, top: cropTop, width: cropWidth, height: cropHeight })
+    .toBuffer();
+}
+
 async function getLabelPixelStats(buffer: Buffer): Promise<LabelPixelStats> {
   const { data, info } = await sharp(buffer)
     .removeAlpha()
@@ -149,6 +190,38 @@ async function getLabelPixelStats(buffer: Buffer): Promise<LabelPixelStats> {
     barcodeStripeColumns,
     barcodeTransitions,
   };
+}
+
+function findNonWhiteBounds(
+  data: Buffer,
+  width: number,
+  height: number,
+  channels: number,
+): { left: number; top: number; right: number; bottom: number } | null {
+  let left = width;
+  let top = height;
+  let right = -1;
+  let bottom = -1;
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const offset = (y * width + x) * channels;
+      if (isWhiteBackgroundPixel(data[offset], data[offset + 1], data[offset + 2])) continue;
+
+      left = Math.min(left, x);
+      top = Math.min(top, y);
+      right = Math.max(right, x);
+      bottom = Math.max(bottom, y);
+    }
+  }
+
+  return right >= left && bottom >= top ? { left, top, right, bottom } : null;
+}
+
+function isWhiteBackgroundPixel(r: number, g: number, b: number): boolean {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  return min >= 248 && max - min <= 18;
 }
 
 function safeDecode(value: string): string {

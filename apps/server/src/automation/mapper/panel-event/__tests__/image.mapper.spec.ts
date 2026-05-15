@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PanelRunItem } from '@kiditem/shared/panel';
+import { PanelRunItemSchema } from '@kiditem/shared/panel';
 import { imagePanelMapper, ImageAdapterInput } from '../image.mapper';
 import type { ThumbnailGeneration } from '@prisma/client';
 
@@ -104,7 +104,7 @@ describe('imagePanelMapper', () => {
 
   it('output passes PanelRunItemSchema validation', () => {
     const item = imagePanelMapper.mapToItem(makeInput({ status: 'succeeded' }), 'co-1');
-    const result = PanelRunItem.omit({ seq: true, updatedAt: true }).safeParse(item);
+    const result = PanelRunItemSchema.omit({ seq: true, updatedAt: true }).safeParse(item);
     expect(result.success).toBe(true);
   });
 
@@ -123,12 +123,12 @@ describe('imagePanelMapper', () => {
     const item = imagePanelMapper.mapToItem(makeInput(), 'co-1');
     expect('organizationId' in item).toBe(false);
     // Confirm Zod parse also succeeds (organizationId not in schema)
-    const result = PanelRunItem.omit({ seq: true, updatedAt: true }).safeParse(item);
+    const result = PanelRunItemSchema.omit({ seq: true, updatedAt: true }).safeParse(item);
     expect(result.success).toBe(true);
   });
 
   it('deepLink opens the thumbnail workspace with the generation selected', () => {
     const item = imagePanelMapper.mapToItem(makeInput(), 'co-1');
-    expect(item.deepLink).toBe(`/thumbnails?generationId=${GEN_ID}`);
+    expect(item.deepLink).toBe(`/product-pipeline/thumbnail-generation?generationId=${GEN_ID}`);
   });
 });

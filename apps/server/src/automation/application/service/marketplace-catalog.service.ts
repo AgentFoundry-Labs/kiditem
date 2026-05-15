@@ -115,7 +115,7 @@ export class MarketplaceCatalogService {
 
     // Agent install path is not wired (legacy AgentDefinition retired).
     // Always report `installed: false`; install requests are rejected by
-    // `MarketplaceController` until a real Agent OS catalog wiring lands.
+    // `MarketplaceAgentsController` until a real Agent OS catalog wiring lands.
     return items.map((item) => toCatalogItem(item, false));
   }
 

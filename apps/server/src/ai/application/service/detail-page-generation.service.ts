@@ -28,6 +28,7 @@ import type { MulterFile } from '../../../common/types';
 import {
   looksLikeSafetyLabelImage,
   moveSafetyLabelImagesToEnd,
+  trimSafetyLabelWhitespace,
 } from '../../domain/detail-page-image-order';
 import type {
   DetailImageCount,
@@ -45,11 +46,16 @@ import type {
 import { DetailPageQueryService } from './detail-page-query.service';
 import {
   detailPageOperationKey,
-  detailPageResultHref,
   toDetailPageStoredJson,
 } from './detail-page-stored.helpers';
 import { ContentAssetService } from './content-asset.service';
 import type { PersistedContentAssetRef } from './content-asset.service';
+import { kickEnqueuedAgentRequest as kickInlineAgentRequest } from './agent-inline-execution';
+import { GeneratedContentCandidateService } from './generated-content-candidate.service';
+import {
+  registeredWorkspaceEditorHref,
+  RegistrationWorkspaceService,
+} from './registration-workspace.service';
 
 const DETAIL_PAGE_PROCESSING_STATUSES = [
   'PENDING',
@@ -82,6 +88,8 @@ export class DetailPageGenerationService {
     @Inject(AGENT_RUNNER_PORT)
     private readonly agentRunner: AgentRunnerPort,
     private readonly contentAssets: ContentAssetService,
+    private readonly generatedCandidates: GeneratedContentCandidateService,
+    private readonly registrationWorkspaces: RegistrationWorkspaceService,
   ) {}
 
   async uploadInputImage(
@@ -93,9 +101,12 @@ export class DetailPageGenerationService {
     }
     const ext = this.extForMime(file.mimetype);
     const fileRole = await this.detectUploadedImageRole(file.buffer);
+    const buffer = fileRole === 'safety-label'
+      ? await this.trimSafetyLabelImage(file.buffer)
+      : file.buffer;
     const url = await this.imageStorage.save(
       `detail-page-inputs/${organizationId}/${fileRole}-${randomUUID()}.${ext}`,
-      file.buffer,
+      buffer,
       file.mimetype,
     );
     return { url };
@@ -108,6 +119,7 @@ export class DetailPageGenerationService {
   ): Promise<DetailPageGenerationDto> {
     const heroImageMode = dto.heroImageMode ?? 'llm-pick';
     const templateId = dto.templateId ?? 'kids-playful';
+    const generationMode = dto.generationMode ?? 'full';
     const ageGroup: DetailPageAgeGroup = dto.ageGroup ?? 'age-8-plus';
     const detailImageCount: DetailImageCount = dto.detailImageCount ?? '2';
     const usageSectionMode: UsageSectionMode = dto.usageSectionMode ?? 'include';
@@ -125,30 +137,107 @@ export class DetailPageGenerationService {
       imageUrls,
       heroImageMode,
       templateId,
+      generationMode,
       ageGroup,
       detailImageCount,
       usageSectionMode,
       kcCertificationStatus,
       kcCertificationNumber,
     };
-    const sourceReferences = await this.normalizeSourceReferences({
+    const requestedRegistrationWorkspace = dto.registrationWorkspaceId
+      ? await this.resolveRegistrationWorkspace(organizationId, dto.registrationWorkspaceId)
+      : null;
+    const effectiveProductId = dto.productId ?? requestedRegistrationWorkspace?.targetMasterId ?? null;
+    let sourceReferences = await this.normalizeSourceReferences({
       organizationId,
-      productId: dto.productId ?? null,
+      productId: effectiveProductId,
       sourceReferences: dto.sourceReferences ?? [],
     });
+    let primarySourceCandidateId =
+      requestedRegistrationWorkspace?.sourceCandidateId ??
+      sourceReferences.find((ref) => ref.sourceType === 'sourcing_candidate')
+        ?.sourceCandidateId ?? null;
+    if (
+      requestedRegistrationWorkspace?.sourceCandidateId &&
+      !sourceReferences.some((ref) => ref.sourceCandidateId === requestedRegistrationWorkspace.sourceCandidateId)
+    ) {
+      sourceReferences = [
+        {
+          sourceType: 'sourcing_candidate',
+          sourceCandidateId: requestedRegistrationWorkspace.sourceCandidateId,
+          label: requestedRegistrationWorkspace.displayName,
+        },
+        ...sourceReferences,
+      ];
+    }
     if (sourceReferences.length > 0) rawInput.sourceReferences = sourceReferences;
+    const registrationWorkspace = requestedRegistrationWorkspace ??
+      await this.registrationWorkspaces.ensureForGeneration({
+        organizationId,
+        triggeredByUserId,
+        rawTitle: dto.rawTitle,
+        sourceCandidateId: primarySourceCandidateId,
+        targetMasterId: effectiveProductId,
+      });
+    const imageOnlyBase = generationMode === 'image'
+      ? await this.findImageOnlyBaseGeneration({
+        organizationId,
+        productId: effectiveProductId,
+        sourceCandidateId: primarySourceCandidateId,
+        registrationWorkspaceId: registrationWorkspace.id,
+        templateId,
+      })
+      : null;
+    if (generationMode === 'image') {
+      if (!imageOnlyBase) {
+        throw new BadRequestException('이미지만 생성하려면 먼저 같은 후보/템플릿의 카피 생성 결과가 필요합니다.');
+      }
+      rawInput.baseContentGenerationId = imageOnlyBase.id;
+    }
 
     return this.enqueueGeneration({
       organizationId,
       triggeredByUserId,
-      productId: dto.productId ?? null,
+      productId: effectiveProductId,
       rawTitle: dto.rawTitle,
       templateId,
       heroImageMode,
       imageUrls,
       rawInput,
       sourceReferences,
+      sourceCandidateId: primarySourceCandidateId,
+      existingResult: imageOnlyBase?.result,
+      registrationWorkspaceId: registrationWorkspace.id,
     });
+  }
+
+  private async resolveRegistrationWorkspace(
+    organizationId: string,
+    registrationWorkspaceId: string,
+  ): Promise<{
+    id: string;
+    sourceCandidateId: string | null;
+    targetMasterId: string | null;
+    displayName: string;
+    normalizedTitle: string;
+  }> {
+    const row = await this.prisma.registrationWorkspace.findFirst({
+      where: {
+        id: registrationWorkspaceId,
+        organizationId,
+        status: 'active',
+        isDeleted: false,
+      },
+      select: {
+        id: true,
+        sourceCandidateId: true,
+        targetMasterId: true,
+        displayName: true,
+        normalizedTitle: true,
+      },
+    });
+    if (!row) throw new NotFoundException('Registration workspace not found');
+    return row;
   }
 
   private async enqueueGeneration(input: {
@@ -161,7 +250,10 @@ export class DetailPageGenerationService {
     imageUrls: string[];
     rawInput: DetailPageRawInput;
     sourceReferences: DetailPageSourceReference[];
+    sourceCandidateId: string | null;
+    existingResult?: unknown;
     generationGroupId?: string | null;
+    registrationWorkspaceId: string;
   }): Promise<DetailPageGenerationDto> {
     const targetMaster = input.productId
       ? await this.prisma.masterProduct.findFirst({
@@ -185,12 +277,18 @@ export class DetailPageGenerationService {
           rawTitle: input.rawTitle,
           templateId: input.templateId,
         }));
+    const primarySourceCandidateId =
+      input.sourceCandidateId ??
+      input.sourceReferences.find((ref) => ref.sourceType === 'sourcing_candidate')
+        ?.sourceCandidateId ?? null;
 
     const row = await this.prisma.contentGeneration.create({
       data: {
         organizationId: input.organizationId,
         contentType: 'detail_page',
         generationGroupId,
+        registrationWorkspaceId: input.registrationWorkspaceId,
+        sourceCandidateId: primarySourceCandidateId,
         triggeredByUserId: input.triggeredByUserId,
         templateId: input.templateId,
         generationInput: input.rawInput as unknown as Prisma.InputJsonValue,
@@ -231,14 +329,14 @@ export class DetailPageGenerationService {
       sourceType: 'content_generation',
       sourceId: row.id,
       actorUserId: input.triggeredByUserId,
-      targetType: input.productId ? 'master' : 'content_generation',
-      targetId: input.productId ?? row.id,
-      href: detailPageResultHref({
-        productId: targetMaster?.id ?? null,
-        contentGenerationId: row.id,
+      targetType: 'registration_workspace',
+      targetId: input.registrationWorkspaceId,
+      href: registeredWorkspaceEditorHref(input.registrationWorkspaceId, row.id),
+      metadata: {
         templateId: input.templateId,
-      }),
-      metadata: { templateId: input.templateId, imageCount: input.imageUrls.length },
+        imageCount: input.imageUrls.length,
+        sourceCandidateId: primarySourceCandidateId,
+      },
     });
 
     const enqueueResult = await this.agentRunner.runByType(
@@ -251,7 +349,9 @@ export class DetailPageGenerationService {
         sourceResourceId: row.id,
         reason: input.productId
           ? `detail_page_generate for product ${input.productId}`
-          : `detail_page_generate for unbound content ${row.id}`,
+          : primarySourceCandidateId
+            ? `detail_page_generate for sourcing candidate ${primarySourceCandidateId}`
+            : `detail_page_generate for registration workspace ${input.registrationWorkspaceId}`,
         payload: {
           templateId: input.templateId,
           raw: {
@@ -267,6 +367,10 @@ export class DetailPageGenerationService {
             kcCertificationNumber: input.rawInput.kcCertificationNumber,
           },
           heroImageMode: input.heroImageMode,
+          generationMode: input.rawInput.generationMode ?? 'full',
+          ...(input.existingResult !== undefined
+            ? { existingResult: input.existingResult }
+            : {}),
         },
       },
     );
@@ -311,6 +415,8 @@ export class DetailPageGenerationService {
       select: {
         id: true,
         generationGroupId: true,
+        registrationWorkspaceId: true,
+        sourceCandidateId: true,
         generationInput: true,
         generationResult: true,
         generationGroup: { select: { targetMasterId: true } },
@@ -343,6 +449,14 @@ export class DetailPageGenerationService {
       title: pickRawString(rawRecord, 'rawTitle') ?? base.generatedTitle ?? '상세페이지 작업',
       triggeredByUserId,
     });
+    const registrationWorkspaceId = base.registrationWorkspaceId ??
+      (await this.registrationWorkspaces.ensureForGeneration({
+        organizationId,
+        triggeredByUserId,
+        rawTitle: pickRawString(rawRecord, 'rawTitle') ?? base.generatedTitle ?? '상세페이지 작업',
+        sourceCandidateId: base.sourceCandidateId,
+        targetMasterId: base.generationGroup.targetMasterId,
+      })).id;
     const rawInput: DetailPageRawInput = {
       rawTitle: pickRawString(rawRecord, 'rawTitle') ?? base.generatedTitle ?? '상세페이지 작업',
       rawCategory: pickRawString(rawRecord, 'rawCategory') ?? '',
@@ -370,8 +484,63 @@ export class DetailPageGenerationService {
       imageUrls,
       rawInput,
       sourceReferences: rawInput.sourceReferences ?? [],
+      sourceCandidateId: base.sourceCandidateId,
       generationGroupId,
+      registrationWorkspaceId,
     });
+  }
+
+  private async findImageOnlyBaseGeneration(input: {
+    organizationId: string;
+    productId: string | null;
+    sourceCandidateId: string | null;
+    registrationWorkspaceId: string | null;
+    templateId: DetailPageTemplateId;
+  }): Promise<{ id: string; result: unknown } | null> {
+    const sourceCandidateId = input.sourceCandidateId;
+    if (!input.productId && !sourceCandidateId && !input.registrationWorkspaceId) return null;
+    const where: Prisma.ContentGenerationWhereInput = {
+      organizationId: input.organizationId,
+      contentType: 'detail_page',
+      templateId: input.templateId,
+      status: { in: ['READY', 'completed'] },
+      ...(input.productId
+        ? { generationGroup: { targetMasterId: input.productId } }
+        : input.registrationWorkspaceId
+          ? { registrationWorkspaceId: input.registrationWorkspaceId }
+        : {
+            OR: [
+              { sourceCandidateId },
+              { sources: { some: { sourceCandidateId } } },
+              { detailPageArtifact: { is: { sourceCandidateId } } },
+            ],
+          }),
+    };
+    const rows = await this.prisma.contentGeneration.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+      select: {
+        id: true,
+        generationInput: true,
+        generationResult: true,
+        templateId: true,
+        generatedTitle: true,
+      },
+    });
+    for (const row of rows) {
+      const stored = toDetailPageStoredJson({
+        templateId: this.normalizeTemplateId(row.templateId),
+        generationInput: row.generationInput,
+        generationResult: row.generationResult,
+      });
+      if (this.storedGenerationMode(stored.rawInput) === 'image') continue;
+      if (!stored.result || typeof stored.result !== 'object' || Object.keys(stored.result).length === 0) {
+        continue;
+      }
+      return { id: row.id, result: stored.result };
+    }
+    return null;
   }
 
   private async createGenerationGroupForInput(input: {
@@ -584,15 +753,21 @@ export class DetailPageGenerationService {
   }): void {
     if (!input.requestId || !this.agentRunner.executeRequest) return;
 
-    void this.agentRunner.executeRequest({
+    kickInlineAgentRequest({
+      agentRunner: this.agentRunner,
       organizationId: input.organizationId,
       requestId: input.requestId,
       workerId: 'detail-page-generate-inline',
-    }).catch((error) => {
-      this.logger.warn(
-        `Failed to kick detail_page_generate request ${input.requestId}: ${error}`,
-      );
+      logger: this.logger,
+      label: 'detail_page_generate',
     });
+  }
+
+  private storedGenerationMode(rawInput: unknown): 'draft' | 'image' | 'full' {
+    if (!rawInput || typeof rawInput !== 'object') return 'full';
+    const value = (rawInput as Record<string, unknown>).generationMode;
+    if (value === 'draft' || value === 'image') return value;
+    return 'full';
   }
 
   async cancel(id: string, organizationId: string): Promise<DetailPageGenerationDto> {
@@ -650,6 +825,15 @@ export class DetailPageGenerationService {
       return await looksLikeSafetyLabelImage(buffer) ? 'safety-label' : 'product';
     } catch {
       return 'product';
+    }
+  }
+
+  private async trimSafetyLabelImage(buffer: Buffer): Promise<Buffer> {
+    try {
+      return await trimSafetyLabelWhitespace(buffer);
+    } catch (error) {
+      this.logger.warn(`Failed to trim safety label image whitespace: ${error instanceof Error ? error.message : String(error)}`);
+      return buffer;
     }
   }
 }
