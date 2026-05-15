@@ -61,6 +61,7 @@ export const DetailPageGenerateAgentOutputSchema = z.discriminatedUnion(
       templateId: z.literal('kids-playful'),
       result: DetailPageGenerationSchema,
       imageUrls: z.array(z.string()).default([]),
+      processedImages: z.record(z.string(), z.string()).default({}),
       reservedPackageImageIndices: z
         .array(z.number().int().nonnegative())
         .default([]),
@@ -72,6 +73,7 @@ export const DetailPageGenerateAgentOutputSchema = z.discriminatedUnion(
       templateId: z.literal('bold-vertical'),
       result: RefinedBoldVerticalGenerationSchema,
       imageUrls: z.array(z.string()).default([]),
+      processedImages: z.record(z.string(), z.string()).default({}),
     }),
   ],
 );

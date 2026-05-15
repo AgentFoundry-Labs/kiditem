@@ -8,6 +8,11 @@
  */
 
 import { Loader2 } from 'lucide-react';
+import {
+  getDetailGenerationMode,
+  getDetailGenerationStage,
+  type DetailGenerationMode,
+} from '../../lib/generation-progress-label';
 
 export interface GenerationEntry {
   /** entry 식별자 — React key */
@@ -22,6 +27,8 @@ export interface GenerationEntry {
   totalCount?: number;
   /** 어떤 상품인지 */
   productName?: string;
+  /** detail-page generationMode. rawInput 에서 온다. */
+  generationMode?: DetailGenerationMode;
 }
 
 interface GenerationProgressBannerProps extends GenerationEntry {
@@ -40,15 +47,13 @@ export function GenerationProgressBanner({
   processedCount = 0,
   totalCount = 0,
   productName,
+  generationMode = 'full',
   compact = false,
 }: GenerationProgressBannerProps) {
   const tLabel = TEMPLATE_LABEL[templateId] ?? templateId;
-  const isPending = status === 'pending';
   const isProcessing = status === 'processing';
 
-  // pending 단계: 카피 (LLM JSON) 생성 중 — 진행률 indeterminate
-  // processing 단계: 누끼/배경합성 — processedCount/totalCount 로 진행률
-  const stage = isPending ? 'AI 카피 생성 중' : isProcessing ? 'AI 이미지 합성 중' : '완료 처리 중';
+  const stage = getDetailGenerationStage(status, generationMode);
   const pct =
     isProcessing && totalCount > 0
       ? Math.min(100, Math.round((processedCount / totalCount) * 100))
@@ -125,7 +130,7 @@ export function GenerationProgressBanner({
 export function GenerationProgressBannerStack({
   entries,
 }: {
-  entries: GenerationEntry[];
+  entries: Array<GenerationEntry & { rawInput?: unknown }>;
 }) {
   if (entries.length === 0) return null;
 
@@ -134,7 +139,10 @@ export function GenerationProgressBannerStack({
     const e = entries[0];
     return (
       <div className="mx-4 my-3">
-        <GenerationProgressBanner {...e} />
+        <GenerationProgressBanner
+          {...e}
+          generationMode={e.generationMode ?? getDetailGenerationMode(e.rawInput)}
+        />
       </div>
     );
   }
@@ -155,7 +163,12 @@ export function GenerationProgressBannerStack({
       </div>
       <div className="space-y-1.5">
         {entries.map((e) => (
-          <GenerationProgressBanner key={e.id} {...e} compact />
+          <GenerationProgressBanner
+            key={e.id}
+            {...e}
+            generationMode={e.generationMode ?? getDetailGenerationMode(e.rawInput)}
+            compact
+          />
         ))}
       </div>
     </div>

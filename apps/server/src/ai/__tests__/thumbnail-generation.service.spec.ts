@@ -66,6 +66,10 @@ function makeAgentRunnerStub() {
   };
 }
 
+async function flushInlineExecutor() {
+  await new Promise((resolve) => setImmediate(resolve));
+}
+
 function makeService(input: {
   prisma: unknown;
   editorAi?: unknown;
@@ -391,6 +395,56 @@ describe('ThumbnailGenerationService normalized persistence', () => {
         href: `/sourcing/${SOURCE_CANDIDATE_ID}`,
       }),
     );
+  });
+
+  it('drains retryable thumbnail executor failures so a local preview does not leave the job pending forever', async () => {
+    const agentRunner = makeAgentRunnerStub();
+    agentRunner.executeRequest = vi.fn(async () => ({
+      executed: true,
+      requestId: REQUEST_ID,
+      errorCode: 'runtime_error',
+    }));
+    const operationAlerts = makeOperationAlertsStub();
+    const prisma = {
+      sourcingCandidate: {
+        findFirst: vi.fn(async () => ({
+          id: SOURCE_CANDIDATE_ID,
+          name: 'Candidate toy',
+          category: 'Toys',
+          images: [],
+        })),
+      },
+      thumbnailGeneration: {
+        create: vi.fn(async (args: { data: Record<string, unknown> }) => ({
+          id: GENERATION_ID,
+          ...args.data,
+        })),
+      },
+      thumbnailGenerationInputImage: {
+        createMany: vi.fn(async () => ({ count: 1 })),
+      },
+    };
+    const service = makeService({ prisma, agentRunner, operationAlerts });
+
+    await service.enqueueCandidateGeneration({
+      organizationId: ORGANIZATION_ID,
+      sourceCandidateId: SOURCE_CANDIDATE_ID,
+      productName: 'Candidate toy',
+      triggeredByUserId: null,
+      inputs: [makeInputImage({ source: 'sourcing_candidate' })],
+      inputMeta: { mode: 'edit', inputCount: 1 },
+      method: 'generate',
+      originalUrl: 'http://storage.local/kiditem/thumbnail-inputs/x.jpg',
+      agentPayload: { mode: 'edit', inputs: [] },
+    });
+    await flushInlineExecutor();
+
+    expect(agentRunner.executeRequest).toHaveBeenCalledTimes(3);
+    expect(agentRunner.executeRequest).toHaveBeenNthCalledWith(3, {
+      organizationId: ORGANIZATION_ID,
+      requestId: REQUEST_ID,
+      workerId: 'thumbnail-generate-inline',
+    });
   });
 
   it('findAll renders product data from a scoped master lookup instead of relation include data', async () => {

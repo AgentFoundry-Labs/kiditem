@@ -51,6 +51,7 @@ import {
   type AppendThumbnailGenerationEventInput,
   type ThumbnailGenerationEventPort,
 } from '../port/out/thumbnail-generation-event.port';
+import { kickEnqueuedAgentRequest as kickInlineAgentRequest } from './agent-inline-execution';
 
 export interface ThumbnailEditorGenerationEnqueueInput {
   organizationId: string;
@@ -566,14 +567,13 @@ export class ThumbnailGenerationJobService {
   }): void {
     if (!input.requestId || !this.agentRunner.executeRequest) return;
 
-    void this.agentRunner.executeRequest({
+    kickInlineAgentRequest({
+      agentRunner: this.agentRunner,
       organizationId: input.organizationId,
       requestId: input.requestId,
       workerId: 'thumbnail-generate-inline',
-    }).catch((error) => {
-      this.logger.warn(
-        `Failed to kick thumbnail_generate request ${input.requestId}: ${error}`,
-      );
+      logger: this.logger,
+      label: 'thumbnail_generate',
     });
   }
 

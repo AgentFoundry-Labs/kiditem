@@ -134,6 +134,7 @@ function GenerationInProgressBannerSlot({
       processedCount: Object.keys(e.processedImages || {}).length,
       totalCount: e.imageUrls?.length ?? 0,
       productName: product?.name ?? e.productName ?? '',
+      rawInput: e.rawInput,
     };
   });
 

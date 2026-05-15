@@ -120,7 +120,9 @@ Owner domains that need immediate user-visible progress may call
 `AgentRunnerPort.executeRequest({ organizationId, requestId })` right after
 `runByType` succeeds. This claims only that specific pending request through the
 same executor path; it does not enable the global worker or drain unrelated
-queues.
+queues. Terminal execution awaits finalized-event listeners before resolving,
+so the inline caller can observe the owner-domain sink path without racing the
+hot-path projection.
 
 ## Bootstrap
 

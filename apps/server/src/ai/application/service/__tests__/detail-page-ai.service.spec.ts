@@ -52,6 +52,10 @@ function makeAgentRunnerStub(
   };
 }
 
+async function flushInlineExecutor() {
+  await new Promise((resolve) => setImmediate(resolve));
+}
+
 function makeResultRefiner(heroImageService?: unknown): DetailPageResultRefinerService {
   return new DetailPageResultRefinerService(
     new BoldVerticalRefinerService(heroImageService as never),
@@ -135,6 +139,7 @@ function makePrisma() {
     },
     contentGeneration: {
       findFirst: vi.fn().mockResolvedValue(generationRow),
+      findMany: vi.fn().mockResolvedValue([generationRow]),
       create: vi.fn().mockResolvedValue(generationRow),
       update: vi.fn(),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -318,6 +323,131 @@ describe('DetailPageAiService', () => {
     expect(result.id).toBe(GENERATION_ID);
     expect(result.imageProcessingStatus).toBe('processing');
     expect(result.productId).toBe(MASTER_ID);
+  });
+
+  it('drains retryable detail-page executor failures so local preview reaches the terminal sink path', async () => {
+    const prisma = makePrisma();
+    const textCompletion = { complete: vi.fn() };
+    const imageStorage = { save: vi.fn() };
+    const operationAlerts = makeOperationAlertsStub();
+    const agentRunner = makeAgentRunnerStub();
+    agentRunner.executeRequest = vi.fn().mockResolvedValue({
+      executed: true,
+      requestId: REQUEST_ID,
+      errorCode: 'runtime_error',
+    });
+    const service = makeService(
+      prisma,
+      textCompletion,
+      imageStorage,
+      operationAlerts,
+      undefined,
+      agentRunner,
+    );
+
+    await service.generate(
+      {
+        productId: MASTER_ID,
+        templateId: 'bold-vertical',
+        rawTitle: '휴대용목걸이비눗방울',
+        rawCategory: '완구',
+        rawDescription: '아이들이 가지고 놀기 좋은 장난감',
+        rawOptions: '혼합 색상 / 사이즈 85*60mm',
+        imageUrls: ['https://example.com/detail-1.jpg'],
+      },
+      ORGANIZATION_ID,
+      USER_ID,
+    );
+    await flushInlineExecutor();
+
+    expect(agentRunner.executeRequest).toHaveBeenCalledTimes(3);
+    expect(agentRunner.executeRequest).toHaveBeenNthCalledWith(3, {
+      organizationId: ORGANIZATION_ID,
+      requestId: REQUEST_ID,
+      workerId: 'detail-page-generate-inline',
+    });
+  });
+
+  it('uses the newest non-image detail-page generation as the base for image-only runs', async () => {
+    const prisma = makePrisma();
+    const textCompletion = { complete: vi.fn() };
+    const imageStorage = { save: vi.fn() };
+    const operationAlerts = makeOperationAlertsStub();
+    const imageOnlyBase = makeGenerationRow({
+      id: '77777777-7777-4777-8777-777777777777',
+      generationInput: {
+        rawTitle: '이전 이미지 생성',
+        imageUrls: ['https://example.com/image.jpg'],
+        templateId: 'bold-vertical',
+        generationMode: 'image',
+      },
+      generationResult: {
+        templateId: 'bold-vertical',
+        result: boldVerticalResult(),
+        imageUrls: ['https://example.com/image.jpg'],
+        processedImages: {},
+      },
+    });
+    const draftBase = makeGenerationRow({
+      id: '88888888-8888-4888-8888-888888888888',
+      generationInput: {
+        rawTitle: '카피 생성 결과',
+        imageUrls: ['https://example.com/image.jpg'],
+        templateId: 'bold-vertical',
+        generationMode: 'draft',
+      },
+      generationResult: {
+        templateId: 'bold-vertical',
+        result: boldVerticalResult(),
+        imageUrls: ['https://example.com/image.jpg'],
+        processedImages: {},
+      },
+    });
+    prisma.contentGeneration.findMany = vi.fn().mockResolvedValue([
+      imageOnlyBase,
+      draftBase,
+    ]);
+    const service = makeService(
+      prisma,
+      textCompletion,
+      imageStorage,
+      operationAlerts,
+    );
+
+    await service.generate(
+      {
+        productId: MASTER_ID,
+        templateId: 'bold-vertical',
+        generationMode: 'image',
+        rawTitle: '휴대용목걸이비눗방울',
+        rawCategory: '완구',
+        rawDescription: '아이들이 가지고 놀기 좋은 장난감',
+        rawOptions: '혼합 색상 / 사이즈 85*60mm',
+        imageUrls: ['https://example.com/detail-1.jpg'],
+        sourceReferences: [
+          { sourceType: 'sourcing_candidate', sourceCandidateId: CANDIDATE_ID },
+        ],
+      },
+      ORGANIZATION_ID,
+      USER_ID,
+    );
+
+    expect(prisma.contentGeneration.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+      }),
+    );
+    expect(prisma.contentGeneration.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          generationInput: expect.objectContaining({
+            generationMode: 'image',
+            baseContentGenerationId: draftBase.id,
+          }),
+        }),
+      }),
+    );
   });
 
   it('stores the primary sourcing candidate directly on the ContentGeneration row', async () => {

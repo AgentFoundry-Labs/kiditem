@@ -27,6 +27,7 @@ import {
   candidatesApi,
   type PromoteCandidateResponse,
 } from '../../lib/sourcing-api';
+import { getInlineGenerationProgressLabel } from '../../lib/generation-progress-label';
 
 interface ProductEditHeaderProps {
   productName: string;
@@ -207,9 +208,11 @@ export default function ProductEditHeader({
                 kpInProgress.templateId === 'bold-vertical'
                   ? 'KIDITEM DESIGN'
                   : '트렌드 광고형 템플릿';
-              return kpInProgress.imageProcessingStatus === 'pending'
-                ? `${label} 카피 생성 중...`
-                : `${label} 이미지 생성 중...`;
+              return getInlineGenerationProgressLabel({
+                templateLabel: label,
+                imageProcessingStatus: kpInProgress.imageProcessingStatus,
+                rawInput: kpInProgress.rawInput,
+              });
             })()}
           </span>
         )}
