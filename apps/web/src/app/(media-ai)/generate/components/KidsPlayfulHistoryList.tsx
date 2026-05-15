@@ -31,8 +31,10 @@ import {
   type DetailPageDownloadOptions,
 } from '@/app/(sourcing)/sourcing/components/DownloadOptionsModal';
 import {
-  SAME_ORIGIN_SCRIPTLESS_SANDBOX,
+  SCRIPTED_PREVIEW_SANDBOX,
+  isDetailPreviewMetricsMessage,
   stripSrcDocScripts,
+  withDetailPreviewBridge,
 } from '@/app/(sourcing)/sourcing/lib/preview-sandbox';
 import { buildSourcingEditorHref } from '@/app/(sourcing)/sourcing/lib/sourcing-routing';
 import {
@@ -77,6 +79,47 @@ const DEFAULT_HISTORY_DOWNLOAD_OPTIONS: DetailPageDownloadOptions = {
   renderScale: 2,
   outputWidth: 860,
 };
+const HISTORY_PREVIEW_VIEWPORT_WIDTH = DEFAULT_HISTORY_DOWNLOAD_OPTIONS.viewportWidth;
+const HISTORY_PREVIEW_CANVAS_STYLE = `
+  <style data-kiditem-history-preview-canvas>
+    html,
+    body {
+      margin: 0 !important;
+      padding: 0 !important;
+      width: 100% !important;
+      min-width: 100% !important;
+      overflow-x: hidden !important;
+      scrollbar-width: none !important;
+      background: #ffffff;
+    }
+    html::-webkit-scrollbar,
+    body::-webkit-scrollbar {
+      width: 0 !important;
+      height: 0 !important;
+      display: none !important;
+    }
+    body > div:first-child,
+    body > main:first-child,
+    body > section:first-child,
+    body > div:first-child > div:first-child,
+    body > div:first-child > div:first-child > div:first-child {
+      width: 100% !important;
+      max-width: none !important;
+      margin-left: 0 !important;
+      margin-right: 0 !important;
+    }
+  </style>`;
+const HISTORY_PREVIEW_MODAL_STYLE = `
+  [data-history-preview-scroll] {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  [data-history-preview-scroll]::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none;
+  }
+`;
 
 function downloadFileName(entry: KidsPlayfulGenerationItem, format: DetailPageDownloadOptions['format']): string {
   const base = stripExclamation(entry.productName || rowDisplayTitle(entry) || 'detail-page')
@@ -89,6 +132,14 @@ function downloadFileName(entry: KidsPlayfulGenerationItem, format: DetailPageDo
 function canRenderGeneratedResult(entry: KidsPlayfulGenerationItem): boolean {
   if (entry.imageProcessingStatus !== 'completed') return false;
   return !!entry.result && typeof entry.result === 'object' && Object.keys(entry.result).length > 0;
+}
+
+function buildHistoryPreviewHtml(html: string): string {
+  const stripped = stripSrcDocScripts(html);
+  const withCanvasStyle = /<\/head\s*>/i.test(stripped)
+    ? stripped.replace(/<\/head\s*>/i, `${HISTORY_PREVIEW_CANVAS_STYLE}</head>`)
+    : `${HISTORY_PREVIEW_CANVAS_STYLE}${stripped}`;
+  return withDetailPreviewBridge(withCanvasStyle);
 }
 
 interface KidsPlayfulHistoryListProps {
@@ -330,7 +381,7 @@ function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
     }
     return buildKidsPlayfulHtml(rowToRendererData(previewEntry), templateCss);
   }, [editedHtml, editedHtmlLoaded, isBoldVertical, previewEntry, templateCss]);
-  const sandboxedHtml = useMemo(() => (html ? stripSrcDocScripts(html) : null), [html]);
+  const sandboxedHtml = useMemo(() => (html ? buildHistoryPreviewHtml(html) : null), [html]);
   const isPreviewLoading = isEntryLoading || templateCss == null || !editedHtmlLoaded;
   const editorHref = useMemo(
     () => buildSourcingEditorHref({
@@ -345,20 +396,41 @@ function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
   }, [editorHref, router]);
 
   const syncPreviewContentHeight = useCallback(() => {
-    const doc = iframeRef.current?.contentDocument;
-    if (!doc?.documentElement || !doc.body) return;
-    const height = Math.max(
-      1,
-      Math.ceil(
-        Math.max(
-          doc.documentElement.scrollHeight,
-          doc.documentElement.offsetHeight,
-          doc.body.scrollHeight,
-          doc.body.offsetHeight,
+    try {
+      const doc = iframeRef.current?.contentDocument;
+      if (!doc?.documentElement || !doc.body) return;
+      const height = Math.max(
+        1,
+        Math.ceil(
+          Math.max(
+            doc.documentElement.scrollHeight,
+            doc.documentElement.offsetHeight,
+            doc.body.scrollHeight,
+            doc.body.offsetHeight,
+          ),
         ),
-      ),
-    );
-    setPreviewContentHeight(height);
+      );
+      setPreviewContentHeight(height);
+    } catch {
+      // Scripted srcDoc previews intentionally run in an opaque sandboxed
+      // origin. The preview bridge posts authoritative metrics instead.
+    }
+  }, []);
+
+  useEffect(() => {
+    setPreviewContentHeight(1200);
+  }, [sandboxedHtml]);
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== iframeRef.current?.contentWindow) return;
+      if (!isDetailPreviewMetricsMessage(event.data)) return;
+      setPreviewContentHeight(Math.max(1, Math.ceil(event.data.scrollHeight)));
+    };
+    window.addEventListener('message', onMessage);
+    return () => {
+      window.removeEventListener('message', onMessage);
+    };
   }, []);
 
   const openDownloadOptions = useCallback(() => {
@@ -396,7 +468,11 @@ function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-2">
-      <div className="relative flex h-[98vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-slate-100 shadow-2xl">
+      <style>{HISTORY_PREVIEW_MODAL_STYLE}</style>
+      <div
+        className="relative flex h-[98vh] max-w-none flex-col overflow-hidden rounded-2xl bg-slate-100 shadow-2xl"
+        style={{ width: `min(calc(100vw - 16px), ${HISTORY_PREVIEW_VIEWPORT_WIDTH}px)` }}
+      >
         <div className="flex shrink-0 flex-col gap-2 border-b border-slate-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <div className="flex min-w-0 items-center gap-2">
             <Sparkles size={18} className="text-violet-600 shrink-0" />
@@ -428,14 +504,14 @@ function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+              className="-mr-2 rounded-md p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 sm:-mr-3"
               aria-label="닫기"
             >
               <X size={20} />
             </button>
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto bg-white">
+        <div data-history-preview-scroll className="flex-1 overflow-y-auto overflow-x-hidden bg-white">
           {isPreviewLoading ? (
             <div className="flex h-full items-center justify-center text-sm font-semibold text-slate-400">
               상세페이지 미리보기를 불러오는 중입니다.
@@ -445,14 +521,23 @@ function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
               생성된 상세페이지 결과물이 아직 없습니다.
             </div>
           ) : (
-            <iframe
-              ref={iframeRef}
-              title="상세페이지 생성 이력 미리보기"
-              srcDoc={sandboxedHtml}
-              className="h-full w-full border-0"
-              sandbox={SAME_ORIGIN_SCRIPTLESS_SANDBOX}
-              onLoad={syncPreviewContentHeight}
-            />
+            <div
+              className="flex min-h-full w-full justify-start"
+            >
+              <iframe
+                ref={iframeRef}
+                title="상세페이지 생성 이력 미리보기"
+                srcDoc={sandboxedHtml}
+                className="block shrink-0 border-0 bg-white"
+                style={{
+                  width: '100%',
+                  minWidth: `${HISTORY_PREVIEW_VIEWPORT_WIDTH}px`,
+                  height: `${previewContentHeight}px`,
+                }}
+                sandbox={SCRIPTED_PREVIEW_SANDBOX}
+                onLoad={syncPreviewContentHeight}
+              />
+            </div>
           )}
         </div>
       </div>
