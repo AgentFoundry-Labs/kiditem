@@ -51,6 +51,7 @@ export class DetailPageQueryService {
     const rows = await this.prisma.contentGeneration.findMany({
       where: {
         organizationId,
+        isDeleted: false,
         contentType: 'detail_page',
         ...(productId ? { generationGroup: { targetMasterId: productId } } : {}),
       },
@@ -65,7 +66,7 @@ export class DetailPageQueryService {
 
   async getById(id: string, organizationId: string): Promise<DetailPageGenerationDto> {
     const row = await this.prisma.contentGeneration.findFirst({
-      where: { id, organizationId },
+      where: { id, organizationId, isDeleted: false },
       include: detailPageGenerationInclude,
     });
     if (!row) throw new NotFoundException('Detail page generation not found');
@@ -74,11 +75,14 @@ export class DetailPageQueryService {
 
   async remove(id: string, organizationId: string): Promise<{ ok: true }> {
     const row = await this.prisma.contentGeneration.findFirst({
-      where: { id, organizationId },
+      where: { id, organizationId, isDeleted: false },
       select: { id: true },
     });
     if (!row) throw new NotFoundException('Detail page generation not found');
-    await this.prisma.contentGeneration.delete({ where: { id } });
+    await this.prisma.contentGeneration.update({
+      where: { id },
+      data: { isDeleted: true, deletedAt: new Date() },
+    });
     return { ok: true };
   }
 
@@ -88,10 +92,11 @@ export class DetailPageQueryService {
     html: string,
   ): Promise<{ html: string; savedAt: string; assetUrlMap: Record<string, string> }> {
     const row = await this.prisma.contentGeneration.findFirst({
-      where: { id, organizationId },
+      where: { id, organizationId, isDeleted: false },
       select: {
         id: true,
         generationGroupId: true,
+        registrationWorkspaceId: true,
         detailPageArtifactId: true,
         generatedTitle: true,
         sourceCandidateId: true,
@@ -124,6 +129,7 @@ export class DetailPageQueryService {
       const artifactId = row.detailPageArtifactId ?? (await tx.detailPageArtifact.create({
         data: {
           organizationId,
+          registrationWorkspaceId: row.registrationWorkspaceId,
           sourceCandidateId: row.sourceCandidateId,
           targetMasterId: row.generationGroup.targetMasterId,
           sourceContentGenerationId: id,
@@ -173,6 +179,16 @@ export class DetailPageQueryService {
         throw new NotFoundException('Detail page generation not found');
       }
 
+      if (row.registrationWorkspaceId) {
+        await tx.registrationWorkspace.updateMany({
+          where: { id: row.registrationWorkspaceId, organizationId, isDeleted: false },
+          data: {
+            currentDetailPageArtifactId: artifactId,
+            currentDetailPageRevisionId: createdRevision.id,
+          },
+        });
+      }
+
       return createdRevision;
     });
 
@@ -189,13 +205,14 @@ export class DetailPageQueryService {
     organizationId: string,
   ): Promise<{ html: string | null; savedAt: string | null }> {
     const row = await this.prisma.contentGeneration.findFirst({
-      where: { id, organizationId },
+      where: { id, organizationId, isDeleted: false },
       select: {
         id: true,
         editedHtml: true,
         editedHtmlSavedAt: true,
         detailPageArtifact: {
           select: {
+            isDeleted: true,
             currentRevision: {
               select: {
                 html: true,
@@ -208,7 +225,7 @@ export class DetailPageQueryService {
     });
     if (!row) throw new NotFoundException('Detail page generation not found');
     const currentRevision = row.detailPageArtifact?.currentRevision;
-    if (currentRevision) {
+    if (currentRevision && row.detailPageArtifact?.isDeleted === false) {
       return {
         html: currentRevision.html,
         savedAt: currentRevision.createdAt.toISOString(),
@@ -242,6 +259,8 @@ export class DetailPageQueryService {
     return {
       id: row.id,
       productId: row.generationGroup.targetMasterId,
+      sourceCandidateId: row.sourceCandidateId,
+      registrationWorkspaceId: row.registrationWorkspaceId,
       templateId: stored.templateId,
       productName,
       rawInput,

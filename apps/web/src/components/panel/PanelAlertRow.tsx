@@ -10,7 +10,6 @@ import { apiClient } from '@/lib/api-client';
 import { cn, timeAgo } from '@/lib/utils';
 import { PromoteToTaskModal } from './PromoteToTaskModal';
 import { usePanelStore } from './lib/panel-store';
-import { normalizeSourcingHref } from '@/app/(sourcing)/sourcing/lib/sourcing-routing';
 import type { PanelAlertItem } from '@kiditem/shared/panel';
 
 function severityIcon(severity: string) {
@@ -60,7 +59,7 @@ export function PanelAlertRow({ item }: { item: PanelAlertItem }) {
 
   const isOperation = item.alertKind === 'operation';
   const badge = isOperation ? operationStatusBadge(item.status) : null;
-  const href = normalizePanelAlertHref(item.href);
+  const href = item.href;
   const showProgress =
     isOperation &&
     (item.status === 'running' || item.status === 'pending') &&
@@ -202,8 +201,4 @@ export function PanelAlertRow({ item }: { item: PanelAlertItem }) {
       )}
     </>
   );
-}
-
-function normalizePanelAlertHref(href: string | null): string | null {
-  return normalizeSourcingHref(href);
 }

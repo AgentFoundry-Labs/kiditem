@@ -116,7 +116,7 @@ describe('AgentRunOperationAlertBridge', () => {
         sourceType: 'agent_run_request',
         sourceId: REQUEST_ID,
         actorUserId: USER_ID,
-        href: '/sourcing?contentType=image',
+        href: '/product-pipeline/registered-products?contentType=image',
         severity: 'error',
         metadata: expect.objectContaining({
           agentType: 'image_edit',
@@ -139,12 +139,12 @@ describe('AgentRunOperationAlertBridge', () => {
   });
 
   it.each([
-    { source: 'ai.image_edit', href: '/sourcing?contentType=image' },
+    { source: 'ai.image_edit', href: '/product-pipeline/registered-products?contentType=image' },
     { source: 'advertising.ad_strategy.manual', href: '/ad-ops' },
-    { source: 'sourcing.scrape_url', href: '/sourcing' },
-    { source: 'ai.thumbnail_auto_edit', href: '/thumbnails' },
-    { source: 'ai.thumbnail_generate', href: '/thumbnails' },
-    { source: 'thumbnail_generate', href: '/thumbnails' },
+    { source: 'sourcing.scrape_url', href: '/product-pipeline/collected-products' },
+    { source: 'ai.thumbnail_auto_edit', href: '/product-pipeline/thumbnail-generation' },
+    { source: 'ai.thumbnail_generate', href: '/product-pipeline/thumbnail-generation' },
+    { source: 'thumbnail_generate', href: '/product-pipeline/thumbnail-generation' },
     { source: 'rules.evaluation', href: '/dashboard' },
     { source: 'rules.suggest', href: '/dashboard' },
     { source: 'mystery.unknown.source', href: '/dashboard' },

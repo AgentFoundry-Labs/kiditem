@@ -208,20 +208,20 @@ describe('PanelAlertRow', () => {
       expect(link).toHaveAttribute('href', '/products/abc');
     });
 
-    it('normalizes retired product-content detail-page editor hrefs to sourcing', () => {
+    it('renders canonical product-pipeline hrefs without runtime legacy normalization', () => {
       render(
         <PanelAlertRow
           item={makeAlert({
             alertKind: 'operation',
             status: 'succeeded',
-            href: '/product-content/product-123/editor?generationId=generation-456',
+            href: '/product-pipeline/detail-pages/generation-456/editor?sourceCandidateId=product-123&returnTo=%2Fproduct-pipeline%2Fcollected-products%2Fproduct-123',
           })}
         />,
       );
       const link = screen.getByRole('link', { name: /이동/ });
       expect(link).toHaveAttribute(
         'href',
-        '/sourcing/detail-pages/generation-456/editor',
+        '/product-pipeline/detail-pages/generation-456/editor?sourceCandidateId=product-123&returnTo=%2Fproduct-pipeline%2Fcollected-products%2Fproduct-123',
       );
     });
 

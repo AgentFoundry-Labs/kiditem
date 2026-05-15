@@ -34,6 +34,7 @@ model Organization {
   contentGenerationSources     ContentGenerationSource[]
   contentAssets                ContentAsset[]
   contentGenerationAssetUsages ContentGenerationAssetUsage[]
+  registrationWorkspaces       RegistrationWorkspace[]
   detailPageArtifacts          DetailPageArtifact[]
   detailPageRevisions          DetailPageRevision[]
 
@@ -158,6 +159,7 @@ model User {
   thumbnailGenerationEvents      ThumbnailGenerationEvent[] @relation("ThumbnailGenerationEventActor")
   triggeredContentGenerations    ContentGeneration[]        @relation("ContentGenerationTriggeredBy")
   createdContentAssets           ContentAsset[]             @relation("ContentAssetCreatedBy")
+  createdRegistrationWorkspaces  RegistrationWorkspace[]    @relation("RegistrationWorkspaceCreatedBy")
   createdDetailPageArtifacts     DetailPageArtifact[]       @relation("DetailPageArtifactCreatedBy")
   createdDetailPageRevisions     DetailPageRevision[]       @relation("DetailPageRevisionCreatedBy")
   actorAlerts                    Alert[]                    @relation("AlertActor")
@@ -328,6 +330,7 @@ model MasterProduct {
 
   contentGenerationGroups ContentGenerationGroup[]
   detailPageArtifacts     DetailPageArtifact[]     @relation("DetailPageArtifactTargetMaster")
+  registrationWorkspaces  RegistrationWorkspace[]  @relation("RegistrationWorkspaceTargetMaster")
   thumbnailAnalyses       ThumbnailAnalysis[]
   thumbnailGenerations    ThumbnailGeneration[]
   gradeHistory            GradeHistory[]

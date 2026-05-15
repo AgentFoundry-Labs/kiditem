@@ -74,6 +74,10 @@ describe('removed market-data migration entrypoints', () => {
     ]) {
       expect(existsSync(join(repoRoot, relativePath))).toBe(false);
     }
+
+    const dockerCompose = readFileSync(join(repoRoot, 'docker-compose.yml'), 'utf8');
+    expect(dockerCompose).not.toContain('scripts/init-agent-reader.sql');
+    expect(dockerCompose).not.toContain('scripts/init-langfuse-db.sql');
   });
 });
 

@@ -7,8 +7,12 @@ import {
   useBoldVerticalGenerationList,
   useKidsPlayfulGenerationList,
   type KidsPlayfulGenerationItem,
-} from '@/app/(media-ai)/generate/hooks/useKidsPlayfulGenerate';
-import { buildSourcingEditorHref } from '@/app/(sourcing)/sourcing/lib/sourcing-routing';
+} from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate';
+import {
+  collectedProductDetailHref,
+  detailPageEditorHref,
+  registeredProductDetailHref,
+} from '@/app/(product-pipeline)/product-pipeline/_shared/lib/product-pipeline-routes';
 
 const IN_PROGRESS_STATUSES = new Set(['pending', 'processing']);
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
@@ -43,9 +47,16 @@ export default function GenerationCompletionWatcher() {
         TERMINAL_STATUSES.has(current)
       ) {
         const isBoldVertical = entry.templateId === 'bold-vertical';
-        const editorUrl = buildSourcingEditorHref({
-          candidateId: sourceCandidateIdFromGeneration(entry),
+        const sourceCandidateId = sourceCandidateIdFromGeneration(entry);
+        const returnTo = sourceCandidateId
+          ? collectedProductDetailHref(sourceCandidateId)
+          : entry.registrationWorkspaceId
+            ? registeredProductDetailHref(entry.registrationWorkspaceId)
+            : null;
+        const editorUrl = detailPageEditorHref({
+          candidateId: sourceCandidateId,
           generationId: entry.id,
+          returnTo,
         });
         const productLabel = entry.productName || '상세페이지';
 

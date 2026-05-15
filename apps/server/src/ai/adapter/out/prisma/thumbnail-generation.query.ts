@@ -174,6 +174,7 @@ export async function findGenerationRows(
   const rows = await prisma.thumbnailGeneration.findMany({
     where: {
       organizationId,
+      isDeleted: false,
       ...(opts.sourceCandidateId
         ? { sourceCandidateId: opts.sourceCandidateId }
         : opts.productId
@@ -193,7 +194,7 @@ export async function findGenerationOrThrow(
   organizationId: string,
 ): Promise<GenerationRow> {
   const row = await prisma.thumbnailGeneration.findFirst({
-    where: { id, organizationId },
+    where: { id, organizationId, isDeleted: false },
     include: generationInclude(organizationId),
   });
   if (!row) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
@@ -206,7 +207,7 @@ export async function findGenerationWithCandidatesOrThrow(
   organizationId: string,
 ) {
   const row = await prisma.thumbnailGeneration.findFirst({
-    where: { id, organizationId },
+    where: { id, organizationId, isDeleted: false },
     include: { candidates: candidatesInclude(organizationId) },
   });
   if (!row) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
@@ -219,7 +220,7 @@ export async function findGenerationWithInputImages(
   organizationId: string,
 ) {
   return prisma.thumbnailGeneration.findFirst({
-    where: { id, organizationId },
+    where: { id, organizationId, isDeleted: false },
     include: {
       inputImages: inputImagesInclude(organizationId),
     },
@@ -236,6 +237,7 @@ export async function findActiveJobForProduct(
     where: {
       masterId,
       organizationId,
+      isDeleted: false,
       method,
       status: { in: ['pending', 'running'] },
     },
@@ -254,6 +256,7 @@ export async function findRecentAutoJob(
     where: {
       organizationId,
       masterId,
+      isDeleted: false,
       method: 'auto',
       createdAt: { gte: cooldownStart },
     },

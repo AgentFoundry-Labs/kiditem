@@ -118,12 +118,17 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
     limit: number;
     sort: 'newest' | 'oldest' | 'name_asc';
     platform?: string;
+    sourcePlatforms?: string[];
   }): Promise<{ items: Array<CandidateRow & { images: CandidateImageRow[] }>; total: number }> {
     const where = {
       organizationId: query.organizationId,
       isDeleted: false,
       status: 'sourced',
-      ...(query.platform ? { sourcePlatform: query.platform } : {}),
+      ...(query.platform
+        ? { sourcePlatform: query.platform }
+        : query.sourcePlatforms?.length
+          ? { sourcePlatform: { in: query.sourcePlatforms } }
+          : {}),
     };
     const orderBy =
       query.sort === 'oldest' ? { createdAt: 'asc' as const } :
@@ -150,6 +155,42 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
         ...toRow(row),
         images: row.images.map(toImageRow),
       })),
+    };
+  }
+
+  async archiveSourcedWorkspace(
+    tx: Prisma.TransactionClient,
+    input: { id: string; organizationId: string; archivedAt: Date },
+  ): Promise<{ archivedCandidate: boolean; archivedCandidateImages: number }> {
+    const candidate = await tx.sourcingCandidate.updateMany({
+      where: {
+        id: input.id,
+        organizationId: input.organizationId,
+        isDeleted: false,
+        status: 'sourced',
+      },
+      data: {
+        isDeleted: true,
+        deletedAt: input.archivedAt,
+      },
+    });
+    if (candidate.count === 0) {
+      return { archivedCandidate: false, archivedCandidateImages: 0 };
+    }
+    const images = await tx.candidateImage.updateMany({
+      where: {
+        candidateId: input.id,
+        organizationId: input.organizationId,
+        isDeleted: false,
+      },
+      data: {
+        isDeleted: true,
+        deletedAt: input.archivedAt,
+      },
+    });
+    return {
+      archivedCandidate: true,
+      archivedCandidateImages: images.count,
     };
   }
 

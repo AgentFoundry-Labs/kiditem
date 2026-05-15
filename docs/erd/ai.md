@@ -16,6 +16,7 @@
 | ContentGenerationSource | `content_generation_sources` | Generation-level provenance. The source of a generated work unit can be a sourcing candidate, input asset, or another generation. |
 | DetailPageArtifact | `detail_page_artifacts` | Candidate-centered editable detail-page artifact. One artifact owns the user-visible draft line; revisions keep generated/manual HTML history. |
 | DetailPageRevision | `detail_page_revisions` | Append-only detail-page HTML revision. Editor saves create rows; DetailPageArtifact.currentRevisionId selects the active version. |
+| RegistrationWorkspace | `registration_workspaces` | Registration pipeline workspace. Detail-page generations for the same owner/title accumulate here as selectable history before or after MasterProduct creation. |
 | Thumbnail | `thumbnails` | CTR 기반 썸네일 트래킹 (ThumbnailAnalysis 와 별도 시스템). |
 | ThumbnailAnalysis | `thumbnail_analyses` | 5차원 scores(heroShot·composition·branding·mobile·differentiation) + complianceGrade(PASS/WARN/FAIL) + imageSpec(사전검수). 스펙 FAIL 시 AI 호출 생략. |
 | ThumbnailGeneration | `thumbnail_generations` | 상태: pending→generating→ready/failed→applied/skipped. method=edit 만 사용 (generate Imagen 방식 삭제됨). |
@@ -56,6 +57,7 @@ erDiagram
     String id PK
     String organizationId FK
     String generationGroupId FK
+    String registrationWorkspaceId FK
     String sourceCandidateId FK
     String detailPageArtifactId FK
     String contentType
@@ -71,6 +73,8 @@ erDiagram
     Int retryCount
     String errorMessage
     String triggeredByUserId FK
+    Boolean isDeleted
+    DateTime deletedAt
     DateTime createdAt
     DateTime updatedAt
   }
@@ -112,6 +116,7 @@ erDiagram
   DetailPageArtifact {
     String id PK
     String organizationId FK
+    String registrationWorkspaceId FK
     String sourceCandidateId FK
     String targetMasterId FK
     String sourceContentGenerationId FK
@@ -120,6 +125,8 @@ erDiagram
     String status
     Json metadata
     String createdByUserId FK
+    Boolean isDeleted
+    DateTime deletedAt
     DateTime createdAt
     DateTime updatedAt
   }
@@ -134,6 +141,23 @@ erDiagram
     Json imageUrls
     String createdByUserId FK
     DateTime createdAt
+  }
+  RegistrationWorkspace {
+    String id PK
+    String organizationId FK
+    String ownerType
+    String sourceCandidateId FK
+    String targetMasterId FK
+    String displayName
+    String normalizedTitle
+    String status
+    String currentDetailPageArtifactId FK
+    String currentDetailPageRevisionId FK
+    String createdByUserId FK
+    Boolean isDeleted
+    DateTime deletedAt
+    DateTime createdAt
+    DateTime updatedAt
   }
   Thumbnail {
     String id PK
@@ -189,6 +213,8 @@ erDiagram
     String errorMessage
     Int attemptCount
     String triggeredByUserId FK
+    Boolean isDeleted
+    DateTime deletedAt
     DateTime createdAt
     DateTime updatedAt
   }
@@ -302,7 +328,11 @@ erDiagram
   ContentGenerationGroup ||--o{ ContentGeneration : "generationGroup"
   DetailPageArtifact o|--o{ ContentGeneration : "detailPageArtifact"
   DetailPageArtifact ||--o{ DetailPageRevision : "artifact"
+  DetailPageArtifact o|--o{ RegistrationWorkspace : "currentDetailPageArtifact"
   DetailPageRevision o|--o{ DetailPageArtifact : "currentRevision"
+  DetailPageRevision o|--o{ RegistrationWorkspace : "currentDetailPageRevision"
+  RegistrationWorkspace o|--o{ ContentGeneration : "registrationWorkspace"
+  RegistrationWorkspace o|--o{ DetailPageArtifact : "registrationWorkspace"
   ThumbnailGeneration ||--o{ ThumbnailGenerationCandidate : "generation"
   ThumbnailGeneration ||--o{ ThumbnailGenerationEvent : "generation"
   ThumbnailGeneration ||--o{ ThumbnailGenerationInputImage : "generation"
@@ -332,6 +362,10 @@ erDiagram
 | DetailPageArtifact | targetMaster | references external | Core | MasterProduct |
 | DetailPageRevision | createdByUser | references external | Core | User |
 | DetailPageRevision | organization | references external | Core | Organization |
+| RegistrationWorkspace | createdByUser | references external | Core | User |
+| RegistrationWorkspace | organization | references external | Core | Organization |
+| RegistrationWorkspace | sourceCandidate | references external | Sourcing | SourcingCandidate |
+| RegistrationWorkspace | targetMaster | references external | Core | MasterProduct |
 | Thumbnail | listing | references external | Core | ChannelListing |
 | Thumbnail | organization | references external | Core | Organization |
 | ThumbnailAnalysis | master | references external | Core | MasterProduct |

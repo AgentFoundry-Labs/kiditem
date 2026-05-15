@@ -16,7 +16,8 @@ cd kiditem
 npm install
 
 # 환경 변수
-cp apps/server/.env.example apps/server/.env   # NestJS — DB, Coupang, Gemini 키
+cp .env.example .env                           # Root tooling — Prisma/dev bootstrap/dev data
+cp apps/server/.env.example apps/server/.env   # NestJS — DB, Supabase, Gemini/Agent OS, storage
 cp agents/.env.example agents/.env             # Python sourcing agents — DB, TMAPI, Langfuse
 
 # Python 가상환경 (sourcing agents 실행 시 필요)
@@ -95,43 +96,16 @@ extensions/          — Chrome 익스텐션 (1688/Alibaba 스크래퍼)
 
 ## 환경 변수
 
-### apps/server/.env
+각 런타임의 `.env`는 같은 위치의 `.env.example`을 기준으로 관리한다.
 
-```
-DATABASE_URL=postgresql://kiditem:kiditem@localhost:5433/kiditem
+| 파일 | 용도 |
+|---|---|
+| `.env` | 루트 도구용: Prisma CLI, dev bootstrap, dev data sync |
+| `apps/server/.env` | NestJS API 런타임: DB, Supabase, storage, Gemini/Agent OS, Playwriter |
+| `apps/web/.env.local` | Next.js public env: API URL, Supabase publishable key |
+| `agents/.env` | Python sourcing agents: DB, VectorEngine/OpenAI/Gemini, TMAPI, Langfuse |
 
-# Coupang Wing API
-COUPANG_ACCESS_KEY=
-COUPANG_SECRET_KEY=
-COUPANG_VENDOR_ID=
-
-# AI (워크플로우 분석)
-GEMINI_API_KEY=
-AI_TEXT_MODEL=gemini-2.5-flash
-```
-
-### agents/.env
-
-```
-DATABASE_URL=postgresql://kiditem:kiditem@localhost:5433/kiditem
-
-# AI API 키
-AI_MODE=proxy                        # proxy (VectorEngine) or direct
-AI_BASE_URL=https://api.vectorengine.ai/v1
-OPENAI_API_KEY=sk-...
-GEMINI_API_KEY=AI...
-VECTORENGINE_API_KEY=sk-...
-FAL_KEY=...
-
-# AI 모델
-AI_TEXT_MODEL=gemini-2.5-flash
-AI_IMAGE_ANALYSIS_MODEL=gemini-3.1-flash-lite-preview
-
-# Langfuse (선택)
-LANGFUSE_PUBLIC_KEY=pk-lf-...
-LANGFUSE_SECRET_KEY=sk-lf-...
-LANGFUSE_BASE_URL=https://cloud.langfuse.com
-```
+앱 런타임용 AI/provider/marketplace 시크릿은 루트 `.env`에 두지 않는다.
 
 ## 테스트
 

@@ -279,6 +279,7 @@ erDiagram
 | MasterProduct | promotedMaster | referenced by external | Sourcing | SourcingCandidate |
 | MasterProduct | targetMaster | referenced by external | AI | ContentGenerationGroup |
 | MasterProduct | targetMaster | referenced by external | AI | DetailPageArtifact |
+| MasterProduct | targetMaster | referenced by external | AI | RegistrationWorkspace |
 | MasterProductImage | masterImage | referenced by external | AI | ThumbnailGenerationInputImage |
 | Organization | organization | referenced by external | Advertising | AdAction |
 | Organization | organization | referenced by external | Advertising | ExecutionWorker |
@@ -301,6 +302,7 @@ erDiagram
 | Organization | organization | referenced by external | AI | ContentGenerationSource |
 | Organization | organization | referenced by external | AI | DetailPageArtifact |
 | Organization | organization | referenced by external | AI | DetailPageRevision |
+| Organization | organization | referenced by external | AI | RegistrationWorkspace |
 | Organization | organization | referenced by external | AI | Thumbnail |
 | Organization | organization | referenced by external | AI | ThumbnailAnalysis |
 | Organization | organization | referenced by external | AI | ThumbnailGeneration |
@@ -371,6 +373,7 @@ erDiagram
 | User | createdByUser | referenced by external | AI | ContentAsset |
 | User | createdByUser | referenced by external | AI | DetailPageArtifact |
 | User | createdByUser | referenced by external | AI | DetailPageRevision |
+| User | createdByUser | referenced by external | AI | RegistrationWorkspace |
 | User | decidedBy | referenced by external | AgentOS | AgentApprovalRequest |
 | User | decidedBy | referenced by external | AgentOS | AgentAuthorizationEvent |
 | User | rejectedByUser | referenced by external | Sourcing | SourcingCandidate |

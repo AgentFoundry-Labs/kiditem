@@ -13,3 +13,7 @@ export {
   AttachContentGroupToProductDto,
   ListContentArchiveQueryDto,
 } from './content-archive.dto';
+export {
+  DuplicateRegistrationWorkspaceQueryDto,
+  ListRegistrationWorkspacesQueryDto,
+} from './registration-workspace.dto';

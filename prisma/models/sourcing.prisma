@@ -43,6 +43,7 @@ model SourcingCandidate {
   contentGenerationSources ContentGenerationSource[]
   contentGenerations       ContentGeneration[]       @relation("ContentGenerationPrimarySourcingCandidate")
   detailPageArtifacts      DetailPageArtifact[]      @relation("DetailPageArtifactSourcingCandidate")
+  registrationWorkspaces   RegistrationWorkspace[]   @relation("RegistrationWorkspaceSourcingCandidate")
   thumbnailGenerations     ThumbnailGeneration[]     @relation("ThumbnailGenerationSourcingCandidate")
 
   @@unique([organizationId, sourceUrl], map: "sourcing_candidates_organization_id_source_url_key", where: raw("is_deleted = false AND status = 'sourced'"))

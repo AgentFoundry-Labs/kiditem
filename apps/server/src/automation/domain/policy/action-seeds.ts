@@ -74,7 +74,7 @@ export function generateActionTaskSeeds(metrics: ActionTaskSeedMetrics): ActionT
       taskKey: 'h-thumbnail', type: 'human',
       label: `썸네일 개선 필요 ${metrics.lowCtrProducts}개 — CTR 1.5% 미만`,
       detail: '메인 이미지 교체, 텍스트 삽입, 배경 정리로 클릭률 개선',
-      where: '포토샵/쿠팡 윙', priority: 'high', role: 'data', href: '/thumbnails',
+      where: '포토샵/쿠팡 윙', priority: 'high', role: 'data', href: '/product-pipeline/thumbnail-generation',
     });
   }
   if (metrics.lowReviewProducts > 0) {

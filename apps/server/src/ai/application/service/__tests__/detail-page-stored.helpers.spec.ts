@@ -93,7 +93,7 @@ describe('detail-page stored JSON helpers', () => {
       productId: 'product-123',
       contentGenerationId: 'generation-456',
       templateId: 'bold-vertical',
-    })).toBe('/sourcing/detail-pages/generation-456/editor');
+    })).toBe('/product-pipeline/detail-pages/generation-456/editor');
   });
 
   it('builds candidate-scoped detail-page result links when sourcing provenance exists', () => {
@@ -102,6 +102,6 @@ describe('detail-page stored JSON helpers', () => {
       sourceCandidateId: 'candidate-123',
       contentGenerationId: 'generation-456',
       templateId: 'bold-vertical',
-    })).toBe('/sourcing/candidate-123/editor?generationId=generation-456');
+    })).toBe('/product-pipeline/detail-pages/generation-456/editor?sourceCandidateId=candidate-123&returnTo=%2Fproduct-pipeline%2Fcollected-products%2Fcandidate-123');
   });
 });

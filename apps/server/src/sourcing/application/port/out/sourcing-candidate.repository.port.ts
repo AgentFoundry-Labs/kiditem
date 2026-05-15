@@ -89,5 +89,12 @@ export interface SourcingCandidateRepositoryPort {
     limit: number;
     sort: 'newest' | 'oldest' | 'name_asc';
     platform?: string;
+    sourcePlatforms?: string[];
   }): Promise<{ items: Array<CandidateRow & { images: CandidateImageRow[] }>; total: number }>;
+
+  /** Archive an active sourcing inbox workspace root and its source images. */
+  archiveSourcedWorkspace(
+    tx: Prisma.TransactionClient,
+    input: { id: string; organizationId: string; archivedAt: Date },
+  ): Promise<{ archivedCandidate: boolean; archivedCandidateImages: number }>;
 }

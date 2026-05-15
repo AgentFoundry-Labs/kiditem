@@ -23,6 +23,7 @@ ai/
 │   ├── prisma/               # legacy thumbnail persistence/query adapters
 │   └── wing/                 # Wing automation adapter
 ├── application/
+│   ├── port/in/              # cross-domain inbound ports exported by AiModule
 │   ├── port/out/             # text/media/fetch/storage/wing/sink ports
 │   └── service/              # orchestration services
 ├── domain/                   # pure prompt builders, schemas, policies
@@ -42,7 +43,7 @@ ai/
 | `DELETE /api/ai/content-archive/products/:productId` | mutation | deletes generated content rows for one product workspace; does not delete `MasterProduct` |
 | `GET /api/ai/content-archive/groups/:groupId` | read model | generated rows for one unlinked workspace |
 | `DELETE /api/ai/content-archive/groups/:groupId` | mutation | deletes generated content rows for one unlinked workspace and its empty group row |
-| `POST /api/ai/content-archive/groups/:groupId/attach-product` | mutation | attaches all group generations/assets to the product workspace group for a `MasterProduct` |
+| `POST /api/ai/content-archive/groups/:groupId/attach-product` | mutation | attaches group generations/assets to a product workspace |
 | `POST /api/ai/content-archive/:generationId/rerun` | async Agent OS | creates a same-input rerun in the explicit generation group |
 | `GET /api/ai/content-archive/sourcing/:candidateId` | read model | sourcing-candidate provenance links into produced content |
 | `GET /api/ai/content-assets` | read model | lists reusable content image assets |
@@ -70,6 +71,9 @@ ai/
 - `DetailPageAiService` is a facade. Put new behavior in
   `DetailPageGenerationService`, `DetailPagePrefillService`, or
   `DetailPageQueryService`.
+- Sourcing workspace archive requests enter AI through
+  `AI_WORKSPACE_ARCHIVE_PORT`; sourcing must not update AI artifact tables
+  directly.
 - When generation controls change, check the whole contract chain:
   shared tuple/type, HTTP DTO, web payload, Agent OS input/output schema, stored
   rawInput normalizer, sink, and reconcile.
@@ -131,6 +135,13 @@ not a source row.
 row live in `ContentGenerationAssetUsage`; saving edited detail-page HTML
 replaces that usage set from the HTML `<img>` URLs.
 
+Archive/delete of generated work is logical first: active queries filter
+`isDeleted=false` on `ContentGeneration`, `DetailPageArtifact`,
+`ThumbnailGeneration`, and `ContentAsset`. Object storage deletion is a separate
+retention/GC concern and must first prove no active `MasterProductImage`,
+`CandidateImage`, thumbnail generation image, thumbnail input, or content asset
+still references the same storage key.
+
 Editable detail-page HTML is stored as append-only `DetailPageRevision` rows;
 `DetailPageArtifact.currentRevisionId` selects the active version. The
 `/edited-html` API remains the compatibility endpoint, but new saves must not
@@ -185,8 +196,7 @@ rewriting temporary URLs to permanent asset URLs and syncing
 
 ## Post-Promotion Trigger
 
-The sourcing-candidate split (issue #192) introduces an inbound port for
-post-promotion AI generation:
+Post-promotion AI generation uses an inbound port:
 
 - Port: `POST_PROMOTION_AI_TRIGGER_PORT` in `application/port/in/`
 - Service: `PostPromotionAiService` — mirrors

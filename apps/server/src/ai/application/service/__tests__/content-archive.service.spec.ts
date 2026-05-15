@@ -118,7 +118,7 @@ describe('ContentArchiveService', () => {
           title: '키즈 퍼즐',
           detailPageCount: 1,
           imageCount: 0,
-          href: `/sourcing?masterId=${PRODUCT_ID}`,
+          href: `/product-pipeline/registered-products?masterId=${PRODUCT_ID}`,
         },
         {
           workspaceType: 'unlinked_group',
@@ -126,14 +126,14 @@ describe('ContentArchiveService', () => {
           title: '미연결 작업',
           detailPageCount: 0,
           imageCount: 1,
-          href: `/sourcing?generationGroupId=${GROUP_ID}`,
+          href: `/product-pipeline/registered-products?generationGroupId=${GROUP_ID}`,
         },
       ],
     });
 
     expect(prisma.contentGeneration.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { organizationId: ORG },
+        where: { organizationId: ORG, isDeleted: false },
         include: expect.objectContaining({
           assetUsages: expect.any(Object),
         }),
@@ -165,6 +165,7 @@ describe('ContentArchiveService', () => {
     expect(prisma.contentGeneration.count).toHaveBeenCalledWith({
       where: {
         organizationId: ORG,
+        isDeleted: false,
         generationGroup: { targetMasterId: PRODUCT_ID },
       },
     });
@@ -172,6 +173,7 @@ describe('ContentArchiveService', () => {
       expect.objectContaining({
         where: {
           organizationId: ORG,
+          isDeleted: false,
           generationGroup: { targetMasterId: PRODUCT_ID },
         },
       }),
@@ -208,7 +210,7 @@ describe('ContentArchiveService', () => {
       items: [
         {
           id: candidateRow.id,
-          href: `/sourcing/${CANDIDATE_ID}/editor?generationId=${candidateRow.id}`,
+          href: `/product-pipeline/detail-pages/${candidateRow.id}/editor?sourceCandidateId=${CANDIDATE_ID}&returnTo=%2Fproduct-pipeline%2Fcollected-products%2F${CANDIDATE_ID}`,
           detailPageData: {},
         },
       ],
@@ -222,8 +224,9 @@ describe('ContentArchiveService', () => {
           OR: [
             { sourceCandidateId: CANDIDATE_ID },
             { sources: { some: { sourceCandidateId: CANDIDATE_ID } } },
-            { detailPageArtifact: { is: { sourceCandidateId: CANDIDATE_ID } } },
+            { detailPageArtifact: { is: { sourceCandidateId: CANDIDATE_ID, isDeleted: false } } },
           ],
+          isDeleted: false,
         },
       }),
     );
@@ -236,6 +239,7 @@ describe('ContentArchiveService', () => {
       detailPageArtifact: {
         id: 'artifact-1',
         sourceCandidateId: CANDIDATE_ID,
+        isDeleted: false,
         currentRevisionId: 'revision-1',
         currentRevision: {
           id: 'revision-1',
@@ -276,7 +280,7 @@ describe('ContentArchiveService', () => {
               createdAt: '2026-05-13T10:00:00.000Z',
             },
           ],
-          href: `/sourcing/${CANDIDATE_ID}/editor?generationId=${candidateRow.id}`,
+          href: `/product-pipeline/detail-pages/${candidateRow.id}/editor?sourceCandidateId=${CANDIDATE_ID}&returnTo=%2Fproduct-pipeline%2Fcollected-products%2F${CANDIDATE_ID}`,
         },
       ],
       total: 1,
@@ -290,13 +294,10 @@ describe('ContentArchiveService', () => {
           { id: 'generation-product-1', generationGroupId: GROUP_ID },
           { id: 'generation-product-2', generationGroupId: GROUP_ID },
         ]),
-        deleteMany: vi.fn().mockResolvedValue({ count: 2 }),
+        updateMany: vi.fn().mockResolvedValue({ count: 2 }),
       },
-      contentGenerationAssetUsage: {
-        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
-      },
-      contentGenerationGroup: {
-        deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+      contentAsset: {
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
       },
     };
     const prisma = {
@@ -311,27 +312,33 @@ describe('ContentArchiveService', () => {
     });
 
     expect(tx.contentGeneration.findMany).toHaveBeenCalledWith({
-      where: { organizationId: ORG, generationGroup: { targetMasterId: PRODUCT_ID } },
+      where: { organizationId: ORG, isDeleted: false, generationGroup: { targetMasterId: PRODUCT_ID } },
       select: { id: true, generationGroupId: true },
     });
-    expect(tx.contentGenerationAssetUsage.deleteMany).toHaveBeenCalledWith({
+    expect(tx.contentAsset.updateMany).toHaveBeenCalledWith({
       where: {
         organizationId: ORG,
-        contentGenerationId: { in: ['generation-product-1', 'generation-product-2'] },
+        isDeleted: false,
+        usages: {
+          some: { contentGenerationId: { in: ['generation-product-1', 'generation-product-2'] } },
+          none: {
+            contentGeneration: {
+              organizationId: ORG,
+              isDeleted: false,
+              id: { notIn: ['generation-product-1', 'generation-product-2'] },
+            },
+          },
+        },
       },
+      data: expect.objectContaining({ isDeleted: true }),
     });
-    expect(tx.contentGeneration.deleteMany).toHaveBeenCalledWith({
+    expect(tx.contentGeneration.updateMany).toHaveBeenCalledWith({
       where: {
         organizationId: ORG,
+        isDeleted: false,
         id: { in: ['generation-product-1', 'generation-product-2'] },
       },
-    });
-    expect(tx.contentGenerationGroup.deleteMany).toHaveBeenCalledWith({
-      where: {
-        organizationId: ORG,
-        id: { in: [GROUP_ID] },
-        generations: { none: {} },
-      },
+      data: expect.objectContaining({ isDeleted: true }),
     });
   });
 
@@ -343,10 +350,10 @@ describe('ContentArchiveService', () => {
       },
       contentGeneration: {
         findMany: vi.fn().mockResolvedValue([{ id: 'generation-group-1' }]),
-        deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
-      contentGenerationAssetUsage: {
-        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+      contentAsset: {
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
       },
     };
     const prisma = {
@@ -367,17 +374,11 @@ describe('ContentArchiveService', () => {
     expect(tx.contentGeneration.findMany).toHaveBeenCalledWith({
       where: {
         organizationId: ORG,
+        isDeleted: false,
         generationGroupId: GROUP_ID,
         generationGroup: { targetMasterId: null },
       },
       select: { id: true },
-    });
-    expect(tx.contentGenerationGroup.deleteMany).toHaveBeenCalledWith({
-      where: {
-        id: GROUP_ID,
-        organizationId: ORG,
-        generations: { none: {} },
-      },
     });
   });
 });

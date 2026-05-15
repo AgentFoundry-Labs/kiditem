@@ -215,9 +215,9 @@ Kinds:
 | `apps/web/src/app/(catalog)` | Route Group | `product-hub`, `products` |
 | `apps/web/src/app/(finance)` | Route Group | `_shared`, `finance-hub`, `profit-loss`, `reports`, `sales-analysis`, `supplier-hub` |
 | `apps/web/src/app/(inventory)` | Route Group | `_shared`, `inventory`, `inventory-hub`, `outbound`, `stock-ops`, `unshipped-items`, `warehouses` |
-| `apps/web/src/app/(media-ai)` | Route Group | `_shared`, `generate`, `thumbnail-editor`, `thumbnails` |
 | `apps/web/src/app/(orders)` | Route Group | `_shared`, `cs-management`, `order-hub`, `order-status-hub`, `orders`, `return-scan`, `returns`, `reviews` |
-| `apps/web/src/app/(sourcing)` | Route Group | `sourcing`, `sourcing-ai` |
+| `apps/web/src/app/(sourcing-ai)` | Route Group | `sourcing-ai` |
+| `apps/web/src/app/(product-pipeline)` | Route Group | `product-pipeline/collected-products`, `product-pipeline/registered-products`, `product-pipeline/detail-template-generation`, `product-pipeline/thumbnail-ai`, `product-pipeline/thumbnail-generation`, `product-pipeline/thumbnail-generation/edit` |
 | `apps/web/src/app/(supply)` | Route Group | `purchase-orders`, `suppliers` |
 | `apps/web/src/app/agent-os` | App Internal | Fullscreen visualization surface, separate from `/agents`. |
 | `apps/web/src/app/auth` | App Internal | Auth callback subtree. |
@@ -228,16 +228,31 @@ Kinds:
 
 Notable route subtrees:
 
-- `apps/web/src/app/(sourcing)/sourcing` owns `/sourcing`, source candidate
-  detail workspaces, generated content links, and the canonical detail-page
-  editor routes `/sourcing/[candidateId]/editor?generationId=...` and
-  `/sourcing/detail-pages/[generationId]/editor`.
+- `apps/web/src/app/(product-pipeline)/product-pipeline/collected-products`
+  owns `/product-pipeline/collected-products`, the 1688/imported
+  `SourcingCandidate` inbox, candidate detail workspaces, and candidate-scoped
+  generated content links.
+- `apps/web/src/app/(product-pipeline)/product-pipeline/registered-products`
+  owns `/product-pipeline/registered-products`, the detail-page generation
+  workspace inbox backed by `RegistrationWorkspace`.
+- `apps/web/src/app/(product-pipeline)/product-pipeline/detail-pages`
+  owns the shared generated detail-page editor route
+  `/product-pipeline/detail-pages/[generationId]/editor` for both collected and
+  registered product workspaces.
+- `apps/web/src/app/(product-pipeline)/product-pipeline/detail-template-generation`
+  owns the independent detail template generation tool.
+- `apps/web/src/app/(product-pipeline)/product-pipeline/thumbnail-ai`
+  owns the independent thumbnail AI analysis and batch UI.
+- `apps/web/src/app/(product-pipeline)/product-pipeline/thumbnail-generation`
+  owns the standalone thumbnail generation hub and edit flow. It is opened from
+  product workspaces or direct URLs, not from the sidebar.
 
 ### Frontend Shared Map
 
 | Path | Kind | Notes |
 |---|---|---|
 | `apps/web/src/__tests__` | Test Support | App-shell and proxy tests. |
+| `apps/web/src/app/(product-pipeline)/product-pipeline/_shared` | Route-Group Shared | Product pipeline route constructors, shared detail-page editor/render helpers, inbox shells, and thumbnail UI shared by sibling product-pipeline routes. |
 | `apps/web/src/components` | App-Wide Shared | Layout, panel, product, provider, chat, Coupang, and UI components. |
 | `apps/web/src/hooks` | App-Wide Shared | Shared hooks used across routes. |
 | `apps/web/src/lib` | App-Wide Shared | API client, query keys, auth, formatting, Supabase helpers. |
