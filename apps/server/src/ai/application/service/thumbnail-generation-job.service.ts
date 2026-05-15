@@ -33,6 +33,7 @@ import {
 import {
   createPendingCandidateJob,
   createPendingEditJob,
+  createPendingStandaloneJob,
   lockGenerationForProcessing,
   markGenerationFailed,
   persistPendingInputImages,
@@ -68,6 +69,17 @@ export interface ThumbnailEditorGenerationEnqueueInput {
 export interface ThumbnailCandidateGenerationEnqueueInput {
   organizationId: string;
   sourceCandidateId: string;
+  productName: string | null;
+  triggeredByUserId: string | null;
+  inputs: ThumbnailEditorInputImage[];
+  inputMeta: Prisma.InputJsonValue;
+  method: 'generate' | 'creative';
+  originalUrl: string;
+  agentPayload: Record<string, unknown>;
+}
+
+export interface ThumbnailStandaloneGenerationEnqueueInput {
+  organizationId: string;
   productName: string | null;
   triggeredByUserId: string | null;
   inputs: ThumbnailEditorInputImage[];
@@ -257,7 +269,7 @@ export class ThumbnailGenerationJobService {
       actorUserId: input.triggeredByUserId,
       targetType: 'sourcing_candidate',
       targetId: input.sourceCandidateId,
-      href: `/sourcing/${encodeURIComponent(input.sourceCandidateId)}`,
+      href: `/product-pipeline/collected-products/${encodeURIComponent(input.sourceCandidateId)}`,
       metadata: {
         method: input.method,
         sourceCandidateId: input.sourceCandidateId,
@@ -274,6 +286,108 @@ export class ThumbnailGenerationJobService {
         sourceResourceType: 'thumbnail_generation',
         sourceResourceId: generation.id,
         reason: `thumbnail_generate for sourcing candidate ${input.sourceCandidateId}`,
+        payload: input.agentPayload,
+      },
+    );
+
+    if (!enqueueResult.ok) {
+      const errorMessage = enqueueResult.reason
+        ? `Agent OS enqueue failed: ${enqueueResult.reason}`
+        : 'Agent OS enqueue failed.';
+      const lock = await lockGenerationForProcessing(
+        this.prisma,
+        generation.id,
+        input.organizationId,
+      );
+      if (lock) {
+        await markGenerationFailed(
+          this.prisma,
+          generation.id,
+          input.organizationId,
+          errorMessage,
+        );
+      }
+      await this.operationAlerts.fail(
+        input.organizationId,
+        this.editJobOperationKey(generation.id),
+        {
+          message: errorMessage,
+          metadata: {
+            errorCode: 'agent_enqueue_failed',
+            agentReason: enqueueResult.reason ?? null,
+          },
+        },
+      );
+      throw new BadRequestException(errorMessage);
+    }
+
+    this.kickEnqueuedAgentRequest({
+      organizationId: input.organizationId,
+      requestId: enqueueResult.requestId,
+    });
+
+    return { generationId: generation.id, status: 'pending' };
+  }
+
+  async enqueueStandaloneGeneration(
+    input: ThumbnailStandaloneGenerationEnqueueInput,
+  ): Promise<{ generationId: string; status: 'pending' }> {
+    const generation = await createPendingStandaloneJob(this.prisma, {
+      organizationId: input.organizationId,
+      originalUrl: input.originalUrl,
+      method: input.method,
+      inputMeta: input.inputMeta,
+      triggeredByUserId: input.triggeredByUserId,
+    });
+
+    await persistPendingInputImages(this.prisma, {
+      generationId: generation.id,
+      organizationId: input.organizationId,
+      inputImages: input.inputs,
+    });
+
+    await this.emitStatusChange({
+      organizationId: input.organizationId,
+      generationId: generation.id,
+      fromStatus: null,
+      toStatus: 'pending',
+      fromPhase: null,
+      toPhase: null,
+      actorUserId: input.triggeredByUserId,
+      payload: {
+        method: input.method,
+        inputCount: input.inputs.length,
+        standalone: true,
+      },
+    });
+
+    await this.operationAlerts.start({
+      organizationId: input.organizationId,
+      operationKey: this.editJobOperationKey(generation.id),
+      type: 'thumbnail_edit_job',
+      title: `썸네일 ${input.method === 'creative' ? 'AI 연출' : '편집'}: ${(input.productName ?? '직접 업로드').slice(0, 40)}`,
+      sourceType: 'thumbnail_generation',
+      sourceId: generation.id,
+      actorUserId: input.triggeredByUserId,
+      targetType: 'thumbnail_generation',
+      targetId: generation.id,
+      href: `/product-pipeline/thumbnail-editor/edit?generationId=${encodeURIComponent(generation.id)}`,
+      metadata: {
+        method: input.method,
+        inputCount: input.inputs.length,
+        standalone: true,
+      },
+    });
+
+    const enqueueResult = await this.agentRunner.runByType(
+      THUMBNAIL_GENERATE_AGENT_TYPE,
+      {
+        organizationId: input.organizationId,
+        requestedByUserId: input.triggeredByUserId ?? undefined,
+        sourceType: AI_AGENT_SOURCE_TYPES.THUMBNAIL_GENERATE,
+        sourceResourceType: 'thumbnail_generation',
+        sourceResourceId: generation.id,
+        reason: 'thumbnail_generate for standalone editor upload',
         payload: input.agentPayload,
       },
     );
@@ -558,7 +672,7 @@ export class ThumbnailGenerationJobService {
   }
 
   private thumbnailGenerationHref(generationId: string): string {
-    return `/thumbnails?generationId=${encodeURIComponent(generationId)}`;
+    return `/product-pipeline/thumbnail-generation?generationId=${encodeURIComponent(generationId)}`;
   }
 
   private kickEnqueuedAgentRequest(input: {

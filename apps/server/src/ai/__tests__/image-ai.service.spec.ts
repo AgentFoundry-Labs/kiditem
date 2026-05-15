@@ -126,7 +126,7 @@ describe('ImageAiService', () => {
         sourceType: 'agent_run_request',
         sourceId: 'request-9',
         actorUserId: USER_ID,
-        href: '/sourcing?contentType=image',
+        href: '/product-pipeline/registered-products?contentType=image',
         metadata: expect.objectContaining({
           agentType: 'image_edit',
           preset: 'remove_background',
@@ -224,7 +224,7 @@ describe('ImageAiService', () => {
     }));
     expect(operationAlerts.start).toHaveBeenCalledWith(
       expect.objectContaining({
-        href: '/sourcing/detail-pages/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/editor',
+        href: '/product-pipeline/detail-pages/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/editor',
         metadata: expect.objectContaining({
           contentGenerationId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
         }),

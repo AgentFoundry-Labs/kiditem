@@ -6,6 +6,7 @@ const GENERATION_ID = '33333333-3333-4333-8333-333333333333';
 const CANDIDATE_ID = '44444444-4444-4444-8444-444444444444';
 const ARTIFACT_ID = '55555555-5555-4555-8555-555555555555';
 const REVISION_ID = '66666666-6666-4666-8666-666666666666';
+const WORKSPACE_ID = '77777777-7777-4777-8777-777777777777';
 
 function makeService(
   prisma: unknown,
@@ -53,6 +54,7 @@ describe('DetailPageQueryService edited HTML', () => {
           findFirst: vi.fn().mockResolvedValue({
             id: GENERATION_ID,
             generationGroupId: 'group-1',
+            registrationWorkspaceId: WORKSPACE_ID,
             detailPageArtifactId: null,
             generatedTitle: '소싱 상세페이지',
             sourceCandidateId: CANDIDATE_ID,
@@ -74,6 +76,9 @@ describe('DetailPageQueryService edited HTML', () => {
             createdAt: savedAt,
           }),
         },
+        registrationWorkspace: {
+          updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        },
       };
       const { service, contentAssets } = makeService(prisma);
 
@@ -92,6 +97,7 @@ describe('DetailPageQueryService edited HTML', () => {
       expect(prisma.detailPageArtifact.create).toHaveBeenCalledWith({
         data: {
           organizationId: ORG,
+          registrationWorkspaceId: WORKSPACE_ID,
           sourceCandidateId: CANDIDATE_ID,
           targetMasterId: null,
           sourceContentGenerationId: GENERATION_ID,
@@ -127,6 +133,13 @@ describe('DetailPageQueryService edited HTML', () => {
           status: 'draft',
         },
       });
+      expect(prisma.registrationWorkspace.updateMany).toHaveBeenCalledWith({
+        where: { id: WORKSPACE_ID, organizationId: ORG, isDeleted: false },
+        data: {
+          currentDetailPageArtifactId: ARTIFACT_ID,
+          currentDetailPageRevisionId: REVISION_ID,
+        },
+      });
       expect(contentAssets.syncGenerationImageUsagesTx).toHaveBeenCalledWith(prisma, {
         organizationId: ORG,
         generationGroupId: 'group-1',
@@ -151,6 +164,7 @@ describe('DetailPageQueryService edited HTML', () => {
           findFirst: vi.fn().mockResolvedValue({
             id: GENERATION_ID,
             generationGroupId: 'group-1',
+            registrationWorkspaceId: WORKSPACE_ID,
             detailPageArtifactId: ARTIFACT_ID,
             generatedTitle: '소싱 상세페이지',
             sourceCandidateId: CANDIDATE_ID,
@@ -171,6 +185,9 @@ describe('DetailPageQueryService edited HTML', () => {
             html: `<section><img src="${durableUrl}" /></section>`,
             createdAt: new Date('2026-05-13T10:30:00.000Z'),
           }),
+        },
+        registrationWorkspace: {
+          updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         },
       };
       const { service, imageStorage, contentAssets } = makeService(prisma, {
@@ -227,6 +244,7 @@ describe('DetailPageQueryService edited HTML', () => {
           editedHtml: '<main>legacy</main>',
           editedHtmlSavedAt: new Date('2026-05-12T11:00:00.000Z'),
           detailPageArtifact: {
+            isDeleted: false,
             currentRevision: {
               html: '<main>saved</main>',
               createdAt: savedAt,
@@ -242,13 +260,14 @@ describe('DetailPageQueryService edited HTML', () => {
       savedAt: savedAt.toISOString(),
     });
     expect(prisma.contentGeneration.findFirst).toHaveBeenCalledWith({
-      where: { id: GENERATION_ID, organizationId: ORG },
+      where: { id: GENERATION_ID, organizationId: ORG, isDeleted: false },
       select: {
         id: true,
         editedHtml: true,
         editedHtmlSavedAt: true,
         detailPageArtifact: {
           select: {
+            isDeleted: true,
             currentRevision: {
               select: {
                 html: true,

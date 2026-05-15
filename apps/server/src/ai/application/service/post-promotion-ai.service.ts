@@ -501,6 +501,6 @@ export class PostPromotionAiService implements PostPromotionAiTriggerPort {
   }
 
   private thumbnailGenerationHref(generationId: string): string {
-    return `/thumbnails?generationId=${encodeURIComponent(generationId)}`;
+    return `/product-pipeline/thumbnail-generation?generationId=${encodeURIComponent(generationId)}`;
   }
 }

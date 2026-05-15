@@ -129,6 +129,6 @@ describe('imagePanelMapper', () => {
 
   it('deepLink opens the thumbnail workspace with the generation selected', () => {
     const item = imagePanelMapper.mapToItem(makeInput(), 'co-1');
-    expect(item.deepLink).toBe(`/thumbnails?generationId=${GEN_ID}`);
+    expect(item.deepLink).toBe(`/product-pipeline/thumbnail-generation?generationId=${GEN_ID}`);
   });
 });

@@ -12,6 +12,7 @@ const CG_ID = '55555555-5555-5555-5555-555555555555';
 const GROUP_ID = '66666666-6666-4666-8666-666666666666';
 const CANDIDATE_ID = '77777777-7777-4777-8777-777777777777';
 const ARTIFACT_ID = '88888888-8888-4888-8888-888888888888';
+const REGISTRATION_WORKSPACE_ID = '99999999-9999-4999-8999-999999999999';
 
 const STORED_RAW_INPUT = {
   rawTitle: '키즈 텀블러',
@@ -41,6 +42,7 @@ function makeRow(overrides: Record<string, unknown> = {}) {
     },
     generatedTitle: '키즈 텀블러',
     sourceCandidateId: CANDIDATE_ID,
+    registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
     detailPageArtifactId: null,
     triggeredByUserId: 'user-1',
     status: 'PROCESSING',
@@ -61,6 +63,9 @@ function makePrismaStub(row: ReturnType<typeof makeRow> | null) {
     },
     detailPageArtifact: {
       create: vi.fn().mockResolvedValue({ id: ARTIFACT_ID }),
+    },
+    registrationWorkspace: {
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
   };
 }
@@ -163,6 +168,7 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
       expect(prisma.detailPageArtifact.create).toHaveBeenCalledWith({
         data: {
           organizationId: ORG,
+          registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
           sourceCandidateId: CANDIDATE_ID,
           targetMasterId: null,
           sourceContentGenerationId: CG_ID,
@@ -176,6 +182,17 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
           },
         },
         select: { id: true },
+      });
+      expect(prisma.registrationWorkspace.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: REGISTRATION_WORKSPACE_ID,
+          organizationId: ORG,
+          isDeleted: false,
+        },
+        data: {
+          currentDetailPageArtifactId: ARTIFACT_ID,
+          status: 'active',
+        },
       });
       const updateCall = prisma.contentGeneration.updateMany.mock.calls[0][0] as {
         data: { generationResult: { processedImages: Record<string, string>; result: { hook?: { text?: string } }; templateId: string } };

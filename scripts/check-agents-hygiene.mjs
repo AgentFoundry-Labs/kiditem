@@ -48,6 +48,7 @@ export function findStaleInstructionLines(file, content) {
 function checkClaudeShims() {
   const findings = [];
   for (const file of listTracked('*CLAUDE.md')) {
+    if (!existsSync(file)) continue;
     const content = readFileSync(file, 'utf8').trim();
     if (content !== '@AGENTS.md') {
       findings.push({

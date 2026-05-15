@@ -18,6 +18,8 @@ const PLATFORM_MAP: Record<string, string> = {
   tiktok: 'TIKTOK',
 };
 
+const COLLECTED_PRODUCT_SOURCE_PLATFORMS = ['ALIBABA_1688', 'ALIBABA'] as const;
+
 const IMAGE_FIELD_KEYS = [
   'images', 'imageUrls', 'image_urls', 'mainImages', 'main_images',
   'mainImage', 'main_image', 'offerImgList', 'description_images', 'detail_images',
@@ -121,7 +123,7 @@ export class SourcingService {
         sourceType: 'agent_run_request',
         sourceId: result.requestId,
         actorUserId: triggeredByUserId,
-        href: '/sourcing',
+        href: '/product-pipeline/collected-products',
         metadata: { agentType: 'sourcing', url },
       });
     }
@@ -135,7 +137,14 @@ export class SourcingService {
     const { page, limit } = paginationParams(query);
     const sort = query.sort === 'oldest' ? 'oldest' : query.sort === 'name_asc' ? 'name_asc' : 'newest';
     const platform = query.platform ? (PLATFORM_MAP[query.platform.toLowerCase()] || query.platform) : undefined;
-    return this.candidates.listSourced({ organizationId, page, limit, sort, platform });
+    return this.candidates.listSourced({
+      organizationId,
+      page,
+      limit,
+      sort,
+      platform,
+      sourcePlatforms: platform ? undefined : [...COLLECTED_PRODUCT_SOURCE_PLATFORMS],
+    });
   }
 
   async getProduct(productId: string, organizationId: string) {

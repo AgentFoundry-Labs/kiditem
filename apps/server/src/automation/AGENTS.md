@@ -41,14 +41,18 @@ automation/
 | `alerts.repository.port` | unread feed; mark read/all-read; transactional promote-to-task with P2002 race guard + ownership claim; dismiss |
 | `marketplace-catalog.repository.port` | published workflow + agent rows; per-org install lookup via `WorkflowTemplate` |
 | `marketplace-install-store.port` | workflow install/uninstall + install-count delta |
-| `operation-alert.repository.port` | `Alert.kind='operation'` upsert keyed on `(organizationId, operationKey)`; transition state machine; source/key lookups; stale-close criteria |
+| `operation-alert.repository.port` | Operation alert upsert, transitions, source/key lookups, and stale-close criteria |
 | `workflow-orchestration.repository.port` | template CRUD; scoped run create + read; panel envelope hydration |
 
 ### Incoming port — owner-side publish
 
 | Port | Capability |
 |---|---|
-| `application/port/in/operation-alert.port` | `start / progress / succeed / fail / cancel / closeStaleOperations` for `Alert.kind='operation'` rows; cross-owner-domain producers bind their consumer-side adapter to this token instead of injecting `OperationAlertService` |
+| `application/port/in/operation-alert.port` | Operation lifecycle publish port for cross-owner-domain producers |
+
+`operation-alert.repository.port` keys operation alerts by
+`(organizationId, operationKey)`. Cross-owner producers bind their consumer-side
+adapter to `OPERATION_ALERT_PORT` instead of injecting `OperationAlertService`.
 
 ## Architecture Guards
 

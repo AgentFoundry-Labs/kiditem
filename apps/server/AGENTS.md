@@ -139,7 +139,7 @@ exposes the seam instead of growing the flat service in place.
 | `agent-os` | platform runtime for agent catalog, queue, execution, policy, cost |
 | `automation` | workflows, alerts, action board, panel projection |
 | `analytics` | reporting/read models |
-| `platform` | auth, organizations, feature-gate, common, prisma |
+| `platform` | auth, organizations, feature-gate, common, prisma, uploads, readiness, shared infrastructure |
 
 Small table-shaped modules should fold into their owner domain during
 reconstruction. `/api/categories` remains a products/catalog compatibility
@@ -151,11 +151,12 @@ Read these before editing the matching path.
 
 | Path | Focus |
 |---|---|
-| [`src/advertising/AGENTS.md`](src/advertising/AGENTS.md) | ad operations, scrape ingest, daily facts; hexagonal-complete (`application/port/out/` + `adapter/out/repository/` + `adapter/out/automation/`, architecture spec, module wiring spec) |
+| [`src/advertising/AGENTS.md`](src/advertising/AGENTS.md) | ad operations, scrape ingest, daily facts |
 | [`src/agent-os/AGENTS.md`](src/agent-os/AGENTS.md) | Agent OS platform runtime |
 | [`src/ai/AGENTS.md`](src/ai/AGENTS.md) | media AI, prompts, provider ports, Agent OS sinks |
 | [`src/analytics/AGENTS.md`](src/analytics/AGENTS.md) | reporting/read models |
-| [`src/automation/AGENTS.md`](src/automation/AGENTS.md) | workflows, alerts, action board, panel projection; hexagonal-complete (`application/port/out/` + `application/port/in/` for owner-side `OPERATION_ALERT_PORT` publish, `adapter/out/repository/`, architecture + wiring specs; `WorkflowRunnerService` PrismaService carve-out documented for the executor framework) |
+| [`src/analytics/dashboard/AGENTS.md`](src/analytics/dashboard/AGENTS.md) | dashboard read-model implementation |
+| [`src/automation/AGENTS.md`](src/automation/AGENTS.md) | workflows, alerts, action board, panel projection |
 | [`src/auth/AGENTS.md`](src/auth/AGENTS.md) | auth guards, current org/user decorators |
 | [`src/channels/AGENTS.md`](src/channels/AGENTS.md) | Coupang sync/reconciliation/provider boundary |
 | [`src/chat/AGENTS.md`](src/chat/AGENTS.md) | CopilotKit runtime and Claude CLI adapter |

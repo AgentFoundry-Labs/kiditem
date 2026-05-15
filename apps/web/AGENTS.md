@@ -103,12 +103,12 @@ Route groups do not affect URLs:
 | `(analytics)` | dashboard |
 | `(automation)` | agents, workflows, marketplace, action-board |
 | `(catalog)` | products, product-hub |
-| `(sourcing)` | sourcing, sourcing-ai |
+| `(sourcing-ai)` | sourcing-ai |
+| `(product-pipeline)` | product-pipeline/collected-products, product-pipeline/registered-products, product-pipeline/detail-template-generation, product-pipeline/thumbnail-ai, product-pipeline/thumbnail-generation, product-pipeline/thumbnail-generation/edit |
 | `(supply)` | suppliers, purchase-orders |
 | `(inventory)` | inventory, inventory-hub, stock-ops, warehouses, unshipped-items, outbound |
 | `(orders)` | orders, order-hub, order-status-hub, returns, reviews, return-scan, cs-management |
 | `(finance)` | finance-hub, profit-loss, sales-analysis, supplier-hub, reports |
-| `(media-ai)` | thumbnails, thumbnail-editor, generate |
 
 ## Large Components
 
@@ -133,10 +133,10 @@ Read these before editing the matching route:
 |---|---|
 | [`src/app/(automation)/workflows/AGENTS.md`](<src/app/(automation)/workflows/AGENTS.md>) | workflow page/query behavior |
 | [`src/app/(catalog)/product-hub/matching/AGENTS.md`](<src/app/(catalog)/product-hub/matching/AGENTS.md>) | product matching |
-| [`src/app/(media-ai)/thumbnail-editor/AGENTS.md`](<src/app/(media-ai)/thumbnail-editor/AGENTS.md>) | thumbnail editor generation workflow |
-| [`src/app/(media-ai)/thumbnails/AGENTS.md`](<src/app/(media-ai)/thumbnails/AGENTS.md>) | thumbnails polling/batch UI |
+| [`src/app/(product-pipeline)/product-pipeline/collected-products/AGENTS.md`](<src/app/(product-pipeline)/product-pipeline/collected-products/AGENTS.md>) | collected product workspace |
+| [`src/app/(product-pipeline)/product-pipeline/thumbnail-generation/AGENTS.md`](<src/app/(product-pipeline)/product-pipeline/thumbnail-generation/AGENTS.md>) | thumbnail generation workflow |
+| [`src/app/(product-pipeline)/product-pipeline/thumbnail-ai/AGENTS.md`](<src/app/(product-pipeline)/product-pipeline/thumbnail-ai/AGENTS.md>) | thumbnails polling/batch UI |
 | [`src/app/(orders)/return-scan/AGENTS.md`](<src/app/(orders)/return-scan/AGENTS.md>) | local-only scan flow |
-| [`src/app/(sourcing)/sourcing/AGENTS.md`](<src/app/(sourcing)/sourcing/AGENTS.md>) | sourcing candidate workspace, generated content, and detail-page editor |
 
 ## Local Exceptions
 

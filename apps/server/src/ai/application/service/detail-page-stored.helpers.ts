@@ -175,9 +175,11 @@ export function detailPageResultHref(input: {
   void input.templateId;
   const generationId = encodeURIComponent(input.contentGenerationId);
   if (input.sourceCandidateId) {
-    return `/sourcing/${encodeURIComponent(input.sourceCandidateId)}/editor?generationId=${generationId}`;
+    const sourceCandidateId = encodeURIComponent(input.sourceCandidateId);
+    const returnTo = encodeURIComponent(`/product-pipeline/collected-products/${sourceCandidateId}`);
+    return `/product-pipeline/detail-pages/${generationId}/editor?sourceCandidateId=${sourceCandidateId}&returnTo=${returnTo}`;
   }
-  return `/sourcing/detail-pages/${generationId}/editor`;
+  return `/product-pipeline/detail-pages/${generationId}/editor`;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

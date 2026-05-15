@@ -293,8 +293,8 @@ export class MastersService {
     const images = normalizeMasterImages((row as unknown as { images: unknown }).images);
     const url = row.imageUrl ?? images[0]?.url ?? row.thumbnailUrl ?? null;
     if (!url) throw new NotFoundException('image not found');
-    // Minimum SSRF defense: only http(s), block internal hosts. Full domain allowlist
-    // is a follow-up (see TODOS.md "originalImageBase64 SSRF allowlist").
+    // Minimum SSRF defense: only http(s), block internal hosts.
+    // Keep stricter host policy in public-image-url.ts with matching tests.
     assertPublicHttpUrlForHttp(url);
     const res = await fetch(url);
     if (!res.ok) throw new NotFoundException('image not found');

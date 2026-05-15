@@ -38,15 +38,15 @@ import { OperationAlertService } from './operation-alert.service';
  * `/dashboard` so the user at least sees the failure in their Alert inbox.
  */
 function mapSourceToHref(source: string): string {
-  if (source === 'ai.image_edit') return '/sourcing?contentType=image';
+  if (source === 'ai.image_edit') return '/product-pipeline/registered-products?contentType=image';
   if (source === 'advertising.ad_strategy.manual') return '/ad-ops';
-  if (source === 'sourcing.scrape_url') return '/sourcing';
+  if (source === 'sourcing.scrape_url') return '/product-pipeline/collected-products';
   if (
     source === 'ai.thumbnail_auto_edit' ||
     source === 'ai.thumbnail_generate' ||
     source === 'thumbnail_generate'
   ) {
-    return '/thumbnails';
+    return '/product-pipeline/thumbnail-generation';
   }
   if (source === 'rules.evaluation' || source === 'rules.suggest') {
     return '/dashboard';

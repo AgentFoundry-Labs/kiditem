@@ -20,6 +20,12 @@ const TERMINAL_CONTENT_GENERATION_STATUSES = new Set([
   'failed',
   'cancelled',
 ]);
+
+interface RegistrationWorkspaceWriter {
+  registrationWorkspace: {
+    updateMany(args: unknown): Promise<{ count: number }>;
+  };
+}
 /**
  * Real `DetailPageAgentOutputSinkPort` adapter — applies a validated
  * `detail_page_generate` runtime result back onto the originating
@@ -178,10 +184,13 @@ export class DetailPageContentGenerationSinkAdapter
     runId: string | undefined;
   }): Promise<string> {
     if (input.row.detailPageArtifactId) return input.row.detailPageArtifactId;
+    const registrationWorkspaceId =
+      (input.row as { registrationWorkspaceId?: string | null }).registrationWorkspaceId ?? null;
 
     const artifact = await this.prisma.detailPageArtifact.create({
       data: {
         organizationId: input.organizationId,
+        registrationWorkspaceId,
         sourceCandidateId: input.row.sourceCandidateId,
         targetMasterId: input.row.generationGroup.targetMasterId,
         sourceContentGenerationId: input.row.id,
@@ -196,6 +205,19 @@ export class DetailPageContentGenerationSinkAdapter
       },
       select: { id: true },
     });
+    if (registrationWorkspaceId) {
+      await (this.prisma as unknown as RegistrationWorkspaceWriter).registrationWorkspace.updateMany({
+        where: {
+          id: registrationWorkspaceId,
+          organizationId: input.organizationId,
+          isDeleted: false,
+        },
+        data: {
+          currentDetailPageArtifactId: artifact.id,
+          status: 'active',
+        },
+      });
+    }
     return artifact.id;
   }
 

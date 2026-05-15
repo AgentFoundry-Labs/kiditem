@@ -203,6 +203,14 @@ export const queryKeys = {
     generationEditedHtml: (id: string) =>
       [...queryKeys.productContent.all, 'generation-edited-html', id] as const,
   },
+  registrationWorkspaces: {
+    all: ['registration-workspaces'] as const,
+    list: (params: Record<string, string>) =>
+      [...queryKeys.registrationWorkspaces.all, 'list', params] as const,
+    detail: (id: string) => [...queryKeys.registrationWorkspaces.all, 'detail', id] as const,
+    duplicate: (title: string) =>
+      [...queryKeys.registrationWorkspaces.all, 'duplicate', title] as const,
+  },
   organizations: {
     all: ['organizations'] as const,
     list: () => [...queryKeys.organizations.all, 'list'] as const,

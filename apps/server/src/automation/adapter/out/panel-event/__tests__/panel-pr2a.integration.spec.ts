@@ -63,7 +63,7 @@ function workflowPayload(overrides: Partial<RunItem> = {}): PanelUpsertInternal 
 function imagePayload(overrides: Partial<RunItem> = {}): PanelUpsertInternal {
   return {
     organizationId: 'co-1',
-    item: baseItem({ id: 'image:gen-1', source: 'image', sourceId: 'gen-1', title: '아동 레깅스', deepLink: '/products/prod-1/thumbnails', ...overrides }),
+    item: baseItem({ id: 'image:gen-1', source: 'image', sourceId: 'gen-1', title: '아동 레깅스', deepLink: '/product-pipeline/thumbnail-generation?productId=prod-1', ...overrides }),
   };
 }
 

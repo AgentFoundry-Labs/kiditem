@@ -23,10 +23,14 @@ import { ErrorCodes } from '@kiditem/shared/errors';                      // err
 ## Reconstruction Export Policy
 
 - Treat `src/index.ts` and `src/schemas/index.ts` as compatibility surfaces, not the place for new domain growth.
-- New or rebuilt domain contracts should add subpath exports first, for example `@kiditem/shared/product`, `@kiditem/shared/order`, `@kiditem/shared/inventory`, `@kiditem/shared/ai`, `@kiditem/shared/advertising`, `@kiditem/shared/errors`, and `@kiditem/shared/security`.
-- New domain schemas/types must not expand the root barrel. Add a focused `src/{domain}.ts` entrypoint and package subpath export, then migrate consumers to that subpath.
+- New or rebuilt domain contracts add subpath exports first, such as
+  `@kiditem/shared/product`, `@kiditem/shared/inventory`, and
+  `@kiditem/shared/errors`.
+- New domain schemas/types must not expand the root barrel. Add a focused
+  `src/{domain}.ts` entrypoint, then migrate consumers to that subpath.
 - Keep root exports temporarily while migrating existing consumers, then remove them only after server and web builds prove no direct consumer remains.
-- Backend-only concepts must not leak into frontend-facing root exports. Nest-specific errors or exception classes belong behind backend-only imports or server-local code.
+- Backend-only concepts must not leak into frontend-facing root exports.
+  Nest-specific exceptions belong behind backend-only imports or server code.
 - Do not add legacy aliases during migration. Move consumers to the canonical schema/type name.
 
 ## Adding a Schema
@@ -50,7 +54,9 @@ import { ErrorCodes } from '@kiditem/shared/errors';                      // err
 
 ## `satisfies` 패턴 — Prisma↔Shared drift 감지 (필수)
 
-`@kiditem/shared` 타입을 반환하는 **모든** Backend service 메서드는 `return { ... } satisfies <SharedType>` 로 마감해야 한다. Prisma generated row 와 Shared Zod 타입이 컴파일 타임에 일치하는지 검증하는 유일한 방어선.
+`@kiditem/shared` 타입을 반환하는 Backend service 메서드는
+`return { ... } satisfies <SharedType>` 로 마감한다. Prisma row 와 Shared
+Zod 타입 drift 를 컴파일 타임에 잡는 방어선이다.
 
 ```typescript
 // ✅ 올바름

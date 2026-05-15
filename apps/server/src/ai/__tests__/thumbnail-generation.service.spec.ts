@@ -392,9 +392,63 @@ describe('ThumbnailGenerationService normalized persistence', () => {
         sourceId: GENERATION_ID,
         targetType: 'sourcing_candidate',
         targetId: SOURCE_CANDIDATE_ID,
-        href: `/sourcing/${SOURCE_CANDIDATE_ID}`,
+        href: `/product-pipeline/collected-products/${SOURCE_CANDIDATE_ID}`,
       }),
     );
+  });
+
+  it('enqueueStandaloneGeneration creates a pending generation without master or sourcing candidate linkage', async () => {
+    const agentRunner = makeAgentRunnerStub();
+    const operationAlerts = makeOperationAlertsStub();
+    const prisma = {
+      thumbnailGeneration: {
+        create: vi.fn(async (args: { data: Record<string, unknown> }) => ({
+          id: GENERATION_ID,
+          ...args.data,
+        })),
+      },
+      thumbnailGenerationInputImage: {
+        createMany: vi.fn(async () => ({ count: 1 })),
+      },
+    };
+    const service = makeService({ prisma, agentRunner, operationAlerts });
+
+    const result = await service.enqueueStandaloneGeneration({
+      organizationId: ORGANIZATION_ID,
+      productName: 'Uploaded toy',
+      triggeredByUserId: null,
+      inputs: [makeInputImage({ source: 'upload' })],
+      inputMeta: { mode: 'edit', inputCount: 1 },
+      method: 'generate',
+      originalUrl: 'http://storage.local/kiditem/thumbnail-inputs/x.jpg',
+      agentPayload: { mode: 'edit', inputs: [] },
+    });
+
+    expect(result).toEqual({ generationId: GENERATION_ID, status: 'pending' });
+    expect(prisma.thumbnailGeneration.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        organizationId: ORGANIZATION_ID,
+        masterId: null,
+        sourceCandidateId: null,
+        status: 'pending',
+        phase: null,
+      }),
+    }));
+    expect(operationAlerts.start).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: ORGANIZATION_ID,
+        sourceId: GENERATION_ID,
+        targetType: 'thumbnail_generation',
+        targetId: GENERATION_ID,
+        href: `/product-pipeline/thumbnail-editor/edit?generationId=${GENERATION_ID}`,
+        metadata: expect.objectContaining({ standalone: true }),
+      }),
+    );
+    expect(agentRunner.executeRequest).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      requestId: REQUEST_ID,
+      workerId: 'thumbnail-generate-inline',
+    });
   });
 
   it('drains retryable thumbnail executor failures so a local preview does not leave the job pending forever', async () => {

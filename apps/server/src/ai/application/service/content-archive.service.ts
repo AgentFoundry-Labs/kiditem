@@ -7,6 +7,19 @@ type ArchiveContentType = 'detail_page' | 'image';
 type ArchiveLinkState = 'linked' | 'unlinked';
 type WorkspaceType = 'product' | 'unlinked_group';
 
+function detailPageEditorHref(input: {
+  generationId: string;
+  sourceCandidateId?: string | null;
+}): string {
+  const generationId = encodeURIComponent(input.generationId);
+  if (!input.sourceCandidateId) {
+    return `/product-pipeline/detail-pages/${generationId}/editor`;
+  }
+  const sourceCandidateId = encodeURIComponent(input.sourceCandidateId);
+  const returnTo = encodeURIComponent(`/product-pipeline/collected-products/${sourceCandidateId}`);
+  return `/product-pipeline/detail-pages/${generationId}/editor?sourceCandidateId=${sourceCandidateId}&returnTo=${returnTo}`;
+}
+
 export interface ContentArchiveListQuery {
   page?: number;
   limit?: number;
@@ -84,6 +97,9 @@ const generationInclude = {
     },
   },
   assetUsages: {
+    where: {
+      contentAsset: { isDeleted: false },
+    },
     orderBy: [{ createdAt: 'asc' }],
     select: {
       contentAsset: {
@@ -106,6 +122,7 @@ const generationInclude = {
     select: {
       id: true,
       sourceCandidateId: true,
+      isDeleted: true,
       currentRevisionId: true,
       currentRevision: {
         select: {
@@ -241,7 +258,7 @@ export class ContentArchiveService {
   ): Promise<{ ok: true; deletedGenerations: number; deletedAssets: number }> {
     return this.prisma.$transaction(async (tx) => {
       const rows = await tx.contentGeneration.findMany({
-        where: { organizationId, generationGroup: { targetMasterId: productId } },
+        where: { organizationId, isDeleted: false, generationGroup: { targetMasterId: productId } },
         select: { id: true, generationGroupId: true },
       });
       if (rows.length === 0) {
@@ -253,18 +270,6 @@ export class ContentArchiveService {
         organizationId,
         rows.map((row) => row.id),
       );
-      const groupIds = [...new Set(rows
-        .map((row) => row.generationGroupId)
-        .filter((id): id is string => typeof id === 'string'))];
-      if (groupIds.length > 0) {
-        await tx.contentGenerationGroup.deleteMany({
-          where: {
-            organizationId,
-            id: { in: groupIds },
-            generations: { none: {} },
-          },
-        });
-      }
       return result;
     });
   }
@@ -281,7 +286,7 @@ export class ContentArchiveService {
       if (!group) throw new NotFoundException('Content generation group not found');
 
       const rows = await tx.contentGeneration.findMany({
-        where: { organizationId, generationGroupId: groupId, generationGroup: { targetMasterId: null } },
+        where: { organizationId, isDeleted: false, generationGroupId: groupId, generationGroup: { targetMasterId: null } },
         select: { id: true },
       });
       if (rows.length === 0) {
@@ -293,13 +298,6 @@ export class ContentArchiveService {
         organizationId,
         rows.map((row) => row.id),
       );
-      await tx.contentGenerationGroup.deleteMany({
-        where: {
-          id: groupId,
-          organizationId,
-          generations: { none: {} },
-        },
-      });
       return result;
     });
   }
@@ -368,6 +366,7 @@ export class ContentArchiveService {
             : {};
     return {
       organizationId,
+      isDeleted: false,
       ...(query.contentType ? { contentType: query.contentType } : {}),
       ...(query.status ? { status: query.status } : {}),
       ...masterScope,
@@ -376,7 +375,7 @@ export class ContentArchiveService {
             OR: [
               { sourceCandidateId: query.sourceCandidateId },
               { sources: { some: { sourceCandidateId: query.sourceCandidateId } } },
-              { detailPageArtifact: { is: { sourceCandidateId: query.sourceCandidateId } } },
+              { detailPageArtifact: { is: { sourceCandidateId: query.sourceCandidateId, isDeleted: false } } },
             ],
           }
         : {}),
@@ -424,7 +423,7 @@ export class ContentArchiveService {
         productId,
         product: product ? { id: product.id, code: product.code, name: product.name } : null,
         generationGroupId: null,
-        href: `/sourcing?masterId=${encodeURIComponent(productId)}`,
+        href: `/product-pipeline/registered-products?masterId=${encodeURIComponent(productId)}`,
         generationCount: input.rows.length,
         detailPageCount,
         imageCount,
@@ -444,7 +443,7 @@ export class ContentArchiveService {
       productId: null,
       product: null,
       generationGroupId: groupId,
-      href: `/sourcing?generationGroupId=${encodeURIComponent(groupId)}`,
+      href: `/product-pipeline/registered-products?generationGroupId=${encodeURIComponent(groupId)}`,
       generationCount: input.rows.length,
       detailPageCount,
       imageCount,
@@ -464,14 +463,17 @@ export class ContentArchiveService {
         generationResult: row.generationResult,
       })
       : null;
+    const activeArtifact = row.detailPageArtifact?.isDeleted === false
+      ? row.detailPageArtifact
+      : null;
     const sourceCandidateId =
       row.sourceCandidateId ??
-      row.detailPageArtifact?.sourceCandidateId ??
+      activeArtifact?.sourceCandidateId ??
       row.sources.find((source) => source.sourceCandidateId)?.sourceCandidateId ??
       null;
     const detailPageRevisionId =
-      row.detailPageArtifact?.currentRevisionId ??
-      row.detailPageArtifact?.currentRevision?.id ??
+      activeArtifact?.currentRevisionId ??
+      activeArtifact?.currentRevision?.id ??
       null;
     return {
       id: row.id,
@@ -480,9 +482,10 @@ export class ContentArchiveService {
       subtitle: row.generationGroup.targetMaster?.name ?? '미연결 작업',
       thumbnailUrl: this.pickThumbnail(row),
       href: contentType === 'detail_page'
-        ? sourceCandidateId
-          ? `/sourcing/${encodeURIComponent(sourceCandidateId)}/editor?generationId=${encodeURIComponent(row.id)}`
-          : `/sourcing/detail-pages/${encodeURIComponent(row.id)}/editor`
+        ? detailPageEditorHref({
+          generationId: row.id,
+          sourceCandidateId,
+        })
         : null,
       status: normalizeStatus(row.status),
       templateId: detailPageStored?.templateId ?? null,
@@ -497,7 +500,7 @@ export class ContentArchiveService {
       sourceCandidateId,
       detailPageArtifactId: row.detailPageArtifactId,
       detailPageRevisionId,
-      detailPageRevisions: (row.detailPageArtifact?.revisions ?? []).map((revision) => ({
+      detailPageRevisions: (activeArtifact?.revisions ?? []).map((revision) => ({
         id: revision.id,
         revisionType: revision.revisionType,
         createdAt: revision.createdAt.toISOString(),
@@ -535,16 +538,32 @@ export class ContentArchiveService {
     organizationId: string,
     generationIds: string[],
   ): Promise<{ ok: true; deletedGenerations: number; deletedAssets: number }> {
-    await tx.contentGenerationAssetUsage.deleteMany({
-      where: { organizationId, contentGenerationId: { in: generationIds } },
+    const archivedAt = new Date();
+    const assets = await tx.contentAsset.updateMany({
+      where: {
+        organizationId,
+        isDeleted: false,
+        usages: {
+          some: { contentGenerationId: { in: generationIds } },
+          none: {
+            contentGeneration: {
+              organizationId,
+              isDeleted: false,
+              id: { notIn: generationIds },
+            },
+          },
+        },
+      },
+      data: { isDeleted: true, deletedAt: archivedAt },
     });
-    const generationResult = await tx.contentGeneration.deleteMany({
-      where: { organizationId, id: { in: generationIds } },
+    const generationResult = await tx.contentGeneration.updateMany({
+      where: { organizationId, id: { in: generationIds }, isDeleted: false },
+      data: { isDeleted: true, deletedAt: archivedAt },
     });
     return {
       ok: true,
       deletedGenerations: generationResult.count,
-      deletedAssets: 0,
+      deletedAssets: assets.count,
     };
   }
 }

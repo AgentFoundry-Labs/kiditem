@@ -194,6 +194,7 @@ beforeAll(async () => {
     prisma as never,
     observability,
     sink,
+    alerts as never,
   );
 });
 

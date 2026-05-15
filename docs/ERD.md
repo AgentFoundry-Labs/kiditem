@@ -26,7 +26,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 |---|---:|
 | [Advertising](erd/advertising.md) | 5 |
 | [AgentOS](erd/agentos.md) | 13 |
-| [AI](erd/ai.md) | 16 |
+| [AI](erd/ai.md) | 17 |
 | [Channels](erd/channels.md) | 8 |
 | [Core](erd/core.md) | 13 |
 | [Finance](erd/finance.md) | 5 |
@@ -65,6 +65,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ContentGenerationSource | AI | `content_generation_sources` | Generation-level provenance. The source of a generated work unit can be a sourcing candidate, input asset, or another generation. |
 | DetailPageArtifact | AI | `detail_page_artifacts` | Candidate-centered editable detail-page artifact. One artifact owns the user-visible draft line; revisions keep generated/manual HTML history. |
 | DetailPageRevision | AI | `detail_page_revisions` | Append-only detail-page HTML revision. Editor saves create rows; DetailPageArtifact.currentRevisionId selects the active version. |
+| RegistrationWorkspace | AI | `registration_workspaces` | Registration pipeline workspace. Detail-page generations for the same owner/title accumulate here as selectable history before or after MasterProduct creation. |
 | Thumbnail | AI | `thumbnails` | CTR 기반 썸네일 트래킹 (ThumbnailAnalysis 와 별도 시스템). |
 | ThumbnailAnalysis | AI | `thumbnail_analyses` | 5차원 scores(heroShot·composition·branding·mobile·differentiation) + complianceGrade(PASS/WARN/FAIL) + imageSpec(사전검수). 스펙 FAIL 시 AI 호출 생략. |
 | ThumbnailGeneration | AI | `thumbnail_generations` | 상태: pending→generating→ready/failed→applied/skipped. method=edit 만 사용 (generate Imagen 방식 삭제됨). |
@@ -813,6 +814,7 @@ erDiagram
     String id PK
     String organizationId FK
     String generationGroupId FK
+    String registrationWorkspaceId FK
     String sourceCandidateId FK
     String detailPageArtifactId FK
     String contentType
@@ -828,6 +830,8 @@ erDiagram
     Int retryCount
     String errorMessage
     String triggeredByUserId FK
+    Boolean isDeleted
+    DateTime deletedAt
     DateTime createdAt
     DateTime updatedAt
   }
@@ -899,6 +903,7 @@ erDiagram
   DetailPageArtifact {
     String id PK
     String organizationId FK
+    String registrationWorkspaceId FK
     String sourceCandidateId FK
     String targetMasterId FK
     String sourceContentGenerationId FK
@@ -907,6 +912,8 @@ erDiagram
     String status
     Json metadata
     String createdByUserId FK
+    Boolean isDeleted
+    DateTime deletedAt
     DateTime createdAt
     DateTime updatedAt
   }
@@ -1343,6 +1350,23 @@ erDiagram
     Decimal unitPriceCny
     DateTime createdAt
   }
+  RegistrationWorkspace {
+    String id PK
+    String organizationId FK
+    String ownerType
+    String sourceCandidateId FK
+    String targetMasterId FK
+    String displayName
+    String normalizedTitle
+    String status
+    String currentDetailPageArtifactId FK
+    String currentDetailPageRevisionId FK
+    String createdByUserId FK
+    Boolean isDeleted
+    DateTime deletedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
   ReturnTransfer {
     String id PK
     String organizationId FK
@@ -1601,6 +1625,8 @@ erDiagram
     String errorMessage
     Int attemptCount
     String triggeredByUserId FK
+    Boolean isDeleted
+    DateTime deletedAt
     DateTime createdAt
     DateTime updatedAt
   }
@@ -1843,7 +1869,9 @@ erDiagram
   ContentGenerationGroup ||--o{ ContentGeneration : "generationGroup"
   DetailPageArtifact o|--o{ ContentGeneration : "detailPageArtifact"
   DetailPageArtifact ||--o{ DetailPageRevision : "artifact"
+  DetailPageArtifact o|--o{ RegistrationWorkspace : "currentDetailPageArtifact"
   DetailPageRevision o|--o{ DetailPageArtifact : "currentRevision"
+  DetailPageRevision o|--o{ RegistrationWorkspace : "currentDetailPageRevision"
   ExecutionTask ||--o{ ExecutionLog : "task"
   ExecutionWorker o|--o{ ExecutionTask : "worker"
   Marketplace o|--o{ WorkflowTemplate : "marketplace"
@@ -1855,6 +1883,7 @@ erDiagram
   MasterProduct ||--o{ MasterSupplierProduct : "master"
   MasterProduct ||--o{ ProcessingCost : "master"
   MasterProduct ||--|| ProductOption : "master"
+  MasterProduct o|--o{ RegistrationWorkspace : "targetMaster"
   MasterProduct o|--o{ SourcingCandidate : "promotedMaster"
   MasterProduct ||--|| ThumbnailAnalysis : "master"
   MasterProduct o|--o{ ThumbnailGeneration : "master"
@@ -1920,6 +1949,7 @@ erDiagram
   Organization ||--o{ ProductOption : "organization"
   Organization ||--o{ ProfitLoss : "organization"
   Organization ||--o{ PurchaseOrder : "organization"
+  Organization ||--o{ RegistrationWorkspace : "organization"
   Organization ||--o{ ReturnTransfer : "organization"
   Organization ||--o{ Review : "organization"
   Organization ||--o{ SalesPlan : "organization"
@@ -1965,10 +1995,13 @@ erDiagram
   ProductOption o|--o{ UnshippedItem : "option"
   PurchaseOrder ||--o{ PurchaseOrderItem : "order"
   PurchaseOrder o|--o{ SupplierPayment : "purchaseOrder"
+  RegistrationWorkspace o|--o{ ContentGeneration : "registrationWorkspace"
+  RegistrationWorkspace o|--o{ DetailPageArtifact : "registrationWorkspace"
   SourcingCandidate ||--o{ CandidateImage : "candidate"
   SourcingCandidate o|--o{ ContentGeneration : "sourceCandidate"
   SourcingCandidate o|--o{ ContentGenerationSource : "sourceCandidate"
   SourcingCandidate o|--o{ DetailPageArtifact : "sourceCandidate"
+  SourcingCandidate o|--o{ RegistrationWorkspace : "sourceCandidate"
   SourcingCandidate o|--o{ ThumbnailGeneration : "sourceCandidate"
   Supplier ||--o{ MasterSupplierProduct : "supplier"
   Supplier o|--o{ PurchaseOrder : "supplier"
@@ -1995,6 +2028,7 @@ erDiagram
   User o|--o{ DetailPageRevision : "createdByUser"
   User o|--o{ OrganizationMembership : "invitedBy"
   User ||--o{ OrganizationMembership : "user"
+  User o|--o{ RegistrationWorkspace : "createdByUser"
   User o|--o{ SourcingCandidate : "rejectedByUser"
   User o|--o{ SourcingCandidate : "triggeredByUser"
   User o|--o{ ThumbnailGeneration : "triggeredByUser"

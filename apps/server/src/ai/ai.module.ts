@@ -15,6 +15,7 @@ import { DetailPageEditorController } from './adapter/in/http/detail-page-editor
 import { DetailPageGenerationController } from './adapter/in/http/detail-page-generation.controller';
 import { DetailPageReconcileController } from './adapter/in/http/detail-page-reconcile.controller';
 import { RenderImageController } from './adapter/in/http/render-image.controller';
+import { RegistrationWorkspaceController } from './adapter/in/http/registration-workspace.controller';
 import { TextAiController } from './adapter/in/http/text-ai.controller';
 import { ThumbnailAnalysisController } from './adapter/in/http/thumbnail-analysis.controller';
 import { ThumbnailAnalysisEditJobsController } from './adapter/in/http/thumbnail-analysis-edit-jobs.controller';
@@ -63,6 +64,7 @@ import { DetailPageGeneratedImagesService } from './application/service/detail-p
 import { ContentAssetService } from './application/service/content-asset.service';
 import { DetailPageAiService } from './application/service/detail-page-ai.service';
 import { DetailPageGenerationService } from './application/service/detail-page-generation.service';
+import { GeneratedContentCandidateService } from './application/service/generated-content-candidate.service';
 import { DetailPageRasterizationService } from './application/service/detail-page-rasterization.service';
 import { DetailPagePrefillService } from './application/service/detail-page-prefill.service';
 import { DetailPageQueryService } from './application/service/detail-page-query.service';
@@ -82,9 +84,12 @@ import { ThumbnailWingService } from './application/service/thumbnail-wing.servi
 import { ContentArchiveService } from './application/service/content-archive.service';
 import { ContentGenerationRerunService } from './application/service/content-generation-rerun.service';
 import { ContentWorkspaceAttachmentService } from './application/service/content-workspace-attachment.service';
+import { RegistrationWorkspaceService } from './application/service/registration-workspace.service';
+import { SourcingWorkspaceArchiveService } from './application/service/sourcing-workspace-archive.service';
 
 // application/port — in
 import { POST_PROMOTION_AI_TRIGGER_PORT } from './application/port/in/post-promotion-ai-trigger.port';
+import { AI_WORKSPACE_ARCHIVE_PORT } from './application/port/in/sourcing-workspace-archive.port';
 
 // application/port — out
 import { DETAIL_PAGE_AGENT_OUTPUT_SINK_PORT } from './application/port/out/detail-page-agent-output-sink.port';
@@ -114,6 +119,7 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     DetailPageGenerationController,
     DetailPageReconcileController,
     ImageAiController,
+    RegistrationWorkspaceController,
     RenderImageController,
     TextAiController,
     ThumbnailAnalysisController,
@@ -137,8 +143,11 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     ContentAssetService,
     ContentGenerationRerunService,
     ContentWorkspaceAttachmentService,
+    RegistrationWorkspaceService,
+    SourcingWorkspaceArchiveService,
     DetailPageGeneratedImagesService,
     DetailPageHeroImageService,
+    GeneratedContentCandidateService,
     DetailPagePrefillService,
     DetailPageQueryService,
     DetailPageResultRefinerService,
@@ -220,7 +229,8 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     // Inbound port — sourcing's post-promotion gateway injects this to fire
     // detail-page + thumbnail generation with AI-domain-owned defaults.
     { provide: POST_PROMOTION_AI_TRIGGER_PORT, useExisting: PostPromotionAiService },
+    { provide: AI_WORKSPACE_ARCHIVE_PORT, useExisting: SourcingWorkspaceArchiveService },
   ],
-  exports: [POST_PROMOTION_AI_TRIGGER_PORT],
+  exports: [POST_PROMOTION_AI_TRIGGER_PORT, AI_WORKSPACE_ARCHIVE_PORT],
 })
 export class AiModule {}

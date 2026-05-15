@@ -3,8 +3,7 @@
 Sourcing owns Chinese new-product discovery — scraper ingest from 1688 /
 Alibaba, the `SourcingCandidate` inbox, and the candidate → master promotion
 handoff. Supplier registry, master-supplier policy, and purchase-order
-procurement live in `supply/` (extracted during issue #192 follow-up Track A
-PR 1). `supplier-payments` lives in `finance/`.
+procurement live in `supply/`. `supplier-payments` lives in `finance/`.
 
 Sourcing scrape/agent and products-catalog boundaries use application ports and
 outgoing adapters.
@@ -15,6 +14,7 @@ outgoing adapters.
 |---|---|
 | extension ingest + scrape | `/api/sourcing/extension/*`, `/api/sourcing/scrape-url` |
 | sourcing candidate detail | `GET /api/sourcing/:id` |
+| candidate inbox delete | `DELETE /api/sourcing/candidates/:id` |
 | candidate promotion | `POST /api/sourcing/candidates/:id/promote` |
 | candidate rejection | `POST /api/sourcing/candidates/:id/reject` |
 
@@ -43,31 +43,49 @@ sourcing/
   rows via `SOURCING_CANDIDATE_REPOSITORY_PORT`. **`MasterProduct` is no
   longer written by sourcing ingest**.
 - Cross-domain `MasterProduct` creation flows through
-  `SOURCING_PRODUCTS_CATALOG_PORT.promoteCandidate` (Task 3 신설) —
-  promotion is the only sourcing call site of products domain creation.
-- After promotion, `SourcingPromotionService` (Task 3) fires
+  `SOURCING_PRODUCTS_CATALOG_PORT.promoteCandidate`; promotion is the only
+  sourcing call site of products domain creation.
+- Cross-domain AI workspace archival flows through `AI_WORKSPACE_ARCHIVE_PORT`.
+  Sourcing owns the delete command and candidate row, but AI owns detail-page,
+  thumbnail, and content asset archive rules.
+- After promotion, `SourcingPromotionService` fires
   `SOURCING_AGENT_GATEWAY_PORT.notifyPromoted` which delegates to ai
   domain's `POST_PROMOTION_AI_TRIGGER_PORT`. Sourcing has no knowledge of
   AI payload shape.
 - Supplier registry, `MasterSupplierProduct` policy, and `PurchaseOrder`
-  mutation belong to `supply/` (extracted during issue #192 follow-up Track A
-  PR 1). Sourcing must not reintroduce supplier/procurement controllers,
-  services, or DTOs. Cross-domain attach (PR 2) flows through a
+  mutation belong to `supply/`. Sourcing must not reintroduce supplier or
+  procurement controllers, services, or DTOs. Cross-domain attach flows through
   `SUPPLY_ATTACH_PORT`, not direct service injection.
 
 ## Contracts
 
-- `GET /api/sourcing/:id` uses `findFirst({ id, organizationId, isDeleted: false })` on `SourcingCandidate`; miss is 404.
-- `GET /api/sourcing/extension/products` returns paginated, organization-scoped `SourcingCandidate` rows where `status='sourced'`.
-- Extension ingest is idempotent by `{ sourceUrl, organizationId, status='sourced', isDeleted=false }`. Re-scrape of a URL whose existing candidate is `promoted` or `rejected` creates a new `sourced` row (re-source intent).
+- `GET /api/sourcing/:id` uses
+  `findFirst({ id, organizationId, isDeleted: false })`; miss is 404.
+- `GET /api/sourcing/extension/products` returns paginated, organization-scoped
+  `SourcingCandidate` rows where `status='sourced'`; without an explicit
+  platform filter, the collected-product inbox is limited to imported sourcing
+  platforms (`ALIBABA_1688`, `ALIBABA`) and excludes KidItem-generated
+  thumbnail/detail workspaces.
+- `DELETE /api/sourcing/candidates/:id` archives an active sourced workspace in
+  one transaction: `SourcingCandidate`, `CandidateImage`, candidate-bound
+  `ContentGeneration`, `DetailPageArtifact`, `ContentAsset`, and
+  `ThumbnailGeneration` become inactive. It does not delete promoted
+  `MasterProduct`, product images, channel listings, orders, inventory, or
+  finance data.
+- Storage objects are not deleted inline with the HTTP request. Physical object
+  deletion belongs to a retention/GC path that re-checks active storage-key
+  references before calling storage delete.
+- Extension ingest is idempotent by
+  `{ sourceUrl, organizationId, status='sourced', isDeleted=false }`.
+- Re-scraping a promoted or rejected URL creates a new `sourced` row.
 - Promotion is atomic: `SourcingPromotionService.promote` opens a single
   `prisma.$transaction` that (1) tenant-scoped `findFirst` pre-checks the
   candidate, (2) `SELECT ... FOR UPDATE` row-locks via tagged-template
   `$queryRaw` (no `$queryRawUnsafe`), (3) delegates master+options+images
   creation to `SOURCING_PRODUCTS_CATALOG_PORT.promoteCandidate(tx, ...)`, and
   (4) flips the candidate row to `status='promoted' + promotedMasterId=<new>`.
-  The row lock enforces 1:1 in current use-case while the D2 schema permits
-  the future N:1 case (multiple candidates → one master).
+  The row lock enforces 1:1 in the current use case while the schema still
+  permits future N:1 promotion.
 - Promotion may receive registration selections in the existing command body:
   `selectedThumbnailUrl` becomes the promoted master's primary image, and
   `selectedDetailPageGenerationId` / `selectedDetailPageArtifactId` attaches
@@ -78,7 +96,7 @@ sourcing/
   always reports the promotion outcome. `body.skipPostPromotionHooks=true`
   bypasses the AI trigger (ops escape hatch).
 - Rejection sets `status='rejected', rejectedAt=now(), rejectedReason,
-  rejectedByUserId` (D3). The candidate row is preserved; image rows stay
+  rejectedByUserId`. The candidate row is preserved; image rows stay
   attached for audit.
 - Promote/reject from non-`sourced` states is 422 UnprocessableEntity; a
   concurrent promoter that wins the row lock surfaces as 409 Conflict to the
@@ -91,10 +109,9 @@ sourcing/
 - Raw `master_products` INSERT from sourcing; code issuance belongs to products.
 - Raw `master_products` INSERT/UPDATE from sourcing ingest — sourcing now writes `sourcing_candidates` only.
 - Direct mutation of supply/ domain models (`Supplier`, `MasterSupplierProduct`,
-  `PurchaseOrder`) or services from sourcing application services. PR 2 introduces
-  `SUPPLY_ATTACH_PORT` for cross-domain attach; until then sourcing's promotion
-  path stops at `SOURCING_PRODUCTS_CATALOG_PORT.promoteCandidate` (products
-  domain only).
+  `PurchaseOrder`) or services from sourcing application services. Cross-domain
+  attach flows through `SUPPLY_ATTACH_PORT`; otherwise sourcing promotion stops
+  at `SOURCING_PRODUCTS_CATALOG_PORT.promoteCandidate`.
 - Reintroducing supplier/procurement controllers, services, DTOs, or `supply.prisma`
   model mutations under `sourcing/`.
 

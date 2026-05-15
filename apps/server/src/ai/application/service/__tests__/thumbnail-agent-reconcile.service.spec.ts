@@ -3,6 +3,7 @@ import { ThumbnailAgentReconcileService } from '../thumbnail-agent-reconcile.ser
 import type { ThumbnailAgentOutputSinkPort } from '../../port/out/thumbnail-agent-output-sink.port';
 import type { AgentObservabilityService } from '../../../../agent-os/application/service/agent-observability.service';
 import type { AgentRunRecord } from '../../../../agent-os/domain/agent-os.types';
+import type { OperationAlertService } from '../../../../automation/application/service/operation-alert.service';
 
 const ORG = '11111111-1111-1111-1111-111111111111';
 
@@ -62,6 +63,8 @@ function makeRun(overrides: Partial<AgentRunRecord> = {}): AgentRunRecord {
 function makePrismaStub(input: {
   requests: Array<ReturnType<typeof makeRow>>;
   genStatus: 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled' | null;
+  terminalGenerations?: Array<{ id: string; status: string; errorMessage: string | null }>;
+  staleGenerations?: Array<{ id: string }>;
 }) {
   return {
     agentRunRequest: {
@@ -69,8 +72,14 @@ function makePrismaStub(input: {
     },
     thumbnailGeneration: {
       findFirst: vi.fn().mockImplementation(async () =>
-        input.genStatus === null ? null : { id: 'gen-1', status: input.genStatus },
+        input.genStatus === null
+          ? null
+          : { id: 'gen-1', status: input.genStatus, errorMessage: null },
       ),
+      findMany: vi
+        .fn()
+        .mockResolvedValueOnce(input.terminalGenerations ?? [])
+        .mockResolvedValueOnce(input.staleGenerations ?? []),
     },
   };
 }
@@ -98,6 +107,12 @@ function makeSink(): ThumbnailAgentOutputSinkPort {
   };
 }
 
+function makeOperationAlerts(result: unknown = null): OperationAlertService {
+  return {
+    closeBySource: vi.fn().mockResolvedValue(result),
+  } as unknown as OperationAlertService;
+}
+
 describe('ThumbnailAgentReconcileService', () => {
   let sink: ThumbnailAgentOutputSinkPort;
 
@@ -108,14 +123,24 @@ describe('ThumbnailAgentReconcileService', () => {
   it('throws when organizationId is missing', async () => {
     const prisma = makePrismaStub({ requests: [], genStatus: null });
     const observability = makeObservability([]);
-    const svc = new ThumbnailAgentReconcileService(prisma as never, observability, sink);
+    const svc = new ThumbnailAgentReconcileService(
+      prisma as never,
+      observability,
+      sink,
+      makeOperationAlerts(),
+    );
     await expect(svc.reconcile('')).rejects.toThrow();
   });
 
   it('replays succeeded request when ThumbnailGeneration is still pending', async () => {
     const prisma = makePrismaStub({ requests: [makeRow()], genStatus: 'pending' });
     const observability = makeObservability([makeRun()]);
-    const svc = new ThumbnailAgentReconcileService(prisma as never, observability, sink);
+    const svc = new ThumbnailAgentReconcileService(
+      prisma as never,
+      observability,
+      sink,
+      makeOperationAlerts(),
+    );
     const summary = await svc.reconcile(ORG);
     expect(sink.applySuccess).toHaveBeenCalledWith(
       expect.objectContaining({ sourceResourceId: 'gen-1', runId: 'run-1' }),
@@ -125,20 +150,39 @@ describe('ThumbnailAgentReconcileService', () => {
       appliedSuccess: 1,
       appliedFailure: 0,
       skipped: 0,
+      closedTerminalAlerts: 0,
+      failedStale: 0,
     });
   });
 
   it('skips terminal generation rows (succeeded/failed) — bridge already applied', async () => {
     const prisma = makePrismaStub({ requests: [makeRow()], genStatus: 'succeeded' });
     const observability = makeObservability([makeRun()]);
-    const svc = new ThumbnailAgentReconcileService(prisma as never, observability, sink);
+    const operationAlerts = makeOperationAlerts({ id: 'alert-1' });
+    const svc = new ThumbnailAgentReconcileService(
+      prisma as never,
+      observability,
+      sink,
+      operationAlerts,
+    );
     const summary = await svc.reconcile(ORG);
     expect(sink.applySuccess).not.toHaveBeenCalled();
+    expect(operationAlerts.closeBySource).toHaveBeenCalledWith(
+      ORG,
+      'thumbnail_generation',
+      'gen-1',
+      'succeeded',
+      expect.objectContaining({
+        metadata: expect.objectContaining({ staleReconciled: true }),
+      }),
+    );
     expect(summary).toEqual({
       scanned: 1,
       appliedSuccess: 0,
       appliedFailure: 0,
       skipped: 1,
+      closedTerminalAlerts: 1,
+      failedStale: 0,
     });
   });
 
@@ -154,7 +198,12 @@ describe('ThumbnailAgentReconcileService', () => {
       genStatus: 'pending',
     });
     const observability = makeObservability([]);
-    const svc = new ThumbnailAgentReconcileService(prisma as never, observability, sink);
+    const svc = new ThumbnailAgentReconcileService(
+      prisma as never,
+      observability,
+      sink,
+      makeOperationAlerts(),
+    );
     const summary = await svc.reconcile(ORG);
     expect(sink.applyFailure).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -170,11 +219,41 @@ describe('ThumbnailAgentReconcileService', () => {
     const observability = makeObservability([
       makeRun({ output: { totally: 'wrong' } as Record<string, unknown> }),
     ]);
-    const svc = new ThumbnailAgentReconcileService(prisma as never, observability, sink);
+    const svc = new ThumbnailAgentReconcileService(
+      prisma as never,
+      observability,
+      sink,
+      makeOperationAlerts(),
+    );
     await svc.reconcile(ORG);
     expect(sink.applyFailure).toHaveBeenCalledWith(
       expect.objectContaining({ errorCode: 'agent_output_invalid' }),
     );
     expect(sink.applySuccess).not.toHaveBeenCalled();
+  });
+
+  it('fails stale non-terminal thumbnail generations', async () => {
+    const prisma = makePrismaStub({
+      requests: [],
+      genStatus: null,
+      staleGenerations: [{ id: 'gen-stale' }],
+    });
+    const observability = makeObservability([]);
+    const svc = new ThumbnailAgentReconcileService(
+      prisma as never,
+      observability,
+      sink,
+      makeOperationAlerts(),
+    );
+
+    const summary = await svc.reconcile(ORG, { stalePendingMinutes: 360 });
+
+    expect(sink.applyFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceResourceId: 'gen-stale',
+        errorCode: 'thumbnail_generation_stale',
+      }),
+    );
+    expect(summary.failedStale).toBe(1);
   });
 });

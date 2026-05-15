@@ -14,7 +14,7 @@ export const PANEL_RUN_SOURCES = {
   image: {
     label: '이미지',
     iconName: 'Image',
-    deepLinkPattern: '/thumbnails?generationId=:id',
+    deepLinkPattern: '/product-pipeline/thumbnail-generation?generationId=:id',
   },
 } as const;
 

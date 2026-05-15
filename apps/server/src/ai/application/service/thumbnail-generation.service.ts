@@ -80,7 +80,7 @@ export class ThumbnailGenerationService {
   }
 
   private thumbnailGenerationHref(generationId: string): string {
-    return `/thumbnails?generationId=${encodeURIComponent(generationId)}`;
+    return `/product-pipeline/thumbnail-generation?generationId=${encodeURIComponent(generationId)}`;
   }
 
   async findProductForEditor(
@@ -120,6 +120,12 @@ export class ThumbnailGenerationService {
     input: Parameters<ThumbnailGenerationJobService['enqueueCandidateGeneration']>[0],
   ): Promise<{ generationId: string; status: 'pending' }> {
     return this.generationJobs.enqueueCandidateGeneration(input);
+  }
+
+  async enqueueStandaloneGeneration(
+    input: Parameters<ThumbnailGenerationJobService['enqueueStandaloneGeneration']>[0],
+  ): Promise<{ generationId: string; status: 'pending' }> {
+    return this.generationJobs.enqueueStandaloneGeneration(input);
   }
 
   async findAll(
@@ -372,7 +378,7 @@ export class ThumbnailGenerationService {
     triggeredByUserId: string | null,
   ): Promise<{ ok: true }> {
     const existing = await this.prisma.thumbnailGeneration.findFirst({
-      where: { id, organizationId },
+      where: { id, organizationId, isDeleted: false },
       select: { id: true, masterId: true, method: true },
     });
     if (!existing) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
@@ -489,7 +495,7 @@ export class ThumbnailGenerationService {
 
   private async assertGenerationOwned(id: string, organizationId: string): Promise<void> {
     const existing = await this.prisma.thumbnailGeneration.findFirst({
-      where: { id, organizationId },
+      where: { id, organizationId, isDeleted: false },
       select: { id: true },
     });
     if (!existing) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);

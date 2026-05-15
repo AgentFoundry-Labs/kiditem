@@ -1,8 +1,8 @@
 # product-hub/matching — Coupang ↔ KidItem 매칭 센터
 
-`/product-hub/matching` page for issue #199. Triages Coupang Wing rows that
-the channels backend hasn't auto-linked to a `MasterProduct` /
-`ProductOption`. UI consumes `/api/channels/reconciliation/coupang/*`.
+`/product-hub/matching` triages Coupang Wing rows that the channels backend has
+not auto-linked to a `MasterProduct` / `ProductOption`. UI consumes
+`/api/channels/reconciliation/coupang/*`.
 
 ## Rules
 

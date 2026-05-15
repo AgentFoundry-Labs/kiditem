@@ -381,7 +381,7 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
         sourceType: 'coupang_image_sync',
         sourceId: jobId,
         actorUserId: 'user-1',
-        href: '/thumbnails',
+        href: '/product-pipeline/thumbnail-generation',
       }),
     );
     expect(operationAlerts.succeed).toHaveBeenCalledWith(

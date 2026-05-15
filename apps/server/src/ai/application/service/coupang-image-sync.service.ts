@@ -47,7 +47,7 @@ export interface CoupangImageSyncJobState {
 
 const JOB_TTL_MS = 30 * 60 * 1000;
 const OPERATION_KEY_PREFIX = 'coupang-image-sync:';
-const OPERATION_HREF = '/thumbnails';
+const OPERATION_HREF = '/product-pipeline/thumbnail-generation';
 export const COUPANG_IMAGE_SYNC_ALERT_START_TIMEOUT_MS = 2_000;
 export const COUPANG_IMAGE_SYNC_STALE_ALERT_TTL_MS = 2 * 60 * 60 * 1000;
 
@@ -279,7 +279,7 @@ export class CoupangImageSyncService implements OnModuleInit {
 
   // ── Operation alert lifecycle (panel projection) ─────────────────────────
   // The job is single-instance (in-memory map), so the alert ledger is the
-  // only place the user can track state if they leave /thumbnails. Alert
+  // only place the user can track state if they leave thumbnail generation. Alert
   // emit failures are swallowed so the sync keeps running; the worst case
   // is a stale "running" badge, which the FE polling reset will clear.
 

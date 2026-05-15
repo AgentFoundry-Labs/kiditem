@@ -21,11 +21,6 @@ interface EnqueueResponse {
   status: 'pending';
 }
 
-interface SyncResponse {
-  candidates: Array<{ url: string; filename: string }>;
-  generationId: null;
-}
-
 @Controller('thumbnail-editor')
 export class ThumbnailEditorController {
   constructor(
@@ -45,16 +40,16 @@ export class ThumbnailEditorController {
    *   Frontend polls the generation row to surface candidates when the
    *   bridge + sink finalize.
    *
-   * - **Standalone (no `productId`)**: kept synchronous as a transitional
-   *   preview path for tests / external integrations. Calls the Gemini
-   *   image-gen service inline and returns candidates without a DB row.
+   * - **Standalone upload (`productId` + `sourceCandidateId` absent)**:
+   *   creates only a `ThumbnailGeneration` row. It must not create sourcing
+   *   inbox cards; direct upload thumbnail results are reachable by generation id.
    */
   @Post('generate')
   async generate(
     @Body() body: ThumbnailEditorDto,
     @CurrentOrganization() organizationId: string,
     @CurrentUser() authUser?: AuthUser,
-  ): Promise<EnqueueResponse | SyncResponse> {
+  ): Promise<EnqueueResponse> {
     const mode = body.mode ?? 'edit';
     if (body.productId && body.sourceCandidateId) {
       throw new BadRequestException('productId 와 sourceCandidateId 는 동시에 사용할 수 없습니다');
@@ -135,35 +130,31 @@ export class ThumbnailEditorController {
       } satisfies EnqueueResponse;
     }
 
-    // Standalone preview — sync Gemini call, no row.
-    const candidates = mode === 'creative'
-      ? await this.editorAi.generateCreative(inputs, organizationId, {
-          sceneType: body.sceneType,
-          styleType: body.styleType,
-          productDescription: body.productDescription,
-          userPrompt: body.userPrompt,
-          productName,
-          category,
-          hasStyleReference: Boolean(body.backgroundReference),
-        })
-      : await this.editorAi.generateEdit(inputs, organizationId, {
-          purpose: body.purpose,
+    const enqueueResult = await this.generationService.enqueueStandaloneGeneration({
+      organizationId,
+      productName,
+      triggeredByUserId: authUser?.id ?? null,
+      inputs,
+      inputMeta: this.inputMeta(body, mode, editCase, inputs),
+      method: mode === 'creative' ? 'creative' : 'generate',
+      originalUrl: inputs[0]?.url ?? '',
+      agentPayload: {
+        ...this.agentPayload({
+          body,
+          mode,
           editCase,
           composition,
-          userPrompt: body.userPrompt,
-          layout: body.layout,
-          productDescription: body.productDescription,
+          inputs,
           productName,
           category,
-        });
-
+        }),
+      },
+    });
     return {
-      candidates: candidates.map((candidate) => ({
-        url: candidate.url,
-        filename: candidate.filename ?? candidate.storageKey?.split('/').pop() ?? 'thumbnail.png',
-      })),
-      generationId: null,
-    } satisfies SyncResponse;
+      candidates: [],
+      generationId: enqueueResult.generationId,
+      status: 'pending',
+    } satisfies EnqueueResponse;
   }
 
   private agentPayload(input: {
@@ -290,6 +281,7 @@ export class ThumbnailEditorController {
   ) {
     return this.reconcile.reconcile(organizationId, {
       sinceMinutes: body.sinceMinutes,
+      stalePendingMinutes: body.stalePendingMinutes,
       limit: body.limit,
     });
   }

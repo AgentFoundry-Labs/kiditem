@@ -107,10 +107,10 @@ export class ImageAiService {
 
   private imageEditHref(params: { productId?: string; contentGenerationId?: string }): string {
     if (params.contentGenerationId) {
-      return `/sourcing/detail-pages/${params.contentGenerationId}/editor`;
+      return `/product-pipeline/detail-pages/${encodeURIComponent(params.contentGenerationId)}/editor`;
     }
-    if (params.productId) return `/sourcing?masterId=${params.productId}`;
-    return '/sourcing?contentType=image';
+    if (params.productId) return `/product-pipeline/registered-products?masterId=${params.productId}`;
+    return '/product-pipeline/registered-products?contentType=image';
   }
 
   private kickEnqueuedImageEditRequest(input: {

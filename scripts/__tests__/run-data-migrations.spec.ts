@@ -5,7 +5,9 @@ import {
   DATA_MIGRATION_IDS,
   dataMigrations,
   isLegacyDetailEditorHref,
+  isProductContentRouteHrefRewriteNeeded,
   rewriteLegacyDetailEditorHref,
+  rewriteProductContentRouteHref,
 } from '../data-migrations/index';
 import {
   APPLY_DATA_MIGRATIONS_CONFIRMATION,
@@ -28,6 +30,9 @@ describe('data migration registry', () => {
       'v0.1.1:001_backfill_content_generation_workspace_assets',
       'v0.1.1:002_backfill_detail_page_artifacts',
       'v0.1.1:003_backfill_sourcing_candidate_images',
+      'v0.1.1:004_backfill_generated_content_candidates',
+      'v0.1.1:005_rewrite_product_content_route_hrefs',
+      'v0.1.1:006_backfill_registration_workspaces',
     ]);
   });
 
@@ -74,6 +79,60 @@ describe('legacy detail editor alert href migration', () => {
   it('leaves unrelated hrefs unchanged', () => {
     expect(isLegacyDetailEditorHref('/products/abc')).toBe(false);
     expect(rewriteLegacyDetailEditorHref('/products/abc')).toBe('/products/abc');
+  });
+});
+
+describe('product content route href migration', () => {
+  it('rewrites retired sourcing editor hrefs to product-pipeline candidate routes', () => {
+    expect(
+      rewriteProductContentRouteHref('/sourcing/product-123/editor?boldId=generation-456'),
+    ).toBe('/product-pipeline/collected-products/product-123/editor?generationId=generation-456');
+    expect(
+      rewriteProductContentRouteHref('/sourcing/product-123/editor?generationId=generation-456'),
+    ).toBe('/product-pipeline/collected-products/product-123/editor?generationId=generation-456');
+  });
+
+  it('rewrites retired sourcing detail editor hrefs to product-pipeline detail routes', () => {
+    expect(
+      rewriteProductContentRouteHref('/sourcing/detail-pages/generation-456/editor'),
+    ).toBe('/product-pipeline/registered-products/detail-pages/generation-456/editor');
+  });
+
+  it('rewrites retired product-content candidate editor hrefs to product-pipeline routes', () => {
+    expect(
+      rewriteProductContentRouteHref('/product-content/product-123/editor?agentId=generation-456'),
+    ).toBe('/product-pipeline/collected-products/product-123/editor?generationId=generation-456');
+    expect(
+      rewriteProductContentRouteHref('/product-content/candidates/product-123/editor?generationId=generation-456'),
+    ).toBe('/product-pipeline/collected-products/product-123/editor?generationId=generation-456');
+    expect(
+      rewriteProductContentRouteHref('/product-content/detail-pages/generation-456/editor'),
+    ).toBe('/product-pipeline/registered-products/detail-pages/generation-456/editor');
+  });
+
+  it('rewrites removed product AI routes to product-pipeline routes', () => {
+    expect(rewriteProductContentRouteHref('/sourcing')).toBe('/product-pipeline/collected-products');
+    expect(rewriteProductContentRouteHref('/product-content')).toBe('/product-pipeline/collected-products');
+    expect(rewriteProductContentRouteHref('/product-content?contentType=image')).toBe(
+      '/product-pipeline/registered-products?contentType=image',
+    );
+    expect(rewriteProductContentRouteHref('/generate')).toBe(
+      '/product-pipeline/detail-template-generation',
+    );
+    expect(rewriteProductContentRouteHref('/thumbnails?generationId=generation-456')).toBe(
+      '/product-pipeline/thumbnail-generation?generationId=generation-456',
+    );
+    expect(rewriteProductContentRouteHref('/thumbnail-editor/edit?generationId=generation-456')).toBe(
+      '/product-pipeline/thumbnail-generation/edit?generationId=generation-456',
+    );
+  });
+
+  it('leaves canonical and unrelated hrefs unchanged', () => {
+    expect(
+      rewriteProductContentRouteHref('/product-pipeline/collected-products/product-123/editor?generationId=generation-456'),
+    ).toBe('/product-pipeline/collected-products/product-123/editor?generationId=generation-456');
+    expect(isProductContentRouteHrefRewriteNeeded('/products/abc')).toBe(false);
+    expect(rewriteProductContentRouteHref('/products/abc')).toBe('/products/abc');
   });
 });
 
