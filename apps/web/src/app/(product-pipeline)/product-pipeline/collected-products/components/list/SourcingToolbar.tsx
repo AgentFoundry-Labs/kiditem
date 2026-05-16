@@ -55,7 +55,7 @@ export default function SourcingToolbar({
             엑셀 수집
           </button>
           <Link
-            href="/product-pipeline/detail-template-generation"
+            href="/product-pipeline/detailgenerate"
             className="ml-1 flex h-7 items-center rounded-md bg-emerald-500 px-3 font-semibold text-white transition-colors hover:bg-emerald-600"
           >
             상세페이지 일괄 생성

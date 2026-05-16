@@ -42,6 +42,9 @@ because collected and registered products both use them.
   inbox card lives in collected products. Its candidate-backed
   `RegistrationWorkspace` remains an internal history/selection anchor and must
   not create a registered-products inbox card.
+- Manual product registration also creates a `SourcingCandidate`
+  (`sourcePlatform='KIDITEM_PRODUCT_REGISTRATION'`) and its generated detail
+  pages stay visible from the collected product workspace.
 - Thumbnail editor/generation results alone must not create collected or
   registered inbox cards.
 - Generated detail pages link to the shared editor route

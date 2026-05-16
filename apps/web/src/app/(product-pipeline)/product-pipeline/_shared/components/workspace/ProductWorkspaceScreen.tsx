@@ -120,6 +120,7 @@ export function ProductWorkspaceScreen({
 
   if (fetchedData && !editInitialized) {
     setEditData(fetchedData.editState);
+    setSelectedRegistrationThumbnailUrl(fetchedData.editState.thumbnails[0] ?? null);
     setEditInitialized(true);
   }
 

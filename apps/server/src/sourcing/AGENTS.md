@@ -13,6 +13,7 @@ outgoing adapters.
 | Capability | Route |
 |---|---|
 | extension ingest + scrape | `/api/sourcing/extension/*`, `/api/sourcing/scrape-url` |
+| manual product registration | `POST /api/sourcing/product-registration` |
 | sourcing candidate detail | `GET /api/sourcing/:id` |
 | candidate inbox delete | `DELETE /api/sourcing/candidates/:id` |
 | candidate promotion | `POST /api/sourcing/candidates/:id/promote` |
@@ -64,9 +65,10 @@ sourcing/
 - `GET /api/sourcing/extension/products` returns paginated, organization-scoped
   `SourcingCandidate` rows where `status='sourced'`; without an explicit
   platform filter, the collected-product inbox includes imported sourcing
-  platforms (`ALIBABA_1688`, `ALIBABA`) plus KidItem self-collected detail-page
-  candidates (`kiditem-detail-page`). It continues to exclude KidItem-generated
-  thumbnail-only workspaces.
+  platforms (`ALIBABA_1688`, `ALIBABA`), KidItem self-collected detail-page
+  candidates (`kiditem-detail-page`), and manual product registration
+  candidates (`KIDITEM_PRODUCT_REGISTRATION`). It continues to exclude
+  KidItem-generated thumbnail-only workspaces.
 - `DELETE /api/sourcing/candidates/:id` archives an active sourced workspace in
   one transaction: `SourcingCandidate`, `CandidateImage`, candidate-bound
   `ContentGeneration`, `DetailPageArtifact`, `ContentAsset`, and

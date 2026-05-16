@@ -195,7 +195,7 @@ export default function DetailPagePreview({
   }, [detailEditorReturnHref, detailEditorSourceCandidateId, effectiveDetailPageGenerationId]);
 
   const hasCurrentSavedDetailPage =
-    hasSavedDetailPage ?? Boolean(effectiveDetailPageGenerationId || editedHtml || detailPreviewHtml.trim());
+    hasSavedDetailPage ?? Boolean(effectiveDetailPageGenerationId || editedHtml);
 
   const savedDetailHtml = useMemo(() => {
     if (!hasCurrentSavedDetailPage) return null;
@@ -216,6 +216,9 @@ export default function DetailPagePreview({
         return null;
       }
     }
+    if (effectiveDetailPageGenerationId) {
+      return null;
+    }
     if (editedHtml) {
       return ensureStyledDetailHtml(editedHtml, templateCss);
     }
@@ -224,6 +227,7 @@ export default function DetailPagePreview({
     detailPreviewHtml,
     editedHtml,
     hasCurrentSavedDetailPage,
+    effectiveDetailPageGenerationId,
     savedAgentEntry,
     savedGenerationEntry,
     selectedAgentEditedHtml?.html,

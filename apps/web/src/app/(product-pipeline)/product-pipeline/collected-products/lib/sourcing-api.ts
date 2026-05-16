@@ -192,6 +192,9 @@ export function selectBestThumbnailImage(
   imageUrls: string[],
   explicitUrl?: string | null,
 ): string | null {
+  const explicit = normalizeImageUrl(explicitUrl);
+  if (explicit) return explicit;
+
   const raw = rawData ?? {};
   const candidates = collectImageUrls(
     raw.representativeImageUrl,

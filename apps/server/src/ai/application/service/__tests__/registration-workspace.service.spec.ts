@@ -159,7 +159,7 @@ describe('RegistrationWorkspaceService', () => {
     );
   });
 
-  it('finds duplicate normalized titles and returns latest workspace and history metadata', async () => {
+  it('finds duplicate normalized titles without expanding generation history', async () => {
     const prisma = {
       registrationWorkspace: {
         findFirst: vi.fn().mockResolvedValue(workspace()),
@@ -174,7 +174,8 @@ describe('RegistrationWorkspaceService', () => {
         displayName: '키즈 텀블러',
         normalizedTitle: '키즈텀블러',
         generationCount: 2,
-        latestGenerationId: 'generation-new',
+        latestGenerationId: null,
+        history: [],
         currentDetailPageArtifactId: ARTIFACT_ID,
         currentDetailPageRevisionId: REVISION_ID,
       },

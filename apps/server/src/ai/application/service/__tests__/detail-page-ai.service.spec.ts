@@ -1332,4 +1332,40 @@ describe('DetailPageAiService', () => {
     expect(result.description).toContain('1. 목에 걸고 다니기 쉬운 휴대형 비눗방울');
     expect(result.options).toEqual(['노란색', '빨간색', '초록색']);
   });
+
+  it('normalizes prefill target arrays from the model into a string', async () => {
+    const prisma = makePrisma();
+    const textCompletion = {
+      complete: vi.fn().mockResolvedValue({
+        text: JSON.stringify({
+          category: '완구/놀이',
+          target: ['부모 구매자', '선물 구매자'],
+          features: [
+            '아이들이 쉽게 사용할 수 있는 놀이 상품',
+            '실내외 활동에 모두 어울리는 구성',
+            '선물용으로 설명하기 쉬운 패키지',
+          ],
+          options: [],
+          extraNotes: '',
+        }),
+      }),
+    };
+    const service = makeService(
+      prisma,
+      textCompletion,
+      { save: vi.fn() },
+      makeOperationAlertsStub(),
+    );
+
+    const result = await service.prefill(
+      {
+        rawTitle: '키즈 놀이 세트',
+        imageUrls: [],
+      },
+      ORGANIZATION_ID,
+      USER_ID,
+    );
+
+    expect(result.target).toBe('부모 구매자, 선물 구매자');
+  });
 });

@@ -1,14 +1,20 @@
 'use client';
 
 import {
+  useEffect,
+  useMemo,
+  useRef,
   useState,
   type ChangeEvent,
+  type ComponentType,
   type Dispatch,
   type ReactNode,
   type SetStateAction,
 } from 'react';
 import {
+  Check,
   ChevronDown,
+  Eye,
   GraduationCap,
   ImagePlus,
   Images,
@@ -21,10 +27,19 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
+import {
+  getTemplate,
+  placeholderDetailPageData,
+} from '@kiditem/templates';
 import { apiClient } from '@/lib/api-client';
 import { cn, formatTime } from '@/lib/utils';
-import { moveSafetyLabelImagesToEnd } from '../lib/detail-page-image-order';
-import { cropImageWhitespaceFile } from '../lib/image-whitespace-crop';
+import {
+  SAME_ORIGIN_SCRIPTLESS_SANDBOX,
+  stripSrcDocScripts,
+} from '@/app/(product-pipeline)/product-pipeline/_shared/lib/preview-sandbox';
+import { renderTemplateToHtml } from '@/app/(product-pipeline)/product-pipeline/_shared/lib/template-html';
+import { moveSafetyLabelImagesToEnd } from '../../detail-template-generation/lib/detail-page-image-order';
+import { cropImageWhitespaceFile } from '../../detail-template-generation/lib/image-whitespace-crop';
 import type {
   BoxSetStatus,
   ColorVariantStatus,
@@ -33,12 +48,15 @@ import type {
   KcCertificationStatus,
   UsageSectionMode,
   DuplicateWorkspaceState,
-} from '../hooks/useGenerateForm';
+  GenerateTemplateId,
+} from '../../detail-template-generation/hooks/useGenerateForm';
 
 const MAX_IMAGES = 15;
 const MAX_OPTIONS = 10;
 
 interface ProductInputSectionProps {
+  templateId: GenerateTemplateId;
+  setTemplateId: (value: GenerateTemplateId) => void;
   rawTitle: string;
   setRawTitle: (value: string) => void;
   rawCategory: string;
@@ -80,7 +98,7 @@ interface ProductInputSectionProps {
   onPrefill: () => void;
   onDuplicateCheck: () => void;
   onLoadDuplicateLatest: () => void;
-  onSubmit: () => void;
+  onSubmit: (thumbnailUrl: string | null) => void;
 }
 
 const TARGET_OPTIONS = [
@@ -110,7 +128,26 @@ const USAGE_SECTION_OPTIONS: Array<{ value: UsageSectionMode; label: string }> =
   { value: 'exclude', label: '안 만듦' },
 ];
 
+const DETAIL_TEMPLATE_OPTIONS: Array<{
+  value: GenerateTemplateId;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: 'bold-vertical',
+    label: 'KIDITEM DESIGN',
+    description: '굵은 헤드라인과 섹션형 상세페이지',
+  },
+  {
+    value: 'kids-playful',
+    label: '트렌드 광고형 템플릿',
+    description: '컬러 블록과 광고형 CTA 중심 구성',
+  },
+];
+
 export default function ProductInputSection({
+  templateId,
+  setTemplateId,
   rawTitle,
   setRawTitle,
   rawCategory,
@@ -154,6 +191,9 @@ export default function ProductInputSection({
   onLoadDuplicateLatest,
   onSubmit,
 }: ProductInputSectionProps) {
+  const [thumbnailImage, setThumbnailImage] = useState<string | null>(null);
+  const [thumbnailUploading, setThumbnailUploading] = useState(false);
+  const [previewTemplateId, setPreviewTemplateId] = useState<GenerateTemplateId | null>(null);
   const [uploadingCount, setUploadingCount] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [optionDraft, setOptionDraft] = useState('');
@@ -164,6 +204,36 @@ export default function ProductInputSection({
   const sizeFields = parseSizeFields(productSize);
   const updateSizeField = (key: keyof ProductSizeFields, value: string) => {
     setProductSize(formatSizeFields({ ...sizeFields, [key]: value }));
+  };
+
+  const uploadImageFile = async (file: File): Promise<string> => {
+    const uploadFile = await cropImageWhitespaceFile(file).catch((err) => {
+      console.warn('[productgenerate] upload image whitespace crop failed, using original', err);
+      return file;
+    });
+    const formData = new FormData();
+    formData.append('file', uploadFile);
+    const result = await apiClient.upload<{ url: string }>(
+      '/api/ai/detail-page/images',
+      formData,
+    );
+    return result.url;
+  };
+
+  const handleThumbnailUpload = async (e: ChangeEvent<HTMLInputElement>) => {
+    const input = e.currentTarget;
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadError(null);
+    setThumbnailUploading(true);
+    try {
+      setThumbnailImage(await uploadImageFile(file));
+    } catch {
+      setUploadError(`썸네일 이미지 업로드 실패: ${file.name}`);
+    } finally {
+      setThumbnailUploading(false);
+      input.value = '';
+    }
   };
 
   const handleImageUpload = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -181,17 +251,7 @@ export default function ProductInputSection({
     try {
       const results = await Promise.allSettled(
         selectedFiles.map(async (file) => {
-          const uploadFile = await cropImageWhitespaceFile(file).catch((err) => {
-            console.warn('[generate] upload image whitespace crop failed, using original', err);
-            return file;
-          });
-          const formData = new FormData();
-          formData.append('file', uploadFile);
-          const result = await apiClient.upload<{ url: string }>(
-            '/api/ai/detail-page/images',
-            formData,
-          );
-          return { name: file.name, url: result.url };
+          return { name: file.name, url: await uploadImageFile(file) };
         }),
       );
       const uploaded: string[] = [];
@@ -236,14 +296,22 @@ export default function ProductInputSection({
       <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 shadow-sm">
         <div className="mb-5 text-center">
           <h1 className="text-2xl font-black text-[var(--text-primary)]">
-            AI 상세페이지 생성
+            AI 상품 등록
           </h1>
           <p className="mt-2 text-sm font-semibold text-[var(--text-secondary)]">
-            상품 이미지와 핵심 정보를 바탕으로 상세페이지 카피와 구성을 자동 작성합니다.
+            상품 이미지와 핵심 정보를 바탕으로 등록용 상세페이지 카피와 구성을 자동 작성합니다.
           </p>
         </div>
 
         <div className="space-y-4">
+          <Field label="상세페이지 템플릿">
+            <DetailTemplateButtons
+              value={templateId}
+              onChange={setTemplateId}
+              onPreview={setPreviewTemplateId}
+            />
+          </Field>
+
           <Field label="상품명" required>
             <div className="flex flex-col gap-3 md:flex-row">
               <div className="relative min-w-0 flex-1">
@@ -511,6 +579,57 @@ export default function ProductInputSection({
             </Field>
           </div>
 
+          <Field label="썸네일 이미지">
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] p-3">
+              <div className="flex h-[116px] gap-3 overflow-x-auto pb-1">
+                <label
+                  className={cn(
+                    'relative flex h-[104px] w-[104px] shrink-0 flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--border-strong)] bg-[var(--surface)] text-[var(--text-secondary)] transition hover:border-[var(--primary)] hover:text-[var(--primary)]',
+                    thumbnailUploading ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
+                  )}
+                >
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleThumbnailUpload}
+                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                    disabled={thumbnailUploading}
+                  />
+                  {thumbnailUploading ? (
+                    <Loader2 size={22} className="animate-spin" />
+                  ) : (
+                    <ImagePlus size={24} />
+                  )}
+                  <span className="text-[11px] font-bold">
+                    {thumbnailUploading ? '업로드 중' : '썸네일 추가'}
+                  </span>
+                </label>
+
+                {thumbnailImage ? (
+                  <div className="group relative h-[104px] w-[104px] shrink-0 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+                    <img
+                      src={thumbnailImage}
+                      alt="등록 썸네일 이미지"
+                      className="h-full w-full object-cover"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setThumbnailImage(null)}
+                      className="absolute right-1.5 top-1.5 rounded-full bg-black/60 p-1 text-white opacity-0 transition-opacity hover:bg-red-500 group-hover:opacity-100"
+                      aria-label="썸네일 이미지 삭제"
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex h-[104px] min-w-[220px] items-center text-xs font-medium text-[var(--text-muted)]">
+                    상품 등록 대표 이미지로 사용할 썸네일을 추가할 수 있습니다.
+                  </div>
+                )}
+              </div>
+            </div>
+          </Field>
+
           <Field label="상품 이미지" required trailing={`필수 · ${images.length} / ${MAX_IMAGES}`}>
             <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] p-3">
               <div className="flex h-[116px] gap-3 overflow-x-auto pb-1">
@@ -634,6 +753,13 @@ export default function ProductInputSection({
         )}
       </div>
 
+      {previewTemplateId && (
+        <TemplatePreviewModal
+          templateId={previewTemplateId}
+          onClose={() => setPreviewTemplateId(null)}
+        />
+      )}
+
       <div className="mt-4 flex flex-col items-center text-center">
         <div className="mb-3 flex w-full max-w-[520px] items-start gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-left shadow-sm">
           <Info className="mt-0.5 shrink-0 text-[var(--primary)]" size={16} />
@@ -650,11 +776,11 @@ export default function ProductInputSection({
         )}
         <button
           type="button"
-          onClick={onSubmit}
-          disabled={isLoading || !isFormValid || uploadingCount > 0}
+          onClick={() => onSubmit(thumbnailImage)}
+          disabled={isLoading || !isFormValid || uploadingCount > 0 || thumbnailUploading}
           className={cn(
             'inline-flex h-12 w-full max-w-[300px] items-center justify-center gap-2 rounded-full text-base font-bold text-white shadow-sm transition active:scale-[0.99]',
-            isLoading || !isFormValid || uploadingCount > 0
+            isLoading || !isFormValid || uploadingCount > 0 || thumbnailUploading
               ? 'cursor-not-allowed bg-[var(--text-muted)] opacity-60'
               : 'bg-neutral-950 hover:bg-neutral-800',
           )}
@@ -664,7 +790,7 @@ export default function ProductInputSection({
               <Loader2 size={18} className="animate-spin" />
               요청 등록 중
             </>
-          ) : uploadingCount > 0 ? (
+          ) : uploadingCount > 0 || thumbnailUploading ? (
             <>
               <Loader2 size={18} className="animate-spin" />
               이미지 업로드 중
@@ -677,10 +803,183 @@ export default function ProductInputSection({
           )}
         </button>
         <p className="mt-2 text-xs font-medium text-[var(--text-tertiary)]">
-          완료되면 알림에서 에디터로 이동할 수 있습니다.
+          생성 요청 후 수집 상품 화면에서 진행 상태를 확인할 수 있습니다.
         </p>
       </div>
     </section>
+  );
+}
+
+interface DetailTemplateButtonsProps {
+  value: GenerateTemplateId;
+  onChange: (value: GenerateTemplateId) => void;
+  onPreview: (value: GenerateTemplateId) => void;
+}
+
+function DetailTemplateButtons({ value, onChange, onPreview }: DetailTemplateButtonsProps) {
+  return (
+    <div className="grid gap-2 md:grid-cols-2">
+      {DETAIL_TEMPLATE_OPTIONS.map((option) => {
+        const selected = option.value === value;
+        return (
+          <div
+            key={option.value}
+            className={cn(
+              'flex min-h-[82px] items-center justify-between gap-3 rounded-lg border bg-[var(--surface-sunken)] p-3 transition',
+              selected
+                ? 'border-[var(--primary)] ring-2 ring-[var(--primary)]/15'
+                : 'border-[var(--border)] hover:border-[var(--primary)]/50',
+            )}
+          >
+            <button
+              type="button"
+              onClick={() => onChange(option.value)}
+              className="flex min-w-0 flex-1 items-center gap-3 text-left"
+            >
+              <span
+                className={cn(
+                  'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border',
+                  selected
+                    ? 'border-[var(--primary)] bg-violet-50 text-[var(--primary)]'
+                    : 'border-[var(--border)] bg-white text-[var(--text-tertiary)]',
+                )}
+              >
+                {selected ? <Check size={16} /> : <Sparkles size={16} />}
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-black text-[var(--text-primary)]">
+                  {option.label}
+                </span>
+                <span className="mt-0.5 block text-xs font-semibold leading-4 text-[var(--text-secondary)]">
+                  {option.description}
+                </span>
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onPreview(option.value)}
+              className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] bg-white px-3 text-xs font-bold text-[var(--text-secondary)] transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+            >
+              <Eye size={14} />
+              미리보기
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+interface TemplatePreviewModalProps {
+  templateId: GenerateTemplateId;
+  onClose: () => void;
+}
+
+function TemplatePreviewModal({ templateId, onClose }: TemplatePreviewModalProps) {
+  const [templateCss, setTemplateCss] = useState<string | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [iframeHeight, setIframeHeight] = useState(2400);
+  const config = useMemo(() => {
+    try {
+      return getTemplate(templateId);
+    } catch {
+      return null;
+    }
+  }, [templateId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/templates-styles.css', { cache: 'no-store' })
+      .then((res) => (res.ok ? res.text() : ''))
+      .then((css) => {
+        if (!cancelled) setTemplateCss(css);
+      })
+      .catch(() => {
+        if (!cancelled) setTemplateCss('');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const html = useMemo(() => {
+    if (!config || templateCss == null) return '';
+    return renderTemplateToHtml(
+      config.component as ComponentType<unknown>,
+      placeholderDetailPageData,
+      config,
+      templateCss,
+    );
+  }, [config, templateCss]);
+  const sandboxedHtml = useMemo(() => stripSrcDocScripts(html), [html]);
+
+  useEffect(() => {
+    const el = iframeRef.current;
+    if (!el) return;
+    const measure = () => {
+      let doc: Document | null = null;
+      try {
+        doc = el.contentDocument;
+      } catch {
+        doc = null;
+      }
+      if (!doc) return;
+      const height = Math.max(doc.documentElement.scrollHeight, doc.body.scrollHeight);
+      if (height > 0) setIframeHeight(height);
+    };
+    el.addEventListener('load', measure);
+    const first = setTimeout(measure, 1500);
+    const second = setTimeout(measure, 3500);
+    return () => {
+      el.removeEventListener('load', measure);
+      clearTimeout(first);
+      clearTimeout(second);
+    };
+  }, [sandboxedHtml]);
+
+  if (!config) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-2 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="relative flex h-[96vh] w-full max-w-[720px] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-6 py-3">
+          <div>
+            <h3 className="text-lg font-bold text-slate-900">{config.name}</h3>
+            <p className="text-sm text-slate-500">{config.description}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            aria-label="닫기"
+          >
+            <X size={20} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto bg-white">
+          {templateCss == null ? (
+            <div className="flex h-full items-center justify-center text-sm font-semibold text-slate-400">
+              템플릿 스타일을 불러오는 중입니다.
+            </div>
+          ) : (
+            <iframe
+              ref={iframeRef}
+              srcDoc={sandboxedHtml}
+              className="block w-full border-0 bg-white"
+              style={{ height: `${iframeHeight}px` }}
+              title={`${templateId}-preview-modal`}
+              sandbox={SAME_ORIGIN_SCRIPTLESS_SANDBOX}
+            />
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 

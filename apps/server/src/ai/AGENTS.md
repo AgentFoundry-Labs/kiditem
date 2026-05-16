@@ -37,7 +37,7 @@ ai/
 | `POST /api/image-ai/edit` | async Agent OS | returns request/run id for polling |
 | `POST /api/text-ai/transform` | sync | `TEXT_COMPLETION_PORT` only |
 | `POST /api/ai/detail-page/generate` with `productId` | async Agent OS | creates product-bound `ContentGeneration` ledger in a registration workspace |
-| `POST /api/ai/detail-page/generate` without `productId` | async Agent OS | creates/reuses a self-collected `SourcingCandidate` (`sourcePlatform='kiditem-detail-page'`), a candidate-backed registration workspace, and a `ContentGeneration` ledger |
+| `POST /api/ai/detail-page/generate` without `productId` | async Agent OS | with `sourceCandidateId`, keeps generated content candidate-scoped; otherwise creates/reuses a self-collected `SourcingCandidate` (`sourcePlatform='kiditem-detail-page'`) plus `ContentGeneration` ledger |
 | `GET /api/ai/content-archive/workspaces` | read model | generated content workspace index grouped by product or unlinked generation group |
 | `GET /api/ai/content-archive/products/:productId` | read model | generated detail-page/image rows for one product workspace |
 | `DELETE /api/ai/content-archive/products/:productId` | mutation | deletes generated content rows for one product workspace; does not delete `MasterProduct` |
@@ -108,6 +108,10 @@ HTTP DTO
 ```
 
 `RegistrationWorkspace` is the product-pipeline registration workspace identity.
+Source-candidate registration workspaces are internal grouping records for
+candidate-scoped generation and are excluded from the registered-product inbox
+list by default; operators should reach those outputs from the collected
+product workspace.
 `ContentGenerationGroup` remains a transitional archive/media grouping.
 Product-bound runs use the canonical `groupType='product_workspace'` group with
 `targetMasterId=<MasterProduct.id>`. Product-less operator-initiated runs
