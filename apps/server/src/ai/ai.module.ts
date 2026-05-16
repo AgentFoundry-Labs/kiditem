@@ -70,6 +70,7 @@ import { DetailPageQueryService } from './application/service/detail-page-query.
 import { DetailPageResultRefinerService } from './application/service/detail-page-result-refiner.service';
 import { ImageAssetOperationService } from './application/service/image-asset-operation.service';
 import { PostPromotionAiService } from './application/service/post-promotion-ai.service';
+import { ProductGenerationAiService } from './application/service/product-generation-ai.service';
 import { ProductGenerationAlertService } from './application/service/product-generation-alert.service';
 import { BoldVerticalRefinerService } from './application/service/bold-vertical-refiner.service';
 import { KidsPlayfulRefinerService } from './application/service/kids-playful-refiner.service';
@@ -89,6 +90,7 @@ import { SourcingWorkspaceArchiveService } from './application/service/sourcing-
 
 // application/port — in
 import { POST_PROMOTION_AI_TRIGGER_PORT } from './application/port/in/post-promotion-ai-trigger.port';
+import { PRODUCT_GENERATION_AI_TRIGGER_PORT } from './application/port/in/product-generation-ai-trigger.port';
 import { AI_WORKSPACE_ARCHIVE_PORT } from './application/port/in/sourcing-workspace-archive.port';
 
 // application/port — out
@@ -153,6 +155,7 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     BoldVerticalRefinerService,
     KidsPlayfulRefinerService,
     PostPromotionAiService,
+    ProductGenerationAiService,
     ProductGenerationAlertService,
     TextAiService,
     ThumbnailAgentReconcileService,
@@ -229,8 +232,13 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     // Inbound port — sourcing's post-promotion gateway injects this to fire
     // detail-page + thumbnail generation with AI-domain-owned defaults.
     { provide: POST_PROMOTION_AI_TRIGGER_PORT, useExisting: PostPromotionAiService },
+    { provide: PRODUCT_GENERATION_AI_TRIGGER_PORT, useExisting: ProductGenerationAiService },
     { provide: AI_WORKSPACE_ARCHIVE_PORT, useExisting: SourcingWorkspaceArchiveService },
   ],
-  exports: [POST_PROMOTION_AI_TRIGGER_PORT, AI_WORKSPACE_ARCHIVE_PORT],
+  exports: [
+    POST_PROMOTION_AI_TRIGGER_PORT,
+    PRODUCT_GENERATION_AI_TRIGGER_PORT,
+    AI_WORKSPACE_ARCHIVE_PORT,
+  ],
 })
 export class AiModule {}

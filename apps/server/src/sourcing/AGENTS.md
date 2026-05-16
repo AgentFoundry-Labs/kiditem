@@ -14,6 +14,7 @@ outgoing adapters.
 |---|---|
 | extension ingest + scrape | `/api/sourcing/extension/*`, `/api/sourcing/scrape-url` |
 | manual product registration | `POST /api/sourcing/product-registration` |
+| product generation | `POST /api/sourcing/product-generation` |
 | sourcing candidate detail | `GET /api/sourcing/:id` |
 | candidate inbox delete | `DELETE /api/sourcing/candidates/:id` |
 | candidate promotion | `POST /api/sourcing/candidates/:id/promote` |
@@ -53,6 +54,12 @@ sourcing/
   `SOURCING_AGENT_GATEWAY_PORT.notifyPromoted` which delegates to ai
   domain's `POST_PROMOTION_AI_TRIGGER_PORT`. Sourcing has no knowledge of
   AI payload shape.
+- Product generation starts in sourcing because sourcing owns
+  `SourcingCandidate` creation. `POST /api/sourcing/product-generation`
+  creates the manual candidate, then delegates AI work through
+  `SOURCING_AGENT_GATEWAY_PORT.startProductGeneration`, which maps to the AI
+  domain's product-generation inbound port. Sourcing must not inject detail-page
+  or thumbnail services directly.
 - Supplier registry, `MasterSupplierProduct` policy, and `PurchaseOrder`
   mutation belong to `supply/`. Sourcing must not reintroduce supplier or
   procurement controllers, services, or DTOs. Cross-domain attach flows through

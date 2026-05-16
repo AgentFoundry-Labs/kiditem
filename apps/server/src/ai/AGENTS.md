@@ -74,6 +74,9 @@ ai/
 - Sourcing workspace archive requests enter AI through
   `AI_WORKSPACE_ARCHIVE_PORT`; sourcing must not update AI artifact tables
   directly.
+- Product-generation requests enter AI through
+  `PRODUCT_GENERATION_AI_TRIGGER_PORT`; sourcing owns candidate creation and AI
+  owns the detail-page/thumbnail child ledgers plus parent alert coordination.
 - When generation controls change, check the whole contract chain:
   shared tuple/type, HTTP DTO, web payload, Agent OS input/output schema, stored
   rawInput normalizer, sink, and reconcile.
@@ -218,6 +221,26 @@ Post-promotion AI generation uses an inbound port:
   `ThumbnailGeneration` (`status='pending'`) rows up front so the sink has
   a writable target. `sourceResourceId` on the Agent OS request points at
   the gen row id, never the master id.
+
+## Product Generation Trigger
+
+Product generation is a parent operation composed of one detail-page child
+ledger and one thumbnail child ledger:
+
+- Port: `PRODUCT_GENERATION_AI_TRIGGER_PORT` in `application/port/in/`
+- Service: `ProductGenerationAiService` — starts one `product_generation`
+  parent operation alert, then calls `DetailPageGenerationService.generate`
+  and `ThumbnailGenerationJobService.enqueueCandidateGeneration` in parent
+  mode for the sourcing candidate.
+- Parent-mode child services write their normal `ContentGeneration` /
+  `ThumbnailGeneration` rows, record child IDs on the parent alert before Agent
+  OS dispatch, and suppress child operation alerts.
+- Agent OS sinks read the parent link from `generationInput` / `inputMeta`; in
+  parent mode they update `ProductGenerationAlertService` instead of closing a
+  child alert.
+- Parent completion is recomputed from child ledger rows. Parent alert metadata
+  stores child IDs and diagnostics only; it is not the source of truth for child
+  terminal state.
 - AI-domain-owned defaults live as service constants:
   `templateId='kids-playful'`, `heroImageMode='llm-pick'`,
   `ageGroup='age-8-plus'`, `detailImageCount='auto'`, thumbnail

@@ -4,6 +4,7 @@ import { CurrentUser } from '../../../../auth/decorators/current-user.decorator'
 import type { AuthUser } from '../../../../auth/auth.types';
 import { SourcingService } from '../../../application/service/sourcing.service';
 import {
+  CreateProductGenerationDto,
   ListExtensionProductsQueryDto,
   RegisterManualProductDto,
   ReceiveExtensionDataDto,
@@ -31,6 +32,15 @@ export class SourcingExtensionIngestController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.sourcingService.registerManualProduct(body, organizationId, user.id ?? null);
+  }
+
+  @Post('product-generation')
+  async createProductGeneration(
+    @Body() body: CreateProductGenerationDto,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.sourcingService.createProductGeneration(body, organizationId, user.id ?? null);
   }
 
   @Post('scrape-url')

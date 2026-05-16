@@ -12,6 +12,7 @@ import {
 } from '../port/out/sourcing-candidate.repository.port';
 import type { ReceiveExtensionDataDto } from '../../adapter/in/http/dto/receive-extension-data.dto';
 import type { RegisterManualProductDto } from '../../adapter/in/http/dto/register-manual-product.dto';
+import type { CreateProductGenerationDto } from '../../adapter/in/http/dto/product-generation.dto';
 
 const PLATFORM_MAP: Record<string, string> = {
   '1688': 'ALIBABA_1688',
@@ -183,6 +184,52 @@ export class SourcingService {
       product_count: 1,
       candidateId: candidate.id,
       href: `/product-pipeline/collected-products/${encodeURIComponent(candidate.id)}`,
+    };
+  }
+
+  async createProductGeneration(
+    data: CreateProductGenerationDto,
+    organizationId: string,
+    triggeredByUserId: string | null,
+  ) {
+    const candidate = await this.registerManualProduct(
+      data,
+      organizationId,
+      triggeredByUserId,
+    );
+    const ai = await this.agentGateway.startProductGeneration({
+      organizationId,
+      triggeredByUserId,
+      candidateId: candidate.candidateId,
+      productName: data.title.trim(),
+      category: data.category ?? null,
+      description: data.description ?? null,
+      target: data.target ?? null,
+      imageUrls: this.uniqueNonEmptyStrings(data.imageUrls),
+      thumbnailUrl: data.thumbnailUrl ?? null,
+      optionNames: this.uniqueNonEmptyStrings(data.optionNames ?? []),
+      templateId: data.templateId ?? 'bold-vertical',
+      ageGroup: data.ageGroup ?? 'age-8-plus',
+      detailImageCount: data.detailImageCount ?? '2',
+      usageSectionMode: data.usageSectionMode ?? 'include',
+      kcCertificationStatus: data.kcCertificationStatus ?? 'unknown',
+      kcCertificationNumber: data.kcCertificationNumber ?? null,
+      productSize: data.productSize ?? null,
+      colorVariantStatus: data.colorVariantStatus ?? 'auto',
+      colorVariantNames: data.colorVariantNames ?? null,
+      boxSetStatus: data.boxSetStatus ?? 'auto',
+      boxSetQuantity: data.boxSetQuantity ?? null,
+    });
+    return {
+      ok: true,
+      message: '상품 생성 작업이 시작되었습니다.',
+      product_count: 1,
+      candidateId: candidate.candidateId,
+      href: ai.href,
+      parentOperationKey: ai.parentOperationKey,
+      detailGenerationId: ai.detailGenerationId,
+      thumbnailGenerationId: ai.thumbnailGenerationId,
+      registrationWorkspaceId: ai.registrationWorkspaceId,
     };
   }
 
