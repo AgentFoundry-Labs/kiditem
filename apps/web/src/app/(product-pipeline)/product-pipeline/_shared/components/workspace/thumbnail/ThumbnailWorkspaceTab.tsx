@@ -1,9 +1,10 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { Suspense, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { productBoundThumbnailWorkspaceHref } from '../../../lib/product-pipeline-routes';
 import { writeThumbnailEditorUpload } from '@/app/(product-pipeline)/product-pipeline/thumbnail-generation/edit/lib/upload-session';
+import { ThumbnailEditorWorkspace } from '@/app/(product-pipeline)/product-pipeline/thumbnail-generation/edit/components/ThumbnailEditorWorkspace';
 import { useSourcingThumbnailGenerations } from '../../../hooks/useGenerateSourcingThumbnail';
 import type { ProductEditState } from '../../../lib/product-workspace-types';
 import ProductThumbnailResults from './ProductThumbnailResults';
@@ -40,6 +41,7 @@ export default function ThumbnailWorkspaceTab({
 }: ThumbnailWorkspaceTabProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const thumbnailMode = searchParams.get('thumbnailMode');
   const [selectedSourceUrl, setSelectedSourceUrl] = useState<string | null>(
     searchParams.get('imageUrl') ?? selectedRegistrationThumbnailUrl ?? editData.thumbnails[0] ?? null,
   );
@@ -83,10 +85,34 @@ export default function ThumbnailWorkspaceTab({
       returnTo: thumbnailGenerationReturnHref,
       imageUrl: uploadKey ? null : selectedSourceUrl,
       uploadKey,
+      productName: editData.name,
+      productDescription: editData.name,
+      editCase: mode === 'edit' ? 'single' : null,
       mode,
     });
     if (workspaceHref) router.push(workspaceHref);
   };
+
+  if (thumbnailMode === 'edit' || thumbnailMode === 'creative') {
+    const backHref = productBoundThumbnailWorkspaceHref({
+      productId: promotedMasterId,
+      sourceCandidateId: promotedMasterId ? null : thumbnailSourceCandidateId,
+      registrationWorkspaceId,
+      returnTo: thumbnailGenerationReturnHref,
+      productName: editData.name,
+      productDescription: editData.name,
+    }) ?? thumbnailGenerationReturnHref;
+    return (
+      <div className="p-5" data-testid="thumbnail-workspace-tab">
+        <Suspense fallback={<div className="min-h-[720px] rounded-lg bg-slate-50" />}>
+          <ThumbnailEditorWorkspace
+            embedded
+            onBack={() => router.push(backHref)}
+          />
+        </Suspense>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4 p-5" data-testid="thumbnail-workspace-tab">

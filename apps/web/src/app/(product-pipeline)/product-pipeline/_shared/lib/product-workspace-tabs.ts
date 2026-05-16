@@ -38,6 +38,12 @@ export function buildProductWorkspaceTabUrl({
   thumbnailMode,
   imageUrl,
   uploadKey,
+  productName,
+  productDescription,
+  editCase,
+  productId,
+  sourceCandidateId,
+  registrationWorkspaceId,
 }: {
   pathname: string;
   currentSearch?: string | URLSearchParams | null;
@@ -46,6 +52,12 @@ export function buildProductWorkspaceTabUrl({
   thumbnailMode?: 'edit' | 'creative' | null;
   imageUrl?: string | null;
   uploadKey?: string | null;
+  productName?: string | null;
+  productDescription?: string | null;
+  editCase?: string | null;
+  productId?: string | null;
+  sourceCandidateId?: string | null;
+  registrationWorkspaceId?: string | null;
 }): string {
   const params = new URLSearchParams(currentSearch?.toString() ?? '');
   params.delete('tab');
@@ -58,10 +70,22 @@ export function buildProductWorkspaceTabUrl({
   params.delete('thumbnailMode');
   params.delete('imageUrl');
   params.delete('uploadKey');
+  params.delete('productName');
+  params.delete('productDescription');
+  params.delete('editCase');
+  params.delete('productId');
+  params.delete('sourceCandidateId');
+  params.delete('registrationWorkspaceId');
   if (generationId) params.set('generationId', generationId);
   if (thumbnailMode) params.set('thumbnailMode', thumbnailMode);
   if (imageUrl) params.set('imageUrl', imageUrl);
   if (uploadKey) params.set('uploadKey', uploadKey);
+  if (productName) params.set('productName', productName);
+  if (productDescription) params.set('productDescription', productDescription);
+  if (editCase) params.set('editCase', editCase);
+  if (productId) params.set('productId', productId);
+  if (sourceCandidateId) params.set('sourceCandidateId', sourceCandidateId);
+  if (registrationWorkspaceId) params.set('registrationWorkspaceId', registrationWorkspaceId);
   const query = params.toString();
   return query ? `${pathname}?${query}` : pathname;
 }

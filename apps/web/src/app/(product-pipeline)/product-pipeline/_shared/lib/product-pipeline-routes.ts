@@ -28,6 +28,12 @@ export function collectedProductWorkspaceTabHref({
   thumbnailMode,
   imageUrl,
   uploadKey,
+  productName,
+  productDescription,
+  editCase,
+  productId,
+  sourceCandidateId,
+  registrationWorkspaceId,
 }: {
   candidateId: string;
   tab: ProductWorkspaceTab;
@@ -35,6 +41,12 @@ export function collectedProductWorkspaceTabHref({
   thumbnailMode?: 'edit' | 'creative' | null;
   imageUrl?: string | null;
   uploadKey?: string | null;
+  productName?: string | null;
+  productDescription?: string | null;
+  editCase?: string | null;
+  productId?: string | null;
+  sourceCandidateId?: string | null;
+  registrationWorkspaceId?: string | null;
 }): string {
   return buildProductWorkspaceTabUrl({
     pathname: collectedProductDetailHref(candidateId),
@@ -43,6 +55,12 @@ export function collectedProductWorkspaceTabHref({
     thumbnailMode,
     imageUrl,
     uploadKey,
+    productName,
+    productDescription,
+    editCase,
+    productId,
+    sourceCandidateId,
+    registrationWorkspaceId,
   });
 }
 
@@ -53,6 +71,12 @@ export function registeredProductWorkspaceTabHref({
   thumbnailMode,
   imageUrl,
   uploadKey,
+  productName,
+  productDescription,
+  editCase,
+  productId,
+  sourceCandidateId,
+  registrationWorkspaceId,
 }: {
   workspaceId: string;
   tab: ProductWorkspaceTab;
@@ -60,6 +84,12 @@ export function registeredProductWorkspaceTabHref({
   thumbnailMode?: 'edit' | 'creative' | null;
   imageUrl?: string | null;
   uploadKey?: string | null;
+  productName?: string | null;
+  productDescription?: string | null;
+  editCase?: string | null;
+  productId?: string | null;
+  sourceCandidateId?: string | null;
+  registrationWorkspaceId?: string | null;
 }): string {
   return buildProductWorkspaceTabUrl({
     pathname: registeredProductDetailHref(workspaceId),
@@ -68,6 +98,12 @@ export function registeredProductWorkspaceTabHref({
     thumbnailMode,
     imageUrl,
     uploadKey,
+    productName,
+    productDescription,
+    editCase,
+    productId,
+    sourceCandidateId,
+    registrationWorkspaceId,
   });
 }
 
@@ -79,6 +115,9 @@ export function productBoundThumbnailWorkspaceHref({
   generationId,
   imageUrl,
   uploadKey,
+  productName,
+  productDescription,
+  editCase,
   mode,
 }: {
   productId?: string | null;
@@ -88,6 +127,9 @@ export function productBoundThumbnailWorkspaceHref({
   generationId?: string | null;
   imageUrl?: string | null;
   uploadKey?: string | null;
+  productName?: string | null;
+  productDescription?: string | null;
+  editCase?: string | null;
   mode?: 'edit' | 'creative' | null;
 }): string | null {
   const normalizedReturnTo = normalizeProductPipelineReturnTo(returnTo);
@@ -102,6 +144,12 @@ export function productBoundThumbnailWorkspaceHref({
       thumbnailMode,
       imageUrl,
       uploadKey,
+      productName,
+      productDescription,
+      editCase,
+      productId: _productId,
+      sourceCandidateId,
+      registrationWorkspaceId,
     });
   }
   if (normalizedReturnTo?.startsWith(`${REGISTERED_PRODUCTS_ROOT}/`)) {
@@ -114,6 +162,12 @@ export function productBoundThumbnailWorkspaceHref({
       thumbnailMode,
       imageUrl,
       uploadKey,
+      productName,
+      productDescription,
+      editCase,
+      productId: _productId,
+      sourceCandidateId,
+      registrationWorkspaceId,
     });
   }
   if (registrationWorkspaceId) {
@@ -124,6 +178,12 @@ export function productBoundThumbnailWorkspaceHref({
       thumbnailMode,
       imageUrl,
       uploadKey,
+      productName,
+      productDescription,
+      editCase,
+      productId: _productId,
+      sourceCandidateId,
+      registrationWorkspaceId,
     });
   }
   if (sourceCandidateId) {
@@ -134,6 +194,12 @@ export function productBoundThumbnailWorkspaceHref({
       thumbnailMode,
       imageUrl,
       uploadKey,
+      productName,
+      productDescription,
+      editCase,
+      productId: _productId,
+      sourceCandidateId,
+      registrationWorkspaceId,
     });
   }
   return null;

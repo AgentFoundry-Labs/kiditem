@@ -118,17 +118,27 @@ describe('product-pipeline route construction', () => {
   });
 
   it('converges product-bound thumbnail entry to product workspace tab when resolvable', () => {
-    expect(productBoundThumbnailWorkspaceHref({
+    const collectedHref = productBoundThumbnailWorkspaceHref({
       sourceCandidateId: 'candidate-1',
       imageUrl: 'https://cdn.example.com/source.jpg',
       mode: 'edit',
-    })).toBe('/product-pipeline/collected-products/candidate-1?tab=thumbnail&thumbnailMode=edit&imageUrl=https%3A%2F%2Fcdn.example.com%2Fsource.jpg');
+    });
+    expect(collectedHref).toContain('/product-pipeline/collected-products/candidate-1?');
+    expect(collectedHref).toContain('tab=thumbnail');
+    expect(collectedHref).toContain('thumbnailMode=edit');
+    expect(collectedHref).toContain('imageUrl=https%3A%2F%2Fcdn.example.com%2Fsource.jpg');
+    expect(collectedHref).toContain('sourceCandidateId=candidate-1');
 
-    expect(productBoundThumbnailWorkspaceHref({
+    const registeredHref = productBoundThumbnailWorkspaceHref({
       registrationWorkspaceId: 'workspace-1',
       generationId: 'generation-1',
       mode: 'creative',
-    })).toBe('/product-pipeline/registered-products/workspace-1?tab=thumbnail&generationId=generation-1&thumbnailMode=creative');
+    });
+    expect(registeredHref).toContain('/product-pipeline/registered-products/workspace-1?');
+    expect(registeredHref).toContain('tab=thumbnail');
+    expect(registeredHref).toContain('generationId=generation-1');
+    expect(registeredHref).toContain('thumbnailMode=creative');
+    expect(registeredHref).toContain('registrationWorkspaceId=workspace-1');
 
     expect(productBoundThumbnailWorkspaceHref({
       productId: 'master-only',
