@@ -55,12 +55,24 @@ describe('product-pipeline route construction', () => {
     expect(normalizeProductPipelineReturnTo('https://example.com')).toBeNull();
   });
 
-  it('preserves return path when entering thumbnail generation routes', () => {
+  it('preserves workspace state when entering thumbnail generation hub routes', () => {
     expect(thumbnailGenerationHubHref({
       returnTo: '/product-pipeline/registered-products/workspace-1',
     })).toBe(
       '/product-pipeline/thumbnail-generation?returnTo=%2Fproduct-pipeline%2Fregistered-products%2Fworkspace-1',
     );
+
+    const hubHref = thumbnailGenerationHubHref({
+      imageUrl: 'https://cdn.example.com/source.jpg',
+      productName: '쭉쭉붙이는터치등',
+      returnTo: '/product-pipeline/registered-products/workspace-1',
+      subjectParams: { registrationWorkspaceId: 'workspace-1' },
+    });
+    expect(hubHref).toContain('/product-pipeline/thumbnail-generation?');
+    expect(hubHref).not.toContain('/product-pipeline/thumbnail-generation/edit');
+    expect(hubHref).toContain('registrationWorkspaceId=workspace-1');
+    expect(hubHref).toContain('imageUrl=https%3A%2F%2Fcdn.example.com%2Fsource.jpg');
+    expect(hubHref).toContain('productName=%EC%AD%89%EC%AD%89%EB%B6%99%EC%9D%B4%EB%8A%94%ED%84%B0%EC%B9%98%EB%93%B1');
 
     expect(thumbnailGenerationEditHref({
       productName: '쭉쭉붙이는터치등',
@@ -68,6 +80,15 @@ describe('product-pipeline route construction', () => {
       returnTo: '/product-pipeline/collected-products/candidate-1',
       subjectParams: { sourceCandidateId: 'candidate-1' },
     })).toContain('/product-pipeline/thumbnail-generation/edit?');
+
+    const registeredHref = thumbnailGenerationEditHref({
+      productName: '쭉쭉붙이는터치등',
+      imageUrl: 'https://cdn.example.com/source.jpg',
+      returnTo: '/product-pipeline/registered-products/workspace-1',
+      subjectParams: { registrationWorkspaceId: 'workspace-1' },
+    });
+    expect(registeredHref).toContain('registrationWorkspaceId=workspace-1');
+    expect(registeredHref).toContain('returnTo=%2Fproduct-pipeline%2Fregistered-products%2Fworkspace-1');
   });
 
   it('builds detail template generation links from an existing registration workspace', () => {

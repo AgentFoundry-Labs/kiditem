@@ -6,63 +6,14 @@ import { Database, ImageIcon, Package, Plus, Tag } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatNumber } from '@/lib/utils';
 import { queryKeys } from '@/lib/query-keys';
-import { productsApi, selectBestThumbnailImage } from '../../lib/sourcing-api';
+import { productsApi } from '../../lib/sourcing-api';
+import { projectRawData } from '../../lib/raw-data-projection';
 
 interface RawDataTabProps {
   productId: string;
   rawData: Record<string, unknown> | null;
   imageUrls: string[];
   thumbnailUrl: string | null;
-}
-
-const PRODUCT_IMAGE_FIELD_KEYS = [
-  'images',
-  'imageUrls',
-  'image_urls',
-  'mainImages',
-  'main_images',
-  'mainImage',
-  'main_image',
-  'offerImgList',
-] as const;
-
-const DESCRIPTION_IMAGE_FIELD_KEYS = [
-  'description_images',
-  'detail_images',
-] as const;
-
-function normalizeImageUrl(value: unknown): string | null {
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    if (!trimmed) return null;
-    if (trimmed.startsWith('//')) return `https:${trimmed}`;
-    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
-    return null;
-  }
-
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
-    const obj = value as Record<string, unknown>;
-    for (const key of ['url', 'src', 'imageUrl', 'image_url', 'fullPathImageURI', 'fullPathImageUrl']) {
-      const normalized = normalizeImageUrl(obj[key]);
-      if (normalized) return normalized;
-    }
-  }
-
-  return null;
-}
-
-function collectImages(values: unknown[]): string[] {
-  const urls: string[] = [];
-  const push = (value: unknown) => {
-    if (Array.isArray(value)) {
-      value.forEach(push);
-      return;
-    }
-    const normalized = normalizeImageUrl(value);
-    if (normalized) urls.push(normalized);
-  };
-  values.forEach(push);
-  return Array.from(new Set(urls));
 }
 
 export default function RawDataTab({ productId, rawData, imageUrls, thumbnailUrl }: RawDataTabProps) {
@@ -84,29 +35,19 @@ export default function RawDataTab({ productId, rawData, imageUrls, thumbnailUrl
     onError: () => toast.error('원본 데이터 추가에 실패했습니다.'),
   });
 
-  const safeRawData = rawData ?? {};
-  const productImages = collectImages([
-    ...PRODUCT_IMAGE_FIELD_KEYS.map((key) => safeRawData[key]),
-    imageUrls,
-  ]);
-  const descriptionImages = collectImages(DESCRIPTION_IMAGE_FIELD_KEYS.map((key) => safeRawData[key]));
-  const selectedThumbnail = selectBestThumbnailImage(safeRawData, productImages, thumbnailUrl);
-  const title = typeof safeRawData.title === 'string'
-    ? safeRawData.title
-    : typeof safeRawData.productName === 'string'
-      ? safeRawData.productName
-      : typeof safeRawData.name === 'string'
-        ? safeRawData.name
-        : null;
-  const price = safeRawData.price as { min?: number; max?: number; unit?: string } | null;
-  const specs = Array.isArray(safeRawData.specs) ? (safeRawData.specs as Array<{ key: string; value: string }>) : [];
-  const moq = safeRawData.moq as number | null | undefined;
-  const unit = typeof safeRawData.unit === 'string' ? safeRawData.unit : null;
-  const category = typeof safeRawData.category_name === 'string'
-    ? safeRawData.category_name
-    : typeof safeRawData.category === 'string'
-      ? safeRawData.category
-      : null;
+  const projection = projectRawData({ rawData, imageUrls, thumbnailUrl });
+  const {
+    productImages,
+    descriptionImages,
+    selectedThumbnail,
+    title,
+    price,
+    specs,
+    moq,
+    unit,
+    category,
+    fieldGroups,
+  } = projection;
   const canAddRawData = rawKey.trim().length > 0 && rawValue.trim().length > 0 && !addRawData.isPending;
 
   return (
@@ -162,7 +103,9 @@ export default function RawDataTab({ productId, rawData, imageUrls, thumbnailUrl
           </div>
 
           <div>
-            <p className="text-[11px] text-slate-500 font-medium mb-1">원본 가격 (단위: {price?.unit || 'CNY'})</p>
+            <p className="text-[11px] text-slate-500 font-medium mb-1">
+              원본 가격{price?.unit ? ` (단위: ${price.unit})` : ''}
+            </p>
             <div className="bg-emerald-50 text-emerald-900 px-4 py-3 rounded-md border border-emerald-100 flex items-center justify-center h-[88px]">
               {price ? (
                 <div className="text-center">
@@ -175,7 +118,7 @@ export default function RawDataTab({ productId, rawData, imageUrls, thumbnailUrl
                       {formatNumber(price.min || price.max || 0)}
                     </span>
                   )}
-                  <span className="text-xs font-medium ml-1 text-emerald-700">{price.unit || 'CNY'}</span>
+                  <span className="text-xs font-medium ml-1 text-emerald-700">{price.unit}</span>
                 </div>
               ) : (
                 <span className="text-xs text-emerald-700 font-medium">가격 정보 없음</span>
@@ -235,6 +178,41 @@ export default function RawDataTab({ productId, rawData, imageUrls, thumbnailUrl
           </div>
         )}
       </div>
+
+      {fieldGroups.length > 0 && (
+        <div className="grid grid-cols-1 gap-4">
+          {fieldGroups.map((group) => (
+            <div key={group.title} className="card p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <Database size={14} className="text-slate-500" />
+                <h2 className="text-sm font-semibold text-slate-900">
+                  {group.title} <span className="font-medium text-slate-400">({group.rows.length}개)</span>
+                </h2>
+              </div>
+              <div className="overflow-hidden rounded-md border border-slate-200">
+                <table className="w-full table-fixed text-left text-xs">
+                  <colgroup>
+                    <col className="w-[34%]" />
+                    <col className="w-[66%]" />
+                  </colgroup>
+                  <tbody className="divide-y divide-slate-200">
+                    {group.rows.map((row, index) => (
+                      <tr key={`${group.title}-${row.key}`} className={index % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'}>
+                        <th className="border-r border-slate-200 px-3 py-2 align-top font-medium leading-relaxed text-slate-700 break-words">
+                          {row.key}
+                        </th>
+                        <td className="whitespace-pre-wrap px-3 py-2 align-top leading-relaxed text-slate-600 break-words">
+                          {row.value}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="card p-4">
         <div className="flex items-center gap-2 mb-3">

@@ -7,6 +7,7 @@ const ORGANIZATION_ID = 'organization-1';
 const PRODUCT_ID = '7d000000-0000-4000-8000-000000000001';
 const SOURCE_CANDIDATE_ID = '7d000000-0000-4000-8000-000000000002';
 const GENERATED_CANDIDATE_ID = '7d000000-0000-4000-8000-000000000003';
+const REGISTRATION_WORKSPACE_ID = '7d000000-0000-4000-8000-000000000004';
 
 function makeInput(
   url: string,
@@ -217,5 +218,27 @@ describe('ThumbnailEditorController candidate-bound generation', () => {
       generationId: 'standalone-generation-async-1',
       status: 'pending',
     });
+  });
+
+  it('keeps ownerless registered workspace thumbnail work attached to the workspace', async () => {
+    const { controller, generationService } = makeController({ withProduct: false });
+    const body = {
+      registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
+      productImage: 'workspace-product-url',
+      productName: 'Ownerless workspace toy',
+      purpose: 'compliance',
+      mode: 'edit',
+    } satisfies ThumbnailEditorDto;
+
+    await controller.generate(body, ORGANIZATION_ID);
+
+    expect(generationService.enqueueStandaloneGeneration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: ORGANIZATION_ID,
+        registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
+        productName: 'Ownerless workspace toy',
+        originalUrl: 'workspace-product-url',
+      }),
+    );
   });
 });

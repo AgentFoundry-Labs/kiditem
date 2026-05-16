@@ -8,6 +8,7 @@ import type { EditorMode, HistoryCandidate } from '../lib/edit-page-types';
 interface Args {
   productId: string | null;
   sourceCandidateId?: string | null;
+  registrationWorkspaceId?: string | null;
   mode: EditorMode;
   result: Array<{ url: string; filename: string }>;
   generationId: string | null;
@@ -16,7 +17,7 @@ interface Args {
 }
 
 export function useEditorHistory({
-  productId, sourceCandidateId, mode, result, generationId,
+  productId, sourceCandidateId, registrationWorkspaceId, mode, result, generationId,
   selectedCandidateUrl, setSelectedCandidateUrl,
 }: Args) {
   const { data: allGenerations = [] } = useGenerationList();
@@ -35,11 +36,14 @@ export function useEditorHistory({
     for (const c of result) {
       push({ ...c, method: currentMethod, createdAt: nowIso, generationId });
     }
-    if (productId || sourceCandidateId) {
+    if (productId || sourceCandidateId || registrationWorkspaceId) {
       const workspaceGens = allGenerations
-        .filter((g) => productId
-          ? g.productId === productId
-          : g.sourceCandidateId === sourceCandidateId)
+        .filter((g) =>
+          registrationWorkspaceId
+            ? g.registrationWorkspaceId === registrationWorkspaceId
+            : productId
+              ? g.productId === productId
+              : g.sourceCandidateId === sourceCandidateId)
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       for (const gen of workspaceGens) {
         for (const c of gen.candidates ?? []) {
@@ -48,14 +52,16 @@ export function useEditorHistory({
       }
     }
     return list;
-  }, [allGenerations, productId, sourceCandidateId, result, mode, generationId]);
+  }, [allGenerations, productId, sourceCandidateId, registrationWorkspaceId, result, mode, generationId]);
 
   const recommendedCandidateUrl = useMemo(() => {
-    if (!productId && !sourceCandidateId) return null;
+    if (!productId && !sourceCandidateId && !registrationWorkspaceId) return null;
     const scored = allGenerations.filter(
-      (g) => (productId
-        ? g.productId === productId
-        : g.sourceCandidateId === sourceCandidateId) &&
+      (g) => (registrationWorkspaceId
+        ? g.registrationWorkspaceId === registrationWorkspaceId
+        : productId
+          ? g.productId === productId
+          : g.sourceCandidateId === sourceCandidateId) &&
         typeof g.score === 'number' &&
         g.score > 0,
     );
@@ -64,7 +70,7 @@ export function useEditorHistory({
     const pick = best.selectedUrl ?? best.candidates?.[0]?.url ?? null;
     if (!pick) return null;
     return resolveImageUrl(pick) ?? pick;
-  }, [allGenerations, productId, sourceCandidateId]);
+  }, [allGenerations, productId, sourceCandidateId, registrationWorkspaceId]);
 
   useEffect(() => {
     if (historyCandidates.length === 0) {

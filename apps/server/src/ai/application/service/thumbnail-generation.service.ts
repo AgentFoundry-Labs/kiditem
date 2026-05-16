@@ -130,7 +130,12 @@ export class ThumbnailGenerationService {
 
   async findAll(
     organizationId: string,
-    opts: { productId?: string | null; sourceCandidateId?: string | null; limit?: number | null } = {},
+    opts: {
+      productId?: string | null;
+      sourceCandidateId?: string | null;
+      registrationWorkspaceId?: string | null;
+      limit?: number | null;
+    } = {},
   ): Promise<ThumbnailGenerationListResponse> {
     const rows = await findGenerationRows(this.prisma, organizationId, opts);
     const masters = await findGenerationMasters(this.prisma, rows, organizationId);

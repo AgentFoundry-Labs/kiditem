@@ -3,11 +3,12 @@
 import { Suspense, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, ImageIcon } from 'lucide-react';
 
 import {
   THUMBNAIL_AI_ROOT,
   normalizeProductPipelineReturnTo,
+  thumbnailGenerationEditHref,
 } from '../_shared/lib/product-pipeline-routes';
 import { useAnalysisList } from '../thumbnail-ai/hooks/useThumbnailAnalysis';
 import { useGenerationList } from '../_shared/hooks/useThumbnailGenerations';
@@ -33,10 +34,35 @@ function ThumbnailGenerationHubContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const returnTo = normalizeProductPipelineReturnTo(searchParams.get('returnTo'));
+  const imageUrl = searchParams.get('imageUrl');
+  const uploadKey = searchParams.get('uploadKey');
+  const productName = searchParams.get('productName')?.trim() ?? '';
+  const productDescription = searchParams.get('productDescription')?.trim() ?? '';
+  const productId = searchParams.get('productId');
+  const sourceCandidateId = searchParams.get('sourceCandidateId');
+  const registrationWorkspaceId = searchParams.get('registrationWorkspaceId');
+  const hasWorkspaceInput = Boolean(imageUrl || uploadKey || productName || productId || sourceCandidateId || registrationWorkspaceId);
 
   const uploadRef = useRef<HubUploadZoneHandle>(null);
 
   const startUpload = (mode: 'edit' | 'creative') => {
+    if (hasWorkspaceInput) {
+      router.push(thumbnailGenerationEditHref({
+        editCase: mode === 'edit' ? 'single' : null,
+        extraParams: uploadKey ? { uploadKey } : undefined,
+        imageUrl,
+        mode,
+        productDescription,
+        productName,
+        returnTo,
+        subjectParams: {
+          productId,
+          sourceCandidateId,
+          registrationWorkspaceId,
+        },
+      }));
+      return;
+    }
     uploadRef.current?.openFilePicker(mode);
   };
 
@@ -85,6 +111,37 @@ function ThumbnailGenerationHubContent() {
             </button>
           )}
         </header>
+
+        {hasWorkspaceInput && (
+          <section className="flex flex-wrap items-center gap-3 rounded-2xl border border-violet-100 bg-white/75 p-3 shadow-sm backdrop-blur">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+              {imageUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={imageUrl} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <ImageIcon size={20} className="text-violet-400" />
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-xs font-bold text-violet-600">상품 화면에서 가져온 이미지</div>
+              <div className="mt-0.5 truncate text-sm font-extrabold text-slate-900">
+                {productName || '상품명 없음'}
+              </div>
+              <div className="mt-0.5 text-xs text-slate-500">
+                아래 생성 유형을 선택하면 이 이미지로 작업 화면을 시작합니다.
+              </div>
+            </div>
+            {returnTo && (
+              <button
+                type="button"
+                onClick={() => router.push(returnTo)}
+                className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 transition hover:bg-slate-50"
+              >
+                상품으로 돌아가기
+              </button>
+            )}
+          </section>
+        )}
 
         <ModeShowcase onStart={startUpload} />
 

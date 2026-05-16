@@ -18,6 +18,7 @@ function workspaceFixture(overrides: Partial<RegistrationWorkspaceSummary> = {})
     latestStatus: 'completed',
     currentDetailPageArtifactId: 'artifact-1',
     currentDetailPageRevisionId: 'revision-1',
+    currentDetailPageGenerationId: 'generation-1',
     createdAt: '2026-05-15T00:00:00.000Z',
     updatedAt: '2026-05-15T00:00:00.000Z',
     history: [{
@@ -85,6 +86,7 @@ describe('RegisteredWorkspaceCard routing actions', () => {
       latestStatus: null,
       currentDetailPageArtifactId: null,
       currentDetailPageRevisionId: null,
+      currentDetailPageGenerationId: null,
       history: [],
     });
     const onOpen = vi.fn();
@@ -114,6 +116,7 @@ describe('RegisteredWorkspaceCard routing actions', () => {
           latestStatus: null,
           currentDetailPageArtifactId: null,
           currentDetailPageRevisionId: null,
+          currentDetailPageGenerationId: null,
           history: [],
         })}
         isDeleting={false}

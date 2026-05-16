@@ -68,9 +68,11 @@ function ThumbnailEditorWorkspaceContent() {
   const router = useRouter();
   const productId = searchParams.get('productId');
   const sourceCandidateId = searchParams.get('sourceCandidateId');
+  const registrationWorkspaceId = searchParams.get('registrationWorkspaceId');
   const imageUrlParam = searchParams.get('imageUrl');
   const uploadKeyParam = searchParams.get('uploadKey');
   const productNameParam = searchParams.get('productName')?.trim() ?? '';
+  const productDescriptionParam = searchParams.get('productDescription')?.trim() ?? '';
   const generationIdParam = searchParams.get('generationId');
   const modeParam = searchParams.get('mode');
   const editCaseParam = searchParams.get('editCase');
@@ -201,7 +203,7 @@ function ThumbnailEditorWorkspaceContent() {
 
   const [sceneType, setSceneType] = useState('white-studio');
   const [styleType, setStyleType] = useState('minimal');
-  const [productDescription, setProductDescription] = useState('');
+  const [productDescription, setProductDescription] = useState(productDescriptionParam);
 
   const { images: hubImages, loading: hubImagesLoading } = useProductImages(productId);
 
@@ -243,10 +245,14 @@ function ThumbnailEditorWorkspaceContent() {
    */
   useEffect(() => {
     if (generationId || generationIdParam) return; // 이미 있으면 skip
-    if (!productId && !sourceCandidateId) return;
+    if (!productId && !sourceCandidateId && !registrationWorkspaceId) return;
     const activeGen = pollingGenerations.find(
       (g) =>
-        (productId ? g.productId === productId : g.sourceCandidateId === sourceCandidateId) &&
+        (registrationWorkspaceId
+          ? g.registrationWorkspaceId === registrationWorkspaceId
+          : productId
+            ? g.productId === productId
+            : g.sourceCandidateId === sourceCandidateId) &&
         (g.status === 'pending' || g.status === 'running'),
     );
     if (activeGen) {
@@ -256,10 +262,10 @@ function ThumbnailEditorWorkspaceContent() {
       router.replace(`?${next.toString()}`, { scroll: false });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [productId, sourceCandidateId, pollingGenerations.length, generationId, generationIdParam]);
+  }, [productId, sourceCandidateId, registrationWorkspaceId, pollingGenerations.length, generationId, generationIdParam]);
 
   const { historyCandidates, recommendedCandidateUrl } = useEditorHistory({
-    productId, sourceCandidateId, mode, result, generationId,
+    productId, sourceCandidateId, registrationWorkspaceId, mode, result, generationId,
     selectedCandidateUrl, setSelectedCandidateUrl,
   });
 
@@ -305,7 +311,7 @@ function ThumbnailEditorWorkspaceContent() {
       const dto = buildGenerateThumbnailDto({
         mode,
         slots,
-        subject: thumbnailSubjectFromParams({ productId, sourceCandidateId }),
+        subject: thumbnailSubjectFromParams({ productId, sourceCandidateId, registrationWorkspaceId }),
         productId,
         sourceCandidateId,
         supplementaryLabel,
@@ -539,7 +545,7 @@ function ThumbnailEditorWorkspaceContent() {
     }
   };
 
-  const hasInput = !!productId || !!sourceCandidateId || hasInputSlotFilled;
+  const hasInput = !!productId || !!sourceCandidateId || !!registrationWorkspaceId || hasInputSlotFilled;
 
   // NOTE: 예전에는 imageUrl+productId+mode+editCase 쿼리가 있으면 자동으로 handleGenerate 를 호출했다.
   // 하지만 이 동작이 두 가지 UX 문제를 일으켰다:

@@ -83,6 +83,7 @@ export class ThumbnailEditorController {
         inputMeta: this.inputMeta(body, mode, editCase, inputs),
         method: mode === 'creative' ? 'creative' : 'generate',
         originalUrl: product.imageUrl ?? inputs[0]?.url ?? '',
+        registrationWorkspaceId: body.registrationWorkspaceId ?? null,
         agentPayload: this.agentPayload({
           body,
           mode,
@@ -110,6 +111,7 @@ export class ThumbnailEditorController {
         inputMeta: this.inputMeta(body, mode, editCase, inputs),
         method: mode === 'creative' ? 'creative' : 'generate',
         originalUrl: inputs[0]?.url ?? '',
+        registrationWorkspaceId: body.registrationWorkspaceId ?? null,
         agentPayload: {
           ...this.agentPayload({
             body,
@@ -138,6 +140,7 @@ export class ThumbnailEditorController {
       inputMeta: this.inputMeta(body, mode, editCase, inputs),
       method: mode === 'creative' ? 'creative' : 'generate',
       originalUrl: inputs[0]?.url ?? '',
+      registrationWorkspaceId: body.registrationWorkspaceId ?? null,
       agentPayload: {
         ...this.agentPayload({
           body,

@@ -20,9 +20,13 @@ const PLATFORM_MAP: Record<string, string> = {
 
 const COLLECTED_PRODUCT_SOURCE_PLATFORMS = ['ALIBABA_1688', 'ALIBABA'] as const;
 
-const IMAGE_FIELD_KEYS = [
+const PRODUCT_IMAGE_FIELD_KEYS = [
   'images', 'imageUrls', 'image_urls', 'mainImages', 'main_images',
-  'mainImage', 'main_image', 'offerImgList', 'description_images', 'detail_images',
+  'mainImage', 'main_image', 'offerImgList',
+] as const;
+
+const DESCRIPTION_IMAGE_FIELD_KEYS = [
+  'description_images', 'detail_images', 'images', 'imageUrls', 'image_urls',
 ] as const;
 
 type FlatExtensionData = ReceiveExtensionDataDto & Record<string, unknown>;
@@ -47,7 +51,7 @@ export class SourcingService {
 
     if (pageType === 'detail' && data.title && sourceUrl) {
       const price = this.extractCostCny(data);
-      const incomingImages = this.extractImageUrls(data as Record<string, unknown>);
+      const incomingImages = this.extractProductImageUrls(data as Record<string, unknown>);
       const platform = PLATFORM_MAP[String(data.source_platform || '').toLowerCase()] || (data.source_platform as string) || 'unknown';
 
       await this.candidates.upsertSourced({
@@ -76,22 +80,22 @@ export class SourcingService {
     }
 
     if (pageType === 'description' && sourceUrl) {
-      const incomingImages = this.extractImageUrls(data as Record<string, unknown>);
+      const incomingImages = this.extractDescriptionImageUrls(data as Record<string, unknown>);
       const merged = await this.candidates.mergeDescription({
         organizationId,
         sourceUrl,
         rawData: data as Record<string, unknown>,
         description: typeof data.description_text === 'string' && data.description_text.trim()
           ? data.description_text : null,
-        thumbnailUrl: incomingImages[0] || null,
-        imageUrl: incomingImages[0] || null,
+        thumbnailUrl: null,
+        imageUrl: null,
         images: incomingImages.map((url, index) => ({
           url,
-          role: 'product',
+          role: 'detail',
           label: null,
           sortOrder: index,
-          source: 'sourcing-extension',
-          isPrimary: index === 0,
+          source: 'sourcing-extension-description',
+          isPrimary: false,
         })),
       });
       return {
@@ -206,8 +210,12 @@ export class SourcingService {
     return [...new Set(urls)];
   }
 
-  private extractImageUrls(data: Record<string, unknown>): string[] {
-    return this.collectImageUrls(IMAGE_FIELD_KEYS.map((key) => data[key]));
+  private extractProductImageUrls(data: Record<string, unknown>): string[] {
+    return this.collectImageUrls(PRODUCT_IMAGE_FIELD_KEYS.map((key) => data[key]));
+  }
+
+  private extractDescriptionImageUrls(data: Record<string, unknown>): string[] {
+    return this.collectImageUrls(DESCRIPTION_IMAGE_FIELD_KEYS.map((key) => data[key]));
   }
 
   private sourceUrlFrom(data: FlatExtensionData): string | null {

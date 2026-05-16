@@ -10,9 +10,26 @@ interface ThumbnailGridProps {
   selectedRegistrationThumbnailUrl?: string | null;
   onSelectRegistrationThumbnail?: (url: string | null) => void;
   onThumbnailsChange: (thumbnails: string[]) => void;
-  onGenerateThumbnail?: () => void;
+  onOpenThumbnailGeneration?: () => void;
   onOpenThumbnailEditor?: () => void;
   isGeneratingThumbnail?: boolean;
+}
+
+const MAX_THUMBNAIL_IMAGES = 10;
+const THUMBNAIL_LIMIT_CONFIRM_MESSAGE =
+  '이미지는 최대 10장까지 사용할 수 있어요. 오래된 이미지 1장을 제외하고 진행할까요?';
+
+function trimThumbnailImagesToLimit(
+  images: string[],
+  selectedRegistrationThumbnailUrl: string | null,
+): string[] {
+  if (images.length <= MAX_THUMBNAIL_IMAGES) return images;
+  const next = [...images];
+  while (next.length > MAX_THUMBNAIL_IMAGES) {
+    const removableIndex = next.findIndex((url) => url !== selectedRegistrationThumbnailUrl);
+    next.splice(removableIndex >= 0 ? removableIndex : 0, 1);
+  }
+  return next;
 }
 
 export default function ThumbnailGrid({
@@ -21,20 +38,46 @@ export default function ThumbnailGrid({
   selectedRegistrationThumbnailUrl = null,
   onSelectRegistrationThumbnail,
   onThumbnailsChange,
-  onGenerateThumbnail,
+  onOpenThumbnailGeneration,
   onOpenThumbnailEditor,
   isGeneratingThumbnail = false,
 }: ThumbnailGridProps) {
   const handleRemove = (index: number) => {
     onThumbnailsChange(thumbnails.filter((_, i) => i !== index));
   };
-  const canGenerate = thumbnails.length > 0 && !!onGenerateThumbnail && !isGeneratingThumbnail;
-  const displayOptions = registrationOptions ?? thumbnails.map((url) => ({
-    url,
-    kind: 'source' as const,
-    generatedCandidateId: null,
-  }));
+  const confirmLimitCleanup = () => (
+    window.confirm(THUMBNAIL_LIMIT_CONFIRM_MESSAGE)
+  );
+  const handleGenerateClick = () => {
+    if (thumbnails.length > MAX_THUMBNAIL_IMAGES) {
+      if (!confirmLimitCleanup()) return;
+      onThumbnailsChange(trimThumbnailImagesToLimit(thumbnails, selectedRegistrationThumbnailUrl));
+    }
+    onOpenThumbnailGeneration?.();
+  };
+  const handleAddPlaceholderImage = () => {
+    const nextImageUrl =
+      `https://placehold.co/400x400/e2e8f0/64748b?text=상품+${thumbnails.length + 1}`;
+    if (thumbnails.length >= MAX_THUMBNAIL_IMAGES && !confirmLimitCleanup()) return;
+    onThumbnailsChange(trimThumbnailImagesToLimit(
+      [...thumbnails, nextImageUrl],
+      selectedRegistrationThumbnailUrl,
+    ));
+  };
+  const canGenerate = thumbnails.length > 0 && !!onOpenThumbnailGeneration && !isGeneratingThumbnail;
+  const displayedSourceUrls = trimThumbnailImagesToLimit(thumbnails, selectedRegistrationThumbnailUrl);
+  const displayOptions = registrationOptions
+    ? registrationOptions.filter((option) => (
+        option.kind !== 'source' || displayedSourceUrls.includes(option.url)
+      ))
+    : displayedSourceUrls.map((url) => ({
+        url,
+        kind: 'source' as const,
+        generatedCandidateId: null,
+      }));
+  const sourceImageCount = Math.min(thumbnails.length, MAX_THUMBNAIL_IMAGES);
   const generatedCount = displayOptions.filter((option) => option.kind === 'generated').length;
+  const canAddImage = thumbnails.length < MAX_THUMBNAIL_IMAGES;
 
   return (
     <div className="space-y-3">
@@ -49,7 +92,7 @@ export default function ThumbnailGrid({
         </div>
         <div className="flex items-center gap-2">
           <span className="rounded-full bg-[var(--surface-sunken)] px-2.5 py-1 text-xs font-semibold text-[var(--text-secondary)]">
-            원본 {thumbnails.length}/10장{generatedCount > 0 ? ` · 생성 ${generatedCount}장` : ''}
+            이미지 {sourceImageCount}/{MAX_THUMBNAIL_IMAGES}장{generatedCount > 0 ? ` · AI 생성 ${generatedCount}장` : ''}
           </span>
           {onOpenThumbnailEditor && (
             <button
@@ -61,23 +104,23 @@ export default function ThumbnailGrid({
                 'border-[var(--border)] bg-white text-[var(--text-primary)] hover:bg-[var(--surface-sunken)]',
                 'disabled:cursor-not-allowed disabled:bg-[var(--surface-sunken)] disabled:text-[var(--text-muted)]',
               )}
-              title={thumbnails.length === 0 ? '먼저 원본 이미지를 추가하세요' : '썸네일 생성 도구 열기'}
+              title={thumbnails.length === 0 ? '먼저 이미지를 추가하세요' : '썸네일 편집 도구 열기'}
             >
               <ImageIcon size={14} />
-              썸네일 생성
+              썸네일 편집
             </button>
           )}
-          {onGenerateThumbnail && (
+          {onOpenThumbnailGeneration && (
             <button
               type="button"
-              onClick={onGenerateThumbnail}
+              onClick={handleGenerateClick}
               disabled={!canGenerate}
               className={cn(
                 'inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-xs font-bold transition-all',
                 'bg-violet-600 text-white shadow-sm shadow-violet-500/20 hover:bg-violet-700',
                 'disabled:cursor-not-allowed disabled:bg-[var(--surface-sunken)] disabled:text-[var(--text-muted)] disabled:shadow-none',
               )}
-              title={thumbnails.length === 0 ? '먼저 원본 이미지를 추가하세요' : '대표 이미지로 AI 썸네일 생성'}
+              title={thumbnails.length === 0 ? '먼저 이미지를 추가하세요' : '대표 이미지로 AI 썸네일 생성'}
             >
               {isGeneratingThumbnail ? (
                 <Loader2 size={14} className="animate-spin" />
@@ -147,13 +190,13 @@ export default function ThumbnailGrid({
         })}
 
         <button
-          onClick={() =>
-            onThumbnailsChange([
-              ...thumbnails,
-              `https://placehold.co/400x400/e2e8f0/64748b?text=상품+${thumbnails.length + 1}`,
-            ])
-          }
-          className="w-[140px] h-[140px] rounded-lg border-2 border-dashed border-slate-300 hover:border-emerald-400 flex flex-col items-center justify-center gap-1.5 text-slate-400 hover:text-emerald-500 transition-colors"
+          onClick={handleAddPlaceholderImage}
+          className={cn(
+            'w-[140px] h-[140px] rounded-lg border-2 border-dashed flex flex-col items-center justify-center gap-1.5 transition-colors',
+            canAddImage
+              ? 'border-slate-300 text-slate-400 hover:border-emerald-400 hover:text-emerald-500'
+              : 'border-amber-200 bg-amber-50 text-amber-600 hover:border-amber-300 hover:text-amber-700',
+          )}
         >
           <Plus size={28} />
           <span className="text-xs font-medium">이미지 추가</span>

@@ -62,7 +62,7 @@ retires or reconstructs it.
   `margin_rate` may exist for expand/backfill/contract compatibility, but
   nothing in `products/` should select, filter on, or echo any of them.
   Sourcing history lives on `SourcingCandidate` / `CandidateImage` (see
-  `src/product-content/`).
+  `src/sourcing/`).
 - Product content management is master-bound. `ProductContentController` owns
   detail-page content card reads (`GET /api/products/content/cards`), preview,
   edited HTML, and legacy non-AI history routes. It must scope all reads and

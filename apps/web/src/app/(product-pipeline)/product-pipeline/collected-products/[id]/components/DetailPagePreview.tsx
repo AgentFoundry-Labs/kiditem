@@ -14,7 +14,7 @@
 import { useRef, useEffect, useMemo, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { Download, Pencil, Sparkles, Loader2 } from 'lucide-react';
+import { Download, Pencil, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   getTemplate,
@@ -23,11 +23,9 @@ import {
 import { API_BASE } from '@/lib/api';
 import {
   rowToRendererData,
-  useKidsPlayfulGenerationList,
-  useBoldVerticalGenerationList,
+  useKidsPlayfulOne,
   type KidsPlayfulGenerationItem,
 } from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate';
-import type { KidsPlayfulData } from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/lib/kids-playful-types';
 import { buildKidsPlayfulHtml } from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/lib/build-kids-playful-html';
 import {
   adaptBoldVerticalToDetailPageData,
@@ -59,15 +57,8 @@ interface Props {
   detailPreviewHtml: string;
   editedHtml?: string | null;
   templateCss: string;
-  /**
-   * 사용자가 생성 이력 탭에서 골라 띄우기로 한 KP entry id.
-   * null = 자동 (이 product 의 최신 KP 이력 사용).
-   */
-  selectedKidsPlayfulId?: string | null;
-  /** 사용자가 고른 KIDITEM DESIGN entry id. */
-  selectedBoldVerticalId?: string | null;
-  /** 사용자가 고른 ContentAgent entry id. */
-  selectedAgentId?: string | null;
+  hasSavedDetailPage?: boolean;
+  savedDetailPageGenerationId?: string | null;
   initialAgentHistory?: GenerationHistoryItem[];
   generationHistoryQueryEnabled?: boolean;
   detailEditorSourceCandidateId?: string | null;
@@ -120,14 +111,33 @@ function buildServerRenderHtml(html: string): string {
 </html>`;
 }
 
+function renderGenerationEntryHtml(entry: KidsPlayfulGenerationItem, templateCss: string): string {
+  if (entry.templateId === 'bold-vertical') {
+    const adapted = adaptBoldVerticalToDetailPageData(
+      entry.result as unknown as BoldVerticalGeneration,
+      entry.imageUrls,
+      entry.processedImages,
+      API_BASE,
+    );
+    const data = parseDetailPageData(adapted);
+    const config = getTemplate('bold-vertical');
+    return renderTemplateToHtml(
+      config.component as React.ComponentType<unknown>,
+      data,
+      config,
+      templateCss,
+    );
+  }
+  return buildKidsPlayfulHtml(rowToRendererData(entry), templateCss);
+}
+
 export default function DetailPagePreview({
   productId,
   detailPreviewHtml,
   editedHtml = null,
   templateCss,
-  selectedKidsPlayfulId = null,
-  selectedBoldVerticalId = null,
-  selectedAgentId = null,
+  hasSavedDetailPage,
+  savedDetailPageGenerationId = null,
   initialAgentHistory,
   generationHistoryQueryEnabled = true,
   detailEditorSourceCandidateId,
@@ -137,154 +147,96 @@ export default function DetailPagePreview({
   const minimapContainerRef = useRef<HTMLDivElement>(null);
   const [isDownloading, setIsDownloading] = useState(false);
 
-  // 이 product 의 Trend / KIDITEM / Agent 이력 — server DB 에서 조회.
-  const { data: kpEntries = [] } = useKidsPlayfulGenerationList(productId, {
-    enabled: generationHistoryQueryEnabled,
-  });
-  const { data: boldEntries = [] } = useBoldVerticalGenerationList(productId, {
-    enabled: generationHistoryQueryEnabled,
-  });
   const { data: agentHistory = [] } = useGenerationHistory(
     productId,
     initialAgentHistory,
     { enabled: generationHistoryQueryEnabled },
   );
 
-  // 우선순위: 사용자 명시 선택 > 자동 default
-  // selected{Agent|Trend|KIDITEM}Id 있으면 그것 우선
-  // 셋 다 null 이면 최신 Trend > 최신 KIDITEM > Agent default
-  const selectedAgentEntry = useMemo(
-    () => (selectedAgentId ? agentHistory.find((h) => h.id === selectedAgentId) ?? null : null),
-    [selectedAgentId, agentHistory],
+  const savedAgentEntry = useMemo(
+    () => (
+      savedDetailPageGenerationId
+        ? agentHistory.find((h) => h.id === savedDetailPageGenerationId) ?? null
+        : null
+    ),
+    [agentHistory, savedDetailPageGenerationId],
   );
-  const autoAgentEntry = useMemo(() => {
-    if (selectedAgentId || selectedKidsPlayfulId || selectedBoldVerticalId || editedHtml) return null;
-    return agentHistory.find((entry) => (
-      isCompletedDetailGenerationStatus(entry.status) &&
-      (entry.detailPageArtifactId || entry.detailPageData)
-    )) ?? null;
-  }, [agentHistory, editedHtml, selectedAgentId, selectedBoldVerticalId, selectedKidsPlayfulId]);
-  const activeAgentEntry = selectedAgentEntry ?? autoAgentEntry;
+  const { data: savedGenerationEntry } = useKidsPlayfulOne(savedDetailPageGenerationId);
   const { data: selectedAgentEditedHtml } = useQuery({
-    queryKey: activeAgentEntry?.id
-      ? queryKeys.productContent.generationEditedHtml(activeAgentEntry.id)
+    queryKey: savedDetailPageGenerationId
+      ? queryKeys.productContent.generationEditedHtml(savedDetailPageGenerationId)
       : queryKeys.productContent.generationEditedHtml(''),
     queryFn: () => {
-      if (!activeAgentEntry?.id) {
+      if (!savedDetailPageGenerationId) {
         throw new Error('detail page generation id is required');
       }
       return apiClient.get<{ html: string | null; savedAt: string | null }>(
-        `/api/ai/detail-page/${activeAgentEntry.id}/edited-html`,
+        `/api/ai/detail-page/${savedDetailPageGenerationId}/edited-html`,
       );
     },
-    enabled: !!activeAgentEntry?.id,
+    enabled: !!savedDetailPageGenerationId,
     staleTime: 30_000,
   });
-  // optimistic placeholder (`id: 'optimistic-...'`) 는 진행 배너 용도라 auto-select 대상에서 제외.
-  // 클릭 시 실제 row id 가 아니라 404 → 에디터 "불러올 수 없다" 에러 발생하던 버그 픽스.
-  const realKpEntries = useMemo(
-    () => kpEntries.filter((e) => !e.id.startsWith('optimistic-')),
-    [kpEntries],
-  );
-  const realBoldEntries = useMemo(
-    () => boldEntries.filter((e) => !e.id.startsWith('optimistic-')),
-    [boldEntries],
-  );
-
-  const hasExplicitSelection = !!(selectedAgentId || selectedKidsPlayfulId || selectedBoldVerticalId);
-
-  const boldEntry = useMemo(() => {
-    if (selectedAgentId || selectedKidsPlayfulId) return null; // 다른 게 명시 선택
-    if (selectedBoldVerticalId) {
-      return realBoldEntries.find((e) => e.id === selectedBoldVerticalId) ?? null;
-    }
-    if (editedHtml) return null;
-    // 자동 default — Trend 이력 없을 때만 KIDITEM default 적용
-    return realKpEntries.length === 0 ? realBoldEntries[0] ?? null : null;
-  }, [realBoldEntries, realKpEntries, selectedBoldVerticalId, selectedKidsPlayfulId, selectedAgentId, editedHtml]);
-
-  const kpEntry: KidsPlayfulGenerationItem | null = useMemo(() => {
-    if (selectedAgentId || selectedBoldVerticalId) return null;
-    if (selectedKidsPlayfulId) {
-      return realKpEntries.find((e) => e.id === selectedKidsPlayfulId) ?? null;
-    }
-    if (editedHtml) return null;
-    return realKpEntries[0] ?? null;
-  }, [realKpEntries, selectedKidsPlayfulId, selectedBoldVerticalId, selectedAgentId, editedHtml]);
-
-  const kpData: KidsPlayfulData | null = useMemo(
-    () => (kpEntry ? rowToRendererData(kpEntry) : null),
-    [kpEntry],
-  );
   const editorHref = useMemo(() => {
-    const generationId = kpEntry?.id ?? boldEntry?.id ?? activeAgentEntry?.id ?? null;
+    const generationId = savedDetailPageGenerationId;
     if (!generationId && !detailEditorSourceCandidateId) return null;
     return detailPageEditorHref({
       candidateId: detailEditorSourceCandidateId,
       generationId,
       returnTo: detailEditorReturnHref,
     });
-  }, [activeAgentEntry?.id, boldEntry?.id, detailEditorReturnHref, detailEditorSourceCandidateId, kpEntry?.id]);
+  }, [detailEditorReturnHref, detailEditorSourceCandidateId, savedDetailPageGenerationId]);
 
-  // KIDITEM generation → BoldVertical 템플릿.
-  const boldHtml = useMemo(() => {
-    if (!boldEntry) return null;
-    try {
-      const adapted = adaptBoldVerticalToDetailPageData(
-        boldEntry.result as unknown as BoldVerticalGeneration,
-        boldEntry.imageUrls,
-        boldEntry.processedImages,
-        API_BASE,
-      );
-      const data = parseDetailPageData(adapted);
-      const config = getTemplate('bold-vertical');
-      return renderTemplateToHtml(
-        config.component as React.ComponentType<unknown>,
-        data,
-        config,
-        templateCss,
-      );
-    } catch {
-      return null;
-    }
-  }, [boldEntry, templateCss]);
+  const hasCurrentSavedDetailPage =
+    hasSavedDetailPage ?? Boolean(editedHtml || detailPreviewHtml.trim());
 
-  // selectedAgentId 가 있으면 artifact/revision HTML 을 우선 사용하고,
-  // legacy row 만 detailPageData 로 HTML rebuild. 아니면 KP/default 순서.
-  const agentSelectedHtml = useMemo(() => {
+  const savedDetailHtml = useMemo(() => {
+    if (!hasCurrentSavedDetailPage) return null;
     if (selectedAgentEditedHtml?.html) {
       return ensureStyledDetailHtml(selectedAgentEditedHtml.html, templateCss);
     }
-    if (!activeAgentEntry?.detailPageData) return null;
-    try {
-      return buildGenerationHistoryHtml(activeAgentEntry, templateCss);
-    } catch {
-      return null;
+    if (savedGenerationEntry && isCompletedDetailGenerationStatus(savedGenerationEntry.imageProcessingStatus)) {
+      try {
+        return renderGenerationEntryHtml(savedGenerationEntry, templateCss);
+      } catch {
+        // Fall through to legacy workspace history data.
+      }
     }
-  }, [activeAgentEntry, selectedAgentEditedHtml?.html, templateCss]);
-
-  // ⚡ 깜빡임 방지: 의미적으로 같은 컨텐츠인 동안 srcDoc 안 갱신.
-  const previewKey = activeAgentEntry
-    ? `agent:${activeAgentEntry.id}:${selectedAgentEditedHtml?.savedAt ?? 'generated'}`
-    : kpEntry
-      ? `kp:${kpEntry.id}:${kpEntry.imageProcessingStatus}`
-      : boldEntry
-        ? `bold:${boldEntry.id}:${boldEntry.imageProcessingStatus}`
-        : editedHtml
-          ? `edited:${editedHtml.length}`
-          : 'default';
-  const effectivePreviewHtml = useMemo(() => {
-    if (agentSelectedHtml) return agentSelectedHtml;
-    if (kpData) return buildKidsPlayfulHtml(kpData);
-    if (boldHtml) return boldHtml;
-    if (!hasExplicitSelection && editedHtml) {
+    if (savedAgentEntry?.detailPageData) {
+      try {
+        return buildGenerationHistoryHtml(savedAgentEntry, templateCss);
+      } catch {
+        return null;
+      }
+    }
+    if (editedHtml) {
       return ensureStyledDetailHtml(editedHtml, templateCss);
     }
     return ensureStyledDetailHtml(detailPreviewHtml, templateCss);
+  }, [
+    detailPreviewHtml,
+    editedHtml,
+    hasCurrentSavedDetailPage,
+    savedAgentEntry,
+    savedGenerationEntry,
+    selectedAgentEditedHtml?.html,
+    templateCss,
+  ]);
+
+  // ⚡ 깜빡임 방지: 의미적으로 같은 컨텐츠인 동안 srcDoc 안 갱신.
+  const previewKey = savedDetailPageGenerationId
+    ? `saved:${savedDetailPageGenerationId}:${selectedAgentEditedHtml?.savedAt ?? 'generated'}`
+    : editedHtml
+      ? `edited:${editedHtml.length}`
+      : hasCurrentSavedDetailPage
+        ? `default:${detailPreviewHtml.length}`
+        : 'empty';
+  const effectivePreviewHtml = useMemo(() => {
+    return savedDetailHtml;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewKey, detailPreviewHtml, agentSelectedHtml, boldHtml, editedHtml, hasExplicitSelection, templateCss]);
+  }, [previewKey, savedDetailHtml]);
   const sandboxedPreviewHtml = useMemo(
-    () => withDetailPreviewBridge(effectivePreviewHtml),
+    () => (effectivePreviewHtml ? withDetailPreviewBridge(effectivePreviewHtml) : ''),
     [effectivePreviewHtml],
   );
 
@@ -343,6 +295,7 @@ export default function DetailPagePreview({
   // 이미지 다운로드 — 서버 Puppeteer 렌더러로 긴 JPEG 1장 저장.
   // 클라이언트 html2canvas 는 긴 상세페이지에서 자주 멈춰서 서버 캡처 경로를 사용한다.
   const handleDownloadJpeg = useCallback(async () => {
+    if (!effectivePreviewHtml) return;
     if (isDownloading) return;
     setIsDownloading(true);
     try {
@@ -367,23 +320,26 @@ export default function DetailPagePreview({
     }
   }, [effectivePreviewHtml, isDownloading, productId]);
 
+  if (!effectivePreviewHtml) {
+    return (
+      <div className="p-5">
+        <div className="flex h-[52vh] flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-white text-center">
+          <h3 className="text-base font-bold text-slate-800">
+            생성된 상세페이지가 없습니다
+          </h3>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-5 space-y-3">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <h3 className="text-base font-bold text-slate-800 inline-flex items-center gap-2">
           생성된 상세페이지
-          {activeAgentEntry ? (
+          {savedAgentEntry ? (
             <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
-              {generatedDetailTemplateLabel(activeAgentEntry)}
-            </span>
-          ) : kpData ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-bold text-violet-700">
-              <Sparkles size={10} />
-              TREND VERTICAL
-            </span>
-          ) : boldEntry ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-bold text-sky-700">
-              KIDITEM DESIGN
+              {generatedDetailTemplateLabel(savedAgentEntry)}
             </span>
           ) : null}
         </h3>
@@ -410,51 +366,56 @@ export default function DetailPagePreview({
         </div>
       </div>
 
-      <div className="flex gap-3 overflow-x-auto" style={{ height: `${VIEWPORT_HEIGHT_VH}vh` }}>
-        {/* 좌측 — 미니맵. 페이지 전체가 fit-to-height 로 한 화면에 들어옴 */}
+      <div className="overflow-x-auto">
         <div
-          ref={minimapContainerRef}
-          className="relative shrink-0 rounded-lg border border-slate-200 bg-slate-100 overflow-hidden cursor-pointer shadow-sm"
-          style={{ width: minimapWidth }}
-          onClick={handleMinimapClick}
-          title="클릭하면 해당 위치로 이동"
+          className="mx-auto flex w-fit gap-3"
+          style={{ height: `${VIEWPORT_HEIGHT_VH}vh` }}
         >
-          {/* 축소된 iframe — pointer-events-none 으로 자체 스크롤 차단 (외부 div 클릭만 받음) */}
-          <iframe
-            srcDoc={sandboxedPreviewHtml}
-            className="absolute top-0 left-0 border-0 pointer-events-none"
-            style={{
-              width: `${minimapWidth / scale}px`,
-              height: `${contentHeight}px`,
-              transform: `scale(${scale})`,
-              transformOrigin: 'top left',
-            }}
-            title="detail-minimap"
-            sandbox={SCRIPTED_PREVIEW_SANDBOX}
-          />
-          {/* 현재 viewport 위치 박스 — y축 픽셀값 × scale 로 정확히 계산.
-              scrollY 가 800px, scale 0.25 면 박스 top 200px. transition 없이 즉시 반영. */}
+          {/* 좌측 — 미니맵. 페이지 전체가 fit-to-height 로 한 화면에 들어옴 */}
           <div
-            className="absolute left-0 right-0 border-2 border-indigo-500 bg-indigo-500/15 pointer-events-none"
-            style={{
-              top: `${viewportTop * scale}px`,
-              height: `${viewportHeight * scale}px`,
-            }}
-          />
-        </div>
+            ref={minimapContainerRef}
+            className="relative shrink-0 rounded-lg border border-slate-200 bg-slate-100 overflow-hidden cursor-pointer shadow-sm"
+            style={{ width: minimapWidth }}
+            onClick={handleMinimapClick}
+            title="클릭하면 해당 위치로 이동"
+          >
+            {/* 축소된 iframe — pointer-events-none 으로 자체 스크롤 차단 (외부 div 클릭만 받음) */}
+            <iframe
+              srcDoc={sandboxedPreviewHtml}
+              className="absolute top-0 left-0 border-0 pointer-events-none"
+              style={{
+                width: `${minimapWidth / scale}px`,
+                height: `${contentHeight}px`,
+                transform: `scale(${scale})`,
+                transformOrigin: 'top left',
+              }}
+              title="detail-minimap"
+              sandbox={SCRIPTED_PREVIEW_SANDBOX}
+            />
+            {/* 현재 viewport 위치 박스 — y축 픽셀값 × scale 로 정확히 계산.
+                scrollY 가 800px, scale 0.25 면 박스 top 200px. transition 없이 즉시 반영. */}
+            <div
+              className="absolute left-0 right-0 border-2 border-indigo-500 bg-indigo-500/15 pointer-events-none"
+              style={{
+                top: `${viewportTop * scale}px`,
+                height: `${viewportHeight * scale}px`,
+              }}
+            />
+          </div>
 
-        {/* 우측 — 풀 미리보기 */}
-        <div
-          className="shrink-0 rounded-xl border border-slate-200 bg-white overflow-hidden"
-          style={{ width: FULL_PREVIEW_WIDTH }}
-        >
-          <iframe
-            ref={fullIframeRef}
-            srcDoc={sandboxedPreviewHtml}
-            className="w-full h-full border-0"
-            title="detail-page-preview"
-            sandbox={SCRIPTED_PREVIEW_SANDBOX}
-          />
+          {/* 우측 — 풀 미리보기 */}
+          <div
+            className="w-screen rounded-xl border border-slate-200 bg-white overflow-hidden"
+            style={{ maxWidth: FULL_PREVIEW_WIDTH }}
+          >
+            <iframe
+              ref={fullIframeRef}
+              srcDoc={sandboxedPreviewHtml}
+              className="w-full h-full border-0"
+              title="detail-page-preview"
+              sandbox={SCRIPTED_PREVIEW_SANDBOX}
+            />
+          </div>
         </div>
       </div>
     </div>

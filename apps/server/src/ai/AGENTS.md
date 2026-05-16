@@ -36,8 +36,8 @@ ai/
 |---|---|---|
 | `POST /api/image-ai/edit` | async Agent OS | returns request/run id for polling |
 | `POST /api/text-ai/transform` | sync | `TEXT_COMPLETION_PORT` only |
-| `POST /api/ai/detail-page/generate` with `productId` | async Agent OS | creates product-bound `ContentGeneration` ledger |
-| `POST /api/ai/detail-page/generate` without `productId` | async Agent OS | creates standalone `ContentGeneration` ledger inside a `ContentGenerationGroup` |
+| `POST /api/ai/detail-page/generate` with `productId` | async Agent OS | creates product-bound `ContentGeneration` ledger in a registration workspace |
+| `POST /api/ai/detail-page/generate` without `productId` | async Agent OS | creates or reuses an unbound registration workspace plus `ContentGeneration` ledger |
 | `GET /api/ai/content-archive/workspaces` | read model | generated content workspace index grouped by product or unlinked generation group |
 | `GET /api/ai/content-archive/products/:productId` | read model | generated detail-page/image rows for one product workspace |
 | `DELETE /api/ai/content-archive/products/:productId` | mutation | deletes generated content rows for one product workspace; does not delete `MasterProduct` |
@@ -47,8 +47,8 @@ ai/
 | `POST /api/ai/content-archive/:generationId/rerun` | async Agent OS | creates a same-input rerun in the explicit generation group |
 | `GET /api/ai/content-archive/sourcing/:candidateId` | read model | sourcing-candidate provenance links into produced content |
 | `GET /api/ai/content-assets` | read model | lists reusable content image assets |
-| `POST /api/thumbnail-editor/generate` with `productId` | async Agent OS | creates `ThumbnailGeneration` ledger |
-| `POST /api/thumbnail-editor/generate` without `productId` | sync fallback | preview/test only |
+| `POST /api/thumbnail-editor/generate` with `productId`, `sourceCandidateId`, or `registrationWorkspaceId` | async Agent OS | creates owner/workspace-scoped `ThumbnailGeneration` ledger |
+| `POST /api/thumbnail-editor/generate` without owner identity | async Agent OS | creates direct-upload `ThumbnailGeneration` ledger; no sourcing/registration inbox card |
 | `POST /api/*/reconcile-stuck` | admin recovery | replays terminal Agent OS runs through the same sink |
 | render/analysis/tracking/Wing sync routes | mixed legacy | keep organization scope and DTO validation |
 
@@ -100,20 +100,21 @@ Detail-page generation:
 ```text
 HTTP DTO
   -> DetailPageAiService facade
-  -> DetailPageGenerationService creates ContentGeneration + required ContentGenerationGroup + input ContentAsset rows + ContentGenerationSource rows + alert
+  -> DetailPageGenerationService ensures RegistrationWorkspace + creates ContentGeneration + transitional ContentGenerationGroup + input ContentAsset rows + ContentGenerationSource rows + alert
   -> AGENT_RUNNER_PORT.runByType('detail_page_generate')
   -> detail-page runtime handler
   -> bridge
   -> sink READY/FAILED + DetailPageArtifact identity + generated images + generated ContentAsset rows + alert close
 ```
 
-`ContentGenerationGroup` is the transitional archive/media workspace identity.
+`RegistrationWorkspace` is the product-pipeline registration workspace identity.
+`ContentGenerationGroup` remains a transitional archive/media grouping.
 Product-bound runs use the canonical `groupType='product_workspace'` group with
-`targetMasterId=<MasterProduct.id>`; standalone runs use an unlinked
+`targetMasterId=<MasterProduct.id>`; unbound workspace runs use an unlinked
 `input_variation` group. `ContentGeneration.generationGroupId` is required
-while the archive UI still groups workspaces through it. Same-input reruns
-reuse/create the explicit group and must not infer grouping from title or
-product-name similarity.
+while legacy archive queries still depend on it. Same-input reruns reuse/create
+the explicit group and must not infer grouping from title or product-name
+similarity.
 
 `ContentGeneration` stores request/result snapshots in `generationInput` and
 `generationResult`, plus direct candidate lineage in `sourceCandidateId` when a
@@ -154,11 +155,11 @@ provider-specific media/vision envelopes.
 
 ## Thumbnail Flow
 
-Product-bound editor generation:
+Owner/workspace-scoped editor generation:
 
 ```text
 HTTP DTO
-  -> ThumbnailGenerationService.enqueueEditorGeneration
+  -> ThumbnailGenerationService.enqueue*Generation
   -> AGENT_RUNNER_PORT.runByType('thumbnail_generate')
   -> thumbnail runtime handler
   -> bridge

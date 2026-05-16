@@ -1611,6 +1611,7 @@ erDiagram
     String organizationId FK
     String masterId FK
     String sourceCandidateId FK
+    String registrationWorkspaceId FK
     String originalUrl
     String selectedUrl
     String status
@@ -1997,6 +1998,7 @@ erDiagram
   PurchaseOrder o|--o{ SupplierPayment : "purchaseOrder"
   RegistrationWorkspace o|--o{ ContentGeneration : "registrationWorkspace"
   RegistrationWorkspace o|--o{ DetailPageArtifact : "registrationWorkspace"
+  RegistrationWorkspace o|--o{ ThumbnailGeneration : "registrationWorkspace"
   SourcingCandidate ||--o{ CandidateImage : "candidate"
   SourcingCandidate o|--o{ ContentGeneration : "sourceCandidate"
   SourcingCandidate o|--o{ ContentGenerationSource : "sourceCandidate"

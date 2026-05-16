@@ -1,14 +1,33 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ProductTabContent from './ProductTabContent';
 import type { ProductEditState } from '../lib/types';
 
+const { pushMock } = vi.hoisted(() => ({
+  pushMock: vi.fn(),
+}));
+
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: pushMock }),
 }));
 
 vi.mock('../../components/detail/ThumbnailGrid', () => ({
-  default: () => <div data-testid="thumbnail-grid" />,
+  default: ({
+    onOpenThumbnailEditor,
+    onOpenThumbnailGeneration,
+  }: {
+    onOpenThumbnailEditor?: () => void;
+    onOpenThumbnailGeneration?: () => void;
+  }) => (
+    <div>
+      <button type="button" data-testid="thumbnail-generation" onClick={onOpenThumbnailGeneration}>
+        thumbnail-generation
+      </button>
+      <button type="button" data-testid="thumbnail-editor" onClick={onOpenThumbnailEditor}>
+        thumbnail-editor
+      </button>
+    </div>
+  ),
 }));
 
 vi.mock('../../components/detail/TagEditor', () => ({
@@ -66,6 +85,10 @@ const baseProps = {
 };
 
 describe('ProductTabContent', () => {
+  beforeEach(() => {
+    pushMock.mockReset();
+  });
+
   it('does not render the linked produced content panel in the basic workspace tab', () => {
     render(<ProductTabContent {...baseProps} />);
 
@@ -97,5 +120,57 @@ describe('ProductTabContent', () => {
     );
 
     expect(screen.getByTestId('generation-history-tab')).toHaveTextContent('1');
+  });
+
+  it('opens thumbnail editor with the selected registration thumbnail and workspace identity', () => {
+    render(
+      <ProductTabContent
+        {...baseProps}
+        registrationWorkspaceId="workspace-1"
+        promotedMasterId="master-1"
+        selectedRegistrationThumbnailUrl="https://cdn.example.com/generated.jpg"
+        thumbnailGenerationReturnHref="/product-pipeline/registered-products/workspace-1"
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('thumbnail-editor'));
+
+    expect(pushMock).toHaveBeenCalledTimes(1);
+    const href = pushMock.mock.calls[0][0] as string;
+    expect(href).toContain('/product-pipeline/thumbnail-generation/edit?');
+    expect(href).toContain('productId=master-1');
+    expect(href).toContain('registrationWorkspaceId=workspace-1');
+    expect(href).toContain('imageUrl=https%3A%2F%2Fcdn.example.com%2Fgenerated.jpg');
+    expect(href).toContain('returnTo=%2Fproduct-pipeline%2Fregistered-products%2Fworkspace-1');
+  });
+
+  it('opens thumbnail generation hub when AI thumbnail generation is used', () => {
+    render(
+      <ProductTabContent
+        {...baseProps}
+        registrationWorkspaceId="workspace-1"
+        promotedMasterId="master-1"
+        selectedRegistrationThumbnailUrl="https://cdn.example.com/generated.jpg"
+        thumbnailGenerationReturnHref="/product-pipeline/registered-products/workspace-1"
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('thumbnail-generation'));
+
+    const href = pushMock.mock.calls[0][0] as string;
+    expect(href).toContain('/product-pipeline/thumbnail-generation?');
+    expect(href).not.toContain('/product-pipeline/thumbnail-generation/edit');
+    expect(href).toContain('registrationWorkspaceId=workspace-1');
+    expect(href).toContain('imageUrl=https%3A%2F%2Fcdn.example.com%2Fgenerated.jpg');
+  });
+
+  it('falls back to the first thumbnail when no registration thumbnail is selected', () => {
+    render(<ProductTabContent {...baseProps} thumbnailSourceCandidateId="candidate-1" />);
+
+    fireEvent.click(screen.getByTestId('thumbnail-generation'));
+
+    const href = pushMock.mock.calls[0][0] as string;
+    expect(href).toContain('sourceCandidateId=candidate-1');
+    expect(href).toContain('imageUrl=https%3A%2F%2Fcdn.example.com%2Fproduct.jpg');
   });
 });

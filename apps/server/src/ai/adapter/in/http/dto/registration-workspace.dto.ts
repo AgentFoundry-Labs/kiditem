@@ -51,6 +51,11 @@ export class CreateRegistrationWorkspaceDto {
   targetMasterId?: string;
 }
 
+export class SelectRegistrationWorkspaceDetailPageDto {
+  @IsUUID()
+  contentGenerationId!: string;
+}
+
 export class RegistrationWorkspaceIdParamDto {
   @IsUUID()
   workspaceId!: string;

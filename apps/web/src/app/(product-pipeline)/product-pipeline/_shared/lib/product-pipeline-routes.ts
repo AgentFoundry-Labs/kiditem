@@ -84,14 +84,40 @@ export function normalizeProductPipelineReturnTo(value: string | null | undefine
 }
 
 export function thumbnailGenerationHubHref({
+  extraParams,
+  imageUrl,
+  productDescription,
+  productName,
   returnTo,
+  subjectParams,
 }: {
+  extraParams?: Record<string, string | null | undefined>;
+  imageUrl?: string | null;
+  productDescription?: string | null;
+  productName?: string | null;
   returnTo?: string | null;
+  subjectParams?: ThumbnailSubjectParams;
 } = {}): string {
+  const params = new URLSearchParams();
+  if (subjectParams?.registrationWorkspaceId) {
+    params.set('registrationWorkspaceId', subjectParams.registrationWorkspaceId);
+  }
+  if (subjectParams?.productId) params.set('productId', subjectParams.productId);
+  if (!subjectParams?.productId && subjectParams?.sourceCandidateId) {
+    params.set('sourceCandidateId', subjectParams.sourceCandidateId);
+  }
+  if (imageUrl) params.set('imageUrl', imageUrl);
+  if (productName) params.set('productName', productName);
+  if (productDescription) params.set('productDescription', productDescription);
+  if (extraParams) {
+    Object.entries(extraParams).forEach(([key, value]) => {
+      if (value) params.set(key, value);
+    });
+  }
   const normalizedReturnTo = normalizeProductPipelineReturnTo(returnTo);
-  if (!normalizedReturnTo) return THUMBNAIL_GENERATION_ROOT;
-  const params = new URLSearchParams({ returnTo: normalizedReturnTo });
-  return `${THUMBNAIL_GENERATION_ROOT}?${params.toString()}`;
+  if (normalizedReturnTo) params.set('returnTo', normalizedReturnTo);
+  const query = params.toString();
+  return query ? `${THUMBNAIL_GENERATION_ROOT}?${query}` : THUMBNAIL_GENERATION_ROOT;
 }
 
 export function thumbnailGenerationEditHref({
@@ -117,6 +143,9 @@ export function thumbnailGenerationEditHref({
 }): string {
   const params = new URLSearchParams({ mode });
   if (editCase) params.set('editCase', editCase);
+  if (subjectParams?.registrationWorkspaceId) {
+    params.set('registrationWorkspaceId', subjectParams.registrationWorkspaceId);
+  }
   if (subjectParams?.productId) params.set('productId', subjectParams.productId);
   if (!subjectParams?.productId && subjectParams?.sourceCandidateId) {
     params.set('sourceCandidateId', subjectParams.sourceCandidateId);

@@ -30,6 +30,7 @@ export interface RegistrationWorkspaceSummary {
   latestStatus: string | null;
   currentDetailPageArtifactId: string | null;
   currentDetailPageRevisionId: string | null;
+  currentDetailPageGenerationId: string | null;
   createdAt: string;
   updatedAt: string;
   history: RegistrationWorkspaceHistoryItem[];
@@ -91,6 +92,16 @@ export const registrationWorkspacesApi = {
   async archive(id: string): Promise<{ ok: true; archivedWorkspaces: number }> {
     return apiClient.delete<{ ok: true; archivedWorkspaces: number }>(
       `/api/ai/registration-workspaces/${encodeURIComponent(id)}`,
+    );
+  },
+
+  async selectCurrentDetailPage(
+    id: string,
+    contentGenerationId: string,
+  ): Promise<RegistrationWorkspaceSummary> {
+    return apiClient.patch<RegistrationWorkspaceSummary>(
+      `/api/ai/registration-workspaces/${encodeURIComponent(id)}/current-detail-page`,
+      { contentGenerationId },
     );
   },
 };

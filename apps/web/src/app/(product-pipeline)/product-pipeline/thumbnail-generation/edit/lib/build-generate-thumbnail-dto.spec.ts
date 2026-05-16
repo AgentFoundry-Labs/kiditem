@@ -75,6 +75,7 @@ describe('buildGenerateThumbnailDto', () => {
       layout: 'auto',
     })).toMatchObject({
       sourceCandidateId: 'candidate-123',
+      registrationWorkspaceId: 'workspace-1',
       productId: undefined,
     });
   });

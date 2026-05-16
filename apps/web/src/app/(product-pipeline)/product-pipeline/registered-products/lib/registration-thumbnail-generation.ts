@@ -1,4 +1,4 @@
-import { thumbnailGenerationEditHref } from '../../_shared/lib/product-pipeline-routes';
+import { thumbnailGenerationHubHref } from '../../_shared/lib/product-pipeline-routes';
 import { thumbnailSubjectQueryParams } from '../../_shared/lib/thumbnail-subject';
 import type { RegistrationWorkspaceSummary } from '../../_shared/lib/registration-workspaces-api';
 import {
@@ -18,7 +18,7 @@ export function registrationWorkspaceThumbnailGenerationHref(
       ? input.rawDescription.trim().slice(0, 500)
       : null;
 
-  return thumbnailGenerationEditHref({
+  return thumbnailGenerationHubHref({
     productDescription: rawDescription,
     productName: registrationWorkspaceTitle(workspace),
     imageUrl: registrationWorkspaceThumbnail(workspace),
