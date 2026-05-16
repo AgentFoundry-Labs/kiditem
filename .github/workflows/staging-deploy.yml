@@ -33,23 +33,18 @@ env:
   WEB_IMAGE_BASE: ghcr.io/agentfoundry-labs/kiditem-web
 
 jobs:
-  build:
-    name: Build and push images
+  prepare:
+    name: Prepare staging image refs
     if: inputs.operation == 'deploy'
     runs-on: ubuntu-latest
     environment: staging
     permissions:
       contents: read
-      packages: write
     outputs:
       git_sha: ${{ steps.refs.outputs.git_sha }}
       app_version: ${{ steps.refs.outputs.app_version }}
-      api_image_ref: ${{ steps.image_refs.outputs.api_image_ref }}
-      web_image_ref: ${{ steps.image_refs.outputs.web_image_ref }}
       api_image_tag: ${{ steps.refs.outputs.api_image_tag }}
       web_image_tag: ${{ steps.refs.outputs.web_image_tag }}
-      api_digest: ${{ steps.build_api.outputs.digest }}
-      web_digest: ${{ steps.build_web.outputs.digest }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -81,6 +76,21 @@ jobs:
           echo "api_image_tag=${API_IMAGE_BASE}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
           echo "web_image_tag=${WEB_IMAGE_BASE}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
 
+  build_api:
+    name: Build and push API image
+    if: inputs.operation == 'deploy'
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      api_image_ref: ${{ steps.image_refs.outputs.api_image_ref }}
+      api_digest: ${{ steps.build_api.outputs.digest }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
@@ -110,7 +120,7 @@ jobs:
           labels: |
             org.opencontainers.image.title=KidItem Staging API
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=${{ steps.refs.outputs.app_version }}
+            org.opencontainers.image.version=${{ needs.prepare.outputs.app_version }}
 
       - name: Build and push API image
         id: build_api
@@ -127,6 +137,40 @@ jobs:
           cache-from: type=gha,scope=staging-api
           cache-to: type=gha,mode=max,scope=staging-api
 
+      - name: Emit API digest image reference
+        id: image_refs
+        env:
+          API_DIGEST: ${{ steps.build_api.outputs.digest }}
+        run: |
+          set -euo pipefail
+          echo "api_image_ref=${API_IMAGE_BASE}@${API_DIGEST}" >> "$GITHUB_OUTPUT"
+
+  build_web:
+    name: Build and push web image
+    if: inputs.operation == 'deploy'
+    needs: prepare
+    runs-on: ubuntu-latest
+    environment: staging
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      web_image_ref: ${{ steps.image_refs.outputs.web_image_ref }}
+      web_digest: ${{ steps.build_web.outputs.digest }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Web image metadata
         id: web_meta
         uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6
@@ -138,7 +182,7 @@ jobs:
           labels: |
             org.opencontainers.image.title=KidItem Staging Web
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=${{ steps.refs.outputs.app_version }}
+            org.opencontainers.image.version=${{ needs.prepare.outputs.app_version }}
 
       - name: Build and push web image
         id: build_web
@@ -157,20 +201,21 @@ jobs:
           cache-from: type=gha,scope=staging-web
           cache-to: type=gha,mode=max,scope=staging-web
 
-      - name: Emit digest image references
+      - name: Emit web digest image reference
         id: image_refs
         env:
-          API_DIGEST: ${{ steps.build_api.outputs.digest }}
           WEB_DIGEST: ${{ steps.build_web.outputs.digest }}
         run: |
           set -euo pipefail
-          echo "api_image_ref=${API_IMAGE_BASE}@${API_DIGEST}" >> "$GITHUB_OUTPUT"
           echo "web_image_ref=${WEB_IMAGE_BASE}@${WEB_DIGEST}" >> "$GITHUB_OUTPUT"
 
   deploy:
     name: Deploy to staging
     if: inputs.operation == 'deploy'
-    needs: build
+    needs:
+      - prepare
+      - build_api
+      - build_web
     runs-on: ubuntu-latest
     environment: staging
     permissions:
@@ -275,14 +320,14 @@ jobs:
           STAGING_URL: ${{ vars.STAGING_URL }}
           GHCR_ACTOR: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          KIDITEM_API_IMAGE: ${{ needs.build.outputs.api_image_ref }}
-          KIDITEM_WEB_IMAGE: ${{ needs.build.outputs.web_image_ref }}
-          KIDITEM_API_IMAGE_TAG: ${{ needs.build.outputs.api_image_tag }}
-          KIDITEM_WEB_IMAGE_TAG: ${{ needs.build.outputs.web_image_tag }}
-          API_IMAGE_DIGEST: ${{ needs.build.outputs.api_digest }}
-          WEB_IMAGE_DIGEST: ${{ needs.build.outputs.web_digest }}
-          GIT_SHA: ${{ needs.build.outputs.git_sha }}
-          APP_VERSION: ${{ needs.build.outputs.app_version }}
+          KIDITEM_API_IMAGE: ${{ needs.build_api.outputs.api_image_ref }}
+          KIDITEM_WEB_IMAGE: ${{ needs.build_web.outputs.web_image_ref }}
+          KIDITEM_API_IMAGE_TAG: ${{ needs.prepare.outputs.api_image_tag }}
+          KIDITEM_WEB_IMAGE_TAG: ${{ needs.prepare.outputs.web_image_tag }}
+          API_IMAGE_DIGEST: ${{ needs.build_api.outputs.api_digest }}
+          WEB_IMAGE_DIGEST: ${{ needs.build_web.outputs.web_digest }}
+          GIT_SHA: ${{ needs.prepare.outputs.git_sha }}
+          APP_VERSION: ${{ needs.prepare.outputs.app_version }}
           GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
