@@ -6,6 +6,7 @@ import type { ThumbnailEditorInputImage } from '../domain/model/thumbnail-editor
 const ORGANIZATION_ID = 'organization-1';
 const PRODUCT_ID = '7d000000-0000-4000-8000-000000000001';
 const SOURCE_CANDIDATE_ID = '7d000000-0000-4000-8000-000000000002';
+const REGISTRATION_WORKSPACE_ID = '7d000000-0000-4000-8000-000000000004';
 const GENERATION_ID = '7d000000-0000-4000-8000-000000000010';
 const REQUEST_ID = '7d000000-0000-4000-8000-000000000020';
 
@@ -440,7 +441,7 @@ describe('ThumbnailGenerationService normalized persistence', () => {
         sourceId: GENERATION_ID,
         targetType: 'thumbnail_generation',
         targetId: GENERATION_ID,
-        href: `/product-pipeline/thumbnail-editor/edit?generationId=${GENERATION_ID}`,
+        href: `/product-pipeline/thumbnail-generation/edit?generationId=${GENERATION_ID}`,
         metadata: expect.objectContaining({ standalone: true }),
       }),
     );
@@ -449,6 +450,56 @@ describe('ThumbnailGenerationService normalized persistence', () => {
       requestId: REQUEST_ID,
       workerId: 'thumbnail-generate-inline',
     });
+  });
+
+  it('enqueueStandaloneGeneration can scope ownerless registered workspace work without creating an inbox card', async () => {
+    const agentRunner = makeAgentRunnerStub();
+    const operationAlerts = makeOperationAlertsStub();
+    const prisma = {
+      thumbnailGeneration: {
+        create: vi.fn(async (args: { data: Record<string, unknown> }) => ({
+          id: GENERATION_ID,
+          ...args.data,
+        })),
+      },
+      thumbnailGenerationInputImage: {
+        createMany: vi.fn(async () => ({ count: 1 })),
+      },
+    };
+    const service = makeService({ prisma, agentRunner, operationAlerts });
+
+    const result = await service.enqueueStandaloneGeneration({
+      organizationId: ORGANIZATION_ID,
+      registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
+      productName: 'Registered workspace toy',
+      triggeredByUserId: null,
+      inputs: [makeInputImage({ source: 'upload' })],
+      inputMeta: { mode: 'edit', inputCount: 1 },
+      method: 'generate',
+      originalUrl: 'http://storage.local/kiditem/thumbnail-inputs/x.jpg',
+      agentPayload: { mode: 'edit', inputs: [] },
+    });
+
+    expect(result).toEqual({ generationId: GENERATION_ID, status: 'pending' });
+    expect(prisma.thumbnailGeneration.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        organizationId: ORGANIZATION_ID,
+        masterId: null,
+        sourceCandidateId: null,
+        registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
+      }),
+    }));
+    expect(operationAlerts.start).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetType: 'registration_workspace',
+        targetId: REGISTRATION_WORKSPACE_ID,
+        href: `/product-pipeline/registered-products/${REGISTRATION_WORKSPACE_ID}`,
+        metadata: expect.objectContaining({
+          registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
+          standalone: false,
+        }),
+      }),
+    );
   });
 
   it('drains retryable thumbnail executor failures so a local preview does not leave the job pending forever', async () => {

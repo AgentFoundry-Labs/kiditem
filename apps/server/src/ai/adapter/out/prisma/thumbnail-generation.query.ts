@@ -168,18 +168,25 @@ export async function findJobMastersByIds(
 export async function findGenerationRows(
   prisma: PrismaService,
   organizationId: string,
-  opts: { productId?: string | null; sourceCandidateId?: string | null; limit?: number | null } = {},
+  opts: {
+    productId?: string | null;
+    sourceCandidateId?: string | null;
+    registrationWorkspaceId?: string | null;
+    limit?: number | null;
+  } = {},
 ): Promise<GenerationRow[]> {
   const limit = opts.limit ? Math.min(Math.max(opts.limit, 1), 100) : undefined;
   const rows = await prisma.thumbnailGeneration.findMany({
     where: {
       organizationId,
       isDeleted: false,
-      ...(opts.sourceCandidateId
-        ? { sourceCandidateId: opts.sourceCandidateId }
-        : opts.productId
-          ? { masterId: opts.productId }
-          : { masterId: { not: null } }),
+      ...(opts.registrationWorkspaceId
+        ? { registrationWorkspaceId: opts.registrationWorkspaceId }
+        : opts.sourceCandidateId
+          ? { sourceCandidateId: opts.sourceCandidateId }
+          : opts.productId
+            ? { masterId: opts.productId }
+            : { masterId: { not: null } }),
     },
     orderBy: { createdAt: 'desc' },
     ...(limit ? { take: limit } : {}),

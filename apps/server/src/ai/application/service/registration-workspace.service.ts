@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { toDetailPageStoredJson } from './detail-page-stored.helpers';
 import type { DetailPageTemplateId } from './detail-page-ai.types';
@@ -32,6 +32,7 @@ export interface RegistrationWorkspaceSummary {
   latestStatus: string | null;
   currentDetailPageArtifactId: string | null;
   currentDetailPageRevisionId: string | null;
+  currentDetailPageGenerationId: string | null;
   createdAt: string;
   updatedAt: string;
   history: Array<{
@@ -61,6 +62,12 @@ interface RegistrationWorkspaceRow {
   status: string;
   currentDetailPageArtifactId: string | null;
   currentDetailPageRevisionId: string | null;
+  currentDetailPageArtifact: {
+    id: string;
+    currentRevisionId: string | null;
+    title: string | null;
+    sourceContentGenerationId: string | null;
+  } | null;
   createdAt: Date;
   updatedAt: Date;
   _count?: { contentGenerations: number };
@@ -81,6 +88,15 @@ interface RegistrationWorkspaceGenerationRow {
 }
 
 interface RegistrationWorkspacePrisma {
+  contentGeneration: {
+    findFirst(args: unknown): Promise<{
+      id: string;
+      detailPageArtifactId: string | null;
+      detailPageArtifact: {
+        currentRevisionId: string | null;
+      } | null;
+    } | null>;
+  };
   registrationWorkspace: {
     findFirst(args: unknown): Promise<RegistrationWorkspaceRow | null>;
     findMany(args: unknown): Promise<RegistrationWorkspaceRow[]>;
@@ -280,10 +296,62 @@ export class RegistrationWorkspaceService {
     return { ok: true, archivedWorkspaces: result.count };
   }
 
+  async selectCurrentDetailPage(input: {
+    organizationId: string;
+    workspaceId: string;
+    contentGenerationId: string;
+  }): Promise<RegistrationWorkspaceSummary> {
+    const prisma = this.prisma as unknown as RegistrationWorkspacePrisma;
+    const generation = await prisma.contentGeneration.findFirst({
+      where: {
+        id: input.contentGenerationId,
+        organizationId: input.organizationId,
+        registrationWorkspaceId: input.workspaceId,
+        contentType: 'detail_page',
+        isDeleted: false,
+      },
+      select: {
+        id: true,
+        detailPageArtifactId: true,
+        detailPageArtifact: {
+          select: {
+            currentRevisionId: true,
+          },
+        },
+      },
+    });
+    if (!generation) throw new NotFoundException('Detail page generation not found');
+    if (!generation.detailPageArtifactId) {
+      throw new BadRequestException('Detail page artifact is not ready');
+    }
+
+    const updated = await prisma.registrationWorkspace.updateMany({
+      where: {
+        id: input.workspaceId,
+        organizationId: input.organizationId,
+        isDeleted: false,
+      },
+      data: {
+        currentDetailPageArtifactId: generation.detailPageArtifactId,
+        currentDetailPageRevisionId: generation.detailPageArtifact?.currentRevisionId ?? null,
+      },
+    });
+    if (updated.count === 0) throw new NotFoundException('Registration workspace not found');
+    return this.get(input.organizationId, input.workspaceId);
+  }
+
   private toSummary(row: RegistrationWorkspaceRow): RegistrationWorkspaceSummary {
     const history = [...(row.contentGenerations ?? [])]
       .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
     const latest = history[0] ?? null;
+    const currentDetailPageGenerationId =
+      row.currentDetailPageArtifact?.sourceContentGenerationId ??
+      (
+        row.currentDetailPageArtifactId
+          ? history.find((generation) => generation.detailPageArtifactId === row.currentDetailPageArtifactId)?.id
+          : null
+      ) ??
+      null;
     return {
       id: row.id,
       ownerType: row.ownerType,
@@ -298,6 +366,7 @@ export class RegistrationWorkspaceService {
       latestStatus: latest?.status ?? null,
       currentDetailPageArtifactId: row.currentDetailPageArtifactId,
       currentDetailPageRevisionId: row.currentDetailPageRevisionId,
+      currentDetailPageGenerationId,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
       history: history.map((generation) => ({
@@ -380,7 +449,12 @@ export function registeredWorkspaceEditorHref(
 function workspaceInclude() {
   return {
     currentDetailPageArtifact: {
-      select: { id: true, currentRevisionId: true, title: true },
+      select: {
+        id: true,
+        currentRevisionId: true,
+        title: true,
+        sourceContentGenerationId: true,
+      },
     },
     currentDetailPageRevision: {
       select: { id: true, revisionType: true, createdAt: true },

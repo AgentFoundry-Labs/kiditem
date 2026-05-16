@@ -40,20 +40,30 @@ export function useGenerateSourcingThumbnail() {
   });
 }
 
-export function useSourcingThumbnailGenerations(sourceCandidateId: string | null) {
+export function useSourcingThumbnailGenerations(params: {
+  sourceCandidateId?: string | null;
+  registrationWorkspaceId?: string | null;
+}) {
+  const sourceCandidateId = params.sourceCandidateId ?? null;
+  const registrationWorkspaceId = params.registrationWorkspaceId ?? null;
+  const filterParams: Record<string, string> = registrationWorkspaceId
+    ? { registrationWorkspaceId }
+    : sourceCandidateId
+      ? { sourceCandidateId }
+      : { sourceCandidateId: '' };
   return useQuery({
-    queryKey: sourceCandidateId
-      ? queryKeys.thumbnailAnalysis.generations({ sourceCandidateId })
-      : queryKeys.thumbnailAnalysis.generations({ sourceCandidateId: '' }),
-    enabled: !!sourceCandidateId,
+    queryKey: queryKeys.thumbnailAnalysis.generations(filterParams),
+    enabled: !!sourceCandidateId || !!registrationWorkspaceId,
     queryFn: async (): Promise<ThumbnailGenerationItem[]> => {
-      if (!sourceCandidateId) return [];
-      const params = new URLSearchParams({
-        sourceCandidateId,
-        limit: '20',
-      });
+      if (!sourceCandidateId && !registrationWorkspaceId) return [];
+      const searchParams = new URLSearchParams({ limit: '20' });
+      if (registrationWorkspaceId) {
+        searchParams.set('registrationWorkspaceId', registrationWorkspaceId);
+      } else if (sourceCandidateId) {
+        searchParams.set('sourceCandidateId', sourceCandidateId);
+      }
       const result = await apiClient.get<ThumbnailGenerationListResponse>(
-        `/api/thumbnail-analysis/generations?${params}`,
+        `/api/thumbnail-analysis/generations?${searchParams}`,
       );
       return result.items;
     },

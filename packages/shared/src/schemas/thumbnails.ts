@@ -213,6 +213,7 @@ export const ThumbnailGenerationItemSchema = z.object({
   id: z.string(),
   productId: z.string().nullable(),
   sourceCandidateId: z.string().nullable().optional(),
+  registrationWorkspaceId: z.string().nullable().optional(),
   originalUrl: z.string().nullable(),
   candidates: z.array(z.object({
     id: z.string().uuid().optional(),

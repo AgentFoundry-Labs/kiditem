@@ -167,7 +167,7 @@ function collectImageUrls(...sources: unknown[]): string[] {
   return [...new Set(urls)];
 }
 
-function rawImageCandidates(rawData: Record<string, unknown>): string[] {
+function rawProductImageCandidates(rawData: Record<string, unknown>): string[] {
   return collectImageUrls(
     rawData.images,
     rawData.imageUrls,
@@ -177,17 +177,30 @@ function rawImageCandidates(rawData: Record<string, unknown>): string[] {
     rawData.mainImage,
     rawData.main_image,
     rawData.offerImgList,
-    rawData.description_images,
-    rawData.detail_images,
     rawData.thumbnails,
   );
+}
+
+function candidateProductImageUrls(images: unknown): string[] {
+  if (!Array.isArray(images)) return [];
+  return images
+    .filter((img) => {
+      if (!img || typeof img !== 'object') return false;
+      const role = (img as Record<string, unknown>).role;
+      return role == null || role === 'product';
+    })
+    .map((img) => {
+      const url = (img as Record<string, unknown>).url;
+      return typeof url === 'string' ? url : null;
+    })
+    .filter((url): url is string => !!url);
 }
 
 function rawDataWithImageFallback(
   rawData: Record<string, unknown>,
   imageUrls: string[],
 ): Record<string, unknown> {
-  if (imageUrls.length === 0 || rawImageCandidates(rawData).length > 0) return rawData;
+  if (imageUrls.length === 0 || rawProductImageCandidates(rawData).length > 0) return rawData;
   return {
     ...rawData,
     images: imageUrls,
@@ -273,15 +286,10 @@ export const productsApi = {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const items: SourcedProduct[] = data.items.map((p: any) => {
       const rawData = (p.rawData as Record<string, unknown>) || {};
-      const candidateImageUrls = Array.isArray(p.images)
-        ? (p.images
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            .map((img: any) => (typeof img?.url === 'string' ? img.url : null))
-            .filter((u: string | null): u is string => !!u))
-        : [];
+      const candidateImageUrls = candidateProductImageUrls(p.images);
       const images = collectImageUrls(
         candidateImageUrls,
-        rawImageCandidates(rawData),
+        rawProductImageCandidates(rawData),
         p.imageUrl,
         p.thumbnailUrl,
       );
@@ -319,15 +327,10 @@ export const productsApi = {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const p = await apiClient.get<any>(`/api/sourcing/${id}`);
     const rawData = (p.rawData as Record<string, unknown>) || p.raw_data || {};
-    const candidateImageUrls = Array.isArray(p.images)
-      ? (p.images
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .map((img: any) => (typeof img?.url === 'string' ? img.url : null))
-          .filter((u: string | null): u is string => !!u))
-      : [];
+    const candidateImageUrls = candidateProductImageUrls(p.images);
     const images = collectImageUrls(
       candidateImageUrls,
-      rawImageCandidates(rawData),
+      rawProductImageCandidates(rawData),
       p.imageUrl,
       p.thumbnailUrl,
     );

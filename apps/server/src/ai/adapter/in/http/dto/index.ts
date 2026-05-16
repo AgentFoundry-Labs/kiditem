@@ -14,6 +14,8 @@ export {
   ListContentArchiveQueryDto,
 } from './content-archive.dto';
 export {
+  CreateRegistrationWorkspaceDto,
   DuplicateRegistrationWorkspaceQueryDto,
   ListRegistrationWorkspacesQueryDto,
+  SelectRegistrationWorkspaceDetailPageDto,
 } from './registration-workspace.dto';

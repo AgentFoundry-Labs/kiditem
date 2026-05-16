@@ -47,6 +47,7 @@ export type GenerationRow = {
   score: number;
   masterId: string | null;
   sourceCandidateId?: string | null;
+  registrationWorkspaceId?: string | null;
   method: string;
   originalUrl: string | null;
   selectedUrl: string | null;
@@ -97,6 +98,7 @@ export function toThumbnailGenerationItem(
     score: row.score,
     productId: row.masterId,
     sourceCandidateId: row.sourceCandidateId ?? null,
+    registrationWorkspaceId: row.registrationWorkspaceId ?? null,
     method: row.method,
     originalUrl: row.originalUrl,
     selectedUrl: row.selectedUrl,

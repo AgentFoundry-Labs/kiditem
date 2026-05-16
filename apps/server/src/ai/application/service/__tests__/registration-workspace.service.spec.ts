@@ -5,6 +5,7 @@ const ORG = '11111111-1111-4111-8111-111111111111';
 const WORKSPACE_ID = '22222222-2222-4222-8222-222222222222';
 const REVISION_ID = '33333333-3333-4333-8333-333333333333';
 const ARTIFACT_ID = '44444444-4444-4444-8444-444444444444';
+const GENERATION_ID = '55555555-5555-4555-8555-555555555555';
 
 function workspace(overrides: Record<string, unknown> = {}) {
   return {
@@ -27,6 +28,7 @@ function workspace(overrides: Record<string, unknown> = {}) {
       id: ARTIFACT_ID,
       currentRevisionId: REVISION_ID,
       title: '키즈 텀블러 상세',
+      sourceContentGenerationId: GENERATION_ID,
     },
     currentDetailPageRevision: {
       id: REVISION_ID,
@@ -237,5 +239,102 @@ describe('RegistrationWorkspaceService', () => {
         where: { organizationId: ORG, status: 'active', isDeleted: false },
       }),
     );
+  });
+
+  it('does not infer a current detail page from generation history when the workspace has no saved artifact', async () => {
+    const prisma = {
+      registrationWorkspace: {
+        count: vi.fn().mockResolvedValue(1),
+        findMany: vi.fn().mockResolvedValue([
+          workspace({
+            currentDetailPageArtifactId: null,
+            currentDetailPageRevisionId: null,
+            currentDetailPageArtifact: null,
+            currentDetailPageRevision: null,
+            contentGenerations: [
+              generation({
+                id: 'history-only-generation',
+                detailPageArtifactId: null,
+                updatedAt: new Date('2026-05-12T04:00:00.000Z'),
+              }),
+            ],
+            _count: { contentGenerations: 1 },
+          }),
+        ]),
+      },
+    };
+    const service = new RegistrationWorkspaceService(prisma as never);
+
+    await expect(service.list(ORG)).resolves.toMatchObject({
+      items: [
+        {
+          latestGenerationId: 'history-only-generation',
+          currentDetailPageArtifactId: null,
+          currentDetailPageRevisionId: null,
+          currentDetailPageGenerationId: null,
+        },
+      ],
+    });
+  });
+
+  it('selects a saved detail-page generation as the current registration detail page', async () => {
+    const selectedArtifactId = '66666666-6666-4666-8666-666666666666';
+    const selectedRevisionId = '77777777-7777-4777-8777-777777777777';
+    const updatedWorkspace = workspace({
+      currentDetailPageArtifactId: selectedArtifactId,
+      currentDetailPageRevisionId: selectedRevisionId,
+      currentDetailPageArtifact: {
+        id: selectedArtifactId,
+        currentRevisionId: selectedRevisionId,
+        title: '선택한 상세페이지',
+        sourceContentGenerationId: GENERATION_ID,
+      },
+    });
+    const prisma = {
+      contentGeneration: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: GENERATION_ID,
+          detailPageArtifactId: selectedArtifactId,
+          detailPageArtifact: {
+            currentRevisionId: selectedRevisionId,
+          },
+        }),
+      },
+      registrationWorkspace: {
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        findFirst: vi.fn().mockResolvedValue(updatedWorkspace),
+      },
+    };
+    const service = new RegistrationWorkspaceService(prisma as never);
+
+    await expect(service.selectCurrentDetailPage({
+      organizationId: ORG,
+      workspaceId: WORKSPACE_ID,
+      contentGenerationId: GENERATION_ID,
+    })).resolves.toMatchObject({
+      id: WORKSPACE_ID,
+      currentDetailPageArtifactId: selectedArtifactId,
+      currentDetailPageRevisionId: selectedRevisionId,
+      currentDetailPageGenerationId: GENERATION_ID,
+    });
+
+    expect(prisma.contentGeneration.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: GENERATION_ID,
+          organizationId: ORG,
+          registrationWorkspaceId: WORKSPACE_ID,
+          contentType: 'detail_page',
+          isDeleted: false,
+        },
+      }),
+    );
+    expect(prisma.registrationWorkspace.updateMany).toHaveBeenCalledWith({
+      where: { id: WORKSPACE_ID, organizationId: ORG, isDeleted: false },
+      data: {
+        currentDetailPageArtifactId: selectedArtifactId,
+        currentDetailPageRevisionId: selectedRevisionId,
+      },
+    });
   });
 });

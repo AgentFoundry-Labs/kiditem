@@ -199,6 +199,7 @@ erDiagram
     String organizationId FK
     String masterId FK
     String sourceCandidateId FK
+    String registrationWorkspaceId FK
     String originalUrl
     String selectedUrl
     String status
@@ -333,6 +334,7 @@ erDiagram
   DetailPageRevision o|--o{ RegistrationWorkspace : "currentDetailPageRevision"
   RegistrationWorkspace o|--o{ ContentGeneration : "registrationWorkspace"
   RegistrationWorkspace o|--o{ DetailPageArtifact : "registrationWorkspace"
+  RegistrationWorkspace o|--o{ ThumbnailGeneration : "registrationWorkspace"
   ThumbnailGeneration ||--o{ ThumbnailGenerationCandidate : "generation"
   ThumbnailGeneration ||--o{ ThumbnailGenerationEvent : "generation"
   ThumbnailGeneration ||--o{ ThumbnailGenerationInputImage : "generation"

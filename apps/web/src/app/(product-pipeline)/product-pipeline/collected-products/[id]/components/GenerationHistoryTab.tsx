@@ -25,7 +25,6 @@ import { queryKeys } from '@/lib/query-keys';
 import {
   getTemplate,
   parseDetailPageData,
-  placeholderDetailPageData,
 } from '@kiditem/templates';
 import { ensureStyledDetailHtml, renderTemplateToHtml } from '@/app/(product-pipeline)/product-pipeline/_shared/lib/template-html';
 import {
@@ -37,10 +36,11 @@ import {
   useGenerationHistoryDelete,
   type GenerationHistoryItem,
 } from '../hooks/useGenerationHistory';
-import KidsPlayfulRenderer from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/components/KidsPlayfulRenderer';
 import { API_BASE } from '@/lib/api';
+import { registrationWorkspacesApi } from '../../../_shared/lib/registration-workspaces-api';
 import {
   rowToRendererData,
+  useKidsPlayfulOne,
   useKidsPlayfulGenerationDelete,
   useKidsPlayfulGenerationList,
   useBoldVerticalGenerationList,
@@ -58,11 +58,11 @@ import {
 
 interface Props {
   productId: string;
-  currentPreviewHtml: string;
   templateCss: string;
   selectedKidsPlayfulId: string | null;
   selectedBoldVerticalId: string | null;
   selectedAgentId: string | null;
+  registrationWorkspaceId?: string | null;
   initialAgentHistory?: GenerationHistoryItem[];
   generationHistoryQueryEnabled?: boolean;
   onSelectKidsPlayful: (id: string | null) => void;
@@ -101,13 +101,38 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+function isCompletedDetailGenerationStatus(status: string): boolean {
+  const normalized = status.toUpperCase();
+  return normalized === 'COMPLETED' || normalized === 'READY';
+}
+
+function renderGenerationEntryHtml(entry: KidsPlayfulGenerationItem, templateCss: string): string {
+  if (entry.templateId === 'bold-vertical') {
+    const adapted = adaptBoldVerticalToDetailPageData(
+      entry.result as unknown as BoldVerticalGeneration,
+      entry.imageUrls,
+      entry.processedImages,
+      API_BASE,
+    );
+    const data = parseDetailPageData(adapted);
+    const config = getTemplate('bold-vertical');
+    return renderTemplateToHtml(
+      config.component as React.ComponentType<unknown>,
+      data,
+      config,
+      templateCss,
+    );
+  }
+  return buildKidsPlayfulHtml(rowToRendererData(entry), templateCss);
+}
+
 export default function GenerationHistoryTab({
   productId,
-  currentPreviewHtml,
   templateCss,
   selectedKidsPlayfulId,
   selectedBoldVerticalId,
   selectedAgentId,
+  registrationWorkspaceId = null,
   initialAgentHistory,
   generationHistoryQueryEnabled = true,
   onSelectKidsPlayful,
@@ -207,6 +232,7 @@ export default function GenerationHistoryTab({
   }, [selectedKey, history, kpEntries, boldEntries]);
 
   const selectedCaGenerationId = selected?.kind === 'ca' ? selected.item.id : null;
+  const { data: selectedGenerationEntry } = useKidsPlayfulOne(selectedCaGenerationId);
   const { data: selectedCaEditedHtml, isLoading: isSelectedCaHtmlLoading } = useQuery({
     queryKey: selectedCaGenerationId
       ? queryKeys.productContent.generationEditedHtml(selectedCaGenerationId)
@@ -223,15 +249,10 @@ export default function GenerationHistoryTab({
     staleTime: 30_000,
   });
 
-  const styledCurrentPreviewHtml = useMemo(
-    () => ensureStyledDetailHtml(currentPreviewHtml, templateCss),
-    [currentPreviewHtml, templateCss],
-  );
-
   const buildSelectedHtml = useCallback(
     (target: NonNullable<typeof selected>) => {
       if (target.kind === 'kp') {
-        return buildKidsPlayfulHtml(rowToRendererData(target.entry));
+        return buildKidsPlayfulHtml(rowToRendererData(target.entry), templateCss);
       }
       if (target.kind === 'bold') {
         const adapted = adaptBoldVerticalToDetailPageData(
@@ -252,12 +273,19 @@ export default function GenerationHistoryTab({
       if (selectedCaGenerationId === target.item.id && selectedCaEditedHtml?.html) {
         return selectedCaEditedHtml.html;
       }
+      if (
+        selectedCaGenerationId === target.item.id &&
+        selectedGenerationEntry &&
+        isCompletedDetailGenerationStatus(selectedGenerationEntry.imageProcessingStatus)
+      ) {
+        return renderGenerationEntryHtml(selectedGenerationEntry, templateCss);
+      }
       if (!target.item.detailPageData) {
         throw new Error('선택한 이력에 상세페이지 데이터가 없습니다.');
       }
       return buildGenerationHistoryHtml(target.item, templateCss);
     },
-    [selectedCaEditedHtml?.html, selectedCaGenerationId, templateCss],
+    [selectedCaEditedHtml?.html, selectedCaGenerationId, selectedGenerationEntry, templateCss],
   );
 
   const handleApplySelected = useCallback(async () => {
@@ -265,6 +293,18 @@ export default function GenerationHistoryTab({
     try {
       setApplyingKey(selectedKey);
       if (selected.kind === 'ca' && selected.item.detailPageArtifactId) {
+        if (registrationWorkspaceId) {
+          await registrationWorkspacesApi.selectCurrentDetailPage(
+            registrationWorkspaceId,
+            selected.item.id,
+          );
+          await Promise.all([
+            queryClient.invalidateQueries({
+              queryKey: queryKeys.registrationWorkspaces.detail(registrationWorkspaceId),
+            }),
+            queryClient.invalidateQueries({ queryKey: queryKeys.registrationWorkspaces.all }),
+          ]);
+        }
         onSelectAgent(selected.item.id);
         toast.success('선택한 상세페이지를 등록 상세로 적용했습니다.');
         return;
@@ -310,27 +350,38 @@ export default function GenerationHistoryTab({
     onSelectBoldVertical,
     productId,
     queryClient,
+    registrationWorkspaceId,
     selected,
     selectedCaEditedHtml?.html,
     selectedKey,
   ]);
 
-  // 선택된 row 의 미리보기 HTML — ContentAgent 한정. KP 는 React 로 렌더.
+  // 선택된 row 의 미리보기 HTML. 생성 이력 탭에서는 원본 템플릿으로 fallback 하지 않는다.
   const previewHtml = useMemo(() => {
-    if (!selected || selected.kind !== 'ca') return styledCurrentPreviewHtml;
+    if (!selected || selected.kind !== 'ca') return null;
     if (selectedCaEditedHtml?.html) {
       return ensureStyledDetailHtml(selectedCaEditedHtml.html, templateCss);
     }
-    if (!selected.item.detailPageData) return styledCurrentPreviewHtml;
+    if (
+      selectedGenerationEntry &&
+      isCompletedDetailGenerationStatus(selectedGenerationEntry.imageProcessingStatus)
+    ) {
+      try {
+        return renderGenerationEntryHtml(selectedGenerationEntry, templateCss);
+      } catch {
+        // Fall through to legacy row data.
+      }
+    }
+    if (!selected.item.detailPageData) return null;
     try {
       return buildGenerationHistoryHtml(selected.item, templateCss);
     } catch {
-      return styledCurrentPreviewHtml;
+      return null;
     }
-  }, [selected, selectedCaEditedHtml?.html, styledCurrentPreviewHtml, templateCss]);
+  }, [selected, selectedCaEditedHtml?.html, selectedGenerationEntry, templateCss]);
 
   const safePreviewHtml = useMemo(
-    () => stripSrcDocScripts(previewHtml),
+    () => (previewHtml ? stripSrcDocScripts(previewHtml) : null),
     [previewHtml],
   );
 
@@ -343,15 +394,14 @@ export default function GenerationHistoryTab({
     }
   }, [selected, buildSelectedHtml]);
 
-  const safePlaceholderPreviewHtml = useMemo(
-    () => stripSrcDocScripts(renderTemplateToHtml(
-      getTemplate('bold-vertical').component as React.ComponentType<unknown>,
-      placeholderDetailPageData,
-      getTemplate('bold-vertical'),
-      templateCss,
-    )),
-    [templateCss],
-  );
+  const safeSelectedKpPreviewHtml = useMemo(() => {
+    if (!selected || selected.kind !== 'kp') return null;
+    try {
+      return stripSrcDocScripts(buildSelectedHtml(selected));
+    } catch {
+      return '<html><body>Trend preview error</body></html>';
+    }
+  }, [selected, buildSelectedHtml]);
 
   if (isLoading) {
     return (
@@ -628,7 +678,7 @@ export default function GenerationHistoryTab({
         </div>
       </div>
 
-      {/* 우측: 미리보기 — 선택된 row 가 Trend 면 React 렌더, KIDITEM 은 iframe srcDoc, Agent 는 기존 iframe. */}
+      {/* 우측: 미리보기 — 생성 유형과 관계없이 저장/편집 경로와 같은 HTML srcDoc 으로 표시. */}
       <div className="flex flex-col rounded-xl border border-slate-200 bg-white overflow-hidden">
         <div className="flex items-center gap-1.5 border-b border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-600">
           <Eye size={12} />
@@ -638,11 +688,16 @@ export default function GenerationHistoryTab({
               : selected.kind === 'bold'
                 ? `KIDITEM DESIGN — ${formatDateTime(new Date(selected.entry.createdAt))}`
                 : `${generatedDetailTemplateLabel(selected.item)} — ${formatDateTime(new Date(selected.item.createdAt))}`
-            : '현재 상세페이지'}
+            : '생성 결과 선택 필요'}
         </div>
         <div className="flex-1 overflow-y-auto">
           {selected?.kind === 'kp' ? (
-            <KidsPlayfulRenderer data={rowToRendererData(selected.entry)} />
+            <iframe
+              srcDoc={safeSelectedKpPreviewHtml ?? '<html><body>Trend preview error</body></html>'}
+              className="h-full w-full border-0"
+              title="trend-preview"
+              sandbox={SAME_ORIGIN_SCRIPTLESS_SANDBOX}
+            />
           ) : selected?.kind === 'bold' ? (
             <iframe
               srcDoc={safeSelectedBoldPreviewHtml ?? '<html><body>KIDITEM preview error</body></html>'}
@@ -650,13 +705,17 @@ export default function GenerationHistoryTab({
               title="bold-preview"
               sandbox={SAME_ORIGIN_SCRIPTLESS_SANDBOX}
             />
-          ) : (
+          ) : safePreviewHtml ? (
             <iframe
-              srcDoc={safePreviewHtml || safePlaceholderPreviewHtml}
+              srcDoc={safePreviewHtml}
               className="h-full w-full border-0"
               title="history-preview"
               sandbox={SAME_ORIGIN_SCRIPTLESS_SANDBOX}
             />
+          ) : (
+            <div className="flex h-full items-center justify-center text-sm text-slate-400">
+              미리볼 생성 결과가 없습니다
+            </div>
           )}
         </div>
       </div>

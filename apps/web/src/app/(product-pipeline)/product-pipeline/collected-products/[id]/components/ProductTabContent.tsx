@@ -5,18 +5,19 @@ import { useRouter } from 'next/navigation';
 import { ChevronDown, Settings } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { thumbnailGenerationHubHref } from '../../../_shared/lib/product-pipeline-routes';
+import {
+  thumbnailGenerationEditHref,
+  thumbnailGenerationHubHref,
+} from '../../../_shared/lib/product-pipeline-routes';
 import ThumbnailGrid from '../../components/detail/ThumbnailGrid';
 import TagEditor from '../../components/detail/TagEditor';
 import RawDataTab from '../../components/detail/RawDataTab';
-import {
-  useGenerateSourcingThumbnail,
-  useSourcingThumbnailGenerations,
-} from '../hooks/useGenerateSourcingThumbnail';
+import { useSourcingThumbnailGenerations } from '../hooks/useGenerateSourcingThumbnail';
 import { CATEGORIES } from '../lib/types';
 import GenerationHistoryTab from './GenerationHistoryTab';
 import DetailPagePreview from './DetailPagePreview';
 import { buildRegistrationThumbnailOptions } from '../../lib/registration-selection';
+import { writeThumbnailEditorUpload } from '../../../thumbnail-generation/edit/lib/upload-session';
 import type { EditTabType } from '../../components/detail/ProductEditTabs';
 import type { ProductEditState } from '../lib/types';
 import type { GenerationHistoryItem } from '../hooks/useGenerationHistory';
@@ -40,6 +41,9 @@ interface Props {
   selectedBoldVerticalId: string | null;
   /** 사용자가 생성 이력에서 고른 ContentAgent entry id. */
   selectedAgentId: string | null;
+  registrationWorkspaceId?: string | null;
+  hasSavedDetailPage?: boolean;
+  savedDetailPageGenerationId?: string | null;
   initialAgentHistory?: GenerationHistoryItem[];
   generationHistoryQueryEnabled?: boolean;
   thumbnailSourceCandidateId?: string | null;
@@ -69,6 +73,9 @@ export default function ProductTabContent({
   selectedKidsPlayfulId,
   selectedBoldVerticalId,
   selectedAgentId,
+  registrationWorkspaceId,
+  hasSavedDetailPage,
+  savedDetailPageGenerationId,
   initialAgentHistory,
   generationHistoryQueryEnabled = true,
   thumbnailSourceCandidateId,
@@ -82,56 +89,63 @@ export default function ProductTabContent({
   thumbnailGenerationReturnHref,
 }: Props) {
   const router = useRouter();
-  const generateThumbnail = useGenerateSourcingThumbnail();
   const effectiveThumbnailSourceCandidateId =
     thumbnailSourceCandidateId === undefined ? productId : thumbnailSourceCandidateId;
-  const thumbnailGenerations = useSourcingThumbnailGenerations(effectiveThumbnailSourceCandidateId);
+  const thumbnailGenerations = useSourcingThumbnailGenerations({
+    sourceCandidateId: effectiveThumbnailSourceCandidateId,
+    registrationWorkspaceId,
+  });
   const thumbnailOptions = useMemo(() => {
     return buildRegistrationThumbnailOptions({
       sourceImageUrls: editData.thumbnails,
       generations: thumbnailGenerations.data ?? [],
     });
   }, [editData.thumbnails, thumbnailGenerations.data]);
-  const hasThumbnailGenerationInProgress = (thumbnailGenerations.data ?? []).some(
-    (generation) => generation.status === 'pending' || generation.status === 'running',
-  );
-
-  const handleGenerateThumbnail = async () => {
+  const buildThumbnailRouteParams = () => {
     const productImage = selectedRegistrationThumbnailUrl ?? editData.thumbnails[0];
     if (!productImage) {
-      toast.error('먼저 원본 썸네일 이미지를 추가해주세요');
-      return;
+      toast.error('먼저 썸네일 이미지를 추가해주세요');
+      return null;
     }
 
-    try {
-      if (!effectiveThumbnailSourceCandidateId) {
-        toast.error('수집 상품에 연결된 경우에만 바로 생성할 수 있습니다. 썸네일 생성 도구를 사용해주세요.');
-        return;
-      }
-      const result = await generateThumbnail.mutateAsync({
-        sourceCandidateId: effectiveThumbnailSourceCandidateId,
-        productImage,
-        productName: editData.name,
-        productDescription: editData.name,
-      });
-      if (result.status === 'pending' || result.generationId) {
-        toast.success('AI 썸네일 생성이 시작되었습니다');
-        return;
-      }
-      const generatedUrls = result.candidates.map((candidate) => candidate.url).filter(Boolean);
-      if (generatedUrls.length === 0) {
-        toast.error('생성된 썸네일이 없습니다');
-        return;
-      }
+    const shouldUseUploadKey =
+      productImage.startsWith('data:') ||
+      productImage.startsWith('blob:') ||
+      productImage.length > 1500;
+    const uploadKey = shouldUseUploadKey
+      ? writeThumbnailEditorUpload(productImage, { productName: editData.name, mode: 'edit' })
+      : null;
 
-      toast.success(`AI 썸네일 ${generatedUrls.length}장 생성 완료`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'AI 썸네일 생성 실패');
-    }
+    return {
+      imageUrl: uploadKey ? null : productImage,
+      productName: editData.name,
+      productDescription: editData.name,
+      returnTo: thumbnailGenerationReturnHref,
+      subjectParams: {
+        registrationWorkspaceId,
+        productId: promotedMasterId,
+        sourceCandidateId: promotedMasterId ? null : effectiveThumbnailSourceCandidateId,
+      },
+      extraParams: uploadKey ? { uploadKey } : undefined,
+    };
   };
 
   const handleOpenThumbnailEditor = () => {
-    router.push(thumbnailGenerationHubHref({ returnTo: thumbnailGenerationReturnHref }));
+    const params = buildThumbnailRouteParams();
+    if (!params) return;
+
+    router.push(thumbnailGenerationEditHref({
+      editCase: 'single',
+      mode: 'edit',
+      ...params,
+    }));
+  };
+
+  const handleOpenThumbnailGeneration = () => {
+    const params = buildThumbnailRouteParams();
+    if (!params) return;
+
+    router.push(thumbnailGenerationHubHref(params));
   };
 
   switch (activeTab) {
@@ -145,9 +159,8 @@ export default function ProductTabContent({
               selectedRegistrationThumbnailUrl={selectedRegistrationThumbnailUrl}
               onSelectRegistrationThumbnail={onSelectRegistrationThumbnail}
               onThumbnailsChange={(v) => updateField('thumbnails', v)}
-              onGenerateThumbnail={effectiveThumbnailSourceCandidateId ? handleGenerateThumbnail : undefined}
+              onOpenThumbnailGeneration={handleOpenThumbnailGeneration}
               onOpenThumbnailEditor={handleOpenThumbnailEditor}
-              isGeneratingThumbnail={generateThumbnail.isPending || hasThumbnailGenerationInProgress}
             />
           </div>
 
@@ -245,9 +258,8 @@ export default function ProductTabContent({
           detailPreviewHtml={detailPreviewHtml}
           editedHtml={editedHtml}
           templateCss={templateCss}
-          selectedKidsPlayfulId={selectedKidsPlayfulId}
-          selectedBoldVerticalId={selectedBoldVerticalId}
-          selectedAgentId={selectedAgentId}
+          hasSavedDetailPage={hasSavedDetailPage}
+          savedDetailPageGenerationId={savedDetailPageGenerationId}
           initialAgentHistory={initialAgentHistory}
           generationHistoryQueryEnabled={generationHistoryQueryEnabled}
           detailEditorSourceCandidateId={detailEditorSourceCandidateId}
@@ -259,11 +271,11 @@ export default function ProductTabContent({
       return (
         <GenerationHistoryTab
           productId={productId}
-          currentPreviewHtml={editedHtml ?? detailPreviewHtml}
           templateCss={templateCss}
           selectedKidsPlayfulId={selectedKidsPlayfulId}
           selectedBoldVerticalId={selectedBoldVerticalId}
           selectedAgentId={selectedAgentId}
+          registrationWorkspaceId={registrationWorkspaceId}
           initialAgentHistory={initialAgentHistory}
           generationHistoryQueryEnabled={generationHistoryQueryEnabled}
           onSelectKidsPlayful={onSelectKidsPlayful}

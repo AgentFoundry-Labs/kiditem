@@ -36,7 +36,15 @@ describe('SourcingService — candidate ingest', () => {
 
   it('detail page ingest → upsertSourced (new sourceUrl)', async () => {
     const result = await service.receiveExtensionData(
-      { page_type: 'detail', title: '아동용 스니커즈', source_url: 'https://1688.com/item/12345', source_platform: '1688', price: 15.5, images: ['https://img1.jpg'] } as any,
+      {
+        page_type: 'detail',
+        title: '아동용 스니커즈',
+        source_url: 'https://1688.com/item/12345',
+        source_platform: '1688',
+        price: 15.5,
+        images: ['https://img1.jpg'],
+        description_images: ['https://detail-info.jpg'],
+      } as any,
       'org-1', 'user-1',
     );
     expect(repo.upsertSourced).toHaveBeenCalledWith(expect.objectContaining({
@@ -46,8 +54,11 @@ describe('SourcingService — candidate ingest', () => {
       costCny: 15.5,
       sourcePlatform: 'ALIBABA_1688',
       triggeredByUserId: 'user-1',
-      images: [expect.objectContaining({ url: 'https://img1.jpg', isPrimary: true, sortOrder: 0 })],
+      images: [expect.objectContaining({ url: 'https://img1.jpg', role: 'product', isPrimary: true, sortOrder: 0 })],
     }));
+    expect(repo.upsertSourced.mock.calls[0][0].images).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ url: 'https://detail-info.jpg' })]),
+    );
     expect(result.ok).toBe(true);
     expect(result.product_count).toBe(1);
   });
@@ -65,9 +76,25 @@ describe('SourcingService — candidate ingest', () => {
   it('description page with existing candidate → product_count 1', async () => {
     repo.mergeDescription.mockResolvedValueOnce({ id: 'cand-1' });
     const result = await service.receiveExtensionData(
-      { page_type: 'description', source_url: 'https://1688.com/item/99', description_text: 'desc', source_platform: '1688', images: ['https://img-x.jpg'] } as any,
+      {
+        page_type: 'description',
+        source_url: 'https://1688.com/item/99',
+        description_text: 'desc',
+        source_platform: '1688',
+        description_images: ['https://detail-x.jpg'],
+      } as any,
       'org-1', 'user-1',
     );
+    expect(repo.mergeDescription).toHaveBeenCalledWith(expect.objectContaining({
+      thumbnailUrl: null,
+      imageUrl: null,
+      images: [expect.objectContaining({
+        url: 'https://detail-x.jpg',
+        role: 'detail',
+        isPrimary: false,
+        source: 'sourcing-extension-description',
+      })],
+    }));
     expect(result.product_count).toBe(1);
   });
 

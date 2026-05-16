@@ -65,10 +65,11 @@ model ThumbnailAnalysis {
 /// @namespace AI
 /// @describe 상태: pending→generating→ready/failed→applied/skipped. method=edit 만 사용 (generate Imagen 방식 삭제됨).
 model ThumbnailGeneration {
-  id                String  @id @default(uuid()) @db.Uuid
-  organizationId    String  @map("organization_id") @db.Uuid
-  masterId          String? @map("master_id") @db.Uuid
-  sourceCandidateId String? @map("source_candidate_id") @db.Uuid
+  id                      String  @id @default(uuid()) @db.Uuid
+  organizationId          String  @map("organization_id") @db.Uuid
+  masterId                String? @map("master_id") @db.Uuid
+  sourceCandidateId       String? @map("source_candidate_id") @db.Uuid
+  registrationWorkspaceId String? @map("registration_workspace_id") @db.Uuid
 
   originalUrl          String?                         @map("original_url")
   candidates           ThumbnailGenerationCandidate[]
@@ -96,20 +97,24 @@ model ThumbnailGeneration {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization    Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  master          MasterProduct?      @relation(fields: [masterId], references: [id], onDelete: Cascade)
-  sourceCandidate SourcingCandidate?  @relation("ThumbnailGenerationSourcingCandidate", fields: [sourceCandidateId], references: [id], onDelete: SetNull)
-  trackings       ThumbnailTracking[]
-  triggeredByUser User?               @relation("ThumbnailGenerationTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
+  organization          Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  master                MasterProduct?         @relation(fields: [masterId], references: [id], onDelete: Cascade)
+  sourceCandidate       SourcingCandidate?     @relation("ThumbnailGenerationSourcingCandidate", fields: [sourceCandidateId], references: [id], onDelete: SetNull)
+  registrationWorkspace RegistrationWorkspace? @relation("ThumbnailGenerationRegistrationWorkspace", fields: [registrationWorkspaceId], references: [id], onDelete: SetNull)
+  trackings             ThumbnailTracking[]
+  triggeredByUser       User?                  @relation("ThumbnailGenerationTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
 
   @@index([organizationId])
   @@index([masterId])
   @@index([sourceCandidateId])
+  @@index([registrationWorkspaceId])
   @@index([status])
   @@index([method])
   @@index([organizationId, isDeleted])
   @@index([organizationId, sourceCandidateId])
   @@index([organizationId, sourceCandidateId, isDeleted])
+  @@index([organizationId, registrationWorkspaceId], map: "thumbnail_generations_org_reg_workspace_idx")
+  @@index([organizationId, registrationWorkspaceId, isDeleted], map: "thumbnail_generations_org_reg_workspace_deleted_idx")
   @@index([organizationId, triggeredByUserId])
   @@index([triggeredByUserId])
   @@map("thumbnail_generations")
@@ -446,14 +451,15 @@ model RegistrationWorkspace {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization              Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  sourceCandidate           SourcingCandidate?   @relation("RegistrationWorkspaceSourcingCandidate", fields: [sourceCandidateId], references: [id], onDelete: SetNull)
-  targetMaster              MasterProduct?       @relation("RegistrationWorkspaceTargetMaster", fields: [targetMasterId], references: [id], onDelete: SetNull)
-  currentDetailPageArtifact DetailPageArtifact?  @relation("RegistrationWorkspaceCurrentArtifact", fields: [currentDetailPageArtifactId], references: [id], onDelete: SetNull)
-  currentDetailPageRevision DetailPageRevision?  @relation("RegistrationWorkspaceCurrentRevision", fields: [currentDetailPageRevisionId], references: [id], onDelete: SetNull)
-  createdByUser             User?                @relation("RegistrationWorkspaceCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  contentGenerations        ContentGeneration[]  @relation("ContentGenerationRegistrationWorkspace")
-  detailPageArtifacts       DetailPageArtifact[] @relation("DetailPageArtifactRegistrationWorkspace")
+  organization              Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sourceCandidate           SourcingCandidate?    @relation("RegistrationWorkspaceSourcingCandidate", fields: [sourceCandidateId], references: [id], onDelete: SetNull)
+  targetMaster              MasterProduct?        @relation("RegistrationWorkspaceTargetMaster", fields: [targetMasterId], references: [id], onDelete: SetNull)
+  currentDetailPageArtifact DetailPageArtifact?   @relation("RegistrationWorkspaceCurrentArtifact", fields: [currentDetailPageArtifactId], references: [id], onDelete: SetNull)
+  currentDetailPageRevision DetailPageRevision?   @relation("RegistrationWorkspaceCurrentRevision", fields: [currentDetailPageRevisionId], references: [id], onDelete: SetNull)
+  createdByUser             User?                 @relation("RegistrationWorkspaceCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  contentGenerations        ContentGeneration[]   @relation("ContentGenerationRegistrationWorkspace")
+  detailPageArtifacts       DetailPageArtifact[]  @relation("DetailPageArtifactRegistrationWorkspace")
+  thumbnailGenerations      ThumbnailGeneration[] @relation("ThumbnailGenerationRegistrationWorkspace")
 
   @@unique([organizationId, ownerType, normalizedTitle], map: "registration_workspaces_direct_title_unique", where: raw("owner_type = 'direct_detail_page' AND source_candidate_id IS NULL AND target_master_id IS NULL AND status = 'active' AND is_deleted = false"))
   @@unique([organizationId, sourceCandidateId, normalizedTitle], map: "registration_workspaces_candidate_title_unique", where: raw("source_candidate_id IS NOT NULL AND status = 'active' AND is_deleted = false"))

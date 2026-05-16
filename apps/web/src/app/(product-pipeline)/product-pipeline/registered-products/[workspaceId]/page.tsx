@@ -38,6 +38,16 @@ export default function RegisteredWorkspaceDetailPage() {
       ? registrationWorkspaceToProductWorkspaceData(workspace)
       : null
   ), [workspace]);
+  const savedDetailPageGenerationId = useMemo(() => {
+    if (!workspace?.currentDetailPageArtifactId) return null;
+    return (
+      workspace.currentDetailPageGenerationId ??
+      workspace.history.find(
+        (item) => item.detailPageArtifactId === workspace.currentDetailPageArtifactId,
+      )?.id ??
+      null
+    );
+  }, [workspace]);
 
   if (isLoading || !workspace) {
     return (
@@ -59,6 +69,9 @@ export default function RegisteredWorkspaceDetailPage() {
       initialAgentHistory={registrationWorkspaceHistoryToGenerationHistory(workspace.history)}
       generationHistoryQueryEnabled={!!workspace.sourceCandidateId}
       showCandidateActions={!!workspace.sourceCandidateId}
+      registrationWorkspaceId={workspace.id}
+      hasSavedDetailPage={Boolean(savedDetailPageGenerationId)}
+      savedDetailPageGenerationId={savedDetailPageGenerationId}
       thumbnailSourceCandidateId={workspace.sourceCandidateId ?? null}
       onOpenDetailTemplateGeneration={
         workspace.sourceCandidateId

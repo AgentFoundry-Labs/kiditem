@@ -58,6 +58,7 @@ export interface ThumbnailEditorGenerationEnqueueInput {
   organizationId: string;
   productId: string;
   productName: string;
+  registrationWorkspaceId?: string | null;
   triggeredByUserId: string | null;
   inputs: ThumbnailEditorInputImage[];
   inputMeta: Prisma.InputJsonValue;
@@ -70,6 +71,7 @@ export interface ThumbnailCandidateGenerationEnqueueInput {
   organizationId: string;
   sourceCandidateId: string;
   productName: string | null;
+  registrationWorkspaceId?: string | null;
   triggeredByUserId: string | null;
   inputs: ThumbnailEditorInputImage[];
   inputMeta: Prisma.InputJsonValue;
@@ -81,6 +83,7 @@ export interface ThumbnailCandidateGenerationEnqueueInput {
 export interface ThumbnailStandaloneGenerationEnqueueInput {
   organizationId: string;
   productName: string | null;
+  registrationWorkspaceId?: string | null;
   triggeredByUserId: string | null;
   inputs: ThumbnailEditorInputImage[];
   inputMeta: Prisma.InputJsonValue;
@@ -114,6 +117,7 @@ export class ThumbnailGenerationJobService {
       method: input.method,
       inputMeta: input.inputMeta,
       editAnalysis: null,
+      registrationWorkspaceId: input.registrationWorkspaceId ?? null,
       triggeredByUserId: input.triggeredByUserId,
     });
 
@@ -134,10 +138,17 @@ export class ThumbnailGenerationJobService {
       payload: {
         method: input.method,
         productId: input.productId,
+        registrationWorkspaceId: input.registrationWorkspaceId ?? null,
         inputCount: input.inputs.length,
       },
     });
 
+    const alertTarget = this.alertTarget({
+      registrationWorkspaceId: input.registrationWorkspaceId ?? null,
+      fallbackTargetType: 'master',
+      fallbackTargetId: input.productId,
+      fallbackHref: this.thumbnailGenerationHref(generation.id),
+    });
     await this.operationAlerts.start({
       organizationId: input.organizationId,
       operationKey: this.editJobOperationKey(generation.id),
@@ -146,10 +157,14 @@ export class ThumbnailGenerationJobService {
       sourceType: 'thumbnail_generation',
       sourceId: generation.id,
       actorUserId: input.triggeredByUserId,
-      targetType: 'master',
-      targetId: input.productId,
-      href: this.thumbnailGenerationHref(generation.id),
-      metadata: { method: input.method, inputCount: input.inputs.length },
+      targetType: alertTarget.targetType,
+      targetId: alertTarget.targetId,
+      href: alertTarget.href,
+      metadata: {
+        method: input.method,
+        inputCount: input.inputs.length,
+        registrationWorkspaceId: input.registrationWorkspaceId ?? null,
+      },
     });
 
     const enqueueResult = await this.agentRunner.runByType(
@@ -233,6 +248,7 @@ export class ThumbnailGenerationJobService {
       originalUrl: input.originalUrl,
       method: input.method,
       inputMeta: input.inputMeta,
+      registrationWorkspaceId: input.registrationWorkspaceId ?? null,
       triggeredByUserId: input.triggeredByUserId,
     });
 
@@ -255,10 +271,17 @@ export class ThumbnailGenerationJobService {
       payload: {
         method: input.method,
         sourceCandidateId: input.sourceCandidateId,
+        registrationWorkspaceId: input.registrationWorkspaceId ?? null,
         inputCount: inputImages.length,
       },
     });
 
+    const alertTarget = this.alertTarget({
+      registrationWorkspaceId: input.registrationWorkspaceId ?? null,
+      fallbackTargetType: 'sourcing_candidate',
+      fallbackTargetId: input.sourceCandidateId,
+      fallbackHref: `/product-pipeline/collected-products/${encodeURIComponent(input.sourceCandidateId)}`,
+    });
     await this.operationAlerts.start({
       organizationId: input.organizationId,
       operationKey: this.editJobOperationKey(generation.id),
@@ -267,12 +290,13 @@ export class ThumbnailGenerationJobService {
       sourceType: 'thumbnail_generation',
       sourceId: generation.id,
       actorUserId: input.triggeredByUserId,
-      targetType: 'sourcing_candidate',
-      targetId: input.sourceCandidateId,
-      href: `/product-pipeline/collected-products/${encodeURIComponent(input.sourceCandidateId)}`,
+      targetType: alertTarget.targetType,
+      targetId: alertTarget.targetId,
+      href: alertTarget.href,
       metadata: {
         method: input.method,
         sourceCandidateId: input.sourceCandidateId,
+        registrationWorkspaceId: input.registrationWorkspaceId ?? null,
         inputCount: inputImages.length,
       },
     });
@@ -337,6 +361,7 @@ export class ThumbnailGenerationJobService {
       originalUrl: input.originalUrl,
       method: input.method,
       inputMeta: input.inputMeta,
+      registrationWorkspaceId: input.registrationWorkspaceId ?? null,
       triggeredByUserId: input.triggeredByUserId,
     });
 
@@ -357,10 +382,17 @@ export class ThumbnailGenerationJobService {
       payload: {
         method: input.method,
         inputCount: input.inputs.length,
-        standalone: true,
+        registrationWorkspaceId: input.registrationWorkspaceId ?? null,
+        standalone: !input.registrationWorkspaceId,
       },
     });
 
+    const alertTarget = this.alertTarget({
+      registrationWorkspaceId: input.registrationWorkspaceId ?? null,
+      fallbackTargetType: 'thumbnail_generation',
+      fallbackTargetId: generation.id,
+      fallbackHref: this.thumbnailGenerationHref(generation.id),
+    });
     await this.operationAlerts.start({
       organizationId: input.organizationId,
       operationKey: this.editJobOperationKey(generation.id),
@@ -369,13 +401,14 @@ export class ThumbnailGenerationJobService {
       sourceType: 'thumbnail_generation',
       sourceId: generation.id,
       actorUserId: input.triggeredByUserId,
-      targetType: 'thumbnail_generation',
-      targetId: generation.id,
-      href: `/product-pipeline/thumbnail-editor/edit?generationId=${encodeURIComponent(generation.id)}`,
+      targetType: alertTarget.targetType,
+      targetId: alertTarget.targetId,
+      href: alertTarget.href,
       metadata: {
         method: input.method,
         inputCount: input.inputs.length,
-        standalone: true,
+        registrationWorkspaceId: input.registrationWorkspaceId ?? null,
+        standalone: !input.registrationWorkspaceId,
       },
     });
 
@@ -672,7 +705,31 @@ export class ThumbnailGenerationJobService {
   }
 
   private thumbnailGenerationHref(generationId: string): string {
-    return `/product-pipeline/thumbnail-generation?generationId=${encodeURIComponent(generationId)}`;
+    return `/product-pipeline/thumbnail-generation/edit?generationId=${encodeURIComponent(generationId)}`;
+  }
+
+  private registrationWorkspaceHref(registrationWorkspaceId: string): string {
+    return `/product-pipeline/registered-products/${encodeURIComponent(registrationWorkspaceId)}`;
+  }
+
+  private alertTarget(input: {
+    registrationWorkspaceId: string | null;
+    fallbackTargetType: string;
+    fallbackTargetId: string;
+    fallbackHref: string;
+  }): { targetType: string; targetId: string; href: string } {
+    if (input.registrationWorkspaceId) {
+      return {
+        targetType: 'registration_workspace',
+        targetId: input.registrationWorkspaceId,
+        href: this.registrationWorkspaceHref(input.registrationWorkspaceId),
+      };
+    }
+    return {
+      targetType: input.fallbackTargetType,
+      targetId: input.fallbackTargetId,
+      href: input.fallbackHref,
+    };
   }
 
   private kickEnqueuedAgentRequest(input: {

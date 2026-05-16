@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getTemplate, placeholderDetailPageData } from '@kiditem/templates';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
@@ -32,6 +32,9 @@ interface ProductWorkspaceScreenProps {
   initialWorkspaceData?: ProductWorkspaceData;
   generationHistoryQueryEnabled?: boolean;
   showCandidateActions?: boolean;
+  registrationWorkspaceId?: string | null;
+  hasSavedDetailPage?: boolean;
+  savedDetailPageGenerationId?: string | null;
   thumbnailSourceCandidateId?: string | null;
   onOpenDetailTemplateGeneration?: () => void;
 }
@@ -44,6 +47,9 @@ export function ProductWorkspaceScreen({
   initialWorkspaceData,
   generationHistoryQueryEnabled = true,
   showCandidateActions = true,
+  registrationWorkspaceId = null,
+  hasSavedDetailPage,
+  savedDetailPageGenerationId = null,
   thumbnailSourceCandidateId,
   onOpenDetailTemplateGeneration,
 }: ProductWorkspaceScreenProps) {
@@ -81,13 +87,25 @@ export function ProductWorkspaceScreen({
     null;
   const detailPageData = fetchedData?.detailPageData ?? placeholderDetailPageData;
   const editedHtml = fetchedData?.editedHtml ?? null;
-  const templateCss = fetchedData?.templateCss ?? '';
+  const { data: fallbackTemplateCss = '' } = useQuery({
+    queryKey: ['template-styles-css'],
+    queryFn: () =>
+      fetch('/templates-styles.css')
+        .then((r) => (r.ok ? r.text() : ''))
+        .catch(() => ''),
+    enabled: !(fetchedData?.templateCss),
+    staleTime: 300_000,
+  });
+  const templateCss = fetchedData?.templateCss || fallbackTemplateCss;
   const inProgressEntries = useAllGenerationsInProgress(productId, {
     enabled: generationHistoryQueryEnabled,
   });
   const effectiveThumbnailSourceCandidateId =
     thumbnailSourceCandidateId === undefined ? productId : thumbnailSourceCandidateId;
-  const thumbnailGenerations = useSourcingThumbnailGenerations(effectiveThumbnailSourceCandidateId);
+  const thumbnailGenerations = useSourcingThumbnailGenerations({
+    sourceCandidateId: effectiveThumbnailSourceCandidateId,
+    registrationWorkspaceId,
+  });
   const selectedThumbnailGenerationCandidateId = useMemo(() => {
     return resolveSelectedThumbnailGenerationCandidateId(
       selectedRegistrationThumbnailUrl,
@@ -159,7 +177,7 @@ export function ProductWorkspaceScreen({
         isLocked={isLocked}
         selectedThumbnailUrl={selectedRegistrationThumbnailUrl}
         selectedThumbnailGenerationCandidateId={selectedThumbnailGenerationCandidateId}
-        selectedDetailPageGenerationId={selectedAgentId}
+        selectedDetailPageGenerationId={savedDetailPageGenerationId}
         showCandidateActions={showCandidateActions}
         onOpenDetailTemplateGeneration={onOpenDetailTemplateGeneration}
         onToggleEditComplete={() => setIsEditComplete((v) => !v)}
@@ -207,6 +225,9 @@ export function ProductWorkspaceScreen({
               selectedKidsPlayfulId={selectedKidsPlayfulId}
               selectedBoldVerticalId={selectedBoldVerticalId}
               selectedAgentId={selectedAgentId}
+              registrationWorkspaceId={registrationWorkspaceId}
+              hasSavedDetailPage={hasSavedDetailPage}
+              savedDetailPageGenerationId={savedDetailPageGenerationId}
               initialAgentHistory={initialAgentHistory}
               generationHistoryQueryEnabled={generationHistoryQueryEnabled}
               thumbnailSourceCandidateId={thumbnailSourceCandidateId}
@@ -218,7 +239,6 @@ export function ProductWorkspaceScreen({
                   setSelectedBoldVerticalId(null);
                   setSelectedAgentId(null);
                 }
-                setActiveTab('detail');
               }}
               onSelectBoldVertical={(id) => {
                 setSelectedBoldVerticalId(id);
@@ -226,7 +246,6 @@ export function ProductWorkspaceScreen({
                   setSelectedKidsPlayfulId(null);
                   setSelectedAgentId(null);
                 }
-                setActiveTab('detail');
               }}
               onSelectAgent={(id) => {
                 setSelectedAgentId(id);
@@ -234,7 +253,6 @@ export function ProductWorkspaceScreen({
                   setSelectedKidsPlayfulId(null);
                   setSelectedBoldVerticalId(null);
                 }
-                setActiveTab('detail');
               }}
             selectedRegistrationThumbnailUrl={selectedRegistrationThumbnailUrl}
             onSelectRegistrationThumbnail={setSelectedRegistrationThumbnailUrl}
