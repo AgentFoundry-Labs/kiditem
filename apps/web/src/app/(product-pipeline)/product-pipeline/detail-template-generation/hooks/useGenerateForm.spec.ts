@@ -3,6 +3,7 @@ import {
   getGenerateFormValidation,
   getGenerateSourceReferences,
   getLoadedRegistrationWorkspaceId,
+  resolveGenerateOwnerInputs,
 } from './useGenerateForm';
 
 describe('getGenerateFormValidation', () => {
@@ -69,5 +70,38 @@ describe('getLoadedRegistrationWorkspaceId', () => {
         'Another Detail Panel',
       ),
     ).toBeNull();
+  });
+});
+
+describe('resolveGenerateOwnerInputs', () => {
+  it('ignores owner query params in sandbox-only mode', () => {
+    const params = new URLSearchParams(
+      'productId=master-1&sourceCandidateId=candidate-1&registrationWorkspaceId=workspace-1&title=%EC%83%81%ED%92%88',
+    );
+
+    expect(resolveGenerateOwnerInputs(params, 'sandbox-only')).toEqual({
+      productId: null,
+      initialTitle: '',
+      initialRegistrationWorkspaceId: null,
+      sourceReferences: [],
+      primarySourceCandidateId: null,
+    });
+  });
+
+  it('keeps owner query params in allow-url mode', () => {
+    const params = new URLSearchParams(
+      'productId=master-1&sourceCandidateId=candidate-1&registrationWorkspaceId=workspace-1&title=%EC%83%81%ED%92%88',
+    );
+
+    expect(resolveGenerateOwnerInputs(params, 'allow-url')).toEqual({
+      productId: 'master-1',
+      initialTitle: '상품',
+      initialRegistrationWorkspaceId: 'workspace-1',
+      sourceReferences: [{
+        sourceType: 'sourcing_candidate',
+        sourceCandidateId: 'candidate-1',
+      }],
+      primarySourceCandidateId: 'candidate-1',
+    });
   });
 });

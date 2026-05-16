@@ -3,7 +3,7 @@ import { sourcePlatformLabel } from './source-platform-label';
 
 describe('sourcePlatformLabel', () => {
   it('labels manual product registration candidates', () => {
-    expect(sourcePlatformLabel('KIDITEM_PRODUCT_REGISTRATION')).toBe('상품 등록');
+    expect(sourcePlatformLabel('KIDITEM_PRODUCT_REGISTRATION')).toBe('상품 생성');
   });
 
   it('keeps legacy KidItem detail-page candidates distinct from new product registration', () => {

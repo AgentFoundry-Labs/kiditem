@@ -23,7 +23,7 @@ describe('SourcingToolbar source tabs', () => {
     const onSourceFilterChange = vi.fn();
     renderToolbar({ onSourceFilterChange });
 
-    fireEvent.click(screen.getByRole('button', { name: '상품 등록' }));
+    fireEvent.click(screen.getByRole('button', { name: '상품 생성' }));
 
     expect(onSourceFilterChange).toHaveBeenCalledWith('manual-registration');
   });
@@ -31,7 +31,7 @@ describe('SourcingToolbar source tabs', () => {
   it('marks the current source tab as selected', () => {
     renderToolbar({ sourceFilter: 'manual-registration' });
 
-    expect(screen.getByRole('button', { name: '상품 등록' })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: '상품 생성' })).toHaveAttribute(
       'aria-pressed',
       'true',
     );

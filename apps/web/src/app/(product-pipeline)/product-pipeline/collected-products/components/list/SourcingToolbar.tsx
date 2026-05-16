@@ -58,7 +58,7 @@ export default function SourcingToolbar({
             href="/product-pipeline/productgenerate"
             className="ml-1 flex h-7 items-center rounded-md bg-emerald-500 px-3 font-semibold text-white transition-colors hover:bg-emerald-600"
           >
-            상품 등록
+            상품 생성
           </Link>
         </>
       }

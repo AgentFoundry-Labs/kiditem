@@ -107,8 +107,11 @@ interface DetailPagePrefillResult {
   estimatedSeconds: number;
 }
 
+type GenerateOwnerBindingMode = 'allow-url' | 'sandbox-only';
+
 interface UseGenerateFormOptions {
   successDescription?: string;
+  ownerBindingMode?: GenerateOwnerBindingMode;
 }
 
 export interface OpenGenerationDialogInput {
@@ -123,8 +126,20 @@ interface GenerateSubmitOptions {
   sourceReferences?: NonNullable<KidsPlayfulGenerateBody['sourceReferences']>;
 }
 
-export function useGenerateForm(options: UseGenerateFormOptions = {}) {
-  const searchParams = useSearchParams();
+export function resolveGenerateOwnerInputs(
+  searchParams: URLSearchParams,
+  ownerBindingMode: GenerateOwnerBindingMode,
+) {
+  if (ownerBindingMode === 'sandbox-only') {
+    return {
+      productId: null,
+      initialTitle: '',
+      initialRegistrationWorkspaceId: null,
+      sourceReferences: [] as NonNullable<KidsPlayfulGenerateBody['sourceReferences']>,
+      primarySourceCandidateId: null,
+    };
+  }
+
   const productId = searchParams.get('productId');
   const initialTitle = searchParams.get('title') ?? '';
   const initialRegistrationWorkspaceId = searchParams.get('registrationWorkspaceId');
@@ -132,6 +147,28 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
   const primarySourceCandidateId =
     sourceReferences.find((reference) => reference.sourceType === 'sourcing_candidate')
       ?.sourceCandidateId ?? null;
+
+  return {
+    productId,
+    initialTitle,
+    initialRegistrationWorkspaceId,
+    sourceReferences,
+    primarySourceCandidateId,
+  };
+}
+
+export function useGenerateForm(options: UseGenerateFormOptions = {}) {
+  const searchParams = useSearchParams();
+  const {
+    productId,
+    initialTitle,
+    initialRegistrationWorkspaceId,
+    sourceReferences,
+    primarySourceCandidateId,
+  } = resolveGenerateOwnerInputs(
+    new URLSearchParams(searchParams.toString()),
+    options.ownerBindingMode ?? 'allow-url',
+  );
   const { images: savedImages, loading: imagesLoading } = useProductImages(productId);
   const detailPageMutation = useKidsPlayfulGenerate();
 
