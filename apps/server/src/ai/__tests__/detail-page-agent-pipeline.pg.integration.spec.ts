@@ -35,13 +35,13 @@ import { DetailPageAgentReconcileService } from '../application/service/detail-p
 import { DetailPageAgentOutputBridge } from '../application/service/detail-page-agent-output.bridge';
 import { DetailPageGenerationService } from '../application/service/detail-page-generation.service';
 import { DetailPageGeneratedImagesService } from '../application/service/detail-page-generated-images.service';
-import { GeneratedContentCandidateService } from '../application/service/generated-content-candidate.service';
 import { ContentAssetService } from '../application/service/content-asset.service';
 import { DetailPagePrefillService } from '../application/service/detail-page-prefill.service';
 import { DetailPageQueryService } from '../application/service/detail-page-query.service';
 import { DetailPageResultRefinerService } from '../application/service/detail-page-result-refiner.service';
 import { BoldVerticalRefinerService } from '../application/service/bold-vertical-refiner.service';
 import { KidsPlayfulRefinerService } from '../application/service/kids-playful-refiner.service';
+import { RegistrationWorkspaceService } from '../application/service/registration-workspace.service';
 import { DetailPageContentGenerationSinkAdapter } from '../adapter/out/agent-output/detail-page-content-generation-sink.adapter';
 import type { AgentRunnerPort } from '../../agent-os/application/port/in/agent-runner.port';
 import type { AgentTypeRuntimeHandler } from '../../agent-os/application/port/out/agent-runtime-handler.port';
@@ -202,7 +202,7 @@ beforeAll(async () => {
     query,
     coordinator as unknown as AgentRunnerPort,
     contentAssets,
-    new GeneratedContentCandidateService(prisma as never),
+    new RegistrationWorkspaceService(prisma as never),
   );
   const prefill = new DetailPagePrefillService(textCompletion);
   aiService = new DetailPageAiService(generation, prefill, query);

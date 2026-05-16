@@ -75,17 +75,17 @@ export function useProductDetail(
         }
       }
 
+      const thumbnailInputs = data.thumbnail_url ? [data.thumbnail_url] : [];
       const editState: ProductEditState = data.processed_data
-        ? mapProcessedData(data.processed_data)
+        ? {
+            ...mapProcessedData(data.processed_data),
+            thumbnails: thumbnailInputs,
+          }
         : {
             ...PLACEHOLDER_DATA,
             name: data.name,
             salePrice: data.price_krw ?? 0,
-            thumbnails: data.image_urls.length > 0
-              ? data.image_urls
-              : data.thumbnail_url
-                ? [data.thumbnail_url]
-                : [],
+            thumbnails: thumbnailInputs,
           };
 
       return {

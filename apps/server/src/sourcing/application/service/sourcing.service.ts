@@ -1,4 +1,5 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { paginationParams } from '../../../common/pagination';
 import { OperationAlertService } from '../../../automation/application/service/operation-alert.service';
 import {
@@ -10,6 +11,7 @@ import {
   type SourcingCandidateRepositoryPort,
 } from '../port/out/sourcing-candidate.repository.port';
 import type { ReceiveExtensionDataDto } from '../../adapter/in/http/dto/receive-extension-data.dto';
+import type { RegisterManualProductDto } from '../../adapter/in/http/dto/register-manual-product.dto';
 
 const PLATFORM_MAP: Record<string, string> = {
   '1688': 'ALIBABA_1688',
@@ -18,7 +20,12 @@ const PLATFORM_MAP: Record<string, string> = {
   tiktok: 'TIKTOK',
 };
 
-const COLLECTED_PRODUCT_SOURCE_PLATFORMS = ['ALIBABA_1688', 'ALIBABA', 'kiditem-detail-page'] as const;
+const MANUAL_PRODUCT_REGISTRATION_PLATFORM = 'KIDITEM_PRODUCT_REGISTRATION';
+const COLLECTED_PRODUCT_INBOX_PLATFORMS = [
+  'ALIBABA_1688',
+  'ALIBABA',
+  MANUAL_PRODUCT_REGISTRATION_PLATFORM,
+] as const;
 
 const PRODUCT_IMAGE_FIELD_KEYS = [
   'images', 'imageUrls', 'image_urls', 'mainImages', 'main_images',
@@ -116,6 +123,69 @@ export class SourcingService {
     return { ok: true, message: 'received', product_count: 0 };
   }
 
+  async registerManualProduct(
+    data: RegisterManualProductDto,
+    organizationId: string,
+    triggeredByUserId: string | null,
+  ) {
+    const title = data.title.trim();
+    const imageUrls = this.uniqueNonEmptyStrings(data.imageUrls);
+    if (!title) throw new BadRequestException('상품명을 입력해 주세요.');
+    if (imageUrls.length === 0) throw new BadRequestException('상품 이미지를 1장 이상 추가해 주세요.');
+
+    const thumbnailUrl = typeof data.thumbnailUrl === 'string' && data.thumbnailUrl.trim()
+      ? data.thumbnailUrl.trim()
+      : imageUrls[0];
+    const primaryImageUrl = imageUrls.includes(thumbnailUrl) ? thumbnailUrl : imageUrls[0];
+    const category = typeof data.category === 'string' && data.category.trim()
+      ? data.category.trim()
+      : null;
+    const description = typeof data.description === 'string' && data.description.trim()
+      ? data.description.trim()
+      : '';
+    const optionNames = this.uniqueNonEmptyStrings(data.optionNames ?? []);
+    const sourceUrl = `kiditem://manual-product-registration/${randomUUID()}`;
+    const candidate = await this.candidates.upsertSourced({
+      organizationId,
+      sourceUrl,
+      sourcePlatform: MANUAL_PRODUCT_REGISTRATION_PLATFORM,
+      rawData: {
+        source: 'kiditem_product_registration',
+        title,
+        category,
+        description,
+        target: data.target ?? null,
+        thumbnailUrl,
+        imageUrls,
+        optionNames,
+      },
+      name: title,
+      description,
+      category,
+      tags: optionNames,
+      thumbnailUrl,
+      imageUrl: thumbnailUrl,
+      costCny: null,
+      triggeredByUserId,
+      images: imageUrls.map((url, index) => ({
+        url,
+        role: 'product',
+        label: null,
+        sortOrder: index,
+        source: 'kiditem-product-registration',
+        isPrimary: url === primaryImageUrl,
+      })),
+    });
+
+    return {
+      ok: true,
+      message: '상품 등록 후보가 생성되었습니다.',
+      product_count: 1,
+      candidateId: candidate.id,
+      href: `/product-pipeline/collected-products/${encodeURIComponent(candidate.id)}`,
+    };
+  }
+
   async scrapeUrl(url: string, organizationId: string, triggeredByUserId: string | null) {
     const result = await this.agentGateway.scrapeUrl({ organizationId, url, triggeredByUserId });
     if (result.requestId) {
@@ -147,7 +217,7 @@ export class SourcingService {
       limit,
       sort,
       platform,
-      sourcePlatforms: platform ? undefined : [...COLLECTED_PRODUCT_SOURCE_PLATFORMS],
+      sourcePlatforms: platform ? undefined : [...COLLECTED_PRODUCT_INBOX_PLATFORMS],
     });
   }
 
@@ -208,6 +278,10 @@ export class SourcingService {
     };
     for (const value of values) push(value);
     return [...new Set(urls)];
+  }
+
+  private uniqueNonEmptyStrings(values: string[]): string[] {
+    return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
   }
 
   private extractProductImageUrls(data: Record<string, unknown>): string[] {

@@ -37,11 +37,13 @@ because collected and registered products both use them.
   editor HTML versions.
 - `ContentAsset` + `ContentGenerationAssetUsage` are the source of truth for
   generated/edited images.
-- Product-less detail-page generation materializes a self-collected
-  `SourcingCandidate` (`sourcePlatform='kiditem-detail-page'`) so the visible
-  inbox card lives in collected products. Its candidate-backed
-  `RegistrationWorkspace` remains an internal history/selection anchor and must
-  not create a registered-products inbox card.
+- Collected product cards are imported sourcing candidates plus manual product
+  registration candidates (`sourcePlatform='KIDITEM_PRODUCT_REGISTRATION'`).
+- Product-less detail-page generation is a transitional direct-detail shell. It
+  must not create or represent a collected-product `SourcingCandidate`; its
+  durable home is expected to move inside the product workspace.
+- Manual product registration creates a `SourcingCandidate` and its generated
+  detail pages stay visible from the collected product workspace.
 - Thumbnail editor/generation results alone must not create collected or
   registered inbox cards.
 - Generated detail pages link to the shared editor route
@@ -74,9 +76,8 @@ and prefer small surrounding components/hooks for new behavior.
 
 - No user-facing `/sourcing` or `/product-content` route, sidebar entry, or new
   href.
-- No ownerless "direct generated content" tab inside collected products;
-  product-unbound detail-page output must be represented by a self-collected
-  sourcing candidate card.
+- No ownerless "direct generated content" tab inside collected products, and no
+  collected-product card for product-unbound detail-page output.
 - No direct DB access from frontend.
 - No editor localStorage persistence.
 - No server upload from the generic image picker; uploaded picker files remain

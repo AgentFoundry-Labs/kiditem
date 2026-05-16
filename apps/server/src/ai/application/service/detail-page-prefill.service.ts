@@ -13,9 +13,23 @@ import {
 } from '../port/out/text-completion.port';
 import type { DetailPagePrefillDto } from './detail-page-ai.types';
 
+const TextOrTextArraySchema = z.preprocess(
+  (value) => {
+    if (Array.isArray(value)) {
+      return value
+        .filter((item): item is string => typeof item === 'string')
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .join(', ');
+    }
+    return value;
+  },
+  z.string().min(1).max(80),
+);
+
 const DetailPagePrefillSchema = z.object({
   category: z.string().min(1).max(80),
-  target: z.string().min(1).max(80),
+  target: TextOrTextArraySchema,
   features: z.array(z.string().min(2).max(160)).min(3).max(6),
   options: z.array(z.string().min(1).max(60)).min(0).max(10).default([]),
   extraNotes: z.string().max(400).optional().default(''),

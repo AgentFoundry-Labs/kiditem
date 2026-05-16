@@ -40,6 +40,7 @@ import type {
 } from '../lib/detail-page-generation-options';
 import { getGenerateSourceReferences } from '../lib/detail-page-source-references';
 import {
+  type KidsPlayfulGenerateBody,
   type KidsPlayfulGenerationItem,
   useKidsPlayfulGenerate,
   useKidsPlayfulOne,
@@ -105,7 +106,15 @@ interface DetailPagePrefillResult {
   estimatedSeconds: number;
 }
 
-export function useGenerateForm() {
+interface UseGenerateFormOptions {
+  successDescription?: string;
+}
+
+interface GenerateSubmitOptions {
+  sourceReferences?: NonNullable<KidsPlayfulGenerateBody['sourceReferences']>;
+}
+
+export function useGenerateForm(options: UseGenerateFormOptions = {}) {
   const searchParams = useSearchParams();
   const productId = searchParams.get('productId');
   const initialTitle = searchParams.get('title') ?? '';
@@ -309,7 +318,10 @@ export function useGenerateForm() {
     }
   };
 
-  const handleSubmit = async (selectedTemplateId: GenerateTemplateId) => {
+  const handleSubmit = async (
+    selectedTemplateId: GenerateTemplateId,
+    submitOptions: GenerateSubmitOptions = {},
+  ) => {
     const title = rawTitle.trim();
     const orderedImages = moveSafetyLabelImagesToEnd(images);
     if (!isValidProductTitle(title)) {
@@ -418,7 +430,7 @@ export function useGenerateForm() {
         productId: productId ?? undefined,
         registrationWorkspaceId: getLoadedRegistrationWorkspaceId(duplicateWorkspace, title) ?? undefined,
         templateId: apiTemplateId,
-        sourceReferences,
+        sourceReferences: mergeSourceReferences(sourceReferences, submitOptions.sourceReferences ?? []),
         ageGroup,
         detailImageCount,
         usageSectionMode,
@@ -447,7 +459,7 @@ export function useGenerateForm() {
             },
       );
       toast.success('상세페이지 생성을 시작했습니다.', {
-        description: '완료되면 알림에서 에디터로 이동할 수 있습니다.',
+        description: options.successDescription ?? '완료되면 알림에서 에디터로 이동할 수 있습니다.',
       });
     } catch (err) {
       setError(isApiError(err) ? err.detail : '상세페이지 생성 중 오류가 발생했습니다.');
@@ -537,6 +549,27 @@ function buildGenerationEditorUrl(
     return detailPageEditorHref({ candidateId, generationId: item.id, returnTo });
   }
   return detailPageEditorHref({ generationId: item.id, returnTo });
+}
+
+function mergeSourceReferences(
+  base: NonNullable<KidsPlayfulGenerateBody['sourceReferences']>,
+  extra: NonNullable<KidsPlayfulGenerateBody['sourceReferences']>,
+): NonNullable<KidsPlayfulGenerateBody['sourceReferences']> {
+  const seen = new Set<string>();
+  const merged: NonNullable<KidsPlayfulGenerateBody['sourceReferences']> = [];
+  for (const ref of [...base, ...extra]) {
+    const key = [
+      ref.sourceType,
+      ref.sourceCandidateId ?? '',
+      ref.contentAssetId ?? '',
+      ref.sourceContentGenerationId ?? '',
+      ref.label ?? '',
+    ].join(':');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(ref);
+  }
+  return merged;
 }
 
 export function getLoadedRegistrationWorkspaceId(

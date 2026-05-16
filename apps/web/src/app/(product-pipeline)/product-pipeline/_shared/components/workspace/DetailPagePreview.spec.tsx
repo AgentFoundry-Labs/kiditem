@@ -118,6 +118,55 @@ describe('DetailPagePreview', () => {
     expect(screen.getByText('생성된 상세페이지가 없습니다')).toBeInTheDocument();
   });
 
+  it('auto-renders the latest completed candidate generation when no current saved page is pinned', async () => {
+    renderWithQueryClient(
+      <DetailPagePreview
+        productId="candidate-1"
+        detailPreviewHtml="<html><body>깨진 placeholder</body></html>"
+        editedHtml={null}
+        templateCss="/* compiled template css */"
+        initialAgentHistory={[
+          {
+            id: 'older-generation',
+            generatedTitle: '오래된 상세페이지',
+            status: 'COMPLETED',
+            templateId: 'kids-playful',
+            detailPageData: null,
+            imageUrls: [],
+            processedImages: {},
+            detailPageArtifactId: 'artifact-older',
+            detailPageRevisionId: null,
+            errorMessage: null,
+            productId: null,
+            createdAt: '2026-05-14T12:00:00.000Z',
+          },
+          {
+            id: 'generation-1',
+            generatedTitle: '캐릭터 문어발 비눗방울',
+            status: 'COMPLETED',
+            templateId: 'kids-playful',
+            detailPageData: null,
+            imageUrls: [],
+            processedImages: {},
+            detailPageArtifactId: 'artifact-1',
+            detailPageRevisionId: null,
+            errorMessage: null,
+            productId: null,
+            createdAt: '2026-05-15T12:00:00.000Z',
+          },
+        ]}
+        generationHistoryQueryEnabled={false}
+        detailEditorSourceCandidateId="candidate-1"
+        detailEditorReturnHref="/product-pipeline/collected-products/candidate-1"
+      />,
+    );
+
+    await waitFor(() => {
+      const preview = document.querySelector<HTMLIFrameElement>('iframe[title="detail-page-preview"]');
+      expect(preview?.getAttribute('srcdoc')).toContain('정상 한글 상세페이지');
+    });
+  });
+
   it('renders the saved generation DTO for the workspace current detail page', async () => {
     renderWithQueryClient(
       <DetailPagePreview
