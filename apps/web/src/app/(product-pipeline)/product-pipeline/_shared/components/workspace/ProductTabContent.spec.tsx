@@ -39,12 +39,6 @@ vi.mock('../../hooks/useGenerateSourcingThumbnail', () => ({
   useSourcingThumbnailGenerations: () => ({ data: [] }),
 }));
 
-vi.mock('./GenerationHistoryTab', () => ({
-  default: ({ initialAgentHistory = [] }: { initialAgentHistory?: unknown[] }) => (
-    <div data-testid="generation-history-tab">{initialAgentHistory.length}</div>
-  ),
-}));
-
 vi.mock('./thumbnail/ThumbnailWorkspaceTab', () => ({
   default: ({ selectedRegistrationThumbnailUrl }: { selectedRegistrationThumbnailUrl?: string | null }) => (
     <div data-testid="thumbnail-workspace-tab">{selectedRegistrationThumbnailUrl ?? 'none'}</div>
