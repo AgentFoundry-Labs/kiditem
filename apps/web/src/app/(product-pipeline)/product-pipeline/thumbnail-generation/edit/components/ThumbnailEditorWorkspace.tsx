@@ -41,6 +41,7 @@ import {
 } from '../lib/slots';
 import { type EditorMode, parseEditCaseParam } from '../lib/edit-page-types';
 import { buildGenerateThumbnailDto } from '../lib/build-generate-thumbnail-dto';
+import { resolveOriginalPreviewImage } from '../lib/preview-image';
 import {
   readThumbnailEditorUpload,
   readThumbnailEditorUploadResult,
@@ -227,6 +228,11 @@ export function ThumbnailEditorWorkspace({
     queryFn: () =>
       apiClient.get<ThumbnailGenerationItem>(`/api/thumbnail-analysis/generations/${generationIdParam}`),
     enabled: !!generationIdParam,
+  });
+  const originalPreviewImage = resolveOriginalPreviewImage({
+    initialGenerationOriginalUrl: initialGeneration?.originalUrl,
+    initialImageUrl,
+    originalImageUrl,
   });
 
   useEffect(() => {
@@ -624,7 +630,7 @@ export function ThumbnailEditorWorkspace({
             slots={slots}
             onSlotsChange={setSlots}
             fallbackProductImage={fallbackProductImage}
-            originalImage={initialGeneration?.originalUrl ?? originalImageUrl}
+            originalImage={originalPreviewImage}
             supplementaryLabel={supplementaryLabel}
             sceneType={sceneType}
             hubImages={hubImages}
@@ -658,7 +664,7 @@ export function ThumbnailEditorWorkspace({
 
           <EditorResultPanel
             mode={mode}
-            originalImage={originalImageUrl ?? productImage}
+            originalImage={originalPreviewImage ?? productImage}
             candidates={historyCandidates}
             selectedCandidateUrl={selectedCandidateUrl}
             isGenerating={
