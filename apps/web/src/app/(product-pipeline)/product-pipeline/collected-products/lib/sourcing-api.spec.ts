@@ -24,7 +24,7 @@ describe('sourcing candidate API', () => {
     expect(apiClient.delete).toHaveBeenCalledWith('/api/sourcing/candidates/cand-1');
   });
 
-  it('passes the selected source platform to the sourcing list endpoint', async () => {
+  it('passes the selected manual registration platform to the sourcing list endpoint', async () => {
     vi.mocked(apiClient.get).mockResolvedValueOnce({
       items: [],
       total: 0,
@@ -35,12 +35,12 @@ describe('sourcing candidate API', () => {
     await productsApi.list({
       page: 1,
       limit: 20,
-      platform: 'kiditem-detail-page',
+      platform: 'KIDITEM_PRODUCT_REGISTRATION',
       sort: 'newest',
     });
 
     expect(apiClient.get).toHaveBeenCalledWith(
-      '/api/sourcing/extension/products?page=1&limit=20&platform=kiditem-detail-page&sort=newest',
+      '/api/sourcing/extension/products?page=1&limit=20&platform=KIDITEM_PRODUCT_REGISTRATION&sort=newest',
     );
   });
 

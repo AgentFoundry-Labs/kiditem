@@ -229,25 +229,28 @@ Kinds:
 Notable route subtrees:
 
 - `apps/web/src/app/(product-pipeline)/product-pipeline/collected-products`
-  owns `/product-pipeline/collected-products`, the 1688/imported
-  `SourcingCandidate` inbox, candidate detail route entries, and
-  candidate-scoped generated content links.
+  owns `/product-pipeline/collected-products`, the 1688/imported plus manual
+  product-registration `SourcingCandidate` inbox, candidate detail route
+  entries, and candidate-scoped generated content links.
 - `apps/web/src/app/(product-pipeline)/product-pipeline/registered-products`
   owns `/product-pipeline/registered-products`, the direct/master registration
   workspace inbox backed by `RegistrationWorkspace`; source-candidate
   workspaces are reached from collected product detail instead of this list.
 - `apps/web/src/app/(product-pipeline)/product-pipeline/productgenerate`
   owns `/product-pipeline/productgenerate`, the sidebar product registration
-  entrypoint. It has its own route page/workflow plus a forked copy of the
-  detail generation form components for product-registration-specific design.
+  entrypoint. This is the only product-pipeline route that creates collected
+  product candidates from manual operator input.
 - `apps/web/src/app/(product-pipeline)/product-pipeline/detail-pages`
   owns the shared generated detail-page editor route
   `/product-pipeline/detail-pages/[generationId]/editor` for both collected and
   registered product workspaces.
 - `apps/web/src/app/(product-pipeline)/product-pipeline/detailgenerate`
   owns `/product-pipeline/detailgenerate`, the independent detail generation
-  tool. The older `detail-template-generation` folder remains as the shared
-  implementation path while consumers migrate to the shorter route.
+  tool. It is a transitional direct-detail shell: outputs do not create
+  collected product candidates, and the durable home for this action is expected
+  to move inside product workspaces. The older `detail-template-generation`
+  folder remains as the shared implementation path while consumers migrate to
+  the shorter route.
 - `apps/web/src/app/(product-pipeline)/product-pipeline/thumbnail-ai`
   owns the independent thumbnail AI analysis and batch UI.
 - `apps/web/src/app/(product-pipeline)/product-pipeline/thumbnail-generation`

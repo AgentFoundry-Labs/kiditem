@@ -1,14 +1,8 @@
 'use client';
 
 import {
-  useEffect,
-  useMemo,
-  useRef,
   useState,
-  type ChangeEvent,
-  type ComponentType,
   type Dispatch,
-  type ReactNode,
   type SetStateAction,
 } from 'react';
 import {
@@ -16,7 +10,6 @@ import {
   ChevronDown,
   Eye,
   GraduationCap,
-  ImagePlus,
   Images,
   Info,
   ListChecks,
@@ -27,19 +20,7 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
-import {
-  getTemplate,
-  placeholderDetailPageData,
-} from '@kiditem/templates';
-import { apiClient } from '@/lib/api-client';
 import { cn, formatTime } from '@/lib/utils';
-import {
-  SAME_ORIGIN_SCRIPTLESS_SANDBOX,
-  stripSrcDocScripts,
-} from '@/app/(product-pipeline)/product-pipeline/_shared/lib/preview-sandbox';
-import { renderTemplateToHtml } from '@/app/(product-pipeline)/product-pipeline/_shared/lib/template-html';
-import { moveSafetyLabelImagesToEnd } from '../../detail-template-generation/lib/detail-page-image-order';
-import { cropImageWhitespaceFile } from '../../detail-template-generation/lib/image-whitespace-crop';
 import type {
   BoxSetStatus,
   ColorVariantStatus,
@@ -50,6 +31,19 @@ import type {
   DuplicateWorkspaceState,
   GenerateTemplateId,
 } from '../../detail-template-generation/hooks/useGenerateForm';
+import { ProductImageInputs } from './ProductImageInputs';
+import {
+  Field,
+  SelectField,
+  SizeInput,
+  formatSizeFields,
+  joinOptions,
+  parseSizeFields,
+  splitOptions,
+  type ProductSizeFields,
+} from './ProductInputFields';
+import { TemplatePreviewModal } from './TemplatePreviewModal';
+import { useProductImageUploads } from './useProductImageUploads';
 
 const MAX_IMAGES = 15;
 const MAX_OPTIONS = 10;
@@ -133,16 +127,8 @@ const DETAIL_TEMPLATE_OPTIONS: Array<{
   label: string;
   description: string;
 }> = [
-  {
-    value: 'bold-vertical',
-    label: 'KIDITEM DESIGN',
-    description: '굵은 헤드라인과 섹션형 상세페이지',
-  },
-  {
-    value: 'kids-playful',
-    label: '트렌드 광고형 템플릿',
-    description: '컬러 블록과 광고형 CTA 중심 구성',
-  },
+  { value: 'bold-vertical', label: 'KIDITEM DESIGN', description: '굵은 헤드라인과 섹션형 상세페이지' },
+  { value: 'kids-playful', label: '트렌드 광고형 템플릿', description: '컬러 블록과 광고형 CTA 중심 구성' },
 ];
 
 export default function ProductInputSection({
@@ -191,93 +177,29 @@ export default function ProductInputSection({
   onLoadDuplicateLatest,
   onSubmit,
 }: ProductInputSectionProps) {
-  const [thumbnailImage, setThumbnailImage] = useState<string | null>(null);
-  const [thumbnailUploading, setThumbnailUploading] = useState(false);
   const [previewTemplateId, setPreviewTemplateId] = useState<GenerateTemplateId | null>(null);
-  const [uploadingCount, setUploadingCount] = useState(0);
-  const [uploadError, setUploadError] = useState<string | null>(null);
   const [optionDraft, setOptionDraft] = useState('');
+  const {
+    thumbnailImage,
+    setThumbnailImage,
+    thumbnailUploading,
+    uploadingCount,
+    uploadError,
+    handleThumbnailUpload,
+    handleImageUpload,
+    removeImage,
+  } = useProductImageUploads({
+    images,
+    setImages,
+    maxImages: MAX_IMAGES,
+  });
 
-  const options = splitOptions(rawOptions);
+  const options = splitOptions(rawOptions, MAX_OPTIONS);
   const canPrefill = rawTitle.trim() !== '' && !isPrefilling && !isLoading;
   const canCheckDuplicate = rawTitle.trim() !== '' && duplicateWorkspace.status !== 'checking' && !isLoading;
   const sizeFields = parseSizeFields(productSize);
   const updateSizeField = (key: keyof ProductSizeFields, value: string) => {
     setProductSize(formatSizeFields({ ...sizeFields, [key]: value }));
-  };
-
-  const uploadImageFile = async (file: File): Promise<string> => {
-    const uploadFile = await cropImageWhitespaceFile(file).catch((err) => {
-      console.warn('[productgenerate] upload image whitespace crop failed, using original', err);
-      return file;
-    });
-    const formData = new FormData();
-    formData.append('file', uploadFile);
-    const result = await apiClient.upload<{ url: string }>(
-      '/api/ai/detail-page/images',
-      formData,
-    );
-    return result.url;
-  };
-
-  const handleThumbnailUpload = async (e: ChangeEvent<HTMLInputElement>) => {
-    const input = e.currentTarget;
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploadError(null);
-    setThumbnailUploading(true);
-    try {
-      setThumbnailImage(await uploadImageFile(file));
-    } catch {
-      setUploadError(`썸네일 이미지 업로드 실패: ${file.name}`);
-    } finally {
-      setThumbnailUploading(false);
-      input.value = '';
-    }
-  };
-
-  const handleImageUpload = async (e: ChangeEvent<HTMLInputElement>) => {
-    const input = e.currentTarget;
-    const files = e.target.files;
-    if (!files) return;
-    const slotsLeft = Math.max(0, MAX_IMAGES - images.length);
-    const selectedFiles = Array.from(files).slice(0, slotsLeft);
-    if (selectedFiles.length === 0) {
-      input.value = '';
-      return;
-    }
-    setUploadError(null);
-    setUploadingCount(selectedFiles.length);
-    try {
-      const results = await Promise.allSettled(
-        selectedFiles.map(async (file) => {
-          return { name: file.name, url: await uploadImageFile(file) };
-        }),
-      );
-      const uploaded: string[] = [];
-      const failed: string[] = [];
-      results.forEach((r, idx) => {
-        if (r.status === 'fulfilled') uploaded.push(r.value.url);
-        else failed.push(selectedFiles[idx]?.name ?? `파일 ${idx + 1}`);
-      });
-      if (uploaded.length > 0) {
-        setImages((prev) =>
-          moveSafetyLabelImagesToEnd([...prev, ...uploaded]).slice(0, MAX_IMAGES),
-        );
-      }
-      if (failed.length > 0) {
-        setUploadError(
-          `${failed.length}개 이미지 업로드 실패: ${failed.join(', ')}`,
-        );
-      }
-    } finally {
-      setUploadingCount(0);
-      input.value = '';
-    }
-  };
-
-  const removeImage = (index: number) => {
-    setImages((prev) => prev.filter((_, i) => i !== index));
   };
 
   const addOption = () => {
@@ -579,115 +501,17 @@ export default function ProductInputSection({
             </Field>
           </div>
 
-          <Field label="썸네일 이미지">
-            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] p-3">
-              <div className="flex h-[116px] gap-3 overflow-x-auto pb-1">
-                <label
-                  className={cn(
-                    'relative flex h-[104px] w-[104px] shrink-0 flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--border-strong)] bg-[var(--surface)] text-[var(--text-secondary)] transition hover:border-[var(--primary)] hover:text-[var(--primary)]',
-                    thumbnailUploading ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
-                  )}
-                >
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleThumbnailUpload}
-                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-                    disabled={thumbnailUploading}
-                  />
-                  {thumbnailUploading ? (
-                    <Loader2 size={22} className="animate-spin" />
-                  ) : (
-                    <ImagePlus size={24} />
-                  )}
-                  <span className="text-[11px] font-bold">
-                    {thumbnailUploading ? '업로드 중' : '썸네일 추가'}
-                  </span>
-                </label>
-
-                {thumbnailImage ? (
-                  <div className="group relative h-[104px] w-[104px] shrink-0 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-                    <img
-                      src={thumbnailImage}
-                      alt="등록 썸네일 이미지"
-                      className="h-full w-full object-cover"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setThumbnailImage(null)}
-                      className="absolute right-1.5 top-1.5 rounded-full bg-black/60 p-1 text-white opacity-0 transition-opacity hover:bg-red-500 group-hover:opacity-100"
-                      aria-label="썸네일 이미지 삭제"
-                    >
-                      <X size={13} />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex h-[104px] min-w-[220px] items-center text-xs font-medium text-[var(--text-muted)]">
-                    상품 등록 대표 이미지로 사용할 썸네일을 추가할 수 있습니다.
-                  </div>
-                )}
-              </div>
-            </div>
-          </Field>
-
-          <Field label="상품 이미지" required trailing={`필수 · ${images.length} / ${MAX_IMAGES}`}>
-            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] p-3">
-              <div className="flex h-[116px] gap-3 overflow-x-auto pb-1">
-                <label
-                  className={cn(
-                    'relative flex h-[104px] w-[104px] shrink-0 flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--border-strong)] bg-[var(--surface)] text-[var(--text-secondary)] transition hover:border-[var(--primary)] hover:text-[var(--primary)]',
-                    images.length >= MAX_IMAGES || uploadingCount > 0
-                      ? 'cursor-not-allowed opacity-50'
-                      : 'cursor-pointer',
-                  )}
-                >
-                  <input
-                    type="file"
-                    multiple
-                    accept="image/*"
-                    onChange={handleImageUpload}
-                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-                    disabled={images.length >= MAX_IMAGES || uploadingCount > 0}
-                  />
-                  {uploadingCount > 0 ? (
-                    <Loader2 size={22} className="animate-spin" />
-                  ) : (
-                    <ImagePlus size={24} />
-                  )}
-                  <span className="text-[11px] font-bold">
-                    {uploadingCount > 0 ? `${uploadingCount}장 업로드` : '이미지 추가'}
-                  </span>
-                </label>
-
-                {images.map((img, idx) => (
-                  <div
-                    key={`${img}-${idx}`}
-                    className="group relative h-[104px] w-[104px] shrink-0 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]"
-                  >
-                    <img
-                      src={img}
-                      alt={`상품 이미지 ${idx + 1}`}
-                      className="h-full w-full object-cover"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeImage(idx)}
-                      className="absolute right-1.5 top-1.5 rounded-full bg-black/60 p-1 text-white opacity-0 transition-opacity hover:bg-red-500 group-hover:opacity-100"
-                      aria-label="이미지 삭제"
-                    >
-                      <X size={13} />
-                    </button>
-                  </div>
-                ))}
-
-                {images.length === 0 && (
-                  <div className="flex h-[104px] min-w-[220px] items-center text-xs font-medium text-[var(--text-muted)]">
-                    상세페이지 생성에는 상품 이미지가 최소 1장 필요합니다.
-                  </div>
-                )}
-              </div>
-            </div>
-          </Field>
+          <ProductImageInputs
+            thumbnailImage={thumbnailImage}
+            thumbnailUploading={thumbnailUploading}
+            uploadingCount={uploadingCount}
+            images={images}
+            maxImages={MAX_IMAGES}
+            onThumbnailUpload={handleThumbnailUpload}
+            onImageUpload={handleImageUpload}
+            onThumbnailRemove={() => setThumbnailImage(null)}
+            onImageRemove={removeImage}
+          />
 
           <Field label="옵션(종류)" trailing={`${options.length} / ${MAX_OPTIONS}`}>
             <div className="space-y-3">
@@ -868,238 +692,4 @@ function DetailTemplateButtons({ value, onChange, onPreview }: DetailTemplateBut
       })}
     </div>
   );
-}
-
-interface TemplatePreviewModalProps {
-  templateId: GenerateTemplateId;
-  onClose: () => void;
-}
-
-function TemplatePreviewModal({ templateId, onClose }: TemplatePreviewModalProps) {
-  const [templateCss, setTemplateCss] = useState<string | null>(null);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  const [iframeHeight, setIframeHeight] = useState(2400);
-  const config = useMemo(() => {
-    try {
-      return getTemplate(templateId);
-    } catch {
-      return null;
-    }
-  }, [templateId]);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch('/templates-styles.css', { cache: 'no-store' })
-      .then((res) => (res.ok ? res.text() : ''))
-      .then((css) => {
-        if (!cancelled) setTemplateCss(css);
-      })
-      .catch(() => {
-        if (!cancelled) setTemplateCss('');
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const html = useMemo(() => {
-    if (!config || templateCss == null) return '';
-    return renderTemplateToHtml(
-      config.component as ComponentType<unknown>,
-      placeholderDetailPageData,
-      config,
-      templateCss,
-    );
-  }, [config, templateCss]);
-  const sandboxedHtml = useMemo(() => stripSrcDocScripts(html), [html]);
-
-  useEffect(() => {
-    const el = iframeRef.current;
-    if (!el) return;
-    const measure = () => {
-      let doc: Document | null = null;
-      try {
-        doc = el.contentDocument;
-      } catch {
-        doc = null;
-      }
-      if (!doc) return;
-      const height = Math.max(doc.documentElement.scrollHeight, doc.body.scrollHeight);
-      if (height > 0) setIframeHeight(height);
-    };
-    el.addEventListener('load', measure);
-    const first = setTimeout(measure, 1500);
-    const second = setTimeout(measure, 3500);
-    return () => {
-      el.removeEventListener('load', measure);
-      clearTimeout(first);
-      clearTimeout(second);
-    };
-  }, [sandboxedHtml]);
-
-  if (!config) return null;
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-2 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <div
-        className="relative flex h-[96vh] w-full max-w-[720px] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-6 py-3">
-          <div>
-            <h3 className="text-lg font-bold text-slate-900">{config.name}</h3>
-            <p className="text-sm text-slate-500">{config.description}</p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-            aria-label="닫기"
-          >
-            <X size={20} />
-          </button>
-        </div>
-        <div className="flex-1 overflow-y-auto bg-white">
-          {templateCss == null ? (
-            <div className="flex h-full items-center justify-center text-sm font-semibold text-slate-400">
-              템플릿 스타일을 불러오는 중입니다.
-            </div>
-          ) : (
-            <iframe
-              ref={iframeRef}
-              srcDoc={sandboxedHtml}
-              className="block w-full border-0 bg-white"
-              style={{ height: `${iframeHeight}px` }}
-              title={`${templateId}-preview-modal`}
-              sandbox={SAME_ORIGIN_SCRIPTLESS_SANDBOX}
-            />
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-interface FieldProps {
-  label: string;
-  required?: boolean;
-  trailing?: string;
-  children: ReactNode;
-}
-
-function Field({ label, required, trailing, children }: FieldProps) {
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between gap-3">
-        <label className="block text-sm font-bold text-[var(--text-primary)]">
-          {label}
-          {required && <span className="ml-0.5 text-rose-500">*</span>}
-        </label>
-        {trailing && (
-          <span className="text-xs font-bold text-[var(--text-tertiary)]">{trailing}</span>
-        )}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-interface SelectFieldProps {
-  value: string;
-  onChange: (value: string) => void;
-  options: Array<{ value: string; label: string }>;
-}
-
-function SelectField({ value, onChange, options }: SelectFieldProps) {
-  const hasCurrentOption = value === '' || options.some((option) => option.value === value);
-
-  return (
-    <div className="relative">
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-11 w-full appearance-none rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] px-3 pr-9 text-sm font-medium text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--primary)]"
-      >
-        {!hasCurrentOption && (
-          <option value={value}>{value}</option>
-        )}
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-      <ChevronDown
-        size={16}
-        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]"
-      />
-    </div>
-  );
-}
-
-interface ProductSizeFields {
-  height: string;
-  width: string;
-  depth: string;
-}
-
-interface SizeInputProps {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  placeholder: string;
-}
-
-function SizeInput({ label, value, onChange, placeholder }: SizeInputProps) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-xs font-black text-[var(--text-secondary)]">
-        {label}
-      </span>
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] px-3 text-sm font-medium text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--primary)]"
-      />
-    </label>
-  );
-}
-
-function parseSizeFields(value: string): ProductSizeFields {
-  const text = value.trim();
-  const pick = (labels: string[]): string => {
-    const escaped = labels.map((label) => label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-    const match = text.match(new RegExp(`(?:${escaped.join('|')})\\s*[:：]?\\s*([^,，/\\n]+)`, 'i'));
-    return match?.[1]?.trim() ?? '';
-  };
-  return {
-    height: pick(['높이', '세로', 'height', 'h']),
-    width: pick(['가로', '너비', 'width', 'w']),
-    depth: pick(['폭', '두께', 'depth', 'd']),
-  };
-}
-
-function formatSizeFields(fields: ProductSizeFields): string {
-  return [
-    fields.height.trim() ? `높이: ${fields.height.trim()}` : '',
-    fields.width.trim() ? `가로: ${fields.width.trim()}` : '',
-    fields.depth.trim() ? `폭: ${fields.depth.trim()}` : '',
-  ].filter(Boolean).join('\n');
-}
-
-function splitOptions(value: string): string[] {
-  return value
-    .split(/[\n,]/)
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .slice(0, MAX_OPTIONS);
-}
-
-function joinOptions(options: string[]): string {
-  return options.join('\n');
 }

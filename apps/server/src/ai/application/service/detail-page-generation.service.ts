@@ -52,7 +52,6 @@ import {
 import { ContentAssetService } from './content-asset.service';
 import type { PersistedContentAssetRef } from './content-asset.service';
 import { kickEnqueuedAgentRequest as kickInlineAgentRequest } from './agent-inline-execution';
-import { GeneratedContentCandidateService } from './generated-content-candidate.service';
 import {
   registeredWorkspaceEditorHref,
   RegistrationWorkspaceService,
@@ -89,7 +88,6 @@ export class DetailPageGenerationService {
     @Inject(AGENT_RUNNER_PORT)
     private readonly agentRunner: AgentRunnerPort,
     private readonly contentAssets: ContentAssetService,
-    private readonly generatedCandidates: GeneratedContentCandidateService,
     private readonly registrationWorkspaces: RegistrationWorkspaceService,
   ) {}
 
@@ -154,38 +152,10 @@ export class DetailPageGenerationService {
       productId: effectiveProductId,
       sourceReferences: dto.sourceReferences ?? [],
     });
-    let primarySourceCandidateId =
+    const primarySourceCandidateId =
       requestedRegistrationWorkspace?.sourceCandidateId ??
       sourceReferences.find((ref) => ref.sourceType === 'sourcing_candidate')
         ?.sourceCandidateId ?? null;
-    if (!effectiveProductId && !primarySourceCandidateId && !requestedRegistrationWorkspace) {
-      const selfCollectedCandidate = await this.generatedCandidates.ensureSelfCollectedDetailPageCandidate({
-        organizationId,
-        triggeredByUserId,
-        title: dto.rawTitle,
-        category: blankToNull(dto.rawCategory),
-        description: blankToNull(dto.rawDescription),
-        imageUrls,
-        rawData: {
-          rawTitle: dto.rawTitle,
-          rawCategory: dto.rawCategory,
-          rawDescription: dto.rawDescription,
-          rawOptions: dto.rawOptions,
-          imageUrls,
-          templateId,
-          generationMode,
-        },
-      });
-      primarySourceCandidateId = selfCollectedCandidate.id;
-      sourceReferences = [
-        {
-          sourceType: 'sourcing_candidate',
-          sourceCandidateId: selfCollectedCandidate.id,
-          label: selfCollectedCandidate.name,
-        },
-        ...sourceReferences,
-      ];
-    }
     if (
       requestedRegistrationWorkspace?.sourceCandidateId &&
       !sourceReferences.some((ref) => ref.sourceCandidateId === requestedRegistrationWorkspace.sourceCandidateId)
@@ -877,11 +847,6 @@ export class DetailPageGenerationService {
 function pickRawString(record: Record<string, unknown>, key: string): string | null {
   const value = record[key];
   if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function blankToNull(value: string): string | null {
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
 }

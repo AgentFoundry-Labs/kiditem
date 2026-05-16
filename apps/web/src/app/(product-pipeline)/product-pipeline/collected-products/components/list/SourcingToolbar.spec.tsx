@@ -19,19 +19,19 @@ function renderToolbar(overrides: Partial<ComponentProps<typeof SourcingToolbar>
 }
 
 describe('SourcingToolbar source tabs', () => {
-  it('renders the self-collected tab and emits filter changes', () => {
+  it('renders the product registration tab and emits filter changes', () => {
     const onSourceFilterChange = vi.fn();
     renderToolbar({ onSourceFilterChange });
 
-    fireEvent.click(screen.getByRole('button', { name: '자체 수집' }));
+    fireEvent.click(screen.getByRole('button', { name: '상품 등록' }));
 
-    expect(onSourceFilterChange).toHaveBeenCalledWith('self-collected');
+    expect(onSourceFilterChange).toHaveBeenCalledWith('manual-registration');
   });
 
   it('marks the current source tab as selected', () => {
-    renderToolbar({ sourceFilter: 'self-collected' });
+    renderToolbar({ sourceFilter: 'manual-registration' });
 
-    expect(screen.getByRole('button', { name: '자체 수집' })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: '상품 등록' })).toHaveAttribute(
       'aria-pressed',
       'true',
     );

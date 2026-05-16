@@ -171,7 +171,7 @@ export default function RegisteredProductsPage() {
               onClick={() => router.push('/product-pipeline/detailgenerate')}
               className="h-7 rounded-md border border-slate-200 bg-white px-3 font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:border-slate-300"
             >
-              자체 수집 상세 생성
+              직접 상세 생성
             </button>
           </>
         }

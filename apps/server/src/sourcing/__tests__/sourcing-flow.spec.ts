@@ -183,12 +183,12 @@ describe('SourcingService — candidate ingest', () => {
     }));
   });
 
-  it('listProducts defaults to imported and KidItem collected platforms only', async () => {
+  it('listProducts defaults to imported and manual registration platforms only', async () => {
     await service.listProducts({ sort: 'newest', page: 1, limit: 20 } as any, 'org-1');
 
     expect(repo.listSourced).toHaveBeenCalledWith(expect.objectContaining({
       organizationId: 'org-1',
-      sourcePlatforms: ['ALIBABA_1688', 'ALIBABA', 'kiditem-detail-page', 'KIDITEM_PRODUCT_REGISTRATION'],
+      sourcePlatforms: ['ALIBABA_1688', 'ALIBABA', 'KIDITEM_PRODUCT_REGISTRATION'],
     }));
   });
 });

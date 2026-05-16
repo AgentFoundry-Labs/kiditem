@@ -65,10 +65,10 @@ sourcing/
 - `GET /api/sourcing/extension/products` returns paginated, organization-scoped
   `SourcingCandidate` rows where `status='sourced'`; without an explicit
   platform filter, the collected-product inbox includes imported sourcing
-  platforms (`ALIBABA_1688`, `ALIBABA`), KidItem self-collected detail-page
-  candidates (`kiditem-detail-page`), and manual product registration
-  candidates (`KIDITEM_PRODUCT_REGISTRATION`). It continues to exclude
-  KidItem-generated thumbnail-only workspaces.
+  platforms (`ALIBABA_1688`, `ALIBABA`) and manual product registration
+  candidates (`KIDITEM_PRODUCT_REGISTRATION`). Product-less detail-generation
+  outputs are direct registration workspaces, not collected-product candidates.
+  It continues to exclude KidItem-generated thumbnail-only workspaces.
 - `DELETE /api/sourcing/candidates/:id` archives an active sourced workspace in
   one transaction: `SourcingCandidate`, `CandidateImage`, candidate-bound
   `ContentGeneration`, `DetailPageArtifact`, `ContentAsset`, and

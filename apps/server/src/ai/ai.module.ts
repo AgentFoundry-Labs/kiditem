@@ -64,7 +64,6 @@ import { DetailPageGeneratedImagesService } from './application/service/detail-p
 import { ContentAssetService } from './application/service/content-asset.service';
 import { DetailPageAiService } from './application/service/detail-page-ai.service';
 import { DetailPageGenerationService } from './application/service/detail-page-generation.service';
-import { GeneratedContentCandidateService } from './application/service/generated-content-candidate.service';
 import { DetailPageRasterizationService } from './application/service/detail-page-rasterization.service';
 import { DetailPagePrefillService } from './application/service/detail-page-prefill.service';
 import { DetailPageQueryService } from './application/service/detail-page-query.service';
@@ -147,7 +146,6 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     SourcingWorkspaceArchiveService,
     DetailPageGeneratedImagesService,
     DetailPageHeroImageService,
-    GeneratedContentCandidateService,
     DetailPagePrefillService,
     DetailPageQueryService,
     DetailPageResultRefinerService,
