@@ -1,8 +1,11 @@
-FROM node:22-slim AS deps
+ARG NODE_IMAGE=node:22-slim
+ARG API_RUNTIME_BASE_IMAGE=ghcr.io/agentfoundry-labs/kiditem-api-base:node22-chromium
+
+FROM ${NODE_IMAGE} AS deps
 
 WORKDIR /app
 
-# The runtime image installs system Chromium. Avoid Puppeteer downloading a
+# The runtime base image owns system Chromium. Avoid Puppeteer downloading a
 # second browser during npm install.
 ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
@@ -38,23 +41,17 @@ COPY apps/server ./apps/server
 RUN npm run build --workspace=packages/shared
 RUN npm run build --workspace=apps/server
 
-FROM node:22-slim AS runner
+FROM ${API_RUNTIME_BASE_IMAGE} AS runner
 
 WORKDIR /app
-ARG INSTALL_CHROMIUM=false
-
-RUN apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update -y \
-    && apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends \
-        ca-certificates \
-        openssl \
-        $(if [ "$INSTALL_CHROMIUM" = "true" ]; then echo "chromium fonts-liberation fonts-noto-cjk"; fi) \
-    && if [ "$INSTALL_CHROMIUM" = "true" ]; then test -x /usr/bin/chromium && /usr/bin/chromium --version; fi \
-    && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production
 ENV PORT=4000
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+
+RUN test -x "$PUPPETEER_EXECUTABLE_PATH" && "$PUPPETEER_EXECUTABLE_PATH" --version
 
 COPY package.json package-lock.json prisma.config.ts ./
 COPY prisma ./prisma

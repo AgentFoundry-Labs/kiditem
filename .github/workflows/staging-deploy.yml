@@ -29,6 +29,7 @@ concurrency:
 env:
   REGISTRY: ghcr.io
   API_IMAGE_BASE: ghcr.io/agentfoundry-labs/kiditem-api
+  API_RUNTIME_BASE_IMAGE: ghcr.io/agentfoundry-labs/kiditem-api-base:node22-chromium
   WEB_IMAGE_BASE: ghcr.io/agentfoundry-labs/kiditem-web
 
 jobs:
@@ -90,6 +91,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Verify API runtime base image
+        run: |
+          set -euo pipefail
+          docker buildx imagetools inspect "$API_RUNTIME_BASE_IMAGE" >/dev/null || {
+            echo "::error::API runtime base image not found: $API_RUNTIME_BASE_IMAGE. Run the API Runtime Base Image workflow first."
+            exit 1
+          }
+
       - name: API image metadata
         id: api_meta
         uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6
@@ -112,7 +121,7 @@ jobs:
           platforms: linux/amd64
           push: true
           build-args: |
-            INSTALL_CHROMIUM=true
+            API_RUNTIME_BASE_IMAGE=${{ env.API_RUNTIME_BASE_IMAGE }}
           tags: ${{ steps.api_meta.outputs.tags }}
           labels: ${{ steps.api_meta.outputs.labels }}
           cache-from: type=gha,scope=staging-api

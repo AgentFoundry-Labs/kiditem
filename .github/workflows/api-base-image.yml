@@ -1,0 +1,70 @@
+name: API Runtime Base Image
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 19 1 * *"
+  push:
+    branches:
+      - main
+    paths:
+      - deploy/docker/api-base.Dockerfile
+      - .github/workflows/api-base-image.yml
+
+concurrency:
+  group: api-runtime-base-image
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  API_BASE_IMAGE: ghcr.io/agentfoundry-labs/kiditem-api-base
+
+jobs:
+  build:
+    name: Build and push API runtime base
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Compute image tags
+        id: image_tags
+        run: |
+          set -euo pipefail
+          month="$(date -u +'%Y%m')"
+          short_sha="${GITHUB_SHA::12}"
+          {
+            echo "tags<<EOF"
+            echo "${API_BASE_IMAGE}:node22-chromium"
+            echo "${API_BASE_IMAGE}:node22-chromium-${month}"
+            echo "${API_BASE_IMAGE}:node22-chromium-${short_sha}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push base image
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
+        with:
+          context: .
+          file: ./deploy/docker/api-base.Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.image_tags.outputs.tags }}
+          labels: |
+            org.opencontainers.image.title=KidItem API Runtime Base
+            org.opencontainers.image.description=Node runtime with system Chromium for server-side detail page rasterization
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=api-runtime-base
+          cache-to: type=gha,mode=max,scope=api-runtime-base
