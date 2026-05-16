@@ -216,11 +216,27 @@ export class RegistrationWorkspaceService {
         isDeleted: false,
       },
       orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
-      include: workspaceInclude(),
+      select: {
+        id: true,
+        ownerType: true,
+        sourceCandidateId: true,
+        targetMasterId: true,
+        displayName: true,
+        normalizedTitle: true,
+        status: true,
+        currentDetailPageArtifactId: true,
+        currentDetailPageRevisionId: true,
+        createdAt: true,
+        updatedAt: true,
+        _count: { select: { contentGenerations: true } },
+        currentDetailPageArtifact: {
+          select: { sourceContentGenerationId: true },
+        },
+      },
     });
     return {
       exists: Boolean(row),
-      workspace: row ? this.toSummary(row) : null,
+      workspace: row ? toDuplicateSummary(row) : null,
     };
   }
 
@@ -445,6 +461,42 @@ export function registeredWorkspaceEditorHref(
 ): string {
   const returnTo = encodeURIComponent(`/product-pipeline/registered-products/${encodeURIComponent(workspaceId)}`);
   return `/product-pipeline/detail-pages/${encodeURIComponent(generationId)}/editor?returnTo=${returnTo}`;
+}
+
+function toDuplicateSummary(row: {
+  id: string;
+  ownerType: string;
+  sourceCandidateId: string | null;
+  targetMasterId: string | null;
+  displayName: string;
+  normalizedTitle: string;
+  status: string;
+  currentDetailPageArtifactId: string | null;
+  currentDetailPageRevisionId: string | null;
+  currentDetailPageArtifact: { sourceContentGenerationId: string | null } | null;
+  createdAt: Date;
+  updatedAt: Date;
+  _count?: { contentGenerations: number };
+}): RegistrationWorkspaceSummary {
+  return {
+    id: row.id,
+    ownerType: row.ownerType,
+    sourceCandidateId: row.sourceCandidateId,
+    targetMasterId: row.targetMasterId,
+    displayName: row.displayName,
+    normalizedTitle: row.normalizedTitle,
+    status: row.status,
+    href: registeredWorkspaceHref(row.id),
+    generationCount: row._count?.contentGenerations ?? 0,
+    latestGenerationId: null,
+    latestStatus: null,
+    currentDetailPageArtifactId: row.currentDetailPageArtifactId,
+    currentDetailPageRevisionId: row.currentDetailPageRevisionId,
+    currentDetailPageGenerationId: row.currentDetailPageArtifact?.sourceContentGenerationId ?? null,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+    history: [],
+  };
 }
 
 function workspaceInclude() {

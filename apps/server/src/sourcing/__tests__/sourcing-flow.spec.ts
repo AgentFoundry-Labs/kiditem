@@ -108,6 +108,58 @@ describe('SourcingService — candidate ingest', () => {
     expect(result.product_count).toBe(42);
   });
 
+  it('manual product registration creates collected-product candidate', async () => {
+    const result = await service.registerManualProduct(
+      {
+        title: '바삭바삭 수제왁스팝',
+        category: '완구',
+        description: '말랑한 촉감 놀이 상품',
+        target: '부모 구매자',
+        thumbnailUrl: 'https://cdn.example.com/thumb.jpg',
+        imageUrls: ['https://cdn.example.com/1.jpg', 'https://cdn.example.com/2.jpg'],
+        optionNames: ['노란색', '분홍색'],
+      },
+      'org-1',
+      'user-1',
+    );
+
+    expect(repo.upsertSourced).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: 'org-1',
+      sourcePlatform: 'KIDITEM_PRODUCT_REGISTRATION',
+      name: '바삭바삭 수제왁스팝',
+      category: '완구',
+      tags: ['노란색', '분홍색'],
+      thumbnailUrl: 'https://cdn.example.com/thumb.jpg',
+      imageUrl: 'https://cdn.example.com/thumb.jpg',
+      triggeredByUserId: 'user-1',
+      images: [
+        expect.objectContaining({
+          url: 'https://cdn.example.com/1.jpg',
+          role: 'product',
+          source: 'kiditem-product-registration',
+          isPrimary: true,
+          sortOrder: 0,
+        }),
+        expect.objectContaining({
+          url: 'https://cdn.example.com/2.jpg',
+          role: 'product',
+          source: 'kiditem-product-registration',
+          isPrimary: false,
+          sortOrder: 1,
+        }),
+      ],
+    }));
+    expect(repo.upsertSourced.mock.calls.at(-1)?.[0].sourceUrl).toMatch(
+      /^kiditem:\/\/manual-product-registration\//,
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      product_count: 1,
+      candidateId: 'cand-1',
+      href: '/product-pipeline/collected-products/cand-1',
+    });
+  });
+
   it('scrapeUrl delegates to gateway + raises alert', async () => {
     const result = await service.scrapeUrl('https://1688.com/item/1', 'org-1', 'user-1');
     expect(gateway.scrapeUrl).toHaveBeenCalled();
@@ -131,12 +183,12 @@ describe('SourcingService — candidate ingest', () => {
     }));
   });
 
-  it('listProducts defaults to imported and self-collected detail-page platforms only', async () => {
+  it('listProducts defaults to imported and manual registration platforms only', async () => {
     await service.listProducts({ sort: 'newest', page: 1, limit: 20 } as any, 'org-1');
 
     expect(repo.listSourced).toHaveBeenCalledWith(expect.objectContaining({
       organizationId: 'org-1',
-      sourcePlatforms: ['ALIBABA_1688', 'ALIBABA', 'kiditem-detail-page'],
+      sourcePlatforms: ['ALIBABA_1688', 'ALIBABA', 'KIDITEM_PRODUCT_REGISTRATION'],
     }));
   });
 });

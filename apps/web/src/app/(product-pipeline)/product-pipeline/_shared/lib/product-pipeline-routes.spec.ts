@@ -5,6 +5,7 @@ import {
   detailTemplateGenerationHref,
   detailPageEditorHref,
   normalizeProductPipelineReturnTo,
+  productGenerationHref,
   registeredProductDetailHref,
   registeredProductEditorHref,
   thumbnailGenerationEditHref,
@@ -97,7 +98,11 @@ describe('product-pipeline route construction', () => {
       title: '키즈 컵',
       returnTo: '/product-pipeline/registered-products/workspace-1',
     })).toBe(
-      '/product-pipeline/detail-template-generation?registrationWorkspaceId=workspace-1&title=%ED%82%A4%EC%A6%88+%EC%BB%B5&returnTo=%2Fproduct-pipeline%2Fregistered-products%2Fworkspace-1',
+      '/product-pipeline/detailgenerate?registrationWorkspaceId=workspace-1&title=%ED%82%A4%EC%A6%88+%EC%BB%B5&returnTo=%2Fproduct-pipeline%2Fregistered-products%2Fworkspace-1',
     );
+  });
+
+  it('builds the product generation route', () => {
+    expect(productGenerationHref()).toBe('/product-pipeline/productgenerate');
   });
 });

@@ -4,7 +4,8 @@ export const PRODUCT_PIPELINE_ROOT = '/product-pipeline';
 export const COLLECTED_PRODUCTS_ROOT = `${PRODUCT_PIPELINE_ROOT}/collected-products`;
 export const REGISTERED_PRODUCTS_ROOT = `${PRODUCT_PIPELINE_ROOT}/registered-products`;
 export const DETAIL_PAGE_EDITOR_ROOT = `${PRODUCT_PIPELINE_ROOT}/detail-pages`;
-export const DETAIL_TEMPLATE_GENERATION_ROOT = `${PRODUCT_PIPELINE_ROOT}/detail-template-generation`;
+export const PRODUCT_GENERATION_ROOT = `${PRODUCT_PIPELINE_ROOT}/productgenerate`;
+export const DETAIL_TEMPLATE_GENERATION_ROOT = `${PRODUCT_PIPELINE_ROOT}/detailgenerate`;
 export const THUMBNAIL_AI_ROOT = `${PRODUCT_PIPELINE_ROOT}/thumbnail-ai`;
 export const THUMBNAIL_GENERATION_ROOT = `${PRODUCT_PIPELINE_ROOT}/thumbnail-generation`;
 export const THUMBNAIL_GENERATION_EDIT_ROOT = `${THUMBNAIL_GENERATION_ROOT}/edit`;
@@ -75,6 +76,10 @@ export function detailTemplateGenerationHref({
   if (normalizedReturnTo) params.set('returnTo', normalizedReturnTo);
   const query = params.toString();
   return query ? `${DETAIL_TEMPLATE_GENERATION_ROOT}?${query}` : DETAIL_TEMPLATE_GENERATION_ROOT;
+}
+
+export function productGenerationHref(): string {
+  return PRODUCT_GENERATION_ROOT;
 }
 
 export function normalizeProductPipelineReturnTo(value: string | null | undefined): string | null {

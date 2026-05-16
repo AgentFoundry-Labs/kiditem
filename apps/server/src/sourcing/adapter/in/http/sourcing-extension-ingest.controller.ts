@@ -5,6 +5,7 @@ import type { AuthUser } from '../../../../auth/auth.types';
 import { SourcingService } from '../../../application/service/sourcing.service';
 import {
   ListExtensionProductsQueryDto,
+  RegisterManualProductDto,
   ReceiveExtensionDataDto,
   ScrapeUrlBodyDto,
 } from './dto';
@@ -21,6 +22,15 @@ export class SourcingExtensionIngestController {
   ) {
     const flat = { ...body, ...(body.extra ?? {}) };
     return this.sourcingService.receiveExtensionData(flat, organizationId, user.id ?? null);
+  }
+
+  @Post('product-registration')
+  async registerManualProduct(
+    @Body() body: RegisterManualProductDto,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.sourcingService.registerManualProduct(body, organizationId, user.id ?? null);
   }
 
   @Post('scrape-url')

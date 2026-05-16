@@ -104,7 +104,7 @@ Route groups do not affect URLs:
 | `(automation)` | agents, workflows, marketplace, action-board |
 | `(catalog)` | products, product-hub |
 | `(sourcing-ai)` | sourcing-ai |
-| `(product-pipeline)` | product-pipeline/collected-products, product-pipeline/registered-products, product-pipeline/detail-template-generation, product-pipeline/thumbnail-ai, product-pipeline/thumbnail-generation, product-pipeline/thumbnail-generation/edit |
+| `(product-pipeline)` | product-pipeline/collected-products, product-pipeline/registered-products, product-pipeline/productgenerate, product-pipeline/detailgenerate, product-pipeline/detail-template-generation, product-pipeline/thumbnail-ai, product-pipeline/thumbnail-generation, product-pipeline/thumbnail-generation/edit |
 | `(supply)` | suppliers, purchase-orders |
 | `(inventory)` | inventory, inventory-hub, stock-ops, warehouses, unshipped-items, outbound |
 | `(orders)` | orders, order-hub, order-status-hub, returns, reviews, return-scan, cs-management |

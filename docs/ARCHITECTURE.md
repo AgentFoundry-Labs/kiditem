@@ -217,7 +217,7 @@ Kinds:
 | `apps/web/src/app/(inventory)` | Route Group | `_shared`, `inventory`, `inventory-hub`, `outbound`, `stock-ops`, `unshipped-items`, `warehouses` |
 | `apps/web/src/app/(orders)` | Route Group | `_shared`, `cs-management`, `order-hub`, `order-status-hub`, `orders`, `return-scan`, `returns`, `reviews` |
 | `apps/web/src/app/(sourcing-ai)` | Route Group | `sourcing-ai` |
-| `apps/web/src/app/(product-pipeline)` | Route Group | `product-pipeline/collected-products`, `product-pipeline/registered-products`, `product-pipeline/detail-template-generation`, `product-pipeline/thumbnail-ai`, `product-pipeline/thumbnail-generation`, `product-pipeline/thumbnail-generation/edit` |
+| `apps/web/src/app/(product-pipeline)` | Route Group | `product-pipeline/collected-products`, `product-pipeline/registered-products`, `product-pipeline/productgenerate`, `product-pipeline/detailgenerate`, `product-pipeline/detail-template-generation` (legacy implementation path), `product-pipeline/thumbnail-ai`, `product-pipeline/thumbnail-generation`, `product-pipeline/thumbnail-generation/edit` |
 | `apps/web/src/app/(supply)` | Route Group | `purchase-orders`, `suppliers` |
 | `apps/web/src/app/agent-os` | App Internal | Fullscreen visualization surface, separate from `/agents`. |
 | `apps/web/src/app/auth` | App Internal | Auth callback subtree. |
@@ -229,18 +229,28 @@ Kinds:
 Notable route subtrees:
 
 - `apps/web/src/app/(product-pipeline)/product-pipeline/collected-products`
-  owns `/product-pipeline/collected-products`, the 1688/imported
-  `SourcingCandidate` inbox, candidate detail route entries, and
-  candidate-scoped generated content links.
+  owns `/product-pipeline/collected-products`, the 1688/imported plus manual
+  product-registration `SourcingCandidate` inbox, candidate detail route
+  entries, and candidate-scoped generated content links.
 - `apps/web/src/app/(product-pipeline)/product-pipeline/registered-products`
-  owns `/product-pipeline/registered-products`, the detail-page generation
-  workspace inbox backed by `RegistrationWorkspace`.
+  owns `/product-pipeline/registered-products`, the direct/master registration
+  workspace inbox backed by `RegistrationWorkspace`; source-candidate
+  workspaces are reached from collected product detail instead of this list.
+- `apps/web/src/app/(product-pipeline)/product-pipeline/productgenerate`
+  owns `/product-pipeline/productgenerate`, the sidebar product registration
+  entrypoint. This is the only product-pipeline route that creates collected
+  product candidates from manual operator input.
 - `apps/web/src/app/(product-pipeline)/product-pipeline/detail-pages`
   owns the shared generated detail-page editor route
   `/product-pipeline/detail-pages/[generationId]/editor` for both collected and
   registered product workspaces.
-- `apps/web/src/app/(product-pipeline)/product-pipeline/detail-template-generation`
-  owns the independent detail template generation tool.
+- `apps/web/src/app/(product-pipeline)/product-pipeline/detailgenerate`
+  owns `/product-pipeline/detailgenerate`, the independent detail generation
+  tool. It is a transitional direct-detail shell: outputs do not create
+  collected product candidates, and the durable home for this action is expected
+  to move inside product workspaces. The older `detail-template-generation`
+  folder remains as the shared implementation path while consumers migrate to
+  the shorter route.
 - `apps/web/src/app/(product-pipeline)/product-pipeline/thumbnail-ai`
   owns the independent thumbnail AI analysis and batch UI.
 - `apps/web/src/app/(product-pipeline)/product-pipeline/thumbnail-generation`
