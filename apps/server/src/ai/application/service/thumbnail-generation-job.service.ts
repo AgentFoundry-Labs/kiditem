@@ -53,6 +53,19 @@ import {
   type ThumbnailGenerationEventPort,
 } from '../port/out/thumbnail-generation-event.port';
 import { kickEnqueuedAgentRequest as kickInlineAgentRequest } from './agent-inline-execution';
+import {
+  type GenerationAlertLink,
+  STANDALONE_GENERATION_ALERT,
+  isParentProductGenerationAlertLink,
+  productGenerationMetadata,
+} from './product-generation-alert-link';
+import { ProductGenerationAlertService } from './product-generation-alert.service';
+
+function jsonObject(value: Prisma.InputJsonValue): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
 
 export interface ThumbnailEditorGenerationEnqueueInput {
   organizationId: string;
@@ -78,6 +91,7 @@ export interface ThumbnailCandidateGenerationEnqueueInput {
   method: 'generate' | 'creative';
   originalUrl: string;
   agentPayload: Record<string, unknown>;
+  operationAlert?: GenerationAlertLink;
 }
 
 export interface ThumbnailStandaloneGenerationEnqueueInput {
@@ -102,6 +116,7 @@ export class ThumbnailGenerationJobService {
     private readonly operationAlerts: OperationAlertService,
     @Inject(AGENT_RUNNER_PORT)
     private readonly agentRunner: AgentRunnerPort,
+    private readonly productGenerationAlerts: ProductGenerationAlertService,
     @Optional()
     @Inject(THUMBNAIL_GENERATION_EVENT_PORT)
     private readonly generationEvents: ThumbnailGenerationEventPort | null = null,
@@ -242,12 +257,23 @@ export class ThumbnailGenerationJobService {
       throw new BadRequestException('sourceCandidateId 에 해당하는 소싱 후보를 찾을 수 없습니다');
     }
 
+    const operationAlert = input.operationAlert ?? STANDALONE_GENERATION_ALERT;
+    const inputMeta = isParentProductGenerationAlertLink(operationAlert)
+      ? {
+          ...jsonObject(input.inputMeta),
+          productGeneration: {
+            mode: 'parent',
+            ...productGenerationMetadata(operationAlert),
+          },
+        }
+      : input.inputMeta;
+
     const generation = await createPendingCandidateJob(this.prisma, {
       organizationId: input.organizationId,
       sourceCandidateId: input.sourceCandidateId,
       originalUrl: input.originalUrl,
       method: input.method,
-      inputMeta: input.inputMeta,
+      inputMeta: inputMeta as Prisma.InputJsonValue,
       registrationWorkspaceId: input.registrationWorkspaceId ?? null,
       triggeredByUserId: input.triggeredByUserId,
     });
@@ -276,30 +302,39 @@ export class ThumbnailGenerationJobService {
       },
     });
 
-    const alertTarget = this.alertTarget({
-      registrationWorkspaceId: input.registrationWorkspaceId ?? null,
-      fallbackTargetType: 'sourcing_candidate',
-      fallbackTargetId: input.sourceCandidateId,
-      fallbackHref: `/product-pipeline/collected-products/${encodeURIComponent(input.sourceCandidateId)}`,
-    });
-    await this.operationAlerts.start({
-      organizationId: input.organizationId,
-      operationKey: this.editJobOperationKey(generation.id),
-      type: 'thumbnail_edit_job',
-      title: `소싱 썸네일 ${input.method === 'creative' ? 'AI 연출' : '편집'}: ${(input.productName ?? candidate.name).slice(0, 40)}`,
-      sourceType: 'thumbnail_generation',
-      sourceId: generation.id,
-      actorUserId: input.triggeredByUserId,
-      targetType: alertTarget.targetType,
-      targetId: alertTarget.targetId,
-      href: alertTarget.href,
-      metadata: {
-        method: input.method,
-        sourceCandidateId: input.sourceCandidateId,
+    if (isParentProductGenerationAlertLink(operationAlert)) {
+      await this.productGenerationAlerts.recordChildStarted({
+        organizationId: input.organizationId,
+        parentOperationKey: operationAlert.parentOperationKey,
+        childKind: 'thumbnail',
+        childId: generation.id,
+      });
+    } else {
+      const alertTarget = this.alertTarget({
         registrationWorkspaceId: input.registrationWorkspaceId ?? null,
-        inputCount: inputImages.length,
-      },
-    });
+        fallbackTargetType: 'sourcing_candidate',
+        fallbackTargetId: input.sourceCandidateId,
+        fallbackHref: `/product-pipeline/collected-products/${encodeURIComponent(input.sourceCandidateId)}`,
+      });
+      await this.operationAlerts.start({
+        organizationId: input.organizationId,
+        operationKey: this.editJobOperationKey(generation.id),
+        type: 'thumbnail_edit_job',
+        title: `소싱 썸네일 ${input.method === 'creative' ? 'AI 연출' : '편집'}: ${(input.productName ?? candidate.name).slice(0, 40)}`,
+        sourceType: 'thumbnail_generation',
+        sourceId: generation.id,
+        actorUserId: input.triggeredByUserId,
+        targetType: alertTarget.targetType,
+        targetId: alertTarget.targetId,
+        href: alertTarget.href,
+        metadata: {
+          method: input.method,
+          sourceCandidateId: input.sourceCandidateId,
+          registrationWorkspaceId: input.registrationWorkspaceId ?? null,
+          inputCount: inputImages.length,
+        },
+      });
+    }
 
     const enqueueResult = await this.agentRunner.runByType(
       THUMBNAIL_GENERATE_AGENT_TYPE,
@@ -331,17 +366,28 @@ export class ThumbnailGenerationJobService {
           errorMessage,
         );
       }
-      await this.operationAlerts.fail(
-        input.organizationId,
-        this.editJobOperationKey(generation.id),
-        {
-          message: errorMessage,
-          metadata: {
-            errorCode: 'agent_enqueue_failed',
-            agentReason: enqueueResult.reason ?? null,
+      if (isParentProductGenerationAlertLink(operationAlert)) {
+        await this.productGenerationAlerts.markChildFinished({
+          organizationId: input.organizationId,
+          parentOperationKey: operationAlert.parentOperationKey,
+          childKind: 'thumbnail',
+          status: 'failed',
+          childId: generation.id,
+          errorMessage,
+        });
+      } else {
+        await this.operationAlerts.fail(
+          input.organizationId,
+          this.editJobOperationKey(generation.id),
+          {
+            message: errorMessage,
+            metadata: {
+              errorCode: 'agent_enqueue_failed',
+              agentReason: enqueueResult.reason ?? null,
+            },
           },
-        },
-      );
+        );
+      }
       throw new BadRequestException(errorMessage);
     }
 

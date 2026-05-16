@@ -109,6 +109,11 @@ class FakeOperationAlertService {
   async fail(_o: string, _k: string, p?: unknown) { this.fails.push(p ?? null); return null; }
 }
 
+class FakeProductGenerationAlertService {
+  async recordChildStarted() { return null; }
+  async markChildFinished() { return null; }
+}
+
 async function seedMasterAndAgentInstance(prisma: PrismaClient, repo: AgentOsRepositoryAdapter) {
   await prisma.masterProduct.create({
     data: {
@@ -180,6 +185,7 @@ beforeAll(async () => {
     alerts as never,
     generatedImages,
     contentAssets,
+    new FakeProductGenerationAlertService() as never,
   );
 
   bridge = new DetailPageAgentOutputBridge(sink);
@@ -203,6 +209,7 @@ beforeAll(async () => {
     coordinator as unknown as AgentRunnerPort,
     contentAssets,
     new RegistrationWorkspaceService(prisma as never),
+    new FakeProductGenerationAlertService() as never,
   );
   const prefill = new DetailPagePrefillService(textCompletion);
   aiService = new DetailPageAiService(generation, prefill, query);

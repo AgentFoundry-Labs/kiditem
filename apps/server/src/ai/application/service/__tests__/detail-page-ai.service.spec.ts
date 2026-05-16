@@ -9,6 +9,7 @@ import { BoldVerticalRefinerService } from '../bold-vertical-refiner.service';
 import { KidsPlayfulRefinerService } from '../kids-playful-refiner.service';
 import type { OperationAlertService } from '../../../../automation/application/service/operation-alert.service';
 import type { AgentRunnerPort } from '../../../../agent-os/application/port/in/agent-runner.port';
+import type { ProductGenerationAlertService } from '../product-generation-alert.service';
 
 const ORGANIZATION_ID = '11111111-1111-4111-8111-111111111111';
 const USER_ID = '99999999-9999-9999-9999-999999999999';
@@ -28,6 +29,14 @@ function makeOperationAlertsStub(): OperationAlertService {
     progress: vi.fn().mockResolvedValue({}),
     cancel: vi.fn().mockResolvedValue({}),
   } as unknown as OperationAlertService;
+}
+
+function makeProductGenerationAlertsStub(): ProductGenerationAlertService {
+  return {
+    start: vi.fn().mockResolvedValue({}),
+    recordChildStarted: vi.fn().mockResolvedValue({}),
+    markChildFinished: vi.fn().mockResolvedValue({}),
+  } as unknown as ProductGenerationAlertService;
 }
 
 function makeAgentRunnerStub(
@@ -96,9 +105,47 @@ function makeService(
     agentRunner,
     contentAssets,
     registrationWorkspaces as never,
+    makeProductGenerationAlertsStub(),
   );
   const prefill = new DetailPagePrefillService(textCompletion as never);
   return new DetailPageAiService(generation, prefill, query);
+}
+
+function makeGenerationService(input: {
+  prisma: ReturnType<typeof makePrisma>;
+  textCompletion?: unknown;
+  imageStorage?: unknown;
+  operationAlerts?: OperationAlertService;
+  heroImageService?: unknown;
+  agentRunner?: AgentRunnerPort;
+  registrationWorkspaces?: { ensureForGeneration: ReturnType<typeof vi.fn> };
+  productGenerationAlerts?: ProductGenerationAlertService;
+}) {
+  const resultRefiner = makeResultRefiner(input.heroImageService);
+  const imageStorage = input.imageStorage ?? { save: vi.fn() };
+  const contentAssets = new ContentAssetService(input.prisma as never);
+  const query = new DetailPageQueryService(
+    input.prisma as never,
+    resultRefiner,
+    imageStorage as never,
+    contentAssets,
+  );
+  return new DetailPageGenerationService(
+    input.prisma as never,
+    imageStorage as never,
+    input.operationAlerts ?? makeOperationAlertsStub(),
+    query,
+    input.agentRunner ?? makeAgentRunnerStub(),
+    contentAssets,
+    input.registrationWorkspaces ?? {
+      ensureForGeneration: vi.fn(async () => ({
+        id: REGISTRATION_WORKSPACE_ID,
+        displayName: 'Generated candidate',
+        normalizedTitle: 'generated candidate',
+      })),
+    } as never,
+    input.productGenerationAlerts ?? makeProductGenerationAlertsStub(),
+  );
 }
 
 function boldVerticalResult() {
@@ -335,6 +382,117 @@ describe('DetailPageAiService', () => {
     expect(result.id).toBe(GENERATION_ID);
     expect(result.imageProcessingStatus).toBe('processing');
     expect(result.productId).toBe(MASTER_ID);
+  });
+
+  it('suppresses child detail operation alert when linked to product generation parent', async () => {
+    const prisma = makePrisma();
+    const operationAlerts = makeOperationAlertsStub();
+    const productGenerationAlerts = makeProductGenerationAlertsStub();
+    const agentRunner = makeAgentRunnerStub();
+    const service = makeGenerationService({
+      prisma,
+      operationAlerts,
+      productGenerationAlerts,
+      agentRunner,
+    });
+
+    await service.generate(
+      {
+        productId: MASTER_ID,
+        templateId: 'bold-vertical',
+        rawTitle: '휴대용목걸이비눗방울',
+        rawCategory: '완구',
+        rawDescription: '아이들이 가지고 놀기 좋은 장난감',
+        rawOptions: '혼합 색상 / 사이즈 85*60mm',
+        imageUrls: ['https://example.com/detail-1.jpg'],
+      },
+      ORGANIZATION_ID,
+      USER_ID,
+      {
+        operationAlert: {
+          mode: 'parent',
+          batchId: 'batch-1',
+          parentOperationKey: 'product-generation:batch-1',
+          childKind: 'detail_page',
+        },
+      },
+    );
+
+    expect(operationAlerts.start).not.toHaveBeenCalledWith(
+      expect.objectContaining({ operationKey: `detail-page:${GENERATION_ID}` }),
+    );
+    expect(productGenerationAlerts.recordChildStarted).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      parentOperationKey: 'product-generation:batch-1',
+      childKind: 'detail_page',
+      childId: GENERATION_ID,
+    });
+    expect(prisma.contentGeneration.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        generationInput: expect.objectContaining({
+          productGeneration: {
+            mode: 'parent',
+            productGenerationBatchId: 'batch-1',
+            parentOperationKey: 'product-generation:batch-1',
+            childKind: 'detail_page',
+          },
+        }),
+      }),
+    }));
+  });
+
+  it('routes parent-mode detail enqueue failures to the product generation parent alert', async () => {
+    const prisma = makePrisma();
+    const operationAlerts = makeOperationAlertsStub();
+    const productGenerationAlerts = makeProductGenerationAlertsStub();
+    const agentRunner = makeAgentRunnerStub({
+      ok: false,
+      reason: 'queue down',
+    } as never);
+    const service = makeGenerationService({
+      prisma,
+      operationAlerts,
+      productGenerationAlerts,
+      agentRunner,
+    });
+
+    await expect(
+      service.generate(
+        {
+          productId: MASTER_ID,
+          templateId: 'bold-vertical',
+          rawTitle: '휴대용목걸이비눗방울',
+          rawCategory: '완구',
+          rawDescription: '아이들이 가지고 놀기 좋은 장난감',
+          rawOptions: '혼합 색상 / 사이즈 85*60mm',
+          imageUrls: ['https://example.com/detail-1.jpg'],
+        },
+        ORGANIZATION_ID,
+        USER_ID,
+        {
+          operationAlert: {
+            mode: 'parent',
+            batchId: 'batch-1',
+            parentOperationKey: 'product-generation:batch-1',
+            childKind: 'detail_page',
+          },
+        },
+      ),
+    ).rejects.toThrow('Agent OS enqueue failed: queue down');
+
+    expect(productGenerationAlerts.markChildFinished).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      parentOperationKey: 'product-generation:batch-1',
+      childKind: 'detail_page',
+      status: 'failed',
+      childId: GENERATION_ID,
+      errorMessage: 'Agent OS enqueue failed: queue down',
+    });
+    expect(operationAlerts.fail).not.toHaveBeenCalledWith(
+      ORGANIZATION_ID,
+      `detail-page:${GENERATION_ID}`,
+      expect.anything(),
+    );
   });
 
   it('drains retryable detail-page executor failures so local preview reaches the terminal sink path', async () => {

@@ -11,6 +11,8 @@ import {
   toDetailPageStoredJson,
 } from '../../../application/service/detail-page-stored.helpers';
 import { ContentAssetService } from '../../../application/service/content-asset.service';
+import { ProductGenerationAlertService } from '../../../application/service/product-generation-alert.service';
+import { readProductGenerationAlertLink } from '../../../application/service/product-generation-alert-link';
 
 const TERMINAL_CONTENT_GENERATION_STATUSES = new Set([
   'READY',
@@ -62,6 +64,7 @@ export class DetailPageContentGenerationSinkAdapter
     private readonly operationAlerts: OperationAlertService,
     private readonly _generatedImages: DetailPageGeneratedImagesService,
     private readonly contentAssets: ContentAssetService,
+    private readonly productGenerationAlerts: ProductGenerationAlertService,
   ) {}
 
   async applySuccess(input: {
@@ -156,18 +159,29 @@ export class DetailPageContentGenerationSinkAdapter
       return;
     }
 
-    await this.operationAlerts.succeed(
-      input.organizationId,
-      detailPageOperationKey(row.id),
-      {
-        metadata: {
-          generatedTitle: productName,
-          heroImageCount: Object.keys(processedImages).length,
-          agentRequestId: input.requestId,
-          agentRunId: input.runId ?? null,
+    const parentLink = readProductGenerationAlertLink(row.generationInput);
+    if (parentLink) {
+      await this.productGenerationAlerts.markChildFinished({
+        organizationId: input.organizationId,
+        parentOperationKey: parentLink.parentOperationKey,
+        childKind: 'detail_page',
+        status: 'succeeded',
+        childId: row.id,
+      });
+    } else {
+      await this.operationAlerts.succeed(
+        input.organizationId,
+        detailPageOperationKey(row.id),
+        {
+          metadata: {
+            generatedTitle: productName,
+            heroImageCount: Object.keys(processedImages).length,
+            agentRequestId: input.requestId,
+            agentRunId: input.runId ?? null,
+          },
         },
-      },
-    );
+      );
+    }
 
     this.logger.log(
       `detail_page_generate applied success → ContentGeneration ${row.id} READY (request=${input.requestId}).`,
@@ -238,7 +252,7 @@ export class DetailPageContentGenerationSinkAdapter
 
     const row = await this.prisma.contentGeneration.findFirst({
       where: { id: input.sourceResourceId, organizationId: input.organizationId },
-      select: { id: true, status: true },
+      select: { id: true, status: true, generationInput: true },
     });
     if (!row) {
       this.logger.warn(
@@ -271,18 +285,30 @@ export class DetailPageContentGenerationSinkAdapter
       return;
     }
 
-    await this.operationAlerts.fail(
-      input.organizationId,
-      detailPageOperationKey(row.id),
-      {
-        message: input.errorMessage,
-        metadata: {
-          errorCode: input.errorCode,
-          agentRequestId: input.requestId,
-          agentRunId: input.runId ?? null,
+    const parentLink = readProductGenerationAlertLink(row.generationInput);
+    if (parentLink) {
+      await this.productGenerationAlerts.markChildFinished({
+        organizationId: input.organizationId,
+        parentOperationKey: parentLink.parentOperationKey,
+        childKind: 'detail_page',
+        status: 'failed',
+        childId: row.id,
+        errorMessage: input.errorMessage,
+      });
+    } else {
+      await this.operationAlerts.fail(
+        input.organizationId,
+        detailPageOperationKey(row.id),
+        {
+          message: input.errorMessage,
+          metadata: {
+            errorCode: input.errorCode,
+            agentRequestId: input.requestId,
+            agentRunId: input.runId ?? null,
+          },
         },
-      },
-    );
+      );
+    }
 
     this.logger.log(
       `detail_page_generate applied failure → ContentGeneration ${row.id} FAILED (code=${input.errorCode} request=${input.requestId}).`,

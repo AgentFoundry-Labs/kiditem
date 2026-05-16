@@ -88,6 +88,11 @@ class FakeOperationAlertService {
   async cancel() { return null; }
 }
 
+class FakeProductGenerationAlertService {
+  async recordChildStarted() { return null; }
+  async markChildFinished() { return null; }
+}
+
 async function seedMasterAndAgentInstance(prisma: PrismaClient, repo: AgentOsRepositoryAdapter) {
   await prisma.masterProduct.create({
     data: {
@@ -164,7 +169,12 @@ beforeAll(async () => {
   worker = new AgentRunWorker(executor);
 
   alerts = new FakeOperationAlertService();
-  sink = new ThumbnailGenerationSinkAdapter(prisma as never, alerts as never, null);
+  sink = new ThumbnailGenerationSinkAdapter(
+    prisma as never,
+    alerts as never,
+    null,
+    new FakeProductGenerationAlertService() as never,
+  );
 
   bridge = new ThumbnailAgentOutputBridge(sink);
   bus.on(AGENT_RUN_EVENTS.FINALIZED, (event) => {
@@ -179,6 +189,7 @@ beforeAll(async () => {
     {} as never,
     alerts as never,
     coordinator as unknown as AgentRunnerPort,
+    new FakeProductGenerationAlertService() as never,
     null,
   );
   generationService = new ThumbnailGenerationService(

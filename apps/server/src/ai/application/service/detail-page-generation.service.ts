@@ -56,6 +56,13 @@ import {
   registeredWorkspaceEditorHref,
   RegistrationWorkspaceService,
 } from './registration-workspace.service';
+import {
+  type GenerationAlertLink,
+  STANDALONE_GENERATION_ALERT,
+  isParentProductGenerationAlertLink,
+  productGenerationMetadata,
+} from './product-generation-alert-link';
+import { ProductGenerationAlertService } from './product-generation-alert.service';
 
 const DETAIL_PAGE_PROCESSING_STATUSES = [
   'PENDING',
@@ -89,6 +96,7 @@ export class DetailPageGenerationService {
     private readonly agentRunner: AgentRunnerPort,
     private readonly contentAssets: ContentAssetService,
     private readonly registrationWorkspaces: RegistrationWorkspaceService,
+    private readonly productGenerationAlerts: ProductGenerationAlertService,
   ) {}
 
   async uploadInputImage(
@@ -115,6 +123,7 @@ export class DetailPageGenerationService {
     dto: GenerateDetailPageBodyDto,
     organizationId: string,
     triggeredByUserId: string | null,
+    options: { operationAlert?: GenerationAlertLink } = {},
   ): Promise<DetailPageGenerationDto> {
     const heroImageMode = dto.heroImageMode ?? 'llm-pick';
     const templateId = dto.templateId ?? 'kids-playful';
@@ -143,6 +152,13 @@ export class DetailPageGenerationService {
       kcCertificationStatus,
       kcCertificationNumber,
     };
+    const operationAlert = options.operationAlert ?? STANDALONE_GENERATION_ALERT;
+    if (isParentProductGenerationAlertLink(operationAlert)) {
+      rawInput.productGeneration = {
+        mode: 'parent',
+        ...productGenerationMetadata(operationAlert),
+      };
+    }
     const requestedRegistrationWorkspace = dto.registrationWorkspaceId
       ? await this.resolveRegistrationWorkspace(organizationId, dto.registrationWorkspaceId)
       : null;
@@ -207,6 +223,7 @@ export class DetailPageGenerationService {
       sourceCandidateId: primarySourceCandidateId,
       existingResult: imageOnlyBase?.result,
       registrationWorkspaceId: registrationWorkspace.id,
+      operationAlert,
     });
   }
 
@@ -253,6 +270,7 @@ export class DetailPageGenerationService {
     existingResult?: unknown;
     generationGroupId?: string | null;
     registrationWorkspaceId: string;
+    operationAlert: GenerationAlertLink;
   }): Promise<DetailPageGenerationDto> {
     const targetMaster = input.productId
       ? await this.prisma.masterProduct.findFirst({
@@ -320,30 +338,39 @@ export class DetailPageGenerationService {
       inputAssets,
     });
 
-    await this.operationAlerts.start({
-      organizationId: input.organizationId,
-      operationKey: detailPageOperationKey(row.id),
-      type: 'detail_page_generation',
-      title: `상세페이지 생성: ${input.rawTitle.slice(0, 40)}`,
-      sourceType: 'content_generation',
-      sourceId: row.id,
-      actorUserId: input.triggeredByUserId,
-      targetType: primarySourceCandidateId ? 'sourcing_candidate' : 'registration_workspace',
-      targetId: primarySourceCandidateId ?? input.registrationWorkspaceId,
-      href: primarySourceCandidateId
-        ? detailPageResultHref({
-            productId: input.productId,
-            sourceCandidateId: primarySourceCandidateId,
-            contentGenerationId: row.id,
-            templateId: input.templateId,
-          })
-        : registeredWorkspaceEditorHref(input.registrationWorkspaceId, row.id),
-      metadata: {
-        templateId: input.templateId,
-        imageCount: input.imageUrls.length,
-        sourceCandidateId: primarySourceCandidateId,
-      },
-    });
+    if (isParentProductGenerationAlertLink(input.operationAlert)) {
+      await this.productGenerationAlerts.recordChildStarted({
+        organizationId: input.organizationId,
+        parentOperationKey: input.operationAlert.parentOperationKey,
+        childKind: 'detail_page',
+        childId: row.id,
+      });
+    } else {
+      await this.operationAlerts.start({
+        organizationId: input.organizationId,
+        operationKey: detailPageOperationKey(row.id),
+        type: 'detail_page_generation',
+        title: `상세페이지 생성: ${input.rawTitle.slice(0, 40)}`,
+        sourceType: 'content_generation',
+        sourceId: row.id,
+        actorUserId: input.triggeredByUserId,
+        targetType: primarySourceCandidateId ? 'sourcing_candidate' : 'registration_workspace',
+        targetId: primarySourceCandidateId ?? input.registrationWorkspaceId,
+        href: primarySourceCandidateId
+          ? detailPageResultHref({
+              productId: input.productId,
+              sourceCandidateId: primarySourceCandidateId,
+              contentGenerationId: row.id,
+              templateId: input.templateId,
+            })
+          : registeredWorkspaceEditorHref(input.registrationWorkspaceId, row.id),
+        metadata: {
+          templateId: input.templateId,
+          imageCount: input.imageUrls.length,
+          sourceCandidateId: primarySourceCandidateId,
+        },
+      });
+    }
 
     const enqueueResult = await this.agentRunner.runByType(
       DETAIL_PAGE_GENERATE_AGENT_TYPE,
@@ -389,17 +416,28 @@ export class DetailPageGenerationService {
         where: { id: row.id, organizationId: input.organizationId },
         data: { status: 'FAILED', errorMessage },
       });
-      await this.operationAlerts.fail(
-        input.organizationId,
-        detailPageOperationKey(row.id),
-        {
-          message: errorMessage,
-          metadata: {
-            errorCode: 'agent_enqueue_failed',
-            agentReason: enqueueResult.reason ?? null,
+      if (isParentProductGenerationAlertLink(input.operationAlert)) {
+        await this.productGenerationAlerts.markChildFinished({
+          organizationId: input.organizationId,
+          parentOperationKey: input.operationAlert.parentOperationKey,
+          childKind: 'detail_page',
+          status: 'failed',
+          childId: row.id,
+          errorMessage,
+        });
+      } else {
+        await this.operationAlerts.fail(
+          input.organizationId,
+          detailPageOperationKey(row.id),
+          {
+            message: errorMessage,
+            metadata: {
+              errorCode: 'agent_enqueue_failed',
+              agentReason: enqueueResult.reason ?? null,
+            },
           },
-        },
-      );
+        );
+      }
       throw new HttpException(errorMessage, HttpStatus.SERVICE_UNAVAILABLE);
     }
 
@@ -493,6 +531,7 @@ export class DetailPageGenerationService {
       sourceCandidateId: base.sourceCandidateId,
       generationGroupId,
       registrationWorkspaceId,
+      operationAlert: STANDALONE_GENERATION_ALERT,
     });
   }
 

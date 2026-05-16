@@ -3,6 +3,7 @@ import { DetailPageContentGenerationSinkAdapter } from '../detail-page-content-g
 import type { OperationAlertService } from '../../../../../automation/application/service/operation-alert.service';
 import type { DetailPageGeneratedImagesService } from '../../../../application/service/detail-page-generated-images.service';
 import type { ContentAssetService } from '../../../../application/service/content-asset.service';
+import type { ProductGenerationAlertService } from '../../../../application/service/product-generation-alert.service';
 
 const ORG = '11111111-1111-1111-1111-111111111111';
 const OTHER_ORG = '22222222-2222-2222-2222-222222222222';
@@ -91,6 +92,12 @@ function makeContentAssetsStub(): ContentAssetService {
   } as unknown as ContentAssetService;
 }
 
+function makeProductGenerationAlertsStub(): ProductGenerationAlertService {
+  return {
+    markChildFinished: vi.fn().mockResolvedValue({}),
+  } as unknown as ProductGenerationAlertService;
+}
+
 const VALID_OUTPUT = {
   templateId: 'bold-vertical' as const,
   result: {
@@ -129,6 +136,7 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
   let alerts: OperationAlertService;
   let images: DetailPageGeneratedImagesService;
   let contentAssets: ContentAssetService;
+  let productGenerationAlerts: ProductGenerationAlertService;
   let sink: DetailPageContentGenerationSinkAdapter;
 
   beforeEach(() => {
@@ -136,11 +144,13 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
     alerts = makeAlertsStub();
     images = makeImagesStub();
     contentAssets = makeContentAssetsStub();
+    productGenerationAlerts = makeProductGenerationAlertsStub();
     sink = new DetailPageContentGenerationSinkAdapter(
       prisma as never,
       alerts,
       images,
       contentAssets,
+      productGenerationAlerts,
     );
   });
 
@@ -219,6 +229,48 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
       );
     });
 
+    it('updates the product generation parent alert on detail success', async () => {
+      prisma = makePrismaStub(makeRow({
+        generationInput: {
+          ...STORED_RAW_INPUT,
+          productGeneration: {
+            mode: 'parent',
+            productGenerationBatchId: 'batch-1',
+            parentOperationKey: 'product-generation:batch-1',
+            childKind: 'detail_page',
+          },
+        },
+      }));
+      sink = new DetailPageContentGenerationSinkAdapter(
+        prisma as never,
+        alerts,
+        images,
+        contentAssets,
+        productGenerationAlerts,
+      );
+
+      await sink.applySuccess({
+        organizationId: ORG,
+        requestId: REQUEST,
+        runId: RUN,
+        sourceResourceId: CG_ID,
+        output: VALID_OUTPUT,
+      });
+
+      expect(productGenerationAlerts.markChildFinished).toHaveBeenCalledWith({
+        organizationId: ORG,
+        parentOperationKey: 'product-generation:batch-1',
+        childKind: 'detail_page',
+        status: 'succeeded',
+        childId: CG_ID,
+      });
+      expect(alerts.succeed).not.toHaveBeenCalledWith(
+        ORG,
+        `detail-page:${CG_ID}`,
+        expect.anything(),
+      );
+    });
+
     it('reuses an existing detail page artifact on replay-compatible success', async () => {
       prisma = makePrismaStub(makeRow({ detailPageArtifactId: ARTIFACT_ID }));
       sink = new DetailPageContentGenerationSinkAdapter(
@@ -226,6 +278,7 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
         alerts,
         images,
         contentAssets,
+        productGenerationAlerts,
       );
 
       await sink.applySuccess({
@@ -259,6 +312,7 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
         alerts,
         images,
         contentAssets,
+        productGenerationAlerts,
       );
 
       await sink.applySuccess({
@@ -305,6 +359,7 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
         alerts,
         images,
         contentAssets,
+        productGenerationAlerts,
       );
       await sink.applySuccess({
         organizationId: ORG,
@@ -325,6 +380,7 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
         alerts,
         images,
         contentAssets,
+        productGenerationAlerts,
       );
       await sink.applySuccess({
         organizationId: ORG,
@@ -389,6 +445,7 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
         alerts,
         images,
         contentAssets,
+        productGenerationAlerts,
       );
       await sink.applyFailure({
         organizationId: ORG,
@@ -409,6 +466,7 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
         alerts,
         images,
         contentAssets,
+        productGenerationAlerts,
       );
       await sink.applyFailure({
         organizationId: ORG,

@@ -3,6 +3,7 @@ import { ThumbnailGenerationSinkAdapter } from '../thumbnail-generation-sink.ada
 import * as persistence from '../../prisma/thumbnail-generation.persistence';
 import type { OperationAlertService } from '../../../../../automation/application/service/operation-alert.service';
 import type { ThumbnailGenerationEventPort } from '../../../../application/port/out/thumbnail-generation-event.port';
+import type { ProductGenerationAlertService } from '../../../../application/service/product-generation-alert.service';
 
 const ORG = '11111111-1111-1111-1111-111111111111';
 const REQUEST = '22222222-2222-2222-2222-222222222222';
@@ -10,7 +11,11 @@ const RUN = '33333333-3333-3333-3333-333333333333';
 const GEN_ID = '44444444-4444-4444-4444-444444444444';
 
 function makePrismaStub() {
-  return {} as unknown as Parameters<typeof persistence.lockGenerationForProcessing>[0];
+  return {
+    thumbnailGeneration: {
+      findFirst: vi.fn().mockResolvedValue(null),
+    },
+  } as unknown as Parameters<typeof persistence.lockGenerationForProcessing>[0];
 }
 
 function makeAlerts(): OperationAlertService {
@@ -22,6 +27,12 @@ function makeAlerts(): OperationAlertService {
 
 function makeEvents(): ThumbnailGenerationEventPort {
   return { append: vi.fn().mockResolvedValue(undefined) };
+}
+
+function makeProductGenerationAlerts(): ProductGenerationAlertService {
+  return {
+    markChildFinished: vi.fn().mockResolvedValue({}),
+  } as unknown as ProductGenerationAlertService;
 }
 
 const VALID_OUTPUT = {
@@ -42,6 +53,7 @@ describe('ThumbnailGenerationSinkAdapter', () => {
   let lockSpy: ReturnType<typeof vi.spyOn>;
   let applySuccessSpy: ReturnType<typeof vi.spyOn>;
   let markFailedSpy: ReturnType<typeof vi.spyOn>;
+  let productGenerationAlerts: ProductGenerationAlertService;
 
   beforeEach(() => {
     alerts = makeAlerts();
@@ -55,6 +67,7 @@ describe('ThumbnailGenerationSinkAdapter', () => {
     markFailedSpy = vi
       .spyOn(persistence, 'markGenerationFailed')
       .mockResolvedValue({ fromStatus: 'running', fromPhase: null, attemptNumber: 1 });
+    productGenerationAlerts = makeProductGenerationAlerts();
   });
 
   afterEach(() => {
@@ -164,6 +177,52 @@ describe('ThumbnailGenerationSinkAdapter', () => {
             agentRequestId: REQUEST,
           }),
         }),
+      );
+    });
+
+    it('updates the product generation parent alert on thumbnail failure', async () => {
+      const prisma = {
+        thumbnailGeneration: {
+          findFirst: vi.fn().mockResolvedValue({
+            inputMeta: {
+              productGeneration: {
+                mode: 'parent',
+                productGenerationBatchId: 'batch-1',
+                parentOperationKey: 'product-generation:batch-1',
+                childKind: 'thumbnail',
+              },
+            },
+          }),
+        },
+      } as unknown as Parameters<typeof persistence.lockGenerationForProcessing>[0];
+      const sink = new ThumbnailGenerationSinkAdapter(
+        prisma as never,
+        alerts,
+        events,
+        productGenerationAlerts,
+      );
+
+      await sink.applyFailure({
+        organizationId: ORG,
+        requestId: REQUEST,
+        runId: RUN,
+        sourceResourceId: GEN_ID,
+        errorCode: 'agent_failed',
+        errorMessage: 'thumbnail failed',
+      });
+
+      expect(productGenerationAlerts.markChildFinished).toHaveBeenCalledWith({
+        organizationId: ORG,
+        parentOperationKey: 'product-generation:batch-1',
+        childKind: 'thumbnail',
+        status: 'failed',
+        childId: GEN_ID,
+        errorMessage: 'thumbnail failed',
+      });
+      expect(alerts.fail).not.toHaveBeenCalledWith(
+        ORG,
+        `thumbnail-edit:${GEN_ID}`,
+        expect.anything(),
       );
     });
 
