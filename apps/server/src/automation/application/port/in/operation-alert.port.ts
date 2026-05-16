@@ -67,6 +67,12 @@ export interface OperationAlertPort {
   /** Open or re-emit an operation-alert lifecycle row. */
   start(input: StartOperationAlertInput): Promise<AlertRecord>;
 
+  /** Read an operation by its idempotency key. */
+  findByOperationKey(
+    organizationId: string,
+    operationKey: string,
+  ): Promise<AlertRecord | null>;
+
   /** Patch a running operation. No-op when the row is missing. */
   progress(
     organizationId: string,

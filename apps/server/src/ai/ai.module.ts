@@ -70,6 +70,7 @@ import { DetailPageQueryService } from './application/service/detail-page-query.
 import { DetailPageResultRefinerService } from './application/service/detail-page-result-refiner.service';
 import { ImageAssetOperationService } from './application/service/image-asset-operation.service';
 import { PostPromotionAiService } from './application/service/post-promotion-ai.service';
+import { ProductGenerationAlertService } from './application/service/product-generation-alert.service';
 import { BoldVerticalRefinerService } from './application/service/bold-vertical-refiner.service';
 import { KidsPlayfulRefinerService } from './application/service/kids-playful-refiner.service';
 import { ThumbnailComplianceVerifierService } from './application/service/thumbnail-compliance-verifier.service';
@@ -152,6 +153,7 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     BoldVerticalRefinerService,
     KidsPlayfulRefinerService,
     PostPromotionAiService,
+    ProductGenerationAlertService,
     TextAiService,
     ThumbnailAgentReconcileService,
     ThumbnailAnalysisService,

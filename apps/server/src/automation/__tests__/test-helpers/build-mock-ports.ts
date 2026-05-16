@@ -118,6 +118,7 @@ export type MockOperationAlertPort = {
 export function buildMockOperationAlertPort(): MockOperationAlertPort {
   return {
     start: vi.fn(),
+    findByOperationKey: vi.fn(),
     progress: vi.fn(),
     succeed: vi.fn(),
     fail: vi.fn(),
