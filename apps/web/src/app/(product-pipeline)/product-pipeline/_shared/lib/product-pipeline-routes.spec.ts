@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   collectedProductDetailHref,
+  collectedProductWorkspaceTabHref,
   collectedProductEditorHref,
   detailTemplateGenerationHref,
   detailPageEditorHref,
   normalizeProductPipelineReturnTo,
+  productBoundThumbnailWorkspaceHref,
   registeredProductDetailHref,
+  registeredProductWorkspaceTabHref,
   registeredProductEditorHref,
   thumbnailGenerationEditHref,
   thumbnailGenerationHubHref,
@@ -99,5 +102,36 @@ describe('product-pipeline route construction', () => {
     })).toBe(
       '/product-pipeline/detail-template-generation?registrationWorkspaceId=workspace-1&title=%ED%82%A4%EC%A6%88+%EC%BB%B5&returnTo=%2Fproduct-pipeline%2Fregistered-products%2Fworkspace-1',
     );
+  });
+
+  it('builds product workspace tab links for thumbnail and detail work', () => {
+    expect(collectedProductWorkspaceTabHref({
+      candidateId: 'candidate 1',
+      tab: 'thumbnail',
+    })).toBe('/product-pipeline/collected-products/candidate%201?tab=thumbnail');
+
+    expect(registeredProductWorkspaceTabHref({
+      workspaceId: 'workspace 1',
+      tab: 'detail',
+      generationId: 'generation-1',
+    })).toBe('/product-pipeline/registered-products/workspace%201?tab=detail&generationId=generation-1');
+  });
+
+  it('converges product-bound thumbnail entry to product workspace tab when resolvable', () => {
+    expect(productBoundThumbnailWorkspaceHref({
+      sourceCandidateId: 'candidate-1',
+      imageUrl: 'https://cdn.example.com/source.jpg',
+      mode: 'edit',
+    })).toBe('/product-pipeline/collected-products/candidate-1?tab=thumbnail&thumbnailMode=edit&imageUrl=https%3A%2F%2Fcdn.example.com%2Fsource.jpg');
+
+    expect(productBoundThumbnailWorkspaceHref({
+      registrationWorkspaceId: 'workspace-1',
+      generationId: 'generation-1',
+      mode: 'creative',
+    })).toBe('/product-pipeline/registered-products/workspace-1?tab=thumbnail&generationId=generation-1&thumbnailMode=creative');
+
+    expect(productBoundThumbnailWorkspaceHref({
+      productId: 'master-only',
+    })).toBeNull();
   });
 });

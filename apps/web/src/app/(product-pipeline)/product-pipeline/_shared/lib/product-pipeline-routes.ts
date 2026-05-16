@@ -1,4 +1,8 @@
 import type { ThumbnailSubjectParams } from './thumbnail-subject';
+import {
+  buildProductWorkspaceTabUrl,
+  type ProductWorkspaceTab,
+} from './product-workspace-tabs';
 
 export const PRODUCT_PIPELINE_ROOT = '/product-pipeline';
 export const COLLECTED_PRODUCTS_ROOT = `${PRODUCT_PIPELINE_ROOT}/collected-products`;
@@ -15,6 +19,124 @@ export function collectedProductDetailHref(candidateId: string): string {
 
 export function registeredProductDetailHref(workspaceId: string): string {
   return `${REGISTERED_PRODUCTS_ROOT}/${encodeURIComponent(workspaceId)}`;
+}
+
+export function collectedProductWorkspaceTabHref({
+  candidateId,
+  tab,
+  generationId,
+  thumbnailMode,
+  imageUrl,
+  uploadKey,
+}: {
+  candidateId: string;
+  tab: ProductWorkspaceTab;
+  generationId?: string | null;
+  thumbnailMode?: 'edit' | 'creative' | null;
+  imageUrl?: string | null;
+  uploadKey?: string | null;
+}): string {
+  return buildProductWorkspaceTabUrl({
+    pathname: collectedProductDetailHref(candidateId),
+    tab,
+    generationId,
+    thumbnailMode,
+    imageUrl,
+    uploadKey,
+  });
+}
+
+export function registeredProductWorkspaceTabHref({
+  workspaceId,
+  tab,
+  generationId,
+  thumbnailMode,
+  imageUrl,
+  uploadKey,
+}: {
+  workspaceId: string;
+  tab: ProductWorkspaceTab;
+  generationId?: string | null;
+  thumbnailMode?: 'edit' | 'creative' | null;
+  imageUrl?: string | null;
+  uploadKey?: string | null;
+}): string {
+  return buildProductWorkspaceTabUrl({
+    pathname: registeredProductDetailHref(workspaceId),
+    tab,
+    generationId,
+    thumbnailMode,
+    imageUrl,
+    uploadKey,
+  });
+}
+
+export function productBoundThumbnailWorkspaceHref({
+  productId: _productId,
+  sourceCandidateId,
+  registrationWorkspaceId,
+  returnTo,
+  generationId,
+  imageUrl,
+  uploadKey,
+  mode,
+}: {
+  productId?: string | null;
+  sourceCandidateId?: string | null;
+  registrationWorkspaceId?: string | null;
+  returnTo?: string | null;
+  generationId?: string | null;
+  imageUrl?: string | null;
+  uploadKey?: string | null;
+  mode?: 'edit' | 'creative' | null;
+}): string | null {
+  const normalizedReturnTo = normalizeProductPipelineReturnTo(returnTo);
+  const thumbnailMode = mode ?? null;
+  if (normalizedReturnTo?.startsWith(`${COLLECTED_PRODUCTS_ROOT}/`)) {
+    const [pathname, currentSearch = ''] = normalizedReturnTo.split('?');
+    return buildProductWorkspaceTabUrl({
+      pathname,
+      currentSearch,
+      tab: 'thumbnail',
+      generationId,
+      thumbnailMode,
+      imageUrl,
+      uploadKey,
+    });
+  }
+  if (normalizedReturnTo?.startsWith(`${REGISTERED_PRODUCTS_ROOT}/`)) {
+    const [pathname, currentSearch = ''] = normalizedReturnTo.split('?');
+    return buildProductWorkspaceTabUrl({
+      pathname,
+      currentSearch,
+      tab: 'thumbnail',
+      generationId,
+      thumbnailMode,
+      imageUrl,
+      uploadKey,
+    });
+  }
+  if (registrationWorkspaceId) {
+    return registeredProductWorkspaceTabHref({
+      workspaceId: registrationWorkspaceId,
+      tab: 'thumbnail',
+      generationId,
+      thumbnailMode,
+      imageUrl,
+      uploadKey,
+    });
+  }
+  if (sourceCandidateId) {
+    return collectedProductWorkspaceTabHref({
+      candidateId: sourceCandidateId,
+      tab: 'thumbnail',
+      generationId,
+      thumbnailMode,
+      imageUrl,
+      uploadKey,
+    });
+  }
+  return null;
 }
 
 export function collectedProductEditorHref({
