@@ -45,6 +45,7 @@ import type {
 } from './detail-page-ai.types';
 import { DetailPageQueryService } from './detail-page-query.service';
 import {
+  detailPageResultHref,
   detailPageOperationKey,
   toDetailPageStoredJson,
 } from './detail-page-stored.helpers';
@@ -157,6 +158,34 @@ export class DetailPageGenerationService {
       requestedRegistrationWorkspace?.sourceCandidateId ??
       sourceReferences.find((ref) => ref.sourceType === 'sourcing_candidate')
         ?.sourceCandidateId ?? null;
+    if (!effectiveProductId && !primarySourceCandidateId && !requestedRegistrationWorkspace) {
+      const selfCollectedCandidate = await this.generatedCandidates.ensureSelfCollectedDetailPageCandidate({
+        organizationId,
+        triggeredByUserId,
+        title: dto.rawTitle,
+        category: blankToNull(dto.rawCategory),
+        description: blankToNull(dto.rawDescription),
+        imageUrls,
+        rawData: {
+          rawTitle: dto.rawTitle,
+          rawCategory: dto.rawCategory,
+          rawDescription: dto.rawDescription,
+          rawOptions: dto.rawOptions,
+          imageUrls,
+          templateId,
+          generationMode,
+        },
+      });
+      primarySourceCandidateId = selfCollectedCandidate.id;
+      sourceReferences = [
+        {
+          sourceType: 'sourcing_candidate',
+          sourceCandidateId: selfCollectedCandidate.id,
+          label: selfCollectedCandidate.name,
+        },
+        ...sourceReferences,
+      ];
+    }
     if (
       requestedRegistrationWorkspace?.sourceCandidateId &&
       !sourceReferences.some((ref) => ref.sourceCandidateId === requestedRegistrationWorkspace.sourceCandidateId)
@@ -329,9 +358,16 @@ export class DetailPageGenerationService {
       sourceType: 'content_generation',
       sourceId: row.id,
       actorUserId: input.triggeredByUserId,
-      targetType: 'registration_workspace',
-      targetId: input.registrationWorkspaceId,
-      href: registeredWorkspaceEditorHref(input.registrationWorkspaceId, row.id),
+      targetType: primarySourceCandidateId ? 'sourcing_candidate' : 'registration_workspace',
+      targetId: primarySourceCandidateId ?? input.registrationWorkspaceId,
+      href: primarySourceCandidateId
+        ? detailPageResultHref({
+            productId: input.productId,
+            sourceCandidateId: primarySourceCandidateId,
+            contentGenerationId: row.id,
+            templateId: input.templateId,
+          })
+        : registeredWorkspaceEditorHref(input.registrationWorkspaceId, row.id),
       metadata: {
         templateId: input.templateId,
         imageCount: input.imageUrls.length,
@@ -841,6 +877,11 @@ export class DetailPageGenerationService {
 function pickRawString(record: Record<string, unknown>, key: string): string | null {
   const value = record[key];
   if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function blankToNull(value: string): string | null {
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
 }

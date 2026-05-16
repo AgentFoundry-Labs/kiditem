@@ -131,12 +131,12 @@ describe('SourcingService — candidate ingest', () => {
     }));
   });
 
-  it('listProducts defaults to imported sourcing platforms only', async () => {
+  it('listProducts defaults to imported and self-collected detail-page platforms only', async () => {
     await service.listProducts({ sort: 'newest', page: 1, limit: 20 } as any, 'org-1');
 
     expect(repo.listSourced).toHaveBeenCalledWith(expect.objectContaining({
       organizationId: 'org-1',
-      sourcePlatforms: ['ALIBABA_1688', 'ALIBABA'],
+      sourcePlatforms: ['ALIBABA_1688', 'ALIBABA', 'kiditem-detail-page'],
     }));
   });
 });

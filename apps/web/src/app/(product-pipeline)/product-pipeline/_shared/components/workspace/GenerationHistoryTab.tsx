@@ -30,14 +30,14 @@ import { ensureStyledDetailHtml, renderTemplateToHtml } from '@/app/(product-pip
 import {
   buildGenerationHistoryHtml,
   generatedDetailTemplateLabel,
-} from '../lib/generated-detail-html';
+} from '../../lib/generated-detail-html';
 import {
   useGenerationHistory,
   useGenerationHistoryDelete,
   type GenerationHistoryItem,
-} from '../hooks/useGenerationHistory';
+} from '../../hooks/useGenerationHistory';
 import { API_BASE } from '@/lib/api';
-import { registrationWorkspacesApi } from '../../../_shared/lib/registration-workspaces-api';
+import { registrationWorkspacesApi } from '../../lib/registration-workspaces-api';
 import {
   rowToRendererData,
   useKidsPlayfulOne,

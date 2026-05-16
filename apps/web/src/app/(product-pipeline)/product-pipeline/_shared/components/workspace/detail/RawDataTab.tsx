@@ -6,8 +6,8 @@ import { Database, ImageIcon, Package, Plus, Tag } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatNumber } from '@/lib/utils';
 import { queryKeys } from '@/lib/query-keys';
-import { productsApi } from '../../lib/sourcing-api';
-import { projectRawData } from '../../lib/raw-data-projection';
+import { productsApi } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api';
+import { projectRawData } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/raw-data-projection';
 
 interface RawDataTabProps {
   productId: string;
@@ -227,14 +227,14 @@ export default function RawDataTab({ productId, rawData, imageUrls, thumbnailUrl
 
         {selectedThumbnail ? (
           <div
-            className="group relative max-w-[220px] cursor-pointer overflow-hidden rounded-xl border border-blue-100 bg-slate-50 shadow-sm transition-all hover:border-blue-300 hover:ring-2 hover:ring-blue-200/60"
+            className="group relative aspect-square w-full max-w-[220px] shrink-0 cursor-pointer overflow-hidden rounded-xl border border-blue-100 bg-slate-50 shadow-sm transition-all hover:border-blue-300 hover:ring-2 hover:ring-blue-200/60"
             onClick={() => setEnlargedImage(selectedThumbnail)}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={selectedThumbnail}
               alt="Selected raw thumbnail"
-              className="aspect-square w-full object-cover"
+              className="block h-full w-full object-cover"
               loading="lazy"
             />
             <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/55 to-transparent px-3 py-2 text-[11px] font-bold text-white opacity-0 transition-opacity group-hover:opacity-100">
@@ -259,7 +259,7 @@ export default function RawDataTab({ productId, rawData, imageUrls, thumbnailUrl
             {productImages.map((url, idx) => (
               <div
                 key={`product-img-${idx}`}
-                className="aspect-square rounded-md border border-slate-200 overflow-hidden cursor-pointer hover:border-emerald-400 hover:ring-2 hover:ring-emerald-200/60 transition-all bg-slate-50 group relative"
+                className="aspect-square w-full rounded-md border border-slate-200 overflow-hidden cursor-pointer hover:border-emerald-400 hover:ring-2 hover:ring-emerald-200/60 transition-all bg-slate-50 group relative"
                 onClick={() => setEnlargedImage(url)}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -299,7 +299,7 @@ export default function RawDataTab({ productId, rawData, imageUrls, thumbnailUrl
               {descriptionImages.map((url, idx) => (
                 <div
                   key={`desc-img-${idx}`}
-                  className="aspect-[3/4] rounded-md border border-slate-200 overflow-hidden cursor-pointer hover:border-emerald-400 transition-colors bg-slate-50"
+                  className="aspect-square w-full rounded-md border border-slate-200 overflow-hidden cursor-pointer hover:border-emerald-400 transition-colors bg-slate-50"
                   onClick={() => setEnlargedImage(url)}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}

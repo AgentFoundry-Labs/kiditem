@@ -230,10 +230,10 @@ function HistoryCard({ entry, onOpen, onDelete }: HistoryCardProps) {
         'hover:border-violet-400 hover:shadow-lg transition-all',
       )}
     >
-      <div className="relative aspect-[4/3] bg-slate-100">
+      <div className="relative aspect-square w-full shrink-0 overflow-hidden bg-slate-100">
         {thumb ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={thumb} alt={entry.productName} className="w-full h-full object-cover" />
+          <img src={thumb} alt={entry.productName} className="block h-full w-full object-cover" />
         ) : (
           <div className="flex h-full items-center justify-center text-slate-400">
             <Sparkles size={32} />

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ProductTabContent from './ProductTabContent';
-import type { ProductEditState } from '../lib/types';
+import type { ProductEditState } from '../../lib/product-workspace-types';
 
 const { pushMock } = vi.hoisted(() => ({
   pushMock: vi.fn(),
@@ -11,7 +11,7 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushMock }),
 }));
 
-vi.mock('../../components/detail/ThumbnailGrid', () => ({
+vi.mock('./detail/ThumbnailGrid', () => ({
   default: ({
     onOpenThumbnailEditor,
     onOpenThumbnailGeneration,
@@ -30,11 +30,11 @@ vi.mock('../../components/detail/ThumbnailGrid', () => ({
   ),
 }));
 
-vi.mock('../../components/detail/TagEditor', () => ({
+vi.mock('./detail/TagEditor', () => ({
   default: () => <div data-testid="tag-editor" />,
 }));
 
-vi.mock('../hooks/useGenerateSourcingThumbnail', () => ({
+vi.mock('../../hooks/useGenerateSourcingThumbnail', () => ({
   useGenerateSourcingThumbnail: () => ({ isPending: false, mutateAsync: vi.fn() }),
   useSourcingThumbnailGenerations: () => ({ data: [] }),
 }));

@@ -6,7 +6,7 @@ import { queryKeys } from '@/lib/query-keys';
 import {
   toLegacyGenerationStatus,
   type DetailGenerationHistoryItem,
-} from '../../../_shared/lib/detail-generation-history';
+} from '../lib/detail-generation-history';
 
 export type GenerationHistoryItem = DetailGenerationHistoryItem;
 

@@ -8,19 +8,19 @@ import { cn } from '@/lib/utils';
 import {
   thumbnailGenerationEditHref,
   thumbnailGenerationHubHref,
-} from '../../../_shared/lib/product-pipeline-routes';
-import ThumbnailGrid from '../../components/detail/ThumbnailGrid';
-import TagEditor from '../../components/detail/TagEditor';
-import RawDataTab from '../../components/detail/RawDataTab';
-import { useSourcingThumbnailGenerations } from '../hooks/useGenerateSourcingThumbnail';
-import { CATEGORIES } from '../lib/types';
+} from '../../lib/product-pipeline-routes';
+import ThumbnailGrid from './detail/ThumbnailGrid';
+import TagEditor from './detail/TagEditor';
+import RawDataTab from './detail/RawDataTab';
+import { useSourcingThumbnailGenerations } from '../../hooks/useGenerateSourcingThumbnail';
+import { CATEGORIES } from '../../lib/product-workspace-types';
 import GenerationHistoryTab from './GenerationHistoryTab';
 import DetailPagePreview from './DetailPagePreview';
-import { buildRegistrationThumbnailOptions } from '../../lib/registration-selection';
-import { writeThumbnailEditorUpload } from '../../../thumbnail-generation/edit/lib/upload-session';
-import type { EditTabType } from '../../components/detail/ProductEditTabs';
-import type { ProductEditState } from '../lib/types';
-import type { GenerationHistoryItem } from '../hooks/useGenerationHistory';
+import { buildRegistrationThumbnailOptions } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/registration-selection';
+import { writeThumbnailEditorUpload } from '@/app/(product-pipeline)/product-pipeline/thumbnail-generation/edit/lib/upload-session';
+import type { EditTabType } from './detail/ProductEditTabs';
+import type { ProductEditState } from '../../lib/product-workspace-types';
+import type { GenerationHistoryItem } from '../../hooks/useGenerationHistory';
 
 interface Props {
   activeTab: EditTabType;

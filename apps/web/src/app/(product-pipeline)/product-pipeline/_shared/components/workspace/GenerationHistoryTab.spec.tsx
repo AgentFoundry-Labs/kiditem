@@ -14,7 +14,7 @@ vi.mock('@/lib/api-client', () => ({
 
 import { apiClient } from '@/lib/api-client';
 
-vi.mock('../hooks/useGenerationHistory', () => ({
+vi.mock('../../hooks/useGenerationHistory', () => ({
   useGenerationHistory: (
     _productId: string,
     initialAgentHistory: unknown[] = [],

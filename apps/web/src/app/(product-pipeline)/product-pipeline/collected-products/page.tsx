@@ -12,11 +12,11 @@ import {
   collectedProductDetailHref,
   collectedProductEditorHref,
 } from '../_shared/lib/product-pipeline-routes';
-import { GenerationProgressBannerStack } from './[id]/components/GenerationProgressBanner';
+import { ProductPipelineHeader } from '../_shared/components/inbox/ProductPipelineHeader';
+import { ProductPipelineStats } from '../_shared/components/inbox/ProductPipelineStats';
+import { GenerationProgressBannerStack } from '../_shared/components/workspace/GenerationProgressBanner';
 import ProductList from './components/list/ProductList';
 import ScrapeUrlInput from './components/list/ScrapeUrlInput';
-import SourcingHeader from './components/list/SourcingHeader';
-import SourcingStats from './components/list/SourcingStats';
 import SourcingToolbar from './components/list/SourcingToolbar';
 import { useProcessingIds } from './hooks/useProcessingIds';
 import { useScrapeUrl } from './hooks/useScrapeUrl';
@@ -26,6 +26,11 @@ import {
   productsApi,
   type SourcingSort,
 } from './lib/sourcing-api';
+import {
+  emptyStateCopyForSourceFilter,
+  platformForSourceFilter,
+  type SourcingSourceFilter,
+} from './lib/source-filter';
 
 export default function SourcingPage() {
   const router = useRouter();
@@ -33,13 +38,21 @@ export default function SourcingPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [sort, setSort] = useState<SourcingSort>('newest');
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [sourceFilter, setSourceFilter] = useState<SourcingSourceFilter>('all');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(() => new Set());
 
   const scrape = useScrapeUrl();
+  const platform = platformForSourceFilter(sourceFilter);
 
   const { data: productData, isLoading } = useQuery({
-    queryKey: queryKeys.sourcing.list({ page: String(page), limit: String(pageSize), sort }),
-    queryFn: () => productsApi.list({ page, limit: pageSize, sort }),
+    queryKey: queryKeys.sourcing.list({
+      page: String(page),
+      limit: String(pageSize),
+      sort,
+      source: sourceFilter,
+    }),
+    queryFn: () => productsApi.list({ page, limit: pageSize, sort, platform }),
     // 후보 inbox 는 sourced 상태가 작업 대상이다. 진행 중 AI 생성은 별도 배너 쿼리가 맡는다.
     refetchInterval: (query) => {
       const items = query.state.data?.items ?? [];
@@ -53,27 +66,74 @@ export default function SourcingPage() {
   const { processingIds } = useProcessingIds(products);
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => candidatesApi.delete(id),
-    onMutate: (id) => setDeletingId(id),
-    onSuccess: (_data, id) => {
+    mutationFn: async (ids: string[]) => {
+      const results = await Promise.allSettled(
+        ids.map((id) => candidatesApi.delete(id).then(() => id)),
+      );
+      const succeededIds = results
+        .filter((result): result is PromiseFulfilledResult<string> => result.status === 'fulfilled')
+        .map((result) => result.value);
+      const failedIds = ids.filter((id) => !succeededIds.includes(id));
+      return { succeededIds, failedIds };
+    },
+    onMutate: (ids) => {
+      setDeletingIds((prev) => new Set([...prev, ...ids]));
+    },
+    onSuccess: ({ succeededIds, failedIds }) => {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        succeededIds.forEach((id) => next.delete(id));
+        return next;
+      });
       queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.productContent.sourcingLinks(id) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.generations({ sourceCandidateId: id }) });
+      succeededIds.forEach((id) => {
+        queryClient.invalidateQueries({ queryKey: queryKeys.productContent.sourcingLinks(id) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.generations({ sourceCandidateId: id }) });
+      });
+      if (failedIds.length > 0) {
+        toast.error(`${failedIds.length}개 소싱 후보 삭제에 실패했습니다.`);
+      }
     },
     onError: (err) => toast.error(isApiError(err) ? err.detail : '소싱 후보 삭제에 실패했습니다.'),
-    onSettled: () => setDeletingId(null),
+    onSettled: (_data, _err, ids) => {
+      setDeletingIds((prev) => {
+        const next = new Set(prev);
+        ids.forEach((id) => next.delete(id));
+        return next;
+      });
+    },
   });
 
   const sourcedCount = products.filter((p) => p.status === 'sourced').length;
 
+  const setItemSelected = (id: string, selected: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (selected) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
+
+  const toggleVisibleSelection = (selected: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      products.forEach((product) => {
+        if (selected) next.add(product.id);
+        else next.delete(product.id);
+      });
+      return next;
+    });
+  };
+
   return (
     <div className="flex flex-col h-full bg-slate-50">
-      <SourcingHeader />
+      <ProductPipelineHeader />
 
       {/* productId 없이 호출 — Trend/KIDITEM 전체에서 진행 중인 첫 entry 반환 */}
       <GenerationInProgressBannerSlot products={products} />
 
-      <SourcingStats
+      <ProductPipelineStats
         draftLabel="등록 대기"
         totalLabel="전체 후보"
         draftCount={sourcedCount}
@@ -91,6 +151,11 @@ export default function SourcingPage() {
         }}
         onPageSizeChange={(nextPageSize) => {
           setPageSize(nextPageSize);
+          setPage(1);
+        }}
+        sourceFilter={sourceFilter}
+        onSourceFilterChange={(nextFilter) => {
+          setSourceFilter(nextFilter);
           setPage(1);
         }}
       />
@@ -114,8 +179,14 @@ export default function SourcingPage() {
           isLoading={isLoading}
           products={products}
           processingIds={processingIds}
-          deletingId={deletingId}
-          onDelete={deleteMutation.mutate}
+          deletingIds={deletingIds}
+          selectedIds={selectedIds}
+          isDeletingSelected={deleteMutation.isPending}
+          emptyState={emptyStateCopyForSourceFilter(sourceFilter)}
+          onDelete={(id) => deleteMutation.mutate([id])}
+          onDeleteSelected={() => deleteMutation.mutate([...selectedIds])}
+          onSelectVisible={toggleVisibleSelection}
+          onSelectedChange={setItemSelected}
           onNavigate={(id) => router.push(collectedProductDetailHref(id))}
           onOpenEditor={(id) => router.push(collectedProductEditorHref({ candidateId: id }))}
         />

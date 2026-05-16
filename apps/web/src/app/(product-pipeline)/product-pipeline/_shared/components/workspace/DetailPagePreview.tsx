@@ -35,7 +35,7 @@ import { ensureStyledDetailHtml, renderTemplateToHtml } from '@/app/(product-pip
 import {
   buildGenerationHistoryHtml,
   generatedDetailTemplateLabel,
-} from '../lib/generated-detail-html';
+} from '../../lib/generated-detail-html';
 import {
   DETAIL_PREVIEW_SCROLL_MESSAGE,
   SCRIPTED_PREVIEW_SANDBOX,
@@ -48,7 +48,7 @@ import {
   withDetailPreviewBridge,
 } from '@/app/(product-pipeline)/product-pipeline/_shared/lib/preview-sandbox';
 import { detailPageEditorHref } from '@/app/(product-pipeline)/product-pipeline/_shared/lib/product-pipeline-routes';
-import { useGenerationHistory, type GenerationHistoryItem } from '../hooks/useGenerationHistory';
+import { useGenerationHistory, type GenerationHistoryItem } from '../../hooks/useGenerationHistory';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 
@@ -153,42 +153,49 @@ export default function DetailPagePreview({
     { enabled: generationHistoryQueryEnabled },
   );
 
+  const latestCompletedAgentEntry = useMemo(
+    () => agentHistory.find((h) => isCompletedDetailGenerationStatus(h.status)) ?? null,
+    [agentHistory],
+  );
+  const effectiveDetailPageGenerationId =
+    savedDetailPageGenerationId ??
+    (hasSavedDetailPage === false ? null : latestCompletedAgentEntry?.id ?? null);
   const savedAgentEntry = useMemo(
     () => (
-      savedDetailPageGenerationId
-        ? agentHistory.find((h) => h.id === savedDetailPageGenerationId) ?? null
+      effectiveDetailPageGenerationId
+        ? agentHistory.find((h) => h.id === effectiveDetailPageGenerationId) ?? null
         : null
     ),
-    [agentHistory, savedDetailPageGenerationId],
+    [agentHistory, effectiveDetailPageGenerationId],
   );
-  const { data: savedGenerationEntry } = useKidsPlayfulOne(savedDetailPageGenerationId);
+  const { data: savedGenerationEntry } = useKidsPlayfulOne(effectiveDetailPageGenerationId);
   const { data: selectedAgentEditedHtml } = useQuery({
-    queryKey: savedDetailPageGenerationId
-      ? queryKeys.productContent.generationEditedHtml(savedDetailPageGenerationId)
+    queryKey: effectiveDetailPageGenerationId
+      ? queryKeys.productContent.generationEditedHtml(effectiveDetailPageGenerationId)
       : queryKeys.productContent.generationEditedHtml(''),
     queryFn: () => {
-      if (!savedDetailPageGenerationId) {
+      if (!effectiveDetailPageGenerationId) {
         throw new Error('detail page generation id is required');
       }
       return apiClient.get<{ html: string | null; savedAt: string | null }>(
-        `/api/ai/detail-page/${savedDetailPageGenerationId}/edited-html`,
+        `/api/ai/detail-page/${effectiveDetailPageGenerationId}/edited-html`,
       );
     },
-    enabled: !!savedDetailPageGenerationId,
+    enabled: !!effectiveDetailPageGenerationId,
     staleTime: 30_000,
   });
   const editorHref = useMemo(() => {
-    const generationId = savedDetailPageGenerationId;
+    const generationId = effectiveDetailPageGenerationId;
     if (!generationId && !detailEditorSourceCandidateId) return null;
     return detailPageEditorHref({
       candidateId: detailEditorSourceCandidateId,
       generationId,
       returnTo: detailEditorReturnHref,
     });
-  }, [detailEditorReturnHref, detailEditorSourceCandidateId, savedDetailPageGenerationId]);
+  }, [detailEditorReturnHref, detailEditorSourceCandidateId, effectiveDetailPageGenerationId]);
 
   const hasCurrentSavedDetailPage =
-    hasSavedDetailPage ?? Boolean(editedHtml || detailPreviewHtml.trim());
+    hasSavedDetailPage ?? Boolean(effectiveDetailPageGenerationId || editedHtml || detailPreviewHtml.trim());
 
   const savedDetailHtml = useMemo(() => {
     if (!hasCurrentSavedDetailPage) return null;
@@ -224,8 +231,8 @@ export default function DetailPagePreview({
   ]);
 
   // ⚡ 깜빡임 방지: 의미적으로 같은 컨텐츠인 동안 srcDoc 안 갱신.
-  const previewKey = savedDetailPageGenerationId
-    ? `saved:${savedDetailPageGenerationId}:${selectedAgentEditedHtml?.savedAt ?? 'generated'}`
+  const previewKey = effectiveDetailPageGenerationId
+    ? `saved:${effectiveDetailPageGenerationId}:${selectedAgentEditedHtml?.savedAt ?? 'generated'}`
     : editedHtml
       ? `edited:${editedHtml.length}`
       : hasCurrentSavedDetailPage
