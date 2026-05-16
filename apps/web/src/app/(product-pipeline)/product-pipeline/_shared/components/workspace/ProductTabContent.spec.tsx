@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ProductTabContent from './ProductTabContent';
 import type { ProductEditState } from '../../lib/product-workspace-types';
@@ -42,6 +42,18 @@ vi.mock('../../hooks/useGenerateSourcingThumbnail', () => ({
 vi.mock('./GenerationHistoryTab', () => ({
   default: ({ initialAgentHistory = [] }: { initialAgentHistory?: unknown[] }) => (
     <div data-testid="generation-history-tab">{initialAgentHistory.length}</div>
+  ),
+}));
+
+vi.mock('./thumbnail/ThumbnailWorkspaceTab', () => ({
+  default: ({ selectedRegistrationThumbnailUrl }: { selectedRegistrationThumbnailUrl?: string | null }) => (
+    <div data-testid="thumbnail-workspace-tab">{selectedRegistrationThumbnailUrl ?? 'none'}</div>
+  ),
+}));
+
+vi.mock('./detail/DetailPageWorkspaceTab', () => ({
+  default: ({ initialAgentHistory = [] }: { initialAgentHistory?: unknown[] }) => (
+    <div data-testid="detail-page-workspace-tab">{initialAgentHistory.length}</div>
   ),
 }));
 
@@ -95,11 +107,25 @@ describe('ProductTabContent', () => {
     expect(screen.queryByTestId('linked-produced-content-panel')).not.toBeInTheDocument();
   });
 
-  it('passes registration workspace history into the generation history tab', () => {
+  it('renders the thumbnail workspace tab when thumbnail is active', () => {
     render(
       <ProductTabContent
         {...baseProps}
-        activeTab="history"
+        activeTab="thumbnail"
+        selectedRegistrationThumbnailUrl="https://cdn.example.com/generated.jpg"
+      />,
+    );
+
+    expect(screen.getByTestId('thumbnail-workspace-tab')).toHaveTextContent(
+      'https://cdn.example.com/generated.jpg',
+    );
+  });
+
+  it('passes registration workspace history into the detail page workspace tab', () => {
+    render(
+      <ProductTabContent
+        {...baseProps}
+        activeTab="detail"
         initialAgentHistory={[
           {
             id: 'generation-1',
@@ -119,58 +145,13 @@ describe('ProductTabContent', () => {
       />,
     );
 
-    expect(screen.getByTestId('generation-history-tab')).toHaveTextContent('1');
+    expect(screen.getByTestId('detail-page-workspace-tab')).toHaveTextContent('1');
   });
 
-  it('opens thumbnail editor with the selected registration thumbnail and workspace identity', () => {
-    render(
-      <ProductTabContent
-        {...baseProps}
-        registrationWorkspaceId="workspace-1"
-        promotedMasterId="master-1"
-        selectedRegistrationThumbnailUrl="https://cdn.example.com/generated.jpg"
-        thumbnailGenerationReturnHref="/product-pipeline/registered-products/workspace-1"
-      />,
-    );
-
-    fireEvent.click(screen.getByTestId('thumbnail-editor'));
-
-    expect(pushMock).toHaveBeenCalledTimes(1);
-    const href = pushMock.mock.calls[0][0] as string;
-    expect(href).toContain('/product-pipeline/thumbnail-generation/edit?');
-    expect(href).toContain('productId=master-1');
-    expect(href).toContain('registrationWorkspaceId=workspace-1');
-    expect(href).toContain('imageUrl=https%3A%2F%2Fcdn.example.com%2Fgenerated.jpg');
-    expect(href).toContain('returnTo=%2Fproduct-pipeline%2Fregistered-products%2Fworkspace-1');
-  });
-
-  it('opens thumbnail generation hub when AI thumbnail generation is used', () => {
-    render(
-      <ProductTabContent
-        {...baseProps}
-        registrationWorkspaceId="workspace-1"
-        promotedMasterId="master-1"
-        selectedRegistrationThumbnailUrl="https://cdn.example.com/generated.jpg"
-        thumbnailGenerationReturnHref="/product-pipeline/registered-products/workspace-1"
-      />,
-    );
-
-    fireEvent.click(screen.getByTestId('thumbnail-generation'));
-
-    const href = pushMock.mock.calls[0][0] as string;
-    expect(href).toContain('/product-pipeline/thumbnail-generation?');
-    expect(href).not.toContain('/product-pipeline/thumbnail-generation/edit');
-    expect(href).toContain('registrationWorkspaceId=workspace-1');
-    expect(href).toContain('imageUrl=https%3A%2F%2Fcdn.example.com%2Fgenerated.jpg');
-  });
-
-  it('falls back to the first thumbnail when no registration thumbnail is selected', () => {
+  it('does not expose thumbnail generation actions in the basic tab', () => {
     render(<ProductTabContent {...baseProps} thumbnailSourceCandidateId="candidate-1" />);
 
-    fireEvent.click(screen.getByTestId('thumbnail-generation'));
-
-    const href = pushMock.mock.calls[0][0] as string;
-    expect(href).toContain('sourceCandidateId=candidate-1');
-    expect(href).toContain('imageUrl=https%3A%2F%2Fcdn.example.com%2Fproduct.jpg');
+    expect(screen.queryByTestId('thumbnail-generation')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('thumbnail-editor')).not.toBeInTheDocument();
   });
 });

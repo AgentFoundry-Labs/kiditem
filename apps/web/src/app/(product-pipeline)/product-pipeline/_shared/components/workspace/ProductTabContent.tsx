@@ -1,23 +1,12 @@
 'use client';
 
-import { useMemo } from 'react';
-import { useRouter } from 'next/navigation';
 import { ChevronDown, Settings } from 'lucide-react';
-import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import {
-  thumbnailGenerationEditHref,
-  thumbnailGenerationHubHref,
-} from '../../lib/product-pipeline-routes';
-import ThumbnailGrid from './detail/ThumbnailGrid';
 import TagEditor from './detail/TagEditor';
 import RawDataTab from './detail/RawDataTab';
-import { useSourcingThumbnailGenerations } from '../../hooks/useGenerateSourcingThumbnail';
 import { CATEGORIES } from '../../lib/product-workspace-types';
-import GenerationHistoryTab from './GenerationHistoryTab';
-import DetailPagePreview from './DetailPagePreview';
-import { buildRegistrationThumbnailOptions } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/registration-selection';
-import { writeThumbnailEditorUpload } from '@/app/(product-pipeline)/product-pipeline/thumbnail-generation/edit/lib/upload-session';
+import DetailPageWorkspaceTab from './detail/DetailPageWorkspaceTab';
+import ThumbnailWorkspaceTab from './thumbnail/ThumbnailWorkspaceTab';
 import type { EditTabType } from './detail/ProductEditTabs';
 import type { ProductEditState } from '../../lib/product-workspace-types';
 import type { GenerationHistoryItem } from '../../hooks/useGenerationHistory';
@@ -88,82 +77,13 @@ export default function ProductTabContent({
   onSelectRegistrationThumbnail,
   thumbnailGenerationReturnHref,
 }: Props) {
-  const router = useRouter();
   const effectiveThumbnailSourceCandidateId =
     thumbnailSourceCandidateId === undefined ? productId : thumbnailSourceCandidateId;
-  const thumbnailGenerations = useSourcingThumbnailGenerations({
-    sourceCandidateId: effectiveThumbnailSourceCandidateId,
-    registrationWorkspaceId,
-  });
-  const thumbnailOptions = useMemo(() => {
-    return buildRegistrationThumbnailOptions({
-      sourceImageUrls: editData.thumbnails,
-      generations: thumbnailGenerations.data ?? [],
-    });
-  }, [editData.thumbnails, thumbnailGenerations.data]);
-  const buildThumbnailRouteParams = () => {
-    const productImage = selectedRegistrationThumbnailUrl ?? editData.thumbnails[0];
-    if (!productImage) {
-      toast.error('먼저 썸네일 이미지를 추가해주세요');
-      return null;
-    }
-
-    const shouldUseUploadKey =
-      productImage.startsWith('data:') ||
-      productImage.startsWith('blob:') ||
-      productImage.length > 1500;
-    const uploadKey = shouldUseUploadKey
-      ? writeThumbnailEditorUpload(productImage, { productName: editData.name, mode: 'edit' })
-      : null;
-
-    return {
-      imageUrl: uploadKey ? null : productImage,
-      productName: editData.name,
-      productDescription: editData.name,
-      returnTo: thumbnailGenerationReturnHref,
-      subjectParams: {
-        registrationWorkspaceId,
-        productId: promotedMasterId,
-        sourceCandidateId: promotedMasterId ? null : effectiveThumbnailSourceCandidateId,
-      },
-      extraParams: uploadKey ? { uploadKey } : undefined,
-    };
-  };
-
-  const handleOpenThumbnailEditor = () => {
-    const params = buildThumbnailRouteParams();
-    if (!params) return;
-
-    router.push(thumbnailGenerationEditHref({
-      editCase: 'single',
-      mode: 'edit',
-      ...params,
-    }));
-  };
-
-  const handleOpenThumbnailGeneration = () => {
-    const params = buildThumbnailRouteParams();
-    if (!params) return;
-
-    router.push(thumbnailGenerationHubHref(params));
-  };
 
   switch (activeTab) {
     case 'basic':
       return (
         <div className="space-y-4 p-5">
-          <div className="card p-5">
-            <ThumbnailGrid
-              thumbnails={editData.thumbnails}
-              registrationOptions={thumbnailOptions}
-              selectedRegistrationThumbnailUrl={selectedRegistrationThumbnailUrl}
-              onSelectRegistrationThumbnail={onSelectRegistrationThumbnail}
-              onThumbnailsChange={(v) => updateField('thumbnails', v)}
-              onOpenThumbnailGeneration={handleOpenThumbnailGeneration}
-              onOpenThumbnailEditor={handleOpenThumbnailEditor}
-            />
-          </div>
-
           <div className="card p-5">
             <div className="space-y-3">
               <label className="text-base font-semibold text-slate-800">카테고리</label>
@@ -251,9 +171,24 @@ export default function ProductTabContent({
         </div>
       );
 
+    case 'thumbnail':
+      return (
+        <ThumbnailWorkspaceTab
+          editData={editData}
+          productId={productId}
+          promotedMasterId={promotedMasterId}
+          registrationWorkspaceId={registrationWorkspaceId}
+          thumbnailSourceCandidateId={effectiveThumbnailSourceCandidateId}
+          selectedRegistrationThumbnailUrl={selectedRegistrationThumbnailUrl}
+          onSelectRegistrationThumbnail={onSelectRegistrationThumbnail}
+          onThumbnailsChange={(v) => updateField('thumbnails', v)}
+          thumbnailGenerationReturnHref={thumbnailGenerationReturnHref}
+        />
+      );
+
     case 'detail':
       return (
-        <DetailPagePreview
+        <DetailPageWorkspaceTab
           productId={productId}
           detailPreviewHtml={detailPreviewHtml}
           editedHtml={editedHtml}
@@ -264,20 +199,10 @@ export default function ProductTabContent({
           generationHistoryQueryEnabled={generationHistoryQueryEnabled}
           detailEditorSourceCandidateId={detailEditorSourceCandidateId}
           detailEditorReturnHref={detailEditorReturnHref ?? thumbnailGenerationReturnHref}
-        />
-      );
-
-    case 'history':
-      return (
-        <GenerationHistoryTab
-          productId={productId}
-          templateCss={templateCss}
+          registrationWorkspaceId={registrationWorkspaceId}
           selectedKidsPlayfulId={selectedKidsPlayfulId}
           selectedBoldVerticalId={selectedBoldVerticalId}
           selectedAgentId={selectedAgentId}
-          registrationWorkspaceId={registrationWorkspaceId}
-          initialAgentHistory={initialAgentHistory}
-          generationHistoryQueryEnabled={generationHistoryQueryEnabled}
           onSelectKidsPlayful={onSelectKidsPlayful}
           onSelectBoldVertical={onSelectBoldVertical}
           onSelectAgent={onSelectAgent}

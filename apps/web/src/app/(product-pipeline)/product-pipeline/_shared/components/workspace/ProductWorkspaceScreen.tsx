@@ -1,7 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getTemplate, placeholderDetailPageData } from '@kiditem/templates';
 import { isApiError } from '@/lib/api-error';
@@ -18,6 +18,10 @@ import { useSourcingThumbnailGenerations } from '../../hooks/useGenerateSourcing
 import { useProductDetail } from '../../hooks/useProductDetail';
 import type { ProductWorkspaceData } from '../../hooks/useProductDetail';
 import { PLACEHOLDER_DATA, type ProductEditState } from '../../lib/product-workspace-types';
+import {
+  buildProductWorkspaceTabUrl,
+  parseProductWorkspaceTab,
+} from '../../lib/product-workspace-tabs';
 import { GenerationProgressBannerStack } from './GenerationProgressBanner';
 import ProductErrorView from './ProductErrorView';
 import ProductLoadingView from './ProductLoadingView';
@@ -54,9 +58,12 @@ export function ProductWorkspaceScreen({
   onOpenDetailTemplateGeneration,
 }: ProductWorkspaceScreenProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
+  const queryTab = parseProductWorkspaceTab(searchParams.get('tab'));
 
-  const [activeTab, setActiveTab] = useState<EditTabType>('basic');
+  const [activeTab, setActiveTab] = useState<EditTabType>(queryTab);
   const [isEditComplete, setIsEditComplete] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
   const [editData, setEditData] = useState<ProductEditState>(PLACEHOLDER_DATA);
@@ -72,6 +79,22 @@ export function ProductWorkspaceScreen({
   const [selectedRegistrationThumbnailUrl, setSelectedRegistrationThumbnailUrl] = useState<string | null>(null);
 
   const goBack = () => router.push(backHref);
+
+  useEffect(() => {
+    setActiveTab(queryTab);
+  }, [queryTab]);
+
+  const handleTabChange = (tab: EditTabType) => {
+    setActiveTab(tab);
+    router.replace(
+      buildProductWorkspaceTabUrl({
+        pathname,
+        currentSearch: searchParams,
+        tab,
+      }),
+      { scroll: false },
+    );
+  };
 
   const productDetailQuery =
     useProductDetail(productId, { enabled: !initialWorkspaceData });
@@ -164,7 +187,7 @@ export function ProductWorkspaceScreen({
   }
 
   const nameLength = Array.from(editData.name).length;
-  const usesWideContent = activeTab === 'detail' || activeTab === 'history';
+  const usesWideContent = activeTab === 'thumbnail' || activeTab === 'detail';
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -207,7 +230,7 @@ export function ProductWorkspaceScreen({
             usesWideContent ? 'w-full' : 'w-[72%] border-r border-slate-200'
           }`}
         >
-          <ProductEditTabs activeTab={activeTab} onTabChange={setActiveTab} />
+          <ProductEditTabs activeTab={activeTab} onTabChange={handleTabChange} />
           <div className="flex-1 overflow-y-auto bg-slate-50">
           <ProductTabContent
             activeTab={activeTab}

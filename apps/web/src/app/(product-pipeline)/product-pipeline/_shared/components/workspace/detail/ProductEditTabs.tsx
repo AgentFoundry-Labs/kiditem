@@ -1,22 +1,18 @@
 'use client';
 
-import { Database, History } from 'lucide-react';
+import { Database, Images } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import {
+  PRODUCT_WORKSPACE_TABS,
+  type ProductWorkspaceTab,
+} from '../../../lib/product-workspace-tabs';
 
-export type EditTabType = 'basic' | 'options' | 'detail' | 'history' | 'raw';
+export type EditTabType = ProductWorkspaceTab;
 
 interface ProductEditTabsProps {
   activeTab: EditTabType;
   onTabChange: (tab: EditTabType) => void;
 }
-
-const TABS: Array<{ key: EditTabType; label: string; iconKey?: 'history' | 'database' }> = [
-  { key: 'basic', label: '기본정보' },
-  { key: 'options', label: '옵션·판매가' },
-  { key: 'detail', label: '상세페이지' },
-  { key: 'history', label: '생성 이력', iconKey: 'history' },
-  { key: 'raw', label: '원본 데이터', iconKey: 'database' },
-];
 
 export default function ProductEditTabs({
   activeTab,
@@ -24,13 +20,14 @@ export default function ProductEditTabs({
 }: ProductEditTabsProps) {
   return (
     <div className="flex border-b border-slate-200 px-2">
-      {TABS.map((tab) => (
+      {PRODUCT_WORKSPACE_TABS.map((tab) => (
         <button
           key={tab.key}
+          type="button"
           onClick={() => onTabChange(tab.key)}
           className={cn('relative px-5 h-11 text-sm font-semibold transition-colors flex items-center gap-1.5', activeTab === tab.key ? 'text-emerald-600' : 'text-slate-500 hover:text-slate-800')}
         >
-          {tab.iconKey === 'history' && <History size={14} />}
+          {tab.iconKey === 'thumbnail' && <Images size={14} />}
           {tab.iconKey === 'database' && <Database size={14} />}
           {tab.label}
           {activeTab === tab.key && (
