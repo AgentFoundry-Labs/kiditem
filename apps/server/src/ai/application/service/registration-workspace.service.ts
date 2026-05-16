@@ -253,6 +253,7 @@ export class RegistrationWorkspaceService {
       organizationId,
       status: query.status ?? 'active',
       isDeleted: false,
+      ownerType: { not: 'sourcing_candidate' },
       ...(normalizedTitle ? { normalizedTitle } : {}),
     };
     const prisma = this.prisma as unknown as RegistrationWorkspacePrisma;

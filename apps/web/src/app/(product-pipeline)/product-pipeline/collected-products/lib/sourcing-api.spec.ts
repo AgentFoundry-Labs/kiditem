@@ -24,6 +24,26 @@ describe('sourcing candidate API', () => {
     expect(apiClient.delete).toHaveBeenCalledWith('/api/sourcing/candidates/cand-1');
   });
 
+  it('passes the selected source platform to the sourcing list endpoint', async () => {
+    vi.mocked(apiClient.get).mockResolvedValueOnce({
+      items: [],
+      total: 0,
+      page: 1,
+      limit: 20,
+    });
+
+    await productsApi.list({
+      page: 1,
+      limit: 20,
+      platform: 'kiditem-detail-page',
+      sort: 'newest',
+    });
+
+    expect(apiClient.get).toHaveBeenCalledWith(
+      '/api/sourcing/extension/products?page=1&limit=20&platform=kiditem-detail-page&sort=newest',
+    );
+  });
+
   it('keeps description/info images out of product thumbnail images', async () => {
     vi.mocked(apiClient.get).mockResolvedValueOnce({
       id: 'cand-1',

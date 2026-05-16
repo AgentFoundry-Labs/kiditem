@@ -12,7 +12,7 @@ import {
   getDetailGenerationMode,
   getDetailGenerationStage,
   type DetailGenerationMode,
-} from '../../lib/generation-progress-label';
+} from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/generation-progress-label';
 
 export interface GenerationEntry {
   /** entry 식별자 — React key */

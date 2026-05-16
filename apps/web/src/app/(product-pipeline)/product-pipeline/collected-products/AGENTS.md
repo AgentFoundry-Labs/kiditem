@@ -12,10 +12,9 @@ detail-page artifacts/revisions. Do not reintroduce user-facing `/sourcing` or
 ```text
 product-pipeline/collected-products/
 ├── page.tsx                                  # collected candidate inbox
-├── [id]/page.tsx                             # candidate detail and generated content links
+├── [id]/page.tsx                             # candidate detail route shell
 ├── [id]/editor/page.tsx                      # candidate-scoped editor bridge
-├── components/list/, detail/
-├── hooks/
+├── components/list/
 └── lib/
     ├── sourcing-api.ts
     ├── registration-selection.ts
@@ -23,9 +22,9 @@ product-pipeline/collected-products/
 ```
 
 Shared detail-page editor, template render, preview sandbox, download modal,
-and product-pipeline route constructors live under
-`product-pipeline/_shared/` because collected and registered products both use
-them.
+product workspace screen/tabs/history/preview, inbox shells, hooks, and
+product-pipeline route constructors live under `product-pipeline/_shared/`
+because collected and registered products both use them.
 
 ## Data Ownership
 
@@ -38,8 +37,11 @@ them.
   editor HTML versions.
 - `ContentAsset` + `ContentGenerationAssetUsage` are the source of truth for
   generated/edited images.
-- Detail-page generation results that are not bound to `MasterProduct` live in
-  registration workspaces under `/product-pipeline/registered-products`.
+- Product-less detail-page generation materializes a self-collected
+  `SourcingCandidate` (`sourcePlatform='kiditem-detail-page'`) so the visible
+  inbox card lives in collected products. Its candidate-backed
+  `RegistrationWorkspace` remains an internal history/selection anchor and must
+  not create a registered-products inbox card.
 - Thumbnail editor/generation results alone must not create collected or
   registered inbox cards.
 - Generated detail pages link to the shared editor route
@@ -73,7 +75,8 @@ and prefer small surrounding components/hooks for new behavior.
 - No user-facing `/sourcing` or `/product-content` route, sidebar entry, or new
   href.
 - No ownerless "direct generated content" tab inside collected products;
-  product-unbound detail-page output is a registration workspace.
+  product-unbound detail-page output must be represented by a self-collected
+  sourcing candidate card.
 - No direct DB access from frontend.
 - No editor localStorage persistence.
 - No server upload from the generic image picker; uploaded picker files remain
@@ -86,8 +89,8 @@ and prefer small surrounding components/hooks for new behavior.
 |---|---|
 | Generated-content href | `_shared/lib/product-pipeline-routes.ts`, panel/toast alert hrefs, server `detailPageResultHref` |
 | Detail-page editor save/load | `_shared/components/detail-editor/ContentGenerationEditorSurface.tsx`, backend `ai/detail-page` endpoints |
-| Candidate promotion/rejection | `components/detail/ProductEditHeader.tsx`, server sourcing candidate APIs |
-| Generated content list for candidate | `[id]/components/GenerationHistoryTab.tsx`, `GET /api/ai/content-archive/sourcing/:candidateId` |
+| Candidate promotion/rejection | `_shared/components/workspace/detail/ProductEditHeader.tsx`, server sourcing candidate APIs |
+| Generated content list for candidate | `_shared/components/workspace/GenerationHistoryTab.tsx`, `GET /api/ai/content-archive/sourcing/:candidateId` |
 | Template render/sandbox | `_shared/lib/template-html.tsx`, `_shared/lib/preview-sandbox.ts` |
 
 ## Registration Selection

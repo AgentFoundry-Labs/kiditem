@@ -236,7 +236,12 @@ describe('RegistrationWorkspaceService', () => {
 
     expect(prisma.registrationWorkspace.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { organizationId: ORG, status: 'active', isDeleted: false },
+        where: {
+          organizationId: ORG,
+          status: 'active',
+          isDeleted: false,
+          ownerType: { not: 'sourcing_candidate' },
+        },
       }),
     );
   });

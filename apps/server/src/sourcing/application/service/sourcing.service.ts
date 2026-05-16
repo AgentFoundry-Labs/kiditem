@@ -18,7 +18,7 @@ const PLATFORM_MAP: Record<string, string> = {
   tiktok: 'TIKTOK',
 };
 
-const COLLECTED_PRODUCT_SOURCE_PLATFORMS = ['ALIBABA_1688', 'ALIBABA'] as const;
+const COLLECTED_PRODUCT_SOURCE_PLATFORMS = ['ALIBABA_1688', 'ALIBABA', 'kiditem-detail-page'] as const;
 
 const PRODUCT_IMAGE_FIELD_KEYS = [
   'images', 'imageUrls', 'image_urls', 'mainImages', 'main_images',

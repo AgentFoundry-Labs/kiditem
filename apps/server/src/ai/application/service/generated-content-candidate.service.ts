@@ -17,16 +17,83 @@ interface GeneratedCandidateInput {
   imageSource: string;
 }
 
+interface SelfCollectedDetailPageCandidateInput {
+  organizationId: string;
+  triggeredByUserId: string | null;
+  title: string;
+  category: string | null;
+  description: string | null;
+  imageUrls: string[];
+  rawData: Record<string, unknown>;
+}
+
 @Injectable()
 export class GeneratedContentCandidateService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(input: GeneratedCandidateInput): Promise<{ id: string; name: string; category: string | null }> {
+  async ensureSelfCollectedDetailPageCandidate(
+    input: SelfCollectedDetailPageCandidateInput,
+  ): Promise<{ id: string; name: string; category: string | null }> {
+    const sourceUrl = selfCollectedDetailPageSourceUrl(input.title);
+    const existing = await this.prisma.sourcingCandidate.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        sourceUrl,
+        sourcePlatform: 'kiditem-detail-page',
+        status: 'sourced',
+        isDeleted: false,
+      },
+      select: { id: true, name: true, category: true },
+    });
+    if (existing) return existing;
+
+    try {
+      return await this.create(
+        {
+          organizationId: input.organizationId,
+          triggeredByUserId: input.triggeredByUserId,
+          title: input.title,
+          category: input.category,
+          description: input.description,
+          platform: 'kiditem-detail-page',
+          sourceKind: 'detail_page_generation',
+          imageUrls: input.imageUrls,
+          imageSource: 'detail-page-generation-input',
+          rawData: {
+            ...input.rawData,
+            sourceUrl,
+            sourcePlatform: 'kiditem-detail-page',
+            normalizedTitle: normalizeSelfCollectedTitle(input.title),
+          },
+        },
+        sourceUrl,
+      );
+    } catch (error) {
+      if (!isUniqueConstraintError(error)) throw error;
+      const raced = await this.prisma.sourcingCandidate.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          sourceUrl,
+          sourcePlatform: 'kiditem-detail-page',
+          status: 'sourced',
+          isDeleted: false,
+        },
+        select: { id: true, name: true, category: true },
+      });
+      if (!raced) throw error;
+      return raced;
+    }
+  }
+
+  async create(
+    input: GeneratedCandidateInput,
+    sourceUrl = `kiditem://generated-content/${input.sourceKind}/${randomUUID()}`,
+  ): Promise<{ id: string; name: string; category: string | null }> {
     const imageUrls = uniqueUrls(input.imageUrls);
     const candidate = await this.prisma.sourcingCandidate.create({
       data: {
         organizationId: input.organizationId,
-        sourceUrl: `kiditem://generated-content/${input.sourceKind}/${randomUUID()}`,
+        sourceUrl,
         sourcePlatform: input.platform,
         rawData: {
           ...input.rawData,
@@ -103,4 +170,24 @@ function uniqueUrls(urls: string[]): string[] {
 function safeTitle(value: string): string {
   const trimmed = value.trim();
   return (trimmed || '생성 콘텐츠 후보').slice(0, 120);
+}
+
+function normalizeSelfCollectedTitle(value: string): string {
+  const normalized = value
+    .normalize('NFKC')
+    .toLocaleLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/[^\p{L}\p{N}]/gu, '');
+  return normalized || '상세페이지작업';
+}
+
+function selfCollectedDetailPageSourceUrl(title: string): string {
+  return `kiditem://self-collected/detail-page/${encodeURIComponent(normalizeSelfCollectedTitle(title))}`;
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === 'P2002';
 }

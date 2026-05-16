@@ -7,22 +7,22 @@ import { getTemplate, placeholderDetailPageData } from '@kiditem/templates';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { useAllGenerationsInProgress } from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate';
-import MobilePreview from '../../components/detail/MobilePreview';
-import ProductEditHeader from '../../components/detail/ProductEditHeader';
-import ProductEditTabs, { type EditTabType } from '../../components/detail/ProductEditTabs';
+import MobilePreview from './detail/MobilePreview';
+import ProductEditHeader from './detail/ProductEditHeader';
+import ProductEditTabs, { type EditTabType } from './detail/ProductEditTabs';
 import { renderTemplateToHtml } from '@/app/(product-pipeline)/product-pipeline/_shared/lib/template-html';
 import {
   selectedThumbnailGenerationCandidateId as resolveSelectedThumbnailGenerationCandidateId,
-} from '../../lib/registration-selection';
-import { useSourcingThumbnailGenerations } from '../hooks/useGenerateSourcingThumbnail';
-import { useProductDetail } from '../hooks/useProductDetail';
-import type { ProductWorkspaceData } from '../hooks/useProductDetail';
-import { PLACEHOLDER_DATA, type ProductEditState } from '../lib/types';
+} from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/registration-selection';
+import { useSourcingThumbnailGenerations } from '../../hooks/useGenerateSourcingThumbnail';
+import { useProductDetail } from '../../hooks/useProductDetail';
+import type { ProductWorkspaceData } from '../../hooks/useProductDetail';
+import { PLACEHOLDER_DATA, type ProductEditState } from '../../lib/product-workspace-types';
 import { GenerationProgressBannerStack } from './GenerationProgressBanner';
 import ProductErrorView from './ProductErrorView';
 import ProductLoadingView from './ProductLoadingView';
 import ProductTabContent from './ProductTabContent';
-import type { GenerationHistoryItem } from '../hooks/useGenerationHistory';
+import type { GenerationHistoryItem } from '../../hooks/useGenerationHistory';
 
 interface ProductWorkspaceScreenProps {
   productId: string;

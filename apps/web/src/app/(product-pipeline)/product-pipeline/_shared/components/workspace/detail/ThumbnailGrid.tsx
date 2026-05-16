@@ -2,7 +2,7 @@
 
 import { CheckCircle2, GripVertical, ImageIcon, Loader2, Plus, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { RegistrationThumbnailOption } from '../../lib/registration-selection';
+import type { RegistrationThumbnailOption } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/registration-selection';
 
 interface ThumbnailGridProps {
   thumbnails: string[];

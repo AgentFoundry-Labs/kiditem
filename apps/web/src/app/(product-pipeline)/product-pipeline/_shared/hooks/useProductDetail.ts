@@ -9,9 +9,9 @@ import {
 import { API_BASE } from '@/lib/api';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { productsApi } from '../../lib/sourcing-api';
-import type { ProductDetailResponse } from '../../lib/sourcing-api';
-import { mapProcessedData, PLACEHOLDER_DATA, type ProductEditState } from '../lib/types';
+import { productsApi } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api';
+import type { ProductDetailResponse } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api';
+import { mapProcessedData, PLACEHOLDER_DATA, type ProductEditState } from '../lib/product-workspace-types';
 
 const resolveProcessedUrl = (url: string) =>
   url.startsWith('/processed/') ? `${API_BASE}${url}` : url;

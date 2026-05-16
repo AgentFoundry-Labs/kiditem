@@ -21,13 +21,13 @@ import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { useKidsPlayfulInProgress } from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate';
 import { useGenerateDetailPage, type GenerateMode } from '@/app/(product-pipeline)/product-pipeline/_shared/hooks/useGenerateDetailPage';
-import { useKidsPlayfulFromSourcing } from '../../[id]/hooks/useKidsPlayfulFromSourcing';
+import { useKidsPlayfulFromSourcing } from '../../../hooks/useKidsPlayfulFromSourcing';
 import TemplateSelectionModal from '@/app/(product-pipeline)/product-pipeline/_shared/components/detail-page/TemplateSelectionModal';
 import {
   candidatesApi,
   type PromoteCandidateResponse,
-} from '../../lib/sourcing-api';
-import { getInlineGenerationProgressLabel } from '../../lib/generation-progress-label';
+} from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api';
+import { getInlineGenerationProgressLabel } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/generation-progress-label';
 
 interface ProductEditHeaderProps {
   productName: string;

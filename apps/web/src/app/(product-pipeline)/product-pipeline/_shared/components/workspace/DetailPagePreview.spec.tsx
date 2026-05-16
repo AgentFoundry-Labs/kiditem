@@ -19,7 +19,7 @@ vi.mock('@/lib/api-client', () => ({
   },
 }));
 
-vi.mock('../hooks/useGenerationHistory', () => ({
+vi.mock('../../hooks/useGenerationHistory', () => ({
   useGenerationHistory: (
     _productId: string,
     initialAgentHistory: unknown[] = [],
@@ -152,5 +152,44 @@ describe('DetailPagePreview', () => {
       const preview = document.querySelector<HTMLIFrameElement>('iframe[title="detail-page-preview"]');
       expect(preview?.getAttribute('srcdoc')).toContain('정상 한글 상세페이지');
     });
+  });
+
+  it('uses the latest completed sourcing history when no workspace current generation is selected', async () => {
+    renderWithQueryClient(
+      <DetailPagePreview
+        productId="candidate-1"
+        detailPreviewHtml="<html><body>placeholder template</body></html>"
+        editedHtml={null}
+        templateCss="/* compiled template css */"
+        initialAgentHistory={[
+          {
+            id: 'generation-1',
+            generatedTitle: '자체 수집 생성물',
+            status: 'COMPLETED',
+            templateId: 'kids-playful',
+            detailPageData: null,
+            imageUrls: [],
+            processedImages: {},
+            detailPageArtifactId: 'artifact-1',
+            detailPageRevisionId: null,
+            errorMessage: null,
+            productId: null,
+            createdAt: '2026-05-15T12:00:00.000Z',
+          },
+        ]}
+        generationHistoryQueryEnabled={false}
+        detailEditorSourceCandidateId="candidate-1"
+        detailEditorReturnHref="/product-pipeline/collected-products/candidate-1"
+      />,
+    );
+
+    await waitFor(() => {
+      const preview = document.querySelector<HTMLIFrameElement>('iframe[title="detail-page-preview"]');
+      expect(preview?.getAttribute('srcdoc')).toContain('정상 한글 상세페이지');
+    });
+    expect(screen.getByRole('link', { name: '에디터에서 편집' })).toHaveAttribute(
+      'href',
+      '/product-pipeline/detail-pages/generation-1/editor?sourceCandidateId=candidate-1&returnTo=%2Fproduct-pipeline%2Fcollected-products%2Fcandidate-1',
+    );
   });
 });

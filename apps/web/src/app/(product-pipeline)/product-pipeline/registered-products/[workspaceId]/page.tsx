@@ -9,8 +9,8 @@ import type { ProductDetailResponse } from '../../collected-products/lib/sourcin
 import { queryKeys } from '@/lib/query-keys';
 import { registrationWorkspacesApi } from '../../_shared/lib/registration-workspaces-api';
 import { registrationWorkspaceHistoryToGenerationHistory } from '../../_shared/lib/detail-generation-history';
-import { ProductWorkspaceScreen } from '../../collected-products/[id]/components/ProductWorkspaceScreen';
-import type { ProductWorkspaceData } from '../../collected-products/[id]/hooks/useProductDetail';
+import { ProductWorkspaceScreen } from '../../_shared/components/workspace/ProductWorkspaceScreen';
+import type { ProductWorkspaceData } from '../../_shared/hooks/useProductDetail';
 import {
   REGISTERED_PRODUCTS_ROOT,
   detailTemplateGenerationHref,

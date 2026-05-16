@@ -230,8 +230,8 @@ Notable route subtrees:
 
 - `apps/web/src/app/(product-pipeline)/product-pipeline/collected-products`
   owns `/product-pipeline/collected-products`, the 1688/imported
-  `SourcingCandidate` inbox, candidate detail workspaces, and candidate-scoped
-  generated content links.
+  `SourcingCandidate` inbox, candidate detail route entries, and
+  candidate-scoped generated content links.
 - `apps/web/src/app/(product-pipeline)/product-pipeline/registered-products`
   owns `/product-pipeline/registered-products`, the detail-page generation
   workspace inbox backed by `RegistrationWorkspace`.
@@ -252,7 +252,7 @@ Notable route subtrees:
 | Path | Kind | Notes |
 |---|---|---|
 | `apps/web/src/__tests__` | Test Support | App-shell and proxy tests. |
-| `apps/web/src/app/(product-pipeline)/product-pipeline/_shared` | Route-Group Shared | Product pipeline route constructors, shared detail-page editor/render helpers, inbox shells, and thumbnail UI shared by sibling product-pipeline routes. |
+| `apps/web/src/app/(product-pipeline)/product-pipeline/_shared` | Route-Group Shared | Product pipeline route constructors, shared detail-page editor/render helpers, product workspace screen/tabs/history/preview, inbox shells, hooks, and thumbnail UI shared by sibling product-pipeline routes. |
 | `apps/web/src/components` | App-Wide Shared | Layout, panel, product, provider, chat, Coupang, and UI components. |
 | `apps/web/src/hooks` | App-Wide Shared | Shared hooks used across routes. |
 | `apps/web/src/lib` | App-Wide Shared | API client, query keys, auth, formatting, Supabase helpers. |

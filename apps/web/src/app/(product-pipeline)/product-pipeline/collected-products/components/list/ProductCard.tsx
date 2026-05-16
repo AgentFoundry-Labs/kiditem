@@ -1,22 +1,26 @@
 'use client';
 
 import { useState } from 'react';
-import { Loader2, Sparkles, Trash2, Wand2 } from 'lucide-react';
+import { Loader2, Sparkles, Wand2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import SourcingStatusBadge from './SourcingStatusBadge';
 import { useGenerateDetailPage, type GenerateMode } from '@/app/(product-pipeline)/product-pipeline/_shared/hooks/useGenerateDetailPage';
-import { useKidsPlayfulFromSourcing } from '../../[id]/hooks/useKidsPlayfulFromSourcing';
+import { useKidsPlayfulFromSourcing } from '@/app/(product-pipeline)/product-pipeline/_shared/hooks/useKidsPlayfulFromSourcing';
 import { useKidsPlayfulInProgress } from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate';
 import TemplateSelectionModal from '@/app/(product-pipeline)/product-pipeline/_shared/components/detail-page/TemplateSelectionModal';
+import { ProductInboxCardShell } from '@/app/(product-pipeline)/product-pipeline/_shared/components/inbox/ProductInboxCardShell';
 import { productsApi, type SourcedProduct } from '../../lib/sourcing-api';
 import type { DetailPageTemplateId } from '@kiditem/shared/ai';
 import { getInlineGenerationProgressLabel } from '../../lib/generation-progress-label';
+import { sourcePlatformLabel } from '../../lib/source-platform-label';
 
 interface Props {
   product: SourcedProduct;
   isProcessing: boolean;
   isDeleting: boolean;
+  selected?: boolean;
   onDelete: (id: string) => void;
+  onSelectedChange?: (id: string, selected: boolean) => void;
   onNavigate: (id: string) => void;
   onOpenEditor: (id: string) => void;
 }
@@ -25,7 +29,9 @@ export default function ProductCard({
   product,
   isProcessing,
   isDeleting,
+  selected = false,
   onDelete,
+  onSelectedChange,
   onNavigate,
   onOpenEditor,
 }: Props) {
@@ -73,88 +79,51 @@ export default function ProductCard({
     : null;
 
   const showProgress = (isProcessing || !!kpInProgress) && !!progressLabel;
-  const sourceLabel =
-    product.sourcePlatform === 'kiditem-detail-page'
-      ? '상세페이지 후보'
-      : product.sourcePlatform === 'kiditem-thumbnail'
-        ? '썸네일 후보'
-        : product.sourcePlatform === 'detail-page-generator'
-          ? '자체제작'
-          : product.sourcePlatform || '미지정';
+  const sourceLabel = sourcePlatformLabel(product.sourcePlatform);
+
+  // 진행 중 overlay — 카드 상단에 보라색 진행 배지. 다른 페이지로 이동 후 돌아와도 시각적으로 식별 가능.
+  // KP 진행 중도 동일 표시 (DB status='pending'/'processing' 인 row 가 있으면).
+  const statusBanner = showProgress ? (
+    <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-center gap-1.5 bg-violet-600 px-2 py-1 text-[10px] font-semibold text-white shadow">
+      <Loader2 size={10} className="animate-spin" />
+      {progressLabel}
+    </div>
+  ) : null;
 
   return (
-    <div
-      className={cn(
-        'bg-[var(--surface)] rounded-xl overflow-hidden shadow-sm border border-[var(--border-subtle)] hover:shadow-lg hover:-translate-y-0.5 transition-all group relative',
-        isDeleting && 'opacity-50 pointer-events-none',
-        showProgress && 'ring-2 ring-violet-400 ring-offset-1',
-      )}
-    >
-      {/* 진행 중 overlay — 카드 상단에 보라색 진행 배지. 다른 페이지로 이동 후 돌아와도 시각적으로 식별 가능.
-          KP 진행 중도 동일 표시 (DB status='pending'/'processing' 인 row 가 있으면). */}
-      {showProgress && (
-        <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-center gap-1.5 bg-violet-600 px-2 py-1 text-[10px] font-semibold text-white shadow">
-          <Loader2 size={10} className="animate-spin" />
-          {progressLabel}
+    <ProductInboxCardShell
+      title={product.name}
+      thumbnailUrl={product.thumbnailUrl}
+      disabled={isDeleting}
+      highlighted={showProgress}
+      statusBanner={statusBanner}
+      selectionAction={onSelectedChange
+        ? {
+            checked: selected,
+            ariaLabel: `${product.name} 선택`,
+            onChange: (checked) => onSelectedChange(product.id, checked),
+          }
+        : undefined}
+      thumbnailTopLeft={
+        <div className="flex flex-col gap-1">
+          <SourcingStatusBadge status={product.status} />
+          <span className="w-fit rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-bold tracking-wide text-white backdrop-blur-sm">
+            {sourceLabel}
+          </span>
         </div>
-      )}
-      <div
-        className="aspect-square relative overflow-hidden bg-[var(--surface-sunken)] cursor-pointer"
-        onClick={() => onNavigate(product.id)}
-      >
-        {product.thumbnailUrl ? (
-          <img
-            src={product.thumbnailUrl}
-            alt={product.name}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-[var(--text-muted)] text-sm">
-            No Image
-          </div>
-        )}
-
-        <div className="absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-2 p-2">
-          <div className="flex max-w-[calc(100%-42px)] flex-col gap-1">
-            <SourcingStatusBadge status={product.status} />
-            <span className="w-fit rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-bold tracking-wide text-white backdrop-blur-sm">
-              {sourceLabel}
-            </span>
-          </div>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete(product.id);
-            }}
-            disabled={isDeleting}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/45 bg-white/90 text-rose-500 shadow-sm backdrop-blur-sm transition-colors hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
-            title="소싱 후보 삭제"
-          >
-            {isDeleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-          </button>
-        </div>
-
-        <div className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/70 via-black/25 to-transparent px-2 pb-2 pt-12 opacity-0 transition-opacity group-hover:opacity-100">
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenEditor(product.id);
-            }}
-            className="flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-white/95 text-[11px] font-extrabold text-emerald-700 shadow-lg backdrop-blur-sm transition-colors hover:bg-emerald-50"
-          >
-            <Sparkles size={13} /> 에디터에서 바로 편집
-          </button>
-        </div>
-      </div>
-
-      <div className="p-3 bg-[var(--surface)]">
-        <h3
-          className="text-xs font-bold text-[var(--text-primary)] mb-2 line-clamp-2 min-h-[32px] leading-4"
-          title={product.name}
-        >
-          {product.name}
-        </h3>
-
+      }
+      deleteAction={{
+        isDeleting,
+        onDelete: () => onDelete(product.id),
+        title: '소싱 후보 삭제',
+      }}
+      hoverAction={{
+        icon: <Sparkles size={13} />,
+        label: '에디터에서 바로 편집',
+        onClick: () => onOpenEditor(product.id),
+      }}
+      onOpen={() => onNavigate(product.id)}
+      footer={
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -179,12 +148,13 @@ export default function ProductCard({
             </>
           )}
         </button>
-        <TemplateSelectionModal
-          isOpen={modalOpen}
-          onClose={() => setModalOpen(false)}
-          onConfirm={handleConfirm}
-        />
-      </div>
-    </div>
+      }
+    >
+      <TemplateSelectionModal
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onConfirm={handleConfirm}
+      />
+    </ProductInboxCardShell>
   );
 }

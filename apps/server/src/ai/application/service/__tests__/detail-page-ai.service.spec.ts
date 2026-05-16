@@ -19,6 +19,7 @@ const GENERATION_GROUP_ID = '55555555-5555-4555-8555-555555555555';
 const CANDIDATE_ID = '66666666-6666-4666-8666-666666666666';
 const REGISTRATION_WORKSPACE_ID = '77777777-7777-4777-8777-777777777777';
 const LOADED_REGISTRATION_WORKSPACE_ID = '77777777-7777-4777-8777-888888888888';
+const SELF_COLLECTED_CANDIDATE_ID = '88888888-8888-4888-8888-999999999999';
 
 function makeOperationAlertsStub(): OperationAlertService {
   return {
@@ -72,9 +73,17 @@ function makeService(
   operationAlerts: OperationAlertService,
   heroImageService?: unknown,
   agentRunner: AgentRunnerPort = makeAgentRunnerStub(),
-  generatedCandidates: { create: ReturnType<typeof vi.fn> } = {
+  generatedCandidates: {
+    create: ReturnType<typeof vi.fn>;
+    ensureSelfCollectedDetailPageCandidate: ReturnType<typeof vi.fn>;
+  } = {
     create: vi.fn(async () => ({
       id: 'generated-candidate-id',
+      name: 'Generated candidate',
+      category: null,
+    })),
+    ensureSelfCollectedDetailPageCandidate: vi.fn(async () => ({
+      id: SELF_COLLECTED_CANDIDATE_ID,
       name: 'Generated candidate',
       category: null,
     })),
@@ -481,6 +490,11 @@ describe('DetailPageAiService', () => {
         name: 'Generated candidate',
         category: null,
       })),
+      ensureSelfCollectedDetailPageCandidate: vi.fn(async () => ({
+        id: SELF_COLLECTED_CANDIDATE_ID,
+        name: '키즈 텀블러',
+        category: '완구',
+      })),
     };
     const registrationWorkspaces = {
       ensureForGeneration: vi.fn(async () => ({
@@ -533,6 +547,20 @@ describe('DetailPageAiService', () => {
     );
 
     expect(generatedCandidates.create).not.toHaveBeenCalled();
+    expect(generatedCandidates.ensureSelfCollectedDetailPageCandidate).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      triggeredByUserId: USER_ID,
+      title: '키즈 텀블러',
+      category: '완구',
+      description: '아이들이 가지고 놀기 좋은 장난감',
+      imageUrls: ['https://example.com/detail-1.jpg'],
+      rawData: expect.objectContaining({
+        rawTitle: '키즈 텀블러',
+        rawCategory: '완구',
+        rawDescription: '아이들이 가지고 놀기 좋은 장난감',
+        rawOptions: '혼합 색상',
+      }),
+    });
     expect(prisma.contentGeneration.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
@@ -545,10 +573,16 @@ describe('DetailPageAiService', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
-          sourceCandidateId: null,
+          sourceCandidateId: SELF_COLLECTED_CANDIDATE_ID,
           generationInput: expect.objectContaining({
             generationMode: 'image',
             baseContentGenerationId: draftBase.id,
+            sourceReferences: [
+              expect.objectContaining({
+                sourceType: 'sourcing_candidate',
+                sourceCandidateId: SELF_COLLECTED_CANDIDATE_ID,
+              }),
+            ],
           }),
         }),
       }),
@@ -622,7 +656,9 @@ describe('DetailPageAiService', () => {
     });
     expect(operationAlerts.start).toHaveBeenCalledWith(
       expect.objectContaining({
-        href: `/product-pipeline/detail-pages/${GENERATION_ID}/editor?returnTo=%2Fproduct-pipeline%2Fregistered-products%2F${REGISTRATION_WORKSPACE_ID}`,
+        targetType: 'sourcing_candidate',
+        targetId: CANDIDATE_ID,
+        href: `/product-pipeline/detail-pages/${GENERATION_ID}/editor?sourceCandidateId=${CANDIDATE_ID}&returnTo=%2Fproduct-pipeline%2Fcollected-products%2F${CANDIDATE_ID}`,
         metadata: expect.objectContaining({
           sourceCandidateId: CANDIDATE_ID,
         }),
@@ -989,13 +1025,18 @@ describe('DetailPageAiService', () => {
     expect(operationAlerts.succeed).not.toHaveBeenCalled();
   });
 
-  it('product-less generate creates a registration workspace without creating a sourcing candidate inbox card', async () => {
+  it('product-less generate creates a self-collected sourcing candidate and collected editor alert', async () => {
     const prisma = makePrisma();
     const operationAlerts = makeOperationAlertsStub();
     const generatedCandidates = {
       create: vi.fn(async () => ({
         id: 'generated-candidate-id',
         name: 'Generated candidate',
+        category: null,
+      })),
+      ensureSelfCollectedDetailPageCandidate: vi.fn(async () => ({
+        id: SELF_COLLECTED_CANDIDATE_ID,
+        name: '키즈 텀블러',
         category: null,
       })),
     };
@@ -1089,11 +1130,25 @@ describe('DetailPageAiService', () => {
 
     expect(prisma.masterProduct.findFirst).not.toHaveBeenCalled();
     expect(generatedCandidates.create).not.toHaveBeenCalled();
+    expect(generatedCandidates.ensureSelfCollectedDetailPageCandidate).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      triggeredByUserId: USER_ID,
+      title: '  키즈   텀블러  ',
+      category: null,
+      description: null,
+      imageUrls: ['https://example.com/standalone.jpg'],
+      rawData: expect.objectContaining({
+        rawTitle: '  키즈   텀블러  ',
+        rawCategory: '',
+        rawDescription: '',
+        rawOptions: '',
+      }),
+    });
     expect(registrationWorkspaces.ensureForGeneration).toHaveBeenCalledWith({
       organizationId: ORGANIZATION_ID,
       triggeredByUserId: USER_ID,
       rawTitle: '  키즈   텀블러  ',
-      sourceCandidateId: null,
+      sourceCandidateId: SELF_COLLECTED_CANDIDATE_ID,
       targetMasterId: null,
     });
     expect(prisma.contentGeneration.create).toHaveBeenCalledWith({
@@ -1102,7 +1157,7 @@ describe('DetailPageAiService', () => {
         contentType: 'detail_page',
         generationGroupId: GENERATION_GROUP_ID,
         registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
-        sourceCandidateId: null,
+        sourceCandidateId: SELF_COLLECTED_CANDIDATE_ID,
         triggeredByUserId: USER_ID,
         status: 'PROCESSING',
       }),
@@ -1126,7 +1181,7 @@ describe('DetailPageAiService', () => {
         organizationId: ORGANIZATION_ID,
         sourceResourceType: 'content_generation',
         sourceResourceId: GENERATION_ID,
-        reason: `detail_page_generate for registration workspace ${REGISTRATION_WORKSPACE_ID}`,
+        reason: `detail_page_generate for sourcing candidate ${SELF_COLLECTED_CANDIDATE_ID}`,
       }),
     );
     expect(operationAlerts.start).toHaveBeenCalledWith(
@@ -1135,9 +1190,9 @@ describe('DetailPageAiService', () => {
         operationKey: `detail-page:${GENERATION_ID}`,
         sourceType: 'content_generation',
         sourceId: GENERATION_ID,
-        targetType: 'registration_workspace',
-        targetId: REGISTRATION_WORKSPACE_ID,
-        href: `/product-pipeline/detail-pages/${GENERATION_ID}/editor?returnTo=%2Fproduct-pipeline%2Fregistered-products%2F${REGISTRATION_WORKSPACE_ID}`,
+        targetType: 'sourcing_candidate',
+        targetId: SELF_COLLECTED_CANDIDATE_ID,
+        href: `/product-pipeline/detail-pages/${GENERATION_ID}/editor?sourceCandidateId=${SELF_COLLECTED_CANDIDATE_ID}&returnTo=%2Fproduct-pipeline%2Fcollected-products%2F${SELF_COLLECTED_CANDIDATE_ID}`,
       }),
     );
     expect(operationAlerts.fail).not.toHaveBeenCalled();
@@ -1223,8 +1278,9 @@ describe('DetailPageAiService', () => {
     });
     expect(operationAlerts.start).toHaveBeenCalledWith(
       expect.objectContaining({
-        targetType: 'registration_workspace',
-        targetId: LOADED_REGISTRATION_WORKSPACE_ID,
+        targetType: 'sourcing_candidate',
+        targetId: CANDIDATE_ID,
+        href: `/product-pipeline/detail-pages/${GENERATION_ID}/editor?sourceCandidateId=${CANDIDATE_ID}&returnTo=%2Fproduct-pipeline%2Fcollected-products%2F${CANDIDATE_ID}`,
       }),
     );
   });

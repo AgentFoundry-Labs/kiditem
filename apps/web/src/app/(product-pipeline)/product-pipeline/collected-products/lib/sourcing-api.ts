@@ -38,54 +38,10 @@ interface ProductListResponse {
 }
 
 export type SourcingSort = 'newest' | 'oldest' | 'name_asc';
-export type ProductContentTab = 'candidate' | 'product';
-
-export interface ProductContentWorkspace {
-  id: string;
-  workspaceType: 'product' | 'unlinked_group';
-  title: string;
-  subtitle: string | null;
-  thumbnailUrl: string | null;
-  productId: string | null;
-  product: { id: string; code: string; name: string } | null;
-  generationGroupId: string | null;
-  href: string;
-  generationCount: number;
-  detailPageCount: number;
-  imageCount: number;
-  latestGenerationId: string | null;
-  latestStatus: string | null;
-  latestUpdatedAt: string;
-}
-
-interface ProductContentWorkspaceListResponse {
-  items: ProductContentWorkspace[];
-  total: number;
-  page: number;
-  limit: number;
-}
 
 interface ThumbnailGenerationListResponse {
   items: ThumbnailGenerationItem[];
   total: number;
-}
-
-export interface ProductLinkedContentWorkspace {
-  id: string;
-  productId: string;
-  title: string;
-  subtitle: string | null;
-  thumbnailUrl: string | null;
-  productCode: string | null;
-  detailPageCount: number;
-  imageCount: number;
-  thumbnailGenerationCount: number;
-  contentGenerationCount: number;
-  latestDetailGenerationId: string | null;
-  latestThumbnailGenerationId: string | null;
-  thumbnailGenerationIds: string[];
-  latestStatus: string | null;
-  latestUpdatedAt: string;
 }
 
 export interface ProductDetailResponse {
@@ -407,28 +363,6 @@ export const productsApi = {
 export const sourcingApi = {
   async scrapeUrl(url: string): Promise<ScrapeUrlResponse> {
     return apiClient.post<ScrapeUrlResponse>(`/api/sourcing/scrape-url`, { url });
-  },
-};
-
-export const contentArchiveApi = {
-  async listProductWorkspaces(params?: {
-    page?: number;
-    limit?: number;
-    contentType?: 'detail_page' | 'image';
-  }): Promise<ProductContentWorkspaceListResponse> {
-    const qs = new URLSearchParams({
-      page: String(params?.page ?? 1),
-      limit: String(params?.limit ?? 100),
-      linkState: 'linked',
-    });
-    if (params?.contentType) qs.set('contentType', params.contentType);
-    return apiClient.get<ProductContentWorkspaceListResponse>(`/api/ai/content-archive/workspaces?${qs}`);
-  },
-
-  async deleteProductWorkspace(productId: string): Promise<{ ok: true; deletedGenerations: number; deletedAssets: number }> {
-    return apiClient.delete<{ ok: true; deletedGenerations: number; deletedAssets: number }>(
-      `/api/ai/content-archive/products/${encodeURIComponent(productId)}`,
-    );
   },
 };
 
