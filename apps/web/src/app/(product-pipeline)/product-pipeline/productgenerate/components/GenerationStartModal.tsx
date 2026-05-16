@@ -53,7 +53,7 @@ export default function GenerationStartModal({ state, onClose, onAction }: Gener
               id="generation-start-modal-title"
               className="text-sm font-black text-[var(--text-primary)]"
             >
-              상세페이지 생성
+              상품 생성
             </h2>
           </div>
           {!isSubmitting && (
@@ -158,19 +158,20 @@ export default function GenerationStartModal({ state, onClose, onAction }: Gener
 }
 
 function getTitleText(state: GenerationDialogState): string {
-  if (state.phase === 'completed') return '생성 완료';
-  if (state.phase === 'failed') return '생성 실패';
-  if (state.phase === 'cancelled') return '생성 중단됨';
-  if (state.phase === 'started') return '생성 중입니다';
-  return '요청 등록 중입니다';
+  if (state.phase === 'completed') return '상품 생성 완료';
+  if (state.phase === 'failed') return '상품 생성 실패';
+  if (state.phase === 'cancelled') return '상품 생성 중단됨';
+  if (state.phase === 'started') return '상품 생성 중입니다';
+  return '상품 생성 요청 등록 중입니다';
 }
 
 function getDescriptionText(state: GenerationDialogState): string {
-  if (state.phase === 'completed') return '상세페이지가 완성되었습니다.';
-  if (state.phase === 'failed') return '상세페이지 생성이 완료되지 못했습니다.';
-  if (state.phase === 'cancelled') return '요청한 상세페이지 생성이 중단되었습니다.';
-  if (state.phase === 'started') return '백그라운드에서 상세페이지를 만들고 있습니다.';
-  return '상품 정보와 이미지를 정리해 생성 요청을 등록하고 있습니다.';
+  if (state.description) return state.description;
+  if (state.phase === 'completed') return '상세페이지와 썸네일 생성이 완료되었습니다.';
+  if (state.phase === 'failed') return '상품 생성이 완료되지 못했습니다.';
+  if (state.phase === 'cancelled') return '요청한 상품 생성이 중단되었습니다.';
+  if (state.phase === 'started') return '백그라운드에서 상세페이지와 썸네일을 만들고 있습니다.';
+  return '상품 정보와 이미지를 정리해 상품 생성 요청을 등록하고 있습니다.';
 }
 
 function getProgressLabel(state: GenerationDialogState): string {

@@ -218,10 +218,10 @@ export default function ProductInputSection({
       <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 shadow-sm">
         <div className="mb-5 text-center">
           <h1 className="text-2xl font-black text-[var(--text-primary)]">
-            AI 상품 등록
+            AI 상품 생성
           </h1>
           <p className="mt-2 text-sm font-semibold text-[var(--text-secondary)]">
-            상품 이미지와 핵심 정보를 바탕으로 등록용 상세페이지 카피와 구성을 자동 작성합니다.
+            상품 이미지와 핵심 정보를 바탕으로 수집 상품 작업공간, 상세페이지, 썸네일 초안을 함께 생성합니다.
           </p>
         </div>
 
@@ -622,12 +622,12 @@ export default function ProductInputSection({
           ) : (
             <>
               <Sparkles size={18} />
-              초안 생성
+              상품 생성
             </>
           )}
         </button>
         <p className="mt-2 text-xs font-medium text-[var(--text-tertiary)]">
-          생성 요청 후 수집 상품 화면에서 진행 상태를 확인할 수 있습니다.
+          상품 생성 요청 후 수집 상품 화면에서 상세페이지와 썸네일 진행 상태를 확인할 수 있습니다.
         </p>
       </div>
     </section>

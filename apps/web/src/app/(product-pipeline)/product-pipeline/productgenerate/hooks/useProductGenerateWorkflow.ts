@@ -11,20 +11,16 @@ import {
   COLLECTED_PRODUCTS_ROOT,
 } from '../../_shared/lib/product-pipeline-routes';
 import { useGenerateForm, type GenerateTemplateId } from '../../detail-template-generation/hooks/useGenerateForm';
+import { buildProductGenerationPayload } from '../lib/product-generation-payload';
 
-interface ManualProductRegistrationResponse {
+interface ProductGenerationResponse {
   ok: boolean;
   candidateId: string;
   href: string;
-}
-
-function optionNamesFromRawOptions(rawOptions: string): string[] {
-  return [...new Set(
-    rawOptions
-      .split(/[\n,]/)
-      .map((option) => option.trim())
-      .filter(Boolean),
-  )].slice(0, 10);
+  parentOperationKey: string;
+  detailGenerationId: string | null;
+  thumbnailGenerationId: string | null;
+  registrationWorkspaceId: string | null;
 }
 
 export function useProductGenerateWorkflow() {
@@ -51,31 +47,40 @@ export function useProductGenerateWorkflow() {
     setIsRegisteringCandidate(true);
     form.setError(null);
     try {
-      const candidate = await apiClient.post<ManualProductRegistrationResponse>(
-        '/api/sourcing/product-registration',
-        {
+      const response = await apiClient.post<ProductGenerationResponse>(
+        '/api/sourcing/product-generation',
+        buildProductGenerationPayload({
           title,
-          category: form.rawCategory.trim() || undefined,
-          description: form.rawDescription.trim() || undefined,
-          target: form.target.trim() || undefined,
-          thumbnailUrl: thumbnailUrl ?? undefined,
+          category: form.rawCategory,
+          target: form.target,
+          description: form.rawDescription,
+          thumbnailUrl,
           imageUrls: form.images,
-          optionNames: optionNamesFromRawOptions(form.rawOptions),
-        },
+          rawOptions: form.rawOptions,
+          templateId: selectedTemplateId,
+          ageGroup: form.ageGroup,
+          detailImageCount: form.detailImageCount,
+          usageSectionMode: form.usageSectionMode,
+          kcCertificationStatus: form.kcCertificationStatus,
+          kcCertificationNumber: form.kcCertificationNumber,
+          productSize: form.productSize,
+          colorVariantStatus: form.colorVariantStatus,
+          colorVariantNames: form.colorVariantNames,
+          boxSetStatus: form.boxSetStatus,
+          boxSetQuantity: form.boxSetQuantity,
+        }),
       );
-      setCreatedCandidateId(candidate.candidateId);
+      setCreatedCandidateId(response.candidateId);
       await queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
-      await form.handleSubmit(selectedTemplateId, {
-        sourceReferences: [
-          {
-            sourceType: 'sourcing_candidate',
-            sourceCandidateId: candidate.candidateId,
-            label: title,
-          },
-        ],
+      form.openGenerationDialog({
+        productName: title,
+        templateId: selectedTemplateId,
+        detailGenerationId: response.detailGenerationId,
+        thumbnailGenerationId: response.thumbnailGenerationId,
+        editorUrl: collectedProductDetailHref(response.candidateId),
       });
     } catch (err) {
-      form.setError(isApiError(err) ? err.detail : '상품 등록 후보 생성에 실패했습니다.');
+      form.setError(isApiError(err) ? err.detail : '상품 생성 요청에 실패했습니다.');
     } finally {
       setIsRegisteringCandidate(false);
     }

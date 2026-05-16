@@ -74,6 +74,7 @@ export interface GenerationDialogState {
   generationId?: string;
   editorUrl?: string;
   errorMessage?: string | null;
+  description?: string;
 }
 
 export interface DuplicateWorkspaceState {
@@ -108,6 +109,14 @@ interface DetailPagePrefillResult {
 
 interface UseGenerateFormOptions {
   successDescription?: string;
+}
+
+export interface OpenGenerationDialogInput {
+  productName: string;
+  templateId: GenerateTemplateId;
+  detailGenerationId: string | null;
+  thumbnailGenerationId: string | null;
+  editorUrl: string;
 }
 
 interface GenerateSubmitOptions {
@@ -474,6 +483,21 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
     setGenerationDialog(null);
   };
 
+  const openGenerationDialog = (input: OpenGenerationDialogInput) => {
+    const startedAt = new Date().toISOString();
+    setGenerationStartedAt(startedAt);
+    setGenerationDialog({
+      open: true,
+      phase: 'started',
+      startedAt,
+      productName: input.productName,
+      templateId: input.templateId,
+      editorUrl: input.editorUrl,
+      errorMessage: null,
+      description: '상품 작업공간을 만들고 상세페이지와 썸네일 생성을 시작했습니다.',
+    });
+  };
+
   return {
     rawTitle,
     setRawTitle,
@@ -516,6 +540,7 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
     generationStartedAt,
     generationDialog,
     closeGenerationDialog,
+    openGenerationDialog,
     handlePrefill,
     duplicateWorkspace,
     handleDuplicateCheck,
