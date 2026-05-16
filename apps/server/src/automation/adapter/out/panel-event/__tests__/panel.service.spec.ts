@@ -172,4 +172,51 @@ describe('PanelService', () => {
     expect(items.map((item) => item.id)).toContain('image:22222222-2222-4222-8222-222222222222');
     expect(items.map((item) => item.id)).toContain('33333333-3333-4333-8333-333333333333');
   });
+
+  it('projects product_generation parent operation alerts with collected product href', async () => {
+    const now = new Date();
+    prisma.alert.findMany.mockResolvedValue([
+      {
+        id: '44444444-4444-4444-8444-444444444444',
+        organizationId: 'co-1',
+        kind: 'operation',
+        status: 'running',
+        type: 'product_generation',
+        severity: 'info',
+        title: '상품 생성 중: 자석 다트게임',
+        message: null,
+        operationKey: 'product-generation:batch-1',
+        sourceType: 'sourcing_candidate',
+        sourceId: '00000000-0000-4000-8000-000000000003',
+        targetType: 'sourcing_candidate',
+        targetId: '00000000-0000-4000-8000-000000000003',
+        actorUserId: '11111111-1111-4111-8111-111111111111',
+        href: '/product-pipeline/collected-products/00000000-0000-4000-8000-000000000003',
+        progress: 0.15,
+        metadata: {
+          children: { detail_page: 'queued', thumbnail: 'queued' },
+        },
+        isRead: false,
+        readAt: null,
+        actionTaskId: null,
+        startedAt: now,
+        finishedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+
+    const items = await service.snapshot('co-1', 'user-a');
+    const item = items.find((entry) => entry.id === '44444444-4444-4444-8444-444444444444');
+
+    expect(item).toMatchObject({
+      kind: 'alert',
+      alertKind: 'operation',
+      title: '상품 생성 중: 자석 다트게임',
+      href: '/product-pipeline/collected-products/00000000-0000-4000-8000-000000000003',
+      operationKey: 'product-generation:batch-1',
+      sourceType: 'sourcing_candidate',
+      sourceId: '00000000-0000-4000-8000-000000000003',
+    });
+  });
 });
