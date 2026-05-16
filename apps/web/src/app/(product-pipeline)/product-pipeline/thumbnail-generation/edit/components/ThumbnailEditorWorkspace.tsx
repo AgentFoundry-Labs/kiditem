@@ -178,7 +178,7 @@ export function ThumbnailEditorWorkspace({
   }, [uploadedImageUrl]);
   const [supplementaryLabel, setSupplementaryLabel] = useState<SupplementaryLabel>('박스');
   const [pieceCount, setPieceCount] = useState<number | null>(null);
-  const [layout, setLayout] = useState<import('./lib/slots').LayoutKindLite>('auto');
+  const [layout, setLayout] = useState<import('../lib/slots').LayoutKindLite>('auto');
   // hint query 가 있으면 자동 prefill — AI 편집하기 클릭 시 productName 기반 thematic hint.
   const [userPrompt, setUserPrompt] = useState(hintParam ?? '');
 

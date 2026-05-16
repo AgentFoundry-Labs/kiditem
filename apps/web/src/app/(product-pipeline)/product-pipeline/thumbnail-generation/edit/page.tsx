@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { productBoundThumbnailWorkspaceHref } from '../../_shared/lib/product-pipeline-routes';
 import { ThumbnailEditorWorkspace } from './components/ThumbnailEditorWorkspace';
 
+export type { EditorMode, HistoryCandidate } from './lib/edit-page-types';
+
 export default function ThumbnailEditorWorkspacePage() {
   return (
     <Suspense fallback={<div className="min-h-screen bg-slate-50" />}>
