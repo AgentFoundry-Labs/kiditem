@@ -192,4 +192,34 @@ describe('DetailPagePreview', () => {
       '/product-pipeline/detail-pages/generation-1/editor?sourceCandidateId=candidate-1&returnTo=%2Fproduct-pipeline%2Fcollected-products%2Fcandidate-1',
     );
   });
+
+  it('places the full detail preview before the minimap inside the preview body', async () => {
+    renderWithQueryClient(
+      <DetailPagePreview
+        productId="candidate-1"
+        detailPreviewHtml="<html><body><p>preview</p></body></html>"
+        editedHtml={null}
+        templateCss=""
+        hasSavedDetailPage
+        savedDetailPageGenerationId={null}
+        initialAgentHistory={[]}
+        generationHistoryQueryEnabled={false}
+        detailEditorSourceCandidateId="candidate-1"
+        detailEditorReturnHref="/product-pipeline/collected-products/candidate-1"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTitle('detail-page-preview')).toBeInTheDocument();
+    });
+    const preview = screen.getByTitle('detail-page-preview');
+    const minimap = screen.getByTitle('detail-minimap');
+    const wrapper = preview.closest('[data-testid="detail-preview-body"]');
+    expect(wrapper).toContainElement(minimap);
+    expect(
+      Array.from(wrapper?.querySelectorAll('iframe') ?? []).map((iframe) =>
+        iframe.getAttribute('title'),
+      ),
+    ).toEqual(['detail-page-preview', 'detail-minimap']);
+  });
 });

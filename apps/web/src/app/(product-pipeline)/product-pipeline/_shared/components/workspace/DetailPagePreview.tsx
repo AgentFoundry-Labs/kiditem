@@ -1,6 +1,6 @@
 'use client';
 
-// 상세페이지 탭 — 좌측 미니맵 + 우측 풀 미리보기.
+// 상세페이지 탭 — 풀 미리보기 + 우측 미니맵.
 //
 // 미니맵: 페이지 전체를 작게 표시 (iframe 위에 transform: scale 적용한 cloned iframe)
 //   사용자 요구: "왼쪽에 상세페이지 길게 해서 지금 현재 어디 위치인지 한눈에 볼 수 있게"
@@ -375,10 +375,23 @@ export default function DetailPagePreview({
 
       <div className="overflow-x-auto">
         <div
+          data-testid="detail-preview-body"
           className="mx-auto flex w-fit gap-3"
           style={{ height: `${VIEWPORT_HEIGHT_VH}vh` }}
         >
-          {/* 좌측 — 미니맵. 페이지 전체가 fit-to-height 로 한 화면에 들어옴 */}
+          <div
+            className="w-screen rounded-xl border border-slate-200 bg-white overflow-hidden"
+            style={{ maxWidth: FULL_PREVIEW_WIDTH }}
+          >
+            <iframe
+              ref={fullIframeRef}
+              srcDoc={sandboxedPreviewHtml}
+              className="w-full h-full border-0"
+              title="detail-page-preview"
+              sandbox={SCRIPTED_PREVIEW_SANDBOX}
+            />
+          </div>
+
           <div
             ref={minimapContainerRef}
             className="relative shrink-0 rounded-lg border border-slate-200 bg-slate-100 overflow-hidden cursor-pointer shadow-sm"
@@ -407,20 +420,6 @@ export default function DetailPagePreview({
                 top: `${viewportTop * scale}px`,
                 height: `${viewportHeight * scale}px`,
               }}
-            />
-          </div>
-
-          {/* 우측 — 풀 미리보기 */}
-          <div
-            className="w-screen rounded-xl border border-slate-200 bg-white overflow-hidden"
-            style={{ maxWidth: FULL_PREVIEW_WIDTH }}
-          >
-            <iframe
-              ref={fullIframeRef}
-              srcDoc={sandboxedPreviewHtml}
-              className="w-full h-full border-0"
-              title="detail-page-preview"
-              sandbox={SCRIPTED_PREVIEW_SANDBOX}
             />
           </div>
         </div>
