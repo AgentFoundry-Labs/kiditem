@@ -14,6 +14,12 @@ import type {
   OperationAlertUpsertData,
 } from '../../../application/port/out/operation-alert.repository.port';
 
+const TERMINAL_OPERATION_STATUSES = new Set([
+  'succeeded',
+  'failed',
+  'cancelled',
+]);
+
 @Injectable()
 export class OperationAlertRepositoryAdapter
   implements OperationAlertRepositoryPort
@@ -117,6 +123,7 @@ export class OperationAlertRepositoryAdapter
       where: { organizationId, operationKey, kind: 'operation' },
     });
     if (!existing) return null;
+    if (TERMINAL_OPERATION_STATUSES.has(existing.status)) return existing;
 
     const mergedMetadata =
       patch.metadata !== undefined
@@ -143,7 +150,11 @@ export class OperationAlertRepositoryAdapter
     };
 
     await this.prisma.alert.updateMany({
-      where: { id: existing.id, organizationId },
+      where: {
+        id: existing.id,
+        organizationId,
+        status: { in: ['pending', 'running'] },
+      },
       data: updateData,
     });
     return this.prisma.alert.findFirst({

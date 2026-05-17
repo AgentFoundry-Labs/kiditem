@@ -32,6 +32,7 @@ function GeneratePageContent() {
     pickTemplate,
     returnToTemplatePick,
     handleGenerationDialogAction,
+    handleGenerationDialogCancel,
   } = useGenerateWorkflow();
   const {
     rawTitle,
@@ -175,6 +176,7 @@ function GeneratePageContent() {
         state={generationDialog}
         onClose={closeGenerationDialog}
         onAction={handleGenerationDialogAction}
+        onCancel={handleGenerationDialogCancel}
       />
     </div>
   );

@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   findJobMastersByIds: vi.fn(),
   findActiveJobForProduct: vi.fn(),
   createPendingEditJob: vi.fn(),
+  markGenerationCancelled: vi.fn(),
   toThumbnailGenerationItem: vi.fn(),
   resolveMasterThumbnailImage: vi.fn(),
 }));
@@ -36,7 +37,7 @@ vi.mock('../../../adapter/out/prisma/thumbnail-generation.persistence', () => ({
   createPendingEditJob: mocks.createPendingEditJob,
   deleteGeneration: vi.fn(),
   lockGenerationForProcessing: vi.fn(),
-  markGenerationCancelled: vi.fn(),
+  markGenerationCancelled: mocks.markGenerationCancelled,
   markGenerationFailed: vi.fn(),
   persistPendingInputImages: vi.fn(),
   removeCandidate: vi.fn(),
@@ -69,19 +70,25 @@ function makeGenerationJobsStub() {
     enqueueEditorGeneration: vi.fn(),
     scheduleEditJob: vi.fn(),
     processEditJob: vi.fn(),
+    cancelAgentRequestForGeneration: vi.fn(),
   };
 }
 
-function makeService(operationAlerts = makeOperationAlertsStub()) {
+function makeService(
+  operationAlerts = makeOperationAlertsStub(),
+  prisma: unknown = {},
+  generationEvents: unknown = null,
+) {
   const generationJobs = makeGenerationJobsStub();
   return {
     generationJobs,
     operationAlerts,
     service: new ThumbnailGenerationService(
-      {} as never,
+      prisma as never,
       {} as never,
       operationAlerts,
       generationJobs as never,
+      generationEvents as never,
     ),
   };
 }
@@ -144,5 +151,62 @@ describe('ThumbnailGenerationService operation alerts', () => {
         href: `/product-pipeline/thumbnail-generation?generationId=${GENERATION_ID}`,
       }),
     );
+  });
+
+  it('records cancellation audit in the thumbnail generation event payload', async () => {
+    const prisma = {
+      thumbnailGeneration: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: GENERATION_ID,
+          status: 'running',
+          phase: 'processing',
+        }),
+      },
+    };
+    const operationAlerts = makeOperationAlertsStub();
+    const generationEvents = { append: vi.fn() };
+    const { service, generationJobs } = makeService(
+      operationAlerts,
+      prisma,
+      generationEvents,
+    );
+    mocks.markGenerationCancelled.mockResolvedValueOnce({
+      fromStatus: 'running',
+      fromPhase: 'processing',
+    });
+
+    const result = await service.cancelForOperation({
+      organizationId: ORGANIZATION_ID,
+      generationId: GENERATION_ID,
+      actorUserId: USER_ID,
+      reason: '사용자 요청',
+    });
+
+    expect(result.status).toBe('cancelled');
+    expect(generationEvents.append).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'status_change',
+        payload: expect.objectContaining({
+          operationCancellation: expect.objectContaining({
+            requestedByUserId: USER_ID,
+            reason: '사용자 요청',
+            result: 'cancelled',
+            target: {
+              targetType: 'thumbnail_generation',
+              generationId: GENERATION_ID,
+            },
+            affected: expect.objectContaining({
+              thumbnailGenerationIds: [GENERATION_ID],
+            }),
+          }),
+        }),
+      }),
+    );
+    expect(generationJobs.cancelAgentRequestForGeneration).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      generationId: GENERATION_ID,
+      reason: '사용자 요청',
+      actorUserId: USER_ID,
+    });
   });
 });

@@ -28,9 +28,16 @@ export class DetailPageEditorController {
   list(
     @CurrentOrganization() organizationId: string,
     @Query('productId') productId?: string,
+    @Query('sourceCandidateId') sourceCandidateId?: string,
+    @Query('contentWorkspaceId') contentWorkspaceId?: string,
     @Query('templateId') templateId?: string,
   ) {
-    return this.service.list(organizationId, productId, templateId);
+    return this.service.list(organizationId, {
+      productId,
+      sourceCandidateId,
+      contentWorkspaceId,
+      templateId,
+    });
   }
 
   @Get(':id')

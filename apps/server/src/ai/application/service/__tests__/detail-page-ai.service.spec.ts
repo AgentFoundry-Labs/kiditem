@@ -845,6 +845,21 @@ describe('DetailPageAiService', () => {
       data: {
         status: 'CANCELLED',
         errorMessage: '사용자 요청으로 생성이 중단되었습니다.',
+        generationResult: expect.objectContaining({
+          templateId: 'bold-vertical',
+          operationCancellation: expect.objectContaining({
+            requestedByUserId: null,
+            reason: '사용자 요청으로 생성이 중단되었습니다.',
+            result: 'cancelled',
+            target: {
+              targetType: 'content_generation',
+              generationId: GENERATION_ID,
+            },
+            affected: expect.objectContaining({
+              contentGenerationIds: [GENERATION_ID],
+            }),
+          }),
+        }),
       },
     });
     expect(agentRunner.cancelBySource).toHaveBeenCalledWith({
@@ -853,13 +868,14 @@ describe('DetailPageAiService', () => {
       sourceResourceType: 'content_generation',
       sourceResourceId: GENERATION_ID,
       reason: '사용자 요청으로 생성이 중단되었습니다.',
+      actorUserId: null,
     });
     expect(operationAlerts.cancel).toHaveBeenCalledWith(
       ORGANIZATION_ID,
       `detail-page:${GENERATION_ID}`,
       expect.objectContaining({
         message: '사용자 요청으로 생성이 중단되었습니다.',
-        metadata: { errorCode: 'user_cancelled' },
+        metadata: expect.objectContaining({ errorCode: 'user_cancelled' }),
       }),
     );
     expect(result.imageProcessingStatus).toBe('cancelled');
@@ -1365,9 +1381,9 @@ describe('DetailPageAiService', () => {
     });
     expect(operationAlerts.start).toHaveBeenCalledWith(
       expect.objectContaining({
-        targetType: 'sourcing_candidate',
-        targetId: CANDIDATE_ID,
-        href: `/product-pipeline/detail-pages/${GENERATION_ID}/editor?sourceCandidateId=${CANDIDATE_ID}&returnTo=%2Fproduct-pipeline%2Fcollected-products%2F${CANDIDATE_ID}`,
+        targetType: 'content_workspace',
+        targetId: LOADED_REGISTRATION_WORKSPACE_ID,
+        href: `/product-pipeline/detail-pages/${GENERATION_ID}/editor?returnTo=%2Fproduct-pipeline%2Fregistered-products%2F${LOADED_REGISTRATION_WORKSPACE_ID}`,
       }),
     );
   });

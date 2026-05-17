@@ -95,6 +95,7 @@ interface TriggerInput {
   templateId?: DetailPageTemplateId;
   generationMode?: GenerateMode;
   imageUrls?: string[];
+  contentWorkspaceId?: string | null;
 }
 
 export function useKidsPlayfulFromSourcing() {
@@ -109,6 +110,7 @@ export function useKidsPlayfulFromSourcing() {
       templateId,
       generationMode = 'full',
       imageUrls: suppliedImageUrls,
+      contentWorkspaceId,
     }: TriggerInput) => {
       const rawTitle =
         pickString(rawData, ['title', 'name', 'productName', 'subject']) || productName;
@@ -151,6 +153,7 @@ export function useKidsPlayfulFromSourcing() {
           imageUrls,
           heroImageMode: 'llm-pick',
           productId: productId ?? undefined,
+          contentWorkspaceId: contentWorkspaceId ?? undefined,
           templateId: templateId ?? 'kids-playful',
           generationMode,
           sourceReferences: [

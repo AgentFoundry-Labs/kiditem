@@ -10,6 +10,7 @@ import {
 import { AgentOsBoundaryError } from '../../../domain/agent-os.errors';
 import {
   type AgentRunEventRecord,
+  type AgentRunRequestStatus,
   type AgentRunStatus,
 } from '../../../domain/agent-os.types';
 import {
@@ -182,27 +183,42 @@ export class AgentOsRunRepository {
         },
       });
 
-      const requestUpdate = await tx.agentRunRequest.updateMany({
+      const request = await tx.agentRunRequest.findFirst({
         where: { id: input.requestId, organizationId: input.organizationId },
-        data: {
-          status:
-            input.status === 'succeeded'
-              ? 'succeeded'
-              : input.status === 'failed'
-                ? 'failed'
-                : input.status === 'cancelled'
-                  ? 'cancelled'
-                  : 'skipped',
-          finishedAt: new Date(),
-          lastErrorCode: input.errorCode ?? null,
-          lastErrorMessage: input.errorMessage ?? null,
-        },
+        select: { id: true, status: true },
       });
-      if (requestUpdate.count !== 1) {
+      if (!request) {
         throw new AgentOsBoundaryError(
           'request_organization_mismatch',
           `AgentRunRequest ${input.requestId} does not belong to organization ${input.organizationId}.`,
         );
+      }
+
+      let requestStatus = request.status as AgentRunRequestStatus;
+      if (request.status !== 'cancelled') {
+        requestStatus =
+          input.status === 'succeeded'
+            ? 'succeeded'
+            : input.status === 'failed'
+              ? 'failed'
+              : input.status === 'cancelled'
+                ? 'cancelled'
+                : 'skipped';
+        const requestUpdate = await tx.agentRunRequest.updateMany({
+          where: { id: input.requestId, organizationId: input.organizationId },
+          data: {
+            status: requestStatus,
+            finishedAt: new Date(),
+            lastErrorCode: input.errorCode ?? null,
+            lastErrorMessage: input.errorMessage ?? null,
+          },
+        });
+        if (requestUpdate.count !== 1) {
+          throw new AgentOsBoundaryError(
+            'request_organization_mismatch',
+            `AgentRunRequest ${input.requestId} does not belong to organization ${input.organizationId}.`,
+          );
+        }
       }
 
       if (input.cost) {
@@ -251,7 +267,10 @@ export class AgentOsRunRepository {
         });
       }
 
-      return toRunRecord(run);
+      return {
+        run: toRunRecord(run),
+        requestStatus,
+      };
     });
   }
 }

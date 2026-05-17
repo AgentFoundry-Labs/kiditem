@@ -63,6 +63,10 @@ import {
   productGenerationMetadata,
 } from './product-generation-alert-link';
 import { ProductGenerationAlertService } from './product-generation-alert.service';
+import {
+  asPlainRecord,
+  operationCancellationAudit,
+} from '../../../common/operation-cancellation-audit';
 
 const DETAIL_PAGE_PROCESSING_STATUSES = [
   'PENDING',
@@ -223,6 +227,7 @@ export class DetailPageGenerationService {
       sourceCandidateId: primarySourceCandidateId,
       existingResult: imageOnlyBase?.result,
       contentWorkspaceId: contentWorkspace.id,
+      preferContentWorkspaceAlert: Boolean(dto.contentWorkspaceId),
       operationAlert,
     });
   }
@@ -270,6 +275,7 @@ export class DetailPageGenerationService {
     existingResult?: unknown;
     generationGroupId?: string | null;
     contentWorkspaceId: string;
+    preferContentWorkspaceAlert?: boolean;
     operationAlert: GenerationAlertLink;
   }): Promise<DetailPageGenerationDto> {
     const targetMaster = input.productId
@@ -346,6 +352,7 @@ export class DetailPageGenerationService {
         childId: row.id,
       });
     } else {
+      const alertTargetsContentWorkspace = input.preferContentWorkspaceAlert || !primarySourceCandidateId;
       await this.operationAlerts.start({
         organizationId: input.organizationId,
         operationKey: detailPageOperationKey(row.id),
@@ -354,20 +361,21 @@ export class DetailPageGenerationService {
         sourceType: 'content_generation',
         sourceId: row.id,
         actorUserId: input.triggeredByUserId,
-        targetType: primarySourceCandidateId ? 'sourcing_candidate' : 'content_workspace',
-        targetId: primarySourceCandidateId ?? input.contentWorkspaceId,
-        href: primarySourceCandidateId
-          ? detailPageResultHref({
-              productId: input.productId,
-              sourceCandidateId: primarySourceCandidateId,
-              contentGenerationId: row.id,
-              templateId: input.templateId,
-            })
-          : registeredWorkspaceEditorHref(input.contentWorkspaceId, row.id),
+        targetType: alertTargetsContentWorkspace ? 'content_workspace' : 'sourcing_candidate',
+        targetId: alertTargetsContentWorkspace ? input.contentWorkspaceId : primarySourceCandidateId,
+        href: alertTargetsContentWorkspace
+          ? registeredWorkspaceEditorHref(input.contentWorkspaceId, row.id)
+          : detailPageResultHref({
+            productId: input.productId,
+            sourceCandidateId: primarySourceCandidateId,
+            contentGenerationId: row.id,
+            templateId: input.templateId,
+          }),
         metadata: {
           templateId: input.templateId,
           imageCount: input.imageUrls.length,
           sourceCandidateId: primarySourceCandidateId,
+          contentWorkspaceId: input.contentWorkspaceId,
         },
       });
     }
@@ -816,43 +824,109 @@ export class DetailPageGenerationService {
   }
 
   async cancel(id: string, organizationId: string): Promise<DetailPageGenerationDto> {
-    const row = await this.prisma.contentGeneration.findFirst({
-      where: { id, organizationId },
+    const result = await this.cancelForOperation({
+      organizationId,
+      generationId: id,
+      actorUserId: null,
+      reason: DETAIL_PAGE_CANCELLED_MESSAGE,
     });
-    if (!row) throw new NotFoundException('Detail page generation not found');
+    if (result.status === 'not_found') {
+      throw new NotFoundException('Detail page generation not found');
+    }
+    return this.query.getById(id, organizationId);
+  }
+
+  async cancelForOperation(input: {
+    organizationId: string;
+    generationId: string;
+    actorUserId: string | null;
+    reason: string;
+  }): Promise<{
+    status: 'cancelled' | 'already_terminal' | 'not_found';
+    generationId: string;
+    operationKey: string | null;
+    preserved: boolean;
+  }> {
+    const row = await this.prisma.contentGeneration.findFirst({
+      where: { id: input.generationId, organizationId: input.organizationId },
+      select: { id: true, status: true, generationResult: true },
+    });
+    if (!row) {
+      return {
+        status: 'not_found',
+        generationId: input.generationId,
+        operationKey: null,
+        preserved: false,
+      };
+    }
 
     if (DETAIL_PAGE_TERMINAL_STATUSES.has(row.status)) {
-      return this.query.getById(id, organizationId);
+      return {
+        status: 'already_terminal',
+        generationId: row.id,
+        operationKey: detailPageOperationKey(row.id),
+        preserved: row.status === 'READY' || row.status === 'completed',
+      };
     }
 
     const updated = await this.prisma.contentGeneration.updateMany({
       where: {
-        id,
-        organizationId,
+        id: row.id,
+        organizationId: input.organizationId,
         status: { in: DETAIL_PAGE_PROCESSING_STATUSES },
       },
       data: {
         status: 'CANCELLED',
-        errorMessage: DETAIL_PAGE_CANCELLED_MESSAGE,
+        errorMessage: input.reason,
+        generationResult: {
+          ...asPlainRecord(row.generationResult),
+          operationCancellation: operationCancellationAudit({
+            requestedByUserId: input.actorUserId,
+            reason: input.reason,
+            target: { targetType: 'content_generation', generationId: row.id },
+            affected: { contentGenerationIds: [row.id] },
+            result: 'cancelled',
+          }),
+        },
       },
     });
 
-    if (updated.count > 0) {
-      await this.agentRunner.cancelBySource?.({
-        organizationId,
-        sourceType: AI_AGENT_SOURCE_TYPES.DETAIL_PAGE_GENERATE,
-        sourceResourceType: 'content_generation',
-        sourceResourceId: id,
-        reason: DETAIL_PAGE_CANCELLED_MESSAGE,
-      });
-
-      await this.operationAlerts.cancel(organizationId, detailPageOperationKey(id), {
-        message: DETAIL_PAGE_CANCELLED_MESSAGE,
-        metadata: { errorCode: 'user_cancelled' },
-      });
+    if (updated.count === 0) {
+      return {
+        status: 'already_terminal',
+        generationId: row.id,
+        operationKey: detailPageOperationKey(row.id),
+        preserved: false,
+      };
     }
 
-    return this.query.getById(id, organizationId);
+    await this.agentRunner.cancelBySource?.({
+      organizationId: input.organizationId,
+      sourceType: AI_AGENT_SOURCE_TYPES.DETAIL_PAGE_GENERATE,
+      sourceResourceType: 'content_generation',
+      sourceResourceId: row.id,
+      reason: input.reason,
+      actorUserId: input.actorUserId,
+    });
+
+    await this.operationAlerts.cancel(input.organizationId, detailPageOperationKey(row.id), {
+      message: input.reason,
+      metadata: {
+        errorCode: 'user_cancelled',
+        cancel: {
+          requestedByUserId: input.actorUserId,
+          requestedAt: new Date().toISOString(),
+          reason: input.reason,
+        },
+      },
+    });
+
+    return {
+      status: 'cancelled',
+      generationId: row.id,
+      operationKey: detailPageOperationKey(row.id),
+      preserved: false,
+    };
   }
 
   private normalizeTemplateId(value: string | null): DetailPageTemplateId {

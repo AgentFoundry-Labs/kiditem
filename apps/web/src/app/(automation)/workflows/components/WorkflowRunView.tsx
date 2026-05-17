@@ -9,9 +9,12 @@ import {
   User,
   ChevronDown,
   ChevronUp,
+  Square,
+  Ban,
 } from 'lucide-react';
 import { cn, formatDateTime } from '@/lib/utils';
 import { mapStepStatus } from '../lib/workflow-types';
+import { useCancelWorkflowRun } from '../hooks/useWorkflows';
 import WorkflowCanvas from './WorkflowCanvas';
 import NodeDetailPopover from './NodeDetailPopover';
 import type {
@@ -40,10 +43,20 @@ const runStatusConfig: Record<
     color: 'bg-green-100 text-green-700',
     icon: CheckCircle,
   },
+  succeeded: {
+    label: '완료',
+    color: 'bg-green-100 text-green-700',
+    icon: CheckCircle,
+  },
   failed: {
     label: '실패',
     color: 'bg-red-100 text-red-700',
     icon: XCircle,
+  },
+  cancelled: {
+    label: '취소됨',
+    color: 'bg-slate-100 text-slate-600',
+    icon: Ban,
   },
 };
 
@@ -73,6 +86,7 @@ export default function WorkflowRunView({
   const [showSteps, setShowSteps] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [popoverPos, setPopoverPos] = useState({ x: 0, y: 0 });
+  const cancelRun = useCancelWorkflowRun();
 
   const stepStatusMap = useMemo(() => {
     return new Map<string, StepStatusInfo>(
@@ -103,6 +117,7 @@ export default function WorkflowRunView({
 
   const cfg = runStatusConfig[run.status] ?? runStatusConfig.pending;
   const StatusIcon = cfg.icon;
+  const isActiveRun = run.status === 'pending' || run.status === 'running';
 
   return (
     <div className="space-y-4">
@@ -113,6 +128,7 @@ export default function WorkflowRunView({
             'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium',
             cfg.color,
           )}
+          aria-label={`상태: ${cfg.label}`}
         >
           <StatusIcon
             className={cn(
@@ -141,6 +157,27 @@ export default function WorkflowRunView({
           <span className="text-xs text-red-500 truncate max-w-[300px]">
             {run.error}
           </span>
+        )}
+
+        {isActiveRun && (
+          <button
+            type="button"
+            onClick={() => cancelRun.mutate(run.id)}
+            disabled={cancelRun.isPending}
+            aria-label="워크플로 실행 중단"
+            className={cn(
+              'ml-auto inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-slate-200',
+              'text-xs font-medium text-slate-600 hover:border-red-200 hover:bg-red-50 hover:text-red-600',
+              'disabled:cursor-wait disabled:opacity-70',
+            )}
+          >
+            {cancelRun.isPending ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Square className="w-3.5 h-3.5" />
+            )}
+            중단
+          </button>
         )}
       </div>
 

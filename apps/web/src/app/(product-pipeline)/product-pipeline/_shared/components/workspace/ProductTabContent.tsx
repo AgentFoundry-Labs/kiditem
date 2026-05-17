@@ -43,6 +43,9 @@ interface Props {
   /** 사용자가 생성 이력에서 고른 ContentAgent entry id. */
   selectedAgentId: string | null;
   contentWorkspaceId?: string | null;
+  generationQueryProductId?: string | null;
+  generationQuerySourceCandidateId?: string | null;
+  generationQueryContentWorkspaceId?: string | null;
   hasSavedDetailPage?: boolean;
   savedDetailPageGenerationId?: string | null;
   initialAgentHistory?: GenerationHistoryItem[];
@@ -85,6 +88,9 @@ export default function ProductTabContent({
   selectedBoldVerticalId,
   selectedAgentId,
   contentWorkspaceId,
+  generationQueryProductId,
+  generationQuerySourceCandidateId,
+  generationQueryContentWorkspaceId,
   hasSavedDetailPage,
   savedDetailPageGenerationId,
   initialAgentHistory,
@@ -238,6 +244,9 @@ export default function ProductTabContent({
           detailEditorSourceCandidateId={detailEditorSourceCandidateId}
           detailEditorReturnHref={detailEditorReturnHref ?? thumbnailGenerationReturnHref}
           contentWorkspaceId={contentWorkspaceId}
+          generationQueryProductId={generationQueryProductId}
+          generationQuerySourceCandidateId={generationQuerySourceCandidateId}
+          generationQueryContentWorkspaceId={generationQueryContentWorkspaceId}
           selectedKidsPlayfulId={selectedKidsPlayfulId}
           selectedBoldVerticalId={selectedBoldVerticalId}
           selectedAgentId={selectedAgentId}

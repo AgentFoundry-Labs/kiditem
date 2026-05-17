@@ -245,6 +245,9 @@ export class AgentOsRequestRepository {
         coalescedIntoRequestId: input.coalescedIntoRequestId ?? undefined,
         lastErrorCode: input.errorCode ?? undefined,
         lastErrorMessage: input.errorMessage ?? undefined,
+        payload: input.payload
+          ? (input.payload as Prisma.InputJsonValue)
+          : undefined,
         finishedAt: isTerminal ? new Date() : isRequeue ? null : undefined,
         claimedAt: isRequeue ? null : undefined,
         claimedBy: isRequeue ? null : undefined,

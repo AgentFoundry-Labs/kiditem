@@ -69,7 +69,14 @@ export function buildDetailGenerationRows(input: {
     errorMessage: entry.imageProcessingError ?? null,
     kidsPlayfulEntry: entry,
   }));
-  return [...agentRows, ...kidsRows, ...boldRows].sort((a, b) =>
+  const byGenerationId = new Map<string, DetailGenerationRow>();
+  for (const row of [...agentRows, ...kidsRows, ...boldRows]) {
+    const existing = byGenerationId.get(row.id);
+    if (!existing || (existing.kind === 'agent' && row.kind !== 'agent')) {
+      byGenerationId.set(row.id, row);
+    }
+  }
+  return [...byGenerationId.values()].sort((a, b) =>
     b.createdAt.localeCompare(a.createdAt),
   );
 }
@@ -78,10 +85,4 @@ export function getCompletedDetailVersionRows(
   rows: DetailGenerationRow[],
 ): DetailGenerationRow[] {
   return rows.filter((row) => row.isCompletedVersion);
-}
-
-export function getDetailGenerationStatusRows(
-  rows: DetailGenerationRow[],
-): DetailGenerationRow[] {
-  return rows.filter((row) => !row.isCompletedVersion);
 }

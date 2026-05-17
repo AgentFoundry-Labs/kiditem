@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertCircle, CheckCircle2, Loader2, Sparkles, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Loader2, Sparkles, Square, X } from 'lucide-react';
 import { cn, formatTime } from '@/lib/utils';
 import type { GenerationDialogState } from '../hooks/useGenerateForm';
 
@@ -10,6 +10,7 @@ interface GenerationStartModalProps {
   state: GenerationDialogState | null;
   onClose: () => void;
   onAction?: () => void;
+  onCancel?: (state: GenerationDialogState) => void;
 }
 
 const TEMPLATE_LABEL: Record<string, string> = {
@@ -17,7 +18,7 @@ const TEMPLATE_LABEL: Record<string, string> = {
   'kids-playful': '트렌드 광고형 템플릿',
 };
 
-export default function GenerationStartModal({ state, onClose, onAction }: GenerationStartModalProps) {
+export default function GenerationStartModal({ state, onClose, onAction, onCancel }: GenerationStartModalProps) {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -37,6 +38,15 @@ export default function GenerationStartModal({ state, onClose, onAction }: Gener
   const descriptionText = getDescriptionText(state);
   const progressLabel = getProgressLabel(state);
   const actionLabel = getActionLabel(state);
+  const canCancel =
+    isStarted &&
+    Boolean(onCancel) &&
+    Boolean(
+      state.operationKey ||
+        state.generationId ||
+        state.detailGenerationId ||
+        state.thumbnailGenerationId,
+    );
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4 backdrop-blur-sm">
@@ -142,13 +152,26 @@ export default function GenerationStartModal({ state, onClose, onAction }: Gener
           </p>
 
           {!isSubmitting && (
-            <button
-              type="button"
-              onClick={onAction ?? onClose}
-              className="mt-6 inline-flex h-10 items-center justify-center rounded-full bg-neutral-950 px-6 text-sm font-bold text-white transition hover:bg-neutral-800"
-            >
-              {actionLabel}
-            </button>
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+              {canCancel && (
+                <button
+                  type="button"
+                  onClick={() => onCancel?.(state)}
+                  className="inline-flex h-10 items-center justify-center gap-1.5 rounded-full border border-rose-200 bg-white px-5 text-sm font-bold text-rose-600 transition hover:bg-rose-50"
+                  aria-label="생성 중단"
+                >
+                  <Square size={14} />
+                  생성 중단
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onAction ?? onClose}
+                className="inline-flex h-10 items-center justify-center rounded-full bg-neutral-950 px-6 text-sm font-bold text-white transition hover:bg-neutral-800"
+              >
+                {actionLabel}
+              </button>
+            </div>
           )}
         </div>
       </div>

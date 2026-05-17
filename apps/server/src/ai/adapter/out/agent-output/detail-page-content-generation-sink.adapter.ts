@@ -103,6 +103,20 @@ export class DetailPageContentGenerationSinkAdapter
       return;
     }
 
+    const parentLink = readProductGenerationAlertLink(row.generationInput);
+    if (
+      parentLink &&
+      await this.isParentOperationCancelled({
+        organizationId: input.organizationId,
+        parentOperationKey: parentLink.parentOperationKey,
+      })
+    ) {
+      this.logger.debug(
+        `detail_page_generate ${row.id}: parent operation ${parentLink.parentOperationKey} cancelled; no-op.`,
+      );
+      return;
+    }
+
     const stored = toDetailPageStoredJson({
       templateId: input.output.templateId,
       generationInput: row.generationInput,
@@ -159,7 +173,6 @@ export class DetailPageContentGenerationSinkAdapter
       return;
     }
 
-    const parentLink = readProductGenerationAlertLink(row.generationInput);
     if (parentLink) {
       await this.productGenerationAlerts.markChildFinished({
         organizationId: input.organizationId,
@@ -267,6 +280,20 @@ export class DetailPageContentGenerationSinkAdapter
       return;
     }
 
+    const parentLink = readProductGenerationAlertLink(row.generationInput);
+    if (
+      parentLink &&
+      await this.isParentOperationCancelled({
+        organizationId: input.organizationId,
+        parentOperationKey: parentLink.parentOperationKey,
+      })
+    ) {
+      this.logger.debug(
+        `detail_page_generate ${row.id}: parent operation ${parentLink.parentOperationKey} cancelled; no-op.`,
+      );
+      return;
+    }
+
     const updated = await this.prisma.contentGeneration.updateMany({
       where: {
         id: row.id,
@@ -285,7 +312,6 @@ export class DetailPageContentGenerationSinkAdapter
       return;
     }
 
-    const parentLink = readProductGenerationAlertLink(row.generationInput);
     if (parentLink) {
       await this.productGenerationAlerts.markChildFinished({
         organizationId: input.organizationId,
@@ -313,6 +339,20 @@ export class DetailPageContentGenerationSinkAdapter
     this.logger.log(
       `detail_page_generate applied failure → ContentGeneration ${row.id} FAILED (code=${input.errorCode} request=${input.requestId}).`,
     );
+  }
+
+  private async isParentOperationCancelled(input: {
+    organizationId: string;
+    parentOperationKey: string;
+  }): Promise<boolean> {
+    if (typeof this.operationAlerts.findByOperationKey !== 'function') {
+      return false;
+    }
+    const alert = await this.operationAlerts.findByOperationKey(
+      input.organizationId,
+      input.parentOperationKey,
+    );
+    return alert?.status === 'cancelled';
   }
 
 }

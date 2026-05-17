@@ -44,6 +44,7 @@ interface ProductEditHeaderProps {
   selectedThumbnailUrl?: string | null;
   selectedThumbnailGenerationCandidateId?: string | null;
   selectedDetailPageGenerationId?: string | null;
+  detailGenerationContentWorkspaceId?: string | null;
   showCandidateActions?: boolean;
   onOpenDetailTemplateGeneration?: () => void;
   onToggleEditComplete: () => void;
@@ -63,6 +64,7 @@ export default function ProductEditHeader({
   selectedThumbnailUrl = null,
   selectedThumbnailGenerationCandidateId = null,
   selectedDetailPageGenerationId = null,
+  detailGenerationContentWorkspaceId = null,
   showCandidateActions = true,
   onOpenDetailTemplateGeneration,
   onToggleEditComplete,
@@ -79,8 +81,11 @@ export default function ProductEditHeader({
   const { mutate: runGenerate, isPending } = useGenerateDetailPage(promotedMasterId ?? productId);
   const kp = useKidsPlayfulFromSourcing();
   const trackingId = promotedMasterId ?? productId;
+  const sourceCandidateScopeId = promotedMasterId ? null : productId;
   const kpInProgress = useKidsPlayfulInProgress(trackingId, {
     enabled: !onOpenDetailTemplateGeneration,
+    sourceCandidateId: detailGenerationContentWorkspaceId ? null : sourceCandidateScopeId,
+    contentWorkspaceId: detailGenerationContentWorkspaceId,
   });
   const generateBusy = isPending || kp.isPending || !!kpInProgress;
   const accountsQuery = useQuery({
@@ -153,6 +158,7 @@ export default function ProductEditHeader({
       kp.trigger({
         sourceCandidateId: productId,
         productId: promotedMasterId,
+        contentWorkspaceId: detailGenerationContentWorkspaceId,
         productName,
         rawData,
         templateId: templateId as DetailPageTemplateId,

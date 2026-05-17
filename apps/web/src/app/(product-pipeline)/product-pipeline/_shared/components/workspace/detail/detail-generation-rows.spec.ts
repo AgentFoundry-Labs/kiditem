@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   buildDetailGenerationRows,
   getCompletedDetailVersionRows,
-  getDetailGenerationStatusRows,
 } from './detail-generation-rows';
 import type { GenerationHistoryItem } from '../../../hooks/useGenerationHistory';
+import type { KidsPlayfulGenerationItem } from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate';
 
 const completed: GenerationHistoryItem = {
   id: 'completed-1',
@@ -31,7 +31,7 @@ const failed: GenerationHistoryItem = {
 };
 
 describe('detail generation rows', () => {
-  it('splits completed versions from running and failed status rows', () => {
+  it('keeps only completed generations in the selectable version rows', () => {
     const rows = buildDetailGenerationRows({
       agentHistory: [completed, failed],
       kidsPlayfulEntries: [],
@@ -40,7 +40,6 @@ describe('detail generation rows', () => {
     });
 
     expect(getCompletedDetailVersionRows(rows).map((row) => row.id)).toEqual(['completed-1']);
-    expect(getDetailGenerationStatusRows(rows).map((row) => row.id)).toEqual(['failed-1']);
     expect(getCompletedDetailVersionRows(rows)[0].isRegistrationDetail).toBe(true);
   });
 
@@ -56,5 +55,43 @@ describe('detail generation rows', () => {
     });
 
     expect(rows.map((row) => row.id)).toEqual(['new', 'old']);
+  });
+
+  it('deduplicates generated detail versions by generation id and keeps the template-specific row', () => {
+    const boldEntry: KidsPlayfulGenerationItem = {
+      id: 'completed-1',
+      productId: null,
+      sourceCandidateId: null,
+      contentWorkspaceId: 'workspace-1',
+      templateId: 'bold-vertical',
+      productName: 'KIDITEM 생성 결과',
+      rawInput: {},
+      result: {
+        hook: {
+          text: '템플릿 제목',
+          subtext: '템플릿 부제목',
+        },
+      } as never,
+      imageUrls: [],
+      processedImages: {},
+      imageProcessingStatus: 'completed',
+      imageProcessingError: null,
+      createdAt: '2026-05-16T01:00:00.000Z',
+    };
+
+    const rows = buildDetailGenerationRows({
+      agentHistory: [completed],
+      kidsPlayfulEntries: [],
+      boldEntries: [boldEntry],
+      savedDetailPageGenerationId: 'completed-1',
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      id: 'completed-1',
+      kind: 'bold-vertical',
+      templateLabel: 'KIDITEM DESIGN',
+      isRegistrationDetail: true,
+    });
   });
 });

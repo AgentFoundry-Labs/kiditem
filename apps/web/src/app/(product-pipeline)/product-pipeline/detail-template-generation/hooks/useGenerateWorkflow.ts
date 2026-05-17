@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { REGISTERED_PRODUCTS_ROOT } from '../../_shared/lib/product-pipeline-routes';
 import { useGenerateForm, type GenerateTemplateId } from './useGenerateForm';
+import { useKidsPlayfulGenerationCancel } from './useKidsPlayfulGenerate';
 
 export type GenerateWorkflowStep = 'template' | 'form';
 
@@ -14,6 +15,7 @@ export function useGenerateWorkflow() {
   const [step, setStep] = useState<GenerateWorkflowStep>('template');
   const [templateId, setTemplateId] = useState<GenerateTemplateId>('bold-vertical');
   const form = useGenerateForm({ ownerBindingMode: 'sandbox-only' });
+  const cancelGeneration = useKidsPlayfulGenerationCancel();
 
   const pickTemplate = (nextTemplateId: string) => {
     setTemplateId(nextTemplateId === 'kids-playful' ? 'kids-playful' : 'bold-vertical');
@@ -43,6 +45,13 @@ export function useGenerateWorkflow() {
     }
   };
 
+  const handleGenerationDialogCancel = async () => {
+    const generationId = form.generationDialog?.generationId;
+    if (!generationId) return;
+    await cancelGeneration.mutateAsync(generationId);
+    form.markGenerationDialogCancelled();
+  };
+
   return {
     step,
     templateId,
@@ -50,5 +59,6 @@ export function useGenerateWorkflow() {
     pickTemplate,
     returnToTemplatePick,
     handleGenerationDialogAction,
+    handleGenerationDialogCancel,
   };
 }

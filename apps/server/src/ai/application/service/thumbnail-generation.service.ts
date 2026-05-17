@@ -60,6 +60,7 @@ import {
   ThumbnailGenerationJobService,
   type ThumbnailEditorGenerationEnqueueInput,
 } from './thumbnail-generation-job.service';
+import { operationCancellationAudit } from '../../../common/operation-cancellation-audit';
 
 @Injectable()
 export class ThumbnailGenerationService {
@@ -257,6 +258,99 @@ export class ThumbnailGenerationService {
     // No-op when the generation never opened an alert (e.g. auto-batch).
     await this.operationAlerts.cancel(organizationId, this.editJobOperationKey(id));
     return this.findOne(id, organizationId);
+  }
+
+  async cancelForOperation(input: {
+    organizationId: string;
+    generationId: string;
+    actorUserId: string | null;
+    reason: string;
+  }): Promise<{
+    status: 'cancelled' | 'already_terminal' | 'not_found';
+    generationId: string;
+    operationKey: string | null;
+    preserved: boolean;
+  }> {
+    const row = await this.prisma.thumbnailGeneration.findFirst({
+      where: {
+        id: input.generationId,
+        organizationId: input.organizationId,
+        isDeleted: false,
+      },
+      select: { id: true, status: true, phase: true },
+    });
+    if (!row) {
+      return {
+        status: 'not_found',
+        generationId: input.generationId,
+        operationKey: null,
+        preserved: false,
+      };
+    }
+    if (!['pending', 'running'].includes(row.status)) {
+      return {
+        status: 'already_terminal',
+        generationId: row.id,
+        operationKey: this.editJobOperationKey(row.id),
+        preserved: row.status === 'succeeded' || row.phase === 'applied',
+      };
+    }
+
+    const change = await markGenerationCancelled(
+      this.prisma,
+      row.id,
+      input.organizationId,
+    );
+    if (!change) {
+      return {
+        status: 'already_terminal',
+        generationId: row.id,
+        operationKey: this.editJobOperationKey(row.id),
+        preserved: false,
+      };
+    }
+    await this.emitStatusChange({
+      organizationId: input.organizationId,
+      generationId: row.id,
+      fromStatus: change.fromStatus,
+      toStatus: 'cancelled',
+      fromPhase: change.fromPhase,
+      toPhase: null,
+      actorUserId: input.actorUserId,
+      payload: {
+        reason: input.reason,
+        operationCancellation: operationCancellationAudit({
+          requestedByUserId: input.actorUserId,
+          reason: input.reason,
+          target: { targetType: 'thumbnail_generation', generationId: row.id },
+          affected: { thumbnailGenerationIds: [row.id] },
+          result: 'cancelled',
+        }),
+      },
+    });
+    await this.generationJobs.cancelAgentRequestForGeneration({
+      organizationId: input.organizationId,
+      generationId: row.id,
+      reason: input.reason,
+      actorUserId: input.actorUserId,
+    });
+    await this.operationAlerts.cancel(input.organizationId, this.editJobOperationKey(row.id), {
+      message: input.reason,
+      metadata: {
+        errorCode: 'user_cancelled',
+        cancel: {
+          requestedByUserId: input.actorUserId,
+          requestedAt: new Date().toISOString(),
+          reason: input.reason,
+        },
+      },
+    });
+    return {
+      status: 'cancelled',
+      generationId: row.id,
+      operationKey: this.editJobOperationKey(row.id),
+      preserved: false,
+    };
   }
 
   async deleteGeneration(id: string, organizationId: string): Promise<{ ok: true }> {

@@ -527,6 +527,22 @@ export class ThumbnailGenerationJobService {
     });
   }
 
+  async cancelAgentRequestForGeneration(input: {
+    organizationId: string;
+    generationId: string;
+    reason: string;
+    actorUserId?: string | null;
+  }): Promise<void> {
+    await this.agentRunner.cancelBySource?.({
+      organizationId: input.organizationId,
+      sourceType: AI_AGENT_SOURCE_TYPES.THUMBNAIL_GENERATE,
+      sourceResourceType: 'thumbnail_generation',
+      sourceResourceId: input.generationId,
+      reason: input.reason,
+      actorUserId: input.actorUserId,
+    });
+  }
+
   async processEditJob(
     id: string,
     organizationId: string,

@@ -2,6 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
+import { useCancelOperation } from '@/lib/operation-cancellation';
 import { workflowApi } from '../lib/workflow-api';
 import type { UseQueryOptions } from '@tanstack/react-query';
 import type { WorkflowTemplate } from '@kiditem/shared/workflow';
@@ -29,4 +30,23 @@ export function useDeleteWorkflow() {
     mutationFn: (id: string) => workflowApi.delete(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.workflows.all }),
   });
+}
+
+export function useCancelWorkflowRun() {
+  const cancellation = useCancelOperation();
+  return {
+    ...cancellation,
+    mutate: (runId: string) =>
+      cancellation.mutate({
+        targetType: 'workflow_run',
+        runId,
+        reason: '사용자 요청',
+      }),
+    mutateAsync: (runId: string) =>
+      cancellation.mutateAsync({
+        targetType: 'workflow_run',
+        runId,
+        reason: '사용자 요청',
+      }),
+  };
 }

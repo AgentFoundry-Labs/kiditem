@@ -40,6 +40,7 @@ function makeEvent(
     sourceResourceType: null,
     sourceResourceId: null,
     requestedByUserId: null,
+    requestStatus: overrides.status === 'failed' ? 'failed' : 'succeeded',
     status: 'succeeded',
     output: VALID_OUTPUT,
     ...overrides,

@@ -37,12 +37,44 @@ export interface AgentRunnerCancelBySourceInput {
   sourceResourceType: string;
   sourceResourceId: string;
   reason?: string;
+  actorUserId?: string | null;
 }
 
 export interface AgentRunnerCancelBySourceResult {
   ok: boolean;
   cancelledRequests: number;
+  cancelledRuns?: number;
   skippedRequests: number;
+  skippedRuns?: number;
+}
+
+export interface AgentRunnerCancelRequestInput {
+  organizationId: string;
+  requestId: string;
+  reason?: string;
+  actorUserId?: string | null;
+}
+
+export interface AgentRunnerCancelRunInput {
+  organizationId: string;
+  runId: string;
+  reason?: string;
+  actorUserId?: string | null;
+}
+
+export interface AgentRunnerCancelByWorkflowRunInput {
+  organizationId: string;
+  workflowRunId: string;
+  reason?: string;
+  actorUserId?: string | null;
+}
+
+export interface AgentRunnerCancelResult {
+  ok: boolean;
+  cancelledRequests: number;
+  cancelledRuns: number;
+  skippedRequests: number;
+  skippedRuns: number;
 }
 
 export interface AgentRunnerExecuteRequestInput {
@@ -64,6 +96,13 @@ export interface AgentRunnerPort {
   executeRequest?(
     input: AgentRunnerExecuteRequestInput,
   ): Promise<AgentRunnerExecuteRequestResult>;
+  cancelRequest?(
+    input: AgentRunnerCancelRequestInput,
+  ): Promise<AgentRunnerCancelResult>;
+  cancelRun?(input: AgentRunnerCancelRunInput): Promise<AgentRunnerCancelResult>;
+  cancelByWorkflowRun?(
+    input: AgentRunnerCancelByWorkflowRunInput,
+  ): Promise<AgentRunnerCancelResult>;
   cancelBySource?(
     input: AgentRunnerCancelBySourceInput,
   ): Promise<AgentRunnerCancelBySourceResult>;

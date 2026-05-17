@@ -344,4 +344,31 @@ describe('ProductGenerationAlertService', () => {
       }),
     );
   });
+
+  it('does not reopen a cancelled parent product generation alert when a child finishes late', async () => {
+    const prisma = makePrisma();
+    const operationAlerts = {
+      start: vi.fn(),
+      findByOperationKey: vi.fn().mockResolvedValue(
+        { ...makeAlert({}), status: 'cancelled', metadata: {}, progress: 0.5 },
+      ),
+      progress: vi.fn(),
+      succeed: vi.fn(),
+      fail: vi.fn(),
+    };
+    const service = new ProductGenerationAlertService(prisma as never, operationAlerts as never);
+
+    const result = await service.markChildFinished({
+      organizationId: ORGANIZATION_ID,
+      parentOperationKey: OPERATION_KEY,
+      childKind: 'detail_page',
+      status: 'succeeded',
+      childId: 'cg-1',
+    });
+
+    expect(operationAlerts.progress).not.toHaveBeenCalled();
+    expect(operationAlerts.succeed).not.toHaveBeenCalled();
+    expect(operationAlerts.fail).not.toHaveBeenCalled();
+    expect(result?.status).toBe('cancelled');
+  });
 });

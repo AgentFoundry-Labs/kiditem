@@ -89,6 +89,10 @@ export function ThumbnailDetailModalHost({
         const g = selectedGen || activeGenForProduct;
         if (g) actions.skipGeneration(g.id);
       }}
+      onCancel={() => {
+        const g = selectedGen || activeGenForProduct;
+        if (g) actions.cancelGeneration(g.id);
+      }}
       onDelete={() => {
         const g = selectedGen || activeGenForProduct;
         if (g) actions.deleteGeneration(g.id);

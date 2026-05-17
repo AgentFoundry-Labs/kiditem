@@ -1,10 +1,23 @@
+import { useState } from 'react';
 import Link from 'next/link';
 import type { QueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Megaphone, MinusCircle, ShieldCheck, Truck } from 'lucide-react';
+import {
+  AlertTriangle,
+  Loader2,
+  Megaphone,
+  MinusCircle,
+  ShieldCheck,
+  Square,
+  Truck,
+} from 'lucide-react';
 import { type DashboardAlertItem } from '@kiditem/shared/dashboard';
 import { apiClient } from '@/lib/api-client';
+import { isApiError } from '@/lib/api-error';
+import { cancelOperation } from '@/lib/operation-cancellation';
 import { queryKeys } from '@/lib/query-keys';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
 function alertIcon(type: string) {
   if (type === 'minus_product') return <MinusCircle size={14} className="text-red-500 shrink-0" />;
@@ -28,6 +41,121 @@ function alertStatusClass(status: DashboardAlertItem['status']): string {
   if (status === 'failed') return 'bg-red-50 text-red-700';
   if (status === 'running' || status === 'pending') return 'bg-blue-50 text-blue-700';
   return 'bg-slate-100 text-slate-600';
+}
+
+function isActiveOperation(alert: DashboardAlertItem): boolean {
+  return alert.kind === 'operation' && (alert.status === 'running' || alert.status === 'pending');
+}
+
+function operationKeyOf(alert: DashboardAlertItem): string | null {
+  const value = (alert as DashboardAlertItem & { operationKey?: string | null }).operationKey;
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+function DashboardAlertRow({
+  alert,
+  queryClient,
+}: {
+  alert: DashboardAlertItem;
+  queryClient: QueryClient;
+}) {
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
+  const href = alert.href ?? (alert.type === 'strategy_change' ? '/ad-ops' : alert.type === 'stock_low' ? '/purchase-orders' : alert.type === 'minus_product' ? '/cleanup' : alert.type === 'ad_high' ? '/ads-hub' : undefined);
+  const statusLabel = alert.kind === 'operation' ? alertStatusLabel(alert.status) : null;
+  const operationKey = operationKeyOf(alert);
+  const canCancel = isActiveOperation(alert) && operationKey != null;
+  const content = (
+    <>
+      <div className="mt-0.5">{alertIcon(alert.type)}</div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-sm font-medium leading-relaxed text-slate-700 truncate">{alert.title}</span>
+          {statusLabel && (
+            <span className={cn('shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold', alertStatusClass(alert.status))}>
+              {statusLabel}
+            </span>
+          )}
+          {href && <span className="text-[10px] text-purple-600">→</span>}
+        </div>
+        {alert.message && (
+          <div className="mt-0.5 truncate text-xs text-slate-500">{alert.message}</div>
+        )}
+      </div>
+    </>
+  );
+  const rowClass = cn('group flex items-start gap-2.5 px-4 py-2.5 border-b border-slate-50 transition-colors', href && 'hover:bg-slate-50');
+  const contentClass = cn('flex min-w-0 flex-1 items-start gap-2.5', href && 'cursor-pointer');
+
+  const requestCancel = async (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!operationKey || isCancelling) return;
+    setCancelConfirmOpen(true);
+  };
+
+  const confirmCancel = async () => {
+    if (!operationKey || isCancelling) return;
+    setIsCancelling(true);
+    try {
+      await cancelOperation({
+        targetType: 'operation_key',
+        operationKey,
+        reason: '사용자 요청',
+      });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
+    } catch (error) {
+      toast.error(isApiError(error) ? error.detail : '작업 중단 요청에 실패했습니다.');
+    } finally {
+      setIsCancelling(false);
+      setCancelConfirmOpen(false);
+    }
+  };
+
+  return (
+    <>
+      <div className={rowClass}>
+        {href ? (
+          <Link href={href} className={contentClass}>
+            {content}
+          </Link>
+        ) : (
+          <div className={contentClass}>{content}</div>
+        )}
+        {canCancel && (
+          <button
+            type="button"
+            onClick={requestCancel}
+            disabled={isCancelling}
+            aria-label="작업 중단"
+            title="작업 중단"
+            className={cn(
+              'mt-0.5 shrink-0 rounded border border-slate-200 p-1 text-slate-400 transition',
+              'opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-slate-50 hover:text-red-600',
+              isCancelling && 'cursor-wait opacity-100',
+            )}
+          >
+            {isCancelling ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Square className="h-3 w-3" />
+            )}
+          </button>
+        )}
+      </div>
+      <ConfirmDialog
+        open={cancelConfirmOpen}
+        onOpenChange={setCancelConfirmOpen}
+        title="작업을 중단할까요?"
+        description="이미 완료된 결과는 유지하고, 아직 진행 중인 실행만 중단합니다."
+        confirmText="중단"
+        cancelText="계속 실행"
+        tone="danger"
+        isLoading={isCancelling}
+        onConfirm={confirmCancel}
+      />
+    </>
+  );
 }
 
 export function DashboardSidePanel({
@@ -62,39 +190,9 @@ export function DashboardSidePanel({
       </div>
 
       <div className="flex-1 overflow-y-auto min-h-0">
-        {alerts.map((alert) => {
-          const href = alert.href ?? (alert.type === 'strategy_change' ? '/ad-ops' : alert.type === 'stock_low' ? '/purchase-orders' : alert.type === 'minus_product' ? '/cleanup' : alert.type === 'ad_high' ? '/ads-hub' : undefined);
-          const statusLabel = alert.kind === 'operation' ? alertStatusLabel(alert.status) : null;
-          const content = (
-            <>
-              <div className="mt-0.5">{alertIcon(alert.type)}</div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <span className="text-sm font-medium leading-relaxed text-slate-700 truncate">{alert.title}</span>
-                  {statusLabel && (
-                    <span className={cn('shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold', alertStatusClass(alert.status))}>
-                      {statusLabel}
-                    </span>
-                  )}
-                  {href && <span className="text-[10px] text-purple-600">→</span>}
-                </div>
-                {alert.message && (
-                  <div className="mt-0.5 truncate text-xs text-slate-500">{alert.message}</div>
-                )}
-              </div>
-            </>
-          );
-          const rowClass = cn('flex items-start gap-2.5 px-4 py-2.5 border-b border-slate-50 transition-colors', href && 'cursor-pointer hover:bg-slate-50');
-          return href ? (
-            <Link key={alert.id} href={href} className={rowClass}>
-              {content}
-            </Link>
-          ) : (
-            <div key={alert.id} className={rowClass}>
-              {content}
-            </div>
-          );
-        })}
+        {alerts.map((alert) => (
+          <DashboardAlertRow key={alert.id} alert={alert} queryClient={queryClient} />
+        ))}
         {alerts.length === 0 && (
           <div className="px-4 py-8 text-center">
             <ShieldCheck size={24} className="mx-auto mb-2 text-emerald-500" />

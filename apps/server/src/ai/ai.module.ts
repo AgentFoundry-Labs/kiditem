@@ -87,11 +87,13 @@ import { ContentGenerationRerunService } from './application/service/content-gen
 import { ContentWorkspaceAttachmentService } from './application/service/content-workspace-attachment.service';
 import { ContentWorkspaceService } from './application/service/content-workspace.service';
 import { SourcingWorkspaceArchiveService } from './application/service/sourcing-workspace-archive.service';
+import { AiGenerationCancellationService } from './application/service/ai-generation-cancellation.service';
 
 // application/port — in
 import { POST_PROMOTION_AI_TRIGGER_PORT } from './application/port/in/post-promotion-ai-trigger.port';
 import { PRODUCT_GENERATION_AI_TRIGGER_PORT } from './application/port/in/product-generation-ai-trigger.port';
 import { AI_WORKSPACE_ARCHIVE_PORT } from './application/port/in/sourcing-workspace-archive.port';
+import { AI_GENERATION_CANCELLATION_PORT } from './application/port/in/ai-generation-cancellation.port';
 
 // application/port — out
 import { DETAIL_PAGE_AGENT_OUTPUT_SINK_PORT } from './application/port/out/detail-page-agent-output-sink.port';
@@ -135,6 +137,7 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
   providers: [
     // application services
     ImageAiService,
+    AiGenerationCancellationService,
     ImageAssetOperationService,
     CoupangImageSyncService,
     DetailPageAiService,
@@ -234,11 +237,13 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     { provide: POST_PROMOTION_AI_TRIGGER_PORT, useExisting: PostPromotionAiService },
     { provide: PRODUCT_GENERATION_AI_TRIGGER_PORT, useExisting: ProductGenerationAiService },
     { provide: AI_WORKSPACE_ARCHIVE_PORT, useExisting: SourcingWorkspaceArchiveService },
+    { provide: AI_GENERATION_CANCELLATION_PORT, useExisting: AiGenerationCancellationService },
   ],
   exports: [
     POST_PROMOTION_AI_TRIGGER_PORT,
     PRODUCT_GENERATION_AI_TRIGGER_PORT,
     AI_WORKSPACE_ARCHIVE_PORT,
+    AI_GENERATION_CANCELLATION_PORT,
   ],
 })
 export class AiModule {}

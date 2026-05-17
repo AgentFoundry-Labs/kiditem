@@ -178,6 +178,7 @@ export class ProductGenerationAlertService {
       input.parentOperationKey,
     );
     if (!alert) return null;
+    if (alert.status === 'cancelled') return alert;
 
     const metadata = asRecord(alert.metadata);
     const childIds = mergeChildId(
@@ -209,6 +210,7 @@ export class ProductGenerationAlertService {
       input.parentOperationKey,
     );
     if (!alert) return null;
+    if (alert.status === 'cancelled') return alert;
 
     const metadata = asRecord(alert.metadata);
     const childIds = mergeChildId(

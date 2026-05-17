@@ -5,6 +5,7 @@ import {
   X, ImageIcon, Eye, Wand2, CheckCircle, ExternalLink,
   Download, XCircle,
   Loader2, ChevronLeft, ChevronRight, Maximize2,
+  Square,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import type {
@@ -51,6 +52,7 @@ interface DetailModalProps {
   onApply: () => void;
   onSkip: () => void;
   onDelete: () => void;
+  onCancel?: () => void;
   onSelectGen: (gen: ThumbnailGenerationItem) => void;
 }
 
@@ -69,6 +71,7 @@ export function DetailModal({
   onApply,
   onSkip,
   onDelete,
+  onCancel,
   onSelectGen,
 }: DetailModalProps) {
   const [zoomImage, setZoomImage] = useState<string | null>(null);
@@ -86,6 +89,7 @@ export function DetailModal({
   const isCombined = hasCandidates && hasAnalysis;
   const isUnclassified = !gen && !hasCandidates && !display?.scores && !display?.complianceScores;
   const isGenerationFailed = gen?.status === 'failed' || gen?.status === 'cancelled';
+  const isGenerationRunning = gen?.status === 'pending' || gen?.status === 'running';
   const editHref = buildEditHref({
     productId: product?.productId ?? gen?.productId ?? '',
     generationId: gen?.id,
@@ -151,10 +155,21 @@ export function DetailModal({
               </span>
             )}
             <h2 className="flex-1 text-[15px] font-semibold text-slate-900 truncate min-w-0">{productName}</h2>
-            {gen?.status === 'running' && (
+            {isGenerationRunning && (
               <span className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 bg-blue-50 px-2.5 py-1 rounded-lg flex-shrink-0">
                 <Loader2 size={12} className="animate-spin" /> 생성 중
               </span>
+            )}
+            {isGenerationRunning && onCancel && (
+              <button
+                type="button"
+                onClick={onCancel}
+                aria-label="썸네일 생성 중단"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-500 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+              >
+                <Square size={12} />
+                중단
+              </button>
             )}
             {isGenerationFailed && (
               <span className="inline-flex items-center gap-1.5 text-xs font-medium text-red-600 bg-red-50 px-2.5 py-1 rounded-lg flex-shrink-0">

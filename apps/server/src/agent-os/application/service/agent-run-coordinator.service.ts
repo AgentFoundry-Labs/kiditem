@@ -6,6 +6,10 @@ import {
 import {
   type AgentRunnerCancelBySourceInput,
   type AgentRunnerCancelBySourceResult,
+  type AgentRunnerCancelByWorkflowRunInput,
+  type AgentRunnerCancelRequestInput,
+  type AgentRunnerCancelResult,
+  type AgentRunnerCancelRunInput,
   type AgentRunnerExecuteRequestInput,
   type AgentRunnerExecuteRequestResult,
   type AgentRunnerInput,
@@ -15,12 +19,23 @@ import {
 import type { AgentRunRequestStatus } from '../../domain/agent-os.types';
 import { AgentOsCatalogError } from '../../domain/agent-os.errors';
 import { AgentRunExecutor } from './agent-run-executor.service';
+import { operationCancellationAudit } from '../../../common/operation-cancellation-audit';
 
 const CANCELLABLE_REQUEST_STATUSES: AgentRunRequestStatus[] = [
   'pending',
   'claimed',
   'requires_approval',
 ];
+
+const CANCELLATION_MESSAGE = 'User cancelled the request.';
+
+function isCancellableRequestStatus(status: AgentRunRequestStatus): boolean {
+  return CANCELLABLE_REQUEST_STATUSES.includes(status);
+}
+
+function cancelReason(reason: string | undefined): string {
+  return reason && reason.trim().length > 0 ? reason : CANCELLATION_MESSAGE;
+}
 
 @Injectable()
 export class AgentRunCoordinator implements AgentRunnerPort {
@@ -35,12 +50,7 @@ export class AgentRunCoordinator implements AgentRunnerPort {
     type: string,
     input: AgentRunnerInput,
   ): Promise<AgentRunnerResult> {
-    if (!input.organizationId) {
-      throw new AgentOsCatalogError(
-        'organization_required',
-        'AgentRunCoordinator requires organizationId.',
-      );
-    }
+    this.assertOrganization(input.organizationId);
 
     const agentInstance = await this.repository.findActiveInstanceByType({
       organizationId: input.organizationId,
@@ -134,12 +144,7 @@ export class AgentRunCoordinator implements AgentRunnerPort {
   async executeRequest(
     input: AgentRunnerExecuteRequestInput,
   ): Promise<AgentRunnerExecuteRequestResult> {
-    if (!input.organizationId) {
-      throw new AgentOsCatalogError(
-        'organization_required',
-        'AgentRunCoordinator requires organizationId.',
-      );
-    }
+    this.assertOrganization(input.organizationId);
 
     if (!this.executor) {
       return {
@@ -159,12 +164,7 @@ export class AgentRunCoordinator implements AgentRunnerPort {
   async cancelBySource(
     input: AgentRunnerCancelBySourceInput,
   ): Promise<AgentRunnerCancelBySourceResult> {
-    if (!input.organizationId) {
-      throw new AgentOsCatalogError(
-        'organization_required',
-        'AgentRunCoordinator requires organizationId.',
-      );
-    }
+    this.assertOrganization(input.organizationId);
 
     const requests = await this.repository.listRunRequests({
       organizationId: input.organizationId,
@@ -176,21 +176,187 @@ export class AgentRunCoordinator implements AgentRunnerPort {
     });
 
     let cancelledRequests = 0;
+    let cancelledRuns = 0;
     for (const request of requests) {
-      await this.repository.markRequestStatus({
+      const result = await this.cancelRequest({
         organizationId: input.organizationId,
         requestId: request.id,
-        status: 'cancelled',
-        errorCode: 'user_cancelled',
-        errorMessage: input.reason ?? 'User cancelled the request.',
+        reason: input.reason,
+        actorUserId: input.actorUserId,
       });
-      cancelledRequests += 1;
+      cancelledRequests += result.cancelledRequests;
+      cancelledRuns += result.cancelledRuns;
     }
 
     return {
       ok: true,
       cancelledRequests,
+      cancelledRuns,
       skippedRequests: 0,
+      skippedRuns: 0,
+    };
+  }
+
+  async cancelRequest(
+    input: AgentRunnerCancelRequestInput,
+  ): Promise<AgentRunnerCancelResult> {
+    this.assertOrganization(input.organizationId);
+    const request = await this.repository.findRunRequestById({
+      organizationId: input.organizationId,
+      requestId: input.requestId,
+    });
+    if (!request || !isCancellableRequestStatus(request.status)) {
+      return this.cancelResult({
+        skippedRequests: 1,
+      });
+    }
+
+    await this.repository.markRequestStatus({
+      organizationId: input.organizationId,
+      requestId: request.id,
+      status: 'cancelled',
+      errorCode: 'user_cancelled',
+      errorMessage: cancelReason(input.reason),
+      payload: {
+        ...request.payload,
+        operationCancellation: operationCancellationAudit({
+          requestedByUserId: input.actorUserId ?? null,
+          reason: cancelReason(input.reason),
+          target: { targetType: 'agent_run_request', requestId: request.id },
+          affected: { agentRunRequestIds: [request.id] },
+          result: 'cancelled',
+        }),
+      },
+    });
+
+    const runningRun = await this.repository.findRunByRequestId({
+      organizationId: input.organizationId,
+      requestId: request.id,
+      status: ['running'],
+    });
+    if (runningRun) {
+      await this.repository.appendRunEvent({
+        organizationId: input.organizationId,
+        runId: runningRun.id,
+        agentInstanceId: runningRun.agentInstanceId,
+        type: 'run.cancel_requested',
+        message: cancelReason(input.reason),
+        data: {
+          requestId: request.id,
+          reason: input.reason ? input.reason : null,
+          operationCancellation: operationCancellationAudit({
+            requestedByUserId: input.actorUserId ?? null,
+            reason: cancelReason(input.reason),
+            target: { targetType: 'agent_run_request', requestId: request.id },
+            affected: {
+              agentRunRequestIds: [request.id],
+              agentRunIds: [runningRun.id],
+            },
+            result: 'cancelled',
+          }),
+        },
+      });
+    }
+
+    return this.cancelResult({
+      cancelledRequests: 1,
+      cancelledRuns: runningRun ? 1 : 0,
+    });
+  }
+
+  async cancelRun(
+    input: AgentRunnerCancelRunInput,
+  ): Promise<AgentRunnerCancelResult> {
+    this.assertOrganization(input.organizationId);
+    const run = await this.repository.findRunById({
+      organizationId: input.organizationId,
+      runId: input.runId,
+    });
+    if (!run || run.status !== 'running') {
+      return this.cancelResult({ skippedRuns: 1 });
+    }
+
+    await this.repository.appendRunEvent({
+      organizationId: input.organizationId,
+      runId: run.id,
+      agentInstanceId: run.agentInstanceId,
+      type: 'run.cancel_requested',
+      message: cancelReason(input.reason),
+      data: {
+        requestId: run.requestId,
+        reason: input.reason ? input.reason : null,
+        operationCancellation: operationCancellationAudit({
+          requestedByUserId: input.actorUserId ?? null,
+          reason: cancelReason(input.reason),
+          target: { targetType: 'agent_run', runId: run.id },
+          affected: {
+            agentRunIds: [run.id],
+            agentRunRequestIds: [run.requestId],
+          },
+          result: 'cancelled',
+        }),
+      },
+    });
+
+    const requestResult = await this.cancelRequest({
+      organizationId: input.organizationId,
+      requestId: run.requestId,
+      reason: input.reason,
+      actorUserId: input.actorUserId,
+    });
+
+    return this.cancelResult({
+      cancelledRequests: requestResult.cancelledRequests,
+      cancelledRuns: 1,
+      skippedRequests: requestResult.skippedRequests,
+    });
+  }
+
+  async cancelByWorkflowRun(
+    input: AgentRunnerCancelByWorkflowRunInput,
+  ): Promise<AgentRunnerCancelResult> {
+    this.assertOrganization(input.organizationId);
+    const requests = await this.repository.listRunRequests({
+      organizationId: input.organizationId,
+      sourceWorkflowRunId: input.workflowRunId,
+      status: CANCELLABLE_REQUEST_STATUSES,
+      limit: 100,
+    });
+
+    let cancelledRequests = 0;
+    let cancelledRuns = 0;
+    for (const request of requests) {
+      const result = await this.cancelRequest({
+        organizationId: input.organizationId,
+        requestId: request.id,
+        reason: input.reason,
+        actorUserId: input.actorUserId,
+      });
+      cancelledRequests += result.cancelledRequests;
+      cancelledRuns += result.cancelledRuns;
+    }
+
+    return this.cancelResult({ cancelledRequests, cancelledRuns });
+  }
+
+  private assertOrganization(organizationId: string): void {
+    if (!organizationId) {
+      throw new AgentOsCatalogError(
+        'organization_required',
+        'AgentRunCoordinator requires organizationId.',
+      );
+    }
+  }
+
+  private cancelResult(
+    input: Partial<Omit<AgentRunnerCancelResult, 'ok'>>,
+  ): AgentRunnerCancelResult {
+    return {
+      ok: true,
+      cancelledRequests: input.cancelledRequests ?? 0,
+      cancelledRuns: input.cancelledRuns ?? 0,
+      skippedRequests: input.skippedRequests ?? 0,
+      skippedRuns: input.skippedRuns ?? 0,
     };
   }
 }

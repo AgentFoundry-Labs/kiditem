@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
 import type React from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { placeholderDetailPageData } from '@kiditem/templates';
 import { ProductWorkspaceScreen } from './ProductWorkspaceScreen';
 import type { ProductWorkspaceData } from '../../hooks/useProductDetail';
@@ -42,6 +42,7 @@ vi.mock(
   () => ({
     useAllGenerationsInProgress: () => [],
     useBoldVerticalGenerationList: () => ({ data: [] }),
+    useKidsPlayfulGenerationCancel: () => ({ mutateAsync: vi.fn() }),
     useKidsPlayfulGenerationList: () => ({ data: [] }),
   }),
 );
