@@ -37,6 +37,31 @@ KidItem 은 테스트를 많이 쓰는 것이 아니라, 운영 리스크를 줄
 5. 테스트가 빠르고 독립적이며 반복 가능한가?
 6. mock 준비 코드가 본문보다 길어지거나 의도를 흐리지는 않는가?
 
+## TDD 산출물과 파일 위치
+
+TDD 로 생긴 spec 은 임시 산출물이 아니라 행동 계약이다. 실패를 확인한
+뒤 production code 를 통과시킨 테스트는 기본적으로 git 에 남긴다. 단,
+spike/exploration 테스트, 구현 세부만 검증하는 테스트, 같은 위험을 더 강한
+integration/E2E/scanner 가 이미 보호하는 중복 테스트는 아래
+[`기존 테스트 정리 기준`](#기존-테스트-정리-기준)에 따라 삭제하거나 합친다.
+
+파일 위치는 실행 config 와 ownership 을 먼저 따른다.
+
+| 영역 | 기본 위치 | 파일명 |
+|---|---|---|
+| `apps/server/src/{domain}/` | 해당 owner domain 아래 가장 가까운 `__tests__/` | `*.spec.ts` |
+| Server real DB integration | 같은 owner domain 의 `__tests__/` | `*.pg.integration.spec.ts` |
+| Server HTTP E2E | `apps/server/e2e/` | `*.e2e.spec.ts` |
+| `apps/web/src/app/{route}/` | route-local `lib/`, `hooks/`, `components/` 옆 또는 근처 `__tests__/` | `*.spec.ts` 또는 기존 파일군이 쓰는 `*.test.ts` |
+| `apps/web/src/lib`, `src/components` | shared owner 폴더의 `__tests__/` 선호 | `*.spec.ts` 또는 기존 파일군이 쓰는 `*.test.ts` |
+| `packages/shared/src/` | schema/entrypoint 옆 co-located | `*.spec.ts` |
+| `scripts/` | `scripts/__tests__/` | `*.spec.ts` |
+
+새 파일은 주변 파일군의 관습을 따른다. 서버와 scripts 는 config 가 명시한
+`*.spec.ts` / `__tests__` 규칙에서 벗어나지 않는다. 웹은 Vitest 기본 include
+때문에 `*.test.ts` 도 실행되지만, 새 테스트는 주변 route 가 이미 `*.test.ts`
+를 쓰는 경우가 아니면 `*.spec.ts` 를 우선한다.
+
 ## Mock / test double 정책
 
 기본값은 실제 객체와 실제 도메인 함수를 사용한다. Mock 은 다음 경우에만

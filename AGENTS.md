@@ -89,6 +89,12 @@ setup, read [auth-supabase](docs/runbooks/auth-supabase.md) first.
 
 Do not claim completion without evidence.
 
+- **TDD specs are durable verification** — keep test-first `*.spec.ts` /
+  `*.test.ts` files when they document behavior, regression risk, domain
+  policy, or public contracts. Delete or merge them only when
+  [docs/TESTING.md](docs/TESTING.md) says an equal or stronger gate protects the
+  same risk.
+
 ### Commit And PR
 
 - Branch names: `feat/{issue}-{desc}` or `fix/{desc}`.
