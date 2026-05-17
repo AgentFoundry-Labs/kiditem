@@ -1,36 +1,47 @@
 import { z } from 'zod';
 
 const ReasonSchema = z.string().max(500).optional();
+const OperationKeySchema = z.string().min(1).max(200);
+const TargetIdSchema = z.string().min(1);
+
+export const CANCEL_OPERATION_TARGET_TYPES = [
+  'operation_key',
+  'workflow_run',
+  'agent_run_request',
+  'agent_run',
+  'content_generation',
+  'thumbnail_generation',
+] as const;
 
 export const CancelOperationTargetSchema = z.discriminatedUnion('targetType', [
   z.object({
     targetType: z.literal('operation_key'),
-    operationKey: z.string(),
+    operationKey: OperationKeySchema,
     reason: ReasonSchema,
   }).strict(),
   z.object({
     targetType: z.literal('workflow_run'),
-    runId: z.string(),
+    runId: TargetIdSchema,
     reason: ReasonSchema,
   }).strict(),
   z.object({
     targetType: z.literal('agent_run_request'),
-    requestId: z.string(),
+    requestId: TargetIdSchema,
     reason: ReasonSchema,
   }).strict(),
   z.object({
     targetType: z.literal('agent_run'),
-    runId: z.string(),
+    runId: TargetIdSchema,
     reason: ReasonSchema,
   }).strict(),
   z.object({
     targetType: z.literal('content_generation'),
-    generationId: z.string(),
+    generationId: TargetIdSchema,
     reason: ReasonSchema,
   }).strict(),
   z.object({
     targetType: z.literal('thumbnail_generation'),
-    generationId: z.string(),
+    generationId: TargetIdSchema,
     reason: ReasonSchema,
   }).strict(),
 ]);

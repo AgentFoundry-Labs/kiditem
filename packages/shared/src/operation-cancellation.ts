@@ -1,1 +1,1 @@
-export * from './schemas/operation-cancellation';
+export * from './schemas/operation-cancellation.js';

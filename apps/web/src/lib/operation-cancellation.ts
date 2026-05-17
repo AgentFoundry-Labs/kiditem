@@ -3,6 +3,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
+  CancelOperationResponseSchema,
   CancelOperationTargetSchema,
   type CancelOperationResponse,
   type CancelOperationTarget,
@@ -17,11 +18,14 @@ export function buildCancelOperationBody(target: CancelOperationTarget): CancelO
   return CancelOperationTargetSchema.parse(target);
 }
 
-export function cancelOperation(target: CancelOperationTarget): Promise<CancelOperationResponse> {
-  return apiClient.post<CancelOperationResponse>(
+export async function cancelOperation(
+  target: CancelOperationTarget,
+): Promise<CancelOperationResponse> {
+  const response = await apiClient.post<unknown>(
     '/api/operations/cancel',
     buildCancelOperationBody(target),
   );
+  return CancelOperationResponseSchema.parse(response);
 }
 
 export function getCancelOperationToastMessage(response: CancelOperationResponse): string {

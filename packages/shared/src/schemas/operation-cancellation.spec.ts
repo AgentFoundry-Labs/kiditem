@@ -8,27 +8,77 @@ import {
 
 describe('operation cancellation schemas', () => {
   it('accepts every platform cancellation target without organization scope', () => {
-    expect(
-      CancelOperationTargetSchema.parse({
+    const targets = [
+      {
         targetType: 'operation_key',
         operationKey: 'workflow:run-1',
         reason: '사용자 요청',
-      }),
-    ).toEqual({
-      targetType: 'operation_key',
-      operationKey: 'workflow:run-1',
-      reason: '사용자 요청',
-    });
-
-    expect(
-      CancelOperationTargetSchema.parse({
+      },
+      {
+        targetType: 'workflow_run',
+        runId: 'run-1',
+      },
+      {
         targetType: 'agent_run_request',
         requestId: 'request-1',
+      },
+      {
+        targetType: 'agent_run',
+        runId: 'agent-run-1',
+      },
+      {
+        targetType: 'content_generation',
+        generationId: 'generation-1',
+      },
+      {
+        targetType: 'thumbnail_generation',
+        generationId: 'thumbnail-generation-1',
+      },
+    ] as const;
+
+    for (const target of targets) {
+      expect(CancelOperationTargetSchema.parse(target)).toEqual(target);
+    }
+  });
+
+  it('rejects empty target identifiers and overlong operation keys', () => {
+    const emptyIdentifierTargets = [
+      {
+        targetType: 'operation_key',
+        operationKey: '',
+      },
+      {
+        targetType: 'workflow_run',
+        runId: '',
+      },
+      {
+        targetType: 'agent_run_request',
+        requestId: '',
+      },
+      {
+        targetType: 'agent_run',
+        runId: '',
+      },
+      {
+        targetType: 'content_generation',
+        generationId: '',
+      },
+      {
+        targetType: 'thumbnail_generation',
+        generationId: '',
+      },
+    ] as const;
+
+    for (const target of emptyIdentifierTargets) {
+      expect(() => CancelOperationTargetSchema.parse(target)).toThrow();
+    }
+
+    expect(() =>
+      CancelOperationTargetSchema.parse({
+        targetType: 'operation_key',
+        operationKey: 'x'.repeat(201),
       }),
-    ).toEqual({
-      targetType: 'agent_run_request',
-      requestId: 'request-1',
-    });
+    ).toThrow();
   });
 
   it('rejects a target with client-supplied organization scope', () => {
