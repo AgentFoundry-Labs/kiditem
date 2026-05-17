@@ -82,15 +82,20 @@ retires or reconstructs it.
 
 ## Exports
 
-- Exported application services: `MastersService`, `MasterPromotionService`,
-  `OptionsService`, `BundleComponentsService`, `ProductCatalogService`,
-  `ProductManagementService`.
+- Products publishes owner-side incoming ports for cross-owner consumers:
+  `PRODUCT_MASTER_PROMOTION_PORT` for sourcing candidate promotion and
+  `PRODUCT_BUNDLE_STOCK_PORT` for inventory stock-mutation fan-out.
+- Cross-owner modules must not inject products application service classes
+  directly. They consume products ports from their own `adapter/out/products/`
+  bridge and keep application services on local ports.
 - `MasterCodeService` is not exported.
-- `BundleStockService` is restricted to inventory recompute integration. Other
-  modules should not call it directly.
-- `MasterPromotionService` is the products-side composite for sourcing
-  candidate promotion. Only sourcing's
-  `SOURCING_PRODUCTS_CATALOG_PORT` outgoing adapter is expected to consume it.
+- `BundleStockService` is restricted to the products module and the
+  `PRODUCT_BUNDLE_STOCK_PORT` binding. Other modules should not call it
+  directly.
+- `MasterPromotionService` is the products-side composite behind
+  `PRODUCT_MASTER_PROMOTION_PORT` for sourcing candidate promotion. Only
+  sourcing's `SOURCING_PRODUCTS_CATALOG_PORT` outgoing adapter is expected to
+  consume that owner-side port.
   It owns the atomic master/options/images write inside a caller-supplied
   `Prisma.TransactionClient`, calls `MasterCodeService.generate(tx)` for the
   family code, sets `lifecycleState='active'`, and delegates per-option work

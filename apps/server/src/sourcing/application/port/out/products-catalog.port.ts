@@ -5,7 +5,7 @@
  * `adapter/out/**` implementations or another owner domain service from
  * `application/service/**`." sourcing's promote use-case therefore depends on
  * this port; the concrete adapter is the only sourcing-side file that may
- * import a products-domain service.
+ * import a products-domain owner-side port.
  *
  * Bound in `sourcing.module.ts` to the concrete `SourcingProductsCatalogAdapter`
  * provider via `SOURCING_PRODUCTS_CATALOG_PORT` token.
@@ -70,7 +70,8 @@ export interface SourcingProductsCatalogPort {
   /**
    * Promote a sourcing candidate to an operational master.
    *
-   * Implementation is owned by products domain via `MasterPromotionService`.
+   * Implementation is owned by the products domain via its owner-side
+   * `PRODUCT_MASTER_PROMOTION_PORT`.
    * The caller (`SourcingPromotionService`) supplies `tx` so the candidate
    * row lock + status flip and the master/options/images creation commit in
    * the same transaction.

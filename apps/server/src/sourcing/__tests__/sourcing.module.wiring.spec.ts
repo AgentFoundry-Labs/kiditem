@@ -5,8 +5,10 @@ import { SourcingService } from '../application/service/sourcing.service';
 import { SourcingPromotionService } from '../application/service/sourcing-promotion.service';
 import { SourcingAgentGatewayAdapter } from '../adapter/out/agent/sourcing-agent.gateway.adapter';
 import { SourcingOperationAlertAdapter } from '../adapter/out/automation/operation-alert.adapter';
+import { SourcingProductsCatalogAdapter } from '../adapter/out/products/products-catalog.adapter';
 import { SOURCING_AGENT_GATEWAY_PORT } from '../application/port/out/sourcing-agent.gateway.port';
 import { SOURCING_OPERATION_ALERT_PORT } from '../application/port/out/operation-alert.port';
+import { SOURCING_PRODUCTS_CATALOG_PORT } from '../application/port/out/products-catalog.port';
 import { AutomationModule } from '../../automation/automation.module';
 
 // NestJS @Module / @Controller metadata keys (stable across Nest 10/11).
@@ -39,6 +41,7 @@ describe('SourcingModule canonical owner wiring', () => {
     const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, SourcingModule) ?? [];
     expect(providers).toContain(SourcingAgentGatewayAdapter);
     expect(providers).toContain(SourcingOperationAlertAdapter);
+    expect(providers).toContain(SourcingProductsCatalogAdapter);
     const gatewayBinding = providers.find(
       (p): p is { provide: symbol; useExisting: unknown } =>
         typeof p === 'object' && p !== null && (p as any).provide === SOURCING_AGENT_GATEWAY_PORT,
@@ -51,6 +54,12 @@ describe('SourcingModule canonical owner wiring', () => {
     );
     expect(alertBinding).toBeDefined();
     expect(alertBinding!.useExisting).toBe(SourcingOperationAlertAdapter);
+    const productsBinding = providers.find(
+      (p): p is { provide: symbol; useExisting: unknown } =>
+        typeof p === 'object' && p !== null && (p as any).provide === SOURCING_PRODUCTS_CATALOG_PORT,
+    );
+    expect(productsBinding).toBeDefined();
+    expect(productsBinding!.useExisting).toBe(SourcingProductsCatalogAdapter);
   });
 
   it('imports the Agent OS runtime so the gateway adapter can resolve AGENT_RUNNER_PORT', () => {
@@ -67,9 +76,8 @@ describe('SourcingModule canonical owner wiring', () => {
 
   it('keeps public /api route prefix on every route-family controller', () => {
     const controllers: unknown[] = Reflect.getMetadata(CONTROLLERS_KEY, SourcingModule) ?? [];
-    expect(controllers.map((controller) => Reflect.getMetadata(PATH_KEY, controller))).toEqual([
-      'sourcing',
-      'sourcing',
-    ]);
+    expect(
+      controllers.map((controller) => Reflect.getMetadata(PATH_KEY, controller as object)),
+    ).toEqual(['sourcing', 'sourcing']);
   });
 });

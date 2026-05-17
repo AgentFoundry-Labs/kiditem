@@ -1,6 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
-import { MasterPromotionService } from '../../../../products/application/service/master-promotion.service';
+import {
+  PRODUCT_MASTER_PROMOTION_PORT,
+  type ProductMasterPromotionPort,
+} from '../../../../products/application/port/in/master-promotion.port';
 import type {
   PromoteCandidateInput,
   PromoteCandidateResult,
@@ -10,12 +13,12 @@ import type {
 /**
  * Concrete adapter for `SOURCING_PRODUCTS_CATALOG_PORT`.
  *
- * This is the only sourcing-side file that imports a products-domain service,
- * per sourcing/AGENTS.md "Boundary Rules" and apps/server/AGENTS.md
- * "Reconstruction Rules" (application services depend on ports; concrete
- * adapters bridge ports to other-domain services).
+ * This is the only sourcing-side file that imports the products owner-side
+ * promotion port token, per sourcing/AGENTS.md "Boundary Rules" and
+ * apps/server/AGENTS.md "Reconstruction Rules" (application services depend on
+ * local ports; concrete adapters bridge to other-domain owner ports).
  *
- * `MasterPromotionService.create` owns the products-side invariants:
+ * The products owner-side master promotion port owns the products invariants:
  * `MasterCodeService.generate(tx)` for the family code, master row write with
  * `lifecycleState='active'`, image gallery createMany, and per-option
  * `OptionsService.create` so SKU issuance + tenant guards run inside the same
@@ -23,7 +26,10 @@ import type {
  */
 @Injectable()
 export class SourcingProductsCatalogAdapter implements SourcingProductsCatalogPort {
-  constructor(private readonly promotion: MasterPromotionService) {}
+  constructor(
+    @Inject(PRODUCT_MASTER_PROMOTION_PORT)
+    private readonly promotion: ProductMasterPromotionPort,
+  ) {}
 
   async promoteCandidate(
     tx: Prisma.TransactionClient,
