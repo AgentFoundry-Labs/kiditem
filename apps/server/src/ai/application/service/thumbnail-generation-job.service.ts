@@ -35,6 +35,7 @@ import {
   createPendingEditJob,
   createPendingStandaloneJob,
   lockGenerationForProcessing,
+  markGenerationCancelled,
   markGenerationFailed,
   persistPendingInputImages,
   replaceGenerationResult,
@@ -106,6 +107,11 @@ export interface ThumbnailStandaloneGenerationEnqueueInput {
   agentPayload: Record<string, unknown>;
 }
 
+type ThumbnailGenerationEnqueueResult = {
+  generationId: string;
+  status: 'pending' | 'cancelled';
+};
+
 @Injectable()
 export class ThumbnailGenerationJobService {
   private readonly logger = new Logger(ThumbnailGenerationJobService.name);
@@ -124,7 +130,7 @@ export class ThumbnailGenerationJobService {
 
   async enqueueEditorGeneration(
     input: ThumbnailEditorGenerationEnqueueInput,
-  ): Promise<{ generationId: string; status: 'pending' }> {
+  ): Promise<ThumbnailGenerationEnqueueResult> {
     const generation = await createPendingEditJob(this.prisma, {
       organizationId: input.organizationId,
       masterId: input.productId,
@@ -236,7 +242,7 @@ export class ThumbnailGenerationJobService {
 
   async enqueueCandidateGeneration(
     input: ThumbnailCandidateGenerationEnqueueInput,
-  ): Promise<{ generationId: string; status: 'pending' }> {
+  ): Promise<ThumbnailGenerationEnqueueResult> {
     const candidate = await this.prisma.sourcingCandidate.findFirst({
       where: {
         id: input.sourceCandidateId,
@@ -303,12 +309,37 @@ export class ThumbnailGenerationJobService {
     });
 
     if (isParentProductGenerationAlertLink(operationAlert)) {
-      await this.productGenerationAlerts.recordChildStarted({
+      const childStart = await this.productGenerationAlerts.recordChildStarted({
         organizationId: input.organizationId,
         parentOperationKey: operationAlert.parentOperationKey,
         childKind: 'thumbnail',
         childId: generation.id,
       });
+      if (childStart.status !== 'started') {
+        const change = await markGenerationCancelled(
+          this.prisma,
+          generation.id,
+          input.organizationId,
+        );
+        if (change) {
+          await this.emitStatusChange({
+            organizationId: input.organizationId,
+            generationId: generation.id,
+            fromStatus: change.fromStatus,
+            toStatus: 'cancelled',
+            fromPhase: change.fromPhase,
+            toPhase: null,
+            actorUserId: input.triggeredByUserId,
+            payload: {
+              reason:
+                childStart.alert?.status === 'cancelled'
+                  ? 'Parent product generation was cancelled before thumbnail child enqueue.'
+                  : 'Parent product generation is not accepting thumbnail child jobs.',
+            },
+          });
+        }
+        return { generationId: generation.id, status: 'cancelled' };
+      }
     } else {
       const alertTarget = this.alertTarget({
         contentWorkspaceId: input.contentWorkspaceId ?? null,
@@ -401,7 +432,7 @@ export class ThumbnailGenerationJobService {
 
   async enqueueStandaloneGeneration(
     input: ThumbnailStandaloneGenerationEnqueueInput,
-  ): Promise<{ generationId: string; status: 'pending' }> {
+  ): Promise<ThumbnailGenerationEnqueueResult> {
     const generation = await createPendingStandaloneJob(this.prisma, {
       organizationId: input.organizationId,
       originalUrl: input.originalUrl,

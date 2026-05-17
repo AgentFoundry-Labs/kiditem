@@ -109,7 +109,7 @@ describe('ProductGenerationAlertService', () => {
     };
     const service = new ProductGenerationAlertService(prisma as never, operationAlerts as never);
 
-    await service.recordChildStarted({
+    const result = await service.recordChildStarted({
       organizationId: ORGANIZATION_ID,
       parentOperationKey: OPERATION_KEY,
       childKind: 'detail_page',
@@ -130,6 +130,35 @@ describe('ProductGenerationAlertService', () => {
         }),
       }),
     );
+    expect(operationAlerts.succeed).not.toHaveBeenCalled();
+    expect(operationAlerts.fail).not.toHaveBeenCalled();
+    expect(result.status).toBe('started');
+  });
+
+  it('reports parent_terminal when child registration races with parent cancellation', async () => {
+    const prisma = makePrisma();
+    const operationAlerts = {
+      start: vi.fn(),
+      findByOperationKey: vi.fn().mockResolvedValue(makeAlert({
+        children: { detail_page: 'queued', thumbnail: 'queued' },
+        childIds: { detailPageGenerationId: null, thumbnailGenerationId: null },
+      })),
+      progress: vi.fn().mockResolvedValue(
+        { ...makeAlert({}), status: 'cancelled', metadata: {}, progress: 0.15 },
+      ),
+      succeed: vi.fn(),
+      fail: vi.fn(),
+    };
+    const service = new ProductGenerationAlertService(prisma as never, operationAlerts as never);
+
+    const result = await service.recordChildStarted({
+      organizationId: ORGANIZATION_ID,
+      parentOperationKey: OPERATION_KEY,
+      childKind: 'detail_page',
+      childId: 'content-generation-1',
+    });
+
+    expect(result.status).toBe('parent_terminal');
     expect(operationAlerts.succeed).not.toHaveBeenCalled();
     expect(operationAlerts.fail).not.toHaveBeenCalled();
   });

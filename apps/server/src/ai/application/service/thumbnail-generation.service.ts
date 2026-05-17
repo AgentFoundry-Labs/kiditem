@@ -117,19 +117,19 @@ export class ThumbnailGenerationService {
 
   async enqueueEditorGeneration(
     input: ThumbnailEditorGenerationEnqueueInput,
-  ): Promise<{ generationId: string; status: 'pending' }> {
+  ): Promise<{ generationId: string; status: 'pending' | 'cancelled' }> {
     return this.generationJobs.enqueueEditorGeneration(input);
   }
 
   async enqueueCandidateGeneration(
     input: Parameters<ThumbnailGenerationJobService['enqueueCandidateGeneration']>[0],
-  ): Promise<{ generationId: string; status: 'pending' }> {
+  ): Promise<{ generationId: string; status: 'pending' | 'cancelled' }> {
     return this.generationJobs.enqueueCandidateGeneration(input);
   }
 
   async enqueueStandaloneGeneration(
     input: Parameters<ThumbnailGenerationJobService['enqueueStandaloneGeneration']>[0],
-  ): Promise<{ generationId: string; status: 'pending' }> {
+  ): Promise<{ generationId: string; status: 'pending' | 'cancelled' }> {
     return this.generationJobs.enqueueStandaloneGeneration(input);
   }
 

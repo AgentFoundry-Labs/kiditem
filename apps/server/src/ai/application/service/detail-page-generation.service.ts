@@ -346,12 +346,25 @@ export class DetailPageGenerationService {
     });
 
     if (isParentProductGenerationAlertLink(input.operationAlert)) {
-      await this.productGenerationAlerts.recordChildStarted({
+      const childStart = await this.productGenerationAlerts.recordChildStarted({
         organizationId: input.organizationId,
         parentOperationKey: input.operationAlert.parentOperationKey,
         childKind: 'detail_page',
         childId: row.id,
       });
+      if (childStart.status !== 'started') {
+        await this.prisma.contentGeneration.updateMany({
+          where: { id: row.id, organizationId: input.organizationId },
+          data: {
+            status: childStart.alert?.status === 'cancelled' ? 'CANCELLED' : 'FAILED',
+            errorMessage:
+              childStart.alert?.status === 'cancelled'
+                ? 'Parent product generation was cancelled before detail child enqueue.'
+                : 'Parent product generation is not accepting detail child jobs.',
+          },
+        });
+        return this.query.getById(row.id, input.organizationId);
+      }
     } else {
       const alertTargetsContentWorkspace = input.preferContentWorkspaceAlert || !primarySourceCandidateId;
       await this.operationAlerts.start({

@@ -34,7 +34,7 @@ function makeOperationAlertsStub(): OperationAlertService {
 function makeProductGenerationAlertsStub(): ProductGenerationAlertService {
   return {
     start: vi.fn().mockResolvedValue({}),
-    recordChildStarted: vi.fn().mockResolvedValue({}),
+    recordChildStarted: vi.fn().mockResolvedValue({ status: 'started', alert: {} }),
     markChildFinished: vi.fn().mockResolvedValue({}),
   } as unknown as ProductGenerationAlertService;
 }
@@ -439,6 +439,54 @@ describe('DetailPageAiService', () => {
         }),
       }),
     }));
+  });
+
+  it('closes parent-mode detail child without Agent OS enqueue when parent is already terminal', async () => {
+    const prisma = makePrisma();
+    const operationAlerts = makeOperationAlertsStub();
+    const productGenerationAlerts = makeProductGenerationAlertsStub();
+    productGenerationAlerts.recordChildStarted = vi.fn().mockResolvedValue({
+      status: 'parent_terminal',
+      alert: { status: 'cancelled' },
+    });
+    const agentRunner = makeAgentRunnerStub();
+    const service = makeGenerationService({
+      prisma,
+      operationAlerts,
+      productGenerationAlerts,
+      agentRunner,
+    });
+
+    await service.generate(
+      {
+        productId: MASTER_ID,
+        templateId: 'bold-vertical',
+        rawTitle: '휴대용목걸이비눗방울',
+        rawCategory: '완구',
+        rawDescription: '아이들이 가지고 놀기 좋은 장난감',
+        rawOptions: '혼합 색상 / 사이즈 85*60mm',
+        imageUrls: ['https://example.com/detail-1.jpg'],
+      },
+      ORGANIZATION_ID,
+      USER_ID,
+      {
+        operationAlert: {
+          mode: 'parent',
+          batchId: 'batch-1',
+          parentOperationKey: 'product-generation:batch-1',
+          childKind: 'detail_page',
+        },
+      },
+    );
+
+    expect(prisma.contentGeneration.updateMany).toHaveBeenCalledWith({
+      where: { id: GENERATION_ID, organizationId: ORGANIZATION_ID },
+      data: expect.objectContaining({
+        status: 'CANCELLED',
+        errorMessage: expect.stringContaining('cancelled'),
+      }),
+    });
+    expect(agentRunner.runByType).not.toHaveBeenCalled();
   });
 
   it('routes parent-mode detail enqueue failures to the product generation parent alert', async () => {
