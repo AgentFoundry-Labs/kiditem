@@ -176,7 +176,6 @@ export const backfillRegistrationWorkspaces: DataMigration = {
             )
           )
       )
-      ON CONFLICT DO NOTHING
     `;
 
     const contentGenerationsAttached = await tx.$executeRaw`
