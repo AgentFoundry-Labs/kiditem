@@ -1,5 +1,5 @@
 import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
-import type { CancelOperationTarget } from '../../../../application/service/operation-cancellation.types';
+import type { CancelOperationTarget } from '@kiditem/shared/operation-cancellation';
 
 const TARGET_TYPES = [
   'operation_key',

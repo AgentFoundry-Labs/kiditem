@@ -2,48 +2,19 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import {
+  CancelOperationTargetSchema,
+  type CancelOperationResponse,
+  type CancelOperationTarget,
+} from '@kiditem/shared/operation-cancellation';
 import { apiClient } from './api-client';
 import { isApiError } from './api-error';
 import { queryKeys } from './query-keys';
 
-export type CancelOperationTarget =
-  | { targetType: 'operation_key'; operationKey: string; reason?: string }
-  | { targetType: 'workflow_run'; runId: string; reason?: string }
-  | { targetType: 'agent_run_request'; requestId: string; reason?: string }
-  | { targetType: 'agent_run'; runId: string; reason?: string }
-  | { targetType: 'content_generation'; generationId: string; reason?: string }
-  | { targetType: 'thumbnail_generation'; generationId: string; reason?: string };
-
-export type CancelOperationStatus =
-  | 'cancelled'
-  | 'already_terminal'
-  | 'not_cancellable';
-
-export interface CancelOperationAffected {
-  workflowRunIds: string[];
-  agentRunRequestIds: string[];
-  agentRunIds: string[];
-  contentGenerationIds: string[];
-  thumbnailGenerationIds: string[];
-}
-
-export interface CancelOperationPreserved {
-  contentGenerationIds: string[];
-  thumbnailGenerationIds: string[];
-}
-
-export interface CancelOperationResponse {
-  ok: true;
-  status: CancelOperationStatus;
-  message: string;
-  operationKey: string | null;
-  affected: CancelOperationAffected;
-  preserved: CancelOperationPreserved;
-  warnings: string[];
-}
+export type { CancelOperationResponse, CancelOperationTarget };
 
 export function buildCancelOperationBody(target: CancelOperationTarget): CancelOperationTarget {
-  return target;
+  return CancelOperationTargetSchema.parse(target);
 }
 
 export function cancelOperation(target: CancelOperationTarget): Promise<CancelOperationResponse> {

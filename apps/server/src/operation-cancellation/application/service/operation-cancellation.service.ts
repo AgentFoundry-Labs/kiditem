@@ -23,6 +23,13 @@ import {
   emptyPreserved,
 } from './operation-cancellation.types';
 import {
+  agentCancellationWasApplied,
+  buildCancelOperationResult,
+  linkedAgentRequestsWarning,
+  linkedAgentRunsWarning,
+  linkedAgentCancellationWarnings,
+} from './operation-cancellation-result';
+import {
   operationCancellationAudit,
   type OperationCancellationTargetAudit,
 } from '../../../common/operation-cancellation-audit';
@@ -48,20 +55,6 @@ function pushUnique(list: string[], value: string | null | undefined): void {
 function reasonFrom(command: CancelOperationCommand): string {
   const raw = command.target.reason?.trim();
   return raw && raw.length > 0 ? raw : DEFAULT_REASON;
-}
-
-function pushLinkedAgentWarnings(
-  warnings: string[],
-  result: { cancelledAgentRunRequests: number; cancelledAgentRuns: number },
-): void {
-  if (result.cancelledAgentRunRequests > 0) {
-    warnings.push(
-      `Linked Agent OS requests cancelled: ${result.cancelledAgentRunRequests}`,
-    );
-  }
-  if (result.cancelledAgentRuns > 0) {
-    warnings.push(`Linked Agent OS runs cancelled: ${result.cancelledAgentRuns}`);
-  }
 }
 
 function auditTargetFrom(target: CancelOperationTarget): OperationCancellationTargetAudit {
@@ -144,15 +137,11 @@ export class OperationCancellationService {
       );
     }
     if (TERMINAL_OPERATION_STATUSES.has(alert.status)) {
-      return {
-        ok: true,
+      return buildCancelOperationResult({
         status: 'already_terminal',
         message: '이미 완료되었거나 중단된 작업입니다.',
         operationKey: command.target.operationKey,
-        affected: emptyAffected(),
-        preserved: emptyPreserved(),
-        warnings: [],
-      };
+      });
     }
 
     const affected = emptyAffected();
@@ -179,7 +168,7 @@ export class OperationCancellationService {
       });
       if (result?.cancelledRequests) pushUnique(affected.agentRunRequestIds, alert.sourceId);
       if (result?.cancelledRuns) {
-        warnings.push(`Linked Agent OS runs cancelled: ${result.cancelledRuns}`);
+        warnings.push(linkedAgentRunsWarning(result.cancelledRuns));
       }
     }
     if (alert.sourceType === 'agent_run' && alert.sourceId) {
@@ -191,7 +180,7 @@ export class OperationCancellationService {
       });
       if (result?.cancelledRuns) pushUnique(affected.agentRunIds, alert.sourceId);
       if (result?.cancelledRequests) {
-        warnings.push(`Linked Agent OS requests cancelled: ${result.cancelledRequests}`);
+        warnings.push(linkedAgentRequestsWarning(result.cancelledRequests));
       }
     }
     if (alert.sourceType === 'workflow_run' && alert.sourceId) {
@@ -202,7 +191,7 @@ export class OperationCancellationService {
         reason,
       });
       if (result.status === 'cancelled') pushUnique(affected.workflowRunIds, alert.sourceId);
-      pushLinkedAgentWarnings(warnings, result);
+      warnings.push(...linkedAgentCancellationWarnings(result));
     }
 
     const hasAnyEffect =
@@ -216,15 +205,14 @@ export class OperationCancellationService {
       0;
 
     if (!hasAnyEffect) {
-      return {
-        ok: true,
+      return buildCancelOperationResult({
         status: 'not_cancellable',
         message: '이 작업은 서버에서 중단 가능한 실행 대상을 찾지 못했습니다.',
         operationKey: command.target.operationKey,
         affected,
         preserved,
         warnings,
-      };
+      });
     }
 
     await this.operationAlerts.cancel(command.organizationId, command.target.operationKey, {
@@ -253,8 +241,7 @@ export class OperationCancellationService {
       },
     });
 
-    return {
-      ok: true,
+    return buildCancelOperationResult({
       status: 'cancelled',
       message:
         preserved.contentGenerationIds.length + preserved.thumbnailGenerationIds.length > 0
@@ -264,7 +251,7 @@ export class OperationCancellationService {
       affected,
       preserved,
       warnings,
-    };
+    });
   }
 
   private async cancelWorkflowRun(
@@ -285,10 +272,9 @@ export class OperationCancellationService {
     const warnings: string[] = [];
     if (result.status === 'cancelled') {
       pushUnique(affected.workflowRunIds, runId);
-      pushLinkedAgentWarnings(warnings, result);
+      warnings.push(...linkedAgentCancellationWarnings(result));
     }
-    return {
-      ok: true,
+    return buildCancelOperationResult({
       status: result.status === 'cancelled' ? 'cancelled' : 'already_terminal',
       message:
         result.status === 'already_terminal'
@@ -296,9 +282,8 @@ export class OperationCancellationService {
           : '워크플로우 중단 요청이 반영되었습니다.',
       operationKey,
       affected,
-      preserved: emptyPreserved(),
       warnings,
-    };
+    });
   }
 
   private async cancelAgentRunRequest(
@@ -316,20 +301,18 @@ export class OperationCancellationService {
     const warnings = result ? [] : ['Agent OS cancellation port is not available.'];
     if (result?.cancelledRequests) pushUnique(affected.agentRunRequestIds, requestId);
     if (result?.cancelledRuns) {
-      warnings.push(`Linked Agent OS runs cancelled: ${result.cancelledRuns}`);
+      warnings.push(linkedAgentRunsWarning(result.cancelledRuns));
     }
-    const cancelled = result ? result.cancelledRequests + result.cancelledRuns > 0 : false;
-    return {
-      ok: true,
+    const cancelled = agentCancellationWasApplied(result);
+    return buildCancelOperationResult({
       status: cancelled ? 'cancelled' : 'already_terminal',
       message: cancelled
         ? '에이전트 작업 중단 요청이 반영되었습니다.'
         : '이미 완료되었거나 중단된 에이전트 작업입니다.',
       operationKey,
       affected,
-      preserved: emptyPreserved(),
       warnings,
-    };
+    });
   }
 
   private async cancelAgentRun(
@@ -347,20 +330,18 @@ export class OperationCancellationService {
     const warnings = result ? [] : ['Agent OS cancellation port is not available.'];
     if (result?.cancelledRuns) pushUnique(affected.agentRunIds, runId);
     if (result?.cancelledRequests) {
-      warnings.push(`Linked Agent OS requests cancelled: ${result.cancelledRequests}`);
+      warnings.push(linkedAgentRequestsWarning(result.cancelledRequests));
     }
-    const cancelled = result ? result.cancelledRuns + result.cancelledRequests > 0 : false;
-    return {
-      ok: true,
+    const cancelled = agentCancellationWasApplied(result);
+    return buildCancelOperationResult({
       status: cancelled ? 'cancelled' : 'already_terminal',
       message: cancelled
         ? '에이전트 실행 중단 요청이 기록되었습니다.'
         : '이미 완료되었거나 중단된 에이전트 실행입니다.',
       operationKey,
       affected,
-      preserved: emptyPreserved(),
       warnings,
-    };
+    });
   }
 
   private async cancelContentGeneration(
@@ -381,8 +362,7 @@ export class OperationCancellationService {
     const preserved = emptyPreserved();
     if (result.status === 'cancelled') pushUnique(affected.contentGenerationIds, generationId);
     if (result.preserved) pushUnique(preserved.contentGenerationIds, generationId);
-    return {
-      ok: true,
+    return buildCancelOperationResult({
       status: result.status === 'already_terminal' ? 'already_terminal' : 'cancelled',
       message:
         result.status === 'already_terminal'
@@ -391,8 +371,7 @@ export class OperationCancellationService {
       operationKey: operationKey ? operationKey : result.operationKey,
       affected,
       preserved,
-      warnings: [],
-    };
+    });
   }
 
   private async cancelThumbnailGeneration(
@@ -413,8 +392,7 @@ export class OperationCancellationService {
     const preserved = emptyPreserved();
     if (result.status === 'cancelled') pushUnique(affected.thumbnailGenerationIds, generationId);
     if (result.preserved) pushUnique(preserved.thumbnailGenerationIds, generationId);
-    return {
-      ok: true,
+    return buildCancelOperationResult({
       status: result.status === 'already_terminal' ? 'already_terminal' : 'cancelled',
       message:
         result.status === 'already_terminal'
@@ -423,8 +401,7 @@ export class OperationCancellationService {
       operationKey: operationKey ? operationKey : result.operationKey,
       affected,
       preserved,
-      warnings: [],
-    };
+    });
   }
 
   private async cancelContentChild(
