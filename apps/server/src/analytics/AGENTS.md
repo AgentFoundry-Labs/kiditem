@@ -76,6 +76,10 @@ decision.
 - New raw SQL/report hydration belongs behind dashboard repository adapters.
 - Do not merge traffic CSV upload with `/api/ads/extension/sync`; one is
   operator-driven, the other provider/extension-driven.
+- Traffic upload operation alerts go through
+  `traffic/application/port/out/operation-alert.port.ts` and
+  `traffic/adapter/out/automation/operation-alert.adapter.ts`; traffic code
+  must not inject automation's `OperationAlertService` directly.
 
 ## Verification
 

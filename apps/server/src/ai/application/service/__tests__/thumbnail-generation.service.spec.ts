@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ThumbnailGenerationService } from '../thumbnail-generation.service';
-import type { OperationAlertService } from '../../../../automation/application/service/operation-alert.service';
+import type { OperationAlertPort } from '../../port/out/operation-alert.port';
 import type { ProductGenerationAlertService } from '../product-generation-alert.service';
 
 const ORGANIZATION_ID = '11111111-1111-4111-8111-111111111111';
@@ -56,14 +56,14 @@ vi.mock('../../../mapper/thumbnail-generation.mapper', () => ({
   toThumbnailGenerationItem: mocks.toThumbnailGenerationItem,
 }));
 
-function makeOperationAlertsStub(): OperationAlertService {
+function makeOperationAlertsStub(): OperationAlertPort {
   return {
     start: vi.fn().mockResolvedValue({}),
     succeed: vi.fn().mockResolvedValue({}),
     fail: vi.fn().mockResolvedValue({}),
     progress: vi.fn().mockResolvedValue({}),
     cancel: vi.fn().mockResolvedValue({}),
-  } as unknown as OperationAlertService;
+  } as unknown as OperationAlertPort;
 }
 
 function makeGenerationJobsStub() {

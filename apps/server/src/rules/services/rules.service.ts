@@ -9,7 +9,10 @@ import {
 import { AgentObservabilityService } from '../../agent-os/application/service/agent-observability.service';
 import { PANEL_EVENTS } from '../../automation/adapter/out/panel-event/panel-events';
 import { alertPanelMapper } from '../../automation/mapper/panel-event/alert.mapper';
-import { OperationAlertService } from '../../automation/application/service/operation-alert.service';
+import {
+  RULES_OPERATION_ALERT_PORT,
+  type OperationAlertPort,
+} from '../application/port/out/operation-alert.port';
 import type { RuleItem } from '@kiditem/shared/rules';
 import type { EvaluationResult, ProductEvalResult } from './types';
 
@@ -51,7 +54,8 @@ export class RulesService {
     private readonly agentRunner: AgentRunnerPort,
     private readonly observability: AgentObservabilityService,
     private readonly eventEmitter: EventEmitter2,
-    private readonly operationAlerts: OperationAlertService,
+    @Inject(RULES_OPERATION_ALERT_PORT)
+    private readonly operationAlerts: OperationAlertPort,
   ) {}
 
   async evaluateAll(

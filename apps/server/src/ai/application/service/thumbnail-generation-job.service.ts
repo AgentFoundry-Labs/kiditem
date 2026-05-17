@@ -7,7 +7,10 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { OperationAlertService } from '../../../automation/application/service/operation-alert.service';
+import {
+  AI_OPERATION_ALERT_PORT,
+  type OperationAlertPort,
+} from '../port/out/operation-alert.port';
 import { ThumbnailEditorAiService } from './thumbnail-editor-ai.service';
 import type {
   ThumbnailEditorCandidate,
@@ -122,7 +125,8 @@ export class ThumbnailGenerationJobService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly editorAiService: ThumbnailEditorAiService,
-    private readonly operationAlerts: OperationAlertService,
+    @Inject(AI_OPERATION_ALERT_PORT)
+    private readonly operationAlerts: OperationAlertPort,
     @Inject(AGENT_RUNNER_PORT)
     private readonly agentRunner: AgentRunnerPort,
     private readonly productGenerationAlerts: ProductGenerationAlertService,

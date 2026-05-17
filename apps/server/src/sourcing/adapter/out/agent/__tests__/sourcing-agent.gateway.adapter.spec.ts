@@ -4,7 +4,7 @@ import { SourcingAgentGatewayAdapter } from '../sourcing-agent.gateway.adapter';
 import type { AgentRunnerPort } from '../../../../../agent-os/application/port/in/agent-runner.port';
 import type { PostPromotionAiTriggerPort } from '../../../../../ai/application/port/in/post-promotion-ai-trigger.port';
 import type { ProductGenerationAiTriggerPort } from '../../../../../ai/application/port/in/product-generation-ai-trigger.port';
-import type { OperationAlertService } from '../../../../../automation/application/service/operation-alert.service';
+import type { OperationAlertPort } from '../../../../application/port/out/operation-alert.port';
 
 function makeAdapter(runByType: ReturnType<typeof vi.fn>) {
   const runner = { runByType } as unknown as AgentRunnerPort;
@@ -19,7 +19,7 @@ function makeAdapter(runByType: ReturnType<typeof vi.fn>) {
       href: '/product-pipeline/collected-products/candidate-1',
     }),
   } as unknown as ProductGenerationAiTriggerPort;
-  const alerts = { start: vi.fn().mockResolvedValue({}) } as unknown as OperationAlertService;
+  const alerts = { start: vi.fn().mockResolvedValue({}) } as unknown as OperationAlertPort;
   return {
     adapter: new SourcingAgentGatewayAdapter(
       runner,

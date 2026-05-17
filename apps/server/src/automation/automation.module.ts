@@ -136,12 +136,10 @@ const IN_PORT_BINDINGS = [
     OPERATION_ALERT_PORT,
     WORKFLOW_RUN_CANCELLATION_PORT,
     // Legacy class exports — kept while non-reconstructed consumers
-    // (ai, channels, finance, rules, sourcing, analytics/traffic) still
-    // inject these concretely. Each consumer's reconstruction PR will
-    // swap to OPERATION_ALERT_PORT and remove its direct class injection;
-    // once that completes these exports can be retired.
+    // still inject these concretely. Operation alerts have moved to the
+    // owner-side OPERATION_ALERT_PORT; the remaining exports retire as
+    // their consumers move to owner-side ports.
     ActionBoardService,
-    OperationAlertService,
     PanelSseService,
     WorkflowOrchestrationService,
   ],

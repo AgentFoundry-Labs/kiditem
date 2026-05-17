@@ -8,7 +8,10 @@ import {
   NotFoundException,
   type OnModuleInit,
 } from '@nestjs/common';
-import { OperationAlertService } from '../../../automation/application/service/operation-alert.service';
+import {
+  AI_OPERATION_ALERT_PORT,
+  type OperationAlertPort,
+} from '../port/out/operation-alert.port';
 import {
   COUPANG_INVENTORY_SCRAPE_PORT,
   type CoupangInventoryRow,
@@ -82,7 +85,8 @@ export class CoupangImageSyncService implements OnModuleInit {
     private readonly catalog: MasterCatalogPort,
     @Inject(COUPANG_IMAGE_RECONCILIATION_PORT)
     private readonly reconciliation: CoupangImageReconciliationPort,
-    private readonly operationAlerts: OperationAlertService,
+    @Inject(AI_OPERATION_ALERT_PORT)
+    private readonly operationAlerts: OperationAlertPort,
   ) {}
 
   async onModuleInit(): Promise<void> {

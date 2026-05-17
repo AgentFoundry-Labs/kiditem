@@ -17,6 +17,9 @@ application ports and owner-domain adapters.
 - Rules code must not import Agent OS runtime adapters or legacy
   agent-registry modules.
 - Alerts HTTP/API ownership is automation, not rules.
+- Operation-alert lifecycle writes go through `RULES_OPERATION_ALERT_PORT` and
+  `adapter/out/automation/operation-alert.adapter.ts`; rules code must not
+  inject automation's `OperationAlertService` directly.
 
 ## Routes
 

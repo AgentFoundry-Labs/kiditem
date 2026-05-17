@@ -1,11 +1,14 @@
-import { Controller, Get, Post, Body } from '@nestjs/common';
+import { Controller, Get, Post, Body, Inject } from '@nestjs/common';
 import { ChannelSyncService } from '../../../application/service/channel-sync.service';
 import type { SyncResult } from '../../../application/service/types';
 import { SyncOrdersBodyDto } from './dto';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../../../auth/auth.types';
-import { OperationAlertService } from '../../../../automation/application/service/operation-alert.service';
+import {
+  CHANNELS_OPERATION_ALERT_PORT,
+  type OperationAlertPort,
+} from '../../../application/port/out/operation-alert.port';
 
 const PRODUCT_SYNC_ALERT = {
   operationKey: 'coupang-sync:products',
@@ -40,7 +43,8 @@ function errorMessage(error: unknown): string {
 export class ChannelSyncController {
   constructor(
     private readonly syncService: ChannelSyncService,
-    private readonly operationAlerts: OperationAlertService,
+    @Inject(CHANNELS_OPERATION_ALERT_PORT)
+    private readonly operationAlerts: OperationAlertPort,
   ) {}
 
   @Get('health')

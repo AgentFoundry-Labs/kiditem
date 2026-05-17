@@ -19,6 +19,8 @@ import { ChannelReconciliationScanService } from './application/service/channel-
 import { ChannelReconciliationService } from './application/service/channel-reconciliation.service';
 import { ChannelAccountService } from './application/service/channel-account.service';
 import { COUPANG_PROVIDER_PORT } from './application/port/out/coupang-provider.port';
+import { ChannelsOperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
+import { CHANNELS_OPERATION_ALERT_PORT } from './application/port/out/operation-alert.port';
 
 @Module({
   imports: [AutomationModule],
@@ -43,7 +45,9 @@ import { COUPANG_PROVIDER_PORT } from './application/port/out/coupang-provider.p
     ChannelReconciliationService,
     ChannelAccountService,
     CoupangProviderAdapter,
+    ChannelsOperationAlertAdapter,
     { provide: COUPANG_PROVIDER_PORT, useExisting: CoupangProviderAdapter },
+    { provide: CHANNELS_OPERATION_ALERT_PORT, useExisting: ChannelsOperationAlertAdapter },
   ],
   exports: [ChannelReconciliationService, COUPANG_PROVIDER_PORT],
 })

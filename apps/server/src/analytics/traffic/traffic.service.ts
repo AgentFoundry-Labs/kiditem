@@ -1,13 +1,16 @@
-import { Injectable, Optional } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { MulterFile } from '../../common/types';
 import { resolvePricing } from '../../common/option-pricing-resolver';
 import { kstDayStart } from '../../common/kst';
-import { OperationAlertService } from '../../automation/application/service/operation-alert.service';
 import {
   uploadTrafficStats as uploadTrafficStatsIngest,
   type TrafficUploadOptions,
 } from './traffic-upload';
+import {
+  TRAFFIC_OPERATION_ALERT_PORT,
+  type OperationAlertPort,
+} from './application/port/out/operation-alert.port';
 
 interface DayRevenue {
   date: string;
@@ -74,7 +77,8 @@ export class TrafficService {
   constructor(
     private readonly prisma: PrismaService,
     @Optional()
-    private readonly operationAlerts?: OperationAlertService,
+    @Inject(TRAFFIC_OPERATION_ALERT_PORT)
+    private readonly operationAlerts?: OperationAlertPort,
   ) {}
 
   async uploadTrafficStats(

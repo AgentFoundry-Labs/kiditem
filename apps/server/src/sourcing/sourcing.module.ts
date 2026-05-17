@@ -13,9 +13,11 @@ import { SourcingWorkspaceArchiveService } from './application/service/sourcing-
 import { ProductPreparationSelectionService } from './application/service/product-preparation-selection.service';
 
 import { SourcingAgentGatewayAdapter } from './adapter/out/agent/sourcing-agent.gateway.adapter';
+import { SourcingOperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
 import { SourcingProductsCatalogAdapter } from './adapter/out/products/products-catalog.adapter';
 import { SourcingCandidateRepositoryAdapter } from './adapter/out/repository/sourcing-candidate.repository.adapter';
 import { SOURCING_AGENT_GATEWAY_PORT } from './application/port/out/sourcing-agent.gateway.port';
+import { SOURCING_OPERATION_ALERT_PORT } from './application/port/out/operation-alert.port';
 import { SOURCING_PRODUCTS_CATALOG_PORT } from './application/port/out/products-catalog.port';
 import { SOURCING_CANDIDATE_REPOSITORY_PORT } from './application/port/out/sourcing-candidate.repository.port';
 
@@ -52,11 +54,16 @@ import { SOURCING_CANDIDATE_REPOSITORY_PORT } from './application/port/out/sourc
     SourcingWorkspaceArchiveService,
     ProductPreparationSelectionService,
     SourcingAgentGatewayAdapter,
+    SourcingOperationAlertAdapter,
     SourcingProductsCatalogAdapter,
     SourcingCandidateRepositoryAdapter,
     {
       provide: SOURCING_AGENT_GATEWAY_PORT,
       useExisting: SourcingAgentGatewayAdapter,
+    },
+    {
+      provide: SOURCING_OPERATION_ALERT_PORT,
+      useExisting: SourcingOperationAlertAdapter,
     },
     {
       provide: SOURCING_PRODUCTS_CATALOG_PORT,

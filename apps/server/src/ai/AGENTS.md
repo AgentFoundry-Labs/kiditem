@@ -18,6 +18,7 @@ ai/
 ├── adapter/out/
 │   ├── agent-output/         # sink adapters
 │   ├── agent-runtime/        # runtime handlers registered with Agent OS
+│   ├── automation/           # operation-alert consumer adapter
 │   ├── gemini/               # Gemini text/media/vision adapters
 │   ├── image-fetch/          # HTTP image fetch guard adapter
 │   ├── prisma/               # legacy thumbnail persistence/query adapters
@@ -77,6 +78,10 @@ ai/
 - Product-generation requests enter AI through
   `PRODUCT_GENERATION_AI_TRIGGER_PORT`; sourcing owns candidate creation and AI
   owns the detail-page/thumbnail child ledgers plus parent alert coordination.
+- Operation-alert lifecycle writes go through
+  `AI_OPERATION_ALERT_PORT` and `adapter/out/automation/operation-alert.adapter.ts`.
+  AI application services and sinks must not inject automation's
+  `OperationAlertService` directly.
 - When generation controls change, check the whole contract chain:
   shared tuple/type, HTTP DTO, web payload, Agent OS input/output schema, stored
   rawInput normalizer, sink, and reconcile.

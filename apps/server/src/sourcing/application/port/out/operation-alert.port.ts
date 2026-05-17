@@ -1,0 +1,24 @@
+export const SOURCING_OPERATION_ALERT_PORT = Symbol('SOURCING_OPERATION_ALERT_PORT');
+
+export type OperationAlertSeverity = 'info' | 'warning' | 'error' | 'critical';
+
+export interface StartOperationAlertInput {
+  organizationId: string;
+  operationKey: string;
+  type: string;
+  title: string;
+  message?: string | null;
+  sourceType?: string | null;
+  sourceId?: string | null;
+  actorUserId?: string | null;
+  targetType?: string | null;
+  targetId?: string | null;
+  href: string | null;
+  severity?: OperationAlertSeverity;
+  progress?: number | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface OperationAlertPort {
+  start(input: StartOperationAlertInput): Promise<unknown>;
+}

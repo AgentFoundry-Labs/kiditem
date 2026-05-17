@@ -1,11 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { paginationParams } from '../../../common/pagination';
-import { OperationAlertService } from '../../../automation/application/service/operation-alert.service';
 import {
   SOURCING_AGENT_GATEWAY_PORT,
   type SourcingAgentGatewayPort,
 } from '../port/out/sourcing-agent.gateway.port';
+import {
+  SOURCING_OPERATION_ALERT_PORT,
+  type OperationAlertPort,
+} from '../port/out/operation-alert.port';
 import {
   SOURCING_CANDIDATE_REPOSITORY_PORT,
   type SourcingCandidateRepositoryPort,
@@ -60,7 +63,8 @@ export class SourcingService {
     private readonly candidates: SourcingCandidateRepositoryPort,
     @Inject(SOURCING_AGENT_GATEWAY_PORT)
     private readonly agentGateway: SourcingAgentGatewayPort,
-    private readonly operationAlerts: OperationAlertService,
+    @Inject(SOURCING_OPERATION_ALERT_PORT)
+    private readonly operationAlerts: OperationAlertPort,
     @Optional()
     private readonly preparationSelection?: ProductPreparationSelectionService,
   ) {}

@@ -159,6 +159,7 @@ describe('AutomationModule capability wiring', () => {
       Reflect.getMetadata(EXPORTS_KEY, AutomationModule) ?? [];
     expect(exported).toContain(OPERATION_ALERT_PORT);
     expect(exported).toContain(WORKFLOW_RUN_CANCELLATION_PORT);
+    expect(exported).not.toContain(OperationAlertService);
   });
 
   it('keeps the public /api route prefixes', () => {

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DetailPageContentGenerationSinkAdapter } from '../detail-page-content-generation-sink.adapter';
-import type { OperationAlertService } from '../../../../../automation/application/service/operation-alert.service';
+import type { OperationAlertPort } from '../../../../application/port/out/operation-alert.port';
 import type { DetailPageGeneratedImagesService } from '../../../../application/service/detail-page-generated-images.service';
 import type { ContentAssetService } from '../../../../application/service/content-asset.service';
 import type { ProductGenerationAlertService } from '../../../../application/service/product-generation-alert.service';
@@ -71,11 +71,11 @@ function makePrismaStub(row: ReturnType<typeof makeRow> | null) {
   };
 }
 
-function makeAlertsStub(): OperationAlertService {
+function makeAlertsStub(): OperationAlertPort {
   return {
     succeed: vi.fn().mockResolvedValue(null),
     fail: vi.fn().mockResolvedValue(null),
-  } as unknown as OperationAlertService;
+  } as unknown as OperationAlertPort;
 }
 
 function makeImagesStub(): DetailPageGeneratedImagesService {
@@ -133,7 +133,7 @@ const VALID_OUTPUT = {
 
 describe('DetailPageContentGenerationSinkAdapter', () => {
   let prisma: ReturnType<typeof makePrismaStub>;
-  let alerts: OperationAlertService;
+  let alerts: OperationAlertPort;
   let images: DetailPageGeneratedImagesService;
   let contentAssets: ContentAssetService;
   let productGenerationAlerts: ProductGenerationAlertService;
@@ -286,7 +286,7 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
       alerts = {
         ...makeAlertsStub(),
         findByOperationKey: vi.fn().mockResolvedValue({ status: 'cancelled' }),
-      } as unknown as OperationAlertService;
+      } as unknown as OperationAlertPort;
       sink = new DetailPageContentGenerationSinkAdapter(
         prisma as never,
         alerts,

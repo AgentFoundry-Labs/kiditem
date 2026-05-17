@@ -1,8 +1,11 @@
-import { Injectable, BadRequestException, NotFoundException, Optional } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, Optional, Inject } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { buildPerListingMetrics } from '../../common/per-listing-profit';
 import { kstMonthStart } from '../../common/kst';
-import { OperationAlertService } from '../../automation/application/service/operation-alert.service';
+import {
+  FINANCE_OPERATION_ALERT_PORT,
+  type OperationAlertPort,
+} from '../application/port/out/operation-alert.port';
 import { CreateSalesPlanDto, UpdateSalesPlanDto } from './dto';
 
 const EXCLUDED_ORDER_STATUSES = ['cancelled', 'returned', 'refunded'] as const;
@@ -17,7 +20,8 @@ export class SalesPlansService {
   constructor(
     private readonly prisma: PrismaService,
     @Optional()
-    private readonly operationAlerts?: OperationAlertService,
+    @Inject(FINANCE_OPERATION_ALERT_PORT)
+    private readonly operationAlerts?: OperationAlertPort,
   ) {}
 
   private resolveWindow(period: string) {

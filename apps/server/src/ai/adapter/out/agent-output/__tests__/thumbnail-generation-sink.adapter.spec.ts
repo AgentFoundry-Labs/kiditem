@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ThumbnailGenerationSinkAdapter } from '../thumbnail-generation-sink.adapter';
 import * as persistence from '../../prisma/thumbnail-generation.persistence';
-import type { OperationAlertService } from '../../../../../automation/application/service/operation-alert.service';
+import type { OperationAlertPort } from '../../../../application/port/out/operation-alert.port';
 import type { ThumbnailGenerationEventPort } from '../../../../application/port/out/thumbnail-generation-event.port';
 import type { ProductGenerationAlertService } from '../../../../application/service/product-generation-alert.service';
 
@@ -18,11 +18,11 @@ function makePrismaStub() {
   } as unknown as Parameters<typeof persistence.lockGenerationForProcessing>[0];
 }
 
-function makeAlerts(): OperationAlertService {
+function makeAlerts(): OperationAlertPort {
   return {
     succeed: vi.fn().mockResolvedValue(null),
     fail: vi.fn().mockResolvedValue(null),
-  } as unknown as OperationAlertService;
+  } as unknown as OperationAlertPort;
 }
 
 function makeEvents(): ThumbnailGenerationEventPort {
@@ -48,7 +48,7 @@ const VALID_OUTPUT = {
 };
 
 describe('ThumbnailGenerationSinkAdapter', () => {
-  let alerts: OperationAlertService;
+  let alerts: OperationAlertPort;
   let events: ThumbnailGenerationEventPort;
   let lockSpy: ReturnType<typeof vi.spyOn>;
   let applySuccessSpy: ReturnType<typeof vi.spyOn>;
@@ -244,7 +244,7 @@ describe('ThumbnailGenerationSinkAdapter', () => {
       const operationAlerts = {
         ...makeAlerts(),
         findByOperationKey: vi.fn().mockResolvedValue({ status: 'cancelled' }),
-      } as unknown as OperationAlertService;
+      } as unknown as OperationAlertPort;
       const sink = new ThumbnailGenerationSinkAdapter(
         prisma as never,
         operationAlerts,

@@ -1,8 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { OperationAlertService } from '../../../../automation/application/service/operation-alert.service';
 import type { DetailPageAgentOutputSinkPort } from '../../../application/port/out/detail-page-agent-output-sink.port';
+import {
+  AI_OPERATION_ALERT_PORT,
+  type OperationAlertPort,
+} from '../../../application/port/out/operation-alert.port';
 import type { DetailPageGenerateAgentOutput } from '../../../domain/agent-output';
 import { DetailPageGeneratedImagesService } from '../../../application/service/detail-page-generated-images.service';
 import {
@@ -61,7 +64,8 @@ export class DetailPageContentGenerationSinkAdapter
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly operationAlerts: OperationAlertService,
+    @Inject(AI_OPERATION_ALERT_PORT)
+    private readonly operationAlerts: OperationAlertPort,
     private readonly _generatedImages: DetailPageGeneratedImagesService,
     private readonly contentAssets: ContentAssetService,
     private readonly productGenerationAlerts: ProductGenerationAlertService,
