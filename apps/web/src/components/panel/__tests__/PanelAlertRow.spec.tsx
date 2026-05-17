@@ -5,10 +5,39 @@ import { usePanelStore } from '../lib/panel-store';
 import type { PanelAlertItem } from '@kiditem/shared/panel';
 
 const mockApiPost = vi.hoisted(() => vi.fn(async () => ({ ok: true })));
+const mockCancelOperation = vi.hoisted(() => vi.fn(async () => ({
+  ok: true,
+  status: 'cancelled',
+  message: '중단 요청이 반영되었습니다.',
+  operationKey: 'operation-key-1',
+  affected: {
+    workflowRunIds: [],
+    agentRunRequestIds: [],
+    agentRunIds: [],
+    contentGenerationIds: [],
+    thumbnailGenerationIds: [],
+  },
+  preserved: {
+    contentGenerationIds: [],
+    thumbnailGenerationIds: [],
+  },
+  warnings: [],
+})));
+const mockToastError = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: {
     post: mockApiPost,
+  },
+}));
+
+vi.mock('@/lib/operation-cancellation', () => ({
+  cancelOperation: mockCancelOperation,
+}));
+
+vi.mock('sonner', () => ({
+  toast: {
+    error: mockToastError,
   },
 }));
 
@@ -58,7 +87,10 @@ const makeAlert = (overrides: Partial<PanelAlertItem> = {}): PanelAlertItem => (
 describe('PanelAlertRow', () => {
   beforeEach(() => {
     mockApiPost.mockClear();
+    mockCancelOperation.mockClear();
+    mockToastError.mockClear();
     usePanelStore.setState({ byId: {}, isOpen: true });
+    vi.restoreAllMocks();
   });
 
   it('renders title and message', () => {
@@ -267,6 +299,102 @@ describe('PanelAlertRow', () => {
         />,
       );
       expect(screen.queryByRole('button', { name: '알림 정리' })).not.toBeInTheDocument();
+    });
+
+    it('offers a stop action for cancellable operation alerts', () => {
+      render(
+        <PanelAlertRow
+          item={makeAlert({
+            alertKind: 'operation',
+            status: 'running',
+            operationKey: 'operation-key-1',
+          })}
+        />,
+      );
+
+      expect(screen.getByRole('button', { name: '작업 중단' })).toBeInTheDocument();
+    });
+
+    it('cancels by operation key and marks the panel item cancelled optimistically', async () => {
+      const item = makeAlert({
+        id: 'operation-alert-1',
+        alertKind: 'operation',
+        status: 'running',
+        operationKey: 'operation-key-1',
+      });
+      usePanelStore.setState({ byId: { [item.id]: item }, isOpen: true });
+
+      render(<PanelAlertRow item={item} />);
+      fireEvent.click(screen.getByRole('button', { name: '작업 중단' }));
+      fireEvent.click(screen.getByRole('button', { name: '중단' }));
+
+      expect(mockCancelOperation).toHaveBeenCalledWith({
+        targetType: 'operation_key',
+        operationKey: 'operation-key-1',
+        reason: '사용자 요청',
+      });
+      await waitFor(() => {
+        expect(usePanelStore.getState().byId['operation-alert-1']).toMatchObject({
+          status: 'cancelled',
+          message: '중단 요청됨',
+        });
+      });
+    });
+
+    it('rolls back optimistic cancellation when the backend returns not_cancellable', async () => {
+      mockCancelOperation.mockResolvedValueOnce({
+        ok: true,
+        status: 'not_cancellable',
+        message: '이 작업은 서버에서 중단 가능한 실행 대상을 찾지 못했습니다.',
+        operationKey: 'operation-key-1',
+        affected: {
+          workflowRunIds: [],
+          agentRunRequestIds: [],
+          agentRunIds: [],
+          contentGenerationIds: [],
+          thumbnailGenerationIds: [],
+        },
+        preserved: {
+          contentGenerationIds: [],
+          thumbnailGenerationIds: [],
+        },
+        warnings: [],
+      });
+      const item = makeAlert({
+        id: 'operation-alert-1',
+        alertKind: 'operation',
+        status: 'running',
+        message: '진행 중',
+        operationKey: 'operation-key-1',
+      });
+      usePanelStore.setState({ byId: { [item.id]: item }, isOpen: true });
+
+      render(<PanelAlertRow item={item} />);
+      fireEvent.click(screen.getByRole('button', { name: '작업 중단' }));
+      fireEvent.click(screen.getByRole('button', { name: '중단' }));
+
+      await waitFor(() => {
+        expect(usePanelStore.getState().byId['operation-alert-1']).toMatchObject({
+          status: 'running',
+          message: '진행 중',
+        });
+      });
+    });
+
+    it('does not cancel when the user rejects the stop confirmation', () => {
+      render(
+        <PanelAlertRow
+          item={makeAlert({
+            alertKind: 'operation',
+            status: 'running',
+            operationKey: 'operation-key-1',
+          })}
+        />,
+      );
+      fireEvent.click(screen.getByRole('button', { name: '작업 중단' }));
+      fireEvent.click(screen.getByRole('button', { name: '계속 실행' }));
+
+      expect(mockCancelOperation).not.toHaveBeenCalled();
     });
   });
 });

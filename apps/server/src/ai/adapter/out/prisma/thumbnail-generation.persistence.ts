@@ -320,10 +320,16 @@ export async function markGenerationCancelled(
       select: { status: true, phase: true },
     });
     if (!current) return null;
-    await tx.thumbnailGeneration.updateMany({
-      where: { id, organizationId, isDeleted: false },
+    const updated = await tx.thumbnailGeneration.updateMany({
+      where: {
+        id,
+        organizationId,
+        isDeleted: false,
+        status: { in: ['pending', 'running'] },
+      },
       data: { status: 'cancelled', phase: null },
     });
+    if (updated.count === 0) return null;
     return { fromStatus: current.status, fromPhase: current.phase };
   });
 }

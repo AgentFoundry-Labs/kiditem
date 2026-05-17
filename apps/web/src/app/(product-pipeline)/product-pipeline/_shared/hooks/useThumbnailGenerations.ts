@@ -1,5 +1,6 @@
 'use client';
 import { apiClient } from '@/lib/api-client';
+import { cancelOperation } from '@/lib/operation-cancellation';
 import { queryKeys } from '@/lib/query-keys';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type {
@@ -106,6 +107,42 @@ export function useSkipGeneration() {
       apiClient.put(`/api/thumbnail-analysis/generations/${id}/skip`, {}),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.generations() });
+    },
+  });
+}
+
+export function useCancelGeneration() {
+  const queryClient = useQueryClient();
+  const qKey = queryKeys.thumbnailAnalysis.generations();
+  return useMutation({
+    mutationFn: (id: string) =>
+      cancelOperation({
+        targetType: 'thumbnail_generation',
+        generationId: id,
+        reason: '사용자 요청',
+      }),
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey: qKey });
+      const previous = queryClient.getQueryData<ThumbnailGenerationItem[]>(qKey);
+      queryClient.setQueryData<ThumbnailGenerationItem[]>(qKey, (old) =>
+        old?.map((g): ThumbnailGenerationItem =>
+          g.id === id
+            ? {
+                ...g,
+                status: 'cancelled',
+                phase: null,
+                errorMessage: '사용자 요청으로 생성이 중단되었습니다.',
+              }
+            : g,
+        ) ?? [],
+      );
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) queryClient.setQueryData(qKey, context.previous);
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: qKey });
     },
   });
 }

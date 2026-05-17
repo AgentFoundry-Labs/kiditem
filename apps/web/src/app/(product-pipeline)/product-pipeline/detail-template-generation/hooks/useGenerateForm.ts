@@ -71,7 +71,10 @@ export interface GenerationDialogState {
   startedAt: string;
   productName: string;
   templateId: GenerateTemplateId;
+  operationKey?: string | null;
   generationId?: string;
+  detailGenerationId?: string | null;
+  thumbnailGenerationId?: string | null;
   editorUrl?: string;
   errorMessage?: string | null;
   description?: string;
@@ -117,6 +120,7 @@ interface UseGenerateFormOptions {
 export interface OpenGenerationDialogInput {
   productName: string;
   templateId: GenerateTemplateId;
+  operationKey?: string | null;
   detailGenerationId: string | null;
   thumbnailGenerationId: string | null;
   editorUrl: string;
@@ -520,6 +524,18 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
     setGenerationDialog(null);
   };
 
+  const markGenerationDialogCancelled = (message = '사용자 요청으로 생성이 중단되었습니다.') => {
+    setGenerationDialog((prev) =>
+      prev
+        ? {
+            ...prev,
+            phase: 'cancelled',
+            errorMessage: message,
+          }
+        : prev,
+    );
+  };
+
   const openGenerationDialog = (input: OpenGenerationDialogInput) => {
     const startedAt = new Date().toISOString();
     setGenerationStartedAt(startedAt);
@@ -529,6 +545,9 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
       startedAt,
       productName: input.productName,
       templateId: input.templateId,
+      operationKey: input.operationKey ?? null,
+      detailGenerationId: input.detailGenerationId,
+      thumbnailGenerationId: input.thumbnailGenerationId,
       editorUrl: input.editorUrl,
       errorMessage: null,
       description: '상품 작업공간을 만들고 상세페이지와 썸네일 생성을 시작했습니다.',
@@ -577,6 +596,7 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
     generationStartedAt,
     generationDialog,
     closeGenerationDialog,
+    markGenerationDialogCancelled,
     openGenerationDialog,
     handlePrefill,
     duplicateWorkspace,

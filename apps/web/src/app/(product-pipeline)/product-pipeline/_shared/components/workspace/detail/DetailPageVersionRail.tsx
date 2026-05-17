@@ -27,32 +27,6 @@ interface DetailPageVersionRailProps {
   onDelete: (row: DetailGenerationRow) => void;
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const normalized = status.toUpperCase();
-  if (normalized === 'COMPLETED' || normalized === 'READY' || normalized === 'SUCCEEDED') {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-        <CheckCircle2 size={10} />
-        완료
-      </span>
-    );
-  }
-  if (normalized === 'FAILED') {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-red-700">
-        <XCircle size={10} />
-        실패
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
-      <Clock size={10} />
-      {status}
-    </span>
-  );
-}
-
 function rowBadge(row: DetailGenerationRow): {
   label: string;
   className: string;
@@ -181,19 +155,15 @@ export default function DetailPageVersionRail({
                   )}
                 >
                   <div className="mb-1 flex items-center justify-between gap-2">
-                    {row.kind === 'agent' ? (
-                      <StatusBadge status={row.status} />
-                    ) : (
-                      <span
-                        className={cn(
-                          'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold',
-                          badge.className,
-                        )}
-                      >
-                        {row.kind === 'kids-playful' ? <Sparkles size={9} /> : null}
-                        {badge.label}
-                      </span>
-                    )}
+                    <span
+                      className={cn(
+                        'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold',
+                        badge.className,
+                      )}
+                    >
+                      {row.kind === 'kids-playful' ? <Sparkles size={9} /> : null}
+                      {badge.label}
+                    </span>
                     <div className="flex items-center gap-1.5">
                       {row.isRegistrationDetail ? (
                         <span className="inline-flex items-center gap-0.5 rounded bg-emerald-100 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700">
@@ -201,11 +171,7 @@ export default function DetailPageVersionRail({
                           등록 상세
                         </span>
                       ) : null}
-                      {row.kind === 'agent' ? (
-                        <span className="text-[9px] font-bold tracking-wider text-slate-400">
-                          {badge.label}
-                        </span>
-                      ) : latest ? (
+                      {latest ? (
                         <span
                           className={cn(
                             'text-[9px] font-bold tracking-wider',

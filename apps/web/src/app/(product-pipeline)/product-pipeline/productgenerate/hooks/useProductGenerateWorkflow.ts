@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { isApiError } from '@/lib/api-error';
 import { apiClient } from '@/lib/api-client';
+import { cancelOperation } from '@/lib/operation-cancellation';
 import { queryKeys } from '@/lib/query-keys';
 import {
   collectedProductDetailHref,
@@ -75,6 +76,7 @@ export function useProductGenerateWorkflow() {
       form.openGenerationDialog({
         productName: title,
         templateId: selectedTemplateId,
+        operationKey: response.parentOperationKey,
         detailGenerationId: response.detailGenerationId,
         thumbnailGenerationId: response.thumbnailGenerationId,
         editorUrl: collectedProductDetailHref(response.candidateId),
@@ -110,6 +112,27 @@ export function useProductGenerateWorkflow() {
     }
   };
 
+  const handleGenerationDialogCancel = async () => {
+    const state = form.generationDialog;
+    if (!state?.operationKey) return;
+    try {
+      await cancelOperation({
+        targetType: 'operation_key',
+        operationKey: state.operationKey,
+        reason: '사용자 요청',
+      });
+      form.markGenerationDialogCancelled();
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all }),
+        queryClient.invalidateQueries({ queryKey: ['kp-generations'] }),
+        queryClient.invalidateQueries({ queryKey: ['bold-generations'] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.all }),
+      ]);
+    } catch (err) {
+      form.setError(isApiError(err) ? err.detail : '상품 생성 중단 요청에 실패했습니다.');
+    }
+  };
+
   return {
     templateId,
     setTemplateId,
@@ -117,5 +140,6 @@ export function useProductGenerateWorkflow() {
     form,
     handleSubmit,
     handleGenerationDialogAction,
+    handleGenerationDialogCancel,
   };
 }

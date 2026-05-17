@@ -50,6 +50,7 @@ describe('ProductGenerationAiService', () => {
     };
     const parentAlerts = {
       start: vi.fn().mockResolvedValue({}),
+      canStartChild: vi.fn().mockResolvedValue(true),
       markChildFinished: vi.fn(),
     };
 
@@ -128,5 +129,76 @@ describe('ProductGenerationAiService', () => {
         childKind: 'thumbnail',
       }),
     }));
+  });
+
+  it('does not enqueue thumbnail generation after the parent operation is cancelled', async () => {
+    const prisma = {
+      sourcingCandidate: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: CANDIDATE_ID,
+          name: '자석 다트게임',
+          category: '완구',
+          description: '안전한 다트 보드',
+          thumbnailUrl: 'https://example.com/main.jpg',
+          images: [{ url: 'https://example.com/main.jpg', sortOrder: 0 }],
+        }),
+      },
+    };
+    const detailPages = {
+      generate: vi.fn().mockResolvedValue({
+        id: CONTENT_GENERATION_ID,
+        contentWorkspaceId: WORKSPACE_ID,
+      }),
+    };
+    const thumbnails = {
+      enqueueCandidateGeneration: vi.fn(),
+    };
+    const editorAi = {
+      resolveInputImage: vi.fn(),
+    };
+    const parentAlerts = {
+      start: vi.fn().mockResolvedValue({}),
+      canStartChild: vi.fn().mockResolvedValue(false),
+      markChildFinished: vi.fn(),
+    };
+    const service = new ProductGenerationAiService(
+      prisma as never,
+      detailPages as never,
+      thumbnails as never,
+      editorAi as never,
+      parentAlerts as never,
+    );
+
+    const result = await service.startForCandidate({
+      organizationId: ORGANIZATION_ID,
+      triggeredByUserId: USER_ID,
+      candidateId: CANDIDATE_ID,
+      productName: '자석 다트게임',
+      category: '완구',
+      description: '안전한 다트 보드',
+      target: '초등학생',
+      imageUrls: ['https://example.com/main.jpg'],
+      thumbnailUrl: 'https://example.com/main.jpg',
+      optionNames: ['기본'],
+      templateId: 'bold-vertical',
+      ageGroup: 'age-8-plus',
+      detailImageCount: '2',
+      usageSectionMode: 'include',
+      kcCertificationStatus: 'unknown',
+      kcCertificationNumber: null,
+      productSize: '높이: 30cm',
+      colorVariantStatus: 'auto',
+      colorVariantNames: '',
+      boxSetStatus: 'auto',
+      boxSetQuantity: '',
+    });
+
+    expect(parentAlerts.canStartChild).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      parentOperationKey: expect.stringMatching(/^product-generation:/),
+    });
+    expect(editorAi.resolveInputImage).not.toHaveBeenCalled();
+    expect(thumbnails.enqueueCandidateGeneration).not.toHaveBeenCalled();
+    expect(result.thumbnailGenerationId).toBeNull();
   });
 });

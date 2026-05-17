@@ -226,6 +226,45 @@ describe('ThumbnailGenerationSinkAdapter', () => {
       );
     });
 
+    it('does not apply thumbnail success when parent product operation is cancelled', async () => {
+      const prisma = {
+        thumbnailGeneration: {
+          findFirst: vi.fn().mockResolvedValue({
+            inputMeta: {
+              productGeneration: {
+                mode: 'parent',
+                productGenerationBatchId: 'batch-1',
+                parentOperationKey: 'product-generation:batch-1',
+                childKind: 'thumbnail',
+              },
+            },
+          }),
+        },
+      } as unknown as Parameters<typeof persistence.lockGenerationForProcessing>[0];
+      const operationAlerts = {
+        ...makeAlerts(),
+        findByOperationKey: vi.fn().mockResolvedValue({ status: 'cancelled' }),
+      } as unknown as OperationAlertService;
+      const sink = new ThumbnailGenerationSinkAdapter(
+        prisma as never,
+        operationAlerts,
+        events,
+        productGenerationAlerts,
+      );
+
+      await sink.applySuccess({
+        organizationId: ORG,
+        requestId: REQUEST,
+        runId: RUN,
+        sourceResourceId: GEN_ID,
+        output: VALID_OUTPUT,
+      });
+
+      expect(lockSpy).not.toHaveBeenCalled();
+      expect(applySuccessSpy).not.toHaveBeenCalled();
+      expect(productGenerationAlerts.markChildFinished).not.toHaveBeenCalled();
+    });
+
     it('no-ops when lock returns null (already terminal)', async () => {
       lockSpy.mockResolvedValueOnce(null);
       const sink = new ThumbnailGenerationSinkAdapter(makePrismaStub() as never, alerts, events);

@@ -10,6 +10,7 @@ import type {
 import { useAnalyze } from './useThumbnailAnalysis';
 import {
   useApplyGeneration,
+  useCancelGeneration,
   useCreateEditJobs,
   useDeleteGeneration,
   useSelectCandidate,
@@ -31,6 +32,7 @@ export function useThumbnailActions(
   const selectCandidateMutation = useSelectCandidate();
   const applyGenerationMutation = useApplyGeneration();
   const skipGenerationMutation = useSkipGeneration();
+  const cancelGenerationMutation = useCancelGeneration();
   const deleteGenerationMutation = useDeleteGeneration();
   const wingRegisterMutation = useWingRegister();
 
@@ -111,6 +113,16 @@ export function useThumbnailActions(
     }
   };
 
+  const cancelGeneration = async (generationId: string) => {
+    try {
+      await cancelGenerationMutation.mutateAsync(generationId);
+      options.onAfterClose?.();
+      toast.success('생성 중단 요청 완료');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '생성 중단 실패');
+    }
+  };
+
   const deleteGeneration = async (generationId: string) => {
     try {
       await deleteGenerationMutation.mutateAsync(generationId);
@@ -173,6 +185,7 @@ export function useThumbnailActions(
     selectCandidate,
     markApplied,
     skipGeneration,
+    cancelGeneration,
     deleteGeneration,
     openCoupangEdit,
     runAiAnalysis,

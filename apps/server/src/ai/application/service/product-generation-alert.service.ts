@@ -3,6 +3,7 @@ import {
   OPERATION_ALERT_PORT,
   type OperationAlertPort,
 } from '../../../automation/application/port/in/operation-alert.port';
+import type { AlertRecord } from '../../../automation/application/port/persistence-records';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { ProductGenerationChildKind } from './product-generation-alert-link';
 import { productGenerationOperationKey } from './product-generation-alert-link';
@@ -18,6 +19,18 @@ interface ProductGenerationChildren {
   detail_page: ChildStatus;
   thumbnail: ChildStatus;
 }
+
+type ProductGenerationChildStartResult =
+  | { status: 'started'; alert: AlertRecord }
+  | { status: 'parent_terminal'; alert: AlertRecord }
+  | { status: 'parent_not_found'; alert: null };
+
+const PARENT_TERMINAL_STATUSES = new Set([
+  'succeeded',
+  'failed',
+  'cancelled',
+  'resolved',
+]);
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -172,12 +185,15 @@ export class ProductGenerationAlertService {
     parentOperationKey: string;
     childKind: ProductGenerationChildKind;
     childId: string;
-  }) {
+  }): Promise<ProductGenerationChildStartResult> {
     const alert = await this.operationAlerts.findByOperationKey(
       input.organizationId,
       input.parentOperationKey,
     );
-    if (!alert) return null;
+    if (!alert) return { status: 'parent_not_found', alert: null };
+    if (PARENT_TERMINAL_STATUSES.has(alert.status)) {
+      return { status: 'parent_terminal', alert };
+    }
 
     const metadata = asRecord(alert.metadata);
     const childIds = mergeChildId(
@@ -186,7 +202,7 @@ export class ProductGenerationAlertService {
       input.childId,
     );
 
-    return this.operationAlerts.progress(input.organizationId, input.parentOperationKey, {
+    const updated = await this.operationAlerts.progress(input.organizationId, input.parentOperationKey, {
       progress: Math.max(alert.progress ?? 0, 0.25),
       metadata: {
         childIds,
@@ -194,6 +210,22 @@ export class ProductGenerationAlertService {
         lastStartedChild: input.childKind,
       },
     });
+    if (!updated) return { status: 'parent_not_found', alert: null };
+    if (PARENT_TERMINAL_STATUSES.has(updated.status)) {
+      return { status: 'parent_terminal', alert: updated };
+    }
+    return { status: 'started', alert: updated };
+  }
+
+  async canStartChild(input: {
+    organizationId: string;
+    parentOperationKey: string;
+  }): Promise<boolean> {
+    const alert = await this.operationAlerts.findByOperationKey(
+      input.organizationId,
+      input.parentOperationKey,
+    );
+    return Boolean(alert && !PARENT_TERMINAL_STATUSES.has(alert.status));
   }
 
   async markChildFinished(input: {
@@ -209,6 +241,7 @@ export class ProductGenerationAlertService {
       input.parentOperationKey,
     );
     if (!alert) return null;
+    if (alert.status === 'cancelled') return alert;
 
     const metadata = asRecord(alert.metadata);
     const childIds = mergeChildId(

@@ -10,7 +10,7 @@ import type {
 } from './detail-page-ai.types';
 import { DetailPageGenerationService } from './detail-page-generation.service';
 import { DetailPagePrefillService } from './detail-page-prefill.service';
-import { DetailPageQueryService } from './detail-page-query.service';
+import { DetailPageQueryService, type DetailPageListQuery } from './detail-page-query.service';
 
 @Injectable()
 export class DetailPageAiService {
@@ -44,10 +44,9 @@ export class DetailPageAiService {
 
   list(
     organizationId: string,
-    productId?: string,
-    templateId?: string,
+    query?: DetailPageListQuery,
   ): Promise<DetailPageGenerationDto[]> {
-    return this.query.list(organizationId, productId, templateId);
+    return this.query.list(organizationId, query);
   }
 
   getById(id: string, organizationId: string): Promise<DetailPageGenerationDto> {

@@ -33,6 +33,7 @@ const BASE_EVENT: Omit<AgentRunFinalizedEvent, 'status'> = {
   sourceResourceType: null,
   sourceResourceId: null,
   requestedByUserId: USER_ID,
+  requestStatus: 'succeeded',
 };
 
 describe('AgentRunOperationAlertBridge', () => {
@@ -67,6 +68,7 @@ describe('AgentRunOperationAlertBridge', () => {
     const event: AgentRunFinalizedEvent = {
       ...BASE_EVENT,
       status: 'failed',
+      requestStatus: 'failed',
       errorCode: 'gemini_timeout',
       errorMessage: 'request timed out',
     };
@@ -101,6 +103,7 @@ describe('AgentRunOperationAlertBridge', () => {
       agentType: 'image_edit',
       source: 'ai.image_edit',
       status: 'failed',
+      requestStatus: 'failed',
       errorCode: 'gemini_quota',
       errorMessage: 'quota exceeded',
     };
@@ -158,6 +161,7 @@ describe('AgentRunOperationAlertBridge', () => {
       ...BASE_EVENT,
       source,
       status: 'failed',
+      requestStatus: 'failed',
       errorCode: 'boom',
       errorMessage: 'boom',
     });
@@ -176,6 +180,7 @@ describe('AgentRunOperationAlertBridge', () => {
       ...BASE_EVENT,
       requestedByUserId: null,
       status: 'failed',
+      requestStatus: 'failed',
       errorCode: 'boom',
       errorMessage: 'boom',
     };
@@ -217,5 +222,19 @@ describe('AgentRunOperationAlertBridge', () => {
         status: 'succeeded',
       }),
     ).resolves.toBeUndefined();
+  });
+
+  it('ignores finalized events whose request ledger is cancelled', async () => {
+    const operationAlerts = makeOperationAlerts();
+    const bridge = new AgentRunOperationAlertBridge(operationAlerts as never);
+
+    await bridge.onAgentRunFinalized({
+      ...BASE_EVENT,
+      status: 'succeeded',
+      requestStatus: 'cancelled',
+    });
+
+    expect(operationAlerts.closeBySource).not.toHaveBeenCalled();
+    expect(operationAlerts.start).not.toHaveBeenCalled();
   });
 });

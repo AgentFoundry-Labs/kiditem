@@ -119,7 +119,10 @@ function makeExecutor(options: {
     failClaimedRequest: vi.fn().mockResolvedValue(undefined),
     createRunForRequest: vi.fn().mockResolvedValue(makeRun()),
     appendRunEvent: vi.fn().mockResolvedValue(undefined),
-    finalizeRun: vi.fn().mockResolvedValue(makeRun()),
+    finalizeRun: vi.fn().mockResolvedValue({
+      run: makeRun(),
+      requestStatus: 'succeeded',
+    }),
     markRequestStatus: vi.fn().mockResolvedValue(undefined),
   };
   const runtime = {
@@ -361,6 +364,48 @@ describe('AgentRunExecutor', () => {
       ([eventName]: [string]) => eventName === AGENT_RUN_EVENTS.FINALIZED,
     );
     expect(finalizedEmits).toHaveLength(0);
+  });
+
+  it('does not emit FINALIZED when a late runtime succeeds after cancellation', async () => {
+    const { executor, repository, eventEmitter } = makeExecutor({
+      claimed: makeClaimedRequest({ status: 'claimed' }),
+      runtimeResult: { output: { ok: true } },
+    });
+    repository.finalizeRun.mockResolvedValueOnce({
+      run: makeRun({ status: 'succeeded' }),
+      requestStatus: 'cancelled',
+    });
+
+    await executor.executeNext('worker-1', ORGANIZATION_ID);
+
+    expect(repository.finalizeRun).toHaveBeenCalledWith(
+      expect.objectContaining({ requestId: REQUEST_ID, status: 'succeeded' }),
+    );
+    expect(eventEmitter.emitAsync).not.toHaveBeenCalledWith(
+      AGENT_RUN_EVENTS.FINALIZED,
+      expect.anything(),
+    );
+  });
+
+  it('does not mark request failed or emit FINALIZED when a late runtime fails after cancellation', async () => {
+    const { executor, repository, runtime, eventEmitter } = makeExecutor({
+      claimed: makeClaimedRequest({ status: 'claimed', attempts: 3, maxAttempts: 3 }),
+    });
+    runtime.execute.mockRejectedValueOnce(new Error('provider timeout'));
+    repository.finalizeRun.mockResolvedValueOnce({
+      run: makeRun({ status: 'failed' }),
+      requestStatus: 'cancelled',
+    });
+
+    await executor.executeNext('worker-1', ORGANIZATION_ID);
+
+    expect(repository.markRequestStatus).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'failed' }),
+    );
+    expect(eventEmitter.emitAsync).not.toHaveBeenCalledWith(
+      AGENT_RUN_EVENTS.FINALIZED,
+      expect.anything(),
+    );
   });
 
   it('waits for async finalized listeners before resolving a terminal success', async () => {

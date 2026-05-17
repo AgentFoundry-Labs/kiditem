@@ -7,13 +7,15 @@ import { toast } from 'sonner';
 import DetailPageWorkspaceTab from './DetailPageWorkspaceTab';
 import type { DetailGenerationRow } from './detail-generation-rows';
 
-const { previewProps, railProps, useGenerationHistoryMock } = vi.hoisted(() => ({
+const { deleteAgentMutate, previewProps, railProps, useGenerationHistoryMock } = vi.hoisted(() => ({
+  deleteAgentMutate: vi.fn(),
   previewProps: [] as Array<{ initialAgentHistory?: unknown[] }>,
   railProps: [] as Array<{
     rows: DetailGenerationRow[];
     selectedKey: string | null;
     onRename: (row: DetailGenerationRow) => void;
     onDuplicate: (row: DetailGenerationRow) => void;
+    onDelete: (row: DetailGenerationRow) => void;
   }>,
   useGenerationHistoryMock: vi.fn(),
 }));
@@ -34,7 +36,7 @@ vi.mock('sonner', () => ({
 
 vi.mock('../../../hooks/useGenerationHistory', () => ({
   useGenerationHistory: (...args: unknown[]) => useGenerationHistoryMock(...args),
-  useGenerationHistoryDelete: () => ({ mutate: vi.fn() }),
+  useGenerationHistoryDelete: () => ({ mutate: deleteAgentMutate }),
 }));
 
 vi.mock(
@@ -52,16 +54,13 @@ vi.mock('../../../lib/content-workspaces-api', () => ({
   },
 }));
 
-vi.mock('./DetailGenerationStatusBar', () => ({
-  default: () => <div data-testid="detail-generation-status-bar" />,
-}));
-
 vi.mock('./DetailPageVersionRail', () => ({
   default: (props: {
     rows: DetailGenerationRow[];
     selectedKey: string | null;
     onRename: (row: DetailGenerationRow) => void;
     onDuplicate: (row: DetailGenerationRow) => void;
+    onDelete: (row: DetailGenerationRow) => void;
   }) => {
     railProps.push(props);
     const firstRow = props.rows[0];
@@ -75,6 +74,9 @@ vi.mock('./DetailPageVersionRail', () => ({
             </button>
             <button type="button" onClick={() => props.onDuplicate(firstRow)}>
               복제 실행
+            </button>
+            <button type="button" onClick={() => props.onDelete(firstRow)}>
+              삭제 실행
             </button>
           </>
         ) : null}
@@ -123,6 +125,7 @@ describe('DetailPageWorkspaceTab', () => {
     vi.mocked(apiClient.post).mockReset();
     vi.mocked(toast.error).mockReset();
     vi.mocked(toast.success).mockReset();
+    deleteAgentMutate.mockReset();
     useGenerationHistoryMock.mockReset();
   });
 
@@ -184,6 +187,56 @@ describe('DetailPageWorkspaceTab', () => {
     expect(screen.getByTestId('detail-page-preview')).toHaveTextContent(
       'https://cdn.example.com/mobile.jpg',
     );
+  });
+
+  it('does not place non-completed generation status above the detail preview', () => {
+    useGenerationHistoryMock.mockReturnValue({
+      data: [
+        {
+          id: 'failed-generation',
+          generatedTitle: '실패한 상세페이지',
+          status: 'FAILED',
+          templateId: 'kids',
+          detailPageData: {},
+          imageUrls: [],
+          processedImages: {},
+          detailPageArtifactId: null,
+          detailPageRevisionId: null,
+          errorMessage: '생성 실패',
+          productId: 'candidate-1',
+          createdAt: '2026-05-16T01:00:00.000Z',
+        },
+      ],
+    });
+
+    renderWithQueryClient(
+      <DetailPageWorkspaceTab
+        productId="candidate-1"
+        detailPreviewHtml="<html><body>placeholder</body></html>"
+        editedHtml={null}
+        templateCss=""
+        initialAgentHistory={[]}
+        selectedKidsPlayfulId={null}
+        selectedBoldVerticalId={null}
+        selectedAgentId={null}
+        onSelectKidsPlayful={vi.fn()}
+        onSelectBoldVertical={vi.fn()}
+        onSelectAgent={vi.fn()}
+        detailEditorReturnHref="/product-pipeline/collected-products/candidate-1"
+        mobilePreviewData={{
+          name: '테스트 상품',
+          mainImage: 'https://cdn.example.com/product.jpg',
+          salePrice: 17000,
+          originalPrice: 20000,
+          discountRate: 15,
+          rating: 4.7,
+          reviewCount: 123,
+        }}
+      />,
+    );
+
+    expect(screen.queryByTestId('detail-generation-status-bar')).not.toBeInTheDocument();
+    expect(screen.getByTestId('detail-page-preview')).toBeInTheDocument();
   });
 
   it('renames a generated detail page version through the detail-page API', async () => {
@@ -308,5 +361,70 @@ describe('DetailPageWorkspaceTab', () => {
     expect(toast.success).toHaveBeenCalledWith(
       '상세페이지 버전을 복제했습니다. 복제본을 선택했습니다.',
     );
+  });
+
+  it('uses the app confirm dialog instead of window confirm when deleting a version', async () => {
+    useGenerationHistoryMock.mockReturnValue({
+      data: [
+        {
+          id: 'generation-1',
+          generatedTitle: '삭제할 상세페이지',
+          status: 'completed',
+          templateId: 'kids',
+          detailPageData: {},
+          imageUrls: [],
+          processedImages: {},
+          detailPageArtifactId: 'artifact-1',
+          detailPageRevisionId: 'revision-1',
+          errorMessage: null,
+          productId: 'candidate-1',
+          createdAt: '2026-05-16T01:00:00.000Z',
+        },
+      ],
+    });
+    const confirmSpy = vi.spyOn(window, 'confirm');
+
+    renderWithQueryClient(
+      <DetailPageWorkspaceTab
+        productId="candidate-1"
+        detailPreviewHtml="<html><body>placeholder</body></html>"
+        editedHtml={null}
+        templateCss=""
+        initialAgentHistory={[]}
+        selectedKidsPlayfulId={null}
+        selectedBoldVerticalId={null}
+        selectedAgentId={null}
+        onSelectKidsPlayful={vi.fn()}
+        onSelectBoldVertical={vi.fn()}
+        onSelectAgent={vi.fn()}
+        detailEditorReturnHref="/product-pipeline/registered-products/workspace-1?tab=detail"
+        mobilePreviewData={{
+          name: '테스트 상품',
+          mainImage: 'https://cdn.example.com/product.jpg',
+          salePrice: 17000,
+          originalPrice: 20000,
+          discountRate: 15,
+          rating: 4.7,
+          reviewCount: 123,
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '삭제 실행' }));
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByText('이 상세페이지 버전을 삭제할까요?')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '삭제' }));
+
+    expect(deleteAgentMutate).toHaveBeenCalledWith(
+      'generation-1',
+      expect.objectContaining({
+        onSuccess: expect.any(Function),
+        onError: expect.any(Function),
+      }),
+    );
+    confirmSpy.mockRestore();
   });
 });

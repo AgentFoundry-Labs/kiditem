@@ -104,6 +104,7 @@ export class AgentRunExecutor {
       organizationId: input.organizationId,
       requestId: input.requestId,
       ...input.routing,
+      requestStatus: 'failed',
       status: 'failed',
       errorCode: input.errorCode,
       errorMessage: input.errorMessage,
@@ -284,7 +285,7 @@ export class AgentRunExecutor {
         runtimeConfig: { ...definition.defaultRuntimeConfig, ...instance.runtimeConfig },
       });
 
-      await this.repository.finalizeRun({
+      const finalized = await this.repository.finalizeRun({
         organizationId: run.organizationId,
         runId: run.id,
         requestId: claimed.id,
@@ -304,6 +305,17 @@ export class AgentRunExecutor {
               },
       });
 
+      if (finalized.requestStatus === 'cancelled') {
+        await this.repository.appendRunEvent({
+          organizationId: run.organizationId,
+          runId: run.id,
+          agentInstanceId: instance.id,
+          type: 'run.finalized_after_cancel',
+          data: { requestId: claimed.id, runtimeStatus: 'succeeded' },
+        });
+        return { executed: true, requestId: claimed.id, runId: run.id };
+      }
+
       await this.repository.appendRunEvent({
         organizationId: run.organizationId,
         runId: run.id,
@@ -321,6 +333,7 @@ export class AgentRunExecutor {
         requestId: claimed.id,
         runId: run.id,
         ...routing,
+        requestStatus: finalized.requestStatus,
         status: 'succeeded',
         output: result.output,
       });
@@ -340,7 +353,7 @@ export class AgentRunExecutor {
         data: { errorCode },
       });
 
-      await this.repository.finalizeRun({
+      const finalized = await this.repository.finalizeRun({
         organizationId: run.organizationId,
         runId: run.id,
         requestId: claimed.id,
@@ -348,6 +361,24 @@ export class AgentRunExecutor {
         errorCode,
         errorMessage,
       });
+
+      if (finalized.requestStatus === 'cancelled') {
+        await this.repository.appendRunEvent({
+          organizationId: run.organizationId,
+          runId: run.id,
+          agentInstanceId: instance.id,
+          type: 'run.finalized_after_cancel',
+          level: 'warning',
+          message: errorMessage,
+          data: { requestId: claimed.id, runtimeStatus: 'failed', errorCode },
+        });
+        return {
+          executed: true,
+          requestId: claimed.id,
+          runId: run.id,
+          errorCode,
+        };
+      }
 
       if (claimed.attempts >= claimed.maxAttempts) {
         await this.repository.markRequestStatus({
@@ -364,6 +395,7 @@ export class AgentRunExecutor {
           requestId: claimed.id,
           runId: run.id,
           ...routing,
+          requestStatus: 'failed',
           status: 'failed',
           errorCode,
           errorMessage,

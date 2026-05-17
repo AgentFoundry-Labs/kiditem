@@ -22,6 +22,7 @@ function ProductGeneratePageContent() {
     form,
     handleSubmit: handleProductSubmit,
     handleGenerationDialogAction,
+    handleGenerationDialogCancel,
   } = useProductGenerateWorkflow();
   const {
     rawTitle,
@@ -146,6 +147,7 @@ function ProductGeneratePageContent() {
         state={generationDialog}
         onClose={closeGenerationDialog}
         onAction={handleGenerationDialogAction}
+        onCancel={handleGenerationDialogCancel}
       />
     </div>
   );

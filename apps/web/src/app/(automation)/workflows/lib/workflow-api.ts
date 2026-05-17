@@ -1,6 +1,7 @@
 'use client';
 
 import { apiClient } from '@/lib/api-client';
+import { cancelOperation } from '@/lib/operation-cancellation';
 import type { WorkflowTemplate, WorkflowRun } from '@kiditem/shared/workflow';
 import type { WorkflowRunWithSteps } from './workflow-types';
 
@@ -20,6 +21,9 @@ export const workflowApi = {
 
   triggerRun: (id: string, context?: Record<string, any>) =>
     apiClient.post<WorkflowRun>(`/api/workflows/${id}/run`, context ?? {}),
+
+  cancelRun: (runId: string) =>
+    cancelOperation({ targetType: 'workflow_run', runId, reason: '사용자 요청' }),
 
   delete: (id: string) =>
     apiClient.delete<void>(`/api/workflows/${id}`),

@@ -63,6 +63,7 @@ export class DashboardInventoryRepositoryAdapter
       severity: a.severity,
       title: a.title,
       message: a.message,
+      operationKey: a.operationKey,
       sourceType: a.sourceType,
       href: a.href,
       progress: a.progress,

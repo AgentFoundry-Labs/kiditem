@@ -10,6 +10,7 @@ import {
 import { AgentOsBoundaryError } from '../../../domain/agent-os.errors';
 import {
   type AgentRunEventRecord,
+  type AgentRunRequestStatus,
   type AgentRunStatus,
 } from '../../../domain/agent-os.types';
 import {
@@ -161,7 +162,6 @@ export class AgentOsRunRepository {
           organizationId: input.organizationId,
           requestId: input.requestId,
         },
-        select: { id: true },
       });
       if (!existing) {
         throw new AgentOsBoundaryError(
@@ -170,39 +170,69 @@ export class AgentOsRunRepository {
         );
       }
 
-      const run = await tx.agentRun.update({
-        where: { id: input.runId },
-        data: {
-          status: input.status,
-          output: input.output === undefined ? undefined : (input.output as Prisma.InputJsonValue),
-          provider: input.provider ?? undefined,
-          errorCode: input.errorCode ?? undefined,
-          errorMessage: input.errorMessage ?? undefined,
-          finishedAt: new Date(),
-        },
-      });
-
-      const requestUpdate = await tx.agentRunRequest.updateMany({
+      const request = await tx.agentRunRequest.findFirst({
         where: { id: input.requestId, organizationId: input.organizationId },
-        data: {
-          status:
-            input.status === 'succeeded'
-              ? 'succeeded'
-              : input.status === 'failed'
-                ? 'failed'
-                : input.status === 'cancelled'
-                  ? 'cancelled'
-                  : 'skipped',
-          finishedAt: new Date(),
-          lastErrorCode: input.errorCode ?? null,
-          lastErrorMessage: input.errorMessage ?? null,
-        },
+        select: { id: true, status: true },
       });
-      if (requestUpdate.count !== 1) {
+      if (!request) {
         throw new AgentOsBoundaryError(
           'request_organization_mismatch',
           `AgentRunRequest ${input.requestId} does not belong to organization ${input.organizationId}.`,
         );
+      }
+
+      if (existing.status !== 'running') {
+        return {
+          run: toRunRecord(existing),
+          requestStatus: request.status as AgentRunRequestStatus,
+        };
+      }
+
+      const requestWasCancelled = request.status === 'cancelled';
+      const runStatus = requestWasCancelled ? 'cancelled' : input.status;
+      const run = await tx.agentRun.update({
+        where: { id: input.runId },
+        data: {
+          status: runStatus,
+          output:
+            requestWasCancelled || input.output === undefined
+              ? undefined
+              : (input.output as Prisma.InputJsonValue),
+          provider: requestWasCancelled ? undefined : input.provider ?? undefined,
+          errorCode:
+            input.errorCode ?? (requestWasCancelled ? 'user_cancelled' : undefined),
+          errorMessage:
+            input.errorMessage ??
+            (requestWasCancelled ? 'User cancelled the request.' : undefined),
+          finishedAt: new Date(),
+        },
+      });
+
+      let requestStatus = request.status as AgentRunRequestStatus;
+      if (request.status !== 'cancelled') {
+        requestStatus =
+          runStatus === 'succeeded'
+            ? 'succeeded'
+            : runStatus === 'failed'
+              ? 'failed'
+              : runStatus === 'cancelled'
+                ? 'cancelled'
+                : 'skipped';
+        const requestUpdate = await tx.agentRunRequest.updateMany({
+          where: { id: input.requestId, organizationId: input.organizationId },
+          data: {
+            status: requestStatus,
+            finishedAt: new Date(),
+            lastErrorCode: input.errorCode ?? null,
+            lastErrorMessage: input.errorMessage ?? null,
+          },
+        });
+        if (requestUpdate.count !== 1) {
+          throw new AgentOsBoundaryError(
+            'request_organization_mismatch',
+            `AgentRunRequest ${input.requestId} does not belong to organization ${input.organizationId}.`,
+          );
+        }
       }
 
       if (input.cost) {
@@ -229,11 +259,11 @@ export class AgentOsRunRepository {
             totalOutputTokens: { increment: input.cost.outputTokens },
             totalCostMicros: { increment: input.cost.costMicros },
             lastRunId: input.runId,
-            lastRunStatus: input.status,
+            lastRunStatus: runStatus,
             lastError: input.errorMessage ?? null,
             lastHeartbeatAt: new Date(),
             consecutiveFailureCount:
-              input.status === 'succeeded' ? 0 : { increment: 1 } as unknown as number,
+              runStatus === 'succeeded' ? 0 : { increment: 1 } as unknown as number,
           },
         });
       } else {
@@ -242,16 +272,19 @@ export class AgentOsRunRepository {
           data: {
             totalRuns: { increment: 1 },
             lastRunId: input.runId,
-            lastRunStatus: input.status,
+            lastRunStatus: runStatus,
             lastError: input.errorMessage ?? null,
             lastHeartbeatAt: new Date(),
             consecutiveFailureCount:
-              input.status === 'succeeded' ? 0 : { increment: 1 } as unknown as number,
+              runStatus === 'succeeded' ? 0 : { increment: 1 } as unknown as number,
           },
         });
       }
 
-      return toRunRecord(run);
+      return {
+        run: toRunRecord(run),
+        requestStatus,
+      };
     });
   }
 }

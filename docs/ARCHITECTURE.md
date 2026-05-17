@@ -94,6 +94,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/inventory` | Owner Domain | Stock, unshipped, warehouses, transfers, audits, and picking. |
 | `apps/server/src/orders` | Owner Domain | Orders, returns, CS, reviews, and return-transfer operations. |
 | `apps/server/src/organizations` | Platform Capability | Organization listing surface. |
+| `apps/server/src/operation-cancellation` | Platform | Cross-owner durable cancellation endpoint and orchestration. |
 | `apps/server/src/prisma` | Platform Support | `PrismaModule` and `PrismaService` only. |
 | `apps/server/src/products` | Owner Domain | Catalog families, physical SKU options, bundle composition, categories compatibility. |
 | `apps/server/src/readiness` | Platform Capability | Readiness checks and health-style operational surface. |
@@ -130,6 +131,7 @@ folders are intentionally absent from this map.
 | `apps/server/src/inventory` | Hexagonal | reference owner-domain structure for stock mutations. |
 | `apps/server/src/orders` | Flat | controllers/services/DTO plus folded order capabilities. |
 | `apps/server/src/organizations` | Flat | controller/service capability. |
+| `apps/server/src/operation-cancellation` | Hexagonal | HTTP endpoint plus application service; consumes Automation, Agent OS, and AI owner-side ports only. |
 | `apps/server/src/products` | Hexagonal | catalog and bundle-stock behavior uses adapter/application/domain lanes. |
 | `apps/server/src/products/categories` | Flat | `/api/categories` compatibility capability under products ownership. |
 | `apps/server/src/readiness` | Flat | readiness controller/service. |

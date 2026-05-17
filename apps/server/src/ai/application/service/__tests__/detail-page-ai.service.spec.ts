@@ -34,7 +34,8 @@ function makeOperationAlertsStub(): OperationAlertService {
 function makeProductGenerationAlertsStub(): ProductGenerationAlertService {
   return {
     start: vi.fn().mockResolvedValue({}),
-    recordChildStarted: vi.fn().mockResolvedValue({}),
+    recordChildStarted: vi.fn().mockResolvedValue({ status: 'started', alert: {} }),
+    canStartChild: vi.fn().mockResolvedValue(true),
     markChildFinished: vi.fn().mockResolvedValue({}),
   } as unknown as ProductGenerationAlertService;
 }
@@ -54,6 +55,13 @@ function makeAgentRunnerStub(
       executed: true,
       requestId: result.requestId,
       runId: 'agent-run',
+    }),
+    cancelRequest: vi.fn().mockResolvedValue({
+      ok: true,
+      cancelledRequests: 1,
+      cancelledRuns: 0,
+      skippedRequests: 0,
+      skippedRuns: 0,
     }),
     cancelBySource: vi.fn().mockResolvedValue({
       ok: true,
@@ -439,6 +447,99 @@ describe('DetailPageAiService', () => {
         }),
       }),
     }));
+  });
+
+  it('closes parent-mode detail child without Agent OS enqueue when parent is already terminal', async () => {
+    const prisma = makePrisma();
+    const operationAlerts = makeOperationAlertsStub();
+    const productGenerationAlerts = makeProductGenerationAlertsStub();
+    productGenerationAlerts.recordChildStarted = vi.fn().mockResolvedValue({
+      status: 'parent_terminal',
+      alert: { status: 'cancelled' },
+    });
+    const agentRunner = makeAgentRunnerStub();
+    const service = makeGenerationService({
+      prisma,
+      operationAlerts,
+      productGenerationAlerts,
+      agentRunner,
+    });
+
+    await service.generate(
+      {
+        productId: MASTER_ID,
+        templateId: 'bold-vertical',
+        rawTitle: '휴대용목걸이비눗방울',
+        rawCategory: '완구',
+        rawDescription: '아이들이 가지고 놀기 좋은 장난감',
+        rawOptions: '혼합 색상 / 사이즈 85*60mm',
+        imageUrls: ['https://example.com/detail-1.jpg'],
+      },
+      ORGANIZATION_ID,
+      USER_ID,
+      {
+        operationAlert: {
+          mode: 'parent',
+          batchId: 'batch-1',
+          parentOperationKey: 'product-generation:batch-1',
+          childKind: 'detail_page',
+        },
+      },
+    );
+
+    expect(prisma.contentGeneration.updateMany).toHaveBeenCalledWith({
+      where: { id: GENERATION_ID, organizationId: ORGANIZATION_ID },
+      data: expect.objectContaining({
+        status: 'CANCELLED',
+        errorMessage: expect.stringContaining('cancelled'),
+      }),
+    });
+    expect(agentRunner.runByType).not.toHaveBeenCalled();
+  });
+
+  it('cancels the detail Agent OS request when parent is cancelled after child registration', async () => {
+    const prisma = makePrisma();
+    const operationAlerts = makeOperationAlertsStub();
+    const productGenerationAlerts = makeProductGenerationAlertsStub();
+    productGenerationAlerts.canStartChild = vi.fn().mockResolvedValue(false);
+    const agentRunner = makeAgentRunnerStub();
+    const service = makeGenerationService({
+      prisma,
+      operationAlerts,
+      productGenerationAlerts,
+      agentRunner,
+    });
+
+    await service.generate(
+      {
+        productId: MASTER_ID,
+        templateId: 'bold-vertical',
+        rawTitle: '휴대용목걸이비눗방울',
+        rawCategory: '완구',
+        rawDescription: '아이들이 가지고 놀기 좋은 장난감',
+        rawOptions: '혼합 색상 / 사이즈 85*60mm',
+        imageUrls: ['https://example.com/detail-1.jpg'],
+      },
+      ORGANIZATION_ID,
+      USER_ID,
+      {
+        operationAlert: {
+          mode: 'parent',
+          batchId: 'batch-1',
+          parentOperationKey: 'product-generation:batch-1',
+          childKind: 'detail_page',
+        },
+      },
+    );
+
+    expect(agentRunner.runByType).toHaveBeenCalled();
+    expect(agentRunner.cancelRequest).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      requestId: REQUEST_ID,
+      reason: 'Parent product generation was cancelled before detail request execution.',
+      actorUserId: USER_ID,
+    });
+    expect(agentRunner.executeRequest).not.toHaveBeenCalled();
   });
 
   it('routes parent-mode detail enqueue failures to the product generation parent alert', async () => {
@@ -845,6 +946,21 @@ describe('DetailPageAiService', () => {
       data: {
         status: 'CANCELLED',
         errorMessage: '사용자 요청으로 생성이 중단되었습니다.',
+        generationResult: expect.objectContaining({
+          templateId: 'bold-vertical',
+          operationCancellation: expect.objectContaining({
+            requestedByUserId: null,
+            reason: '사용자 요청으로 생성이 중단되었습니다.',
+            result: 'cancelled',
+            target: {
+              targetType: 'content_generation',
+              generationId: GENERATION_ID,
+            },
+            affected: expect.objectContaining({
+              contentGenerationIds: [GENERATION_ID],
+            }),
+          }),
+        }),
       },
     });
     expect(agentRunner.cancelBySource).toHaveBeenCalledWith({
@@ -853,16 +969,55 @@ describe('DetailPageAiService', () => {
       sourceResourceType: 'content_generation',
       sourceResourceId: GENERATION_ID,
       reason: '사용자 요청으로 생성이 중단되었습니다.',
+      actorUserId: null,
     });
     expect(operationAlerts.cancel).toHaveBeenCalledWith(
       ORGANIZATION_ID,
       `detail-page:${GENERATION_ID}`,
       expect.objectContaining({
         message: '사용자 요청으로 생성이 중단되었습니다.',
-        metadata: { errorCode: 'user_cancelled' },
+        metadata: expect.objectContaining({ errorCode: 'user_cancelled' }),
       }),
     );
     expect(result.imageProcessingStatus).toBe('cancelled');
+  });
+
+  it('marks the parent product-generation child finished when directly cancelling a child detail generation', async () => {
+    const prisma = makePrisma();
+    prisma.contentGeneration.findFirst.mockResolvedValueOnce(makeGenerationRow({
+      status: 'PROCESSING',
+      generationInput: {
+        rawTitle: '원본 상품명',
+        imageUrls: ['https://example.com/image.jpg'],
+        productGeneration: {
+          mode: 'parent',
+          productGenerationBatchId: 'batch-1',
+          parentOperationKey: 'product-generation:batch-1',
+          childKind: 'detail_page',
+        },
+      },
+    }));
+    const productGenerationAlerts = makeProductGenerationAlertsStub();
+    const service = makeGenerationService({
+      prisma,
+      productGenerationAlerts,
+    });
+
+    await service.cancelForOperation({
+      organizationId: ORGANIZATION_ID,
+      generationId: GENERATION_ID,
+      actorUserId: USER_ID,
+      reason: '사용자 요청',
+    });
+
+    expect(productGenerationAlerts.markChildFinished).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      parentOperationKey: 'product-generation:batch-1',
+      childKind: 'detail_page',
+      status: 'failed',
+      childId: GENERATION_ID,
+      errorMessage: '사용자 요청',
+    });
   });
 
   it('uses inferred package images only in the package section for bold vertical', async () => {
@@ -1365,9 +1520,9 @@ describe('DetailPageAiService', () => {
     });
     expect(operationAlerts.start).toHaveBeenCalledWith(
       expect.objectContaining({
-        targetType: 'sourcing_candidate',
-        targetId: CANDIDATE_ID,
-        href: `/product-pipeline/detail-pages/${GENERATION_ID}/editor?sourceCandidateId=${CANDIDATE_ID}&returnTo=%2Fproduct-pipeline%2Fcollected-products%2F${CANDIDATE_ID}`,
+        targetType: 'content_workspace',
+        targetId: LOADED_REGISTRATION_WORKSPACE_ID,
+        href: `/product-pipeline/detail-pages/${GENERATION_ID}/editor?returnTo=%2Fproduct-pipeline%2Fregistered-products%2F${LOADED_REGISTRATION_WORKSPACE_ID}`,
       }),
     );
   });

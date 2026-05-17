@@ -138,6 +138,7 @@ exposes the seam instead of growing the flat service in place.
 | `rules` | business policy definitions and Agent OS delegation |
 | `agent-os` | platform runtime for agent catalog, queue, execution, policy, cost |
 | `automation` | workflows, alerts, action board, panel projection |
+| `operation-cancellation` | platform orchestration for durable operation, workflow, Agent OS, and AI generation cancellation |
 | `analytics` | reporting/read models |
 | `platform` | auth, organizations, feature-gate, common, prisma, uploads, readiness, shared infrastructure |
 

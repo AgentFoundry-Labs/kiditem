@@ -23,6 +23,7 @@ import { FinanceModule } from './finance/finance.module';
 import { RulesModule } from './rules/rules.module';
 import { AgentOsModule } from './agent-os/agent-os.module';
 import { AutomationModule } from './automation/automation.module';
+import { OperationCancellationModule } from './operation-cancellation/operation-cancellation.module';
 import { AdvertisingModule } from './advertising/advertising.module';
 import { FeatureGateModule } from './feature-gate/feature-gate.module';
 import { ChatModule } from './chat/chat.module';
@@ -58,6 +59,7 @@ import { ReadinessModule } from './readiness/readiness.module';
     RulesModule,
     AgentOsModule,
     AutomationModule,
+    OperationCancellationModule,
     AdvertisingModule,
     ChatModule,
     UploadsModule,
