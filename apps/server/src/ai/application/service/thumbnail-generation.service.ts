@@ -12,7 +12,10 @@ import type {
   ThumbnailGenerationListResponse,
 } from '@kiditem/shared/ai';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { OperationAlertService } from '../../../automation/application/service/operation-alert.service';
+import {
+  AI_OPERATION_ALERT_PORT,
+  type OperationAlertPort,
+} from '../port/out/operation-alert.port';
 import { resolveMasterThumbnailImage } from '../../domain/thumbnail-master-image';
 import { ThumbnailTrackingService } from './thumbnail-tracking.service';
 import {
@@ -71,7 +74,8 @@ export class ThumbnailGenerationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly trackingService: ThumbnailTrackingService,
-    private readonly operationAlerts: OperationAlertService,
+    @Inject(AI_OPERATION_ALERT_PORT)
+    private readonly operationAlerts: OperationAlertPort,
     private readonly generationJobs: ThumbnailGenerationJobService,
     @Optional()
     @Inject(THUMBNAIL_GENERATION_EVENT_PORT)

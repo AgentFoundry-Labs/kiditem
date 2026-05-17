@@ -10,11 +10,14 @@ import {
 } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { OperationAlertService } from '../../../automation/application/service/operation-alert.service';
 import {
   AGENT_RUNNER_PORT,
   type AgentRunnerPort,
 } from '../../../agent-os/application/port/in/agent-runner.port';
+import {
+  AI_OPERATION_ALERT_PORT,
+  type OperationAlertPort,
+} from '../port/out/operation-alert.port';
 import {
   AI_AGENT_SOURCE_TYPES,
   DETAIL_PAGE_GENERATE_AGENT_TYPE,
@@ -97,7 +100,8 @@ export class DetailPageGenerationService {
     private readonly prisma: PrismaService,
     @Inject(IMAGE_STORAGE_PORT)
     private readonly imageStorage: ImageStoragePort,
-    private readonly operationAlerts: OperationAlertService,
+    @Inject(AI_OPERATION_ALERT_PORT)
+    private readonly operationAlerts: OperationAlertPort,
     private readonly query: DetailPageQueryService,
     @Inject(AGENT_RUNNER_PORT)
     private readonly agentRunner: AgentRunnerPort,

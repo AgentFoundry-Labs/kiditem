@@ -1,9 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
-  OPERATION_ALERT_PORT,
+  AI_OPERATION_ALERT_PORT,
+  type OperationAlertRecord as AlertRecord,
   type OperationAlertPort,
-} from '../../../automation/application/port/in/operation-alert.port';
-import type { AlertRecord } from '../../../automation/application/port/persistence-records';
+} from '../port/out/operation-alert.port';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { ProductGenerationChildKind } from './product-generation-alert-link';
 import { productGenerationOperationKey } from './product-generation-alert-link';
@@ -139,7 +139,7 @@ function failureMessage(children: ProductGenerationChildren): string {
 export class ProductGenerationAlertService {
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(OPERATION_ALERT_PORT)
+    @Inject(AI_OPERATION_ALERT_PORT)
     private readonly operationAlerts: OperationAlertPort,
   ) {}
 

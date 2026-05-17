@@ -52,7 +52,8 @@ automation/
 
 `operation-alert.repository.port` keys operation alerts by
 `(organizationId, operationKey)`. Cross-owner producers bind their consumer-side
-adapter to `OPERATION_ALERT_PORT` instead of injecting `OperationAlertService`.
+`adapter/out/automation/operation-alert.adapter.ts` to `OPERATION_ALERT_PORT`
+instead of injecting `OperationAlertService`.
 
 ## Architecture Guards
 
@@ -90,8 +91,8 @@ Invariants enforced by `__tests__/automation.architecture.spec.ts`:
 `__tests__/automation.module.wiring.spec.ts` freezes the @Module()
 metadata: imports, controllers (10), repository adapters (6) +
 panel-event services, application services (8), 7 port bindings via
-`useExisting` (6 outgoing + 1 incoming), the `OPERATION_ALERT_PORT`
-export, and every controller's public `/api/...` route prefix.
+`useExisting` (6 outgoing + 1 incoming), owner-side port exports, and every
+controller's public `/api/...` route prefix.
 
 ## Boundary Rules
 
@@ -117,16 +118,15 @@ export, and every controller's public `/api/...` route prefix.
 Automation publishes the owner-side incoming port `OPERATION_ALERT_PORT`
 from `application/port/in/operation-alert.port.ts` for cross-owner-domain
 producers (advertising / ai / channels / finance / rules / sourcing /
-analytics-traffic). The advertising domain's `adapter/out/automation/
-operation-alert.adapter.ts` already binds to this token; the remaining
-domains will swap their direct `OperationAlertService` imports as their
-own reconstruction PRs land.
+analytics-traffic). Each producer owns a local consumer-side operation-alert
+port and binds it through `adapter/out/automation/operation-alert.adapter.ts`;
+application services and controllers must not inject `OperationAlertService`
+directly.
 
-Until those swaps complete, `OperationAlertService`, `ActionBoardService`,
-`PanelSseService`, and `WorkflowOrchestrationService` remain in the
-module `exports` list as transitional class exports. Each consumer's
-reconstruction PR must move to `OPERATION_ALERT_PORT` and drop its
-direct class injection; once that completes the class exports retire.
+`ActionBoardService`, `PanelSseService`, and `WorkflowOrchestrationService`
+remain in the module `exports` list as transitional class exports. Each
+consumer's reconstruction PR should move to owner-side ports and drop direct
+class injection; once that completes these class exports retire.
 
 ## More Specific Guides
 

@@ -1,7 +1,10 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { OperationAlertService } from '../../../automation/application/service/operation-alert.service';
 import { AgentObservabilityService } from '../../../agent-os/application/service/agent-observability.service';
+import {
+  AI_OPERATION_ALERT_PORT,
+  type OperationAlertPort,
+} from '../port/out/operation-alert.port';
 import {
   THUMBNAIL_GENERATE_AGENT_TYPE,
   ThumbnailGenerateAgentOutputSchema,
@@ -61,7 +64,8 @@ export class ThumbnailAgentReconcileService {
     private readonly observability: AgentObservabilityService,
     @Inject(THUMBNAIL_AGENT_OUTPUT_SINK_PORT)
     private readonly sink: ThumbnailAgentOutputSinkPort,
-    private readonly operationAlerts: OperationAlertService,
+    @Inject(AI_OPERATION_ALERT_PORT)
+    private readonly operationAlerts: OperationAlertPort,
   ) {}
 
   async reconcile(

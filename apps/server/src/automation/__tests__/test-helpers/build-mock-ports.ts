@@ -123,6 +123,7 @@ export function buildMockOperationAlertPort(): MockOperationAlertPort {
     succeed: vi.fn(),
     fail: vi.fn(),
     cancel: vi.fn(),
+    closeBySource: vi.fn(),
     closeStaleOperations: vi.fn(),
   };
 }

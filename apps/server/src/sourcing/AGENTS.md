@@ -30,9 +30,10 @@ sourcing/
   sourcing.module.ts
   adapter/in/http/        route-family controllers: extension ingest/scrape, candidate workspace + DTOs
   adapter/out/agent/      SOURCING_AGENT_GATEWAY_PORT implementation
+  adapter/out/automation/ SOURCING_OPERATION_ALERT_PORT implementation
   adapter/out/products/   products catalog port adapter
   adapter/out/repository/ SOURCING_CANDIDATE_REPOSITORY_PORT adapter
-  application/port/out/   agent gateway + products catalog + candidate repo ports
+  application/port/out/   agent gateway + operation alert + products catalog + candidate repo ports
   application/service/    sourcing, sourcing-promotion services
   __tests__/
 ```
@@ -61,6 +62,10 @@ sourcing/
   `SOURCING_AGENT_GATEWAY_PORT.startProductGeneration`, which maps to the AI
   domain's product-generation inbound port. Sourcing must not inject detail-page
   or thumbnail services directly.
+- Operation-alert lifecycle writes go through `SOURCING_OPERATION_ALERT_PORT`
+  and `adapter/out/automation/operation-alert.adapter.ts`. Sourcing services
+  and gateway adapters must not inject automation's `OperationAlertService`
+  directly.
 - Supplier registry, `MasterSupplierProduct` policy, and `PurchaseOrder`
   mutation belong to `supply/`. Sourcing must not reintroduce supplier or
   procurement controllers, services, or DTOs. Cross-domain attach flows through

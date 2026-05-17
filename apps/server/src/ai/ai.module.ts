@@ -29,6 +29,7 @@ import { CoupangImageSyncController } from './adapter/in/http/coupang-image-sync
 // adapter/out
 import { DetailPageContentGenerationSinkAdapter } from './adapter/out/agent-output/detail-page-content-generation-sink.adapter';
 import { ThumbnailGenerationSinkAdapter } from './adapter/out/agent-output/thumbnail-generation-sink.adapter';
+import { AiOperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
 import { DetailPageGenerateRuntimeHandler } from './adapter/out/agent-runtime/detail-page-generate.runtime-handler';
 import { ImageEditRuntimeHandler } from './adapter/out/agent-runtime/image-edit.runtime-handler';
 import { ThumbnailGenerateRuntimeHandler } from './adapter/out/agent-runtime/thumbnail-generate.runtime-handler';
@@ -109,6 +110,7 @@ import { MASTER_CATALOG_PORT } from './application/port/out/master-catalog.port'
 import { TEXT_COMPLETION_PORT } from './application/port/out/text-completion.port';
 import { THUMBNAIL_GENERATION_EVENT_PORT } from './application/port/out/thumbnail-generation-event.port';
 import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.port';
+import { AI_OPERATION_ALERT_PORT } from './application/port/out/operation-alert.port';
 
 @Module({
   imports: [ChannelsModule, AgentOsModule, AutomationModule],
@@ -202,6 +204,7 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     ThumbnailReferenceImagesService,
     ThumbnailWingPersistence,
     WingAutomationRunner,
+    AiOperationAlertAdapter,
 
     // port bindings
     { provide: WING_AUTOMATION_PORT, useExisting: WingAutomationRunner },
@@ -231,6 +234,7 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     { provide: MASTER_CATALOG_PORT, useExisting: MasterCatalogAdapter },
     { provide: TEXT_COMPLETION_PORT, useExisting: GeminiTextCompletionAdapter },
     { provide: THUMBNAIL_GENERATION_EVENT_PORT, useExisting: ThumbnailGenerationEventAdapter },
+    { provide: AI_OPERATION_ALERT_PORT, useExisting: AiOperationAlertAdapter },
 
     // Inbound port — sourcing's post-promotion gateway injects this to fire
     // detail-page + thumbnail generation with AI-domain-owned defaults.

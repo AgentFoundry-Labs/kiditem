@@ -5,6 +5,8 @@ import { RulesManagementController } from './controllers/rules-management.contro
 import { RulesService } from './services/rules.service';
 import { AgentOsModule } from '../agent-os/agent-os.module';
 import { AutomationModule } from '../automation/automation.module';
+import { RulesOperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
+import { RULES_OPERATION_ALERT_PORT } from './application/port/out/operation-alert.port';
 
 // EventEmitter2 is injected globally — do NOT import EventEmitterModule.forRoot() here.
 //
@@ -25,6 +27,10 @@ import { AutomationModule } from '../automation/automation.module';
     RulesManagementController,
     RuleSuggestionsController,
   ],
-  providers: [RulesService],
+  providers: [
+    RulesService,
+    RulesOperationAlertAdapter,
+    { provide: RULES_OPERATION_ALERT_PORT, useExisting: RulesOperationAlertAdapter },
+  ],
 })
 export class RulesModule {}

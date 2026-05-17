@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Inject,
   Param,
   ParseUUIDPipe,
   Post,
@@ -11,7 +12,10 @@ import { ChannelReconciliationService } from '../../../application/service/chann
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../../../auth/auth.types';
-import { OperationAlertService } from '../../../../automation/application/service/operation-alert.service';
+import {
+  CHANNELS_OPERATION_ALERT_PORT,
+  type OperationAlertPort,
+} from '../../../application/port/out/operation-alert.port';
 import {
   CoupangReconciliationIgnoreDto,
   CoupangReconciliationLinkDto,
@@ -46,7 +50,8 @@ function errorMessage(error: unknown): string {
 export class ChannelReconciliationController {
   constructor(
     private readonly service: ChannelReconciliationService,
-    private readonly operationAlerts: OperationAlertService,
+    @Inject(CHANNELS_OPERATION_ALERT_PORT)
+    private readonly operationAlerts: OperationAlertPort,
   ) {}
 
   @Post('scan-from-rows')
