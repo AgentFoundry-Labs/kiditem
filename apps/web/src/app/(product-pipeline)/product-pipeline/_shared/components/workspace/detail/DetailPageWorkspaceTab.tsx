@@ -52,6 +52,7 @@ interface DetailPageWorkspaceTabProps {
   detailEditorSourceCandidateId?: string | null;
   detailEditorReturnHref: string;
   mobilePreviewData: ProductRegistrationPreviewData;
+  onPreviewHtmlChange?: (html: string | null) => void;
 }
 
 export default function DetailPageWorkspaceTab({
@@ -67,6 +68,7 @@ export default function DetailPageWorkspaceTab({
   detailEditorSourceCandidateId,
   detailEditorReturnHref,
   mobilePreviewData,
+  onPreviewHtmlChange,
   onSelectKidsPlayful,
   onSelectBoldVertical,
   onSelectAgent,
@@ -239,6 +241,7 @@ export default function DetailPageWorkspaceTab({
             detailEditorSourceCandidateId={detailEditorSourceCandidateId}
             detailEditorReturnHref={detailEditorReturnHref}
             mobilePreviewData={mobilePreviewData}
+            onPreviewHtmlChange={onPreviewHtmlChange}
           />
         </div>
       </div>

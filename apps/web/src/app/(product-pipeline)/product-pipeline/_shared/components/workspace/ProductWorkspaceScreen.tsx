@@ -17,6 +17,7 @@ import ProductEditHeader from './detail/ProductEditHeader';
 import ProductEditTabs, { type EditTabType } from './detail/ProductEditTabs';
 import {
   ensureStyledDetailHtml,
+  isRenderableDetailHtml,
   renderTemplateToHtml,
 } from '@/app/(product-pipeline)/product-pipeline/_shared/lib/template-html';
 import {
@@ -98,6 +99,7 @@ export function ProductWorkspaceScreen({
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [selectedRegistrationThumbnailUrl, setSelectedRegistrationThumbnailUrl] = useState<string | null>(null);
   const [thumbnailPreviewUrl, setThumbnailPreviewUrl] = useState<string | null>(null);
+  const [detailWorkspacePreviewHtml, setDetailWorkspacePreviewHtml] = useState<string | null>(null);
 
   const goBack = () => router.push(backHref);
 
@@ -310,7 +312,7 @@ export function ProductWorkspaceScreen({
   );
   const selectedDetailMobilePreviewHtml = useMemo(() => {
     if (!effectiveSavedDetailPageGenerationId) return null;
-    if (selectedDetailEditedHtml?.html) {
+    if (isRenderableDetailHtml(selectedDetailEditedHtml?.html)) {
       return ensureStyledDetailHtml(selectedDetailEditedHtml.html, templateCss);
     }
 
@@ -382,7 +384,8 @@ export function ProductWorkspaceScreen({
   }
 
   const nameLength = Array.from(editData.name).length;
-  const usesWideContent = activeTab === 'detail';
+  const sidePreviewDetailHtml =
+    activeTab === 'detail' ? detailWorkspacePreviewHtml : selectedDetailMobilePreviewHtml;
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -421,9 +424,7 @@ export function ProductWorkspaceScreen({
 
       <div className="flex flex-1 overflow-hidden">
         <div
-          className={`flex flex-col overflow-hidden ${
-            usesWideContent ? 'w-full' : 'w-[72%] border-r border-slate-200'
-          }`}
+          className="flex w-[72%] flex-col overflow-hidden border-r border-slate-200"
         >
           <ProductEditTabs activeTab={activeTab} onTabChange={handleTabChange} />
           <div className="flex-1 overflow-y-auto bg-slate-50">
@@ -483,18 +484,17 @@ export function ProductWorkspaceScreen({
               onSelectRegistrationThumbnail={handleSelectRegistrationThumbnail}
               thumbnailGenerationReturnHref={selfHref}
               selectedDetailPageSummary={selectedDetailPageSummary}
+              onDetailPreviewHtmlChange={setDetailWorkspacePreviewHtml}
             />
           </div>
         </div>
 
-        {!usesWideContent && (
-          <div className="w-[28%] overflow-y-auto bg-slate-50/50 p-5">
-            <MobilePreview
-              {...mobilePreviewData}
-              detailHtml={selectedDetailMobilePreviewHtml}
-            />
-          </div>
-        )}
+        <div className="w-[28%] overflow-y-auto bg-slate-50/50 p-5">
+          <MobilePreview
+            {...mobilePreviewData}
+            detailHtml={sidePreviewDetailHtml}
+          />
+        </div>
       </div>
     </div>
   );

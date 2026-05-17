@@ -7,7 +7,7 @@
  * 다중 entry: GenerationProgressBannerStack 으로 묶어서 헤더 한 줄 + 컴팩트 행 N개로 렌더.
  */
 
-import { Loader2 } from 'lucide-react';
+import { Loader2, XCircle } from 'lucide-react';
 import {
   getDetailGenerationMode,
   getDetailGenerationStage,
@@ -34,14 +34,18 @@ export interface GenerationEntry {
 interface GenerationProgressBannerProps extends GenerationEntry {
   /** true 면 padding/font 작게 — 다중 entry stack 안에서 사용 */
   compact?: boolean;
+  isCancelling?: boolean;
+  onCancel?: (id: string) => void;
 }
 
 const TEMPLATE_LABEL: Record<string, string> = {
   'kids-playful': '트렌드 광고형 템플릿',
   'bold-vertical': 'KIDITEM DESIGN',
 };
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export function GenerationProgressBanner({
+  id,
   templateId,
   status,
   processedCount = 0,
@@ -49,6 +53,8 @@ export function GenerationProgressBanner({
   productName,
   generationMode = 'full',
   compact = false,
+  isCancelling = false,
+  onCancel,
 }: GenerationProgressBannerProps) {
   const tLabel = TEMPLATE_LABEL[templateId] ?? templateId;
   const isProcessing = status === 'processing';
@@ -65,6 +71,10 @@ export function GenerationProgressBanner({
   const barH = compact ? 'h-1.5' : 'h-2';
   const subCls = compact ? 'text-[11px]' : 'text-[12px]';
   const spaceY = compact ? 'space-y-1' : 'space-y-2';
+  const canCancel = !!onCancel && UUID_PATTERN.test(id);
+  const cancelButtonCls = compact
+    ? 'h-7 px-2 text-[11px]'
+    : 'h-8 px-3 text-[12px]';
 
   return (
     <div
@@ -81,11 +91,29 @@ export function GenerationProgressBanner({
           <span className={`${titleCls} truncate`} style={{ color: '#7c3aed' }}>
             {productName ? `${productName} — ` : ''}{tLabel} 상세페이지 생성 중 · {stage}
           </span>
-          {pct !== null && (
-            <span className={pctCls} style={{ color: '#7c3aed' }}>
-              {pct}%
-            </span>
-          )}
+          <div className="flex shrink-0 items-center gap-2">
+            {pct !== null && (
+              <span className={pctCls} style={{ color: '#7c3aed' }}>
+                {pct}%
+              </span>
+            )}
+            {onCancel ? (
+              <button
+                type="button"
+                onClick={() => onCancel(id)}
+                disabled={isCancelling || !canCancel}
+                className={`${cancelButtonCls} inline-flex items-center gap-1 rounded-lg border border-violet-300 bg-white/80 font-black text-violet-700 shadow-sm transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50`}
+                title={canCancel ? '상세페이지 생성을 중단합니다' : '서버 작업 ID를 기다리는 중입니다'}
+              >
+                {isCancelling ? (
+                  <Loader2 size={compact ? 12 : 13} className="animate-spin" />
+                ) : (
+                  <XCircle size={compact ? 12 : 13} />
+                )}
+                중단
+              </button>
+            ) : null}
+          </div>
         </div>
         <div className={`${barH} rounded-full overflow-hidden`} style={{ background: '#7c3aed20' }}>
           {pct !== null ? (
@@ -129,8 +157,12 @@ export function GenerationProgressBanner({
  */
 export function GenerationProgressBannerStack({
   entries,
+  cancellingId = null,
+  onCancel,
 }: {
   entries: Array<GenerationEntry & { rawInput?: unknown }>;
+  cancellingId?: string | null;
+  onCancel?: (id: string) => void;
 }) {
   if (entries.length === 0) return null;
 
@@ -142,6 +174,8 @@ export function GenerationProgressBannerStack({
         <GenerationProgressBanner
           {...e}
           generationMode={e.generationMode ?? getDetailGenerationMode(e.rawInput)}
+          isCancelling={cancellingId === e.id}
+          onCancel={onCancel}
         />
       </div>
     );
@@ -167,6 +201,8 @@ export function GenerationProgressBannerStack({
             key={e.id}
             {...e}
             generationMode={e.generationMode ?? getDetailGenerationMode(e.rawInput)}
+            isCancelling={cancellingId === e.id}
+            onCancel={onCancel}
             compact
           />
         ))}

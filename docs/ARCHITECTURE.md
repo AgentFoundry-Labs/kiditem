@@ -216,7 +216,7 @@ Kinds:
 | `apps/web/src/app/(finance)` | Route Group | `_shared`, `finance-hub`, `profit-loss`, `reports`, `sales-analysis`, `supplier-hub` |
 | `apps/web/src/app/(inventory)` | Route Group | `_shared`, `inventory`, `inventory-hub`, `outbound`, `stock-ops`, `unshipped-items`, `warehouses` |
 | `apps/web/src/app/(orders)` | Route Group | `_shared`, `cs-management`, `order-hub`, `order-status-hub`, `orders`, `return-scan`, `returns`, `reviews` |
-| `apps/web/src/app/(sourcing-ai)` | Route Group | `sourcing-ai` |
+| `apps/web/src/app/(sourcing-ai)` | Route Group | `sourcing-ai`, `sourcing-ai/recommendations`, `sourcing-ai/keywords`, `sourcing-ai/market`, `sourcing-ai/category-sourcing`, `sourcing-ai/wholesale-search`, `sourcing-ai/validation`, `sourcing-ai/saved` |
 | `apps/web/src/app/(product-pipeline)` | Route Group | `product-pipeline/collected-products`, `product-pipeline/registered-products`, `product-pipeline/productgenerate`, `product-pipeline/detailgenerate`, `product-pipeline/detail-template-generation` (legacy implementation path), `product-pipeline/thumbnail-ai`, `product-pipeline/thumbnail-generation`, `product-pipeline/thumbnail-generation/edit` |
 | `apps/web/src/app/(supply)` | Route Group | `purchase-orders`, `suppliers` |
 | `apps/web/src/app/agent-os` | App Internal | Fullscreen visualization surface, separate from `/agents`. |

@@ -283,6 +283,31 @@ describe('DetailPageQueryService edited HTML', () => {
     });
   });
 
+  it('ignores stored JSON payloads in the current revision and falls back to generated output rendering', async () => {
+    const prisma = {
+      contentGeneration: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: GENERATION_ID,
+          editedHtml: '<main>legacy</main>',
+          editedHtmlSavedAt: new Date('2026-05-12T11:00:00.000Z'),
+          detailPageArtifact: {
+            isDeleted: false,
+            currentRevision: {
+              html: '{"templateId":"kids-playful","result":{"section1":{"mainHeadline":"raw json"}}}',
+              createdAt: new Date('2026-05-13T11:00:00.000Z'),
+            },
+          },
+        }),
+      },
+    };
+    const { service } = makeService(prisma);
+
+    await expect(service.getEditedHtml(GENERATION_ID, ORG)).resolves.toEqual({
+      html: '<main>legacy</main>',
+      savedAt: '2026-05-12T11:00:00.000Z',
+    });
+  });
+
   it('falls back to legacy ContentGeneration edited HTML when no artifact revision exists', async () => {
     const savedAt = new Date('2026-05-13T11:00:00.000Z');
     const prisma = {
@@ -301,6 +326,39 @@ describe('DetailPageQueryService edited HTML', () => {
       html: '<main>legacy</main>',
       savedAt: savedAt.toISOString(),
     });
+  });
+
+  it('returns no edited HTML when only legacy stored JSON exists', async () => {
+    const prisma = {
+      contentGeneration: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: GENERATION_ID,
+          editedHtml: '{"templateId":"kids-playful","result":{"section1":{"mainHeadline":"raw json"}}}',
+          editedHtmlSavedAt: new Date('2026-05-12T11:00:00.000Z'),
+          detailPageArtifact: null,
+        }),
+      },
+    };
+    const { service } = makeService(prisma);
+
+    await expect(service.getEditedHtml(GENERATION_ID, ORG)).resolves.toEqual({
+      html: null,
+      savedAt: null,
+    });
+  });
+
+  it('rejects JSON payloads when saving edited HTML', async () => {
+    const prisma = {
+      contentGeneration: {
+        findFirst: vi.fn(),
+      },
+    };
+    const { service } = makeService(prisma);
+
+    await expect(
+      service.saveEditedHtml(GENERATION_ID, ORG, '{"templateId":"kids-playful","result":{}}'),
+    ).rejects.toThrow('렌더링 가능한 상세페이지 HTML만 저장할 수 있습니다.');
+    expect(prisma.contentGeneration.findFirst).not.toHaveBeenCalled();
   });
 });
 

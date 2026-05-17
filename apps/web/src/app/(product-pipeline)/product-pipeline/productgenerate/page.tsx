@@ -1,7 +1,7 @@
 'use client';
 
 import { Suspense } from 'react';
-import { Sparkles, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import GenerationStartModal from './components/GenerationStartModal';
 import ProductInputSection from './components/ProductInputSection';
 import { useProductGenerateWorkflow } from './hooks/useProductGenerateWorkflow';
@@ -73,15 +73,6 @@ function ProductGeneratePageContent() {
 
   return (
     <div className="flex h-full min-h-[calc(100vh-48px)] flex-col overflow-y-auto bg-[var(--surface-sunken)]">
-      <div className="px-6 pt-6">
-        <div className="mx-auto flex w-full max-w-[960px] justify-end">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-violet-50 px-3 py-1 text-xs font-black text-violet-700 ring-1 ring-violet-200">
-            <Sparkles size={13} />
-            KIDITEM DETAIL DESIGN
-          </span>
-        </div>
-      </div>
-
       {error && (
         <div className="px-6 pt-3">
           <div className="mx-auto flex w-full max-w-[960px] items-center justify-between rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
@@ -93,7 +84,7 @@ function ProductGeneratePageContent() {
         </div>
       )}
 
-      <div className="flex min-h-0 flex-1 items-start justify-center px-6 pb-3 pt-3">
+      <div className="flex min-h-0 flex-1 items-start justify-center px-6 pb-3 pt-6">
         <ProductInputSection
           templateId={templateId}
           setTemplateId={setTemplateId}
