@@ -37,6 +37,7 @@ export interface ProductOptionCandidate {
 export interface ChannelListingHandle {
   id: string;
   masterId: string;
+  channelAccountId?: string | null;
 }
 
 export interface ChannelListingOptionHandle {

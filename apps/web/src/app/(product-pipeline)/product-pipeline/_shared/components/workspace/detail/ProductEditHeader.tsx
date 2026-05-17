@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   ArrowLeft,
@@ -12,6 +12,7 @@ import {
   Loader2,
   Lock,
   Sparkles,
+  Store,
   XCircle,
 } from 'lucide-react';
 import type { DetailPageTemplateId } from '@kiditem/shared/ai';
@@ -27,6 +28,10 @@ import {
   candidatesApi,
   type PromoteCandidateResponse,
 } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api';
+import {
+  channelListingsApi,
+} from '@/app/(product-pipeline)/product-pipeline/registered-products/lib/channel-listings-api';
+import MarketplaceRegistrationDialog from '../marketplace/MarketplaceRegistrationDialog';
 import { getInlineGenerationProgressLabel } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/generation-progress-label';
 
 interface ProductEditHeaderProps {
@@ -68,6 +73,7 @@ export default function ProductEditHeader({
 }: ProductEditHeaderProps) {
   const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
+  const [marketplaceOpen, setMarketplaceOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [rejectInputOpen, setRejectInputOpen] = useState(false);
   const { mutate: runGenerate, isPending } = useGenerateDetailPage(promotedMasterId ?? productId);
@@ -77,6 +83,11 @@ export default function ProductEditHeader({
     enabled: !onOpenDetailTemplateGeneration,
   });
   const generateBusy = isPending || kp.isPending || !!kpInProgress;
+  const accountsQuery = useQuery({
+    queryKey: ['channel-accounts', 'active'],
+    queryFn: () => channelListingsApi.listAccounts(),
+    enabled: marketplaceOpen,
+  });
 
   const promoteMutation = useMutation({
     mutationFn: () =>
@@ -111,6 +122,29 @@ export default function ProductEditHeader({
     },
     onError: (err) => {
       toast.error(isApiError(err) ? err.detail : '반려 처리에 실패했습니다.');
+    },
+  });
+  const marketplaceRegistrationMutation = useMutation({
+    mutationFn: (input: {
+      channelAccountId: string;
+      externalId: string;
+      channelName?: string | null;
+      channelPrice?: number | null;
+    }) => {
+      if (!promotedMasterId) throw new Error('master product is required');
+      return channelListingsApi.registerConfirmed({
+        masterId: promotedMasterId,
+        ...input,
+      });
+    },
+    onSuccess: () => {
+      toast.success('마켓 등록 정보를 반영했습니다.');
+      setMarketplaceOpen(false);
+      queryClient.invalidateQueries({ queryKey: queryKeys.channelListings.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
+    },
+    onError: (err) => {
+      toast.error(isApiError(err) ? err.detail : '마켓 등록 처리에 실패했습니다.');
     },
   });
 
@@ -314,6 +348,26 @@ export default function ProductEditHeader({
                 </button>
               </div>
             )}
+          </>
+        )}
+
+        {promotedMasterId && (
+          <>
+            <button
+              type="button"
+              onClick={() => setMarketplaceOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-md bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-slate-800"
+            >
+              <Store size={12} />
+              마켓 등록
+            </button>
+            <MarketplaceRegistrationDialog
+              open={marketplaceOpen}
+              accounts={accountsQuery.data ?? []}
+              isSubmitting={marketplaceRegistrationMutation.isPending}
+              onClose={() => setMarketplaceOpen(false)}
+              onSubmit={(input) => marketplaceRegistrationMutation.mutate(input)}
+            />
           </>
         )}
 

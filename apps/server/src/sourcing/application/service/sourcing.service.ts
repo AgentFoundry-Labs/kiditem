@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { paginationParams } from '../../../common/pagination';
 import { OperationAlertService } from '../../../automation/application/service/operation-alert.service';
 import {
@@ -12,6 +12,21 @@ import {
 } from '../port/out/sourcing-candidate.repository.port';
 import type { ReceiveExtensionDataDto } from '../../adapter/in/http/dto/receive-extension-data.dto';
 import type { RegisterManualProductDto } from '../../adapter/in/http/dto/register-manual-product.dto';
+import type { CreateProductGenerationDto } from '../../adapter/in/http/dto/product-generation.dto';
+import { buildProductBasics } from './product-basics.presenter';
+import { ProductPreparationSelectionService } from './product-preparation-selection.service';
+
+type ManualProductRegistrationInput = RegisterManualProductDto & Partial<Pick<
+  CreateProductGenerationDto,
+  | 'ageGroup'
+  | 'kcCertificationStatus'
+  | 'kcCertificationNumber'
+  | 'productSize'
+  | 'colorVariantStatus'
+  | 'colorVariantNames'
+  | 'boxSetStatus'
+  | 'boxSetQuantity'
+>>;
 
 const PLATFORM_MAP: Record<string, string> = {
   '1688': 'ALIBABA_1688',
@@ -46,6 +61,8 @@ export class SourcingService {
     @Inject(SOURCING_AGENT_GATEWAY_PORT)
     private readonly agentGateway: SourcingAgentGatewayPort,
     private readonly operationAlerts: OperationAlertService,
+    @Optional()
+    private readonly preparationSelection?: ProductPreparationSelectionService,
   ) {}
 
   async receiveExtensionData(
@@ -124,7 +141,7 @@ export class SourcingService {
   }
 
   async registerManualProduct(
-    data: RegisterManualProductDto,
+    data: ManualProductRegistrationInput,
     organizationId: string,
     triggeredByUserId: string | null,
   ) {
@@ -155,6 +172,14 @@ export class SourcingService {
         category,
         description,
         target: data.target ?? null,
+        ageGroup: data.ageGroup ?? null,
+        kcCertificationStatus: data.kcCertificationStatus ?? null,
+        kcCertificationNumber: data.kcCertificationNumber ?? null,
+        productSize: data.productSize ?? null,
+        colorVariantStatus: data.colorVariantStatus ?? null,
+        colorVariantNames: data.colorVariantNames ?? null,
+        boxSetStatus: data.boxSetStatus ?? null,
+        boxSetQuantity: data.boxSetQuantity ?? null,
         thumbnailUrl,
         imageUrls,
         optionNames,
@@ -183,6 +208,118 @@ export class SourcingService {
       product_count: 1,
       candidateId: candidate.id,
       href: `/product-pipeline/collected-products/${encodeURIComponent(candidate.id)}`,
+    };
+  }
+
+  async createProductGeneration(
+    data: CreateProductGenerationDto,
+    organizationId: string,
+    triggeredByUserId: string | null,
+  ) {
+    const candidate = await this.registerManualProduct(
+      data,
+      organizationId,
+      triggeredByUserId,
+    );
+    const ai = await this.agentGateway.startProductGeneration({
+      organizationId,
+      triggeredByUserId,
+      candidateId: candidate.candidateId,
+      productName: data.title.trim(),
+      category: data.category ?? null,
+      description: data.description ?? null,
+      target: data.target ?? null,
+      imageUrls: this.uniqueNonEmptyStrings(data.imageUrls),
+      thumbnailUrl: data.thumbnailUrl ?? null,
+      optionNames: this.uniqueNonEmptyStrings(data.optionNames ?? []),
+      templateId: data.templateId ?? 'bold-vertical',
+      ageGroup: data.ageGroup ?? 'age-8-plus',
+      detailImageCount: data.detailImageCount ?? '2',
+      usageSectionMode: data.usageSectionMode ?? 'include',
+      kcCertificationStatus: data.kcCertificationStatus ?? 'unknown',
+      kcCertificationNumber: data.kcCertificationNumber ?? null,
+      productSize: data.productSize ?? null,
+      colorVariantStatus: data.colorVariantStatus ?? 'auto',
+      colorVariantNames: data.colorVariantNames ?? null,
+      boxSetStatus: data.boxSetStatus ?? 'auto',
+      boxSetQuantity: data.boxSetQuantity ?? null,
+    });
+    return {
+      ok: true,
+      message: '상품 생성 작업이 시작되었습니다.',
+      product_count: 1,
+      candidateId: candidate.candidateId,
+      href: ai.href,
+      parentOperationKey: ai.parentOperationKey,
+      detailGenerationId: ai.detailGenerationId,
+      thumbnailGenerationId: ai.thumbnailGenerationId,
+      contentWorkspaceId: ai.contentWorkspaceId,
+    };
+  }
+
+  async quickProcessCandidate(
+    candidateId: string,
+    organizationId: string,
+    triggeredByUserId: string | null,
+  ) {
+    const candidate = await this.candidates.findById(candidateId, organizationId);
+    if (!candidate) throw new NotFoundException('Sourcing candidate not found');
+
+    const rawData = this.plainRecord(candidate.rawData);
+    const candidateImageUrls = candidate.images
+      .filter((image) => image.role === 'product')
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map((image) => image.url);
+    const fallbackImageUrls = [
+      ...this.extractProductImageUrls(rawData),
+      candidate.imageUrl ?? '',
+      candidate.thumbnailUrl ?? '',
+    ];
+    const imageUrls = this.uniqueNonEmptyStrings(
+      candidateImageUrls.length > 0 ? candidateImageUrls : fallbackImageUrls,
+    );
+    const rawOptionNames = this.stringArrayFromUnknown(rawData.optionNames ?? rawData.options);
+    const optionNames = this.uniqueNonEmptyStrings([
+      ...rawOptionNames,
+      ...this.stringArrayFromUnknown(candidate.tags),
+    ]);
+    const target = typeof rawData.target === 'string' ? rawData.target : null;
+    await this.preparationSelection?.ensureRegistrationInputFromCandidate(organizationId, candidateId);
+
+    const ai = await this.agentGateway.startProductGeneration({
+      organizationId,
+      triggeredByUserId,
+      candidateId,
+      productName: candidate.name,
+      category: candidate.category,
+      description: candidate.description,
+      target,
+      imageUrls,
+      thumbnailUrl: candidate.thumbnailUrl ?? imageUrls[0] ?? null,
+      optionNames,
+      templateId: 'bold-vertical',
+      ageGroup: 'age-8-plus',
+      detailImageCount: '2',
+      usageSectionMode: 'include',
+      kcCertificationStatus: 'unknown',
+      kcCertificationNumber: null,
+      productSize: null,
+      colorVariantStatus: 'auto',
+      colorVariantNames: null,
+      boxSetStatus: 'auto',
+      boxSetQuantity: null,
+    });
+
+    return {
+      ok: true,
+      message: 'AI 간편 처리 작업이 시작되었습니다.',
+      product_count: 1,
+      candidateId: ai.candidateId,
+      href: ai.href,
+      parentOperationKey: ai.parentOperationKey,
+      detailGenerationId: ai.detailGenerationId,
+      thumbnailGenerationId: ai.thumbnailGenerationId,
+      contentWorkspaceId: ai.contentWorkspaceId,
     };
   }
 
@@ -224,7 +361,13 @@ export class SourcingService {
   async getProduct(productId: string, organizationId: string) {
     const row = await this.candidates.findById(productId, organizationId);
     if (!row) throw new NotFoundException('Sourcing candidate not found');
-    return row;
+    return {
+      ...row,
+      basicInfo: buildProductBasics({
+        candidate: row,
+        preparation: row.productPreparation,
+      }),
+    };
   }
 
   // ── helpers ──
@@ -282,6 +425,17 @@ export class SourcingService {
 
   private uniqueNonEmptyStrings(values: string[]): string[] {
     return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+  }
+
+  private stringArrayFromUnknown(value: unknown): string[] {
+    if (!Array.isArray(value)) return [];
+    return value.filter((item): item is string => typeof item === 'string');
+  }
+
+  private plainRecord(value: unknown): Record<string, unknown> {
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : {};
   }
 
   private extractProductImageUrls(data: Record<string, unknown>): string[] {

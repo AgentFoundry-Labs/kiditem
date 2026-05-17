@@ -14,6 +14,8 @@ import {
   THUMBNAIL_GENERATION_EVENT_PORT,
   type ThumbnailGenerationEventPort,
 } from '../../../application/port/out/thumbnail-generation-event.port';
+import { ProductGenerationAlertService } from '../../../application/service/product-generation-alert.service';
+import { readProductGenerationAlertLink } from '../../../application/service/product-generation-alert-link';
 
 /**
  * Real `ThumbnailAgentOutputSinkPort` adapter — applies a validated
@@ -51,6 +53,7 @@ export class ThumbnailGenerationSinkAdapter
     @Optional()
     @Inject(THUMBNAIL_GENERATION_EVENT_PORT)
     private readonly generationEvents: ThumbnailGenerationEventPort | null = null,
+    private readonly productGenerationAlerts?: ProductGenerationAlertService,
   ) {}
 
   static readonly OPERATION_KEY_PREFIX = 'thumbnail-edit:';
@@ -70,6 +73,11 @@ export class ThumbnailGenerationSinkAdapter
       );
       return;
     }
+
+    const parentLink = await this.readParentLink({
+      organizationId: input.organizationId,
+      generationId: input.sourceResourceId,
+    });
 
     const lock = await lockGenerationForProcessing(
       this.prisma,
@@ -130,18 +138,28 @@ export class ThumbnailGenerationSinkAdapter
       },
     });
 
-    await this.operationAlerts.succeed(
-      input.organizationId,
-      operationKey(input.sourceResourceId),
-      {
-        href: ThumbnailGenerationSinkAdapter.RESULT_HREF(input.sourceResourceId),
-        metadata: {
-          candidateCount: candidates.length,
-          agentRequestId: input.requestId,
-          agentRunId: input.runId ?? null,
+    if (parentLink && this.productGenerationAlerts) {
+      await this.productGenerationAlerts.markChildFinished({
+        organizationId: input.organizationId,
+        parentOperationKey: parentLink.parentOperationKey,
+        childKind: 'thumbnail',
+        status: 'succeeded',
+        childId: input.sourceResourceId,
+      });
+    } else {
+      await this.operationAlerts.succeed(
+        input.organizationId,
+        operationKey(input.sourceResourceId),
+        {
+          href: ThumbnailGenerationSinkAdapter.RESULT_HREF(input.sourceResourceId),
+          metadata: {
+            candidateCount: candidates.length,
+            agentRequestId: input.requestId,
+            agentRunId: input.runId ?? null,
+          },
         },
-      },
-    );
+      );
+    }
 
     this.logger.log(
       `thumbnail_generate applied success → ThumbnailGeneration ${input.sourceResourceId} succeeded (request=${input.requestId}).`,
@@ -162,6 +180,11 @@ export class ThumbnailGenerationSinkAdapter
       );
       return;
     }
+
+    const parentLink = await this.readParentLink({
+      organizationId: input.organizationId,
+      generationId: input.sourceResourceId,
+    });
 
     const lock = await lockGenerationForProcessing(
       this.prisma,
@@ -205,23 +228,49 @@ export class ThumbnailGenerationSinkAdapter
       },
     });
 
-    await this.operationAlerts.fail(
-      input.organizationId,
-      operationKey(input.sourceResourceId),
-      {
-        href: ThumbnailGenerationSinkAdapter.RESULT_HREF(input.sourceResourceId),
-        message: input.errorMessage,
-        metadata: {
-          errorCode: input.errorCode,
-          agentRequestId: input.requestId,
-          agentRunId: input.runId ?? null,
+    if (parentLink && this.productGenerationAlerts) {
+      await this.productGenerationAlerts.markChildFinished({
+        organizationId: input.organizationId,
+        parentOperationKey: parentLink.parentOperationKey,
+        childKind: 'thumbnail',
+        status: 'failed',
+        childId: input.sourceResourceId,
+        errorMessage: input.errorMessage,
+      });
+    } else {
+      await this.operationAlerts.fail(
+        input.organizationId,
+        operationKey(input.sourceResourceId),
+        {
+          href: ThumbnailGenerationSinkAdapter.RESULT_HREF(input.sourceResourceId),
+          message: input.errorMessage,
+          metadata: {
+            errorCode: input.errorCode,
+            agentRequestId: input.requestId,
+            agentRunId: input.runId ?? null,
+          },
         },
-      },
-    );
+      );
+    }
 
     this.logger.log(
       `thumbnail_generate applied failure → ThumbnailGeneration ${input.sourceResourceId} failed (code=${input.errorCode} request=${input.requestId}).`,
     );
+  }
+
+  private async readParentLink(input: {
+    organizationId: string;
+    generationId: string;
+  }) {
+    const row = await this.prisma.thumbnailGeneration.findFirst({
+      where: {
+        id: input.generationId,
+        organizationId: input.organizationId,
+        isDeleted: false,
+      },
+      select: { inputMeta: true },
+    });
+    return readProductGenerationAlertLink(row?.inputMeta);
   }
 
   private async appendStatusEvent(input: {

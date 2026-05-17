@@ -12,7 +12,7 @@ describe('collected product source filter', () => {
   });
 
   it('uses tab-specific empty state copy', () => {
-    expect(emptyStateCopyForSourceFilter('manual-registration').title).toBe('상품 등록 후보가 없습니다.');
+    expect(emptyStateCopyForSourceFilter('manual-registration').title).toBe('상품 생성 후보가 없습니다.');
     expect(emptyStateCopyForSourceFilter('1688').title).toBe('1688 수집 상품이 없습니다.');
   });
 });

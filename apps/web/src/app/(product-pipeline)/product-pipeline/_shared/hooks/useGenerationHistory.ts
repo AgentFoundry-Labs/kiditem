@@ -36,6 +36,14 @@ export function useGenerationHistory(
   initialHistory?: GenerationHistoryItem[],
   options: { enabled?: boolean } = {},
 ) {
+  const initialDataOptions =
+    initialHistory === undefined
+      ? {}
+      : {
+          initialData: initialHistory,
+          initialDataUpdatedAt: 0,
+        };
+
   return useQuery({
     queryKey: [...queryKeys.sourcing.detail(productId), 'history'],
     queryFn: async () => {
@@ -57,8 +65,9 @@ export function useGenerationHistory(
         createdAt: item.createdAt,
       }));
     },
-    initialData: initialHistory,
     enabled: !!productId && (options.enabled ?? true),
+    staleTime: 0,
+    ...initialDataOptions,
   });
 }
 

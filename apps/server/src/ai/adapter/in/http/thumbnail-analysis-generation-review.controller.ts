@@ -14,14 +14,14 @@ export class ThumbnailAnalysisGenerationReviewController {
     @CurrentOrganization() organizationId: string,
     @Query('productId') productId?: string,
     @Query('sourceCandidateId') sourceCandidateId?: string,
-    @Query('registrationWorkspaceId') registrationWorkspaceId?: string,
+    @Query('contentWorkspaceId') contentWorkspaceId?: string,
     @Query('limit') limit?: string,
   ) {
     const parsedLimit = limit ? Number.parseInt(limit, 10) : undefined;
     return this.generationService.findAll(organizationId, {
       productId: productId || null,
       sourceCandidateId: sourceCandidateId || null,
-      registrationWorkspaceId: registrationWorkspaceId || null,
+      contentWorkspaceId: contentWorkspaceId || null,
       limit: Number.isFinite(parsedLimit) ? parsedLimit : undefined,
     });
   }

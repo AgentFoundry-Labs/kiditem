@@ -13,7 +13,7 @@ export function useGenerateWorkflow() {
   const queryClient = useQueryClient();
   const [step, setStep] = useState<GenerateWorkflowStep>('template');
   const [templateId, setTemplateId] = useState<GenerateTemplateId>('bold-vertical');
-  const form = useGenerateForm();
+  const form = useGenerateForm({ ownerBindingMode: 'sandbox-only' });
 
   const pickTemplate = (nextTemplateId: string) => {
     setTemplateId(nextTemplateId === 'kids-playful' ? 'kids-playful' : 'bold-vertical');

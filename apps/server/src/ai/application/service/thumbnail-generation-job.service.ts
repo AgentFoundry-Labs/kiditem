@@ -53,12 +53,25 @@ import {
   type ThumbnailGenerationEventPort,
 } from '../port/out/thumbnail-generation-event.port';
 import { kickEnqueuedAgentRequest as kickInlineAgentRequest } from './agent-inline-execution';
+import {
+  type GenerationAlertLink,
+  STANDALONE_GENERATION_ALERT,
+  isParentProductGenerationAlertLink,
+  productGenerationMetadata,
+} from './product-generation-alert-link';
+import { ProductGenerationAlertService } from './product-generation-alert.service';
+
+function jsonObject(value: Prisma.InputJsonValue): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
 
 export interface ThumbnailEditorGenerationEnqueueInput {
   organizationId: string;
   productId: string;
   productName: string;
-  registrationWorkspaceId?: string | null;
+  contentWorkspaceId?: string | null;
   triggeredByUserId: string | null;
   inputs: ThumbnailEditorInputImage[];
   inputMeta: Prisma.InputJsonValue;
@@ -71,19 +84,20 @@ export interface ThumbnailCandidateGenerationEnqueueInput {
   organizationId: string;
   sourceCandidateId: string;
   productName: string | null;
-  registrationWorkspaceId?: string | null;
+  contentWorkspaceId?: string | null;
   triggeredByUserId: string | null;
   inputs: ThumbnailEditorInputImage[];
   inputMeta: Prisma.InputJsonValue;
   method: 'generate' | 'creative';
   originalUrl: string;
   agentPayload: Record<string, unknown>;
+  operationAlert?: GenerationAlertLink;
 }
 
 export interface ThumbnailStandaloneGenerationEnqueueInput {
   organizationId: string;
   productName: string | null;
-  registrationWorkspaceId?: string | null;
+  contentWorkspaceId?: string | null;
   triggeredByUserId: string | null;
   inputs: ThumbnailEditorInputImage[];
   inputMeta: Prisma.InputJsonValue;
@@ -102,6 +116,7 @@ export class ThumbnailGenerationJobService {
     private readonly operationAlerts: OperationAlertService,
     @Inject(AGENT_RUNNER_PORT)
     private readonly agentRunner: AgentRunnerPort,
+    private readonly productGenerationAlerts: ProductGenerationAlertService,
     @Optional()
     @Inject(THUMBNAIL_GENERATION_EVENT_PORT)
     private readonly generationEvents: ThumbnailGenerationEventPort | null = null,
@@ -117,7 +132,7 @@ export class ThumbnailGenerationJobService {
       method: input.method,
       inputMeta: input.inputMeta,
       editAnalysis: null,
-      registrationWorkspaceId: input.registrationWorkspaceId ?? null,
+      contentWorkspaceId: input.contentWorkspaceId ?? null,
       triggeredByUserId: input.triggeredByUserId,
     });
 
@@ -138,13 +153,13 @@ export class ThumbnailGenerationJobService {
       payload: {
         method: input.method,
         productId: input.productId,
-        registrationWorkspaceId: input.registrationWorkspaceId ?? null,
+        contentWorkspaceId: input.contentWorkspaceId ?? null,
         inputCount: input.inputs.length,
       },
     });
 
     const alertTarget = this.alertTarget({
-      registrationWorkspaceId: input.registrationWorkspaceId ?? null,
+      contentWorkspaceId: input.contentWorkspaceId ?? null,
       fallbackTargetType: 'master',
       fallbackTargetId: input.productId,
       fallbackHref: this.thumbnailGenerationHref(generation.id),
@@ -163,7 +178,7 @@ export class ThumbnailGenerationJobService {
       metadata: {
         method: input.method,
         inputCount: input.inputs.length,
-        registrationWorkspaceId: input.registrationWorkspaceId ?? null,
+        contentWorkspaceId: input.contentWorkspaceId ?? null,
       },
     });
 
@@ -242,13 +257,24 @@ export class ThumbnailGenerationJobService {
       throw new BadRequestException('sourceCandidateId 에 해당하는 소싱 후보를 찾을 수 없습니다');
     }
 
+    const operationAlert = input.operationAlert ?? STANDALONE_GENERATION_ALERT;
+    const inputMeta = isParentProductGenerationAlertLink(operationAlert)
+      ? {
+          ...jsonObject(input.inputMeta),
+          productGeneration: {
+            mode: 'parent',
+            ...productGenerationMetadata(operationAlert),
+          },
+        }
+      : input.inputMeta;
+
     const generation = await createPendingCandidateJob(this.prisma, {
       organizationId: input.organizationId,
       sourceCandidateId: input.sourceCandidateId,
       originalUrl: input.originalUrl,
       method: input.method,
-      inputMeta: input.inputMeta,
-      registrationWorkspaceId: input.registrationWorkspaceId ?? null,
+      inputMeta: inputMeta as Prisma.InputJsonValue,
+      contentWorkspaceId: input.contentWorkspaceId ?? null,
       triggeredByUserId: input.triggeredByUserId,
     });
 
@@ -271,35 +297,44 @@ export class ThumbnailGenerationJobService {
       payload: {
         method: input.method,
         sourceCandidateId: input.sourceCandidateId,
-        registrationWorkspaceId: input.registrationWorkspaceId ?? null,
+        contentWorkspaceId: input.contentWorkspaceId ?? null,
         inputCount: inputImages.length,
       },
     });
 
-    const alertTarget = this.alertTarget({
-      registrationWorkspaceId: input.registrationWorkspaceId ?? null,
-      fallbackTargetType: 'sourcing_candidate',
-      fallbackTargetId: input.sourceCandidateId,
-      fallbackHref: `/product-pipeline/collected-products/${encodeURIComponent(input.sourceCandidateId)}`,
-    });
-    await this.operationAlerts.start({
-      organizationId: input.organizationId,
-      operationKey: this.editJobOperationKey(generation.id),
-      type: 'thumbnail_edit_job',
-      title: `소싱 썸네일 ${input.method === 'creative' ? 'AI 연출' : '편집'}: ${(input.productName ?? candidate.name).slice(0, 40)}`,
-      sourceType: 'thumbnail_generation',
-      sourceId: generation.id,
-      actorUserId: input.triggeredByUserId,
-      targetType: alertTarget.targetType,
-      targetId: alertTarget.targetId,
-      href: alertTarget.href,
-      metadata: {
-        method: input.method,
-        sourceCandidateId: input.sourceCandidateId,
-        registrationWorkspaceId: input.registrationWorkspaceId ?? null,
-        inputCount: inputImages.length,
-      },
-    });
+    if (isParentProductGenerationAlertLink(operationAlert)) {
+      await this.productGenerationAlerts.recordChildStarted({
+        organizationId: input.organizationId,
+        parentOperationKey: operationAlert.parentOperationKey,
+        childKind: 'thumbnail',
+        childId: generation.id,
+      });
+    } else {
+      const alertTarget = this.alertTarget({
+        contentWorkspaceId: input.contentWorkspaceId ?? null,
+        fallbackTargetType: 'sourcing_candidate',
+        fallbackTargetId: input.sourceCandidateId,
+        fallbackHref: `/product-pipeline/collected-products/${encodeURIComponent(input.sourceCandidateId)}`,
+      });
+      await this.operationAlerts.start({
+        organizationId: input.organizationId,
+        operationKey: this.editJobOperationKey(generation.id),
+        type: 'thumbnail_edit_job',
+        title: `소싱 썸네일 ${input.method === 'creative' ? 'AI 연출' : '편집'}: ${(input.productName ?? candidate.name).slice(0, 40)}`,
+        sourceType: 'thumbnail_generation',
+        sourceId: generation.id,
+        actorUserId: input.triggeredByUserId,
+        targetType: alertTarget.targetType,
+        targetId: alertTarget.targetId,
+        href: alertTarget.href,
+        metadata: {
+          method: input.method,
+          sourceCandidateId: input.sourceCandidateId,
+          contentWorkspaceId: input.contentWorkspaceId ?? null,
+          inputCount: inputImages.length,
+        },
+      });
+    }
 
     const enqueueResult = await this.agentRunner.runByType(
       THUMBNAIL_GENERATE_AGENT_TYPE,
@@ -331,17 +366,28 @@ export class ThumbnailGenerationJobService {
           errorMessage,
         );
       }
-      await this.operationAlerts.fail(
-        input.organizationId,
-        this.editJobOperationKey(generation.id),
-        {
-          message: errorMessage,
-          metadata: {
-            errorCode: 'agent_enqueue_failed',
-            agentReason: enqueueResult.reason ?? null,
+      if (isParentProductGenerationAlertLink(operationAlert)) {
+        await this.productGenerationAlerts.markChildFinished({
+          organizationId: input.organizationId,
+          parentOperationKey: operationAlert.parentOperationKey,
+          childKind: 'thumbnail',
+          status: 'failed',
+          childId: generation.id,
+          errorMessage,
+        });
+      } else {
+        await this.operationAlerts.fail(
+          input.organizationId,
+          this.editJobOperationKey(generation.id),
+          {
+            message: errorMessage,
+            metadata: {
+              errorCode: 'agent_enqueue_failed',
+              agentReason: enqueueResult.reason ?? null,
+            },
           },
-        },
-      );
+        );
+      }
       throw new BadRequestException(errorMessage);
     }
 
@@ -361,7 +407,7 @@ export class ThumbnailGenerationJobService {
       originalUrl: input.originalUrl,
       method: input.method,
       inputMeta: input.inputMeta,
-      registrationWorkspaceId: input.registrationWorkspaceId ?? null,
+      contentWorkspaceId: input.contentWorkspaceId ?? null,
       triggeredByUserId: input.triggeredByUserId,
     });
 
@@ -382,13 +428,13 @@ export class ThumbnailGenerationJobService {
       payload: {
         method: input.method,
         inputCount: input.inputs.length,
-        registrationWorkspaceId: input.registrationWorkspaceId ?? null,
-        standalone: !input.registrationWorkspaceId,
+        contentWorkspaceId: input.contentWorkspaceId ?? null,
+        standalone: !input.contentWorkspaceId,
       },
     });
 
     const alertTarget = this.alertTarget({
-      registrationWorkspaceId: input.registrationWorkspaceId ?? null,
+      contentWorkspaceId: input.contentWorkspaceId ?? null,
       fallbackTargetType: 'thumbnail_generation',
       fallbackTargetId: generation.id,
       fallbackHref: this.thumbnailGenerationHref(generation.id),
@@ -407,8 +453,8 @@ export class ThumbnailGenerationJobService {
       metadata: {
         method: input.method,
         inputCount: input.inputs.length,
-        registrationWorkspaceId: input.registrationWorkspaceId ?? null,
-        standalone: !input.registrationWorkspaceId,
+        contentWorkspaceId: input.contentWorkspaceId ?? null,
+        standalone: !input.contentWorkspaceId,
       },
     });
 
@@ -708,21 +754,21 @@ export class ThumbnailGenerationJobService {
     return `/product-pipeline/thumbnail-generation/edit?generationId=${encodeURIComponent(generationId)}`;
   }
 
-  private registrationWorkspaceHref(registrationWorkspaceId: string): string {
-    return `/product-pipeline/registered-products/${encodeURIComponent(registrationWorkspaceId)}`;
+  private contentWorkspaceHref(contentWorkspaceId: string): string {
+    return `/product-pipeline/registered-products/${encodeURIComponent(contentWorkspaceId)}`;
   }
 
   private alertTarget(input: {
-    registrationWorkspaceId: string | null;
+    contentWorkspaceId: string | null;
     fallbackTargetType: string;
     fallbackTargetId: string;
     fallbackHref: string;
   }): { targetType: string; targetId: string; href: string } {
-    if (input.registrationWorkspaceId) {
+    if (input.contentWorkspaceId) {
       return {
-        targetType: 'registration_workspace',
-        targetId: input.registrationWorkspaceId,
-        href: this.registrationWorkspaceHref(input.registrationWorkspaceId),
+        targetType: 'content_workspace',
+        targetId: input.contentWorkspaceId,
+        href: this.contentWorkspaceHref(input.contentWorkspaceId),
       };
     }
     return {

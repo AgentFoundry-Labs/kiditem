@@ -6,7 +6,7 @@ describe('Sidebar product pipeline navigation', () => {
     const productPipeline = menuSections.find((section) => section.label === '상품 파이프라인');
 
     expect(productPipeline?.items.map((item) => [item.href, item.label])).toEqual([
-      ['/product-pipeline/productgenerate', '상품 등록'],
+      ['/product-pipeline/productgenerate', '상품 생성'],
       ['/product-pipeline/collected-products', '수집 상품'],
       ['/product-pipeline/registered-products', '등록 상품'],
       ['/product-pipeline/detailgenerate', '상세 템플릿 생성'],

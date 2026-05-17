@@ -54,8 +54,15 @@ import type { PersistedContentAssetRef } from './content-asset.service';
 import { kickEnqueuedAgentRequest as kickInlineAgentRequest } from './agent-inline-execution';
 import {
   registeredWorkspaceEditorHref,
-  RegistrationWorkspaceService,
-} from './registration-workspace.service';
+  ContentWorkspaceService,
+} from './content-workspace.service';
+import {
+  type GenerationAlertLink,
+  STANDALONE_GENERATION_ALERT,
+  isParentProductGenerationAlertLink,
+  productGenerationMetadata,
+} from './product-generation-alert-link';
+import { ProductGenerationAlertService } from './product-generation-alert.service';
 
 const DETAIL_PAGE_PROCESSING_STATUSES = [
   'PENDING',
@@ -88,7 +95,8 @@ export class DetailPageGenerationService {
     @Inject(AGENT_RUNNER_PORT)
     private readonly agentRunner: AgentRunnerPort,
     private readonly contentAssets: ContentAssetService,
-    private readonly registrationWorkspaces: RegistrationWorkspaceService,
+    private readonly contentWorkspaces: ContentWorkspaceService,
+    private readonly productGenerationAlerts: ProductGenerationAlertService,
   ) {}
 
   async uploadInputImage(
@@ -115,6 +123,7 @@ export class DetailPageGenerationService {
     dto: GenerateDetailPageBodyDto,
     organizationId: string,
     triggeredByUserId: string | null,
+    options: { operationAlert?: GenerationAlertLink } = {},
   ): Promise<DetailPageGenerationDto> {
     const heroImageMode = dto.heroImageMode ?? 'llm-pick';
     const templateId = dto.templateId ?? 'kids-playful';
@@ -143,35 +152,42 @@ export class DetailPageGenerationService {
       kcCertificationStatus,
       kcCertificationNumber,
     };
-    const requestedRegistrationWorkspace = dto.registrationWorkspaceId
-      ? await this.resolveRegistrationWorkspace(organizationId, dto.registrationWorkspaceId)
+    const operationAlert = options.operationAlert ?? STANDALONE_GENERATION_ALERT;
+    if (isParentProductGenerationAlertLink(operationAlert)) {
+      rawInput.productGeneration = {
+        mode: 'parent',
+        ...productGenerationMetadata(operationAlert),
+      };
+    }
+    const requestedContentWorkspace = dto.contentWorkspaceId
+      ? await this.resolveContentWorkspace(organizationId, dto.contentWorkspaceId)
       : null;
-    const effectiveProductId = dto.productId ?? requestedRegistrationWorkspace?.targetMasterId ?? null;
+    const effectiveProductId = dto.productId ?? requestedContentWorkspace?.targetMasterId ?? null;
     let sourceReferences = await this.normalizeSourceReferences({
       organizationId,
       productId: effectiveProductId,
       sourceReferences: dto.sourceReferences ?? [],
     });
     const primarySourceCandidateId =
-      requestedRegistrationWorkspace?.sourceCandidateId ??
+      requestedContentWorkspace?.sourceCandidateId ??
       sourceReferences.find((ref) => ref.sourceType === 'sourcing_candidate')
         ?.sourceCandidateId ?? null;
     if (
-      requestedRegistrationWorkspace?.sourceCandidateId &&
-      !sourceReferences.some((ref) => ref.sourceCandidateId === requestedRegistrationWorkspace.sourceCandidateId)
+      requestedContentWorkspace?.sourceCandidateId &&
+      !sourceReferences.some((ref) => ref.sourceCandidateId === requestedContentWorkspace.sourceCandidateId)
     ) {
       sourceReferences = [
         {
           sourceType: 'sourcing_candidate',
-          sourceCandidateId: requestedRegistrationWorkspace.sourceCandidateId,
-          label: requestedRegistrationWorkspace.displayName,
+          sourceCandidateId: requestedContentWorkspace.sourceCandidateId,
+          label: requestedContentWorkspace.displayName,
         },
         ...sourceReferences,
       ];
     }
     if (sourceReferences.length > 0) rawInput.sourceReferences = sourceReferences;
-    const registrationWorkspace = requestedRegistrationWorkspace ??
-      await this.registrationWorkspaces.ensureForGeneration({
+    const contentWorkspace = requestedContentWorkspace ??
+      await this.contentWorkspaces.ensureForGeneration({
         organizationId,
         triggeredByUserId,
         rawTitle: dto.rawTitle,
@@ -183,7 +199,7 @@ export class DetailPageGenerationService {
         organizationId,
         productId: effectiveProductId,
         sourceCandidateId: primarySourceCandidateId,
-        registrationWorkspaceId: registrationWorkspace.id,
+        contentWorkspaceId: contentWorkspace.id,
         templateId,
       })
       : null;
@@ -206,13 +222,14 @@ export class DetailPageGenerationService {
       sourceReferences,
       sourceCandidateId: primarySourceCandidateId,
       existingResult: imageOnlyBase?.result,
-      registrationWorkspaceId: registrationWorkspace.id,
+      contentWorkspaceId: contentWorkspace.id,
+      operationAlert,
     });
   }
 
-  private async resolveRegistrationWorkspace(
+  private async resolveContentWorkspace(
     organizationId: string,
-    registrationWorkspaceId: string,
+    contentWorkspaceId: string,
   ): Promise<{
     id: string;
     sourceCandidateId: string | null;
@@ -220,9 +237,9 @@ export class DetailPageGenerationService {
     displayName: string;
     normalizedTitle: string;
   }> {
-    const row = await this.prisma.registrationWorkspace.findFirst({
+    const row = await this.prisma.contentWorkspace.findFirst({
       where: {
-        id: registrationWorkspaceId,
+        id: contentWorkspaceId,
         organizationId,
         status: 'active',
         isDeleted: false,
@@ -235,7 +252,7 @@ export class DetailPageGenerationService {
         normalizedTitle: true,
       },
     });
-    if (!row) throw new NotFoundException('Registration workspace not found');
+    if (!row) throw new NotFoundException('Content workspace not found');
     return row;
   }
 
@@ -252,7 +269,8 @@ export class DetailPageGenerationService {
     sourceCandidateId: string | null;
     existingResult?: unknown;
     generationGroupId?: string | null;
-    registrationWorkspaceId: string;
+    contentWorkspaceId: string;
+    operationAlert: GenerationAlertLink;
   }): Promise<DetailPageGenerationDto> {
     const targetMaster = input.productId
       ? await this.prisma.masterProduct.findFirst({
@@ -286,7 +304,7 @@ export class DetailPageGenerationService {
         organizationId: input.organizationId,
         contentType: 'detail_page',
         generationGroupId,
-        registrationWorkspaceId: input.registrationWorkspaceId,
+        contentWorkspaceId: input.contentWorkspaceId,
         sourceCandidateId: primarySourceCandidateId,
         triggeredByUserId: input.triggeredByUserId,
         templateId: input.templateId,
@@ -320,30 +338,39 @@ export class DetailPageGenerationService {
       inputAssets,
     });
 
-    await this.operationAlerts.start({
-      organizationId: input.organizationId,
-      operationKey: detailPageOperationKey(row.id),
-      type: 'detail_page_generation',
-      title: `상세페이지 생성: ${input.rawTitle.slice(0, 40)}`,
-      sourceType: 'content_generation',
-      sourceId: row.id,
-      actorUserId: input.triggeredByUserId,
-      targetType: primarySourceCandidateId ? 'sourcing_candidate' : 'registration_workspace',
-      targetId: primarySourceCandidateId ?? input.registrationWorkspaceId,
-      href: primarySourceCandidateId
-        ? detailPageResultHref({
-            productId: input.productId,
-            sourceCandidateId: primarySourceCandidateId,
-            contentGenerationId: row.id,
-            templateId: input.templateId,
-          })
-        : registeredWorkspaceEditorHref(input.registrationWorkspaceId, row.id),
-      metadata: {
-        templateId: input.templateId,
-        imageCount: input.imageUrls.length,
-        sourceCandidateId: primarySourceCandidateId,
-      },
-    });
+    if (isParentProductGenerationAlertLink(input.operationAlert)) {
+      await this.productGenerationAlerts.recordChildStarted({
+        organizationId: input.organizationId,
+        parentOperationKey: input.operationAlert.parentOperationKey,
+        childKind: 'detail_page',
+        childId: row.id,
+      });
+    } else {
+      await this.operationAlerts.start({
+        organizationId: input.organizationId,
+        operationKey: detailPageOperationKey(row.id),
+        type: 'detail_page_generation',
+        title: `상세페이지 생성: ${input.rawTitle.slice(0, 40)}`,
+        sourceType: 'content_generation',
+        sourceId: row.id,
+        actorUserId: input.triggeredByUserId,
+        targetType: primarySourceCandidateId ? 'sourcing_candidate' : 'content_workspace',
+        targetId: primarySourceCandidateId ?? input.contentWorkspaceId,
+        href: primarySourceCandidateId
+          ? detailPageResultHref({
+              productId: input.productId,
+              sourceCandidateId: primarySourceCandidateId,
+              contentGenerationId: row.id,
+              templateId: input.templateId,
+            })
+          : registeredWorkspaceEditorHref(input.contentWorkspaceId, row.id),
+        metadata: {
+          templateId: input.templateId,
+          imageCount: input.imageUrls.length,
+          sourceCandidateId: primarySourceCandidateId,
+        },
+      });
+    }
 
     const enqueueResult = await this.agentRunner.runByType(
       DETAIL_PAGE_GENERATE_AGENT_TYPE,
@@ -357,7 +384,7 @@ export class DetailPageGenerationService {
           ? `detail_page_generate for product ${input.productId}`
           : primarySourceCandidateId
             ? `detail_page_generate for sourcing candidate ${primarySourceCandidateId}`
-            : `detail_page_generate for registration workspace ${input.registrationWorkspaceId}`,
+            : `detail_page_generate for content workspace ${input.contentWorkspaceId}`,
         payload: {
           templateId: input.templateId,
           raw: {
@@ -389,17 +416,28 @@ export class DetailPageGenerationService {
         where: { id: row.id, organizationId: input.organizationId },
         data: { status: 'FAILED', errorMessage },
       });
-      await this.operationAlerts.fail(
-        input.organizationId,
-        detailPageOperationKey(row.id),
-        {
-          message: errorMessage,
-          metadata: {
-            errorCode: 'agent_enqueue_failed',
-            agentReason: enqueueResult.reason ?? null,
+      if (isParentProductGenerationAlertLink(input.operationAlert)) {
+        await this.productGenerationAlerts.markChildFinished({
+          organizationId: input.organizationId,
+          parentOperationKey: input.operationAlert.parentOperationKey,
+          childKind: 'detail_page',
+          status: 'failed',
+          childId: row.id,
+          errorMessage,
+        });
+      } else {
+        await this.operationAlerts.fail(
+          input.organizationId,
+          detailPageOperationKey(row.id),
+          {
+            message: errorMessage,
+            metadata: {
+              errorCode: 'agent_enqueue_failed',
+              agentReason: enqueueResult.reason ?? null,
+            },
           },
-        },
-      );
+        );
+      }
       throw new HttpException(errorMessage, HttpStatus.SERVICE_UNAVAILABLE);
     }
 
@@ -421,7 +459,7 @@ export class DetailPageGenerationService {
       select: {
         id: true,
         generationGroupId: true,
-        registrationWorkspaceId: true,
+        contentWorkspaceId: true,
         sourceCandidateId: true,
         generationInput: true,
         generationResult: true,
@@ -455,8 +493,8 @@ export class DetailPageGenerationService {
       title: pickRawString(rawRecord, 'rawTitle') ?? base.generatedTitle ?? '상세페이지 작업',
       triggeredByUserId,
     });
-    const registrationWorkspaceId = base.registrationWorkspaceId ??
-      (await this.registrationWorkspaces.ensureForGeneration({
+    const contentWorkspaceId = base.contentWorkspaceId ??
+      (await this.contentWorkspaces.ensureForGeneration({
         organizationId,
         triggeredByUserId,
         rawTitle: pickRawString(rawRecord, 'rawTitle') ?? base.generatedTitle ?? '상세페이지 작업',
@@ -492,7 +530,8 @@ export class DetailPageGenerationService {
       sourceReferences: rawInput.sourceReferences ?? [],
       sourceCandidateId: base.sourceCandidateId,
       generationGroupId,
-      registrationWorkspaceId,
+      contentWorkspaceId,
+      operationAlert: STANDALONE_GENERATION_ALERT,
     });
   }
 
@@ -500,11 +539,11 @@ export class DetailPageGenerationService {
     organizationId: string;
     productId: string | null;
     sourceCandidateId: string | null;
-    registrationWorkspaceId: string | null;
+    contentWorkspaceId: string | null;
     templateId: DetailPageTemplateId;
   }): Promise<{ id: string; result: unknown } | null> {
     const sourceCandidateId = input.sourceCandidateId;
-    if (!input.productId && !sourceCandidateId && !input.registrationWorkspaceId) return null;
+    if (!input.productId && !sourceCandidateId && !input.contentWorkspaceId) return null;
     const where: Prisma.ContentGenerationWhereInput = {
       organizationId: input.organizationId,
       contentType: 'detail_page',
@@ -512,8 +551,8 @@ export class DetailPageGenerationService {
       status: { in: ['READY', 'completed'] },
       ...(input.productId
         ? { generationGroup: { targetMasterId: input.productId } }
-        : input.registrationWorkspaceId
-          ? { registrationWorkspaceId: input.registrationWorkspaceId }
+        : input.contentWorkspaceId
+          ? { contentWorkspaceId: input.contentWorkspaceId }
         : {
             OR: [
               { sourceCandidateId },

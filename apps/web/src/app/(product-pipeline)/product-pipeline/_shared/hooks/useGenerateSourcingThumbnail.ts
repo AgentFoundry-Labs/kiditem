@@ -41,26 +41,32 @@ export function useGenerateSourcingThumbnail() {
 }
 
 export function useSourcingThumbnailGenerations(params: {
+  productId?: string | null;
   sourceCandidateId?: string | null;
-  registrationWorkspaceId?: string | null;
+  contentWorkspaceId?: string | null;
 }) {
+  const productId = params.productId ?? null;
   const sourceCandidateId = params.sourceCandidateId ?? null;
-  const registrationWorkspaceId = params.registrationWorkspaceId ?? null;
-  const filterParams: Record<string, string> = registrationWorkspaceId
-    ? { registrationWorkspaceId }
+  const contentWorkspaceId = params.contentWorkspaceId ?? null;
+  const filterParams: Record<string, string> = contentWorkspaceId
+    ? { contentWorkspaceId }
     : sourceCandidateId
       ? { sourceCandidateId }
-      : { sourceCandidateId: '' };
+      : productId
+        ? { productId }
+        : { sourceCandidateId: '' };
   return useQuery({
     queryKey: queryKeys.thumbnailAnalysis.generations(filterParams),
-    enabled: !!sourceCandidateId || !!registrationWorkspaceId,
+    enabled: !!productId || !!sourceCandidateId || !!contentWorkspaceId,
     queryFn: async (): Promise<ThumbnailGenerationItem[]> => {
-      if (!sourceCandidateId && !registrationWorkspaceId) return [];
+      if (!productId && !sourceCandidateId && !contentWorkspaceId) return [];
       const searchParams = new URLSearchParams({ limit: '20' });
-      if (registrationWorkspaceId) {
-        searchParams.set('registrationWorkspaceId', registrationWorkspaceId);
+      if (contentWorkspaceId) {
+        searchParams.set('contentWorkspaceId', contentWorkspaceId);
       } else if (sourceCandidateId) {
         searchParams.set('sourceCandidateId', sourceCandidateId);
+      } else if (productId) {
+        searchParams.set('productId', productId);
       }
       const result = await apiClient.get<ThumbnailGenerationListResponse>(
         `/api/thumbnail-analysis/generations?${searchParams}`,

@@ -50,8 +50,8 @@ export default function GenerationCompletionWatcher() {
         const sourceCandidateId = sourceCandidateIdFromGeneration(entry);
         const returnTo = sourceCandidateId
           ? collectedProductDetailHref(sourceCandidateId)
-          : entry.registrationWorkspaceId
-            ? registeredProductDetailHref(entry.registrationWorkspaceId)
+          : entry.contentWorkspaceId
+            ? registeredProductDetailHref(entry.contentWorkspaceId)
             : null;
         const editorUrl = detailPageEditorHref({
           candidateId: sourceCandidateId,

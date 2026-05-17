@@ -1,4 +1,7 @@
-import { thumbnailGenerationEditHref } from '../../../_shared/lib/product-pipeline-routes';
+import {
+  productBoundThumbnailWorkspaceHref,
+  thumbnailGenerationEditHref,
+} from '../../../_shared/lib/product-pipeline-routes';
 import { getThemeHint } from './theme-hint';
 
 export function buildEditHref(opts: {
@@ -16,16 +19,26 @@ export function buildEditHref(opts: {
   productName?: string | null;
   returnTo?: string | null;
 }): string {
-  const href = thumbnailGenerationEditHref({
+  const href = productBoundThumbnailWorkspaceHref({
+    productId: opts.productId,
+    sourceCandidateId: opts.sourceCandidateId,
+    returnTo: opts.returnTo,
     generationId: opts.generationId,
     imageUrl: opts.imageUrl,
     productName: opts.productName,
-    returnTo: opts.returnTo,
-    subjectParams: {
-      productId: opts.productId,
-      sourceCandidateId: opts.sourceCandidateId,
-    },
-  });
+    productDescription: opts.productName,
+    editCase: 'single',
+    mode: 'edit',
+  }) ?? thumbnailGenerationEditHref({
+      generationId: opts.generationId,
+      imageUrl: opts.imageUrl,
+      productName: opts.productName,
+      returnTo: opts.returnTo,
+      subjectParams: {
+        productId: opts.productId,
+        sourceCandidateId: opts.sourceCandidateId,
+      },
+    });
 
   // Theme hint 자동 추출 — productName 에 시즈널/조명 키워드 있으면 추가.
   const hint = getThemeHint(opts.productName);

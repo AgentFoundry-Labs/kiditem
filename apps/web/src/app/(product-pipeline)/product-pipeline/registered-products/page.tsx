@@ -2,105 +2,74 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus } from 'lucide-react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
+import { Plus, SlidersHorizontal } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { Pagination } from '@/components/ui/Pagination';
-import { isApiError } from '@/lib/api-error';
+import { formatNumber } from '@/lib/utils';
 import { queryKeys } from '@/lib/query-keys';
 import { ProductPipelineHeader } from '../_shared/components/inbox/ProductPipelineHeader';
 import { ProductPipelineStats } from '../_shared/components/inbox/ProductPipelineStats';
 import { ProductInboxListFrame } from '../_shared/components/inbox/ProductInboxListFrame';
 import { ProductInboxToolbar } from '../_shared/components/inbox/ProductInboxToolbar';
-import { registrationWorkspacesApi } from '../_shared/lib/registration-workspaces-api';
-import { CreateRegistrationWorkspaceDialog } from './components/CreateRegistrationWorkspaceDialog';
-import { RegisteredWorkspaceCard } from './components/RegisteredWorkspaceCard';
-import { archiveRegistrationWorkspaces as archiveManyRegistrationWorkspaces } from './lib/registration-workspace-delete';
+import { RegisteredProductGroupCard } from './components/RegisteredProductGroupCard';
+import { channelDisplayName } from './components/RegisteredListingCard';
 import {
-  registrationWorkspaceDetailHref,
-  registrationWorkspaceTitle,
-} from './lib/registration-workspace-view';
-import { registrationWorkspaceThumbnailGenerationHref } from './lib/registration-thumbnail-generation';
+  channelListingsApi,
+  type RegisteredListingSort,
+  type RegisteredMarketCount,
+  type RegisteredProductGroup,
+} from './lib/channel-listings-api';
+import { registeredListingWorkspaceHref } from './lib/registered-listing-navigation';
 
-type RegisteredWorkspaceSort = 'newest' | 'oldest' | 'name_asc';
-type RegisteredWorkspaceFilter = 'all';
+type RegisteredListingFilter = 'registered' | 'deleted';
+type MarketFilter = 'all' | `channel:${string}`;
+
+const MARKET_SUMMARY_CHANNELS = [
+  { channel: 'smartstore', label: '스마트스토어' },
+  { channel: 'coupang', label: '쿠팡' },
+  { channel: '11st', label: '11번가(일반)' },
+  { channel: '11st-global', label: '11번가(글로벌)' },
+  { channel: 'esmplus', label: 'ESM Plus' },
+] as const;
 
 export default function RegisteredProductsPage() {
   const router = useRouter();
-  const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-  const [sort, setSort] = useState<RegisteredWorkspaceSort>('newest');
-  const [filter, setFilter] = useState<RegisteredWorkspaceFilter>('all');
+  const [sort, setSort] = useState<RegisteredListingSort>('newest');
+  const [filter, setFilter] = useState<RegisteredListingFilter>('registered');
+  const [marketFilter, setMarketFilter] = useState<MarketFilter>('all');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
-  const [deletingIds, setDeletingIds] = useState<Set<string>>(() => new Set());
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
 
+  const selectedChannel = marketFilter.startsWith('channel:')
+    ? marketFilter.slice('channel:'.length)
+    : null;
+
+  const queryParams = {
+    page: String(page),
+    limit: String(pageSize),
+    sort,
+    tab: filter,
+    market: marketFilter,
+    mode: 'groups',
+  };
   const { data, isLoading } = useQuery({
-    queryKey: queryKeys.registrationWorkspaces.list({
-      page: String(page),
-      limit: String(pageSize),
+    queryKey: queryKeys.channelListings.list(queryParams),
+    queryFn: () => channelListingsApi.listGroups({
+      page,
+      limit: pageSize,
+      sort,
+      tab: filter,
+      channel: selectedChannel,
     }),
-    queryFn: () => registrationWorkspacesApi.list({ page, limit: pageSize }),
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: (ids: string[]) =>
-      archiveManyRegistrationWorkspaces(ids, (id) => registrationWorkspacesApi.archive(id)),
-    onMutate: (ids) => {
-      setDeletingIds((prev) => new Set([...prev, ...ids]));
-    },
-    onSuccess: ({ succeededIds, failedIds }) => {
-      if (succeededIds.length > 0) {
-        setSelectedIds((prev) => {
-          const next = new Set(prev);
-          succeededIds.forEach((id) => next.delete(id));
-          return next;
-        });
-      }
-      queryClient.invalidateQueries({ queryKey: queryKeys.registrationWorkspaces.all });
-      if (failedIds.length > 0) {
-        toast.error(`${failedIds.length}개 작업 삭제에 실패했습니다.`);
-      } else if (succeededIds.length > 1) {
-        toast.success(`${succeededIds.length}개 작업을 삭제했습니다.`);
-      }
-    },
-    onError: (err) => toast.error(isApiError(err) ? err.detail : '등록 상품 작업 삭제에 실패했습니다.'),
-    onSettled: (_data, _err, ids) => {
-      setDeletingIds((prev) => {
-        const next = new Set(prev);
-        ids.forEach((id) => next.delete(id));
-        return next;
-      });
-    },
-  });
-
-  const createMutation = useMutation({
-    mutationFn: (title: string) => registrationWorkspacesApi.create({ title }),
-    onSuccess: async (workspace) => {
-      toast.success('등록 상품 작업 공간을 만들었습니다.');
-      setCreateDialogOpen(false);
-      await queryClient.invalidateQueries({ queryKey: queryKeys.registrationWorkspaces.all });
-      router.push(registrationWorkspaceDetailHref(workspace));
-    },
-    onError: (err) => toast.error(isApiError(err) ? err.detail : '등록 상품 작업 공간 생성에 실패했습니다.'),
-  });
-
-  const items = data?.items ?? [];
-  const sortedItems = useMemo(() => {
-    return [...items].sort((a, b) => {
-      if (sort === 'oldest') return a.updatedAt.localeCompare(b.updatedAt);
-      if (sort === 'name_asc') {
-        return registrationWorkspaceTitle(a).localeCompare(registrationWorkspaceTitle(b), 'ko');
-      }
-      return b.updatedAt.localeCompare(a.updatedAt);
-    });
-  }, [items, sort]);
+  const groups = data?.items ?? [];
   const total = data?.total ?? 0;
-  const visibleIds = sortedItems.map((item) => item.id);
+  const marketCounts = data?.marketCounts ?? [];
+  const visibleIds = groups.map((item) => item.masterId);
   const selectedVisibleCount = visibleIds.filter((id) => selectedIds.has(id)).length;
   const allVisibleSelected = visibleIds.length > 0 && selectedVisibleCount === visibleIds.length;
-  const selectedCount = selectedIds.size;
 
   const setItemSelected = (id: string, selected: boolean) => {
     setSelectedIds((prev) => {
@@ -122,28 +91,65 @@ export default function RegisteredProductsPage() {
     });
   };
 
+  const openGroup = (group: RegisteredProductGroup) => {
+    const primaryListing = group.listings[0];
+    if (!primaryListing) return;
+    router.push(registeredListingWorkspaceHref(primaryListing));
+  };
+
+  const manageMasterProduct = (group: RegisteredProductGroup) => {
+    router.push(`/product-hub/${encodeURIComponent(group.masterId)}`);
+  };
+
+  const marketTabs = useMemo(() => {
+    const channels = new Set(marketCounts.map((item) => item.channel));
+    return [
+      { key: 'all' as MarketFilter, label: '전체 마켓' },
+      ...Array.from(channels).sort().map((channel) => ({
+        key: `channel:${channel}` as MarketFilter,
+        label: channelDisplayName(channel),
+      })),
+    ];
+  }, [marketCounts]);
+
   return (
     <div className="flex h-full flex-col bg-slate-50">
       <ProductPipelineHeader
         title="등록 상품"
-        subtitle="등록 작업 공간 · 상세/썸네일 생성 이력"
-        searchPlaceholder="상품명 · 등록 작업 검색"
+        subtitle="마켓 채널별 등록 상품 관리"
+        searchPlaceholder="상품명 · 상품코드 · 마켓 상품번호 검색"
+      />
+
+      <MarketplaceSummaryBar
+        counts={marketCounts}
+        activeChannel={selectedChannel}
+        onSelectChannel={(channel) => {
+          setMarketFilter(channel ? `channel:${channel}` : 'all');
+          setPage(1);
+        }}
       />
 
       <ProductPipelineStats
-        draftLabel="상세페이지 보유"
-        totalLabel="전체 작업"
-        draftCount={items.filter((workspace) => workspace.latestGenerationId).length}
+        draftLabel="선택 상품"
+        totalLabel="등록 상품"
+        draftCount={selectedIds.size}
         totalCount={total}
       />
 
       <ProductInboxToolbar
-        tabs={[{ key: 'all', label: '전체 작업' }]}
+        tabs={[
+          { key: 'registered', label: '등록한 상품' },
+          { key: 'deleted', label: '모든 마켓에서 삭제한 상품' },
+        ]}
         activeTab={filter}
-        onTabChange={setFilter}
+        onTabChange={(nextFilter) => {
+          setFilter(nextFilter);
+          setSelectedIds(new Set());
+          setPage(1);
+        }}
         sort={sort}
         sortOptions={[
-          { value: 'newest', label: '최신순' },
+          { value: 'newest', label: '최종 등록일 최신순' },
           { value: 'oldest', label: '오래된순' },
           { value: 'name_asc', label: '상품명순' },
         ]}
@@ -158,20 +164,40 @@ export default function RegisteredProductsPage() {
         }}
         actions={
           <>
+            <div className="flex items-center gap-1">
+              {marketTabs.map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  aria-pressed={marketFilter === tab.key}
+                  onClick={() => {
+                    setMarketFilter(tab.key);
+                    setPage(1);
+                  }}
+                  className={
+                    marketFilter === tab.key
+                      ? 'h-7 rounded-md bg-slate-900 px-3 font-semibold text-white'
+                      : 'h-7 rounded-md border border-slate-200 bg-white px-3 font-medium text-slate-600 hover:bg-slate-50'
+                  }
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
             <button
               type="button"
-              onClick={() => setCreateDialogOpen(true)}
-              className="flex h-7 items-center gap-1.5 rounded-md bg-emerald-500 px-3 font-semibold text-white transition-colors hover:bg-emerald-600"
+              className="flex h-7 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:border-slate-300"
             >
-              <Plus size={14} />
-              등록 상품 추가
+              <SlidersHorizontal size={14} />
+              필터
             </button>
             <button
               type="button"
-              onClick={() => router.push('/product-pipeline/detailgenerate')}
-              className="h-7 rounded-md border border-slate-200 bg-white px-3 font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:border-slate-300"
+              onClick={() => router.push('/product-pipeline/collected-products')}
+              className="flex h-7 items-center gap-1.5 rounded-md bg-emerald-500 px-3 font-semibold text-white transition-colors hover:bg-emerald-600"
             >
-              직접 상세 생성
+              <Plus size={14} />
+              상품 등록하기
             </button>
           </>
         }
@@ -180,31 +206,26 @@ export default function RegisteredProductsPage() {
       <div className="flex-1 overflow-y-auto px-5 py-4">
         <ProductInboxListFrame
           isLoading={isLoading}
-          isEmpty={sortedItems.length === 0}
+          isEmpty={groups.length === 0}
           emptyState={{
-            title: '등록 상품 작업이 없습니다.',
-            description: '등록 상품을 추가하면 상세/썸네일 작업 이력이 여기에 모입니다.',
+            title: filter === 'deleted' ? '삭제된 마켓 상품이 없어요.' : '아직 등록된 상품이 없어요.',
+            description: filter === 'deleted'
+              ? '모든 마켓에서 삭제 처리된 상품이 생기면 여기에 표시됩니다.'
+              : '수집 상품에서 제품 등록을 완료한 뒤 마켓에 등록하면 여기에 표시됩니다.',
           }}
           selectionAction={{
             checked: allVisibleSelected,
             onChange: toggleVisibleSelection,
-            deleteAction: {
-              label: `선택 삭제${selectedCount > 0 ? ` ${selectedCount}` : ''}`,
-              disabled: selectedCount === 0 || deleteMutation.isPending,
-              onClick: () => deleteMutation.mutate([...selectedIds]),
-            },
           }}
         >
-          {sortedItems.map((workspace) => (
-            <RegisteredWorkspaceCard
-              key={workspace.id}
-              workspace={workspace}
-              isDeleting={deletingIds.has(workspace.id)}
-              selected={selectedIds.has(workspace.id)}
-              onOpen={(next) => router.push(registrationWorkspaceDetailHref(next))}
+          {groups.map((group) => (
+            <RegisteredProductGroupCard
+              key={group.masterId}
+              group={group}
+              selected={selectedIds.has(group.masterId)}
+              onOpen={openGroup}
+              onManageProduct={manageMasterProduct}
               onSelectedChange={setItemSelected}
-              onOpenThumbnailEditor={(next) => router.push(registrationWorkspaceThumbnailGenerationHref(next))}
-              onDelete={(id) => deleteMutation.mutate([id])}
             />
           ))}
         </ProductInboxListFrame>
@@ -213,13 +234,55 @@ export default function RegisteredProductsPage() {
           <Pagination page={page} limit={pageSize} total={total} onPageChange={setPage} />
         </div>
       </div>
-
-      <CreateRegistrationWorkspaceDialog
-        open={createDialogOpen}
-        isSubmitting={createMutation.isPending}
-        onClose={() => setCreateDialogOpen(false)}
-        onSubmit={(title) => createMutation.mutate(title)}
-      />
     </div>
+  );
+}
+
+function MarketplaceSummaryBar({
+  counts,
+  activeChannel,
+  onSelectChannel,
+}: {
+  counts: RegisteredMarketCount[];
+  activeChannel: string | null;
+  onSelectChannel: (channel: string | null) => void;
+}) {
+  const totalsByChannel = new Map<string, number>();
+  counts.forEach((item) => {
+    totalsByChannel.set(item.channel, (totalsByChannel.get(item.channel) ?? 0) + item.count);
+  });
+  const knownChannels = new Set<string>(MARKET_SUMMARY_CHANNELS.map((item) => item.channel));
+  const cards = [
+    ...MARKET_SUMMARY_CHANNELS,
+    ...Array.from(totalsByChannel.keys())
+      .filter((channel) => !knownChannels.has(channel))
+      .sort()
+      .map((channel) => ({ channel, label: channelDisplayName(channel) })),
+  ];
+
+  return (
+    <section className="border-b border-slate-200 px-5 py-4">
+      <h2 className="mb-3 text-sm font-bold text-slate-900">마켓별 등록한 상품 수</h2>
+      <div className="grid grid-cols-2 overflow-hidden rounded-xl border border-slate-200 bg-white sm:grid-cols-3 lg:grid-cols-5">
+        {cards.map((card) => {
+          const count = totalsByChannel.get(card.channel) ?? 0;
+          const selected = activeChannel === card.channel;
+          return (
+            <button
+              key={card.channel}
+              type="button"
+              aria-pressed={selected}
+              onClick={() => onSelectChannel(selected ? null : card.channel)}
+              className="min-h-[88px] border-r border-slate-200 px-5 py-4 text-left transition-colors last:border-r-0 hover:bg-slate-50 aria-pressed:bg-emerald-50"
+            >
+              <div className="text-sm font-black text-slate-700">{card.label}</div>
+              <div className="mt-5 text-2xl font-black tabular-nums text-slate-950">
+                {count > 0 ? formatNumber(count) : '-'}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </section>
   );
 }

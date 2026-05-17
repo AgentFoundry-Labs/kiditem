@@ -233,9 +233,11 @@ Notable route subtrees:
   product-registration `SourcingCandidate` inbox, candidate detail route
   entries, and candidate-scoped generated content links.
 - `apps/web/src/app/(product-pipeline)/product-pipeline/registered-products`
-  owns `/product-pipeline/registered-products`, the direct/master registration
-  workspace inbox backed by `RegistrationWorkspace`; source-candidate
-  workspaces are reached from collected product detail instead of this list.
+  owns `/product-pipeline/registered-products`, the marketplace registered
+  product management surface backed by active `ChannelListing` rows with
+  `ChannelAccount` and `MasterProduct` context. Generated content history lives
+  in `ContentWorkspace`; source-candidate workspaces are reached from collected
+  product detail instead of this list.
 - `apps/web/src/app/(product-pipeline)/product-pipeline/productgenerate`
   owns `/product-pipeline/productgenerate`, the sidebar product registration
   entrypoint. This is the only product-pipeline route that creates collected

@@ -59,7 +59,8 @@ export interface MasterCatalogPort {
 
   /**
    * Coupang inventoryId 에 대응하는 ChannelListing 이 있으면 그 master 반환.
-   * 없으면 legacyCode 로 기존 ProductOption 을 찾아 ChannelListing 만 연결한다.
+   * 없으면 legacyCode 로 기존 ProductOption 을 찾고, 활성 Coupang 계정이
+   * 확인된 경우에만 ChannelListing 을 연결한다.
    * 둘 다 실패하면 매칭 화면에서 사용자가 연결해야 하므로 null 을 반환한다.
    * 새 MasterProduct 는 자동 생성하지 않는다.
    */

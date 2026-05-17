@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  registrationWorkspaceHistoryToGenerationHistory,
+  contentWorkspaceHistoryToGenerationHistory,
   toLegacyGenerationStatus,
 } from './detail-generation-history';
 
@@ -12,8 +12,8 @@ describe('detail generation history', () => {
     expect(toLegacyGenerationStatus('pending')).toBe('PENDING');
   });
 
-  it('uses registration workspace history as immediate generation history rows', () => {
-    const [item] = registrationWorkspaceHistoryToGenerationHistory([
+  it('uses content workspace history as immediate generation history rows', () => {
+    const [item] = contentWorkspaceHistoryToGenerationHistory([
       {
         id: 'generation-1',
         contentType: 'detail_page',

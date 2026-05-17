@@ -17,7 +17,7 @@ import {
   detailPageEditorHref,
   registeredProductDetailHref,
 } from '../../_shared/lib/product-pipeline-routes';
-import { registrationWorkspacesApi } from '../../_shared/lib/registration-workspaces-api';
+import { contentWorkspacesApi } from '../../_shared/lib/content-workspaces-api';
 import { moveSafetyLabelImagesToEnd } from '../lib/detail-page-image-order';
 import {
   buildAgeGroupInstruction,
@@ -74,6 +74,7 @@ export interface GenerationDialogState {
   generationId?: string;
   editorUrl?: string;
   errorMessage?: string | null;
+  description?: string;
 }
 
 export interface DuplicateWorkspaceState {
@@ -106,23 +107,68 @@ interface DetailPagePrefillResult {
   estimatedSeconds: number;
 }
 
+type GenerateOwnerBindingMode = 'allow-url' | 'sandbox-only';
+
 interface UseGenerateFormOptions {
   successDescription?: string;
+  ownerBindingMode?: GenerateOwnerBindingMode;
+}
+
+export interface OpenGenerationDialogInput {
+  productName: string;
+  templateId: GenerateTemplateId;
+  detailGenerationId: string | null;
+  thumbnailGenerationId: string | null;
+  editorUrl: string;
 }
 
 interface GenerateSubmitOptions {
   sourceReferences?: NonNullable<KidsPlayfulGenerateBody['sourceReferences']>;
 }
 
-export function useGenerateForm(options: UseGenerateFormOptions = {}) {
-  const searchParams = useSearchParams();
+export function resolveGenerateOwnerInputs(
+  searchParams: URLSearchParams,
+  ownerBindingMode: GenerateOwnerBindingMode,
+) {
+  if (ownerBindingMode === 'sandbox-only') {
+    return {
+      productId: null,
+      initialTitle: '',
+      initialContentWorkspaceId: null,
+      sourceReferences: [] as NonNullable<KidsPlayfulGenerateBody['sourceReferences']>,
+      primarySourceCandidateId: null,
+    };
+  }
+
   const productId = searchParams.get('productId');
   const initialTitle = searchParams.get('title') ?? '';
-  const initialRegistrationWorkspaceId = searchParams.get('registrationWorkspaceId');
+  const initialContentWorkspaceId = searchParams.get('contentWorkspaceId');
   const sourceReferences = getGenerateSourceReferences(searchParams, productId);
   const primarySourceCandidateId =
     sourceReferences.find((reference) => reference.sourceType === 'sourcing_candidate')
       ?.sourceCandidateId ?? null;
+
+  return {
+    productId,
+    initialTitle,
+    initialContentWorkspaceId,
+    sourceReferences,
+    primarySourceCandidateId,
+  };
+}
+
+export function useGenerateForm(options: UseGenerateFormOptions = {}) {
+  const searchParams = useSearchParams();
+  const {
+    productId,
+    initialTitle,
+    initialContentWorkspaceId,
+    sourceReferences,
+    primarySourceCandidateId,
+  } = resolveGenerateOwnerInputs(
+    new URLSearchParams(searchParams.toString()),
+    options.ownerBindingMode ?? 'allow-url',
+  );
   const { images: savedImages, loading: imagesLoading } = useProductImages(productId);
   const detailPageMutation = useKidsPlayfulGenerate();
 
@@ -148,10 +194,10 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
   const [generationDialog, setGenerationDialog] = useState<GenerationDialogState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [duplicateWorkspace, setDuplicateWorkspace] = useState<DuplicateWorkspaceState>({
-    status: initialRegistrationWorkspaceId && initialTitle ? 'loaded' : 'idle',
-    checkedTitle: initialRegistrationWorkspaceId && initialTitle ? initialTitle : null,
-    workspaceId: initialRegistrationWorkspaceId,
-    workspaceTitle: initialRegistrationWorkspaceId && initialTitle ? initialTitle : null,
+    status: initialContentWorkspaceId && initialTitle ? 'loaded' : 'idle',
+    checkedTitle: initialContentWorkspaceId && initialTitle ? initialTitle : null,
+    workspaceId: initialContentWorkspaceId,
+    workspaceTitle: initialContentWorkspaceId && initialTitle ? initialTitle : null,
   });
   const generationStatusQuery = useKidsPlayfulOne(
     generationDialog?.generationId ?? null,
@@ -222,7 +268,7 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
     });
     setError(null);
     try {
-      const result = await registrationWorkspacesApi.checkDuplicate(title);
+      const result = await contentWorkspacesApi.checkDuplicate(title);
       if (!result.exists || !result.workspace) {
         setDuplicateWorkspace({
           status: 'none',
@@ -256,7 +302,7 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
     if (!workspaceId) return;
     if (!window.confirm('기존 최신 이력을 불러와 현재 입력값을 채울까요?')) return;
     try {
-      const workspace = await registrationWorkspacesApi.get(workspaceId);
+      const workspace = await contentWorkspacesApi.get(workspaceId);
       const latest = workspace.history[0]?.generationInput;
       const input = latest && typeof latest === 'object'
         ? latest as Record<string, unknown>
@@ -428,7 +474,7 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
         imageUrls: generationImages,
         heroImageMode: 'llm-pick',
         productId: productId ?? undefined,
-        registrationWorkspaceId: getLoadedRegistrationWorkspaceId(duplicateWorkspace, title) ?? undefined,
+        contentWorkspaceId: getLoadedContentWorkspaceId(duplicateWorkspace, title) ?? undefined,
         templateId: apiTemplateId,
         sourceReferences: mergeSourceReferences(sourceReferences, submitOptions.sourceReferences ?? []),
         ageGroup,
@@ -474,6 +520,21 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
     setGenerationDialog(null);
   };
 
+  const openGenerationDialog = (input: OpenGenerationDialogInput) => {
+    const startedAt = new Date().toISOString();
+    setGenerationStartedAt(startedAt);
+    setGenerationDialog({
+      open: true,
+      phase: 'started',
+      startedAt,
+      productName: input.productName,
+      templateId: input.templateId,
+      editorUrl: input.editorUrl,
+      errorMessage: null,
+      description: '상품 작업공간을 만들고 상세페이지와 썸네일 생성을 시작했습니다.',
+    });
+  };
+
   return {
     rawTitle,
     setRawTitle,
@@ -516,6 +577,7 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
     generationStartedAt,
     generationDialog,
     closeGenerationDialog,
+    openGenerationDialog,
     handlePrefill,
     duplicateWorkspace,
     handleDuplicateCheck,
@@ -539,11 +601,11 @@ function buildGenerationEditorUrl(
   sourceCandidateId?: string | null,
 ): string | undefined {
   const candidateId = item.sourceCandidateId ?? sourceCandidateId ?? null;
-  const registrationWorkspaceId = item.registrationWorkspaceId ?? null;
+  const contentWorkspaceId = item.contentWorkspaceId ?? null;
   const returnTo = candidateId
     ? collectedProductDetailHref(candidateId)
-    : registrationWorkspaceId
-      ? registeredProductDetailHref(registrationWorkspaceId)
+    : contentWorkspaceId
+      ? registeredProductDetailHref(contentWorkspaceId)
       : null;
   if (candidateId) {
     return detailPageEditorHref({ candidateId, generationId: item.id, returnTo });
@@ -572,18 +634,18 @@ function mergeSourceReferences(
   return merged;
 }
 
-export function getLoadedRegistrationWorkspaceId(
+export function getLoadedContentWorkspaceId(
   duplicateWorkspace: DuplicateWorkspaceState,
   title: string,
 ): string | null {
   if (duplicateWorkspace.status !== 'loaded' || !duplicateWorkspace.workspaceId) return null;
   if (!duplicateWorkspace.checkedTitle) return null;
-  return normalizeRegistrationTitle(duplicateWorkspace.checkedTitle) === normalizeRegistrationTitle(title)
+  return normalizeContentTitle(duplicateWorkspace.checkedTitle) === normalizeContentTitle(title)
     ? duplicateWorkspace.workspaceId
     : null;
 }
 
-function normalizeRegistrationTitle(value: string): string {
+function normalizeContentTitle(value: string): string {
   return value
     .normalize('NFKC')
     .toLocaleLowerCase()

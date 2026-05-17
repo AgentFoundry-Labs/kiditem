@@ -171,7 +171,7 @@ export async function findGenerationRows(
   opts: {
     productId?: string | null;
     sourceCandidateId?: string | null;
-    registrationWorkspaceId?: string | null;
+    contentWorkspaceId?: string | null;
     limit?: number | null;
   } = {},
 ): Promise<GenerationRow[]> {
@@ -180,8 +180,8 @@ export async function findGenerationRows(
     where: {
       organizationId,
       isDeleted: false,
-      ...(opts.registrationWorkspaceId
-        ? { registrationWorkspaceId: opts.registrationWorkspaceId }
+      ...(opts.contentWorkspaceId
+        ? { contentWorkspaceId: opts.contentWorkspaceId }
         : opts.sourceCandidateId
           ? { sourceCandidateId: opts.sourceCandidateId }
           : opts.productId

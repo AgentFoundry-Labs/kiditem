@@ -9,6 +9,7 @@ import { BoldVerticalRefinerService } from '../bold-vertical-refiner.service';
 import { KidsPlayfulRefinerService } from '../kids-playful-refiner.service';
 import type { OperationAlertService } from '../../../../automation/application/service/operation-alert.service';
 import type { AgentRunnerPort } from '../../../../agent-os/application/port/in/agent-runner.port';
+import type { ProductGenerationAlertService } from '../product-generation-alert.service';
 
 const ORGANIZATION_ID = '11111111-1111-4111-8111-111111111111';
 const USER_ID = '99999999-9999-9999-9999-999999999999';
@@ -28,6 +29,14 @@ function makeOperationAlertsStub(): OperationAlertService {
     progress: vi.fn().mockResolvedValue({}),
     cancel: vi.fn().mockResolvedValue({}),
   } as unknown as OperationAlertService;
+}
+
+function makeProductGenerationAlertsStub(): ProductGenerationAlertService {
+  return {
+    start: vi.fn().mockResolvedValue({}),
+    recordChildStarted: vi.fn().mockResolvedValue({}),
+    markChildFinished: vi.fn().mockResolvedValue({}),
+  } as unknown as ProductGenerationAlertService;
 }
 
 function makeAgentRunnerStub(
@@ -72,7 +81,7 @@ function makeService(
   operationAlerts: OperationAlertService,
   heroImageService?: unknown,
   agentRunner: AgentRunnerPort = makeAgentRunnerStub(),
-  registrationWorkspaces: { ensureForGeneration: ReturnType<typeof vi.fn> } = {
+  contentWorkspaces: { ensureForGeneration: ReturnType<typeof vi.fn> } = {
     ensureForGeneration: vi.fn(async () => ({
       id: REGISTRATION_WORKSPACE_ID,
       displayName: 'Generated candidate',
@@ -95,10 +104,48 @@ function makeService(
     query,
     agentRunner,
     contentAssets,
-    registrationWorkspaces as never,
+    contentWorkspaces as never,
+    makeProductGenerationAlertsStub(),
   );
   const prefill = new DetailPagePrefillService(textCompletion as never);
   return new DetailPageAiService(generation, prefill, query);
+}
+
+function makeGenerationService(input: {
+  prisma: ReturnType<typeof makePrisma>;
+  textCompletion?: unknown;
+  imageStorage?: unknown;
+  operationAlerts?: OperationAlertService;
+  heroImageService?: unknown;
+  agentRunner?: AgentRunnerPort;
+  contentWorkspaces?: { ensureForGeneration: ReturnType<typeof vi.fn> };
+  productGenerationAlerts?: ProductGenerationAlertService;
+}) {
+  const resultRefiner = makeResultRefiner(input.heroImageService);
+  const imageStorage = input.imageStorage ?? { save: vi.fn() };
+  const contentAssets = new ContentAssetService(input.prisma as never);
+  const query = new DetailPageQueryService(
+    input.prisma as never,
+    resultRefiner,
+    imageStorage as never,
+    contentAssets,
+  );
+  return new DetailPageGenerationService(
+    input.prisma as never,
+    imageStorage as never,
+    input.operationAlerts ?? makeOperationAlertsStub(),
+    query,
+    input.agentRunner ?? makeAgentRunnerStub(),
+    contentAssets,
+    input.contentWorkspaces ?? {
+      ensureForGeneration: vi.fn(async () => ({
+        id: REGISTRATION_WORKSPACE_ID,
+        displayName: 'Generated candidate',
+        normalizedTitle: 'generated candidate',
+      })),
+    } as never,
+    input.productGenerationAlerts ?? makeProductGenerationAlertsStub(),
+  );
 }
 
 function boldVerticalResult() {
@@ -326,7 +373,7 @@ describe('DetailPageAiService', () => {
         operationKey: `detail-page:${GENERATION_ID}`,
         sourceType: 'content_generation',
         sourceId: GENERATION_ID,
-        targetType: 'registration_workspace',
+        targetType: 'content_workspace',
         targetId: REGISTRATION_WORKSPACE_ID,
         href: `/product-pipeline/detail-pages/${GENERATION_ID}/editor?returnTo=%2Fproduct-pipeline%2Fregistered-products%2F${REGISTRATION_WORKSPACE_ID}`,
       }),
@@ -335,6 +382,117 @@ describe('DetailPageAiService', () => {
     expect(result.id).toBe(GENERATION_ID);
     expect(result.imageProcessingStatus).toBe('processing');
     expect(result.productId).toBe(MASTER_ID);
+  });
+
+  it('suppresses child detail operation alert when linked to product generation parent', async () => {
+    const prisma = makePrisma();
+    const operationAlerts = makeOperationAlertsStub();
+    const productGenerationAlerts = makeProductGenerationAlertsStub();
+    const agentRunner = makeAgentRunnerStub();
+    const service = makeGenerationService({
+      prisma,
+      operationAlerts,
+      productGenerationAlerts,
+      agentRunner,
+    });
+
+    await service.generate(
+      {
+        productId: MASTER_ID,
+        templateId: 'bold-vertical',
+        rawTitle: '휴대용목걸이비눗방울',
+        rawCategory: '완구',
+        rawDescription: '아이들이 가지고 놀기 좋은 장난감',
+        rawOptions: '혼합 색상 / 사이즈 85*60mm',
+        imageUrls: ['https://example.com/detail-1.jpg'],
+      },
+      ORGANIZATION_ID,
+      USER_ID,
+      {
+        operationAlert: {
+          mode: 'parent',
+          batchId: 'batch-1',
+          parentOperationKey: 'product-generation:batch-1',
+          childKind: 'detail_page',
+        },
+      },
+    );
+
+    expect(operationAlerts.start).not.toHaveBeenCalledWith(
+      expect.objectContaining({ operationKey: `detail-page:${GENERATION_ID}` }),
+    );
+    expect(productGenerationAlerts.recordChildStarted).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      parentOperationKey: 'product-generation:batch-1',
+      childKind: 'detail_page',
+      childId: GENERATION_ID,
+    });
+    expect(prisma.contentGeneration.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        generationInput: expect.objectContaining({
+          productGeneration: {
+            mode: 'parent',
+            productGenerationBatchId: 'batch-1',
+            parentOperationKey: 'product-generation:batch-1',
+            childKind: 'detail_page',
+          },
+        }),
+      }),
+    }));
+  });
+
+  it('routes parent-mode detail enqueue failures to the product generation parent alert', async () => {
+    const prisma = makePrisma();
+    const operationAlerts = makeOperationAlertsStub();
+    const productGenerationAlerts = makeProductGenerationAlertsStub();
+    const agentRunner = makeAgentRunnerStub({
+      ok: false,
+      reason: 'queue down',
+    } as never);
+    const service = makeGenerationService({
+      prisma,
+      operationAlerts,
+      productGenerationAlerts,
+      agentRunner,
+    });
+
+    await expect(
+      service.generate(
+        {
+          productId: MASTER_ID,
+          templateId: 'bold-vertical',
+          rawTitle: '휴대용목걸이비눗방울',
+          rawCategory: '완구',
+          rawDescription: '아이들이 가지고 놀기 좋은 장난감',
+          rawOptions: '혼합 색상 / 사이즈 85*60mm',
+          imageUrls: ['https://example.com/detail-1.jpg'],
+        },
+        ORGANIZATION_ID,
+        USER_ID,
+        {
+          operationAlert: {
+            mode: 'parent',
+            batchId: 'batch-1',
+            parentOperationKey: 'product-generation:batch-1',
+            childKind: 'detail_page',
+          },
+        },
+      ),
+    ).rejects.toThrow('Agent OS enqueue failed: queue down');
+
+    expect(productGenerationAlerts.markChildFinished).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      parentOperationKey: 'product-generation:batch-1',
+      childKind: 'detail_page',
+      status: 'failed',
+      childId: GENERATION_ID,
+      errorMessage: 'Agent OS enqueue failed: queue down',
+    });
+    expect(operationAlerts.fail).not.toHaveBeenCalledWith(
+      ORGANIZATION_ID,
+      `detail-page:${GENERATION_ID}`,
+      expect.anything(),
+    );
   });
 
   it('drains retryable detail-page executor failures so local preview reaches the terminal sink path', async () => {
@@ -462,12 +620,12 @@ describe('DetailPageAiService', () => {
     );
   });
 
-  it('uses registration workspace history as the base for direct image-only runs without product or candidate', async () => {
+  it('uses content workspace history as the base for direct image-only runs without product or candidate', async () => {
     const prisma = makePrisma();
     const textCompletion = { complete: vi.fn() };
     const imageStorage = { save: vi.fn() };
     const operationAlerts = makeOperationAlertsStub();
-    const registrationWorkspaces = {
+    const contentWorkspaces = {
       ensureForGeneration: vi.fn(async () => ({
         id: REGISTRATION_WORKSPACE_ID,
         displayName: '키즈 텀블러',
@@ -476,7 +634,7 @@ describe('DetailPageAiService', () => {
     };
     const draftBase = makeGenerationRow({
       id: '88888888-8888-4888-8888-888888888888',
-      registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
+      contentWorkspaceId: REGISTRATION_WORKSPACE_ID,
       sourceCandidateId: null,
       generationInput: {
         rawTitle: '키즈 텀블러',
@@ -499,7 +657,7 @@ describe('DetailPageAiService', () => {
       operationAlerts,
       undefined,
       makeAgentRunnerStub(),
-      registrationWorkspaces,
+      contentWorkspaces,
     );
 
     await service.generate(
@@ -516,7 +674,7 @@ describe('DetailPageAiService', () => {
       USER_ID,
     );
 
-    expect(registrationWorkspaces.ensureForGeneration).toHaveBeenCalledWith({
+    expect(contentWorkspaces.ensureForGeneration).toHaveBeenCalledWith({
       organizationId: ORGANIZATION_ID,
       triggeredByUserId: USER_ID,
       rawTitle: '키즈 텀블러',
@@ -527,14 +685,14 @@ describe('DetailPageAiService', () => {
       expect.objectContaining({
         where: expect.objectContaining({
           organizationId: ORGANIZATION_ID,
-          registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
+          contentWorkspaceId: REGISTRATION_WORKSPACE_ID,
         }),
       }),
     );
     expect(prisma.contentGeneration.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
+          contentWorkspaceId: REGISTRATION_WORKSPACE_ID,
           sourceCandidateId: null,
           generationInput: expect.objectContaining({
             generationMode: 'image',
@@ -961,7 +1119,7 @@ describe('DetailPageAiService', () => {
         operationKey: `detail-page:${GENERATION_ID}`,
         sourceType: 'content_generation',
         sourceId: GENERATION_ID,
-        targetType: 'registration_workspace',
+        targetType: 'content_workspace',
         targetId: REGISTRATION_WORKSPACE_ID,
         href: `/product-pipeline/detail-pages/${GENERATION_ID}/editor?returnTo=%2Fproduct-pipeline%2Fregistered-products%2F${REGISTRATION_WORKSPACE_ID}`,
       }),
@@ -981,10 +1139,10 @@ describe('DetailPageAiService', () => {
     expect(operationAlerts.succeed).not.toHaveBeenCalled();
   });
 
-  it('product-less generate creates a direct registration workspace without a collected candidate', async () => {
+  it('product-less generate creates a direct content workspace without a collected candidate', async () => {
     const prisma = makePrisma();
     const operationAlerts = makeOperationAlertsStub();
-    const registrationWorkspaces = {
+    const contentWorkspaces = {
       ensureForGeneration: vi.fn(async () => ({
         id: REGISTRATION_WORKSPACE_ID,
         displayName: '키즈 텀블러',
@@ -995,7 +1153,7 @@ describe('DetailPageAiService', () => {
     prisma.contentGeneration.create.mockResolvedValueOnce({
       ...makeGenerationRow({
         generationGroupId: GENERATION_GROUP_ID,
-        registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
+        contentWorkspaceId: REGISTRATION_WORKSPACE_ID,
         templateId: 'kids-playful',
         generationInput: {
           rawTitle: '  키즈   텀블러  ',
@@ -1021,7 +1179,7 @@ describe('DetailPageAiService', () => {
     });
     prisma.contentGeneration.findFirst.mockResolvedValue(makeGenerationRow({
       generationGroupId: GENERATION_GROUP_ID,
-      registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
+      contentWorkspaceId: REGISTRATION_WORKSPACE_ID,
       templateId: 'kids-playful',
       generationInput: {
         rawTitle: '  키즈   텀블러  ',
@@ -1054,7 +1212,7 @@ describe('DetailPageAiService', () => {
       operationAlerts,
       undefined,
       agentRunner,
-      registrationWorkspaces,
+      contentWorkspaces,
     );
 
     const result = await service.generate(
@@ -1073,7 +1231,7 @@ describe('DetailPageAiService', () => {
 
     expect(prisma.masterProduct.findFirst).not.toHaveBeenCalled();
     expect(prisma.sourcingCandidate.findFirst).not.toHaveBeenCalled();
-    expect(registrationWorkspaces.ensureForGeneration).toHaveBeenCalledWith({
+    expect(contentWorkspaces.ensureForGeneration).toHaveBeenCalledWith({
       organizationId: ORGANIZATION_ID,
       triggeredByUserId: USER_ID,
       rawTitle: '  키즈   텀블러  ',
@@ -1085,7 +1243,7 @@ describe('DetailPageAiService', () => {
         organizationId: ORGANIZATION_ID,
         contentType: 'detail_page',
         generationGroupId: GENERATION_GROUP_ID,
-        registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
+        contentWorkspaceId: REGISTRATION_WORKSPACE_ID,
         sourceCandidateId: null,
         triggeredByUserId: USER_ID,
         status: 'PROCESSING',
@@ -1110,7 +1268,7 @@ describe('DetailPageAiService', () => {
         organizationId: ORGANIZATION_ID,
         sourceResourceType: 'content_generation',
         sourceResourceId: GENERATION_ID,
-        reason: `detail_page_generate for registration workspace ${REGISTRATION_WORKSPACE_ID}`,
+        reason: `detail_page_generate for content workspace ${REGISTRATION_WORKSPACE_ID}`,
       }),
     );
     expect(operationAlerts.start).toHaveBeenCalledWith(
@@ -1119,7 +1277,7 @@ describe('DetailPageAiService', () => {
         operationKey: `detail-page:${GENERATION_ID}`,
         sourceType: 'content_generation',
         sourceId: GENERATION_ID,
-        targetType: 'registration_workspace',
+        targetType: 'content_workspace',
         targetId: REGISTRATION_WORKSPACE_ID,
         href: `/product-pipeline/detail-pages/${GENERATION_ID}/editor?returnTo=%2Fproduct-pipeline%2Fregistered-products%2F${REGISTRATION_WORKSPACE_ID}`,
       }),
@@ -1129,9 +1287,9 @@ describe('DetailPageAiService', () => {
     expect(result.imageProcessingStatus).toBe('processing');
   });
 
-  it('appends direct generation to the loaded registration workspace instead of creating a new one', async () => {
+  it('appends direct generation to the loaded content workspace instead of creating a new one', async () => {
     const prisma = makePrisma();
-    prisma.registrationWorkspace = {
+    prisma.contentWorkspace = {
       findFirst: vi.fn().mockResolvedValue({
         id: LOADED_REGISTRATION_WORKSPACE_ID,
         ownerType: 'sourcing_candidate',
@@ -1143,7 +1301,7 @@ describe('DetailPageAiService', () => {
     };
     prisma.contentGeneration.create.mockResolvedValueOnce({
       ...makeGenerationRow({
-        registrationWorkspaceId: LOADED_REGISTRATION_WORKSPACE_ID,
+        contentWorkspaceId: LOADED_REGISTRATION_WORKSPACE_ID,
         sourceCandidateId: CANDIDATE_ID,
         generationGroup: {
           id: GENERATION_GROUP_ID,
@@ -1152,7 +1310,7 @@ describe('DetailPageAiService', () => {
       }),
     });
     prisma.contentGeneration.findFirst.mockResolvedValue(makeGenerationRow({
-      registrationWorkspaceId: LOADED_REGISTRATION_WORKSPACE_ID,
+      contentWorkspaceId: LOADED_REGISTRATION_WORKSPACE_ID,
       sourceCandidateId: CANDIDATE_ID,
       generationGroup: {
         id: GENERATION_GROUP_ID,
@@ -1162,7 +1320,7 @@ describe('DetailPageAiService', () => {
     const textCompletion = { complete: vi.fn() };
     const imageStorage = { save: vi.fn() };
     const operationAlerts = makeOperationAlertsStub();
-    const registrationWorkspaces = {
+    const contentWorkspaces = {
       ensureForGeneration: vi.fn(async () => ({
         id: REGISTRATION_WORKSPACE_ID,
         displayName: 'New direct workspace',
@@ -1177,7 +1335,7 @@ describe('DetailPageAiService', () => {
       undefined,
       makeAgentRunnerStub(),
       undefined,
-      registrationWorkspaces,
+      contentWorkspaces,
     );
 
     await service.generate(
@@ -1189,16 +1347,16 @@ describe('DetailPageAiService', () => {
         imageUrls: ['https://example.com/loaded.jpg'],
         heroImageMode: 'first',
         templateId: 'kids-playful',
-        registrationWorkspaceId: LOADED_REGISTRATION_WORKSPACE_ID,
+        contentWorkspaceId: LOADED_REGISTRATION_WORKSPACE_ID,
       },
       ORGANIZATION_ID,
       USER_ID,
     );
 
-    expect(registrationWorkspaces.ensureForGeneration).not.toHaveBeenCalled();
+    expect(contentWorkspaces.ensureForGeneration).not.toHaveBeenCalled();
     expect(prisma.contentGeneration.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        registrationWorkspaceId: LOADED_REGISTRATION_WORKSPACE_ID,
+        contentWorkspaceId: LOADED_REGISTRATION_WORKSPACE_ID,
         sourceCandidateId: CANDIDATE_ID,
       }),
       include: expect.objectContaining({

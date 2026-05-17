@@ -1,6 +1,6 @@
 'use client';
 
-// 상세페이지 탭 — 좌측 미니맵 + 우측 풀 미리보기.
+// 상세페이지 탭 — 풀 미리보기 + 우측 미니맵.
 //
 // 미니맵: 페이지 전체를 작게 표시 (iframe 위에 transform: scale 적용한 cloned iframe)
 //   사용자 요구: "왼쪽에 상세페이지 길게 해서 지금 현재 어디 위치인지 한눈에 볼 수 있게"
@@ -51,6 +51,9 @@ import { detailPageEditorHref } from '@/app/(product-pipeline)/product-pipeline/
 import { useGenerationHistory, type GenerationHistoryItem } from '../../hooks/useGenerationHistory';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
+import { cn } from '@/lib/utils';
+import MobilePreview from './preview/MobilePreview';
+import type { ProductRegistrationPreviewData } from './preview/product-registration-preview';
 
 interface Props {
   productId: string;
@@ -63,6 +66,7 @@ interface Props {
   generationHistoryQueryEnabled?: boolean;
   detailEditorSourceCandidateId?: string | null;
   detailEditorReturnHref: string;
+  mobilePreviewData: ProductRegistrationPreviewData;
 }
 
 const MAX_MINIMAP_WIDTH = 200; // px — 우선 가로 200px 시도, 페이지가 길면 더 좁게
@@ -142,10 +146,12 @@ export default function DetailPagePreview({
   generationHistoryQueryEnabled = true,
   detailEditorSourceCandidateId,
   detailEditorReturnHref,
+  mobilePreviewData,
 }: Props) {
   const fullIframeRef = useRef<HTMLIFrameElement>(null);
   const minimapContainerRef = useRef<HTMLDivElement>(null);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [previewMode, setPreviewMode] = useState<'full' | 'registration'>('full');
 
   const { data: agentHistory = [] } = useGenerationHistory(
     productId,
@@ -355,6 +361,27 @@ export default function DetailPagePreview({
           ) : null}
         </h3>
         <div className="flex items-center gap-2">
+          <div className="mr-1 inline-flex rounded-lg bg-slate-100 p-1">
+            {[
+              ['full', '상세 전체'],
+              ['registration', '등록 미리보기'],
+            ].map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                aria-pressed={previewMode === mode}
+                onClick={() => setPreviewMode(mode as 'full' | 'registration')}
+                className={cn(
+                  'rounded-md px-3 py-1.5 text-xs font-bold transition-colors',
+                  previewMode === mode
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700',
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           {/* 에디터 진입 — Trend 결과 표시 중이면 ?kpId, KIDITEM 결과면 ?boldId 로 load. */}
           {editorHref && (
             <Link
@@ -377,58 +404,67 @@ export default function DetailPagePreview({
         </div>
       </div>
 
-      <div className="overflow-x-auto">
-        <div
-          className="mx-auto flex w-fit gap-3"
-          style={{ height: `${VIEWPORT_HEIGHT_VH}vh` }}
-        >
-          {/* 좌측 — 미니맵. 페이지 전체가 fit-to-height 로 한 화면에 들어옴 */}
+      {previewMode === 'full' ? (
+        <div className="overflow-x-auto">
           <div
-            ref={minimapContainerRef}
-            className="relative shrink-0 rounded-lg border border-slate-200 bg-slate-100 overflow-hidden cursor-pointer shadow-sm"
-            style={{ width: minimapWidth }}
-            onClick={handleMinimapClick}
-            title="클릭하면 해당 위치로 이동"
+            data-testid="detail-preview-body"
+            className="mx-auto flex w-fit gap-3"
+            style={{ height: `${VIEWPORT_HEIGHT_VH}vh` }}
           >
-            {/* 축소된 iframe — pointer-events-none 으로 자체 스크롤 차단 (외부 div 클릭만 받음) */}
-            <iframe
-              srcDoc={sandboxedPreviewHtml}
-              className="absolute top-0 left-0 border-0 pointer-events-none"
-              style={{
-                width: `${minimapWidth / scale}px`,
-                height: `${contentHeight}px`,
-                transform: `scale(${scale})`,
-                transformOrigin: 'top left',
-              }}
-              title="detail-minimap"
-              sandbox={SCRIPTED_PREVIEW_SANDBOX}
-            />
-            {/* 현재 viewport 위치 박스 — y축 픽셀값 × scale 로 정확히 계산.
-                scrollY 가 800px, scale 0.25 면 박스 top 200px. transition 없이 즉시 반영. */}
             <div
-              className="absolute left-0 right-0 border-2 border-indigo-500 bg-indigo-500/15 pointer-events-none"
-              style={{
-                top: `${viewportTop * scale}px`,
-                height: `${viewportHeight * scale}px`,
-              }}
-            />
-          </div>
+              className="w-screen rounded-xl border border-slate-200 bg-white overflow-hidden"
+              style={{ maxWidth: FULL_PREVIEW_WIDTH }}
+            >
+              <iframe
+                ref={fullIframeRef}
+                srcDoc={sandboxedPreviewHtml}
+                className="w-full h-full border-0"
+                title="detail-page-preview"
+                sandbox={SCRIPTED_PREVIEW_SANDBOX}
+              />
+            </div>
 
-          {/* 우측 — 풀 미리보기 */}
-          <div
-            className="w-screen rounded-xl border border-slate-200 bg-white overflow-hidden"
-            style={{ maxWidth: FULL_PREVIEW_WIDTH }}
-          >
-            <iframe
-              ref={fullIframeRef}
-              srcDoc={sandboxedPreviewHtml}
-              className="w-full h-full border-0"
-              title="detail-page-preview"
-              sandbox={SCRIPTED_PREVIEW_SANDBOX}
-            />
+            <div
+              ref={minimapContainerRef}
+              className="relative shrink-0 rounded-lg border border-slate-200 bg-slate-100 overflow-hidden cursor-pointer shadow-sm"
+              style={{ width: minimapWidth }}
+              onClick={handleMinimapClick}
+              title="클릭하면 해당 위치로 이동"
+            >
+              {/* 축소된 iframe — pointer-events-none 으로 자체 스크롤 차단 (외부 div 클릭만 받음) */}
+              <iframe
+                srcDoc={sandboxedPreviewHtml}
+                className="absolute top-0 left-0 border-0 pointer-events-none"
+                style={{
+                  width: `${minimapWidth / scale}px`,
+                  height: `${contentHeight}px`,
+                  transform: `scale(${scale})`,
+                  transformOrigin: 'top left',
+                }}
+                title="detail-minimap"
+                sandbox={SCRIPTED_PREVIEW_SANDBOX}
+              />
+              {/* 현재 viewport 위치 박스 — y축 픽셀값 × scale 로 정확히 계산.
+                  scrollY 가 800px, scale 0.25 면 박스 top 200px. transition 없이 즉시 반영. */}
+              <div
+                className="absolute left-0 right-0 border-2 border-indigo-500 bg-indigo-500/15 pointer-events-none"
+                style={{
+                  top: `${viewportTop * scale}px`,
+                  height: `${viewportHeight * scale}px`,
+                }}
+              />
+            </div>
           </div>
         </div>
-      </div>
+      ) : (
+        <div className="flex justify-center rounded-xl border border-slate-200 bg-slate-50 p-5">
+          <MobilePreview
+            {...mobilePreviewData}
+            detailHtml={effectivePreviewHtml}
+            sticky={false}
+          />
+        </div>
+      )}
     </div>
   );
 }

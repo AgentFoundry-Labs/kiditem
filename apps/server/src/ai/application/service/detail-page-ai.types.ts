@@ -28,6 +28,12 @@ export interface DetailPageRawInput {
   kcCertificationStatus?: KcCertificationStatus;
   kcCertificationNumber?: string;
   sourceReferences?: DetailPageSourceReference[];
+  productGeneration?: {
+    mode: 'parent';
+    productGenerationBatchId: string;
+    parentOperationKey: string;
+    childKind: 'detail_page' | 'thumbnail';
+  };
 }
 
 export interface DetailPageSourceReference {
@@ -59,7 +65,7 @@ export interface DetailPageGenerationDto {
   id: string;
   productId: string | null;
   sourceCandidateId: string | null;
-  registrationWorkspaceId: string | null;
+  contentWorkspaceId: string | null;
   templateId: DetailPageTemplateId;
   productName: string;
   rawInput: DetailPageRawInput;

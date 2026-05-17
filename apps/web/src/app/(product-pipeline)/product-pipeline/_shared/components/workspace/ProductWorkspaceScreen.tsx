@@ -1,27 +1,51 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useMemo, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getTemplate, placeholderDetailPageData } from '@kiditem/templates';
 import { isApiError } from '@/lib/api-error';
+import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { useAllGenerationsInProgress } from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate';
-import MobilePreview from './detail/MobilePreview';
+import {
+  useAllGenerationsInProgress,
+  useBoldVerticalGenerationList,
+  useKidsPlayfulGenerationList,
+} from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate';
+import MobilePreview from './preview/MobilePreview';
 import ProductEditHeader from './detail/ProductEditHeader';
 import ProductEditTabs, { type EditTabType } from './detail/ProductEditTabs';
-import { renderTemplateToHtml } from '@/app/(product-pipeline)/product-pipeline/_shared/lib/template-html';
+import {
+  ensureStyledDetailHtml,
+  renderTemplateToHtml,
+} from '@/app/(product-pipeline)/product-pipeline/_shared/lib/template-html';
+import {
+  buildDetailGenerationEntryHtml,
+  buildGenerationHistoryHtml,
+} from '@/app/(product-pipeline)/product-pipeline/_shared/lib/generated-detail-html';
 import {
   selectedThumbnailGenerationCandidateId as resolveSelectedThumbnailGenerationCandidateId,
 } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/registration-selection';
+import type { RegistrationThumbnailOption } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/registration-selection';
+import {
+  candidatesApi,
+  type UpdateProductBasicsInput,
+} from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api';
 import { useSourcingThumbnailGenerations } from '../../hooks/useGenerateSourcingThumbnail';
 import { useProductDetail } from '../../hooks/useProductDetail';
 import type { ProductWorkspaceData } from '../../hooks/useProductDetail';
 import { PLACEHOLDER_DATA, type ProductEditState } from '../../lib/product-workspace-types';
+import {
+  buildProductWorkspaceTabUrl,
+  parseProductWorkspaceTab,
+} from '../../lib/product-workspace-tabs';
+import { buildProductRegistrationPreviewData } from './preview/product-registration-preview';
 import { GenerationProgressBannerStack } from './GenerationProgressBanner';
 import ProductErrorView from './ProductErrorView';
 import ProductLoadingView from './ProductLoadingView';
 import ProductTabContent from './ProductTabContent';
+import { buildDetailGenerationRows } from './detail/detail-generation-rows';
+import { useGenerationHistory } from '../../hooks/useGenerationHistory';
 import type { GenerationHistoryItem } from '../../hooks/useGenerationHistory';
 
 interface ProductWorkspaceScreenProps {
@@ -32,7 +56,7 @@ interface ProductWorkspaceScreenProps {
   initialWorkspaceData?: ProductWorkspaceData;
   generationHistoryQueryEnabled?: boolean;
   showCandidateActions?: boolean;
-  registrationWorkspaceId?: string | null;
+  contentWorkspaceId?: string | null;
   hasSavedDetailPage?: boolean;
   savedDetailPageGenerationId?: string | null;
   thumbnailSourceCandidateId?: string | null;
@@ -47,16 +71,19 @@ export function ProductWorkspaceScreen({
   initialWorkspaceData,
   generationHistoryQueryEnabled = true,
   showCandidateActions = true,
-  registrationWorkspaceId = null,
+  contentWorkspaceId = null,
   hasSavedDetailPage,
   savedDetailPageGenerationId = null,
   thumbnailSourceCandidateId,
   onOpenDetailTemplateGeneration,
 }: ProductWorkspaceScreenProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
+  const queryTab = parseProductWorkspaceTab(searchParams.get('tab'));
 
-  const [activeTab, setActiveTab] = useState<EditTabType>('basic');
+  const [activeTab, setActiveTab] = useState<EditTabType>(queryTab);
   const [isEditComplete, setIsEditComplete] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
   const [editData, setEditData] = useState<ProductEditState>(PLACEHOLDER_DATA);
@@ -70,8 +97,25 @@ export function ProductWorkspaceScreen({
   const [selectedBoldVerticalId, setSelectedBoldVerticalId] = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [selectedRegistrationThumbnailUrl, setSelectedRegistrationThumbnailUrl] = useState<string | null>(null);
+  const [thumbnailPreviewUrl, setThumbnailPreviewUrl] = useState<string | null>(null);
 
   const goBack = () => router.push(backHref);
+
+  useEffect(() => {
+    setActiveTab(queryTab);
+  }, [queryTab]);
+
+  const handleTabChange = (tab: EditTabType) => {
+    setActiveTab(tab);
+    router.replace(
+      buildProductWorkspaceTabUrl({
+        pathname,
+        currentSearch: searchParams,
+        tab,
+      }),
+      { scroll: false },
+    );
+  };
 
   const productDetailQuery =
     useProductDetail(productId, { enabled: !initialWorkspaceData });
@@ -85,6 +129,11 @@ export function ProductWorkspaceScreen({
       ?.promoted_master_id ??
     (product as { promotedMasterId?: string | null } | null)?.promotedMasterId ??
     null;
+  const productPreparation = product?.productPreparation ?? null;
+  const effectiveContentWorkspaceId =
+    contentWorkspaceId ?? productPreparation?.contentWorkspaceId ?? null;
+  const effectiveSavedDetailPageGenerationId =
+    savedDetailPageGenerationId ?? productPreparation?.selectedDetailPageGenerationId ?? null;
   const detailPageData = fetchedData?.detailPageData ?? placeholderDetailPageData;
   const editedHtml = fetchedData?.editedHtml ?? null;
   const { data: fallbackTemplateCss = '' } = useQuery({
@@ -100,11 +149,39 @@ export function ProductWorkspaceScreen({
   const inProgressEntries = useAllGenerationsInProgress(productId, {
     enabled: generationHistoryQueryEnabled,
   });
+  const { data: agentHistory = [] } = useGenerationHistory(
+    productId,
+    initialAgentHistory,
+    { enabled: generationHistoryQueryEnabled },
+  );
+  const { data: kidsPlayfulEntries = [] } = useKidsPlayfulGenerationList(productId, {
+    enabled: generationHistoryQueryEnabled,
+  });
+  const { data: boldEntries = [] } = useBoldVerticalGenerationList(productId, {
+    enabled: generationHistoryQueryEnabled,
+  });
+  const { data: selectedDetailEditedHtml } = useQuery({
+    queryKey: effectiveSavedDetailPageGenerationId
+      ? queryKeys.productContent.generationEditedHtml(effectiveSavedDetailPageGenerationId)
+      : queryKeys.productContent.generationEditedHtml(''),
+    queryFn: () => {
+      if (!effectiveSavedDetailPageGenerationId) {
+        throw new Error('detail page generation id is required');
+      }
+      return apiClient.get<{ html: string | null; savedAt: string | null }>(
+        `/api/ai/detail-page/${effectiveSavedDetailPageGenerationId}/edited-html`,
+      );
+    },
+    enabled: !!effectiveSavedDetailPageGenerationId,
+    staleTime: 30_000,
+  });
   const effectiveThumbnailSourceCandidateId =
+    thumbnailSourceCandidateId === undefined ? productId : thumbnailSourceCandidateId;
+  const selectionCandidateId =
     thumbnailSourceCandidateId === undefined ? productId : thumbnailSourceCandidateId;
   const thumbnailGenerations = useSourcingThumbnailGenerations({
     sourceCandidateId: effectiveThumbnailSourceCandidateId,
-    registrationWorkspaceId,
+    contentWorkspaceId: effectiveContentWorkspaceId,
   });
   const selectedThumbnailGenerationCandidateId = useMemo(() => {
     return resolveSelectedThumbnailGenerationCandidateId(
@@ -118,11 +195,85 @@ export function ProductWorkspaceScreen({
       : '상품 정보를 불러올 수 없습니다.'
     : null;
 
-  if (fetchedData && !editInitialized) {
-    setEditData(fetchedData.editState);
-    setSelectedRegistrationThumbnailUrl(fetchedData.editState.thumbnails[0] ?? null);
+  const selectThumbnailMutation = useMutation({
+    mutationFn: (option: RegistrationThumbnailOption) => {
+      if (!selectionCandidateId) return Promise.resolve(null);
+      return candidatesApi.selectThumbnail(selectionCandidateId, {
+        selectedThumbnailUrl: option.url,
+        selectedThumbnailGenerationCandidateId: option.generatedCandidateId ?? null,
+      });
+    },
+    onSuccess: () => {
+      if (selectionCandidateId) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(selectionCandidateId) });
+      }
+    },
+  });
+
+  const handleSelectRegistrationThumbnail = (option: RegistrationThumbnailOption) => {
+    setSelectedRegistrationThumbnailUrl(option.url);
+    selectThumbnailMutation.mutate(option);
+  };
+
+  const updateBasicInfoMutation = useMutation({
+    mutationFn: (input: UpdateProductBasicsInput) => {
+      if (!selectionCandidateId) return Promise.resolve(null);
+      return candidatesApi.updateBasicInfo(selectionCandidateId, input);
+    },
+    onSuccess: () => {
+      if (selectionCandidateId) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(selectionCandidateId) });
+      }
+    },
+  });
+
+  const handleCommitBasicInfo = (input: UpdateProductBasicsInput) => {
+    if (!selectionCandidateId) return;
+    updateBasicInfoMutation.mutate(input);
+  };
+
+  const selectDetailPageMutation = useMutation({
+    mutationFn: (input: {
+      selectedDetailPageGenerationId: string;
+      selectedDetailPageArtifactId?: string | null;
+      selectedDetailPageRevisionId?: string | null;
+    }) => {
+      if (!selectionCandidateId) return Promise.resolve(null);
+      return candidatesApi.selectDetailPage(selectionCandidateId, input);
+    },
+    onSuccess: () => {
+      if (selectionCandidateId) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(selectionCandidateId) });
+      }
+    },
+  });
+
+  useEffect(() => {
+    if (!fetchedData || editInitialized) return;
+    const basicInfo = fetchedData.product.basicInfo;
+    const nextEditData = basicInfo
+      ? {
+          ...fetchedData.editState,
+          name: basicInfo.name || fetchedData.editState.name,
+          category: basicInfo.category,
+          originalPrice: basicInfo.originalPrice,
+          salePrice: basicInfo.salePrice || fetchedData.editState.salePrice,
+          discountRate: basicInfo.discountRate,
+          thumbnails: basicInfo.thumbnailUrls.length > 0
+            ? basicInfo.thumbnailUrls
+            : fetchedData.editState.thumbnails,
+          tags: basicInfo.tags,
+        }
+      : fetchedData.editState;
+    setEditData(nextEditData);
+    setSelectedRegistrationThumbnailUrl(
+      basicInfo?.selectedThumbnailUrl ??
+      fetchedData.product.productPreparation?.selectedThumbnailUrl ??
+      nextEditData.thumbnails[0] ??
+      null,
+    );
     setEditInitialized(true);
-  }
+  }, [editInitialized, fetchedData]);
 
   const updateField = <K extends keyof ProductEditState>(
     field: K,
@@ -147,6 +298,72 @@ export function ProductWorkspaceScreen({
     );
   }, [detailPageData, templateCss]);
 
+  const mobilePreviewData = useMemo(
+    () =>
+      buildProductRegistrationPreviewData({
+        editData,
+        selectedRegistrationThumbnailUrl,
+        thumbnailPreviewUrl,
+        preferThumbnailPreview: activeTab === 'thumbnail',
+      }),
+    [activeTab, editData, selectedRegistrationThumbnailUrl, thumbnailPreviewUrl],
+  );
+  const selectedDetailMobilePreviewHtml = useMemo(() => {
+    if (!effectiveSavedDetailPageGenerationId) return null;
+    if (selectedDetailEditedHtml?.html) {
+      return ensureStyledDetailHtml(selectedDetailEditedHtml.html, templateCss);
+    }
+
+    const agentEntry = agentHistory.find((item) => item.id === effectiveSavedDetailPageGenerationId);
+    if (agentEntry?.detailPageData) {
+      try {
+        return buildGenerationHistoryHtml(agentEntry, templateCss);
+      } catch {
+        return null;
+      }
+    }
+
+    const generatedEntry = [...kidsPlayfulEntries, ...boldEntries]
+      .find((item) => item.id === effectiveSavedDetailPageGenerationId);
+    if (generatedEntry) {
+      try {
+        return buildDetailGenerationEntryHtml(generatedEntry, templateCss);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }, [
+    agentHistory,
+    boldEntries,
+    effectiveSavedDetailPageGenerationId,
+    kidsPlayfulEntries,
+    selectedDetailEditedHtml?.html,
+    templateCss,
+  ]);
+  const selectedDetailPageSummary = useMemo(() => {
+    if (!effectiveSavedDetailPageGenerationId) return null;
+    const row = buildDetailGenerationRows({
+      agentHistory,
+      kidsPlayfulEntries,
+      boldEntries,
+      savedDetailPageGenerationId: effectiveSavedDetailPageGenerationId,
+    }).find((item) => item.id === effectiveSavedDetailPageGenerationId);
+    if (!row) return null;
+    return {
+      id: row.id,
+      title: row.title,
+      templateLabel: row.templateLabel,
+      createdAt: row.createdAt,
+      status: row.status,
+    };
+  }, [
+    agentHistory,
+    boldEntries,
+    effectiveSavedDetailPageGenerationId,
+    kidsPlayfulEntries,
+  ]);
+
   if (isLoadingProduct) {
     return <ProductLoadingView productId={productId} onBack={goBack} />;
   }
@@ -165,7 +382,7 @@ export function ProductWorkspaceScreen({
   }
 
   const nameLength = Array.from(editData.name).length;
-  const usesWideContent = activeTab === 'detail' || activeTab === 'history';
+  const usesWideContent = activeTab === 'detail';
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -178,7 +395,7 @@ export function ProductWorkspaceScreen({
         isLocked={isLocked}
         selectedThumbnailUrl={selectedRegistrationThumbnailUrl}
         selectedThumbnailGenerationCandidateId={selectedThumbnailGenerationCandidateId}
-        selectedDetailPageGenerationId={savedDetailPageGenerationId}
+        selectedDetailPageGenerationId={effectiveSavedDetailPageGenerationId}
         showCandidateActions={showCandidateActions}
         onOpenDetailTemplateGeneration={onOpenDetailTemplateGeneration}
         onToggleEditComplete={() => setIsEditComplete((v) => !v)}
@@ -208,12 +425,14 @@ export function ProductWorkspaceScreen({
             usesWideContent ? 'w-full' : 'w-[72%] border-r border-slate-200'
           }`}
         >
-          <ProductEditTabs activeTab={activeTab} onTabChange={setActiveTab} />
+          <ProductEditTabs activeTab={activeTab} onTabChange={handleTabChange} />
           <div className="flex-1 overflow-y-auto bg-slate-50">
-          <ProductTabContent
-            activeTab={activeTab}
-            editData={editData}
+            <ProductTabContent
+              activeTab={activeTab}
+              editData={editData}
+              basicInfo={product?.basicInfo ?? null}
               updateField={updateField}
+              onCommitBasicInfo={handleCommitBasicInfo}
               nameLength={nameLength}
               productId={productId}
               promotedMasterId={promotedMasterId}
@@ -226,9 +445,9 @@ export function ProductWorkspaceScreen({
               selectedKidsPlayfulId={selectedKidsPlayfulId}
               selectedBoldVerticalId={selectedBoldVerticalId}
               selectedAgentId={selectedAgentId}
-              registrationWorkspaceId={registrationWorkspaceId}
+              contentWorkspaceId={effectiveContentWorkspaceId}
               hasSavedDetailPage={hasSavedDetailPage}
-              savedDetailPageGenerationId={savedDetailPageGenerationId}
+              savedDetailPageGenerationId={effectiveSavedDetailPageGenerationId}
               initialAgentHistory={initialAgentHistory}
               generationHistoryQueryEnabled={generationHistoryQueryEnabled}
               thumbnailSourceCandidateId={thumbnailSourceCandidateId}
@@ -255,27 +474,24 @@ export function ProductWorkspaceScreen({
                   setSelectedBoldVerticalId(null);
                 }
               }}
-            selectedRegistrationThumbnailUrl={selectedRegistrationThumbnailUrl}
-            onSelectRegistrationThumbnail={setSelectedRegistrationThumbnailUrl}
-            thumbnailGenerationReturnHref={selfHref}
-          />
+              onApplyRegistrationDetailPage={(input) =>
+                selectDetailPageMutation.mutateAsync(input).then(() => undefined)
+              }
+              selectedRegistrationThumbnailUrl={selectedRegistrationThumbnailUrl}
+              mobilePreviewData={mobilePreviewData}
+              onPreviewThumbnail={setThumbnailPreviewUrl}
+              onSelectRegistrationThumbnail={handleSelectRegistrationThumbnail}
+              thumbnailGenerationReturnHref={selfHref}
+              selectedDetailPageSummary={selectedDetailPageSummary}
+            />
           </div>
         </div>
 
         {!usesWideContent && (
           <div className="w-[28%] overflow-y-auto bg-slate-50/50 p-5">
             <MobilePreview
-              name={editData.name}
-              mainImage={
-                selectedRegistrationThumbnailUrl ??
-                editData.thumbnails[0] ??
-                'https://placehold.co/400x400/e2e8f0/64748b?text=No+Image'
-              }
-              salePrice={editData.salePrice}
-              originalPrice={editData.originalPrice}
-              discountRate={editData.discountRate}
-              rating={editData.rating}
-              reviewCount={editData.reviewCount}
+              {...mobilePreviewData}
+              detailHtml={selectedDetailMobilePreviewHtml}
             />
           </div>
         )}

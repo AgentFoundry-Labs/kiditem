@@ -14,7 +14,7 @@ ports/adapters instead of direct service expansion.
 ```text
 channels/
   channels.module.ts
-  adapter/in/http/          channel account, sync, dashboard, reconciliation controllers
+  adapter/in/http/          channel listing/account, sync, dashboard, reconciliation controllers
   adapter/out/coupang/      client, products/orders APIs, provider adapter
   application/port/out/     COUPANG_PROVIDER_PORT
   application/service/      account, sync, dashboard, reconciliation services
@@ -38,6 +38,17 @@ Do not add new files under `adapters/coupang/` except compatibility shims.
 
 - `syncProducts(organizationId)` refreshes existing `ChannelListing` /
   `ChannelListingOption` rows. It must not auto-create `MasterProduct`.
+- `/api/channels/listings` is the registered-product read model for product
+  pipeline screens. It lists active `ChannelListing` rows with
+  `ChannelAccount` and `MasterProduct` context; it must not list
+  registration/content workspaces.
+- `ChannelListing.externalId` uniqueness is scoped by
+  `(organizationId, channelAccountId, externalId)` for active rows. Do not add
+  organization+channel global uniqueness; one organization can connect multiple
+  accounts on the same marketplace channel.
+- Channel-listing writers must carry `channelAccountId` when the marketplace
+  account is known. Accountless legacy rows are read-compatible only; new sync
+  or reconciliation paths must not create accountless `ChannelListing` rows.
 - `syncOrders` and `syncReturns` write the channel-agnostic order spine:
   `Order`, `OrderLineItem`, `OrderReturn`, `OrderReturnLineItem` with
   `platform='coupang'` and provider IDs in external fields.
@@ -80,7 +91,8 @@ Add mapping tests when status semantics change.
 - Never auto-create `MasterProduct`.
 - Match order:
   1. active `ChannelListing` by `externalId`
-  2. exact single active `ProductOption.legacyCode`
+  2. exact single active `ProductOption.legacyCode` as a review candidate unless
+     a channel-account scoped listing can be proven
   3. conflict on master mismatch or multiple legacy-code candidates
   4. otherwise `needs_review`
   5. user link -> `manual`; user ignore -> `ignored`

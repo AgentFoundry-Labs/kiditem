@@ -31,7 +31,7 @@ export interface KidsPlayfulGenerateBody {
   kcCertificationNumber?: string;
   /** sourcing MasterProduct.id — generate 페이지 직접 생성 시 omit */
   productId?: string;
-  registrationWorkspaceId?: string;
+  contentWorkspaceId?: string;
   templateId?: DetailPageTemplateId;
   generationMode?: 'draft' | 'image' | 'full';
   sourceReferences?: Array<{
@@ -48,7 +48,7 @@ export interface KidsPlayfulGenerationItem {
   id: string;
   productId: string | null;
   sourceCandidateId?: string | null;
-  registrationWorkspaceId?: string | null;
+  contentWorkspaceId?: string | null;
   templateId: string;
   productName: string;
   rawInput: unknown;
@@ -101,7 +101,7 @@ export function useKidsPlayfulGenerate() {
       const placeholder: KidsPlayfulGenerationItem = {
         id: optimisticId,
         productId: vars.productId ?? null,
-        registrationWorkspaceId: vars.registrationWorkspaceId ?? null,
+        contentWorkspaceId: vars.contentWorkspaceId ?? null,
         templateId: tplId,
         productName: vars.rawTitle,
         rawInput: vars,

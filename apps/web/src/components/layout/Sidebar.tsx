@@ -71,7 +71,7 @@ export const menuSections: MenuSection[] = [
     label: '상품 파이프라인',
     collapsible: true,
     items: [
-      { href: '/product-pipeline/productgenerate', label: '상품 등록', icon: Plus },
+      { href: '/product-pipeline/productgenerate', label: '상품 생성', icon: Plus },
       { href: '/product-pipeline/collected-products', label: '수집 상품', icon: Search },
       { href: '/product-pipeline/registered-products', label: '등록 상품', icon: Package },
       { href: '/product-pipeline/detailgenerate', label: '상세 템플릿 생성', icon: Sparkles },

@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useRef } from 'react';
+import { Suspense, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft, ImageIcon } from 'lucide-react';
@@ -8,6 +8,7 @@ import { ArrowLeft, ImageIcon } from 'lucide-react';
 import {
   THUMBNAIL_AI_ROOT,
   normalizeProductPipelineReturnTo,
+  productBoundThumbnailWorkspaceHref,
   thumbnailGenerationEditHref,
 } from '../_shared/lib/product-pipeline-routes';
 import { useAnalysisList } from '../thumbnail-ai/hooks/useThumbnailAnalysis';
@@ -40,10 +41,29 @@ function ThumbnailGenerationHubContent() {
   const productDescription = searchParams.get('productDescription')?.trim() ?? '';
   const productId = searchParams.get('productId');
   const sourceCandidateId = searchParams.get('sourceCandidateId');
-  const registrationWorkspaceId = searchParams.get('registrationWorkspaceId');
-  const hasWorkspaceInput = Boolean(imageUrl || uploadKey || productName || productId || sourceCandidateId || registrationWorkspaceId);
+  const contentWorkspaceId = searchParams.get('contentWorkspaceId');
+  const hasWorkspaceInput = Boolean(imageUrl || uploadKey || productName || productId || sourceCandidateId || contentWorkspaceId);
+  const workspaceHref = productBoundThumbnailWorkspaceHref({
+    productId,
+    sourceCandidateId,
+    contentWorkspaceId,
+    returnTo,
+    imageUrl,
+    uploadKey,
+    productName,
+    productDescription,
+    mode: 'edit',
+  });
 
   const uploadRef = useRef<HubUploadZoneHandle>(null);
+
+  useEffect(() => {
+    if (workspaceHref) router.replace(workspaceHref);
+  }, [router, workspaceHref]);
+
+  if (workspaceHref) {
+    return <div className="min-h-[calc(100vh-0px)] bg-slate-50" />;
+  }
 
   const startUpload = (mode: 'edit' | 'creative') => {
     if (hasWorkspaceInput) {
@@ -58,7 +78,7 @@ function ThumbnailGenerationHubContent() {
         subjectParams: {
           productId,
           sourceCandidateId,
-          registrationWorkspaceId,
+          contentWorkspaceId,
         },
       }));
       return;

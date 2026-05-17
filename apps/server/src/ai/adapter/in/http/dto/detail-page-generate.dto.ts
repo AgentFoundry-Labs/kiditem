@@ -77,7 +77,7 @@ export class GenerateDetailPageBodyDto {
 
   @IsOptional()
   @IsUUID()
-  registrationWorkspaceId?: string;
+  contentWorkspaceId?: string;
 
   @IsOptional()
   @IsIn(DETAIL_PAGE_TEMPLATE_IDS)

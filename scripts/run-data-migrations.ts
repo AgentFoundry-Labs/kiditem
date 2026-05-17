@@ -15,8 +15,6 @@ import {
   type ParsedArgs,
 } from './_shared/cli-args';
 import {
-  DATA_MIGRATION_IDS,
-  DATA_MIGRATION_RELEASES,
   dataMigrations,
 } from './data-migrations/index';
 import type {
@@ -31,7 +29,9 @@ export const APPLY_DATA_MIGRATIONS_CONFIRMATION = 'APPLY_DATA_MIGRATIONS';
 export const DEFAULT_DATA_MIGRATION_TRANSACTION_TIMEOUT_MS = 120_000;
 
 const COMMANDS = ['status', 'up', 'help'] as const;
+const DATA_MIGRATION_PHASES = ['all', 'pre-schema', 'post-schema'] as const;
 type Command = (typeof COMMANDS)[number];
+type DataMigrationPhase = (typeof DATA_MIGRATION_PHASES)[number];
 type CliArgs = ParsedArgs<Command>;
 
 function parseArgs(argv = process.argv.slice(2)): CliArgs {
@@ -100,6 +100,23 @@ export function dataMigrationTransactionTimeoutMs(
     throw new Error('DATA_MIGRATION_TRANSACTION_TIMEOUT_MS must be a positive integer.');
   }
   return value;
+}
+
+export function normalizeDataMigrationPhase(raw: string | undefined): DataMigrationPhase {
+  if (raw === undefined || raw.trim() === '') return 'all';
+  const phase = raw.trim();
+  if (!DATA_MIGRATION_PHASES.includes(phase as DataMigrationPhase)) {
+    throw new Error('DATA_MIGRATION_PHASE must be all, pre-schema, or post-schema.');
+  }
+  return phase as DataMigrationPhase;
+}
+
+export function selectDataMigrationsForPhase(
+  migrations: readonly DataMigration[],
+  phase: DataMigrationPhase,
+): readonly DataMigration[] {
+  if (phase === 'all') return migrations;
+  return migrations.filter((migration) => (migration.phase ?? 'post-schema') === phase);
 }
 
 export function isDefinitelyProductionDatabaseUrl(databaseUrl: string): boolean {
@@ -314,6 +331,8 @@ async function commandUp(args: CliArgs): Promise<void> {
   assertApplyDataMigrationsConfirmation(
     value(args, 'confirm') ?? process.env.DATA_MIGRATION_CONFIRM,
   );
+  const phase = normalizeDataMigrationPhase(value(args, 'phase') ?? process.env.DATA_MIGRATION_PHASE);
+  const selectedMigrations = selectDataMigrationsForPhase(dataMigrations, phase);
 
   const prisma = createPrisma(dbUrl);
   const releaseVersion = await appReleaseVersion();
@@ -325,7 +344,7 @@ async function commandUp(args: CliArgs): Promise<void> {
     if (!(await dataMigrationRunsTableExists(prisma))) {
       throw new Error('data_migration_runs table is missing. Run `npm run db:push` before `npm run data:migrate -- up`.');
     }
-    for (const migration of dataMigrations) {
+    for (const migration of selectedMigrations) {
       results.push(await runOneMigration(prisma, migration, schemaGitSha, schemaHash));
     }
   } finally {
@@ -335,10 +354,11 @@ async function commandUp(args: CliArgs): Promise<void> {
   console.log(JSON.stringify({
     schemaVersion: DATA_MIGRATIONS_SCHEMA_VERSION,
     releaseVersion,
+    phase,
     schemaGitSha,
     prismaSchemaHash: schemaHash,
-    migrationIds: DATA_MIGRATION_IDS,
-    releaseVersions: DATA_MIGRATION_RELEASES,
+    migrationIds: selectedMigrations.map((migration) => migration.id),
+    releaseVersions: [...new Set(selectedMigrations.map((migration) => migration.releaseVersion))],
     results,
   }, null, 2));
 }
@@ -346,12 +366,13 @@ async function commandUp(args: CliArgs): Promise<void> {
 function printHelp(): void {
   console.log(`Usage:
   npm run data:migrate -- status [--database-url <url>]
-  npm run data:migrate -- up --target local|staging --confirm ${APPLY_DATA_MIGRATIONS_CONFIRMATION}
+  npm run data:migrate -- up [--phase all|pre-schema|post-schema] --target local|staging --confirm ${APPLY_DATA_MIGRATIONS_CONFIRMATION}
 
 Env:
   DATABASE_URL                 Database URL used when --database-url is omitted.
   DATA_MIGRATION_TARGET        local or staging.
   DATA_MIGRATION_CONFIRM       ${APPLY_DATA_MIGRATIONS_CONFIRMATION}
+  DATA_MIGRATION_PHASE         all, pre-schema, or post-schema. Defaults to all.
   DATA_MIGRATION_TRANSACTION_TIMEOUT_MS
                                Interactive transaction timeout in ms. Defaults to ${DEFAULT_DATA_MIGRATION_TRANSACTION_TIMEOUT_MS}.
 `);

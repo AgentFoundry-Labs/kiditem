@@ -86,6 +86,179 @@ export class DetailPageQueryService {
     return { ok: true };
   }
 
+  async renameVersion(
+    id: string,
+    organizationId: string,
+    title: string,
+  ): Promise<{ ok: true }> {
+    const normalizedTitle = title.trim();
+    if (!normalizedTitle) throw new BadRequestException('title is required');
+    const row = await this.prisma.contentGeneration.findFirst({
+      where: { id, organizationId, isDeleted: false },
+      select: { id: true, detailPageArtifactId: true },
+    });
+    if (!row) throw new NotFoundException('Detail page generation not found');
+
+    const updated = await this.prisma.contentGeneration.updateMany({
+      where: { id, organizationId, isDeleted: false },
+      data: { generatedTitle: normalizedTitle },
+    });
+    if (updated.count === 0) throw new NotFoundException('Detail page generation not found');
+    if (row.detailPageArtifactId) {
+      await this.prisma.detailPageArtifact.updateMany({
+        where: {
+          id: row.detailPageArtifactId,
+          organizationId,
+          isDeleted: false,
+        },
+        data: { title: normalizedTitle },
+      });
+    }
+    return { ok: true };
+  }
+
+  async duplicateVersion(
+    id: string,
+    organizationId: string,
+    triggeredByUserId: string | null,
+  ): Promise<DetailPageGenerationDto> {
+    const source = await this.prisma.contentGeneration.findFirst({
+      where: {
+        id,
+        organizationId,
+        isDeleted: false,
+        contentType: 'detail_page',
+      },
+      select: {
+        id: true,
+        generationGroupId: true,
+        contentWorkspaceId: true,
+        sourceCandidateId: true,
+        detailPageArtifactId: true,
+        contentType: true,
+        templateId: true,
+        generationInput: true,
+        generationResult: true,
+        generatedTitle: true,
+        generatedDescription: true,
+        generatedCopy: true,
+        editedHtml: true,
+        editedHtmlSavedAt: true,
+        status: true,
+        triggeredByUserId: true,
+        generationGroup: {
+          select: {
+            targetMasterId: true,
+          },
+        },
+        detailPageArtifact: {
+          select: {
+            id: true,
+            title: true,
+            sourceCandidateId: true,
+            targetMasterId: true,
+            currentRevision: {
+              select: {
+                id: true,
+                html: true,
+                assetUrlMap: true,
+                imageUrls: true,
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!source) throw new NotFoundException('Detail page generation not found');
+
+    const duplicateTitle = duplicateVersionTitle(
+      source.detailPageArtifact?.title ?? source.generatedTitle ?? '상세페이지',
+    );
+    const duplicated = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.contentGeneration.create({
+        data: {
+          organizationId,
+          contentType: source.contentType,
+          generationGroupId: source.generationGroupId,
+          contentWorkspaceId: source.contentWorkspaceId,
+          sourceCandidateId:
+            source.sourceCandidateId ??
+            source.detailPageArtifact?.sourceCandidateId ??
+            null,
+          triggeredByUserId: triggeredByUserId ?? source.triggeredByUserId,
+          templateId: source.templateId,
+          generationInput: source.generationInput as Prisma.InputJsonValue,
+          generationResult: source.generationResult as Prisma.InputJsonValue,
+          generatedTitle: duplicateTitle,
+          generatedDescription: source.generatedDescription,
+          generatedCopy: source.generatedCopy,
+          editedHtml: source.editedHtml,
+          editedHtmlSavedAt: source.editedHtmlSavedAt,
+          status: source.status === 'FAILED' ? 'READY' : source.status,
+        },
+        include: detailPageGenerationInclude,
+      });
+
+      const artifact = await tx.detailPageArtifact.create({
+        data: {
+          organizationId,
+          contentWorkspaceId: source.contentWorkspaceId,
+          sourceCandidateId:
+            source.sourceCandidateId ??
+            source.detailPageArtifact?.sourceCandidateId ??
+            null,
+          targetMasterId:
+            source.detailPageArtifact?.targetMasterId ??
+            source.generationGroup.targetMasterId,
+          sourceContentGenerationId: created.id,
+          title: duplicateTitle,
+          status: 'draft',
+          createdByUserId: triggeredByUserId ?? source.triggeredByUserId,
+          metadata: {
+            source: 'detail_page_version_duplicate',
+            sourceContentGenerationId: source.id,
+            sourceDetailPageArtifactId: source.detailPageArtifactId,
+            sourceDetailPageRevisionId: source.detailPageArtifact?.currentRevision?.id ?? null,
+          },
+        },
+        select: { id: true },
+      });
+
+      const sourceRevision = source.detailPageArtifact?.currentRevision ?? null;
+      if (sourceRevision) {
+        const revision = await tx.detailPageRevision.create({
+          data: {
+            organizationId,
+            artifactId: artifact.id,
+            contentGenerationId: created.id,
+            revisionType: 'duplicate',
+            html: sourceRevision.html,
+            assetUrlMap: sourceRevision.assetUrlMap as Prisma.InputJsonValue,
+            imageUrls: sourceRevision.imageUrls as Prisma.InputJsonValue,
+            createdByUserId: triggeredByUserId ?? source.triggeredByUserId,
+          },
+          select: { id: true },
+        });
+        await tx.detailPageArtifact.updateMany({
+          where: { id: artifact.id, organizationId },
+          data: { currentRevisionId: revision.id },
+        });
+      }
+
+      await tx.contentGeneration.updateMany({
+        where: { id: created.id, organizationId },
+        data: { detailPageArtifactId: artifact.id },
+      });
+
+      return tx.contentGeneration.findFirstOrThrow({
+        where: { id: created.id, organizationId },
+        include: detailPageGenerationInclude,
+      });
+    });
+
+    return this.toDto(duplicated);
+  }
+
   async saveEditedHtml(
     id: string,
     organizationId: string,
@@ -96,7 +269,7 @@ export class DetailPageQueryService {
       select: {
         id: true,
         generationGroupId: true,
-        registrationWorkspaceId: true,
+        contentWorkspaceId: true,
         detailPageArtifactId: true,
         generatedTitle: true,
         sourceCandidateId: true,
@@ -129,7 +302,7 @@ export class DetailPageQueryService {
       const artifactId = row.detailPageArtifactId ?? (await tx.detailPageArtifact.create({
         data: {
           organizationId,
-          registrationWorkspaceId: row.registrationWorkspaceId,
+          contentWorkspaceId: row.contentWorkspaceId,
           sourceCandidateId: row.sourceCandidateId,
           targetMasterId: row.generationGroup.targetMasterId,
           sourceContentGenerationId: id,
@@ -179,9 +352,9 @@ export class DetailPageQueryService {
         throw new NotFoundException('Detail page generation not found');
       }
 
-      if (row.registrationWorkspaceId) {
-        await tx.registrationWorkspace.updateMany({
-          where: { id: row.registrationWorkspaceId, organizationId, isDeleted: false },
+      if (row.contentWorkspaceId) {
+        await tx.contentWorkspace.updateMany({
+          where: { id: row.contentWorkspaceId, organizationId, isDeleted: false },
           data: {
             currentDetailPageArtifactId: artifactId,
             currentDetailPageRevisionId: createdRevision.id,
@@ -260,7 +433,7 @@ export class DetailPageQueryService {
       id: row.id,
       productId: row.generationGroup.targetMasterId,
       sourceCandidateId: row.sourceCandidateId,
-      registrationWorkspaceId: row.registrationWorkspaceId,
+      contentWorkspaceId: row.contentWorkspaceId,
       templateId: stored.templateId,
       productName,
       rawInput,
@@ -360,6 +533,11 @@ function permanentAssetKey(input: {
   const ext = extensionFromKey(input.sourceKey);
   const hash = createHash('sha256').update(input.sourceKey).digest('hex').slice(0, 32);
   return `content-assets/${input.organizationId}/${input.contentGenerationId}/${hash}.${ext}`;
+}
+
+function duplicateVersionTitle(title: string): string {
+  const normalized = title.trim() || '상세페이지';
+  return normalized.endsWith('복사본') ? `${normalized} 2` : `${normalized} 복사본`;
 }
 
 function extensionFromKey(key: string): string {

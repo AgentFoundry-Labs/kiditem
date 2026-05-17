@@ -14,6 +14,14 @@ function makeGateway() {
   return {
     scrapeUrl: vi.fn().mockResolvedValue({ taskId: 'task-1', requestId: 'request-1' }),
     notifyPromoted: vi.fn().mockResolvedValue(undefined),
+    startProductGeneration: vi.fn().mockResolvedValue({
+      candidateId: 'cand-1',
+      parentOperationKey: 'product-generation:batch-1',
+      detailGenerationId: 'detail-1',
+      thumbnailGenerationId: 'thumb-1',
+      contentWorkspaceId: 'workspace-1',
+      href: '/product-pipeline/collected-products/cand-1',
+    }),
   };
 }
 
@@ -158,6 +166,133 @@ describe('SourcingService — candidate ingest', () => {
       candidateId: 'cand-1',
       href: '/product-pipeline/collected-products/cand-1',
     });
+  });
+
+  it('createProductGeneration creates a manual candidate and delegates AI product generation', async () => {
+    repo.upsertSourced.mockResolvedValueOnce({ id: 'candidate-1' });
+    gateway.startProductGeneration.mockResolvedValueOnce({
+      candidateId: 'candidate-1',
+      parentOperationKey: 'product-generation:batch-1',
+      detailGenerationId: 'detail-1',
+      thumbnailGenerationId: 'thumb-1',
+      contentWorkspaceId: 'workspace-1',
+      href: '/product-pipeline/collected-products/candidate-1',
+    });
+
+    const result = await service.createProductGeneration({
+      title: '자석 다트게임',
+      category: '완구',
+      description: '안전한 다트 보드',
+      target: '초등학생',
+      thumbnailUrl: 'https://example.com/main.jpg',
+      imageUrls: ['https://example.com/main.jpg'],
+      optionNames: ['기본'],
+      templateId: 'bold-vertical',
+      ageGroup: 'age-8-plus',
+      detailImageCount: '2',
+      usageSectionMode: 'include',
+      kcCertificationStatus: 'unknown',
+      productSize: '높이: 30cm',
+    }, 'org-1', 'user-1');
+
+    expect(result).toEqual(expect.objectContaining({
+      ok: true,
+      candidateId: 'candidate-1',
+      parentOperationKey: 'product-generation:batch-1',
+      detailGenerationId: 'detail-1',
+      thumbnailGenerationId: 'thumb-1',
+      href: '/product-pipeline/collected-products/candidate-1',
+    }));
+    expect(gateway.startProductGeneration).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: 'org-1',
+      triggeredByUserId: 'user-1',
+      candidateId: 'candidate-1',
+      productName: '자석 다트게임',
+      imageUrls: ['https://example.com/main.jpg'],
+    }));
+  });
+
+  it('quickProcessCandidate delegates product generation for an existing candidate without creating a new candidate', async () => {
+    repo.findById.mockResolvedValueOnce({
+      id: 'candidate-1',
+      organizationId: 'org-1',
+      sourceUrl: 'https://1688.com/item/1',
+      sourcePlatform: 'ALIBABA_1688',
+      rawData: {
+        target: '초등학생',
+        optionNames: ['기본'],
+        imageUrls: ['https://example.com/raw.jpg'],
+      },
+      name: '자석 다트게임',
+      description: '안전한 다트 보드',
+      category: '완구',
+      tags: ['기본'],
+      thumbnailUrl: 'https://example.com/main.jpg',
+      imageUrl: 'https://example.com/main.jpg',
+      costCny: null,
+      status: 'sourced',
+      promotedMasterId: null,
+      rejectedReason: null,
+      rejectedAt: null,
+      rejectedByUserId: null,
+      triggeredByUserId: null,
+      isDeleted: false,
+      deletedAt: null,
+      createdAt: new Date('2026-05-17T00:00:00.000Z'),
+      updatedAt: new Date('2026-05-17T00:00:00.000Z'),
+      images: [
+        {
+          id: 'img-1',
+          organizationId: 'org-1',
+          candidateId: 'candidate-1',
+          url: 'https://example.com/main.jpg',
+          storageKey: null,
+          role: 'product',
+          label: null,
+          sortOrder: 0,
+          source: 'test',
+          isPrimary: true,
+          isDeleted: false,
+        },
+      ],
+      productPreparation: null,
+    });
+    gateway.startProductGeneration.mockResolvedValueOnce({
+      candidateId: 'candidate-1',
+      parentOperationKey: 'product-generation:batch-1',
+      detailGenerationId: 'detail-1',
+      thumbnailGenerationId: 'thumb-1',
+      contentWorkspaceId: 'workspace-1',
+      href: '/product-pipeline/collected-products/candidate-1',
+    });
+
+    const result = await service.quickProcessCandidate('candidate-1', 'org-1', 'user-1');
+
+    expect(repo.upsertSourced).not.toHaveBeenCalled();
+    expect(gateway.startProductGeneration).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: 'org-1',
+      triggeredByUserId: 'user-1',
+      candidateId: 'candidate-1',
+      productName: '자석 다트게임',
+      category: '완구',
+      description: '안전한 다트 보드',
+      target: '초등학생',
+      imageUrls: ['https://example.com/main.jpg'],
+      thumbnailUrl: 'https://example.com/main.jpg',
+      optionNames: ['기본'],
+      templateId: 'bold-vertical',
+      ageGroup: 'age-8-plus',
+      detailImageCount: '2',
+      usageSectionMode: 'include',
+      kcCertificationStatus: 'unknown',
+    }));
+    expect(result).toEqual(expect.objectContaining({
+      ok: true,
+      candidateId: 'candidate-1',
+      detailGenerationId: 'detail-1',
+      thumbnailGenerationId: 'thumb-1',
+      href: '/product-pipeline/collected-products/candidate-1',
+    }));
   });
 
   it('scrapeUrl delegates to gateway + raises alert', async () => {

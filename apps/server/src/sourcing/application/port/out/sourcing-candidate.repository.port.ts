@@ -41,6 +41,26 @@ export interface CandidateImageRow {
   isDeleted: boolean;
 }
 
+export interface ProductPreparationRow {
+  id: string;
+  sourceCandidateId: string | null;
+  masterId: string | null;
+  contentWorkspaceId: string | null;
+  displayName: string;
+  status: string;
+  isCurrentForMaster: boolean;
+  selectedThumbnailUrl: string | null;
+  selectedThumbnailGenerationId: string | null;
+  selectedThumbnailGenerationCandidateId: string | null;
+  selectedDetailPageArtifactId: string | null;
+  selectedDetailPageRevisionId: string | null;
+  selectedDetailPageGenerationId: string | null;
+  registrationInput: Prisma.JsonValue;
+  appliedToMasterAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface UpsertCandidateInput {
   organizationId: string;
   sourceUrl: string;
@@ -80,9 +100,15 @@ export interface SourcingCandidateRepositoryPort {
   }): Promise<CandidateRow | null>;
 
   /** IDOR-scoped read. */
-  findById(id: string, organizationId: string): Promise<(CandidateRow & { images: CandidateImageRow[] }) | null>;
+  findById(
+    id: string,
+    organizationId: string,
+  ): Promise<(CandidateRow & {
+    images: CandidateImageRow[];
+    productPreparation: ProductPreparationRow | null;
+  }) | null>;
 
-  /** List active candidates (status='sourced', isDeleted=false). */
+  /** List active marketplace-unlisted candidates (status sourced/promoted, no active listing). */
   listSourced(query: {
     organizationId: string;
     page: number;

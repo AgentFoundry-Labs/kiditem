@@ -69,6 +69,22 @@ export class DetailPageAiService {
     return this.query.getEditedHtml(id, organizationId);
   }
 
+  duplicateVersion(
+    id: string,
+    organizationId: string,
+    triggeredByUserId: string | null,
+  ): Promise<DetailPageGenerationDto> {
+    return this.query.duplicateVersion(id, organizationId, triggeredByUserId);
+  }
+
+  renameVersion(
+    id: string,
+    organizationId: string,
+    title: string,
+  ): Promise<{ ok: true }> {
+    return this.query.renameVersion(id, organizationId, title);
+  }
+
   cancel(id: string, organizationId: string): Promise<DetailPageGenerationDto> {
     return this.generation.cancel(id, organizationId);
   }

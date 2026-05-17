@@ -65,6 +65,7 @@ erDiagram
     String id PK
     String masterId FK
     String organizationId FK
+    String channelAccountId FK
     String channel
     String externalId
     String channelName
@@ -229,6 +230,7 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  ChannelAccount o|--o{ ChannelListing : "channelAccount"
   ChannelListing ||--o{ ChannelListingOption : "listing"
   MasterProduct ||--o{ ChannelListing : "master"
   MasterProduct ||--o{ MasterProductImage : "master"
@@ -271,6 +273,7 @@ erDiagram
 | ChannelListingOption | listingOption | referenced by external | Channels | ChannelListingOptionDailySnapshot |
 | ChannelListingOption | listingOption | referenced by external | Channels | ChannelScrapeSnapshot |
 | ChannelListingOption | listingOption | referenced by external | Orders | OrderLineItem |
+| MasterProduct | master | referenced by external | AI | ProductPreparation |
 | MasterProduct | master | referenced by external | AI | ThumbnailAnalysis |
 | MasterProduct | master | referenced by external | AI | ThumbnailGeneration |
 | MasterProduct | master | referenced by external | Finance | GradeHistory |
@@ -278,8 +281,8 @@ erDiagram
 | MasterProduct | master | referenced by external | Supply | MasterSupplierProduct |
 | MasterProduct | promotedMaster | referenced by external | Sourcing | SourcingCandidate |
 | MasterProduct | targetMaster | referenced by external | AI | ContentGenerationGroup |
+| MasterProduct | targetMaster | referenced by external | AI | ContentWorkspace |
 | MasterProduct | targetMaster | referenced by external | AI | DetailPageArtifact |
-| MasterProduct | targetMaster | referenced by external | AI | RegistrationWorkspace |
 | MasterProductImage | masterImage | referenced by external | AI | ThumbnailGenerationInputImage |
 | Organization | organization | referenced by external | Advertising | AdAction |
 | Organization | organization | referenced by external | Advertising | ExecutionWorker |
@@ -300,9 +303,10 @@ erDiagram
 | Organization | organization | referenced by external | AI | ContentGenerationAssetUsage |
 | Organization | organization | referenced by external | AI | ContentGenerationGroup |
 | Organization | organization | referenced by external | AI | ContentGenerationSource |
+| Organization | organization | referenced by external | AI | ContentWorkspace |
 | Organization | organization | referenced by external | AI | DetailPageArtifact |
 | Organization | organization | referenced by external | AI | DetailPageRevision |
-| Organization | organization | referenced by external | AI | RegistrationWorkspace |
+| Organization | organization | referenced by external | AI | ProductPreparation |
 | Organization | organization | referenced by external | AI | Thumbnail |
 | Organization | organization | referenced by external | AI | ThumbnailAnalysis |
 | Organization | organization | referenced by external | AI | ThumbnailGeneration |
@@ -371,9 +375,10 @@ erDiagram
 | User | approver | referenced by external | AgentOS | AgentApprovalRequest |
 | User | assigneeUser | referenced by external | System | ActionTask |
 | User | createdByUser | referenced by external | AI | ContentAsset |
+| User | createdByUser | referenced by external | AI | ContentWorkspace |
 | User | createdByUser | referenced by external | AI | DetailPageArtifact |
 | User | createdByUser | referenced by external | AI | DetailPageRevision |
-| User | createdByUser | referenced by external | AI | RegistrationWorkspace |
+| User | createdByUser | referenced by external | AI | ProductPreparation |
 | User | decidedBy | referenced by external | AgentOS | AgentApprovalRequest |
 | User | decidedBy | referenced by external | AgentOS | AgentAuthorizationEvent |
 | User | rejectedByUser | referenced by external | Sourcing | SourcingCandidate |
