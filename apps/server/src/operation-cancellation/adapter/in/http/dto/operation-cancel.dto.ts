@@ -1,34 +1,38 @@
-import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
-import type { CancelOperationTarget } from '../../../../application/service/operation-cancellation.types';
-
-const TARGET_TYPES = [
-  'operation_key',
-  'workflow_run',
-  'agent_run_request',
-  'agent_run',
-  'content_generation',
-  'thumbnail_generation',
-] as const;
+import {
+  IsIn,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
+import {
+  CANCEL_OPERATION_TARGET_TYPES,
+  type CancelOperationTarget,
+} from '@kiditem/shared/operation-cancellation';
 
 export class CancelOperationDto {
-  @IsIn(TARGET_TYPES)
+  @IsIn(CANCEL_OPERATION_TARGET_TYPES)
   targetType!: CancelOperationTarget['targetType'];
 
   @IsOptional()
   @IsString()
+  @MinLength(1)
   @MaxLength(200)
   operationKey?: string;
 
   @IsOptional()
   @IsString()
+  @MinLength(1)
   runId?: string;
 
   @IsOptional()
   @IsString()
+  @MinLength(1)
   requestId?: string;
 
   @IsOptional()
   @IsString()
+  @MinLength(1)
   generationId?: string;
 
   @IsOptional()

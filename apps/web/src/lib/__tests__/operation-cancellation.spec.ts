@@ -34,7 +34,7 @@ describe('operation cancellation client', () => {
   });
 
   it('posts cancellation requests to the platform endpoint', async () => {
-    mockApiPost.mockResolvedValueOnce({
+    const response = {
       ok: true,
       status: 'cancelled',
       message: '중단 요청이 반영되었습니다.',
@@ -51,18 +51,54 @@ describe('operation cancellation client', () => {
         thumbnailGenerationIds: [],
       },
       warnings: [],
-    });
+    };
+    mockApiPost.mockResolvedValueOnce(response);
 
-    await cancelOperation({
-      targetType: 'operation_key',
-      operationKey: 'workflow:run-1',
-      reason: '사용자 요청',
-    });
+    await expect(
+      cancelOperation({
+        targetType: 'operation_key',
+        operationKey: 'workflow:run-1',
+        reason: '사용자 요청',
+      }),
+    ).resolves.toEqual(response);
 
     expect(apiClient.post).toHaveBeenCalledWith('/api/operations/cancel', {
       targetType: 'operation_key',
       operationKey: 'workflow:run-1',
       reason: '사용자 요청',
+    });
+  });
+
+  it('rejects malformed cancellation responses before UI code consumes them', async () => {
+    mockApiPost.mockResolvedValueOnce({
+      ok: true,
+      status: 'done',
+      message: '중단 요청이 반영되었습니다.',
+      operationKey: 'workflow:run-1',
+      affected: {
+        workflowRunIds: ['run-1'],
+        agentRunRequestIds: [],
+        agentRunIds: [],
+        contentGenerationIds: [],
+        thumbnailGenerationIds: [],
+      },
+      preserved: {
+        contentGenerationIds: [],
+        thumbnailGenerationIds: [],
+      },
+      warnings: [],
+    });
+
+    await expect(
+      cancelOperation({
+        targetType: 'operation_key',
+        operationKey: 'workflow:run-1',
+      }),
+    ).rejects.toThrow();
+
+    expect(apiClient.post).toHaveBeenCalledWith('/api/operations/cancel', {
+      targetType: 'operation_key',
+      operationKey: 'workflow:run-1',
     });
   });
 

@@ -35,6 +35,7 @@ export default defineConfig({
     'src/inspection.ts',
     'src/readiness.ts',
     'src/auth.ts',
+    'src/operation-cancellation.ts',
   ],
   format: ['esm', 'cjs'],
   dts: true,
