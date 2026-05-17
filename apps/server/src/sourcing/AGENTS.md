@@ -47,7 +47,8 @@ sourcing/
   rows via `SOURCING_CANDIDATE_REPOSITORY_PORT`. **`MasterProduct` is no
   longer written by sourcing ingest**.
 - Cross-domain `MasterProduct` creation flows through
-  `SOURCING_PRODUCTS_CATALOG_PORT.promoteCandidate`; promotion is the only
+  `SOURCING_PRODUCTS_CATALOG_PORT.promoteCandidate`; its adapter consumes
+  products' owner-side `PRODUCT_MASTER_PROMOTION_PORT`. Promotion is the only
   sourcing call site of products domain creation.
 - Cross-domain AI workspace archival flows through `AI_WORKSPACE_ARCHIVE_PORT`.
   Sourcing owns the delete command and candidate row, but AI owns detail-page,
@@ -129,7 +130,9 @@ sourcing/
 
 - Direct Agent OS injection from `application/service/**`.
 - `findUnique({ where: { id } })` for supplier or purchase-order access.
-- Direct import of products services from application services.
+- Direct import of products services from application services or
+  `adapter/out/products/**`. The products bridge consumes products owner-side
+  ports only.
 - Raw `master_products` INSERT from sourcing; code issuance belongs to products.
 - Raw `master_products` INSERT/UPDATE from sourcing ingest — sourcing now writes `sourcing_candidates` only.
 - Direct mutation of supply/ domain models (`Supplier`, `MasterSupplierProduct`,

@@ -18,6 +18,8 @@ import { ProductCatalogController } from './adapter/in/http/product-catalog.cont
 import { ProductContentController } from './adapter/in/http/product-content.controller';
 import { ProductsLegacyController } from './adapter/in/http/products-legacy.controller';
 import { CategoriesModule } from './categories/categories.module';
+import { PRODUCT_BUNDLE_STOCK_PORT } from './application/port/in/bundle-stock.port';
+import { PRODUCT_MASTER_PROMOTION_PORT } from './application/port/in/master-promotion.port';
 
 @Module({
   imports: [CategoriesModule],
@@ -42,15 +44,12 @@ import { CategoriesModule } from './categories/categories.module';
     ProductManagementGradeService,
     ProductManagementEnrichmentService,
     ProductManagementService,
+    { provide: PRODUCT_MASTER_PROMOTION_PORT, useExisting: MasterPromotionService },
+    { provide: PRODUCT_BUNDLE_STOCK_PORT, useExisting: BundleStockService },
   ],
   exports: [
-    MastersService,
-    MasterPromotionService,
-    OptionsService,
-    BundleComponentsService,
-    BundleStockService,
-    ProductCatalogService,
-    ProductManagementService,
+    PRODUCT_MASTER_PROMOTION_PORT,
+    PRODUCT_BUNDLE_STOCK_PORT,
   ],
 })
 export class ProductsModule {}

@@ -29,7 +29,7 @@ inventory/
   inventory.module.ts
   adapter/in/http/          controllers + DTOs
   adapter/out/repository/   the only PrismaService import lane
-  adapter/out/products/     BundleStockPort adapter
+  adapter/out/products/     BundleStockPort adapter consuming products owner-side port
   application/port/in/      exported use-case ports
   application/port/out/     repository/query/cross-domain ports
   application/service/      orchestration; no Prisma or adapter imports
@@ -50,7 +50,8 @@ warehouse/transfer/audit/picking services directly.
 - No `*persistence.ts` files under inventory.
 - `application/service/**` does not import `adapter/out/**`.
 - `application/service/**` does not import ProductsModule, BundleStockService,
-  or products internals. Products writes go through `BundleStockPort`.
+  products ports, or products internals. Products writes go through local
+  `BundleStockPort`, whose adapter consumes products' owner-side port.
 - HTTP controllers depend on incoming ports, not application service classes.
 - `domain/**` imports no NestJS, Prisma, DTOs, HTTP adapters, or filesystem.
 - No top-level `warehouses`, `stock-transfers`, `stock-audits`, `picking`, or
