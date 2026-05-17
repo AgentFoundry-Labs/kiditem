@@ -112,6 +112,9 @@ type ThumbnailGenerationEnqueueResult = {
   status: 'pending' | 'cancelled';
 };
 
+const THUMBNAIL_PARENT_CANCELLED_AFTER_ENQUEUE_MESSAGE =
+  'Parent product generation was cancelled before thumbnail request execution.';
+
 @Injectable()
 export class ThumbnailGenerationJobService {
   private readonly logger = new Logger(ThumbnailGenerationJobService.name);
@@ -422,12 +425,75 @@ export class ThumbnailGenerationJobService {
       throw new BadRequestException(errorMessage);
     }
 
+    if (
+      isParentProductGenerationAlertLink(operationAlert) &&
+      enqueueResult.requestId &&
+      await this.shouldCancelParentThumbnailRequestAfterEnqueue({
+        organizationId: input.organizationId,
+        parentOperationKey: operationAlert.parentOperationKey,
+        generationId: generation.id,
+      })
+    ) {
+      await this.agentRunner.cancelRequest?.({
+        organizationId: input.organizationId,
+        requestId: enqueueResult.requestId,
+        reason: THUMBNAIL_PARENT_CANCELLED_AFTER_ENQUEUE_MESSAGE,
+        actorUserId: input.triggeredByUserId,
+      });
+      const change = await markGenerationCancelled(
+        this.prisma,
+        generation.id,
+        input.organizationId,
+      );
+      if (change) {
+        await this.emitStatusChange({
+          organizationId: input.organizationId,
+          generationId: generation.id,
+          fromStatus: change.fromStatus,
+          toStatus: 'cancelled',
+          fromPhase: change.fromPhase,
+          toPhase: null,
+          actorUserId: input.triggeredByUserId,
+          payload: {
+            reason: THUMBNAIL_PARENT_CANCELLED_AFTER_ENQUEUE_MESSAGE,
+          },
+        });
+      }
+      return { generationId: generation.id, status: 'cancelled' };
+    }
+
     this.kickEnqueuedAgentRequest({
       organizationId: input.organizationId,
       requestId: enqueueResult.requestId,
     });
 
     return { generationId: generation.id, status: 'pending' };
+  }
+
+  private async shouldCancelParentThumbnailRequestAfterEnqueue(input: {
+    organizationId: string;
+    parentOperationKey: string;
+    generationId: string;
+  }): Promise<boolean> {
+    const [parentAcceptsChildren, generation] = await Promise.all([
+      this.productGenerationAlerts.canStartChild({
+        organizationId: input.organizationId,
+        parentOperationKey: input.parentOperationKey,
+      }),
+      this.prisma.thumbnailGeneration.findFirst({
+        where: {
+          id: input.generationId,
+          organizationId: input.organizationId,
+          isDeleted: false,
+        },
+        select: { status: true },
+      }),
+    ]);
+    return (
+      !parentAcceptsChildren ||
+      !generation ||
+      !['pending', 'running'].includes(generation.status)
+    );
   }
 
   async enqueueStandaloneGeneration(

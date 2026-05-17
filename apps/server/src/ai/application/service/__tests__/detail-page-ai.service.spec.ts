@@ -35,6 +35,7 @@ function makeProductGenerationAlertsStub(): ProductGenerationAlertService {
   return {
     start: vi.fn().mockResolvedValue({}),
     recordChildStarted: vi.fn().mockResolvedValue({ status: 'started', alert: {} }),
+    canStartChild: vi.fn().mockResolvedValue(true),
     markChildFinished: vi.fn().mockResolvedValue({}),
   } as unknown as ProductGenerationAlertService;
 }
@@ -54,6 +55,13 @@ function makeAgentRunnerStub(
       executed: true,
       requestId: result.requestId,
       runId: 'agent-run',
+    }),
+    cancelRequest: vi.fn().mockResolvedValue({
+      ok: true,
+      cancelledRequests: 1,
+      cancelledRuns: 0,
+      skippedRequests: 0,
+      skippedRuns: 0,
     }),
     cancelBySource: vi.fn().mockResolvedValue({
       ok: true,
@@ -487,6 +495,51 @@ describe('DetailPageAiService', () => {
       }),
     });
     expect(agentRunner.runByType).not.toHaveBeenCalled();
+  });
+
+  it('cancels the detail Agent OS request when parent is cancelled after child registration', async () => {
+    const prisma = makePrisma();
+    const operationAlerts = makeOperationAlertsStub();
+    const productGenerationAlerts = makeProductGenerationAlertsStub();
+    productGenerationAlerts.canStartChild = vi.fn().mockResolvedValue(false);
+    const agentRunner = makeAgentRunnerStub();
+    const service = makeGenerationService({
+      prisma,
+      operationAlerts,
+      productGenerationAlerts,
+      agentRunner,
+    });
+
+    await service.generate(
+      {
+        productId: MASTER_ID,
+        templateId: 'bold-vertical',
+        rawTitle: '휴대용목걸이비눗방울',
+        rawCategory: '완구',
+        rawDescription: '아이들이 가지고 놀기 좋은 장난감',
+        rawOptions: '혼합 색상 / 사이즈 85*60mm',
+        imageUrls: ['https://example.com/detail-1.jpg'],
+      },
+      ORGANIZATION_ID,
+      USER_ID,
+      {
+        operationAlert: {
+          mode: 'parent',
+          batchId: 'batch-1',
+          parentOperationKey: 'product-generation:batch-1',
+          childKind: 'detail_page',
+        },
+      },
+    );
+
+    expect(agentRunner.runByType).toHaveBeenCalled();
+    expect(agentRunner.cancelRequest).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      requestId: REQUEST_ID,
+      reason: 'Parent product generation was cancelled before detail request execution.',
+      actorUserId: USER_ID,
+    });
+    expect(agentRunner.executeRequest).not.toHaveBeenCalled();
   });
 
   it('routes parent-mode detail enqueue failures to the product generation parent alert', async () => {

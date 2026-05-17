@@ -85,6 +85,8 @@ const DETAIL_PAGE_TERMINAL_STATUSES = new Set([
   'cancelled',
 ]);
 const DETAIL_PAGE_CANCELLED_MESSAGE = '사용자 요청으로 생성이 중단되었습니다.';
+const DETAIL_PAGE_PARENT_CANCELLED_AFTER_ENQUEUE_MESSAGE =
+  'Parent product generation was cancelled before detail request execution.';
 const DETAIL_PAGE_IMAGE_REQUIRED_MESSAGE = '상세페이지 생성에는 상품 이미지가 최소 1장 필요합니다.';
 
 @Injectable()
@@ -463,12 +465,63 @@ export class DetailPageGenerationService {
       throw new HttpException(errorMessage, HttpStatus.SERVICE_UNAVAILABLE);
     }
 
+    if (
+      isParentProductGenerationAlertLink(input.operationAlert) &&
+      enqueueResult.requestId &&
+      await this.shouldCancelParentDetailRequestAfterEnqueue({
+        organizationId: input.organizationId,
+        parentOperationKey: input.operationAlert.parentOperationKey,
+        generationId: row.id,
+      })
+    ) {
+      await this.agentRunner.cancelRequest?.({
+        organizationId: input.organizationId,
+        requestId: enqueueResult.requestId,
+        reason: DETAIL_PAGE_PARENT_CANCELLED_AFTER_ENQUEUE_MESSAGE,
+        actorUserId: input.triggeredByUserId,
+      });
+      await this.prisma.contentGeneration.updateMany({
+        where: {
+          id: row.id,
+          organizationId: input.organizationId,
+          status: { in: DETAIL_PAGE_PROCESSING_STATUSES },
+        },
+        data: {
+          status: 'CANCELLED',
+          errorMessage: DETAIL_PAGE_PARENT_CANCELLED_AFTER_ENQUEUE_MESSAGE,
+        },
+      });
+      return this.query.getById(row.id, input.organizationId);
+    }
+
     this.kickEnqueuedAgentRequest({
       organizationId: input.organizationId,
       requestId: enqueueResult.requestId,
     });
 
     return this.query.getById(row.id, input.organizationId);
+  }
+
+  private async shouldCancelParentDetailRequestAfterEnqueue(input: {
+    organizationId: string;
+    parentOperationKey: string;
+    generationId: string;
+  }): Promise<boolean> {
+    const [parentAcceptsChildren, child] = await Promise.all([
+      this.productGenerationAlerts.canStartChild({
+        organizationId: input.organizationId,
+        parentOperationKey: input.parentOperationKey,
+      }),
+      this.prisma.contentGeneration.findFirst({
+        where: { id: input.generationId, organizationId: input.organizationId },
+        select: { status: true },
+      }),
+    ]);
+    return (
+      !parentAcceptsChildren ||
+      !child ||
+      !DETAIL_PAGE_PROCESSING_STATUSES.includes(child.status)
+    );
   }
 
   async rerunSameInput(
