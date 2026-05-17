@@ -37,10 +37,10 @@ export function getGeneratedThumbnailOptions(input: {
 }
 
 export function classifyProductWingStatus(input: {
-  hasRegistrationWorkspace: boolean;
+  hasContentWorkspace: boolean;
   generations: ThumbnailWorkspaceGeneration[];
 }): ProductWingStatus {
-  if (!input.hasRegistrationWorkspace) {
+  if (!input.hasContentWorkspace) {
     return { kind: 'disabled', label: '상품 등록 후 Wing 업로드 가능' };
   }
   const applied = input.generations.find(

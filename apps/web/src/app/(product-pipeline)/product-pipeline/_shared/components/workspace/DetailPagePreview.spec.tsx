@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import DetailPagePreview from './DetailPagePreview';
@@ -84,6 +84,16 @@ function renderWithQueryClient(ui: React.ReactElement) {
   );
 }
 
+const mobilePreviewData = {
+  name: '테스트 상품',
+  mainImage: 'https://cdn.example.com/product.jpg',
+  salePrice: 17000,
+  originalPrice: 20000,
+  discountRate: 15,
+  rating: 4.7,
+  reviewCount: 123,
+};
+
 describe('DetailPagePreview', () => {
   it('shows an empty state when the workspace has history but no saved current detail page', () => {
     renderWithQueryClient(
@@ -111,6 +121,7 @@ describe('DetailPagePreview', () => {
         ]}
         generationHistoryQueryEnabled={false}
         detailEditorReturnHref="/product-pipeline/registered-products/workspace-1"
+        mobilePreviewData={mobilePreviewData}
       />,
     );
 
@@ -158,6 +169,7 @@ describe('DetailPagePreview', () => {
         generationHistoryQueryEnabled={false}
         detailEditorSourceCandidateId="candidate-1"
         detailEditorReturnHref="/product-pipeline/collected-products/candidate-1"
+        mobilePreviewData={mobilePreviewData}
       />,
     );
 
@@ -194,6 +206,7 @@ describe('DetailPagePreview', () => {
         ]}
         generationHistoryQueryEnabled={false}
         detailEditorReturnHref="/product-pipeline/registered-products/workspace-1"
+        mobilePreviewData={mobilePreviewData}
       />,
     );
 
@@ -229,6 +242,7 @@ describe('DetailPagePreview', () => {
         generationHistoryQueryEnabled={false}
         detailEditorSourceCandidateId="candidate-1"
         detailEditorReturnHref="/product-pipeline/collected-products/candidate-1"
+        mobilePreviewData={mobilePreviewData}
       />,
     );
 
@@ -255,6 +269,7 @@ describe('DetailPagePreview', () => {
         generationHistoryQueryEnabled={false}
         detailEditorSourceCandidateId="candidate-1"
         detailEditorReturnHref="/product-pipeline/collected-products/candidate-1"
+        mobilePreviewData={mobilePreviewData}
       />,
     );
 
@@ -270,5 +285,51 @@ describe('DetailPagePreview', () => {
         iframe.getAttribute('title'),
       ),
     ).toEqual(['detail-page-preview', 'detail-minimap']);
+  });
+
+  it('defaults to full detail preview with minimap', () => {
+    renderWithQueryClient(
+      <DetailPagePreview
+        productId="candidate-1"
+        detailPreviewHtml="<html><body><p>full detail</p></body></html>"
+        editedHtml={null}
+        templateCss=""
+        hasSavedDetailPage
+        initialAgentHistory={[]}
+        generationHistoryQueryEnabled={false}
+        detailEditorSourceCandidateId="candidate-1"
+        detailEditorReturnHref="/product-pipeline/collected-products/candidate-1"
+        mobilePreviewData={mobilePreviewData}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: '상세 전체' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTitle('detail-page-preview')).toBeInTheDocument();
+    expect(screen.getByTitle('detail-minimap')).toBeInTheDocument();
+  });
+
+  it('can switch to registration mobile preview for the same selected detail html', () => {
+    renderWithQueryClient(
+      <DetailPagePreview
+        productId="candidate-1"
+        detailPreviewHtml="<html><body><p>등록 미리보기 상세 본문</p></body></html>"
+        editedHtml={null}
+        templateCss=""
+        hasSavedDetailPage
+        initialAgentHistory={[]}
+        generationHistoryQueryEnabled={false}
+        detailEditorSourceCandidateId="candidate-1"
+        detailEditorReturnHref="/product-pipeline/collected-products/candidate-1"
+        mobilePreviewData={mobilePreviewData}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '등록 미리보기' }));
+
+    expect(screen.queryByTitle('detail-minimap')).not.toBeInTheDocument();
+    expect(screen.getByTitle('mobile-registration-detail-preview')).toHaveAttribute(
+      'srcdoc',
+      expect.stringContaining('등록 미리보기 상세 본문'),
+    );
   });
 });

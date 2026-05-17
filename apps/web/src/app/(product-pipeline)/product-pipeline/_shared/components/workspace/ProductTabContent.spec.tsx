@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ProductTabContent from './ProductTabContent';
 import type { ProductEditState } from '../../lib/product-workspace-types';
@@ -40,8 +40,20 @@ vi.mock('../../hooks/useGenerateSourcingThumbnail', () => ({
 }));
 
 vi.mock('./thumbnail/ThumbnailWorkspaceTab', () => ({
-  default: ({ selectedRegistrationThumbnailUrl }: { selectedRegistrationThumbnailUrl?: string | null }) => (
-    <div data-testid="thumbnail-workspace-tab">{selectedRegistrationThumbnailUrl ?? 'none'}</div>
+  default: ({
+    selectedRegistrationThumbnailUrl,
+    onPreviewThumbnail,
+  }: {
+    selectedRegistrationThumbnailUrl?: string | null;
+    onPreviewThumbnail?: (url: string | null) => void;
+  }) => (
+    <button
+      type="button"
+      data-testid="thumbnail-workspace-tab"
+      onClick={() => onPreviewThumbnail?.('https://cdn.example.com/preview.jpg')}
+    >
+      {selectedRegistrationThumbnailUrl ?? 'none'}
+    </button>
   ),
 }));
 
@@ -88,6 +100,43 @@ const baseProps = {
   thumbnailGenerationReturnHref: '/product-pipeline/collected-products/candidate-1',
   thumbnailUrl: null,
   updateField: vi.fn(),
+  mobilePreviewData: {
+    name: '테스트 상품',
+    mainImage: 'https://cdn.example.com/product.jpg',
+    salePrice: 0,
+    originalPrice: 0,
+    discountRate: 0,
+    rating: 0,
+    reviewCount: 0,
+  },
+  onPreviewThumbnail: vi.fn(),
+};
+
+const basicInfo = {
+  name: '테스트 상품',
+  category: '완구 > 보드게임',
+  description: '기존 설명',
+  target: '초등학생',
+  ageGroup: 'age-8-plus',
+  tags: ['자석'],
+  keywords: ['자석완구'],
+  optionNames: ['단품'],
+  kcCertificationStatus: 'unknown',
+  kcCertificationNumber: '',
+  productSize: '높이: 30cm',
+  colorVariantStatus: 'single',
+  colorVariantNames: '빨강',
+  boxSetStatus: 'box',
+  boxSetQuantity: '1박스',
+  originalPrice: 15900,
+  salePrice: 12900,
+  discountRate: 19,
+  thumbnailUrls: ['https://cdn.example.com/product.jpg'],
+  selectedThumbnailUrl: null,
+  selectedThumbnailGenerationCandidateId: null,
+  selectedDetailPageGenerationId: null,
+  selectedDetailPageArtifactId: null,
+  selectedDetailPageRevisionId: null,
 };
 
 describe('ProductTabContent', () => {
@@ -115,7 +164,7 @@ describe('ProductTabContent', () => {
     );
   });
 
-  it('passes registration workspace history into the detail page workspace tab', () => {
+  it('passes content workspace history into the detail page workspace tab', () => {
     render(
       <ProductTabContent
         {...baseProps}
@@ -147,5 +196,62 @@ describe('ProductTabContent', () => {
 
     expect(screen.queryByTestId('thumbnail-generation')).not.toBeInTheDocument();
     expect(screen.queryByTestId('thumbnail-editor')).not.toBeInTheDocument();
+  });
+
+  it('keeps basic edit controls outside the product information section', () => {
+    render(<ProductTabContent {...baseProps} />);
+
+    const editButton = screen.getByRole('button', { name: '수정' });
+    const productInfoSection = screen.getByRole('heading', { name: '상품 정보' }).closest('section');
+
+    expect(productInfoSection).not.toContainElement(editButton);
+
+    fireEvent.click(editButton);
+
+    expect(screen.getByLabelText('상품명')).toHaveValue('테스트 상품');
+  });
+
+  it('saves basic information edits from the screen-level toolbar', () => {
+    const onCommitBasicInfo = vi.fn();
+    const updateField = vi.fn();
+
+    render(
+      <ProductTabContent
+        {...baseProps}
+        basicInfo={basicInfo}
+        onCommitBasicInfo={onCommitBasicInfo}
+        updateField={updateField}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '수정' }));
+    fireEvent.change(screen.getByLabelText('상품 설명'), { target: { value: '수정 설명' } });
+    fireEvent.change(screen.getByLabelText('판매가'), { target: { value: '13900' } });
+    fireEvent.change(screen.getByLabelText('검색 키워드'), { target: { value: '자석완구, 다트게임' } });
+    fireEvent.click(screen.getByRole('button', { name: '저장' }));
+
+    expect(onCommitBasicInfo).toHaveBeenCalledWith(expect.objectContaining({
+      description: '수정 설명',
+      salePrice: 13900,
+      keywords: ['자석완구', '다트게임'],
+    }));
+    expect(updateField).toHaveBeenCalledWith('salePrice', 13900);
+    expect(screen.queryByLabelText('상품 설명')).not.toBeInTheDocument();
+  });
+
+  it('passes thumbnail preview selection up from the thumbnail tab', () => {
+    const onPreviewThumbnail = vi.fn();
+
+    render(
+      <ProductTabContent
+        {...baseProps}
+        activeTab="thumbnail"
+        onPreviewThumbnail={onPreviewThumbnail}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('thumbnail-workspace-tab'));
+
+    expect(onPreviewThumbnail).toHaveBeenCalledWith('https://cdn.example.com/preview.jpg');
   });
 });

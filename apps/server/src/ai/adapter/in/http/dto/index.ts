@@ -7,15 +7,18 @@ export {
   GenerateDetailPageBodyDto,
   PrefillDetailPageBodyDto,
 } from './detail-page-generate.dto';
-export { SaveDetailPageEditedHtmlDto } from './detail-page-editor.dto';
+export {
+  RenameDetailPageVersionDto,
+  SaveDetailPageEditedHtmlDto,
+} from './detail-page-editor.dto';
 export { ListContentAssetsQueryDto } from './content-asset.dto';
 export {
   AttachContentGroupToProductDto,
   ListContentArchiveQueryDto,
 } from './content-archive.dto';
 export {
-  CreateRegistrationWorkspaceDto,
-  DuplicateRegistrationWorkspaceQueryDto,
-  ListRegistrationWorkspacesQueryDto,
-  SelectRegistrationWorkspaceDetailPageDto,
-} from './registration-workspace.dto';
+  CreateContentWorkspaceDto,
+  DuplicateContentWorkspaceQueryDto,
+  ListContentWorkspacesQueryDto,
+  SelectContentWorkspaceDetailPageDto,
+} from './content-workspace.dto';

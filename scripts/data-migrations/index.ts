@@ -8,6 +8,8 @@ import { backfillSourcingCandidateImages } from './v0.1.1/003_backfill_sourcing_
 import { backfillGeneratedContentCandidates } from './v0.1.1/004_backfill_generated_content_candidates';
 import { rewriteProductContentRouteHrefs } from './v0.1.1/005_rewrite_product_content_route_hrefs';
 import { backfillRegistrationWorkspaces } from './v0.1.1/006_backfill_registration_workspaces';
+import { backfillChannelListingAccounts } from './v0.1.2/001_backfill_channel_listing_accounts';
+import { renameRegistrationWorkspacesToContentWorkspaces } from './v0.1.2/002_rename_registration_workspaces_to_content_workspaces';
 import type { DataMigration } from './types';
 
 export {
@@ -30,6 +32,8 @@ export const dataMigrations: readonly DataMigration[] = [
   backfillGeneratedContentCandidates,
   rewriteProductContentRouteHrefs,
   backfillRegistrationWorkspaces,
+  backfillChannelListingAccounts,
+  renameRegistrationWorkspacesToContentWorkspaces,
 ];
 
 export const DATA_MIGRATION_IDS = Object.freeze(

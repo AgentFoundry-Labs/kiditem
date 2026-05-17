@@ -7,12 +7,14 @@ import type { RegistrationThumbnailOption } from '@/app/(product-pipeline)/produ
 interface ProductThumbnailResultsProps {
   options: RegistrationThumbnailOption[];
   selectedRegistrationThumbnailUrl: string | null;
-  onSelectRegistrationThumbnail: (url: string | null) => void;
+  onPreviewThumbnail: (url: string | null) => void;
+  onSelectRegistrationThumbnail: (option: RegistrationThumbnailOption) => void;
 }
 
 export default function ProductThumbnailResults({
   options,
   selectedRegistrationThumbnailUrl,
+  onPreviewThumbnail,
   onSelectRegistrationThumbnail,
 }: ProductThumbnailResultsProps) {
   return (
@@ -24,7 +26,7 @@ export default function ProductThumbnailResults({
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
-          {options.map((option) => {
+          {options.map((option, index) => {
             const selected = selectedRegistrationThumbnailUrl === option.url;
             return (
               <div
@@ -34,9 +36,16 @@ export default function ProductThumbnailResults({
                   selected
                     ? 'border-emerald-500 ring-2 ring-emerald-200'
                     : 'border-slate-200',
-                )}
+                  )}
               >
-                <img src={option.url} alt="" className="h-full w-full object-cover" />
+                <button
+                  type="button"
+                  onClick={() => onPreviewThumbnail(option.url)}
+                  className="absolute inset-0"
+                  aria-label={`생성 결과 미리보기 ${index + 1}`}
+                >
+                  <img src={option.url} alt="" className="h-full w-full object-cover" />
+                </button>
                 {selected ? (
                   <span className="absolute bottom-0 left-0 right-0 bg-emerald-600 py-1 text-center text-[11px] font-bold text-white">
                     <CheckCircle2 size={12} className="mr-1 inline-block" />
@@ -45,8 +54,8 @@ export default function ProductThumbnailResults({
                 ) : (
                   <button
                     type="button"
-                    onClick={() => onSelectRegistrationThumbnail(option.url)}
-                    className="absolute bottom-1 left-1 right-1 rounded-md bg-white/95 px-2 py-1 text-[11px] font-bold text-emerald-700 shadow-sm hover:bg-emerald-50"
+                    onClick={() => onSelectRegistrationThumbnail(option)}
+                    className="absolute bottom-1 left-1 right-1 z-10 rounded-md bg-white/95 px-2 py-1 text-[11px] font-bold text-emerald-700 shadow-sm hover:bg-emerald-50"
                   >
                     등록 대표로 사용
                   </button>

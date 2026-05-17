@@ -39,7 +39,7 @@ export interface ProductGenerationAiResult {
   parentOperationKey: string;
   detailGenerationId: string | null;
   thumbnailGenerationId: string | null;
-  registrationWorkspaceId: string | null;
+  contentWorkspaceId: string | null;
   href: string;
 }
 

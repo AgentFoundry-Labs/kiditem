@@ -15,7 +15,7 @@ import { DetailPageEditorController } from './adapter/in/http/detail-page-editor
 import { DetailPageGenerationController } from './adapter/in/http/detail-page-generation.controller';
 import { DetailPageReconcileController } from './adapter/in/http/detail-page-reconcile.controller';
 import { RenderImageController } from './adapter/in/http/render-image.controller';
-import { RegistrationWorkspaceController } from './adapter/in/http/registration-workspace.controller';
+import { ContentWorkspaceController } from './adapter/in/http/content-workspace.controller';
 import { TextAiController } from './adapter/in/http/text-ai.controller';
 import { ThumbnailAnalysisController } from './adapter/in/http/thumbnail-analysis.controller';
 import { ThumbnailAnalysisEditJobsController } from './adapter/in/http/thumbnail-analysis-edit-jobs.controller';
@@ -85,7 +85,7 @@ import { ThumbnailWingService } from './application/service/thumbnail-wing.servi
 import { ContentArchiveService } from './application/service/content-archive.service';
 import { ContentGenerationRerunService } from './application/service/content-generation-rerun.service';
 import { ContentWorkspaceAttachmentService } from './application/service/content-workspace-attachment.service';
-import { RegistrationWorkspaceService } from './application/service/registration-workspace.service';
+import { ContentWorkspaceService } from './application/service/content-workspace.service';
 import { SourcingWorkspaceArchiveService } from './application/service/sourcing-workspace-archive.service';
 
 // application/port — in
@@ -121,7 +121,7 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     DetailPageGenerationController,
     DetailPageReconcileController,
     ImageAiController,
-    RegistrationWorkspaceController,
+    ContentWorkspaceController,
     RenderImageController,
     TextAiController,
     ThumbnailAnalysisController,
@@ -145,7 +145,7 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     ContentAssetService,
     ContentGenerationRerunService,
     ContentWorkspaceAttachmentService,
-    RegistrationWorkspaceService,
+    ContentWorkspaceService,
     SourcingWorkspaceArchiveService,
     DetailPageGeneratedImagesService,
     DetailPageHeroImageService,

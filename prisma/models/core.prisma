@@ -34,7 +34,8 @@ model Organization {
   contentGenerationSources     ContentGenerationSource[]
   contentAssets                ContentAsset[]
   contentGenerationAssetUsages ContentGenerationAssetUsage[]
-  registrationWorkspaces       RegistrationWorkspace[]
+  contentWorkspaces       ContentWorkspace[]
+  productPreparations          ProductPreparation[]
   detailPageArtifacts          DetailPageArtifact[]
   detailPageRevisions          DetailPageRevision[]
 
@@ -159,7 +160,8 @@ model User {
   thumbnailGenerationEvents      ThumbnailGenerationEvent[] @relation("ThumbnailGenerationEventActor")
   triggeredContentGenerations    ContentGeneration[]        @relation("ContentGenerationTriggeredBy")
   createdContentAssets           ContentAsset[]             @relation("ContentAssetCreatedBy")
-  createdRegistrationWorkspaces  RegistrationWorkspace[]    @relation("RegistrationWorkspaceCreatedBy")
+  createdContentWorkspaces  ContentWorkspace[]    @relation("ContentWorkspaceCreatedBy")
+  createdProductPreparations     ProductPreparation[]       @relation("ProductPreparationCreatedBy")
   createdDetailPageArtifacts     DetailPageArtifact[]       @relation("DetailPageArtifactCreatedBy")
   createdDetailPageRevisions     DetailPageRevision[]       @relation("DetailPageRevisionCreatedBy")
   actorAlerts                    Alert[]                    @relation("AlertActor")
@@ -244,7 +246,8 @@ model ChannelAccount {
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  listings     ChannelListing[]
 
   @@unique([organizationId, channel, externalAccountId])
   @@index([organizationId, channel])
@@ -330,7 +333,8 @@ model MasterProduct {
 
   contentGenerationGroups ContentGenerationGroup[]
   detailPageArtifacts     DetailPageArtifact[]     @relation("DetailPageArtifactTargetMaster")
-  registrationWorkspaces  RegistrationWorkspace[]  @relation("RegistrationWorkspaceTargetMaster")
+  contentWorkspaces  ContentWorkspace[]  @relation("ContentWorkspaceTargetMaster")
+  productPreparations     ProductPreparation[]
   thumbnailAnalyses       ThumbnailAnalysis[]
   thumbnailGenerations    ThumbnailGeneration[]
   gradeHistory            GradeHistory[]
@@ -476,9 +480,10 @@ model ProductOption {
 /// @namespace Core
 /// @describe 채널에 올라간 판매 등록상품. 쿠팡 등록상품ID, 네이버 상품번호 등.
 model ChannelListing {
-  id             String @id @default(uuid()) @db.Uuid
-  masterId       String @map("master_id") @db.Uuid
-  organizationId String @map("organization_id") @db.Uuid
+  id               String  @id @default(uuid()) @db.Uuid
+  masterId         String  @map("master_id") @db.Uuid
+  organizationId   String  @map("organization_id") @db.Uuid
+  channelAccountId String? @map("channel_account_id") @db.Uuid
 
   channel    String
   externalId String @map("external_id")
@@ -500,9 +505,10 @@ model ChannelListing {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  master       MasterProduct          @relation(fields: [masterId], references: [id], onDelete: Restrict)
-  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  options      ChannelListingOption[]
+  master         MasterProduct          @relation(fields: [masterId], references: [id], onDelete: Restrict)
+  organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channelAccount ChannelAccount?        @relation(fields: [channelAccountId], references: [id], onDelete: SetNull)
+  options        ChannelListingOption[]
 
   reviews            Review[]
   thumbnails         Thumbnail[]
@@ -522,11 +528,16 @@ model ChannelListing {
   // Channels — daily fact extensions (Hard rewrite H1)
   channelAdTargetDailySnapshots ChannelAdTargetDailySnapshot[]
 
-  @@unique([organizationId, channel, externalId], map: "channel_listings_organization_id_channel_external_id_key", where: raw("is_deleted = false"))
+  @@unique([organizationId, channelAccountId, externalId], map: "channel_listings_org_account_external_id_key", where: raw("is_deleted = false AND channel_account_id IS NOT NULL"))
   @@index([organizationId])
   @@index([masterId])
+  @@index([channelAccountId])
   @@index([channel, isDeleted])
   @@index([masterId, isDeleted])
+  @@index([organizationId, channelAccountId, isDeleted])
+  @@index([organizationId, channel, isDeleted])
+  @@index([organizationId, masterId, isDeleted])
+  @@index([organizationId, isDeleted, updatedAt, id])
   @@index([channel])
   @@map("channel_listings")
 }

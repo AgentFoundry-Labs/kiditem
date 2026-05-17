@@ -70,7 +70,7 @@ export function ThumbnailEditorWorkspace({
   const router = useRouter();
   const productId = searchParams.get('productId');
   const sourceCandidateId = searchParams.get('sourceCandidateId');
-  const registrationWorkspaceId = searchParams.get('registrationWorkspaceId');
+  const contentWorkspaceId = searchParams.get('contentWorkspaceId');
   const imageUrlParam = searchParams.get('imageUrl');
   const uploadKeyParam = searchParams.get('uploadKey');
   const productNameParam = searchParams.get('productName')?.trim() ?? '';
@@ -253,11 +253,11 @@ export function ThumbnailEditorWorkspace({
    */
   useEffect(() => {
     if (generationId || generationIdParam) return; // 이미 있으면 skip
-    if (!productId && !sourceCandidateId && !registrationWorkspaceId) return;
+    if (!productId && !sourceCandidateId && !contentWorkspaceId) return;
     const activeGen = pollingGenerations.find(
       (g) =>
-        (registrationWorkspaceId
-          ? g.registrationWorkspaceId === registrationWorkspaceId
+        (contentWorkspaceId
+          ? g.contentWorkspaceId === contentWorkspaceId
           : productId
             ? g.productId === productId
             : g.sourceCandidateId === sourceCandidateId) &&
@@ -270,10 +270,10 @@ export function ThumbnailEditorWorkspace({
       router.replace(`?${next.toString()}`, { scroll: false });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [productId, sourceCandidateId, registrationWorkspaceId, pollingGenerations.length, generationId, generationIdParam]);
+  }, [productId, sourceCandidateId, contentWorkspaceId, pollingGenerations.length, generationId, generationIdParam]);
 
   const { historyCandidates, recommendedCandidateUrl } = useEditorHistory({
-    productId, sourceCandidateId, registrationWorkspaceId, mode, result, generationId,
+    productId, sourceCandidateId, contentWorkspaceId, mode, result, generationId,
     selectedCandidateUrl, setSelectedCandidateUrl,
   });
 
@@ -319,7 +319,7 @@ export function ThumbnailEditorWorkspace({
       const dto = buildGenerateThumbnailDto({
         mode,
         slots,
-        subject: thumbnailSubjectFromParams({ productId, sourceCandidateId, registrationWorkspaceId }),
+        subject: thumbnailSubjectFromParams({ productId, sourceCandidateId, contentWorkspaceId }),
         productId,
         sourceCandidateId,
         supplementaryLabel,
@@ -553,7 +553,7 @@ export function ThumbnailEditorWorkspace({
     }
   };
 
-  const hasInput = !!productId || !!sourceCandidateId || !!registrationWorkspaceId || hasInputSlotFilled;
+  const hasInput = !!productId || !!sourceCandidateId || !!contentWorkspaceId || hasInputSlotFilled;
 
   // NOTE: 예전에는 imageUrl+productId+mode+editCase 쿼리가 있으면 자동으로 handleGenerate 를 호출했다.
   // 하지만 이 동작이 두 가지 UX 문제를 일으켰다:

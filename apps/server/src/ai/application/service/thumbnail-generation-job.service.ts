@@ -71,7 +71,7 @@ export interface ThumbnailEditorGenerationEnqueueInput {
   organizationId: string;
   productId: string;
   productName: string;
-  registrationWorkspaceId?: string | null;
+  contentWorkspaceId?: string | null;
   triggeredByUserId: string | null;
   inputs: ThumbnailEditorInputImage[];
   inputMeta: Prisma.InputJsonValue;
@@ -84,7 +84,7 @@ export interface ThumbnailCandidateGenerationEnqueueInput {
   organizationId: string;
   sourceCandidateId: string;
   productName: string | null;
-  registrationWorkspaceId?: string | null;
+  contentWorkspaceId?: string | null;
   triggeredByUserId: string | null;
   inputs: ThumbnailEditorInputImage[];
   inputMeta: Prisma.InputJsonValue;
@@ -97,7 +97,7 @@ export interface ThumbnailCandidateGenerationEnqueueInput {
 export interface ThumbnailStandaloneGenerationEnqueueInput {
   organizationId: string;
   productName: string | null;
-  registrationWorkspaceId?: string | null;
+  contentWorkspaceId?: string | null;
   triggeredByUserId: string | null;
   inputs: ThumbnailEditorInputImage[];
   inputMeta: Prisma.InputJsonValue;
@@ -132,7 +132,7 @@ export class ThumbnailGenerationJobService {
       method: input.method,
       inputMeta: input.inputMeta,
       editAnalysis: null,
-      registrationWorkspaceId: input.registrationWorkspaceId ?? null,
+      contentWorkspaceId: input.contentWorkspaceId ?? null,
       triggeredByUserId: input.triggeredByUserId,
     });
 
@@ -153,13 +153,13 @@ export class ThumbnailGenerationJobService {
       payload: {
         method: input.method,
         productId: input.productId,
-        registrationWorkspaceId: input.registrationWorkspaceId ?? null,
+        contentWorkspaceId: input.contentWorkspaceId ?? null,
         inputCount: input.inputs.length,
       },
     });
 
     const alertTarget = this.alertTarget({
-      registrationWorkspaceId: input.registrationWorkspaceId ?? null,
+      contentWorkspaceId: input.contentWorkspaceId ?? null,
       fallbackTargetType: 'master',
       fallbackTargetId: input.productId,
       fallbackHref: this.thumbnailGenerationHref(generation.id),
@@ -178,7 +178,7 @@ export class ThumbnailGenerationJobService {
       metadata: {
         method: input.method,
         inputCount: input.inputs.length,
-        registrationWorkspaceId: input.registrationWorkspaceId ?? null,
+        contentWorkspaceId: input.contentWorkspaceId ?? null,
       },
     });
 
@@ -274,7 +274,7 @@ export class ThumbnailGenerationJobService {
       originalUrl: input.originalUrl,
       method: input.method,
       inputMeta: inputMeta as Prisma.InputJsonValue,
-      registrationWorkspaceId: input.registrationWorkspaceId ?? null,
+      contentWorkspaceId: input.contentWorkspaceId ?? null,
       triggeredByUserId: input.triggeredByUserId,
     });
 
@@ -297,7 +297,7 @@ export class ThumbnailGenerationJobService {
       payload: {
         method: input.method,
         sourceCandidateId: input.sourceCandidateId,
-        registrationWorkspaceId: input.registrationWorkspaceId ?? null,
+        contentWorkspaceId: input.contentWorkspaceId ?? null,
         inputCount: inputImages.length,
       },
     });
@@ -311,7 +311,7 @@ export class ThumbnailGenerationJobService {
       });
     } else {
       const alertTarget = this.alertTarget({
-        registrationWorkspaceId: input.registrationWorkspaceId ?? null,
+        contentWorkspaceId: input.contentWorkspaceId ?? null,
         fallbackTargetType: 'sourcing_candidate',
         fallbackTargetId: input.sourceCandidateId,
         fallbackHref: `/product-pipeline/collected-products/${encodeURIComponent(input.sourceCandidateId)}`,
@@ -330,7 +330,7 @@ export class ThumbnailGenerationJobService {
         metadata: {
           method: input.method,
           sourceCandidateId: input.sourceCandidateId,
-          registrationWorkspaceId: input.registrationWorkspaceId ?? null,
+          contentWorkspaceId: input.contentWorkspaceId ?? null,
           inputCount: inputImages.length,
         },
       });
@@ -407,7 +407,7 @@ export class ThumbnailGenerationJobService {
       originalUrl: input.originalUrl,
       method: input.method,
       inputMeta: input.inputMeta,
-      registrationWorkspaceId: input.registrationWorkspaceId ?? null,
+      contentWorkspaceId: input.contentWorkspaceId ?? null,
       triggeredByUserId: input.triggeredByUserId,
     });
 
@@ -428,13 +428,13 @@ export class ThumbnailGenerationJobService {
       payload: {
         method: input.method,
         inputCount: input.inputs.length,
-        registrationWorkspaceId: input.registrationWorkspaceId ?? null,
-        standalone: !input.registrationWorkspaceId,
+        contentWorkspaceId: input.contentWorkspaceId ?? null,
+        standalone: !input.contentWorkspaceId,
       },
     });
 
     const alertTarget = this.alertTarget({
-      registrationWorkspaceId: input.registrationWorkspaceId ?? null,
+      contentWorkspaceId: input.contentWorkspaceId ?? null,
       fallbackTargetType: 'thumbnail_generation',
       fallbackTargetId: generation.id,
       fallbackHref: this.thumbnailGenerationHref(generation.id),
@@ -453,8 +453,8 @@ export class ThumbnailGenerationJobService {
       metadata: {
         method: input.method,
         inputCount: input.inputs.length,
-        registrationWorkspaceId: input.registrationWorkspaceId ?? null,
-        standalone: !input.registrationWorkspaceId,
+        contentWorkspaceId: input.contentWorkspaceId ?? null,
+        standalone: !input.contentWorkspaceId,
       },
     });
 
@@ -754,21 +754,21 @@ export class ThumbnailGenerationJobService {
     return `/product-pipeline/thumbnail-generation/edit?generationId=${encodeURIComponent(generationId)}`;
   }
 
-  private registrationWorkspaceHref(registrationWorkspaceId: string): string {
-    return `/product-pipeline/registered-products/${encodeURIComponent(registrationWorkspaceId)}`;
+  private contentWorkspaceHref(contentWorkspaceId: string): string {
+    return `/product-pipeline/registered-products/${encodeURIComponent(contentWorkspaceId)}`;
   }
 
   private alertTarget(input: {
-    registrationWorkspaceId: string | null;
+    contentWorkspaceId: string | null;
     fallbackTargetType: string;
     fallbackTargetId: string;
     fallbackHref: string;
   }): { targetType: string; targetId: string; href: string } {
-    if (input.registrationWorkspaceId) {
+    if (input.contentWorkspaceId) {
       return {
-        targetType: 'registration_workspace',
-        targetId: input.registrationWorkspaceId,
-        href: this.registrationWorkspaceHref(input.registrationWorkspaceId),
+        targetType: 'content_workspace',
+        targetId: input.contentWorkspaceId,
+        href: this.contentWorkspaceHref(input.contentWorkspaceId),
       };
     }
     return {

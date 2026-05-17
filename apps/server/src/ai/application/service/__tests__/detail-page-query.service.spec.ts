@@ -7,6 +7,9 @@ const CANDIDATE_ID = '44444444-4444-4444-8444-444444444444';
 const ARTIFACT_ID = '55555555-5555-4555-8555-555555555555';
 const REVISION_ID = '66666666-6666-4666-8666-666666666666';
 const WORKSPACE_ID = '77777777-7777-4777-8777-777777777777';
+const DUPLICATE_ID = '88888888-8888-4888-8888-888888888888';
+const DUPLICATE_ARTIFACT_ID = '99999999-9999-4999-8999-999999999999';
+const DUPLICATE_REVISION_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
 function makeService(
   prisma: unknown,
@@ -54,7 +57,7 @@ describe('DetailPageQueryService edited HTML', () => {
           findFirst: vi.fn().mockResolvedValue({
             id: GENERATION_ID,
             generationGroupId: 'group-1',
-            registrationWorkspaceId: WORKSPACE_ID,
+            contentWorkspaceId: WORKSPACE_ID,
             detailPageArtifactId: null,
             generatedTitle: '소싱 상세페이지',
             sourceCandidateId: CANDIDATE_ID,
@@ -76,7 +79,7 @@ describe('DetailPageQueryService edited HTML', () => {
             createdAt: savedAt,
           }),
         },
-        registrationWorkspace: {
+        contentWorkspace: {
           updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         },
       };
@@ -97,7 +100,7 @@ describe('DetailPageQueryService edited HTML', () => {
       expect(prisma.detailPageArtifact.create).toHaveBeenCalledWith({
         data: {
           organizationId: ORG,
-          registrationWorkspaceId: WORKSPACE_ID,
+          contentWorkspaceId: WORKSPACE_ID,
           sourceCandidateId: CANDIDATE_ID,
           targetMasterId: null,
           sourceContentGenerationId: GENERATION_ID,
@@ -133,7 +136,7 @@ describe('DetailPageQueryService edited HTML', () => {
           status: 'draft',
         },
       });
-      expect(prisma.registrationWorkspace.updateMany).toHaveBeenCalledWith({
+      expect(prisma.contentWorkspace.updateMany).toHaveBeenCalledWith({
         where: { id: WORKSPACE_ID, organizationId: ORG, isDeleted: false },
         data: {
           currentDetailPageArtifactId: ARTIFACT_ID,
@@ -164,7 +167,7 @@ describe('DetailPageQueryService edited HTML', () => {
           findFirst: vi.fn().mockResolvedValue({
             id: GENERATION_ID,
             generationGroupId: 'group-1',
-            registrationWorkspaceId: WORKSPACE_ID,
+            contentWorkspaceId: WORKSPACE_ID,
             detailPageArtifactId: ARTIFACT_ID,
             generatedTitle: '소싱 상세페이지',
             sourceCandidateId: CANDIDATE_ID,
@@ -186,7 +189,7 @@ describe('DetailPageQueryService edited HTML', () => {
             createdAt: new Date('2026-05-13T10:30:00.000Z'),
           }),
         },
-        registrationWorkspace: {
+        contentWorkspace: {
           updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         },
       };
@@ -297,6 +300,187 @@ describe('DetailPageQueryService edited HTML', () => {
     await expect(service.getEditedHtml(GENERATION_ID, ORG)).resolves.toEqual({
       html: '<main>legacy</main>',
       savedAt: savedAt.toISOString(),
+    });
+  });
+});
+
+describe('DetailPageQueryService detail page version management', () => {
+  it('duplicates a detail page generation into an independent editable artifact and revision', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-17T01:00:00.000Z'));
+    try {
+      const sourceRevisionCreatedAt = new Date('2026-05-16T01:00:00.000Z');
+      const prisma = {
+        $transaction: vi.fn((callback) => callback(prisma)),
+        contentGeneration: {
+          findFirst: vi.fn().mockResolvedValueOnce({
+            id: GENERATION_ID,
+            organizationId: ORG,
+            generationGroupId: 'group-1',
+            contentWorkspaceId: WORKSPACE_ID,
+            sourceCandidateId: CANDIDATE_ID,
+            detailPageArtifactId: ARTIFACT_ID,
+            contentType: 'detail_page',
+            templateId: 'bold-vertical',
+            generationInput: { rawTitle: '원본 상품' },
+            generationResult: {
+              templateId: 'bold-vertical',
+              result: { hook: { text: '원본' } },
+              imageUrls: ['https://cdn.example.com/a.jpg'],
+              processedImages: {},
+            },
+            generatedTitle: '원본 상세페이지',
+            generatedDescription: 'desc',
+            generatedCopy: 'copy',
+            editedHtml: null,
+            editedHtmlSavedAt: null,
+            status: 'READY',
+            triggeredByUserId: 'source-user',
+            detailPageArtifact: {
+              id: ARTIFACT_ID,
+              title: '원본 상세페이지',
+              sourceCandidateId: CANDIDATE_ID,
+              targetMasterId: null,
+              currentRevision: {
+                id: REVISION_ID,
+                html: '<main>원본 HTML</main>',
+                assetUrlMap: { a: 'b' },
+                imageUrls: ['https://cdn.example.com/a.jpg'],
+                createdAt: sourceRevisionCreatedAt,
+              },
+            },
+            generationGroup: {
+              targetMasterId: null,
+            },
+          }),
+          create: vi.fn().mockResolvedValue({
+            id: DUPLICATE_ID,
+            generationGroup: { targetMasterId: null },
+          }),
+          updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+          findFirstOrThrow: vi.fn().mockResolvedValue({
+            id: DUPLICATE_ID,
+            generationGroup: { targetMasterId: null },
+            contentWorkspaceId: WORKSPACE_ID,
+            sourceCandidateId: CANDIDATE_ID,
+            detailPageArtifactId: DUPLICATE_ARTIFACT_ID,
+            contentType: 'detail_page',
+            templateId: 'bold-vertical',
+            generationInput: { rawTitle: '원본 상품' },
+            generationResult: {
+              templateId: 'bold-vertical',
+              result: { hook: { text: '원본' } },
+              imageUrls: ['https://cdn.example.com/a.jpg'],
+              processedImages: {},
+            },
+            generatedTitle: '원본 상세페이지 복사본',
+            status: 'READY',
+            errorMessage: null,
+            createdAt: new Date('2026-05-17T01:00:00.000Z'),
+          }),
+        },
+        detailPageArtifact: {
+          create: vi.fn().mockResolvedValue({ id: DUPLICATE_ARTIFACT_ID }),
+          updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        },
+        detailPageRevision: {
+          create: vi.fn().mockResolvedValue({
+            id: DUPLICATE_REVISION_ID,
+            html: '<main>원본 HTML</main>',
+            createdAt: new Date('2026-05-17T01:00:00.000Z'),
+          }),
+        },
+      };
+      const { service } = makeService(prisma);
+
+      await service.duplicateVersion(GENERATION_ID, ORG, 'operator-1');
+
+      expect(prisma.contentGeneration.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          organizationId: ORG,
+          contentType: 'detail_page',
+          generationGroupId: 'group-1',
+          contentWorkspaceId: WORKSPACE_ID,
+          sourceCandidateId: CANDIDATE_ID,
+          templateId: 'bold-vertical',
+          generationInput: { rawTitle: '원본 상품' },
+          generatedTitle: '원본 상세페이지 복사본',
+          status: 'READY',
+          triggeredByUserId: 'operator-1',
+        }),
+        include: expect.any(Object),
+      });
+      expect(prisma.detailPageArtifact.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          organizationId: ORG,
+          contentWorkspaceId: WORKSPACE_ID,
+          sourceCandidateId: CANDIDATE_ID,
+          targetMasterId: null,
+          sourceContentGenerationId: DUPLICATE_ID,
+          title: '원본 상세페이지 복사본',
+          status: 'draft',
+          createdByUserId: 'operator-1',
+          metadata: {
+            source: 'detail_page_version_duplicate',
+            sourceContentGenerationId: GENERATION_ID,
+            sourceDetailPageArtifactId: ARTIFACT_ID,
+            sourceDetailPageRevisionId: REVISION_ID,
+          },
+        }),
+        select: { id: true },
+      });
+      expect(prisma.detailPageRevision.create).toHaveBeenCalledWith({
+        data: {
+          organizationId: ORG,
+          artifactId: DUPLICATE_ARTIFACT_ID,
+          contentGenerationId: DUPLICATE_ID,
+          revisionType: 'duplicate',
+          html: '<main>원본 HTML</main>',
+          assetUrlMap: { a: 'b' },
+          imageUrls: ['https://cdn.example.com/a.jpg'],
+          createdByUserId: 'operator-1',
+        },
+        select: { id: true },
+      });
+      expect(prisma.contentGeneration.updateMany).toHaveBeenCalledWith({
+        where: { id: DUPLICATE_ID, organizationId: ORG },
+        data: { detailPageArtifactId: DUPLICATE_ARTIFACT_ID },
+      });
+      expect(prisma.detailPageArtifact.updateMany).toHaveBeenCalledWith({
+        where: { id: DUPLICATE_ARTIFACT_ID, organizationId: ORG },
+        data: { currentRevisionId: DUPLICATE_REVISION_ID },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('renames the detail page version title without changing generated content', async () => {
+    const prisma = {
+      contentGeneration: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: GENERATION_ID,
+          detailPageArtifactId: ARTIFACT_ID,
+        }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      detailPageArtifact: {
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+    const { service } = makeService(prisma);
+
+    await expect(
+      service.renameVersion(GENERATION_ID, ORG, '등록용 상세 v2'),
+    ).resolves.toEqual({ ok: true });
+
+    expect(prisma.contentGeneration.updateMany).toHaveBeenCalledWith({
+      where: { id: GENERATION_ID, organizationId: ORG, isDeleted: false },
+      data: { generatedTitle: '등록용 상세 v2' },
+    });
+    expect(prisma.detailPageArtifact.updateMany).toHaveBeenCalledWith({
+      where: { id: ARTIFACT_ID, organizationId: ORG, isDeleted: false },
+      data: { title: '등록용 상세 v2' },
     });
   });
 });

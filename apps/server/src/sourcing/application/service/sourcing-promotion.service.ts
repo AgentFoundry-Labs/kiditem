@@ -23,6 +23,9 @@ import type { RejectCandidateBodyDto } from '../../adapter/in/http/dto/reject-ca
 
 interface SelectedThumbnailImage {
   url: string;
+  generationId: string | null;
+  generationCandidateId: string | null;
+  contentWorkspaceId: string | null;
   storageKey: string | null;
   source: string;
   role: string;
@@ -128,20 +131,55 @@ export class SourcingPromotionService {
           );
         }
 
+        const existingPreparation = await tx.productPreparation.findFirst({
+          where: {
+            organizationId,
+            sourceCandidateId: candidateId,
+            isDeleted: false,
+          },
+          select: {
+            registrationInput: true,
+            selectedThumbnailUrl: true,
+            selectedThumbnailGenerationCandidateId: true,
+            selectedDetailPageGenerationId: true,
+            selectedDetailPageArtifactId: true,
+            selectedDetailPageRevisionId: true,
+          },
+        });
+        const preparedInput = this.jsonRecord(existingPreparation?.registrationInput);
+        const preparedName = this.stringValue(preparedInput.name ?? preparedInput.productName) ?? locked.name;
+        const preparedDescription =
+          this.stringValue(preparedInput.description) ?? locked.description;
+        const preparedCategory =
+          this.stringValue(preparedInput.category) ?? locked.category;
+        const preparedTags = this.stringArray(preparedInput.tags);
+
         const selectedThumbnail = await this.resolveSelectedThumbnail(tx, {
           organizationId,
           candidateId,
-          selectedThumbnailUrl: body.selectedThumbnailUrl,
-          selectedThumbnailGenerationCandidateId: body.selectedThumbnailGenerationCandidateId,
+          selectedThumbnailUrl: body.selectedThumbnailUrl ?? existingPreparation?.selectedThumbnailUrl ?? undefined,
+          selectedThumbnailGenerationCandidateId:
+            body.selectedThumbnailGenerationCandidateId ??
+            existingPreparation?.selectedThumbnailGenerationCandidateId ??
+            undefined,
         });
         const selectedThumbnailUrl = selectedThumbnail?.url ?? null;
 
         const selectedDetailPage = await this.resolveSelectedDetailPage(tx, {
           organizationId,
           candidateId,
-          contentGenerationId: body.selectedDetailPageGenerationId,
-          artifactId: body.selectedDetailPageArtifactId,
-          revisionId: body.selectedDetailPageRevisionId,
+          contentGenerationId:
+            body.selectedDetailPageGenerationId ??
+            existingPreparation?.selectedDetailPageGenerationId ??
+            undefined,
+          artifactId:
+            body.selectedDetailPageArtifactId ??
+            existingPreparation?.selectedDetailPageArtifactId ??
+            undefined,
+          revisionId:
+            body.selectedDetailPageRevisionId ??
+            existingPreparation?.selectedDetailPageRevisionId ??
+            undefined,
         });
         const promotionImages = this.buildPromotionImages(
           locked.images,
@@ -151,11 +189,11 @@ export class SourcingPromotionService {
         // 3. delegate master creation to products domain via the outgoing port.
         const promotionInput: PromoteCandidateInput = {
           candidateSnapshot: {
-            name: locked.name,
-            description: locked.description,
-            category: locked.category,
+            name: preparedName,
+            description: preparedDescription,
+            category: preparedCategory,
             brand: null,
-            tags: this.parseTags(locked.tags),
+            tags: preparedTags.length > 0 ? preparedTags : this.parseTags(locked.tags),
             thumbnailUrl: selectedThumbnailUrl ?? locked.thumbnailUrl,
             imageUrl: selectedThumbnailUrl ?? locked.imageUrl,
             sourceImages: promotionImages,
@@ -191,6 +229,24 @@ export class SourcingPromotionService {
             revisionId: selectedDetailPage.revisionId,
           });
         }
+
+        await this.upsertProductPreparation(tx, {
+          organizationId,
+          candidateId,
+          masterId: promotion.masterId,
+          displayName: preparedName,
+          existingRegistrationInput: preparedInput,
+          lockedCandidate: {
+            name: preparedName,
+            description: preparedDescription,
+            category: preparedCategory,
+            thumbnailUrl: locked.thumbnailUrl,
+            imageUrl: locked.imageUrl,
+          },
+          selectedThumbnail,
+          selectedDetailPage,
+          options: body.options,
+        });
 
         return {
           ...promotion,
@@ -273,6 +329,26 @@ export class SourcingPromotionService {
     return raw.filter((t): t is string => typeof t === 'string');
   }
 
+  private toJson(value: unknown): Prisma.InputJsonValue {
+    return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+  }
+
+  private jsonRecord(value: unknown): Record<string, unknown> {
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : {};
+  }
+
+  private stringValue(value: unknown): string | null {
+    return typeof value === 'string' && value.trim() ? value.trim() : null;
+  }
+
+  private stringArray(value: unknown): string[] {
+    return Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+      : [];
+  }
+
   private normalizeSelectedThumbnailUrl(value: string | undefined): string | null {
     const selected = value?.trim();
     if (!selected) return null;
@@ -295,6 +371,9 @@ export class SourcingPromotionService {
       return selectedUrl
         ? {
             url: selectedUrl,
+            generationId: null,
+            generationCandidateId: null,
+            contentWorkspaceId: null,
             storageKey: null,
             source: 'sourcing-registration-selection',
             role: 'product',
@@ -313,12 +392,19 @@ export class SourcingPromotionService {
         },
       },
       select: {
+        id: true,
+        generationId: true,
         url: true,
         storageKey: true,
         mimeType: true,
         width: true,
         height: true,
         fileSize: true,
+        generation: {
+          select: {
+            contentWorkspaceId: true,
+          },
+        },
       },
     });
     if (!generated) {
@@ -333,6 +419,9 @@ export class SourcingPromotionService {
     }
     return {
       url: generated.url,
+      generationId: generated.generationId,
+      generationCandidateId: generated.id,
+      contentWorkspaceId: generated.generation.contentWorkspaceId ?? null,
       storageKey: generated.storageKey,
       source: 'thumbnail_generation',
       role: 'product',
@@ -408,7 +497,12 @@ export class SourcingPromotionService {
       artifactId?: string;
       revisionId?: string;
     },
-  ): Promise<{ artifactId: string; revisionId: string | null } | null> {
+  ): Promise<{
+    artifactId: string;
+    revisionId: string | null;
+    contentGenerationId: string | null;
+    contentWorkspaceId: string | null;
+  } | null> {
     const artifactId = input.artifactId?.trim() || null;
     const contentGenerationId = input.contentGenerationId?.trim() || null;
     const revisionId = input.revisionId?.trim() || null;
@@ -449,7 +543,7 @@ export class SourcingPromotionService {
           'selectedDetailPageRevisionId must belong to the selected detail-page artifact',
         );
       }
-      return { artifactId: selected.artifactId, revisionId: revision.id };
+      return { ...selected, revisionId: revision.id };
     }
 
     return selected;
@@ -462,7 +556,12 @@ export class SourcingPromotionService {
       candidateId: string;
       contentGenerationId: string;
     },
-  ): Promise<{ artifactId: string; revisionId: string | null }> {
+  ): Promise<{
+    artifactId: string;
+    revisionId: string | null;
+    contentGenerationId: string;
+    contentWorkspaceId: string | null;
+  }> {
     const generation = await tx.contentGeneration.findFirst({
       where: {
         id: input.contentGenerationId,
@@ -475,6 +574,8 @@ export class SourcingPromotionService {
         ],
       },
       select: {
+        id: true,
+        contentWorkspaceId: true,
         detailPageArtifactId: true,
         detailPageArtifact: {
           select: {
@@ -492,6 +593,8 @@ export class SourcingPromotionService {
     return {
       artifactId: generation.detailPageArtifactId,
       revisionId: generation.detailPageArtifact?.currentRevisionId ?? null,
+      contentGenerationId: generation.id,
+      contentWorkspaceId: generation.contentWorkspaceId ?? null,
     };
   }
 
@@ -503,7 +606,12 @@ export class SourcingPromotionService {
       artifactId: string;
       contentGenerationId: string | null;
     },
-  ): Promise<{ artifactId: string; revisionId: string | null }> {
+  ): Promise<{
+    artifactId: string;
+    revisionId: string | null;
+    contentGenerationId: string | null;
+    contentWorkspaceId: string | null;
+  }> {
     const artifact = await tx.detailPageArtifact.findFirst({
       where: {
         id: input.artifactId,
@@ -520,6 +628,7 @@ export class SourcingPromotionService {
       },
       select: {
         id: true,
+        contentWorkspaceId: true,
         sourceContentGenerationId: true,
         currentRevisionId: true,
       },
@@ -535,7 +644,12 @@ export class SourcingPromotionService {
       );
     }
 
-    return { artifactId: artifact.id, revisionId: artifact.currentRevisionId ?? null };
+    return {
+      artifactId: artifact.id,
+      revisionId: artifact.currentRevisionId ?? null,
+      contentGenerationId: input.contentGenerationId ?? artifact.sourceContentGenerationId ?? null,
+      contentWorkspaceId: artifact.contentWorkspaceId ?? null,
+    };
   }
 
   private async attachSelectedDetailPageArtifact(
@@ -557,5 +671,102 @@ export class SourcingPromotionService {
     if (updated.count === 0) {
       throw new BadRequestException('selected detail-page artifact could not be attached');
     }
+  }
+
+  private async upsertProductPreparation(
+    tx: Prisma.TransactionClient,
+    input: {
+      organizationId: string;
+      candidateId: string;
+      masterId: string;
+      displayName: string;
+      existingRegistrationInput?: Record<string, unknown>;
+      lockedCandidate: {
+        name: string;
+        description: string;
+        category: string | null;
+        thumbnailUrl: string | null;
+        imageUrl: string | null;
+      };
+      selectedThumbnail: SelectedThumbnailImage | null;
+      selectedDetailPage: {
+        artifactId: string;
+        revisionId: string | null;
+        contentGenerationId: string | null;
+        contentWorkspaceId: string | null;
+      } | null;
+      options: PromoteCandidateBodyDto['options'];
+    },
+  ): Promise<void> {
+    await tx.productPreparation.updateMany({
+      where: {
+        organizationId: input.organizationId,
+        masterId: input.masterId,
+        isCurrentForMaster: true,
+        isDeleted: false,
+      },
+      data: { isCurrentForMaster: false },
+    });
+
+    const contentWorkspaceId =
+      input.selectedDetailPage?.contentWorkspaceId ??
+      input.selectedThumbnail?.contentWorkspaceId ??
+      null;
+    const registrationInput = this.toJson({
+      ...(input.existingRegistrationInput ?? {}),
+      sourceCandidateId: input.candidateId,
+      name: input.lockedCandidate.name,
+      productName: input.lockedCandidate.name,
+      description: input.lockedCandidate.description,
+      category: input.lockedCandidate.category,
+      thumbnailUrl: input.lockedCandidate.thumbnailUrl,
+      imageUrl: input.lockedCandidate.imageUrl,
+      options: input.options,
+      selectedThumbnailUrl: input.selectedThumbnail?.url ?? null,
+      selectedThumbnailGenerationId: input.selectedThumbnail?.generationId ?? null,
+      selectedThumbnailGenerationCandidateId: input.selectedThumbnail?.generationCandidateId ?? null,
+      selectedDetailPageArtifactId: input.selectedDetailPage?.artifactId ?? null,
+      selectedDetailPageRevisionId: input.selectedDetailPage?.revisionId ?? null,
+      selectedDetailPageGenerationId: input.selectedDetailPage?.contentGenerationId ?? null,
+    });
+    const existing = await tx.productPreparation.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        sourceCandidateId: input.candidateId,
+        isDeleted: false,
+      },
+      select: { id: true },
+    });
+    const data = {
+      masterId: input.masterId,
+      contentWorkspaceId,
+      displayName: input.displayName,
+      status: 'product_registered',
+      isCurrentForMaster: true,
+      appliedToMasterAt: new Date(),
+      selectedThumbnailUrl: input.selectedThumbnail?.url ?? null,
+      selectedThumbnailGenerationId: input.selectedThumbnail?.generationId ?? null,
+      selectedThumbnailGenerationCandidateId: input.selectedThumbnail?.generationCandidateId ?? null,
+      selectedDetailPageArtifactId: input.selectedDetailPage?.artifactId ?? null,
+      selectedDetailPageRevisionId: input.selectedDetailPage?.revisionId ?? null,
+      selectedDetailPageGenerationId: input.selectedDetailPage?.contentGenerationId ?? null,
+      registrationInput,
+    };
+
+    if (existing) {
+      await tx.productPreparation.update({
+        where: { id: existing.id },
+        data,
+      });
+      return;
+    }
+
+    await tx.productPreparation.create({
+      data: {
+        organizationId: input.organizationId,
+        sourceCandidateId: input.candidateId,
+        ...data,
+      },
+    });
   }
 }

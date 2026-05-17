@@ -363,6 +363,57 @@ describe('SourcingPromotionService (PG integration)', () => {
     });
   });
 
+  it('promotion creates the current product preparation with selected registration assets', async () => {
+    const { id: candidateId, organizationId } = await seedCandidate(prisma);
+    const generation = await prisma.thumbnailGeneration.create({
+      data: {
+        organizationId,
+        masterId: null,
+        sourceCandidateId: candidateId,
+        originalUrl: 'https://example.com/0.jpg',
+        method: 'generate',
+        status: 'succeeded',
+        phase: 'ready',
+      },
+    });
+    const thumbnailCandidate = await prisma.thumbnailGenerationCandidate.create({
+      data: {
+        organizationId,
+        generationId: generation.id,
+        url: 'http://storage.local/kiditem/thumbnail-generations/generated.png',
+        storageKey: 'thumbnail-generations/generated.png',
+        filename: 'generated.png',
+        sortOrder: 0,
+      },
+    });
+    const detail = await seedDetailPageArtifact(prisma, { candidateId, organizationId });
+
+    const result = await service.promote(candidateId, organizationId, {
+      options: [{ optionName: 'Red' }],
+      selectedThumbnailGenerationCandidateId: thumbnailCandidate.id,
+      selectedDetailPageGenerationId: detail.contentGenerationId,
+    });
+
+    const preparation = await prisma.productPreparation.findFirst({
+      where: { organizationId, sourceCandidateId: candidateId, isDeleted: false },
+    });
+    expect(preparation).toMatchObject({
+      organizationId,
+      sourceCandidateId: candidateId,
+      masterId: result.masterId,
+      displayName: 'Toy Candidate',
+      status: 'product_registered',
+      isCurrentForMaster: true,
+      selectedThumbnailUrl: thumbnailCandidate.url,
+      selectedThumbnailGenerationId: generation.id,
+      selectedThumbnailGenerationCandidateId: thumbnailCandidate.id,
+      selectedDetailPageGenerationId: detail.contentGenerationId,
+      selectedDetailPageArtifactId: detail.artifactId,
+      selectedDetailPageRevisionId: detail.revisionId,
+    });
+    expect(preparation!.appliedToMasterAt).toBeInstanceOf(Date);
+  });
+
   it('promotion accepts a selected detail-page generation linked to the candidate through its artifact', async () => {
     const { id: candidateId, organizationId } = await seedCandidate(prisma);
     const detail = await seedDetailPageArtifact(prisma, {

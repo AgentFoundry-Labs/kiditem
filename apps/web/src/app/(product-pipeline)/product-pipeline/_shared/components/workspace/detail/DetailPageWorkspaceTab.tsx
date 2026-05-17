@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import {
@@ -15,7 +16,7 @@ import {
   useGenerationHistoryDelete,
 } from '../../../hooks/useGenerationHistory';
 import type { GenerationHistoryItem } from '../../../hooks/useGenerationHistory';
-import { registrationWorkspacesApi } from '../../../lib/registration-workspaces-api';
+import { contentWorkspacesApi } from '../../../lib/content-workspaces-api';
 import DetailPagePreview from '../DetailPagePreview';
 import DetailGenerationStatusBar from './DetailGenerationStatusBar';
 import DetailPageVersionRail from './DetailPageVersionRail';
@@ -25,6 +26,7 @@ import {
   getDetailGenerationStatusRows,
   type DetailGenerationRow,
 } from './detail-generation-rows';
+import type { ProductRegistrationPreviewData } from '../preview/product-registration-preview';
 
 interface DetailPageWorkspaceTabProps {
   productId: string;
@@ -35,15 +37,21 @@ interface DetailPageWorkspaceTabProps {
   savedDetailPageGenerationId?: string | null;
   initialAgentHistory?: GenerationHistoryItem[];
   generationHistoryQueryEnabled?: boolean;
-  registrationWorkspaceId?: string | null;
+  contentWorkspaceId?: string | null;
   selectedKidsPlayfulId: string | null;
   selectedBoldVerticalId: string | null;
   selectedAgentId: string | null;
   onSelectKidsPlayful: (id: string | null) => void;
   onSelectBoldVertical: (id: string | null) => void;
   onSelectAgent: (id: string | null) => void;
+  onApplyRegistrationDetailPage?: (input: {
+    selectedDetailPageGenerationId: string;
+    selectedDetailPageArtifactId?: string | null;
+    selectedDetailPageRevisionId?: string | null;
+  }) => Promise<void> | void;
   detailEditorSourceCandidateId?: string | null;
   detailEditorReturnHref: string;
+  mobilePreviewData: ProductRegistrationPreviewData;
 }
 
 export default function DetailPageWorkspaceTab({
@@ -55,12 +63,14 @@ export default function DetailPageWorkspaceTab({
   savedDetailPageGenerationId,
   initialAgentHistory,
   generationHistoryQueryEnabled = true,
-  registrationWorkspaceId = null,
+  contentWorkspaceId = null,
   detailEditorSourceCandidateId,
   detailEditorReturnHref,
+  mobilePreviewData,
   onSelectKidsPlayful,
   onSelectBoldVertical,
   onSelectAgent,
+  onApplyRegistrationDetailPage,
 }: DetailPageWorkspaceTabProps) {
   const queryClient = useQueryClient();
   const { data: agentHistory = [] } = useGenerationHistory(
@@ -78,6 +88,8 @@ export default function DetailPageWorkspaceTab({
   const deleteAgent = useGenerationHistoryDelete(productId);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [applyingKey, setApplyingKey] = useState<string | null>(null);
+  const [duplicatingKey, setDuplicatingKey] = useState<string | null>(null);
+  const [renamingKey, setRenamingKey] = useState<string | null>(null);
   const rows = useMemo(() => buildDetailGenerationRows({
     agentHistory,
     kidsPlayfulEntries,
@@ -87,19 +99,34 @@ export default function DetailPageWorkspaceTab({
   const versionRows = useMemo(() => getCompletedDetailVersionRows(rows), [rows]);
   const statusRows = useMemo(() => getDetailGenerationStatusRows(rows), [rows]);
   const selectedRow = selectedKey ? versionRows.find((row) => row.key === selectedKey) ?? null : null;
-  const selectedPreviewGenerationId = selectedRow?.id ?? savedDetailPageGenerationId ?? null;
+  const selectedKeyGenerationId = selectedKey?.split(':').slice(1).join(':') ?? null;
+  const selectedPreviewGenerationId =
+    selectedRow?.id ?? selectedKeyGenerationId ?? savedDetailPageGenerationId ?? null;
+
+  const invalidateDetailVersionQueries = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: [...queryKeys.sourcing.detail(productId), 'history'],
+      }),
+      queryClient.invalidateQueries({ queryKey: ['kp-generations'] }),
+      queryClient.invalidateQueries({ queryKey: ['bold-generations'] }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.productContent.sourcingLinks(productId, { limit: '8' }),
+      }),
+    ]);
+  };
 
   const handleApply = async (row: DetailGenerationRow) => {
     setApplyingKey(row.key);
     try {
       if (row.kind === 'agent') {
-        if (registrationWorkspaceId) {
-          await registrationWorkspacesApi.selectCurrentDetailPage(registrationWorkspaceId, row.id);
+        if (contentWorkspaceId) {
+          await contentWorkspacesApi.selectCurrentDetailPage(contentWorkspaceId, row.id);
           await Promise.all([
             queryClient.invalidateQueries({
-              queryKey: queryKeys.registrationWorkspaces.detail(registrationWorkspaceId),
+              queryKey: queryKeys.contentWorkspaces.detail(contentWorkspaceId),
             }),
-            queryClient.invalidateQueries({ queryKey: queryKeys.registrationWorkspaces.all }),
+            queryClient.invalidateQueries({ queryKey: queryKeys.contentWorkspaces.all }),
           ]);
         }
         onSelectAgent(row.id);
@@ -114,6 +141,11 @@ export default function DetailPageWorkspaceTab({
         onSelectAgent(null);
         onSelectKidsPlayful(null);
       }
+      await onApplyRegistrationDetailPage?.({
+        selectedDetailPageGenerationId: row.id,
+        selectedDetailPageArtifactId: row.agentItem?.detailPageArtifactId ?? null,
+        selectedDetailPageRevisionId: row.agentItem?.detailPageRevisionId ?? null,
+      });
       setSelectedKey(row.key);
       toast.success('선택한 상세페이지를 등록 상세로 적용했습니다.');
     } catch (err) {
@@ -139,6 +171,44 @@ export default function DetailPageWorkspaceTab({
     deleteKidsPlayful.mutate(row.id, { onSuccess, onError });
   };
 
+  const handleRename = async (row: DetailGenerationRow) => {
+    const title = window.prompt('상세페이지 버전 이름', row.title)?.trim();
+    if (title === undefined) return;
+    if (!title) {
+      toast.error('버전 이름을 입력해주세요.');
+      return;
+    }
+    setRenamingKey(row.key);
+    try {
+      await apiClient.patch<{ ok: true }>(`/api/ai/detail-page/${row.id}/title`, {
+        title,
+      });
+      await invalidateDetailVersionQueries();
+      toast.success('상세페이지 버전 이름을 변경했습니다.');
+    } catch (err) {
+      toast.error(isApiError(err) ? err.detail : '이름 변경 실패');
+    } finally {
+      setRenamingKey(null);
+    }
+  };
+
+  const handleDuplicate = async (row: DetailGenerationRow) => {
+    setDuplicatingKey(row.key);
+    try {
+      const duplicated = await apiClient.post<{ id: string }>(
+        `/api/ai/detail-page/${row.id}/duplicate`,
+      );
+      const duplicatedKey = `${row.kind}:${duplicated.id}`;
+      setSelectedKey(duplicatedKey);
+      await invalidateDetailVersionQueries();
+      toast.success('상세페이지 버전을 복제했습니다. 복제본을 선택했습니다.');
+    } catch (err) {
+      toast.error(isApiError(err) ? err.detail : '복제 실패');
+    } finally {
+      setDuplicatingKey(null);
+    }
+  };
+
   return (
     <div className="space-y-4 p-5" data-testid="detail-page-workspace-tab">
       <span className="sr-only">{agentHistory.length}</span>
@@ -148,8 +218,12 @@ export default function DetailPageWorkspaceTab({
           rows={versionRows}
           selectedKey={selectedKey}
           applyingKey={applyingKey}
+          duplicatingKey={duplicatingKey}
+          renamingKey={renamingKey}
           onSelect={setSelectedKey}
           onApply={handleApply}
+          onRename={handleRename}
+          onDuplicate={handleDuplicate}
           onDelete={handleDelete}
         />
         <div className="min-w-0 flex-1">
@@ -160,10 +234,11 @@ export default function DetailPageWorkspaceTab({
             templateCss={templateCss}
             hasSavedDetailPage={hasSavedDetailPage}
             savedDetailPageGenerationId={selectedPreviewGenerationId}
-            initialAgentHistory={agentHistory}
+            initialAgentHistory={initialAgentHistory}
             generationHistoryQueryEnabled={generationHistoryQueryEnabled}
             detailEditorSourceCandidateId={detailEditorSourceCandidateId}
             detailEditorReturnHref={detailEditorReturnHref}
+            mobilePreviewData={mobilePreviewData}
           />
         </div>
       </div>

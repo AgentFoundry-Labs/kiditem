@@ -133,7 +133,7 @@ export class ThumbnailGenerationService {
     opts: {
       productId?: string | null;
       sourceCandidateId?: string | null;
-      registrationWorkspaceId?: string | null;
+      contentWorkspaceId?: string | null;
       limit?: number | null;
     } = {},
   ): Promise<ThumbnailGenerationListResponse> {

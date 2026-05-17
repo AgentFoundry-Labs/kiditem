@@ -15,7 +15,7 @@ function makeAdapter(runByType: ReturnType<typeof vi.fn>) {
       parentOperationKey: 'product-generation:batch-1',
       detailGenerationId: 'detail-1',
       thumbnailGenerationId: 'thumb-1',
-      registrationWorkspaceId: 'workspace-1',
+      contentWorkspaceId: 'workspace-1',
       href: '/product-pipeline/collected-products/candidate-1',
     }),
   } as unknown as ProductGenerationAiTriggerPort;

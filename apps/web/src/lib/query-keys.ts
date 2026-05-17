@@ -203,13 +203,19 @@ export const queryKeys = {
     generationEditedHtml: (id: string) =>
       [...queryKeys.productContent.all, 'generation-edited-html', id] as const,
   },
-  registrationWorkspaces: {
-    all: ['registration-workspaces'] as const,
+  contentWorkspaces: {
+    all: ['content-workspaces'] as const,
     list: (params: Record<string, string>) =>
-      [...queryKeys.registrationWorkspaces.all, 'list', params] as const,
-    detail: (id: string) => [...queryKeys.registrationWorkspaces.all, 'detail', id] as const,
+      [...queryKeys.contentWorkspaces.all, 'list', params] as const,
+    detail: (id: string) => [...queryKeys.contentWorkspaces.all, 'detail', id] as const,
     duplicate: (title: string) =>
-      [...queryKeys.registrationWorkspaces.all, 'duplicate', title] as const,
+      [...queryKeys.contentWorkspaces.all, 'duplicate', title] as const,
+  },
+  channelListings: {
+    all: ['channel-listings'] as const,
+    list: (params: Record<string, string>) =>
+      [...queryKeys.channelListings.all, 'list', params] as const,
+    detail: (id: string) => [...queryKeys.channelListings.all, 'detail', id] as const,
   },
   organizations: {
     all: ['organizations'] as const,

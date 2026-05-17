@@ -630,7 +630,7 @@ describe('ThumbnailGenerationService normalized persistence', () => {
 
     const result = await service.enqueueStandaloneGeneration({
       organizationId: ORGANIZATION_ID,
-      registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
+      contentWorkspaceId: REGISTRATION_WORKSPACE_ID,
       productName: 'Registered workspace toy',
       triggeredByUserId: null,
       inputs: [makeInputImage({ source: 'upload' })],
@@ -646,16 +646,16 @@ describe('ThumbnailGenerationService normalized persistence', () => {
         organizationId: ORGANIZATION_ID,
         masterId: null,
         sourceCandidateId: null,
-        registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
+        contentWorkspaceId: REGISTRATION_WORKSPACE_ID,
       }),
     }));
     expect(operationAlerts.start).toHaveBeenCalledWith(
       expect.objectContaining({
-        targetType: 'registration_workspace',
+        targetType: 'content_workspace',
         targetId: REGISTRATION_WORKSPACE_ID,
         href: `/product-pipeline/registered-products/${REGISTRATION_WORKSPACE_ID}`,
         metadata: expect.objectContaining({
-          registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
+          contentWorkspaceId: REGISTRATION_WORKSPACE_ID,
           standalone: false,
         }),
       }),

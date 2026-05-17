@@ -65,7 +65,7 @@ export interface DetailPageGenerationDto {
   id: string;
   productId: string | null;
   sourceCandidateId: string | null;
-  registrationWorkspaceId: string | null;
+  contentWorkspaceId: string | null;
   templateId: DetailPageTemplateId;
   productName: string;
   rawInput: DetailPageRawInput;

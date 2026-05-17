@@ -3,14 +3,14 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { toDetailPageStoredJson } from './detail-page-stored.helpers';
 import type { DetailPageTemplateId } from './detail-page-ai.types';
 
-export interface RegistrationWorkspaceListQuery {
+export interface ContentWorkspaceListQuery {
   page?: number;
   limit?: number;
   status?: string | null;
   normalizedTitle?: string | null;
 }
 
-export interface CreateRegistrationWorkspaceInput {
+export interface CreateContentWorkspaceInput {
   organizationId: string;
   triggeredByUserId: string | null;
   rawTitle: string;
@@ -18,7 +18,7 @@ export interface CreateRegistrationWorkspaceInput {
   targetMasterId: string | null;
 }
 
-export interface RegistrationWorkspaceSummary {
+export interface ContentWorkspaceSummary {
   id: string;
   ownerType: string;
   sourceCandidateId: string | null;
@@ -52,7 +52,7 @@ export interface RegistrationWorkspaceSummary {
   }>;
 }
 
-interface RegistrationWorkspaceRow {
+interface ContentWorkspaceRow {
   id: string;
   ownerType: string;
   sourceCandidateId: string | null;
@@ -71,10 +71,10 @@ interface RegistrationWorkspaceRow {
   createdAt: Date;
   updatedAt: Date;
   _count?: { contentGenerations: number };
-  contentGenerations?: RegistrationWorkspaceGenerationRow[];
+  contentGenerations?: ContentWorkspaceGenerationRow[];
 }
 
-interface RegistrationWorkspaceGenerationRow {
+interface ContentWorkspaceGenerationRow {
   id: string;
   contentType: string;
   status: string;
@@ -87,7 +87,7 @@ interface RegistrationWorkspaceGenerationRow {
   updatedAt: Date;
 }
 
-interface RegistrationWorkspacePrisma {
+interface ContentWorkspacePrisma {
   contentGeneration: {
     findFirst(args: unknown): Promise<{
       id: string;
@@ -97,17 +97,17 @@ interface RegistrationWorkspacePrisma {
       } | null;
     } | null>;
   };
-  registrationWorkspace: {
-    findFirst(args: unknown): Promise<RegistrationWorkspaceRow | null>;
-    findMany(args: unknown): Promise<RegistrationWorkspaceRow[]>;
+  contentWorkspace: {
+    findFirst(args: unknown): Promise<ContentWorkspaceRow | null>;
+    findMany(args: unknown): Promise<ContentWorkspaceRow[]>;
     count(args: unknown): Promise<number>;
-    create(args: unknown): Promise<RegistrationWorkspaceRow>;
+    create(args: unknown): Promise<ContentWorkspaceRow>;
     updateMany(args: unknown): Promise<{ count: number }>;
   };
 }
 
 @Injectable()
-export class RegistrationWorkspaceService {
+export class ContentWorkspaceService {
   constructor(private readonly prisma: PrismaService) {}
 
   async ensureForGeneration(input: {
@@ -120,17 +120,17 @@ export class RegistrationWorkspaceService {
     return this.ensureWorkspace(input);
   }
 
-  async createWorkspace(input: CreateRegistrationWorkspaceInput): Promise<RegistrationWorkspaceSummary> {
+  async createWorkspace(input: CreateContentWorkspaceInput): Promise<ContentWorkspaceSummary> {
     const workspace = await this.ensureWorkspace(input);
     return this.get(input.organizationId, workspace.id);
   }
 
-  private async ensureWorkspace(input: CreateRegistrationWorkspaceInput): Promise<{
+  private async ensureWorkspace(input: CreateContentWorkspaceInput): Promise<{
     id: string;
     displayName: string;
     normalizedTitle: string;
   }> {
-    const normalizedTitle = normalizeRegistrationTitle(input.rawTitle);
+    const normalizedTitle = normalizeContentTitle(input.rawTitle);
     const displayName = displayTitle(input.rawTitle);
     const ownerType = ownerTypeFor(input);
     const where = {
@@ -145,8 +145,8 @@ export class RegistrationWorkspaceService {
           ? { targetMasterId: input.targetMasterId }
           : { sourceCandidateId: null, targetMasterId: null }),
     };
-    const prisma = this.prisma as unknown as RegistrationWorkspacePrisma;
-    const existing = await prisma.registrationWorkspace.findFirst({
+    const prisma = this.prisma as unknown as ContentWorkspacePrisma;
+    const existing = await prisma.contentWorkspace.findFirst({
       where,
       orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
       select: {
@@ -162,9 +162,9 @@ export class RegistrationWorkspaceService {
         normalizedTitle: existing.normalizedTitle,
       };
     }
-    let created: Pick<RegistrationWorkspaceRow, 'id' | 'displayName' | 'normalizedTitle'>;
+    let created: Pick<ContentWorkspaceRow, 'id' | 'displayName' | 'normalizedTitle'>;
     try {
-      created = await prisma.registrationWorkspace.create({
+      created = await prisma.contentWorkspace.create({
         data: {
           organizationId: input.organizationId,
           ownerType,
@@ -183,7 +183,7 @@ export class RegistrationWorkspaceService {
       });
     } catch (error) {
       if (!isUniqueConstraintError(error)) throw error;
-      const raced = await prisma.registrationWorkspace.findFirst({
+      const raced = await prisma.contentWorkspace.findFirst({
         where,
         orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
         select: {
@@ -205,10 +205,10 @@ export class RegistrationWorkspaceService {
   async checkDuplicate(
     organizationId: string,
     rawTitle: string,
-  ): Promise<{ exists: boolean; workspace: RegistrationWorkspaceSummary | null }> {
-    const normalizedTitle = normalizeRegistrationTitle(rawTitle);
-    const prisma = this.prisma as unknown as RegistrationWorkspacePrisma;
-    const row = await prisma.registrationWorkspace.findFirst({
+  ): Promise<{ exists: boolean; workspace: ContentWorkspaceSummary | null }> {
+    const normalizedTitle = normalizeContentTitle(rawTitle);
+    const prisma = this.prisma as unknown as ContentWorkspacePrisma;
+    const row = await prisma.contentWorkspace.findFirst({
       where: {
         organizationId,
         normalizedTitle,
@@ -243,9 +243,9 @@ export class RegistrationWorkspaceService {
   async get(
     organizationId: string,
     workspaceId: string,
-  ): Promise<RegistrationWorkspaceSummary> {
-    const prisma = this.prisma as unknown as RegistrationWorkspacePrisma;
-    const row = await prisma.registrationWorkspace.findFirst({
+  ): Promise<ContentWorkspaceSummary> {
+    const prisma = this.prisma as unknown as ContentWorkspacePrisma;
+    const row = await prisma.contentWorkspace.findFirst({
       where: {
         id: workspaceId,
         organizationId,
@@ -253,17 +253,17 @@ export class RegistrationWorkspaceService {
       },
       include: workspaceInclude(),
     });
-    if (!row) throw new NotFoundException('Registration workspace not found');
+    if (!row) throw new NotFoundException('Content workspace not found');
     return this.toSummary(row);
   }
 
   async list(
     organizationId: string,
-    query: RegistrationWorkspaceListQuery = {},
-  ): Promise<{ items: RegistrationWorkspaceSummary[]; total: number; page: number; limit: number }> {
+    query: ContentWorkspaceListQuery = {},
+  ): Promise<{ items: ContentWorkspaceSummary[]; total: number; page: number; limit: number }> {
     const { page, limit } = normalizePage(query.page, query.limit);
     const normalizedTitle = query.normalizedTitle
-      ? normalizeRegistrationTitle(query.normalizedTitle)
+      ? normalizeContentTitle(query.normalizedTitle)
       : null;
     const where = {
       organizationId,
@@ -272,10 +272,10 @@ export class RegistrationWorkspaceService {
       ownerType: { not: 'sourcing_candidate' },
       ...(normalizedTitle ? { normalizedTitle } : {}),
     };
-    const prisma = this.prisma as unknown as RegistrationWorkspacePrisma;
+    const prisma = this.prisma as unknown as ContentWorkspacePrisma;
     const [total, rows] = await Promise.all([
-      prisma.registrationWorkspace.count({ where }),
-      prisma.registrationWorkspace.findMany({
+      prisma.contentWorkspace.count({ where }),
+      prisma.contentWorkspace.findMany({
         where,
         orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
         skip: (page - 1) * limit,
@@ -296,8 +296,8 @@ export class RegistrationWorkspaceService {
     workspaceId: string,
   ): Promise<{ ok: true; archivedWorkspaces: number }> {
     const archivedAt = new Date();
-    const prisma = this.prisma as unknown as RegistrationWorkspacePrisma;
-    const result = await prisma.registrationWorkspace.updateMany({
+    const prisma = this.prisma as unknown as ContentWorkspacePrisma;
+    const result = await prisma.contentWorkspace.updateMany({
       where: {
         id: workspaceId,
         organizationId,
@@ -309,7 +309,7 @@ export class RegistrationWorkspaceService {
         deletedAt: archivedAt,
       },
     });
-    if (result.count === 0) throw new NotFoundException('Registration workspace not found');
+    if (result.count === 0) throw new NotFoundException('Content workspace not found');
     return { ok: true, archivedWorkspaces: result.count };
   }
 
@@ -317,13 +317,13 @@ export class RegistrationWorkspaceService {
     organizationId: string;
     workspaceId: string;
     contentGenerationId: string;
-  }): Promise<RegistrationWorkspaceSummary> {
-    const prisma = this.prisma as unknown as RegistrationWorkspacePrisma;
+  }): Promise<ContentWorkspaceSummary> {
+    const prisma = this.prisma as unknown as ContentWorkspacePrisma;
     const generation = await prisma.contentGeneration.findFirst({
       where: {
         id: input.contentGenerationId,
         organizationId: input.organizationId,
-        registrationWorkspaceId: input.workspaceId,
+        contentWorkspaceId: input.workspaceId,
         contentType: 'detail_page',
         isDeleted: false,
       },
@@ -342,7 +342,7 @@ export class RegistrationWorkspaceService {
       throw new BadRequestException('Detail page artifact is not ready');
     }
 
-    const updated = await prisma.registrationWorkspace.updateMany({
+    const updated = await prisma.contentWorkspace.updateMany({
       where: {
         id: input.workspaceId,
         organizationId: input.organizationId,
@@ -353,11 +353,11 @@ export class RegistrationWorkspaceService {
         currentDetailPageRevisionId: generation.detailPageArtifact?.currentRevisionId ?? null,
       },
     });
-    if (updated.count === 0) throw new NotFoundException('Registration workspace not found');
+    if (updated.count === 0) throw new NotFoundException('Content workspace not found');
     return this.get(input.organizationId, input.workspaceId);
   }
 
-  private toSummary(row: RegistrationWorkspaceRow): RegistrationWorkspaceSummary {
+  private toSummary(row: ContentWorkspaceRow): ContentWorkspaceSummary {
     const history = [...(row.contentGenerations ?? [])]
       .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
     const latest = history[0] ?? null;
@@ -392,7 +392,7 @@ export class RegistrationWorkspaceService {
     };
   }
 
-  private toHistoryItem(workspaceId: string, generation: RegistrationWorkspaceGenerationRow) {
+  private toHistoryItem(workspaceId: string, generation: ContentWorkspaceGenerationRow) {
     const detailProjection = projectDetailPageGeneration(generation);
     return {
       id: generation.id,
@@ -412,7 +412,7 @@ export class RegistrationWorkspaceService {
   }
 }
 
-function projectDetailPageGeneration(generation: RegistrationWorkspaceGenerationRow): {
+function projectDetailPageGeneration(generation: ContentWorkspaceGenerationRow): {
   detailPageData: Record<string, unknown> | null;
   imageUrls: string[];
   processedImages: Record<string, string>;
@@ -442,7 +442,7 @@ function asPlainRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
-export function normalizeRegistrationTitle(value: string): string {
+export function normalizeContentTitle(value: string): string {
   const normalized = value
     .normalize('NFKC')
     .toLocaleLowerCase()
@@ -477,7 +477,7 @@ function toDuplicateSummary(row: {
   createdAt: Date;
   updatedAt: Date;
   _count?: { contentGenerations: number };
-}): RegistrationWorkspaceSummary {
+}): ContentWorkspaceSummary {
   return {
     id: row.id,
     ownerType: row.ownerType,

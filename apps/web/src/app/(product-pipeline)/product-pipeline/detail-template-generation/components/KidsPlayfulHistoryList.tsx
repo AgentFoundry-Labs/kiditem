@@ -352,8 +352,8 @@ function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
       const sourceCandidateId = sourceCandidateIdFromGeneration(previewEntry);
       const returnTo = sourceCandidateId
         ? collectedProductDetailHref(sourceCandidateId)
-        : previewEntry.registrationWorkspaceId
-          ? registeredProductDetailHref(previewEntry.registrationWorkspaceId)
+        : previewEntry.contentWorkspaceId
+          ? registeredProductDetailHref(previewEntry.contentWorkspaceId)
           : null;
       return detailPageEditorHref({
         candidateId: sourceCandidateId,

@@ -1,6 +1,6 @@
 import { apiClient } from '@/lib/api-client';
 
-export interface RegistrationWorkspaceHistoryItem {
+export interface ContentWorkspaceHistoryItem {
   id: string;
   contentType: string;
   status: string;
@@ -16,7 +16,7 @@ export interface RegistrationWorkspaceHistoryItem {
   updatedAt: string;
 }
 
-export interface RegistrationWorkspaceSummary {
+export interface ContentWorkspaceSummary {
   id: string;
   ownerType: string;
   sourceCandidateId: string | null;
@@ -33,40 +33,40 @@ export interface RegistrationWorkspaceSummary {
   currentDetailPageGenerationId: string | null;
   createdAt: string;
   updatedAt: string;
-  history: RegistrationWorkspaceHistoryItem[];
+  history: ContentWorkspaceHistoryItem[];
 }
 
-interface RegistrationWorkspaceListResponse {
-  items: RegistrationWorkspaceSummary[];
+interface ContentWorkspaceListResponse {
+  items: ContentWorkspaceSummary[];
   total: number;
   page: number;
   limit: number;
 }
 
-interface DuplicateRegistrationWorkspaceResponse {
+interface DuplicateContentWorkspaceResponse {
   exists: boolean;
-  workspace: RegistrationWorkspaceSummary | null;
+  workspace: ContentWorkspaceSummary | null;
 }
 
-export const registrationWorkspacesApi = {
+export const contentWorkspacesApi = {
   async list(params?: {
     page?: number;
     limit?: number;
     title?: string;
-  }): Promise<RegistrationWorkspaceListResponse> {
+  }): Promise<ContentWorkspaceListResponse> {
     const qs = new URLSearchParams({
       page: String(params?.page ?? 1),
       limit: String(params?.limit ?? 24),
     });
     if (params?.title) qs.set('title', params.title);
-    return apiClient.get<RegistrationWorkspaceListResponse>(
-      `/api/ai/registration-workspaces?${qs}`,
+    return apiClient.get<ContentWorkspaceListResponse>(
+      `/api/ai/content-workspaces?${qs}`,
     );
   },
 
-  async get(id: string): Promise<RegistrationWorkspaceSummary> {
-    return apiClient.get<RegistrationWorkspaceSummary>(
-      `/api/ai/registration-workspaces/${encodeURIComponent(id)}`,
+  async get(id: string): Promise<ContentWorkspaceSummary> {
+    return apiClient.get<ContentWorkspaceSummary>(
+      `/api/ai/content-workspaces/${encodeURIComponent(id)}`,
     );
   },
 
@@ -74,33 +74,33 @@ export const registrationWorkspacesApi = {
     title: string;
     sourceCandidateId?: string | null;
     targetMasterId?: string | null;
-  }): Promise<RegistrationWorkspaceSummary> {
-    return apiClient.post<RegistrationWorkspaceSummary>('/api/ai/registration-workspaces', {
+  }): Promise<ContentWorkspaceSummary> {
+    return apiClient.post<ContentWorkspaceSummary>('/api/ai/content-workspaces', {
       title: input.title,
       ...(input.sourceCandidateId ? { sourceCandidateId: input.sourceCandidateId } : {}),
       ...(input.targetMasterId ? { targetMasterId: input.targetMasterId } : {}),
     });
   },
 
-  async checkDuplicate(title: string): Promise<DuplicateRegistrationWorkspaceResponse> {
+  async checkDuplicate(title: string): Promise<DuplicateContentWorkspaceResponse> {
     const qs = new URLSearchParams({ title });
-    return apiClient.get<DuplicateRegistrationWorkspaceResponse>(
-      `/api/ai/registration-workspaces/duplicate-check?${qs}`,
+    return apiClient.get<DuplicateContentWorkspaceResponse>(
+      `/api/ai/content-workspaces/duplicate-check?${qs}`,
     );
   },
 
   async archive(id: string): Promise<{ ok: true; archivedWorkspaces: number }> {
     return apiClient.delete<{ ok: true; archivedWorkspaces: number }>(
-      `/api/ai/registration-workspaces/${encodeURIComponent(id)}`,
+      `/api/ai/content-workspaces/${encodeURIComponent(id)}`,
     );
   },
 
   async selectCurrentDetailPage(
     id: string,
     contentGenerationId: string,
-  ): Promise<RegistrationWorkspaceSummary> {
-    return apiClient.patch<RegistrationWorkspaceSummary>(
-      `/api/ai/registration-workspaces/${encodeURIComponent(id)}/current-detail-page`,
+  ): Promise<ContentWorkspaceSummary> {
+    return apiClient.patch<ContentWorkspaceSummary>(
+      `/api/ai/content-workspaces/${encodeURIComponent(id)}/current-detail-page`,
       { contentGenerationId },
     );
   },

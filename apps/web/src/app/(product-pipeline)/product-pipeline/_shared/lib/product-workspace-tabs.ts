@@ -43,7 +43,7 @@ export function buildProductWorkspaceTabUrl({
   editCase,
   productId,
   sourceCandidateId,
-  registrationWorkspaceId,
+  contentWorkspaceId,
 }: {
   pathname: string;
   currentSearch?: string | URLSearchParams | null;
@@ -57,7 +57,7 @@ export function buildProductWorkspaceTabUrl({
   editCase?: string | null;
   productId?: string | null;
   sourceCandidateId?: string | null;
-  registrationWorkspaceId?: string | null;
+  contentWorkspaceId?: string | null;
 }): string {
   const params = new URLSearchParams(currentSearch?.toString() ?? '');
   params.delete('tab');
@@ -75,7 +75,7 @@ export function buildProductWorkspaceTabUrl({
   params.delete('editCase');
   params.delete('productId');
   params.delete('sourceCandidateId');
-  params.delete('registrationWorkspaceId');
+  params.delete('contentWorkspaceId');
   if (generationId) params.set('generationId', generationId);
   if (thumbnailMode) params.set('thumbnailMode', thumbnailMode);
   if (imageUrl) params.set('imageUrl', imageUrl);
@@ -85,7 +85,7 @@ export function buildProductWorkspaceTabUrl({
   if (editCase) params.set('editCase', editCase);
   if (productId) params.set('productId', productId);
   if (sourceCandidateId) params.set('sourceCandidateId', sourceCandidateId);
-  if (registrationWorkspaceId) params.set('registrationWorkspaceId', registrationWorkspaceId);
+  if (contentWorkspaceId) params.set('contentWorkspaceId', contentWorkspaceId);
   const query = params.toString();
   return query ? `${pathname}?${query}` : pathname;
 }

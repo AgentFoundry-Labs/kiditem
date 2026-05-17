@@ -20,7 +20,7 @@ interface ProductGenerationResponse {
   parentOperationKey: string;
   detailGenerationId: string | null;
   thumbnailGenerationId: string | null;
-  registrationWorkspaceId: string | null;
+  contentWorkspaceId: string | null;
 }
 
 export function useProductGenerateWorkflow() {

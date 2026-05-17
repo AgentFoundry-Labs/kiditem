@@ -56,12 +56,12 @@ describe('thumbnail workspace state', () => {
 
   it('classifies single-product Wing status from applied generation rows', () => {
     expect(classifyProductWingStatus({
-      hasRegistrationWorkspace: false,
+      hasContentWorkspace: false,
       generations: [readyGeneration],
     })).toEqual({ kind: 'disabled', label: '상품 등록 후 Wing 업로드 가능' });
 
     expect(classifyProductWingStatus({
-      hasRegistrationWorkspace: true,
+      hasContentWorkspace: true,
       generations: [{
         ...readyGeneration,
         id: 'generation-applied',
@@ -75,7 +75,7 @@ describe('thumbnail workspace state', () => {
     });
 
     expect(classifyProductWingStatus({
-      hasRegistrationWorkspace: true,
+      hasContentWorkspace: true,
       generations: [{
         ...readyGeneration,
         id: 'generation-failed',
@@ -91,7 +91,7 @@ describe('thumbnail workspace state', () => {
     });
 
     expect(classifyProductWingStatus({
-      hasRegistrationWorkspace: true,
+      hasContentWorkspace: true,
       generations: [{
         ...readyGeneration,
         id: 'generation-registered',

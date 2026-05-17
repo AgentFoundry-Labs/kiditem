@@ -140,7 +140,10 @@ Current active-row uniqueness includes:
 - `product_options(master_id, option_name)` including null-option case
 - `product_options(organization_id, barcode)`
 - `product_options(organization_id, legacy_code)`
-- `channel_listings(organization_id, channel, external_id)`
+- `channel_listings(organization_id, channel_account_id, external_id)`
+- `product_preparations(organization_id, source_candidate_id)`
+- `product_preparations(organization_id, master_id)` only when
+  `is_current_for_master=true`
 
 Service code should use `findFirst({ where: { ..., isDeleted: false } })`, not
 `findUnique(...)` assumptions over these partial keys.

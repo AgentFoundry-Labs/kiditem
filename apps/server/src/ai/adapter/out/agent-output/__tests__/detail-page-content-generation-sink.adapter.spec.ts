@@ -43,7 +43,7 @@ function makeRow(overrides: Record<string, unknown> = {}) {
     },
     generatedTitle: '키즈 텀블러',
     sourceCandidateId: CANDIDATE_ID,
-    registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
+    contentWorkspaceId: REGISTRATION_WORKSPACE_ID,
     detailPageArtifactId: null,
     triggeredByUserId: 'user-1',
     status: 'PROCESSING',
@@ -65,7 +65,7 @@ function makePrismaStub(row: ReturnType<typeof makeRow> | null) {
     detailPageArtifact: {
       create: vi.fn().mockResolvedValue({ id: ARTIFACT_ID }),
     },
-    registrationWorkspace: {
+    contentWorkspace: {
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
   };
@@ -178,7 +178,7 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
       expect(prisma.detailPageArtifact.create).toHaveBeenCalledWith({
         data: {
           organizationId: ORG,
-          registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
+          contentWorkspaceId: REGISTRATION_WORKSPACE_ID,
           sourceCandidateId: CANDIDATE_ID,
           targetMasterId: null,
           sourceContentGenerationId: CG_ID,
@@ -193,7 +193,7 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
         },
         select: { id: true },
       });
-      expect(prisma.registrationWorkspace.updateMany).toHaveBeenCalledWith({
+      expect(prisma.contentWorkspace.updateMany).toHaveBeenCalledWith({
         where: {
           id: REGISTRATION_WORKSPACE_ID,
           organizationId: ORG,

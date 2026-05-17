@@ -2,24 +2,24 @@ import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../../../auth/auth.types';
-import { RegistrationWorkspaceService } from '../../../application/service/registration-workspace.service';
+import { ContentWorkspaceService } from '../../../application/service/content-workspace.service';
 import {
-  CreateRegistrationWorkspaceDto,
-  DuplicateRegistrationWorkspaceQueryDto,
-  ListRegistrationWorkspacesQueryDto,
-  SelectRegistrationWorkspaceDetailPageDto,
-} from './dto/registration-workspace.dto';
+  CreateContentWorkspaceDto,
+  DuplicateContentWorkspaceQueryDto,
+  ListContentWorkspacesQueryDto,
+  SelectContentWorkspaceDetailPageDto,
+} from './dto/content-workspace.dto';
 
-@Controller('ai/registration-workspaces')
-export class RegistrationWorkspaceController {
-  constructor(private readonly registrationWorkspaces: RegistrationWorkspaceService) {}
+@Controller('ai/content-workspaces')
+export class ContentWorkspaceController {
+  constructor(private readonly contentWorkspaces: ContentWorkspaceService) {}
 
   @Get()
   list(
     @CurrentOrganization() organizationId: string,
-    @Query() query: ListRegistrationWorkspacesQueryDto,
+    @Query() query: ListContentWorkspacesQueryDto,
   ) {
-    return this.registrationWorkspaces.list(organizationId, {
+    return this.contentWorkspaces.list(organizationId, {
       page: query.page,
       limit: query.limit,
       status: query.status ?? null,
@@ -31,9 +31,9 @@ export class RegistrationWorkspaceController {
   create(
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
-    @Body() body: CreateRegistrationWorkspaceDto,
+    @Body() body: CreateContentWorkspaceDto,
   ) {
-    return this.registrationWorkspaces.createWorkspace({
+    return this.contentWorkspaces.createWorkspace({
       organizationId,
       triggeredByUserId: user.id,
       rawTitle: body.title,
@@ -45,9 +45,9 @@ export class RegistrationWorkspaceController {
   @Get('duplicate-check')
   duplicateCheck(
     @CurrentOrganization() organizationId: string,
-    @Query() query: DuplicateRegistrationWorkspaceQueryDto,
+    @Query() query: DuplicateContentWorkspaceQueryDto,
   ) {
-    return this.registrationWorkspaces.checkDuplicate(organizationId, query.title);
+    return this.contentWorkspaces.checkDuplicate(organizationId, query.title);
   }
 
   @Get(':workspaceId')
@@ -55,16 +55,16 @@ export class RegistrationWorkspaceController {
     @CurrentOrganization() organizationId: string,
     @Param('workspaceId', new ParseUUIDPipe()) workspaceId: string,
   ) {
-    return this.registrationWorkspaces.get(organizationId, workspaceId);
+    return this.contentWorkspaces.get(organizationId, workspaceId);
   }
 
   @Patch(':workspaceId/current-detail-page')
   selectCurrentDetailPage(
     @CurrentOrganization() organizationId: string,
     @Param('workspaceId', new ParseUUIDPipe()) workspaceId: string,
-    @Body() body: SelectRegistrationWorkspaceDetailPageDto,
+    @Body() body: SelectContentWorkspaceDetailPageDto,
   ) {
-    return this.registrationWorkspaces.selectCurrentDetailPage({
+    return this.contentWorkspaces.selectCurrentDetailPage({
       organizationId,
       workspaceId,
       contentGenerationId: body.contentGenerationId,
@@ -76,6 +76,6 @@ export class RegistrationWorkspaceController {
     @CurrentOrganization() organizationId: string,
     @Param('workspaceId', new ParseUUIDPipe()) workspaceId: string,
   ) {
-    return this.registrationWorkspaces.archive(organizationId, workspaceId);
+    return this.contentWorkspaces.archive(organizationId, workspaceId);
   }
 }

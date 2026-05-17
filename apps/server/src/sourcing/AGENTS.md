@@ -18,6 +18,7 @@ outgoing adapters.
 | sourcing candidate detail | `GET /api/sourcing/:id` |
 | candidate inbox delete | `DELETE /api/sourcing/candidates/:id` |
 | candidate promotion | `POST /api/sourcing/candidates/:id/promote` |
+| candidate quick AI processing | `POST /api/sourcing/candidates/:id/quick-process` |
 | candidate rejection | `POST /api/sourcing/candidates/:id/reject` |
 
 Route shape is frozen.
@@ -70,12 +71,14 @@ sourcing/
 - `GET /api/sourcing/:id` uses
   `findFirst({ id, organizationId, isDeleted: false })`; miss is 404.
 - `GET /api/sourcing/extension/products` returns paginated, organization-scoped
-  `SourcingCandidate` rows where `status='sourced'`; without an explicit
-  platform filter, the collected-product inbox includes imported sourcing
-  platforms (`ALIBABA_1688`, `ALIBABA`) and manual product registration
-  candidates (`KIDITEM_PRODUCT_REGISTRATION`). Product-less detail-generation
-  outputs are direct registration workspaces, not collected-product candidates.
-  It continues to exclude KidItem-generated thumbnail-only workspaces.
+  marketplace-unlisted `SourcingCandidate` rows where `status IN
+  ('sourced','promoted')` and the promoted master has no active
+  `ChannelListing`; without an explicit platform filter, the collected-product
+  inbox includes imported sourcing platforms (`ALIBABA_1688`, `ALIBABA`) and
+  manual product registration candidates (`KIDITEM_PRODUCT_REGISTRATION`).
+  Product-less detail-generation outputs are direct content workspaces,
+  not collected-product candidates. It continues to exclude
+  KidItem-generated thumbnail-only workspaces.
 - `DELETE /api/sourcing/candidates/:id` archives an active sourced workspace in
   one transaction: `SourcingCandidate`, `CandidateImage`, candidate-bound
   `ContentGeneration`, `DetailPageArtifact`, `ContentAsset`, and
@@ -101,6 +104,12 @@ sourcing/
   `selectedDetailPageGenerationId` / `selectedDetailPageArtifactId` attaches
   the chosen `DetailPageArtifact` to the new master. Do not add a
   `RegistrationDraft` table for this pre-submit choice.
+- Promotion writes the chosen registration inputs/assets to
+  `ProductPreparation`. Multiple preparations may point at one `MasterProduct`;
+  exactly one active row per master is current via `isCurrentForMaster=true`.
+- Candidate quick AI processing starts the product-generation parent operation
+  for an existing sourcing candidate, creating detail-page and thumbnail child
+  ledgers without creating another `SourcingCandidate`.
 - Promotion fires `SOURCING_AGENT_GATEWAY_PORT.notifyPromoted` after commit;
   failures are absorbed by the gateway (`OperationAlert`) so the HTTP path
   always reports the promotion outcome. `body.skipPostPromotionHooks=true`

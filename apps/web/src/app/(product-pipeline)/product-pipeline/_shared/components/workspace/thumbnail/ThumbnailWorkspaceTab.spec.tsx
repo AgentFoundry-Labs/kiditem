@@ -51,9 +51,10 @@ describe('ThumbnailWorkspaceTab', () => {
         editData={{ ...editData, thumbnails: [] }}
         productId="candidate-1"
         promotedMasterId={null}
-        registrationWorkspaceId={null}
+        contentWorkspaceId={null}
         thumbnailSourceCandidateId="candidate-1"
         selectedRegistrationThumbnailUrl={null}
+        onPreviewThumbnail={vi.fn()}
         onSelectRegistrationThumbnail={vi.fn()}
         onThumbnailsChange={vi.fn()}
         thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
@@ -70,9 +71,10 @@ describe('ThumbnailWorkspaceTab', () => {
         editData={editData}
         productId="candidate-1"
         promotedMasterId={null}
-        registrationWorkspaceId={null}
+        contentWorkspaceId={null}
         thumbnailSourceCandidateId="candidate-1"
         selectedRegistrationThumbnailUrl={null}
+        onPreviewThumbnail={vi.fn()}
         onSelectRegistrationThumbnail={vi.fn()}
         onThumbnailsChange={vi.fn()}
         thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
@@ -93,9 +95,10 @@ describe('ThumbnailWorkspaceTab', () => {
         editData={editData}
         productId="candidate-1"
         promotedMasterId={null}
-        registrationWorkspaceId={null}
+        contentWorkspaceId={null}
         thumbnailSourceCandidateId="candidate-1"
         selectedRegistrationThumbnailUrl={null}
+        onPreviewThumbnail={vi.fn()}
         onSelectRegistrationThumbnail={vi.fn()}
         onThumbnailsChange={vi.fn()}
         thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
@@ -106,5 +109,55 @@ describe('ThumbnailWorkspaceTab', () => {
     expect(screen.getByText('상품 썸네일 상태')).toBeInTheDocument();
     expect(screen.queryByText('진행 중인 작업')).not.toBeInTheDocument();
     expect(screen.queryByText('쿠팡 등록 대기')).not.toBeInTheDocument();
+  });
+
+  it('previews the selected source image without applying it as the registration thumbnail', () => {
+    const onPreviewThumbnail = vi.fn();
+    const onSelectRegistrationThumbnail = vi.fn();
+
+    render(
+      <ThumbnailWorkspaceTab
+        editData={editData}
+        productId="candidate-1"
+        promotedMasterId={null}
+        contentWorkspaceId={null}
+        thumbnailSourceCandidateId="candidate-1"
+        selectedRegistrationThumbnailUrl={null}
+        onPreviewThumbnail={onPreviewThumbnail}
+        onSelectRegistrationThumbnail={onSelectRegistrationThumbnail}
+        onThumbnailsChange={vi.fn()}
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /source\.jpg/ }));
+
+    expect(onPreviewThumbnail).toHaveBeenCalledWith('https://cdn.example.com/source.jpg');
+    expect(onSelectRegistrationThumbnail).not.toHaveBeenCalled();
+  });
+
+  it('previews generated result candidates before representative application', () => {
+    const onPreviewThumbnail = vi.fn();
+    const onSelectRegistrationThumbnail = vi.fn();
+
+    render(
+      <ThumbnailWorkspaceTab
+        editData={editData}
+        productId="candidate-1"
+        promotedMasterId={null}
+        contentWorkspaceId={null}
+        thumbnailSourceCandidateId="candidate-1"
+        selectedRegistrationThumbnailUrl={null}
+        onPreviewThumbnail={onPreviewThumbnail}
+        onSelectRegistrationThumbnail={onSelectRegistrationThumbnail}
+        onThumbnailsChange={vi.fn()}
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /생성 결과 미리보기 1/ }));
+
+    expect(onPreviewThumbnail).toHaveBeenCalledWith('https://cdn.example.com/generated.jpg');
+    expect(onSelectRegistrationThumbnail).not.toHaveBeenCalled();
   });
 });

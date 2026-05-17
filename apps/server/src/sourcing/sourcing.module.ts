@@ -10,6 +10,7 @@ import { SourcingExtensionIngestController } from './adapter/in/http/sourcing-ex
 import { SourcingService } from './application/service/sourcing.service';
 import { SourcingPromotionService } from './application/service/sourcing-promotion.service';
 import { SourcingWorkspaceArchiveService } from './application/service/sourcing-workspace-archive.service';
+import { ProductPreparationSelectionService } from './application/service/product-preparation-selection.service';
 
 import { SourcingAgentGatewayAdapter } from './adapter/out/agent/sourcing-agent.gateway.adapter';
 import { SourcingProductsCatalogAdapter } from './adapter/out/products/products-catalog.adapter';
@@ -49,6 +50,7 @@ import { SOURCING_CANDIDATE_REPOSITORY_PORT } from './application/port/out/sourc
     SourcingService,
     SourcingPromotionService,
     SourcingWorkspaceArchiveService,
+    ProductPreparationSelectionService,
     SourcingAgentGatewayAdapter,
     SourcingProductsCatalogAdapter,
     SourcingCandidateRepositoryAdapter,

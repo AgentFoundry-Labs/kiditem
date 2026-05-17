@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   getGenerateFormValidation,
   getGenerateSourceReferences,
-  getLoadedRegistrationWorkspaceId,
+  getLoadedContentWorkspaceId,
   resolveGenerateOwnerInputs,
 } from './useGenerateForm';
 
@@ -43,10 +43,10 @@ describe('getGenerateSourceReferences', () => {
   });
 });
 
-describe('getLoadedRegistrationWorkspaceId', () => {
+describe('getLoadedContentWorkspaceId', () => {
   it('keeps generation attached to the loaded duplicate workspace when the normalized title still matches', () => {
     expect(
-      getLoadedRegistrationWorkspaceId(
+      getLoadedContentWorkspaceId(
         {
           status: 'loaded',
           checkedTitle: 'QA Detail Panel 1778840622275',
@@ -60,7 +60,7 @@ describe('getLoadedRegistrationWorkspaceId', () => {
 
   it('does not attach to a loaded workspace after the user changes the title to another product', () => {
     expect(
-      getLoadedRegistrationWorkspaceId(
+      getLoadedContentWorkspaceId(
         {
           status: 'loaded',
           checkedTitle: 'QA Detail Panel 1778840622275',
@@ -76,13 +76,13 @@ describe('getLoadedRegistrationWorkspaceId', () => {
 describe('resolveGenerateOwnerInputs', () => {
   it('ignores owner query params in sandbox-only mode', () => {
     const params = new URLSearchParams(
-      'productId=master-1&sourceCandidateId=candidate-1&registrationWorkspaceId=workspace-1&title=%EC%83%81%ED%92%88',
+      'productId=master-1&sourceCandidateId=candidate-1&contentWorkspaceId=workspace-1&title=%EC%83%81%ED%92%88',
     );
 
     expect(resolveGenerateOwnerInputs(params, 'sandbox-only')).toEqual({
       productId: null,
       initialTitle: '',
-      initialRegistrationWorkspaceId: null,
+      initialContentWorkspaceId: null,
       sourceReferences: [],
       primarySourceCandidateId: null,
     });
@@ -90,13 +90,13 @@ describe('resolveGenerateOwnerInputs', () => {
 
   it('keeps owner query params in allow-url mode', () => {
     const params = new URLSearchParams(
-      'productId=master-1&sourceCandidateId=candidate-1&registrationWorkspaceId=workspace-1&title=%EC%83%81%ED%92%88',
+      'productId=master-1&sourceCandidateId=candidate-1&contentWorkspaceId=workspace-1&title=%EC%83%81%ED%92%88',
     );
 
     expect(resolveGenerateOwnerInputs(params, 'allow-url')).toEqual({
       productId: 'master-1',
       initialTitle: '상품',
-      initialRegistrationWorkspaceId: 'workspace-1',
+      initialContentWorkspaceId: 'workspace-1',
       sourceReferences: [{
         sourceType: 'sourcing_candidate',
         sourceCandidateId: 'candidate-1',

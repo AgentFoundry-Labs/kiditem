@@ -85,7 +85,7 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
     const rawOptions = input.optionNames.join('\n');
 
     let detailGenerationId: string | null = null;
-    let registrationWorkspaceId: string | null = null;
+    let contentWorkspaceId: string | null = null;
     try {
       const detail = await this.detailPages.generate(
         {
@@ -115,7 +115,7 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
         { operationAlert: detailLink },
       );
       detailGenerationId = detail.id;
-      registrationWorkspaceId = detail.registrationWorkspaceId ?? null;
+      contentWorkspaceId = detail.contentWorkspaceId ?? null;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(
@@ -149,7 +149,7 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
         organizationId: input.organizationId,
         sourceCandidateId: input.candidateId,
         productName,
-        registrationWorkspaceId,
+        contentWorkspaceId,
         triggeredByUserId: input.triggeredByUserId,
         inputs: [resolved],
         inputMeta: {
@@ -207,7 +207,7 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
       parentOperationKey,
       detailGenerationId,
       thumbnailGenerationId,
-      registrationWorkspaceId,
+      contentWorkspaceId,
       href,
     };
   }

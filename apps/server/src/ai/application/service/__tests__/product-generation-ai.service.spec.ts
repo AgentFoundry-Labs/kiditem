@@ -25,7 +25,7 @@ describe('ProductGenerationAiService', () => {
     const detailPages = {
       generate: vi.fn().mockResolvedValue({
         id: CONTENT_GENERATION_ID,
-        registrationWorkspaceId: WORKSPACE_ID,
+        contentWorkspaceId: WORKSPACE_ID,
         imageProcessingStatus: 'pending',
       }),
     };
@@ -122,7 +122,7 @@ describe('ProductGenerationAiService', () => {
     expect(thumbnails.enqueueCandidateGeneration).toHaveBeenCalledWith(expect.objectContaining({
       organizationId: ORGANIZATION_ID,
       sourceCandidateId: CANDIDATE_ID,
-      registrationWorkspaceId: WORKSPACE_ID,
+      contentWorkspaceId: WORKSPACE_ID,
       operationAlert: expect.objectContaining({
         mode: 'parent',
         childKind: 'thumbnail',

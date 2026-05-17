@@ -223,7 +223,7 @@ describe('ThumbnailEditorController candidate-bound generation', () => {
   it('keeps ownerless registered workspace thumbnail work attached to the workspace', async () => {
     const { controller, generationService } = makeController({ withProduct: false });
     const body = {
-      registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
+      contentWorkspaceId: REGISTRATION_WORKSPACE_ID,
       productImage: 'workspace-product-url',
       productName: 'Ownerless workspace toy',
       purpose: 'compliance',
@@ -235,7 +235,7 @@ describe('ThumbnailEditorController candidate-bound generation', () => {
     expect(generationService.enqueueStandaloneGeneration).toHaveBeenCalledWith(
       expect.objectContaining({
         organizationId: ORGANIZATION_ID,
-        registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
+        contentWorkspaceId: REGISTRATION_WORKSPACE_ID,
         productName: 'Ownerless workspace toy',
         originalUrl: 'workspace-product-url',
       }),

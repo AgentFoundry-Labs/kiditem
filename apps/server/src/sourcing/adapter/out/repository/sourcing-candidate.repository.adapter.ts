@@ -4,6 +4,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   CandidateImageRow,
   CandidateRow,
+  ProductPreparationRow,
   SourcingCandidateRepositoryPort,
   UpsertCandidateInput,
 } from '../../../application/port/out/sourcing-candidate.repository.port';
@@ -103,12 +104,33 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
   async findById(id: string, organizationId: string) {
     const row = await this.prisma.sourcingCandidate.findFirst({
       where: { id, organizationId, isDeleted: false },
-      include: { images: { where: { isDeleted: false }, orderBy: { sortOrder: 'asc' } } },
+      include: {
+        images: { where: { isDeleted: false }, orderBy: { sortOrder: 'asc' } },
+        productPreparations: {
+          where: {
+            organizationId,
+            isDeleted: false,
+            OR: [
+              { isCurrentForMaster: true },
+              { masterId: null },
+            ],
+          },
+          orderBy: [
+            { isCurrentForMaster: 'desc' },
+            { updatedAt: 'desc' },
+            { createdAt: 'desc' },
+          ],
+          take: 1,
+        },
+      },
     });
     if (!row) return null;
     return {
       ...toRow(row),
       images: row.images.map(toImageRow),
+      productPreparation: row.productPreparations[0]
+        ? toProductPreparationRow(row.productPreparations[0])
+        : null,
     };
   }
 
@@ -123,12 +145,22 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
     const where = {
       organizationId: query.organizationId,
       isDeleted: false,
-      status: 'sourced',
+      status: { in: ['sourced', 'promoted'] },
       ...(query.platform
         ? { sourcePlatform: query.platform }
         : query.sourcePlatforms?.length
           ? { sourcePlatform: { in: query.sourcePlatforms } }
           : {}),
+      OR: [
+        { promotedMasterId: null },
+        {
+          promotedMaster: {
+            listings: {
+              none: { organizationId: query.organizationId, isDeleted: false },
+            },
+          },
+        },
+      ],
     };
     const orderBy =
       query.sort === 'oldest' ? { createdAt: 'asc' as const } :
@@ -260,6 +292,28 @@ function toImageRow(i: any): CandidateImageRow {
     source: i.source,
     isPrimary: i.isPrimary,
     isDeleted: i.isDeleted,
+  };
+}
+
+function toProductPreparationRow(p: any): ProductPreparationRow {
+  return {
+    id: p.id,
+    sourceCandidateId: p.sourceCandidateId,
+    masterId: p.masterId,
+    contentWorkspaceId: p.contentWorkspaceId,
+    displayName: p.displayName,
+    status: p.status,
+    isCurrentForMaster: p.isCurrentForMaster,
+    selectedThumbnailUrl: p.selectedThumbnailUrl,
+    selectedThumbnailGenerationId: p.selectedThumbnailGenerationId,
+    selectedThumbnailGenerationCandidateId: p.selectedThumbnailGenerationCandidateId,
+    selectedDetailPageArtifactId: p.selectedDetailPageArtifactId,
+    selectedDetailPageRevisionId: p.selectedDetailPageRevisionId,
+    selectedDetailPageGenerationId: p.selectedDetailPageGenerationId,
+    registrationInput: p.registrationInput,
+    appliedToMasterAt: p.appliedToMasterAt,
+    createdAt: p.createdAt,
+    updatedAt: p.updatedAt,
   };
 }
 

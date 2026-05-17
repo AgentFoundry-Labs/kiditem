@@ -108,7 +108,7 @@ export async function createPendingEditJob(
     method: string;
     inputMeta: Prisma.InputJsonValue;
     editAnalysis: EditAnalysisResult | null;
-    registrationWorkspaceId?: string | null;
+    contentWorkspaceId?: string | null;
     triggeredByUserId?: string | null;
   },
 ): Promise<GenerationRow> {
@@ -118,7 +118,7 @@ export async function createPendingEditJob(
       masterId: args.masterId,
       originalUrl: args.originalUrl,
       method: args.method,
-      registrationWorkspaceId: args.registrationWorkspaceId ?? null,
+      contentWorkspaceId: args.contentWorkspaceId ?? null,
       status: 'pending',
       phase: null,
       inputMeta: args.inputMeta,
@@ -146,7 +146,7 @@ export async function createPendingCandidateJob(
     originalUrl: string;
     method: string;
     inputMeta: Prisma.InputJsonValue;
-    registrationWorkspaceId?: string | null;
+    contentWorkspaceId?: string | null;
     triggeredByUserId?: string | null;
   },
 ): Promise<{ id: string }> {
@@ -155,7 +155,7 @@ export async function createPendingCandidateJob(
       organizationId: args.organizationId,
       masterId: null,
       sourceCandidateId: args.sourceCandidateId,
-      registrationWorkspaceId: args.registrationWorkspaceId ?? null,
+      contentWorkspaceId: args.contentWorkspaceId ?? null,
       originalUrl: args.originalUrl,
       method: args.method,
       status: 'pending',
@@ -181,7 +181,7 @@ export async function createPendingStandaloneJob(
     originalUrl: string;
     method: string;
     inputMeta: Prisma.InputJsonValue;
-    registrationWorkspaceId?: string | null;
+    contentWorkspaceId?: string | null;
     triggeredByUserId?: string | null;
   },
 ): Promise<{ id: string }> {
@@ -190,7 +190,7 @@ export async function createPendingStandaloneJob(
       organizationId: args.organizationId,
       masterId: null,
       sourceCandidateId: null,
-      registrationWorkspaceId: args.registrationWorkspaceId ?? null,
+      contentWorkspaceId: args.contentWorkspaceId ?? null,
       originalUrl: args.originalUrl,
       method: args.method,
       status: 'pending',

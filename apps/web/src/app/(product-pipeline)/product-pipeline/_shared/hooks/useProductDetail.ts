@@ -75,18 +75,26 @@ export function useProductDetail(
         }
       }
 
-      const thumbnailInputs = data.thumbnail_url ? [data.thumbnail_url] : [];
-      const editState: ProductEditState = data.processed_data
-        ? {
-            ...mapProcessedData(data.processed_data),
-            thumbnails: thumbnailInputs,
-          }
-        : {
-            ...PLACEHOLDER_DATA,
-            name: data.name,
-            salePrice: data.price_krw ?? 0,
-            thumbnails: thumbnailInputs,
-          };
+      const processedEditState = data.processed_data
+        ? mapProcessedData(data.processed_data)
+        : PLACEHOLDER_DATA;
+      const basicInfo = data.basicInfo;
+      const thumbnailInputs =
+        basicInfo.thumbnailUrls.length > 0
+          ? basicInfo.thumbnailUrls
+          : data.thumbnail_url
+            ? [data.thumbnail_url]
+            : [];
+      const editState: ProductEditState = {
+        ...processedEditState,
+        name: basicInfo.name || data.name,
+        category: basicInfo.category,
+        originalPrice: basicInfo.originalPrice,
+        salePrice: basicInfo.salePrice || data.price_krw || processedEditState.salePrice,
+        discountRate: basicInfo.discountRate,
+        thumbnails: thumbnailInputs,
+        tags: basicInfo.tags,
+      };
 
       return {
         product: data,

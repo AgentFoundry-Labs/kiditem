@@ -54,8 +54,8 @@ import type { PersistedContentAssetRef } from './content-asset.service';
 import { kickEnqueuedAgentRequest as kickInlineAgentRequest } from './agent-inline-execution';
 import {
   registeredWorkspaceEditorHref,
-  RegistrationWorkspaceService,
-} from './registration-workspace.service';
+  ContentWorkspaceService,
+} from './content-workspace.service';
 import {
   type GenerationAlertLink,
   STANDALONE_GENERATION_ALERT,
@@ -95,7 +95,7 @@ export class DetailPageGenerationService {
     @Inject(AGENT_RUNNER_PORT)
     private readonly agentRunner: AgentRunnerPort,
     private readonly contentAssets: ContentAssetService,
-    private readonly registrationWorkspaces: RegistrationWorkspaceService,
+    private readonly contentWorkspaces: ContentWorkspaceService,
     private readonly productGenerationAlerts: ProductGenerationAlertService,
   ) {}
 
@@ -159,35 +159,35 @@ export class DetailPageGenerationService {
         ...productGenerationMetadata(operationAlert),
       };
     }
-    const requestedRegistrationWorkspace = dto.registrationWorkspaceId
-      ? await this.resolveRegistrationWorkspace(organizationId, dto.registrationWorkspaceId)
+    const requestedContentWorkspace = dto.contentWorkspaceId
+      ? await this.resolveContentWorkspace(organizationId, dto.contentWorkspaceId)
       : null;
-    const effectiveProductId = dto.productId ?? requestedRegistrationWorkspace?.targetMasterId ?? null;
+    const effectiveProductId = dto.productId ?? requestedContentWorkspace?.targetMasterId ?? null;
     let sourceReferences = await this.normalizeSourceReferences({
       organizationId,
       productId: effectiveProductId,
       sourceReferences: dto.sourceReferences ?? [],
     });
     const primarySourceCandidateId =
-      requestedRegistrationWorkspace?.sourceCandidateId ??
+      requestedContentWorkspace?.sourceCandidateId ??
       sourceReferences.find((ref) => ref.sourceType === 'sourcing_candidate')
         ?.sourceCandidateId ?? null;
     if (
-      requestedRegistrationWorkspace?.sourceCandidateId &&
-      !sourceReferences.some((ref) => ref.sourceCandidateId === requestedRegistrationWorkspace.sourceCandidateId)
+      requestedContentWorkspace?.sourceCandidateId &&
+      !sourceReferences.some((ref) => ref.sourceCandidateId === requestedContentWorkspace.sourceCandidateId)
     ) {
       sourceReferences = [
         {
           sourceType: 'sourcing_candidate',
-          sourceCandidateId: requestedRegistrationWorkspace.sourceCandidateId,
-          label: requestedRegistrationWorkspace.displayName,
+          sourceCandidateId: requestedContentWorkspace.sourceCandidateId,
+          label: requestedContentWorkspace.displayName,
         },
         ...sourceReferences,
       ];
     }
     if (sourceReferences.length > 0) rawInput.sourceReferences = sourceReferences;
-    const registrationWorkspace = requestedRegistrationWorkspace ??
-      await this.registrationWorkspaces.ensureForGeneration({
+    const contentWorkspace = requestedContentWorkspace ??
+      await this.contentWorkspaces.ensureForGeneration({
         organizationId,
         triggeredByUserId,
         rawTitle: dto.rawTitle,
@@ -199,7 +199,7 @@ export class DetailPageGenerationService {
         organizationId,
         productId: effectiveProductId,
         sourceCandidateId: primarySourceCandidateId,
-        registrationWorkspaceId: registrationWorkspace.id,
+        contentWorkspaceId: contentWorkspace.id,
         templateId,
       })
       : null;
@@ -222,14 +222,14 @@ export class DetailPageGenerationService {
       sourceReferences,
       sourceCandidateId: primarySourceCandidateId,
       existingResult: imageOnlyBase?.result,
-      registrationWorkspaceId: registrationWorkspace.id,
+      contentWorkspaceId: contentWorkspace.id,
       operationAlert,
     });
   }
 
-  private async resolveRegistrationWorkspace(
+  private async resolveContentWorkspace(
     organizationId: string,
-    registrationWorkspaceId: string,
+    contentWorkspaceId: string,
   ): Promise<{
     id: string;
     sourceCandidateId: string | null;
@@ -237,9 +237,9 @@ export class DetailPageGenerationService {
     displayName: string;
     normalizedTitle: string;
   }> {
-    const row = await this.prisma.registrationWorkspace.findFirst({
+    const row = await this.prisma.contentWorkspace.findFirst({
       where: {
-        id: registrationWorkspaceId,
+        id: contentWorkspaceId,
         organizationId,
         status: 'active',
         isDeleted: false,
@@ -252,7 +252,7 @@ export class DetailPageGenerationService {
         normalizedTitle: true,
       },
     });
-    if (!row) throw new NotFoundException('Registration workspace not found');
+    if (!row) throw new NotFoundException('Content workspace not found');
     return row;
   }
 
@@ -269,7 +269,7 @@ export class DetailPageGenerationService {
     sourceCandidateId: string | null;
     existingResult?: unknown;
     generationGroupId?: string | null;
-    registrationWorkspaceId: string;
+    contentWorkspaceId: string;
     operationAlert: GenerationAlertLink;
   }): Promise<DetailPageGenerationDto> {
     const targetMaster = input.productId
@@ -304,7 +304,7 @@ export class DetailPageGenerationService {
         organizationId: input.organizationId,
         contentType: 'detail_page',
         generationGroupId,
-        registrationWorkspaceId: input.registrationWorkspaceId,
+        contentWorkspaceId: input.contentWorkspaceId,
         sourceCandidateId: primarySourceCandidateId,
         triggeredByUserId: input.triggeredByUserId,
         templateId: input.templateId,
@@ -354,8 +354,8 @@ export class DetailPageGenerationService {
         sourceType: 'content_generation',
         sourceId: row.id,
         actorUserId: input.triggeredByUserId,
-        targetType: primarySourceCandidateId ? 'sourcing_candidate' : 'registration_workspace',
-        targetId: primarySourceCandidateId ?? input.registrationWorkspaceId,
+        targetType: primarySourceCandidateId ? 'sourcing_candidate' : 'content_workspace',
+        targetId: primarySourceCandidateId ?? input.contentWorkspaceId,
         href: primarySourceCandidateId
           ? detailPageResultHref({
               productId: input.productId,
@@ -363,7 +363,7 @@ export class DetailPageGenerationService {
               contentGenerationId: row.id,
               templateId: input.templateId,
             })
-          : registeredWorkspaceEditorHref(input.registrationWorkspaceId, row.id),
+          : registeredWorkspaceEditorHref(input.contentWorkspaceId, row.id),
         metadata: {
           templateId: input.templateId,
           imageCount: input.imageUrls.length,
@@ -384,7 +384,7 @@ export class DetailPageGenerationService {
           ? `detail_page_generate for product ${input.productId}`
           : primarySourceCandidateId
             ? `detail_page_generate for sourcing candidate ${primarySourceCandidateId}`
-            : `detail_page_generate for registration workspace ${input.registrationWorkspaceId}`,
+            : `detail_page_generate for content workspace ${input.contentWorkspaceId}`,
         payload: {
           templateId: input.templateId,
           raw: {
@@ -459,7 +459,7 @@ export class DetailPageGenerationService {
       select: {
         id: true,
         generationGroupId: true,
-        registrationWorkspaceId: true,
+        contentWorkspaceId: true,
         sourceCandidateId: true,
         generationInput: true,
         generationResult: true,
@@ -493,8 +493,8 @@ export class DetailPageGenerationService {
       title: pickRawString(rawRecord, 'rawTitle') ?? base.generatedTitle ?? '상세페이지 작업',
       triggeredByUserId,
     });
-    const registrationWorkspaceId = base.registrationWorkspaceId ??
-      (await this.registrationWorkspaces.ensureForGeneration({
+    const contentWorkspaceId = base.contentWorkspaceId ??
+      (await this.contentWorkspaces.ensureForGeneration({
         organizationId,
         triggeredByUserId,
         rawTitle: pickRawString(rawRecord, 'rawTitle') ?? base.generatedTitle ?? '상세페이지 작업',
@@ -530,7 +530,7 @@ export class DetailPageGenerationService {
       sourceReferences: rawInput.sourceReferences ?? [],
       sourceCandidateId: base.sourceCandidateId,
       generationGroupId,
-      registrationWorkspaceId,
+      contentWorkspaceId,
       operationAlert: STANDALONE_GENERATION_ALERT,
     });
   }
@@ -539,11 +539,11 @@ export class DetailPageGenerationService {
     organizationId: string;
     productId: string | null;
     sourceCandidateId: string | null;
-    registrationWorkspaceId: string | null;
+    contentWorkspaceId: string | null;
     templateId: DetailPageTemplateId;
   }): Promise<{ id: string; result: unknown } | null> {
     const sourceCandidateId = input.sourceCandidateId;
-    if (!input.productId && !sourceCandidateId && !input.registrationWorkspaceId) return null;
+    if (!input.productId && !sourceCandidateId && !input.contentWorkspaceId) return null;
     const where: Prisma.ContentGenerationWhereInput = {
       organizationId: input.organizationId,
       contentType: 'detail_page',
@@ -551,8 +551,8 @@ export class DetailPageGenerationService {
       status: { in: ['READY', 'completed'] },
       ...(input.productId
         ? { generationGroup: { targetMasterId: input.productId } }
-        : input.registrationWorkspaceId
-          ? { registrationWorkspaceId: input.registrationWorkspaceId }
+        : input.contentWorkspaceId
+          ? { contentWorkspaceId: input.contentWorkspaceId }
         : {
             OR: [
               { sourceCandidateId },

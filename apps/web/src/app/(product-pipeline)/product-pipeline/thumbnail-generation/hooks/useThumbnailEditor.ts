@@ -5,7 +5,7 @@ import { apiClient } from '@/lib/api-client';
 interface GenerateRequest {
   productId?: string;
   sourceCandidateId?: string;
-  registrationWorkspaceId?: string;
+  contentWorkspaceId?: string;
   productName?: string;
   productImage?: string;
   packagingImage?: string;

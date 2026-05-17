@@ -31,6 +31,9 @@ because collected and registered products both use them.
 - `SourcingCandidate` is the raw source/opportunity workspace.
 - `MasterProduct` means the candidate has been promoted into inventory/catalog
   product state.
+- A promoted candidate remains in collected products until its `MasterProduct`
+  has an active `ChannelListing`; `등록 상품` lists marketplace listings, not
+  candidate/content workspaces.
 - `ContentGeneration` is the source of truth for generation request/result
   snapshots and direct candidate lineage.
 - `DetailPageArtifact` + `DetailPageRevision` are the source of truth for saved
@@ -101,4 +104,6 @@ The product registration button uses the existing
 thumbnail URL and, when the operator applied an Agent detail-page history row,
 the selected `ContentGeneration.id`; the server resolves that to
 `DetailPageArtifact`/`DetailPageRevision` inside the promotion transaction. Do
-not persist this as a separate registration draft from the frontend.
+not persist this as a separate registration draft from the frontend. The server
+persists the applied selection in `ProductPreparation` after promotion so the
+workspace can reopen with the selected thumbnail/detail version.

@@ -1,0 +1,125 @@
+import { apiClient } from '@/lib/api-client';
+
+export type RegisteredListingSort = 'newest' | 'oldest' | 'name_asc';
+
+export interface RegisteredChannelListing {
+  id: string;
+  masterId: string | null;
+  masterCode: string;
+  masterName: string;
+  thumbnailUrl: string | null;
+  channel: string;
+  channelAccountId: string | null;
+  channelAccountName: string | null;
+  externalId: string;
+  channelName: string | null;
+  channelPrice: number | null;
+  sourceCandidateId: string | null;
+  contentWorkspaceId: string | null;
+  status: string | null;
+  exposureStatus: string | null;
+  optionCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RegisteredMarketCount {
+  channel: string;
+  channelAccountId: string | null;
+  channelAccountName: string | null;
+  count: number;
+}
+
+export interface RegisteredProductGroup {
+  masterId: string;
+  masterCode: string;
+  masterName: string;
+  thumbnailUrl: string | null;
+  listingCount: number;
+  listings: RegisteredChannelListing[];
+  updatedAt: string;
+}
+
+export interface RegisteredChannelListingResponse {
+  items: RegisteredChannelListing[];
+  total: number;
+  page: number;
+  limit: number;
+  marketCounts: RegisteredMarketCount[];
+}
+
+export interface RegisteredProductGroupResponse {
+  items: RegisteredProductGroup[];
+  total: number;
+  page: number;
+  limit: number;
+  marketCounts: RegisteredMarketCount[];
+}
+
+export interface ChannelAccountOption {
+  id: string;
+  channel: string;
+  name: string;
+  externalAccountId: string | null;
+  vendorId?: string | null;
+  sellerId?: string | null;
+  isPrimary?: boolean | null;
+}
+
+export const channelListingsApi = {
+  list(params?: {
+    page?: number;
+    limit?: number;
+    sort?: RegisteredListingSort;
+    channel?: string | null;
+    channelAccountId?: string | null;
+    search?: string | null;
+  }): Promise<RegisteredChannelListingResponse> {
+    const qs = new URLSearchParams({
+      page: String(params?.page ?? 1),
+      limit: String(params?.limit ?? 20),
+    });
+    if (params?.sort) qs.set('sort', params.sort);
+    if (params?.channel) qs.set('channel', params.channel);
+    if (params?.channelAccountId) qs.set('channelAccountId', params.channelAccountId);
+    if (params?.search?.trim()) qs.set('search', params.search.trim());
+    return apiClient.get<RegisteredChannelListingResponse>(`/api/channels/listings?${qs}`);
+  },
+  listGroups(params?: {
+    page?: number;
+    limit?: number;
+    sort?: RegisteredListingSort;
+    channel?: string | null;
+    channelAccountId?: string | null;
+    search?: string | null;
+    tab?: 'registered' | 'deleted';
+  }): Promise<RegisteredProductGroupResponse> {
+    const qs = new URLSearchParams({
+      page: String(params?.page ?? 1),
+      limit: String(params?.limit ?? 20),
+    });
+    if (params?.sort) qs.set('sort', params.sort);
+    if (params?.channel) qs.set('channel', params.channel);
+    if (params?.channelAccountId) qs.set('channelAccountId', params.channelAccountId);
+    if (params?.search?.trim()) qs.set('search', params.search.trim());
+    if (params?.tab) qs.set('tab', params.tab);
+    return apiClient.get<RegisteredProductGroupResponse>(`/api/channels/listings/groups?${qs}`);
+  },
+  getWorkspace(listingId: string): Promise<RegisteredChannelListing> {
+    return apiClient.get<RegisteredChannelListing>(
+      `/api/channels/listings/${encodeURIComponent(listingId)}/workspace`,
+    );
+  },
+  listAccounts(): Promise<ChannelAccountOption[]> {
+    return apiClient.get<ChannelAccountOption[]>('/api/channels/accounts');
+  },
+  registerConfirmed(input: {
+    masterId: string;
+    channelAccountId: string;
+    externalId: string;
+    channelName?: string | null;
+    channelPrice?: number | null;
+  }): Promise<RegisteredChannelListing> {
+    return apiClient.post<RegisteredChannelListing>('/api/channels/listings/confirmed', input);
+  },
+};

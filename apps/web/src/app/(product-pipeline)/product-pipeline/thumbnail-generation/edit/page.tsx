@@ -22,7 +22,7 @@ function ThumbnailEditorWorkspaceRoute() {
   const workspaceHref = productBoundThumbnailWorkspaceHref({
     productId: searchParams.get('productId'),
     sourceCandidateId: searchParams.get('sourceCandidateId'),
-    registrationWorkspaceId: searchParams.get('registrationWorkspaceId'),
+    contentWorkspaceId: searchParams.get('contentWorkspaceId'),
     returnTo: searchParams.get('returnTo'),
     generationId: searchParams.get('generationId'),
     imageUrl: searchParams.get('imageUrl'),

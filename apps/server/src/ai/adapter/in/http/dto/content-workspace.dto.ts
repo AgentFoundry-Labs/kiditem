@@ -4,7 +4,7 @@ import { IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min } fro
 const PRODUCT_TITLE_MESSAGE = '상품명은 한글, 영문, 숫자, 공백만 사용할 수 있습니다.';
 const PRODUCT_TITLE_PATTERN = /^(?=.*[\p{L}\p{N}])[\p{L}\p{N}\s]+$/u;
 
-export class ListRegistrationWorkspacesQueryDto {
+export class ListContentWorkspacesQueryDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
@@ -29,14 +29,14 @@ export class ListRegistrationWorkspacesQueryDto {
   title?: string;
 }
 
-export class DuplicateRegistrationWorkspaceQueryDto {
+export class DuplicateContentWorkspaceQueryDto {
   @IsString()
   @MaxLength(160)
   @Matches(PRODUCT_TITLE_PATTERN, { message: PRODUCT_TITLE_MESSAGE })
   title!: string;
 }
 
-export class CreateRegistrationWorkspaceDto {
+export class CreateContentWorkspaceDto {
   @IsString()
   @MaxLength(160)
   @Matches(PRODUCT_TITLE_PATTERN, { message: PRODUCT_TITLE_MESSAGE })
@@ -51,12 +51,12 @@ export class CreateRegistrationWorkspaceDto {
   targetMasterId?: string;
 }
 
-export class SelectRegistrationWorkspaceDetailPageDto {
+export class SelectContentWorkspaceDetailPageDto {
   @IsUUID()
   contentGenerationId!: string;
 }
 
-export class RegistrationWorkspaceIdParamDto {
+export class ContentWorkspaceIdParamDto {
   @IsUUID()
   workspaceId!: string;
 }

@@ -6,3 +6,10 @@ export class SaveDetailPageEditedHtmlDto {
   @MaxLength(2_000_000)
   html!: string;
 }
+
+export class RenameDetailPageVersionDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(120)
+  title!: string;
+}

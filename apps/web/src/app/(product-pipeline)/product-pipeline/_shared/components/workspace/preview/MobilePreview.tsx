@@ -4,9 +4,14 @@
 // 사용자 요구: thumbnail-editor 에서 이미 쓰는 CoupangSearchCardPreview/CoupangDetailPreview 와
 // 동일한 패턴 (탭으로 미리보기 변경) + iPhone 17 모양 프레임.
 
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Heart, ShoppingCart, Star, Search, Layers, Smartphone } from 'lucide-react';
 import { formatKRW, cn } from '@/lib/utils';
+import {
+  isDetailPreviewMetricsMessage,
+  SCRIPTED_PREVIEW_SANDBOX,
+  withDetailPreviewBridge,
+} from '@/app/(product-pipeline)/product-pipeline/_shared/lib/preview-sandbox';
 
 type PreviewMode = 'pdp' | 'search' | 'list';
 
@@ -18,6 +23,9 @@ interface MobilePreviewProps {
   discountRate: number;
   rating: number;
   reviewCount: number;
+  detailHtml?: string | null;
+  sticky?: boolean;
+  className?: string;
 }
 
 const TABS: { key: PreviewMode; label: string; Icon: typeof Smartphone }[] = [
@@ -25,6 +33,9 @@ const TABS: { key: PreviewMode; label: string; Icon: typeof Smartphone }[] = [
   { key: 'search', label: '검색', Icon: Search },
   { key: 'list', label: '목록', Icon: Layers },
 ];
+const DETAIL_DOCUMENT_WIDTH = 720;
+const MOBILE_DETAIL_VIEWPORT_WIDTH = 304;
+const MOBILE_DETAIL_SCALE = MOBILE_DETAIL_VIEWPORT_WIDTH / DETAIL_DOCUMENT_WIDTH;
 
 export default function MobilePreview({
   name,
@@ -34,11 +45,14 @@ export default function MobilePreview({
   discountRate,
   rating,
   reviewCount,
+  detailHtml = null,
+  sticky = true,
+  className,
 }: MobilePreviewProps) {
   const [mode, setMode] = useState<PreviewMode>('pdp');
 
   return (
-    <div className="sticky top-6">
+    <div className={cn(sticky ? 'sticky top-6' : '', className)}>
       <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
         미리보기 — 쿠팡
       </p>
@@ -73,7 +87,10 @@ export default function MobilePreview({
         {/* Dynamic Island — 화면 영역 위에 floating pill 로 떠있음 */}
         <div className="absolute left-1/2 top-2 z-20 h-[22px] w-[88px] -translate-x-1/2 rounded-full bg-black" />
 
-        <div className="bg-white h-[640px] overflow-y-auto rounded-[2.25rem]">
+        <div
+          data-testid="mobile-preview-phone-scroll"
+          className="bg-white h-[640px] overflow-y-auto rounded-[2.25rem]"
+        >
           {/* 상단 status bar 영역 — Dynamic Island 가 가리는 만큼 padding */}
           <div className="h-9" />
 
@@ -86,6 +103,7 @@ export default function MobilePreview({
               discountRate={discountRate}
               rating={rating}
               reviewCount={reviewCount}
+              detailHtml={detailHtml}
             />
           )}
           {mode === 'search' && (
@@ -109,8 +127,39 @@ export default function MobilePreview({
 ============================================================================ */
 
 function PdpView({
-  name, mainImage, salePrice, originalPrice, discountRate, rating, reviewCount,
+  name,
+  mainImage,
+  salePrice,
+  originalPrice,
+  discountRate,
+  rating,
+  reviewCount,
+  detailHtml = null,
 }: MobilePreviewProps) {
+  const detailIframeRef = useRef<HTMLIFrameElement>(null);
+  const [detailDocumentHeight, setDetailDocumentHeight] = useState(960);
+  const sandboxedDetailHtml = useMemo(
+    () => (detailHtml ? withDetailPreviewBridge(detailHtml) : null),
+    [detailHtml],
+  );
+
+  useEffect(() => {
+    if (!sandboxedDetailHtml) return;
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== detailIframeRef.current?.contentWindow) return;
+      if (!isDetailPreviewMetricsMessage(event.data)) return;
+      setDetailDocumentHeight(Math.min(16_000, Math.max(720, Math.ceil(event.data.scrollHeight))));
+    };
+    window.addEventListener('message', onMessage);
+    return () => {
+      window.removeEventListener('message', onMessage);
+    };
+  }, [sandboxedDetailHtml]);
+
+  useEffect(() => {
+    setDetailDocumentHeight(960);
+  }, [sandboxedDetailHtml]);
+
   return (
     <>
       <div className="bg-white border-b border-slate-100 px-3 py-2.5 flex items-center justify-between">
@@ -167,6 +216,32 @@ function PdpView({
           </div>
         </div>
       </div>
+
+      {sandboxedDetailHtml ? (
+        <div className="border-t border-slate-100 bg-slate-50 px-2 py-3">
+          <p className="mb-2 text-[10px] font-bold text-slate-500">상세페이지</p>
+          <div
+            data-testid="mobile-preview-detail-scroll-region"
+            className="overflow-hidden rounded-md border border-slate-200 bg-white"
+            style={{ height: Math.ceil(detailDocumentHeight * MOBILE_DETAIL_SCALE) }}
+          >
+            <iframe
+              ref={detailIframeRef}
+              title="mobile-registration-detail-preview"
+              srcDoc={sandboxedDetailHtml}
+              className="pointer-events-none border-0"
+              sandbox={SCRIPTED_PREVIEW_SANDBOX}
+              scrolling="no"
+              style={{
+                width: DETAIL_DOCUMENT_WIDTH,
+                height: detailDocumentHeight,
+                transform: `scale(${MOBILE_DETAIL_SCALE})`,
+                transformOrigin: 'top left',
+              }}
+            />
+          </div>
+        </div>
+      ) : null}
 
       <div className="sticky bottom-0 border-t border-slate-200 bg-white px-3 py-2 flex items-center gap-2">
         <button className="p-2 border border-slate-200 rounded-lg">

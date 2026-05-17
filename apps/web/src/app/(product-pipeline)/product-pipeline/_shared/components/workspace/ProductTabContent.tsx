@@ -1,20 +1,32 @@
 'use client';
 
-import { ChevronDown, Settings } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import TagEditor from './detail/TagEditor';
+import { useEffect, useMemo, useState } from 'react';
+import { Settings } from 'lucide-react';
 import RawDataTab from './detail/RawDataTab';
-import { CATEGORIES } from '../../lib/product-workspace-types';
 import DetailPageWorkspaceTab from './detail/DetailPageWorkspaceTab';
 import ThumbnailWorkspaceTab from './thumbnail/ThumbnailWorkspaceTab';
+import ProductBasicsTab, {
+  basicDraftFrom,
+  productBasicsInputFromDraft,
+  type BasicDraft,
+  type SelectedDetailPageSummary,
+} from './basic/ProductBasicsTab';
 import type { EditTabType } from './detail/ProductEditTabs';
 import type { ProductEditState } from '../../lib/product-workspace-types';
 import type { GenerationHistoryItem } from '../../hooks/useGenerationHistory';
+import type { ProductRegistrationPreviewData } from './preview/product-registration-preview';
+import type {
+  ProductBasics,
+  UpdateProductBasicsInput,
+} from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api';
+import type { RegistrationThumbnailOption } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/registration-selection';
 
 interface Props {
   activeTab: EditTabType;
   editData: ProductEditState;
+  basicInfo?: ProductBasics | null;
   updateField: <K extends keyof ProductEditState>(field: K, value: ProductEditState[K]) => void;
+  onCommitBasicInfo?: (input: UpdateProductBasicsInput) => void;
   nameLength: number;
   productId: string;
   promotedMasterId: string | null;
@@ -30,7 +42,7 @@ interface Props {
   selectedBoldVerticalId: string | null;
   /** 사용자가 생성 이력에서 고른 ContentAgent entry id. */
   selectedAgentId: string | null;
-  registrationWorkspaceId?: string | null;
+  contentWorkspaceId?: string | null;
   hasSavedDetailPage?: boolean;
   savedDetailPageGenerationId?: string | null;
   initialAgentHistory?: GenerationHistoryItem[];
@@ -41,15 +53,25 @@ interface Props {
   onSelectKidsPlayful: (id: string | null) => void;
   onSelectBoldVertical: (id: string | null) => void;
   onSelectAgent: (id: string | null) => void;
+  onApplyRegistrationDetailPage?: (input: {
+    selectedDetailPageGenerationId: string;
+    selectedDetailPageArtifactId?: string | null;
+    selectedDetailPageRevisionId?: string | null;
+  }) => Promise<void> | void;
   selectedRegistrationThumbnailUrl: string | null;
-  onSelectRegistrationThumbnail: (url: string | null) => void;
+  mobilePreviewData: ProductRegistrationPreviewData;
+  onPreviewThumbnail: (url: string | null) => void;
+  onSelectRegistrationThumbnail: (option: RegistrationThumbnailOption) => void;
   thumbnailGenerationReturnHref: string;
+  selectedDetailPageSummary?: SelectedDetailPageSummary | null;
 }
 
 export default function ProductTabContent({
   activeTab,
   editData,
+  basicInfo = null,
   updateField,
+  onCommitBasicInfo,
   nameLength,
   productId,
   promotedMasterId,
@@ -62,7 +84,7 @@ export default function ProductTabContent({
   selectedKidsPlayfulId,
   selectedBoldVerticalId,
   selectedAgentId,
-  registrationWorkspaceId,
+  contentWorkspaceId,
   hasSavedDetailPage,
   savedDetailPageGenerationId,
   initialAgentHistory,
@@ -73,88 +95,103 @@ export default function ProductTabContent({
   onSelectKidsPlayful,
   onSelectBoldVertical,
   onSelectAgent,
+  onApplyRegistrationDetailPage,
   selectedRegistrationThumbnailUrl,
+  mobilePreviewData,
+  onPreviewThumbnail,
   onSelectRegistrationThumbnail,
   thumbnailGenerationReturnHref,
+  selectedDetailPageSummary = null,
 }: Props) {
   const effectiveThumbnailSourceCandidateId =
     thumbnailSourceCandidateId === undefined ? productId : thumbnailSourceCandidateId;
+  const initialBasicDraft = useMemo(
+    () => basicDraftFrom({ basicInfo, editData }),
+    [
+      basicInfo,
+      editData.category,
+      editData.discountRate,
+      editData.name,
+      editData.originalPrice,
+      editData.salePrice,
+      editData.tags,
+    ],
+  );
+  const [basicDraft, setBasicDraft] = useState(initialBasicDraft);
+  const [isBasicEditing, setIsBasicEditing] = useState(false);
+
+  useEffect(() => {
+    if (!isBasicEditing) {
+      setBasicDraft(initialBasicDraft);
+    }
+  }, [initialBasicDraft, isBasicEditing]);
+
+  const updateBasicDraft = (field: keyof BasicDraft, value: string) => {
+    setBasicDraft((current) => ({ ...current, [field]: value }));
+  };
+  const updateBasicDraftTags = (tags: string[]) => {
+    setBasicDraft((current) => ({ ...current, tags }));
+  };
+  const cancelBasicEditing = () => {
+    setBasicDraft(initialBasicDraft);
+    setIsBasicEditing(false);
+  };
+  const saveBasicEditing = () => {
+    const input = productBasicsInputFromDraft(basicDraft);
+    updateField('name', input.name ?? '');
+    updateField('category', input.category ?? '');
+    updateField('tags', input.tags ?? []);
+    updateField('salePrice', input.salePrice ?? 0);
+    updateField('originalPrice', input.originalPrice ?? 0);
+    updateField('discountRate', input.discountRate ?? 0);
+    onCommitBasicInfo?.(input);
+    setIsBasicEditing(false);
+  };
 
   switch (activeTab) {
     case 'basic':
       return (
-        <div className="space-y-4 p-5">
-          <div className="card p-5">
-            <div className="space-y-3">
-              <label className="text-base font-semibold text-slate-800">카테고리</label>
-              <div className="relative">
-                <select
-                  value={editData.category}
-                  onChange={(e) => updateField('category', e.target.value)}
-                  className="w-full appearance-none px-4 py-3 pr-10 bg-slate-50 border border-slate-200 rounded-lg text-base text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 transition-colors cursor-pointer"
+        <div className="space-y-3 p-5">
+          <div className="flex items-center justify-end">
+            {isBasicEditing ? (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={cancelBasicEditing}
+                  className="h-9 rounded-md border border-slate-200 bg-white px-3 text-xs font-black text-slate-600 transition hover:bg-slate-50"
                 >
-                  <option value="">카테고리 선택</option>
-                  {CATEGORIES.map((cat) => (
-                    <option key={cat} value={cat}>{cat}</option>
-                  ))}
-                </select>
-                <ChevronDown
-                  size={16}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
-                />
+                  취소
+                </button>
+                <button
+                  type="button"
+                  onClick={saveBasicEditing}
+                  className="h-9 rounded-md bg-emerald-600 px-3 text-xs font-black text-white shadow-sm transition hover:bg-emerald-700"
+                >
+                  저장
+                </button>
               </div>
-            </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setIsBasicEditing(true)}
+                className="h-9 rounded-md border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50"
+              >
+                수정
+              </button>
+            )}
           </div>
-
-          <div className="card p-5">
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-base font-semibold text-slate-800">상품명</label>
-                <span className={cn('text-sm font-medium', nameLength > 100 ? 'text-red-500' : 'text-slate-400')}>
-                  {nameLength}/100자
-                </span>
-              </div>
-              <input
-                type="text"
-                value={editData.name}
-                onChange={(e) => updateField('name', e.target.value)}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg text-base text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 transition-colors"
-                placeholder="상품명을 입력하세요"
-                maxLength={100}
-              />
-            </div>
-          </div>
-
-          <div className="card p-5">
-            <TagEditor
-              tags={editData.tags}
-              onTagsChange={(v) => updateField('tags', v)}
-            />
-          </div>
-
-          {editData.productInfo.length > 0 && (
-            <div className="card p-5">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <label className="text-base font-semibold text-slate-800">상품정보제공공시</label>
-                  <button className="text-xs text-emerald-600 hover:text-emerald-700 font-medium transition-colors">
-                    편집
-                  </button>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {editData.productInfo.map((item) => (
-                    <div
-                      key={item.key}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm hover:border-slate-300 transition-colors"
-                    >
-                      <span className="text-slate-500 font-medium">{item.key}:</span>
-                      <span className="text-slate-800">{item.value}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
+          <ProductBasicsTab
+            editData={editData}
+            basicInfo={basicInfo}
+            nameLength={nameLength}
+            isEditing={isBasicEditing}
+            draft={basicDraft}
+            onDraftChange={updateBasicDraft}
+            onDraftTagsChange={updateBasicDraftTags}
+            selectedRegistrationThumbnailUrl={selectedRegistrationThumbnailUrl}
+            selectedDetailPageGenerationId={savedDetailPageGenerationId}
+            selectedDetailPageSummary={selectedDetailPageSummary}
+          />
         </div>
       );
 
@@ -177,9 +214,10 @@ export default function ProductTabContent({
           editData={editData}
           productId={productId}
           promotedMasterId={promotedMasterId}
-          registrationWorkspaceId={registrationWorkspaceId}
+          contentWorkspaceId={contentWorkspaceId}
           thumbnailSourceCandidateId={effectiveThumbnailSourceCandidateId}
           selectedRegistrationThumbnailUrl={selectedRegistrationThumbnailUrl}
+          onPreviewThumbnail={onPreviewThumbnail}
           onSelectRegistrationThumbnail={onSelectRegistrationThumbnail}
           onThumbnailsChange={(v) => updateField('thumbnails', v)}
           thumbnailGenerationReturnHref={thumbnailGenerationReturnHref}
@@ -199,13 +237,15 @@ export default function ProductTabContent({
           generationHistoryQueryEnabled={generationHistoryQueryEnabled}
           detailEditorSourceCandidateId={detailEditorSourceCandidateId}
           detailEditorReturnHref={detailEditorReturnHref ?? thumbnailGenerationReturnHref}
-          registrationWorkspaceId={registrationWorkspaceId}
+          contentWorkspaceId={contentWorkspaceId}
           selectedKidsPlayfulId={selectedKidsPlayfulId}
           selectedBoldVerticalId={selectedBoldVerticalId}
           selectedAgentId={selectedAgentId}
+          mobilePreviewData={mobilePreviewData}
           onSelectKidsPlayful={onSelectKidsPlayful}
           onSelectBoldVertical={onSelectBoldVertical}
           onSelectAgent={onSelectAgent}
+          onApplyRegistrationDetailPage={onApplyRegistrationDetailPage}
         />
       );
 

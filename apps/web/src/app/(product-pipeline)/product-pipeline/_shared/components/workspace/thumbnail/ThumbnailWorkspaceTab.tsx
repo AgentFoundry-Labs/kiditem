@@ -16,15 +16,17 @@ import {
   classifyProductWingStatus,
   getGeneratedThumbnailOptions,
 } from './thumbnail-workspace-state';
+import type { RegistrationThumbnailOption } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/registration-selection';
 
 interface ThumbnailWorkspaceTabProps {
   editData: ProductEditState;
   productId: string;
   promotedMasterId: string | null;
-  registrationWorkspaceId?: string | null;
+  contentWorkspaceId?: string | null;
   thumbnailSourceCandidateId?: string | null;
   selectedRegistrationThumbnailUrl: string | null;
-  onSelectRegistrationThumbnail: (url: string | null) => void;
+  onPreviewThumbnail: (url: string | null) => void;
+  onSelectRegistrationThumbnail: (option: RegistrationThumbnailOption) => void;
   onThumbnailsChange: (thumbnails: string[]) => void;
   thumbnailGenerationReturnHref: string;
 }
@@ -32,9 +34,10 @@ interface ThumbnailWorkspaceTabProps {
 export default function ThumbnailWorkspaceTab({
   editData,
   promotedMasterId,
-  registrationWorkspaceId = null,
+  contentWorkspaceId = null,
   thumbnailSourceCandidateId = null,
   selectedRegistrationThumbnailUrl,
+  onPreviewThumbnail,
   onSelectRegistrationThumbnail,
   onThumbnailsChange,
   thumbnailGenerationReturnHref,
@@ -48,7 +51,7 @@ export default function ThumbnailWorkspaceTab({
   const thumbnailGenerations = useSourcingThumbnailGenerations({
     productId: promotedMasterId,
     sourceCandidateId: promotedMasterId ? null : thumbnailSourceCandidateId,
-    registrationWorkspaceId,
+    contentWorkspaceId,
   });
   const sourceOptions = useMemo(
     () => buildThumbnailSourceOptions({
@@ -65,7 +68,7 @@ export default function ThumbnailWorkspaceTab({
     [editData.thumbnails, thumbnailGenerations.data],
   );
   const wingStatus = classifyProductWingStatus({
-    hasRegistrationWorkspace: Boolean(registrationWorkspaceId),
+    hasContentWorkspace: Boolean(contentWorkspaceId),
     generations: thumbnailGenerations.data ?? [],
   });
 
@@ -81,7 +84,7 @@ export default function ThumbnailWorkspaceTab({
     const workspaceHref = productBoundThumbnailWorkspaceHref({
       productId: promotedMasterId,
       sourceCandidateId: promotedMasterId ? null : thumbnailSourceCandidateId,
-      registrationWorkspaceId,
+      contentWorkspaceId,
       returnTo: thumbnailGenerationReturnHref,
       imageUrl: uploadKey ? null : selectedSourceUrl,
       uploadKey,
@@ -97,7 +100,7 @@ export default function ThumbnailWorkspaceTab({
     const backHref = productBoundThumbnailWorkspaceHref({
       productId: promotedMasterId,
       sourceCandidateId: promotedMasterId ? null : thumbnailSourceCandidateId,
-      registrationWorkspaceId,
+      contentWorkspaceId,
       returnTo: thumbnailGenerationReturnHref,
       productName: editData.name,
       productDescription: editData.name,
@@ -119,11 +122,15 @@ export default function ThumbnailWorkspaceTab({
       <ThumbnailSourcePicker
         options={sourceOptions}
         selectedUrl={selectedSourceUrl}
-        onSelect={setSelectedSourceUrl}
+        onSelect={(url) => {
+          setSelectedSourceUrl(url);
+          onPreviewThumbnail(url);
+        }}
         onAddImage={() => {
           const next = `https://placehold.co/400x400/e2e8f0/64748b?text=${encodeURIComponent(`상품 ${editData.thumbnails.length + 1}`)}`;
           onThumbnailsChange([...editData.thumbnails, next]);
           setSelectedSourceUrl(next);
+          onPreviewThumbnail(next);
         }}
       />
       <ThumbnailActionChooser
@@ -134,6 +141,7 @@ export default function ThumbnailWorkspaceTab({
       <ProductThumbnailResults
         options={resultOptions}
         selectedRegistrationThumbnailUrl={selectedRegistrationThumbnailUrl}
+        onPreviewThumbnail={onPreviewThumbnail}
         onSelectRegistrationThumbnail={onSelectRegistrationThumbnail}
       />
       <ProductWingStatusPanel status={wingStatus} />

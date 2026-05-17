@@ -8,7 +8,7 @@ import type { EditorMode, HistoryCandidate } from '../lib/edit-page-types';
 interface Args {
   productId: string | null;
   sourceCandidateId?: string | null;
-  registrationWorkspaceId?: string | null;
+  contentWorkspaceId?: string | null;
   mode: EditorMode;
   result: Array<{ url: string; filename: string }>;
   generationId: string | null;
@@ -17,7 +17,7 @@ interface Args {
 }
 
 export function useEditorHistory({
-  productId, sourceCandidateId, registrationWorkspaceId, mode, result, generationId,
+  productId, sourceCandidateId, contentWorkspaceId, mode, result, generationId,
   selectedCandidateUrl, setSelectedCandidateUrl,
 }: Args) {
   const { data: allGenerations = [] } = useGenerationList();
@@ -36,11 +36,11 @@ export function useEditorHistory({
     for (const c of result) {
       push({ ...c, method: currentMethod, createdAt: nowIso, generationId });
     }
-    if (productId || sourceCandidateId || registrationWorkspaceId) {
+    if (productId || sourceCandidateId || contentWorkspaceId) {
       const workspaceGens = allGenerations
         .filter((g) =>
-          registrationWorkspaceId
-            ? g.registrationWorkspaceId === registrationWorkspaceId
+          contentWorkspaceId
+            ? g.contentWorkspaceId === contentWorkspaceId
             : productId
               ? g.productId === productId
               : g.sourceCandidateId === sourceCandidateId)
@@ -52,13 +52,13 @@ export function useEditorHistory({
       }
     }
     return list;
-  }, [allGenerations, productId, sourceCandidateId, registrationWorkspaceId, result, mode, generationId]);
+  }, [allGenerations, productId, sourceCandidateId, contentWorkspaceId, result, mode, generationId]);
 
   const recommendedCandidateUrl = useMemo(() => {
-    if (!productId && !sourceCandidateId && !registrationWorkspaceId) return null;
+    if (!productId && !sourceCandidateId && !contentWorkspaceId) return null;
     const scored = allGenerations.filter(
-      (g) => (registrationWorkspaceId
-        ? g.registrationWorkspaceId === registrationWorkspaceId
+      (g) => (contentWorkspaceId
+        ? g.contentWorkspaceId === contentWorkspaceId
         : productId
           ? g.productId === productId
           : g.sourceCandidateId === sourceCandidateId) &&
@@ -70,7 +70,7 @@ export function useEditorHistory({
     const pick = best.selectedUrl ?? best.candidates?.[0]?.url ?? null;
     if (!pick) return null;
     return resolveImageUrl(pick) ?? pick;
-  }, [allGenerations, productId, sourceCandidateId, registrationWorkspaceId]);
+  }, [allGenerations, productId, sourceCandidateId, contentWorkspaceId]);
 
   useEffect(() => {
     if (historyCandidates.length === 0) {

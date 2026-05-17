@@ -1,4 +1,4 @@
-import type { RegistrationWorkspaceHistoryItem } from './registration-workspaces-api';
+import type { ContentWorkspaceHistoryItem } from './content-workspaces-api';
 
 export interface DetailGenerationHistoryItem {
   id: string;
@@ -23,8 +23,8 @@ export function toLegacyGenerationStatus(status: string): string {
   return status.toUpperCase();
 }
 
-export function registrationWorkspaceHistoryToGenerationHistory(
-  history: RegistrationWorkspaceHistoryItem[],
+export function contentWorkspaceHistoryToGenerationHistory(
+  history: ContentWorkspaceHistoryItem[],
 ): DetailGenerationHistoryItem[] {
   return history.map((item) => ({
     id: item.id,

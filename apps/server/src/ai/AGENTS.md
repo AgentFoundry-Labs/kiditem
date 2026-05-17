@@ -36,8 +36,8 @@ ai/
 |---|---|---|
 | `POST /api/image-ai/edit` | async Agent OS | returns request/run id for polling |
 | `POST /api/text-ai/transform` | sync | `TEXT_COMPLETION_PORT` only |
-| `POST /api/ai/detail-page/generate` with `productId` | async Agent OS | creates product-bound `ContentGeneration` ledger in a registration workspace |
-| `POST /api/ai/detail-page/generate` without `productId` | async Agent OS | with `sourceCandidateId`, keeps generated content candidate-scoped; otherwise creates/reuses a direct `RegistrationWorkspace` (`ownerType='direct_detail_page'`) plus `ContentGeneration` ledger and does not create a `SourcingCandidate` |
+| `POST /api/ai/detail-page/generate` with `productId` | async Agent OS | creates product-bound `ContentGeneration` ledger in a content workspace |
+| `POST /api/ai/detail-page/generate` without `productId` | async Agent OS | with `sourceCandidateId`, keeps generated content candidate-scoped; otherwise creates/reuses a direct `ContentWorkspace` (`ownerType='direct_detail_page'`) plus `ContentGeneration` ledger and does not create a `SourcingCandidate` |
 | `GET /api/ai/content-archive/workspaces` | read model | generated content workspace index grouped by product or unlinked generation group |
 | `GET /api/ai/content-archive/products/:productId` | read model | generated detail-page/image rows for one product workspace |
 | `DELETE /api/ai/content-archive/products/:productId` | mutation | deletes generated content rows for one product workspace; does not delete `MasterProduct` |
@@ -47,7 +47,7 @@ ai/
 | `POST /api/ai/content-archive/:generationId/rerun` | async Agent OS | creates a same-input rerun in the explicit generation group |
 | `GET /api/ai/content-archive/sourcing/:candidateId` | read model | sourcing-candidate provenance links into produced content |
 | `GET /api/ai/content-assets` | read model | lists reusable content image assets |
-| `POST /api/thumbnail-editor/generate` with `productId`, `sourceCandidateId`, or `registrationWorkspaceId` | async Agent OS | creates owner/workspace-scoped `ThumbnailGeneration` ledger |
+| `POST /api/thumbnail-editor/generate` with `productId`, `sourceCandidateId`, or `contentWorkspaceId` | async Agent OS | creates owner/workspace-scoped `ThumbnailGeneration` ledger |
 | `POST /api/thumbnail-editor/generate` without owner identity | async Agent OS | creates direct-upload `ThumbnailGeneration` ledger; no sourcing/registration inbox card |
 | `POST /api/*/reconcile-stuck` | admin recovery | replays terminal Agent OS runs through the same sink |
 | render/analysis/tracking/Wing sync routes | mixed legacy | keep organization scope and DTO validation |
@@ -103,22 +103,22 @@ Detail-page generation:
 ```text
 HTTP DTO
   -> DetailPageAiService facade
-  -> DetailPageGenerationService ensures RegistrationWorkspace + creates ContentGeneration + transitional ContentGenerationGroup + input ContentAsset rows + ContentGenerationSource rows + alert
+  -> DetailPageGenerationService ensures ContentWorkspace + creates ContentGeneration + transitional ContentGenerationGroup + input ContentAsset rows + ContentGenerationSource rows + alert
   -> AGENT_RUNNER_PORT.runByType('detail_page_generate')
   -> detail-page runtime handler
   -> bridge
   -> sink READY/FAILED + DetailPageArtifact identity + generated images + generated ContentAsset rows + alert close
 ```
 
-`RegistrationWorkspace` is the product-pipeline registration workspace identity.
-Source-candidate registration workspaces are internal grouping records for
+`ContentWorkspace` is the product-pipeline content/version workspace identity.
+Source-candidate content workspaces are internal grouping records for
 candidate-scoped generation and are excluded from the registered-product inbox
 list by default; operators should reach those outputs from the collected
 product workspace.
 `ContentGenerationGroup` remains a transitional archive/media grouping.
 Product-bound runs use the canonical `groupType='product_workspace'` group with
 `targetMasterId=<MasterProduct.id>`. Product-less operator-initiated runs from
-the transitional detail-generation shell use a direct registration workspace and
+the transitional detail-generation shell use a direct content workspace and
 must not create a collected-product `SourcingCandidate`; collected-product
 registration is owned by the product registration flow under sourcing.
 `ContentGeneration.generationGroupId` is required while legacy archive queries

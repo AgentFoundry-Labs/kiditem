@@ -50,7 +50,7 @@ export function buildGenerationHistoryHtml(
   }
 
   if (item.templateId === 'kids-playful') {
-    return buildKidsPlayfulHtml(rowToRendererData(toKidsPlayfulGenerationItem(item)));
+    return buildKidsPlayfulHtml(rowToRendererData(toKidsPlayfulGenerationItem(item)), templateCss);
   }
 
   const data = parseDetailPageData(item.detailPageData);
@@ -61,6 +61,29 @@ export function buildGenerationHistoryHtml(
     config,
     templateCss,
   );
+}
+
+export function buildDetailGenerationEntryHtml(
+  entry: KidsPlayfulGenerationItem,
+  templateCss: string,
+): string {
+  if (entry.templateId === 'bold-vertical') {
+    const adapted = adaptBoldVerticalToDetailPageData(
+      entry.result as unknown as BoldVerticalGeneration,
+      entry.imageUrls,
+      entry.processedImages,
+      API_BASE,
+    );
+    const data = parseDetailPageData(adapted);
+    const config = getTemplate('bold-vertical');
+    return renderTemplateToHtml(
+      config.component as ComponentType<unknown>,
+      data,
+      config,
+      templateCss,
+    );
+  }
+  return buildKidsPlayfulHtml(rowToRendererData(entry), templateCss);
 }
 
 function toKidsPlayfulGenerationItem(item: GenerationHistoryItem): KidsPlayfulGenerationItem {

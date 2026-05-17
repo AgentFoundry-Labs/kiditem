@@ -41,12 +41,12 @@ function ThumbnailGenerationHubContent() {
   const productDescription = searchParams.get('productDescription')?.trim() ?? '';
   const productId = searchParams.get('productId');
   const sourceCandidateId = searchParams.get('sourceCandidateId');
-  const registrationWorkspaceId = searchParams.get('registrationWorkspaceId');
-  const hasWorkspaceInput = Boolean(imageUrl || uploadKey || productName || productId || sourceCandidateId || registrationWorkspaceId);
+  const contentWorkspaceId = searchParams.get('contentWorkspaceId');
+  const hasWorkspaceInput = Boolean(imageUrl || uploadKey || productName || productId || sourceCandidateId || contentWorkspaceId);
   const workspaceHref = productBoundThumbnailWorkspaceHref({
     productId,
     sourceCandidateId,
-    registrationWorkspaceId,
+    contentWorkspaceId,
     returnTo,
     imageUrl,
     uploadKey,
@@ -78,7 +78,7 @@ function ThumbnailGenerationHubContent() {
         subjectParams: {
           productId,
           sourceCandidateId,
-          registrationWorkspaceId,
+          contentWorkspaceId,
         },
       }));
       return;

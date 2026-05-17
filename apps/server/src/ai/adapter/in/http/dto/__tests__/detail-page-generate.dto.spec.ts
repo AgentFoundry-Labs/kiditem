@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import {
-  DuplicateRegistrationWorkspaceQueryDto,
+  DuplicateContentWorkspaceQueryDto,
   GenerateDetailPageBodyDto,
 } from '../index';
 
@@ -28,7 +28,7 @@ describe('detail-page generation DTO title validation', () => {
   });
 
   it('rejects duplicate-check titles with special characters', async () => {
-    const dto = plainToInstance(DuplicateRegistrationWorkspaceQueryDto, {
+    const dto = plainToInstance(DuplicateContentWorkspaceQueryDto, {
       title: '키즈@터치등!',
     });
 

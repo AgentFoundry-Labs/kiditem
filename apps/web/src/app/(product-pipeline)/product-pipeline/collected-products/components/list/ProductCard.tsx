@@ -2,15 +2,13 @@
 
 import { useState } from 'react';
 import { Loader2, Sparkles, Wand2 } from 'lucide-react';
+import { toast } from 'sonner';
+import { isApiError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
 import SourcingStatusBadge from './SourcingStatusBadge';
-import { useGenerateDetailPage, type GenerateMode } from '@/app/(product-pipeline)/product-pipeline/_shared/hooks/useGenerateDetailPage';
-import { useKidsPlayfulFromSourcing } from '@/app/(product-pipeline)/product-pipeline/_shared/hooks/useKidsPlayfulFromSourcing';
 import { useKidsPlayfulInProgress } from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate';
-import TemplateSelectionModal from '@/app/(product-pipeline)/product-pipeline/_shared/components/detail-page/TemplateSelectionModal';
 import { ProductInboxCardShell } from '@/app/(product-pipeline)/product-pipeline/_shared/components/inbox/ProductInboxCardShell';
-import { productsApi, type SourcedProduct } from '../../lib/sourcing-api';
-import type { DetailPageTemplateId } from '@kiditem/shared/ai';
+import { candidatesApi, type SourcedProduct } from '../../lib/sourcing-api';
 import { getInlineGenerationProgressLabel } from '../../lib/generation-progress-label';
 import { sourcePlatformLabel } from '../../lib/source-platform-label';
 
@@ -35,35 +33,22 @@ export default function ProductCard({
   onNavigate,
   onOpenEditor,
 }: Props) {
-  // 사용자 요구: 소싱 AI 에서는 모달로 템플릿 + 모드 선택 (갤러리 페이지는 다른 용도).
-  const [modalOpen, setModalOpen] = useState(false);
-  const { mutate: runGenerate, isPending: isGenerating } = useGenerateDetailPage(product.id);
-  const kp = useKidsPlayfulFromSourcing();
+  const [isQuickProcessing, setIsQuickProcessing] = useState(false);
   // KP 진행 중 row 가 있으면 카드 상단에 progress 배지 (다시 들어와도 유지).
   const generationTargetId = product.promotedMasterId ?? product.id;
   const kpInProgress = useKidsPlayfulInProgress(generationTargetId);
-  const generateBusy = isGenerating || isProcessing || kp.isPending || !!kpInProgress;
+  const generateBusy = isQuickProcessing || isProcessing || !!kpInProgress;
 
-  const handleConfirm = async (templateId: string, mode: GenerateMode) => {
-    if (templateId === 'kids-playful' || templateId === 'bold-vertical') {
-      // Trend / KIDITEM 둘 다 fire-and-forget Gemini 직접 호출.
-      try {
-        const detail = await productsApi.getDetail(product.id);
-        await kp.trigger({
-          sourceCandidateId: product.id,
-          productId: product.promotedMasterId,
-          productName: product.name,
-          rawData: detail.raw_data,
-          templateId: templateId as DetailPageTemplateId,
-          generationMode: templateId === 'kids-playful' ? 'full' : mode,
-          imageUrls: detail.image_urls,
-        });
-      } catch {
-        // toast 는 trigger 내부에서 노출
-      }
-      return;
+  const handleQuickProcess = async () => {
+    setIsQuickProcessing(true);
+    try {
+      await candidatesApi.quickProcess(product.id);
+      toast.success('AI 간편 처리를 시작했습니다.');
+    } catch (err) {
+      toast.error(isApiError(err) ? err.detail : 'AI 간편 처리 시작에 실패했습니다.');
+    } finally {
+      setIsQuickProcessing(false);
     }
-    runGenerate({ mode, templateId });
   };
 
   // 진행 중 라벨 — pipeline_step 별 다른 메시지 (사용자 가시성 강화)
@@ -127,7 +112,7 @@ export default function ProductCard({
         <button
           onClick={(e) => {
             e.stopPropagation();
-            setModalOpen(true);
+            void handleQuickProcess();
           }}
           disabled={generateBusy}
           className={cn(
@@ -136,25 +121,19 @@ export default function ProductCard({
               ? 'cursor-wait border-violet-200 bg-violet-50 text-violet-600'
               : 'border-[var(--text-primary)] bg-white text-[var(--text-primary)] hover:border-violet-600 hover:bg-violet-600 hover:text-white hover:shadow-md hover:shadow-violet-200',
           )}
-          title="템플릿 + 생성 모드 선택"
+          title="상세페이지와 썸네일 생성 시작"
         >
           {generateBusy ? (
             <>
-              <Loader2 size={11} className="animate-spin" /> 생성 중...
+              <Loader2 size={11} className="animate-spin" /> 처리 중...
             </>
           ) : (
             <>
-              <Wand2 size={13} /> AI 상세 생성
+              <Wand2 size={13} /> AI 간편 처리
             </>
           )}
         </button>
       }
-    >
-      <TemplateSelectionModal
-        isOpen={modalOpen}
-        onClose={() => setModalOpen(false)}
-        onConfirm={handleConfirm}
-      />
-    </ProductInboxCardShell>
+    />
   );
 }

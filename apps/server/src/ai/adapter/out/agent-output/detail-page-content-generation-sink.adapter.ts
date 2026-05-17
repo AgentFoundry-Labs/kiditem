@@ -23,8 +23,8 @@ const TERMINAL_CONTENT_GENERATION_STATUSES = new Set([
   'cancelled',
 ]);
 
-interface RegistrationWorkspaceWriter {
-  registrationWorkspace: {
+interface ContentWorkspaceWriter {
+  contentWorkspace: {
     updateMany(args: unknown): Promise<{ count: number }>;
   };
 }
@@ -198,13 +198,13 @@ export class DetailPageContentGenerationSinkAdapter
     runId: string | undefined;
   }): Promise<string> {
     if (input.row.detailPageArtifactId) return input.row.detailPageArtifactId;
-    const registrationWorkspaceId =
-      (input.row as { registrationWorkspaceId?: string | null }).registrationWorkspaceId ?? null;
+    const contentWorkspaceId =
+      (input.row as { contentWorkspaceId?: string | null }).contentWorkspaceId ?? null;
 
     const artifact = await this.prisma.detailPageArtifact.create({
       data: {
         organizationId: input.organizationId,
-        registrationWorkspaceId,
+        contentWorkspaceId,
         sourceCandidateId: input.row.sourceCandidateId,
         targetMasterId: input.row.generationGroup.targetMasterId,
         sourceContentGenerationId: input.row.id,
@@ -219,10 +219,10 @@ export class DetailPageContentGenerationSinkAdapter
       },
       select: { id: true },
     });
-    if (registrationWorkspaceId) {
-      await (this.prisma as unknown as RegistrationWorkspaceWriter).registrationWorkspace.updateMany({
+    if (contentWorkspaceId) {
+      await (this.prisma as unknown as ContentWorkspaceWriter).contentWorkspace.updateMany({
         where: {
-          id: registrationWorkspaceId,
+          id: contentWorkspaceId,
           organizationId: input.organizationId,
           isDeleted: false,
         },

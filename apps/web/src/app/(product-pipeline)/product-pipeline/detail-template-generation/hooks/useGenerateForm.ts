@@ -17,7 +17,7 @@ import {
   detailPageEditorHref,
   registeredProductDetailHref,
 } from '../../_shared/lib/product-pipeline-routes';
-import { registrationWorkspacesApi } from '../../_shared/lib/registration-workspaces-api';
+import { contentWorkspacesApi } from '../../_shared/lib/content-workspaces-api';
 import { moveSafetyLabelImagesToEnd } from '../lib/detail-page-image-order';
 import {
   buildAgeGroupInstruction,
@@ -134,7 +134,7 @@ export function resolveGenerateOwnerInputs(
     return {
       productId: null,
       initialTitle: '',
-      initialRegistrationWorkspaceId: null,
+      initialContentWorkspaceId: null,
       sourceReferences: [] as NonNullable<KidsPlayfulGenerateBody['sourceReferences']>,
       primarySourceCandidateId: null,
     };
@@ -142,7 +142,7 @@ export function resolveGenerateOwnerInputs(
 
   const productId = searchParams.get('productId');
   const initialTitle = searchParams.get('title') ?? '';
-  const initialRegistrationWorkspaceId = searchParams.get('registrationWorkspaceId');
+  const initialContentWorkspaceId = searchParams.get('contentWorkspaceId');
   const sourceReferences = getGenerateSourceReferences(searchParams, productId);
   const primarySourceCandidateId =
     sourceReferences.find((reference) => reference.sourceType === 'sourcing_candidate')
@@ -151,7 +151,7 @@ export function resolveGenerateOwnerInputs(
   return {
     productId,
     initialTitle,
-    initialRegistrationWorkspaceId,
+    initialContentWorkspaceId,
     sourceReferences,
     primarySourceCandidateId,
   };
@@ -162,7 +162,7 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
   const {
     productId,
     initialTitle,
-    initialRegistrationWorkspaceId,
+    initialContentWorkspaceId,
     sourceReferences,
     primarySourceCandidateId,
   } = resolveGenerateOwnerInputs(
@@ -194,10 +194,10 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
   const [generationDialog, setGenerationDialog] = useState<GenerationDialogState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [duplicateWorkspace, setDuplicateWorkspace] = useState<DuplicateWorkspaceState>({
-    status: initialRegistrationWorkspaceId && initialTitle ? 'loaded' : 'idle',
-    checkedTitle: initialRegistrationWorkspaceId && initialTitle ? initialTitle : null,
-    workspaceId: initialRegistrationWorkspaceId,
-    workspaceTitle: initialRegistrationWorkspaceId && initialTitle ? initialTitle : null,
+    status: initialContentWorkspaceId && initialTitle ? 'loaded' : 'idle',
+    checkedTitle: initialContentWorkspaceId && initialTitle ? initialTitle : null,
+    workspaceId: initialContentWorkspaceId,
+    workspaceTitle: initialContentWorkspaceId && initialTitle ? initialTitle : null,
   });
   const generationStatusQuery = useKidsPlayfulOne(
     generationDialog?.generationId ?? null,
@@ -268,7 +268,7 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
     });
     setError(null);
     try {
-      const result = await registrationWorkspacesApi.checkDuplicate(title);
+      const result = await contentWorkspacesApi.checkDuplicate(title);
       if (!result.exists || !result.workspace) {
         setDuplicateWorkspace({
           status: 'none',
@@ -302,7 +302,7 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
     if (!workspaceId) return;
     if (!window.confirm('기존 최신 이력을 불러와 현재 입력값을 채울까요?')) return;
     try {
-      const workspace = await registrationWorkspacesApi.get(workspaceId);
+      const workspace = await contentWorkspacesApi.get(workspaceId);
       const latest = workspace.history[0]?.generationInput;
       const input = latest && typeof latest === 'object'
         ? latest as Record<string, unknown>
@@ -474,7 +474,7 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
         imageUrls: generationImages,
         heroImageMode: 'llm-pick',
         productId: productId ?? undefined,
-        registrationWorkspaceId: getLoadedRegistrationWorkspaceId(duplicateWorkspace, title) ?? undefined,
+        contentWorkspaceId: getLoadedContentWorkspaceId(duplicateWorkspace, title) ?? undefined,
         templateId: apiTemplateId,
         sourceReferences: mergeSourceReferences(sourceReferences, submitOptions.sourceReferences ?? []),
         ageGroup,
@@ -601,11 +601,11 @@ function buildGenerationEditorUrl(
   sourceCandidateId?: string | null,
 ): string | undefined {
   const candidateId = item.sourceCandidateId ?? sourceCandidateId ?? null;
-  const registrationWorkspaceId = item.registrationWorkspaceId ?? null;
+  const contentWorkspaceId = item.contentWorkspaceId ?? null;
   const returnTo = candidateId
     ? collectedProductDetailHref(candidateId)
-    : registrationWorkspaceId
-      ? registeredProductDetailHref(registrationWorkspaceId)
+    : contentWorkspaceId
+      ? registeredProductDetailHref(contentWorkspaceId)
       : null;
   if (candidateId) {
     return detailPageEditorHref({ candidateId, generationId: item.id, returnTo });
@@ -634,18 +634,18 @@ function mergeSourceReferences(
   return merged;
 }
 
-export function getLoadedRegistrationWorkspaceId(
+export function getLoadedContentWorkspaceId(
   duplicateWorkspace: DuplicateWorkspaceState,
   title: string,
 ): string | null {
   if (duplicateWorkspace.status !== 'loaded' || !duplicateWorkspace.workspaceId) return null;
   if (!duplicateWorkspace.checkedTitle) return null;
-  return normalizeRegistrationTitle(duplicateWorkspace.checkedTitle) === normalizeRegistrationTitle(title)
+  return normalizeContentTitle(duplicateWorkspace.checkedTitle) === normalizeContentTitle(title)
     ? duplicateWorkspace.workspaceId
     : null;
 }
 
-function normalizeRegistrationTitle(value: string): string {
+function normalizeContentTitle(value: string): string {
   return value
     .normalize('NFKC')
     .toLocaleLowerCase()
