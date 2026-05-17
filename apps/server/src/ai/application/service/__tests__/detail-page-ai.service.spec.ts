@@ -7,7 +7,7 @@ import { DetailPageQueryService } from '../detail-page-query.service';
 import { DetailPageResultRefinerService } from '../detail-page-result-refiner.service';
 import { BoldVerticalRefinerService } from '../bold-vertical-refiner.service';
 import { KidsPlayfulRefinerService } from '../kids-playful-refiner.service';
-import type { OperationAlertService } from '../../../../automation/application/service/operation-alert.service';
+import type { OperationAlertPort } from '../../port/out/operation-alert.port';
 import type { AgentRunnerPort } from '../../../../agent-os/application/port/in/agent-runner.port';
 import type { ProductGenerationAlertService } from '../product-generation-alert.service';
 
@@ -21,14 +21,14 @@ const CANDIDATE_ID = '66666666-6666-4666-8666-666666666666';
 const REGISTRATION_WORKSPACE_ID = '77777777-7777-4777-8777-777777777777';
 const LOADED_REGISTRATION_WORKSPACE_ID = '77777777-7777-4777-8777-888888888888';
 
-function makeOperationAlertsStub(): OperationAlertService {
+function makeOperationAlertsStub(): OperationAlertPort {
   return {
     start: vi.fn().mockResolvedValue({}),
     succeed: vi.fn().mockResolvedValue({}),
     fail: vi.fn().mockResolvedValue({}),
     progress: vi.fn().mockResolvedValue({}),
     cancel: vi.fn().mockResolvedValue({}),
-  } as unknown as OperationAlertService;
+  } as unknown as OperationAlertPort;
 }
 
 function makeProductGenerationAlertsStub(): ProductGenerationAlertService {
@@ -86,7 +86,7 @@ function makeService(
   prisma: unknown,
   textCompletion: unknown,
   imageStorage: unknown,
-  operationAlerts: OperationAlertService,
+  operationAlerts: OperationAlertPort,
   heroImageService?: unknown,
   agentRunner: AgentRunnerPort = makeAgentRunnerStub(),
   contentWorkspaces: { ensureForGeneration: ReturnType<typeof vi.fn> } = {
@@ -123,7 +123,7 @@ function makeGenerationService(input: {
   prisma: ReturnType<typeof makePrisma>;
   textCompletion?: unknown;
   imageStorage?: unknown;
-  operationAlerts?: OperationAlertService;
+  operationAlerts?: OperationAlertPort;
   heroImageService?: unknown;
   agentRunner?: AgentRunnerPort;
   contentWorkspaces?: { ensureForGeneration: ReturnType<typeof vi.fn> };

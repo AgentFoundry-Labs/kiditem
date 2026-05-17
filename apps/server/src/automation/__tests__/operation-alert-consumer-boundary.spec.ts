@@ -20,7 +20,7 @@ function rg(args: string): string[] {
 describe('operation alert consumer boundary', () => {
   it('cross-owner producers do not import OperationAlertService directly', () => {
     const hits = rg(
-      `--type ts -n "automation/application/service/operation-alert.service" ${SERVER_SRC} --glob '!apps/server/src/automation/**' --glob '!**/__tests__/**'`,
+      `--type ts -n "from ['\\\"].*automation/application/service/operation-alert.service" ${SERVER_SRC} --glob '!apps/server/src/automation/**'`,
     );
 
     expect(
