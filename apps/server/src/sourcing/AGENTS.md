@@ -5,8 +5,8 @@ Alibaba, the `SourcingCandidate` inbox, and the candidate → master promotion
 handoff. Supplier registry, master-supplier policy, and purchase-order
 procurement live in `supply/`. `supplier-payments` lives in `finance/`.
 
-Sourcing scrape/agent and products-catalog boundaries use application ports and
-outgoing adapters.
+Sourcing scrape/agent, products-catalog, AI archival, operation-alert, and
+repository boundaries use application ports and outgoing adapters.
 
 ## Public Routes
 
@@ -30,11 +30,12 @@ sourcing/
   sourcing.module.ts
   adapter/in/http/        route-family controllers: extension ingest/scrape, candidate workspace + DTOs
   adapter/out/agent/      SOURCING_AGENT_GATEWAY_PORT implementation
+  adapter/out/ai/         SOURCING_AI_WORKSPACE_ARCHIVE_PORT implementation
   adapter/out/automation/ SOURCING_OPERATION_ALERT_PORT implementation
   adapter/out/products/   products catalog port adapter
   adapter/out/repository/ SOURCING_CANDIDATE_REPOSITORY_PORT adapter
-  application/port/out/   agent gateway + operation alert + products catalog + candidate repo ports
-  application/service/    sourcing, sourcing-promotion services
+  application/port/out/   local outbound ports + opaque repository transaction handle
+  application/service/    use-case orchestration; no Prisma, HTTP DTO, or concrete adapter imports
   __tests__/
 ```
 
@@ -50,7 +51,8 @@ sourcing/
   `SOURCING_PRODUCTS_CATALOG_PORT.promoteCandidate`; its adapter consumes
   products' owner-side `PRODUCT_MASTER_PROMOTION_PORT`. Promotion is the only
   sourcing call site of products domain creation.
-- Cross-domain AI workspace archival flows through `AI_WORKSPACE_ARCHIVE_PORT`.
+- Cross-domain AI workspace archival flows through local
+  `SOURCING_AI_WORKSPACE_ARCHIVE_PORT`, implemented by `adapter/out/ai/`.
   Sourcing owns the delete command and candidate row, but AI owns detail-page,
   thumbnail, and content asset archive rules.
 - After promotion, `SourcingPromotionService` fires
@@ -67,6 +69,12 @@ sourcing/
   and `adapter/out/automation/operation-alert.adapter.ts`. Sourcing services
   and gateway adapters must not inject automation's `OperationAlertService`
   directly.
+- Application services must not import `PrismaService`, `@prisma/client`,
+  HTTP DTOs, or concrete `adapter/out/**` files. Inbound request shapes become
+  application command/input interfaces under `application/port/in/*`.
+  Persistence, row locks, and cross-owner transaction bridging live behind
+  `application/port/out/*` and outgoing adapters. `sourcing.architecture.spec.ts`
+  is the durable guard for this contract.
 - Supplier registry, `MasterSupplierProduct` policy, and `PurchaseOrder`
   mutation belong to `supply/`. Sourcing must not reintroduce supplier or
   procurement controllers, services, or DTOs. Cross-domain attach flows through
@@ -97,14 +105,15 @@ sourcing/
 - Extension ingest is idempotent by
   `{ sourceUrl, organizationId, status='sourced', isDeleted=false }`.
 - Re-scraping a promoted or rejected URL creates a new `sourced` row.
-- Promotion is atomic: `SourcingPromotionService.promote` opens a single
-  `prisma.$transaction` that (1) tenant-scoped `findFirst` pre-checks the
-  candidate, (2) `SELECT ... FOR UPDATE` row-locks via tagged-template
-  `$queryRaw` (no `$queryRawUnsafe`), (3) delegates master+options+images
-  creation to `SOURCING_PRODUCTS_CATALOG_PORT.promoteCandidate(tx, ...)`, and
-  (4) flips the candidate row to `status='promoted' + promotedMasterId=<new>`.
-  The row lock enforces 1:1 in the current use case while the schema still
-  permits future N:1 promotion.
+- Promotion is atomic: `SourcingPromotionService.promote` runs through
+  `SOURCING_CANDIDATE_REPOSITORY_PORT.runInTransaction` with an opaque
+  `SourcingRepositoryTransaction` handle. The repository adapter performs the
+  tenant-scoped pre-check, tagged-template `SELECT ... FOR UPDATE` row lock
+  (no `$queryRawUnsafe`), candidate status flip, detail-page attachment, and
+  `ProductPreparation` write; products creation still goes through
+  `SOURCING_PRODUCTS_CATALOG_PORT.promoteCandidate(tx, ...)`. The row lock
+  enforces 1:1 in the current use case while the schema still permits future
+  N:1 promotion.
 - Promotion may receive registration selections in the existing command body:
   `selectedThumbnailUrl` becomes the promoted master's primary image, and
   `selectedDetailPageGenerationId` / `selectedDetailPageArtifactId` attaches
@@ -129,6 +138,10 @@ sourcing/
 ## Hard Bans
 
 - Direct Agent OS injection from `application/service/**`.
+- Direct Prisma import/injection from `application/**`.
+- Direct HTTP DTO imports from `application/service/**`.
+- Direct AI archive port import from `ai/application/**`; use
+  `SOURCING_AI_WORKSPACE_ARCHIVE_PORT`.
 - `findUnique({ where: { id } })` for supplier or purchase-order access.
 - Direct import of products services from application services or
   `adapter/out/products/**`. The products bridge consumes products owner-side

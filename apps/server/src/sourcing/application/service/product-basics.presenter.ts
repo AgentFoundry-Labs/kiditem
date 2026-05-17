@@ -1,5 +1,3 @@
-import type { Prisma } from '@prisma/client';
-
 export interface ProductBasics {
   name: string;
   category: string;
@@ -32,8 +30,8 @@ type CandidateLike = {
   name: string;
   description: string | null;
   category: string | null;
-  tags: Prisma.JsonValue | string[];
-  rawData: Prisma.JsonValue;
+  tags: unknown;
+  rawData: unknown;
   thumbnailUrl: string | null;
   imageUrl: string | null;
   images: Array<{
@@ -45,7 +43,7 @@ type CandidateLike = {
 };
 
 type PreparationLike = {
-  registrationInput: Prisma.JsonValue;
+  registrationInput: unknown;
   selectedThumbnailUrl: string | null;
   selectedThumbnailGenerationCandidateId?: string | null;
   selectedDetailPageGenerationId: string | null;

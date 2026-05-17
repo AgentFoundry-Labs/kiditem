@@ -7,6 +7,7 @@ const CANDIDATE_ID = '22222222-2222-4222-8222-222222222222';
 
 function makeRepo() {
   return {
+    runInTransaction: vi.fn((callback) => callback({ tx: true })),
     archiveSourcedWorkspace: vi.fn().mockResolvedValue({
       archivedCandidate: true,
       archivedCandidateImages: 2,
@@ -30,14 +31,9 @@ describe('SourcingWorkspaceArchiveService', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-05-15T08:00:00.000Z'));
     try {
-      const tx = { tx: true };
-      const prisma = {
-        $transaction: vi.fn((callback) => callback(tx)),
-      };
       const repo = makeRepo();
       const aiArchive = makeAiArchive();
       const service = new SourcingWorkspaceArchiveService(
-        prisma as never,
         repo as never,
         aiArchive as never,
       );
@@ -51,12 +47,13 @@ describe('SourcingWorkspaceArchiveService', () => {
         archivedThumbnailGenerations: 1,
       });
 
-      expect(repo.archiveSourcedWorkspace).toHaveBeenCalledWith(tx, {
+      expect(repo.runInTransaction).toHaveBeenCalledTimes(1);
+      expect(repo.archiveSourcedWorkspace).toHaveBeenCalledWith({ tx: true }, {
         id: CANDIDATE_ID,
         organizationId: ORG,
         archivedAt: new Date('2026-05-15T08:00:00.000Z'),
       });
-      expect(aiArchive.archiveSourcingWorkspace).toHaveBeenCalledWith(tx, {
+      expect(aiArchive.archiveSourcingWorkspace).toHaveBeenCalledWith({ tx: true }, {
         organizationId: ORG,
         sourceCandidateId: CANDIDATE_ID,
         archivedAt: new Date('2026-05-15T08:00:00.000Z'),
@@ -67,10 +64,6 @@ describe('SourcingWorkspaceArchiveService', () => {
   });
 
   it('throws NotFoundException when the active sourced candidate is missing', async () => {
-    const tx = { tx: true };
-    const prisma = {
-      $transaction: vi.fn((callback) => callback(tx)),
-    };
     const repo = makeRepo();
     repo.archiveSourcedWorkspace.mockResolvedValueOnce({
       archivedCandidate: false,
@@ -78,7 +71,6 @@ describe('SourcingWorkspaceArchiveService', () => {
     });
     const aiArchive = makeAiArchive();
     const service = new SourcingWorkspaceArchiveService(
-      prisma as never,
       repo as never,
       aiArchive as never,
     );
