@@ -40,11 +40,13 @@ import { StorageService } from '../../common/storage/storage.service';
 import { ProductsModule } from '../../products/products.module';
 import { SourcingPromotionService } from '../application/service/sourcing-promotion.service';
 import { SourcingProductsCatalogAdapter } from '../adapter/out/products/products-catalog.adapter';
+import { SourcingCandidateRepositoryAdapter } from '../adapter/out/repository/sourcing-candidate.repository.adapter';
 import {
   SOURCING_AGENT_GATEWAY_PORT,
   type SourcingAgentGatewayPort,
 } from '../application/port/out/sourcing-agent.gateway.port';
 import { SOURCING_PRODUCTS_CATALOG_PORT } from '../application/port/out/products-catalog.port';
+import { SOURCING_CANDIDATE_REPOSITORY_PORT } from '../application/port/out/sourcing-candidate.repository.port';
 import {
   makeTestPrisma,
   resetDb,
@@ -215,9 +217,14 @@ describe('SourcingPromotionService (PG integration)', () => {
       providers: [
         SourcingPromotionService,
         SourcingProductsCatalogAdapter,
+        SourcingCandidateRepositoryAdapter,
         {
           provide: SOURCING_PRODUCTS_CATALOG_PORT,
           useExisting: SourcingProductsCatalogAdapter,
+        },
+        {
+          provide: SOURCING_CANDIDATE_REPOSITORY_PORT,
+          useExisting: SourcingCandidateRepositoryAdapter,
         },
         {
           provide: SOURCING_AGENT_GATEWAY_PORT,

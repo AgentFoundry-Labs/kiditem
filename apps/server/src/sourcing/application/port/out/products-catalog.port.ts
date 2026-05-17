@@ -14,12 +14,12 @@
  * `promoteCandidate(tx, organizationId, input)`. The caller is now sourcing's
  * `SourcingPromotionService`, which already owns a `prisma.$transaction`
  * (candidate row lock + status flip + master creation must commit together).
- * Passing the transaction client across the boundary keeps the promotion
- * atomic without leaking Prisma awareness into the port surface — the
- * concrete adapter type-narrows it to its products-domain consumer.
+ * Passing the opaque transaction handle across the boundary keeps the
+ * promotion atomic without leaking Prisma awareness into the port surface —
+ * the concrete adapter type-narrows it to its products-domain consumer.
  */
 
-import type { Prisma } from '@prisma/client';
+import type { SourcingRepositoryTransaction } from './repository-transaction';
 
 export const SOURCING_PRODUCTS_CATALOG_PORT = Symbol('SOURCING_PRODUCTS_CATALOG_PORT');
 
@@ -77,7 +77,7 @@ export interface SourcingProductsCatalogPort {
    * the same transaction.
    */
   promoteCandidate(
-    tx: Prisma.TransactionClient,
+    tx: SourcingRepositoryTransaction,
     organizationId: string,
     input: PromoteCandidateInput,
   ): Promise<PromoteCandidateResult>;

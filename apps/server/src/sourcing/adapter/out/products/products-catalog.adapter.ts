@@ -9,6 +9,7 @@ import type {
   PromoteCandidateResult,
   SourcingProductsCatalogPort,
 } from '../../../application/port/out/products-catalog.port';
+import type { SourcingRepositoryTransaction } from '../../../application/port/out/repository-transaction';
 
 /**
  * Concrete adapter for `SOURCING_PRODUCTS_CATALOG_PORT`.
@@ -32,10 +33,10 @@ export class SourcingProductsCatalogAdapter implements SourcingProductsCatalogPo
   ) {}
 
   async promoteCandidate(
-    tx: Prisma.TransactionClient,
+    tx: SourcingRepositoryTransaction,
     organizationId: string,
     input: PromoteCandidateInput,
   ): Promise<PromoteCandidateResult> {
-    return this.promotion.create(tx, organizationId, input);
+    return this.promotion.create(tx as Prisma.TransactionClient, organizationId, input);
   }
 }

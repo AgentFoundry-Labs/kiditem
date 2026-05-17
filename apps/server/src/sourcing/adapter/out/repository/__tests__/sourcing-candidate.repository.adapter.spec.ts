@@ -156,4 +156,85 @@ describe('SourcingCandidateRepositoryAdapter', () => {
       updatedAt: new Date('2026-05-17T01:00:00.000Z'),
     });
   });
+
+  it('requires active thumbnail generations for promotion selections', async () => {
+    const tx = {
+      thumbnailGenerationCandidate: {
+        findFirst: vi.fn().mockResolvedValue(null),
+      },
+    };
+    const repository = new SourcingCandidateRepositoryAdapter({} as never);
+
+    await repository.findSelectedThumbnailGeneration(tx as never, {
+      organizationId: 'org-1',
+      candidateId: 'candidate-1',
+      generationCandidateId: 'thumbnail-candidate-1',
+    });
+
+    expect(tx.thumbnailGenerationCandidate.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        id: 'thumbnail-candidate-1',
+        organizationId: 'org-1',
+        generation: expect.objectContaining({
+          organizationId: 'org-1',
+          sourceCandidateId: 'candidate-1',
+          isDeleted: false,
+        }),
+      }),
+    }));
+  });
+
+  it('requires active detail-page generations and artifacts for promotion selections', async () => {
+    const tx = {
+      contentGeneration: {
+        findFirst: vi.fn().mockResolvedValue(null),
+      },
+      detailPageArtifact: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
+    };
+    const repository = new SourcingCandidateRepositoryAdapter({} as never);
+
+    await repository.findSelectedDetailPageGeneration(tx as never, {
+      organizationId: 'org-1',
+      candidateId: 'candidate-1',
+      contentGenerationId: 'detail-generation-1',
+    });
+    await repository.findSelectedDetailPageArtifact(tx as never, {
+      organizationId: 'org-1',
+      candidateId: 'candidate-1',
+      artifactId: 'artifact-1',
+    });
+    await repository.attachSelectedDetailPageArtifact(tx as never, {
+      organizationId: 'org-1',
+      artifactId: 'artifact-1',
+      targetMasterId: 'master-1',
+      revisionId: null,
+    });
+
+    expect(tx.contentGeneration.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        id: 'detail-generation-1',
+        organizationId: 'org-1',
+        isDeleted: false,
+        contentType: 'detail_page',
+        detailPageArtifact: { is: { isDeleted: false } },
+      }),
+    }));
+    expect(tx.detailPageArtifact.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        id: 'artifact-1',
+        organizationId: 'org-1',
+        isDeleted: false,
+      }),
+    }));
+    expect(tx.detailPageArtifact.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        id: 'artifact-1',
+        organizationId: 'org-1',
+        isDeleted: false,
+      },
+    }));
+  });
 });
