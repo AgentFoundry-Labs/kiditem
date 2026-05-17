@@ -856,6 +856,39 @@ describe('WorkflowRunnerService', () => {
       });
     });
 
+    it('returns already_terminal when cancellation loses the terminal update race', async () => {
+      const eventEmitter = { emit: vi.fn() };
+      const agentRunner = {
+        cancelByWorkflowRun: vi.fn().mockResolvedValue({
+          cancelledRequests: 1,
+          cancelledRuns: 1,
+        }),
+      };
+      const runnerWithAgentRunner = new WorkflowRunnerService(
+        prisma as any,
+        eventEmitter as any,
+        agentRunner as any,
+      );
+      prisma.workflowRun.findFirst.mockResolvedValueOnce(
+        makeRun({
+          status: 'running',
+          contextData: { source: 'manual-qa' },
+          steps: [],
+        }),
+      );
+      prisma.workflowRun.updateMany.mockResolvedValue({ count: 0 });
+
+      const result = await runnerWithAgentRunner.cancelRun({
+        runId: 'run-1',
+        organizationId: 'organization-1',
+        actorUserId: 'user-1',
+        reason: '사용자 요청',
+      });
+
+      expect(result.status).toBe('already_terminal');
+      expect(agentRunner.cancelByWorkflowRun).not.toHaveBeenCalled();
+    });
+
     it('does not move a cancelled run back to running when cancellation wins the start race', async () => {
       prisma.workflowTemplate.findFirst.mockResolvedValue(makeTemplate({
         nodesJson: [

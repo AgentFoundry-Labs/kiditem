@@ -341,6 +341,46 @@ describe('PanelAlertRow', () => {
       });
     });
 
+    it('rolls back optimistic cancellation when the backend returns not_cancellable', async () => {
+      mockCancelOperation.mockResolvedValueOnce({
+        ok: true,
+        status: 'not_cancellable',
+        message: '이 작업은 서버에서 중단 가능한 실행 대상을 찾지 못했습니다.',
+        operationKey: 'operation-key-1',
+        affected: {
+          workflowRunIds: [],
+          agentRunRequestIds: [],
+          agentRunIds: [],
+          contentGenerationIds: [],
+          thumbnailGenerationIds: [],
+        },
+        preserved: {
+          contentGenerationIds: [],
+          thumbnailGenerationIds: [],
+        },
+        warnings: [],
+      });
+      const item = makeAlert({
+        id: 'operation-alert-1',
+        alertKind: 'operation',
+        status: 'running',
+        message: '진행 중',
+        operationKey: 'operation-key-1',
+      });
+      usePanelStore.setState({ byId: { [item.id]: item }, isOpen: true });
+
+      render(<PanelAlertRow item={item} />);
+      fireEvent.click(screen.getByRole('button', { name: '작업 중단' }));
+      fireEvent.click(screen.getByRole('button', { name: '중단' }));
+
+      await waitFor(() => {
+        expect(usePanelStore.getState().byId['operation-alert-1']).toMatchObject({
+          status: 'running',
+          message: '진행 중',
+        });
+      });
+    });
+
     it('does not cancel when the user rejects the stop confirmation', () => {
       render(
         <PanelAlertRow

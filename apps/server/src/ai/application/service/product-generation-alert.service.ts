@@ -19,6 +19,13 @@ interface ProductGenerationChildren {
   thumbnail: ChildStatus;
 }
 
+const PARENT_TERMINAL_STATUSES = new Set([
+  'succeeded',
+  'failed',
+  'cancelled',
+  'resolved',
+]);
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -195,6 +202,17 @@ export class ProductGenerationAlertService {
         lastStartedChild: input.childKind,
       },
     });
+  }
+
+  async canStartChild(input: {
+    organizationId: string;
+    parentOperationKey: string;
+  }): Promise<boolean> {
+    const alert = await this.operationAlerts.findByOperationKey(
+      input.organizationId,
+      input.parentOperationKey,
+    );
+    return Boolean(alert && !PARENT_TERMINAL_STATUSES.has(alert.status));
   }
 
   async markChildFinished(input: {

@@ -50,6 +50,20 @@ function reasonFrom(command: CancelOperationCommand): string {
   return raw && raw.length > 0 ? raw : DEFAULT_REASON;
 }
 
+function pushLinkedAgentWarnings(
+  warnings: string[],
+  result: { cancelledAgentRunRequests: number; cancelledAgentRuns: number },
+): void {
+  if (result.cancelledAgentRunRequests > 0) {
+    warnings.push(
+      `Linked Agent OS requests cancelled: ${result.cancelledAgentRunRequests}`,
+    );
+  }
+  if (result.cancelledAgentRuns > 0) {
+    warnings.push(`Linked Agent OS runs cancelled: ${result.cancelledAgentRuns}`);
+  }
+}
+
 function auditTargetFrom(target: CancelOperationTarget): OperationCancellationTargetAudit {
   switch (target.targetType) {
     case 'operation_key':
@@ -164,7 +178,9 @@ export class OperationCancellationService {
         actorUserId: command.actorUserId,
       });
       if (result?.cancelledRequests) pushUnique(affected.agentRunRequestIds, alert.sourceId);
-      if (result?.cancelledRuns) pushUnique(affected.agentRunIds, `request:${alert.sourceId}:running`);
+      if (result?.cancelledRuns) {
+        warnings.push(`Linked Agent OS runs cancelled: ${result.cancelledRuns}`);
+      }
     }
     if (alert.sourceType === 'agent_run' && alert.sourceId) {
       const result = await this.agentRunner.cancelRun?.({
@@ -174,7 +190,9 @@ export class OperationCancellationService {
         actorUserId: command.actorUserId,
       });
       if (result?.cancelledRuns) pushUnique(affected.agentRunIds, alert.sourceId);
-      if (result?.cancelledRequests) pushUnique(affected.agentRunRequestIds, `run:${alert.sourceId}:request`);
+      if (result?.cancelledRequests) {
+        warnings.push(`Linked Agent OS requests cancelled: ${result.cancelledRequests}`);
+      }
     }
     if (alert.sourceType === 'workflow_run' && alert.sourceId) {
       const result = await this.workflows.cancelRun({
@@ -184,15 +202,7 @@ export class OperationCancellationService {
         reason,
       });
       if (result.status === 'cancelled') pushUnique(affected.workflowRunIds, alert.sourceId);
-      if (result.cancelledAgentRunRequests > 0) {
-        pushUnique(
-          affected.agentRunRequestIds,
-          `linked:${alert.sourceId}:${result.cancelledAgentRunRequests}`,
-        );
-      }
-      if (result.cancelledAgentRuns > 0) {
-        pushUnique(affected.agentRunIds, `linked:${alert.sourceId}:${result.cancelledAgentRuns}`);
-      }
+      pushLinkedAgentWarnings(warnings, result);
     }
 
     const hasAnyEffect =
@@ -272,18 +282,14 @@ export class OperationCancellationService {
       throw new NotFoundException(`workflow run not found: ${runId}`);
     }
     const affected = emptyAffected();
+    const warnings: string[] = [];
     if (result.status === 'cancelled') {
       pushUnique(affected.workflowRunIds, runId);
-      if (result.cancelledAgentRunRequests > 0) {
-        pushUnique(affected.agentRunRequestIds, `linked:${runId}:${result.cancelledAgentRunRequests}`);
-      }
-      if (result.cancelledAgentRuns > 0) {
-        pushUnique(affected.agentRunIds, `linked:${runId}:${result.cancelledAgentRuns}`);
-      }
+      pushLinkedAgentWarnings(warnings, result);
     }
     return {
       ok: true,
-      status: result.status === 'already_terminal' ? 'already_terminal' : 'cancelled',
+      status: result.status === 'cancelled' ? 'cancelled' : 'already_terminal',
       message:
         result.status === 'already_terminal'
           ? '이미 완료되었거나 중단된 워크플로우입니다.'
@@ -291,7 +297,7 @@ export class OperationCancellationService {
       operationKey,
       affected,
       preserved: emptyPreserved(),
-      warnings: [],
+      warnings,
     };
   }
 
@@ -307,8 +313,11 @@ export class OperationCancellationService {
       actorUserId: command.actorUserId,
     });
     const affected = emptyAffected();
+    const warnings = result ? [] : ['Agent OS cancellation port is not available.'];
     if (result?.cancelledRequests) pushUnique(affected.agentRunRequestIds, requestId);
-    if (result?.cancelledRuns) pushUnique(affected.agentRunIds, `request:${requestId}:running`);
+    if (result?.cancelledRuns) {
+      warnings.push(`Linked Agent OS runs cancelled: ${result.cancelledRuns}`);
+    }
     const cancelled = result ? result.cancelledRequests + result.cancelledRuns > 0 : false;
     return {
       ok: true,
@@ -319,7 +328,7 @@ export class OperationCancellationService {
       operationKey,
       affected,
       preserved: emptyPreserved(),
-      warnings: result ? [] : ['Agent OS cancellation port is not available.'],
+      warnings,
     };
   }
 
@@ -335,8 +344,11 @@ export class OperationCancellationService {
       actorUserId: command.actorUserId,
     });
     const affected = emptyAffected();
+    const warnings = result ? [] : ['Agent OS cancellation port is not available.'];
     if (result?.cancelledRuns) pushUnique(affected.agentRunIds, runId);
-    if (result?.cancelledRequests) pushUnique(affected.agentRunRequestIds, `run:${runId}:request`);
+    if (result?.cancelledRequests) {
+      warnings.push(`Linked Agent OS requests cancelled: ${result.cancelledRequests}`);
+    }
     const cancelled = result ? result.cancelledRuns + result.cancelledRequests > 0 : false;
     return {
       ok: true,
@@ -347,7 +359,7 @@ export class OperationCancellationService {
       operationKey,
       affected,
       preserved: emptyPreserved(),
-      warnings: result ? [] : ['Agent OS cancellation port is not available.'],
+      warnings,
     };
   }
 
@@ -428,6 +440,7 @@ export class OperationCancellationService {
       generationId,
       actorUserId: command.actorUserId,
       reason,
+      notifyProductGenerationParent: false,
     });
     if (result.status === 'cancelled') pushUnique(affected.contentGenerationIds, result.generationId);
     if (result.preserved) pushUnique(preserved.contentGenerationIds, result.generationId);
@@ -446,6 +459,7 @@ export class OperationCancellationService {
       generationId,
       actorUserId: command.actorUserId,
       reason,
+      notifyProductGenerationParent: false,
     });
     if (result.status === 'cancelled') pushUnique(affected.thumbnailGenerationIds, result.generationId);
     if (result.preserved) pushUnique(preserved.thumbnailGenerationIds, result.generationId);

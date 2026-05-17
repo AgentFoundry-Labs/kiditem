@@ -881,6 +881,44 @@ describe('DetailPageAiService', () => {
     expect(result.imageProcessingStatus).toBe('cancelled');
   });
 
+  it('marks the parent product-generation child finished when directly cancelling a child detail generation', async () => {
+    const prisma = makePrisma();
+    prisma.contentGeneration.findFirst.mockResolvedValueOnce(makeGenerationRow({
+      status: 'PROCESSING',
+      generationInput: {
+        rawTitle: '원본 상품명',
+        imageUrls: ['https://example.com/image.jpg'],
+        productGeneration: {
+          mode: 'parent',
+          productGenerationBatchId: 'batch-1',
+          parentOperationKey: 'product-generation:batch-1',
+          childKind: 'detail_page',
+        },
+      },
+    }));
+    const productGenerationAlerts = makeProductGenerationAlertsStub();
+    const service = makeGenerationService({
+      prisma,
+      productGenerationAlerts,
+    });
+
+    await service.cancelForOperation({
+      organizationId: ORGANIZATION_ID,
+      generationId: GENERATION_ID,
+      actorUserId: USER_ID,
+      reason: '사용자 요청',
+    });
+
+    expect(productGenerationAlerts.markChildFinished).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      parentOperationKey: 'product-generation:batch-1',
+      childKind: 'detail_page',
+      status: 'failed',
+      childId: GENERATION_ID,
+      errorMessage: '사용자 요청',
+    });
+  });
+
   it('uses inferred package images only in the package section for bold vertical', async () => {
     const refiner = makeResultRefiner({
       inferPackageImagePositions: vi.fn().mockResolvedValue([3]),

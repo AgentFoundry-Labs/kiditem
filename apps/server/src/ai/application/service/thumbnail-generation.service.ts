@@ -61,6 +61,8 @@ import {
   type ThumbnailEditorGenerationEnqueueInput,
 } from './thumbnail-generation-job.service';
 import { operationCancellationAudit } from '../../../common/operation-cancellation-audit';
+import { ProductGenerationAlertService } from './product-generation-alert.service';
+import { readProductGenerationAlertLink } from './product-generation-alert-link';
 
 @Injectable()
 export class ThumbnailGenerationService {
@@ -74,6 +76,8 @@ export class ThumbnailGenerationService {
     @Optional()
     @Inject(THUMBNAIL_GENERATION_EVENT_PORT)
     private readonly generationEvents: ThumbnailGenerationEventPort | null = null,
+    @Optional()
+    private readonly productGenerationAlerts: ProductGenerationAlertService | null = null,
   ) {}
 
   private editJobOperationKey(generationId: string): string {
@@ -265,6 +269,7 @@ export class ThumbnailGenerationService {
     generationId: string;
     actorUserId: string | null;
     reason: string;
+    notifyProductGenerationParent?: boolean;
   }): Promise<{
     status: 'cancelled' | 'already_terminal' | 'not_found';
     generationId: string;
@@ -277,7 +282,7 @@ export class ThumbnailGenerationService {
         organizationId: input.organizationId,
         isDeleted: false,
       },
-      select: { id: true, status: true, phase: true },
+      select: { id: true, status: true, phase: true, inputMeta: true },
     });
     if (!row) {
       return {
@@ -345,6 +350,21 @@ export class ThumbnailGenerationService {
         },
       },
     });
+    const parentLink = readProductGenerationAlertLink(row.inputMeta);
+    if (
+      parentLink &&
+      input.notifyProductGenerationParent !== false &&
+      this.productGenerationAlerts
+    ) {
+      await this.productGenerationAlerts.markChildFinished({
+        organizationId: input.organizationId,
+        parentOperationKey: parentLink.parentOperationKey,
+        childKind: parentLink.childKind,
+        status: 'failed',
+        childId: row.id,
+        errorMessage: input.reason,
+      });
+    }
     return {
       status: 'cancelled',
       generationId: row.id,

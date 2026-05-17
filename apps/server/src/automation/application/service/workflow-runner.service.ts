@@ -150,6 +150,14 @@ export class WorkflowRunnerService implements WorkflowRunCancellationPort {
     if (updated.count > 0) {
       await this.emitPanelUpsert(input.runId, input.organizationId);
     }
+    if (updated.count === 0) {
+      return {
+        status: 'already_terminal',
+        workflowRunId: input.runId,
+        cancelledAgentRunRequests: 0,
+        cancelledAgentRuns: 0,
+      };
+    }
 
     const agentCancel = await this.agentRunner?.cancelByWorkflowRun?.({
       organizationId: input.organizationId,

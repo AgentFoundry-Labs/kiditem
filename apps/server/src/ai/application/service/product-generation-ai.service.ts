@@ -134,6 +134,21 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
 
     let thumbnailGenerationId: string | null = null;
     try {
+      const canStartThumbnail = await this.parentAlerts.canStartChild({
+        organizationId: input.organizationId,
+        parentOperationKey,
+      });
+      if (!canStartThumbnail) {
+        return {
+          candidateId: input.candidateId,
+          parentOperationKey,
+          detailGenerationId,
+          thumbnailGenerationId,
+          contentWorkspaceId,
+          href,
+        };
+      }
+
       const originalUrl = input.thumbnailUrl ?? imageUrls[0] ?? candidate.thumbnailUrl ?? '';
       const resolved = await this.editorAi.resolveInputImage(
         originalUrl,

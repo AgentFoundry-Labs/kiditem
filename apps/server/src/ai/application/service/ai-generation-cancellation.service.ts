@@ -20,6 +20,7 @@ export class AiGenerationCancellationService
     generationId: string;
     actorUserId: string | null;
     reason: string;
+    notifyProductGenerationParent?: boolean;
   }): Promise<AiGenerationCancellationTargetResult> {
     return this.detailPages.cancelForOperation(input);
   }
@@ -29,6 +30,7 @@ export class AiGenerationCancellationService
     generationId: string;
     actorUserId: string | null;
     reason: string;
+    notifyProductGenerationParent?: boolean;
   }): Promise<AiGenerationCancellationTargetResult> {
     return this.thumbnails.cancelForOperation(input);
   }

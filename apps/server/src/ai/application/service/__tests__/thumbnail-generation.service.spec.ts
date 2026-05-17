@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ThumbnailGenerationService } from '../thumbnail-generation.service';
 import type { OperationAlertService } from '../../../../automation/application/service/operation-alert.service';
+import type { ProductGenerationAlertService } from '../product-generation-alert.service';
 
 const ORGANIZATION_ID = '11111111-1111-4111-8111-111111111111';
 const USER_ID = '99999999-9999-9999-9999-999999999999';
@@ -74,21 +75,30 @@ function makeGenerationJobsStub() {
   };
 }
 
+function makeProductGenerationAlertsStub(): ProductGenerationAlertService {
+  return {
+    markChildFinished: vi.fn().mockResolvedValue({}),
+  } as unknown as ProductGenerationAlertService;
+}
+
 function makeService(
   operationAlerts = makeOperationAlertsStub(),
   prisma: unknown = {},
   generationEvents: unknown = null,
+  productGenerationAlerts: ProductGenerationAlertService = makeProductGenerationAlertsStub(),
 ) {
   const generationJobs = makeGenerationJobsStub();
   return {
     generationJobs,
     operationAlerts,
+    productGenerationAlerts,
     service: new ThumbnailGenerationService(
       prisma as never,
       {} as never,
       operationAlerts,
       generationJobs as never,
       generationEvents as never,
+      productGenerationAlerts,
     ),
   };
 }
@@ -207,6 +217,53 @@ describe('ThumbnailGenerationService operation alerts', () => {
       generationId: GENERATION_ID,
       reason: '사용자 요청',
       actorUserId: USER_ID,
+    });
+  });
+
+  it('marks the parent product-generation child finished when directly cancelling a child thumbnail generation', async () => {
+    const prisma = {
+      thumbnailGeneration: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: GENERATION_ID,
+          status: 'running',
+          phase: 'processing',
+          inputMeta: {
+            productGeneration: {
+              mode: 'parent',
+              productGenerationBatchId: 'batch-1',
+              parentOperationKey: 'product-generation:batch-1',
+              childKind: 'thumbnail',
+            },
+          },
+        }),
+      },
+    };
+    const productGenerationAlerts = makeProductGenerationAlertsStub();
+    const { service } = makeService(
+      makeOperationAlertsStub(),
+      prisma,
+      { append: vi.fn() },
+      productGenerationAlerts,
+    );
+    mocks.markGenerationCancelled.mockResolvedValueOnce({
+      fromStatus: 'running',
+      fromPhase: 'processing',
+    });
+
+    await service.cancelForOperation({
+      organizationId: ORGANIZATION_ID,
+      generationId: GENERATION_ID,
+      actorUserId: USER_ID,
+      reason: '사용자 요청',
+    });
+
+    expect(productGenerationAlerts.markChildFinished).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      parentOperationKey: 'product-generation:batch-1',
+      childKind: 'thumbnail',
+      status: 'failed',
+      childId: GENERATION_ID,
+      errorMessage: '사용자 요청',
     });
   });
 });

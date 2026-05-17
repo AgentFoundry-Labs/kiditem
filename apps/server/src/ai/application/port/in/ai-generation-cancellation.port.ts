@@ -15,6 +15,7 @@ export interface AiGenerationCancellationPort {
     generationId: string;
     actorUserId: string | null;
     reason: string;
+    notifyProductGenerationParent?: boolean;
   }): Promise<AiGenerationCancellationTargetResult>;
 
   cancelThumbnailGeneration(input: {
@@ -22,5 +23,6 @@ export interface AiGenerationCancellationPort {
     generationId: string;
     actorUserId: string | null;
     reason: string;
+    notifyProductGenerationParent?: boolean;
   }): Promise<AiGenerationCancellationTargetResult>;
 }

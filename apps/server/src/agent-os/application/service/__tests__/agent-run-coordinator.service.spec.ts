@@ -82,7 +82,9 @@ function makeCoordinator(overrides: Record<string, unknown> = {}) {
     findRunByRequestId: vi.fn(),
     listRunRequests: vi.fn(),
     markRequestStatus: vi.fn().mockResolvedValue(request('cancelled')),
+    markRequestStatusIfCurrent: vi.fn().mockResolvedValue(request('cancelled')),
     appendRunEvent: vi.fn().mockResolvedValue({}),
+    finalizeRun: vi.fn().mockResolvedValue({ run: run('cancelled'), requestStatus: 'cancelled' }),
     ...overrides,
   };
   return {
@@ -104,9 +106,10 @@ describe('AgentRunCoordinator cancellation', () => {
       actorUserId: USER_ID,
     });
 
-    expect(repository.markRequestStatus).toHaveBeenCalledWith({
+    expect(repository.markRequestStatusIfCurrent).toHaveBeenCalledWith({
       organizationId: ORG,
       requestId: REQUEST_ID,
+      currentStatuses: ['pending', 'claimed', 'requires_approval'],
       status: 'cancelled',
       errorCode: 'user_cancelled',
       errorMessage: '사용자 요청',
@@ -123,6 +126,32 @@ describe('AgentRunCoordinator cancellation', () => {
       },
     });
     expect(result).toMatchObject({ ok: true, cancelledRequests: 1 });
+  });
+
+  it('does not overwrite a request that becomes terminal during cancellation', async () => {
+    const { coordinator, repository } = makeCoordinator({
+      findRunRequestById: vi.fn().mockResolvedValue(request('claimed')),
+      markRequestStatusIfCurrent: vi.fn().mockResolvedValue(null),
+    });
+
+    const result = await coordinator.cancelRequest({
+      organizationId: ORG,
+      requestId: REQUEST_ID,
+      reason: '사용자 요청',
+    });
+
+    expect(repository.markRequestStatusIfCurrent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: REQUEST_ID,
+        currentStatuses: ['pending', 'claimed', 'requires_approval'],
+      }),
+    );
+    expect(repository.appendRunEvent).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      ok: true,
+      cancelledRequests: 0,
+      skippedRequests: 1,
+    });
   });
 
   it('does not mutate a terminal request by id', async () => {
@@ -171,8 +200,17 @@ describe('AgentRunCoordinator cancellation', () => {
         }),
       }),
     );
-    expect(repository.markRequestStatus).toHaveBeenCalledWith(
+    expect(repository.markRequestStatusIfCurrent).toHaveBeenCalledWith(
       expect.objectContaining({ requestId: REQUEST_ID, status: 'cancelled' }),
+    );
+    expect(repository.finalizeRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: ORG,
+        runId: RUN_ID,
+        requestId: REQUEST_ID,
+        status: 'cancelled',
+        errorCode: 'user_cancelled',
+      }),
     );
     expect(result.cancelledRuns).toBe(1);
   });
@@ -201,7 +239,7 @@ describe('AgentRunCoordinator cancellation', () => {
         status: ['pending', 'claimed', 'requires_approval'],
       }),
     );
-    expect(repository.markRequestStatus).toHaveBeenCalledTimes(2);
+    expect(repository.markRequestStatusIfCurrent).toHaveBeenCalledTimes(2);
     expect(result.cancelledRequests).toBe(2);
   });
 });

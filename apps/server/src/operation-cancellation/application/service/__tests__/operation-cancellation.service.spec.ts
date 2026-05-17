@@ -120,12 +120,14 @@ describe('OperationCancellationService', () => {
       generationId: 'cg-1',
       actorUserId: USER,
       reason: '사용자 요청',
+      notifyProductGenerationParent: false,
     });
     expect(ai.cancelThumbnailGeneration).toHaveBeenCalledWith({
       organizationId: ORG,
       generationId: 'tg-1',
       actorUserId: USER,
       reason: '사용자 요청',
+      notifyProductGenerationParent: false,
     });
     expect(operationAlerts.cancel).toHaveBeenCalledWith(
       ORG,
@@ -226,6 +228,7 @@ describe('OperationCancellationService', () => {
       reason: '사용자 요청으로 중단되었습니다.',
     });
     expect(result.affected.workflowRunIds).toEqual(['wf-run-1']);
-    expect(result.affected.agentRunRequestIds).toEqual(['linked:wf-run-1:1']);
+    expect(result.affected.agentRunRequestIds).toEqual([]);
+    expect(result.warnings).toContain('Linked Agent OS requests cancelled: 1');
   });
 });

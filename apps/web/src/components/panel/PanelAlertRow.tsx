@@ -109,11 +109,15 @@ export function PanelAlertRow({ item }: { item: PanelAlertItem }) {
       finishedAt: new Date().toISOString(),
     });
     try {
-      await cancelOperation({
+      const result = await cancelOperation({
         targetType: 'operation_key',
         operationKey: item.operationKey,
         reason: '사용자 요청',
       });
+      if (result.status !== 'cancelled') {
+        upsertItem(previous);
+        toast.error(result.message || '이 작업은 중단할 수 없습니다.');
+      }
     } catch (error) {
       upsertItem(previous);
       toast.error(isApiError(error) ? error.detail : '작업 중단 요청에 실패했습니다.');

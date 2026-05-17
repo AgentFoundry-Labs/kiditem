@@ -61,6 +61,7 @@ import {
   STANDALONE_GENERATION_ALERT,
   isParentProductGenerationAlertLink,
   productGenerationMetadata,
+  readProductGenerationAlertLink,
 } from './product-generation-alert-link';
 import { ProductGenerationAlertService } from './product-generation-alert.service';
 import {
@@ -841,6 +842,7 @@ export class DetailPageGenerationService {
     generationId: string;
     actorUserId: string | null;
     reason: string;
+    notifyProductGenerationParent?: boolean;
   }): Promise<{
     status: 'cancelled' | 'already_terminal' | 'not_found';
     generationId: string;
@@ -849,7 +851,7 @@ export class DetailPageGenerationService {
   }> {
     const row = await this.prisma.contentGeneration.findFirst({
       where: { id: input.generationId, organizationId: input.organizationId },
-      select: { id: true, status: true, generationResult: true },
+      select: { id: true, status: true, generationInput: true, generationResult: true },
     });
     if (!row) {
       return {
@@ -920,6 +922,17 @@ export class DetailPageGenerationService {
         },
       },
     });
+    const parentLink = readProductGenerationAlertLink(row.generationInput);
+    if (parentLink && input.notifyProductGenerationParent !== false) {
+      await this.productGenerationAlerts.markChildFinished({
+        organizationId: input.organizationId,
+        parentOperationKey: parentLink.parentOperationKey,
+        childKind: parentLink.childKind,
+        status: 'failed',
+        childId: row.id,
+        errorMessage: input.reason,
+      });
+    }
 
     return {
       status: 'cancelled',

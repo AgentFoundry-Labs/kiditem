@@ -170,6 +170,10 @@ export interface MarkRequestStatusInput {
   payload?: Record<string, unknown>;
 }
 
+export interface MarkRequestStatusIfCurrentInput extends MarkRequestStatusInput {
+  currentStatuses: AgentRunRequestStatus[];
+}
+
 export interface CreateAuthorizationEventInput {
   organizationId: string;
   agentInstanceId: string;
@@ -324,6 +328,9 @@ export interface AgentOsRepositoryPort {
   }): Promise<AgentRunRequestRecord | null>;
   failClaimedRequest(input: FailClaimedRequestInput): Promise<void>;
   markRequestStatus(input: MarkRequestStatusInput): Promise<AgentRunRequestRecord>;
+  markRequestStatusIfCurrent(
+    input: MarkRequestStatusIfCurrentInput,
+  ): Promise<AgentRunRequestRecord | null>;
 
   // Runs + events
   createRunForRequest(input: CreateRunRecordInput): Promise<AgentRunRecord>;
