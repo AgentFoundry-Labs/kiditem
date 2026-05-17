@@ -316,28 +316,36 @@ deploy/staging/remote-deploy.sh
 The workflow never overwrites `/opt/kiditem/.env.staging.api` or
 `/opt/kiditem/.env.staging.web`.
 
-Before the EC2 image swap, the deploy job applies the Prisma schema to the
-staging Supabase database with `npx prisma db push`. The default workflow input
-keeps `accept_data_loss=false`, so destructive Prisma changes still block the
-deploy. A reviewed contract-cleanup deploy may set `accept_data_loss=true`,
-which runs `npx prisma db push --accept-data-loss` only for that manual staging
-run. Use it only after the expand/backfill release has a succeeded
-`data_migration_runs` ledger row and the PR explicitly calls out the columns or
-tables being dropped. The workflow then runs release data migrations before the
-image swap so new application code starts with any required backfill already
-present:
+Before the EC2 image swap, the deploy job first runs pre-schema data migrations
+that must change existing database shape before Prisma sees the new schema:
 
 ```bash
-npm run data:migrate -- up
+npm run data:migrate -- up --phase pre-schema
 ```
 
 with `DATA_MIGRATION_TARGET=staging` and
-`DATA_MIGRATION_CONFIRM=APPLY_DATA_MIGRATIONS`. Each durable data migration is
-grouped by the application release in root [`VERSION`](../../VERSION) that
-requires it, for example `scripts/data-migrations/v0.1.0/001_<name>.ts`, and
-records a row in `data_migration_runs` with migration id, release version,
-status, git SHA, Prisma schema hash, affected rows, details, and error text
-when a run fails. After the new containers pass the EC2 smoke check, the
+`DATA_MIGRATION_CONFIRM=APPLY_DATA_MIGRATIONS`. It then applies the Prisma
+schema to the staging Supabase database with `npx prisma db push`. The default
+workflow input keeps `accept_data_loss=false`, so destructive Prisma changes
+still block the deploy. A reviewed contract-cleanup deploy may set
+`accept_data_loss=true`, which runs `npx prisma db push --accept-data-loss` only
+for that manual staging run. Use it only after the expand/backfill release has a
+succeeded `data_migration_runs` ledger row and the PR explicitly calls out the
+columns or tables being dropped.
+
+After schema push, the workflow runs post-schema data migrations before the image
+swap so new application code starts with any required backfill already present:
+
+```bash
+npm run data:migrate -- up --phase post-schema
+```
+
+Each durable data migration is grouped by the application release in root
+[`VERSION`](../../VERSION) that requires it, for example
+`scripts/data-migrations/v0.1.0/001_<name>.ts`, and records a row in
+`data_migration_runs` with migration id, release version, status, git SHA,
+Prisma schema hash, affected rows, details, and error text when a run fails.
+After the new containers pass the EC2 smoke check, the
 workflow verifies the migration ledger with:
 
 ```bash
