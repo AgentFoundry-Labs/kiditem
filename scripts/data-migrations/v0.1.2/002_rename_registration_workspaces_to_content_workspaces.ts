@@ -4,6 +4,7 @@ export const renameRegistrationWorkspacesToContentWorkspaces: DataMigration = {
   id: 'v0.1.2:002_rename_registration_workspaces_to_content_workspaces',
   releaseVersion: '0.1.2',
   name: 'Rename registration workspace tables and foreign keys to content workspace',
+  phase: 'pre-schema',
   async run(tx) {
     const affected = await tx.$executeRaw`
       DO $$

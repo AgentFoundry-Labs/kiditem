@@ -24,7 +24,28 @@ export class ChannelReconciliationMatcherService {
     externalOptionId: string | null,
     legacyCode: string | null,
   ): Promise<MatchOutcome> {
-    const listing = await this.findActiveListing(tx, organizationId, externalId);
+    const listingMatch = await this.findActiveListing(tx, organizationId, externalId);
+
+    if (listingMatch.kind === 'duplicate') {
+      return {
+        status: 'conflict',
+        matchReason: 'conflict',
+        resolutionSource: null,
+        confidence: 50,
+        linkedListingId: null,
+        linkedListingOptionId: null,
+        linkedMasterProductId: null,
+        linkedProductOptionId: null,
+        conflictJson: {
+          kind: 'duplicate_active_channel_listing_external_id',
+          externalId,
+          listingIds: listingMatch.listings.map((listing) => listing.id),
+          accountIds: listingMatch.listings.map((listing) => listing.channelAccountId ?? null),
+        } satisfies Prisma.InputJsonValue,
+      };
+    }
+
+    const listing = listingMatch.listing;
 
     if (listing) {
       // Rule 1: existing ChannelListing means listing-level link is established.
@@ -150,23 +171,15 @@ export class ChannelReconciliationMatcherService {
     if (legacyCode) {
       const candidates = await this.findActiveOptionsByLegacyCode(tx, organizationId, legacyCode);
       if (candidates.length === 1) {
-        const candidate = candidates[0];
-        const created = await this.createListingForCandidate(
-          tx,
-          organizationId,
-          candidate,
-          externalId,
-          externalOptionId,
-        );
         return {
-          status: 'linked',
-          matchReason: 'legacy_code_exact',
-          resolutionSource: 'auto_legacy_code',
-          confidence: 90,
-          linkedListingId: created.listingId,
-          linkedListingOptionId: created.listingOptionId,
-          linkedMasterProductId: candidate.masterId,
-          linkedProductOptionId: candidate.id,
+          status: 'needs_review',
+          matchReason: 'none',
+          resolutionSource: null,
+          confidence: null,
+          linkedListingId: null,
+          linkedListingOptionId: null,
+          linkedMasterProductId: null,
+          linkedProductOptionId: null,
           conflictJson: null,
         };
       }
@@ -207,16 +220,23 @@ export class ChannelReconciliationMatcherService {
     tx: Tx,
     organizationId: string,
     externalId: string,
-  ): Promise<ChannelListingHandle | null> {
-    return tx.channelListing.findFirst({
+  ): Promise<
+    | { kind: 'single'; listing: ChannelListingHandle | null }
+    | { kind: 'duplicate'; listings: ChannelListingHandle[] }
+  > {
+    const listings = await tx.channelListing.findMany({
       where: {
         organizationId,
         channel: RECONCILIATION_CHANNEL,
         externalId,
         isDeleted: false,
       },
-      select: { id: true, masterId: true },
+      select: { id: true, masterId: true, channelAccountId: true },
+      orderBy: [{ channelAccountId: 'asc' }, { updatedAt: 'desc' }],
+      take: 2,
     });
+    if (listings.length > 1) return { kind: 'duplicate', listings };
+    return { kind: 'single', listing: listings[0] ?? null };
   }
 
   private async findActiveOptionsByLegacyCode(
@@ -235,37 +255,6 @@ export class ChannelReconciliationMatcherService {
       select: { id: true, masterId: true },
     });
     return options;
-  }
-
-  private async createListingForCandidate(
-    tx: Tx,
-    organizationId: string,
-    candidate: ProductOptionCandidate,
-    externalId: string,
-    externalOptionId: string | null,
-  ): Promise<{ listingId: string; listingOptionId: string | null }> {
-    const listing = await tx.channelListing.create({
-      data: {
-        organizationId,
-        masterId: candidate.masterId,
-        channel: RECONCILIATION_CHANNEL,
-        externalId,
-        status: 'draft',
-      },
-      select: { id: true },
-    });
-    let listingOptionId: string | null = null;
-    if (externalOptionId) {
-      const option = await this.createListingOption(
-        tx,
-        organizationId,
-        listing.id,
-        externalOptionId,
-        candidate.id,
-      );
-      listingOptionId = option.id;
-    }
-    return { listingId: listing.id, listingOptionId };
   }
 
   private async createListingOption(

@@ -16,6 +16,18 @@ function extractModel(schema, modelName) {
 }
 
 describe('product pipeline DB model contract', () => {
+  it('runs content workspace rename before schema push in staging deploy', () => {
+    const workflow = readModelFile('.github/workflows/staging-deploy.yml');
+    const preSchema = workflow.indexOf('npm run data:migrate -- up --phase pre-schema');
+    const dbPush = workflow.indexOf('npx prisma db push');
+    const postSchema = workflow.indexOf('npm run data:migrate -- up --phase post-schema');
+
+    assert.ok(preSchema !== -1, 'expected staging deploy to run pre-schema migrations');
+    assert.ok(postSchema !== -1, 'expected staging deploy to run post-schema migrations');
+    assert.ok(preSchema < dbPush, 'pre-schema rename must run before Prisma db push');
+    assert.ok(dbPush < postSchema, 'post-schema backfills must run after Prisma db push');
+  });
+
   it('uses ContentWorkspace as the active content/version workspace schema name', () => {
     const aiSchema = readModelFile('prisma/models/ai.prisma');
     const model = extractModel(aiSchema, 'ContentWorkspace');

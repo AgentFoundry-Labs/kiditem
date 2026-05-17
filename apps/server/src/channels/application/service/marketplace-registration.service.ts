@@ -37,6 +37,7 @@ export class MarketplaceRegistrationService {
           organizationId,
           channelAccountId: account.id,
           externalId,
+          isDeleted: false,
         },
         select: { id: true },
       });

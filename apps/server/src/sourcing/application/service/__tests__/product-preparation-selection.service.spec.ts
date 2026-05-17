@@ -152,4 +152,89 @@ describe('ProductPreparationSelectionService', () => {
       }),
     }));
   });
+
+  it('rejects caller-provided detail artifacts when the generation has no artifact yet', async () => {
+    const prisma = {
+      sourcingCandidate: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'candidate-1',
+          name: '상품명',
+          description: '설명',
+          category: '완구',
+          tags: [],
+          rawData: {},
+          promotedMasterId: null,
+        }),
+      },
+      contentGeneration: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'detail-generation-1',
+          contentWorkspaceId: 'workspace-1',
+          detailPageArtifactId: null,
+          detailPageArtifact: null,
+        }),
+      },
+      productPreparation: {
+        findFirst: vi.fn(),
+        update: vi.fn(),
+        create: vi.fn(),
+      },
+    };
+    const service = new ProductPreparationSelectionService(prisma as never);
+
+    await expect(service.selectDetailPage('org-1', 'candidate-1', {
+      selectedDetailPageGenerationId: 'detail-generation-1',
+      selectedDetailPageArtifactId: 'artifact-from-another-generation',
+    })).rejects.toThrow('선택한 상세페이지 아티팩트가 아직 준비되지 않았습니다.');
+    expect(prisma.productPreparation.update).not.toHaveBeenCalled();
+    expect(prisma.productPreparation.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects detail revisions that do not belong to the selected artifact', async () => {
+    const prisma = {
+      sourcingCandidate: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'candidate-1',
+          name: '상품명',
+          description: '설명',
+          category: '완구',
+          tags: [],
+          rawData: {},
+          promotedMasterId: null,
+        }),
+      },
+      contentGeneration: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'detail-generation-1',
+          contentWorkspaceId: 'workspace-1',
+          detailPageArtifactId: 'artifact-1',
+          detailPageArtifact: { currentRevisionId: 'revision-1' },
+        }),
+      },
+      detailPageRevision: {
+        findFirst: vi.fn().mockResolvedValue(null),
+      },
+      productPreparation: {
+        findFirst: vi.fn(),
+        update: vi.fn(),
+        create: vi.fn(),
+      },
+    };
+    const service = new ProductPreparationSelectionService(prisma as never);
+
+    await expect(service.selectDetailPage('org-1', 'candidate-1', {
+      selectedDetailPageGenerationId: 'detail-generation-1',
+      selectedDetailPageRevisionId: 'foreign-revision',
+    })).rejects.toThrow('선택한 상세페이지 버전이 이 상품에 속하지 않습니다.');
+    expect(prisma.detailPageRevision.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'foreign-revision',
+        organizationId: 'org-1',
+        artifactId: 'artifact-1',
+      },
+      select: { id: true },
+    });
+    expect(prisma.productPreparation.update).not.toHaveBeenCalled();
+    expect(prisma.productPreparation.create).not.toHaveBeenCalled();
+  });
 });

@@ -40,4 +40,41 @@ describe('MarketplaceRegistrationService', () => {
       }),
     }));
   });
+
+  it('does not revive a soft-deleted listing with the same account and external id', async () => {
+    const tx = {
+      channelAccount: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'account-1', channel: 'coupang' }),
+      },
+      masterProduct: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'master-1', name: '마스터 상품' }),
+      },
+      channelListing: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({ id: 'listing-new' }),
+        update: vi.fn(),
+      },
+    };
+    const prisma = {
+      $transaction: vi.fn((callback) => callback(tx)),
+    };
+    const service = new MarketplaceRegistrationService(prisma as never);
+
+    await service.registerConfirmedListing('org-1', {
+      masterId: 'master-1',
+      channelAccountId: 'account-1',
+      externalId: '720445',
+    });
+
+    expect(tx.channelListing.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        organizationId: 'org-1',
+        channelAccountId: 'account-1',
+        externalId: '720445',
+        isDeleted: false,
+      },
+    }));
+    expect(tx.channelListing.update).not.toHaveBeenCalled();
+    expect(tx.channelListing.create).toHaveBeenCalled();
+  });
 });

@@ -17,6 +17,11 @@ interface ProductSyncDeps {
 const PRODUCT_PAGE_SIZE = 50;
 const MAX_PRODUCT_PAGES = 200;
 
+type ListingForProductSync = {
+  id: string;
+  channelAccountId: string | null;
+};
+
 /**
  * Coupang seller-product -> ChannelListing/ChannelListingOption refresh.
  *
@@ -32,6 +37,18 @@ export async function syncCoupangProducts(
   let pages = 0;
 
   try {
+    const channelAccount = await deps.prisma.channelAccount.findFirst({
+      where: {
+        organizationId,
+        channel: 'coupang',
+        isPrimary: true,
+        status: 'active',
+      },
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true },
+    });
+    const channelAccountId = channelAccount?.id ?? null;
+
     do {
       const listResponse = await deps.coupang.getSellerProducts(organizationId, {
         nextToken,
@@ -50,7 +67,13 @@ export async function syncCoupangProducts(
       for (const summary of items) {
         const sellerProductId = String(summary.sellerProductId);
         try {
-          await syncSingleProductListing(deps, sellerProductId, organizationId, result);
+          await syncSingleProductListing(
+            deps,
+            sellerProductId,
+            organizationId,
+            result,
+            channelAccountId,
+          );
         } catch (error: unknown) {
           result.errors += 1;
           const message = error instanceof Error ? error.message : 'Unknown error';
@@ -87,16 +110,15 @@ async function syncSingleProductListing(
   sellerProductId: string,
   organizationId: string,
   result: SyncResult,
+  channelAccountId: string | null,
 ): Promise<void> {
-  const existing = await deps.prisma.channelListing.findFirst({
-    where: {
-      organizationId,
-      channel: 'coupang',
-      externalId: sellerProductId,
-      isDeleted: false,
-    },
-    select: { id: true },
-  });
+  const existing = await findExistingListingForProductSync(
+    deps,
+    organizationId,
+    sellerProductId,
+    channelAccountId,
+    result,
+  );
   if (!existing) {
     result.details?.push(
       `Listing ${sellerProductId}: no matching ChannelListing — create via product import / admin UI first`,
@@ -123,6 +145,7 @@ async function syncSingleProductListing(
           organizationId,
           channel: 'coupang',
           externalId: sellerProductId,
+          channelAccountId: existing.channelAccountId,
           isDeleted: false,
         },
         data: {
@@ -134,6 +157,9 @@ async function syncSingleProductListing(
           deliveryInfo: detail.deliveryInfo === undefined
             ? Prisma.DbNull
             : (detail.deliveryInfo as Prisma.InputJsonValue),
+          ...(channelAccountId && existing.channelAccountId === null
+            ? { channelAccountId }
+            : {}),
         },
       });
       if (updated.count !== 1) {
@@ -178,4 +204,50 @@ async function syncSingleProductListing(
   );
 
   result.synced += 1;
+}
+
+async function findExistingListingForProductSync(
+  deps: ProductSyncDeps,
+  organizationId: string,
+  sellerProductId: string,
+  channelAccountId: string | null,
+  result: SyncResult,
+): Promise<ListingForProductSync | null> {
+  const listings = await deps.prisma.channelListing.findMany({
+    where: {
+      organizationId,
+      channel: 'coupang',
+      externalId: sellerProductId,
+      isDeleted: false,
+      ...(channelAccountId
+        ? {
+            OR: [
+              { channelAccountId },
+              { channelAccountId: null },
+            ],
+          }
+        : {}),
+    },
+    select: { id: true, channelAccountId: true },
+    orderBy: [{ channelAccountId: 'asc' }, { updatedAt: 'desc' }],
+    take: channelAccountId ? 3 : 2,
+  });
+  if (channelAccountId) {
+    const accountListing = listings.find((listing) => listing.channelAccountId === channelAccountId);
+    if (accountListing) return accountListing;
+    if (listings.length === 1 && listings[0]?.channelAccountId === null) return listings[0];
+    if (listings.length > 1) {
+      result.details?.push(
+        `Listing ${sellerProductId}: multiple accountless/account candidates — select the market account before sync`,
+      );
+    }
+    return null;
+  }
+  if (listings.length === 1) return listings[0];
+  if (listings.length > 1) {
+    result.details?.push(
+      `Listing ${sellerProductId}: multiple active ChannelListings — account identity is required`,
+    );
+  }
+  return null;
 }

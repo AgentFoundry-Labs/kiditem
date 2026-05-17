@@ -11,10 +11,10 @@ import type { PrismaService } from '../../../../prisma/prisma.service';
  *
  * The fake Prisma client only implements the methods this service touches.
  * It uses simple in-memory arrays so the tests can assert on side-effects
- * (auto-created `ChannelListing`, upserted reconciliation items, etc.) and
+ * (upserted reconciliation items, manual-created `ChannelListing`, etc.) and
  * cover all six rules from issue #199:
  *   1. existing ChannelListing → linked / existing_external_id
- *   2. legacyCode exact 1 match → auto-create listing, linked / auto_legacy_code
+ *   2. legacyCode exact 1 match → needs_review until a channel account is proven
  *   3. existing listing master vs legacyCode candidate disagree → conflict
  *   4. no match → needs_review
  *   5. multiple legacyCode matches → conflict
@@ -30,6 +30,7 @@ interface ListingRow {
   channel: string;
   externalId: string;
   masterId: string;
+  channelAccountId?: string | null;
   isDeleted: boolean;
   status: string | null;
   channelName?: string | null;
@@ -379,31 +380,38 @@ function makeFakePrisma(seed: {
     findMany: async ({
       where,
       orderBy: _orderBy,
+      take,
       select: _select,
     }: {
       where: {
         organizationId: string;
         channel: string;
         isDeleted: boolean;
+        externalId?: string;
         master?: {
           isDeleted?: boolean;
           images?: { some?: { organizationId: string; isDeleted: boolean; source: string } };
         };
       };
       orderBy?: unknown;
+      take?: number;
       select?: unknown;
     }) => {
-      return listings
+      const matching = listings
         .filter(
           (l) =>
             l.organizationId === where.organizationId &&
             l.channel === where.channel &&
+            (where.externalId === undefined || l.externalId === where.externalId) &&
             l.isDeleted === where.isDeleted &&
             (!where.master?.images?.some || !!l.coupangWingImageUrl),
-        )
+        );
+      return matching
+        .slice(0, take ?? matching.length)
         .map((l) => ({
           id: l.id,
           masterId: l.masterId,
+          channelAccountId: l.channelAccountId ?? null,
           externalId: l.externalId,
           channelName: l.channelName ?? null,
           status: l.status,
@@ -788,7 +796,7 @@ describe('ChannelReconciliationService — matching rules', () => {
     });
   });
 
-  it('Rule 2: no listing + exactly one active ProductOption by legacyCode → auto-create listing', async () => {
+  it('Rule 2: no listing + exactly one active ProductOption by legacyCode → needs_review without account identity', async () => {
     const { fakePrisma, state } = makeFakePrisma({
       productOptions: [
         {
@@ -810,24 +818,17 @@ describe('ChannelReconciliationService — matching rules', () => {
       { externalId: 'E1', externalOptionId: 'V1', legacyCode: 'LEG-1' },
     ]);
 
-    expect(result.autoLinkedCount).toBe(1);
+    expect(result.autoLinkedCount).toBe(0);
     expect(result.alreadyLinkedCount).toBe(0);
-    expect(result.needsReviewCount).toBe(0);
+    expect(result.needsReviewCount).toBe(1);
 
-    expect(state.items[0].status).toBe('linked');
-    expect(state.items[0].matchReason).toBe('legacy_code_exact');
-    expect(state.items[0].resolutionSource).toBe('auto_legacy_code');
-    expect(state.items[0].linkedProductOptionId).toBe('PO1');
-    expect(state.items[0].linkedMasterProductId).toBe('M1');
-
-    // ChannelListing was auto-created with the matched option's masterId.
-    expect(state.listings).toHaveLength(1);
-    expect(state.listings[0].masterId).toBe('M1');
-    expect(state.listings[0].externalId).toBe('E1');
-    // ChannelListingOption auto-created and bound to the internal optionId.
-    expect(state.listingOptions).toHaveLength(1);
-    expect(state.listingOptions[0].optionId).toBe('PO1');
-    expect(state.listingOptions[0].externalOptionId).toBe('V1');
+    expect(state.items[0].status).toBe('needs_review');
+    expect(state.items[0].matchReason).toBe('none');
+    expect(state.items[0].resolutionSource).toBeNull();
+    expect(state.items[0].linkedProductOptionId).toBeNull();
+    expect(state.items[0].linkedMasterProductId).toBeNull();
+    expect(state.listings).toHaveLength(0);
+    expect(state.listingOptions).toHaveLength(0);
   });
 
   it('Rule 2b: existing listing + missing external option creates ChannelListingOption by legacyCode', async () => {

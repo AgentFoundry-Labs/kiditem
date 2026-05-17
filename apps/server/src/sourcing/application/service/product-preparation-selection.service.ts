@@ -222,19 +222,30 @@ export class ProductPreparationSelectionService {
     if (!generation) {
       throw new BadRequestException('선택한 상세페이지가 이 상품에 속하지 않습니다.');
     }
-    const detailPageArtifact = generation as typeof generation & {
-      detailPageArtifact?: { currentRevisionId: string | null } | null;
-    };
-    const artifactId = input.selectedDetailPageArtifactId ?? generation.detailPageArtifactId;
+    const artifactId = generation.detailPageArtifactId;
     if (!artifactId) throw new BadRequestException('선택한 상세페이지 아티팩트가 아직 준비되지 않았습니다.');
-    if (generation.detailPageArtifactId && artifactId !== generation.detailPageArtifactId) {
+    if (input.selectedDetailPageArtifactId && input.selectedDetailPageArtifactId !== artifactId) {
       throw new BadRequestException('선택한 상세페이지 아티팩트가 생성 결과와 일치하지 않습니다.');
+    }
+    const revisionId = input.selectedDetailPageRevisionId ?? generation.detailPageArtifact?.currentRevisionId ?? null;
+    if (input.selectedDetailPageRevisionId) {
+      const revision = await this.prisma.detailPageRevision.findFirst({
+        where: {
+          id: input.selectedDetailPageRevisionId,
+          organizationId,
+          artifactId,
+        },
+        select: { id: true },
+      });
+      if (!revision) {
+        throw new BadRequestException('선택한 상세페이지 버전이 이 상품에 속하지 않습니다.');
+      }
     }
     return {
       id: generation.id,
       contentWorkspaceId: generation.contentWorkspaceId,
       artifactId,
-      revisionId: input.selectedDetailPageRevisionId ?? detailPageArtifact.detailPageArtifact?.currentRevisionId ?? null,
+      revisionId,
     };
   }
 

@@ -16,6 +16,7 @@ import {
   DEFAULT_DATA_MIGRATION_TRANSACTION_TIMEOUT_MS,
   isDefinitelyProductionDatabaseUrl,
   normalizeReleaseVersion,
+  selectDataMigrationsForPhase,
 } from '../run-data-migrations';
 
 const repoRoot = join(__dirname, '..', '..');
@@ -49,6 +50,18 @@ describe('data migration registry', () => {
     for (const migration of dataMigrations) {
       expect(migration.id.startsWith(`v${migration.releaseVersion}:`)).toBe(true);
     }
+  });
+
+  it('runs destructive table renames before Prisma db push and post-schema backfills after it', () => {
+    expect(selectDataMigrationsForPhase(dataMigrations, 'pre-schema').map((m) => m.id)).toEqual([
+      'v0.1.2:002_rename_registration_workspaces_to_content_workspaces',
+    ]);
+    expect(selectDataMigrationsForPhase(dataMigrations, 'post-schema').map((m) => m.id)).toContain(
+      'v0.1.2:001_backfill_channel_listing_accounts',
+    );
+    expect(selectDataMigrationsForPhase(dataMigrations, 'post-schema').map((m) => m.id)).not.toContain(
+      'v0.1.2:002_rename_registration_workspaces_to_content_workspaces',
+    );
   });
 });
 
