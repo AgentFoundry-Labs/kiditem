@@ -10,6 +10,7 @@ import { queryKeys } from '@/lib/query-keys';
 import {
   useAllGenerationsInProgress,
   useBoldVerticalGenerationList,
+  useKidsPlayfulGenerationCancel,
   useKidsPlayfulGenerationList,
 } from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate';
 import MobilePreview from './preview/MobilePreview';
@@ -82,6 +83,7 @@ export function ProductWorkspaceScreen({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
+  const cancelDetailGeneration = useKidsPlayfulGenerationCancel();
   const queryTab = parseProductWorkspaceTab(searchParams.get('tab'));
 
   const [activeTab, setActiveTab] = useState<EditTabType>(queryTab);
@@ -131,6 +133,10 @@ export function ProductWorkspaceScreen({
       ?.promoted_master_id ??
     (product as { promotedMasterId?: string | null } | null)?.promotedMasterId ??
     null;
+  const detailGenerationProductId = promotedMasterId ?? productId;
+  const detailGenerationContentWorkspaceId = contentWorkspaceId ?? null;
+  const detailGenerationSourceCandidateId =
+    detailGenerationContentWorkspaceId || promotedMasterId ? null : productId;
   const productPreparation = product?.productPreparation ?? null;
   const effectiveContentWorkspaceId =
     contentWorkspaceId ?? productPreparation?.contentWorkspaceId ?? null;
@@ -148,19 +154,25 @@ export function ProductWorkspaceScreen({
     staleTime: 300_000,
   });
   const templateCss = fetchedData?.templateCss || fallbackTemplateCss;
-  const inProgressEntries = useAllGenerationsInProgress(productId, {
+  const inProgressEntries = useAllGenerationsInProgress(detailGenerationProductId, {
     enabled: generationHistoryQueryEnabled,
+    sourceCandidateId: detailGenerationSourceCandidateId,
+    contentWorkspaceId: detailGenerationContentWorkspaceId,
   });
   const { data: agentHistory = [] } = useGenerationHistory(
     productId,
     initialAgentHistory,
     { enabled: generationHistoryQueryEnabled },
   );
-  const { data: kidsPlayfulEntries = [] } = useKidsPlayfulGenerationList(productId, {
+  const { data: kidsPlayfulEntries = [] } = useKidsPlayfulGenerationList(detailGenerationProductId, {
     enabled: generationHistoryQueryEnabled,
+    sourceCandidateId: detailGenerationSourceCandidateId,
+    contentWorkspaceId: detailGenerationContentWorkspaceId,
   });
-  const { data: boldEntries = [] } = useBoldVerticalGenerationList(productId, {
+  const { data: boldEntries = [] } = useBoldVerticalGenerationList(detailGenerationProductId, {
     enabled: generationHistoryQueryEnabled,
+    sourceCandidateId: detailGenerationSourceCandidateId,
+    contentWorkspaceId: detailGenerationContentWorkspaceId,
   });
   const { data: selectedDetailEditedHtml } = useQuery({
     queryKey: effectiveSavedDetailPageGenerationId
@@ -399,6 +411,7 @@ export function ProductWorkspaceScreen({
         selectedThumbnailUrl={selectedRegistrationThumbnailUrl}
         selectedThumbnailGenerationCandidateId={selectedThumbnailGenerationCandidateId}
         selectedDetailPageGenerationId={effectiveSavedDetailPageGenerationId}
+        detailGenerationContentWorkspaceId={detailGenerationContentWorkspaceId}
         showCandidateActions={showCandidateActions}
         onOpenDetailTemplateGeneration={onOpenDetailTemplateGeneration}
         onToggleEditComplete={() => setIsEditComplete((v) => !v)}
@@ -419,6 +432,9 @@ export function ProductWorkspaceScreen({
             rawInput: e.rawInput,
             // detail 페이지는 product 단일이라 productName 생략 — 헤더에 이미 표시
           }))}
+          onCancel={async (entry) => {
+            await cancelDetailGeneration.mutateAsync(entry.id);
+          }}
         />
       )}
 
@@ -447,6 +463,9 @@ export function ProductWorkspaceScreen({
               selectedBoldVerticalId={selectedBoldVerticalId}
               selectedAgentId={selectedAgentId}
               contentWorkspaceId={effectiveContentWorkspaceId}
+              generationQueryProductId={detailGenerationProductId}
+              generationQuerySourceCandidateId={detailGenerationSourceCandidateId}
+              generationQueryContentWorkspaceId={detailGenerationContentWorkspaceId}
               hasSavedDetailPage={hasSavedDetailPage}
               savedDetailPageGenerationId={effectiveSavedDetailPageGenerationId}
               initialAgentHistory={initialAgentHistory}

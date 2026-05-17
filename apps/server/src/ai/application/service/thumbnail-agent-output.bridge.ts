@@ -44,6 +44,7 @@ export class ThumbnailAgentOutputBridge {
   @OnEvent(AGENT_RUN_EVENTS.FINALIZED)
   async onAgentRunFinalized(event: AgentRunFinalizedEvent): Promise<void> {
     if (event.agentType !== ThumbnailAgentOutputBridge.AGENT_TYPE) return;
+    if (event.requestStatus === 'cancelled') return;
     try {
       if (event.status === 'failed') {
         await this.sink.applyFailure({

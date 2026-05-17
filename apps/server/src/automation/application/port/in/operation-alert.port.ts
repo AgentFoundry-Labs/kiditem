@@ -102,6 +102,18 @@ export interface OperationAlertPort {
   ): Promise<AlertRecord | null>;
 
   /**
+   * Close the latest operation linked to a source tuple when the producer knows
+   * the upstream source identity but not the operation key.
+   */
+  closeBySource(
+    organizationId: string,
+    sourceType: string,
+    sourceId: string,
+    status: 'succeeded' | 'failed' | 'cancelled',
+    patch?: OperationLifecyclePatch,
+  ): Promise<AlertRecord | null>;
+
+  /**
    * Best-effort recovery for operations whose producer was process-local
    * and disappeared during deploy/restart. Filtered by producer identity.
    */

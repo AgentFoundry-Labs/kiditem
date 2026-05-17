@@ -16,6 +16,7 @@ import {
   type FindRunEventsQuery,
   type FindRunsQuery,
   type MarkRequestStatusInput,
+  type MarkRequestStatusIfCurrentInput,
   type RecordCostEventInput,
   type ResolveApprovalRequestInput,
   type UpdateAgentInstanceInput,
@@ -132,6 +133,10 @@ export class AgentOsRepositoryAdapter implements AgentOsRepositoryPort {
 
   markRequestStatus(input: MarkRequestStatusInput) {
     return this.requests.markRequestStatus(input);
+  }
+
+  markRequestStatusIfCurrent(input: MarkRequestStatusIfCurrentInput) {
+    return this.requests.markRequestStatusIfCurrent(input);
   }
 
   // ---- Runs / events ------------------------------------------------------

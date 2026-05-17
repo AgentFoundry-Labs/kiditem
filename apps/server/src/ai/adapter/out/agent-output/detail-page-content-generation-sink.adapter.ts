@@ -1,8 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { OperationAlertService } from '../../../../automation/application/service/operation-alert.service';
 import type { DetailPageAgentOutputSinkPort } from '../../../application/port/out/detail-page-agent-output-sink.port';
+import {
+  AI_OPERATION_ALERT_PORT,
+  type OperationAlertPort,
+} from '../../../application/port/out/operation-alert.port';
 import type { DetailPageGenerateAgentOutput } from '../../../domain/agent-output';
 import { DetailPageGeneratedImagesService } from '../../../application/service/detail-page-generated-images.service';
 import {
@@ -61,7 +64,8 @@ export class DetailPageContentGenerationSinkAdapter
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly operationAlerts: OperationAlertService,
+    @Inject(AI_OPERATION_ALERT_PORT)
+    private readonly operationAlerts: OperationAlertPort,
     private readonly _generatedImages: DetailPageGeneratedImagesService,
     private readonly contentAssets: ContentAssetService,
     private readonly productGenerationAlerts: ProductGenerationAlertService,
@@ -99,6 +103,20 @@ export class DetailPageContentGenerationSinkAdapter
       // Idempotent: the bridge re-fired or the reconcile job already applied.
       this.logger.debug(
         `detail_page_generate success: ContentGeneration ${row.id} already terminal (${row.status}); no-op.`,
+      );
+      return;
+    }
+
+    const parentLink = readProductGenerationAlertLink(row.generationInput);
+    if (
+      parentLink &&
+      await this.isParentOperationCancelled({
+        organizationId: input.organizationId,
+        parentOperationKey: parentLink.parentOperationKey,
+      })
+    ) {
+      this.logger.debug(
+        `detail_page_generate ${row.id}: parent operation ${parentLink.parentOperationKey} cancelled; no-op.`,
       );
       return;
     }
@@ -159,7 +177,6 @@ export class DetailPageContentGenerationSinkAdapter
       return;
     }
 
-    const parentLink = readProductGenerationAlertLink(row.generationInput);
     if (parentLink) {
       await this.productGenerationAlerts.markChildFinished({
         organizationId: input.organizationId,
@@ -267,6 +284,20 @@ export class DetailPageContentGenerationSinkAdapter
       return;
     }
 
+    const parentLink = readProductGenerationAlertLink(row.generationInput);
+    if (
+      parentLink &&
+      await this.isParentOperationCancelled({
+        organizationId: input.organizationId,
+        parentOperationKey: parentLink.parentOperationKey,
+      })
+    ) {
+      this.logger.debug(
+        `detail_page_generate ${row.id}: parent operation ${parentLink.parentOperationKey} cancelled; no-op.`,
+      );
+      return;
+    }
+
     const updated = await this.prisma.contentGeneration.updateMany({
       where: {
         id: row.id,
@@ -285,7 +316,6 @@ export class DetailPageContentGenerationSinkAdapter
       return;
     }
 
-    const parentLink = readProductGenerationAlertLink(row.generationInput);
     if (parentLink) {
       await this.productGenerationAlerts.markChildFinished({
         organizationId: input.organizationId,
@@ -313,6 +343,20 @@ export class DetailPageContentGenerationSinkAdapter
     this.logger.log(
       `detail_page_generate applied failure → ContentGeneration ${row.id} FAILED (code=${input.errorCode} request=${input.requestId}).`,
     );
+  }
+
+  private async isParentOperationCancelled(input: {
+    organizationId: string;
+    parentOperationKey: string;
+  }): Promise<boolean> {
+    if (typeof this.operationAlerts.findByOperationKey !== 'function') {
+      return false;
+    }
+    const alert = await this.operationAlerts.findByOperationKey(
+      input.organizationId,
+      input.parentOperationKey,
+    );
+    return alert?.status === 'cancelled';
   }
 
 }

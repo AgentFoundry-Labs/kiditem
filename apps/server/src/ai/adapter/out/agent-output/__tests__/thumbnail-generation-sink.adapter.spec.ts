@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ThumbnailGenerationSinkAdapter } from '../thumbnail-generation-sink.adapter';
 import * as persistence from '../../prisma/thumbnail-generation.persistence';
-import type { OperationAlertService } from '../../../../../automation/application/service/operation-alert.service';
+import type { OperationAlertPort } from '../../../../application/port/out/operation-alert.port';
 import type { ThumbnailGenerationEventPort } from '../../../../application/port/out/thumbnail-generation-event.port';
 import type { ProductGenerationAlertService } from '../../../../application/service/product-generation-alert.service';
 
@@ -18,11 +18,11 @@ function makePrismaStub() {
   } as unknown as Parameters<typeof persistence.lockGenerationForProcessing>[0];
 }
 
-function makeAlerts(): OperationAlertService {
+function makeAlerts(): OperationAlertPort {
   return {
     succeed: vi.fn().mockResolvedValue(null),
     fail: vi.fn().mockResolvedValue(null),
-  } as unknown as OperationAlertService;
+  } as unknown as OperationAlertPort;
 }
 
 function makeEvents(): ThumbnailGenerationEventPort {
@@ -48,7 +48,7 @@ const VALID_OUTPUT = {
 };
 
 describe('ThumbnailGenerationSinkAdapter', () => {
-  let alerts: OperationAlertService;
+  let alerts: OperationAlertPort;
   let events: ThumbnailGenerationEventPort;
   let lockSpy: ReturnType<typeof vi.spyOn>;
   let applySuccessSpy: ReturnType<typeof vi.spyOn>;
@@ -224,6 +224,45 @@ describe('ThumbnailGenerationSinkAdapter', () => {
         `thumbnail-edit:${GEN_ID}`,
         expect.anything(),
       );
+    });
+
+    it('does not apply thumbnail success when parent product operation is cancelled', async () => {
+      const prisma = {
+        thumbnailGeneration: {
+          findFirst: vi.fn().mockResolvedValue({
+            inputMeta: {
+              productGeneration: {
+                mode: 'parent',
+                productGenerationBatchId: 'batch-1',
+                parentOperationKey: 'product-generation:batch-1',
+                childKind: 'thumbnail',
+              },
+            },
+          }),
+        },
+      } as unknown as Parameters<typeof persistence.lockGenerationForProcessing>[0];
+      const operationAlerts = {
+        ...makeAlerts(),
+        findByOperationKey: vi.fn().mockResolvedValue({ status: 'cancelled' }),
+      } as unknown as OperationAlertPort;
+      const sink = new ThumbnailGenerationSinkAdapter(
+        prisma as never,
+        operationAlerts,
+        events,
+        productGenerationAlerts,
+      );
+
+      await sink.applySuccess({
+        organizationId: ORG,
+        requestId: REQUEST,
+        runId: RUN,
+        sourceResourceId: GEN_ID,
+        output: VALID_OUTPUT,
+      });
+
+      expect(lockSpy).not.toHaveBeenCalled();
+      expect(applySuccessSpy).not.toHaveBeenCalled();
+      expect(productGenerationAlerts.markChildFinished).not.toHaveBeenCalled();
     });
 
     it('no-ops when lock returns null (already terminal)', async () => {

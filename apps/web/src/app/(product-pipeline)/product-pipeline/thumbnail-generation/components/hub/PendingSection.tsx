@@ -2,10 +2,14 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronLeft, ChevronRight, Loader2, PlayCircle, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Loader2, PlayCircle, Square, X } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { useDeleteGeneration, useGenerationList } from '../../../_shared/hooks/useThumbnailGenerations';
+import {
+  useCancelGeneration,
+  useDeleteGeneration,
+  useGenerationList,
+} from '../../../_shared/hooks/useThumbnailGenerations';
 import { thumbnailGenerationEditHref } from '../../../_shared/lib/product-pipeline-routes';
 import { resolveImageUrl } from '@/lib/resolve-url';
 import { cn } from '@/lib/utils';
@@ -61,14 +65,21 @@ function isInProgress(g: ThumbnailGenerationItem): boolean {
   return false;
 }
 
+function isActiveGeneration(g: ThumbnailGenerationItem): boolean {
+  return g.status === 'pending' || g.status === 'running';
+}
+
 const PAGE_SIZE = 12;
 
 export function PendingSection({ returnTo = null }: { returnTo?: string | null }) {
   const router = useRouter();
   const { data = [], isLoading } = useGenerationList();
   const deleteMutation = useDeleteGeneration();
+  const cancelMutation = useCancelGeneration();
   const [page, setPage] = useState(1);
   const [deleteTarget, setDeleteTarget] = useState<ProductGroup | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<ProductGroup | null>(null);
+  const [cancellingProductId, setCancellingProductId] = useState<string | null>(null);
 
   const inProgress = useMemo(() => data.filter(isInProgress), [data]);
   const groups = useMemo(() => groupByProduct(inProgress), [inProgress]);
@@ -94,6 +105,29 @@ export function PendingSection({ returnTo = null }: { returnTo?: string | null }
       else if (ok === 0) toast.error('삭제 실패');
       else toast.warning(`${ok}개 삭제, ${fail}개 실패`);
     });
+  };
+
+  const confirmCancelGroup = async () => {
+    if (!cancelTarget || cancellingProductId) return;
+    const target = cancelTarget;
+    const items = target.items.filter(isActiveGeneration);
+    setCancellingProductId(target.productId);
+    try {
+      const results = await Promise.allSettled(items.map((item) => cancelMutation.mutateAsync(item.id)));
+      const ok = results.filter((r) => r.status === 'fulfilled').length;
+      const fail = results.length - ok;
+      if (fail === 0) {
+        toast.success('생성 중단 요청을 보냈습니다');
+        setCancelTarget(null);
+      } else if (ok === 0) {
+        toast.error('생성 중단 실패');
+      } else {
+        toast.warning(`${ok}개 중단 요청, ${fail}개 실패`);
+        setCancelTarget(null);
+      }
+    } finally {
+      setCancellingProductId(null);
+    }
   };
 
   const totalPages = Math.max(1, Math.ceil(groups.length / PAGE_SIZE));
@@ -133,7 +167,12 @@ export function PendingSection({ returnTo = null }: { returnTo?: string | null }
           <PendingCard
             key={group.productId}
             group={group}
-                    onClick={() => navigate(router, group.productId, group.representative.id, returnTo)}
+            onClick={() => navigate(router, group.productId, group.representative.id, returnTo)}
+            onCancel={() => setCancelTarget(group)}
+            onConfirmCancel={confirmCancelGroup}
+            onDismissCancel={() => setCancelTarget(null)}
+            isConfirmingCancel={cancelTarget?.productId === group.productId}
+            isCancelling={cancellingProductId === group.productId}
             onDelete={() => setDeleteTarget(group)}
           />
         ))}
@@ -205,14 +244,26 @@ function SectionPager({
 function PendingCard({
   group,
   onClick,
+  onCancel,
+  onConfirmCancel,
+  onDismissCancel,
+  isConfirmingCancel,
+  isCancelling,
   onDelete,
 }: {
   group: ProductGroup;
   onClick: () => void;
+  onCancel: () => void;
+  onConfirmCancel: () => void;
+  onDismissCancel: () => void;
+  isConfirmingCancel: boolean;
+  isCancelling: boolean;
   onDelete: () => void;
 }) {
   const item = group.representative;
   const running = item.status === 'running' || item.status === 'pending';
+  const activeCount = group.items.filter(isActiveGeneration).length;
+  const canCancel = activeCount > 0;
   const productName = item.product?.name ?? '상품 정보 없음';
   const preview = item.candidates?.[0]?.url ?? item.originalUrl ?? item.product?.imageUrl;
   const resolved = resolveImageUrl(preview);
@@ -224,18 +275,76 @@ function PendingCard({
       onClick={onClick}
       className="flex flex-col group relative cursor-pointer hover:opacity-95 transition-opacity"
     >
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onDelete();
-        }}
-        aria-label="삭제"
-        title={group.items.length > 1 ? `진행 중 ${group.items.length}개 모두 삭제` : '삭제'}
-        className="absolute top-1 right-1 z-20 w-6 h-6 rounded-full bg-black/60 hover:bg-red-600 text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center shadow-md"
-      >
-        <X size={13} />
-      </button>
+      {isConfirmingCancel ? (
+        <div
+          className="absolute left-1 right-1 top-1 z-30 rounded-xl border border-rose-200 bg-white/95 px-2 py-1.5 shadow-lg"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="space-y-1">
+            <div className="text-[11px] font-bold leading-tight text-rose-700">
+              중단할까요?
+            </div>
+            <div className="flex items-center justify-end gap-1">
+              <button
+                type="button"
+                aria-label="계속 실행"
+                onClick={onDismissCancel}
+                disabled={isCancelling}
+                className="rounded-md px-1.5 py-1 text-[11px] font-bold text-slate-600 transition hover:bg-slate-100 disabled:opacity-60"
+              >
+                계속
+              </button>
+              <button
+                type="button"
+                onClick={onConfirmCancel}
+                disabled={isCancelling}
+                className="inline-flex items-center gap-1 rounded-md bg-rose-600 px-1.5 py-1 text-[11px] font-bold text-white transition hover:bg-rose-700 disabled:cursor-wait disabled:opacity-60"
+              >
+                {isCancelling && <Loader2 size={11} className="animate-spin" />}
+                중단
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div
+          className={cn(
+            'absolute top-1 right-1 z-20 flex gap-1 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100',
+            canCancel ? 'opacity-100' : 'opacity-0',
+          )}
+        >
+          {canCancel && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onCancel();
+              }}
+              aria-label="썸네일 생성 중단"
+              title={activeCount > 1 ? `진행 중 ${activeCount}개 중단` : '썸네일 생성 중단'}
+              className="flex h-6 items-center justify-center gap-1 rounded-full border border-rose-200 bg-white/95 px-2 text-[11px] font-bold text-rose-600 shadow-md transition-colors hover:bg-rose-50"
+            >
+              <Square size={12} />
+              중단
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+            aria-label="삭제"
+            title={group.items.length > 1 ? `진행 중 ${group.items.length}개 모두 삭제` : '삭제'}
+            className={cn(
+              'flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white shadow-md transition-colors hover:bg-red-600',
+              canCancel && 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
+            )}
+          >
+            <X size={13} />
+          </button>
+        </div>
+      )}
       <div className="aspect-square bg-white relative overflow-hidden">
         {resolved && (
           <ImgWithSkeleton

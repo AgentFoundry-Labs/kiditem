@@ -3,6 +3,13 @@ import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { MasterCodeService } from '../../adapter/out/prisma/master-code.service';
+import type {
+  ProductMasterPromotionImageInput,
+  ProductMasterPromotionInput,
+  ProductMasterPromotionOptionInput,
+  ProductMasterPromotionPort,
+  ProductMasterPromotionResult,
+} from '../port/in/master-promotion.port';
 import { OptionsService } from './options.service';
 
 /**
@@ -10,28 +17,9 @@ import { OptionsService } from './options.service';
  * to accept the existing `SourcingMasterImageRole` set without re-modeling the
  * enum at this layer.
  */
-export interface MasterPromotionImageInput {
-  url: string;
-  storageKey: string | null;
-  sortOrder: number;
-  isPrimary: boolean;
-  source: string;
-  role: string;
-  label: string | null;
-  mimeType?: string | null;
-  width?: number | null;
-  height?: number | null;
-  fileSize?: number | null;
-}
+export type MasterPromotionImageInput = ProductMasterPromotionImageInput;
 
-export interface MasterPromotionOptionInput {
-  optionName: string;
-  legacyCode?: string;
-  barcode?: string;
-  sellPrice?: number;
-  costPrice?: number;
-  sortOrder?: number;
-}
+export type MasterPromotionOptionInput = ProductMasterPromotionOptionInput;
 
 /**
  * Composite input for products-domain `MasterPromotionService.create`.
@@ -41,24 +29,9 @@ export interface MasterPromotionOptionInput {
  * Sourcing's outgoing port adapter is responsible for materializing this
  * snapshot from a candidate row.
  */
-export interface MasterPromotionInput {
-  candidateSnapshot: {
-    name: string;
-    description: string;
-    category: string | null;
-    brand: string | null;
-    tags: string[];
-    thumbnailUrl: string | null;
-    imageUrl: string | null;
-    sourceImages: MasterPromotionImageInput[];
-  };
-  options: MasterPromotionOptionInput[];
-}
+export type MasterPromotionInput = ProductMasterPromotionInput;
 
-export interface MasterPromotionResult {
-  masterId: string;
-  masterCode: string;
-}
+export type MasterPromotionResult = ProductMasterPromotionResult;
 
 /**
  * Products-domain composite that turns a sourcing-candidate snapshot into a
@@ -89,7 +62,7 @@ export interface MasterPromotionResult {
  * call from the products domain (sourcing/AGENTS.md "Boundary Rules").
  */
 @Injectable()
-export class MasterPromotionService {
+export class MasterPromotionService implements ProductMasterPromotionPort {
   constructor(
     private readonly prisma: PrismaService,
     private readonly codeSvc: MasterCodeService,

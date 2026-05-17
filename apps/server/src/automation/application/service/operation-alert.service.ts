@@ -101,7 +101,7 @@ export class OperationAlertService implements OperationAlertPort {
       status: 'running',
       finishedAt: null,
     });
-    if (result) this.emitUpsert(result);
+    if (result?.status === 'running') this.emitUpsert(result);
     return result;
   }
 
@@ -116,7 +116,7 @@ export class OperationAlertService implements OperationAlertPort {
       finishedAt: new Date(),
       progressDefault: 1,
     });
-    if (result) this.emitUpsert(result);
+    if (result?.status === 'succeeded') this.emitUpsert(result);
     return result;
   }
 
@@ -131,7 +131,7 @@ export class OperationAlertService implements OperationAlertPort {
       finishedAt: new Date(),
       severityDefault: 'error',
     });
-    if (result) this.emitUpsert(result);
+    if (result?.status === 'failed') this.emitUpsert(result);
     return result;
   }
 
@@ -145,7 +145,7 @@ export class OperationAlertService implements OperationAlertPort {
       status: 'cancelled',
       finishedAt: new Date(),
     });
-    if (result) this.emitUpsert(result);
+    if (result?.status === 'cancelled') this.emitUpsert(result);
     return result;
   }
 

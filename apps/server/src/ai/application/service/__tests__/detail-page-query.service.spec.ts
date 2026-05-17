@@ -45,6 +45,61 @@ function makeService(
   };
 }
 
+describe('DetailPageQueryService list', () => {
+  it('filters generated detail pages by content workspace before product scope', async () => {
+    const prisma = {
+      contentGeneration: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+    };
+    const { service } = makeService(prisma);
+
+    await service.list(ORG, {
+      productId: 'master-1',
+      contentWorkspaceId: WORKSPACE_ID,
+      templateId: 'kids-playful',
+    });
+
+    expect(prisma.contentGeneration.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          contentWorkspaceId: WORKSPACE_ID,
+        }),
+      }),
+    );
+    expect(prisma.contentGeneration.findMany).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          generationGroup: { targetMasterId: 'master-1' },
+        }),
+      }),
+    );
+  });
+
+  it('filters generated detail pages by source candidate for unpromoted sourcing pages', async () => {
+    const prisma = {
+      contentGeneration: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+    };
+    const { service } = makeService(prisma);
+
+    await service.list(ORG, {
+      productId: 'candidate-1',
+      sourceCandidateId: CANDIDATE_ID,
+      templateId: 'kids-playful',
+    });
+
+    expect(prisma.contentGeneration.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          sourceCandidateId: CANDIDATE_ID,
+        }),
+      }),
+    );
+  });
+});
+
 describe('DetailPageQueryService edited HTML', () => {
   it('saves edited HTML as the current detail page artifact revision using organization scope', async () => {
     vi.useFakeTimers();

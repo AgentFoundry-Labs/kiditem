@@ -22,6 +22,8 @@ finance/
   supplier-payments/
   sales-plans/
   settlements/
+  adapter/out/automation/ operation-alert consumer adapter
+  application/port/out/   finance-local operation-alert port
   finance.module.ts
 ```
 
@@ -78,6 +80,8 @@ Rules:
   contract.
 - `$queryRaw` string concatenation.
 - Cross-organization reads/writes.
+- Direct injection of automation's `OperationAlertService`; finance operation
+  alerts go through `FINANCE_OPERATION_ALERT_PORT`.
 
 ## Change Map
 

@@ -37,6 +37,8 @@
  * Failure events have no `output`, so envelope-only filtering would silently
  * drop real failures of agents the bridge owns.
  */
+import type { AgentRunRequestRecord } from '../../domain/agent-os.types';
+
 export const AGENT_RUN_EVENTS = {
   FINALIZED: 'agent.run.finalized',
 } as const;
@@ -55,6 +57,7 @@ export interface AgentRunFinalizedEvent {
    * synthesize a fallback failure alert when the producer never opened one.
    */
   requestedByUserId: string | null;
+  requestStatus: AgentRunRequestRecord['status'];
   /**
    * Terminal request status. Retryable failures (request returned to `pending`)
    * do NOT emit FINALIZED, so listeners can close their alerts unconditionally.

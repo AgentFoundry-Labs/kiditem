@@ -10,11 +10,14 @@ import {
 } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { OperationAlertService } from '../../../automation/application/service/operation-alert.service';
 import {
   AGENT_RUNNER_PORT,
   type AgentRunnerPort,
 } from '../../../agent-os/application/port/in/agent-runner.port';
+import {
+  AI_OPERATION_ALERT_PORT,
+  type OperationAlertPort,
+} from '../port/out/operation-alert.port';
 import {
   AI_AGENT_SOURCE_TYPES,
   DETAIL_PAGE_GENERATE_AGENT_TYPE,
@@ -61,8 +64,13 @@ import {
   STANDALONE_GENERATION_ALERT,
   isParentProductGenerationAlertLink,
   productGenerationMetadata,
+  readProductGenerationAlertLink,
 } from './product-generation-alert-link';
 import { ProductGenerationAlertService } from './product-generation-alert.service';
+import {
+  asPlainRecord,
+  operationCancellationAudit,
+} from '../../../common/operation-cancellation-audit';
 
 const DETAIL_PAGE_PROCESSING_STATUSES = [
   'PENDING',
@@ -80,6 +88,8 @@ const DETAIL_PAGE_TERMINAL_STATUSES = new Set([
   'cancelled',
 ]);
 const DETAIL_PAGE_CANCELLED_MESSAGE = '사용자 요청으로 생성이 중단되었습니다.';
+const DETAIL_PAGE_PARENT_CANCELLED_AFTER_ENQUEUE_MESSAGE =
+  'Parent product generation was cancelled before detail request execution.';
 const DETAIL_PAGE_IMAGE_REQUIRED_MESSAGE = '상세페이지 생성에는 상품 이미지가 최소 1장 필요합니다.';
 
 @Injectable()
@@ -90,7 +100,8 @@ export class DetailPageGenerationService {
     private readonly prisma: PrismaService,
     @Inject(IMAGE_STORAGE_PORT)
     private readonly imageStorage: ImageStoragePort,
-    private readonly operationAlerts: OperationAlertService,
+    @Inject(AI_OPERATION_ALERT_PORT)
+    private readonly operationAlerts: OperationAlertPort,
     private readonly query: DetailPageQueryService,
     @Inject(AGENT_RUNNER_PORT)
     private readonly agentRunner: AgentRunnerPort,
@@ -223,6 +234,7 @@ export class DetailPageGenerationService {
       sourceCandidateId: primarySourceCandidateId,
       existingResult: imageOnlyBase?.result,
       contentWorkspaceId: contentWorkspace.id,
+      preferContentWorkspaceAlert: Boolean(dto.contentWorkspaceId),
       operationAlert,
     });
   }
@@ -270,6 +282,7 @@ export class DetailPageGenerationService {
     existingResult?: unknown;
     generationGroupId?: string | null;
     contentWorkspaceId: string;
+    preferContentWorkspaceAlert?: boolean;
     operationAlert: GenerationAlertLink;
   }): Promise<DetailPageGenerationDto> {
     const targetMaster = input.productId
@@ -339,13 +352,27 @@ export class DetailPageGenerationService {
     });
 
     if (isParentProductGenerationAlertLink(input.operationAlert)) {
-      await this.productGenerationAlerts.recordChildStarted({
+      const childStart = await this.productGenerationAlerts.recordChildStarted({
         organizationId: input.organizationId,
         parentOperationKey: input.operationAlert.parentOperationKey,
         childKind: 'detail_page',
         childId: row.id,
       });
+      if (childStart.status !== 'started') {
+        await this.prisma.contentGeneration.updateMany({
+          where: { id: row.id, organizationId: input.organizationId },
+          data: {
+            status: childStart.alert?.status === 'cancelled' ? 'CANCELLED' : 'FAILED',
+            errorMessage:
+              childStart.alert?.status === 'cancelled'
+                ? 'Parent product generation was cancelled before detail child enqueue.'
+                : 'Parent product generation is not accepting detail child jobs.',
+          },
+        });
+        return this.query.getById(row.id, input.organizationId);
+      }
     } else {
+      const alertTargetsContentWorkspace = input.preferContentWorkspaceAlert || !primarySourceCandidateId;
       await this.operationAlerts.start({
         organizationId: input.organizationId,
         operationKey: detailPageOperationKey(row.id),
@@ -354,20 +381,21 @@ export class DetailPageGenerationService {
         sourceType: 'content_generation',
         sourceId: row.id,
         actorUserId: input.triggeredByUserId,
-        targetType: primarySourceCandidateId ? 'sourcing_candidate' : 'content_workspace',
-        targetId: primarySourceCandidateId ?? input.contentWorkspaceId,
-        href: primarySourceCandidateId
-          ? detailPageResultHref({
-              productId: input.productId,
-              sourceCandidateId: primarySourceCandidateId,
-              contentGenerationId: row.id,
-              templateId: input.templateId,
-            })
-          : registeredWorkspaceEditorHref(input.contentWorkspaceId, row.id),
+        targetType: alertTargetsContentWorkspace ? 'content_workspace' : 'sourcing_candidate',
+        targetId: alertTargetsContentWorkspace ? input.contentWorkspaceId : primarySourceCandidateId,
+        href: alertTargetsContentWorkspace
+          ? registeredWorkspaceEditorHref(input.contentWorkspaceId, row.id)
+          : detailPageResultHref({
+            productId: input.productId,
+            sourceCandidateId: primarySourceCandidateId,
+            contentGenerationId: row.id,
+            templateId: input.templateId,
+          }),
         metadata: {
           templateId: input.templateId,
           imageCount: input.imageUrls.length,
           sourceCandidateId: primarySourceCandidateId,
+          contentWorkspaceId: input.contentWorkspaceId,
         },
       });
     }
@@ -441,12 +469,63 @@ export class DetailPageGenerationService {
       throw new HttpException(errorMessage, HttpStatus.SERVICE_UNAVAILABLE);
     }
 
+    if (
+      isParentProductGenerationAlertLink(input.operationAlert) &&
+      enqueueResult.requestId &&
+      await this.shouldCancelParentDetailRequestAfterEnqueue({
+        organizationId: input.organizationId,
+        parentOperationKey: input.operationAlert.parentOperationKey,
+        generationId: row.id,
+      })
+    ) {
+      await this.agentRunner.cancelRequest?.({
+        organizationId: input.organizationId,
+        requestId: enqueueResult.requestId,
+        reason: DETAIL_PAGE_PARENT_CANCELLED_AFTER_ENQUEUE_MESSAGE,
+        actorUserId: input.triggeredByUserId,
+      });
+      await this.prisma.contentGeneration.updateMany({
+        where: {
+          id: row.id,
+          organizationId: input.organizationId,
+          status: { in: DETAIL_PAGE_PROCESSING_STATUSES },
+        },
+        data: {
+          status: 'CANCELLED',
+          errorMessage: DETAIL_PAGE_PARENT_CANCELLED_AFTER_ENQUEUE_MESSAGE,
+        },
+      });
+      return this.query.getById(row.id, input.organizationId);
+    }
+
     this.kickEnqueuedAgentRequest({
       organizationId: input.organizationId,
       requestId: enqueueResult.requestId,
     });
 
     return this.query.getById(row.id, input.organizationId);
+  }
+
+  private async shouldCancelParentDetailRequestAfterEnqueue(input: {
+    organizationId: string;
+    parentOperationKey: string;
+    generationId: string;
+  }): Promise<boolean> {
+    const [parentAcceptsChildren, child] = await Promise.all([
+      this.productGenerationAlerts.canStartChild({
+        organizationId: input.organizationId,
+        parentOperationKey: input.parentOperationKey,
+      }),
+      this.prisma.contentGeneration.findFirst({
+        where: { id: input.generationId, organizationId: input.organizationId },
+        select: { status: true },
+      }),
+    ]);
+    return (
+      !parentAcceptsChildren ||
+      !child ||
+      !DETAIL_PAGE_PROCESSING_STATUSES.includes(child.status)
+    );
   }
 
   async rerunSameInput(
@@ -816,43 +895,121 @@ export class DetailPageGenerationService {
   }
 
   async cancel(id: string, organizationId: string): Promise<DetailPageGenerationDto> {
-    const row = await this.prisma.contentGeneration.findFirst({
-      where: { id, organizationId },
+    const result = await this.cancelForOperation({
+      organizationId,
+      generationId: id,
+      actorUserId: null,
+      reason: DETAIL_PAGE_CANCELLED_MESSAGE,
     });
-    if (!row) throw new NotFoundException('Detail page generation not found');
+    if (result.status === 'not_found') {
+      throw new NotFoundException('Detail page generation not found');
+    }
+    return this.query.getById(id, organizationId);
+  }
+
+  async cancelForOperation(input: {
+    organizationId: string;
+    generationId: string;
+    actorUserId: string | null;
+    reason: string;
+    notifyProductGenerationParent?: boolean;
+  }): Promise<{
+    status: 'cancelled' | 'already_terminal' | 'not_found';
+    generationId: string;
+    operationKey: string | null;
+    preserved: boolean;
+  }> {
+    const row = await this.prisma.contentGeneration.findFirst({
+      where: { id: input.generationId, organizationId: input.organizationId },
+      select: { id: true, status: true, generationInput: true, generationResult: true },
+    });
+    if (!row) {
+      return {
+        status: 'not_found',
+        generationId: input.generationId,
+        operationKey: null,
+        preserved: false,
+      };
+    }
 
     if (DETAIL_PAGE_TERMINAL_STATUSES.has(row.status)) {
-      return this.query.getById(id, organizationId);
+      return {
+        status: 'already_terminal',
+        generationId: row.id,
+        operationKey: detailPageOperationKey(row.id),
+        preserved: row.status === 'READY' || row.status === 'completed',
+      };
     }
 
     const updated = await this.prisma.contentGeneration.updateMany({
       where: {
-        id,
-        organizationId,
+        id: row.id,
+        organizationId: input.organizationId,
         status: { in: DETAIL_PAGE_PROCESSING_STATUSES },
       },
       data: {
         status: 'CANCELLED',
-        errorMessage: DETAIL_PAGE_CANCELLED_MESSAGE,
+        errorMessage: input.reason,
+        generationResult: {
+          ...asPlainRecord(row.generationResult),
+          operationCancellation: operationCancellationAudit({
+            requestedByUserId: input.actorUserId,
+            reason: input.reason,
+            target: { targetType: 'content_generation', generationId: row.id },
+            affected: { contentGenerationIds: [row.id] },
+            result: 'cancelled',
+          }),
+        },
       },
     });
 
-    if (updated.count > 0) {
-      await this.agentRunner.cancelBySource?.({
-        organizationId,
-        sourceType: AI_AGENT_SOURCE_TYPES.DETAIL_PAGE_GENERATE,
-        sourceResourceType: 'content_generation',
-        sourceResourceId: id,
-        reason: DETAIL_PAGE_CANCELLED_MESSAGE,
-      });
+    if (updated.count === 0) {
+      return {
+        status: 'already_terminal',
+        generationId: row.id,
+        operationKey: detailPageOperationKey(row.id),
+        preserved: false,
+      };
+    }
 
-      await this.operationAlerts.cancel(organizationId, detailPageOperationKey(id), {
-        message: DETAIL_PAGE_CANCELLED_MESSAGE,
-        metadata: { errorCode: 'user_cancelled' },
+    await this.agentRunner.cancelBySource?.({
+      organizationId: input.organizationId,
+      sourceType: AI_AGENT_SOURCE_TYPES.DETAIL_PAGE_GENERATE,
+      sourceResourceType: 'content_generation',
+      sourceResourceId: row.id,
+      reason: input.reason,
+      actorUserId: input.actorUserId,
+    });
+
+    await this.operationAlerts.cancel(input.organizationId, detailPageOperationKey(row.id), {
+      message: input.reason,
+      metadata: {
+        errorCode: 'user_cancelled',
+        cancel: {
+          requestedByUserId: input.actorUserId,
+          requestedAt: new Date().toISOString(),
+          reason: input.reason,
+        },
+      },
+    });
+    const parentLink = readProductGenerationAlertLink(row.generationInput);
+    if (parentLink && input.notifyProductGenerationParent !== false) {
+      await this.productGenerationAlerts.markChildFinished({
+        organizationId: input.organizationId,
+        parentOperationKey: parentLink.parentOperationKey,
+        childKind: parentLink.childKind,
+        status: 'failed',
+        childId: row.id,
+        errorMessage: input.reason,
       });
     }
 
-    return this.query.getById(id, organizationId);
+    return {
+      status: 'cancelled',
+      generationId: row.id,
+      operationKey: detailPageOperationKey(row.id),
+      preserved: false,
+    };
   }
 
   private normalizeTemplateId(value: string | null): DetailPageTemplateId {

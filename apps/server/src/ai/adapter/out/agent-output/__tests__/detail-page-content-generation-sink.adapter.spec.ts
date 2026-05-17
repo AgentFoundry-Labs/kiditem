@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DetailPageContentGenerationSinkAdapter } from '../detail-page-content-generation-sink.adapter';
-import type { OperationAlertService } from '../../../../../automation/application/service/operation-alert.service';
+import type { OperationAlertPort } from '../../../../application/port/out/operation-alert.port';
 import type { DetailPageGeneratedImagesService } from '../../../../application/service/detail-page-generated-images.service';
 import type { ContentAssetService } from '../../../../application/service/content-asset.service';
 import type { ProductGenerationAlertService } from '../../../../application/service/product-generation-alert.service';
@@ -71,11 +71,11 @@ function makePrismaStub(row: ReturnType<typeof makeRow> | null) {
   };
 }
 
-function makeAlertsStub(): OperationAlertService {
+function makeAlertsStub(): OperationAlertPort {
   return {
     succeed: vi.fn().mockResolvedValue(null),
     fail: vi.fn().mockResolvedValue(null),
-  } as unknown as OperationAlertService;
+  } as unknown as OperationAlertPort;
 }
 
 function makeImagesStub(): DetailPageGeneratedImagesService {
@@ -133,7 +133,7 @@ const VALID_OUTPUT = {
 
 describe('DetailPageContentGenerationSinkAdapter', () => {
   let prisma: ReturnType<typeof makePrismaStub>;
-  let alerts: OperationAlertService;
+  let alerts: OperationAlertPort;
   let images: DetailPageGeneratedImagesService;
   let contentAssets: ContentAssetService;
   let productGenerationAlerts: ProductGenerationAlertService;
@@ -269,6 +269,43 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
         `detail-page:${CG_ID}`,
         expect.anything(),
       );
+    });
+
+    it('does not apply detail-page success when parent product operation is cancelled', async () => {
+      prisma = makePrismaStub(makeRow({
+        generationInput: {
+          ...STORED_RAW_INPUT,
+          productGeneration: {
+            mode: 'parent',
+            productGenerationBatchId: 'batch-1',
+            parentOperationKey: 'product-generation:batch-1',
+            childKind: 'detail_page',
+          },
+        },
+      }));
+      alerts = {
+        ...makeAlertsStub(),
+        findByOperationKey: vi.fn().mockResolvedValue({ status: 'cancelled' }),
+      } as unknown as OperationAlertPort;
+      sink = new DetailPageContentGenerationSinkAdapter(
+        prisma as never,
+        alerts,
+        images,
+        contentAssets,
+        productGenerationAlerts,
+      );
+
+      await sink.applySuccess({
+        organizationId: ORG,
+        requestId: REQUEST,
+        runId: RUN,
+        sourceResourceId: CG_ID,
+        output: VALID_OUTPUT,
+      });
+
+      expect(prisma.contentGeneration.updateMany).not.toHaveBeenCalled();
+      expect(productGenerationAlerts.markChildFinished).not.toHaveBeenCalled();
+      expect(alerts.succeed).not.toHaveBeenCalled();
     });
 
     it('reuses an existing detail page artifact on replay-compatible success', async () => {

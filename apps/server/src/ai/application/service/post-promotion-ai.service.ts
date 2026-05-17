@@ -1,7 +1,10 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { OperationAlertService } from '../../../automation/application/service/operation-alert.service';
+import {
+  AI_OPERATION_ALERT_PORT,
+  type OperationAlertPort,
+} from '../port/out/operation-alert.port';
 import {
   AGENT_RUNNER_PORT,
   type AgentRunnerPort,
@@ -49,7 +52,8 @@ export class PostPromotionAiService implements PostPromotionAiTriggerPort {
     private readonly prisma: PrismaService,
     @Inject(AGENT_RUNNER_PORT)
     private readonly agentRunner: AgentRunnerPort,
-    private readonly operationAlerts: OperationAlertService,
+    @Inject(AI_OPERATION_ALERT_PORT)
+    private readonly operationAlerts: OperationAlertPort,
     private readonly editorAi: ThumbnailEditorAiService,
     private readonly contentAssets: ContentAssetService,
   ) {}

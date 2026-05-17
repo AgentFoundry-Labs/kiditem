@@ -1,8 +1,11 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { OperationAlertService } from '../../../../automation/application/service/operation-alert.service';
 import type { ThumbnailAgentOutputSinkPort } from '../../../application/port/out/thumbnail-agent-output-sink.port';
+import {
+  AI_OPERATION_ALERT_PORT,
+  type OperationAlertPort,
+} from '../../../application/port/out/operation-alert.port';
 import type { ThumbnailGenerateAgentOutput } from '../../../domain/agent-output';
 import type { ThumbnailEditorCandidate } from '../../../domain/model/thumbnail-editor';
 import {
@@ -49,7 +52,8 @@ export class ThumbnailGenerationSinkAdapter
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly operationAlerts: OperationAlertService,
+    @Inject(AI_OPERATION_ALERT_PORT)
+    private readonly operationAlerts: OperationAlertPort,
     @Optional()
     @Inject(THUMBNAIL_GENERATION_EVENT_PORT)
     private readonly generationEvents: ThumbnailGenerationEventPort | null = null,
@@ -78,6 +82,18 @@ export class ThumbnailGenerationSinkAdapter
       organizationId: input.organizationId,
       generationId: input.sourceResourceId,
     });
+    if (
+      parentLink &&
+      await this.isParentOperationCancelled({
+        organizationId: input.organizationId,
+        parentOperationKey: parentLink.parentOperationKey,
+      })
+    ) {
+      this.logger.debug(
+        `thumbnail_generate ${input.sourceResourceId}: parent operation ${parentLink.parentOperationKey} cancelled; no-op.`,
+      );
+      return;
+    }
 
     const lock = await lockGenerationForProcessing(
       this.prisma,
@@ -185,6 +201,18 @@ export class ThumbnailGenerationSinkAdapter
       organizationId: input.organizationId,
       generationId: input.sourceResourceId,
     });
+    if (
+      parentLink &&
+      await this.isParentOperationCancelled({
+        organizationId: input.organizationId,
+        parentOperationKey: parentLink.parentOperationKey,
+      })
+    ) {
+      this.logger.debug(
+        `thumbnail_generate ${input.sourceResourceId}: parent operation ${parentLink.parentOperationKey} cancelled; no-op.`,
+      );
+      return;
+    }
 
     const lock = await lockGenerationForProcessing(
       this.prisma,
@@ -271,6 +299,20 @@ export class ThumbnailGenerationSinkAdapter
       select: { inputMeta: true },
     });
     return readProductGenerationAlertLink(row?.inputMeta);
+  }
+
+  private async isParentOperationCancelled(input: {
+    organizationId: string;
+    parentOperationKey: string;
+  }): Promise<boolean> {
+    if (typeof this.operationAlerts.findByOperationKey !== 'function') {
+      return false;
+    }
+    const alert = await this.operationAlerts.findByOperationKey(
+      input.organizationId,
+      input.parentOperationKey,
+    );
+    return alert?.status === 'cancelled';
   }
 
   private async appendStatusEvent(input: {

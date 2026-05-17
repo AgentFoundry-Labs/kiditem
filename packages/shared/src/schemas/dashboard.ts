@@ -17,6 +17,7 @@ export const DashboardAlertItemSchema = z.object({
   severity: z.string(),
   title: z.string(),
   message: z.string().nullable(),
+  operationKey: z.string().nullable().optional(),
   sourceType: z.string().nullable().optional(),
   href: z.string().nullable().optional(),
   progress: z.number().min(0).max(1).nullable().optional(),

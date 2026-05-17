@@ -8,7 +8,7 @@ import {
   ThumbnailGenerateAgentInputSchema,
 } from '../../../domain/agent-output';
 import type { PrismaService } from '../../../../prisma/prisma.service';
-import type { OperationAlertService } from '../../../../automation/application/service/operation-alert.service';
+import type { OperationAlertPort } from '../../port/out/operation-alert.port';
 import type { AgentRunnerPort } from '../../../../agent-os/application/port/in/agent-runner.port';
 import type { ThumbnailEditorAiService } from '../thumbnail-editor-ai.service';
 import type { ThumbnailEditorInputImage } from '../../../domain/model/thumbnail-editor';
@@ -35,7 +35,7 @@ interface Mocks {
   agentRunner: AgentRunnerPort & {
     runByType: ReturnType<typeof vi.fn>;
   };
-  operationAlerts: OperationAlertService & {
+  operationAlerts: OperationAlertPort & {
     start: ReturnType<typeof vi.fn>;
     fail: ReturnType<typeof vi.fn>;
     succeed: ReturnType<typeof vi.fn>;

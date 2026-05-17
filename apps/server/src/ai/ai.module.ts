@@ -29,6 +29,7 @@ import { CoupangImageSyncController } from './adapter/in/http/coupang-image-sync
 // adapter/out
 import { DetailPageContentGenerationSinkAdapter } from './adapter/out/agent-output/detail-page-content-generation-sink.adapter';
 import { ThumbnailGenerationSinkAdapter } from './adapter/out/agent-output/thumbnail-generation-sink.adapter';
+import { AiOperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
 import { DetailPageGenerateRuntimeHandler } from './adapter/out/agent-runtime/detail-page-generate.runtime-handler';
 import { ImageEditRuntimeHandler } from './adapter/out/agent-runtime/image-edit.runtime-handler';
 import { ThumbnailGenerateRuntimeHandler } from './adapter/out/agent-runtime/thumbnail-generate.runtime-handler';
@@ -87,11 +88,13 @@ import { ContentGenerationRerunService } from './application/service/content-gen
 import { ContentWorkspaceAttachmentService } from './application/service/content-workspace-attachment.service';
 import { ContentWorkspaceService } from './application/service/content-workspace.service';
 import { SourcingWorkspaceArchiveService } from './application/service/sourcing-workspace-archive.service';
+import { AiGenerationCancellationService } from './application/service/ai-generation-cancellation.service';
 
 // application/port — in
 import { POST_PROMOTION_AI_TRIGGER_PORT } from './application/port/in/post-promotion-ai-trigger.port';
 import { PRODUCT_GENERATION_AI_TRIGGER_PORT } from './application/port/in/product-generation-ai-trigger.port';
 import { AI_WORKSPACE_ARCHIVE_PORT } from './application/port/in/sourcing-workspace-archive.port';
+import { AI_GENERATION_CANCELLATION_PORT } from './application/port/in/ai-generation-cancellation.port';
 
 // application/port — out
 import { DETAIL_PAGE_AGENT_OUTPUT_SINK_PORT } from './application/port/out/detail-page-agent-output-sink.port';
@@ -107,6 +110,7 @@ import { MASTER_CATALOG_PORT } from './application/port/out/master-catalog.port'
 import { TEXT_COMPLETION_PORT } from './application/port/out/text-completion.port';
 import { THUMBNAIL_GENERATION_EVENT_PORT } from './application/port/out/thumbnail-generation-event.port';
 import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.port';
+import { AI_OPERATION_ALERT_PORT } from './application/port/out/operation-alert.port';
 
 @Module({
   imports: [ChannelsModule, AgentOsModule, AutomationModule],
@@ -135,6 +139,7 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
   providers: [
     // application services
     ImageAiService,
+    AiGenerationCancellationService,
     ImageAssetOperationService,
     CoupangImageSyncService,
     DetailPageAiService,
@@ -199,6 +204,7 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     ThumbnailReferenceImagesService,
     ThumbnailWingPersistence,
     WingAutomationRunner,
+    AiOperationAlertAdapter,
 
     // port bindings
     { provide: WING_AUTOMATION_PORT, useExisting: WingAutomationRunner },
@@ -228,17 +234,20 @@ import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.por
     { provide: MASTER_CATALOG_PORT, useExisting: MasterCatalogAdapter },
     { provide: TEXT_COMPLETION_PORT, useExisting: GeminiTextCompletionAdapter },
     { provide: THUMBNAIL_GENERATION_EVENT_PORT, useExisting: ThumbnailGenerationEventAdapter },
+    { provide: AI_OPERATION_ALERT_PORT, useExisting: AiOperationAlertAdapter },
 
     // Inbound port — sourcing's post-promotion gateway injects this to fire
     // detail-page + thumbnail generation with AI-domain-owned defaults.
     { provide: POST_PROMOTION_AI_TRIGGER_PORT, useExisting: PostPromotionAiService },
     { provide: PRODUCT_GENERATION_AI_TRIGGER_PORT, useExisting: ProductGenerationAiService },
     { provide: AI_WORKSPACE_ARCHIVE_PORT, useExisting: SourcingWorkspaceArchiveService },
+    { provide: AI_GENERATION_CANCELLATION_PORT, useExisting: AiGenerationCancellationService },
   ],
   exports: [
     POST_PROMOTION_AI_TRIGGER_PORT,
     PRODUCT_GENERATION_AI_TRIGGER_PORT,
     AI_WORKSPACE_ARCHIVE_PORT,
+    AI_GENERATION_CANCELLATION_PORT,
   ],
 })
 export class AiModule {}

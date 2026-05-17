@@ -12,7 +12,10 @@ import {
   PRODUCT_GENERATION_AI_TRIGGER_PORT,
   type ProductGenerationAiTriggerPort,
 } from '../../../../ai/application/port/in/product-generation-ai-trigger.port';
-import { OperationAlertService } from '../../../../automation/application/service/operation-alert.service';
+import {
+  SOURCING_OPERATION_ALERT_PORT,
+  type OperationAlertPort,
+} from '../../../application/port/out/operation-alert.port';
 import type {
   SourcingAgentGatewayPort,
   SourcingNotifyPromotedRequest,
@@ -33,7 +36,8 @@ export class SourcingAgentGatewayAdapter implements SourcingAgentGatewayPort {
     private readonly postPromotionAi: PostPromotionAiTriggerPort,
     @Inject(PRODUCT_GENERATION_AI_TRIGGER_PORT)
     private readonly productGenerationAi: ProductGenerationAiTriggerPort,
-    private readonly operationAlerts: OperationAlertService,
+    @Inject(SOURCING_OPERATION_ALERT_PORT)
+    private readonly operationAlerts: OperationAlertPort,
   ) {}
 
   async scrapeUrl(request: SourcingScrapeRequest): Promise<SourcingScrapeResult> {

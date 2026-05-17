@@ -1,50 +1,44 @@
-import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import {
-  GenerationProgressBannerStack,
-  type GenerationEntry,
-} from './GenerationProgressBanner';
-
-const entry: GenerationEntry = {
-  id: '11111111-1111-4111-8111-111111111111',
-  templateId: 'kids-playful',
-  status: 'processing',
-  processedCount: 2,
-  totalCount: 7,
-  productName: '바삭바삭 수제 왁스팜4',
-};
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { GenerationProgressBannerStack } from './GenerationProgressBanner';
 
 describe('GenerationProgressBannerStack', () => {
-  it('shows a cancel button for an in-progress generation', () => {
-    const onCancel = vi.fn();
+  it('offers a cancel action for running detail-page generation banners', async () => {
+    const onCancel = vi.fn().mockResolvedValue(undefined);
 
-    render(<GenerationProgressBannerStack entries={[entry]} onCancel={onCancel} />);
+    render(
+      <GenerationProgressBannerStack
+        entries={[
+          {
+            id: 'generation-1',
+            templateId: 'kids-playful',
+            status: 'processing',
+            processedCount: 0,
+            totalCount: 2,
+            productName: '테스트 상품',
+          },
+        ]}
+        onCancel={onCancel}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '상세페이지 생성 중단' }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByText('상세페이지 생성을 중단할까요?')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '계속 실행' }));
+
+    expect(screen.queryByText('상세페이지 생성을 중단할까요?')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '상세페이지 생성 중단' }));
 
     fireEvent.click(screen.getByRole('button', { name: '중단' }));
 
-    expect(onCancel).toHaveBeenCalledWith('11111111-1111-4111-8111-111111111111');
-  });
-
-  it('disables cancel while the matching generation is cancelling', () => {
-    render(
-      <GenerationProgressBannerStack
-        entries={[entry]}
-        cancellingId="11111111-1111-4111-8111-111111111111"
-        onCancel={vi.fn()}
-      />,
-    );
-
-    expect(screen.getByRole('button', { name: '중단' })).toBeDisabled();
-  });
-
-  it('disables cancel until the optimistic row is replaced with a server UUID', () => {
-    render(
-      <GenerationProgressBannerStack
-        entries={[{ ...entry, id: 'optimistic-123' }]}
-        onCancel={vi.fn()}
-      />,
-    );
-
-    expect(screen.getByRole('button', { name: '중단' })).toBeDisabled();
+    await waitFor(() => {
+      expect(onCancel).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'generation-1' }),
+      );
+    });
   });
 });

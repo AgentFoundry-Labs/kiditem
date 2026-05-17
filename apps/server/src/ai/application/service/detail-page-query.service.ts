@@ -28,6 +28,13 @@ type DetailPageGenerationRow = Prisma.ContentGenerationGetPayload<{
   include: typeof detailPageGenerationInclude;
 }>;
 
+export interface DetailPageListQuery {
+  productId?: string | null;
+  sourceCandidateId?: string | null;
+  contentWorkspaceId?: string | null;
+  templateId?: string | null;
+}
+
 @Injectable()
 export class DetailPageQueryService {
   private readonly logger = new Logger(DetailPageQueryService.name);
@@ -42,18 +49,29 @@ export class DetailPageQueryService {
 
   async list(
     organizationId: string,
-    productId?: string,
-    templateId?: string,
+    queryOrProductId?: DetailPageListQuery | string,
+    legacyTemplateId?: string,
   ): Promise<DetailPageGenerationDto[]> {
+    const query = typeof queryOrProductId === 'string'
+      ? { productId: queryOrProductId, templateId: legacyTemplateId }
+      : queryOrProductId ?? {};
+    const { contentWorkspaceId, productId, sourceCandidateId, templateId } = query;
     if (templateId && templateId !== 'kids-playful' && templateId !== 'bold-vertical') {
       throw new BadRequestException('invalid templateId');
     }
+    const ownershipWhere = contentWorkspaceId
+      ? { contentWorkspaceId }
+      : sourceCandidateId
+        ? { sourceCandidateId }
+        : productId
+          ? { generationGroup: { targetMasterId: productId } }
+          : {};
     const rows = await this.prisma.contentGeneration.findMany({
       where: {
         organizationId,
         isDeleted: false,
         contentType: 'detail_page',
-        ...(productId ? { generationGroup: { targetMasterId: productId } } : {}),
+        ...ownershipWhere,
       },
       include: detailPageGenerationInclude,
       orderBy: { createdAt: 'desc' },

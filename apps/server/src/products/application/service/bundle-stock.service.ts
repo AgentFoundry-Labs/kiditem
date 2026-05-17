@@ -3,6 +3,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { computeBundleCapacity } from '../../domain/service/bundle-stock-capacity';
+import type { ProductBundleStockPort } from '../port/in/bundle-stock.port';
 import {
   findBundleOptionId,
   listActiveBundleComponentsWithStock,
@@ -35,7 +36,7 @@ import {
  * serialization guarantee.
  */
 @Injectable()
-export class BundleStockService {
+export class BundleStockService implements ProductBundleStockPort {
   constructor(private readonly prisma: PrismaService) {}
 
   /**

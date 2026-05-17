@@ -4,7 +4,7 @@ import { Prisma } from '@prisma/client';
 import type { MulterFile } from '../../common/types';
 import { kstDayStart } from '../../common/kst';
 import type { PrismaService } from '../../prisma/prisma.service';
-import type { OperationAlertService } from '../../automation/application/service/operation-alert.service';
+import type { OperationAlertPort } from './application/port/out/operation-alert.port';
 import {
   parseTrafficUploadFile,
   type ParsedUploadRow,
@@ -22,7 +22,7 @@ interface UploadTrafficStatsParams {
   organizationId: string;
   options: TrafficUploadOptions;
   prisma: PrismaService;
-  operationAlerts?: OperationAlertService;
+  operationAlerts?: OperationAlertPort;
 }
 
 interface AggregatedRow {

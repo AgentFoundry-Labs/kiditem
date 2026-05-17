@@ -1,32 +1,25 @@
 import { randomUUID } from 'node:crypto';
 import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { paginationParams } from '../../../common/pagination';
-import { OperationAlertService } from '../../../automation/application/service/operation-alert.service';
 import {
   SOURCING_AGENT_GATEWAY_PORT,
   type SourcingAgentGatewayPort,
 } from '../port/out/sourcing-agent.gateway.port';
 import {
+  SOURCING_OPERATION_ALERT_PORT,
+  type OperationAlertPort,
+} from '../port/out/operation-alert.port';
+import {
   SOURCING_CANDIDATE_REPOSITORY_PORT,
   type SourcingCandidateRepositoryPort,
 } from '../port/out/sourcing-candidate.repository.port';
-import type { ReceiveExtensionDataDto } from '../../adapter/in/http/dto/receive-extension-data.dto';
-import type { RegisterManualProductDto } from '../../adapter/in/http/dto/register-manual-product.dto';
-import type { CreateProductGenerationDto } from '../../adapter/in/http/dto/product-generation.dto';
+import type {
+  CreateProductGenerationCommand,
+  ReceiveExtensionDataInput,
+  RegisterManualProductCommand,
+} from '../port/in/sourcing.commands';
 import { buildProductBasics } from './product-basics.presenter';
 import { ProductPreparationSelectionService } from './product-preparation-selection.service';
-
-type ManualProductRegistrationInput = RegisterManualProductDto & Partial<Pick<
-  CreateProductGenerationDto,
-  | 'ageGroup'
-  | 'kcCertificationStatus'
-  | 'kcCertificationNumber'
-  | 'productSize'
-  | 'colorVariantStatus'
-  | 'colorVariantNames'
-  | 'boxSetStatus'
-  | 'boxSetQuantity'
->>;
 
 const PLATFORM_MAP: Record<string, string> = {
   '1688': 'ALIBABA_1688',
@@ -51,7 +44,7 @@ const DESCRIPTION_IMAGE_FIELD_KEYS = [
   'description_images', 'detail_images', 'images', 'imageUrls', 'image_urls',
 ] as const;
 
-type FlatExtensionData = ReceiveExtensionDataDto & Record<string, unknown>;
+type FlatExtensionData = ReceiveExtensionDataInput;
 
 @Injectable()
 export class SourcingService {
@@ -60,7 +53,8 @@ export class SourcingService {
     private readonly candidates: SourcingCandidateRepositoryPort,
     @Inject(SOURCING_AGENT_GATEWAY_PORT)
     private readonly agentGateway: SourcingAgentGatewayPort,
-    private readonly operationAlerts: OperationAlertService,
+    @Inject(SOURCING_OPERATION_ALERT_PORT)
+    private readonly operationAlerts: OperationAlertPort,
     @Optional()
     private readonly preparationSelection?: ProductPreparationSelectionService,
   ) {}
@@ -141,7 +135,7 @@ export class SourcingService {
   }
 
   async registerManualProduct(
-    data: ManualProductRegistrationInput,
+    data: RegisterManualProductCommand,
     organizationId: string,
     triggeredByUserId: string | null,
   ) {
@@ -212,7 +206,7 @@ export class SourcingService {
   }
 
   async createProductGeneration(
-    data: CreateProductGenerationDto,
+    data: CreateProductGenerationCommand,
     organizationId: string,
     triggeredByUserId: string | null,
   ) {

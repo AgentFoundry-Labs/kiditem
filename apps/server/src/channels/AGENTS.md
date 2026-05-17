@@ -15,8 +15,9 @@ ports/adapters instead of direct service expansion.
 channels/
   channels.module.ts
   adapter/in/http/          channel listing/account, sync, dashboard, reconciliation controllers
+  adapter/out/automation/   operation-alert consumer adapter
   adapter/out/coupang/      client, products/orders APIs, provider adapter
-  application/port/out/     COUPANG_PROVIDER_PORT
+  application/port/out/     COUPANG_PROVIDER_PORT + operation-alert consumer port
   application/service/      account, sync, dashboard, reconciliation services
   adapters/coupang/orders.ts  compat shim only
 ```
@@ -27,6 +28,9 @@ Do not add new files under `adapters/coupang/` except compatibility shims.
 
 - Services depend on `COUPANG_PROVIDER_PORT`, not raw `fetch` or provider
   helper functions.
+- Operation-alert lifecycle writes depend on `CHANNELS_OPERATION_ALERT_PORT`;
+  controllers and services must not inject automation's `OperationAlertService`
+  directly.
 - `coupang-client.ts` owns HMAC auth, timeout, response validation, and vendor
   id resolution.
 - Organization-specific credentials come from primary

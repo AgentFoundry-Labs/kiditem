@@ -7,7 +7,10 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { OperationAlertService } from '../../../automation/application/service/operation-alert.service';
+import {
+  AI_OPERATION_ALERT_PORT,
+  type OperationAlertPort,
+} from '../port/out/operation-alert.port';
 import { ThumbnailEditorAiService } from './thumbnail-editor-ai.service';
 import type {
   ThumbnailEditorCandidate,
@@ -35,6 +38,7 @@ import {
   createPendingEditJob,
   createPendingStandaloneJob,
   lockGenerationForProcessing,
+  markGenerationCancelled,
   markGenerationFailed,
   persistPendingInputImages,
   replaceGenerationResult,
@@ -106,6 +110,14 @@ export interface ThumbnailStandaloneGenerationEnqueueInput {
   agentPayload: Record<string, unknown>;
 }
 
+type ThumbnailGenerationEnqueueResult = {
+  generationId: string;
+  status: 'pending' | 'cancelled';
+};
+
+const THUMBNAIL_PARENT_CANCELLED_AFTER_ENQUEUE_MESSAGE =
+  'Parent product generation was cancelled before thumbnail request execution.';
+
 @Injectable()
 export class ThumbnailGenerationJobService {
   private readonly logger = new Logger(ThumbnailGenerationJobService.name);
@@ -113,7 +125,8 @@ export class ThumbnailGenerationJobService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly editorAiService: ThumbnailEditorAiService,
-    private readonly operationAlerts: OperationAlertService,
+    @Inject(AI_OPERATION_ALERT_PORT)
+    private readonly operationAlerts: OperationAlertPort,
     @Inject(AGENT_RUNNER_PORT)
     private readonly agentRunner: AgentRunnerPort,
     private readonly productGenerationAlerts: ProductGenerationAlertService,
@@ -124,7 +137,7 @@ export class ThumbnailGenerationJobService {
 
   async enqueueEditorGeneration(
     input: ThumbnailEditorGenerationEnqueueInput,
-  ): Promise<{ generationId: string; status: 'pending' }> {
+  ): Promise<ThumbnailGenerationEnqueueResult> {
     const generation = await createPendingEditJob(this.prisma, {
       organizationId: input.organizationId,
       masterId: input.productId,
@@ -236,7 +249,7 @@ export class ThumbnailGenerationJobService {
 
   async enqueueCandidateGeneration(
     input: ThumbnailCandidateGenerationEnqueueInput,
-  ): Promise<{ generationId: string; status: 'pending' }> {
+  ): Promise<ThumbnailGenerationEnqueueResult> {
     const candidate = await this.prisma.sourcingCandidate.findFirst({
       where: {
         id: input.sourceCandidateId,
@@ -303,12 +316,37 @@ export class ThumbnailGenerationJobService {
     });
 
     if (isParentProductGenerationAlertLink(operationAlert)) {
-      await this.productGenerationAlerts.recordChildStarted({
+      const childStart = await this.productGenerationAlerts.recordChildStarted({
         organizationId: input.organizationId,
         parentOperationKey: operationAlert.parentOperationKey,
         childKind: 'thumbnail',
         childId: generation.id,
       });
+      if (childStart.status !== 'started') {
+        const change = await markGenerationCancelled(
+          this.prisma,
+          generation.id,
+          input.organizationId,
+        );
+        if (change) {
+          await this.emitStatusChange({
+            organizationId: input.organizationId,
+            generationId: generation.id,
+            fromStatus: change.fromStatus,
+            toStatus: 'cancelled',
+            fromPhase: change.fromPhase,
+            toPhase: null,
+            actorUserId: input.triggeredByUserId,
+            payload: {
+              reason:
+                childStart.alert?.status === 'cancelled'
+                  ? 'Parent product generation was cancelled before thumbnail child enqueue.'
+                  : 'Parent product generation is not accepting thumbnail child jobs.',
+            },
+          });
+        }
+        return { generationId: generation.id, status: 'cancelled' };
+      }
     } else {
       const alertTarget = this.alertTarget({
         contentWorkspaceId: input.contentWorkspaceId ?? null,
@@ -391,6 +429,43 @@ export class ThumbnailGenerationJobService {
       throw new BadRequestException(errorMessage);
     }
 
+    if (
+      isParentProductGenerationAlertLink(operationAlert) &&
+      enqueueResult.requestId &&
+      await this.shouldCancelParentThumbnailRequestAfterEnqueue({
+        organizationId: input.organizationId,
+        parentOperationKey: operationAlert.parentOperationKey,
+        generationId: generation.id,
+      })
+    ) {
+      await this.agentRunner.cancelRequest?.({
+        organizationId: input.organizationId,
+        requestId: enqueueResult.requestId,
+        reason: THUMBNAIL_PARENT_CANCELLED_AFTER_ENQUEUE_MESSAGE,
+        actorUserId: input.triggeredByUserId,
+      });
+      const change = await markGenerationCancelled(
+        this.prisma,
+        generation.id,
+        input.organizationId,
+      );
+      if (change) {
+        await this.emitStatusChange({
+          organizationId: input.organizationId,
+          generationId: generation.id,
+          fromStatus: change.fromStatus,
+          toStatus: 'cancelled',
+          fromPhase: change.fromPhase,
+          toPhase: null,
+          actorUserId: input.triggeredByUserId,
+          payload: {
+            reason: THUMBNAIL_PARENT_CANCELLED_AFTER_ENQUEUE_MESSAGE,
+          },
+        });
+      }
+      return { generationId: generation.id, status: 'cancelled' };
+    }
+
     this.kickEnqueuedAgentRequest({
       organizationId: input.organizationId,
       requestId: enqueueResult.requestId,
@@ -399,9 +474,35 @@ export class ThumbnailGenerationJobService {
     return { generationId: generation.id, status: 'pending' };
   }
 
+  private async shouldCancelParentThumbnailRequestAfterEnqueue(input: {
+    organizationId: string;
+    parentOperationKey: string;
+    generationId: string;
+  }): Promise<boolean> {
+    const [parentAcceptsChildren, generation] = await Promise.all([
+      this.productGenerationAlerts.canStartChild({
+        organizationId: input.organizationId,
+        parentOperationKey: input.parentOperationKey,
+      }),
+      this.prisma.thumbnailGeneration.findFirst({
+        where: {
+          id: input.generationId,
+          organizationId: input.organizationId,
+          isDeleted: false,
+        },
+        select: { status: true },
+      }),
+    ]);
+    return (
+      !parentAcceptsChildren ||
+      !generation ||
+      !['pending', 'running'].includes(generation.status)
+    );
+  }
+
   async enqueueStandaloneGeneration(
     input: ThumbnailStandaloneGenerationEnqueueInput,
-  ): Promise<{ generationId: string; status: 'pending' }> {
+  ): Promise<ThumbnailGenerationEnqueueResult> {
     const generation = await createPendingStandaloneJob(this.prisma, {
       organizationId: input.organizationId,
       originalUrl: input.originalUrl,
@@ -524,6 +625,22 @@ export class ThumbnailGenerationJobService {
           }`,
         );
       });
+    });
+  }
+
+  async cancelAgentRequestForGeneration(input: {
+    organizationId: string;
+    generationId: string;
+    reason: string;
+    actorUserId?: string | null;
+  }): Promise<void> {
+    await this.agentRunner.cancelBySource?.({
+      organizationId: input.organizationId,
+      sourceType: AI_AGENT_SOURCE_TYPES.THUMBNAIL_GENERATE,
+      sourceResourceType: 'thumbnail_generation',
+      sourceResourceId: input.generationId,
+      reason: input.reason,
+      actorUserId: input.actorUserId,
     });
   }
 

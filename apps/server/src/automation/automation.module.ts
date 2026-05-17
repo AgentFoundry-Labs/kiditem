@@ -40,6 +40,7 @@ import { WorkflowRunnerService } from './application/service/workflow-runner.ser
 
 // application/port/in tokens (owner-side publish)
 import { OPERATION_ALERT_PORT } from './application/port/in/operation-alert.port';
+import { WORKFLOW_RUN_CANCELLATION_PORT } from './application/port/in/workflow-run-cancellation.port';
 
 // application/port/out tokens
 import { ACTION_BOARD_REPOSITORY_PORT } from './application/port/out/action-board.repository.port';
@@ -88,6 +89,7 @@ const OUT_PORT_BINDINGS = [
 // `application/port/in/*` published for cross-owner-domain consumers.
 const IN_PORT_BINDINGS = [
   { provide: OPERATION_ALERT_PORT, useExisting: OperationAlertService },
+  { provide: WORKFLOW_RUN_CANCELLATION_PORT, useExisting: WorkflowRunnerService },
 ];
 
 @Module({
@@ -132,13 +134,12 @@ const IN_PORT_BINDINGS = [
     AgentOsModule,
     // Owner-side incoming port for cross-domain consumers
     OPERATION_ALERT_PORT,
+    WORKFLOW_RUN_CANCELLATION_PORT,
     // Legacy class exports — kept while non-reconstructed consumers
-    // (ai, channels, finance, rules, sourcing, analytics/traffic) still
-    // inject these concretely. Each consumer's reconstruction PR will
-    // swap to OPERATION_ALERT_PORT and remove its direct class injection;
-    // once that completes these exports can be retired.
+    // still inject these concretely. Operation alerts have moved to the
+    // owner-side OPERATION_ALERT_PORT; the remaining exports retire as
+    // their consumers move to owner-side ports.
     ActionBoardService,
-    OperationAlertService,
     PanelSseService,
     WorkflowOrchestrationService,
   ],

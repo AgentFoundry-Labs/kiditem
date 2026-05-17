@@ -133,6 +133,11 @@ export interface FinalizeRunInput {
   };
 }
 
+export interface FinalizeRunResult {
+  run: AgentRunRecord;
+  requestStatus: AgentRunRequestRecord['status'];
+}
+
 export interface RecordCostEventInput {
   organizationId: string;
   agentInstanceId: string;
@@ -162,6 +167,11 @@ export interface MarkRequestStatusInput {
   errorCode?: string | null;
   errorMessage?: string | null;
   coalescedIntoRequestId?: string | null;
+  payload?: Record<string, unknown>;
+}
+
+export interface MarkRequestStatusIfCurrentInput extends MarkRequestStatusInput {
+  currentStatuses: AgentRunRequestStatus[];
 }
 
 export interface CreateAuthorizationEventInput {
@@ -318,6 +328,9 @@ export interface AgentOsRepositoryPort {
   }): Promise<AgentRunRequestRecord | null>;
   failClaimedRequest(input: FailClaimedRequestInput): Promise<void>;
   markRequestStatus(input: MarkRequestStatusInput): Promise<AgentRunRequestRecord>;
+  markRequestStatusIfCurrent(
+    input: MarkRequestStatusIfCurrentInput,
+  ): Promise<AgentRunRequestRecord | null>;
 
   // Runs + events
   createRunForRequest(input: CreateRunRecordInput): Promise<AgentRunRecord>;
@@ -341,7 +354,7 @@ export interface AgentOsRepositoryPort {
   listRuns(input: FindRunsQuery): Promise<AgentRunRecord[]>;
   appendRunEvent(input: AppendRunEventInput): Promise<AgentRunEventRecord>;
   listRunEvents(input: FindRunEventsQuery): Promise<AgentRunEventRecord[]>;
-  finalizeRun(input: FinalizeRunInput): Promise<AgentRunRecord>;
+  finalizeRun(input: FinalizeRunInput): Promise<FinalizeRunResult>;
 
   // Cost / audit
   recordCostEvent(input: RecordCostEventInput): Promise<void>;

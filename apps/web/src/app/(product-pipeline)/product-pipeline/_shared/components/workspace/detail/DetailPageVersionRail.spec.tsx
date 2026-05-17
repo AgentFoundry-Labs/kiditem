@@ -32,6 +32,8 @@ describe('DetailPageVersionRail', () => {
     );
 
     expect(screen.getByText('최근 1 개')).toBeInTheDocument();
+    expect(screen.getByText('KidsPlayful')).toBeInTheDocument();
+    expect(screen.queryByText('완료')).not.toBeInTheDocument();
     expect(screen.getByText('등록 상세')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '상세페이지 버전 작업' })).toBeInTheDocument();
     fireEvent.click(screen.getByText('완성 상세페이지'));

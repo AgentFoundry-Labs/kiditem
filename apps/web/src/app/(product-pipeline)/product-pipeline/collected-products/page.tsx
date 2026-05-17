@@ -9,7 +9,7 @@ import {
   useKidsPlayfulGenerationCancel,
 } from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate';
 import { Pagination } from '@/components/ui/Pagination';
-import { friendlyError, isApiError } from '@/lib/api-error';
+import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import {
   collectedProductDetailHref,
@@ -233,13 +233,8 @@ function GenerationInProgressBannerSlot({
   return (
     <GenerationProgressBannerStack
       entries={entries}
-      cancellingId={cancelGeneration.isPending ? cancelGeneration.variables ?? null : null}
-      onCancel={(id) => {
-        cancelGeneration.mutate(id, {
-          onSuccess: () => toast.success('상세페이지 생성을 중단했습니다.'),
-          onError: (err) =>
-            toast.error(friendlyError(err) ?? '상세페이지 생성 중단에 실패했습니다.'),
-        });
+      onCancel={async (entry) => {
+        await cancelGeneration.mutateAsync(entry.id);
       }}
     />
   );

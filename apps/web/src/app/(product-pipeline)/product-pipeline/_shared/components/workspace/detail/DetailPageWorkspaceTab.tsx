@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import {
   useBoldVerticalGenerationList,
   useKidsPlayfulGenerationDelete,
@@ -18,12 +19,10 @@ import {
 import type { GenerationHistoryItem } from '../../../hooks/useGenerationHistory';
 import { contentWorkspacesApi } from '../../../lib/content-workspaces-api';
 import DetailPagePreview from '../DetailPagePreview';
-import DetailGenerationStatusBar from './DetailGenerationStatusBar';
 import DetailPageVersionRail from './DetailPageVersionRail';
 import {
   buildDetailGenerationRows,
   getCompletedDetailVersionRows,
-  getDetailGenerationStatusRows,
   type DetailGenerationRow,
 } from './detail-generation-rows';
 import type { ProductRegistrationPreviewData } from '../preview/product-registration-preview';
@@ -38,6 +37,9 @@ interface DetailPageWorkspaceTabProps {
   initialAgentHistory?: GenerationHistoryItem[];
   generationHistoryQueryEnabled?: boolean;
   contentWorkspaceId?: string | null;
+  generationQueryProductId?: string | null;
+  generationQuerySourceCandidateId?: string | null;
+  generationQueryContentWorkspaceId?: string | null;
   selectedKidsPlayfulId: string | null;
   selectedBoldVerticalId: string | null;
   selectedAgentId: string | null;
@@ -65,6 +67,9 @@ export default function DetailPageWorkspaceTab({
   initialAgentHistory,
   generationHistoryQueryEnabled = true,
   contentWorkspaceId = null,
+  generationQueryProductId,
+  generationQuerySourceCandidateId = null,
+  generationQueryContentWorkspaceId = null,
   detailEditorSourceCandidateId,
   detailEditorReturnHref,
   mobilePreviewData,
@@ -80,11 +85,16 @@ export default function DetailPageWorkspaceTab({
     initialAgentHistory,
     { enabled: generationHistoryQueryEnabled },
   );
-  const { data: kidsPlayfulEntries = [] } = useKidsPlayfulGenerationList(productId, {
+  const effectiveGenerationQueryProductId = generationQueryProductId ?? productId;
+  const { data: kidsPlayfulEntries = [] } = useKidsPlayfulGenerationList(effectiveGenerationQueryProductId, {
     enabled: generationHistoryQueryEnabled,
+    sourceCandidateId: generationQuerySourceCandidateId,
+    contentWorkspaceId: generationQueryContentWorkspaceId,
   });
-  const { data: boldEntries = [] } = useBoldVerticalGenerationList(productId, {
+  const { data: boldEntries = [] } = useBoldVerticalGenerationList(effectiveGenerationQueryProductId, {
     enabled: generationHistoryQueryEnabled,
+    sourceCandidateId: generationQuerySourceCandidateId,
+    contentWorkspaceId: generationQueryContentWorkspaceId,
   });
   const deleteKidsPlayful = useKidsPlayfulGenerationDelete();
   const deleteAgent = useGenerationHistoryDelete(productId);
@@ -92,6 +102,7 @@ export default function DetailPageWorkspaceTab({
   const [applyingKey, setApplyingKey] = useState<string | null>(null);
   const [duplicatingKey, setDuplicatingKey] = useState<string | null>(null);
   const [renamingKey, setRenamingKey] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DetailGenerationRow | null>(null);
   const rows = useMemo(() => buildDetailGenerationRows({
     agentHistory,
     kidsPlayfulEntries,
@@ -99,7 +110,6 @@ export default function DetailPageWorkspaceTab({
     savedDetailPageGenerationId,
   }), [agentHistory, boldEntries, kidsPlayfulEntries, savedDetailPageGenerationId]);
   const versionRows = useMemo(() => getCompletedDetailVersionRows(rows), [rows]);
-  const statusRows = useMemo(() => getDetailGenerationStatusRows(rows), [rows]);
   const selectedRow = selectedKey ? versionRows.find((row) => row.key === selectedKey) ?? null : null;
   const selectedKeyGenerationId = selectedKey?.split(':').slice(1).join(':') ?? null;
   const selectedPreviewGenerationId =
@@ -157,8 +167,10 @@ export default function DetailPageWorkspaceTab({
     }
   };
 
-  const handleDelete = (row: DetailGenerationRow) => {
-    if (!confirm('이 상세페이지 버전을 삭제할까요?')) return;
+  const confirmDelete = () => {
+    if (!deleteTarget) return;
+    const row = deleteTarget;
+    setDeleteTarget(null);
     const onSuccess = () => {
       if (selectedKey === row.key) setSelectedKey(null);
       toast.success('상세페이지 버전을 삭제했습니다.');
@@ -212,39 +224,59 @@ export default function DetailPageWorkspaceTab({
   };
 
   return (
-    <div className="space-y-4 p-5" data-testid="detail-page-workspace-tab">
-      <span className="sr-only">{agentHistory.length}</span>
-      <DetailGenerationStatusBar rows={statusRows} />
-      <div className="flex min-w-0 gap-4">
-        <DetailPageVersionRail
-          rows={versionRows}
-          selectedKey={selectedKey}
-          applyingKey={applyingKey}
-          duplicatingKey={duplicatingKey}
-          renamingKey={renamingKey}
-          onSelect={setSelectedKey}
-          onApply={handleApply}
-          onRename={handleRename}
-          onDuplicate={handleDuplicate}
-          onDelete={handleDelete}
-        />
-        <div className="min-w-0 flex-1">
-          <DetailPagePreview
-            productId={productId}
-            detailPreviewHtml={detailPreviewHtml}
-            editedHtml={editedHtml}
-            templateCss={templateCss}
-            hasSavedDetailPage={hasSavedDetailPage}
-            savedDetailPageGenerationId={selectedPreviewGenerationId}
-            initialAgentHistory={initialAgentHistory}
-            generationHistoryQueryEnabled={generationHistoryQueryEnabled}
-            detailEditorSourceCandidateId={detailEditorSourceCandidateId}
-            detailEditorReturnHref={detailEditorReturnHref}
-            mobilePreviewData={mobilePreviewData}
-            onPreviewHtmlChange={onPreviewHtmlChange}
+    <>
+      <div className="space-y-4 p-5" data-testid="detail-page-workspace-tab">
+        <span className="sr-only">{agentHistory.length}</span>
+        <div className="flex min-w-0 gap-4">
+          <DetailPageVersionRail
+            rows={versionRows}
+            selectedKey={selectedKey}
+            applyingKey={applyingKey}
+            duplicatingKey={duplicatingKey}
+            renamingKey={renamingKey}
+            onSelect={setSelectedKey}
+            onApply={handleApply}
+            onRename={handleRename}
+            onDuplicate={handleDuplicate}
+            onDelete={setDeleteTarget}
           />
+          <div className="min-w-0 flex-1">
+            <DetailPagePreview
+              productId={productId}
+              detailPreviewHtml={detailPreviewHtml}
+              editedHtml={editedHtml}
+              templateCss={templateCss}
+              hasSavedDetailPage={hasSavedDetailPage}
+              savedDetailPageGenerationId={selectedPreviewGenerationId}
+              initialAgentHistory={initialAgentHistory}
+              generationHistoryQueryEnabled={generationHistoryQueryEnabled}
+              detailEditorSourceCandidateId={detailEditorSourceCandidateId}
+              detailEditorReturnHref={detailEditorReturnHref}
+              mobilePreviewData={mobilePreviewData}
+              onPreviewHtmlChange={onPreviewHtmlChange}
+            />
+          </div>
         </div>
       </div>
-    </div>
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        tone="danger"
+        title="이 상세페이지 버전을 삭제할까요?"
+        description={
+          deleteTarget ? (
+            <>
+              <span className="font-semibold text-[var(--text-primary,#0f172a)]">
+                {deleteTarget.title || '상세페이지 버전'}
+              </span>
+              을 생성 이력에서 삭제합니다. 복구할 수 없습니다.
+            </>
+          ) : null
+        }
+        confirmText="삭제"
+        cancelText="취소"
+        onConfirm={confirmDelete}
+      />
+    </>
   );
 }

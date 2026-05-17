@@ -5,7 +5,7 @@
  * `adapter/out/**` implementations or another owner domain service from
  * `application/service/**`." sourcing's promote use-case therefore depends on
  * this port; the concrete adapter is the only sourcing-side file that may
- * import a products-domain service.
+ * import a products-domain owner-side port.
  *
  * Bound in `sourcing.module.ts` to the concrete `SourcingProductsCatalogAdapter`
  * provider via `SOURCING_PRODUCTS_CATALOG_PORT` token.
@@ -14,12 +14,12 @@
  * `promoteCandidate(tx, organizationId, input)`. The caller is now sourcing's
  * `SourcingPromotionService`, which already owns a `prisma.$transaction`
  * (candidate row lock + status flip + master creation must commit together).
- * Passing the transaction client across the boundary keeps the promotion
- * atomic without leaking Prisma awareness into the port surface — the
- * concrete adapter type-narrows it to its products-domain consumer.
+ * Passing the opaque transaction handle across the boundary keeps the
+ * promotion atomic without leaking Prisma awareness into the port surface —
+ * the concrete adapter type-narrows it to its products-domain consumer.
  */
 
-import type { Prisma } from '@prisma/client';
+import type { SourcingRepositoryTransaction } from './repository-transaction';
 
 export const SOURCING_PRODUCTS_CATALOG_PORT = Symbol('SOURCING_PRODUCTS_CATALOG_PORT');
 
@@ -70,13 +70,14 @@ export interface SourcingProductsCatalogPort {
   /**
    * Promote a sourcing candidate to an operational master.
    *
-   * Implementation is owned by products domain via `MasterPromotionService`.
+   * Implementation is owned by the products domain via its owner-side
+   * `PRODUCT_MASTER_PROMOTION_PORT`.
    * The caller (`SourcingPromotionService`) supplies `tx` so the candidate
    * row lock + status flip and the master/options/images creation commit in
    * the same transaction.
    */
   promoteCandidate(
-    tx: Prisma.TransactionClient,
+    tx: SourcingRepositoryTransaction,
     organizationId: string,
     input: PromoteCandidateInput,
   ): Promise<PromoteCandidateResult>;
