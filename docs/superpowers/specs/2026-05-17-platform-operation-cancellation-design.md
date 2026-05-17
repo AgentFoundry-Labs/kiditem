@@ -140,6 +140,146 @@ The service flow:
 5. Mark the operation alert cancelled unless it is already terminal.
 6. Emit panel upserts through the existing panel/alert projection path.
 
+## Agent OS Diagrams
+
+These diagrams are implementation guides for the Agent OS and workflow/tool
+parts of the cancellation contract.
+
+### Component Map
+
+```mermaid
+flowchart LR
+  UI["UI surfaces\nPanel, workflow view, product banners, tool progress"]
+  CancelApi["POST /api/operations/cancel"]
+  CancelSvc["OperationCancellationService\nAutomation owner"]
+  Alerts["OperationAlertService\nAlert(kind=operation)"]
+  Workflow["WorkflowRunnerService\nWorkflowRun + steps[]"]
+  AgentOS["AgentRunCoordinator\nAgentRunRequest + AgentRun"]
+  Runtime["AgentRuntimePort\nhandler execution"]
+  AiPort["AI cancellation port\nContentGeneration / ThumbnailGeneration"]
+  Sinks["Owner sinks\napply Agent OS finalized output"]
+  Panel["Panel projection\nPANEL_EVENTS.UPSERT"]
+
+  UI --> CancelApi
+  CancelApi --> CancelSvc
+  CancelSvc --> Alerts
+  CancelSvc --> Workflow
+  CancelSvc --> AgentOS
+  CancelSvc --> AiPort
+  Workflow --> AgentOS
+  AgentOS --> Runtime
+  Runtime --> Sinks
+  Sinks --> Alerts
+  Alerts --> Panel
+  Workflow --> Panel
+  AiPort --> Panel
+```
+
+### Workflow Tool-Call Cancellation Sequence
+
+```mermaid
+sequenceDiagram
+  participant User
+  participant UI as UI surface
+  participant API as OperationsCancelController
+  participant Cancel as OperationCancellationService
+  participant Workflow as WorkflowRunnerService
+  participant Agent as AgentRunCoordinator
+  participant AI as AI owner cancellation port
+  participant Alert as OperationAlertService
+  participant Sink as Owner sink
+
+  User->>UI: Click "Stop"
+  UI->>API: POST /api/operations/cancel
+  API->>Cancel: cancel(target, organizationId, actorUserId)
+  Cancel->>Alert: find operation metadata
+  Cancel->>Workflow: cancel non-terminal WorkflowRun
+  Workflow->>Agent: cancel by sourceWorkflowRunId
+  Cancel->>Agent: cancel direct AgentRunRequest/AgentRun targets
+  Cancel->>AI: cancel non-terminal owner generation rows
+  Cancel->>Alert: mark operation cancelled
+  Alert-->>UI: Panel upsert: cancelled
+  Note over Sink: Later finalized events may still arrive
+  Sink->>Sink: Check owner row + parent operation status
+  Sink-->>Alert: No-op when owner or parent is cancelled
+```
+
+### Agent OS State Boundaries
+
+```mermaid
+stateDiagram-v2
+  [*] --> Pending
+  Pending --> Claimed
+  Pending --> Cancelled: cancel before claim
+  Claimed --> Succeeded
+  Claimed --> Failed
+  Claimed --> Cancelled: cooperative cancel before finish
+  Claimed --> Pending: retry
+  Pending --> RequiresApproval
+  RequiresApproval --> Pending
+  RequiresApproval --> Cancelled
+  Pending --> Coalesced
+  Pending --> Skipped
+
+  Succeeded --> [*]
+  Failed --> [*]
+  Cancelled --> [*]
+  Coalesced --> [*]
+  Skipped --> [*]
+```
+
+```mermaid
+stateDiagram-v2
+  [*] --> Running
+  Running --> Succeeded
+  Running --> Failed
+  Running --> CancelRequested: cancel requested while running
+  CancelRequested --> Cancelled: runtime observes request
+  CancelRequested --> Succeeded: runtime does not abort
+  CancelRequested --> Failed: runtime fails after request
+
+  Succeeded --> [*]
+  Failed --> [*]
+  Cancelled --> [*]
+```
+
+Important distinction:
+
+- `AgentRunRequest` owns queue and cancellation intent.
+- `AgentRun` owns one accepted execution attempt.
+- A running `AgentRun` may finish after cancellation was requested.
+- Owner sinks decide whether the result is allowed to mutate business rows.
+
+### Late Result Guard
+
+```mermaid
+flowchart TD
+  Finalized["Agent OS finalized event"]
+  LoadOwner["Load owner row by organizationId + sourceResourceId"]
+  OwnerMissing{"Owner row found?"}
+  OwnerTerminal{"Owner row terminal?"}
+  OwnerCancelled{"Owner row cancelled?"}
+  ParentLinked{"Parent operation linked?"}
+  ParentCancelled{"Parent operation cancelled?"}
+  Apply["Apply success/failure to owner ledger"]
+  Noop["No-op and log reason"]
+  AlertUpdate["Update operation alert if still running"]
+
+  Finalized --> LoadOwner
+  LoadOwner --> OwnerMissing
+  OwnerMissing -- "No" --> Noop
+  OwnerMissing -- "Yes" --> OwnerTerminal
+  OwnerTerminal -- "Yes" --> Noop
+  OwnerTerminal -- "No" --> OwnerCancelled
+  OwnerCancelled -- "Yes" --> Noop
+  OwnerCancelled -- "No" --> ParentLinked
+  ParentLinked -- "No" --> Apply
+  ParentLinked -- "Yes" --> ParentCancelled
+  ParentCancelled -- "Yes" --> Noop
+  ParentCancelled -- "No" --> Apply
+  Apply --> AlertUpdate
+```
+
 ## Owner Handlers
 
 ### Operation Alert
