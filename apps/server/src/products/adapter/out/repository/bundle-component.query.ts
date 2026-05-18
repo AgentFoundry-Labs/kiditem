@@ -1,4 +1,4 @@
-// apps/server/src/products/adapter/out/prisma/bundle-component.query.ts
+// apps/server/src/products/adapter/out/repository/bundle-component.query.ts
 import { BadRequestException } from '@nestjs/common';
 import { BundleComponent } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';

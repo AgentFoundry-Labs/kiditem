@@ -1,5 +1,11 @@
 import { Module } from '@nestjs/common';
-import { MasterCodeService } from './adapter/out/prisma/master-code.service';
+import { MasterCodeRepositoryAdapter } from './adapter/out/repository/master-code.repository.adapter';
+import { MasterProductRepositoryAdapter } from './adapter/out/repository/master-product.repository.adapter';
+import { ProductOptionRepositoryAdapter } from './adapter/out/repository/product-option.repository.adapter';
+import { BundleRepositoryAdapter } from './adapter/out/repository/bundle.repository.adapter';
+import { ProductCatalogRepositoryAdapter } from './adapter/out/repository/product-catalog.repository.adapter';
+import { ProductManagementRepositoryAdapter } from './adapter/out/repository/product-management.repository.adapter';
+import { ProductsTransactionAdapter } from './adapter/out/repository/products-transaction.adapter';
 import { MastersService } from './application/service/masters.service';
 import { MasterPromotionService } from './application/service/master-promotion.service';
 import { OptionsService } from './application/service/options.service';
@@ -20,6 +26,13 @@ import { ProductsLegacyController } from './adapter/in/http/products-legacy.cont
 import { CategoriesModule } from './categories/categories.module';
 import { PRODUCT_BUNDLE_STOCK_PORT } from './application/port/in/bundle-stock.port';
 import { PRODUCT_MASTER_PROMOTION_PORT } from './application/port/in/master-promotion.port';
+import { MASTER_CODE_PORT } from './application/port/out/master-code.port';
+import { MASTER_PRODUCT_REPOSITORY_PORT } from './application/port/out/master-product.repository.port';
+import { PRODUCT_OPTION_REPOSITORY_PORT } from './application/port/out/product-option.repository.port';
+import { PRODUCT_BUNDLE_REPOSITORY_PORT } from './application/port/out/product-bundle.repository.port';
+import { PRODUCT_CATALOG_REPOSITORY_PORT } from './application/port/out/product-catalog.repository.port';
+import { PRODUCT_MANAGEMENT_REPOSITORY_PORT } from './application/port/out/product-management.repository.port';
+import { PRODUCTS_TRANSACTION_PORT } from './application/port/out/products-transaction.port';
 
 @Module({
   imports: [CategoriesModule],
@@ -33,7 +46,13 @@ import { PRODUCT_MASTER_PROMOTION_PORT } from './application/port/in/master-prom
     ProductsLegacyController, // last — resolves after sibling /products/* controllers
   ],
   providers: [
-    MasterCodeService,
+    MasterCodeRepositoryAdapter,
+    MasterProductRepositoryAdapter,
+    ProductOptionRepositoryAdapter,
+    BundleRepositoryAdapter,
+    ProductCatalogRepositoryAdapter,
+    ProductManagementRepositoryAdapter,
+    ProductsTransactionAdapter,
     MastersService,
     MasterPromotionService,
     OptionsService,
@@ -44,6 +63,13 @@ import { PRODUCT_MASTER_PROMOTION_PORT } from './application/port/in/master-prom
     ProductManagementGradeService,
     ProductManagementEnrichmentService,
     ProductManagementService,
+    { provide: MASTER_CODE_PORT, useExisting: MasterCodeRepositoryAdapter },
+    { provide: MASTER_PRODUCT_REPOSITORY_PORT, useExisting: MasterProductRepositoryAdapter },
+    { provide: PRODUCT_OPTION_REPOSITORY_PORT, useExisting: ProductOptionRepositoryAdapter },
+    { provide: PRODUCT_BUNDLE_REPOSITORY_PORT, useExisting: BundleRepositoryAdapter },
+    { provide: PRODUCT_CATALOG_REPOSITORY_PORT, useExisting: ProductCatalogRepositoryAdapter },
+    { provide: PRODUCT_MANAGEMENT_REPOSITORY_PORT, useExisting: ProductManagementRepositoryAdapter },
+    { provide: PRODUCTS_TRANSACTION_PORT, useExisting: ProductsTransactionAdapter },
     { provide: PRODUCT_MASTER_PROMOTION_PORT, useExisting: MasterPromotionService },
     { provide: PRODUCT_BUNDLE_STOCK_PORT, useExisting: BundleStockService },
   ],

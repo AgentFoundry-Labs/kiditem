@@ -1,9 +1,9 @@
 // apps/server/src/products/__tests__/masters.service.pg.integration.spec.ts
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
-import { MasterCodeService } from '../adapter/out/prisma/master-code.service';
 import { MastersService } from '../application/service/masters.service';
-import { StorageService } from '../../common/storage/storage.service';
+import { MasterCodeRepositoryAdapter } from '../adapter/out/repository/master-code.repository.adapter';
+import { createProductsTestServices } from './products-test-services';
 import {
   makeTestPrisma, resetDb, seedBaseFixture,
   TEST_ORGANIZATION_ID, OTHER_ORGANIZATION_ID,
@@ -11,18 +11,15 @@ import {
 
 describe('MastersService integration', () => {
   let prisma: PrismaClient;
-  let codeSvc: MasterCodeService;
+  let codeSvc: MasterCodeRepositoryAdapter;
   let svc: MastersService;
-
-  // No upload paths exercised in this spec; a typed null stub keeps the
-  // constructor signature satisfied without booting MinIO/S3.
-  const storageStub = null as unknown as StorageService;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    codeSvc = new MasterCodeService(prisma as any);
-    svc = new MastersService(prisma as any, codeSvc, storageStub);
+    const services = createProductsTestServices(prisma);
+    codeSvc = services.codeRepo;
+    svc = services.mastersSvc;
   });
 
   beforeEach(async () => {

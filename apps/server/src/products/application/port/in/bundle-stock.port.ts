@@ -1,4 +1,4 @@
-import type { Prisma } from '@prisma/client';
+import type { ProductsRepositoryTransaction } from '../out/products-transaction.port';
 
 export const PRODUCT_BUNDLE_STOCK_PORT = Symbol('ProductBundleStockPort');
 
@@ -6,6 +6,6 @@ export interface ProductBundleStockPort {
   recomputeForComponent(
     organizationId: string,
     componentOptionId: string,
-    tx: Prisma.TransactionClient,
+    tx: ProductsRepositoryTransaction,
   ): Promise<string[]>;
 }

@@ -1,16 +1,16 @@
 // apps/server/src/products/application/service/bundle-stock.service.ts
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
-import { PrismaService } from '../../../prisma/prisma.service';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { computeBundleCapacity } from '../../domain/service/bundle-stock-capacity';
 import type { ProductBundleStockPort } from '../port/in/bundle-stock.port';
 import {
-  findBundleOptionId,
-  listActiveBundleComponentsWithStock,
-  listBundlesUsingComponent,
-  lockBundleOptionRow,
-  writeBundleAvailableStock,
-} from '../../adapter/out/prisma/bundle-stock.persistence';
+  PRODUCT_BUNDLE_REPOSITORY_PORT,
+  type ProductBundleRepositoryPort,
+} from '../port/out/product-bundle.repository.port';
+import {
+  PRODUCTS_TRANSACTION_PORT,
+  type ProductsRepositoryTransaction,
+  type ProductsTransactionPort,
+} from '../port/out/products-transaction.port';
 
 /**
  * Recompute the materialized `availableStock` for a bundle option.
@@ -37,7 +37,12 @@ import {
  */
 @Injectable()
 export class BundleStockService implements ProductBundleStockPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PRODUCT_BUNDLE_REPOSITORY_PORT)
+    private readonly bundles: ProductBundleRepositoryPort,
+    @Inject(PRODUCTS_TRANSACTION_PORT)
+    private readonly transactions: ProductsTransactionPort,
+  ) {}
 
   /**
    * @param organizationId      - tenant that owns the bundle option.
@@ -49,13 +54,13 @@ export class BundleStockService implements ProductBundleStockPort {
   async recompute(
     organizationId: string,
     bundleOptionId: string,
-    outerTx?: Prisma.TransactionClient,
+    outerTx?: ProductsRepositoryTransaction,
   ): Promise<number> {
-    const exec = async (tx: Prisma.TransactionClient): Promise<number> => {
-      await lockBundleOptionRow(tx, bundleOptionId, organizationId);
-      const bundle = await findBundleOptionId(tx, bundleOptionId, organizationId);
+    const exec = async (tx: ProductsRepositoryTransaction): Promise<number> => {
+      await this.bundles.lockBundleOptionRow(tx, bundleOptionId, organizationId);
+      const bundle = await this.bundles.findBundleOptionId(tx, bundleOptionId, organizationId);
       if (!bundle) throw new NotFoundException('bundle option not found');
-      const components = await listActiveBundleComponentsWithStock(
+      const components = await this.bundles.listActiveBundleComponentsWithStock(
         tx,
         bundleOptionId,
         organizationId,
@@ -66,7 +71,7 @@ export class BundleStockService implements ProductBundleStockPort {
           currentStock: c.componentOption.inventory?.currentStock ?? null,
         })),
       );
-      const count = await writeBundleAvailableStock(
+      const count = await this.bundles.writeBundleAvailableStock(
         tx,
         bundleOptionId,
         organizationId,
@@ -77,7 +82,7 @@ export class BundleStockService implements ProductBundleStockPort {
     };
     return outerTx
       ? exec(outerTx)
-      : this.prisma.$transaction(exec, { timeout: 15000 });
+      : this.transactions.run(exec, { timeout: 15000 });
   }
 
   /**
@@ -95,9 +100,9 @@ export class BundleStockService implements ProductBundleStockPort {
   async recomputeForComponent(
     organizationId: string,
     componentOptionId: string,
-    tx: Prisma.TransactionClient,
+    tx: ProductsRepositoryTransaction,
   ): Promise<string[]> {
-    const components = await listBundlesUsingComponent(
+    const components = await this.bundles.listBundlesUsingComponent(
       tx,
       componentOptionId,
       organizationId,

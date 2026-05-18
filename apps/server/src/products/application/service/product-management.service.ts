@@ -1,17 +1,19 @@
-import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Inject, Injectable } from '@nestjs/common';
 import type {
   ProductManagementListItem,
   ProductManagementListResponse,
   ProductManagementPipelineCounts,
 } from '@kiditem/shared/product';
-import { PrismaService } from '../../../prisma/prisma.service';
 import { ListMastersQuery } from '../../dto/list-masters.query';
-import { buildProductManagementMasterWhere } from './product-management.filters';
-import { ProductManagementEnrichmentService, MASTER_WITH_IMAGES, type MasterWithImageRows } from './product-management-enrichment.service';
+import { ProductManagementEnrichmentService, type MasterWithImageRows } from './product-management-enrichment.service';
 import { ProductManagementFactsService } from './product-management-facts.service';
 import { ProductManagementGradeService } from './product-management-grade.service';
 import { buildPipelineCounts, emptyPipelineCounts } from './product-management-pipeline';
+import {
+  PRODUCT_MANAGEMENT_REPOSITORY_PORT,
+  type ProductManagementMasterWhereInput,
+  type ProductManagementRepositoryPort,
+} from '../port/out/product-management.repository.port';
 import type {
   ManagementFacts,
   ProductManagementGradeInfo,
@@ -22,7 +24,8 @@ export type { ProductManagementListItem, ProductManagementPipelineCounts } from 
 @Injectable()
 export class ProductManagementService {
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PRODUCT_MANAGEMENT_REPOSITORY_PORT)
+    private readonly management: ProductManagementRepositoryPort,
     private readonly facts: ProductManagementFactsService,
     private readonly grades: ProductManagementGradeService,
     private readonly enrichment: ProductManagementEnrichmentService,
@@ -35,15 +38,15 @@ export class ProductManagementService {
     const page = q.page ?? 1;
     const limit = q.limit ?? 20;
     const matchingIds = await this.resolveAdvancedFilterMasterIds(organizationId, q);
-    const where = this.masterWhere(organizationId, q, matchingIds);
     if (matchingIds !== null && matchingIds.length === 0) {
       return { items: [], total: 0, page, limit, nextCursor: null } satisfies ProductManagementListResponse;
     }
+    const whereInput = this.masterWhere(organizationId, q, matchingIds);
     const gradeByMaster = await this.gradeByMaster(organizationId, q.period ?? 14);
 
     const [total, rows] = await Promise.all([
-      this.prisma.masterProduct.count({ where }),
-      this.managementPageRows(organizationId, where, page, limit),
+      this.management.countMasters(whereInput),
+      this.managementPageRows(organizationId, whereInput, page, limit),
     ]);
 
     const items = await this.enrichRows(organizationId, rows, q.period ?? 14, gradeByMaster);
@@ -65,9 +68,9 @@ export class ProductManagementService {
     const matchingIds = await this.resolveAdvancedFilterMasterIds(organizationId, query);
     if (matchingIds !== null && matchingIds.length === 0) return this.emptyPipelineCounts();
 
-    const where = this.masterWhere(organizationId, query, matchingIds);
-    const masters = await this.prisma.masterProduct.findMany({ where, select: { id: true } });
-    const masterIds = masters.map((master) => master.id);
+    const masterIds = await this.management.findPipelineMasterIds(
+      this.masterWhere(organizationId, query, matchingIds),
+    );
     if (masterIds.length === 0) return this.emptyPipelineCounts();
 
     const [facts, channelLinkedMasterIds] = await Promise.all([
@@ -85,15 +88,11 @@ export class ProductManagementService {
 
   private async managementPageRows(
     organizationId: string,
-    where: Prisma.MasterProductWhereInput,
+    whereInput: ProductManagementMasterWhereInput,
     page: number,
     limit: number,
   ): Promise<MasterWithImageRows[]> {
-    const candidates = await this.prisma.masterProduct.findMany({
-      where,
-      select: { id: true, createdAt: true },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    });
+    const candidates = await this.management.findManagementCandidates(whereInput);
     if (candidates.length === 0) return [];
 
     const inventory = await this.facts.inventoryByMaster(organizationId, candidates.map((row) => row.id));
@@ -106,20 +105,15 @@ export class ProductManagementService {
       .slice((page - 1) * limit, page * limit)
       .map((row) => row.id);
 
-    const rows = await this.prisma.masterProduct.findMany({
-      where: { organizationId, id: { in: orderedIds } },
-      include: MASTER_WITH_IMAGES,
-    }) as MasterWithImageRows[];
-    const order = new Map(orderedIds.map((id, index) => [id, index]));
-    return rows.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+    return this.management.findMastersByIds(organizationId, orderedIds);
   }
 
   private masterWhere(
     organizationId: string,
     q: ListMastersQuery,
     matchingIds: string[] | null,
-  ): Prisma.MasterProductWhereInput {
-    return buildProductManagementMasterWhere(organizationId, q, matchingIds);
+  ): ProductManagementMasterWhereInput {
+    return { organizationId, query: q, matchingIds };
   }
 
   private async resolveAdvancedFilterMasterIds(

@@ -18,7 +18,7 @@ import { BundleComponentsController } from '../adapter/in/http/bundle-components
 import { MastersService } from '../application/service/masters.service';
 import { OptionsService } from '../application/service/options.service';
 import { BundleComponentsService } from '../application/service/bundle-components.service';
-import { MasterCodeService } from '../adapter/out/prisma/master-code.service';
+import { MasterCodeRepositoryAdapter } from '../adapter/out/repository/master-code.repository.adapter';
 import { BundleStockService } from '../application/service/bundle-stock.service';
 import { MasterPromotionService } from '../application/service/master-promotion.service';
 import { CategoriesController } from '../categories/categories.controller';
@@ -71,7 +71,7 @@ describe('ProductsModule DI', () => {
     expect(moduleRef.get(MasterPromotionService)).toBeDefined();
     expect(moduleRef.get(OptionsService)).toBeDefined();
     expect(moduleRef.get(BundleComponentsService)).toBeDefined();
-    expect(moduleRef.get(MasterCodeService)).toBeDefined();
+    expect(moduleRef.get(MasterCodeRepositoryAdapter)).toBeDefined();
     expect(moduleRef.get(BundleStockService)).toBeDefined();
     expect(moduleRef.get(CategoriesService)).toBeDefined();
   });
