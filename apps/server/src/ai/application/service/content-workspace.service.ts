@@ -1,5 +1,10 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '../../../prisma/prisma.service';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT,
+  type ContentWorkspaceGenerationSnapshot,
+  type ContentWorkspaceLifecycleRepositoryPort,
+  type ContentWorkspaceSnapshot,
+} from '../port/out/content-workspace-lifecycle.repository.port';
 import { toDetailPageStoredJson } from './detail-page-stored.helpers';
 import type { DetailPageTemplateId } from './detail-page-ai.types';
 
@@ -52,63 +57,12 @@ export interface ContentWorkspaceSummary {
   }>;
 }
 
-interface ContentWorkspaceRow {
-  id: string;
-  ownerType: string;
-  sourceCandidateId: string | null;
-  targetMasterId: string | null;
-  displayName: string;
-  normalizedTitle: string;
-  status: string;
-  currentDetailPageArtifactId: string | null;
-  currentDetailPageRevisionId: string | null;
-  currentDetailPageArtifact: {
-    id: string;
-    currentRevisionId: string | null;
-    title: string | null;
-    sourceContentGenerationId: string | null;
-  } | null;
-  createdAt: Date;
-  updatedAt: Date;
-  _count?: { contentGenerations: number };
-  contentGenerations?: ContentWorkspaceGenerationRow[];
-}
-
-interface ContentWorkspaceGenerationRow {
-  id: string;
-  contentType: string;
-  status: string;
-  generatedTitle: string | null;
-  templateId: string | null;
-  generationInput: unknown;
-  generationResult: unknown;
-  detailPageArtifactId: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-interface ContentWorkspacePrisma {
-  contentGeneration: {
-    findFirst(args: unknown): Promise<{
-      id: string;
-      detailPageArtifactId: string | null;
-      detailPageArtifact: {
-        currentRevisionId: string | null;
-      } | null;
-    } | null>;
-  };
-  contentWorkspace: {
-    findFirst(args: unknown): Promise<ContentWorkspaceRow | null>;
-    findMany(args: unknown): Promise<ContentWorkspaceRow[]>;
-    count(args: unknown): Promise<number>;
-    create(args: unknown): Promise<ContentWorkspaceRow>;
-    updateMany(args: unknown): Promise<{ count: number }>;
-  };
-}
-
 @Injectable()
 export class ContentWorkspaceService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT)
+    private readonly repository: ContentWorkspaceLifecycleRepositoryPort,
+  ) {}
 
   async ensureForGeneration(input: {
     organizationId: string;
@@ -133,73 +87,15 @@ export class ContentWorkspaceService {
     const normalizedTitle = normalizeContentTitle(input.rawTitle);
     const displayName = displayTitle(input.rawTitle);
     const ownerType = ownerTypeFor(input);
-    const where = {
+    return this.repository.ensureActiveWorkspace({
       organizationId: input.organizationId,
       ownerType,
+      sourceCandidateId: input.sourceCandidateId,
+      targetMasterId: input.targetMasterId,
+      displayName,
       normalizedTitle,
-      status: 'active',
-      isDeleted: false,
-      ...(ownerType === 'sourcing_candidate'
-        ? { sourceCandidateId: input.sourceCandidateId }
-        : ownerType === 'master_product'
-          ? { targetMasterId: input.targetMasterId }
-          : { sourceCandidateId: null, targetMasterId: null }),
-    };
-    const prisma = this.prisma as unknown as ContentWorkspacePrisma;
-    const existing = await prisma.contentWorkspace.findFirst({
-      where,
-      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
-      select: {
-        id: true,
-        displayName: true,
-        normalizedTitle: true,
-      },
+      createdByUserId: input.triggeredByUserId,
     });
-    if (existing) {
-      return {
-        id: existing.id,
-        displayName: existing.displayName,
-        normalizedTitle: existing.normalizedTitle,
-      };
-    }
-    let created: Pick<ContentWorkspaceRow, 'id' | 'displayName' | 'normalizedTitle'>;
-    try {
-      created = await prisma.contentWorkspace.create({
-        data: {
-          organizationId: input.organizationId,
-          ownerType,
-          sourceCandidateId: input.sourceCandidateId,
-          targetMasterId: input.targetMasterId,
-          displayName,
-          normalizedTitle,
-          status: 'active',
-          createdByUserId: input.triggeredByUserId,
-        },
-        select: {
-          id: true,
-          displayName: true,
-          normalizedTitle: true,
-        },
-      });
-    } catch (error) {
-      if (!isUniqueConstraintError(error)) throw error;
-      const raced = await prisma.contentWorkspace.findFirst({
-        where,
-        orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
-        select: {
-          id: true,
-          displayName: true,
-          normalizedTitle: true,
-        },
-      });
-      if (!raced) throw error;
-      created = raced;
-    }
-    return {
-      id: created.id,
-      displayName: created.displayName,
-      normalizedTitle: created.normalizedTitle,
-    };
   }
 
   async checkDuplicate(
@@ -207,32 +103,9 @@ export class ContentWorkspaceService {
     rawTitle: string,
   ): Promise<{ exists: boolean; workspace: ContentWorkspaceSummary | null }> {
     const normalizedTitle = normalizeContentTitle(rawTitle);
-    const prisma = this.prisma as unknown as ContentWorkspacePrisma;
-    const row = await prisma.contentWorkspace.findFirst({
-      where: {
-        organizationId,
-        normalizedTitle,
-        status: 'active',
-        isDeleted: false,
-      },
-      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
-      select: {
-        id: true,
-        ownerType: true,
-        sourceCandidateId: true,
-        targetMasterId: true,
-        displayName: true,
-        normalizedTitle: true,
-        status: true,
-        currentDetailPageArtifactId: true,
-        currentDetailPageRevisionId: true,
-        createdAt: true,
-        updatedAt: true,
-        _count: { select: { contentGenerations: true } },
-        currentDetailPageArtifact: {
-          select: { sourceContentGenerationId: true },
-        },
-      },
+    const row = await this.repository.findDuplicateByNormalizedTitle({
+      organizationId,
+      normalizedTitle,
     });
     return {
       exists: Boolean(row),
@@ -244,15 +117,7 @@ export class ContentWorkspaceService {
     organizationId: string,
     workspaceId: string,
   ): Promise<ContentWorkspaceSummary> {
-    const prisma = this.prisma as unknown as ContentWorkspacePrisma;
-    const row = await prisma.contentWorkspace.findFirst({
-      where: {
-        id: workspaceId,
-        organizationId,
-        isDeleted: false,
-      },
-      include: workspaceInclude(),
-    });
+    const row = await this.repository.getById({ organizationId, workspaceId });
     if (!row) throw new NotFoundException('Content workspace not found');
     return this.toSummary(row);
   }
@@ -265,24 +130,13 @@ export class ContentWorkspaceService {
     const normalizedTitle = query.normalizedTitle
       ? normalizeContentTitle(query.normalizedTitle)
       : null;
-    const where = {
+    const { total, rows } = await this.repository.listActive({
       organizationId,
       status: query.status ?? 'active',
-      isDeleted: false,
-      ownerType: { not: 'sourcing_candidate' },
-      ...(normalizedTitle ? { normalizedTitle } : {}),
-    };
-    const prisma = this.prisma as unknown as ContentWorkspacePrisma;
-    const [total, rows] = await Promise.all([
-      prisma.contentWorkspace.count({ where }),
-      prisma.contentWorkspace.findMany({
-        where,
-        orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
-        skip: (page - 1) * limit,
-        take: limit,
-        include: workspaceInclude(),
-      }),
-    ]);
+      normalizedTitle,
+      page,
+      limit,
+    });
     return {
       items: rows.map((row) => this.toSummary(row)),
       total,
@@ -296,21 +150,13 @@ export class ContentWorkspaceService {
     workspaceId: string,
   ): Promise<{ ok: true; archivedWorkspaces: number }> {
     const archivedAt = new Date();
-    const prisma = this.prisma as unknown as ContentWorkspacePrisma;
-    const result = await prisma.contentWorkspace.updateMany({
-      where: {
-        id: workspaceId,
-        organizationId,
-        isDeleted: false,
-      },
-      data: {
-        status: 'archived',
-        isDeleted: true,
-        deletedAt: archivedAt,
-      },
+    const archivedWorkspaces = await this.repository.archive({
+      organizationId,
+      workspaceId,
+      archivedAt,
     });
-    if (result.count === 0) throw new NotFoundException('Content workspace not found');
-    return { ok: true, archivedWorkspaces: result.count };
+    if (archivedWorkspaces === 0) throw new NotFoundException('Content workspace not found');
+    return { ok: true, archivedWorkspaces };
   }
 
   async selectCurrentDetailPage(input: {
@@ -318,46 +164,27 @@ export class ContentWorkspaceService {
     workspaceId: string;
     contentGenerationId: string;
   }): Promise<ContentWorkspaceSummary> {
-    const prisma = this.prisma as unknown as ContentWorkspacePrisma;
-    const generation = await prisma.contentGeneration.findFirst({
-      where: {
-        id: input.contentGenerationId,
-        organizationId: input.organizationId,
-        contentWorkspaceId: input.workspaceId,
-        contentType: 'detail_page',
-        isDeleted: false,
-      },
-      select: {
-        id: true,
-        detailPageArtifactId: true,
-        detailPageArtifact: {
-          select: {
-            currentRevisionId: true,
-          },
-        },
-      },
+    const generation = await this.repository.findSelectableDetailPageGeneration({
+      organizationId: input.organizationId,
+      workspaceId: input.workspaceId,
+      contentGenerationId: input.contentGenerationId,
     });
     if (!generation) throw new NotFoundException('Detail page generation not found');
     if (!generation.detailPageArtifactId) {
       throw new BadRequestException('Detail page artifact is not ready');
     }
 
-    const updated = await prisma.contentWorkspace.updateMany({
-      where: {
-        id: input.workspaceId,
-        organizationId: input.organizationId,
-        isDeleted: false,
-      },
-      data: {
-        currentDetailPageArtifactId: generation.detailPageArtifactId,
-        currentDetailPageRevisionId: generation.detailPageArtifact?.currentRevisionId ?? null,
-      },
+    const updated = await this.repository.selectCurrentDetailPage({
+      organizationId: input.organizationId,
+      workspaceId: input.workspaceId,
+      detailPageArtifactId: generation.detailPageArtifactId,
+      detailPageRevisionId: generation.detailPageArtifact?.currentRevisionId ?? null,
     });
-    if (updated.count === 0) throw new NotFoundException('Content workspace not found');
+    if (updated === 0) throw new NotFoundException('Content workspace not found');
     return this.get(input.organizationId, input.workspaceId);
   }
 
-  private toSummary(row: ContentWorkspaceRow): ContentWorkspaceSummary {
+  private toSummary(row: ContentWorkspaceSnapshot): ContentWorkspaceSummary {
     const history = [...(row.contentGenerations ?? [])]
       .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
     const latest = history[0] ?? null;
@@ -392,7 +219,7 @@ export class ContentWorkspaceService {
     };
   }
 
-  private toHistoryItem(workspaceId: string, generation: ContentWorkspaceGenerationRow) {
+  private toHistoryItem(workspaceId: string, generation: ContentWorkspaceGenerationSnapshot) {
     const detailProjection = projectDetailPageGeneration(generation);
     return {
       id: generation.id,
@@ -412,7 +239,7 @@ export class ContentWorkspaceService {
   }
 }
 
-function projectDetailPageGeneration(generation: ContentWorkspaceGenerationRow): {
+function projectDetailPageGeneration(generation: ContentWorkspaceGenerationSnapshot): {
   detailPageData: Record<string, unknown> | null;
   imageUrls: string[];
   processedImages: Record<string, string>;
@@ -499,40 +326,6 @@ function toDuplicateSummary(row: {
   };
 }
 
-function workspaceInclude() {
-  return {
-    currentDetailPageArtifact: {
-      select: {
-        id: true,
-        currentRevisionId: true,
-        title: true,
-        sourceContentGenerationId: true,
-      },
-    },
-    currentDetailPageRevision: {
-      select: { id: true, revisionType: true, createdAt: true },
-    },
-    _count: { select: { contentGenerations: true } },
-    contentGenerations: {
-      where: { isDeleted: false },
-      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
-      take: 20,
-      select: {
-        id: true,
-        contentType: true,
-        status: true,
-        generatedTitle: true,
-        templateId: true,
-        generationInput: true,
-        generationResult: true,
-        detailPageArtifactId: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    },
-  };
-}
-
 function displayTitle(value: string): string {
   return value.trim().replace(/\s+/g, ' ').slice(0, 120) || '상세페이지 작업';
 }
@@ -553,11 +346,4 @@ function normalizePage(pageRaw?: number, limitRaw?: number): { page: number; lim
     Math.max(1, Number.isFinite(limitRaw) && limitRaw ? Math.floor(limitRaw) : 24),
   );
   return { page, limit };
-}
-
-function isUniqueConstraintError(error: unknown): boolean {
-  return typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as { code?: unknown }).code === 'P2002';
 }

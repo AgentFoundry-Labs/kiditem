@@ -20,12 +20,14 @@ ai/
 │   ├── image-fetch/          # guarded remote image fetch adapter
 │   ├── prisma/               # Prisma persistence/query helpers
 │   ├── products/             # product/content lookup adapters
+│   ├── repository/           # reconstructed Prisma repository/query adapters
 │   └── wing/                 # Wing automation adapter
 ├── application/
 │   ├── port/in/              # inbound ports exposed to other domains
 │   ├── port/out/             # provider/repository/runtime/sink ports
 │   └── service/              # use-case orchestration
-└── domain/                   # pure schemas, prompts, policy helpers
+├── domain/                   # pure schemas, prompts, policy helpers
+└── mapper/                   # row/DTO/domain mapping
 ```
 
 ## Owned Surfaces

@@ -45,6 +45,18 @@ import { ThumbnailImageFetcherService } from './adapter/out/image-fetch/thumbnai
 import { ThumbnailGenerationEventAdapter } from './adapter/out/prisma/thumbnail-generation-event.adapter';
 import { ThumbnailWingPersistence } from './adapter/out/prisma/thumbnail-wing.persistence';
 import { MasterCatalogAdapter } from './adapter/out/products/master-catalog.adapter';
+import { ContentArchiveRepositoryAdapter } from './adapter/out/repository/content-archive.repository.adapter';
+import { ContentAssetLibraryRepositoryAdapter } from './adapter/out/repository/content-asset-library.repository.adapter';
+import { ContentWorkspaceAttachmentRepositoryAdapter } from './adapter/out/repository/content-workspace-attachment.repository.adapter';
+import { ContentWorkspaceLifecycleRepositoryAdapter } from './adapter/out/repository/content-workspace-lifecycle.repository.adapter';
+import { DetailPageGenerationRepositoryAdapter } from './adapter/out/repository/detail-page-generation.repository.adapter';
+import { DetailPageQueryRepositoryAdapter } from './adapter/out/repository/detail-page-query.repository.adapter';
+import { DetailPageReconcileRepositoryAdapter } from './adapter/out/repository/detail-page-reconcile.repository.adapter';
+import { PostPromotionGenerationRepositoryAdapter } from './adapter/out/repository/post-promotion-generation.repository.adapter';
+import { ProductWorkspaceGroupRepositoryAdapter } from './adapter/out/repository/product-workspace-group.repository.adapter';
+import { ProductGenerationContextRepositoryAdapter } from './adapter/out/repository/product-generation-context.repository.adapter';
+import { ProductGenerationChildLedgerRepositoryAdapter } from './adapter/out/repository/product-generation-child-ledger.repository.adapter';
+import { SourcingWorkspaceArchiveRepositoryAdapter } from './adapter/out/repository/sourcing-workspace-archive.repository.adapter';
 import { WingAutomationRunner } from './adapter/out/wing/wing-automation-runner';
 
 // application/service
@@ -103,6 +115,12 @@ import { THUMBNAIL_AGENT_OUTPUT_SINK_PORT } from './application/port/out/thumbna
 import { COUPANG_INVENTORY_SCRAPE_PORT } from './application/port/out/coupang-inventory-scrape.port';
 import { COUPANG_PRODUCT_SALES_SCRAPE_PORT } from './application/port/out/coupang-product-sales-scrape.port';
 import { COUPANG_IMAGE_RECONCILIATION_PORT } from './application/port/out/coupang-image-reconciliation.port';
+import { CONTENT_ARCHIVE_REPOSITORY_PORT } from './application/port/out/content-archive.repository.port';
+import { CONTENT_ASSET_LIBRARY_REPOSITORY_PORT } from './application/port/out/content-asset-library.repository.port';
+import { CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT } from './application/port/out/content-workspace-lifecycle.repository.port';
+import { DETAIL_PAGE_GENERATION_REPOSITORY_PORT } from './application/port/out/detail-page-generation.repository.port';
+import { DETAIL_PAGE_QUERY_REPOSITORY_PORT } from './application/port/out/detail-page-query.repository.port';
+import { DETAIL_PAGE_RECONCILE_REPOSITORY_PORT } from './application/port/out/detail-page-reconcile.repository.port';
 import { IMAGE_EDIT_MEDIA_PORT } from './application/port/out/image-edit-media.port';
 import { IMAGE_FETCH_PORT } from './application/port/out/image-fetch.port';
 import { IMAGE_STORAGE_PORT } from './application/port/out/image-storage.port';
@@ -111,6 +129,12 @@ import { TEXT_COMPLETION_PORT } from './application/port/out/text-completion.por
 import { THUMBNAIL_GENERATION_EVENT_PORT } from './application/port/out/thumbnail-generation-event.port';
 import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.port';
 import { AI_OPERATION_ALERT_PORT } from './application/port/out/operation-alert.port';
+import { POST_PROMOTION_GENERATION_REPOSITORY_PORT } from './application/port/out/post-promotion-generation.repository.port';
+import { CONTENT_WORKSPACE_ATTACHMENT_REPOSITORY_PORT } from './application/port/out/content-workspace-attachment.repository.port';
+import { PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT } from './application/port/out/product-generation-context.repository.port';
+import { PRODUCT_GENERATION_CHILD_LEDGER_REPOSITORY_PORT } from './application/port/out/product-generation-child-ledger.repository.port';
+import { PRODUCT_WORKSPACE_GROUP_REPOSITORY_PORT } from './application/port/out/product-workspace-group.repository.port';
+import { SOURCING_WORKSPACE_ARCHIVE_REPOSITORY_PORT } from './application/port/out/sourcing-workspace-archive.repository.port';
 
 @Module({
   imports: [ChannelsModule, AgentOsModule, AutomationModule],
@@ -199,6 +223,18 @@ import { AI_OPERATION_ALERT_PORT } from './application/port/out/operation-alert.
     GeminiThumbnailVisionAdapter,
     ImageEditGeminiMediaAdapter,
     MasterCatalogAdapter,
+    ContentArchiveRepositoryAdapter,
+    ContentAssetLibraryRepositoryAdapter,
+    ContentWorkspaceAttachmentRepositoryAdapter,
+    ContentWorkspaceLifecycleRepositoryAdapter,
+    DetailPageGenerationRepositoryAdapter,
+    DetailPageQueryRepositoryAdapter,
+    DetailPageReconcileRepositoryAdapter,
+    PostPromotionGenerationRepositoryAdapter,
+    ProductWorkspaceGroupRepositoryAdapter,
+    ProductGenerationContextRepositoryAdapter,
+    ProductGenerationChildLedgerRepositoryAdapter,
+    SourcingWorkspaceArchiveRepositoryAdapter,
     ThumbnailGenerationEventAdapter,
     ThumbnailImageFetcherService,
     ThumbnailReferenceImagesService,
@@ -232,6 +268,54 @@ import { AI_OPERATION_ALERT_PORT } from './application/port/out/operation-alert.
     { provide: IMAGE_STORAGE_PORT, useExisting: StorageService },
     { provide: DETAIL_PAGE_MEDIA_PORT, useExisting: DetailPageGeminiMediaAdapter },
     { provide: MASTER_CATALOG_PORT, useExisting: MasterCatalogAdapter },
+    {
+      provide: CONTENT_ARCHIVE_REPOSITORY_PORT,
+      useExisting: ContentArchiveRepositoryAdapter,
+    },
+    {
+      provide: CONTENT_ASSET_LIBRARY_REPOSITORY_PORT,
+      useExisting: ContentAssetLibraryRepositoryAdapter,
+    },
+    {
+      provide: CONTENT_WORKSPACE_ATTACHMENT_REPOSITORY_PORT,
+      useExisting: ContentWorkspaceAttachmentRepositoryAdapter,
+    },
+    {
+      provide: CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT,
+      useExisting: ContentWorkspaceLifecycleRepositoryAdapter,
+    },
+    {
+      provide: DETAIL_PAGE_GENERATION_REPOSITORY_PORT,
+      useExisting: DetailPageGenerationRepositoryAdapter,
+    },
+    {
+      provide: DETAIL_PAGE_QUERY_REPOSITORY_PORT,
+      useExisting: DetailPageQueryRepositoryAdapter,
+    },
+    {
+      provide: DETAIL_PAGE_RECONCILE_REPOSITORY_PORT,
+      useExisting: DetailPageReconcileRepositoryAdapter,
+    },
+    {
+      provide: POST_PROMOTION_GENERATION_REPOSITORY_PORT,
+      useExisting: PostPromotionGenerationRepositoryAdapter,
+    },
+    {
+      provide: PRODUCT_WORKSPACE_GROUP_REPOSITORY_PORT,
+      useExisting: ProductWorkspaceGroupRepositoryAdapter,
+    },
+    {
+      provide: PRODUCT_GENERATION_CHILD_LEDGER_REPOSITORY_PORT,
+      useExisting: ProductGenerationChildLedgerRepositoryAdapter,
+    },
+    {
+      provide: PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT,
+      useExisting: ProductGenerationContextRepositoryAdapter,
+    },
+    {
+      provide: SOURCING_WORKSPACE_ARCHIVE_REPOSITORY_PORT,
+      useExisting: SourcingWorkspaceArchiveRepositoryAdapter,
+    },
     { provide: TEXT_COMPLETION_PORT, useExisting: GeminiTextCompletionAdapter },
     { provide: THUMBNAIL_GENERATION_EVENT_PORT, useExisting: ThumbnailGenerationEventAdapter },
     { provide: AI_OPERATION_ALERT_PORT, useExisting: AiOperationAlertAdapter },

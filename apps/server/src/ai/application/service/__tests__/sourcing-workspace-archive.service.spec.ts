@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { SourcingWorkspaceArchiveRepositoryPort } from '../../port/out/sourcing-workspace-archive.repository.port';
 import { SourcingWorkspaceArchiveService } from '../sourcing-workspace-archive.service';
 
 const ORG = '11111111-1111-4111-8111-111111111111';
@@ -6,29 +7,34 @@ const CANDIDATE_ID = '22222222-2222-4222-8222-222222222222';
 const ARCHIVED_AT = new Date('2026-05-15T08:00:00.000Z');
 
 describe('AI SourcingWorkspaceArchiveService', () => {
-  it('archives candidate-bound detail-page, content asset, and thumbnail outputs without touching adopted product data', async () => {
-    const tx = {
+  it('delegates candidate AI artifact archival to the archive repository', async () => {
+    const scope = {
       contentGeneration: {
-        findMany: vi.fn().mockResolvedValue([
-          { id: 'generation-1' },
-          { id: 'generation-2' },
-        ]),
-        updateMany: vi.fn().mockResolvedValue({ count: 2 }),
+        findMany: vi.fn(),
+        updateMany: vi.fn(),
       },
       detailPageArtifact: {
-        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        updateMany: vi.fn(),
       },
       contentAsset: {
-        updateMany: vi.fn().mockResolvedValue({ count: 3 }),
+        updateMany: vi.fn(),
       },
       thumbnailGeneration: {
-        updateMany: vi.fn().mockResolvedValue({ count: 4 }),
+        updateMany: vi.fn(),
       },
     };
-    const service = new SourcingWorkspaceArchiveService();
+    const repository: SourcingWorkspaceArchiveRepositoryPort = {
+      archiveSourcingWorkspace: vi.fn().mockResolvedValue({
+        archivedContentGenerations: 2,
+        archivedDetailPageArtifacts: 1,
+        archivedContentAssets: 3,
+        archivedThumbnailGenerations: 4,
+      }),
+    };
+    const service = new SourcingWorkspaceArchiveService(repository);
 
     await expect(
-      service.archiveSourcingWorkspace(tx as never, {
+      service.archiveSourcingWorkspace(scope, {
         organizationId: ORG,
         sourceCandidateId: CANDIDATE_ID,
         archivedAt: ARCHIVED_AT,
@@ -40,44 +46,10 @@ describe('AI SourcingWorkspaceArchiveService', () => {
       archivedThumbnailGenerations: 4,
     });
 
-    expect(tx.contentGeneration.findMany).toHaveBeenCalledWith({
-      where: {
-        organizationId: ORG,
-        isDeleted: false,
-        OR: [
-          { sourceCandidateId: CANDIDATE_ID },
-          { sources: { some: { sourceCandidateId: CANDIDATE_ID } } },
-          { detailPageArtifact: { is: { sourceCandidateId: CANDIDATE_ID } } },
-        ],
-      },
-      select: { id: true },
-    });
-    expect(tx.detailPageArtifact.updateMany).toHaveBeenCalledWith({
-      where: {
-        organizationId: ORG,
-        isDeleted: false,
-        OR: [
-          { sourceCandidateId: CANDIDATE_ID },
-          { sourceContentGenerationId: { in: ['generation-1', 'generation-2'] } },
-        ],
-      },
-      data: { isDeleted: true, deletedAt: ARCHIVED_AT },
-    });
-    expect(tx.contentGeneration.updateMany).toHaveBeenCalledWith({
-      where: {
-        organizationId: ORG,
-        isDeleted: false,
-        id: { in: ['generation-1', 'generation-2'] },
-      },
-      data: { isDeleted: true, deletedAt: ARCHIVED_AT },
-    });
-    expect(tx.thumbnailGeneration.updateMany).toHaveBeenCalledWith({
-      where: {
-        organizationId: ORG,
-        sourceCandidateId: CANDIDATE_ID,
-        isDeleted: false,
-      },
-      data: { isDeleted: true, deletedAt: ARCHIVED_AT },
+    expect(repository.archiveSourcingWorkspace).toHaveBeenCalledWith(scope, {
+      organizationId: ORG,
+      sourceCandidateId: CANDIDATE_ID,
+      archivedAt: ARCHIVED_AT,
     });
   });
 });
