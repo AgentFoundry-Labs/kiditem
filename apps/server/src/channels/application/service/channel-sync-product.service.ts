@@ -1,26 +1,18 @@
-import { BadRequestException, type Logger } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
-import { PrismaService } from '../../../prisma/prisma.service';
+import { type Logger } from '@nestjs/common';
 import type { CoupangProviderPort } from '../port/out/coupang-provider.port';
+import type { ChannelSyncRepositoryPort, SyncResult } from '../port/out/channel-sync.repository.port';
 import { isCoupangCredentialResolutionError } from './channel-account.service';
-import type { SyncResult } from './types';
 
 type SyncLogger = Pick<Logger, 'error' | 'log'>;
 
 interface ProductSyncDeps {
-  prisma: PrismaService;
+  syncRepository: ChannelSyncRepositoryPort;
   coupang: CoupangProviderPort;
   logger: SyncLogger;
-  normalizeProductStatus(raw: string | null | undefined): string | undefined;
 }
 
 const PRODUCT_PAGE_SIZE = 50;
 const MAX_PRODUCT_PAGES = 200;
-
-type ListingForProductSync = {
-  id: string;
-  channelAccountId: string | null;
-};
 
 /**
  * Coupang seller-product -> ChannelListing/ChannelListingOption refresh.
@@ -37,17 +29,7 @@ export async function syncCoupangProducts(
   let pages = 0;
 
   try {
-    const channelAccount = await deps.prisma.channelAccount.findFirst({
-      where: {
-        organizationId,
-        channel: 'coupang',
-        isPrimary: true,
-        status: 'active',
-      },
-      orderBy: { updatedAt: 'desc' },
-      select: { id: true },
-    });
-    const channelAccountId = channelAccount?.id ?? null;
+    const channelAccountId = await deps.syncRepository.getPrimaryCoupangAccountId(organizationId);
 
     do {
       const listResponse = await deps.coupang.getSellerProducts(organizationId, {
@@ -67,13 +49,36 @@ export async function syncCoupangProducts(
       for (const summary of items) {
         const sellerProductId = String(summary.sellerProductId);
         try {
-          await syncSingleProductListing(
-            deps,
-            sellerProductId,
+          const preflight = await deps.syncRepository.syncSingleProductListing({
             organizationId,
-            result,
+            sellerProductId,
             channelAccountId,
+          });
+          if (!preflight.synced) {
+            if (preflight.detail) result.details?.push(preflight.detail);
+            continue;
+          }
+
+          const detailResponse = await deps.coupang.getSellerProduct(
+            organizationId,
+            sellerProductId,
           );
+          if (detailResponse.code !== 'SUCCESS') {
+            throw new Error(
+              `detail ${detailResponse.code}: ${detailResponse.message || 'Unknown API error'}`,
+            );
+          }
+          if (!detailResponse.data) {
+            throw new Error('detail returned no data');
+          }
+
+          await deps.syncRepository.updateSingleProductListing({
+            organizationId,
+            sellerProductId,
+            channelAccountId,
+            detail: detailResponse.data,
+          });
+          result.synced += 1;
         } catch (error: unknown) {
           result.errors += 1;
           const message = error instanceof Error ? error.message : 'Unknown error';
@@ -103,151 +108,4 @@ export async function syncCoupangProducts(
     `Product sync complete: ${result.synced} synced, ${result.errors} errors`,
   );
   return result;
-}
-
-async function syncSingleProductListing(
-  deps: ProductSyncDeps,
-  sellerProductId: string,
-  organizationId: string,
-  result: SyncResult,
-  channelAccountId: string | null,
-): Promise<void> {
-  const existing = await findExistingListingForProductSync(
-    deps,
-    organizationId,
-    sellerProductId,
-    channelAccountId,
-    result,
-  );
-  if (!existing) {
-    result.details?.push(
-      `Listing ${sellerProductId}: no matching ChannelListing — create via product import / admin UI first`,
-    );
-    return;
-  }
-
-  const detailResponse = await deps.coupang.getSellerProduct(organizationId, sellerProductId);
-  if (detailResponse.code !== 'SUCCESS') {
-    throw new Error(
-      `detail ${detailResponse.code}: ${detailResponse.message || 'Unknown API error'}`,
-    );
-  }
-  const detail = detailResponse.data;
-  if (!detail) {
-    throw new Error('detail returned no data');
-  }
-
-  await deps.prisma.$transaction(
-    async (tx) => {
-      const updated = await tx.channelListing.updateMany({
-        where: {
-          id: existing.id,
-          organizationId,
-          channel: 'coupang',
-          externalId: sellerProductId,
-          channelAccountId: existing.channelAccountId,
-          isDeleted: false,
-        },
-        data: {
-          channelName: detail.sellerProductName ?? null,
-          status: deps.normalizeProductStatus(detail.statusName),
-          deliveryChargeType: detail.deliveryChargeType ?? null,
-          freeShipOverAmount: detail.freeShipOverAmount ?? null,
-          returnCharge: detail.returnCharge ?? null,
-          deliveryInfo: detail.deliveryInfo === undefined
-            ? Prisma.DbNull
-            : (detail.deliveryInfo as Prisma.InputJsonValue),
-          ...(channelAccountId && existing.channelAccountId === null
-            ? { channelAccountId }
-            : {}),
-        },
-      });
-      if (updated.count !== 1) {
-        throw new BadRequestException(
-          `ChannelListing ${sellerProductId} is no longer active for this organization`,
-        );
-      }
-
-      const items = Array.isArray(detail.items) ? detail.items : [];
-      for (const item of items) {
-        if (!item.vendorItemId) {
-          throw new BadRequestException(
-            `Coupang item missing vendorItemId — cannot upsert (sellerProductId=${sellerProductId})`,
-          );
-        }
-        const externalOptionId = String(item.vendorItemId);
-
-        await tx.channelListingOption.upsert({
-          where: {
-            listingId_externalOptionId: {
-              listingId: existing.id,
-              externalOptionId,
-            },
-          },
-          update: {
-            itemName: item.itemName ?? null,
-            salePrice: item.salePrice ?? null,
-            isActive: true,
-          },
-          create: {
-            organizationId,
-            listingId: existing.id,
-            externalOptionId,
-            itemName: item.itemName ?? null,
-            salePrice: item.salePrice ?? null,
-            isActive: true,
-          },
-        });
-      }
-    },
-    { timeout: 15_000 },
-  );
-
-  result.synced += 1;
-}
-
-async function findExistingListingForProductSync(
-  deps: ProductSyncDeps,
-  organizationId: string,
-  sellerProductId: string,
-  channelAccountId: string | null,
-  result: SyncResult,
-): Promise<ListingForProductSync | null> {
-  const listings = await deps.prisma.channelListing.findMany({
-    where: {
-      organizationId,
-      channel: 'coupang',
-      externalId: sellerProductId,
-      isDeleted: false,
-      ...(channelAccountId
-        ? {
-            OR: [
-              { channelAccountId },
-              { channelAccountId: null },
-            ],
-          }
-        : {}),
-    },
-    select: { id: true, channelAccountId: true },
-    orderBy: [{ channelAccountId: 'asc' }, { updatedAt: 'desc' }],
-    take: channelAccountId ? 3 : 2,
-  });
-  if (channelAccountId) {
-    const accountListing = listings.find((listing) => listing.channelAccountId === channelAccountId);
-    if (accountListing) return accountListing;
-    if (listings.length === 1 && listings[0]?.channelAccountId === null) return listings[0];
-    if (listings.length > 1) {
-      result.details?.push(
-        `Listing ${sellerProductId}: multiple accountless/account candidates — select the market account before sync`,
-      );
-    }
-    return null;
-  }
-  if (listings.length === 1) return listings[0];
-  if (listings.length > 1) {
-    result.details?.push(
-      `Listing ${sellerProductId}: multiple active ChannelListings — account identity is required`,
-    );
-  }
-  return null;
 }

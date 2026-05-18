@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { MarketplaceRegistrationService } from '../marketplace-registration.service';
+import { MarketplaceRegistrationRepositoryAdapter as MarketplaceRegistrationService } from '../../../adapter/out/repository/marketplace-registration.repository.adapter';
 
 describe('MarketplaceRegistrationService', () => {
   it('creates a ChannelListing only when confirmed external listing identity exists', async () => {

@@ -3,13 +3,25 @@ import {
   Logger,
   NotImplementedException,
   Inject,
+  Optional,
 } from '@nestjs/common';
-import { PrismaService } from '../../../prisma/prisma.service';
 import {
   COUPANG_PROVIDER_PORT,
   type CoupangProviderPort,
 } from '../port/out/coupang-provider.port';
+import {
+  CHANNEL_SYNC_REPOSITORY_PORT,
+  type ChannelSyncRepositoryPort,
+} from '../port/out/channel-sync.repository.port';
+import {
+  formatKstIso,
+  normalizeCoupangOrderStatus,
+} from '../../domain/coupang-normalization';
 import { ChannelAccountService } from './channel-account.service';
+import {
+  CHANNELS_OPERATION_ALERT_PORT,
+  type OperationAlertPort,
+} from '../port/out/operation-alert.port';
 import { syncCoupangOrders, syncSingleCoupangOrder } from './channel-sync-order.service';
 import { syncCoupangProducts } from './channel-sync-product.service';
 import { syncSingleCoupangReturn } from './channel-sync-return.service';
@@ -20,55 +32,35 @@ import type {
   CoupangSyncReturnPayload,
 } from './types';
 
-/**
- * Coupang raw status → 내부 canonical status 정규화. 현재 `NONE_TRACKING` (송장없는 배송)
- * 만 매핑 (DEPARTURE = 출고완료 와 동일 의미). UI pipeline 5-stage bucket 과 정합 유지.
- */
-export function normalizeCoupangOrderStatus(raw: string | null | undefined): string | undefined {
-  if (raw === 'NONE_TRACKING') return 'DEPARTURE';
-  return raw ?? undefined;
-}
+export { formatKstIso, normalizeCoupangOrderStatus };
 
-/**
- * Coupang seller_product `statusName` → 내부 ChannelListing `status`.
- * 새 raw status 는 lowercase fallback 으로 통과시키되, 매핑된 값은 product UI / strategy
- * 에서 안정적으로 쿼리할 수 있는 canonical 값으로 정규화한다. C1 — Wave C.
- */
-function normalizeCoupangProductStatus(
-  raw: string | null | undefined,
-): string | undefined {
-  if (!raw) return undefined;
-  switch (raw) {
-    case 'APPROVED':
-    case 'ON_SALE':
-      return 'active';
-    case 'SUSPEND':
-      return 'paused';
-    case 'DELETED':
-      return 'deleted';
-    case 'UNDER_EXAMINATION':
-    case 'REJECTED':
-      return 'draft';
-    default:
-      return raw.toLowerCase();
+const PRODUCT_SYNC_ALERT = {
+  operationKey: 'coupang-sync:products',
+  type: 'coupang_product_sync',
+  title: '쿠팡 상품 동기화',
+  sourceType: 'coupang_sync',
+  sourceId: 'products',
+  href: '/inventory',
+} as const;
+
+const ORDER_SYNC_ALERT = {
+  operationKey: 'coupang-sync:orders',
+  type: 'coupang_order_sync',
+  title: '쿠팡 주문 동기화',
+  sourceType: 'coupang_sync',
+  sourceId: 'orders',
+  href: '/orders',
+} as const;
+
+function resultMessage(label: string, result: SyncResult): string {
+  if (result.errors > 0) {
+    return `${label} 완료: ${result.synced}건 처리, ${result.errors}건 확인 필요`;
   }
+  return `${label} 완료: ${result.synced}건 처리`;
 }
 
-/**
- * Coupang KR market timestamp formatter. UTC instant 을 KST wall-clock 으로 변환하고
- * `+09:00` offset 을 명시한다. 예: `new Date('2026-04-25T00:30:00.000Z')`
- * (KST 09:30) → `'2026-04-25T09:30:00+09:00'`.
- */
-export function formatKstIso(d: Date): string {
-  const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
-  const kst = new Date(d.getTime() + KST_OFFSET_MS);
-  const yyyy = kst.getUTCFullYear();
-  const mm = String(kst.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(kst.getUTCDate()).padStart(2, '0');
-  const hh = String(kst.getUTCHours()).padStart(2, '0');
-  const mi = String(kst.getUTCMinutes()).padStart(2, '0');
-  const ss = String(kst.getUTCSeconds()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}+09:00`;
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Unknown error';
 }
 
 @Injectable()
@@ -76,9 +68,13 @@ export class ChannelSyncService {
   private readonly logger = new Logger(ChannelSyncService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(CHANNEL_SYNC_REPOSITORY_PORT)
+    private readonly syncRepository: ChannelSyncRepositoryPort,
     private readonly channelAccounts: ChannelAccountService,
     @Inject(COUPANG_PROVIDER_PORT) private readonly coupang: CoupangProviderPort,
+    @Optional()
+    @Inject(CHANNELS_OPERATION_ALERT_PORT)
+    private readonly operationAlerts?: OperationAlertPort,
   ) {}
 
   async checkHealth(organizationId: string): Promise<HealthResult> {
@@ -120,28 +116,104 @@ export class ChannelSyncService {
   async syncProducts(organizationId: string): Promise<SyncResult> {
     return syncCoupangProducts(
       {
-        prisma: this.prisma,
+        syncRepository: this.syncRepository,
         coupang: this.coupang,
         logger: this.logger,
-        normalizeProductStatus: normalizeCoupangProductStatus,
       },
       organizationId,
     );
   }
 
+  async syncProductsWithAlert(
+    organizationId: string,
+    actorUserId: string,
+  ): Promise<SyncResult> {
+    const alerts = this.requireOperationAlerts();
+    await alerts.start({
+      organizationId,
+      actorUserId,
+      ...PRODUCT_SYNC_ALERT,
+      message: '쿠팡 상품 데이터를 동기화하는 중입니다.',
+      progress: 0,
+    });
+
+    try {
+      const result = await this.syncProducts(organizationId);
+      await alerts.succeed(organizationId, PRODUCT_SYNC_ALERT.operationKey, {
+        message: resultMessage('쿠팡 상품 동기화', result),
+        href: PRODUCT_SYNC_ALERT.href,
+        severity: result.errors > 0 ? 'warning' : 'info',
+        metadata: {
+          synced: result.synced,
+          errors: result.errors,
+          details: result.details ?? [],
+        },
+      });
+      return result;
+    } catch (error: unknown) {
+      await alerts.fail(organizationId, PRODUCT_SYNC_ALERT.operationKey, {
+        message: `쿠팡 상품 동기화 실패: ${errorMessage(error)}`,
+        href: PRODUCT_SYNC_ALERT.href,
+        metadata: { error: errorMessage(error) },
+      });
+      throw error;
+    }
+  }
+
   async syncOrders(organizationId: string, from?: Date, to?: Date): Promise<SyncResult> {
     return syncCoupangOrders(
       {
-        prisma: this.prisma,
+        syncRepository: this.syncRepository,
         coupang: this.coupang,
         logger: this.logger,
         formatOrderDate: formatKstIso,
-        normalizeOrderStatus: normalizeCoupangOrderStatus,
       },
       organizationId,
       from,
       to,
     );
+  }
+
+  async syncOrdersWithAlert(
+    organizationId: string,
+    actorUserId: string,
+    from?: Date,
+    to?: Date,
+  ): Promise<SyncResult> {
+    const alerts = this.requireOperationAlerts();
+    await alerts.start({
+      organizationId,
+      actorUserId,
+      ...ORDER_SYNC_ALERT,
+      message: '쿠팡 주문 데이터를 동기화하는 중입니다.',
+      progress: 0,
+      metadata: {
+        from: from?.toISOString() ?? null,
+        to: to?.toISOString() ?? null,
+      },
+    });
+
+    try {
+      const result = await this.syncOrders(organizationId, from, to);
+      await alerts.succeed(organizationId, ORDER_SYNC_ALERT.operationKey, {
+        message: resultMessage('쿠팡 주문 동기화', result),
+        href: ORDER_SYNC_ALERT.href,
+        severity: result.errors > 0 ? 'warning' : 'info',
+        metadata: {
+          synced: result.synced,
+          errors: result.errors,
+          details: result.details ?? [],
+        },
+      });
+      return result;
+    } catch (error: unknown) {
+      await alerts.fail(organizationId, ORDER_SYNC_ALERT.operationKey, {
+        message: `쿠팡 주문 동기화 실패: ${errorMessage(error)}`,
+        href: ORDER_SYNC_ALERT.href,
+        metadata: { error: errorMessage(error) },
+      });
+      throw error;
+    }
   }
 
   async syncInventory(_organizationId: string): Promise<SyncResult> {
@@ -155,10 +227,9 @@ export class ChannelSyncService {
     organizationId: string,
   ): Promise<void> {
     return syncSingleCoupangOrder(
-      this.prisma,
+      this.syncRepository,
       payload,
       organizationId,
-      normalizeCoupangOrderStatus,
     );
   }
 
@@ -166,6 +237,13 @@ export class ChannelSyncService {
     payload: CoupangSyncReturnPayload,
     organizationId: string,
   ): Promise<void> {
-    return syncSingleCoupangReturn(this.prisma, payload, organizationId);
+    return syncSingleCoupangReturn(this.syncRepository, payload, organizationId);
+  }
+
+  private requireOperationAlerts(): OperationAlertPort {
+    if (!this.operationAlerts) {
+      throw new Error('CHANNELS_OPERATION_ALERT_PORT is not configured');
+    }
+    return this.operationAlerts;
   }
 }

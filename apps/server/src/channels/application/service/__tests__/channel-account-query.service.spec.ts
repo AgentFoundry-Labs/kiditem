@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ChannelAccountQueryService } from '../channel-account-query.service';
+import { ChannelAccountRepositoryAdapter } from '../../../adapter/out/repository/channel-account.repository.adapter';
 
 describe('ChannelAccountQueryService', () => {
   it('lists active channel accounts inside the current organization', async () => {
@@ -8,7 +8,7 @@ describe('ChannelAccountQueryService', () => {
         findMany: vi.fn().mockResolvedValue([]),
       },
     };
-    const service = new ChannelAccountQueryService(prisma as never);
+    const service = new ChannelAccountRepositoryAdapter(prisma as never);
 
     await service.listActive('org-1');
 

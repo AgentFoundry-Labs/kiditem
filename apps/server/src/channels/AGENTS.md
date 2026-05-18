@@ -5,9 +5,9 @@ listing reconciliation, and channel dashboard reads. Coupang provider calls are
 isolated under `adapter/out/coupang/`.
 
 Coupang provider access is hexagonal through `COUPANG_PROVIDER_PORT` and
-`adapter/out/coupang/`. Dashboard raw SQL and some reconciliation services are
-transitional; new provider APIs, retries, queues, or cross-domain writes require
-ports/adapters instead of direct service expansion.
+`adapter/out/coupang/`. Database, raw SQL, credential, sync, dashboard, and
+reconciliation persistence live behind `application/port/out/*` contracts and
+concrete adapters under `adapter/out/repository/`.
 
 ## Layout
 
@@ -17,8 +17,10 @@ channels/
   adapter/in/http/          channel listing/account, sync, dashboard, reconciliation controllers
   adapter/out/automation/   operation-alert consumer adapter
   adapter/out/coupang/      client, products/orders APIs, provider adapter
-  application/port/out/     COUPANG_PROVIDER_PORT + operation-alert consumer port
-  application/service/      account, sync, dashboard, reconciliation services
+  adapter/out/repository/   Prisma/raw-SQL repository adapters
+  application/port/out/     provider, operation-alert, repository ports
+  application/service/      use-case orchestration and alert lifecycle
+  domain/                   pure credential/normalization helpers
   adapters/coupang/orders.ts  compat shim only
 ```
 
@@ -28,9 +30,11 @@ Do not add new files under `adapters/coupang/` except compatibility shims.
 
 - Services depend on `COUPANG_PROVIDER_PORT`, not raw `fetch` or provider
   helper functions.
+- Services depend on repository/query ports for Prisma-backed reads and writes;
+  direct `PrismaService` imports belong under `adapter/out/repository/**`.
 - Operation-alert lifecycle writes depend on `CHANNELS_OPERATION_ALERT_PORT`;
-  controllers and services must not inject automation's `OperationAlertService`
-  directly.
+  application services own alert start/succeed/fail orchestration and must not
+  inject automation's `OperationAlertService` directly.
 - `coupang-client.ts` owns HMAC auth, timeout, response validation, and vendor
   id resolution.
 - Organization-specific credentials come from primary
@@ -63,7 +67,7 @@ Do not add new files under `adapters/coupang/` except compatibility shims.
 - Missing Coupang `vendorItemId` is fail-fast for option/order-line upsert
   because line identity cannot be proven.
 
-Status mapping lives in `application/service/channel-sync.service.ts`:
+Status mapping lives in `domain/coupang-normalization.ts`:
 
 | Coupang | Internal |
 |---|---|
@@ -77,8 +81,8 @@ Add mapping tests when status semantics change.
 
 ## Dashboard Raw SQL
 
-`channel-dashboard.service.ts` is a read-only transitional service with direct
-`PrismaService` and `$queryRaw`.
+`adapter/out/repository/channel-dashboard.repository.adapter.ts` owns read-only
+dashboard SQL behind `CHANNEL_DASHBOARD_REPOSITORY_PORT`.
 
 - Use Prisma tagged templates only; no string concatenation.
 - Bind `organizationId` as an organization predicate.
@@ -109,6 +113,7 @@ Add mapping tests when status semantics change.
 - Service-layer direct `fetch`/`coupangRequest`.
 - Direct import of `adapter/out/coupang/*` from services except through
   `COUPANG_PROVIDER_PORT`.
+- Direct `PrismaService` / `@prisma/client` imports from `application/**`.
 - Raw status stored without normalization.
 - Cross-organization dashboard queries.
 - Coupang credential env fallback.

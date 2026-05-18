@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ChannelListingQueryService } from '../channel-listing-query.service';
+import { ChannelListingRepositoryAdapter as ChannelListingQueryService } from '../../../adapter/out/repository/channel-listing.repository.adapter';
 
 function makePrisma() {
   return {

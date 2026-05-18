@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ChannelReconciliationController } from '../channel-reconciliation.controller';
-import { ChannelSyncController } from '../channel-sync.controller';
+import { ChannelReconciliationService } from '../../../../application/service/channel-reconciliation.service';
+import { ChannelSyncService } from '../../../../application/service/channel-sync.service';
 
 const ORGANIZATION_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const USER = {
@@ -20,25 +20,26 @@ function makeOperationAlerts() {
   };
 }
 
-describe('ChannelSyncController operation alerts', () => {
-  it('wraps product sync in an organization-scoped operation alert', async () => {
-    const syncService = {
-      checkHealth: vi.fn(),
-      syncProducts: vi.fn().mockResolvedValue({
-        synced: 3,
-        errors: 1,
-        details: ['Listing 123: no matching ChannelListing'],
-      }),
-      syncOrders: vi.fn(),
-      syncInventory: vi.fn(),
-    };
-    const operationAlerts = makeOperationAlerts();
-    const controller = new ChannelSyncController(
-      syncService as never,
-      operationAlerts as never,
-    );
+function makeChannelSyncService(operationAlerts: ReturnType<typeof makeOperationAlerts>) {
+  return new ChannelSyncService(
+    {} as never,
+    {} as never,
+    {} as never,
+    operationAlerts as never,
+  );
+}
 
-    const result = await controller.syncProducts(ORGANIZATION_ID, USER);
+describe('ChannelSyncService operation alerts', () => {
+  it('wraps product sync in an organization-scoped operation alert', async () => {
+    const operationAlerts = makeOperationAlerts();
+    const service = makeChannelSyncService(operationAlerts);
+    vi.spyOn(service, 'syncProducts').mockResolvedValue({
+      synced: 3,
+      errors: 1,
+      details: ['Listing 123: no matching ChannelListing'],
+    });
+
+    const result = await service.syncProductsWithAlert(ORGANIZATION_ID, USER.id);
 
     expect(result).toEqual({
       synced: 3,
@@ -74,23 +75,16 @@ describe('ChannelSyncController operation alerts', () => {
   });
 
   it('closes order sync alert as failed when the sync throws', async () => {
-    const syncService = {
-      checkHealth: vi.fn(),
-      syncProducts: vi.fn(),
-      syncOrders: vi.fn().mockRejectedValue(new Error('Coupang timeout')),
-      syncInventory: vi.fn(),
-    };
     const operationAlerts = makeOperationAlerts();
-    const controller = new ChannelSyncController(
-      syncService as never,
-      operationAlerts as never,
-    );
+    const service = makeChannelSyncService(operationAlerts);
+    vi.spyOn(service, 'syncOrders').mockRejectedValue(new Error('Coupang timeout'));
 
     await expect(
-      controller.syncOrders(
-        { from: '2026-05-01T00:00:00.000Z', to: '2026-05-02T00:00:00.000Z' },
+      service.syncOrdersWithAlert(
         ORGANIZATION_ID,
-        USER,
+        USER.id,
+        new Date('2026-05-01T00:00:00.000Z'),
+        new Date('2026-05-02T00:00:00.000Z'),
       ),
     ).rejects.toThrow('Coupang timeout');
 
@@ -116,34 +110,29 @@ describe('ChannelSyncController operation alerts', () => {
   });
 });
 
-describe('ChannelReconciliationController operation alerts', () => {
+describe('ChannelReconciliationService operation alerts', () => {
   it('wraps image-listing queue rebuild in an operation alert', async () => {
-    const service = {
-      scanFromRows: vi.fn(),
-      syncFromImageSyncedListings: vi.fn().mockResolvedValue({
-        runId: 'dddddddd-dddd-dddd-dddd-dddddddddddd',
-        totalCount: 5,
-        alreadyLinkedCount: 2,
-        autoLinkedCount: 1,
-        needsReviewCount: 1,
-        conflictCount: 1,
-        errorCount: 0,
-        optionLinkedCount: 3,
-        optionLinkAmbiguousCount: 0,
-        optionLinkNoCandidateCount: 1,
-      }),
-      getSummary: vi.fn(),
-      listItems: vi.fn(),
-      linkItem: vi.fn(),
-      ignoreItem: vi.fn(),
-    };
     const operationAlerts = makeOperationAlerts();
-    const controller = new ChannelReconciliationController(
-      service as never,
+    const service = new ChannelReconciliationService(
+      {} as never,
+      {} as never,
+      {} as never,
       operationAlerts as never,
     );
+    vi.spyOn(service, 'syncFromImageSyncedListings').mockResolvedValue({
+      runId: 'dddddddd-dddd-dddd-dddd-dddddddddddd',
+      totalCount: 5,
+      alreadyLinkedCount: 2,
+      autoLinkedCount: 1,
+      needsReviewCount: 1,
+      conflictCount: 1,
+      errorCount: 0,
+      optionLinkedCount: 3,
+      optionLinkAmbiguousCount: 0,
+      optionLinkNoCandidateCount: 1,
+    });
 
-    await controller.syncFromImageListings(ORGANIZATION_ID, USER);
+    await service.syncFromImageSyncedListingsWithAlert(ORGANIZATION_ID, USER.id);
 
     expect(operationAlerts.start).toHaveBeenCalledWith(
       expect.objectContaining({
