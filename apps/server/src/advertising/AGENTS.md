@@ -1,103 +1,42 @@
 # advertising — Ad Operations
 
-Advertising owns Coupang ad operations, scrape ingest, daily fact projection,
-strategy/action generation, and ad-action execution. It is organization-scoped
-and based on the products 3-layer model (`MasterProduct`, `ProductOption`,
-`ChannelListing`).
+`src/advertising/` owns Coupang ad operations, scrape ingest, daily fact
+projection, strategy/action generation, and ad-action execution. It works over
+the products 3-layer model (`MasterProduct`, `ProductOption`,
+`ChannelListing`) and is organization-scoped throughout.
 
-Advertising is hexagonal-complete: port/adapter, application, and domain lanes
-own ingest, daily facts, strategy/action generation, and ad-action execution.
-New behavior goes under the layout below. The legacy `services/` facade exists
-only for compatibility and must not receive new business logic.
-
-## Layout
+## Folder Map
 
 ```text
 advertising/
-  adapter/in/http/             /api/ads/* controllers
-  adapter/in/http/dto/         HTTP DTO classes (moved from root dto/)
-  adapter/out/repository/      13 *.repository.adapter.ts + daily-fact-helpers.ts
-  adapter/out/automation/      cross-domain consumer adapter (operation-alert.adapter.ts)
-  application/port/out/        14 outgoing ports + daily-fact-meta.ts + repository-transaction.ts
-  application/service/         orchestration (Prisma-free) + 4 @Injectable() ingest handler classes
-  domain/                      pure rules/normalizers/metrics/policies + ad-trend.ts
-  domain/util/                 pure helpers (moved from root util/)
-  mapper/                      row/DTO/domain mapping
-  services/                    grandfathered facade only (channel-scrape-persistence.service.ts)
+├── adapter/in/http/          # /api/ads/* controllers and HTTP DTOs
+├── adapter/out/
+│   ├── automation/           # operation-alert adapter
+│   └── repository/           # Prisma/raw-fact repository adapters
+├── application/
+│   ├── port/out/             # repository, transaction, operation-alert ports
+│   └── service/              # Prisma-free orchestration + ingest handlers
+├── domain/                   # pure rules, normalizers, metrics, policies
+│   └── util/                 # ratio/date/key helpers
+├── mapper/                   # row/DTO/domain mapping
+└── services/                 # legacy facade only
 ```
 
-New Nest application services go in `application/service/`. Ingest handlers
-(`raw-scrape-ingest.handler.ts`, `ad-campaign-ingest.handler.ts`,
-`coupang-ads-daily-ingest.handler.ts`, `traffic-ingest.handler.ts`) are
-`@Injectable()` classes orchestrated by `AdSyncService`. The only `services/`
-survivor is `channel-scrape-persistence.service.ts`, a compatibility facade
-delegating to repository adapters and consumed by existing integration tests.
+## Owned Surfaces
 
-## Architecture Guards
+- Coupang ad scrape ingest: `POST /api/ads/extension/sync`
+- Ad dashboards and strategy/action APIs under `/api/ads/*`
+- Ad action execution lifecycle for approved queued actions
 
-Invariants enforced by `__tests__/advertising.architecture.spec.ts`:
+## Main Data Models
 
-- `PrismaService` is imported only under `adapter/out/repository/**`.
-- No `*persistence.ts` files survive (migration-waypoint naming).
-- `application/**` is Prisma-free (no `@prisma/client` or `Prisma.*` types).
-- `application/service/**` does not import `adapter/out/**`; concrete adapters
-  reach services only via Nest token bindings to `application/port/out/*`.
-- `application/service/**` does not import other owner-domain services
-  directly; cross-owner reach goes through `adapter/out/{owner}/` port +
-  adapter pairs.
-- `domain/**` is free of NestJS, Prisma, `PrismaService`, HTTP DTO classes, and
-  incoming-adapter modules.
-- No top-level `dto/`, `util/`, or `adapter/out/prisma/` folders remain.
-  Final shape uses `adapter/in/http/dto/`, `domain/util/`, and
-  `adapter/out/repository/`.
-- `services/` accepts only the grandfathered
-  `channel-scrape-persistence.service.ts` facade.
-
-`application/port/in/**` is intentionally omitted because no other owner domain
-consumes advertising use cases today; controllers inject application services
-directly while that remains true.
-
-### Cross-Domain Boundary
-
-Advertising consumes automation's operation-alert lifecycle through
-`application/port/out/operation-alert.port.ts` bound to
-`adapter/out/automation/operation-alert.adapter.ts`. The adapter depends
-on automation's owner-side `OPERATION_ALERT_PORT` token published from
-`automation/application/port/in/operation-alert.port.ts`; no concrete
-`OperationAlertService` import remains in advertising. This is the only
-sanctioned cross-owner reach from `application/service/**`.
-
-## Source-Of-Truth Facts
-
-| Concern | Model |
-|---|---|
-| listing/day metrics and state | `ChannelListingDailySnapshot` |
-| option/day metrics and state | `ChannelListingOptionDailySnapshot` |
-| campaign/keyword/product target/day metrics | `ChannelAdTargetDailySnapshot` |
-| account/store KPI | `ChannelAccountDailyKpiSnapshot` |
-| raw audit/replay row | `ChannelScrapeRun` + `ChannelScrapeSnapshot` |
-| executable ad action | `AdAction` with `adTargetDailyId` |
-
-Rules:
-
-- Period views derive from daily facts by summing additive metrics.
-- Ratios are recomputed from sums via `util/ratio-recompute.ts`; provider ratios
-  are audit data only.
-- Provider daily totals overwrite on replay; `sampleCount` increments per
-  observation.
-- Raw snapshot append happens before daily-fact upsert. Raw rows are audit/
-  replay evidence, not primary read models for UI.
-- `metaJson` is source-namespaced (`{ source, data }`). Source-key collision is
-  forbidden.
-- Dev data replay uses the same ingest path:
-  `POST /api/ads/extension/sync`.
-
-## Channel Coupling Exception
-
-Advertising writes and reads channel daily fact models even though they live in
-the channels Prisma namespace. This exception exists because the scrape ingest
-entrypoint is `/api/ads/extension/sync` and raw/fact projection must stay
-traceable in one path. Do not inject `ChannelSyncService`.
+- `ChannelScrapeRun` and `ChannelScrapeSnapshot` are raw audit/replay evidence.
+- `ChannelListingDailySnapshot` and `ChannelListingOptionDailySnapshot` are
+  listing/option daily facts.
+- `ChannelAdTargetDailySnapshot` is the campaign/keyword/product target daily
+  fact.
+- `ChannelAccountDailyKpiSnapshot` is the account/store KPI fact.
+- `AdAction` is the executable action record and is target-daily based.
 
 ## Ingest Flow
 
@@ -105,7 +44,6 @@ traceable in one path. Do not inject `ChannelSyncService`.
 Extension/Wing payload
   -> POST /api/ads/extension/sync
   -> AdSyncService.sync
-  -> build listing map by organization/channel
   -> append ChannelScrapeRun/Snapshot
   -> upsert listing/option daily facts
   -> upsert ad-target daily facts
@@ -113,57 +51,35 @@ Extension/Wing payload
   -> strategy/action services read fact projections
 ```
 
-Listing match priority:
+Listing match priority is `vendorItemId` to `ChannelListingOption`, then
+`externalId` to `ChannelListing(platform='coupang')`, then unmatched raw
+snapshot preservation.
 
-1. `vendorItemId` -> `ChannelListingOption.externalOptionId`
-2. `externalId` -> `ChannelListing.externalId` with `platform='coupang'`
-3. unmatched -> raw snapshot preserved; daily fact skipped
+## Cross-Domain Ports
 
-`buildAdTargetKey()` is the only target-key builder. It must throw if no stable
-identifier exists; no `unknown:unknown` rows.
+- Operation-alert lifecycle writes go through advertising's local
+  `operation-alert.port`, bound to automation's `OPERATION_ALERT_PORT`.
+- Advertising intentionally reads/writes channel daily fact models because the
+  scrape ingest path owns raw/fact projection traceability.
+- Advertising must not inject channels services.
 
-## Business Date And Ratios
+## Boundary Rules
 
-- KST business date conversion goes through `toBusinessDate()` only.
-- Do not slice dates directly in handlers.
-- ROAS = `SUM(adRevenue) / SUM(adSpend) * 100`
-- CTR = `SUM(adClicks) / SUM(adImpressions)`
-- CVR = `SUM(adConversions) / SUM(adClicks)`
+- Application services are Prisma-free and depend on ports, not concrete
+  adapters.
+- `PrismaService` belongs under `adapter/out/repository/**`.
+- `domain/` is free of NestJS, Prisma, HTTP DTOs, and incoming adapters.
+- KST business date conversion goes through `toBusinessDate()`.
+- Period views derive from daily facts; ratios recompute from summed raw
+  values and do not trust provider ratios.
+- `buildAdTargetKey()` is the only target-key builder and must fail if no
+  stable identifier exists.
+- Every service method receives and scopes by `organizationId`; no default
+  organization lookup.
 
-## AdAction Rules
+## Transitional Exceptions
 
-`AdAction` rules are target-daily based. Thresholds are currently hardcoded.
-
-| Rule | Condition | Action |
-|---|---|---|
-| 1 | stock=0 and campaign dailyBudget>0 | set daily budget to 3000 |
-| 2 | keyword zero conversion with spend>=5000, or ROAS in `(0,100)` | pause keyword |
-| 3 | keyword ROAS in `[100,200)` | bid * 0.85 |
-| 4 | campaign grade A and ROAS>=480 | budget * 1.2 |
-| 5 | campaign grade C or ROAS<100, budget>3000 | budget down to max(3000, 50%) |
-
-Rule 1 requires a target row with option identity. Stock signal uses latest
-`ChannelListingOptionDailySnapshot.stockQty`, then live
-`ProductOption.availableStock`.
-
-## Hard Rules
-
-- Every service method receives `organizationId` and scopes reads/writes by it.
-- Single-resource GET/PATCH/DELETE uses `findFirst({ id, organizationId })`.
-- No default organization lookup.
-- No direct channel service injection.
-- No synthetic market-data seed writer that bypasses real ingest.
-- No raw snapshot as primary UI/API read model.
-- No provider ratio trust for decision metrics.
-- `targetType` values come from `AD_ACTION_TARGET_TYPES`.
-
-## Verification
-
-```bash
-npm exec --workspace=apps/server -- vitest run src/advertising
-npm run build --workspace=apps/server
-npm run dev:server
-```
-
-Use integration tests for ingest idempotency, raw-first behavior, tenant scope,
-and action execution lifecycle changes.
+- `services/channel-scrape-persistence.service.ts` is a grandfathered
+  compatibility facade and must not receive new business logic.
+- The channel fact ownership exception remains local to advertising ingest; do
+  not expand it to direct channel service injection.
