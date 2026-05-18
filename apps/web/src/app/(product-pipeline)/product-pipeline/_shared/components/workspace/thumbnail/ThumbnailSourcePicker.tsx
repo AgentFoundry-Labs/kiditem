@@ -145,10 +145,10 @@ export default function ThumbnailSourcePicker({
         </div>
       </div>
 
-      <div className="grid gap-6 rounded-lg border border-violet-100 bg-violet-50/50 p-4 xl:grid-cols-[300px_1px_minmax(0,1fr)]">
-        <div>
+      <div className="grid gap-6 rounded-lg border border-violet-100 bg-violet-50/50 p-4 xl:grid-cols-[356px_1px_minmax(0,1fr)]">
+        <div className="w-full max-w-[316px] sm:max-w-[356px] xl:max-w-none">
           <div className="mb-3 flex items-center justify-between gap-2">
-            <h4 className="text-xs font-black text-violet-800">선택 썸네일</h4>
+            <h4 className="text-xs font-black text-violet-800">대표 썸네일</h4>
             {selectedAlreadySaved && (
               <span className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-0.5 text-[10px] font-black text-violet-700 ring-1 ring-violet-100">
                 <CheckCircle2 size={11} />
