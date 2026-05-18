@@ -14,6 +14,10 @@ import type {
   ThumbnailInputRole,
 } from '../../../domain/model/thumbnail-editor';
 import { ThumbnailGenerationService } from '../../../application/service/thumbnail-generation.service';
+import {
+  ThumbnailGenerationSubjectError,
+  classifyThumbnailGenerationSubject,
+} from '../../../domain/thumbnail-generation-subject';
 
 interface EnqueueResponse {
   candidates: never[];
@@ -51,13 +55,19 @@ export class ThumbnailEditorController {
     @CurrentUser() authUser?: AuthUser,
   ): Promise<EnqueueResponse> {
     const mode = body.mode ?? 'edit';
-    if (body.productId && body.sourceCandidateId) {
-      throw new BadRequestException('productId 와 sourceCandidateId 는 동시에 사용할 수 없습니다');
+    let subject: ReturnType<typeof classifyThumbnailGenerationSubject>;
+    try {
+      subject = classifyThumbnailGenerationSubject(body);
+    } catch (err) {
+      if (err instanceof ThumbnailGenerationSubjectError) {
+        throw new BadRequestException(err.message);
+      }
+      throw err;
     }
-    const product = body.productId
-      ? await this.generationService.findProductForEditor(body.productId, organizationId)
+    const product = subject.productId
+      ? await this.generationService.findProductForEditor(subject.productId, organizationId)
       : null;
-    if (body.productId && !product) {
+    if (subject.productId && !product) {
       throw new BadRequestException('productId 에 해당하는 상품을 찾을 수 없습니다');
     }
 
@@ -83,7 +93,7 @@ export class ThumbnailEditorController {
         inputMeta: this.inputMeta(body, mode, editCase, inputs),
         method: mode === 'creative' ? 'creative' : 'generate',
         originalUrl: product.imageUrl ?? inputs[0]?.url ?? '',
-        contentWorkspaceId: body.contentWorkspaceId ?? null,
+        contentWorkspaceId: subject.contentWorkspaceId,
         agentPayload: this.agentPayload({
           body,
           mode,
@@ -101,17 +111,17 @@ export class ThumbnailEditorController {
       } satisfies EnqueueResponse;
     }
 
-    if (body.sourceCandidateId) {
+    if (subject.sourceCandidateId) {
       const enqueueResult = await this.generationService.enqueueCandidateGeneration({
         organizationId,
-        sourceCandidateId: body.sourceCandidateId,
+        sourceCandidateId: subject.sourceCandidateId,
         productName,
         triggeredByUserId: authUser?.id ?? null,
         inputs,
         inputMeta: this.inputMeta(body, mode, editCase, inputs),
         method: mode === 'creative' ? 'creative' : 'generate',
         originalUrl: inputs[0]?.url ?? '',
-        contentWorkspaceId: body.contentWorkspaceId ?? null,
+        contentWorkspaceId: subject.contentWorkspaceId,
         agentPayload: {
           ...this.agentPayload({
             body,
@@ -122,7 +132,7 @@ export class ThumbnailEditorController {
             productName,
             category,
           }),
-          sourceCandidateId: body.sourceCandidateId,
+          sourceCandidateId: subject.sourceCandidateId,
         },
       });
       return {
@@ -140,7 +150,7 @@ export class ThumbnailEditorController {
       inputMeta: this.inputMeta(body, mode, editCase, inputs),
       method: mode === 'creative' ? 'creative' : 'generate',
       originalUrl: inputs[0]?.url ?? '',
-      contentWorkspaceId: body.contentWorkspaceId ?? null,
+      contentWorkspaceId: subject.contentWorkspaceId,
       agentPayload: {
         ...this.agentPayload({
           body,
@@ -304,6 +314,7 @@ export class ThumbnailEditorController {
       styleType: body.styleType ?? null,
       pieceCount: body.pieceCount ?? null,
       colorCount: body.colorCount ?? null,
+      productName: body.productName?.trim() || null,
       inputCount: inputs.length,
       inputRoles: inputs.map((input) => input.role),
       inputLabels: inputs.map((input) => input.label),

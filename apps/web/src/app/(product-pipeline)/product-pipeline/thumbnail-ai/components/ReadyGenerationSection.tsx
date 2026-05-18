@@ -13,6 +13,7 @@ import {
 import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
 import { cn } from '@/lib/utils';
 import { buildEditHref } from '@/app/(product-pipeline)/product-pipeline/thumbnail-generation/edit/lib/build-edit-href';
+import { THUMBNAIL_AI_ROOT } from '../../_shared/lib/product-pipeline-routes';
 import { useReEditGeneration } from '../../_shared/hooks/useThumbnailGenerations';
 import { resolveImageUrl } from '../lib/resolve-url';
 
@@ -31,6 +32,7 @@ export function ReadyGenerationSection({
   onOpenCoupangEdit,
   onDelete,
 }: ReadyGenerationSectionProps) {
+  const returnToAiEditTab = `${THUMBNAIL_AI_ROOT}?tab=ai-edit&editFilter=ready`;
   const reEditMutation = useReEditGeneration();
   const [expandedGenId, setExpandedGenId] = useState<string | null>(null);
   const [expandedSlideIdx, setExpandedSlideIdx] = useState(0);
@@ -249,7 +251,14 @@ export function ReadyGenerationSection({
                     {g.product?.name}
                   </p>
                   {g.productId && (
-                    <Link href={buildEditHref({ productId: g.productId, generationId: g.id, imageUrl: g.product?.imageUrl })}>
+                    <Link
+                      href={buildEditHref({
+                        productId: g.productId,
+                        generationId: g.id,
+                        imageUrl: g.product?.imageUrl,
+                        returnTo: returnToAiEditTab,
+                      })}
+                    >
                       <button className="w-full flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-colors bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-100">
                         <Wand2 size={10} /> AI 편집하기
                       </button>

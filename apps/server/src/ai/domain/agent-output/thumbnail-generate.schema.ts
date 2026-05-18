@@ -2,11 +2,10 @@
  * thumbnail_generate agent output contract.
  *
  * The /api/thumbnail-editor/generate endpoint enqueues an Agent OS
- * request when a `productId` is bound; the runtime handler runs the
- * actual Gemini image generation, the bridge validates the output, and
- * the sink applies the candidates onto the originating
- * `ThumbnailGeneration` row. Standalone (no productId) keeps the legacy
- * sync return as a transitional preview.
+ * request for product-bound, candidate-bound, workspace-bound, and
+ * direct-upload work. The runtime handler runs the actual Gemini image
+ * generation, the bridge validates the output, and the sink applies the
+ * candidates onto the originating `ThumbnailGeneration` row.
  *
  * candidate 의 모양은 ai 도메인 `domain/model/thumbnail-editor.ts` 의
  * `ThumbnailEditorCandidate` 와 1:1 대응한다.

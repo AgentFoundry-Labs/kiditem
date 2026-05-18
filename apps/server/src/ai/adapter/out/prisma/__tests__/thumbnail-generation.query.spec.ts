@@ -27,6 +27,27 @@ describe('thumbnail-generation query filters', () => {
     }));
   });
 
+  it('can explicitly list ownerless direct-upload generations', async () => {
+    const prisma = {
+      thumbnailGeneration: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+    };
+
+    const opts = { scope: 'direct-upload' as const };
+    await findGenerationRows(prisma as never, ORG, opts);
+
+    expect(prisma.thumbnailGeneration.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        organizationId: ORG,
+        isDeleted: false,
+        masterId: null,
+        sourceCandidateId: null,
+        contentWorkspaceId: null,
+      },
+    }));
+  });
+
   it('single-generation reads ignore archived rows', async () => {
     const prisma = {
       thumbnailGeneration: {

@@ -13,11 +13,25 @@ import {
   type WingRegistrationResult,
 } from '../lib/wing-registration';
 
-export function useGenerationList() {
+export type ThumbnailGenerationListScope = 'product-bound' | 'direct-upload' | 'all';
+
+export function useGenerationList(params: {
+  scope?: ThumbnailGenerationListScope;
+  limit?: number;
+} = {}) {
+  const queryParams: Record<string, string> = {};
+  if (params.scope && params.scope !== 'product-bound') queryParams.scope = params.scope;
+  if (params.limit) queryParams.limit = String(params.limit);
+  const query = new URLSearchParams(queryParams).toString();
   return useQuery({
-    queryKey: queryKeys.thumbnailAnalysis.generations(),
+    queryKey: queryKeys.thumbnailAnalysis.generations(
+      Object.keys(queryParams).length > 0 ? queryParams : undefined,
+    ),
     queryFn: async () => {
-      const res = await apiClient.get<{ items: ThumbnailGenerationItem[]; total: number }>('/api/thumbnail-analysis/generations');
+      const href = query
+        ? `/api/thumbnail-analysis/generations?${query}`
+        : '/api/thumbnail-analysis/generations';
+      const res = await apiClient.get<{ items: ThumbnailGenerationItem[]; total: number }>(href);
       return res?.items ?? [];
     },
     staleTime: 1000,

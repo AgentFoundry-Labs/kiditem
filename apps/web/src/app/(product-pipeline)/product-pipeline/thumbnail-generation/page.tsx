@@ -86,8 +86,8 @@ function ThumbnailGenerationHubContent() {
     uploadRef.current?.openFilePicker(mode);
   };
 
-  const hasPending = generations.some(
-    (g) => g.status === 'pending' || g.status === 'running' || g.status === 'succeeded',
+  const hasActiveGeneration = generations.some(
+    (g) => g.status === 'pending' || g.status === 'running',
   );
   const hasRegistrationPending = generations.some(
     (g) =>
@@ -103,7 +103,7 @@ function ThumbnailGenerationHubContent() {
         r.grade === 'C' ||
         r.grade === 'F'),
   );
-  const isEmpty = !hasPending && !hasRegistrationPending && !hasNeedsFix;
+  const isEmpty = !hasActiveGeneration && !hasRegistrationPending && !hasNeedsFix;
 
   return (
     <div className="relative -m-6 min-h-[calc(100vh-0px)]">

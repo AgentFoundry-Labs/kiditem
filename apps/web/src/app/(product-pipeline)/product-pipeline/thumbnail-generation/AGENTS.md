@@ -85,7 +85,7 @@ productId/sourceCandidateId/contentWorkspaceId 를 URL query 로 동기화한다
 
 ### 7. Immediate History Sync
 
-Generation 후 `queryClient.invalidateQueries(queryKeys.thumbnailAnalysis.generations())` — thumbnails 페이지의 history 탭이 즉시 갱신 (cross-page 일관성).
+Generation 후 `queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.all })` — thumbnails 페이지의 history 탭과 direct-upload scope 가 즉시 갱신 (cross-page 일관성).
 
 ### 8. SlotCard / ImageSourceDrawer — 이미지 source 추상화
 

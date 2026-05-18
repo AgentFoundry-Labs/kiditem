@@ -220,30 +220,46 @@ export function ThumbnailEditorWorkspace({
   const [selectedCandidateUrl, setSelectedCandidateUrl] = useState<string | null>(null);
 
   const { data: pollingGenerations = [] } = useGenerationList();
-  const { forcedAwaiting, isAwaitingGen, beginAwaiting, clearAwaiting } =
-    useGenerationAwaitingState(generationId, pollingGenerations);
-
-  const { data: initialGeneration } = useQuery({
-    queryKey: ['thumbnail-generation', generationIdParam],
+  const observedGenerationId = generationId ?? generationIdParam;
+  const { data: observedGeneration } = useQuery({
+    queryKey: ['thumbnail-generation', observedGenerationId],
     queryFn: () =>
-      apiClient.get<ThumbnailGenerationItem>(`/api/thumbnail-analysis/generations/${generationIdParam}`),
-    enabled: !!generationIdParam,
+      apiClient.get<ThumbnailGenerationItem>(`/api/thumbnail-analysis/generations/${observedGenerationId}`),
+    enabled: !!observedGenerationId,
+    refetchInterval: (query) => {
+      const item = query.state.data;
+      return item?.status === 'pending' || item?.status === 'running' ? 2500 : false;
+    },
   });
+  const { forcedAwaiting, isAwaitingGen, beginAwaiting, clearAwaiting } =
+    useGenerationAwaitingState(observedGenerationId, pollingGenerations, observedGeneration);
   const originalPreviewImage = resolveOriginalPreviewImage({
-    initialGenerationOriginalUrl: initialGeneration?.originalUrl,
+    initialGenerationOriginalUrl: observedGeneration?.originalUrl,
     initialImageUrl,
     originalImageUrl,
   });
 
   useEffect(() => {
-    if (!initialGeneration) return;
-    if (generationId === initialGeneration.id) return;
-    if (initialGeneration.candidates?.length > 0) {
-      setResult(initialGeneration.candidates);
-      setGenerationId(initialGeneration.id);
-      setSelectedCandidateUrl(null);
+    if (!observedGeneration) return;
+    if (generationId !== observedGeneration.id) {
+      setGenerationId(observedGeneration.id);
     }
-  }, [initialGeneration, generationId]);
+    if (observedGeneration.candidates?.length > 0) {
+      const hasSameCandidates =
+        result.length === observedGeneration.candidates.length &&
+        result.every((candidate, index) => candidate.url === observedGeneration.candidates[index]?.url);
+      if (!hasSameCandidates) {
+        setResult(observedGeneration.candidates);
+        setSelectedCandidateUrl(null);
+        if (uploadKeyParam) {
+          writeThumbnailEditorUploadResult(uploadKeyParam, observedGeneration.candidates, {
+            productName,
+            mode,
+          });
+        }
+      }
+    }
+  }, [observedGeneration, generationId, result, uploadKeyParam, productName, mode]);
 
   /**
    * 페이지 진입 시 workspace 의 active (pending/running) generation 이 있으면
@@ -337,29 +353,26 @@ export function ThumbnailEditorWorkspace({
       if (!mountedRef.current) return;
 
       if (data?.status === 'pending' && data.generationId) {
-        // Async product-bound path — backend enqueued an Agent OS request
-        // and returned immediately. Don't set candidates here; the
-        // existing `useGenerationList` polling already detects the
-        // pending row and `useEffect`s above flip status → result.
-        // forcedAwaiting stays true so the loading modal holds until the
-        // bridge + sink finalize the row.
+        // Uniform async path: product-bound, candidate-bound, workspace, and
+        // direct-upload jobs all return a ThumbnailGeneration id first. The
+        // single-generation query above keeps polling even when ownerless rows
+        // are intentionally absent from the product-bound list query.
         setGenerationId(data.generationId);
         const next = new URLSearchParams(searchParams.toString());
         next.set('generationId', data.generationId);
         router.replace(`?${next.toString()}`, { scroll: false });
         await queryClient.refetchQueries({
-          queryKey: queryKeys.thumbnailAnalysis.generations(),
+          queryKey: queryKeys.thumbnailAnalysis.all,
         });
         toast.success('썸네일 생성 시작 — 잠시만 기다려주세요');
         return;
       }
 
       if (data?.candidates && data.candidates.length > 0) {
-        // Sync standalone path (no productId) — candidates returned
-        // immediately. Mirror the legacy behaviour for non-product
-        // uploads: render directly + persist into the upload session.
+        // Legacy compatibility only. Current server responses are async
+        // `pending` ledgers, but older previews may still return candidates.
         setResult(data.candidates);
-        setGenerationId(data.generationId ?? null);
+        setGenerationId(data.generationId);
         if (uploadKeyParam) {
           writeThumbnailEditorUploadResult(uploadKeyParam, data.candidates, {
             productName,
@@ -367,7 +380,7 @@ export function ThumbnailEditorWorkspace({
           });
         }
         clearAwaiting();
-        queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.generations() });
+        queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.all });
         toast.success(`썸네일 ${data.candidates.length}장 생성 완료`);
         if (data.generationId) {
           const next = new URLSearchParams(searchParams.toString());
@@ -416,7 +429,7 @@ export function ThumbnailEditorWorkspace({
         router.replace(`?${next.toString()}`, { scroll: false });
         // 명시적 refetch 강제 — invalidate 보다 빠르게 polling 데이터에 새 row 반영.
         await queryClient.refetchQueries({
-          queryKey: queryKeys.thumbnailAnalysis.generations(),
+          queryKey: queryKeys.thumbnailAnalysis.all,
         });
         toast.success('AI 편집 시작 — 잠시만 기다려주세요');
       } else {

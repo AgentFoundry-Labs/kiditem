@@ -66,6 +66,7 @@ import {
 import { operationCancellationAudit } from '../../../common/operation-cancellation-audit';
 import { ProductGenerationAlertService } from './product-generation-alert.service';
 import { readProductGenerationAlertLink } from './product-generation-alert-link';
+import type { ThumbnailGenerationListScope } from '../../domain/thumbnail-generation-subject';
 
 @Injectable()
 export class ThumbnailGenerationService {
@@ -143,6 +144,7 @@ export class ThumbnailGenerationService {
       productId?: string | null;
       sourceCandidateId?: string | null;
       contentWorkspaceId?: string | null;
+      scope?: ThumbnailGenerationListScope;
       limit?: number | null;
     } = {},
   ): Promise<ThumbnailGenerationListResponse> {

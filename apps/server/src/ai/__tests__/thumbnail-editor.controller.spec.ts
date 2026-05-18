@@ -211,6 +211,9 @@ describe('ThumbnailEditorController candidate-bound generation', () => {
         organizationId: ORGANIZATION_ID,
         productName: 'Uploaded toy',
         originalUrl: 'main-product-url',
+        inputMeta: expect.objectContaining({
+          productName: 'Uploaded toy',
+        }),
       }),
     );
     expect(result).toEqual({
