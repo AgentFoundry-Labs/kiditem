@@ -31,6 +31,7 @@ export class ChannelListingController {
       channel: query.channel ?? null,
       channelAccountId: query.channelAccountId ?? null,
       search: query.search ?? null,
+      createdSince: query.createdSince ?? null,
       tab: query.tab,
     });
   }
@@ -55,6 +56,7 @@ export class ChannelListingController {
       channel: query.channel ?? null,
       channelAccountId: query.channelAccountId ?? null,
       search: query.search ?? null,
+      createdSince: query.createdSince ?? null,
       tab: query.tab,
     });
   }

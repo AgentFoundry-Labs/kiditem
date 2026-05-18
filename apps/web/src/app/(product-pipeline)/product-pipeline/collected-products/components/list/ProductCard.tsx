@@ -1,13 +1,10 @@
 'use client';
 
-import { useState } from 'react';
 import { Loader2, Sparkles, Wand2 } from 'lucide-react';
-import { toast } from 'sonner';
-import { isApiError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
 import { useKidsPlayfulInProgress } from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate';
 import { ProductInboxCardShell } from '@/app/(product-pipeline)/product-pipeline/_shared/components/inbox/ProductInboxCardShell';
-import { candidatesApi, type SourcedProduct } from '../../lib/sourcing-api';
+import type { SourcedProduct } from '../../lib/sourcing-api';
 import { getInlineGenerationProgressLabel } from '../../lib/generation-progress-label';
 import { sourcePlatformLabel } from '../../lib/source-platform-label';
 import SourcingStatusBadge from './SourcingStatusBadge';
@@ -21,6 +18,9 @@ interface Props {
   onSelectedChange?: (id: string, selected: boolean) => void;
   onNavigate: (id: string) => void;
   onOpenEditor: (id: string) => void;
+  onOpenQuickProcess: (id: string) => void;
+  quickProcessSelectedCount: number;
+  isQuickProcessingSelected?: boolean;
 }
 
 export default function ProductCard({
@@ -32,26 +32,15 @@ export default function ProductCard({
   onSelectedChange,
   onNavigate,
   onOpenEditor,
+  onOpenQuickProcess,
+  quickProcessSelectedCount,
+  isQuickProcessingSelected = false,
 }: Props) {
-  const [isQuickProcessing, setIsQuickProcessing] = useState(false);
   // KP 진행 중 row 가 있으면 카드 상단에 progress 배지 (다시 들어와도 유지).
   const generationTargetId = product.promotedMasterId ?? product.id;
   const kpInProgress = useKidsPlayfulInProgress(generationTargetId, {
     sourceCandidateId: product.promotedMasterId ? null : product.id,
   });
-  const generateBusy = isQuickProcessing || isProcessing || !!kpInProgress;
-
-  const handleQuickProcess = async () => {
-    setIsQuickProcessing(true);
-    try {
-      await candidatesApi.quickProcess(product.id);
-      toast.success('AI 간편 처리를 시작했습니다.');
-    } catch (err) {
-      toast.error(isApiError(err) ? err.detail : 'AI 간편 처리 시작에 실패했습니다.');
-    } finally {
-      setIsQuickProcessing(false);
-    }
-  };
 
   // 진행 중 라벨 — pipeline_step 별 다른 메시지 (사용자 가시성 강화)
   // Trend/KIDITEM 생성 진행 중이면 그것 우선 (templateId 로 라벨 구분).
@@ -115,24 +104,25 @@ export default function ProductCard({
         <button
           onClick={(e) => {
             e.stopPropagation();
-            void handleQuickProcess();
+            onOpenQuickProcess(product.id);
           }}
-          disabled={generateBusy}
+          disabled={isQuickProcessingSelected}
           className={cn(
-            'w-full flex h-9 items-center justify-center gap-1.5 rounded-lg border text-[12px] font-extrabold transition-all shadow-sm',
-            generateBusy
+            'w-full flex h-11 items-center justify-center gap-1.5 rounded-lg border text-[12px] font-extrabold transition-all shadow-sm',
+            isQuickProcessingSelected
               ? 'cursor-wait border-violet-200 bg-violet-50 text-violet-600'
               : 'border-[var(--text-primary)] bg-white text-[var(--text-primary)] hover:border-violet-600 hover:bg-violet-600 hover:text-white hover:shadow-md hover:shadow-violet-200',
           )}
-          title="상세페이지와 썸네일 생성 시작"
+          title="선택한 상품만 상세페이지와 썸네일 생성을 시작합니다"
         >
-          {generateBusy ? (
+          {isQuickProcessingSelected ? (
             <>
               <Loader2 size={11} className="animate-spin" /> 처리 중...
             </>
           ) : (
             <>
-              <Wand2 size={13} /> AI 간편 처리
+              <Wand2 size={13} />
+              {quickProcessSelectedCount > 0 ? `선택 ${quickProcessSelectedCount}개 AI 작업 선택` : 'AI 작업 선택'}
             </>
           )}
         </button>

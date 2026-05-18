@@ -285,6 +285,7 @@ describe('SourcingService — candidate ingest', () => {
       detailImageCount: '2',
       usageSectionMode: 'include',
       kcCertificationStatus: 'unknown',
+      task: 'all',
     }));
     expect(result).toEqual(expect.objectContaining({
       ok: true,
@@ -292,6 +293,50 @@ describe('SourcingService — candidate ingest', () => {
       detailGenerationId: 'detail-1',
       thumbnailGenerationId: 'thumb-1',
       href: '/product-pipeline/collected-products/candidate-1',
+    }));
+  });
+
+  it('quickProcessCandidate can request only thumbnail generation', async () => {
+    repo.findById.mockResolvedValueOnce({
+      id: 'candidate-1',
+      organizationId: 'org-1',
+      sourceUrl: 'https://1688.com/item/1',
+      sourcePlatform: 'ALIBABA_1688',
+      rawData: {},
+      name: '자석 다트게임',
+      description: '안전한 다트 보드',
+      category: '완구',
+      tags: [],
+      thumbnailUrl: 'https://example.com/main.jpg',
+      imageUrl: 'https://example.com/main.jpg',
+      costCny: null,
+      status: 'sourced',
+      promotedMasterId: null,
+      rejectedReason: null,
+      rejectedAt: null,
+      rejectedByUserId: null,
+      triggeredByUserId: null,
+      isDeleted: false,
+      deletedAt: null,
+      createdAt: new Date('2026-05-17T00:00:00.000Z'),
+      updatedAt: new Date('2026-05-17T00:00:00.000Z'),
+      images: [],
+      productPreparation: null,
+    });
+    gateway.startProductGeneration.mockResolvedValueOnce({
+      candidateId: 'candidate-1',
+      parentOperationKey: 'product-generation:batch-1',
+      detailGenerationId: null,
+      thumbnailGenerationId: 'thumb-1',
+      contentWorkspaceId: null,
+      href: '/product-pipeline/collected-products/candidate-1',
+    });
+
+    await service.quickProcessCandidate('candidate-1', 'org-1', 'user-1', 'thumbnail');
+
+    expect(gateway.startProductGeneration).toHaveBeenCalledWith(expect.objectContaining({
+      candidateId: 'candidate-1',
+      task: 'thumbnail',
     }));
   });
 

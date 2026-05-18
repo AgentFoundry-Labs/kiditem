@@ -598,11 +598,13 @@ export interface QuickProcessCandidateResponse {
   contentWorkspaceId: string | null;
 }
 
+export type QuickProcessTask = 'all' | 'detail' | 'thumbnail';
+
 export const candidatesApi = {
   promote: (id: string, body: PromoteCandidateInput) =>
     apiClient.post<PromoteCandidateResponse>(`/api/sourcing/candidates/${id}/promote`, body),
-  quickProcess: (id: string) =>
-    apiClient.post<QuickProcessCandidateResponse>(`/api/sourcing/candidates/${id}/quick-process`, {}),
+  quickProcess: (id: string, task: QuickProcessTask = 'all') =>
+    apiClient.post<QuickProcessCandidateResponse>(`/api/sourcing/candidates/${id}/quick-process`, { task }),
   updateBasicInfo: (id: string, body: UpdateProductBasicsInput) =>
     apiClient.patch<ProductPreparationSelection>(
       `/api/sourcing/candidates/${encodeURIComponent(id)}/preparation/basic-info`,

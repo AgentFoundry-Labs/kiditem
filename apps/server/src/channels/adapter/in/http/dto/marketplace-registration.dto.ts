@@ -14,6 +14,11 @@ export class MarketplaceRegistrationDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(100)
+  productBarcode?: string | null;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(500)
   channelName?: string | null;
 

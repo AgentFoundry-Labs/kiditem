@@ -12,6 +12,7 @@ export interface ChannelListingQuery {
   channel?: string | null;
   channelAccountId?: string | null;
   search?: string | null;
+  createdSince?: string | null;
   includeDeleted?: boolean;
   tab?: 'registered' | 'deleted';
 }
@@ -74,6 +75,7 @@ export interface RegisterConfirmedListingInput {
   masterId: string;
   channelAccountId: string;
   externalId: string;
+  productBarcode?: string | null;
   channelName?: string | null;
   channelPrice?: number | null;
 }

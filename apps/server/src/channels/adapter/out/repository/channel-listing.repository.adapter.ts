@@ -9,6 +9,12 @@ import type {
   ChannelListingSummary,
 } from '../../../application/port/out/channel-listing.repository.port';
 
+function parseQueryDate(value?: string | null): Date | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 @Injectable()
 export class ChannelListingRepositoryAdapter implements ChannelListingRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
@@ -26,11 +32,13 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
     );
     const search = query.search?.trim();
     const includeDeleted = query.includeDeleted ?? query.tab === 'deleted';
+    const createdSince = parseQueryDate(query.createdSince);
     const where: Prisma.ChannelListingWhereInput = {
       organizationId,
       isDeleted: includeDeleted,
       ...(query.channel ? { channel: query.channel } : {}),
       ...(query.channelAccountId ? { channelAccountId: query.channelAccountId } : {}),
+      ...(createdSince ? { createdAt: { gte: createdSince } } : {}),
       ...(search
         ? {
             OR: [
@@ -164,11 +172,13 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
     );
     const search = query.search?.trim();
     const includeDeleted = query.includeDeleted ?? query.tab === 'deleted';
+    const createdSince = parseQueryDate(query.createdSince);
     const listingWhere: Prisma.ChannelListingWhereInput = {
       organizationId,
       isDeleted: includeDeleted,
       ...(query.channel ? { channel: query.channel } : {}),
       ...(query.channelAccountId ? { channelAccountId: query.channelAccountId } : {}),
+      ...(createdSince ? { createdAt: { gte: createdSince } } : {}),
     };
     const masterWhere: Prisma.MasterProductWhereInput = {
       organizationId,

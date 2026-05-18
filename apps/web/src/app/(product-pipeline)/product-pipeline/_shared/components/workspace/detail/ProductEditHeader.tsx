@@ -5,12 +5,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   ArrowLeft,
-  Check,
   CheckCircle2,
   FileText,
   Image as ImageIcon,
   Loader2,
-  Lock,
   Sparkles,
   Store,
   XCircle,
@@ -59,16 +57,12 @@ export default function ProductEditHeader({
   productId,
   status = 'sourced',
   promotedMasterId = null,
-  isEditComplete,
-  isLocked,
   selectedThumbnailUrl = null,
   selectedThumbnailGenerationCandidateId = null,
   selectedDetailPageGenerationId = null,
   detailGenerationContentWorkspaceId = null,
   showCandidateActions = true,
   onOpenDetailTemplateGeneration,
-  onToggleEditComplete,
-  onToggleLocked,
   onBack,
   rawData = null,
   imageUrls = [],
@@ -133,6 +127,7 @@ export default function ProductEditHeader({
     mutationFn: (input: {
       channelAccountId: string;
       externalId: string;
+      productBarcode?: string | null;
       channelName?: string | null;
       channelPrice?: number | null;
     }) => {
@@ -370,46 +365,13 @@ export default function ProductEditHeader({
             <MarketplaceRegistrationDialog
               open={marketplaceOpen}
               accounts={accountsQuery.data ?? []}
+              productName={productName}
               isSubmitting={marketplaceRegistrationMutation.isPending}
               onClose={() => setMarketplaceOpen(false)}
               onSubmit={(input) => marketplaceRegistrationMutation.mutate(input)}
             />
           </>
         )}
-
-        <label className="flex items-center gap-1.5 cursor-pointer select-none group">
-          <div
-            className={cn('w-3.5 h-3.5 rounded border flex items-center justify-center transition-colors', isEditComplete ? 'bg-emerald-500 border-emerald-500' : 'border-slate-300 group-hover:border-slate-400')}
-          >
-            {isEditComplete && (
-              <Check size={10} className="text-white" strokeWidth={3} />
-            )}
-          </div>
-          <input
-            type="checkbox"
-            checked={isEditComplete}
-            onChange={onToggleEditComplete}
-            className="sr-only"
-          />
-          <span className="text-slate-600 whitespace-nowrap">편집완료</span>
-        </label>
-
-        <label className="flex items-center gap-1.5 cursor-pointer select-none group">
-          <div
-            className={cn('w-3.5 h-3.5 rounded border flex items-center justify-center transition-colors', isLocked ? 'bg-amber-500 border-amber-500' : 'border-slate-300 group-hover:border-slate-400')}
-          >
-            {isLocked && (
-              <Lock size={9} className="text-white" strokeWidth={3} />
-            )}
-          </div>
-          <input
-            type="checkbox"
-            checked={isLocked}
-            onChange={onToggleLocked}
-            className="sr-only"
-          />
-          <span className="text-slate-600 whitespace-nowrap">상품잠금</span>
-        </label>
       </div>
     </div>
   );

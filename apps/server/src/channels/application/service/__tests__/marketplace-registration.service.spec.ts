@@ -9,6 +9,7 @@ describe('MarketplaceRegistrationService', () => {
       },
       masterProduct: {
         findFirst: vi.fn().mockResolvedValue({ id: 'master-1', name: '마스터 상품' }),
+        update: vi.fn().mockResolvedValue({ id: 'master-1' }),
       },
       channelListing: {
         findFirst: vi.fn().mockResolvedValue(null),
@@ -24,6 +25,7 @@ describe('MarketplaceRegistrationService', () => {
       masterId: 'master-1',
       channelAccountId: 'account-1',
       externalId: '720445',
+      productBarcode: '8806384882841',
       channelName: '쿠팡 판매명',
       channelPrice: 12900,
     });
@@ -39,6 +41,10 @@ describe('MarketplaceRegistrationService', () => {
         channelPrice: 12900,
       }),
     }));
+    expect(tx.masterProduct.update).toHaveBeenCalledWith({
+      where: { id: 'master-1' },
+      data: { barcode: '8806384882841' },
+    });
   });
 
   it('does not revive a soft-deleted listing with the same account and external id', async () => {
@@ -48,6 +54,7 @@ describe('MarketplaceRegistrationService', () => {
       },
       masterProduct: {
         findFirst: vi.fn().mockResolvedValue({ id: 'master-1', name: '마스터 상품' }),
+        update: vi.fn(),
       },
       channelListing: {
         findFirst: vi.fn().mockResolvedValue(null),
@@ -76,5 +83,6 @@ describe('MarketplaceRegistrationService', () => {
     }));
     expect(tx.channelListing.update).not.toHaveBeenCalled();
     expect(tx.channelListing.create).toHaveBeenCalled();
+    expect(tx.masterProduct.update).not.toHaveBeenCalled();
   });
 });

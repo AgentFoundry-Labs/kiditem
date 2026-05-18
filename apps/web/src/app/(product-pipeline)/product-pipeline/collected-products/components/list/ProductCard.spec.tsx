@@ -1,8 +1,7 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ProductCard from './ProductCard';
 import type { SourcedProduct } from '../../lib/sourcing-api';
-import { candidatesApi } from '../../lib/sourcing-api';
 
 vi.mock('@/app/(product-pipeline)/product-pipeline/_shared/hooks/useGenerateDetailPage', () => ({
   useGenerateDetailPage: () => ({ mutate: vi.fn(), isPending: false }),
@@ -15,17 +14,6 @@ vi.mock('@/app/(product-pipeline)/product-pipeline/_shared/hooks/useKidsPlayfulF
 vi.mock('@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate', () => ({
   useKidsPlayfulInProgress: () => null,
 }));
-
-vi.mock('../../lib/sourcing-api', async () => {
-  const actual = await vi.importActual<typeof import('../../lib/sourcing-api')>('../../lib/sourcing-api');
-  return {
-    ...actual,
-    candidatesApi: {
-      ...actual.candidatesApi,
-      quickProcess: vi.fn(),
-    },
-  };
-});
 
 vi.mock('sonner', () => ({
   toast: {
@@ -61,19 +49,11 @@ function productFixture(overrides: Partial<SourcedProduct> = {}): SourcedProduct
 
 describe('ProductCard quick processing action', () => {
   beforeEach(() => {
-    vi.mocked(candidatesApi.quickProcess).mockReset();
+    vi.clearAllMocks();
   });
 
-  it('starts AI quick processing from the collected product card', async () => {
-    vi.mocked(candidatesApi.quickProcess).mockResolvedValueOnce({
-      ok: true,
-      candidateId: 'candidate-1',
-      href: '/product-pipeline/collected-products/candidate-1',
-      parentOperationKey: 'product-generation:batch-1',
-      detailGenerationId: 'detail-1',
-      thumbnailGenerationId: 'thumb-1',
-      contentWorkspaceId: 'workspace-1',
-    });
+  it('opens the selected-product quick processing modal from the collected product card', () => {
+    const onOpenQuickProcess = vi.fn();
 
     render(
       <ProductCard
@@ -83,14 +63,14 @@ describe('ProductCard quick processing action', () => {
         onDelete={vi.fn()}
         onNavigate={vi.fn()}
         onOpenEditor={vi.fn()}
+        onOpenQuickProcess={onOpenQuickProcess}
+        quickProcessSelectedCount={2}
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'AI 간편 처리' }));
+    fireEvent.click(screen.getByRole('button', { name: '선택 2개 AI 작업 선택' }));
 
-    await waitFor(() => {
-      expect(candidatesApi.quickProcess).toHaveBeenCalledWith('candidate-1');
-    });
+    expect(onOpenQuickProcess).toHaveBeenCalledWith('candidate-1');
     expect(screen.queryByText('상세페이지 템플릿 선택')).not.toBeInTheDocument();
   });
 });

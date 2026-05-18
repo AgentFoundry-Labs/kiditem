@@ -74,7 +74,6 @@ export function GenerationProgressBanner({
 
   const padCls = compact ? 'px-4 py-2.5' : 'px-5 py-4';
   const titleCls = compact ? 'text-[13px] font-bold' : 'text-[15px] font-bold';
-  const pctCls = compact ? 'text-[12px] font-black tabular-nums' : 'text-[14px] font-black tabular-nums';
   const barH = compact ? 'h-1.5' : 'h-2';
   const subCls = compact ? 'text-[11px]' : 'text-[12px]';
   const spaceY = compact ? 'space-y-1' : 'space-y-2';
@@ -94,11 +93,6 @@ export function GenerationProgressBanner({
           <span className={`${titleCls} truncate`} style={{ color: '#7c3aed' }}>
             {productName ? `${productName} — ` : ''}{tLabel} 상세페이지 생성 중 · {stage}
           </span>
-          {pct !== null && (
-            <span className={pctCls} style={{ color: '#7c3aed' }}>
-              {pct}%
-            </span>
-          )}
           <InlineCancelAction
             compact={compact}
             isLoading={isCancelling}

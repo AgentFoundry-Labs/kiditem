@@ -55,6 +55,8 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
     const parentOperationKey = productGenerationOperationKey(batchId);
     const href = `/product-pipeline/collected-products/${encodeURIComponent(input.candidateId)}`;
     const productName = input.productName.trim() || candidate.name;
+    const includeDetailPage = input.task !== 'thumbnail';
+    const includeThumbnail = input.task !== 'detail';
 
     await this.parentAlerts.start({
       organizationId: input.organizationId,
@@ -63,6 +65,8 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
       candidateId: input.candidateId,
       productName,
       href,
+      includeDetailPage,
+      includeThumbnail,
     });
 
     const detailLink: ParentProductGenerationAlertLink = {
@@ -86,7 +90,7 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
 
     let detailGenerationId: string | null = null;
     let contentWorkspaceId: string | null = null;
-    try {
+    if (includeDetailPage) try {
       const detail = await this.detailPages.generate(
         {
           rawTitle: productName,
@@ -133,7 +137,7 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
     }
 
     let thumbnailGenerationId: string | null = null;
-    try {
+    if (includeThumbnail) try {
       const canStartThumbnail = await this.parentAlerts.canStartChild({
         organizationId: input.organizationId,
         parentOperationKey,
