@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 
 /**
  * Tenant-scoped persistence helpers for the bundle option row and its
- * derived `availableStock`. ADR-0014 names `BundleStockService` as the only
+ * derived `availableStock`. `BundleStockService` is the only
  * writer of `availableStock`; these helpers are the canonical home for the
  * row-lock SQL and the scoped writes that enforce that invariant.
  *

@@ -5,7 +5,7 @@ import { z } from 'zod';
  *
  * Backend `SettlementsService.reconcile()` return literal 에 `satisfies SettlementReconcileResponse`.
  * listingId-primary + $queryRaw aggregation (`oli.total_price ::bigint` → `Number()`).
- * ADR-0013 3-layer + ADR-0015 channel-agnostic Order.
+ * 3-layer product schema + channel-agnostic Order.
  */
 
 export const SettlementReconcileDetailSchema = z.object({

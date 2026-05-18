@@ -51,7 +51,7 @@ import { pct1 } from '../../domain/util/percent';
  *    monthly numbers so the dashboard UI can label "주문 기준" /
  *    "Wing 매출 기준" without guessing.
  *
- * Per ADR-0006 + ADR-0018: every Prisma call binds organizationId.
+ * Tenant-scope rule: every Prisma call binds organizationId.
  */
 @Injectable()
 export class DashboardSalesService {

@@ -77,7 +77,7 @@ export class DashboardInventoryService {
       ).length;
 
       // warnings — F1 live aggregation via PerListingMetrics
-      // (ADR-0016 — no profitLoss table reads; helper provides identical shape)
+      // No profitLoss table reads; helper provides identical shape.
 
       // minusProducts: netProfit < 0
       const minusProducts = perListingMetrics.filter((m) => m.netProfit < 0).length;

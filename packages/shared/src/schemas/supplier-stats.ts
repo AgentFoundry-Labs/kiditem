@@ -6,7 +6,7 @@ import { zIsoDate } from './common.js';
  *
  * Backend `SupplierStatsService` 의 `getSalesBySupplier` / `getProductSales` / `getHistory`
  * 리포트 응답과 프론트 supplier-hub 화면 파싱 계약을 함께 고정한다.
- * optionId-based aggregation (ADR-0013 SupplierProduct(optionId) + MasterSupplierProduct(masterId)).
+ * optionId-based aggregation (SupplierProduct(optionId) + MasterSupplierProduct(masterId)).
  * MasterSupplierProduct 경로는 schema 상 `supplyPrice` 필드 없으므로 nullable.
  */
 

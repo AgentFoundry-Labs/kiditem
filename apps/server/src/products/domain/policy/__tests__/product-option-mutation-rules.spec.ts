@@ -8,7 +8,7 @@ import {
 
 describe('PRODUCT_OPTION_SYSTEM_FIELDS', () => {
   it('lists every field that OptionsService.update must NOT accept from the client', () => {
-    // ADR-0014 + apps/server/src/products/AGENTS.md "BundleStockService is the
+    // apps/server/src/products/AGENTS.md "BundleStockService is the
     // sole `availableStock` writer" + "code 생성: MasterCodeService" + "sku
     // 생성: incrementMasterOptionCounter ... TOCTOU 차단" rules collapse into
     // the single strip list below. If you ever need to PATCH any of these,

@@ -4,7 +4,7 @@ import { workflowPanelMapper } from './workflow.mapper';
 
 /**
  * Query WorkflowRun + template, map to PanelRunItem.
- * ADR-0011: WorkflowRun.status 는 이제 canonical. 정규화 불필요.
+ * WorkflowRun.status 는 canonical 이므로 정규화 불필요.
  * Returns null if the run is missing for the current organization.
  */
 export async function buildWorkflowPanelItem(

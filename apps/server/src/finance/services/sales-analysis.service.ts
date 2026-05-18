@@ -24,7 +24,7 @@ function resolveChannelType(channel: string): 'marketplace' | 'direct' | 'other'
 }
 
 /**
- * Plan D.3 — sales-analysis live aggregation (ADR-0016 bypass + ADR-0017 returnRate + orphan policy).
+ * Sales-analysis live aggregation with returnRate and orphan-return policy.
  *
  * Per-channel ad spend sources from `ChannelListingDailySnapshot.adSpend`
  * aggregated by listing over the requested KST month window. Daily facts
@@ -33,7 +33,7 @@ function resolveChannelType(channel: string): 'marketplace' | 'direct' | 'other'
  *
  * Data flow:
  *   Order (+ shippingPrice) → OrderLineItem → ChannelListingOption.listing.channel
- *   + OrderReturnLineItem INNER JOIN Order (ADR-0017, 3-hop IDOR)
+ *   + OrderReturnLineItem INNER JOIN Order (3-hop IDOR)
  *   + ChannelListingDailySnapshot.groupBy(['listingId'], _sum.adSpend)
  *     → listingId→channel map
  *
@@ -119,7 +119,7 @@ export class SalesAnalysisService {
           businessDate: { gte: from, lt: to },
         },
       }),
-      // 4) Orphan return count (ADR-0017 side metric) — orderId NULL, requestedAt ∈ period
+      // 4) Orphan return count — orderId NULL, requestedAt in period
       this.prisma.orderReturn.count({
         where: {
           organizationId,
@@ -145,7 +145,7 @@ export class SalesAnalysisService {
       listings.map((l) => [l.id, l.channel]),
     );
 
-    // Build return order-set per channel (ADR-0017 distinct Order count)
+    // Build returned order set per channel (distinct Order count).
     const returnOrderSets = new Map<string, Set<string>>();
     for (const rli of returnOrderIdRows) {
       const channel = rli.orderLineItem?.listingOption?.listing?.channel;
@@ -209,7 +209,7 @@ export class SalesAnalysisService {
         g.totalCommission += Math.round(lineRevenue * resolved.commissionRate);
         g.totalOtherCost += Math.round(resolved.otherCost * li.quantity);
 
-        // Revenue-weighted shipping (ADR-0016 pattern, D.1 T5)
+        // Revenue-weighted shipping.
         if (orderTotalRevenue > 0 && o.shippingPrice) {
           g.totalShipping += Math.round(
             o.shippingPrice * (lineRevenue / orderTotalRevenue),

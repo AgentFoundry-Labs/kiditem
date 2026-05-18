@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { zIsoDate } from './common.js';
 
-// Platform / type enums (Zod-level — DB 는 String per ADR-0001)
+// Platform / type enums (Zod-level — DB 는 String)
 export const OrderPlatformSchema = z.enum(['coupang', 'naver', '11st', 'manual']);
 export type OrderPlatform = z.infer<typeof OrderPlatformSchema>;
 

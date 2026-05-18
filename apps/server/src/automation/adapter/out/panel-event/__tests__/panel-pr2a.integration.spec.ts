@@ -10,7 +10,7 @@
  *
  * 5 scenarios:
  *   1. 2-source simultaneous emit → single stream, monotonically increasing seq
- *   2. Canonical status pass-through (ADR-0011 Rule 4 regression)
+ *   2. Canonical status pass-through regression
  *   3. EventEmitter wiring smoke — shared global bus across modules
  *   4. Actor-null fallback — actorUserId: null propagates as-is
  *   5. Phase change emit — two phase transitions arrive as separate seq
@@ -130,7 +130,7 @@ describe('Panel PR2a integration — workflow + image + canonical + EventEmitter
     expect(seqs[0]).toBeLessThan(seqs[1]);
   });
 
-  // ── Scenario 2: Canonical status pass-through (ADR-0011 Rule 4) ───────────
+  // ── Scenario 2: Canonical status pass-through ───────────
 
   it('Scenario 2: canonical status pass-through — succeeded and running+generating arrive unchanged', async () => {
     const stream$ = sseService.getStream('co-1').pipe(take(2), toArray());

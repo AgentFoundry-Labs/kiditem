@@ -1,5 +1,5 @@
 #!/usr/bin/env tsx
-// Baseline product import for the 3-layer schema (R0, ADR-0022).
+// Baseline product import for the 3-layer schema.
 // - Defaults to dry-run. `--write` required to persist.
 // - Reads kiditem_list + wing-inventory-matched Excel files.
 // - Master grouping is the deterministic helper from
@@ -297,7 +297,7 @@ async function applyKiditemPlan(
               optionName: optionPlan.optionDisplayName,
               costPrice: optionPlan.costPrice,
               sellPrice: optionPlan.sellPrice,
-              // Source EAN must NOT be written to option barcode (ADR-0022).
+              // Source EAN must NOT be written to option barcode.
               barcode: null,
             },
           });

@@ -142,7 +142,7 @@ export class OrdersService {
   }
 
   async findOne(id: string, organizationId: string) {
-    // ADR-0006: findUnique({ where: { id } }) 금지 — organizationId 필수
+    // findUnique({ where: { id } }) 금지 — organizationId 필수
     const order = await this.prisma.order.findFirst({
       where: { id, organizationId },
       include: {

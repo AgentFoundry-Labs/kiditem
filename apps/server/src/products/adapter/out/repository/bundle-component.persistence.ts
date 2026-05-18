@@ -2,10 +2,9 @@
 import { BundleComponent, Prisma } from '@prisma/client';
 
 /**
- * Tenant-scoped persistence helpers for `BundleComponent` rows. The
- * row-lock helper lives in `bundle-stock.persistence.ts` (canonical owner
- * per ADR-0014) and is re-exported here for ergonomic import in the
- * component CRUD orchestration.
+ * Tenant-scoped persistence helpers for `BundleComponent` rows. The row-lock
+ * helper lives in `bundle-stock.persistence.ts` and is re-exported here for
+ * ergonomic import in the component CRUD orchestration.
  */
 export { lockBundleOptionRow } from './bundle-stock.persistence';
 

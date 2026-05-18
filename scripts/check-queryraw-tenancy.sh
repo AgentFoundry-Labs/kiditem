@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# ADR-0018 Rule 4 — $queryRaw tenancy enforcement
+# $queryRaw tenancy enforcement
 #
 # Scans apps/server/src for $queryRaw tagged templates (excluding tests/specs/docs)
 # and verifies each site has `organization_id` binding within 30 lines after the hit.
 #
-# Scope: $queryRaw (tagged template). $queryRawUnsafe is separately banned by ADR-0009.
+# Scope: $queryRaw (tagged template). $queryRawUnsafe is separately banned by repository policy.
 #
 # Exemptions (auto-detected within the 30-line window):
 #   - `FOR UPDATE` row locks on UUID primary key (id = ${uuid}::uuid FOR UPDATE) —
@@ -56,7 +56,7 @@ FAILURES=()
 for file in "${FILES[@]}"; do
   # Collect line numbers of every $queryRaw method-call site (not comment, not Unsafe).
   # Matches: `.\$queryRaw<T>` (generic) and `.\$queryRaw\`` (bare tagged template).
-  # Excludes: `.\$queryRawUnsafe(` (separately banned by ADR-0009).
+  # Excludes: `.\$queryRawUnsafe(` (separately banned by repository policy).
   # Bash 3.2-compatible array assignment (no mapfile/readarray).
   linenos=()
   while IFS= read -r _ln; do
@@ -107,10 +107,10 @@ if [ ${#FAILURES[@]} -gt 0 ]; then
     echo "   - $f"
   done
   echo ""
-  echo "ADR-0018 Rule 2: every \$queryRaw must bind WHERE organization_id = \${organizationId}::uuid"
+  echo "Every \$queryRaw must bind WHERE organization_id = \${organizationId}::uuid"
   echo "(Exemptions: FOR UPDATE row-lock on UUID PK, nextval() sequence.)"
   exit 1
 fi
 
-echo "✅ PASS: all \$queryRaw sites bind organization_id or are exempt (ADR-0018 Rule 2)"
+echo "✅ PASS: all \$queryRaw sites bind organization_id or are exempt"
 exit 0

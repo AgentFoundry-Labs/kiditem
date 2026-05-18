@@ -15,7 +15,7 @@ import {
 /**
  * Recompute the materialized `availableStock` for a bundle option.
  *
- * Invariant (ADR-0014): `availableStock` is **only** written here.
+ * Invariant: `availableStock` is **only** written here.
  * `OptionsService.update` strips it from its payload (SYSTEM_FIELDS) and
  * the persistence helpers in `bundle-stock.persistence.ts` are used by no
  * other service.
@@ -94,7 +94,7 @@ export class BundleStockService implements ProductBundleStockPort {
    * - Nested bundles are forbidden by `BundleComponentsService.create`,
    *   so the fan-out is non-recursive and terminates.
    *
-   * ADR-0014: `InventoryService` is the sole external caller. No other
+   * `InventoryService` is the sole external caller. No other
    * module is allowed to invoke this method.
    */
   async recomputeForComponent(

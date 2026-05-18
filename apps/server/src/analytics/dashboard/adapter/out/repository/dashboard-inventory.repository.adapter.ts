@@ -6,7 +6,7 @@
 // channel-listing review counts.
 //
 // 2-hop joins (A-grade review fetch) bind organization on both
-// MasterProduct and ChannelListing per ADR-0018 Rule 3.
+// MasterProduct and ChannelListing both bind organizationId.
 
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../../prisma/prisma.service';
@@ -127,7 +127,7 @@ export class DashboardInventoryRepositoryAdapter
   async findAGradeReviewCounts(
     organizationId: string,
   ): Promise<AGradeReviewRow[]> {
-    // 2-hop IDOR (ADR-0018 Rule 3): master.organizationId +
+    // 2-hop tenant scope: master.organizationId +
     // listings.organizationId on the nested filter.
     const masters = await this.prisma.masterProduct.findMany({
       where: { organizationId, isDeleted: false, abcGrade: 'A' },
