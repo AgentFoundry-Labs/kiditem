@@ -26,7 +26,7 @@ describe('DetailPageAiService facade', () => {
       .resolves.toEqual({ id: 'generation-id' });
     await expect(service.prefill({ rawTitle: '상품' } as never, 'org'))
       .resolves.toEqual({ category: '완구' });
-    await expect(service.list('org', 'product', 'kids-playful'))
+    await expect(service.list('org', { productId: 'product', templateId: 'kids-playful' }))
       .resolves.toEqual([{ id: 'row-1' }]);
     await expect(service.getById('row-1', 'org'))
       .resolves.toEqual({ id: 'row-1' });
@@ -39,7 +39,10 @@ describe('DetailPageAiService facade', () => {
     );
     expect(generation.generate).toHaveBeenCalledWith({ rawTitle: '상품' }, 'org', 'user');
     expect(prefill.prefill).toHaveBeenCalledWith({ rawTitle: '상품' }, 'org');
-    expect(query.list).toHaveBeenCalledWith('org', 'product', 'kids-playful');
+    expect(query.list).toHaveBeenCalledWith('org', {
+      productId: 'product',
+      templateId: 'kids-playful',
+    });
     expect(query.getById).toHaveBeenCalledWith('row-1', 'org');
     expect(query.remove).toHaveBeenCalledWith('row-1', 'org');
   });

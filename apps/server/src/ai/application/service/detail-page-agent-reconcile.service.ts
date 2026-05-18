@@ -1,5 +1,4 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { PrismaService } from '../../../prisma/prisma.service';
 import { AgentObservabilityService } from '../../../agent-os/application/service/agent-observability.service';
 import {
   DETAIL_PAGE_GENERATE_AGENT_TYPE,
@@ -9,6 +8,10 @@ import {
   DETAIL_PAGE_AGENT_OUTPUT_SINK_PORT,
   type DetailPageAgentOutputSinkPort,
 } from '../port/out/detail-page-agent-output-sink.port';
+import {
+  DETAIL_PAGE_RECONCILE_REPOSITORY_PORT,
+  type DetailPageReconcileRepositoryPort,
+} from '../port/out/detail-page-reconcile.repository.port';
 
 export interface DetailPageReconcileSummary {
   scanned: number;
@@ -57,7 +60,8 @@ export class DetailPageAgentReconcileService {
   private readonly logger = new Logger(DetailPageAgentReconcileService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(DETAIL_PAGE_RECONCILE_REPOSITORY_PORT)
+    private readonly repository: DetailPageReconcileRepositoryPort,
     /**
      * Cross-domain reads via the observability surface that AgentOsModule
      * already exports — keeps AGENT_OS_REPOSITORY_PORT private to agent-os
@@ -87,24 +91,10 @@ export class DetailPageAgentReconcileService {
       skipped: 0,
     };
 
-    // Cross-domain read: AgentRunRequest rows live in agent-os, but the
-    // recovery contract documented in agent-os/AGENTS.md authorizes the AI
-    // domain to query terminal rows for its own agentType. We use Prisma
-    // here because the agent-os repository port does not expose a
-    // "terminal requests by source" query, and adding one purely for AI
-    // would couple agent-os to AI's recovery cadence. The query is
-    // organization-scoped + agentType-scoped, so it never touches other
-    // domains' rows.
-    const requests = await this.prisma.agentRunRequest.findMany({
-      where: {
-        organizationId,
-        sourceResourceType: 'content_generation',
-        source: 'ai.detail_page_generate',
-        status: { in: ['succeeded', 'failed'] },
-        finishedAt: { gte: since },
-      },
-      orderBy: { finishedAt: 'desc' },
-      take: limit,
+    const requests = await this.repository.listTerminalRequests({
+      organizationId,
+      since,
+      limit,
     });
 
     for (const req of requests) {
@@ -114,9 +104,9 @@ export class DetailPageAgentReconcileService {
         summary.skipped += 1;
         continue;
       }
-      const cg = await this.prisma.contentGeneration.findFirst({
-        where: { id: sourceResourceId, organizationId },
-        select: { id: true, status: true },
+      const cg = await this.repository.findContentGenerationStatus({
+        organizationId,
+        contentGenerationId: sourceResourceId,
       });
       if (!cg) {
         summary.skipped += 1;

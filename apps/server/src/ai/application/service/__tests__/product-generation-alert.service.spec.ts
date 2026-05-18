@@ -36,20 +36,18 @@ function makeAlert(metadata: Record<string, unknown>) {
   };
 }
 
-function makePrisma() {
+function makeChildLedger() {
   return {
-    contentGeneration: {
-      findFirst: vi.fn(),
-    },
-    thumbnailGeneration: {
-      findFirst: vi.fn(),
-    },
+    readChildStatuses: vi.fn().mockResolvedValue({
+      detailPageStatus: null,
+      thumbnailStatus: null,
+    }),
   };
 }
 
 describe('ProductGenerationAlertService', () => {
   it('starts one parent operation alert with both children queued', async () => {
-    const prisma = makePrisma();
+    const childLedger = makeChildLedger();
     const operationAlerts = {
       start: vi.fn().mockResolvedValue(makeAlert({})),
       findByOperationKey: vi.fn(),
@@ -57,7 +55,7 @@ describe('ProductGenerationAlertService', () => {
       succeed: vi.fn(),
       fail: vi.fn(),
     };
-    const service = new ProductGenerationAlertService(prisma as never, operationAlerts as never);
+    const service = new ProductGenerationAlertService(operationAlerts as never, childLedger as never);
 
     await service.start({
       organizationId: ORGANIZATION_ID,
@@ -96,7 +94,7 @@ describe('ProductGenerationAlertService', () => {
   });
 
   it('records a child id without changing the parent to a terminal state', async () => {
-    const prisma = makePrisma();
+    const childLedger = makeChildLedger();
     const operationAlerts = {
       start: vi.fn(),
       findByOperationKey: vi.fn().mockResolvedValue(makeAlert({
@@ -107,7 +105,7 @@ describe('ProductGenerationAlertService', () => {
       succeed: vi.fn(),
       fail: vi.fn(),
     };
-    const service = new ProductGenerationAlertService(prisma as never, operationAlerts as never);
+    const service = new ProductGenerationAlertService(operationAlerts as never, childLedger as never);
 
     const result = await service.recordChildStarted({
       organizationId: ORGANIZATION_ID,
@@ -136,7 +134,7 @@ describe('ProductGenerationAlertService', () => {
   });
 
   it('reports parent_terminal when child registration races with parent cancellation', async () => {
-    const prisma = makePrisma();
+    const childLedger = makeChildLedger();
     const operationAlerts = {
       start: vi.fn(),
       findByOperationKey: vi.fn().mockResolvedValue(makeAlert({
@@ -149,7 +147,7 @@ describe('ProductGenerationAlertService', () => {
       succeed: vi.fn(),
       fail: vi.fn(),
     };
-    const service = new ProductGenerationAlertService(prisma as never, operationAlerts as never);
+    const service = new ProductGenerationAlertService(operationAlerts as never, childLedger as never);
 
     const result = await service.recordChildStarted({
       organizationId: ORGANIZATION_ID,
@@ -164,9 +162,11 @@ describe('ProductGenerationAlertService', () => {
   });
 
   it('keeps parent alert running after one child succeeds', async () => {
-    const prisma = makePrisma();
-    prisma.contentGeneration.findFirst.mockResolvedValueOnce({ status: 'READY' });
-    prisma.thumbnailGeneration.findFirst.mockResolvedValueOnce(null);
+    const childLedger = makeChildLedger();
+    childLedger.readChildStatuses.mockResolvedValueOnce({
+      detailPageStatus: 'READY',
+      thumbnailStatus: null,
+    });
     const operationAlerts = {
       start: vi.fn(),
       findByOperationKey: vi.fn().mockResolvedValue(makeAlert({
@@ -177,7 +177,7 @@ describe('ProductGenerationAlertService', () => {
       succeed: vi.fn(),
       fail: vi.fn(),
     };
-    const service = new ProductGenerationAlertService(prisma as never, operationAlerts as never);
+    const service = new ProductGenerationAlertService(operationAlerts as never, childLedger as never);
 
     await service.markChildFinished({
       organizationId: ORGANIZATION_ID,
@@ -206,9 +206,11 @@ describe('ProductGenerationAlertService', () => {
   });
 
   it('succeeds parent alert after both children succeed', async () => {
-    const prisma = makePrisma();
-    prisma.contentGeneration.findFirst.mockResolvedValueOnce({ status: 'READY' });
-    prisma.thumbnailGeneration.findFirst.mockResolvedValueOnce({ status: 'succeeded' });
+    const childLedger = makeChildLedger();
+    childLedger.readChildStatuses.mockResolvedValueOnce({
+      detailPageStatus: 'READY',
+      thumbnailStatus: 'succeeded',
+    });
     const operationAlerts = {
       start: vi.fn(),
       findByOperationKey: vi.fn().mockResolvedValue(makeAlert({
@@ -223,7 +225,7 @@ describe('ProductGenerationAlertService', () => {
       succeed: vi.fn().mockResolvedValue(makeAlert({})),
       fail: vi.fn(),
     };
-    const service = new ProductGenerationAlertService(prisma as never, operationAlerts as never);
+    const service = new ProductGenerationAlertService(operationAlerts as never, childLedger as never);
 
     await service.markChildFinished({
       organizationId: ORGANIZATION_ID,
@@ -251,9 +253,11 @@ describe('ProductGenerationAlertService', () => {
   });
 
   it('recomputes terminal parent state from child ledgers instead of stale metadata', async () => {
-    const prisma = makePrisma();
-    prisma.contentGeneration.findFirst.mockResolvedValueOnce({ status: 'READY' });
-    prisma.thumbnailGeneration.findFirst.mockResolvedValueOnce({ status: 'succeeded' });
+    const childLedger = makeChildLedger();
+    childLedger.readChildStatuses.mockResolvedValueOnce({
+      detailPageStatus: 'READY',
+      thumbnailStatus: 'succeeded',
+    });
     const operationAlerts = {
       start: vi.fn(),
       findByOperationKey: vi.fn().mockResolvedValue(makeAlert({
@@ -268,7 +272,7 @@ describe('ProductGenerationAlertService', () => {
       succeed: vi.fn().mockResolvedValue(makeAlert({})),
       fail: vi.fn(),
     };
-    const service = new ProductGenerationAlertService(prisma as never, operationAlerts as never);
+    const service = new ProductGenerationAlertService(operationAlerts as never, childLedger as never);
 
     await service.markChildFinished({
       organizationId: ORGANIZATION_ID,
@@ -291,9 +295,11 @@ describe('ProductGenerationAlertService', () => {
   });
 
   it('does not let synthetic enqueue IDs overwrite recorded child ledger IDs', async () => {
-    const prisma = makePrisma();
-    prisma.contentGeneration.findFirst.mockResolvedValueOnce({ status: 'FAILED' });
-    prisma.thumbnailGeneration.findFirst.mockResolvedValueOnce(null);
+    const childLedger = makeChildLedger();
+    childLedger.readChildStatuses.mockResolvedValueOnce({
+      detailPageStatus: 'FAILED',
+      thumbnailStatus: null,
+    });
     const operationAlerts = {
       start: vi.fn(),
       findByOperationKey: vi.fn().mockResolvedValue(makeAlert({
@@ -308,7 +314,7 @@ describe('ProductGenerationAlertService', () => {
       succeed: vi.fn(),
       fail: vi.fn(),
     };
-    const service = new ProductGenerationAlertService(prisma as never, operationAlerts as never);
+    const service = new ProductGenerationAlertService(operationAlerts as never, childLedger as never);
 
     await service.markChildFinished({
       organizationId: ORGANIZATION_ID,
@@ -334,9 +340,11 @@ describe('ProductGenerationAlertService', () => {
   });
 
   it('fails parent alert after any child fails and both children are terminal', async () => {
-    const prisma = makePrisma();
-    prisma.contentGeneration.findFirst.mockResolvedValueOnce({ status: 'FAILED' });
-    prisma.thumbnailGeneration.findFirst.mockResolvedValueOnce({ status: 'succeeded' });
+    const childLedger = makeChildLedger();
+    childLedger.readChildStatuses.mockResolvedValueOnce({
+      detailPageStatus: 'FAILED',
+      thumbnailStatus: 'succeeded',
+    });
     const operationAlerts = {
       start: vi.fn(),
       findByOperationKey: vi.fn().mockResolvedValue(makeAlert({
@@ -351,7 +359,7 @@ describe('ProductGenerationAlertService', () => {
       succeed: vi.fn(),
       fail: vi.fn().mockResolvedValue(makeAlert({})),
     };
-    const service = new ProductGenerationAlertService(prisma as never, operationAlerts as never);
+    const service = new ProductGenerationAlertService(operationAlerts as never, childLedger as never);
 
     await service.markChildFinished({
       organizationId: ORGANIZATION_ID,
@@ -375,7 +383,7 @@ describe('ProductGenerationAlertService', () => {
   });
 
   it('does not reopen a cancelled parent product generation alert when a child finishes late', async () => {
-    const prisma = makePrisma();
+    const childLedger = makeChildLedger();
     const operationAlerts = {
       start: vi.fn(),
       findByOperationKey: vi.fn().mockResolvedValue(
@@ -385,7 +393,7 @@ describe('ProductGenerationAlertService', () => {
       succeed: vi.fn(),
       fail: vi.fn(),
     };
-    const service = new ProductGenerationAlertService(prisma as never, operationAlerts as never);
+    const service = new ProductGenerationAlertService(operationAlerts as never, childLedger as never);
 
     const result = await service.markChildFinished({
       organizationId: ORGANIZATION_ID,

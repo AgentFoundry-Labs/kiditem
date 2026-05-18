@@ -4,16 +4,15 @@ import {
   type OperationAlertRecord as AlertRecord,
   type OperationAlertPort,
 } from '../port/out/operation-alert.port';
-import { PrismaService } from '../../../prisma/prisma.service';
+import {
+  PRODUCT_GENERATION_CHILD_LEDGER_REPOSITORY_PORT,
+  type ProductGenerationChildIds,
+  type ProductGenerationChildLedgerRepositoryPort,
+} from '../port/out/product-generation-child-ledger.repository.port';
 import type { ProductGenerationChildKind } from './product-generation-alert-link';
 import { productGenerationOperationKey } from './product-generation-alert-link';
 
 type ChildStatus = 'queued' | 'succeeded' | 'failed';
-
-interface ProductGenerationChildIds {
-  detailPageGenerationId: string | null;
-  thumbnailGenerationId: string | null;
-}
 
 interface ProductGenerationChildren {
   detail_page: ChildStatus;
@@ -138,9 +137,10 @@ function failureMessage(children: ProductGenerationChildren): string {
 @Injectable()
 export class ProductGenerationAlertService {
   constructor(
-    private readonly prisma: PrismaService,
     @Inject(AI_OPERATION_ALERT_PORT)
     private readonly operationAlerts: OperationAlertPort,
+    @Inject(PRODUCT_GENERATION_CHILD_LEDGER_REPOSITORY_PORT)
+    private readonly childLedger: ProductGenerationChildLedgerRepositoryPort,
   ) {}
 
   async start(input: {
@@ -289,28 +289,14 @@ export class ProductGenerationAlertService {
     organizationId: string,
     childIds: ProductGenerationChildIds,
   ): Promise<ProductGenerationChildren> {
-    const [detail, thumbnail] = await Promise.all([
-      childIds.detailPageGenerationId
-        ? this.prisma.contentGeneration.findFirst({
-            where: { id: childIds.detailPageGenerationId, organizationId },
-            select: { status: true },
-          })
-        : null,
-      childIds.thumbnailGenerationId
-        ? this.prisma.thumbnailGeneration.findFirst({
-            where: {
-              id: childIds.thumbnailGenerationId,
-              organizationId,
-              isDeleted: false,
-            },
-            select: { status: true },
-          })
-        : null,
-    ]);
+    const { detailPageStatus, thumbnailStatus } = await this.childLedger.readChildStatuses({
+      organizationId,
+      childIds,
+    });
 
     return {
-      detail_page: normalizeDetailStatus(detail?.status),
-      thumbnail: normalizeThumbnailStatus(thumbnail?.status),
+      detail_page: normalizeDetailStatus(detailPageStatus),
+      thumbnail: normalizeThumbnailStatus(thumbnailStatus),
     };
   }
 }

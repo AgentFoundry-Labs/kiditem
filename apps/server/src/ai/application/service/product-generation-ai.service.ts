@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '../../../prisma/prisma.service';
+import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { DetailPageGenerationService } from './detail-page-generation.service';
 import { ThumbnailEditorAiService } from './thumbnail-editor-ai.service';
 import { ThumbnailGenerationJobService } from './thumbnail-generation-job.service';
@@ -14,13 +13,18 @@ import type {
   ProductGenerationAiResult,
   ProductGenerationAiTriggerPort,
 } from '../port/in/product-generation-ai-trigger.port';
+import {
+  PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT,
+  type ProductGenerationContextRepositoryPort,
+} from '../port/out/product-generation-context.repository.port';
 
 @Injectable()
 export class ProductGenerationAiService implements ProductGenerationAiTriggerPort {
   private readonly logger = new Logger(ProductGenerationAiService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT)
+    private readonly contextRepository: ProductGenerationContextRepositoryPort,
     private readonly detailPages: DetailPageGenerationService,
     private readonly thumbnails: ThumbnailGenerationJobService,
     private readonly editorAi: ThumbnailEditorAiService,
@@ -30,24 +34,9 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
   async startForCandidate(
     input: ProductGenerationAiRequest,
   ): Promise<ProductGenerationAiResult> {
-    const candidate = await this.prisma.sourcingCandidate.findFirst({
-      where: {
-        id: input.candidateId,
-        organizationId: input.organizationId,
-        isDeleted: false,
-      },
-      select: {
-        id: true,
-        name: true,
-        category: true,
-        description: true,
-        thumbnailUrl: true,
-        images: {
-          where: { isDeleted: false },
-          orderBy: { sortOrder: 'asc' },
-          select: { url: true, sortOrder: true },
-        },
-      },
+    const candidate = await this.contextRepository.findCandidate({
+      organizationId: input.organizationId,
+      candidateId: input.candidateId,
     });
     if (!candidate) throw new NotFoundException('Sourcing candidate not found');
 

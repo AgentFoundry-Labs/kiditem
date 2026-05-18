@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { ContentAssetLibraryRepositoryPort } from '../../port/out/content-asset-library.repository.port';
 import { ContentAssetService } from '../content-asset.service';
 
 const ORG = '11111111-1111-4111-8111-111111111111';
@@ -6,121 +7,89 @@ const GROUP_ID = '22222222-2222-4222-8222-222222222222';
 const GENERATION_ID = '33333333-3333-4333-8333-333333333333';
 const USER_ID = '99999999-9999-9999-9999-999999999999';
 
-function makePrisma() {
-  const tx = {
-    contentAsset: {
-      createMany: vi.fn().mockResolvedValue({ count: 2 }),
-      findMany: vi.fn().mockResolvedValue([
-        {
-          id: 'asset-1',
-          assetKey: expect.stringContaining(`group-url:${GROUP_ID}:`),
-          url: 'https://example.com/a.jpg',
-          role: 'source',
-          label: null,
-          sortOrder: 0,
-        },
-        {
-          id: 'asset-2',
-          assetKey: expect.stringContaining(`group-url:${GROUP_ID}:`),
-          url: 'https://example.com/b.jpg',
-          role: 'source',
-          label: null,
-          sortOrder: 1,
-        },
-      ]),
-    },
-    contentGenerationAssetUsage: {
-      deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
-      createMany: vi.fn().mockResolvedValue({ count: 2 }),
-    },
-  };
+function repository(
+  overrides: Partial<ContentAssetLibraryRepositoryPort> = {},
+): ContentAssetLibraryRepositoryPort {
   return {
-    tx,
-    prisma: {
-      ...tx,
-      $transaction: vi.fn((fn: (txArg: typeof tx) => unknown) => fn(tx)),
-    },
-  };
+    recordDetailPageInputAssets: vi.fn(),
+    recordDetailPageGeneratedAssets: vi.fn(),
+    syncGenerationImageUsages: vi.fn(),
+    syncGenerationImageUsagesInScope: vi.fn(),
+    listAssets: vi.fn(),
+    ...overrides,
+  } as ContentAssetLibraryRepositoryPort;
 }
 
 describe('ContentAssetService', () => {
-  it('dedupes detail-page input image URLs into group-scoped content assets', async () => {
-    const { prisma, tx } = makePrisma();
-    const storage = {
-      extractKey: vi.fn((url: string) => {
-        if (url === 'http://storage.local/kiditem/detail-page-inputs/a.jpg') {
-          return 'detail-page-inputs/a.jpg';
-        }
-        return null;
-      }),
-    };
-    const service = new ContentAssetService(prisma as never, storage as never);
+  it('delegates detail-page input asset recording to the asset library repository', async () => {
+    const assets = [{
+      id: 'asset-1',
+      assetKey: 'group-url:group-1:hash',
+      url: 'https://example.com/a.jpg',
+      role: 'source',
+      label: null,
+      sortOrder: 0,
+    }];
+    const repo = repository({
+      recordDetailPageInputAssets: vi.fn().mockResolvedValue(assets),
+    });
+    const service = new ContentAssetService(repo);
 
-    await service.recordDetailPageInputAssets({
+    await expect(service.recordDetailPageInputAssets({
       organizationId: ORG,
       generationGroupId: GROUP_ID,
       createdByUserId: USER_ID,
-      imageUrls: [
-        'http://storage.local/kiditem/detail-page-inputs/a.jpg',
-        'http://storage.local/kiditem/detail-page-inputs/a.jpg',
-        'https://example.com/b.jpg',
-      ],
-    });
+      imageUrls: ['https://example.com/a.jpg'],
+    })).resolves.toEqual(assets);
 
-    expect(tx.contentAsset.createMany).toHaveBeenCalledWith({
-      skipDuplicates: true,
-      data: [
-        expect.objectContaining({
-          organizationId: ORG,
-          generationGroupId: GROUP_ID,
-          createdByUserId: USER_ID,
-          assetKey: expect.stringMatching(new RegExp(`^group-url:${GROUP_ID}:`)),
-          url: 'http://storage.local/kiditem/detail-page-inputs/a.jpg',
-          storageKey: 'detail-page-inputs/a.jpg',
-          assetType: 'image',
-          role: 'source',
-          sortOrder: 0,
-        }),
-        expect.objectContaining({
-          url: 'https://example.com/b.jpg',
-          storageKey: null,
-          sortOrder: 2,
-        }),
-      ],
+    expect(repo.recordDetailPageInputAssets).toHaveBeenCalledWith({
+      organizationId: ORG,
+      generationGroupId: GROUP_ID,
+      createdByUserId: USER_ID,
+      imageUrls: ['https://example.com/a.jpg'],
     });
   });
 
-  it('replaces a generation usage set from current image URLs', async () => {
-    const { prisma, tx } = makePrisma();
-    const service = new ContentAssetService(prisma as never);
+  it('keeps existing transaction callers on an abstract asset write scope', async () => {
+    const scope = {
+      contentAsset: {
+        createMany: vi.fn(),
+        findMany: vi.fn(),
+      },
+      contentGenerationAssetUsage: {
+        deleteMany: vi.fn(),
+        createMany: vi.fn(),
+      },
+    };
+    const repo = repository({
+      syncGenerationImageUsagesInScope: vi.fn().mockResolvedValue([]),
+    });
+    const service = new ContentAssetService(repo);
 
-    await service.syncGenerationImageUsages({
+    await service.syncGenerationImageUsagesTx(scope, {
       organizationId: ORG,
       generationGroupId: GROUP_ID,
       contentGenerationId: GENERATION_ID,
       createdByUserId: USER_ID,
-      imageUrls: ['https://example.com/a.jpg', 'https://example.com/b.jpg'],
+      imageUrls: ['https://example.com/a.jpg'],
     });
 
-    expect(tx.contentGenerationAssetUsage.deleteMany).toHaveBeenCalledWith({
-      where: { organizationId: ORG, contentGenerationId: GENERATION_ID },
-    });
-    expect(tx.contentGenerationAssetUsage.createMany).toHaveBeenCalledWith({
-      skipDuplicates: true,
-      data: [
-        { organizationId: ORG, contentGenerationId: GENERATION_ID, contentAssetId: 'asset-1' },
-        { organizationId: ORG, contentGenerationId: GENERATION_ID, contentAssetId: 'asset-2' },
-      ],
+    expect(repo.syncGenerationImageUsagesInScope).toHaveBeenCalledWith(scope, {
+      organizationId: ORG,
+      generationGroupId: GROUP_ID,
+      contentGenerationId: GENERATION_ID,
+      createdByUserId: USER_ID,
+      imageUrls: ['https://example.com/a.jpg'],
     });
   });
 
   it('lists group assets through the product workspace relation', async () => {
     const createdAt = new Date('2026-05-13T09:00:00.000Z');
     const updatedAt = new Date('2026-05-13T09:30:00.000Z');
-    const prisma = {
-      contentAsset: {
-        count: vi.fn().mockResolvedValue(1),
-        findMany: vi.fn().mockResolvedValue([
+    const repo = repository({
+      listAssets: vi.fn().mockResolvedValue({
+        total: 1,
+        rows: [
           {
             id: 'asset-1',
             generationGroupId: GROUP_ID,
@@ -140,10 +109,10 @@ describe('ContentAssetService', () => {
               },
             },
           },
-        ]),
-      },
-    };
-    const service = new ContentAssetService(prisma as never);
+        ],
+      }),
+    });
+    const service = new ContentAssetService(repo);
 
     await expect(
       service.listAssets(ORG, { page: 2, limit: 10, productId: 'master-1' }),
@@ -171,6 +140,14 @@ describe('ContentAssetService', () => {
       total: 1,
       page: 2,
       limit: 10,
+    });
+
+    expect(repo.listAssets).toHaveBeenCalledWith({
+      organizationId: ORG,
+      page: 2,
+      limit: 10,
+      productId: 'master-1',
+      generationId: null,
     });
   });
 });

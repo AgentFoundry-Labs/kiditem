@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
 import {
   AI_WORKSPACE_ARCHIVE_PORT,
+  type AiWorkspaceArchiveScope,
   type AiWorkspaceArchivePort,
 } from '../../../../ai/application/port/in/sourcing-workspace-archive.port';
 import type {
@@ -22,6 +22,6 @@ export class SourcingAiWorkspaceArchiveAdapter implements SourcingAiWorkspaceArc
     tx: SourcingRepositoryTransaction,
     input: ArchiveSourcingWorkspaceInput,
   ): Promise<ArchiveSourcingWorkspaceResult> {
-    return this.aiArchive.archiveSourcingWorkspace(tx as Prisma.TransactionClient, input);
+    return this.aiArchive.archiveSourcingWorkspace(tx as unknown as AiWorkspaceArchiveScope, input);
   }
 }
