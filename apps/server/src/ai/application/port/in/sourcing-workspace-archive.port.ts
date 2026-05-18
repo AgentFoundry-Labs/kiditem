@@ -1,6 +1,20 @@
-import type { Prisma } from '@prisma/client';
-
 export const AI_WORKSPACE_ARCHIVE_PORT = Symbol('AI_WORKSPACE_ARCHIVE_PORT');
+
+export interface AiWorkspaceArchiveScope {
+  contentGeneration: {
+    findMany(args: any): Promise<Array<{ id: string }>>;
+    updateMany(args: any): Promise<{ count: number }>;
+  };
+  detailPageArtifact: {
+    updateMany(args: any): Promise<{ count: number }>;
+  };
+  contentAsset: {
+    updateMany(args: any): Promise<{ count: number }>;
+  };
+  thumbnailGeneration: {
+    updateMany(args: any): Promise<{ count: number }>;
+  };
+}
 
 export interface ArchiveSourcingWorkspaceInput {
   organizationId: string;
@@ -17,7 +31,7 @@ export interface ArchiveSourcingWorkspaceResult {
 
 export interface AiWorkspaceArchivePort {
   archiveSourcingWorkspace(
-    tx: Prisma.TransactionClient,
+    scope: AiWorkspaceArchiveScope,
     input: ArchiveSourcingWorkspaceInput,
   ): Promise<ArchiveSourcingWorkspaceResult>;
 }

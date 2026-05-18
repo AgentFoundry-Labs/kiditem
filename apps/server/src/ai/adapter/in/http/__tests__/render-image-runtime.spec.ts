@@ -11,8 +11,10 @@ describe('render-image staging runtime', () => {
     const localDeployScript = readFileSync(join(root, 'bin/deploy-staging.sh'), 'utf8');
 
     expect(dockerfile).toContain('PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium');
-    expect(dockerfile).toContain('test -x /usr/bin/chromium && /usr/bin/chromium --version');
-    expect(workflow).toContain('INSTALL_CHROMIUM=true');
+    expect(dockerfile).toContain('test -x "$PUPPETEER_EXECUTABLE_PATH"');
+    expect(dockerfile).toContain('"$PUPPETEER_EXECUTABLE_PATH" --version');
+    expect(workflow).toContain('API_RUNTIME_BASE_IMAGE');
+    expect(workflow).toContain('node22-chromium');
     expect(localDeployScript).toContain('INSTALL_CHROMIUM="${INSTALL_CHROMIUM:-true}"');
     expect(deployScript).toContain('verify_render_image_runtime');
     expect(deployScript).toContain('puppeteer.launch');

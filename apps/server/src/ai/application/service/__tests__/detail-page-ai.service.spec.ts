@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DetailPageAiService } from '../detail-page-ai.service';
-import { ContentAssetService } from '../content-asset.service';
 import { DetailPageGenerationService } from '../detail-page-generation.service';
 import { DetailPagePrefillService } from '../detail-page-prefill.service';
 import { DetailPageQueryService } from '../detail-page-query.service';
@@ -10,6 +9,8 @@ import { KidsPlayfulRefinerService } from '../kids-playful-refiner.service';
 import type { OperationAlertPort } from '../../port/out/operation-alert.port';
 import type { AgentRunnerPort } from '../../../../agent-os/application/port/in/agent-runner.port';
 import type { ProductGenerationAlertService } from '../product-generation-alert.service';
+import type { DetailPageGenerationRepositoryPort } from '../../port/out/detail-page-generation.repository.port';
+import type { DetailPageQueryRepositoryPort } from '../../port/out/detail-page-query.repository.port';
 
 const ORGANIZATION_ID = '11111111-1111-4111-8111-111111111111';
 const USER_ID = '99999999-9999-9999-9999-999999999999';
@@ -82,6 +83,225 @@ function makeResultRefiner(heroImageService?: unknown): DetailPageResultRefinerS
   );
 }
 
+function makeQueryRepository(prisma: ReturnType<typeof makePrisma>): DetailPageQueryRepositoryPort {
+  return {
+    list: vi.fn().mockImplementation(async () => prisma.contentGeneration.findMany()),
+    findById: vi.fn().mockImplementation(async ({ id, organizationId }) =>
+      prisma.contentGeneration.findFirst({
+        where: { id, organizationId, isDeleted: false },
+        include: { generationGroup: { select: { targetMasterId: true } } },
+      }),
+    ),
+    existsActive: vi.fn().mockResolvedValue(true),
+    markDeleted: vi.fn().mockResolvedValue(undefined),
+    renameVersion: vi.fn().mockResolvedValue(true),
+    findDuplicateSource: vi.fn().mockResolvedValue(null),
+    duplicateVersion: vi.fn(),
+    saveEditedHtmlRevision: vi.fn(),
+    getEditedHtml: vi.fn().mockResolvedValue(null),
+  } as unknown as DetailPageQueryRepositoryPort;
+}
+
+function makeGenerationRepository(prisma: ReturnType<typeof makePrisma>): DetailPageGenerationRepositoryPort {
+  return {
+    findActiveContentWorkspace: vi.fn().mockImplementation(async ({ organizationId, contentWorkspaceId }) =>
+      prisma.contentWorkspace?.findFirst({
+        where: {
+          id: contentWorkspaceId,
+          organizationId,
+          status: 'active',
+          isDeleted: false,
+        },
+        select: {
+          id: true,
+          sourceCandidateId: true,
+          targetMasterId: true,
+          displayName: true,
+          normalizedTitle: true,
+        },
+      }) ?? null,
+    ),
+    ensureRerunGenerationGroup: vi.fn(),
+    openProcessingGenerationLedger: vi.fn().mockImplementation(async (input) => {
+      const targetMaster = input.productId
+        ? await prisma.masterProduct.findFirst({
+          where: { id: input.productId, organizationId: input.organizationId, isDeleted: false },
+          select: { id: true, name: true },
+        })
+        : null;
+      if (input.productId && !targetMaster) return { status: 'product_not_found' };
+      const generationGroupId = targetMaster
+        ? (await prisma.contentGenerationGroup.findFirst({
+          where: {
+            organizationId: input.organizationId,
+            groupType: 'product_workspace',
+            targetMasterId: targetMaster.id,
+          },
+          select: { id: true },
+        }))?.id ?? (await prisma.contentGenerationGroup.create({
+          data: {
+            organizationId: input.organizationId,
+            groupType: 'product_workspace',
+            targetMasterId: targetMaster.id,
+            title: targetMaster.name.slice(0, 80),
+            createdByUserId: input.triggeredByUserId,
+            metadata: { source: 'detail_page_generation' },
+          },
+          select: { id: true },
+        })).id
+        : (await prisma.contentGenerationGroup.create({
+          data: {
+            organizationId: input.organizationId,
+            groupType: 'input_variation',
+            title: input.rawTitle.slice(0, 80),
+            createdByUserId: input.triggeredByUserId,
+            metadata: {
+              source: 'detail_page_generation',
+              templateId: input.templateId,
+            },
+          },
+          select: { id: true },
+        })).id;
+      const row = await prisma.contentGeneration.create({
+        data: {
+          organizationId: input.organizationId,
+          contentType: 'detail_page',
+          generationGroupId,
+          contentWorkspaceId: input.contentWorkspaceId,
+          sourceCandidateId: input.sourceCandidateId,
+          triggeredByUserId: input.triggeredByUserId,
+          templateId: input.templateId,
+          generationInput: input.rawInput,
+          generationResult: {
+            templateId: input.templateId,
+            result: {},
+            imageUrls: input.imageUrls,
+            processedImages: {},
+          },
+          generatedTitle: input.rawTitle.slice(0, 80),
+          status: 'PROCESSING',
+        },
+        include: {
+          generationGroup: {
+            select: { targetMasterId: true },
+          },
+        },
+      });
+      const sourceRows = input.sourceReferences.map((ref, index) => ({
+        organizationId: input.organizationId,
+        contentGenerationId: row.id,
+        sourceType: ref.sourceType,
+        sourceCandidateId: ref.sourceCandidateId ?? null,
+        sourceContentGenerationId: ref.sourceContentGenerationId ?? null,
+        contentAssetId: ref.contentAssetId ?? null,
+        label: ref.label ?? null,
+        sortOrder: index,
+        metadata: {},
+      }));
+      if (sourceRows.length > 0) {
+        await prisma.contentGenerationSource.createMany({
+          skipDuplicates: true,
+          data: sourceRows,
+        });
+      }
+      return { status: 'created', row };
+    }),
+    markGenerationRejectedByParent: vi.fn().mockImplementation((input) =>
+      prisma.contentGeneration.updateMany({
+        where: { id: input.generationId, organizationId: input.organizationId },
+        data: {
+          status: input.status,
+          errorMessage: input.errorMessage,
+        },
+      }),
+    ),
+    markGenerationFailed: vi.fn().mockImplementation((input) =>
+      prisma.contentGeneration.updateMany({
+        where: { id: input.generationId, organizationId: input.organizationId },
+        data: { status: 'FAILED', errorMessage: input.errorMessage },
+      }),
+    ),
+    findGenerationStatus: vi.fn().mockImplementation(({ organizationId, generationId }) =>
+      prisma.contentGeneration.findFirst({
+        where: { id: generationId, organizationId },
+        select: { status: true },
+      }),
+    ),
+    markGenerationCancelledIfProcessing: vi.fn().mockImplementation((input) =>
+      prisma.contentGeneration.updateMany({
+        where: {
+          id: input.generationId,
+          organizationId: input.organizationId,
+          status: { in: input.processingStatuses },
+        },
+        data: {
+          status: 'CANCELLED',
+          errorMessage: input.errorMessage,
+        },
+      }).then((updated: { count: number }) => updated.count),
+    ),
+    findRerunBase: vi.fn(),
+    findImageOnlyBaseCandidates: vi.fn().mockImplementation((input) =>
+      prisma.contentGeneration.findMany({
+        where: {
+          organizationId: input.organizationId,
+          contentType: 'detail_page',
+          templateId: input.templateId,
+          status: { in: ['READY', 'completed'] },
+          ...(input.productId
+            ? { generationGroup: { targetMasterId: input.productId } }
+            : input.contentWorkspaceId
+              ? { contentWorkspaceId: input.contentWorkspaceId }
+              : {
+                  OR: [
+                    { sourceCandidateId: input.sourceCandidateId },
+                    { sources: { some: { sourceCandidateId: input.sourceCandidateId } } },
+                    { detailPageArtifact: { is: { sourceCandidateId: input.sourceCandidateId } } },
+                  ],
+                }),
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        select: {
+          id: true,
+          generationInput: true,
+          generationResult: true,
+          templateId: true,
+          generatedTitle: true,
+        },
+      }),
+    ),
+    findSourceCandidate: vi.fn().mockImplementation(({ organizationId, sourceCandidateId }) =>
+      prisma.sourcingCandidate.findFirst({
+        where: { id: sourceCandidateId, organizationId, isDeleted: false },
+        select: { id: true, name: true, promotedMasterId: true },
+      }),
+    ),
+    findSourceContentGeneration: vi.fn(),
+    findSourceContentAsset: vi.fn(),
+    findCancellableGeneration: vi.fn().mockImplementation(({ organizationId, generationId }) =>
+      prisma.contentGeneration.findFirst({
+        where: { id: generationId, organizationId },
+        select: { id: true, status: true, generationInput: true, generationResult: true },
+      }),
+    ),
+    cancelProcessingGeneration: vi.fn().mockImplementation((input) =>
+      prisma.contentGeneration.updateMany({
+        where: {
+          id: input.generationId,
+          organizationId: input.organizationId,
+          status: { in: input.processingStatuses },
+        },
+        data: {
+          status: 'CANCELLED',
+          errorMessage: input.reason,
+          generationResult: input.generationResult,
+        },
+      }).then((updated: { count: number }) => updated.count),
+    ),
+  } as unknown as DetailPageGenerationRepositoryPort;
+}
+
 function makeService(
   prisma: unknown,
   textCompletion: unknown,
@@ -98,20 +318,18 @@ function makeService(
   },
 ): DetailPageAiService {
   const resultRefiner = makeResultRefiner(heroImageService);
-  const contentAssets = new ContentAssetService(prisma as never);
+  const typedPrisma = prisma as ReturnType<typeof makePrisma>;
   const query = new DetailPageQueryService(
-    prisma as never,
+    makeQueryRepository(typedPrisma),
     resultRefiner,
     imageStorage as never,
-    contentAssets,
   );
   const generation = new DetailPageGenerationService(
-    prisma as never,
+    makeGenerationRepository(typedPrisma),
     imageStorage as never,
     operationAlerts,
     query,
     agentRunner,
-    contentAssets,
     contentWorkspaces as never,
     makeProductGenerationAlertsStub(),
   );
@@ -131,20 +349,17 @@ function makeGenerationService(input: {
 }) {
   const resultRefiner = makeResultRefiner(input.heroImageService);
   const imageStorage = input.imageStorage ?? { save: vi.fn() };
-  const contentAssets = new ContentAssetService(input.prisma as never);
   const query = new DetailPageQueryService(
-    input.prisma as never,
+    makeQueryRepository(input.prisma),
     resultRefiner,
     imageStorage as never,
-    contentAssets,
   );
   return new DetailPageGenerationService(
-    input.prisma as never,
+    makeGenerationRepository(input.prisma),
     imageStorage as never,
     input.operationAlerts ?? makeOperationAlertsStub(),
     query,
     input.agentRunner ?? makeAgentRunnerStub(),
-    contentAssets,
     input.contentWorkspaces ?? {
       ensureForGeneration: vi.fn(async () => ({
         id: REGISTRATION_WORKSPACE_ID,
@@ -215,6 +430,9 @@ function makePrisma() {
     },
     contentGenerationSource: {
       createMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
+    contentWorkspace: {
+      findFirst: vi.fn().mockResolvedValue(null),
     },
     contentGenerationAssetUsage: {
       deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
@@ -1489,7 +1707,6 @@ describe('DetailPageAiService', () => {
       operationAlerts,
       undefined,
       makeAgentRunnerStub(),
-      undefined,
       contentWorkspaces,
     );
 
