@@ -1,8 +1,8 @@
 export const PRODUCT_WORKSPACE_TAB_KEYS = [
   'basic',
-  'options',
   'thumbnail',
   'detail',
+  'options',
   'raw',
 ] as const;
 
@@ -16,10 +16,10 @@ export const PRODUCT_WORKSPACE_TABS: Array<{
   iconKey?: 'database' | 'thumbnail';
 }> = [
   { key: 'basic', label: '기본정보' },
-  { key: 'options', label: '옵션·판매가' },
   { key: 'thumbnail', label: '썸네일', iconKey: 'thumbnail' },
   { key: 'detail', label: '상세페이지' },
-  { key: 'raw', label: '원본 데이터', iconKey: 'database' },
+  { key: 'options', label: '옵션판매가' },
+  { key: 'raw', label: '원본데이터', iconKey: 'database' },
 ];
 
 export function parseProductWorkspaceTab(
