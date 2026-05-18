@@ -282,6 +282,9 @@ export class DetailPageQueryService {
     organizationId: string,
     html: string,
   ): Promise<{ html: string; savedAt: string; assetUrlMap: Record<string, string> }> {
+    if (!isRenderableDetailHtml(html)) {
+      throw new BadRequestException('렌더링 가능한 상세페이지 HTML만 저장할 수 있습니다.');
+    }
     const row = await this.prisma.contentGeneration.findFirst({
       where: { id, organizationId, isDeleted: false },
       select: {
@@ -416,10 +419,20 @@ export class DetailPageQueryService {
     });
     if (!row) throw new NotFoundException('Detail page generation not found');
     const currentRevision = row.detailPageArtifact?.currentRevision;
-    if (currentRevision && row.detailPageArtifact?.isDeleted === false) {
+    if (
+      currentRevision &&
+      row.detailPageArtifact?.isDeleted === false &&
+      isRenderableDetailHtml(currentRevision.html)
+    ) {
       return {
         html: currentRevision.html,
         savedAt: currentRevision.createdAt.toISOString(),
+      };
+    }
+    if (!isRenderableDetailHtml(row.editedHtml)) {
+      return {
+        html: null,
+        savedAt: null,
       };
     }
     return {
@@ -556,6 +569,18 @@ function permanentAssetKey(input: {
 function duplicateVersionTitle(title: string): string {
   const normalized = title.trim() || '상세페이지';
   return normalized.endsWith('복사본') ? `${normalized} 2` : `${normalized} 복사본`;
+}
+
+function isRenderableDetailHtml(html: string | null | undefined): html is string {
+  const source = html?.trim();
+  if (!source) return false;
+  if (source.startsWith('{') || source.startsWith('[')) return false;
+  return (
+    /^<!doctype\s+html/i.test(source) ||
+    /^<html[\s>]/i.test(source) ||
+    /^<body[\s>]/i.test(source) ||
+    /<\/?[a-z][\s\S]*>/i.test(source)
+  );
 }
 
 function extensionFromKey(key: string): string {

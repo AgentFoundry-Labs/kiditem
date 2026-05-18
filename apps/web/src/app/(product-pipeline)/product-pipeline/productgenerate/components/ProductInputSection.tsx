@@ -215,10 +215,10 @@ export default function ProductInputSection({
 
   return (
     <section className="w-full max-w-[960px]">
-      <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 shadow-sm">
+      <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-6 pb-6 pt-10 shadow-sm">
         <div className="mb-5 text-center">
           <h1 className="text-2xl font-black text-[var(--text-primary)]">
-            AI 상품 생성
+            상품 등록 초안
           </h1>
           <p className="mt-2 text-sm font-semibold text-[var(--text-secondary)]">
             상품 이미지와 핵심 정보를 바탕으로 수집 상품 작업공간, 상세페이지, 썸네일 초안을 함께 생성합니다.
@@ -585,12 +585,12 @@ export default function ProductInputSection({
       )}
 
       <div className="mt-4 flex flex-col items-center text-center">
-        <div className="mb-3 flex w-full max-w-[520px] items-start gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-left shadow-sm">
+        <div className="mb-3 flex w-full max-w-[760px] items-start gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-left shadow-sm">
           <Info className="mt-0.5 shrink-0 text-[var(--primary)]" size={16} />
-          <p className="text-xs font-semibold leading-5 text-[var(--text-secondary)]">
-            생성 전 고지: 색상·디자인은 랜덤 출고될 수 있고 이미지와 구성품은 실제와 다를 수 있습니다.
-            사용법 영역은 생성 옵션 기준으로 포함하거나 숨길 수 있고, KC/바코드 이미지는 하단 안전표시로 분리됩니다.
-          </p>
+          <div className="space-y-1 text-xs font-semibold leading-5 text-[var(--text-secondary)]">
+            <p>생성 전 고지: 색상·디자인은 랜덤 출고될 수 있고 이미지와 구성품은 실제와 다를 수 있습니다.</p>
+            <p>사용법 영역은 생성 옵션 기준으로 포함하거나 숨길 수 있고, KC/바코드 이미지는 하단 안전표시로 분리됩니다.</p>
+          </div>
         </div>
         {isLoading && generationStartedAt && (
           <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-[var(--surface)] px-4 py-1.5 text-xs font-bold text-[var(--text-secondary)] shadow-sm ring-1 ring-[var(--border)]">

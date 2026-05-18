@@ -1,7 +1,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import type React from 'react';
 import { describe, expect, it, vi } from 'vitest';
+import { apiClient } from '@/lib/api-client';
 import DetailPagePreview from './DetailPagePreview';
 
 vi.mock('next/link', () => ({
@@ -216,6 +217,50 @@ describe('DetailPagePreview', () => {
     });
   });
 
+  it('ignores JSON saved as edited HTML and renders the saved generation DTO instead', async () => {
+    vi.mocked(apiClient.get).mockResolvedValueOnce({
+      html: '{"templateId":"kids-playful","result":{"section1":{"mainHeadline":"raw json"}}}',
+      savedAt: '2026-05-18T02:31:00.000Z',
+    });
+
+    renderWithQueryClient(
+      <DetailPagePreview
+        productId="workspace-1"
+        detailPreviewHtml="<html><body>깨진 placeholder</body></html>"
+        editedHtml={null}
+        templateCss="/* compiled template css */"
+        hasSavedDetailPage
+        savedDetailPageGenerationId="generation-1"
+        initialAgentHistory={[
+          {
+            id: 'generation-1',
+            generatedTitle: '캐릭터 문어발 비눗방울',
+            status: 'COMPLETED',
+            templateId: 'kids-playful',
+            detailPageData: null,
+            imageUrls: [],
+            processedImages: {},
+            detailPageArtifactId: 'artifact-1',
+            detailPageRevisionId: 'revision-json',
+            errorMessage: null,
+            productId: null,
+            createdAt: '2026-05-15T12:00:00.000Z',
+          },
+        ]}
+        generationHistoryQueryEnabled={false}
+        detailEditorReturnHref="/product-pipeline/registered-products/workspace-1"
+        mobilePreviewData={mobilePreviewData}
+      />,
+    );
+
+    await waitFor(() => {
+      const preview = document.querySelector<HTMLIFrameElement>('iframe[title="detail-page-preview"]');
+      const srcDoc = preview?.getAttribute('srcdoc') ?? '';
+      expect(srcDoc).toContain('정상 한글 상세페이지');
+      expect(srcDoc).not.toContain('"templateId":"kids-playful"');
+    });
+  });
+
   it('uses the latest completed sourcing history when no workspace current generation is selected', async () => {
     renderWithQueryClient(
       <DetailPagePreview
@@ -256,7 +301,7 @@ describe('DetailPagePreview', () => {
     );
   });
 
-  it('places the full detail preview before the minimap inside the preview body', async () => {
+  it('places the minimap before the full detail preview inside the preview body', async () => {
     renderWithQueryClient(
       <DetailPagePreview
         productId="candidate-1"
@@ -284,31 +329,11 @@ describe('DetailPagePreview', () => {
       Array.from(wrapper?.querySelectorAll('iframe') ?? []).map((iframe) =>
         iframe.getAttribute('title'),
       ),
-    ).toEqual(['detail-page-preview', 'detail-minimap']);
+    ).toEqual(['detail-minimap', 'detail-page-preview']);
   });
 
-  it('defaults to full detail preview with minimap', () => {
-    renderWithQueryClient(
-      <DetailPagePreview
-        productId="candidate-1"
-        detailPreviewHtml="<html><body><p>full detail</p></body></html>"
-        editedHtml={null}
-        templateCss=""
-        hasSavedDetailPage
-        initialAgentHistory={[]}
-        generationHistoryQueryEnabled={false}
-        detailEditorSourceCandidateId="candidate-1"
-        detailEditorReturnHref="/product-pipeline/collected-products/candidate-1"
-        mobilePreviewData={mobilePreviewData}
-      />,
-    );
-
-    expect(screen.getByRole('button', { name: '상세 전체' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByTitle('detail-page-preview')).toBeInTheDocument();
-    expect(screen.getByTitle('detail-minimap')).toBeInTheDocument();
-  });
-
-  it('can switch to registration mobile preview for the same selected detail html', () => {
+  it('reports the rendered detail HTML so the workspace side preview can use it', async () => {
+    const onPreviewHtmlChange = vi.fn();
     renderWithQueryClient(
       <DetailPagePreview
         productId="candidate-1"
@@ -321,15 +346,17 @@ describe('DetailPagePreview', () => {
         detailEditorSourceCandidateId="candidate-1"
         detailEditorReturnHref="/product-pipeline/collected-products/candidate-1"
         mobilePreviewData={mobilePreviewData}
+        onPreviewHtmlChange={onPreviewHtmlChange}
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: '등록 미리보기' }));
-
-    expect(screen.queryByTitle('detail-minimap')).not.toBeInTheDocument();
-    expect(screen.getByTitle('mobile-registration-detail-preview')).toHaveAttribute(
-      'srcdoc',
-      expect.stringContaining('등록 미리보기 상세 본문'),
-    );
+    expect(screen.getByTitle('detail-page-preview')).toBeInTheDocument();
+    expect(screen.getByTitle('detail-minimap')).toBeInTheDocument();
+    expect(screen.queryByTitle('mobile-registration-detail-preview')).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(onPreviewHtmlChange).toHaveBeenCalledWith(
+        expect.stringContaining('등록 미리보기 상세 본문'),
+      );
+    });
   });
 });

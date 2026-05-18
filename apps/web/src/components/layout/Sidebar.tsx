@@ -15,6 +15,7 @@ import {
   PanelLeftOpen,
   ChevronDown,
   Search,
+  Compass,
   Sparkles,
   Plus,
   TrendingUp,
@@ -62,13 +63,25 @@ export const menuSections: MenuSection[] = [
     collapsible: false,
     items: [
       { href: '/dashboard', label: '대시보드', icon: LayoutDashboard },
-      { href: '/ad-ops', label: '광고전략 AI', icon: Zap },
       { href: '/action-board', label: '액션 보드', icon: ClipboardList },
-      { href: '/sourcing-ai', label: '소싱 AI', icon: Search },
     ],
   },
   {
-    label: '상품 파이프라인',
+    label: '소싱 에이전트',
+    collapsible: true,
+    items: [
+      { href: '/sourcing-ai', label: '소싱 홈', icon: Compass },
+      { href: '/sourcing-ai/recommendations', label: '오늘의 추천', icon: Sparkles },
+      { href: '/sourcing-ai/keywords', label: '키워드 분석', icon: Search },
+      { href: '/sourcing-ai/market', label: '시장 분석', icon: TrendingUp },
+      { href: '/sourcing-ai/category-sourcing', label: '카테고리 소싱', icon: Layers },
+      { href: '/sourcing-ai/wholesale-search', label: '도매 상품 검색', icon: ShoppingCart },
+      { href: '/sourcing-ai/validation', label: '상품 검증', icon: ClipboardList },
+      { href: '/sourcing-ai/saved', label: '보관함 / 비교함', icon: Boxes },
+    ],
+  },
+  {
+    label: '상품 에이전트',
     collapsible: true,
     items: [
       { href: '/product-pipeline/productgenerate', label: '상품 생성', icon: Plus },
@@ -76,6 +89,13 @@ export const menuSections: MenuSection[] = [
       { href: '/product-pipeline/registered-products', label: '등록 상품', icon: Package },
       { href: '/product-pipeline/detailgenerate', label: '상세 템플릿 생성', icon: Sparkles },
       { href: '/product-pipeline/thumbnail-ai', label: '썸네일 AI', icon: ImageIcon },
+    ],
+  },
+  {
+    label: '마케팅 에이전트',
+    collapsible: true,
+    items: [
+      { href: '/ad-ops', label: '광고전략 AI', icon: Zap },
     ],
   },
   {

@@ -67,6 +67,7 @@ interface Props {
   onSelectRegistrationThumbnail: (option: RegistrationThumbnailOption) => void;
   thumbnailGenerationReturnHref: string;
   selectedDetailPageSummary?: SelectedDetailPageSummary | null;
+  onDetailPreviewHtmlChange?: (html: string | null) => void;
 }
 
 export default function ProductTabContent({
@@ -108,6 +109,7 @@ export default function ProductTabContent({
   onSelectRegistrationThumbnail,
   thumbnailGenerationReturnHref,
   selectedDetailPageSummary = null,
+  onDetailPreviewHtmlChange,
 }: Props) {
   const effectiveThumbnailSourceCandidateId =
     thumbnailSourceCandidateId === undefined ? productId : thumbnailSourceCandidateId;
@@ -251,6 +253,7 @@ export default function ProductTabContent({
           selectedBoldVerticalId={selectedBoldVerticalId}
           selectedAgentId={selectedAgentId}
           mobilePreviewData={mobilePreviewData}
+          onPreviewHtmlChange={onDetailPreviewHtmlChange}
           onSelectKidsPlayful={onSelectKidsPlayful}
           onSelectBoldVertical={onSelectBoldVertical}
           onSelectAgent={onSelectAgent}
