@@ -20,6 +20,8 @@ export interface SourcedProduct {
   thumbnail_url: string | null;
   imageUrl?: string | null;
   images?: Array<{ id?: string; url: string; sortOrder?: number | null; isPrimary?: boolean | null }>;
+  productPreparation?: ProductPreparationSelection | null;
+  thumbnailPreviewUrls?: string[];
   promotedMasterId: string | null;
   rejectedAt?: string | null;
   rejectedReason?: string | null;
@@ -89,6 +91,7 @@ export interface ProductBasics {
   salePrice: number;
   discountRate: number;
   thumbnailUrls: string[];
+  thumbnailPreviewUrls?: string[];
   selectedThumbnailUrl: string | null;
   selectedThumbnailGenerationCandidateId: string | null;
   selectedDetailPageGenerationId: string | null;
@@ -116,6 +119,7 @@ export type UpdateProductBasicsInput = Partial<Pick<
   | 'salePrice'
   | 'originalPrice'
   | 'discountRate'
+  | 'thumbnailUrls'
 >>;
 
 export interface ProductPreparationSelection {
@@ -278,6 +282,7 @@ function normalizeProductBasics(
   const optionNames = Array.isArray(basics.optionNames)
     ? basics.optionNames.filter((option): option is string => typeof option === 'string' && option.trim() !== '')
     : [];
+  const explicitThumbnailUrls = collectImageUrls(basics.thumbnailPreviewUrls);
   const thumbnailUrls = collectImageUrls(basics.thumbnailUrls, fallback.thumbnailUrls);
   const numberOrZero = (item: unknown) => typeof item === 'number' && Number.isFinite(item) ? item : 0;
   return {
@@ -300,6 +305,7 @@ function normalizeProductBasics(
     salePrice: numberOrZero(basics.salePrice) || fallback.salePrice || 0,
     discountRate: numberOrZero(basics.discountRate),
     thumbnailUrls,
+    thumbnailPreviewUrls: explicitThumbnailUrls,
     selectedThumbnailUrl: normalizeImageUrl(basics.selectedThumbnailUrl) ?? fallback.preparation?.selectedThumbnailUrl ?? null,
     selectedThumbnailGenerationCandidateId:
       typeof basics.selectedThumbnailGenerationCandidateId === 'string'
@@ -407,7 +413,18 @@ export const productsApi = {
         p.imageUrl,
         p.thumbnailUrl,
       );
-      const thumbnailUrl = selectBestThumbnailImage(rawData, images, p.thumbnailUrl || p.imageUrl || null);
+      const productPreparation = normalizeProductPreparation(p.productPreparation);
+      const preparationRecord = p.productPreparation && typeof p.productPreparation === 'object'
+        ? p.productPreparation as Record<string, unknown>
+        : {};
+      const registrationInput = preparationRecord.registrationInput &&
+        typeof preparationRecord.registrationInput === 'object' &&
+        !Array.isArray(preparationRecord.registrationInput)
+        ? preparationRecord.registrationInput as Record<string, unknown>
+        : {};
+      const thumbnailPreviewUrls = collectImageUrls(registrationInput.thumbnailUrls);
+      const thumbnailUrl = productPreparation?.selectedThumbnailUrl ??
+        selectBestThumbnailImage(rawData, images, p.thumbnailUrl || p.imageUrl || null);
       const sourcePlatform = p.sourcePlatform || (rawData.source_platform as string) || '';
       return {
         id: p.id,
@@ -422,6 +439,8 @@ export const productsApi = {
         thumbnail_url: thumbnailUrl,
         imageUrl: p.imageUrl ?? null,
         images: Array.isArray(p.images) ? p.images : [],
+        productPreparation,
+        thumbnailPreviewUrls,
         promotedMasterId: p.promotedMasterId ?? null,
         rejectedAt: p.rejectedAt ?? null,
         rejectedReason: p.rejectedReason ?? null,

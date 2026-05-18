@@ -1,7 +1,7 @@
 'use client';
 
-import type { ReactNode } from 'react';
-import { Loader2, Trash2 } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
+import { ChevronLeft, ChevronRight, Loader2, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface DeleteAction {
@@ -26,6 +26,7 @@ interface SelectionAction {
 interface ProductInboxCardShellProps {
   title: string;
   thumbnailUrl: string | null;
+  thumbnailUrls?: string[];
   clickArea?: 'card' | 'thumbnail';
   disabled?: boolean;
   highlighted?: boolean;
@@ -44,6 +45,7 @@ interface ProductInboxCardShellProps {
 export function ProductInboxCardShell({
   title,
   thumbnailUrl,
+  thumbnailUrls = [],
   clickArea = 'thumbnail',
   disabled = false,
   highlighted = false,
@@ -60,6 +62,16 @@ export function ProductInboxCardShell({
 }: ProductInboxCardShellProps) {
   const cardOpens = clickArea === 'card' && !!onOpen;
   const thumbnailOpens = clickArea === 'thumbnail' && !!onOpen;
+  const [activeImageIndex, setActiveImageIndex] = useState(0);
+  const gallery = Array.from(new Set([
+    ...thumbnailUrls.filter((url) => url.trim().length > 0),
+    ...(thumbnailUrl ? [thumbnailUrl] : []),
+  ]));
+  const activeThumbnailUrl = gallery[activeImageIndex] ?? thumbnailUrl;
+  const canCycleImages = gallery.length > 1;
+  const cycleImage = (direction: -1 | 1) => {
+    setActiveImageIndex((current) => (current + direction + gallery.length) % gallery.length);
+  };
 
   return (
     <article
@@ -80,15 +92,42 @@ export function ProductInboxCardShell({
         )}
         onClick={thumbnailOpens ? onOpen : undefined}
       >
-        {thumbnailUrl ? (
+        {activeThumbnailUrl ? (
           <img
-            src={thumbnailUrl}
+            src={activeThumbnailUrl}
             alt={title}
             className="block h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-sm font-semibold text-[var(--text-muted)]">
             {imageFallback}
+          </div>
+        )}
+
+        {canCycleImages && (
+          <div className="absolute inset-x-2 top-1/2 z-20 flex -translate-y-1/2 items-center justify-between opacity-0 transition-opacity group-hover:opacity-100">
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                cycleImage(-1);
+              }}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-white/90 text-slate-700 shadow-sm backdrop-blur-sm hover:bg-white"
+              aria-label="이전 썸네일 이미지"
+            >
+              <ChevronLeft size={15} />
+            </button>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                cycleImage(1);
+              }}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-white/90 text-slate-700 shadow-sm backdrop-blur-sm hover:bg-white"
+              aria-label="다음 썸네일 이미지"
+            >
+              <ChevronRight size={15} />
+            </button>
           </div>
         )}
 

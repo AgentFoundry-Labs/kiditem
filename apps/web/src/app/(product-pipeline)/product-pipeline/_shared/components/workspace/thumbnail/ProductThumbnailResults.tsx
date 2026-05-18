@@ -1,42 +1,37 @@
 'use client';
 
-import { CheckCircle2 } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import type { RegistrationThumbnailOption } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/registration-selection';
 
 interface ProductThumbnailResultsProps {
   options: RegistrationThumbnailOption[];
-  selectedRegistrationThumbnailUrl: string | null;
   onPreviewThumbnail: (url: string | null) => void;
-  onSelectRegistrationThumbnail: (option: RegistrationThumbnailOption) => void;
 }
 
 export default function ProductThumbnailResults({
   options,
-  selectedRegistrationThumbnailUrl,
   onPreviewThumbnail,
-  onSelectRegistrationThumbnail,
 }: ProductThumbnailResultsProps) {
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-4">
-      <h3 className="mb-3 text-sm font-bold text-slate-900">이 상품 생성 결과</h3>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-bold text-slate-900">생성 이미지 이력</h3>
+        </div>
+        <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-black text-slate-500">
+          {options.length}장
+        </span>
+      </div>
       {options.length === 0 ? (
-        <div className="flex h-36 items-center justify-center rounded-lg border border-dashed border-slate-200 text-sm font-semibold text-slate-400">
+        <div className="flex h-24 items-center justify-center rounded-lg border border-dashed border-slate-200 text-sm font-semibold text-slate-400">
           아직 생성 결과가 없습니다
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(128px,1fr))] gap-3">
           {options.map((option, index) => {
-            const selected = selectedRegistrationThumbnailUrl === option.url;
             return (
               <div
                 key={`${option.generatedCandidateId ?? option.url}`}
-                className={cn(
-                  'relative aspect-square overflow-hidden rounded-lg border',
-                  selected
-                    ? 'border-emerald-500 ring-2 ring-emerald-200'
-                    : 'border-slate-200',
-                  )}
+                className="relative aspect-square overflow-hidden rounded-lg border border-slate-200"
               >
                 <button
                   type="button"
@@ -46,20 +41,9 @@ export default function ProductThumbnailResults({
                 >
                   <img src={option.url} alt="" className="h-full w-full object-cover" />
                 </button>
-                {selected ? (
-                  <span className="absolute bottom-0 left-0 right-0 bg-emerald-600 py-1 text-center text-[11px] font-bold text-white">
-                    <CheckCircle2 size={12} className="mr-1 inline-block" />
-                    등록 대표
-                  </span>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => onSelectRegistrationThumbnail(option)}
-                    className="absolute bottom-1 left-1 right-1 z-10 rounded-md bg-white/95 px-2 py-1 text-[11px] font-bold text-emerald-700 shadow-sm hover:bg-emerald-50"
-                  >
-                    등록 대표로 사용
-                  </button>
-                )}
+                <span className="absolute left-2 top-2 rounded-full bg-white/95 px-2 py-0.5 text-[10px] font-bold text-slate-700">
+                  생성 {index + 1}
+                </span>
               </div>
             );
           })}

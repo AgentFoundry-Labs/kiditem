@@ -40,6 +40,25 @@ describe('MobilePreview', () => {
     );
   });
 
+  it('cycles product preview images from the PDP controls', () => {
+    render(
+      <MobilePreview
+        {...previewProps}
+        previewImages={[
+          'https://cdn.example.com/product.jpg',
+          'https://cdn.example.com/detail-1.jpg',
+          'https://cdn.example.com/detail-2.jpg',
+        ]}
+      />,
+    );
+
+    expect(screen.getByText('1 / 3')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '다음 썸네일 이미지' }));
+    expect(screen.getByText('2 / 3')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '이전 썸네일 이미지' }));
+    expect(screen.getByText('1 / 3')).toBeInTheDocument();
+  });
+
   it('keeps selected detail html in the phone scroll flow instead of clipping it', () => {
     render(
       <MobilePreview

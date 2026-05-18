@@ -163,7 +163,13 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
     sort: 'newest' | 'oldest' | 'name_asc';
     platform?: string;
     sourcePlatforms?: string[];
-  }): Promise<{ items: Array<CandidateRow & { images: CandidateImageRow[] }>; total: number }> {
+  }): Promise<{
+    items: Array<CandidateRow & {
+      images: CandidateImageRow[];
+      productPreparation: ProductPreparationRow | null;
+    }>;
+    total: number;
+  }> {
     const where = {
       organizationId: query.organizationId,
       isDeleted: false,
@@ -200,6 +206,22 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
             where: { isDeleted: false },
             orderBy: { sortOrder: 'asc' },
           },
+          productPreparations: {
+            where: {
+              organizationId: query.organizationId,
+              isDeleted: false,
+              OR: [
+                { isCurrentForMaster: true },
+                { masterId: null },
+              ],
+            },
+            orderBy: [
+              { isCurrentForMaster: 'desc' },
+              { updatedAt: 'desc' },
+              { createdAt: 'desc' },
+            ],
+            take: 1,
+          },
         },
       }),
     ]);
@@ -208,6 +230,9 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
       items: rows.map((row) => ({
         ...toRow(row),
         images: row.images.map(toImageRow),
+        productPreparation: row.productPreparations[0]
+          ? toProductPreparationRow(row.productPreparations[0])
+          : null,
       })),
     };
   }

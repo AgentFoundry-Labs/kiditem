@@ -87,7 +87,6 @@ const baseProps = {
   onSelectAgent: vi.fn(),
   onSelectBoldVertical: vi.fn(),
   onSelectKidsPlayful: vi.fn(),
-  onSelectRegistrationThumbnail: vi.fn(),
   productId: 'candidate-1',
   promotedMasterId: null,
   rawData: null,
@@ -95,6 +94,7 @@ const baseProps = {
   selectedBoldVerticalId: null,
   selectedKidsPlayfulId: null,
   selectedRegistrationThumbnailUrl: null,
+  thumbnailPreviewImages: [],
   initialAgentHistory: [],
   templateCss: '',
   thumbnailGenerationReturnHref: '/product-pipeline/collected-products/candidate-1',
@@ -108,8 +108,11 @@ const baseProps = {
     discountRate: 0,
     rating: 0,
     reviewCount: 0,
+    previewImages: ['https://cdn.example.com/product.jpg'],
   },
   onPreviewThumbnail: vi.fn(),
+  onThumbnailPreviewImagesChange: vi.fn(),
+  onSaveThumbnailConfiguration: vi.fn(),
 };
 
 const basicInfo = {

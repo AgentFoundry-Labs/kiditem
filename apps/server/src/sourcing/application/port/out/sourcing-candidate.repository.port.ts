@@ -235,7 +235,13 @@ export interface SourcingCandidateRepositoryPort {
     sort: 'newest' | 'oldest' | 'name_asc';
     platform?: string;
     sourcePlatforms?: string[];
-  }): Promise<{ items: Array<CandidateRow & { images: CandidateImageRow[] }>; total: number }>;
+  }): Promise<{
+    items: Array<CandidateRow & {
+      images: CandidateImageRow[];
+      productPreparation: ProductPreparationRow | null;
+    }>;
+    total: number;
+  }>;
 
   /** Archive an active sourcing inbox workspace root and its source images. */
   archiveSourcedWorkspace(

@@ -5,12 +5,12 @@ import { Loader2, Sparkles, Wand2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { isApiError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
-import SourcingStatusBadge from './SourcingStatusBadge';
 import { useKidsPlayfulInProgress } from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate';
 import { ProductInboxCardShell } from '@/app/(product-pipeline)/product-pipeline/_shared/components/inbox/ProductInboxCardShell';
 import { candidatesApi, type SourcedProduct } from '../../lib/sourcing-api';
 import { getInlineGenerationProgressLabel } from '../../lib/generation-progress-label';
 import { sourcePlatformLabel } from '../../lib/source-platform-label';
+import SourcingStatusBadge from './SourcingStatusBadge';
 
 interface Props {
   product: SourcedProduct;
@@ -81,6 +81,7 @@ export default function ProductCard({
     <ProductInboxCardShell
       title={product.name}
       thumbnailUrl={product.thumbnailUrl}
+      thumbnailUrls={product.thumbnailPreviewUrls}
       disabled={isDeleting}
       highlighted={showProgress}
       statusBanner={statusBanner}

@@ -5,7 +5,7 @@
 // 동일한 패턴 (탭으로 미리보기 변경) + iPhone 17 모양 프레임.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Heart, ShoppingCart, Star, Search, Layers, Smartphone } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Heart, ShoppingCart, Star, Search, Layers, Smartphone } from 'lucide-react';
 import { formatKRW, cn } from '@/lib/utils';
 import {
   isDetailPreviewMetricsMessage,
@@ -18,6 +18,7 @@ type PreviewMode = 'pdp' | 'search' | 'list';
 interface MobilePreviewProps {
   name: string;
   mainImage: string;
+  previewImages?: string[];
   salePrice: number;
   originalPrice: number;
   discountRate: number;
@@ -40,6 +41,7 @@ const MOBILE_DETAIL_SCALE = MOBILE_DETAIL_VIEWPORT_WIDTH / DETAIL_DOCUMENT_WIDTH
 export default function MobilePreview({
   name,
   mainImage,
+  previewImages = [],
   salePrice,
   originalPrice,
   discountRate,
@@ -50,6 +52,23 @@ export default function MobilePreview({
   className,
 }: MobilePreviewProps) {
   const [mode, setMode] = useState<PreviewMode>('pdp');
+  const [imageIndex, setImageIndex] = useState(0);
+  const previewGallery = useMemo(
+    () => uniqueImages([mainImage, ...(previewImages ?? [])]),
+    [mainImage, previewImages],
+  );
+  const activeImage = previewGallery[imageIndex] ?? mainImage;
+  const hasImageNav = previewGallery.length > 1;
+  const goPreviousImage = () => {
+    setImageIndex((current) => (current - 1 + previewGallery.length) % previewGallery.length);
+  };
+  const goNextImage = () => {
+    setImageIndex((current) => (current + 1) % previewGallery.length);
+  };
+
+  useEffect(() => {
+    setImageIndex(0);
+  }, [previewGallery.join('|')]);
 
   return (
     <div className={cn(sticky ? 'sticky top-6' : '', className)}>
@@ -97,7 +116,12 @@ export default function MobilePreview({
           {mode === 'pdp' && (
             <PdpView
               name={name}
-              mainImage={mainImage}
+              mainImage={activeImage}
+              imageIndex={imageIndex}
+              imageCount={previewGallery.length}
+              hasImageNav={hasImageNav}
+              onPreviousImage={goPreviousImage}
+              onNextImage={goNextImage}
               salePrice={salePrice}
               originalPrice={originalPrice}
               discountRate={discountRate}
@@ -107,10 +131,10 @@ export default function MobilePreview({
             />
           )}
           {mode === 'search' && (
-            <SearchView name={name} mainImage={mainImage} salePrice={salePrice} discountRate={discountRate} rating={rating} reviewCount={reviewCount} />
+            <SearchView name={name} mainImage={activeImage} salePrice={salePrice} discountRate={discountRate} rating={rating} reviewCount={reviewCount} />
           )}
           {mode === 'list' && (
-            <ListView name={name} mainImage={mainImage} salePrice={salePrice} originalPrice={originalPrice} discountRate={discountRate} rating={rating} reviewCount={reviewCount} />
+            <ListView name={name} mainImage={activeImage} salePrice={salePrice} originalPrice={originalPrice} discountRate={discountRate} rating={rating} reviewCount={reviewCount} />
           )}
         </div>
       </div>
@@ -122,6 +146,10 @@ export default function MobilePreview({
   );
 }
 
+function uniqueImages(images: string[]): string[] {
+  return Array.from(new Set(images.map((image) => image.trim()).filter(Boolean)));
+}
+
 /* ============================================================================
    PDP — 상세페이지 미리보기 (full-bleed product shot + 가격 + WOW + CTA)
 ============================================================================ */
@@ -129,13 +157,24 @@ export default function MobilePreview({
 function PdpView({
   name,
   mainImage,
+  imageIndex = 0,
+  imageCount = 1,
+  hasImageNav = false,
+  onPreviousImage,
+  onNextImage,
   salePrice,
   originalPrice,
   discountRate,
   rating,
   reviewCount,
   detailHtml = null,
-}: MobilePreviewProps) {
+}: MobilePreviewProps & {
+  imageIndex?: number;
+  imageCount?: number;
+  hasImageNav?: boolean;
+  onPreviousImage?: () => void;
+  onNextImage?: () => void;
+}) {
   const detailIframeRef = useRef<HTMLIFrameElement>(null);
   const [detailDocumentHeight, setDetailDocumentHeight] = useState(960);
   const sandboxedDetailHtml = useMemo(
@@ -172,8 +211,31 @@ function PdpView({
         </div>
       </div>
 
-      <div className="aspect-square bg-slate-100">
+      <div className="relative aspect-square bg-slate-100">
         <img src={mainImage} alt="상품" className="w-full h-full object-cover" />
+        {hasImageNav && (
+          <>
+            <button
+              type="button"
+              onClick={onPreviousImage}
+              className="absolute left-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-slate-800 shadow ring-1 ring-slate-200"
+              aria-label="이전 썸네일 이미지"
+            >
+              <ChevronLeft size={18} />
+            </button>
+            <button
+              type="button"
+              onClick={onNextImage}
+              className="absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-slate-800 shadow ring-1 ring-slate-200"
+              aria-label="다음 썸네일 이미지"
+            >
+              <ChevronRight size={18} />
+            </button>
+            <span className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-black/60 px-2.5 py-1 text-[10px] font-bold text-white">
+              {imageIndex + 1} / {imageCount}
+            </span>
+          </>
+        )}
       </div>
 
       <div className="p-3 space-y-2.5">

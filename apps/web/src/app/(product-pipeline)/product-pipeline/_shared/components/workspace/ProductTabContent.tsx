@@ -2,6 +2,11 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Settings } from 'lucide-react';
+import type {
+  ProductBasics,
+  UpdateProductBasicsInput,
+} from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api';
+import type { RegistrationThumbnailOption } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/registration-selection';
 import RawDataTab from './detail/RawDataTab';
 import DetailPageWorkspaceTab from './detail/DetailPageWorkspaceTab';
 import ThumbnailWorkspaceTab from './thumbnail/ThumbnailWorkspaceTab';
@@ -15,11 +20,6 @@ import type { EditTabType } from './detail/ProductEditTabs';
 import type { ProductEditState } from '../../lib/product-workspace-types';
 import type { GenerationHistoryItem } from '../../hooks/useGenerationHistory';
 import type { ProductRegistrationPreviewData } from './preview/product-registration-preview';
-import type {
-  ProductBasics,
-  UpdateProductBasicsInput,
-} from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api';
-import type { RegistrationThumbnailOption } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/registration-selection';
 
 interface Props {
   activeTab: EditTabType;
@@ -64,7 +64,12 @@ interface Props {
   selectedRegistrationThumbnailUrl: string | null;
   mobilePreviewData: ProductRegistrationPreviewData;
   onPreviewThumbnail: (url: string | null) => void;
-  onSelectRegistrationThumbnail: (option: RegistrationThumbnailOption) => void;
+  thumbnailPreviewImages: string[];
+  onThumbnailPreviewImagesChange: (images: string[]) => void;
+  onSaveThumbnailConfiguration: (input: {
+    thumbnailUrls: string[];
+    selectedThumbnail: RegistrationThumbnailOption | null;
+  }) => Promise<void> | void;
   thumbnailGenerationReturnHref: string;
   selectedDetailPageSummary?: SelectedDetailPageSummary | null;
   onDetailPreviewHtmlChange?: (html: string | null) => void;
@@ -104,9 +109,11 @@ export default function ProductTabContent({
   onSelectAgent,
   onApplyRegistrationDetailPage,
   selectedRegistrationThumbnailUrl,
+  thumbnailPreviewImages,
   mobilePreviewData,
   onPreviewThumbnail,
-  onSelectRegistrationThumbnail,
+  onThumbnailPreviewImagesChange,
+  onSaveThumbnailConfiguration,
   thumbnailGenerationReturnHref,
   selectedDetailPageSummary = null,
   onDetailPreviewHtmlChange,
@@ -223,11 +230,13 @@ export default function ProductTabContent({
           productId={productId}
           promotedMasterId={promotedMasterId}
           contentWorkspaceId={contentWorkspaceId}
+          thumbnailUrl={thumbnailUrl}
           thumbnailSourceCandidateId={effectiveThumbnailSourceCandidateId}
           selectedRegistrationThumbnailUrl={selectedRegistrationThumbnailUrl}
+          thumbnailPreviewImages={thumbnailPreviewImages}
           onPreviewThumbnail={onPreviewThumbnail}
-          onSelectRegistrationThumbnail={onSelectRegistrationThumbnail}
-          onThumbnailsChange={(v) => updateField('thumbnails', v)}
+          onThumbnailPreviewImagesChange={onThumbnailPreviewImagesChange}
+          onSaveThumbnailConfiguration={onSaveThumbnailConfiguration}
           thumbnailGenerationReturnHref={thumbnailGenerationReturnHref}
         />
       );
