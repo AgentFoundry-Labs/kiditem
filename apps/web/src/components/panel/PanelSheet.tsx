@@ -40,7 +40,7 @@ export function PanelSheet() {
   );
 
   useEffect(() => {
-    if (!isOpen || connectionStatus === 'connected') return;
+    if (!isOpen) return;
     const now = Date.now();
     if (recoveryInFlightRef.current || now - recoveryLastRunRef.current < 30_000) {
       return;

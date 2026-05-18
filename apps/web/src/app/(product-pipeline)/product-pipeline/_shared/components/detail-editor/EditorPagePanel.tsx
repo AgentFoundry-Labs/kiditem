@@ -21,6 +21,7 @@ interface PageDefinition {
   label: string;
   selectors: string[];
   textIncludes?: string[];
+  fallbackSectionIndex?: number;
 }
 
 interface PageItem {
@@ -40,17 +41,19 @@ const PAGE_DEFINITIONS: PageDefinition[] = [
     id: 'hero',
     label: '히어로',
     selectors: ['[data-section="hero"]', '[data-field="heroBanner"]', '[data-field="heroImage"]'],
+    fallbackSectionIndex: 0,
   },
   {
     id: 'point',
     label: '포인트',
     selectors: ['[data-section="point"]', '[data-field="sectionName"]', '[data-field="sectionTitle"]', '[data-field="sectionSubtitle"]'],
+    textIncludes: ['POINT'],
   },
   {
     id: 'size',
     label: '사이즈',
     selectors: ['[data-section="sizeImages"]', '[data-container="sizeImages"]'],
-    textIncludes: ['사이즈 안내'],
+    textIncludes: ['제품 사이즈', '사이즈 안내', '사이즈 및 구성품'],
   },
   {
     id: 'color',
@@ -68,13 +71,13 @@ const PAGE_DEFINITIONS: PageDefinition[] = [
     id: 'detail',
     label: '디테일컷',
     selectors: ['[data-section="detailImages"]', '[data-container="detailImages"]', '[data-field="detailText"]'],
-    textIncludes: ['DETAIL'],
+    textIncludes: ['DETAIL', '디테일 이미지'],
   },
   {
     id: 'safety',
     label: '제품안전 표시',
     selectors: ['[data-section="specs"]', '[data-container="productInfo"]'],
-    textIncludes: ['제품 안전 특별법', '품질표시'],
+    textIncludes: ['INFO', '상품 정보 고시', '제품 안전 특별법', '품질표시'],
   },
   {
     id: 'barcode',
@@ -421,12 +424,19 @@ function findActivePageId(
 function findPageTarget(definition: PageDefinition, wrapper: GjsComponent): GjsComponent | null {
   for (const selector of definition.selectors) {
     const match = wrapper.find?.(selector)?.[0];
-    if (match) return preferPageTarget(match, wrapper, definition);
+    if (match) return preferPageTarget(match, wrapper, definition, true);
   }
-  for (const token of definition.textIncludes ?? []) {
-    const match = flattenComponents(wrapper).find((component) => extractText(component).includes(token));
-    if (match) return preferPageTarget(match, wrapper, definition);
+
+  const textMatch = findTextFallbackMatch(definition, wrapper);
+  if (textMatch) {
+    return preferPageTarget(textMatch, wrapper, definition, false);
   }
+
+  if (definition.fallbackSectionIndex !== undefined) {
+    const sections = findDocumentSections(wrapper);
+    return sections[definition.fallbackSectionIndex] ?? null;
+  }
+
   return null;
 }
 
@@ -434,13 +444,15 @@ function preferPageTarget(
   component: GjsComponent,
   wrapper: GjsComponent,
   definition: PageDefinition,
+  allowNearestSection: boolean,
 ): GjsComponent {
-  const sectionRoot = preferNamedSectionAncestor(component, wrapper);
+  const sectionRoot = preferDefinitionSectionAncestor(component, wrapper, definition);
   if (sectionRoot) return sectionRoot;
-  return preferSectionAncestor(component, wrapper);
+  if (allowNearestSection) return preferNearestSectionAncestor(component, wrapper);
+  return preferFallbackBlockAncestor(component, wrapper);
 }
 
-function preferSectionAncestor(component: GjsComponent, wrapper: GjsComponent): GjsComponent {
+function preferNearestSectionAncestor(component: GjsComponent, wrapper: GjsComponent): GjsComponent {
   let current = component;
   while (current && current !== wrapper) {
     const attrs = current.getAttributes?.() ?? {};
@@ -457,25 +469,91 @@ function preferSectionAncestor(component: GjsComponent, wrapper: GjsComponent): 
   return component;
 }
 
-function preferNamedSectionAncestor(component: GjsComponent, wrapper: GjsComponent): GjsComponent | null {
+function preferDefinitionSectionAncestor(
+  component: GjsComponent,
+  wrapper: GjsComponent,
+  definition: PageDefinition,
+): GjsComponent | null {
   let current = component;
   while (current && current !== wrapper) {
-    const attrs = current.getAttributes?.() ?? {};
-    const section = attrs['data-section'];
-    if (
-      section === 'hero' ||
-      section === 'point' ||
-      section === 'sizeImages' ||
-      section === 'colorImages' ||
-      section === 'usageImages' ||
-      section === 'detailImages' ||
-      section === 'specs'
-    ) {
+    if (componentMatchesDefinition(current, definition)) {
       return current;
     }
     current = current.parent?.() ?? null;
   }
   return null;
+}
+
+function preferFallbackBlockAncestor(component: GjsComponent, wrapper: GjsComponent): GjsComponent {
+  let current = component;
+  let fallback = component;
+  while (current && current !== wrapper) {
+    if (hasAnyPageMarker(current) && current !== component) return fallback;
+    if (isBlockComponent(current)) fallback = current;
+    current = current.parent?.() ?? null;
+  }
+  return fallback;
+}
+
+function findTextFallbackMatch(definition: PageDefinition, wrapper: GjsComponent): GjsComponent | null {
+  const tokens = definition.textIncludes ?? [];
+  if (tokens.length === 0) return null;
+
+  return flattenComponents(wrapper)
+    .filter((component) => textIncludesAny(extractText(component), tokens))
+    .map((component) => ({
+      component,
+      depth: getComponentDepth(component, wrapper),
+      hasChildMatch: componentHasChildTextMatch(component, tokens),
+      textLength: extractText(component).length,
+    }))
+    .sort((a, b) => {
+      if (a.hasChildMatch !== b.hasChildMatch) return a.hasChildMatch ? 1 : -1;
+      if (a.depth !== b.depth) return b.depth - a.depth;
+      return a.textLength - b.textLength;
+    })[0]?.component ?? null;
+}
+
+function componentMatchesDefinition(component: GjsComponent, definition: PageDefinition): boolean {
+  const attrs = component.getAttributes?.() ?? {};
+  const section = attrs['data-section'];
+  const container = attrs['data-container'];
+  if (definition.id === 'hero') return section === 'hero';
+  if (definition.id === 'point') return section === 'point';
+  if (definition.id === 'size') return section === 'sizeImages' || container === 'sizeImages';
+  if (definition.id === 'color') return section === 'colorImages' || container === 'colorImages';
+  if (definition.id === 'usage') return section === 'usageImages' || container === 'usageImages';
+  if (definition.id === 'detail') return section === 'detailImages' || container === 'detailImages';
+  if (definition.id === 'safety') return section === 'specs' || container === 'productInfo';
+  if (definition.id === 'barcode') return container === 'safetyLabelImages';
+  return false;
+}
+
+function hasAnyPageMarker(component: GjsComponent): boolean {
+  const attrs = component.getAttributes?.() ?? {};
+  const section = attrs['data-section'];
+  const container = attrs['data-container'];
+  return Boolean(section || container);
+}
+
+function isBlockComponent(component: GjsComponent): boolean {
+  const tag = String(component.get?.('tagName') ?? '').toLowerCase();
+  return tag === 'div' || tag === 'section' || tag === 'article' || tag === 'header' || tag === 'footer' || tag === 'main';
+}
+
+function textIncludesAny(text: string, tokens: string[]): boolean {
+  return tokens.some((token) => text.includes(token));
+}
+
+function componentHasChildTextMatch(component: GjsComponent, tokens: string[]): boolean {
+  const children = component.components?.()?.models ?? [];
+  return children.some((child: GjsComponent) => textIncludesAny(extractText(child), tokens));
+}
+
+function findDocumentSections(wrapper: GjsComponent): GjsComponent[] {
+  const topLevelSections = wrapper.find?.('section') ?? [];
+  if (topLevelSections.length > 0) return topLevelSections;
+  return (wrapper.components?.()?.models ?? []).filter(isBlockComponent);
 }
 
 function flattenComponents(root: GjsComponent): GjsComponent[] {

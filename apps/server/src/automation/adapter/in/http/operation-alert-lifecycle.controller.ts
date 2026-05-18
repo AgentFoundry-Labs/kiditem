@@ -20,9 +20,17 @@ import {
   resolveBrowserOperationProducer,
 } from '../../../domain/policy/browser-operation-producers';
 import {
+  ReconcileBrowserOperationAlertsDto,
   StartOperationAlertDto,
   UpdateOperationAlertDto,
 } from './dto/alerts';
+
+const BROWSER_BATCH_OPERATION_TYPE = 'thumbnail_analysis';
+const BROWSER_BATCH_SOURCE_TYPE = 'browser_batch';
+const BROWSER_BATCH_STALE_MINUTES = 30;
+const BROWSER_BATCH_STALE_LIMIT = 100;
+const BROWSER_BATCH_STALE_MESSAGE =
+  '브라우저 작업 세션이 종료되어 진행 상태를 자동 정리했습니다.';
 
 /**
  * Frontend-facing entrypoint for `Alert.kind='operation'` lifecycle when
@@ -115,6 +123,31 @@ export class OperationAlertLifecycleController {
       );
     }
     return mapAlertRowToItem(alert);
+  }
+
+  @Post('reconcile-browser-stale')
+  @HttpCode(200)
+  async reconcileBrowserStale(
+    @Body() dto: ReconcileBrowserOperationAlertsDto,
+    @CurrentOrganization() organizationId: string,
+  ): Promise<AlertItem[]> {
+    const staleMinutes = dto.staleMinutes ?? BROWSER_BATCH_STALE_MINUTES;
+    const limit = dto.limit ?? BROWSER_BATCH_STALE_LIMIT;
+    const staleBefore = new Date(Date.now() - staleMinutes * 60 * 1000);
+    const alerts = await this.operationAlerts.closeStaleOperations({
+      organizationId,
+      type: BROWSER_BATCH_OPERATION_TYPE,
+      sourceType: BROWSER_BATCH_SOURCE_TYPE,
+      staleBefore,
+      status: 'cancelled',
+      message: BROWSER_BATCH_STALE_MESSAGE,
+      metadata: {
+        staleReconciled: true,
+        staleReconciledReason: 'browser_session_missing',
+      },
+      limit,
+    });
+    return alerts.map(mapAlertRowToItem);
   }
 
   private async dispatch(

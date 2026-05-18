@@ -22,8 +22,15 @@ describe('buildProductRegistrationPreviewData', () => {
       editData,
       selectedRegistrationThumbnailUrl: 'https://cdn.example.com/selected.jpg',
       thumbnailPreviewUrl: null,
+      thumbnailPreviewImages: ['https://cdn.example.com/gallery.jpg'],
       preferThumbnailPreview: false,
-    }).mainImage).toBe('https://cdn.example.com/selected.jpg');
+    })).toMatchObject({
+      mainImage: 'https://cdn.example.com/selected.jpg',
+      previewImages: [
+        'https://cdn.example.com/selected.jpg',
+        'https://cdn.example.com/gallery.jpg',
+      ],
+    });
   });
 
   it('uses a transient thumbnail candidate only when the thumbnail tab asks for it', () => {
@@ -31,8 +38,16 @@ describe('buildProductRegistrationPreviewData', () => {
       editData,
       selectedRegistrationThumbnailUrl: 'https://cdn.example.com/selected.jpg',
       thumbnailPreviewUrl: 'https://cdn.example.com/candidate.jpg',
+      thumbnailPreviewImages: ['https://cdn.example.com/gallery.jpg'],
       preferThumbnailPreview: true,
-    }).mainImage).toBe('https://cdn.example.com/candidate.jpg');
+    })).toMatchObject({
+      mainImage: 'https://cdn.example.com/candidate.jpg',
+      previewImages: [
+        'https://cdn.example.com/candidate.jpg',
+        'https://cdn.example.com/gallery.jpg',
+        'https://cdn.example.com/selected.jpg',
+      ],
+    });
   });
 
   it('falls back to a stable placeholder when no image is available', () => {
@@ -40,6 +55,7 @@ describe('buildProductRegistrationPreviewData', () => {
       editData: { ...editData, thumbnails: [] },
       selectedRegistrationThumbnailUrl: null,
       thumbnailPreviewUrl: null,
+      thumbnailPreviewImages: [],
       preferThumbnailPreview: false,
     }).mainImage).toContain('placehold.co');
   });

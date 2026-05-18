@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { placeholderDetailPageData } from '@kiditem/templates';
@@ -7,7 +7,8 @@ import { ProductWorkspaceScreen } from './ProductWorkspaceScreen';
 import type { ProductWorkspaceData } from '../../hooks/useProductDetail';
 import { PLACEHOLDER_DATA } from '../../lib/product-workspace-types';
 
-const { mobilePreviewProps, useGenerationHistoryMock, useProductDetailMock } = vi.hoisted(() => ({
+const { apiClientPatchMock, mobilePreviewProps, useGenerationHistoryMock, useProductDetailMock } = vi.hoisted(() => ({
+  apiClientPatchMock: vi.fn(),
   mobilePreviewProps: [] as Array<{ detailHtml?: string | null }>,
   useGenerationHistoryMock: vi.fn(),
   useProductDetailMock: vi.fn(),
@@ -16,6 +17,7 @@ const { mobilePreviewProps, useGenerationHistoryMock, useProductDetailMock } = v
 vi.mock('@/lib/api-client', () => ({
   apiClient: {
     get: vi.fn(async () => ({ html: null, savedAt: null })),
+    patch: (...args: unknown[]) => apiClientPatchMock(...args),
   },
 }));
 
@@ -53,20 +55,46 @@ vi.mock('./detail/ProductEditHeader', () => ({
 
 vi.mock('./ProductTabContent', () => ({
   default: ({
+    onSaveThumbnailConfiguration,
     selectedRegistrationThumbnailUrl,
     savedDetailPageGenerationId,
     selectedDetailPageSummary,
   }: {
+    onSaveThumbnailConfiguration?: (input: {
+      thumbnailUrls: string[];
+      selectedThumbnail: {
+        url: string;
+        kind: 'source';
+        generatedCandidateId: null;
+      };
+    }) => void;
     selectedRegistrationThumbnailUrl?: string | null;
     savedDetailPageGenerationId?: string | null;
     selectedDetailPageSummary?: { title?: string } | null;
   }) => (
-    <div
-      data-testid="product-tab-content"
-      data-selected-thumbnail={selectedRegistrationThumbnailUrl ?? ''}
-      data-selected-detail-generation={savedDetailPageGenerationId ?? ''}
-      data-selected-detail-title={selectedDetailPageSummary?.title ?? ''}
-    />
+    <div>
+      <div
+        data-testid="product-tab-content"
+        data-selected-thumbnail={selectedRegistrationThumbnailUrl ?? ''}
+        data-selected-detail-generation={savedDetailPageGenerationId ?? ''}
+        data-selected-detail-title={selectedDetailPageSummary?.title ?? ''}
+      />
+      <button
+        type="button"
+        onClick={() =>
+          onSaveThumbnailConfiguration?.({
+            thumbnailUrls: ['https://cdn.example.com/source.jpg'],
+            selectedThumbnail: {
+              url: 'https://cdn.example.com/source.jpg',
+              kind: 'source',
+              generatedCandidateId: null,
+            },
+          })
+        }
+      >
+        mock-save-thumbnail
+      </button>
+    </div>
   ),
 }));
 
@@ -118,6 +146,7 @@ const workspaceData: ProductWorkspaceData = {
 
 describe('ProductWorkspaceScreen', () => {
   beforeEach(() => {
+    apiClientPatchMock.mockReset();
     mobilePreviewProps.length = 0;
     useGenerationHistoryMock.mockReturnValue({ data: [] });
     useProductDetailMock.mockReset();
@@ -307,5 +336,43 @@ describe('ProductWorkspaceScreen', () => {
       'true',
     );
     expect(mobilePreviewProps.at(-1)?.detailHtml).toContain('<!DOCTYPE html>');
+  });
+
+  it('waits for thumbnail preview order persistence before registering the representative', async () => {
+    let resolveBasicInfo!: (value: unknown) => void;
+    const basicInfoPromise = new Promise((resolve) => {
+      resolveBasicInfo = resolve;
+    });
+    apiClientPatchMock.mockImplementation((url: string) => {
+      if (url.includes('/preparation/basic-info')) return basicInfoPromise;
+      return Promise.resolve({});
+    });
+    useProductDetailMock.mockReturnValue({
+      data: workspaceData,
+      error: null,
+      isLoading: false,
+    });
+
+    renderWithQueryClient(
+      <ProductWorkspaceScreen
+        productId="candidate-1"
+        backHref="/product-pipeline/collected-products"
+        selfHref="/product-pipeline/collected-products/candidate-1"
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'mock-save-thumbnail' }));
+
+    await waitFor(() => {
+      expect(apiClientPatchMock).toHaveBeenCalledTimes(1);
+    });
+    expect(apiClientPatchMock.mock.calls[0][0]).toContain('/preparation/basic-info');
+
+    resolveBasicInfo({});
+
+    await waitFor(() => {
+      expect(apiClientPatchMock).toHaveBeenCalledTimes(2);
+    });
+    expect(apiClientPatchMock.mock.calls[1][0]).toContain('/preparation/thumbnail');
   });
 });

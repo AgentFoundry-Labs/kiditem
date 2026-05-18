@@ -37,6 +37,10 @@ describe('buildProductBasics', () => {
           salePrice: 12900,
           originalPrice: 15900,
           discountRate: 19,
+          thumbnailUrls: [
+            'https://cdn.example.com/selected-thumb.jpg',
+            'https://cdn.example.com/preview-2.jpg',
+          ],
         },
         selectedThumbnailUrl: 'https://cdn.example.com/selected-thumb.jpg',
         selectedThumbnailGenerationCandidateId: 'thumbnail-candidate-1',
@@ -65,6 +69,10 @@ describe('buildProductBasics', () => {
       salePrice: 12900,
       originalPrice: 15900,
       discountRate: 19,
+      thumbnailPreviewUrls: [
+        'https://cdn.example.com/selected-thumb.jpg',
+        'https://cdn.example.com/preview-2.jpg',
+      ],
       selectedThumbnailUrl: 'https://cdn.example.com/selected-thumb.jpg',
       selectedThumbnailGenerationCandidateId: 'thumbnail-candidate-1',
       selectedDetailPageGenerationId: 'detail-generation-1',
@@ -96,5 +104,6 @@ describe('buildProductBasics', () => {
     expect(result.tags).toEqual(['태그1']);
     expect(result.optionNames).toEqual(['옵션A']);
     expect(result.thumbnailUrls).toEqual(['https://cdn.example.com/source.jpg']);
+    expect(result.thumbnailPreviewUrls).toEqual([]);
   });
 });

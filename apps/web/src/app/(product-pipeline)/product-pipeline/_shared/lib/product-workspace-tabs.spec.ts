@@ -10,17 +10,17 @@ describe('product workspace tabs', () => {
   it('exposes the approved tab order without generation history', () => {
     expect(PRODUCT_WORKSPACE_TABS.map((tab) => tab.key)).toEqual([
       'basic',
-      'options',
       'thumbnail',
       'detail',
+      'options',
       'raw',
     ]);
     expect(PRODUCT_WORKSPACE_TABS.map((tab) => tab.label)).toEqual([
       '기본정보',
-      '옵션·판매가',
       '썸네일',
       '상세페이지',
-      '원본 데이터',
+      '옵션판매가',
+      '원본데이터',
     ]);
     expect(PRODUCT_WORKSPACE_TABS.some((tab) => tab.label === '생성 이력')).toBe(false);
   });

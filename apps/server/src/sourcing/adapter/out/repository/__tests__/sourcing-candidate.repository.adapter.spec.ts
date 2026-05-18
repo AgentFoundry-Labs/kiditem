@@ -2,6 +2,75 @@ import { describe, expect, it, vi } from 'vitest';
 import { SourcingCandidateRepositoryAdapter } from '../sourcing-candidate.repository.adapter';
 
 describe('SourcingCandidateRepositoryAdapter', () => {
+  it('retries preparation create races by updating the concurrently created active draft', async () => {
+    const updatedPreparation = {
+      id: 'prep-1',
+      sourceCandidateId: 'candidate-1',
+      masterId: null,
+      contentWorkspaceId: null,
+      displayName: '새 상품명',
+      status: 'draft',
+      isCurrentForMaster: false,
+      selectedThumbnailUrl: null,
+      selectedThumbnailGenerationId: null,
+      selectedThumbnailGenerationCandidateId: null,
+      selectedDetailPageArtifactId: null,
+      selectedDetailPageRevisionId: null,
+      selectedDetailPageGenerationId: null,
+      registrationInput: { name: '새 상품명' },
+      appliedToMasterAt: null,
+      createdAt: new Date('2026-05-17T00:30:00.000Z'),
+      updatedAt: new Date('2026-05-17T01:00:00.000Z'),
+    };
+    const prisma = {
+      productPreparation: {
+        findFirst: vi.fn()
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce({ id: 'prep-1' }),
+        create: vi.fn().mockRejectedValueOnce({
+          code: 'P2002',
+          meta: {
+            target: ['organizationId', 'sourceCandidateId', 'isDeleted'],
+          },
+        }),
+        update: vi.fn().mockResolvedValue(updatedPreparation),
+      },
+    };
+    const repository = new SourcingCandidateRepositoryAdapter(prisma as never);
+
+    const row = await repository.upsertPreparation({
+      organizationId: 'org-1',
+      candidate: {
+        id: 'candidate-1',
+        name: '기존 상품명',
+        description: null,
+        category: null,
+        tags: [],
+        rawData: {},
+        promotedMasterId: null,
+      },
+      data: {
+        displayName: '새 상품명',
+        registrationInput: { name: '새 상품명' },
+      },
+    });
+
+    expect(prisma.productPreparation.create).toHaveBeenCalledTimes(1);
+    expect(prisma.productPreparation.update).toHaveBeenCalledWith({
+      where: { id: 'prep-1' },
+      data: {
+        displayName: '새 상품명',
+        registrationInput: { name: '새 상품명' },
+      },
+    });
+    expect(row).toMatchObject({
+      id: 'prep-1',
+      sourceCandidateId: 'candidate-1',
+      displayName: '새 상품명',
+      registrationInput: { name: '새 상품명' },
+    });
+  });
+
   it('lists only requested sourcing platforms when sourcePlatforms are provided', async () => {
     const prisma = {
       sourcingCandidate: {

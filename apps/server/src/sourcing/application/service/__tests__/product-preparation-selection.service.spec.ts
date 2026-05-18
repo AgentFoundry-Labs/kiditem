@@ -52,6 +52,10 @@ describe('ProductPreparationSelectionService', () => {
       originalPrice: 15900,
       discountRate: 19,
       tags: ['자석', '다트'],
+      thumbnailUrls: [
+        'https://cdn.example.com/thumb-1.jpg',
+        'https://cdn.example.com/thumb-2.jpg',
+      ],
     });
 
     expect(repo.upsertPreparation).toHaveBeenCalledWith({
@@ -78,6 +82,10 @@ describe('ProductPreparationSelectionService', () => {
           originalPrice: 15900,
           discountRate: 19,
           tags: ['자석', '다트'],
+          thumbnailUrls: [
+            'https://cdn.example.com/thumb-1.jpg',
+            'https://cdn.example.com/thumb-2.jpg',
+          ],
         }),
       }),
     });

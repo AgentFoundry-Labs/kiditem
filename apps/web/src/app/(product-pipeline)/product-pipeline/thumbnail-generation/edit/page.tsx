@@ -19,16 +19,19 @@ function ThumbnailEditorWorkspaceRoute() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const modeParam = searchParams.get('mode');
-  const workspaceHref = productBoundThumbnailWorkspaceHref({
-    productId: searchParams.get('productId'),
-    sourceCandidateId: searchParams.get('sourceCandidateId'),
-    contentWorkspaceId: searchParams.get('contentWorkspaceId'),
-    returnTo: searchParams.get('returnTo'),
-    generationId: searchParams.get('generationId'),
-    imageUrl: searchParams.get('imageUrl'),
-    uploadKey: searchParams.get('uploadKey'),
-    mode: modeParam === 'creative' ? 'creative' : 'edit',
-  });
+  const forceFullPage = searchParams.get('fullPage') === '1';
+  const workspaceHref = forceFullPage
+    ? null
+    : productBoundThumbnailWorkspaceHref({
+        productId: searchParams.get('productId'),
+        sourceCandidateId: searchParams.get('sourceCandidateId'),
+        contentWorkspaceId: searchParams.get('contentWorkspaceId'),
+        returnTo: searchParams.get('returnTo'),
+        generationId: searchParams.get('generationId'),
+        imageUrl: searchParams.get('imageUrl'),
+        uploadKey: searchParams.get('uploadKey'),
+        mode: modeParam === 'creative' ? 'creative' : 'edit',
+      });
 
   useEffect(() => {
     if (workspaceHref) router.replace(workspaceHref);

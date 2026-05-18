@@ -24,6 +24,7 @@ export interface UpdateProductBasicsInput {
   salePrice?: number;
   originalPrice?: number;
   discountRate?: number;
+  thumbnailUrls?: string[];
 }
 
 @Injectable()
@@ -259,6 +260,7 @@ export class ProductPreparationSelectionService {
     setStringArray(next, 'tags', input.tags);
     setStringArray(next, 'keywords', input.keywords);
     setStringArray(next, 'optionNames', input.optionNames);
+    setStringArray(next, 'thumbnailUrls', input.thumbnailUrls);
     return next;
   }
 }

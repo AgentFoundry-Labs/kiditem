@@ -18,6 +18,7 @@ export interface ProductBasics {
   salePrice: number;
   discountRate: number;
   thumbnailUrls: string[];
+  thumbnailPreviewUrls: string[];
   selectedThumbnailUrl: string | null;
   selectedThumbnailGenerationCandidateId: string | null;
   selectedDetailPageGenerationId: string | null;
@@ -76,6 +77,7 @@ export function buildProductBasics({
   const input = toRecord(preparation?.registrationInput);
   const inputTags = strings(input.tags);
   const inputOptions = strings(input.optionNames);
+  const thumbnailPreviewUrls = strings(input.thumbnailUrls);
   const thumbnailUrls = [
     ...candidate.images
       .filter((image) => !image.role || image.role === 'product')
@@ -105,6 +107,7 @@ export function buildProductBasics({
     salePrice: num(input.salePrice),
     discountRate: num(input.discountRate),
     thumbnailUrls: [...new Set(thumbnailUrls)],
+    thumbnailPreviewUrls: [...new Set(thumbnailPreviewUrls)],
     selectedThumbnailUrl: preparation?.selectedThumbnailUrl ?? null,
     selectedThumbnailGenerationCandidateId: preparation?.selectedThumbnailGenerationCandidateId ?? null,
     selectedDetailPageGenerationId: preparation?.selectedDetailPageGenerationId ?? null,

@@ -91,4 +91,9 @@ export class UpdateProductBasicsDto {
   @Min(0)
   @Max(100)
   discountRate?: number;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  thumbnailUrls?: string[];
 }

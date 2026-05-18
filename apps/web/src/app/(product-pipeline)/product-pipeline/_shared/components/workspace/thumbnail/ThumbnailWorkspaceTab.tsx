@@ -1,33 +1,37 @@
 'use client';
 
-import { Suspense, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { productBoundThumbnailWorkspaceHref } from '../../../lib/product-pipeline-routes';
+import { toast } from 'sonner';
+import type { RegistrationThumbnailOption } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/registration-selection';
+import { cropImageWhitespaceFile } from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/lib/image-whitespace-crop';
 import { writeThumbnailEditorUpload } from '@/app/(product-pipeline)/product-pipeline/thumbnail-generation/edit/lib/upload-session';
-import { ThumbnailEditorWorkspace } from '@/app/(product-pipeline)/product-pipeline/thumbnail-generation/edit/components/ThumbnailEditorWorkspace';
+import { apiClient } from '@/lib/api-client';
 import { useSourcingThumbnailGenerations } from '../../../hooks/useGenerateSourcingThumbnail';
-import type { ProductEditState } from '../../../lib/product-workspace-types';
+import { thumbnailGenerationEditHref } from '../../../lib/product-pipeline-routes';
 import ProductThumbnailResults from './ProductThumbnailResults';
-import ProductWingStatusPanel from './ProductWingStatusPanel';
-import ThumbnailActionChooser from './ThumbnailActionChooser';
 import ThumbnailSourcePicker from './ThumbnailSourcePicker';
 import {
   buildThumbnailSourceOptions,
-  classifyProductWingStatus,
   getGeneratedThumbnailOptions,
 } from './thumbnail-workspace-state';
-import type { RegistrationThumbnailOption } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/registration-selection';
+import type { ProductEditState } from '../../../lib/product-workspace-types';
 
 interface ThumbnailWorkspaceTabProps {
   editData: ProductEditState;
   productId: string;
   promotedMasterId: string | null;
   contentWorkspaceId?: string | null;
+  thumbnailUrl?: string | null;
   thumbnailSourceCandidateId?: string | null;
   selectedRegistrationThumbnailUrl: string | null;
+  thumbnailPreviewImages: string[];
   onPreviewThumbnail: (url: string | null) => void;
-  onSelectRegistrationThumbnail: (option: RegistrationThumbnailOption) => void;
-  onThumbnailsChange: (thumbnails: string[]) => void;
+  onThumbnailPreviewImagesChange: (images: string[]) => void;
+  onSaveThumbnailConfiguration: (input: {
+    thumbnailUrls: string[];
+    selectedThumbnail: RegistrationThumbnailOption | null;
+  }) => Promise<void> | void;
   thumbnailGenerationReturnHref: string;
 }
 
@@ -35,18 +39,26 @@ export default function ThumbnailWorkspaceTab({
   editData,
   promotedMasterId,
   contentWorkspaceId = null,
+  thumbnailUrl = null,
   thumbnailSourceCandidateId = null,
   selectedRegistrationThumbnailUrl,
+  thumbnailPreviewImages,
   onPreviewThumbnail,
-  onSelectRegistrationThumbnail,
-  onThumbnailsChange,
+  onThumbnailPreviewImagesChange,
+  onSaveThumbnailConfiguration,
   thumbnailGenerationReturnHref,
 }: ThumbnailWorkspaceTabProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const thumbnailMode = searchParams.get('thumbnailMode');
+  const didSeedPreviewImages = useRef(false);
+  const [uploadingCount, setUploadingCount] = useState(0);
   const [selectedSourceUrl, setSelectedSourceUrl] = useState<string | null>(
-    searchParams.get('imageUrl') ?? selectedRegistrationThumbnailUrl ?? editData.thumbnails[0] ?? null,
+    searchParams.get('imageUrl') ??
+      selectedRegistrationThumbnailUrl ??
+      thumbnailPreviewImages[0] ??
+      thumbnailUrl ??
+      editData.thumbnails[0] ??
+      null,
   );
   const thumbnailGenerations = useSourcingThumbnailGenerations({
     productId: promotedMasterId,
@@ -67,10 +79,46 @@ export default function ThumbnailWorkspaceTab({
     }),
     [editData.thumbnails, thumbnailGenerations.data],
   );
-  const wingStatus = classifyProductWingStatus({
-    hasContentWorkspace: Boolean(contentWorkspaceId),
-    generations: thumbnailGenerations.data ?? [],
-  });
+  const fallbackPreviewImages = useMemo(
+    () =>
+      uniqueNonEmpty([
+        selectedRegistrationThumbnailUrl,
+        thumbnailUrl,
+        editData.thumbnails[0],
+      ]),
+    [editData.thumbnails, selectedRegistrationThumbnailUrl, thumbnailUrl],
+  );
+  const availableSourceOptions = useMemo(
+    () => uniqueOptions([...sourceOptions, ...resultOptions]),
+    [resultOptions, sourceOptions],
+  );
+  const sourceOptionMap = useMemo(() => {
+    const map = new Map<string, RegistrationThumbnailOption>();
+    for (const option of sourceOptions) {
+      map.set(option.url, option);
+    }
+    for (const option of resultOptions) {
+      map.set(option.url, option);
+    }
+    return map;
+  }, [resultOptions, sourceOptions]);
+
+  useEffect(() => {
+    if (didSeedPreviewImages.current || thumbnailPreviewImages.length > 0) return;
+    if (fallbackPreviewImages.length === 0) return;
+    didSeedPreviewImages.current = true;
+    onThumbnailPreviewImagesChange(fallbackPreviewImages);
+  }, [fallbackPreviewImages, onThumbnailPreviewImagesChange, thumbnailPreviewImages.length]);
+
+  useEffect(() => {
+    if (selectedSourceUrl) return;
+    const fallbackUrl = thumbnailPreviewImages[0] ?? fallbackPreviewImages[0] ?? null;
+    if (fallbackUrl) setSelectedSourceUrl(fallbackUrl);
+  }, [fallbackPreviewImages, selectedSourceUrl, thumbnailPreviewImages]);
+
+  useEffect(() => {
+    onPreviewThumbnail(selectedSourceUrl);
+  }, [onPreviewThumbnail, selectedSourceUrl]);
 
   const openEditor = (mode: 'edit' | 'creative') => {
     if (!selectedSourceUrl) return;
@@ -81,70 +129,143 @@ export default function ThumbnailWorkspaceTab({
     const uploadKey = shouldUseUploadKey
       ? writeThumbnailEditorUpload(selectedSourceUrl, { productName: editData.name, mode })
       : null;
-    const workspaceHref = productBoundThumbnailWorkspaceHref({
-      productId: promotedMasterId,
-      sourceCandidateId: promotedMasterId ? null : thumbnailSourceCandidateId,
-      contentWorkspaceId,
+    const workspaceHref = thumbnailGenerationEditHref({
+      mode,
+      editCase: mode === 'edit' ? 'single' : null,
       returnTo: thumbnailGenerationReturnHref,
       imageUrl: uploadKey ? null : selectedSourceUrl,
-      uploadKey,
       productName: editData.name,
       productDescription: editData.name,
-      editCase: mode === 'edit' ? 'single' : null,
-      mode,
+      extraParams: {
+        uploadKey,
+        productId: promotedMasterId,
+        sourceCandidateId: promotedMasterId ? null : thumbnailSourceCandidateId,
+        contentWorkspaceId,
+        fullPage: '1',
+      },
     });
-    if (workspaceHref) router.push(workspaceHref);
+    router.push(workspaceHref);
   };
 
-  if (thumbnailMode === 'edit' || thumbnailMode === 'creative') {
-    const backHref = productBoundThumbnailWorkspaceHref({
-      productId: promotedMasterId,
-      sourceCandidateId: promotedMasterId ? null : thumbnailSourceCandidateId,
-      contentWorkspaceId,
-      returnTo: thumbnailGenerationReturnHref,
-      productName: editData.name,
-      productDescription: editData.name,
-    }) ?? thumbnailGenerationReturnHref;
-    return (
-      <div className="p-5" data-testid="thumbnail-workspace-tab">
-        <Suspense fallback={<div className="min-h-[720px] rounded-lg bg-slate-50" />}>
-          <ThumbnailEditorWorkspace
-            embedded
-            onBack={() => router.push(backHref)}
-          />
-        </Suspense>
-      </div>
+  const uploadThumbnailSourceImage = async (file: File): Promise<string> => {
+    const uploadFile = await cropImageWhitespaceFile(file).catch((err) => {
+      console.warn('[thumbnail-workspace] upload image whitespace crop failed, using original', err);
+      return file;
+    });
+    const formData = new FormData();
+    formData.append('file', uploadFile);
+    const result = await apiClient.upload<{ url: string }>(
+      '/api/ai/detail-page/images',
+      formData,
     );
-  }
+    return result.url;
+  };
+
+  const handleUploadImages = async (files: File[]) => {
+    if (files.length === 0) return;
+    setUploadingCount(files.length);
+    try {
+      const results = await Promise.allSettled(files.map(uploadThumbnailSourceImage));
+      const uploaded = results.flatMap((result) =>
+        result.status === 'fulfilled' ? [result.value] : [],
+      );
+      const failedCount = results.length - uploaded.length;
+      if (uploaded.length > 0) {
+        const next = uniqueNonEmpty([...thumbnailPreviewImages, ...uploaded]);
+        onThumbnailPreviewImagesChange(next);
+        setSelectedSourceUrl(uploaded[0] ?? selectedSourceUrl);
+        toast.success(`${uploaded.length}장 업로드 완료`);
+      }
+      if (failedCount > 0) {
+        toast.error(`${failedCount}장 업로드에 실패했습니다.`);
+      }
+    } finally {
+      setUploadingCount(0);
+    }
+  };
+
+  const handleAddImages = (urls: string[]) => {
+    const next = uniqueNonEmpty([...thumbnailPreviewImages, ...urls]);
+    onThumbnailPreviewImagesChange(next);
+    if (urls[0]) {
+      setSelectedSourceUrl(urls[0]);
+    }
+  };
+
+  const handleRemovePreviewImage = (url: string) => {
+    const next = thumbnailPreviewImages.filter((candidateUrl) => candidateUrl !== url);
+    onThumbnailPreviewImagesChange(next);
+    if (selectedSourceUrl !== url) return;
+    const fallbackUrl = next[0] ?? null;
+    setSelectedSourceUrl(fallbackUrl);
+  };
+
+  const optionForUrl = (url: string): RegistrationThumbnailOption =>
+    sourceOptionMap.get(url) ??
+    ({
+      url,
+      kind: 'source',
+      generatedCandidateId: null,
+    } satisfies RegistrationThumbnailOption);
+
+  const handleSaveConfiguration = () => {
+    onSaveThumbnailConfiguration({
+      thumbnailUrls: thumbnailPreviewImages,
+      selectedThumbnail: null,
+    });
+  };
+
+  const handleRegisterRepresentative = () => {
+    const saveUrl = selectedSourceUrl ?? thumbnailPreviewImages[0] ?? null;
+    if (!saveUrl) return;
+    const nextThumbnailUrls = uniqueNonEmpty([
+      saveUrl,
+      ...thumbnailPreviewImages.filter((url) => url !== saveUrl),
+    ]);
+    onThumbnailPreviewImagesChange(nextThumbnailUrls);
+    onSaveThumbnailConfiguration({
+      thumbnailUrls: nextThumbnailUrls,
+      selectedThumbnail: optionForUrl(saveUrl),
+    });
+  };
 
   return (
-    <div className="space-y-4 p-5" data-testid="thumbnail-workspace-tab">
+    <div className="space-y-3 p-5" data-testid="thumbnail-workspace-tab">
       <ThumbnailSourcePicker
-        options={sourceOptions}
+        thumbnailUrls={thumbnailPreviewImages}
+        availableOptions={availableSourceOptions}
         selectedUrl={selectedSourceUrl}
+        savedRepresentativeUrl={selectedRegistrationThumbnailUrl}
         onSelect={(url) => {
           setSelectedSourceUrl(url);
-          onPreviewThumbnail(url);
         }}
-        onAddImage={() => {
-          const next = `https://placehold.co/400x400/e2e8f0/64748b?text=${encodeURIComponent(`상품 ${editData.thumbnails.length + 1}`)}`;
-          onThumbnailsChange([...editData.thumbnails, next]);
-          setSelectedSourceUrl(next);
-          onPreviewThumbnail(next);
-        }}
-      />
-      <ThumbnailActionChooser
-        selectedImageUrl={selectedSourceUrl}
-        onOpenEdit={() => openEditor('edit')}
-        onOpenCreative={() => openEditor('creative')}
+        onEditSelectedImage={() => openEditor('edit')}
+        onSaveConfiguration={handleSaveConfiguration}
+        onRegisterRepresentative={handleRegisterRepresentative}
+        onAddImages={handleAddImages}
+        onRemoveImage={handleRemovePreviewImage}
+        onReorderImages={onThumbnailPreviewImagesChange}
+        onUploadImages={handleUploadImages}
+        uploadingCount={uploadingCount}
       />
       <ProductThumbnailResults
         options={resultOptions}
-        selectedRegistrationThumbnailUrl={selectedRegistrationThumbnailUrl}
         onPreviewThumbnail={onPreviewThumbnail}
-        onSelectRegistrationThumbnail={onSelectRegistrationThumbnail}
       />
-      <ProductWingStatusPanel status={wingStatus} />
     </div>
   );
+}
+
+function uniqueNonEmpty(values: Array<string | null | undefined>): string[] {
+  return Array.from(new Set(values.map((value) => value?.trim()).filter(Boolean) as string[]));
+}
+
+function uniqueOptions(options: RegistrationThumbnailOption[]): RegistrationThumbnailOption[] {
+  const seen = new Set<string>();
+  return options.filter((option) => {
+    const key = option.url.trim();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }

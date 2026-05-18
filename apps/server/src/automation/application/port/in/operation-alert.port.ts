@@ -53,8 +53,10 @@ export interface OperationLifecyclePatch {
 }
 
 export interface CloseStaleOperationAlertsInput {
+  organizationId?: string;
+  type?: string;
   sourceType: string;
-  operationKeyPrefix: string;
+  operationKeyPrefix?: string;
   staleBefore: Date;
   status: 'failed' | 'cancelled';
   message: string;
