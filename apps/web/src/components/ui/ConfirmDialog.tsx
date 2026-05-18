@@ -34,9 +34,9 @@ export function ConfirmDialog({
   return (
     <Dialog.Root open={open} onOpenChange={(v) => (isLoading ? null : onOpenChange(v))}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+        <Dialog.Overlay className="fixed inset-0 z-[140] bg-black/40 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <Dialog.Content
-          className="fixed left-1/2 top-1/2 z-50 w-[min(90vw,420px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-[var(--surface,white)] shadow-2xl border border-[var(--border,#e5e7eb)] p-6 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
+          className="fixed left-1/2 top-1/2 z-[150] w-[min(90vw,420px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-[var(--surface,white)] shadow-2xl border border-[var(--border,#e5e7eb)] p-6 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
           onEscapeKeyDown={(e) => {
             if (isLoading) e.preventDefault();
           }}
