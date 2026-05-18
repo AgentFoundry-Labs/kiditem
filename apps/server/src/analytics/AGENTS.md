@@ -1,93 +1,67 @@
-# analytics — Reporting / Read-Model Owner Domain
+# analytics — Reporting + Read Models
 
-Analytics owns dashboard, statistics, traffic, and supplier-stats read models.
-It may read across owner-domain tables for reporting, but it does not import
-other owner-domain services or take mutation authority from them.
+`src/analytics/` owns dashboard, statistics, traffic, and supplier-stats read
+models. It may read across owner-domain tables for reporting, but it does not
+import owner-domain services or take mutation authority from them.
 
-Dashboard is hexagonal-complete: outgoing ports + repository adapters cover
-every Prisma read, application services are Prisma-free, and pure helpers
-live under `dashboard/domain/`. See
-[`dashboard/AGENTS.md`](dashboard/AGENTS.md) for the scoped contract.
-Statistics, traffic, and supplier-stats may stay flat read services until
-they gain raw SQL complexity, mutation invariants, or 500+ line service
-pressure.
+## Folder Map
 
-## Public Routes
+```text
+analytics/
+├── dashboard/         # hexagonal dashboard read model; see dashboard/AGENTS.md
+├── statistics/        # transitional flat read service
+├── traffic/           # transitional read service plus upload mutation lane
+└── supplier-stats/    # transitional flat read service
+```
 
-| Route | Capability |
-|---|---|
-| `GET /api/dashboard/sales` | sales summary, trends, range KPI, plan achievement |
-| `GET /api/dashboard/ad` | ad summary, ad KPI, benchmark, saving |
-| `GET /api/dashboard/inventory` | inventory snapshot and grade changes |
-| `GET /api/dashboard/trend` | revenue + ad cost trend |
-| `GET /api/statistics?type=...` | overview/products/categories/delivery/grades/pareto/repurchase |
-| `GET /api/traffic/summary` | traffic summary over daily facts |
-| `GET /api/traffic/monthly` | daily traffic + KST month aggregate |
-| `POST /api/traffic/upload` | operator CSV/XLSX traffic upload |
-| `GET /api/supplier-stats?type=...` | supplier sales/history reports |
+## Owned Surfaces
 
-## Layout
+- Dashboard APIs: `/api/dashboard/sales`, `/api/dashboard/ad`,
+  `/api/dashboard/inventory`, `/api/dashboard/trend`
+- Statistics: `GET /api/statistics?type=...`
+- Traffic summary/monthly/upload: `/api/traffic/*`
+- Supplier reports: `GET /api/supplier-stats?type=...`
 
-| Path | Shape |
-|---|---|
-| `dashboard/` | hexagonal-complete: port/adapter + application + domain. See [dashboard/AGENTS.md](dashboard/AGENTS.md) |
-| `statistics/` | transitional flat read service |
-| `traffic/` | transitional flat read service plus upload mutation lane |
-| `supplier-stats/` | transitional flat read service |
+## Main Data Models
 
-Dashboard is the strictest surface because it owns raw SQL and report hydration.
-New dashboard raw SQL goes through `adapter/out/repository/`. The other
-capabilities may stay flat until a concrete invariant, raw SQL, or fat-service
-driver appears.
+Analytics reads, but does not own, order, channel, product, inventory, alert,
+thumbnail, supplier, purchase, payment, and shipment tables for reporting.
+Dashboard is the strictest surface because it owns raw SQL and report
+hydration.
 
-## Tenant Predicate Contract
+## Reporting Rules
 
-- Controllers use `@CurrentOrganization()`.
-- ORM reads include `organizationId` on every tenant-owned table.
-- Dashboard raw SQL uses Prisma tagged templates and binds
-  `${organizationId}::uuid`.
-- Multi-hop joins include organization predicates on every tenant-owned hop.
-- `@Body()` / `@Query()` organizationId is forbidden.
-- Traffic upload scopes scrape-run and daily-fact writes with the controller's
-  organization id.
+- Metric formulas must not change without a scoped plan and behavior tests.
+- Raw snapshots are audit/debug/replay evidence only; reporting APIs read daily
+  facts and product/listing/account projections.
+- Traffic CSV upload stays separate from `/api/ads/extension/sync`.
+- If an owner domain changes read schema or mutation semantics consumed by
+  analytics, update analytics readers in the same PR or record an explicit
+  compatibility decision.
 
 ## Cross-Domain Reads
 
-Analytics may read these tables directly for reporting:
+Analytics may directly read:
 
 - Orders and line items for revenue and repurchase.
-- Channel listings/options/daily snapshots/account KPI/scrape audit rows for
-  listing and channel facts.
+- Channel listings/options/daily snapshots/account KPI/scrape audit rows.
 - Products/options for metadata, grade, category, and pricing inputs.
 - Inventory, alerts, grade history, and thumbnails for dashboard snapshots.
 - Supplier, supplier product, purchase order, supplier payment, and shipment
   tables for supplier and delivery reports.
 
-If an owner domain changes read schema or mutation semantics used by analytics,
-the same PR should update analytics readers or record an explicit compatibility
-decision.
+## Boundary Rules
 
-## Rules
-
-- Do not change metric formulas without a scoped plan and behavior tests.
-- Raw snapshots are audit/debug/replay evidence only; reporting APIs read daily
-  facts and product/listing/account projections.
-- No `$queryRawUnsafe` / `$executeRawUnsafe`.
+- Controllers use `@CurrentOrganization()`.
+- ORM reads include `organizationId` on every tenant-owned table.
+- Raw SQL uses Prisma tagged templates and binds organization predicates on
+  every tenant-owned hop.
+- `@Body()` / `@Query()` organizationId is forbidden.
 - New raw SQL/report hydration belongs behind dashboard repository adapters.
-- Do not merge traffic CSV upload with `/api/ads/extension/sync`; one is
-  operator-driven, the other provider/extension-driven.
-- Traffic upload operation alerts go through
-  `traffic/application/port/out/operation-alert.port.ts` and
-  `traffic/adapter/out/automation/operation-alert.adapter.ts`; traffic code
-  must not inject automation's `OperationAlertService` directly.
+- Traffic upload operation alerts go through the traffic operation-alert port,
+  not direct `OperationAlertService` injection.
 
-## Verification
+## Transitional Exceptions
 
-```bash
-npm exec --workspace=apps/server -- vitest run src/analytics
-npm run build --workspace=apps/server
-npm run dev:server
-```
-
-Use integration tests for IDOR, raw SQL tenant predicates, traffic upload, and
-cross-domain report semantics.
+- `statistics/`, `traffic/`, and `supplier-stats/` may stay flat until they
+  gain raw SQL complexity, mutation invariants, or 500+ line service pressure.

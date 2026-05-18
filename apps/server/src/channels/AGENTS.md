@@ -1,131 +1,85 @@
-# channels — Marketplace Sync And Reconciliation
+# channels — Marketplace Sync + Reconciliation
 
-Channels owns marketplace account settings, Coupang product/order/return sync,
-listing reconciliation, and channel dashboard reads. Coupang provider calls are
-isolated under `adapter/out/coupang/`.
+`src/channels/` owns marketplace account settings, Coupang product/order/return
+sync, listing reconciliation, and channel dashboard reads. Provider calls are
+isolated behind the Coupang provider adapter.
 
-Coupang provider access is hexagonal through `COUPANG_PROVIDER_PORT` and
-`adapter/out/coupang/`. Database, raw SQL, credential, sync, dashboard, and
-reconciliation persistence live behind `application/port/out/*` contracts and
-concrete adapters under `adapter/out/repository/`.
-
-## Layout
+## Folder Map
 
 ```text
 channels/
-  channels.module.ts
-  adapter/in/http/          channel listing/account, sync, dashboard, reconciliation controllers
-  adapter/out/automation/   operation-alert consumer adapter
-  adapter/out/coupang/      client, products/orders APIs, provider adapter
-  adapter/out/repository/   Prisma/raw-SQL repository adapters
-  application/port/out/     provider, operation-alert, repository ports
-  application/service/      use-case orchestration and alert lifecycle
-  domain/                   pure credential/normalization helpers
-  adapters/coupang/orders.ts  compat shim only
+├── channels.module.ts
+├── adapter/in/http/          # listing/account, sync, dashboard, reconciliation controllers
+├── adapter/out/
+│   ├── automation/           # operation-alert adapter
+│   ├── coupang/              # HMAC client, provider APIs, provider adapter
+│   └── repository/           # Prisma/raw-SQL repository adapters
+├── application/
+│   ├── port/out/             # provider, operation-alert, repository ports
+│   └── service/              # sync/reconcile orchestration
+├── domain/                   # pure credential and normalization helpers
+└── adapters/coupang/         # compatibility shims only
 ```
 
-Do not add new files under `adapters/coupang/` except compatibility shims.
+## Owned Surfaces
 
-## Provider Boundary
+- Channel account/listing APIs under `/api/channels/*`
+- Coupang product, order, return, and inventory sync entrypoints
+- Registered-product listing read model: `/api/channels/listings`
+- Reconciliation APIs under `/api/channels/reconciliation/*`
+- Channel dashboard read APIs
 
-- Services depend on `COUPANG_PROVIDER_PORT`, not raw `fetch` or provider
-  helper functions.
-- Services depend on repository/query ports for Prisma-backed reads and writes;
-  direct `PrismaService` imports belong under `adapter/out/repository/**`.
-- Operation-alert lifecycle writes depend on `CHANNELS_OPERATION_ALERT_PORT`;
-  application services own alert start/succeed/fail orchestration and must not
-  inject automation's `OperationAlertService` directly.
-- `coupang-client.ts` owns HMAC auth, timeout, response validation, and vendor
-  id resolution.
-- Organization-specific credentials come from primary
-  `ChannelAccount(channel='coupang')`. Server env must not provide Coupang
-  vendor/access/secret fallback values.
-- No adapter-level retry. Callers decide retry/queue semantics.
+## Main Data Models
 
-## Sync Contracts
+- `ChannelAccount` is the marketplace/store identity.
+- `ChannelListing` connects marketplace products to `MasterProduct`.
+- `ChannelListingOption` connects marketplace option rows to `ProductOption`.
+- Channel daily snapshots and scrape audit rows support dashboard/reporting
+  reads.
+- Orders and returns sync into the channel-agnostic orders spine.
 
-- `syncProducts(organizationId)` refreshes existing `ChannelListing` /
-  `ChannelListingOption` rows. It must not auto-create `MasterProduct`.
-- `/api/channels/listings` is the registered-product read model for product
-  pipeline screens. It lists active `ChannelListing` rows with
-  `ChannelAccount` and `MasterProduct` context; it must not list
-  registration/content workspaces.
-- `ChannelListing.externalId` uniqueness is scoped by
-  `(organizationId, channelAccountId, externalId)` for active rows. Do not add
-  organization+channel global uniqueness; one organization can connect multiple
-  accounts on the same marketplace channel.
-- Channel-listing writers must carry `channelAccountId` when the marketplace
-  account is known. Accountless legacy rows are read-compatible only; new sync
-  or reconciliation paths must not create accountless `ChannelListing` rows.
-- `syncOrders` and `syncReturns` write the channel-agnostic order spine:
-  `Order`, `OrderLineItem`, `OrderReturn`, `OrderReturnLineItem` with
-  `platform='coupang'` and provider IDs in external fields.
-- `syncInventory()` remains a stub until InventoryService single-writer flow is
+## Sync + Reconciliation Flow
+
+```text
+Coupang provider
+  -> COUPANG_PROVIDER_PORT
+  -> sync application service
+  -> channel repository ports
+  -> ChannelListing / ChannelListingOption / Order / Return rows
+  -> reconciliation service links unresolved rows to products/options
+```
+
+Reconciliation never auto-creates `MasterProduct`. User-approved links create
+the missing `ChannelListing`/option association through the reconciliation
+flow.
+
+## Cross-Domain Ports
+
+- Provider access goes through `COUPANG_PROVIDER_PORT`.
+- Operation-alert lifecycle writes go through
+  `CHANNELS_OPERATION_ALERT_PORT`.
+- Orders/returns are written to the order spine; provider actions should be
+  exposed through channels-owned ports/adapters instead of direct provider HTTP
+  from orders services.
+
+## Boundary Rules
+
+- Services do not call raw `fetch`, `coupangRequest`, or adapter helpers
+  directly.
+- Organization-specific Coupang credentials come from primary
+  `ChannelAccount(channel='coupang')`; server env must not be a credential
+  fallback.
+- New sync/reconciliation paths must carry `channelAccountId` and must not
+  create accountless `ChannelListing` rows.
+- Dashboard SQL uses Prisma tagged templates and binds organization predicates
+  on every tenant-owned table in the join path.
+- Status mapping lives in `domain/coupang-normalization.ts`; add tests when
+  semantics change.
+- Per-listing sync transactions continue on individual failure and increment
+  result errors.
+
+## Transitional Exceptions
+
+- `adapters/coupang/` exists only for compatibility shims.
+- `syncInventory()` remains a stub until the inventory single-writer flow is
   explicitly designed.
-- Per-listing transactions continue on individual failure and increment
-  `result.errors`.
-- Missing Coupang `vendorItemId` is fail-fast for option/order-line upsert
-  because line identity cannot be proven.
-
-Status mapping lives in `domain/coupang-normalization.ts`:
-
-| Coupang | Internal |
-|---|---|
-| `APPROVED`, `ON_SALE` | `active` |
-| `SUSPEND` | `paused` |
-| `DELETED` | `deleted` |
-| `UNDER_EXAMINATION`, `REJECTED` | `draft` |
-| unknown | lowercased raw value |
-
-Add mapping tests when status semantics change.
-
-## Dashboard Raw SQL
-
-`adapter/out/repository/channel-dashboard.repository.adapter.ts` owns read-only
-dashboard SQL behind `CHANNEL_DASHBOARD_REPOSITORY_PORT`.
-
-- Use Prisma tagged templates only; no string concatenation.
-- Bind `organizationId` as an organization predicate.
-- For joins across tenant-owned tables, include organization predicates on each
-  joined table that can leak cross-organization rows.
-- Return summary semantics: `returnRate = matched returns / matched orders`,
-  filtered by `Order.orderedAt`; orphan returns are a side metric only.
-
-## Reconciliation
-
-`channel-reconciliation.service.ts` connects Coupang rows to KidItem
-`MasterProduct` / `ProductOption`.
-
-- Never auto-create `MasterProduct`.
-- Match order:
-  1. active `ChannelListing` by `externalId`
-  2. exact single active `ProductOption.legacyCode` as a review candidate unless
-     a channel-account scoped listing can be proven
-  3. conflict on master mismatch or multiple legacy-code candidates
-  4. otherwise `needs_review`
-  5. user link -> `manual`; user ignore -> `ignored`
-- `coupang_image_sync` is the active UI/default source. Legacy/manual sources
-  are replay-only.
-- All single-resource reads/writes use `{ id, organizationId }`.
-
-## Hard Bans
-
-- Service-layer direct `fetch`/`coupangRequest`.
-- Direct import of `adapter/out/coupang/*` from services except through
-  `COUPANG_PROVIDER_PORT`.
-- Direct `PrismaService` / `@prisma/client` imports from `application/**`.
-- Raw status stored without normalization.
-- Cross-organization dashboard queries.
-- Coupang credential env fallback.
-- Master/listing creation from sync without the reconciliation/admin flow.
-
-## Verification
-
-```bash
-npm exec --workspace=apps/server -- vitest run src/channels
-npm run build --workspace=apps/server
-npm run dev:server
-```
-
-Use integration tests when changing order/return transactions, reconciliation
-matching, or organization-scoped dashboard SQL.

@@ -1,36 +1,56 @@
-# Agent OS
+# agent-os — Agent Runtime Platform
 
-Agent OS is the platform owner for code-owned agent definitions,
-organization-scoped instances, durable run requests, execution attempts, tool
-policy, approvals, cost ledger, and run observability.
+`src/agent-os/` owns code-defined agent definitions, organization-scoped agent
+instances, durable run requests, execution attempts, tool policy, approvals,
+cost ledger, and run observability. It is a platform owner, not a downstream
+business aggregate owner.
 
-Agent OS is a platform owner, not a business aggregate owner. Runtime, queue,
-repository, and event boundaries stay behind application ports and outgoing
-adapters. Business side effects belong to owner-domain sinks.
+## Folder Map
 
-## Boundary
+```text
+agent-os/
+├── adapter/in/http/          # run/observability/admin HTTP surfaces
+├── adapter/out/              # repository, runtime, policy, event adapters
+├── application/
+│   ├── event/                # finalized event types/constants
+│   ├── port/in/              # runner ports exposed to business domains
+│   ├── port/out/             # repository/runtime/event/policy ports
+│   └── service/              # queue, executor, runner, observability
+└── domain/                   # pure status/policy/schema helpers
+```
 
-- Business domains request work only through `AgentRunnerPort`
-  (`AGENT_RUNNER_PORT`).
-- Runtime execution belongs behind `application/port/out/*` contracts.
-- Agent OS does not update downstream business rows. Owner domains listen for
-  finalized runs and apply their own side effects.
-- Prisma access stays in outgoing repository adapters.
-- Application services must not import concrete adapters, `PrismaService`,
-  Nest HTTP decorators, provider SDKs, filesystem APIs, or workflow internals.
+## Owned Surfaces
 
-## Data Contracts
+- Generic Agent OS run creation and observability APIs under `/api/agent-os/*`
+- Manual drain/debug endpoint:
+  `POST /api/agent-os/executor/claim-and-run`
+- Code-owned agent catalog/bootstrap and runtime handler registration
 
-- Every organization-scoped read/write includes `organizationId`.
+## Main Data Models
+
+- `AgentInstance` is the organization-owned installed agent.
 - `AgentRunRequest` is the durable inbox, queue, retry, and coalescing owner.
 - `AgentRun` records one accepted execution attempt and starts at `running`.
-  Queue state does not belong in `AgentRun.status`.
 - `AgentRunEvent`, `AgentAuthorizationEvent`, and `AgentCostEvent` are separate
   ledgers.
-- Cost ledger inserts and `AgentRuntimeState.totalCostMicros` updates happen in
-  one transaction.
-- Agent OS ledgers are not a user notification inbox. User-facing signals are
-  projected to `Alert`; personal work is `Alert -> ActionTask`.
+- `AgentRuntimeState` stores aggregate runtime state such as total cost.
+
+## Runtime Flow
+
+```text
+business domain
+  -> AGENT_RUNNER_PORT.runByType(...)
+  -> AgentRunRequest
+  -> AgentRunExecutor / worker claim
+  -> AGENT_RUNTIME_PORT
+  -> registered runtime handler
+  -> AgentRun terminal state
+  -> global agent.run.finalized event
+  -> owner-domain bridge + sink
+```
+
+Agent OS does not update downstream business rows. Owner domains listen for
+finalized runs and apply side effects through their own idempotent sinks.
 
 ## Status Machines
 
@@ -49,103 +69,39 @@ AgentRun:
           -> cancelled
 ```
 
-Never add `queued` to `AgentRun.status`.
+Never add `queued` to `AgentRun.status`; queue state belongs to
+`AgentRunRequest`.
 
-## Runtime Adapter
+## Cross-Domain Ports
 
-`AGENT_RUNTIME_PORT` is the executor's only provider path. The default binding
-is `RoutingRuntimeAdapter`, which dispatches to handlers registered in
-`AgentRuntimeHandlerRegistry`.
+- Business domains request work through `AGENT_RUNNER_PORT`.
+- Runtime execution goes through `AGENT_RUNTIME_PORT`; default binding is
+  `RoutingRuntimeAdapter`.
+- Owner domains register runtime handlers by `agentType`, usually during
+  module initialization.
+- Finalized listeners filter by event metadata (`agentType`, `source`,
+  `sourceResourceType`, `sourceResourceId`), not by output payload.
 
-- Handler registered for `agentType` -> execute and return the handler result.
-- No handler -> fail fast with `runtime_not_configured` on both
-  `AgentRun.errorCode` and `AgentRunRequest.lastErrorCode`.
-- Owner domains register handlers from Nest providers, usually in
-  `onModuleInit`.
-- `AGENT_RUNTIME_ALLOW_NOOP=1` is allowed only for isolated tests that need an
-  empty synthetic runtime result. Never set it in shared environments.
+## Boundary Rules
 
-## Worker
-
-`AgentRunWorker` drains the queue by calling
-`AgentRunExecutor.executeNextUnscoped(workerId)`.
-
-- Default disabled. Enable explicitly with `AGENT_RUNTIME_WORKER_ENABLED=1`.
-- `AGENT_RUNTIME_WORKER_INTERVAL_MS` controls the tick interval; `0` disables.
-- One in-flight tick at a time.
-- Empty queue is silent.
-- Runtime exceptions are caught and logged.
-- Multi-instance safe: claim uses `FOR UPDATE SKIP LOCKED`.
-
-`POST /api/agent-os/executor/claim-and-run` remains the manual drain/debug
-surface and does not replace the worker.
-
-`POST /api/agent-os/runs` creates an `AgentRunRequest` and immediately kicks
-that specific request through `AgentRunnerPort.executeRequest` when it is not
-scheduled or dry-run. This keeps user-triggered tool-wrapper runs observable
-through the generic API without depending on the global background worker.
-
-## Finalized Event Contract
-
-The executor emits one global `agent.run.finalized` event. The event includes
-`agentType`, `source`, `sourceResourceType`, and `sourceResourceId`; listeners
-filter on metadata, not on in-band output payload, because failed runs may have
-no output.
-
-Owner domains should implement:
-
-1. Zod input/output schema in their domain.
-2. Runtime handler registered with `AgentRuntimeHandlerRegistry`.
-3. Bridge that filters `agentType`, validates output, and calls a sink port.
-4. Sink adapter that applies domain row updates idempotently.
-5. Reconcile service that replays terminal runs through the same schema + sink
-   path for rows still stuck in non-terminal state.
-
-Bridges must route schema-invalid output to the sink as
-`errorCode='agent_output_invalid'`; they must not throw at the event-bus level.
-
-## Recovery
-
-The bus event is a hot-path kick only. Durable truth is:
-
-- success: `AgentRun.output`
-- failure: `AgentRun.errorCode` and `AgentRunRequest.lastErrorCode`
-- routing: `AgentRunRequest.sourceResourceType/sourceResourceId`
-
-Reconcile jobs are the only code path that bypasses the event bus, and they
-must feed terminal run data through the same output schema and sink port used by
-the bridge.
-
-Owner domains that need immediate user-visible progress may call
-`AgentRunnerPort.executeRequest({ organizationId, requestId })` right after
-`runByType` succeeds. This claims only that specific pending request through the
-same executor path; it does not enable the global worker or drain unrelated
-queues. Terminal execution awaits finalized-event listeners before resolving,
-so the inline caller can observe the owner-domain sink path without racing the
-hot-path projection.
+- Application services must not import concrete adapters, `PrismaService`, Nest
+  HTTP decorators, provider SDKs, filesystem APIs, or workflow internals.
+- Prisma access stays in outgoing repository adapters.
+- Cost ledger inserts and `AgentRuntimeState.totalCostMicros` updates happen
+  in one transaction.
+- Missing runtime handler fails fast with `runtime_not_configured`.
+- `AGENT_RUNTIME_ALLOW_NOOP=1` is only for isolated tests.
+- Reconcile jobs must feed terminal run data through the same output schema and
+  sink port used by the hot-path bridge.
 
 ## Bootstrap
 
 Fresh DBs need one `AgentInstance` per shipped code-owned definition and
-organization.
+organization:
 
 ```bash
 npm run seed:agent-os
 ```
 
 The seed reads `AGENT_<TYPE>_MODEL` or `AGENT_DEFAULT_MODEL` and throws if no
-model is configured. Current shipped types include `manager`,
-`rules_evaluation`, `rules_suggest`, `ad_strategy`, `sourcing`,
-`thumbnail_analyst`, `image_edit`, `thumbnail_auto_edit`,
-`detail_page_generate`, `thumbnail_generate`, and `chat`.
-
-## Verification
-
-```bash
-npm exec --workspace=apps/server -- vitest run src/agent-os
-npm run build --workspace=apps/server
-npm run dev:server
-```
-
-Use integration tests when changing claim concurrency, event sequencing,
-idempotency, cost aggregation, or owner-domain sink/reconcile contracts.
+model is configured.

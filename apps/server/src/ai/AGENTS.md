@@ -14,10 +14,13 @@ ai/
 │   ├── agent-output/         # Agent OS finalized-output sinks
 │   ├── agent-runtime/        # Agent OS runtime handlers
 │   ├── automation/           # operation-alert adapter
+│   ├── channels/             # channel image/listing lookup adapters
+│   ├── coupang/              # Coupang/Wing integration adapters
 │   ├── gemini/               # Gemini text/media/vision adapters
 │   ├── image-fetch/          # guarded remote image fetch adapter
+│   ├── prisma/               # Prisma persistence/query helpers
+│   ├── products/             # product/content lookup adapters
 │   ├── repository/           # reconstructed Prisma repository/query adapters
-│   ├── prisma/               # legacy thumbnail persistence/query helpers
 │   └── wing/                 # Wing automation adapter
 ├── application/
 │   ├── port/in/              # inbound ports exposed to other domains
@@ -112,6 +115,9 @@ hot-path listener was unavailable.
   fallback.
 - Detail-page media prompt and image-selection wording lives in
   `domain/detail-page-media-prompts.ts`.
+- When generation controls change, check shared tuple/type, HTTP DTO, web
+  payload, Agent OS input/output schema, stored raw-input normalizer, sink, and
+  reconcile behavior together.
 
 ## Transitional Exceptions
 
@@ -125,5 +131,6 @@ compacting the exception.
 - Thumbnail reference warm-up and some image-fetch paths still use concrete
   adapters.
 - `thumbnail-editor-ai.service.ts` still owns inline Gemini image generation.
-- `render-image.controller.ts` still owns inline Puppeteer/filesystem rendering.
+- `render-image.controller.ts` still owns inline Puppeteer/filesystem
+  rendering.
 - Coupang image sync keeps an in-memory job map and local Wing scrape fallback.
