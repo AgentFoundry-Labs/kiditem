@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ChannelReconciliationMatcherService } from '../channel-reconciliation-matcher.service';
+import { ChannelReconciliationMatcherRepositoryAdapter as ChannelReconciliationMatcherService } from '../../../adapter/out/repository/channel-reconciliation-matcher.repository.adapter';
 
 describe('ChannelReconciliationMatcherService', () => {
   it('does not create an accountless listing when only legacyCode matches', async () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ChannelDashboardService } from '../channel-dashboard.service';
+import { ChannelDashboardRepositoryAdapter as ChannelDashboardService } from '../../../adapter/out/repository/channel-dashboard.repository.adapter';
 import type { PrismaService } from '../../../../prisma/prisma.service';
 
 /**

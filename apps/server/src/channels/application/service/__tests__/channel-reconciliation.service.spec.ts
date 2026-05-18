@@ -4,6 +4,10 @@ import { ChannelReconciliationQueryService } from '../channel-reconciliation-que
 import { ChannelReconciliationResolutionService } from '../channel-reconciliation-resolution.service';
 import { ChannelReconciliationScanService } from '../channel-reconciliation-scan.service';
 import { ChannelReconciliationService } from '../channel-reconciliation.service';
+import { ChannelReconciliationMatcherRepositoryAdapter } from '../../../adapter/out/repository/channel-reconciliation-matcher.repository.adapter';
+import { ChannelReconciliationQueryRepositoryAdapter } from '../../../adapter/out/repository/channel-reconciliation-query.repository.adapter';
+import { ChannelReconciliationResolutionRepositoryAdapter } from '../../../adapter/out/repository/channel-reconciliation-resolution.repository.adapter';
+import { ChannelReconciliationScanRepositoryAdapter } from '../../../adapter/out/repository/channel-reconciliation-scan.repository.adapter';
 import type { PrismaService } from '../../../../prisma/prisma.service';
 
 /**
@@ -576,10 +580,20 @@ function makeFakePrisma(seed: {
 }
 
 function makeService(fakePrisma: PrismaService): ChannelReconciliationService {
-  const matcher = new ChannelReconciliationMatcherService();
-  const query = new ChannelReconciliationQueryService(fakePrisma);
-  const resolution = new ChannelReconciliationResolutionService(fakePrisma, query);
-  const scan = new ChannelReconciliationScanService(fakePrisma, matcher);
+  const matcherRepository = new ChannelReconciliationMatcherRepositoryAdapter();
+  const queryRepository = new ChannelReconciliationQueryRepositoryAdapter(fakePrisma);
+  const resolutionRepository = new ChannelReconciliationResolutionRepositoryAdapter(
+    fakePrisma,
+    queryRepository,
+  );
+  const scanRepository = new ChannelReconciliationScanRepositoryAdapter(
+    fakePrisma,
+    matcherRepository,
+  );
+  const matcher = new ChannelReconciliationMatcherService(matcherRepository);
+  const query = new ChannelReconciliationQueryService(queryRepository);
+  const resolution = new ChannelReconciliationResolutionService(resolutionRepository);
+  const scan = new ChannelReconciliationScanService(scanRepository);
   return new ChannelReconciliationService(scan, query, resolution);
 }
 
