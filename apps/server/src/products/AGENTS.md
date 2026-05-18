@@ -24,11 +24,13 @@ products/
   products.module.ts
   categories/                 /api/categories compatibility capability
   adapter/in/http/            controllers and HTTP DTO binding
-  adapter/out/prisma/         persistence, raw SQL, query helpers
-  application/service/        transaction-owning orchestration
+  adapter/out/repository/     persistence adapters and query helpers
+  application/port/in/        owner-side incoming ports for other domains
+  application/port/out/       outbound repository/transaction ports
+  application/service/        transaction-owning orchestration via ports
   domain/policy/              pure validation rules
   domain/service/             pure computations
-  mapper/                     Prisma row -> shared contract
+  mapper/                     repository row -> shared contract
   dto/
   util/
 ```
@@ -38,8 +40,8 @@ retires or reconstructs it.
 
 ## Core Rules
 
-- `MasterCodeService.generate(tx)` is the only master code issuer. It uses
-  Prisma `MasterCodeCounter`, not raw SQL sequences.
+- `MASTER_CODE_PORT.generate(tx)` is the only master code issuer. The
+  repository adapter uses `MasterCodeCounter`, not raw SQL sequences.
 - `OptionsService.create` generates SKU inside the transaction by incrementing
   the master option counter with `isDeleted: false` guard.
 - `BundleStockService.recompute` is the only writer of materialized
@@ -48,7 +50,7 @@ retires or reconstructs it.
   `stripProductOptionSystemFields`.
 - `BundleComponent.organizationId` derives from `bundleOption.organizationId`.
 - Bundle component CRUD recomputes inline inside the transaction and uses the
-  canonical row-lock helper in `adapter/out/prisma/bundle-stock.persistence.ts`.
+  canonical row-lock helper in `adapter/out/repository/bundle-stock.persistence.ts`.
 - Master and option use soft delete. BundleComponent uses hard delete.
 - `lifecycleState` is the master lifecycle on the API surface. Allowed values
   are `active | paused | discontinued`, validated via
@@ -74,11 +76,12 @@ retires or reconstructs it.
   do not add per-route `@UseGuards` / `@UsePipes`.
 - Controllers receive organization id from `@CurrentOrganization()`.
 - DTOs must not accept client-provided `organizationId`.
-- Application services may return raw Prisma rows internally; controllers map
-  and validate serializable output.
+- Application services depend on `application/port/out/*`, not concrete
+  repository adapters or Prisma types.
 - Domain code imports no Prisma or NestJS.
-- Mutating application services accept optional `tx?: Prisma.TransactionClient`
-  as the last parameter when they need transaction composition.
+- Mutating application services accept optional
+  `ProductsRepositoryTransaction` as the last parameter when they need
+  transaction composition.
 
 ## Exports
 
@@ -88,7 +91,8 @@ retires or reconstructs it.
 - Cross-owner modules must not inject products application service classes
   directly. They consume products ports from their own `adapter/out/products/`
   bridge and keep application services on local ports.
-- `MasterCodeService` is not exported.
+- Master-code repository adapters are not exported directly; the local module
+  binds them to `MASTER_CODE_PORT`.
 - `BundleStockService` is restricted to the products module and the
   `PRODUCT_BUNDLE_STOCK_PORT` binding. Other modules should not call it
   directly.
@@ -97,10 +101,20 @@ retires or reconstructs it.
   sourcing's `SOURCING_PRODUCTS_CATALOG_PORT` outgoing adapter is expected to
   consume that owner-side port.
   It owns the atomic master/options/images write inside a caller-supplied
-  `Prisma.TransactionClient`, calls `MasterCodeService.generate(tx)` for the
-  family code, sets `lifecycleState='active'`, and delegates per-option work
-  to `OptionsService.create` so SKU issuance + tenant guards stay inside the
-  transaction.
+  `ProductsRepositoryTransaction`, calls `MASTER_CODE_PORT.generate(tx)` for
+  the family code, sets `lifecycleState='active'`, and delegates per-option
+  work to `OptionsService.create` so SKU issuance + tenant guards stay inside
+  the transaction.
+
+## Architecture Guards
+
+- `products.architecture.spec.ts` must pass. It keeps `products/application/**`
+  Prisma-free, keeps HTTP adapters away from outbound ports/adapters, and
+  prevents the legacy `adapter/out/prisma/` lane from returning.
+- `products.module.wiring.spec.ts` must pass. `ProductsModule` binds outbound
+  ports to local repository adapters with explicit tokens and `useExisting`.
+- `categories/` is the only documented flat compatibility carve-out in this
+  domain.
 
 ## Organization Scope
 
@@ -112,6 +126,9 @@ query adapters, never direct DB access.
 
 ```bash
 npm exec --workspace=apps/server -- vitest run src/products
+npm exec --workspace=apps/server -- vitest run src/products/__tests__/products.architecture.spec.ts src/products/__tests__/products.module.wiring.spec.ts
 npm run build --workspace=apps/server
+npm run check:idor
+npm run check:tenant-scope
 npm run dev:server
 ```

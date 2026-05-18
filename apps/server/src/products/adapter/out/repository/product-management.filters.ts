@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import { ListMastersQuery } from '../../dto/list-masters.query';
+import { ListMastersQuery } from '../../../dto/list-masters.query';
 
 type CategoryGroupKey = NonNullable<ListMastersQuery['categoryGroup']>;
 

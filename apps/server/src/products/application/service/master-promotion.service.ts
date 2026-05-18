@@ -1,8 +1,5 @@
 // apps/server/src/products/application/service/master-promotion.service.ts
-import { Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
-import { PrismaService } from '../../../prisma/prisma.service';
-import { MasterCodeService } from '../../adapter/out/prisma/master-code.service';
+import { Inject, Injectable } from '@nestjs/common';
 import type {
   ProductMasterPromotionImageInput,
   ProductMasterPromotionInput,
@@ -10,6 +7,19 @@ import type {
   ProductMasterPromotionPort,
   ProductMasterPromotionResult,
 } from '../port/in/master-promotion.port';
+import {
+  MASTER_CODE_PORT,
+  type MasterCodePort,
+} from '../port/out/master-code.port';
+import {
+  MASTER_PRODUCT_REPOSITORY_PORT,
+  type MasterProductRepositoryPort,
+} from '../port/out/master-product.repository.port';
+import {
+  PRODUCTS_TRANSACTION_PORT,
+  type ProductsRepositoryTransaction,
+  type ProductsTransactionPort,
+} from '../port/out/products-transaction.port';
 import { OptionsService } from './options.service';
 
 /**
@@ -39,13 +49,13 @@ export type MasterPromotionResult = ProductMasterPromotionResult;
  * single transaction.
  *
  * Owned writes (atomic):
- *   1. `MasterCodeService.generate(tx)` — sole code issuer per
+ *   1. `MasterCodePort.generate(tx)` — sole code issuer per
  *      products/AGENTS.md "Core Rules" → `M-00000001` family code.
- *   2. `tx.masterProduct.create` with `lifecycleState: 'active'` (Phase 1a
+ *   2. Master repository create with `lifecycleState: 'active'` (Phase 1a
  *      additive lifecycle column, propagated through the products API surface
  *      in Phase 5). The legacy `sourceUrl` / `pipelineStep` columns were
  *      retired in Phase 8 — the schema no longer carries them.
- *   3. `tx.masterProductImage.createMany` from `candidateSnapshot.sourceImages`
+ *   3. Repository image create from `candidateSnapshot.sourceImages`
  *      with `organizationId` + `masterId` injected on every row.
  *   4. For every option, `OptionsService.create(organizationId, dto, tx)` —
  *      reuses the existing service so SKU issuance (`buildOptionSku` +
@@ -53,7 +63,7 @@ export type MasterPromotionResult = ProductMasterPromotionResult;
  *      transaction as the master create.
  *
  * `outerTx` opt-in: when sourcing's promote use-case already owns a
- * `$transaction` (it does, so the candidate's `status='promoted'` flip and the
+ * transaction (it does, so the candidate's `status='promoted'` flip and the
  * master creation commit together), pass it in. Otherwise the service opens
  * its own.
  *
@@ -64,21 +74,28 @@ export type MasterPromotionResult = ProductMasterPromotionResult;
 @Injectable()
 export class MasterPromotionService implements ProductMasterPromotionPort {
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly codeSvc: MasterCodeService,
+    @Inject(MASTER_PRODUCT_REPOSITORY_PORT)
+    private readonly masters: MasterProductRepositoryPort,
+    @Inject(MASTER_CODE_PORT)
+    private readonly codeSvc: MasterCodePort,
+    @Inject(PRODUCTS_TRANSACTION_PORT)
+    private readonly transactions: ProductsTransactionPort,
     private readonly optionsSvc: OptionsService,
   ) {}
 
   async create(
-    outerTx: Prisma.TransactionClient | undefined,
+    outerTx: ProductsRepositoryTransaction | undefined,
     organizationId: string,
     input: MasterPromotionInput,
   ): Promise<MasterPromotionResult> {
-    const exec = async (tx: Prisma.TransactionClient): Promise<MasterPromotionResult> => {
+    const exec = async (tx: ProductsRepositoryTransaction): Promise<MasterPromotionResult> => {
       const masterCode = await this.codeSvc.generate(tx);
 
       const snap = input.candidateSnapshot;
-      const created = await tx.masterProduct.create({
+      const created = await this.masters.createPromoted({
+        organizationId,
+        tx,
+        images: snap.sourceImages,
         data: {
           organizationId,
           code: masterCode,
@@ -90,29 +107,8 @@ export class MasterPromotionService implements ProductMasterPromotionPort {
           thumbnailUrl: snap.thumbnailUrl,
           imageUrl: snap.imageUrl,
           lifecycleState: 'active',
-        } as Prisma.MasterProductUncheckedCreateInput,
-        select: { id: true },
+        },
       });
-
-      if (snap.sourceImages.length > 0) {
-        await tx.masterProductImage.createMany({
-          data: snap.sourceImages.map((img) => ({
-            organizationId,
-            masterId: created.id,
-            url: img.url,
-            storageKey: img.storageKey,
-            role: img.role,
-            label: img.label,
-            sortOrder: img.sortOrder,
-            source: img.source,
-            isPrimary: img.isPrimary,
-            mimeType: img.mimeType ?? null,
-            width: img.width ?? null,
-            height: img.height ?? null,
-            fileSize: img.fileSize ?? null,
-          })),
-        });
-      }
 
       for (const opt of input.options) {
         await this.optionsSvc.create(
@@ -135,6 +131,6 @@ export class MasterPromotionService implements ProductMasterPromotionPort {
 
     return outerTx
       ? exec(outerTx)
-      : this.prisma.$transaction(exec, { timeout: 15000 });
+      : this.transactions.run(exec, { timeout: 15000 });
   }
 }

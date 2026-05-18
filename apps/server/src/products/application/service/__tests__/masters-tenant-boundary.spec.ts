@@ -1,55 +1,69 @@
 import { describe, expect, it, vi } from 'vitest';
 import { MastersService } from '../masters.service';
 
-describe('MastersService tenant boundary internals', () => {
-  it('re-reads a newly created master with organization scope inside the transaction', async () => {
-    const row = {
+function buildService(overrides: {
+  masters?: Record<string, unknown>;
+  transactions?: Record<string, unknown>;
+} = {}) {
+  const tx = { tx: true };
+  const masters = {
+    create: vi.fn().mockResolvedValue({
       id: 'master-1',
       code: 'M-00000001',
       organizationId: 'organization-1',
       name: 'Scoped master',
       optionCounter: 0,
+      tags: [],
       images: [],
-    };
-    const tx = {
-      masterProduct: {
-        create: vi.fn().mockResolvedValue(row),
-        findFirst: vi.fn().mockResolvedValue(row),
-        findUniqueOrThrow: vi.fn().mockResolvedValue(row),
-      },
-      masterProductImage: {
-        createMany: vi.fn(),
-      },
-    };
-    const prisma = {
-      $transaction: vi.fn((cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx)),
-    };
-    const codeSvc = { generate: vi.fn().mockResolvedValue('M-00000001') };
-    const svc = new MastersService(prisma as any, codeSvc as any, {} as any);
+    }),
+    findById: vi.fn(),
+    findGenerationHistoryRows: vi.fn(),
+    listProductContentCards: vi.fn(),
+    ...overrides.masters,
+  };
+  const transactions = {
+    run: vi.fn((cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx)),
+    ...overrides.transactions,
+  };
+  const codeSvc = { generate: vi.fn().mockResolvedValue('M-00000001') };
+  return {
+    tx,
+    masters,
+    transactions,
+    service: new MastersService(masters as any, codeSvc as any, transactions as any, {} as any),
+  };
+}
 
-    await svc.create('organization-1', { name: 'Scoped master' } as any);
+describe('MastersService tenant boundary internals', () => {
+  it('passes organization scope and transaction into the master repository create path', async () => {
+    const { service, masters, tx } = buildService();
 
-    expect(tx.masterProduct.findFirst).toHaveBeenCalledWith({
-      where: { id: 'master-1', organizationId: 'organization-1' },
-      include: expect.any(Object),
-    });
-    expect(tx.masterProduct.findUniqueOrThrow).not.toHaveBeenCalled();
+    await service.create('organization-1', { name: 'Scoped master' } as any);
+
+    expect(masters.create).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: 'organization-1',
+      tx,
+      data: expect.objectContaining({
+        organizationId: 'organization-1',
+        code: 'M-00000001',
+        name: 'Scoped master',
+      }),
+    }));
   });
 
   it('queries legacy generation history outside detail-page content cards', async () => {
-    const prisma = {
-      masterProduct: {
-        findFirst: vi.fn().mockResolvedValue({
+    const { service, masters } = buildService({
+      masters: {
+        findById: vi.fn().mockResolvedValue({
           id: 'master-1',
           code: 'M-00000001',
           organizationId: 'organization-1',
           name: 'History master',
           optionCounter: 0,
+          tags: [],
           images: [],
         }),
-      },
-      contentGeneration: {
-        findMany: vi.fn().mockResolvedValue([
+        findGenerationHistoryRows: vi.fn().mockResolvedValue([
           {
             id: 'legacy-1',
             generatedTitle: 'CA result',
@@ -60,65 +74,61 @@ describe('MastersService tenant boundary internals', () => {
           },
         ]),
       },
-    };
-    const svc = new MastersService(prisma as any, {} as any, {} as any);
+    });
 
-    await expect(svc.getGenerationHistory('organization-1', 'master-1', 10)).resolves.toEqual([
+    await expect(service.getGenerationHistory('organization-1', 'master-1', 10)).resolves.toEqual([
       expect.objectContaining({ id: 'legacy-1' }),
     ]);
-    expect(prisma.contentGeneration.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          organizationId: 'organization-1',
-          generationGroup: { targetMasterId: 'master-1' },
-          NOT: { contentType: 'detail_page' },
-        }),
-      }),
-    );
+    expect(masters.findGenerationHistoryRows).toHaveBeenCalledWith({
+      organizationId: 'organization-1',
+      masterId: 'master-1',
+      limit: 10,
+    });
   });
 
   it('lists master-bound AI detail-page generations as product content cards', async () => {
     const createdAt = new Date('2026-05-12T10:00:00.000Z');
-    const prisma = {
-      contentGeneration: {
-        count: vi.fn().mockResolvedValue(1),
-        findMany: vi.fn().mockResolvedValue([
-          {
-            id: 'generation-1',
-            generatedTitle: 'KIDITEM DESIGN 상세',
-            status: 'READY',
-            generationInput: {
-              rawTitle: '큐브 퍼즐',
-              imageUrls: ['https://example.com/source.jpg'],
-            },
-            generationResult: {
-              templateId: 'bold-vertical',
-              result: { hook: { text: '생각이 돌아가는 큐브', titleSub: '초등 고학년 집중 놀이' } },
-              imageUrls: ['https://example.com/source.jpg'],
-              processedImages: { __heroBanner: '/processed/hero.png' },
-            },
-            errorMessage: null,
-            editedHtmlSavedAt: new Date('2026-05-12T11:00:00.000Z'),
-            createdAt,
-            updatedAt: createdAt,
-            generationGroup: {
-              targetMaster: {
-                id: 'master-1',
-                code: 'M-00000001',
-                name: '큐브 퍼즐',
-                thumbnailUrl: 'https://example.com/thumb.jpg',
-                imageUrl: 'https://example.com/main.jpg',
-                isTemporary: true,
-                images: [{ url: 'https://example.com/gallery.jpg' }],
+    const { service, masters } = buildService({
+      masters: {
+        listProductContentCards: vi.fn().mockResolvedValue({
+          total: 1,
+          rows: [
+            {
+              id: 'generation-1',
+              generatedTitle: 'KIDITEM DESIGN 상세',
+              status: 'READY',
+              generationInput: {
+                rawTitle: '큐브 퍼즐',
+                imageUrls: ['https://example.com/source.jpg'],
+              },
+              generationResult: {
+                templateId: 'bold-vertical',
+                result: { hook: { text: '생각이 돌아가는 큐브', titleSub: '초등 고학년 집중 놀이' } },
+                imageUrls: ['https://example.com/source.jpg'],
+                processedImages: { __heroBanner: '/processed/hero.png' },
+              },
+              errorMessage: null,
+              editedHtmlSavedAt: new Date('2026-05-12T11:00:00.000Z'),
+              createdAt,
+              updatedAt: createdAt,
+              generationGroup: {
+                targetMaster: {
+                  id: 'master-1',
+                  code: 'M-00000001',
+                  name: '큐브 퍼즐',
+                  thumbnailUrl: 'https://example.com/thumb.jpg',
+                  imageUrl: 'https://example.com/main.jpg',
+                  isTemporary: true,
+                  images: [{ url: 'https://example.com/gallery.jpg' }],
+                },
               },
             },
-          },
-        ]),
+          ],
+        }),
       },
-    };
-    const svc = new MastersService(prisma as any, {} as any, {} as any);
+    });
 
-    await expect(svc.listContentCards('organization-1', { page: 1, limit: 20 })).resolves.toEqual({
+    await expect(service.listContentCards('organization-1', { page: 1, limit: 20 })).resolves.toEqual({
       items: [
         {
           generationId: 'generation-1',
@@ -141,17 +151,12 @@ describe('MastersService tenant boundary internals', () => {
       page: 1,
       limit: 20,
     });
-    expect(prisma.contentGeneration.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          organizationId: 'organization-1',
-          generationGroup: expect.objectContaining({
-            targetMasterId: { not: null },
-          }),
-        }),
-        skip: 0,
-        take: 20,
-      }),
-    );
+    expect(masters.listProductContentCards).toHaveBeenCalledWith({
+      organizationId: 'organization-1',
+      productId: undefined,
+      page: 1,
+      limit: 20,
+      templateIds: ['kids-playful', 'bold-vertical', 'simple-vertical'],
+    });
   });
 });

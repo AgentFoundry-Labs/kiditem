@@ -1,4 +1,4 @@
-import type { Prisma } from '@prisma/client';
+import type { ProductsRepositoryTransaction } from '../out/products-transaction.port';
 
 export const PRODUCT_MASTER_PROMOTION_PORT = Symbol('ProductMasterPromotionPort');
 
@@ -46,7 +46,7 @@ export interface ProductMasterPromotionResult {
 
 export interface ProductMasterPromotionPort {
   create(
-    outerTx: Prisma.TransactionClient | undefined,
+    outerTx: ProductsRepositoryTransaction | undefined,
     organizationId: string,
     input: ProductMasterPromotionInput,
   ): Promise<ProductMasterPromotionResult>;

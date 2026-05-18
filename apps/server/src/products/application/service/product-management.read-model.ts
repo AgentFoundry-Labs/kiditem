@@ -1,27 +1,18 @@
-import { Prisma } from '@prisma/client';
 import type {
   ProductManagementListItem,
   ProductManagementPipelineCounts,
   ProductManagementTrafficSnapshot,
 } from '@kiditem/shared/product';
+import type { MetricSums } from '../port/out/product-management.repository.port';
+
+type DecimalLike = { toNumber(): number };
 
 export type {
+  MetricSums,
   ProductManagementListItem,
   ProductManagementPipelineCounts,
   ProductManagementTrafficSnapshot,
 };
-
-export interface MetricSums {
-  visitors: number;
-  views: number;
-  cartAdds: number;
-  orders: number;
-  salesQty: number;
-  revenue: number;
-  adSpend: number;
-  adImpressions: number;
-  adClicks: number;
-}
 
 export interface ProductManagementGradeInfo {
   grade: 'A' | 'B' | 'C';
@@ -104,12 +95,12 @@ export function previousWindowStart(days: number): Date {
   return d;
 }
 
-function toNumber(value: Prisma.Decimal | number | null | undefined): number {
+function toNumber(value: DecimalLike | number | null | undefined): number {
   if (value == null) return 0;
   return typeof value === 'number' ? value : value.toNumber();
 }
 
-export function ratioToPercent(value: Prisma.Decimal | number | null | undefined): number {
+export function ratioToPercent(value: DecimalLike | number | null | undefined): number {
   const n = toNumber(value);
   if (n === 0) return 0;
   return Math.abs(n) <= 1 ? n * 100 : n;

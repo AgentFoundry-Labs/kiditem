@@ -1,9 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
 import {
   PRODUCT_BUNDLE_STOCK_PORT,
   type ProductBundleStockPort,
 } from '../../../../products/application/port/in/bundle-stock.port';
+import type { ProductsRepositoryTransaction } from '../../../../products/application/port/out/products-transaction.port';
 import type { BundleStockPort } from '../../../application/port/out/bundle-stock.port';
 import type { RepositoryTransaction } from '../../../application/port/out/repository-transaction';
 
@@ -25,7 +25,7 @@ export class BundleStockAdapter implements BundleStockPort {
     return this.bundleStock.recomputeForComponent(
       organizationId,
       componentOptionId,
-      tx as Prisma.TransactionClient,
+      tx as ProductsRepositoryTransaction,
     );
   }
 }

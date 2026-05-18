@@ -1,7 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import type { ProductManagementListItem } from '@kiditem/shared/product';
-import { PrismaService } from '../../../prisma/prisma.service';
 import { ProductManagementFactsService } from './product-management-facts.service';
+import {
+  PRODUCT_MANAGEMENT_REPOSITORY_PORT,
+  type ProductManagementRepositoryPort,
+} from '../port/out/product-management.repository.port';
 import {
   EMPTY_METRICS,
   type ManagementFacts,
@@ -13,7 +16,8 @@ const GRADE_WEIGHT: Record<'A' | 'B' | 'C', number> = { A: 3, B: 2, C: 1 };
 @Injectable()
 export class ProductManagementGradeService {
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PRODUCT_MANAGEMENT_REPOSITORY_PORT)
+    private readonly management: ProductManagementRepositoryPort,
     private readonly facts: ProductManagementFactsService,
   ) {}
 
@@ -21,14 +25,7 @@ export class ProductManagementGradeService {
     organizationId: string,
     period: number,
   ): Promise<Map<string, ProductManagementGradeInfo>> {
-    const masters = await this.prisma.masterProduct.findMany({
-      where: {
-        organizationId,
-        isDeleted: false,
-        listings: { some: { organizationId, isDeleted: false } },
-      },
-      select: { id: true, createdAt: true },
-    });
+    const masters = await this.management.findGradeMasterRows(organizationId);
     const masterIds = masters.map((master) => master.id);
     if (masterIds.length === 0) return new Map();
 
@@ -154,10 +151,7 @@ export class ProductManagementGradeService {
     const masterIds = [...gradeByMaster.keys()];
     if (masterIds.length === 0) return;
 
-    const masters = await this.prisma.masterProduct.findMany({
-      where: { organizationId, id: { in: masterIds }, isDeleted: false },
-      select: { id: true, name: true, abcGrade: true },
-    });
+    const masters = await this.management.findStoredGradeMasters(organizationId, masterIds);
 
     for (const master of masters) {
       const computedGrade = gradeByMaster.get(master.id)?.grade;
@@ -165,35 +159,24 @@ export class ProductManagementGradeService {
 
       const storedGrade = this.normalizeStoredGrade(master.abcGrade);
       if (!storedGrade) {
-        await this.prisma.masterProduct.updateMany({
-          where: { id: master.id, organizationId, abcGrade: master.abcGrade },
-          data: { abcGrade: computedGrade },
+        await this.management.updateStoredGrade({
+          organizationId,
+          masterId: master.id,
+          currentGrade: master.abcGrade,
+          nextGrade: computedGrade,
         });
         continue;
       }
       if (storedGrade === computedGrade) continue;
 
-      await this.prisma.$transaction(async (tx) => {
-        const updated = await tx.masterProduct.updateMany({
-          where: { id: master.id, organizationId, abcGrade: storedGrade },
-          data: { abcGrade: computedGrade },
-        });
-        if (updated.count === 0) return;
-
-        const direction = this.gradeDirection(storedGrade, computedGrade);
-        const severity = direction === 'downgrade' ? 'warning' : 'info';
-        await tx.alert.create({
-          data: {
-            organizationId,
-            targetType: 'master',
-            targetId: master.id,
-            type: 'product_grade_change',
-            severity,
-            title: `${master.name} ${storedGrade}->${computedGrade}`,
-            message: `상품 등급이 ${storedGrade}등급에서 ${computedGrade}등급으로 변경되었습니다.`,
-            isRead: false,
-          },
-        });
+      const direction = this.gradeDirection(storedGrade, computedGrade);
+      await this.management.updateStoredGradeAndAlert({
+        organizationId,
+        masterId: master.id,
+        masterName: master.name,
+        currentGrade: storedGrade,
+        nextGrade: computedGrade,
+        severity: direction === 'downgrade' ? 'warning' : 'info',
       });
     }
   }

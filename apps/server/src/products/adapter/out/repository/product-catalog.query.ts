@@ -1,4 +1,4 @@
-// apps/server/src/products/adapter/out/prisma/product-catalog.query.ts
+// apps/server/src/products/adapter/out/repository/product-catalog.query.ts
 //
 // Catalog hydrated read shape used by `GET /api/products/catalog`,
 // `GET /api/products/catalog/:id`, and `GET /api/products/catalog/counts`.

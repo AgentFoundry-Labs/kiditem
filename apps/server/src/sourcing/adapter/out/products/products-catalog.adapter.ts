@@ -1,9 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
 import {
   PRODUCT_MASTER_PROMOTION_PORT,
   type ProductMasterPromotionPort,
 } from '../../../../products/application/port/in/master-promotion.port';
+import type { ProductsRepositoryTransaction } from '../../../../products/application/port/out/products-transaction.port';
 import type {
   PromoteCandidateInput,
   PromoteCandidateResult,
@@ -20,7 +20,7 @@ import type { SourcingRepositoryTransaction } from '../../../application/port/ou
  * local ports; concrete adapters bridge to other-domain owner ports).
  *
  * The products owner-side master promotion port owns the products invariants:
- * `MasterCodeService.generate(tx)` for the family code, master row write with
+ * the products master-code port for the family code, master row write with
  * `lifecycleState='active'`, image gallery createMany, and per-option
  * `OptionsService.create` so SKU issuance + tenant guards run inside the same
  * transaction.
@@ -37,6 +37,6 @@ export class SourcingProductsCatalogAdapter implements SourcingProductsCatalogPo
     organizationId: string,
     input: PromoteCandidateInput,
   ): Promise<PromoteCandidateResult> {
-    return this.promotion.create(tx as Prisma.TransactionClient, organizationId, input);
+    return this.promotion.create(tx as ProductsRepositoryTransaction, organizationId, input);
   }
 }

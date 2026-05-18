@@ -1,4 +1,4 @@
-// apps/server/src/products/adapter/out/prisma/master-product.query.ts
+// apps/server/src/products/adapter/out/repository/master-product.query.ts
 //
 // MasterProduct hydrated read shape — owns the canonical `include` for the
 // nested image rows, the row type the mapper consumes, and tenant-scoped
