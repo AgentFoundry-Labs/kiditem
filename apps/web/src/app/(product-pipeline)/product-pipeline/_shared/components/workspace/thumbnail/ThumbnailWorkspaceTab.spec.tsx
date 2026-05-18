@@ -1,15 +1,16 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ThumbnailWorkspaceTab from './ThumbnailWorkspaceTab';
 import type { ProductEditState } from '../../../lib/product-workspace-types';
 
-const { pushMock } = vi.hoisted(() => ({
+const { pushMock, searchParamsMock } = vi.hoisted(() => ({
   pushMock: vi.fn(),
+  searchParamsMock: vi.fn(() => new URLSearchParams()),
 }));
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushMock }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => searchParamsMock(),
 }));
 
 vi.mock('../../../hooks/useGenerateSourcingThumbnail', () => ({
@@ -43,7 +44,10 @@ const editData: ProductEditState = {
 };
 
 describe('ThumbnailWorkspaceTab', () => {
-  beforeEach(() => pushMock.mockReset());
+  beforeEach(() => {
+    pushMock.mockReset();
+    searchParamsMock.mockReturnValue(new URLSearchParams());
+  });
 
   it('requires a selected source before thumbnail actions are enabled', () => {
     render(
@@ -140,6 +144,34 @@ describe('ThumbnailWorkspaceTab', () => {
 
     expect(onPreviewThumbnail).toHaveBeenCalledWith('https://cdn.example.com/source.jpg');
     expect(onSelectRegistrationThumbnail).not.toHaveBeenCalled();
+  });
+
+  it('syncs the editor-selected source into the mobile preview when the tab opens', () => {
+    const onPreviewThumbnail = vi.fn();
+    searchParamsMock.mockReturnValue(new URLSearchParams([
+      ['imageUrl', 'https://cdn.example.com/edited-from-editor.jpg'],
+    ]));
+
+    render(
+      <ThumbnailWorkspaceTab
+        editData={editData}
+        productId="candidate-1"
+        promotedMasterId={null}
+        contentWorkspaceId={null}
+        thumbnailUrl={null}
+        thumbnailSourceCandidateId="candidate-1"
+        selectedRegistrationThumbnailUrl="https://cdn.example.com/source.jpg"
+        thumbnailPreviewImages={editData.thumbnails}
+        onPreviewThumbnail={onPreviewThumbnail}
+        onThumbnailPreviewImagesChange={vi.fn()}
+        onSaveThumbnailConfiguration={vi.fn()}
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+      />,
+    );
+
+    expect(onPreviewThumbnail).toHaveBeenCalledWith(
+      'https://cdn.example.com/edited-from-editor.jpg',
+    );
   });
 
   it('previews generated result candidates before representative application', () => {
@@ -278,6 +310,43 @@ describe('ThumbnailWorkspaceTab', () => {
         generatedCandidateId: null,
       },
     });
+  });
+
+  it('marks the saved representative by saved URL instead of preview order', () => {
+    render(
+      <ThumbnailWorkspaceTab
+        editData={{
+          ...editData,
+          thumbnails: [
+            'https://cdn.example.com/source.jpg',
+            'https://cdn.example.com/other.jpg',
+          ],
+        }}
+        productId="candidate-1"
+        promotedMasterId={null}
+        contentWorkspaceId={null}
+        thumbnailUrl={null}
+        thumbnailSourceCandidateId="candidate-1"
+        selectedRegistrationThumbnailUrl="https://cdn.example.com/source.jpg"
+        thumbnailPreviewImages={[
+          'https://cdn.example.com/other.jpg',
+          'https://cdn.example.com/source.jpg',
+        ]}
+        onPreviewThumbnail={vi.fn()}
+        onThumbnailPreviewImagesChange={vi.fn()}
+        onSaveThumbnailConfiguration={vi.fn()}
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+      />,
+    );
+
+    expect(
+      within(screen.getByRole('button', { name: '썸네일 미리보기 이미지 1' }))
+        .queryAllByText('대표 이미지'),
+    ).toHaveLength(0);
+    expect(
+      within(screen.getByRole('button', { name: '썸네일 미리보기 이미지 2' }))
+        .getAllByText('등록 대표'),
+    ).toHaveLength(2);
   });
 
   it('adds product images through the image picker modal instead of rendering all inline', () => {

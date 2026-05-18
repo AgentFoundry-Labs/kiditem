@@ -184,6 +184,8 @@ export class OperationAlertService implements OperationAlertPort {
     // repository adapter so each row's existing severity is preserved
     // without forcing the service to fetch the rows first.
     const closed = await this.repository.closeStaleOperations({
+      organizationId: input.organizationId,
+      type: input.type,
       sourceType: input.sourceType,
       operationKeyPrefix: input.operationKeyPrefix,
       staleBefore: input.staleBefore,

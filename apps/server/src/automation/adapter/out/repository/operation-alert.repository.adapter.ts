@@ -187,10 +187,16 @@ export class OperationAlertRepositoryAdapter
   ): Promise<Alert[]> {
     const staleAlerts = await this.prisma.alert.findMany({
       where: {
+        ...(criteria.organizationId
+          ? { organizationId: criteria.organizationId }
+          : {}),
         kind: 'operation',
         status: { in: ['pending', 'running'] },
+        ...(criteria.type ? { type: criteria.type } : {}),
         sourceType: criteria.sourceType,
-        operationKey: { startsWith: criteria.operationKeyPrefix },
+        ...(criteria.operationKeyPrefix !== undefined
+          ? { operationKey: { startsWith: criteria.operationKeyPrefix } }
+          : {}),
         updatedAt: { lt: criteria.staleBefore },
       },
       orderBy: { updatedAt: 'asc' },

@@ -116,6 +116,10 @@ export default function ThumbnailWorkspaceTab({
     if (fallbackUrl) setSelectedSourceUrl(fallbackUrl);
   }, [fallbackPreviewImages, selectedSourceUrl, thumbnailPreviewImages]);
 
+  useEffect(() => {
+    onPreviewThumbnail(selectedSourceUrl);
+  }, [onPreviewThumbnail, selectedSourceUrl]);
+
   const openEditor = (mode: 'edit' | 'creative') => {
     if (!selectedSourceUrl) return;
     const shouldUseUploadKey =
@@ -170,7 +174,6 @@ export default function ThumbnailWorkspaceTab({
         const next = uniqueNonEmpty([...thumbnailPreviewImages, ...uploaded]);
         onThumbnailPreviewImagesChange(next);
         setSelectedSourceUrl(uploaded[0] ?? selectedSourceUrl);
-        onPreviewThumbnail(uploaded[0] ?? selectedSourceUrl);
         toast.success(`${uploaded.length}장 업로드 완료`);
       }
       if (failedCount > 0) {
@@ -186,7 +189,6 @@ export default function ThumbnailWorkspaceTab({
     onThumbnailPreviewImagesChange(next);
     if (urls[0]) {
       setSelectedSourceUrl(urls[0]);
-      onPreviewThumbnail(urls[0]);
     }
   };
 
@@ -196,7 +198,6 @@ export default function ThumbnailWorkspaceTab({
     if (selectedSourceUrl !== url) return;
     const fallbackUrl = next[0] ?? null;
     setSelectedSourceUrl(fallbackUrl);
-    onPreviewThumbnail(fallbackUrl);
   };
 
   const optionForUrl = (url: string): RegistrationThumbnailOption =>
@@ -237,7 +238,6 @@ export default function ThumbnailWorkspaceTab({
         savedRepresentativeUrl={selectedRegistrationThumbnailUrl}
         onSelect={(url) => {
           setSelectedSourceUrl(url);
-          onPreviewThumbnail(url);
         }}
         onEditSelectedImage={() => openEditor('edit')}
         onSaveConfiguration={handleSaveConfiguration}

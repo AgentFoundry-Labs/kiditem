@@ -148,11 +148,11 @@ export default function ThumbnailSourcePicker({
       <div className="grid gap-6 rounded-lg border border-violet-100 bg-violet-50/50 p-4 xl:grid-cols-[300px_1px_minmax(0,1fr)]">
         <div>
           <div className="mb-3 flex items-center justify-between gap-2">
-            <h4 className="text-xs font-black text-violet-800">대표 썸네일</h4>
+            <h4 className="text-xs font-black text-violet-800">선택 썸네일</h4>
             {selectedAlreadySaved && (
               <span className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-0.5 text-[10px] font-black text-violet-700 ring-1 ring-violet-100">
                 <CheckCircle2 size={11} />
-                저장됨
+                등록 대표
               </span>
             )}
           </div>
@@ -189,7 +189,7 @@ export default function ThumbnailSourcePicker({
           <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-4">
             {thumbnailUrls.map((url, index) => {
               const selected = selectedUrl === url;
-              const representative = index === 0;
+              const savedRepresentative = Boolean(savedRepresentativeUrl && url === savedRepresentativeUrl);
               return (
                 <div
                   key={url}
@@ -201,7 +201,7 @@ export default function ThumbnailSourcePicker({
                   onClick={() => onSelect(url)}
                   className={cn(
                     'group relative aspect-square cursor-grab overflow-hidden rounded-lg border bg-white text-left transition active:cursor-grabbing',
-                    representative
+                    savedRepresentative
                       ? 'border-emerald-500 ring-2 ring-emerald-100'
                       : selected
                         ? 'border-violet-500 ring-2 ring-violet-200'
@@ -222,10 +222,10 @@ export default function ThumbnailSourcePicker({
                   <span
                     className={cn(
                       'absolute left-2 top-2 rounded-full bg-white/95 px-2 py-0.5 text-[10px] font-bold',
-                      representative ? 'text-emerald-700' : 'text-slate-700',
+                      savedRepresentative ? 'text-emerald-700' : 'text-slate-700',
                     )}
                   >
-                    {representative ? '대표 이미지' : `이미지 ${index + 1}`}
+                    {savedRepresentative ? '등록 대표' : `이미지 ${index + 1}`}
                   </span>
                   <span className="absolute left-2 bottom-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-white/95 text-slate-500 shadow-sm ring-1 ring-slate-100">
                     <GripVertical size={14} />
@@ -241,14 +241,14 @@ export default function ThumbnailSourcePicker({
                   >
                     <Trash2 size={13} />
                   </button>
-                  {(representative || selected) && (
+                  {(savedRepresentative || selected) && (
                     <span
                       className={cn(
                         'absolute bottom-0 left-0 right-0 py-1 text-center text-[11px] font-bold text-white',
-                        representative ? 'bg-emerald-600' : 'bg-violet-600',
+                        savedRepresentative ? 'bg-emerald-600' : 'bg-violet-600',
                       )}
                     >
-                      {representative ? '대표 이미지' : '선택됨'}
+                      {savedRepresentative ? '등록 대표' : '선택됨'}
                     </span>
                   )}
                 </div>

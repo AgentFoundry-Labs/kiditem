@@ -256,12 +256,10 @@ export function ProductWorkspaceScreen({
       setSelectedRegistrationThumbnailUrl(input.selectedThumbnail.url);
     }
     try {
-      await Promise.all([
-        updateBasicInfoMutation.mutateAsync({ thumbnailUrls }),
-        input.selectedThumbnail
-          ? selectThumbnailMutation.mutateAsync(input.selectedThumbnail)
-          : Promise.resolve(null),
-      ]);
+      await updateBasicInfoMutation.mutateAsync({ thumbnailUrls });
+      if (input.selectedThumbnail) {
+        await selectThumbnailMutation.mutateAsync(input.selectedThumbnail);
+      }
       toast.success('썸네일 구성을 저장했습니다.');
     } catch (err) {
       toast.error(isApiError(err) ? err.detail : '썸네일 구성 저장에 실패했습니다.');

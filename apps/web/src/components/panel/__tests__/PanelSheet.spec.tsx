@@ -5,11 +5,16 @@ import { PanelSheet } from '../PanelSheet';
 import type { PanelItem } from '@kiditem/shared/panel';
 
 const mockApiPost = vi.hoisted(() => vi.fn(async () => ({ ok: true })));
+const mockRecoverStalePanelOperations = vi.hoisted(() => vi.fn(async () => []));
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: {
     post: mockApiPost,
   },
+}));
+
+vi.mock('../lib/panel-recovery', () => ({
+  recoverStalePanelOperations: mockRecoverStalePanelOperations,
 }));
 
 // next/navigation mock
@@ -79,6 +84,10 @@ function seedStore(items: PanelItem[]) {
 describe('PanelSheet my/attention/team split', () => {
   beforeEach(() => {
     mockApiPost.mockClear();
+    mockRecoverStalePanelOperations.mockClear();
+    mockRecoverStalePanelOperations.mockImplementation(async () =>
+      Object.values(usePanelStore.getState().byId),
+    );
     mockUser.value = { id: MY_USER_ID };
     usePanelStore.setState({ byId: {}, isOpen: true, connectionStatus: 'connected' });
   });
@@ -135,6 +144,11 @@ describe('PanelSheet my/attention/team split', () => {
 
 describe('PanelSheet active count', () => {
   beforeEach(() => {
+    mockApiPost.mockClear();
+    mockRecoverStalePanelOperations.mockClear();
+    mockRecoverStalePanelOperations.mockImplementation(async () =>
+      Object.values(usePanelStore.getState().byId),
+    );
     mockUser.value = { id: MY_USER_ID };
     usePanelStore.setState({ byId: {}, isOpen: true, connectionStatus: 'connected' });
   });
@@ -161,6 +175,25 @@ describe('PanelSheet active count', () => {
     render(<PanelSheet />);
     // 1 running run + 1 running operation alert = 2 active
     expect(screen.getByText('2 진행')).toBeInTheDocument();
+  });
+
+  it('runs stale operation recovery when the panel opens even while connected', async () => {
+    seedStore([
+      {
+        ...makeAlertItem('op-running'),
+        alertKind: 'operation' as const,
+        status: 'running',
+        operationKey: 'thumbnail-analysis:batch:stale',
+        sourceType: 'browser_batch',
+      },
+    ]);
+    usePanelStore.setState({ lastSeq: 7, connectionStatus: 'connected' });
+
+    render(<PanelSheet />);
+
+    await waitFor(() => {
+      expect(mockRecoverStalePanelOperations).toHaveBeenCalledWith(7);
+    });
   });
 
   it('signal alerts never count as active', () => {

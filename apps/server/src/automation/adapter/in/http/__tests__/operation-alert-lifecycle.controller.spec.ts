@@ -44,6 +44,7 @@ function makeService() {
     succeed: vi.fn(),
     fail: vi.fn(),
     cancel: vi.fn(),
+    closeStaleOperations: vi.fn(),
   };
 }
 
@@ -324,5 +325,47 @@ describe('OperationAlertLifecycleController.update', () => {
       ),
     ).rejects.toBeInstanceOf(NotFoundException);
     expect(service.succeed).not.toHaveBeenCalled();
+  });
+});
+
+describe('OperationAlertLifecycleController.reconcileBrowserStale', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('closes stale browser thumbnail batch alerts inside the current organization only', async () => {
+    const { controller, service } = makeController();
+    const closed = alertRow({
+      status: 'cancelled',
+      type: 'thumbnail_analysis',
+      title: '썸네일 AI 분류',
+      sourceType: 'browser_batch',
+      operationKey: 'thumbnail-analysis:batch:stale',
+      message: '브라우저 작업 세션이 종료되어 진행 상태를 자동 정리했습니다.',
+      finishedAt: new Date('2026-05-09T08:00:00Z'),
+    });
+    service.closeStaleOperations.mockResolvedValueOnce([closed]);
+
+    const result = await controller.reconcileBrowserStale(
+      { staleMinutes: 45, limit: 25 },
+      ORGANIZATION_ID,
+    );
+
+    expect(service.closeStaleOperations).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: ORGANIZATION_ID,
+        type: 'thumbnail_analysis',
+        sourceType: 'browser_batch',
+        staleBefore: expect.any(Date),
+        status: 'cancelled',
+        message: '브라우저 작업 세션이 종료되어 진행 상태를 자동 정리했습니다.',
+        metadata: expect.objectContaining({ staleReconciled: true }),
+        limit: 25,
+      }),
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      status: 'cancelled',
+      sourceType: 'browser_batch',
+      operationKey: 'thumbnail-analysis:batch:stale',
+    });
   });
 });

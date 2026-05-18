@@ -767,7 +767,7 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
   }
 
   async upsertPreparation(input: UpsertPreparationInput): Promise<ProductPreparationRow> {
-    const existing = await this.prisma.productPreparation.findFirst({
+    const findActivePreparation = () => this.prisma.productPreparation.findFirst({
       where: {
         organizationId: input.organizationId,
         sourceCandidateId: input.candidate.id,
@@ -775,17 +775,28 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
       },
       select: { id: true },
     });
-    if (existing) {
+    const updatePreparation = async (id: string) => {
       const updated = await this.prisma.productPreparation.update({
-        where: { id: existing.id },
+        where: { id },
         data: input.data as Prisma.ProductPreparationUncheckedUpdateInput,
       });
       return toProductPreparationRow(updated);
+    };
+    const existing = await findActivePreparation();
+    if (existing) {
+      return updatePreparation(existing.id);
     }
-    const created = await this.prisma.productPreparation.create({
-      data: createPreparationDataFromCandidate(input),
-    });
-    return toProductPreparationRow(created);
+    try {
+      const created = await this.prisma.productPreparation.create({
+        data: createPreparationDataFromCandidate(input),
+      });
+      return toProductPreparationRow(created);
+    } catch (err) {
+      if (!isUniqueConstraintError(err)) throw err;
+      const racedPreparation = await findActivePreparation();
+      if (!racedPreparation) throw err;
+      return updatePreparation(racedPreparation.id);
+    }
   }
 
   private async ensureImages(
@@ -902,6 +913,15 @@ function toCandidateForPreparationRow(candidate: {
 function mergeJson(prev: unknown, incoming: object): object {
   const base = (prev && typeof prev === 'object' && !Array.isArray(prev)) ? (prev as Record<string, unknown>) : {};
   return { ...base, ...incoming };
+}
+
+function isUniqueConstraintError(err: unknown): boolean {
+  return Boolean(
+    err &&
+    typeof err === 'object' &&
+    'code' in err &&
+    (err as { code?: unknown }).code === 'P2002'
+  );
 }
 
 function createPreparationDataFromCandidate(
