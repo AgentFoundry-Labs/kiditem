@@ -35,6 +35,7 @@ import {
   Wallet,
   Bell,
   Zap,
+  Wand2,
   Link2,
   LogOut,
   type LucideIcon,
@@ -89,6 +90,7 @@ export const menuSections: MenuSection[] = [
       { href: '/product-pipeline/registered-products', label: '등록 상품', icon: Package },
       { href: '/product-pipeline/detailgenerate', label: '상세 템플릿 생성', icon: Sparkles },
       { href: '/product-pipeline/thumbnail-ai', label: '썸네일 AI', icon: ImageIcon },
+      { href: '/product-pipeline/thumbnail-generation', label: '썸네일 생성', icon: Wand2 },
     ],
   },
   {

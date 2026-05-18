@@ -167,4 +167,12 @@ describe('ThumbnailsPage deep links', () => {
     });
     expect(screen.getByTestId('ai-edit-tab')).toHaveTextContent('filter:failed');
   });
+
+  it('opens the AI edit tab from returnTo query params', async () => {
+    mockSearchParams.value = new URLSearchParams('tab=ai-edit&editFilter=ready');
+
+    render(<ThumbnailsPage />);
+
+    expect(screen.getByTestId('ai-edit-tab')).toHaveTextContent('filter:ready');
+  });
 });

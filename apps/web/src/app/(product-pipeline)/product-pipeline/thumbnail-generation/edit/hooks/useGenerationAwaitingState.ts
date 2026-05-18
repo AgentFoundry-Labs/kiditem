@@ -4,9 +4,11 @@ import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
 export function useGenerationAwaitingState(
   generationId: string | null,
   pollingGenerations: ThumbnailGenerationItem[],
+  observedGeneration?: ThumbnailGenerationItem | null,
 ) {
   const targetGen = generationId
-    ? pollingGenerations.find((g) => g.id === generationId)
+    ? pollingGenerations.find((g) => g.id === generationId) ??
+      (observedGeneration?.id === generationId ? observedGeneration : null)
     : null;
   const [forcedAwaiting, setForcedAwaiting] = useState(false);
   const forcedStartRef = useRef(0);

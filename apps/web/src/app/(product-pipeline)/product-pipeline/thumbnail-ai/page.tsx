@@ -1,6 +1,7 @@
 'use client';
 
 import { Suspense, useState, type ComponentProps } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { ErrorState, EmptyState } from '@/components/ui/EmptyState';
 import PageSkeleton from '@/components/ui/PageSkeleton';
@@ -26,6 +27,34 @@ import { ThumbnailTabWorkspace } from './components/workspace/ThumbnailTabWorksp
 import { needsThumbnailFix } from '../_shared/lib/thumbnail-classification';
 import type { ThumbnailAnalysisResult, ThumbnailGenerationItem } from '@kiditem/shared/ai';
 
+type EditFilter = 'pending' | 'generating' | 'ready' | 'applied' | 'failed';
+
+function parseMainTabParam(value: string | null): MainTabKey | null {
+  if (
+    value === 'unclassified' ||
+    value === 'all' ||
+    value === 'needsfix' ||
+    value === 'ai-edit' ||
+    value === 'history'
+  ) {
+    return value;
+  }
+  return null;
+}
+
+function parseEditFilterParam(value: string | null): EditFilter | null {
+  if (
+    value === 'pending' ||
+    value === 'generating' ||
+    value === 'ready' ||
+    value === 'applied' ||
+    value === 'failed'
+  ) {
+    return value;
+  }
+  return null;
+}
+
 export default function ThumbnailsPage() {
   // Next 16 build error: useSearchParams() must live inside a Suspense boundary
   // so the static prerender pass can defer to client. Inner component owns the
@@ -38,11 +67,14 @@ export default function ThumbnailsPage() {
 }
 
 function ThumbnailsPageContent() {
+  const searchParams = useSearchParams();
   const analysisQuery = useAnalysisList();
   const generationQuery = useGenerationList();
   const trackingQuery = useTrackingList();
 
-  const [activeTab, setActiveTab] = useState<MainTabKey>('all');
+  const [activeTab, setActiveTab] = useState<MainTabKey>(
+    () => parseMainTabParam(searchParams.get('tab')) ?? 'all',
+  );
   const [unclassifiedSubTab, setUnclassifiedSubTab] = useState<'with-image' | 'no-image' | 'new'>('with-image');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -50,7 +82,9 @@ function ThumbnailsPageContent() {
   const [selectedGen, setSelectedGen] = useState<ThumbnailGenerationItem | null>(null);
   const [inspectOpen, setInspectOpen] = useState(false);
 
-  const [editFilter, setEditFilter] = useState<'pending' | 'generating' | 'ready' | 'applied' | 'failed'>('ready');
+  const [editFilter, setEditFilter] = useState<EditFilter>(
+    () => parseEditFilterParam(searchParams.get('editFilter')) ?? 'ready',
+  );
   const [selectedNeedsFixIds, setSelectedNeedsFixIds] = useState<Set<string>>(new Set());
   const [historySubTab, setHistorySubTab] = useState<'history' | 'tracking'>('history');
 

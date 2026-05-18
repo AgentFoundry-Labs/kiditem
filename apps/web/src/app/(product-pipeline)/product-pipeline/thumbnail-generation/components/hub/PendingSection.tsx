@@ -60,9 +60,7 @@ function groupByProduct(items: ThumbnailGenerationItem[]): ProductGroup[] {
 }
 
 function isInProgress(g: ThumbnailGenerationItem): boolean {
-  if (g.status === 'pending' || g.status === 'running') return true;
-  if (g.status === 'succeeded' && g.phase !== 'applied') return true;
-  return false;
+  return g.status === 'pending' || g.status === 'running';
 }
 
 function isActiveGeneration(g: ThumbnailGenerationItem): boolean {
@@ -145,8 +143,6 @@ export function PendingSection({ returnTo = null }: { returnTo?: string | null }
     );
   }
 
-  if (inProgress.length === 0) return null;
-
   return (
     <section className="rounded-3xl bg-white/40 backdrop-blur-xl border border-white/60 shadow-[0_8px_32px_rgba(99,102,241,0.06)] px-6 py-7">
       <div className="flex items-center justify-between mb-6 gap-2">
@@ -162,21 +158,31 @@ export function PendingSection({ returnTo = null }: { returnTo?: string | null }
         )}
       </div>
 
-      <div className="grid grid-cols-3 md:grid-cols-3 xl:grid-cols-4 gap-x-1 gap-y-6">
-        {pagedGroups.map((group) => (
-          <PendingCard
-            key={group.productId}
-            group={group}
-            onClick={() => navigate(router, group.productId, group.representative.id, returnTo)}
-            onCancel={() => setCancelTarget(group)}
-            onConfirmCancel={confirmCancelGroup}
-            onDismissCancel={() => setCancelTarget(null)}
-            isConfirmingCancel={cancelTarget?.productId === group.productId}
-            isCancelling={cancellingProductId === group.productId}
-            onDelete={() => setDeleteTarget(group)}
-          />
-        ))}
-      </div>
+      {groups.length === 0 ? (
+        <div className="flex min-h-[180px] flex-col items-center justify-center rounded-2xl border border-dashed border-violet-100 bg-white/45 px-4 py-10 text-center">
+          <PlayCircle size={22} className="text-violet-300" />
+          <p className="mt-2 text-sm font-bold text-gray-700">진행 중인 작업 없음</p>
+          <p className="mt-1 max-w-xs text-xs leading-relaxed text-gray-500">
+            썸네일 생성이 시작되면 진행 상태가 여기에 표시됩니다.
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-3 md:grid-cols-3 xl:grid-cols-4 gap-x-1 gap-y-6">
+          {pagedGroups.map((group) => (
+            <PendingCard
+              key={group.productId}
+              group={group}
+              onClick={() => navigate(router, group.productId, group.representative.id, returnTo)}
+              onCancel={() => setCancelTarget(group)}
+              onConfirmCancel={confirmCancelGroup}
+              onDismissCancel={() => setCancelTarget(null)}
+              isConfirmingCancel={cancelTarget?.productId === group.productId}
+              isCancelling={cancellingProductId === group.productId}
+              onDelete={() => setDeleteTarget(group)}
+            />
+          ))}
+        </div>
+      )}
 
       <ConfirmDialog
         open={!!deleteTarget}

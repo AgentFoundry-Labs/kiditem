@@ -1,9 +1,13 @@
-import { Body, Controller, Delete, Get, Param, Put, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Put, Query } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../../../auth/auth.types';
 import { DeleteCandidateDto, SelectCandidateDto } from './dto/thumbnail-edit.dto';
 import { ThumbnailGenerationService } from '../../../application/service/thumbnail-generation.service';
+import {
+  ThumbnailGenerationSubjectError,
+  normalizeThumbnailGenerationListScope,
+} from '../../../domain/thumbnail-generation-subject';
 
 @Controller('thumbnail-analysis')
 export class ThumbnailAnalysisGenerationReviewController {
@@ -15,13 +19,24 @@ export class ThumbnailAnalysisGenerationReviewController {
     @Query('productId') productId?: string,
     @Query('sourceCandidateId') sourceCandidateId?: string,
     @Query('contentWorkspaceId') contentWorkspaceId?: string,
+    @Query('scope') scope?: string,
     @Query('limit') limit?: string,
   ) {
     const parsedLimit = limit ? Number.parseInt(limit, 10) : undefined;
+    let normalizedScope: ReturnType<typeof normalizeThumbnailGenerationListScope>;
+    try {
+      normalizedScope = normalizeThumbnailGenerationListScope(scope);
+    } catch (err) {
+      if (err instanceof ThumbnailGenerationSubjectError) {
+        throw new BadRequestException(err.message);
+      }
+      throw err;
+    }
     return this.generationService.findAll(organizationId, {
       productId: productId || null,
       sourceCandidateId: sourceCandidateId || null,
       contentWorkspaceId: contentWorkspaceId || null,
+      scope: normalizedScope,
       limit: Number.isFinite(parsedLimit) ? parsedLimit : undefined,
     });
   }

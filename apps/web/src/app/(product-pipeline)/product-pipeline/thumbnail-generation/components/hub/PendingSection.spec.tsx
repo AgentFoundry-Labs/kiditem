@@ -6,6 +6,7 @@ import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   cancelGeneration: vi.fn().mockResolvedValue(undefined),
+  generations: [] as ThumbnailGenerationItem[],
   runningGeneration: {
     id: 'thumbnail-generation-1',
     productId: 'product-1',
@@ -33,13 +34,15 @@ const mocks = vi.hoisted(() => ({
   },
 }));
 
+mocks.generations = [mocks.runningGeneration as ThumbnailGenerationItem];
+
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mocks.push }),
 }));
 
 vi.mock('../../../_shared/hooks/useThumbnailGenerations', () => ({
   useGenerationList: () => ({
-    data: [mocks.runningGeneration as ThumbnailGenerationItem],
+    data: mocks.generations,
     isLoading: false,
   }),
   useDeleteGeneration: () => ({
@@ -54,6 +57,7 @@ vi.mock('../../../_shared/hooks/useThumbnailGenerations', () => ({
 
 describe('PendingSection', () => {
   it('offers a cancel action for running thumbnail generation cards', async () => {
+    mocks.generations = [mocks.runningGeneration as ThumbnailGenerationItem];
     render(<PendingSection />);
 
     fireEvent.click(screen.getByRole('button', { name: '썸네일 생성 중단' }));
@@ -72,5 +76,21 @@ describe('PendingSection', () => {
     await waitFor(() => {
       expect(mocks.cancelGeneration).toHaveBeenCalledWith('thumbnail-generation-1');
     });
+  });
+
+  it('keeps the section visible but does not list completed thumbnail generations as in-progress', () => {
+    mocks.generations = [{
+      ...mocks.runningGeneration,
+      id: 'thumbnail-generation-complete',
+      status: 'succeeded',
+      phase: 'ready',
+    } as ThumbnailGenerationItem];
+
+    render(<PendingSection />);
+
+    expect(screen.getByRole('heading', { name: '진행 중인 작업' })).toBeInTheDocument();
+    expect(screen.getByText('전체 0')).toBeInTheDocument();
+    expect(screen.getByText('진행 중인 작업 없음')).toBeInTheDocument();
+    expect(screen.queryByText('테스트 상품')).not.toBeInTheDocument();
   });
 });

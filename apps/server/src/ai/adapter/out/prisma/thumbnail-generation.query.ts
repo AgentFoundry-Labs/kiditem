@@ -3,6 +3,7 @@ import { NotFoundException } from '@nestjs/common';
 import type { PrismaService } from '../../../../prisma/prisma.service';
 import { thumbnailMasterImageSelect } from './master-image-select.preset';
 import type { GenerationMasterSummary, GenerationRow } from '../../../mapper/thumbnail-generation.mapper';
+import type { ThumbnailGenerationListScope } from '../../../domain/thumbnail-generation-subject';
 
 /**
  * Tenant-scoped read shapes for `ThumbnailGeneration` and the `MasterProduct`
@@ -172,21 +173,27 @@ export async function findGenerationRows(
     productId?: string | null;
     sourceCandidateId?: string | null;
     contentWorkspaceId?: string | null;
+    scope?: ThumbnailGenerationListScope;
     limit?: number | null;
   } = {},
 ): Promise<GenerationRow[]> {
   const limit = opts.limit ? Math.min(Math.max(opts.limit, 1), 100) : undefined;
+  const ownerFilter = opts.contentWorkspaceId
+    ? { contentWorkspaceId: opts.contentWorkspaceId }
+    : opts.sourceCandidateId
+      ? { sourceCandidateId: opts.sourceCandidateId }
+      : opts.productId
+        ? { masterId: opts.productId }
+        : opts.scope === 'all'
+          ? {}
+          : opts.scope === 'direct-upload'
+            ? { masterId: null, sourceCandidateId: null, contentWorkspaceId: null }
+            : { masterId: { not: null } };
   const rows = await prisma.thumbnailGeneration.findMany({
     where: {
       organizationId,
       isDeleted: false,
-      ...(opts.contentWorkspaceId
-        ? { contentWorkspaceId: opts.contentWorkspaceId }
-        : opts.sourceCandidateId
-          ? { sourceCandidateId: opts.sourceCandidateId }
-          : opts.productId
-            ? { masterId: opts.productId }
-            : { masterId: { not: null } }),
+      ...ownerFilter,
     },
     orderBy: { createdAt: 'desc' },
     ...(limit ? { take: limit } : {}),

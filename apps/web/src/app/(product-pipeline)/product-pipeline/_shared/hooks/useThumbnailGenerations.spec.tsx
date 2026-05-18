@@ -1,9 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { useCancelGeneration } from './useThumbnailGenerations';
+import { useCancelGeneration, useGenerationList } from './useThumbnailGenerations';
 import { cancelOperation } from '@/lib/operation-cancellation';
+import { apiClient } from '@/lib/api-client';
 
 const mockCancelOperation = vi.hoisted(() => vi.fn());
 
@@ -61,6 +62,23 @@ describe('useCancelGeneration', () => {
       targetType: 'thumbnail_generation',
       generationId: 'thumbnail-generation-1',
       reason: '사용자 요청',
+    });
+  });
+});
+
+describe('useGenerationList', () => {
+  beforeEach(() => {
+    vi.mocked(apiClient.get).mockReset();
+    vi.mocked(apiClient.get).mockResolvedValue({ items: [], total: 0 });
+  });
+
+  it('requests direct-upload scope explicitly for ownerless thumbnail work', async () => {
+    renderHook(() => useGenerationList({ scope: 'direct-upload', limit: 8 }), { wrapper });
+
+    await waitFor(() => {
+      expect(apiClient.get).toHaveBeenCalledWith(
+        '/api/thumbnail-analysis/generations?scope=direct-upload&limit=8',
+      );
     });
   });
 });

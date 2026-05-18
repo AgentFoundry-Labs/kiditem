@@ -17,7 +17,7 @@ describe('Sidebar product pipeline navigation', () => {
     ]);
   });
 
-  it('uses product-pipeline routes and keeps standalone thumbnail generation out of the sidebar', () => {
+  it('uses product-pipeline routes and exposes standalone thumbnail generation in the sidebar', () => {
     const productAgent = menuSections.find((section) => section.label === '상품 에이전트');
 
     expect(productAgent?.items.map((item) => [item.href, item.label])).toEqual([
@@ -26,6 +26,7 @@ describe('Sidebar product pipeline navigation', () => {
       ['/product-pipeline/registered-products', '등록 상품'],
       ['/product-pipeline/detailgenerate', '상세 템플릿 생성'],
       ['/product-pipeline/thumbnail-ai', '썸네일 AI'],
+      ['/product-pipeline/thumbnail-generation', '썸네일 생성'],
     ]);
   });
 
