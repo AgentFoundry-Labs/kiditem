@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AutomationModule } from '../automation/automation.module';
+import { ProductsModule } from '../products/products.module';
 import { ChannelSyncController } from './adapter/in/http/channel-sync.controller';
 import { ChannelDashboardController } from './adapter/in/http/channel-dashboard.controller';
 import { ChannelReconciliationController } from './adapter/in/http/channel-reconciliation.controller';
@@ -11,6 +12,7 @@ import { ChannelAccountRepositoryAdapter } from './adapter/out/repository/channe
 import { ChannelDashboardRepositoryAdapter } from './adapter/out/repository/channel-dashboard.repository.adapter';
 import { ChannelListingRepositoryAdapter } from './adapter/out/repository/channel-listing.repository.adapter';
 import { MarketplaceRegistrationRepositoryAdapter } from './adapter/out/repository/marketplace-registration.repository.adapter';
+import { ChannelsProductMasterBarcodeAdapter } from './adapter/out/products/product-master-barcode.adapter';
 import { ChannelSyncRepositoryAdapter } from './adapter/out/repository/channel-sync.repository.adapter';
 import { ChannelReconciliationMatcherRepositoryAdapter } from './adapter/out/repository/channel-reconciliation-matcher.repository.adapter';
 import { ChannelReconciliationQueryRepositoryAdapter } from './adapter/out/repository/channel-reconciliation-query.repository.adapter';
@@ -30,6 +32,7 @@ import { ChannelAccountService } from './application/service/channel-account.ser
 import { COUPANG_PROVIDER_PORT } from './application/port/out/coupang-provider.port';
 import { ChannelsOperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
 import { CHANNELS_OPERATION_ALERT_PORT } from './application/port/out/operation-alert.port';
+import { CHANNELS_PRODUCT_MASTER_BARCODE_PORT } from './application/port/out/product-master-barcode.port';
 import {
   CHANNEL_ACCOUNT_REPOSITORY_PORT,
   COUPANG_CREDENTIALS_PORT,
@@ -48,7 +51,7 @@ import {
 } from './application/port/out/channel-reconciliation.repository.port';
 
 @Module({
-  imports: [AutomationModule],
+  imports: [AutomationModule, ProductsModule],
   controllers: [
     ChannelSyncController,
     ChannelDashboardController,
@@ -71,6 +74,7 @@ import {
     ChannelAccountService,
     CoupangProviderAdapter,
     ChannelsOperationAlertAdapter,
+    ChannelsProductMasterBarcodeAdapter,
     ChannelAccountRepositoryAdapter,
     ChannelDashboardRepositoryAdapter,
     ChannelListingRepositoryAdapter,
@@ -82,6 +86,10 @@ import {
     ChannelReconciliationScanRepositoryAdapter,
     { provide: COUPANG_PROVIDER_PORT, useExisting: CoupangProviderAdapter },
     { provide: CHANNELS_OPERATION_ALERT_PORT, useExisting: ChannelsOperationAlertAdapter },
+    {
+      provide: CHANNELS_PRODUCT_MASTER_BARCODE_PORT,
+      useExisting: ChannelsProductMasterBarcodeAdapter,
+    },
     { provide: CHANNEL_ACCOUNT_REPOSITORY_PORT, useExisting: ChannelAccountRepositoryAdapter },
     { provide: COUPANG_CREDENTIALS_PORT, useExisting: ChannelAccountRepositoryAdapter },
     { provide: CHANNEL_DASHBOARD_REPOSITORY_PORT, useExisting: ChannelDashboardRepositoryAdapter },

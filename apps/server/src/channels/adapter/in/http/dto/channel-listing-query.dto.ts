@@ -1,4 +1,4 @@
-import { IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import { IsIn, IsISO8601, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 import { PaginationQueryDto } from '../../../../../common/dto';
 
 const CHANNEL_LISTING_SORTS = ['newest', 'oldest', 'name_asc'] as const;
@@ -22,6 +22,10 @@ export class ChannelListingQueryDto extends PaginationQueryDto {
   @IsString()
   @MaxLength(200)
   search?: string;
+
+  @IsOptional()
+  @IsISO8601()
+  createdSince?: string;
 
   @IsOptional()
   @IsIn(CHANNEL_LISTING_TABS)

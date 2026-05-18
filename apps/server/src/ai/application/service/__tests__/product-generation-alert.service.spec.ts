@@ -93,6 +93,43 @@ describe('ProductGenerationAlertService', () => {
     }));
   });
 
+  it('starts a detail-only parent operation with thumbnail already complete', async () => {
+    const childLedger = makeChildLedger();
+    const operationAlerts = {
+      start: vi.fn().mockResolvedValue(makeAlert({})),
+      findByOperationKey: vi.fn(),
+      progress: vi.fn(),
+      succeed: vi.fn(),
+      fail: vi.fn(),
+    };
+    const service = new ProductGenerationAlertService(operationAlerts as never, childLedger as never);
+
+    await service.start({
+      organizationId: ORGANIZATION_ID,
+      actorUserId: USER_ID,
+      batchId: BATCH_ID,
+      candidateId: CANDIDATE_ID,
+      productName: '자석 다트게임',
+      href: `/product-pipeline/collected-products/${CANDIDATE_ID}`,
+      includeDetailPage: true,
+      includeThumbnail: false,
+    });
+
+    expect(operationAlerts.start).toHaveBeenCalledWith(expect.objectContaining({
+      message: '상품 작업공간을 만들고 상세페이지 생성을 시작했습니다.',
+      metadata: expect.objectContaining({
+        children: {
+          detail_page: 'queued',
+          thumbnail: 'succeeded',
+        },
+        includedChildren: {
+          detail_page: true,
+          thumbnail: false,
+        },
+      }),
+    }));
+  });
+
   it('records a child id without changing the parent to a terminal state', async () => {
     const childLedger = makeChildLedger();
     const operationAlerts = {
@@ -247,6 +284,50 @@ describe('ProductGenerationAlertService', () => {
             detailPageGenerationId: 'content-generation-1',
             thumbnailGenerationId: 'thumbnail-generation-1',
           },
+        }),
+      }),
+    );
+  });
+
+  it('succeeds detail-only parent alert with a detail-only message', async () => {
+    const childLedger = makeChildLedger();
+    childLedger.readChildStatuses.mockResolvedValueOnce({
+      detailPageStatus: 'READY',
+      thumbnailStatus: null,
+    });
+    const operationAlerts = {
+      start: vi.fn(),
+      findByOperationKey: vi.fn().mockResolvedValue(makeAlert({
+        productName: '자석 다트게임',
+        includedChildren: { detail_page: true, thumbnail: false },
+        children: { detail_page: 'queued', thumbnail: 'succeeded' },
+        childIds: {
+          detailPageGenerationId: null,
+          thumbnailGenerationId: null,
+        },
+      })),
+      progress: vi.fn(),
+      succeed: vi.fn().mockResolvedValue(makeAlert({})),
+      fail: vi.fn(),
+    };
+    const service = new ProductGenerationAlertService(operationAlerts as never, childLedger as never);
+
+    await service.markChildFinished({
+      organizationId: ORGANIZATION_ID,
+      parentOperationKey: OPERATION_KEY,
+      childKind: 'detail_page',
+      status: 'succeeded',
+      childId: 'content-generation-1',
+    });
+
+    expect(operationAlerts.succeed).toHaveBeenCalledWith(
+      ORGANIZATION_ID,
+      OPERATION_KEY,
+      expect.objectContaining({
+        message: '상세페이지 생성이 완료되었습니다.',
+        progress: 1,
+        metadata: expect.objectContaining({
+          children: { detail_page: 'succeeded', thumbnail: 'succeeded' },
         }),
       }),
     );

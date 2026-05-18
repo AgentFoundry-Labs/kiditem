@@ -21,6 +21,8 @@ interface Props {
   onSelectedChange: (id: string, selected: boolean) => void;
   onNavigate: (id: string) => void;
   onOpenEditor: (id: string) => void;
+  onOpenQuickProcess: (id: string) => void;
+  isQuickProcessingSelected: boolean;
 }
 
 export default function ProductList({
@@ -37,6 +39,8 @@ export default function ProductList({
   onSelectedChange,
   onNavigate,
   onOpenEditor,
+  onOpenQuickProcess,
+  isQuickProcessingSelected,
 }: Props) {
   const visibleIds = products.map((product) => product.id);
   const selectedVisibleCount = visibleIds.filter((id) => selectedIds.has(id)).length;
@@ -69,6 +73,9 @@ export default function ProductList({
           onSelectedChange={onSelectedChange}
           onNavigate={onNavigate}
           onOpenEditor={onOpenEditor}
+          onOpenQuickProcess={onOpenQuickProcess}
+          quickProcessSelectedCount={selectedCount}
+          isQuickProcessingSelected={isQuickProcessingSelected}
         />
       ))}
     </ProductInboxListFrame>

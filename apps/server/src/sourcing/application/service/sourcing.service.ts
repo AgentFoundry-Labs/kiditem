@@ -18,6 +18,7 @@ import type {
   ReceiveExtensionDataInput,
   RegisterManualProductCommand,
 } from '../port/in/sourcing.commands';
+import type { ProductGenerationTask } from '../../../ai/application/port/in/product-generation-ai-trigger.port';
 import { buildProductBasics } from './product-basics.presenter';
 import { ProductPreparationSelectionService } from './product-preparation-selection.service';
 
@@ -255,6 +256,7 @@ export class SourcingService {
     candidateId: string,
     organizationId: string,
     triggeredByUserId: string | null,
+    task: ProductGenerationTask = 'all',
   ) {
     const candidate = await this.candidates.findById(candidateId, organizationId);
     if (!candidate) throw new NotFoundException('Sourcing candidate not found');
@@ -302,11 +304,12 @@ export class SourcingService {
       colorVariantNames: null,
       boxSetStatus: 'auto',
       boxSetQuantity: null,
+      task,
     });
 
     return {
       ok: true,
-      message: 'AI 간편 처리 작업이 시작되었습니다.',
+      message: quickProcessMessage(task),
       product_count: 1,
       candidateId: ai.candidateId,
       href: ai.href,
@@ -443,4 +446,10 @@ export class SourcingService {
   private sourceUrlFrom(data: FlatExtensionData): string | null {
     return typeof data.source_url === 'string' && data.source_url.trim() ? data.source_url.trim() : null;
   }
+}
+
+function quickProcessMessage(task: ProductGenerationTask): string {
+  if (task === 'detail') return '상세페이지 생성 작업이 시작되었습니다.';
+  if (task === 'thumbnail') return '썸네일 생성 작업이 시작되었습니다.';
+  return 'AI 간편 처리 작업이 시작되었습니다.';
 }

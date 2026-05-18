@@ -197,4 +197,75 @@ describe('ProductGenerationAiService', () => {
     expect(thumbnails.enqueueCandidateGeneration).not.toHaveBeenCalled();
     expect(result.thumbnailGenerationId).toBeNull();
   });
+
+  it('can start only detail generation for a sourcing candidate', async () => {
+    const contextRepository = {
+      findCandidate: vi.fn().mockResolvedValue({
+        id: CANDIDATE_ID,
+        name: '자석 다트게임',
+        category: '완구',
+        description: '안전한 다트 보드',
+        thumbnailUrl: 'https://example.com/main.jpg',
+        images: [{ url: 'https://example.com/main.jpg', sortOrder: 0 }],
+      }),
+    };
+    const detailPages = {
+      generate: vi.fn().mockResolvedValue({
+        id: CONTENT_GENERATION_ID,
+        contentWorkspaceId: WORKSPACE_ID,
+      }),
+    };
+    const thumbnails = {
+      enqueueCandidateGeneration: vi.fn(),
+    };
+    const editorAi = {
+      resolveInputImage: vi.fn(),
+    };
+    const parentAlerts = {
+      start: vi.fn().mockResolvedValue({}),
+      canStartChild: vi.fn(),
+      markChildFinished: vi.fn(),
+    };
+    const service = new ProductGenerationAiService(
+      contextRepository as never,
+      detailPages as never,
+      thumbnails as never,
+      editorAi as never,
+      parentAlerts as never,
+    );
+
+    const result = await service.startForCandidate({
+      organizationId: ORGANIZATION_ID,
+      triggeredByUserId: USER_ID,
+      candidateId: CANDIDATE_ID,
+      productName: '자석 다트게임',
+      category: '완구',
+      description: '안전한 다트 보드',
+      target: '초등학생',
+      imageUrls: ['https://example.com/main.jpg'],
+      thumbnailUrl: 'https://example.com/main.jpg',
+      optionNames: ['기본'],
+      templateId: 'bold-vertical',
+      ageGroup: 'age-8-plus',
+      detailImageCount: '2',
+      usageSectionMode: 'include',
+      kcCertificationStatus: 'unknown',
+      kcCertificationNumber: null,
+      productSize: '높이: 30cm',
+      colorVariantStatus: 'auto',
+      colorVariantNames: '',
+      boxSetStatus: 'auto',
+      boxSetQuantity: '',
+      task: 'detail',
+    });
+
+    expect(parentAlerts.start).toHaveBeenCalledWith(expect.objectContaining({
+      includeDetailPage: true,
+      includeThumbnail: false,
+    }));
+    expect(detailPages.generate).toHaveBeenCalled();
+    expect(thumbnails.enqueueCandidateGeneration).not.toHaveBeenCalled();
+    expect(result.detailGenerationId).toBe(CONTENT_GENERATION_ID);
+    expect(result.thumbnailGenerationId).toBeNull();
+  });
 });

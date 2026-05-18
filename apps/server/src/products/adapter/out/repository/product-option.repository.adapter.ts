@@ -73,6 +73,24 @@ export class ProductOptionRepositoryAdapter implements ProductOptionRepositoryPo
     return findOptionByBarcode(this.prisma, organizationId, barcode);
   }
 
+  findActiveByBarcode(
+    repositoryTx: ProductsRepositoryTransaction,
+    organizationId: string,
+    barcode: string,
+  ): Promise<ProductOptionRow | null> {
+    return tx(repositoryTx).productOption.findFirst({
+      where: { organizationId, barcode, isDeleted: false },
+      select: {
+        id: true,
+        organizationId: true,
+        masterId: true,
+        sku: true,
+        optionName: true,
+        isBundle: true,
+      },
+    });
+  }
+
   findCurrentOption(
     repositoryTx: ProductsRepositoryTransaction,
     organizationId: string,

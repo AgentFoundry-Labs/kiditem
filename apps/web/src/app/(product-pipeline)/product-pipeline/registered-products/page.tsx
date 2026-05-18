@@ -21,7 +21,7 @@ import {
 } from './lib/channel-listings-api';
 import { registeredListingWorkspaceHref } from './lib/registered-listing-navigation';
 
-type RegisteredListingFilter = 'registered' | 'deleted';
+type RegisteredListingFilter = 'registered' | 'recent' | 'deleted';
 type MarketFilter = 'all' | `channel:${string}`;
 
 const MARKET_SUMMARY_CHANNELS = [
@@ -34,6 +34,10 @@ const MARKET_SUMMARY_CHANNELS = [
 
 export default function RegisteredProductsPage() {
   const router = useRouter();
+  const recentCreatedSince = useMemo(
+    () => new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+    [],
+  );
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [sort, setSort] = useState<RegisteredListingSort>('newest');
@@ -44,6 +48,8 @@ export default function RegisteredProductsPage() {
   const selectedChannel = marketFilter.startsWith('channel:')
     ? marketFilter.slice('channel:'.length)
     : null;
+  const listingTab = filter === 'deleted' ? 'deleted' : 'registered';
+  const recentFilterCreatedSince = filter === 'recent' ? recentCreatedSince : null;
 
   const queryParams = {
     page: String(page),
@@ -52,6 +58,11 @@ export default function RegisteredProductsPage() {
     tab: filter,
     market: marketFilter,
     mode: 'groups',
+    ...(recentFilterCreatedSince ? { createdSince: recentFilterCreatedSince } : {}),
+  };
+  const summaryQueryParams = {
+    tab: listingTab,
+    mode: 'market-summary',
   };
   const { data, isLoading } = useQuery({
     queryKey: queryKeys.channelListings.list(queryParams),
@@ -59,14 +70,23 @@ export default function RegisteredProductsPage() {
       page,
       limit: pageSize,
       sort,
-      tab: filter,
+      tab: listingTab,
       channel: selectedChannel,
+      createdSince: recentFilterCreatedSince,
+    }),
+  });
+  const { data: summaryData } = useQuery({
+    queryKey: queryKeys.channelListings.list(summaryQueryParams),
+    queryFn: () => channelListingsApi.listGroups({
+      page: 1,
+      limit: 1,
+      tab: listingTab,
     }),
   });
 
   const groups = data?.items ?? [];
   const total = data?.total ?? 0;
-  const marketCounts = data?.marketCounts ?? [];
+  const marketCounts = summaryData?.marketCounts ?? data?.marketCounts ?? [];
   const visibleIds = groups.map((item) => item.masterId);
   const selectedVisibleCount = visibleIds.filter((id) => selectedIds.has(id)).length;
   const allVisibleSelected = visibleIds.length > 0 && selectedVisibleCount === visibleIds.length;
@@ -139,6 +159,7 @@ export default function RegisteredProductsPage() {
       <ProductInboxToolbar
         tabs={[
           { key: 'registered', label: '등록한 상품' },
+          { key: 'recent', label: '최근 등록한 상품' },
           { key: 'deleted', label: '모든 마켓에서 삭제한 상품' },
         ]}
         activeTab={filter}
@@ -208,10 +229,16 @@ export default function RegisteredProductsPage() {
           isLoading={isLoading}
           isEmpty={groups.length === 0}
           emptyState={{
-            title: filter === 'deleted' ? '삭제된 마켓 상품이 없어요.' : '아직 등록된 상품이 없어요.',
+            title: filter === 'deleted'
+              ? '삭제된 마켓 상품이 없어요.'
+              : filter === 'recent'
+                ? '최근 7일 동안 등록된 상품이 없어요.'
+                : '아직 등록된 상품이 없어요.',
             description: filter === 'deleted'
               ? '모든 마켓에서 삭제 처리된 상품이 생기면 여기에 표시됩니다.'
-              : '수집 상품에서 제품 등록을 완료한 뒤 마켓에 등록하면 여기에 표시됩니다.',
+              : filter === 'recent'
+                ? '최근 등록 상품은 등록일 기준 7일 동안 이 탭에 표시됩니다.'
+                : '수집 상품에서 제품 등록을 완료한 뒤 마켓에 등록하면 여기에 표시됩니다.',
           }}
           selectionAction={{
             checked: allVisibleSelected,

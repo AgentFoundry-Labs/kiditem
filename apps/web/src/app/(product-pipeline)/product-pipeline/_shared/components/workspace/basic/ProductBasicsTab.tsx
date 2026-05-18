@@ -126,7 +126,7 @@ export default function ProductBasicsTab({
                 className="min-h-[84px] w-full resize-none rounded-md border border-emerald-200 bg-emerald-50/30 px-2 py-1 text-sm font-semibold leading-6 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-300 focus:ring-2 focus:ring-emerald-500/10"
               />
             ) : (
-              <InfoValue value={draft.description} />
+              <DescriptionValue value={draft.description} />
             )}
           </InfoRow>
         </div>
@@ -531,6 +531,30 @@ function InfoValue({ value }: { value?: string | null }) {
       {display || '미입력'}
     </div>
   );
+}
+
+function DescriptionValue({ value }: { value?: string | null }) {
+  const lines = descriptionDisplayLines(value);
+  if (lines.length === 0) {
+    return <InfoValue value={null} />;
+  }
+  return (
+    <div className="space-y-1 text-sm font-semibold leading-6 text-slate-900">
+      {lines.map((line) => (
+        <p key={line}>{line}</p>
+      ))}
+    </div>
+  );
+}
+
+function descriptionDisplayLines(value?: string | null): string[] {
+  const display = value?.trim();
+  if (!display) return [];
+  return display
+    .replace(/\s+(?=\d+\.\s)/g, '\n')
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
 }
 
 function InlineValueList({ items }: { items: Array<[string, string]> }) {
