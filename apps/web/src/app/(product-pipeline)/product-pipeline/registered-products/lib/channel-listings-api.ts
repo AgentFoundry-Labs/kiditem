@@ -74,6 +74,7 @@ export const channelListingsApi = {
     channel?: string | null;
     channelAccountId?: string | null;
     search?: string | null;
+    createdSince?: string | null;
   }): Promise<RegisteredChannelListingResponse> {
     const qs = new URLSearchParams({
       page: String(params?.page ?? 1),
@@ -83,6 +84,7 @@ export const channelListingsApi = {
     if (params?.channel) qs.set('channel', params.channel);
     if (params?.channelAccountId) qs.set('channelAccountId', params.channelAccountId);
     if (params?.search?.trim()) qs.set('search', params.search.trim());
+    if (params?.createdSince) qs.set('createdSince', params.createdSince);
     return apiClient.get<RegisteredChannelListingResponse>(`/api/channels/listings?${qs}`);
   },
   listGroups(params?: {
@@ -92,6 +94,7 @@ export const channelListingsApi = {
     channel?: string | null;
     channelAccountId?: string | null;
     search?: string | null;
+    createdSince?: string | null;
     tab?: 'registered' | 'deleted';
   }): Promise<RegisteredProductGroupResponse> {
     const qs = new URLSearchParams({
@@ -102,6 +105,7 @@ export const channelListingsApi = {
     if (params?.channel) qs.set('channel', params.channel);
     if (params?.channelAccountId) qs.set('channelAccountId', params.channelAccountId);
     if (params?.search?.trim()) qs.set('search', params.search.trim());
+    if (params?.createdSince) qs.set('createdSince', params.createdSince);
     if (params?.tab) qs.set('tab', params.tab);
     return apiClient.get<RegisteredProductGroupResponse>(`/api/channels/listings/groups?${qs}`);
   },
@@ -117,6 +121,7 @@ export const channelListingsApi = {
     masterId: string;
     channelAccountId: string;
     externalId: string;
+    productBarcode?: string | null;
     channelName?: string | null;
     channelPrice?: number | null;
   }): Promise<RegisteredChannelListing> {

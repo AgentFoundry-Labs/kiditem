@@ -3,6 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   GenerationHistoryRow,
+  MasterBarcodeOwnerRow,
   MasterImageWriteInput,
   MasterProductImageRow,
   MasterProductRepositoryPort,
@@ -87,6 +88,22 @@ export class MasterProductRepositoryAdapter implements MasterProductRepositoryPo
 
   findByLegacy(organizationId: string, legacyCode: string): Promise<MasterWithImageRows | null> {
     return findMasterByLegacy(this.prisma, organizationId, legacyCode);
+  }
+
+  findActiveBarcodeOwners(input: {
+    organizationId: string;
+    barcode: string;
+    tx: ProductsRepositoryTransaction;
+  }): Promise<MasterBarcodeOwnerRow[]> {
+    const client = tx(input.tx);
+    return client.masterProduct.findMany({
+      where: {
+        organizationId: input.organizationId,
+        barcode: input.barcode,
+        isDeleted: false,
+      },
+      select: { id: true, code: true, name: true },
+    });
   }
 
   async update(input: {

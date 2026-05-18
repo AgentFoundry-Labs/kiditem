@@ -10,6 +10,8 @@ import type {
 
 export const PRODUCT_GENERATION_AI_TRIGGER_PORT = Symbol('PRODUCT_GENERATION_AI_TRIGGER_PORT');
 
+export type ProductGenerationTask = 'all' | 'detail' | 'thumbnail';
+
 export interface ProductGenerationAiRequest {
   organizationId: string;
   triggeredByUserId: string | null;
@@ -32,6 +34,7 @@ export interface ProductGenerationAiRequest {
   colorVariantNames?: string | null;
   boxSetStatus?: string | null;
   boxSetQuantity?: string | null;
+  task?: ProductGenerationTask;
 }
 
 export interface ProductGenerationAiResult {

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Loader2, Wand2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   useAllGenerationsInProgress,
@@ -27,6 +28,7 @@ import {
   candidatesApi,
   isInProgress,
   productsApi,
+  type QuickProcessTask,
   type SourcingSort,
 } from './lib/sourcing-api';
 import {
@@ -44,6 +46,9 @@ export default function SourcingPage() {
   const [sourceFilter, setSourceFilter] = useState<SourcingSourceFilter>('all');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [deletingIds, setDeletingIds] = useState<Set<string>>(() => new Set());
+  const [quickProcessModalOpen, setQuickProcessModalOpen] = useState(false);
+  const [quickProcessTargetIds, setQuickProcessTargetIds] = useState<string[]>([]);
+  const [quickProcessingIds, setQuickProcessingIds] = useState<Set<string>>(() => new Set());
 
   const scrape = useScrapeUrl();
   const platform = platformForSourceFilter(sourceFilter);
@@ -67,6 +72,9 @@ export default function SourcingPage() {
   const total = productData?.total ?? 0;
 
   const { processingIds } = useProcessingIds(products);
+  const quickProcessTargetIdSet = new Set(quickProcessTargetIds);
+  const quickProcessTargetProducts = products.filter((product) => quickProcessTargetIdSet.has(product.id));
+  const displayedProcessingIds = new Set([...processingIds, ...quickProcessingIds]);
 
   const deleteMutation = useMutation({
     mutationFn: async (ids: string[]) => {
@@ -107,6 +115,52 @@ export default function SourcingPage() {
     },
   });
 
+  const quickProcessMutation = useMutation({
+    mutationFn: async ({ ids, task }: { ids: string[]; task: QuickProcessTask }) => {
+      const uniqueIds = [...new Set(ids)];
+      const results = await Promise.allSettled(
+        uniqueIds.map((id) => candidatesApi.quickProcess(id, task).then(() => id)),
+      );
+      const succeededIds = results
+        .filter((result): result is PromiseFulfilledResult<string> => result.status === 'fulfilled')
+        .map((result) => result.value);
+      const failedIds = uniqueIds.filter((id) => !succeededIds.includes(id));
+      return { succeededIds, failedIds };
+    },
+    onMutate: ({ ids }) => {
+      setQuickProcessingIds((prev) => new Set([...prev, ...ids]));
+    },
+    onSuccess: ({ succeededIds, failedIds }, { task }) => {
+      const taskLabel = quickProcessTaskLabel(task);
+      if (succeededIds.length > 0) {
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          succeededIds.forEach((id) => next.delete(id));
+          return next;
+        });
+        queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
+        succeededIds.forEach((id) => {
+          queryClient.invalidateQueries({ queryKey: queryKeys.productContent.sourcingLinks(id) });
+          queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.generations({ sourceCandidateId: id }) });
+        });
+        toast.success(`${succeededIds.length}개 상품의 ${taskLabel} 작업을 시작했습니다.`);
+      }
+      if (failedIds.length > 0) {
+        toast.error(`${failedIds.length}개 상품의 ${taskLabel} 작업 시작에 실패했습니다.`);
+      }
+      setQuickProcessModalOpen(false);
+      setQuickProcessTargetIds([]);
+    },
+    onError: (err) => toast.error(isApiError(err) ? err.detail : 'AI 간편 처리 시작에 실패했습니다.'),
+    onSettled: (_data, _err, { ids }) => {
+      setQuickProcessingIds((prev) => {
+        const next = new Set(prev);
+        ids.forEach((id) => next.delete(id));
+        return next;
+      });
+    },
+  });
+
   const sourcedCount = products.filter((p) => p.status === 'sourced').length;
 
   const setItemSelected = (id: string, selected: boolean) => {
@@ -127,6 +181,17 @@ export default function SourcingPage() {
       });
       return next;
     });
+  };
+
+  const openQuickProcessModal = (id: string) => {
+    setQuickProcessTargetIds(selectedIds.size > 0 ? [...selectedIds] : [id]);
+    setQuickProcessModalOpen(true);
+  };
+
+  const closeQuickProcessModal = () => {
+    if (quickProcessMutation.isPending) return;
+    setQuickProcessModalOpen(false);
+    setQuickProcessTargetIds([]);
   };
 
   return (
@@ -181,7 +246,7 @@ export default function SourcingPage() {
         <ProductList
           isLoading={isLoading}
           products={products}
-          processingIds={processingIds}
+          processingIds={displayedProcessingIds}
           deletingIds={deletingIds}
           selectedIds={selectedIds}
           isDeletingSelected={deleteMutation.isPending}
@@ -192,14 +257,166 @@ export default function SourcingPage() {
           onSelectedChange={setItemSelected}
           onNavigate={(id) => router.push(collectedProductDetailHref(id))}
           onOpenEditor={(id) => router.push(collectedProductEditorHref({ candidateId: id }))}
+          onOpenQuickProcess={openQuickProcessModal}
+          isQuickProcessingSelected={quickProcessMutation.isPending}
         />
 
         <div className="mt-4">
           <Pagination page={page} limit={pageSize} total={total} onPageChange={setPage} />
         </div>
       </div>
+
+      <QuickProcessSelectedDialog
+        open={quickProcessModalOpen}
+        targetCount={quickProcessTargetIds.length}
+        targetProducts={quickProcessTargetProducts}
+        isSubmitting={quickProcessMutation.isPending}
+        onClose={closeQuickProcessModal}
+        onConfirm={(task) => quickProcessMutation.mutate({ ids: quickProcessTargetIds, task })}
+      />
     </div>
   );
+}
+
+function QuickProcessSelectedDialog({
+  open,
+  targetCount,
+  targetProducts,
+  isSubmitting,
+  onClose,
+  onConfirm,
+}: {
+  open: boolean;
+  targetCount: number;
+  targetProducts: Array<{ id: string; name: string; thumbnailUrl: string | null }>;
+  isSubmitting: boolean;
+  onClose: () => void;
+  onConfirm: (task: QuickProcessTask) => void;
+}) {
+  if (!open) return null;
+  const previewProducts = targetProducts.slice(0, 6);
+  const hiddenCount = Math.max(0, targetCount - previewProducts.length);
+  const canSubmit = targetCount > 0 && !isSubmitting;
+
+  return (
+    <div role="dialog" aria-modal="true" aria-label="선택 상품 AI 간편 처리" className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
+      <div className="w-full max-w-lg rounded-lg bg-white p-5 shadow-xl">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-violet-50 text-violet-700">
+              <Wand2 size={18} />
+            </div>
+            <h2 className="mt-3 text-base font-black text-slate-900">선택 상품 AI 간편 처리</h2>
+            <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
+              이 카드 상품 또는 체크된 상품만 원하는 AI 작업으로 시작합니다.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isSubmitting}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition hover:bg-slate-50 disabled:opacity-50"
+            aria-label="닫기"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {targetCount > 0 ? (
+          <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <p className="text-xs font-black text-slate-700">처리할 상품</p>
+              <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-black text-violet-700 ring-1 ring-violet-100">
+                {targetCount}개
+              </span>
+            </div>
+            <div className="grid gap-2">
+              {previewProducts.map((product) => (
+                <div key={product.id} className="flex min-w-0 items-center gap-2 rounded-md bg-white p-2 ring-1 ring-slate-100">
+                  {product.thumbnailUrl ? (
+                    <img src={product.thumbnailUrl} alt="" className="h-9 w-9 shrink-0 rounded object-cover" />
+                  ) : (
+                    <div className="h-9 w-9 shrink-0 rounded bg-slate-100" />
+                  )}
+                  <p className="truncate text-sm font-bold text-slate-800">{product.name}</p>
+                </div>
+              ))}
+              {hiddenCount > 0 && (
+                <p className="px-1 text-xs font-bold text-slate-500">외 {hiddenCount}개 상품</p>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="mt-4 rounded-lg border border-dashed border-slate-200 bg-slate-50 p-5 text-center">
+            <p className="text-sm font-bold text-slate-700">선택된 상품이 없습니다.</p>
+            <p className="mt-1 text-xs font-semibold text-slate-500">
+              카드의 AI 작업 선택 버튼을 다시 눌러 주세요.
+            </p>
+          </div>
+        )}
+
+        <div className="mt-5 grid gap-2 sm:grid-cols-[1fr_1fr_1fr]">
+          <QuickProcessTaskButton
+            title="상세페이지 생성"
+            description="KIDITEM DESIGN 상세페이지"
+            disabled={!canSubmit}
+            isSubmitting={isSubmitting}
+            onClick={() => onConfirm('detail')}
+          />
+          <QuickProcessTaskButton
+            title="썸네일 생성"
+            description="대표 이미지 기준 썸네일"
+            disabled={!canSubmit}
+            isSubmitting={isSubmitting}
+            onClick={() => onConfirm('thumbnail')}
+          />
+          <QuickProcessTaskButton
+            title="둘 다 실행"
+            description="상세페이지 + 썸네일"
+            disabled={!canSubmit}
+            isSubmitting={isSubmitting}
+            onClick={() => onConfirm('all')}
+          />
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+function QuickProcessTaskButton({
+  title,
+  description,
+  disabled,
+  isSubmitting,
+  onClick,
+}: {
+  title: string;
+  description: string;
+  disabled: boolean;
+  isSubmitting: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="flex min-h-24 flex-col items-start justify-center rounded-lg border border-violet-200 bg-violet-50 px-3 py-3 text-left transition hover:border-violet-300 hover:bg-violet-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+    >
+      <span className="inline-flex items-center gap-1.5 text-sm font-black text-violet-800">
+        {isSubmitting && <Loader2 size={13} className="animate-spin" />}
+        {title}
+      </span>
+      <span className="mt-1 text-xs font-semibold text-slate-500">{description}</span>
+    </button>
+  );
+}
+
+function quickProcessTaskLabel(task: QuickProcessTask): string {
+  if (task === 'detail') return '상세페이지 생성';
+  if (task === 'thumbnail') return '썸네일 생성';
+  return '상세페이지와 썸네일 생성';
 }
 
 /**

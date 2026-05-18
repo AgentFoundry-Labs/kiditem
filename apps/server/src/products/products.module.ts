@@ -7,6 +7,7 @@ import { ProductCatalogRepositoryAdapter } from './adapter/out/repository/produc
 import { ProductManagementRepositoryAdapter } from './adapter/out/repository/product-management.repository.adapter';
 import { ProductsTransactionAdapter } from './adapter/out/repository/products-transaction.adapter';
 import { MastersService } from './application/service/masters.service';
+import { MasterBarcodeService } from './application/service/master-barcode.service';
 import { MasterPromotionService } from './application/service/master-promotion.service';
 import { OptionsService } from './application/service/options.service';
 import { BundleStockService } from './application/service/bundle-stock.service';
@@ -25,6 +26,7 @@ import { ProductContentController } from './adapter/in/http/product-content.cont
 import { ProductsLegacyController } from './adapter/in/http/products-legacy.controller';
 import { CategoriesModule } from './categories/categories.module';
 import { PRODUCT_BUNDLE_STOCK_PORT } from './application/port/in/bundle-stock.port';
+import { PRODUCT_MASTER_BARCODE_PORT } from './application/port/in/master-barcode.port';
 import { PRODUCT_MASTER_PROMOTION_PORT } from './application/port/in/master-promotion.port';
 import { MASTER_CODE_PORT } from './application/port/out/master-code.port';
 import { MASTER_PRODUCT_REPOSITORY_PORT } from './application/port/out/master-product.repository.port';
@@ -54,6 +56,7 @@ import { PRODUCTS_TRANSACTION_PORT } from './application/port/out/products-trans
     ProductManagementRepositoryAdapter,
     ProductsTransactionAdapter,
     MastersService,
+    MasterBarcodeService,
     MasterPromotionService,
     OptionsService,
     BundleStockService,
@@ -70,10 +73,12 @@ import { PRODUCTS_TRANSACTION_PORT } from './application/port/out/products-trans
     { provide: PRODUCT_CATALOG_REPOSITORY_PORT, useExisting: ProductCatalogRepositoryAdapter },
     { provide: PRODUCT_MANAGEMENT_REPOSITORY_PORT, useExisting: ProductManagementRepositoryAdapter },
     { provide: PRODUCTS_TRANSACTION_PORT, useExisting: ProductsTransactionAdapter },
+    { provide: PRODUCT_MASTER_BARCODE_PORT, useExisting: MasterBarcodeService },
     { provide: PRODUCT_MASTER_PROMOTION_PORT, useExisting: MasterPromotionService },
     { provide: PRODUCT_BUNDLE_STOCK_PORT, useExisting: BundleStockService },
   ],
   exports: [
+    PRODUCT_MASTER_BARCODE_PORT,
     PRODUCT_MASTER_PROMOTION_PORT,
     PRODUCT_BUNDLE_STOCK_PORT,
   ],

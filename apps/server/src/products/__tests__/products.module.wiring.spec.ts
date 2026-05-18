@@ -16,8 +16,10 @@ import { PRODUCT_CATALOG_REPOSITORY_PORT } from '../application/port/out/product
 import { PRODUCT_MANAGEMENT_REPOSITORY_PORT } from '../application/port/out/product-management.repository.port';
 import { PRODUCTS_TRANSACTION_PORT } from '../application/port/out/products-transaction.port';
 import { PRODUCT_BUNDLE_STOCK_PORT } from '../application/port/in/bundle-stock.port';
+import { PRODUCT_MASTER_BARCODE_PORT } from '../application/port/in/master-barcode.port';
 import { PRODUCT_MASTER_PROMOTION_PORT } from '../application/port/in/master-promotion.port';
 import { BundleStockService } from '../application/service/bundle-stock.service';
+import { MasterBarcodeService } from '../application/service/master-barcode.service';
 import { MasterPromotionService } from '../application/service/master-promotion.service';
 
 const PROVIDERS_KEY = 'providers';
@@ -59,5 +61,6 @@ describe('ProductsModule canonical owner wiring', () => {
 
     expectBinding(providers, PRODUCT_MASTER_PROMOTION_PORT, MasterPromotionService);
     expectBinding(providers, PRODUCT_BUNDLE_STOCK_PORT, BundleStockService);
+    expectBinding(providers, PRODUCT_MASTER_BARCODE_PORT, MasterBarcodeService);
   });
 });

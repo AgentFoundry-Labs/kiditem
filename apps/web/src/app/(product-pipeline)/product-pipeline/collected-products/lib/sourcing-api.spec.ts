@@ -51,7 +51,7 @@ describe('sourcing candidate API', () => {
 
     expect(apiClient.post).toHaveBeenCalledWith(
       '/api/sourcing/candidates/cand-1/quick-process',
-      {},
+      { task: 'all' },
     );
   });
 

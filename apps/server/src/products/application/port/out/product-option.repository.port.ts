@@ -41,6 +41,11 @@ export interface ProductOptionRepositoryPort {
   ): Promise<ProductOptionRow>;
   findBySku(organizationId: string, sku: string): Promise<ProductOptionRow>;
   findByBarcode(organizationId: string, barcode: string): Promise<ProductOptionRow>;
+  findActiveByBarcode(
+    tx: ProductsRepositoryTransaction,
+    organizationId: string,
+    barcode: string,
+  ): Promise<ProductOptionRow | null>;
   findCurrentOption(
     tx: ProductsRepositoryTransaction,
     organizationId: string,

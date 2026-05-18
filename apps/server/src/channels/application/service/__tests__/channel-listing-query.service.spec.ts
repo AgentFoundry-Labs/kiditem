@@ -295,4 +295,30 @@ describe('ChannelListingQueryService', () => {
       ]),
     }));
   });
+
+  it('filters grouped registered listings by created date for recent sections', async () => {
+    await service.listGrouped('org-1', {
+      tab: 'registered',
+      createdSince: '2026-05-11T00:00:00.000Z',
+    });
+
+    expect(prisma.masterProduct.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        listings: {
+          some: expect.objectContaining({
+            organizationId: 'org-1',
+            isDeleted: false,
+            createdAt: { gte: new Date('2026-05-11T00:00:00.000Z') },
+          }),
+        },
+      }),
+      select: expect.objectContaining({
+        listings: expect.objectContaining({
+          where: expect.objectContaining({
+            createdAt: { gte: new Date('2026-05-11T00:00:00.000Z') },
+          }),
+        }),
+      }),
+    }));
+  });
 });

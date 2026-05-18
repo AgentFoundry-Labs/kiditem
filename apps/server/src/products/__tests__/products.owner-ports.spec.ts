@@ -20,7 +20,7 @@ function rg(args: string): string[] {
 }
 
 describe('products owner-side incoming ports', () => {
-  it('ProductsModule binds and exports promotion + bundle-stock owner ports', () => {
+  it('ProductsModule binds and exports promotion, bundle-stock, and barcode owner ports', () => {
     const source = readFileSync(
       path.join(REPO_ROOT, PRODUCTS_ROOT, 'products.module.ts'),
       'utf8',
@@ -28,21 +28,26 @@ describe('products owner-side incoming ports', () => {
 
     expect(source).toContain('PRODUCT_MASTER_PROMOTION_PORT');
     expect(source).toContain('PRODUCT_BUNDLE_STOCK_PORT');
+    expect(source).toContain('PRODUCT_MASTER_BARCODE_PORT');
     expect(source).toContain(
       '{ provide: PRODUCT_MASTER_PROMOTION_PORT, useExisting: MasterPromotionService }',
     );
     expect(source).toContain(
       '{ provide: PRODUCT_BUNDLE_STOCK_PORT, useExisting: BundleStockService }',
     );
+    expect(source).toContain(
+      '{ provide: PRODUCT_MASTER_BARCODE_PORT, useExisting: MasterBarcodeService }',
+    );
     expect(source).toMatch(/exports:\s*\[[\s\S]*PRODUCT_MASTER_PROMOTION_PORT/);
     expect(source).toMatch(/exports:\s*\[[\s\S]*PRODUCT_BUNDLE_STOCK_PORT/);
+    expect(source).toMatch(/exports:\s*\[[\s\S]*PRODUCT_MASTER_BARCODE_PORT/);
   });
 
   it('cross-owner consumers do not import products application service classes directly', () => {
     const hits = rg(
       [
         '--type ts -n',
-        '"products/application/service/(master-promotion|bundle-stock)\\.service"',
+        '"products/application/service/(master-promotion|bundle-stock|master-barcode)\\.service"',
         SERVER_SRC,
         "--glob '!apps/server/src/products/**'",
       ].join(' '),

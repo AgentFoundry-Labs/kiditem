@@ -111,6 +111,12 @@ export interface GenerationHistoryRow {
   createdAt: Date;
 }
 
+export interface MasterBarcodeOwnerRow {
+  id: string;
+  code: string;
+  name: string;
+}
+
 export interface MasterProductRepositoryPort {
   create(input: {
     organizationId: string;
@@ -135,6 +141,11 @@ export interface MasterProductRepositoryPort {
   ): Promise<MasterWithImageRows | null>;
   findByCode(organizationId: string, code: string): Promise<MasterWithImageRows | null>;
   findByLegacy(organizationId: string, legacyCode: string): Promise<MasterWithImageRows | null>;
+  findActiveBarcodeOwners(input: {
+    organizationId: string;
+    barcode: string;
+    tx: ProductsRepositoryTransaction;
+  }): Promise<MasterBarcodeOwnerRow[]>;
   update(input: {
     organizationId: string;
     id: string;

@@ -8,6 +8,7 @@ import { SourcingWorkspaceArchiveService } from '../../../application/service/so
 import { ProductPreparationSelectionService } from '../../../application/service/product-preparation-selection.service';
 import {
   PromoteCandidateBodyDto,
+  QuickProcessCandidateDto,
   RejectCandidateBodyDto,
   SelectPreparationDetailDto,
   SelectPreparationThumbnailDto,
@@ -53,10 +54,11 @@ export class SourcingCandidateWorkspaceController {
   @Post('candidates/:id/quick-process')
   async quickProcess(
     @Param('id') id: string,
+    @Body() body: QuickProcessCandidateDto | undefined,
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.sourcingService.quickProcessCandidate(id, organizationId, user.id ?? null);
+    return this.sourcingService.quickProcessCandidate(id, organizationId, user.id ?? null, body?.task ?? 'all');
   }
 
   @Patch('candidates/:id/preparation/basic-info')

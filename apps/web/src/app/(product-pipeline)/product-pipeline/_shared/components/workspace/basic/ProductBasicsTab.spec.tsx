@@ -153,6 +153,19 @@ describe('ProductBasicsTab', () => {
     expect(screen.queryByRole('button', { name: '저장' })).not.toBeInTheDocument();
   });
 
+  it('renders numbered product descriptions on separate lines', () => {
+    renderBasics({
+      basicInfo: {
+        ...completeBasicInfo,
+        description: '1. 오감 발달을 돕는 촉감 2. 창의적인 DIY 미술놀이 3. 안전한 어린이용 왁스',
+      },
+    });
+
+    expect(screen.getByText('1. 오감 발달을 돕는 촉감')).toBeInTheDocument();
+    expect(screen.getByText('2. 창의적인 DIY 미술놀이')).toBeInTheDocument();
+    expect(screen.getByText('3. 안전한 어린이용 왁스')).toBeInTheDocument();
+  });
+
   it('reports visible product fact edits to the parent draft controller', () => {
     const onDraftChange = vi.fn();
 

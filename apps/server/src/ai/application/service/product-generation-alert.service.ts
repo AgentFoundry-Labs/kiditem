@@ -19,6 +19,11 @@ interface ProductGenerationChildren {
   thumbnail: ChildStatus;
 }
 
+interface ProductGenerationIncludedChildren {
+  detail_page: boolean;
+  thumbnail: boolean;
+}
+
 type ProductGenerationChildStartResult =
   | { status: 'started'; alert: AlertRecord }
   | { status: 'parent_terminal'; alert: AlertRecord }
@@ -60,6 +65,14 @@ function childrenSnapshotFrom(metadata: unknown): ProductGenerationChildren {
       detail === 'succeeded' || detail === 'failed' ? detail : 'queued',
     thumbnail:
       thumbnail === 'succeeded' || thumbnail === 'failed' ? thumbnail : 'queued',
+  };
+}
+
+function includedChildrenFrom(metadata: unknown): ProductGenerationIncludedChildren {
+  const raw = asRecord(asRecord(metadata).includedChildren);
+  return {
+    detail_page: raw.detail_page !== false,
+    thumbnail: raw.thumbnail !== false,
   };
 }
 
@@ -134,6 +147,20 @@ function failureMessage(children: ProductGenerationChildren): string {
   return `상품 생성 일부 실패: ${failed.join(', ')}`;
 }
 
+function startMessageFor(included: ProductGenerationIncludedChildren): string {
+  if (included.detail_page && included.thumbnail) {
+    return '상품 작업공간을 만들고 상세페이지와 썸네일 생성을 시작했습니다.';
+  }
+  if (included.detail_page) return '상품 작업공간을 만들고 상세페이지 생성을 시작했습니다.';
+  return '상품 작업공간을 만들고 썸네일 생성을 시작했습니다.';
+}
+
+function successMessageFor(included: ProductGenerationIncludedChildren): string {
+  if (included.detail_page && included.thumbnail) return '상세페이지와 썸네일 생성이 완료되었습니다.';
+  if (included.detail_page) return '상세페이지 생성이 완료되었습니다.';
+  return '썸네일 생성이 완료되었습니다.';
+}
+
 @Injectable()
 export class ProductGenerationAlertService {
   constructor(
@@ -150,14 +177,20 @@ export class ProductGenerationAlertService {
     candidateId: string;
     productName: string;
     href: string;
+    includeDetailPage?: boolean;
+    includeThumbnail?: boolean;
   }) {
     const operationKey = productGenerationOperationKey(input.batchId);
+    const included = {
+      detail_page: input.includeDetailPage !== false,
+      thumbnail: input.includeThumbnail !== false,
+    } satisfies ProductGenerationIncludedChildren;
     return this.operationAlerts.start({
       organizationId: input.organizationId,
       operationKey,
       type: 'product_generation',
       title: `상품 생성 중: ${input.productName.slice(0, 40)}`,
-      message: '상품 작업공간을 만들고 상세페이지와 썸네일 생성을 시작했습니다.',
+      message: startMessageFor(included),
       sourceType: 'sourcing_candidate',
       sourceId: input.candidateId,
       targetType: 'sourcing_candidate',
@@ -169,9 +202,10 @@ export class ProductGenerationAlertService {
         productGenerationBatchId: input.batchId,
         productName: input.productName,
         children: {
-          detail_page: 'queued',
-          thumbnail: 'queued',
+          detail_page: included.detail_page ? 'queued' : 'succeeded',
+          thumbnail: included.thumbnail ? 'queued' : 'succeeded',
         } satisfies ProductGenerationChildren,
+        includedChildren: included,
         childIds: {
           detailPageGenerationId: null,
           thumbnailGenerationId: null,
@@ -249,7 +283,8 @@ export class ProductGenerationAlertService {
       input.childKind,
       input.childId,
     );
-    const children = await this.readChildrenFromLedgers(input.organizationId, childIds);
+    const previousChildren = childrenSnapshotFrom(metadata);
+    const children = await this.readChildrenFromLedgers(input.organizationId, childIds, previousChildren);
     if (input.childId.endsWith('-enqueue')) {
       children[input.childKind] = input.status;
     }
@@ -279,7 +314,7 @@ export class ProductGenerationAlertService {
     }
 
     return this.operationAlerts.succeed(input.organizationId, input.parentOperationKey, {
-      message: '상세페이지와 썸네일 생성이 완료되었습니다.',
+      message: successMessageFor(includedChildrenFrom(metadata)),
       progress,
       metadata: nextMetadata,
     });
@@ -288,6 +323,7 @@ export class ProductGenerationAlertService {
   private async readChildrenFromLedgers(
     organizationId: string,
     childIds: ProductGenerationChildIds,
+    previousChildren: ProductGenerationChildren,
   ): Promise<ProductGenerationChildren> {
     const { detailPageStatus, thumbnailStatus } = await this.childLedger.readChildStatuses({
       organizationId,
@@ -295,8 +331,12 @@ export class ProductGenerationAlertService {
     });
 
     return {
-      detail_page: normalizeDetailStatus(detailPageStatus),
-      thumbnail: normalizeThumbnailStatus(thumbnailStatus),
+      detail_page: childIds.detailPageGenerationId
+        ? normalizeDetailStatus(detailPageStatus)
+        : previousChildren.detail_page,
+      thumbnail: childIds.thumbnailGenerationId
+        ? normalizeThumbnailStatus(thumbnailStatus)
+        : previousChildren.thumbnail,
     };
   }
 }

@@ -30,10 +30,11 @@ describe('channelListingsApi', () => {
       channel: 'coupang',
       channelAccountId: 'account-1',
       search: '다트',
+      createdSince: '2026-05-11T00:00:00.000Z',
     });
 
     expect(apiClient.get).toHaveBeenCalledWith(
-      '/api/channels/listings?page=2&limit=20&sort=name_asc&channel=coupang&channelAccountId=account-1&search=%EB%8B%A4%ED%8A%B8',
+      '/api/channels/listings?page=2&limit=20&sort=name_asc&channel=coupang&channelAccountId=account-1&search=%EB%8B%A4%ED%8A%B8&createdSince=2026-05-11T00%3A00%3A00.000Z',
     );
   });
 
@@ -60,10 +61,11 @@ describe('channelListingsApi', () => {
     await channelListingsApi.listGroups({
       tab: 'deleted',
       channel: 'coupang',
+      createdSince: '2026-05-11T00:00:00.000Z',
     });
 
     expect(apiClient.get).toHaveBeenCalledWith(
-      '/api/channels/listings/groups?page=1&limit=20&channel=coupang&tab=deleted',
+      '/api/channels/listings/groups?page=1&limit=20&channel=coupang&createdSince=2026-05-11T00%3A00%3A00.000Z&tab=deleted',
     );
   });
 });
