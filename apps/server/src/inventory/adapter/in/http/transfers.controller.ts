@@ -3,7 +3,7 @@ import { CurrentOrganization } from '../../../../auth/decorators/current-organiz
 import {
   TRANSFERS_PORT,
   type TransfersPort,
-} from '../../../application/port/in/transfers.port';
+} from '../../../application/port/in/warehouse/transfers.port';
 import {
   CreateStockTransferDto,
   ListStockTransfersQueryDto,

@@ -3,7 +3,7 @@ import { CurrentOrganization } from '../../../../auth/decorators/current-organiz
 import {
   AUDITS_PORT,
   type AuditsPort,
-} from '../../../application/port/in/audits.port';
+} from '../../../application/port/in/stock/audits.port';
 import { CreateStockAuditDto, UpdateStockAuditDto } from './dto';
 
 // Route stays `/api/stock-audits/*` even though the file is now

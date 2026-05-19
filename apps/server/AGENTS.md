@@ -118,14 +118,21 @@ Read the nearest guide before editing:
 
 ## Port Directory Rules
 
-Hexagonal owner modules classify ports by direction first, then by IO lane.
-These folders are Interface seams; keep them small enough that callers can see
-which Adapter family or owner Module sits behind the contract.
+Hexagonal owner modules classify ports by direction first. The second-level
+folder is intentionally asymmetric: incoming ports are owner capability
+Interfaces, while outgoing ports are driven Adapter family Interfaces.
 
 Incoming ports live under `application/port/in/`. Keep them flat when the owner
 publishes only one or two use-case Interfaces. Use a capability folder when
-three or more incoming ports share one owner capability, or when the incoming
-Interface is exported for multiple consuming owners.
+three or more incoming ports share one owner capability, when a capability is
+published as an Agent/tool surface, or when the incoming Interface is exported
+for multiple consuming owners.
+
+Do not classify incoming ports by caller or entrypoint type. Folders such as
+`application/port/in/agent/`, `application/port/in/http/`, and
+`application/port/in/workflow/` are forbidden. HTTP, Agent, workflow, and CLI
+entrypoints belong under `adapter/in/{http,agent,workflow,cli}/` and may share
+the same incoming capability Interface.
 
 Outgoing ports live under `application/port/out/`. Use these lane folders when
 the lane exists:

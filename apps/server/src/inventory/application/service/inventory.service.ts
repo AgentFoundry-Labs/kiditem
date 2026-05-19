@@ -17,7 +17,7 @@ import {
   type ListInventoryInput,
   type ListTransactionsInput,
   type TransactionSummaryInput,
-} from '../port/in/inventory.port';
+} from '../port/in/stock/inventory.port';
 import {
   INVENTORY_QUERY_REPOSITORY_PORT,
   type InventoryQueryRepositoryPort,
@@ -48,7 +48,7 @@ import { toTransactionListItem } from '../../mapper/stock-transaction.mapper';
 
 // `INVENTORY_PORT` re-export so adapter modules can import the token from a
 // service-adjacent path without reaching into `application/port/in/**` directly.
-export { INVENTORY_PORT } from '../port/in/inventory.port';
+export { INVENTORY_PORT } from '../port/in/stock/inventory.port';
 
 @Injectable()
 export class InventoryService implements InventoryPort {

@@ -3,7 +3,7 @@ import { CurrentOrganization } from '../../../../auth/decorators/current-organiz
 import {
   UNSHIPPED_PORT,
   type UnshippedPort,
-} from '../../../application/port/in/unshipped.port';
+} from '../../../application/port/in/fulfillment/unshipped.port';
 import { ListUnshippedQueryDto } from './dto';
 
 @Controller('unshipped')

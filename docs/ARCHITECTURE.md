@@ -189,13 +189,21 @@ forcing a full `application/domain/port` structure.
 ### Backend Port Lane Rules
 
 Port folders are Interface seams, not decoration. `application/port/in/` and
-`application/port/out/` are the first-level direction split; subfolders under
-them exist only when they improve Locality or make the Adapter family visible.
+`application/port/out/` are the first-level direction split. The second-level
+folder is intentionally asymmetric: incoming ports are owner capability
+Interfaces, while outgoing ports are driven Adapter family Interfaces.
 
 Incoming ports stay flat while the owner publishes one or two use-case
 Interfaces. Use a capability folder under `application/port/in/` when three or
-more incoming ports share one owner capability, or when the same incoming
-capability is exported for multiple consuming owners.
+more incoming ports share one owner capability, when a capability is published
+as an Agent/tool surface, or when the same incoming capability is exported for
+multiple consuming owners.
+
+Incoming ports are never grouped by caller or entrypoint type. Folders such as
+`application/port/in/agent/`, `application/port/in/http/`, and
+`application/port/in/workflow/` are forbidden. HTTP, Agent, workflow, and CLI
+entrypoints live under `adapter/in/{http,agent,workflow,cli}/` and may call the
+same incoming capability Interface.
 
 Outgoing ports use these lane folders when the lane exists:
 
@@ -229,6 +237,7 @@ Incoming ports may stay flat when all of these are true:
 - The owner has only one or two incoming ports.
 - The port name is already domain-language specific.
 - There is no likely second Adapter and no cross-domain consumer.
+- The capability is not being published as an Agent/tool surface.
 
 Outgoing port files do not stay directly under `application/port/out/` in
 reconstructed owner modules. Domain-specific outgoing ports still use the

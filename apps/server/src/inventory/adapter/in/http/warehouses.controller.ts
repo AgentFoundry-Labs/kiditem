@@ -3,7 +3,7 @@ import { CurrentOrganization } from '../../../../auth/decorators/current-organiz
 import {
   WAREHOUSES_PORT,
   type WarehousesPort,
-} from '../../../application/port/in/warehouses.port';
+} from '../../../application/port/in/warehouse/warehouses.port';
 import { CreateWarehouseDto, UpdateWarehouseDto } from './dto';
 
 @Controller('warehouses')

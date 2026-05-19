@@ -1,4 +1,4 @@
-import type { StockAuditRow } from '../out/repository/audits.repository.port';
+import type { StockAuditRow } from '../../out/repository/audits.repository.port';
 
 export const AUDITS_PORT = Symbol('AuditsPort');
 

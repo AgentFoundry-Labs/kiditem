@@ -1,7 +1,7 @@
 import type {
   PickingItemRow,
   PickingListRow,
-} from '../out/repository/picking.repository.port';
+} from '../../out/repository/picking.repository.port';
 
 export const PICKING_PORT = Symbol('PickingPort');
 

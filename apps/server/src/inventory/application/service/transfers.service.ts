@@ -4,7 +4,7 @@ import {
   type CreateStockTransferInput,
   type TransfersPort,
   type UpdateStockTransferInput,
-} from '../port/in/transfers.port';
+} from '../port/in/warehouse/transfers.port';
 import {
   TRANSFERS_REPOSITORY_PORT,
   type StockTransferRow,
@@ -15,7 +15,7 @@ import {
   InvalidStockTransferTransition,
 } from '../../domain/policy/stock-transfer-transition';
 
-export { TRANSFERS_PORT } from '../port/in/transfers.port';
+export { TRANSFERS_PORT } from '../port/in/warehouse/transfers.port';
 
 @Injectable()
 export class TransfersService implements TransfersPort {

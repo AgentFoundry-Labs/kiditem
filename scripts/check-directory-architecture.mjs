@@ -36,6 +36,23 @@ function directOutPortFiles(backendPortFiles) {
     .sort();
 }
 
+const FORBIDDEN_IN_PORT_FOLDER_NAMES = new Set(['agent', 'http', 'workflow']);
+
+function forbiddenInPortCallerFolders(backendPortFiles) {
+  return backendPortFiles
+    .filter((file) => file.endsWith('.ts'))
+    .filter((file) => {
+      const marker = '/application/port/in/';
+      const markerIndex = file.indexOf(marker);
+      if (markerIndex === -1) return false;
+
+      const rest = file.slice(markerIndex + marker.length);
+      const [folder] = rest.split('/');
+      return Boolean(folder && FORBIDDEN_IN_PORT_FOLDER_NAMES.has(folder));
+    })
+    .sort();
+}
+
 export function analyzeDirectoryArchitecture({
   architectureDoc,
   serverSrcDirs,
@@ -66,6 +83,7 @@ export function analyzeDirectoryArchitecture({
     missing,
     forbidden,
     directOutPortFiles: directOutPortFiles(backendPortFiles),
+    forbiddenInPortCallerFolders: forbiddenInPortCallerFolders(backendPortFiles),
   };
 }
 
@@ -89,7 +107,8 @@ function main() {
   const hasFailure =
     result.missing.length > 0 ||
     result.forbidden.length > 0 ||
-    result.directOutPortFiles.length > 0;
+    result.directOutPortFiles.length > 0 ||
+    result.forbiddenInPortCallerFolders.length > 0;
 
   if (!hasFailure) {
     console.log('check:directory-architecture PASS');
@@ -106,6 +125,11 @@ function main() {
   if (result.directOutPortFiles.length > 0) {
     console.error(
       `Outgoing port files must live under explicit lane directories: ${result.directOutPortFiles.join(', ')}`,
+    );
+  }
+  if (result.forbiddenInPortCallerFolders.length > 0) {
+    console.error(
+      `Incoming port folders must use capability names, not caller or entrypoint types: ${result.forbiddenInPortCallerFolders.join(', ')}`,
     );
   }
   console.error('Update docs/ARCHITECTURE.md with the directory map or move the directory.');

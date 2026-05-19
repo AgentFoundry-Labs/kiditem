@@ -58,3 +58,25 @@ test('reports backend outgoing ports left directly under port/out', () => {
     'apps/server/src/supply/application/port/out/supplier.repository.port.ts',
   ]);
 });
+
+test('reports incoming port folders named after caller or entrypoint types', () => {
+  const result = analyzeDirectoryArchitecture({
+    architectureDoc: '',
+    serverSrcDirs: [],
+    webAppDirs: [],
+    webSrcDirs: ['app'],
+    webAppApiExists: false,
+    backendPortFiles: [
+      'apps/server/src/inventory/application/port/in/stock/inventory.port.ts',
+      'apps/server/src/products/application/port/in/agent/master-promotion.port.ts',
+      'apps/server/src/automation/application/port/in/workflow/workflow-run-cancellation.port.ts',
+      'apps/server/src/supply/application/port/in/http/suppliers.port.ts',
+    ],
+  });
+
+  assert.deepEqual(result.forbiddenInPortCallerFolders, [
+    'apps/server/src/automation/application/port/in/workflow/workflow-run-cancellation.port.ts',
+    'apps/server/src/products/application/port/in/agent/master-promotion.port.ts',
+    'apps/server/src/supply/application/port/in/http/suppliers.port.ts',
+  ]);
+});

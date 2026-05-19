@@ -28,12 +28,9 @@ import { TransfersService } from './application/service/transfers.service';
 import { AuditsService } from './application/service/audits.service';
 import { PickingService } from './application/service/picking.service';
 
-import { INVENTORY_PORT } from './application/port/in/inventory.port';
-import { UNSHIPPED_PORT } from './application/port/in/unshipped.port';
-import { WAREHOUSES_PORT } from './application/port/in/warehouses.port';
-import { TRANSFERS_PORT } from './application/port/in/transfers.port';
-import { AUDITS_PORT } from './application/port/in/audits.port';
-import { PICKING_PORT } from './application/port/in/picking.port';
+import { AUDITS_PORT, INVENTORY_PORT } from './application/port/in/stock';
+import { PICKING_PORT, UNSHIPPED_PORT } from './application/port/in/fulfillment';
+import { TRANSFERS_PORT, WAREHOUSES_PORT } from './application/port/in/warehouse';
 
 import { INVENTORY_QUERY_REPOSITORY_PORT } from './application/port/out/repository/inventory-query.repository.port';
 import { INVENTORY_REPOSITORY_PORT } from './application/port/out/repository/inventory.repository.port';

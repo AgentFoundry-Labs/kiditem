@@ -22,6 +22,12 @@ inventory/
 └── __tests__/                # wiring, architecture, integration specs
 ```
 
+`application/port/in/` is capability-grouped:
+
+- `stock/`: inventory state, stock mutation, transaction, and audit use cases.
+- `warehouse/`: warehouse and stock-transfer use cases.
+- `fulfillment/`: unshipped and picking use cases.
+
 ## Owned Surfaces
 
 - Inventory and stock transactions: `/api/inventory/*`
