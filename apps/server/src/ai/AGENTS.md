@@ -18,7 +18,6 @@ ai/
 │   ├── coupang/              # Coupang/Wing integration adapters
 │   ├── gemini/               # Gemini text/media/vision adapters
 │   ├── image-fetch/          # guarded remote image fetch adapter
-│   ├── prisma/               # Prisma persistence/query helpers
 │   ├── products/             # product/content lookup adapters
 │   ├── repository/           # reconstructed Prisma repository/query adapters
 │   └── wing/                 # Wing automation adapter
@@ -124,13 +123,15 @@ hot-path listener was unavailable.
 These are known same-domain shortcuts. Do not grow them without replacing or
 compacting the exception.
 
-- Thumbnail analysis/auto/generation/recompose/tracking/Wing services still use
-  legacy Prisma persistence/query helpers.
-- Thumbnail vision/compliance services still depend on the Gemini thumbnail
-  vision adapter.
-- Thumbnail reference warm-up and some image-fetch paths still use concrete
-  adapters.
-- `thumbnail-editor-ai.service.ts` still owns inline Gemini image generation.
+- AI application services do not import Prisma, HTTP DTOs, or concrete
+  `adapter/out/**` implementations. Keep new persistence/provider/media work
+  behind `application/port/out/*` contracts.
+- Thumbnail generation, analysis, tracking, Wing registration, image fetch,
+  reference-image warm-up, image generation, and vision/verify provider calls
+  are behind outbound ports.
+- Prisma query/write helper modules for AI-owned rows live beside their
+  repository adapters. Do not reintroduce `adapter/out/prisma` as a legacy
+  staging area.
 - `render-image.controller.ts` still owns inline Puppeteer/filesystem
   rendering.
 - Coupang image sync keeps an in-memory job map and local Wing scrape fallback.

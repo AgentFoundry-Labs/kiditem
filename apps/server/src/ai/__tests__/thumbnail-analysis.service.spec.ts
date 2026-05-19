@@ -6,15 +6,15 @@ import { ThumbnailAnalysisQueryService } from '../application/service/thumbnail-
 import { ThumbnailAnalysisAnalyzerService } from '../application/service/thumbnail-analysis-analyzer.service';
 import { ThumbnailAnalysisBatchService } from '../application/service/thumbnail-analysis-batch.service';
 
-function makeFacade(prisma: unknown, vision: unknown, recompose: unknown): ThumbnailAnalysisService {
-  const query = new ThumbnailAnalysisQueryService(prisma as never);
+function makeFacade(repository: unknown, vision: unknown, recompose: unknown): ThumbnailAnalysisService {
+  const query = new ThumbnailAnalysisQueryService(repository as never);
   const analyzer = new ThumbnailAnalysisAnalyzerService(
-    prisma as never,
+    repository as never,
     vision as never,
     recompose as never,
   );
   const batch = new ThumbnailAnalysisBatchService(
-    prisma as never,
+    repository as never,
     vision as never,
     recompose as never,
     analyzer,
@@ -80,32 +80,36 @@ function makeAnalysisRow(over: Record<string, unknown> = {}) {
   };
 }
 
-function makePrismaMock(master: MasterRow | null) {
+function makeRepositoryMock(master: MasterRow | null) {
   return {
-    masterProduct: {
-      findFirst: vi.fn(async (args: { where: { organizationId?: string } }) => {
-        if (master && args.where.organizationId === ORGANIZATION_ID) return master;
-        return null;
-      }),
-    },
-    thumbnailAnalysis: {
-      upsert: vi.fn(async (args: { update: Record<string, unknown> }) =>
-        makeAnalysisRow(args.update),
-      ),
-      findMany: vi.fn(async () => []),
-      findFirst: vi.fn(async () => null),
-    },
+    findMasterForAnalysis: vi.fn(async (_productId: string, organizationId: string) => {
+      if (master && organizationId === ORGANIZATION_ID) return master;
+      return null;
+    }),
+    upsertAnalysis: vi.fn(async (input: Record<string, unknown>) =>
+      makeAnalysisRow(input),
+    ),
+    findAllAnalysisMasters: vi.fn(async () => []),
+    findAnalysesForOrganization: vi.fn(async () => []),
+    getAnalysisSummaryRows: vi.fn(async () => ({ masterCount: 0, rows: [] })),
+    findMastersForBatch: vi.fn(async () => []),
+    findMastersForPreInspect: vi.fn(async () => []),
+    findRecomposeMaster: vi.fn(async () => null),
   };
 }
 
-function makePrismaListMock(masters: MasterRow[], analyses: Array<ReturnType<typeof makeAnalysisRow>>) {
+function makeRepositoryListMock(masters: MasterRow[], analyses: Array<ReturnType<typeof makeAnalysisRow>>) {
   return {
-    masterProduct: {
-      findMany: vi.fn(async () => masters),
-    },
-    thumbnailAnalysis: {
-      findMany: vi.fn(async () => analyses),
-    },
+    findMasterForAnalysis: vi.fn(async () => null),
+    upsertAnalysis: vi.fn(async (input: Record<string, unknown>) =>
+      makeAnalysisRow(input),
+    ),
+    findAllAnalysisMasters: vi.fn(async () => masters),
+    findAnalysesForOrganization: vi.fn(async () => analyses),
+    getAnalysisSummaryRows: vi.fn(async () => ({ masterCount: masters.length, rows: analyses })),
+    findMastersForBatch: vi.fn(async () => []),
+    findMastersForPreInspect: vi.fn(async () => []),
+    findRecomposeMaster: vi.fn(async () => null),
   };
 }
 
@@ -192,10 +196,10 @@ describe('ThumbnailAnalysisService AI flow', () => {
         { url: 'https://cdn/primary.jpg', role: 'product', sortOrder: 0, isPrimary: true },
       ],
     });
-    const prisma = makePrismaMock(master);
+    const repository = makeRepositoryMock(master);
     const vision = makeVisionMock({ quality: { overallScore: 70, grade: 'B' } });
     const recompose = makeRecomposeMock();
-    const service = makeFacade(prisma, vision, recompose);
+    const service = makeFacade(repository, vision, recompose);
     await service.analyzeProduct(PRODUCT_ID, ORGANIZATION_ID, 'quality');
     expect(vision.analyzeQuality).toHaveBeenCalledTimes(1);
     expect(vision.analyzeQuality.mock.calls[0][0][0].imageUrl).toBe(
@@ -204,10 +208,10 @@ describe('ThumbnailAnalysisService AI flow', () => {
   });
 
   it('quality scope updates quality fields and recompose classification', async () => {
-    const prisma = makePrismaMock(makeMaster());
+    const repository = makeRepositoryMock(makeMaster());
     const vision = makeVisionMock({ quality: { overallScore: 85, grade: 'A' } });
     const recompose = makeRecomposeMock();
-    const service = makeFacade(prisma, vision, recompose);
+    const service = makeFacade(repository, vision, recompose);
     await service.analyzeProduct(PRODUCT_ID, ORGANIZATION_ID, 'quality');
     expect(vision.checkCompliance).not.toHaveBeenCalled();
     expect(recompose.classifyByImage).toHaveBeenCalledTimes(1);
@@ -215,73 +219,71 @@ describe('ThumbnailAnalysisService AI flow', () => {
       productName: 'Test product',
       category: 'toys',
     });
-    const upsertArgs = prisma.thumbnailAnalysis.upsert.mock.calls[0][0];
-    expect(upsertArgs.update.complianceGrade).toBeUndefined();
-    expect(upsertArgs.update.complianceScores).toBeUndefined();
-    expect(upsertArgs.update.qualityAnalyzedAt).toBeInstanceOf(Date);
-    expect(upsertArgs.update.recompose).toMatchObject({ kind: 'single-product' });
+    const upsertInput = repository.upsertAnalysis.mock.calls[0][0];
+    expect(upsertInput.complianceResult).toBeUndefined();
+    expect(upsertInput.qualityResult).toMatchObject({ overallScore: 85, grade: 'A' });
+    expect(upsertInput.recompose).toMatchObject({ kind: 'single-product' });
   });
 
   it('compliance scope updates only compliance-related fields', async () => {
-    const prisma = makePrismaMock(makeMaster());
+    const repository = makeRepositoryMock(makeMaster());
     const vision = makeVisionMock({ compliance: { complianceGrade: 'PASS' } });
     const recompose = makeRecomposeMock();
-    const service = makeFacade(prisma, vision, recompose);
+    const service = makeFacade(repository, vision, recompose);
     await service.analyzeProduct(PRODUCT_ID, ORGANIZATION_ID, 'compliance');
     expect(vision.analyzeQuality).not.toHaveBeenCalled();
     expect(recompose.classifyByImage).not.toHaveBeenCalled();
-    const upsertArgs = prisma.thumbnailAnalysis.upsert.mock.calls[0][0];
-    expect(upsertArgs.update.qualityAnalyzedAt).toBeUndefined();
-    expect(upsertArgs.update.grade).toBeUndefined();
-    expect(upsertArgs.update.complianceAnalyzedAt).toBeInstanceOf(Date);
-    expect(upsertArgs.update.recompose).toBeUndefined();
+    const upsertInput = repository.upsertAnalysis.mock.calls[0][0];
+    expect(upsertInput.qualityResult).toBeUndefined();
+    expect(upsertInput.complianceResult).toMatchObject({ complianceGrade: 'PASS' });
+    expect(upsertInput.recompose).toBeUndefined();
   });
 
   it('throws NotFoundException for another organization product id', async () => {
-    const prisma = makePrismaMock(null);
+    const repository = makeRepositoryMock(null);
     const vision = makeVisionMock({});
     const recompose = makeRecomposeMock();
-    const service = makeFacade(prisma, vision, recompose);
+    const service = makeFacade(repository, vision, recompose);
     await expect(
       service.analyzeProduct(PRODUCT_ID, OTHER_COMPANY, 'all'),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('does not upsert a placeholder row when quality analysis returns no result', async () => {
-    const prisma = makePrismaMock(makeMaster());
+    const repository = makeRepositoryMock(makeMaster());
     const vision = makeVisionMock({});
     const recompose = makeRecomposeMock();
-    const service = makeFacade(prisma, vision, recompose);
+    const service = makeFacade(repository, vision, recompose);
 
     await expect(service.analyzeProduct(PRODUCT_ID, ORGANIZATION_ID, 'quality')).rejects.toBeInstanceOf(
       ServiceUnavailableException,
     );
-    expect(prisma.thumbnailAnalysis.upsert).not.toHaveBeenCalled();
+    expect(repository.upsertAnalysis).not.toHaveBeenCalled();
   });
 
   it('does not upsert a placeholder row when compliance analysis returns no result', async () => {
-    const prisma = makePrismaMock(makeMaster());
+    const repository = makeRepositoryMock(makeMaster());
     const vision = makeVisionMock({});
     const recompose = makeRecomposeMock();
-    const service = makeFacade(prisma, vision, recompose);
+    const service = makeFacade(repository, vision, recompose);
 
     await expect(
       service.analyzeProduct(PRODUCT_ID, ORGANIZATION_ID, 'compliance'),
     ).rejects.toBeInstanceOf(ServiceUnavailableException);
-    expect(prisma.thumbnailAnalysis.upsert).not.toHaveBeenCalled();
+    expect(repository.upsertAnalysis).not.toHaveBeenCalled();
   });
 
   it('does not upsert when single-product compliance image fetch/spec probing fails', async () => {
-    const prisma = makePrismaMock(makeMaster());
+    const repository = makeRepositoryMock(makeMaster());
     const vision = makeVisionMock({ compliance: { complianceGrade: 'PASS' } });
     vision.checkImageSpec.mockRejectedValueOnce(new Error('fetch failed'));
     const recompose = makeRecomposeMock();
-    const service = makeFacade(prisma, vision, recompose);
+    const service = makeFacade(repository, vision, recompose);
 
     await expect(service.analyzeProduct(PRODUCT_ID, ORGANIZATION_ID, 'compliance')).rejects.toThrow(
       'fetch failed',
     );
-    expect(prisma.thumbnailAnalysis.upsert).not.toHaveBeenCalled();
+    expect(repository.upsertAnalysis).not.toHaveBeenCalled();
   });
 
   it('keeps spec-only pre-inspect rows out of analyzed results and grade counts', async () => {
@@ -301,8 +303,8 @@ describe('ThumbnailAnalysisService AI flow', () => {
         issues: [{ type: 'low_resolution', severity: 'fail', message: 'low' }],
       },
     });
-    const prisma = makePrismaListMock([master], [specOnly]);
-    const service = makeFacade(prisma, makeVisionMock({}), makeRecomposeMock());
+    const repository = makeRepositoryListMock([master], [specOnly]);
+    const service = makeFacade(repository, makeVisionMock({}), makeRecomposeMock());
 
     const result = await service.findAllWithAnalysis(ORGANIZATION_ID);
 
@@ -315,49 +317,21 @@ describe('ThumbnailAnalysisService AI flow', () => {
   });
 
   it('scopes thumbnail analysis list to masters with Coupang listings', async () => {
-    const prisma = makePrismaListMock([makeMaster()], []);
-    const service = makeFacade(prisma, makeVisionMock({}), makeRecomposeMock());
+    const repository = makeRepositoryListMock([makeMaster()], []);
+    const service = makeFacade(repository, makeVisionMock({}), makeRecomposeMock());
 
     await service.findAllWithAnalysis(ORGANIZATION_ID);
 
-    expect(prisma.masterProduct.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          organizationId: ORGANIZATION_ID,
-          isDeleted: false,
-          listings: {
-            some: {
-              organizationId: ORGANIZATION_ID,
-              channel: 'coupang',
-              isDeleted: false,
-            },
-          },
-        }),
-      }),
-    );
+    expect(repository.findAllAnalysisMasters).toHaveBeenCalledWith(ORGANIZATION_ID);
   });
 
   it('scopes thumbnail analysis summary to masters with Coupang listings', async () => {
-    const prisma = makePrismaListMock([], []);
-    const service = makeFacade(prisma, makeVisionMock({}), makeRecomposeMock());
+    const repository = makeRepositoryListMock([], []);
+    const service = makeFacade(repository, makeVisionMock({}), makeRecomposeMock());
 
     await service.getSummary(ORGANIZATION_ID);
 
-    expect(prisma.masterProduct.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          organizationId: ORGANIZATION_ID,
-          isDeleted: false,
-          listings: {
-            some: {
-              organizationId: ORGANIZATION_ID,
-              channel: 'coupang',
-              isDeleted: false,
-            },
-          },
-        }),
-      }),
-    );
+    expect(repository.getAnalysisSummaryRows).toHaveBeenCalledWith(ORGANIZATION_ID);
   });
 
   it('does not render analysis rows whose master is not owned by the caller organization', async () => {
@@ -370,8 +344,8 @@ describe('ThumbnailAnalysisService AI flow', () => {
         images: [],
       },
     });
-    const prisma = makePrismaListMock([], [crossTenantAnalysis]);
-    const service = makeFacade(prisma, makeVisionMock({}), makeRecomposeMock());
+    const repository = makeRepositoryListMock([], [crossTenantAnalysis]);
+    const service = makeFacade(repository, makeVisionMock({}), makeRecomposeMock());
 
     const result = await service.findAllWithAnalysis(ORGANIZATION_ID);
 

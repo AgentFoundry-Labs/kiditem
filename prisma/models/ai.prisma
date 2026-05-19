@@ -63,7 +63,7 @@ model ThumbnailAnalysis {
 }
 
 /// @namespace AI
-/// @describe 상태: pending→generating→ready/failed→applied/skipped. method=edit 만 사용 (generate Imagen 방식 삭제됨).
+/// @describe 상태: status=pending/running/succeeded/failed/cancelled, phase=ready/applied. method=generate/creative/auto.
 model ThumbnailGeneration {
   id                      String  @id @default(uuid()) @db.Uuid
   organizationId          String  @map("organization_id") @db.Uuid

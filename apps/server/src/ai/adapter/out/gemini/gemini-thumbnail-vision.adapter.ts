@@ -1,23 +1,20 @@
-import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { Inject, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { GoogleGenAI } from '@google/genai';
-import { ThumbnailImageFetcherService } from '../image-fetch/thumbnail-image-fetcher.adapter';
 import {
   requireGeminiApiKey,
   requireGeminiVerifyModel,
   requireGeminiVisionModel,
 } from './thumbnail-gemini-config';
 import type { ImageBytes } from '../../../domain/thumbnail-image-spec';
-
-type Part = { text: string } | { inlineData: { data: string; mimeType: string } };
-
-interface VisionContents {
-  contents: Array<{ role: 'user'; parts: Part[] }>;
-}
-
-interface FetchedTrustedImage {
-  buffer: Buffer;
-  mimeType: string;
-}
+import {
+  IMAGE_FETCH_PORT,
+  type FetchedImage,
+  type ImageFetchPort,
+} from '../../../application/port/out/image-fetch.port';
+import type {
+  ThumbnailVisionContents,
+  ThumbnailVisionProviderPort,
+} from '../../../application/port/out/thumbnail-vision-provider.port';
 
 /**
  * Owns the Gemini client lifecycle and the request/response envelope shared by
@@ -31,11 +28,14 @@ interface FetchedTrustedImage {
  * response either contained a JSON envelope or it didn't".
  */
 @Injectable()
-export class GeminiThumbnailVisionAdapter {
+export class GeminiThumbnailVisionAdapter implements ThumbnailVisionProviderPort {
   private readonly logger = new Logger(GeminiThumbnailVisionAdapter.name);
   private client: GoogleGenAI | null = null;
 
-  constructor(private readonly imageFetcher: ThumbnailImageFetcherService) {}
+  constructor(
+    @Inject(IMAGE_FETCH_PORT)
+    private readonly imageFetcher: ImageFetchPort,
+  ) {}
 
   // ─── Image fetch ─────────────────────────────────────────────────────────
 
@@ -47,7 +47,7 @@ export class GeminiThumbnailVisionAdapter {
     };
   }
 
-  fetchTrustedStorageImage(imageUrl: string): Promise<FetchedTrustedImage> {
+  fetchTrustedStorageImage(imageUrl: string): Promise<FetchedImage> {
     return this.imageFetcher.fetchTrustedStorageImage(imageUrl);
   }
 
@@ -71,7 +71,7 @@ export class GeminiThumbnailVisionAdapter {
    * empty or contains no `[ ... ]` envelope.
    */
   async callVisionForJsonArray<T>(
-    contents: VisionContents,
+    contents: ThumbnailVisionContents,
     errorCode: string,
     signal?: AbortSignal,
   ): Promise<T[]> {
@@ -85,7 +85,7 @@ export class GeminiThumbnailVisionAdapter {
    * verifications.
    */
   async callVerifyForJsonObject<T>(
-    contents: VisionContents,
+    contents: ThumbnailVisionContents,
     errorCode: string,
     signal?: AbortSignal,
   ): Promise<T> {
@@ -99,7 +99,7 @@ export class GeminiThumbnailVisionAdapter {
    * through one rigid type.
    */
   async callVisionForJsonText(
-    contents: VisionContents,
+    contents: ThumbnailVisionContents,
     signal?: AbortSignal,
   ): Promise<string | null> {
     const client = this.getClient();
@@ -146,7 +146,7 @@ export class GeminiThumbnailVisionAdapter {
   }
 
   private async callVisionRaw(
-    contents: VisionContents,
+    contents: ThumbnailVisionContents,
     signal?: AbortSignal,
   ): Promise<string> {
     const client = this.getClient();
@@ -161,7 +161,7 @@ export class GeminiThumbnailVisionAdapter {
   }
 
   private async callVerifyRaw(
-    contents: VisionContents,
+    contents: ThumbnailVisionContents,
     signal?: AbortSignal,
   ): Promise<string> {
     const client = this.getClient();

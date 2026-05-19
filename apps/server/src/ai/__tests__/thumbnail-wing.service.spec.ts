@@ -1,5 +1,8 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { ThumbnailWingPersistence } from '../adapter/out/prisma/thumbnail-wing.persistence';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { NotFoundException } from '@nestjs/common';
+import type { ThumbnailWingRepositoryPort } from '../application/port/out/thumbnail-wing.repository.port';
 import { ThumbnailWingService } from '../application/service/thumbnail-wing.service';
 
 const ORGANIZATION_ID = 'organization-1';
@@ -28,7 +31,73 @@ function makeService() {
       deleteMany: vi.fn(async () => ({ count: 1 })),
     },
   };
-  const persistence = new ThumbnailWingPersistence(prisma as never);
+  const repository: ThumbnailWingRepositoryPort = {
+    findGenerationWithCandidates: (generationId, organizationId) =>
+      prisma.thumbnailGeneration.findFirst({
+        where: { id: generationId, organizationId },
+        include: {
+          candidates: {
+            where: { organizationId },
+            orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+          },
+        },
+      }),
+    findRegistrableMaster: (masterId, organizationId) =>
+      prisma.masterProduct.findFirst({
+        where: { id: masterId, organizationId, isDeleted: false },
+        select: {
+          name: true,
+          listings: {
+            where: { organizationId, channel: 'coupang', isDeleted: false },
+            select: { channelName: true, createdAt: true },
+            orderBy: { createdAt: 'asc' },
+            take: 1,
+          },
+        },
+      }),
+    findGenerationWithLatestAttempt: (id, organizationId) =>
+      prisma.thumbnailGeneration.findFirst({
+        where: { id, organizationId },
+        include: {
+          registrationAttempts: {
+            where: { organizationId },
+            orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+            take: 1,
+          },
+        },
+      }),
+    ensureGenerationExists: async (id, organizationId) => {
+      const existing = await prisma.thumbnailGeneration.findFirst({
+        where: { id, organizationId },
+        select: { id: true },
+      });
+      if (!existing) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
+    },
+    createRegistrationAttempt: (generationId, organizationId) =>
+      prisma.thumbnailRegistrationAttempt.create({
+        data: {
+          organizationId,
+          generationId,
+          status: 'running',
+          startedAt: new Date(),
+        },
+        select: { id: true },
+      }),
+    updateRegistrationAttemptOrThrow: async (id, organizationId, data, generationId) => {
+      const result = await prisma.thumbnailRegistrationAttempt.updateMany({
+        where: { id, organizationId, ...(generationId ? { generationId } : {}) },
+        data,
+      });
+      if (result.count === 0) {
+        throw new NotFoundException(`ThumbnailRegistrationAttempt ${id} not found`);
+      }
+    },
+    deleteFailedRegistrationAttempts: async (generationId, organizationId) => {
+      await prisma.thumbnailRegistrationAttempt.deleteMany({
+        where: { generationId, organizationId, status: 'failed' },
+      });
+    },
+  };
   const imageFetcher = {
     assertSupportedMime: vi.fn(),
     fetchTrustedStorageImage: vi.fn(async () => ({
@@ -43,7 +112,7 @@ function makeService() {
     checkPlaywriterStatus: vi.fn(async () => ({ connected: true })),
   };
   const service = new ThumbnailWingService(
-    persistence,
+    repository,
     imageFetcher as never,
     automationRunner as never,
   );
@@ -60,6 +129,18 @@ describe('ThumbnailWingService', () => {
 
   afterEach(() => {
     process.env.NODE_ENV = originalNodeEnv;
+  });
+
+  it('depends on application output ports for Wing persistence and image fetches', () => {
+    const source = fs.readFileSync(
+      path.join(__dirname, '../application/service/thumbnail-wing.service.ts'),
+      'utf8',
+    );
+
+    expect(source).toContain('THUMBNAIL_WING_REPOSITORY_PORT');
+    expect(source).toContain('IMAGE_FETCH_PORT');
+    expect(source).not.toContain('adapter/out/prisma/thumbnail-wing.persistence');
+    expect(source).not.toContain('ThumbnailImageFetcherService');
   });
 
   it('prepares a per-browser Wing registration payload without running Playwriter', async () => {

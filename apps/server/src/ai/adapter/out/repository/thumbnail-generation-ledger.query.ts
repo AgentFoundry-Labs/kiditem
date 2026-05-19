@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { NotFoundException } from '@nestjs/common';
 import type { PrismaService } from '../../../../prisma/prisma.service';
-import { thumbnailMasterImageSelect } from './master-image-select.preset';
+import { thumbnailMasterImageSelect } from './thumbnail-master-image-select.preset';
 import type { GenerationMasterSummary, GenerationRow } from '../../../mapper/thumbnail-generation.mapper';
 import type { ThumbnailGenerationListScope } from '../../../domain/thumbnail-generation-subject';
 
@@ -11,7 +11,8 @@ import type { ThumbnailGenerationListScope } from '../../../domain/thumbnail-gen
  * on every query (and on every related include) so a generation cannot be
  * fetched, listed, or hydrated across tenants.
  *
- * Function modules — not Nest providers — to keep `ai.module.ts` unchanged.
+ * Repository-local function modules keep low-level Prisma include/select shapes
+ * beside the adapter that owns them, without leaking them into application code.
  */
 
 export const THUMBNAIL_ANALYSIS_SELECT = {

@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
 import puppeteer, { type Page } from 'puppeteer';
-import type { RenderImageBodyDto } from '../../adapter/in/http/dto';
+import type { RenderImageInput } from './detail-page-requests';
 
 const STATIC_ROOT = '/data/products';
 const PROCESSED_PREFIX = '/processed/';
@@ -197,7 +197,7 @@ async function getContentClip(page: Page, viewportWidth: number): Promise<Screen
   }, viewportWidth);
 }
 
-function resolveRasterConfig(body: RenderImageBodyDto): RasterConfig {
+function resolveRasterConfig(body: RenderImageInput): RasterConfig {
   const viewportWidth = body.viewportWidth ?? DEFAULT_VIEWPORT_WIDTH;
   const renderScale = body.outputWidth
     ? body.outputWidth / viewportWidth
@@ -230,7 +230,7 @@ function assertRasterPixelBudget(
 export class DetailPageRasterizationService {
   private readonly logger = new Logger(DetailPageRasterizationService.name);
 
-  async render(body: RenderImageBodyDto): Promise<RasterizedDetailPage> {
+  async render(body: RenderImageInput): Promise<RasterizedDetailPage> {
     const config = resolveRasterConfig(body);
     const browser = await puppeteer.launch({
       headless: true,

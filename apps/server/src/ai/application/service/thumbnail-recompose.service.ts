@@ -1,6 +1,5 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { RecomposeVariantClassification } from '@kiditem/shared/ai';
-import { PrismaService } from '../../../prisma/prisma.service';
 import {
   parseRecomposeClassification,
   singleProductFallback,
@@ -11,8 +10,11 @@ import {
   RECOMPOSE_CLASSIFY_PROMPT,
 } from '../../domain/prompts/thumbnail-prompts';
 import { resolveMasterThumbnailImage } from '../../domain/thumbnail-master-image';
-import { thumbnailMasterImageSelect } from '../../adapter/out/prisma/master-image-select.preset';
 import { ThumbnailVisionAiService } from './thumbnail-vision-ai.service';
+import {
+  THUMBNAIL_ANALYSIS_REPOSITORY_PORT,
+  type ThumbnailAnalysisRepositoryPort,
+} from '../port/out/thumbnail-analysis.repository.port';
 
 /**
  * Runtime classifier wrapper around ThumbnailVisionAiService.classifyImageJson.
@@ -26,21 +28,13 @@ export class ThumbnailRecomposeService {
   private readonly logger = new Logger(ThumbnailRecomposeService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(THUMBNAIL_ANALYSIS_REPOSITORY_PORT)
+    private readonly repository: ThumbnailAnalysisRepositoryPort,
     private readonly vision: ThumbnailVisionAiService,
   ) {}
 
   async classify(productId: string, organizationId: string): Promise<RecomposeVariantClassification> {
-    const master = await this.prisma.masterProduct.findFirst({
-      where: { id: productId, organizationId, isDeleted: false },
-      select: {
-        name: true,
-        category: true,
-        imageUrl: true,
-        thumbnailUrl: true,
-        images: thumbnailMasterImageSelect(organizationId),
-      },
-    });
+    const master = await this.repository.findRecomposeMaster(productId, organizationId);
     if (!master) throw new NotFoundException('Product not found');
     const imageUrl = resolveMasterThumbnailImage(master);
     if (!imageUrl) {

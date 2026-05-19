@@ -1,21 +1,32 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ThumbnailGenerationSinkAdapter } from '../thumbnail-generation-sink.adapter';
-import * as persistence from '../../prisma/thumbnail-generation.persistence';
 import type { OperationAlertPort } from '../../../../application/port/out/operation-alert.port';
 import type { ThumbnailGenerationEventPort } from '../../../../application/port/out/thumbnail-generation-event.port';
 import type { ProductGenerationAlertService } from '../../../../application/service/product-generation-alert.service';
+import type { ThumbnailGenerationLedgerRepositoryPort } from '../../../../application/port/out/thumbnail-generation-ledger.repository.port';
+import { ThumbnailGenerationLifecycleService } from '../../../../application/service/thumbnail-generation-lifecycle.service';
 
 const ORG = '11111111-1111-1111-1111-111111111111';
 const REQUEST = '22222222-2222-2222-2222-222222222222';
 const RUN = '33333333-3333-3333-3333-333333333333';
 const GEN_ID = '44444444-4444-4444-4444-444444444444';
 
-function makePrismaStub() {
+function makeLedger(
+  overrides: Partial<ThumbnailGenerationLedgerRepositoryPort> = {},
+): ThumbnailGenerationLedgerRepositoryPort {
   return {
-    thumbnailGeneration: {
-      findFirst: vi.fn().mockResolvedValue(null),
-    },
-  } as unknown as Parameters<typeof persistence.lockGenerationForProcessing>[0];
+    claimForAgentProjection: vi
+      .fn()
+      .mockResolvedValue({ fromStatus: 'pending', fromPhase: null, attemptNumber: 1 }),
+    projectAgentSuccess: vi
+      .fn()
+      .mockResolvedValue({ fromStatus: 'running', fromPhase: null, attemptNumber: 1 }),
+    projectAgentFailure: vi
+      .fn()
+      .mockResolvedValue({ fromStatus: 'running', fromPhase: null, attemptNumber: 1 }),
+    readParentAlertLink: vi.fn().mockResolvedValue(null),
+    ...overrides,
+  } as unknown as ThumbnailGenerationLedgerRepositoryPort;
 }
 
 function makeAlerts(): OperationAlertPort {
@@ -35,6 +46,20 @@ function makeProductGenerationAlerts(): ProductGenerationAlertService {
   } as unknown as ProductGenerationAlertService;
 }
 
+function makeSink(
+  ledger: ThumbnailGenerationLedgerRepositoryPort,
+  alerts: OperationAlertPort,
+  events: ThumbnailGenerationEventPort,
+  productGenerationAlerts?: ProductGenerationAlertService,
+): ThumbnailGenerationSinkAdapter {
+  return new ThumbnailGenerationSinkAdapter(
+    ledger,
+    alerts,
+    new ThumbnailGenerationLifecycleService(ledger, events),
+    productGenerationAlerts,
+  );
+}
+
 const VALID_OUTPUT = {
   candidates: [
     {
@@ -50,23 +75,13 @@ const VALID_OUTPUT = {
 describe('ThumbnailGenerationSinkAdapter', () => {
   let alerts: OperationAlertPort;
   let events: ThumbnailGenerationEventPort;
-  let lockSpy: ReturnType<typeof vi.spyOn>;
-  let applySuccessSpy: ReturnType<typeof vi.spyOn>;
-  let markFailedSpy: ReturnType<typeof vi.spyOn>;
+  let ledger: ThumbnailGenerationLedgerRepositoryPort;
   let productGenerationAlerts: ProductGenerationAlertService;
 
   beforeEach(() => {
     alerts = makeAlerts();
     events = makeEvents();
-    lockSpy = vi
-      .spyOn(persistence, 'lockGenerationForProcessing')
-      .mockResolvedValue({ fromStatus: 'pending', fromPhase: null, attemptNumber: 1 });
-    applySuccessSpy = vi
-      .spyOn(persistence, 'applyAgentSuccessResult')
-      .mockResolvedValue({ fromStatus: 'running', fromPhase: null, attemptNumber: 1 });
-    markFailedSpy = vi
-      .spyOn(persistence, 'markGenerationFailed')
-      .mockResolvedValue({ fromStatus: 'running', fromPhase: null, attemptNumber: 1 });
+    ledger = makeLedger();
     productGenerationAlerts = makeProductGenerationAlerts();
   });
 
@@ -75,8 +90,8 @@ describe('ThumbnailGenerationSinkAdapter', () => {
   });
 
   describe('applySuccess', () => {
-    it('locks → applyAgentSuccessResult → status event → alert succeed (with results href)', async () => {
-      const sink = new ThumbnailGenerationSinkAdapter(makePrismaStub() as never, alerts, events);
+    it('claims -> projectAgentSuccess -> terminal events -> alert succeed (with results href)', async () => {
+      const sink = makeSink(ledger, alerts, events);
       await sink.applySuccess({
         organizationId: ORG,
         requestId: REQUEST,
@@ -85,9 +100,11 @@ describe('ThumbnailGenerationSinkAdapter', () => {
         output: VALID_OUTPUT,
       });
 
-      expect(lockSpy).toHaveBeenCalledWith(expect.anything(), GEN_ID, ORG);
-      expect(applySuccessSpy).toHaveBeenCalledWith(
-        expect.anything(),
+      expect(ledger.claimForAgentProjection).toHaveBeenCalledWith({
+        generationId: GEN_ID,
+        organizationId: ORG,
+      });
+      expect(ledger.projectAgentSuccess).toHaveBeenCalledWith(
         expect.objectContaining({
           generationId: GEN_ID,
           organizationId: ORG,
@@ -102,6 +119,16 @@ describe('ThumbnailGenerationSinkAdapter', () => {
           toPhase: 'ready',
         }),
       );
+      expect(events.append).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'attempt_finished',
+          fromStatus: 'running',
+          toStatus: 'succeeded',
+          toPhase: 'ready',
+          attemptNumber: 1,
+        }),
+      );
+      expect(events.append).toHaveBeenCalledTimes(3);
       expect(alerts.succeed).toHaveBeenCalledWith(
         ORG,
         `thumbnail-edit:${GEN_ID}`,
@@ -115,9 +142,9 @@ describe('ThumbnailGenerationSinkAdapter', () => {
       );
     });
 
-    it('no-ops when lock returns null (row already terminal — reconcile-replay safe)', async () => {
-      lockSpy.mockResolvedValueOnce(null);
-      const sink = new ThumbnailGenerationSinkAdapter(makePrismaStub() as never, alerts, events);
+    it('no-ops when claim returns null (row already terminal - reconcile-replay safe)', async () => {
+      vi.mocked(ledger.claimForAgentProjection).mockResolvedValueOnce(null);
+      const sink = makeSink(ledger, alerts, events);
       await sink.applySuccess({
         organizationId: ORG,
         requestId: REQUEST,
@@ -125,12 +152,12 @@ describe('ThumbnailGenerationSinkAdapter', () => {
         sourceResourceId: GEN_ID,
         output: VALID_OUTPUT,
       });
-      expect(applySuccessSpy).not.toHaveBeenCalled();
+      expect(ledger.projectAgentSuccess).not.toHaveBeenCalled();
       expect(alerts.succeed).not.toHaveBeenCalled();
     });
 
     it('no-ops when sourceResourceId is missing (defensive)', async () => {
-      const sink = new ThumbnailGenerationSinkAdapter(makePrismaStub() as never, alerts, events);
+      const sink = makeSink(ledger, alerts, events);
       await sink.applySuccess({
         organizationId: ORG,
         requestId: REQUEST,
@@ -138,13 +165,13 @@ describe('ThumbnailGenerationSinkAdapter', () => {
         sourceResourceId: null,
         output: VALID_OUTPUT,
       });
-      expect(lockSpy).not.toHaveBeenCalled();
+      expect(ledger.claimForAgentProjection).not.toHaveBeenCalled();
     });
   });
 
   describe('applyFailure', () => {
-    it('locks → markGenerationFailed → status event → alert fail (with code metadata)', async () => {
-      const sink = new ThumbnailGenerationSinkAdapter(makePrismaStub() as never, alerts, events);
+    it('claims -> projectAgentFailure -> terminal events -> alert fail (with code metadata)', async () => {
+      const sink = makeSink(ledger, alerts, events);
       await sink.applyFailure({
         organizationId: ORG,
         requestId: REQUEST,
@@ -153,13 +180,15 @@ describe('ThumbnailGenerationSinkAdapter', () => {
         errorCode: 'runtime_not_configured',
         errorMessage: 'no provider',
       });
-      expect(lockSpy).toHaveBeenCalledWith(expect.anything(), GEN_ID, ORG);
-      expect(markFailedSpy).toHaveBeenCalledWith(
-        expect.anything(),
-        GEN_ID,
-        ORG,
-        'no provider',
-      );
+      expect(ledger.claimForAgentProjection).toHaveBeenCalledWith({
+        generationId: GEN_ID,
+        organizationId: ORG,
+      });
+      expect(ledger.projectAgentFailure).toHaveBeenCalledWith({
+        generationId: GEN_ID,
+        organizationId: ORG,
+        errorMessage: 'no provider',
+      });
       expect(events.append).toHaveBeenCalledWith(
         expect.objectContaining({
           fromStatus: 'running',
@@ -167,6 +196,16 @@ describe('ThumbnailGenerationSinkAdapter', () => {
           errorMessage: 'no provider',
         }),
       );
+      expect(events.append).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'error',
+          fromStatus: 'running',
+          toStatus: 'failed',
+          errorMessage: 'no provider',
+          attemptNumber: 1,
+        }),
+      );
+      expect(events.append).toHaveBeenCalledTimes(2);
       expect(alerts.fail).toHaveBeenCalledWith(
         ORG,
         `thumbnail-edit:${GEN_ID}`,
@@ -181,26 +220,14 @@ describe('ThumbnailGenerationSinkAdapter', () => {
     });
 
     it('updates the product generation parent alert on thumbnail failure', async () => {
-      const prisma = {
-        thumbnailGeneration: {
-          findFirst: vi.fn().mockResolvedValue({
-            inputMeta: {
-              productGeneration: {
-                mode: 'parent',
-                productGenerationBatchId: 'batch-1',
-                parentOperationKey: 'product-generation:batch-1',
-                childKind: 'thumbnail',
-              },
-            },
-          }),
-        },
-      } as unknown as Parameters<typeof persistence.lockGenerationForProcessing>[0];
-      const sink = new ThumbnailGenerationSinkAdapter(
-        prisma as never,
-        alerts,
-        events,
-        productGenerationAlerts,
-      );
+      const parentLedger = makeLedger({
+        readParentAlertLink: vi.fn().mockResolvedValue({
+          parentOperationKey: 'product-generation:batch-1',
+          childKind: 'thumbnail',
+          productGenerationBatchId: 'batch-1',
+        }),
+      });
+      const sink = makeSink(parentLedger, alerts, events, productGenerationAlerts);
 
       await sink.applyFailure({
         organizationId: ORG,
@@ -227,30 +254,18 @@ describe('ThumbnailGenerationSinkAdapter', () => {
     });
 
     it('does not apply thumbnail success when parent product operation is cancelled', async () => {
-      const prisma = {
-        thumbnailGeneration: {
-          findFirst: vi.fn().mockResolvedValue({
-            inputMeta: {
-              productGeneration: {
-                mode: 'parent',
-                productGenerationBatchId: 'batch-1',
-                parentOperationKey: 'product-generation:batch-1',
-                childKind: 'thumbnail',
-              },
-            },
-          }),
-        },
-      } as unknown as Parameters<typeof persistence.lockGenerationForProcessing>[0];
+      const parentLedger = makeLedger({
+        readParentAlertLink: vi.fn().mockResolvedValue({
+          parentOperationKey: 'product-generation:batch-1',
+          childKind: 'thumbnail',
+          productGenerationBatchId: 'batch-1',
+        }),
+      });
       const operationAlerts = {
         ...makeAlerts(),
         findByOperationKey: vi.fn().mockResolvedValue({ status: 'cancelled' }),
       } as unknown as OperationAlertPort;
-      const sink = new ThumbnailGenerationSinkAdapter(
-        prisma as never,
-        operationAlerts,
-        events,
-        productGenerationAlerts,
-      );
+      const sink = makeSink(parentLedger, operationAlerts, events, productGenerationAlerts);
 
       await sink.applySuccess({
         organizationId: ORG,
@@ -260,14 +275,14 @@ describe('ThumbnailGenerationSinkAdapter', () => {
         output: VALID_OUTPUT,
       });
 
-      expect(lockSpy).not.toHaveBeenCalled();
-      expect(applySuccessSpy).not.toHaveBeenCalled();
+      expect(parentLedger.claimForAgentProjection).not.toHaveBeenCalled();
+      expect(parentLedger.projectAgentSuccess).not.toHaveBeenCalled();
       expect(productGenerationAlerts.markChildFinished).not.toHaveBeenCalled();
     });
 
-    it('no-ops when lock returns null (already terminal)', async () => {
-      lockSpy.mockResolvedValueOnce(null);
-      const sink = new ThumbnailGenerationSinkAdapter(makePrismaStub() as never, alerts, events);
+    it('no-ops when claim returns null (already terminal)', async () => {
+      vi.mocked(ledger.claimForAgentProjection).mockResolvedValueOnce(null);
+      const sink = makeSink(ledger, alerts, events);
       await sink.applyFailure({
         organizationId: ORG,
         requestId: REQUEST,
@@ -276,7 +291,7 @@ describe('ThumbnailGenerationSinkAdapter', () => {
         errorCode: 'agent_run_failed',
         errorMessage: 'second attempt',
       });
-      expect(markFailedSpy).not.toHaveBeenCalled();
+      expect(ledger.projectAgentFailure).not.toHaveBeenCalled();
       expect(alerts.fail).not.toHaveBeenCalled();
     });
   });

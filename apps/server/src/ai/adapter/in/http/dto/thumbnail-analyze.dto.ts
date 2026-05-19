@@ -1,6 +1,7 @@
 import { IsArray, IsIn, IsOptional, IsString, IsUrl } from 'class-validator';
+import type { AnalysisScope } from '../../../../application/service/thumbnail-analysis-requests';
 
-export type AnalysisScope = 'all' | 'quality' | 'compliance';
+export type { AnalysisScope };
 
 export class AnalyzeThumbnailDto {
   @IsOptional()

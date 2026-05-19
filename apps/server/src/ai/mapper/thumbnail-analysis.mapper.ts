@@ -1,7 +1,9 @@
 import type {
   ComplianceScores,
   ImageSpec,
+  ThumbnailAnalysisListResponse,
   ThumbnailAnalysisResult,
+  ThumbnailAnalysisSummary,
   ThumbnailScores,
 } from '@kiditem/shared/ai';
 import {
@@ -10,9 +12,13 @@ import {
   type ThumbnailMasterImageRow,
 } from '../domain/thumbnail-master-image';
 import type {
-  AnalysisRow,
-  MasterRow,
-} from '../adapter/out/prisma/thumbnail-analysis.query';
+  ThumbnailAnalysisMasterRow,
+  ThumbnailAnalysisRow,
+  ThumbnailAnalysisSummaryRow,
+} from '../application/port/out/thumbnail-analysis.repository.port';
+
+const EMPTY_GRADE_DIST = { S: 0, A: 0, B: 0, C: 0, F: 0 } as const;
+const EMPTY_COMPLIANCE_DIST = { PASS: 0, WARN: 0, FAIL: 0 } as const;
 
 export type AnalysisRowMaster = {
   id: string;
@@ -27,7 +33,7 @@ export type AnalysisRowMaster = {
  * against the master? `preInspect` writes spec-only rows where neither flag is
  * set — those are intentionally excluded from the "analyzed" projection.
  */
-export function hasActualAnalysis(a: AnalysisRow): boolean {
+export function hasActualAnalysis(a: ThumbnailAnalysisRow): boolean {
   return a.qualityAnalyzedAt !== null || a.complianceAnalyzedAt !== null;
 }
 
@@ -39,7 +45,7 @@ export function hasActualAnalysis(a: AnalysisRow): boolean {
  * to empty and the image URL falls back to the analysis row's own value).
  */
 export function toAnalysisResult(
-  a: AnalysisRow,
+  a: ThumbnailAnalysisRow,
   master: AnalysisRowMaster | null,
 ): ThumbnailAnalysisResult {
   const fallback = master ? resolveMasterThumbnailImage(master) : null;
@@ -72,8 +78,8 @@ export function toAnalysisResult(
  * tile informative without claiming it's been analyzed.
  */
 export function unclassifiedAnalysisResult(
-  m: MasterRow,
-  existing?: AnalysisRow,
+  m: ThumbnailAnalysisMasterRow,
+  existing?: ThumbnailAnalysisRow,
 ): ThumbnailAnalysisResult {
   return {
     id: m.id,
@@ -95,4 +101,91 @@ export function unclassifiedAnalysisResult(
     recompose: (existing?.recompose as ThumbnailAnalysisResult['recompose']) ?? null,
     createdAt: m.createdAt.toISOString(),
   } satisfies ThumbnailAnalysisResult;
+}
+
+type GradeDistribution = Record<'S' | 'A' | 'B' | 'C' | 'F', number>;
+type ComplianceDistribution = Record<'PASS' | 'WARN' | 'FAIL', number>;
+
+interface DistributionTally {
+  gradeDistribution: GradeDistribution;
+  complianceDistribution: ComplianceDistribution;
+  analyzed: number;
+  partialCount: number;
+}
+
+function tallyDistributions(
+  rows: ReadonlyArray<
+    Pick<
+      ThumbnailAnalysisRow,
+      'grade' | 'complianceGrade' | 'qualityAnalyzedAt' | 'complianceAnalyzedAt'
+    >
+  >,
+): DistributionTally {
+  const gradeDistribution: GradeDistribution = { ...EMPTY_GRADE_DIST };
+  const complianceDistribution: ComplianceDistribution = { ...EMPTY_COMPLIANCE_DIST };
+  let analyzed = 0;
+  let partialCount = 0;
+  for (const a of rows) {
+    const hasQuality = a.qualityAnalyzedAt !== null;
+    const hasCompliance = a.complianceAnalyzedAt !== null;
+    if (hasQuality) {
+      analyzed += 1;
+      if (a.grade in gradeDistribution) {
+        gradeDistribution[a.grade as keyof GradeDistribution] += 1;
+      }
+    }
+    if (hasCompliance && a.complianceGrade && a.complianceGrade in complianceDistribution) {
+      complianceDistribution[a.complianceGrade as keyof ComplianceDistribution] += 1;
+    }
+    if (hasQuality !== hasCompliance) partialCount += 1;
+  }
+  return { gradeDistribution, complianceDistribution, analyzed, partialCount };
+}
+
+export function buildAnalysisListResponse(
+  masters: ReadonlyArray<ThumbnailAnalysisMasterRow>,
+  analyses: ReadonlyArray<ThumbnailAnalysisRow>,
+): ThumbnailAnalysisListResponse {
+  const masterById = new Map(masters.map((m) => [m.id, m]));
+  const ownedAnalysisRows = analyses.filter((a) => masterById.has(a.masterId));
+  const analysisByMasterId = new Map(ownedAnalysisRows.map((a) => [a.masterId, a]));
+  const qualityAnalyzedMasterIds = new Set(
+    ownedAnalysisRows.filter((a) => a.qualityAnalyzedAt !== null).map((a) => a.masterId),
+  );
+
+  const allResults = ownedAnalysisRows
+    .filter(hasActualAnalysis)
+    .map((a) => toAnalysisResult(a, masterById.get(a.masterId) ?? null));
+
+  const unclassified = masters
+    .filter((m) => !qualityAnalyzedMasterIds.has(m.id))
+    .map((m) => unclassifiedAnalysisResult(m, analysisByMasterId.get(m.id)));
+
+  const tally = tallyDistributions(ownedAnalysisRows);
+
+  return {
+    total: masters.length,
+    analyzed: tally.analyzed,
+    partialCount: tally.partialCount,
+    unclassifiedCount: unclassified.length,
+    gradeDistribution: tally.gradeDistribution,
+    complianceDistribution: tally.complianceDistribution,
+    allResults,
+    unclassified,
+  } satisfies ThumbnailAnalysisListResponse;
+}
+
+export function buildAnalysisSummary(
+  masterCount: number,
+  rows: ReadonlyArray<ThumbnailAnalysisSummaryRow>,
+): ThumbnailAnalysisSummary {
+  const tally = tallyDistributions(rows);
+  return {
+    total: masterCount,
+    analyzed: tally.analyzed,
+    partialCount: tally.partialCount,
+    unclassifiedCount: Math.max(masterCount - tally.analyzed, 0),
+    gradeDistribution: tally.gradeDistribution,
+    complianceDistribution: tally.complianceDistribution,
+  } satisfies ThumbnailAnalysisSummary;
 }

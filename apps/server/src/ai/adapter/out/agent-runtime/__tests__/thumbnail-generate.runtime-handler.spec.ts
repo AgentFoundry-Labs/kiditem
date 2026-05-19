@@ -79,6 +79,11 @@ describe('ThumbnailGenerateRuntimeHandler', () => {
     const result = await handler.execute(makeCtx());
 
     expect(editorAi.generateEdit).toHaveBeenCalledTimes(1);
+    expect(editorAi.generateEdit).toHaveBeenCalledWith(
+      expect.any(Array),
+      'org-1',
+      expect.objectContaining({ model: 'gemini-image-test' }),
+    );
     expect(editorAi.generateCreative).not.toHaveBeenCalled();
     expect(result.provider).toBe('gemini-image');
     expect(result.output).toMatchObject({
@@ -113,6 +118,11 @@ describe('ThumbnailGenerateRuntimeHandler', () => {
     );
 
     expect(editorAi.generateCreative).toHaveBeenCalledTimes(1);
+    expect(editorAi.generateCreative).toHaveBeenCalledWith(
+      expect.any(Array),
+      'org-1',
+      expect.objectContaining({ model: 'gemini-image-test' }),
+    );
     expect(editorAi.generateEdit).not.toHaveBeenCalled();
   });
 

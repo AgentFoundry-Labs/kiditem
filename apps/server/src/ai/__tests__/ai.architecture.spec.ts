@@ -24,44 +24,15 @@ function aiRel(...segments: string[]): string {
 
 const PR2A_CONTENT_PRISMA_DEBT: string[] = [];
 
-const PR2B_THUMBNAIL_PRISMA_DEBT = [
-  aiRel('application/port/out/thumbnail-generation-event.port.ts'),
-  aiRel('application/service/thumbnail-agent-reconcile.service.ts'),
-  aiRel('application/service/thumbnail-analysis-analyzer.service.ts'),
-  aiRel('application/service/thumbnail-analysis-batch.service.ts'),
-  aiRel('application/service/thumbnail-analysis-query.service.ts'),
-  aiRel('application/service/thumbnail-generation-job.service.ts'),
-  aiRel('application/service/thumbnail-generation.service.ts'),
-  aiRel('application/service/thumbnail-recompose.service.ts'),
-  aiRel('application/service/thumbnail-tracking.service.ts'),
-  aiRel('mapper/thumbnail-generation.mapper.ts'),
-];
+const PR2B_THUMBNAIL_PRISMA_DEBT: string[] = [];
 
-const PR2A_ADAPTER_IMPORT_DEBT = [
-  aiRel('application/service/detail-page-ai.service.ts'),
-  aiRel('application/service/detail-page-generation.service.ts'),
-  aiRel('application/service/detail-page-prefill.service.ts'),
-  aiRel('application/service/detail-page-rasterization.service.ts'),
-];
+const PR2A_ADAPTER_IMPORT_DEBT: string[] = [];
 
-const PR2B_ADAPTER_IMPORT_DEBT = [
-  aiRel('application/service/thumbnail-analysis-analyzer.service.ts'),
-  aiRel('application/service/thumbnail-analysis-batch.service.ts'),
-  aiRel('application/service/thumbnail-analysis-query.service.ts'),
-  aiRel('application/service/thumbnail-analysis.service.ts'),
-  aiRel('application/service/thumbnail-compliance-verifier.service.ts'),
-  aiRel('application/service/thumbnail-editor-ai.service.ts'),
-  aiRel('application/service/thumbnail-generation-job.service.ts'),
-  aiRel('application/service/thumbnail-generation.service.ts'),
-  aiRel('application/service/thumbnail-recompose.service.ts'),
-  aiRel('application/service/thumbnail-vision-ai.service.ts'),
-  aiRel('application/service/thumbnail-wing.service.ts'),
-];
+const PR2B_ADAPTER_IMPORT_DEBT: string[] = [];
 
 const ALLOWED_PRISMA_PREFIXES = [
   aiRel('adapter/out/agent-output') + path.sep,
   aiRel('adapter/out/agent-runtime') + path.sep,
-  aiRel('adapter/out/prisma') + path.sep,
   aiRel('adapter/out/repository') + path.sep,
 ];
 
@@ -125,6 +96,32 @@ describe('ai architecture ratchet', () => {
     ).toEqual([]);
   });
 
+  it('keeps application services behind the image storage port', () => {
+    const hits = rg(
+      `--type ts --files-with-matches 'common/storage/storage.service|StorageService' ${aiRel(
+        'application/service',
+      )} --glob '!**/__tests__/**'`,
+    );
+
+    expect(
+      hits,
+      `application services should inject IMAGE_STORAGE_PORT instead of concrete StorageService:\n${hits.join('\n')}`,
+    ).toEqual([]);
+  });
+
+  it('keeps Gemini SDK calls inside outgoing adapters', () => {
+    const hits = rg(
+      `--type ts --files-with-matches '@google/genai|GoogleGenAI|Modality' ${aiRel(
+        'application',
+      )} ${aiRel('domain')} ${aiRel('mapper')} --glob '!**/__tests__/**'`,
+    );
+
+    expect(
+      hits,
+      `provider SDK calls belong behind outbound provider ports:\n${hits.join('\n')}`,
+    ).toEqual([]);
+  });
+
   it('keeps application service specs on port seams instead of concrete repository adapters', () => {
     const hits = rg(
       `--type ts --files-with-matches 'adapter/out/repository' ${aiRel(
@@ -135,6 +132,30 @@ describe('ai architecture ratchet', () => {
     expect(
       hits,
       `application service specs should use port fakes; Prisma call-shape belongs in adapter specs:\n${hits.join('\n')}`,
+    ).toEqual([]);
+  });
+
+  it('keeps thumbnail repository internals out of the legacy Prisma helper folder', () => {
+    const hits = rg(
+      `--type ts --files-with-matches '../prisma/(thumbnail-generation|thumbnail-analysis|master-image-select)' ${aiRel(
+        'adapter/out/repository',
+      )} --glob '!**/__tests__/**'`,
+    );
+
+    expect(
+      hits,
+      `thumbnail repository adapters should keep Prisma helper modules repository-local:\n${hits.join('\n')}`,
+    ).toEqual([]);
+  });
+
+  it('does not leave legacy thumbnail Prisma helper files under adapter/out/prisma', () => {
+    const files = rg(
+      `--files ${aiRel('adapter/out')} --glob 'prisma/thumbnail-*.query.ts' --glob 'prisma/thumbnail-*.persistence.ts' --glob 'prisma/master-image-select.preset.ts'`,
+    );
+
+    expect(
+      files,
+      `legacy thumbnail Prisma helpers should be deleted or moved beside repository adapters:\n${files.join('\n')}`,
     ).toEqual([]);
   });
 

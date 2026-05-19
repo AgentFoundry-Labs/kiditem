@@ -7,6 +7,9 @@ import { AiModule } from '../ai.module';
 import { DetailPageContentGenerationSinkAdapter } from '../adapter/out/agent-output/detail-page-content-generation-sink.adapter';
 import { ThumbnailGenerationSinkAdapter } from '../adapter/out/agent-output/thumbnail-generation-sink.adapter';
 import { AiOperationAlertAdapter } from '../adapter/out/automation/operation-alert.adapter';
+import { GeminiThumbnailVisionAdapter } from '../adapter/out/gemini/gemini-thumbnail-vision.adapter';
+import { ThumbnailImageGenerationAdapter } from '../adapter/out/gemini/thumbnail-image-generation.adapter';
+import { ThumbnailReferenceImagesService } from '../adapter/out/gemini/thumbnail-reference-images.adapter';
 import { ContentArchiveRepositoryAdapter } from '../adapter/out/repository/content-archive.repository.adapter';
 import { ContentAssetLibraryRepositoryAdapter } from '../adapter/out/repository/content-asset-library.repository.adapter';
 import { ContentWorkspaceAttachmentRepositoryAdapter } from '../adapter/out/repository/content-workspace-attachment.repository.adapter';
@@ -19,6 +22,10 @@ import { ProductGenerationChildLedgerRepositoryAdapter } from '../adapter/out/re
 import { ProductGenerationContextRepositoryAdapter } from '../adapter/out/repository/product-generation-context.repository.adapter';
 import { ProductWorkspaceGroupRepositoryAdapter } from '../adapter/out/repository/product-workspace-group.repository.adapter';
 import { SourcingWorkspaceArchiveRepositoryAdapter } from '../adapter/out/repository/sourcing-workspace-archive.repository.adapter';
+import { ThumbnailAnalysisRepositoryAdapter } from '../adapter/out/repository/thumbnail-analysis.repository.adapter';
+import { ThumbnailGenerationLedgerRepositoryAdapter } from '../adapter/out/repository/thumbnail-generation-ledger.repository.adapter';
+import { ThumbnailTrackingRepositoryAdapter } from '../adapter/out/repository/thumbnail-tracking.repository.adapter';
+import { ThumbnailWingRepositoryAdapter } from '../adapter/out/repository/thumbnail-wing.repository.adapter';
 import { AiGenerationCancellationService } from '../application/service/ai-generation-cancellation.service';
 import { PostPromotionAiService } from '../application/service/post-promotion-ai.service';
 import { ProductGenerationAiService } from '../application/service/product-generation-ai.service';
@@ -42,6 +49,13 @@ import { PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT } from '../application/port/
 import { PRODUCT_WORKSPACE_GROUP_REPOSITORY_PORT } from '../application/port/out/product-workspace-group.repository.port';
 import { SOURCING_WORKSPACE_ARCHIVE_REPOSITORY_PORT } from '../application/port/out/sourcing-workspace-archive.repository.port';
 import { THUMBNAIL_AGENT_OUTPUT_SINK_PORT } from '../application/port/out/thumbnail-agent-output-sink.port';
+import { THUMBNAIL_ANALYSIS_REPOSITORY_PORT } from '../application/port/out/thumbnail-analysis.repository.port';
+import { THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT } from '../application/port/out/thumbnail-generation-ledger.repository.port';
+import { THUMBNAIL_IMAGE_GENERATION_PORT } from '../application/port/out/thumbnail-image-generation.port';
+import { THUMBNAIL_REFERENCE_IMAGES_PORT } from '../application/port/out/thumbnail-reference-images.port';
+import { THUMBNAIL_TRACKING_REPOSITORY_PORT } from '../application/port/out/thumbnail-tracking.repository.port';
+import { THUMBNAIL_VISION_PROVIDER_PORT } from '../application/port/out/thumbnail-vision-provider.port';
+import { THUMBNAIL_WING_REPOSITORY_PORT } from '../application/port/out/thumbnail-wing.repository.port';
 
 const IMPORTS_KEY = 'imports';
 const PROVIDERS_KEY = 'providers';
@@ -86,6 +100,13 @@ describe('AiModule hexagonal wiring contract', () => {
       [PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT, ProductGenerationContextRepositoryAdapter],
       [PRODUCT_WORKSPACE_GROUP_REPOSITORY_PORT, ProductWorkspaceGroupRepositoryAdapter],
       [SOURCING_WORKSPACE_ARCHIVE_REPOSITORY_PORT, SourcingWorkspaceArchiveRepositoryAdapter],
+      [THUMBNAIL_ANALYSIS_REPOSITORY_PORT, ThumbnailAnalysisRepositoryAdapter],
+      [THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT, ThumbnailGenerationLedgerRepositoryAdapter],
+      [THUMBNAIL_IMAGE_GENERATION_PORT, ThumbnailImageGenerationAdapter],
+      [THUMBNAIL_REFERENCE_IMAGES_PORT, ThumbnailReferenceImagesService],
+      [THUMBNAIL_TRACKING_REPOSITORY_PORT, ThumbnailTrackingRepositoryAdapter],
+      [THUMBNAIL_VISION_PROVIDER_PORT, GeminiThumbnailVisionAdapter],
+      [THUMBNAIL_WING_REPOSITORY_PORT, ThumbnailWingRepositoryAdapter],
     ].forEach(([token, adapter]) => {
       expectExistingBinding(providers, token as symbol, adapter);
     });

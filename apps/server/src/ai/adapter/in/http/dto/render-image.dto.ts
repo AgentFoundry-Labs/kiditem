@@ -1,6 +1,7 @@
 import { IsIn, IsInt, IsNumber, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
+import type { RenderImageInput } from '../../../../application/service/detail-page-requests';
 
-export class RenderImageBodyDto {
+export class RenderImageBodyDto implements RenderImageInput {
   @IsString() @MinLength(1) html: string;
 
   @IsOptional()

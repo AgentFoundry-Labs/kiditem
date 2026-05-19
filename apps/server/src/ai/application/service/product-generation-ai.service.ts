@@ -5,6 +5,10 @@ import { ThumbnailEditorAiService } from './thumbnail-editor-ai.service';
 import { ThumbnailGenerationJobService } from './thumbnail-generation-job.service';
 import { ProductGenerationAlertService } from './product-generation-alert.service';
 import {
+  buildThumbnailGenerateAgentInput,
+  buildThumbnailGenerationInputMeta,
+} from './thumbnail-generation-requests';
+import {
   productGenerationOperationKey,
   type ParentProductGenerationAlertLink,
 } from './product-generation-alert-link';
@@ -153,6 +157,22 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
           source: 'sourcing_candidate',
         },
       );
+      const thumbnailInputMeta = buildThumbnailGenerationInputMeta({
+        mode: 'edit',
+        editCase: 'single',
+        method: 'generate',
+        trigger: 'product_generation',
+        productName,
+        inputs: [resolved],
+      });
+      const thumbnailAgentPayload = buildThumbnailGenerateAgentInput({
+        mode: 'edit',
+        editCase: 'single',
+        productName,
+        productDescription: input.description ?? candidate.description ?? '',
+        category: input.category ?? candidate.category ?? null,
+        inputs: [resolved],
+      });
       const thumbnail = await this.thumbnails.enqueueCandidateGeneration({
         organizationId: input.organizationId,
         sourceCandidateId: input.candidateId,
@@ -160,37 +180,10 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
         contentWorkspaceId,
         triggeredByUserId: input.triggeredByUserId,
         inputs: [resolved],
-        inputMeta: {
-          mode: 'edit',
-          editCase: 'single',
-          method: 'generate',
-          trigger: 'product_generation',
-          inputCount: 1,
-          inputRoles: [resolved.role],
-          inputLabels: [resolved.label],
-        },
+        inputMeta: thumbnailInputMeta,
         method: 'generate',
         originalUrl,
-        agentPayload: {
-          mode: 'edit',
-          editCase: 'single',
-          productName,
-          productDescription: input.description ?? candidate.description ?? '',
-          category: input.category ?? candidate.category ?? null,
-          inputs: [
-            {
-              data: resolved.data,
-              mimeType: resolved.mimeType,
-              label: resolved.label,
-              url: resolved.url,
-              storageKey: resolved.storageKey,
-              role: resolved.role,
-              sortOrder: resolved.sortOrder,
-              source: resolved.source,
-              fileSize: resolved.fileSize,
-            },
-          ],
-        },
+        agentPayload: thumbnailAgentPayload,
         operationAlert: thumbnailLink,
       });
       thumbnailGenerationId = thumbnail.generationId;

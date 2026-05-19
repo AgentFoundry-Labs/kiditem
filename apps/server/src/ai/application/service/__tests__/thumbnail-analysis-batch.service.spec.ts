@@ -54,20 +54,22 @@ function analysisRow(id: string, over: Record<string, unknown> = {}) {
   };
 }
 
-function makePrismaMock(masters: Array<ReturnType<typeof masterRow>>) {
+function makeRepositoryMock(masters: Array<ReturnType<typeof masterRow>>) {
   return {
-    masterProduct: {
-      findMany: vi.fn(async () => masters),
-      findFirst: vi.fn(async (args: { where: { id?: string } }) => {
-        const id = args.where.id;
-        return masters.find((m) => m.id === id) ?? null;
-      }),
-    },
-    thumbnailAnalysis: {
-      upsert: vi.fn(async (args: { where: { masterId: string } }) =>
-        analysisRow(args.where.masterId),
-      ),
-    },
+    findMastersForBatch: vi.fn(async (ids: string[]) =>
+      masters.filter((m) => ids.includes(m.id)),
+    ),
+    findMasterForAnalysis: vi.fn(async (id: string) =>
+      masters.find((m) => m.id === id) ?? null,
+    ),
+    upsertAnalysis: vi.fn(async (input: { masterId: string }) =>
+      analysisRow(input.masterId),
+    ),
+    findAllAnalysisMasters: vi.fn(async () => []),
+    findAnalysesForOrganization: vi.fn(async () => []),
+    getAnalysisSummaryRows: vi.fn(async () => ({ masterCount: 0, rows: [] })),
+    findMastersForPreInspect: vi.fn(async () => []),
+    findRecomposeMaster: vi.fn(async () => null),
   };
 }
 
@@ -141,22 +143,22 @@ function makeRecomposeMock() {
 }
 
 function makeBatch(opts: { failChunk?: boolean } = {}) {
-  const prisma = makePrismaMock([masterRow(P1), masterRow(P2)]);
+  const repository = makeRepositoryMock([masterRow(P1), masterRow(P2)]);
   const vision = makeVisionMock(opts);
   const recompose = makeRecomposeMock();
   const analyzer = new ThumbnailAnalysisAnalyzerService(
-    prisma as never,
+    repository as never,
     vision as never,
     recompose as never,
   );
   const analyzerSpy = vi.spyOn(analyzer, 'analyzeProduct');
   const batch = new ThumbnailAnalysisBatchService(
-    prisma as never,
+    repository as never,
     vision as never,
     recompose as never,
     analyzer,
   );
-  return { batch, prisma, vision, recompose, analyzer, analyzerSpy };
+  return { batch, repository, vision, recompose, analyzer, analyzerSpy };
 }
 
 describe('ThumbnailAnalysisBatchService', () => {
@@ -173,12 +175,12 @@ describe('ThumbnailAnalysisBatchService', () => {
   });
 
   it('persists each chunk product through the shared upsert path', async () => {
-    const { batch, prisma } = makeBatch();
+    const { batch, repository } = makeBatch();
     const result = await batch.analyzeBatch([P1, P2], ORGANIZATION_ID, 'quality');
     expect(result).toHaveLength(2);
-    expect(prisma.thumbnailAnalysis.upsert).toHaveBeenCalledTimes(2);
+    expect(repository.upsertAnalysis).toHaveBeenCalledTimes(2);
     // upsert path takes masterId from input and binds organizationId via create.organization.connect.
-    const calls = prisma.thumbnailAnalysis.upsert.mock.calls.map((c: { where: { masterId: string } }[]) => c[0].where.masterId);
+    const calls = repository.upsertAnalysis.mock.calls.map((c: { masterId: string }[]) => c[0].masterId);
     expect(calls).toContain(P1);
     expect(calls).toContain(P2);
   });

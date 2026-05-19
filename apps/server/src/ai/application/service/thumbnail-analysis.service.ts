@@ -5,7 +5,7 @@ import type {
   ThumbnailAnalysisResult,
   ThumbnailAnalysisSummary,
 } from '@kiditem/shared/ai';
-import type { AnalysisScope } from '../../adapter/in/http/dto/thumbnail-analyze.dto';
+import type { AnalysisScope } from './thumbnail-analysis-requests';
 import { ThumbnailAnalysisQueryService } from './thumbnail-analysis-query.service';
 import { ThumbnailAnalysisAnalyzerService } from './thumbnail-analysis-analyzer.service';
 import { ThumbnailAnalysisBatchService } from './thumbnail-analysis-batch.service';
@@ -22,8 +22,8 @@ import { ThumbnailAnalysisBatchService } from './thumbnail-analysis-batch.servic
  *
  * The HTTP controller binds to this facade so the public surface
  * (`/api/thumbnail-analysis/*`) is unchanged across the split. Persistence
- * routes through `adapter/out/prisma/thumbnail-analysis.persistence.ts` so
- * analyzer and batch share one upsert path.
+ * routes through `ThumbnailAnalysisRepositoryPort` so analyzer and batch share
+ * one upsert path without depending on a concrete persistence adapter.
  */
 @Injectable()
 export class ThumbnailAnalysisService {

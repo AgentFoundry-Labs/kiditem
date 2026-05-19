@@ -1,5 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { GeminiThumbnailVisionAdapter } from '../../adapter/out/gemini/gemini-thumbnail-vision.adapter';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import {
+  THUMBNAIL_VISION_PROVIDER_PORT,
+  type ThumbnailVisionProviderPort,
+} from '../port/out/thumbnail-vision-provider.port';
 import {
   type RawComplianceEntry,
   TEXT_RELATED_KEYS,
@@ -33,7 +36,10 @@ interface ImageContext {
 export class ThumbnailComplianceVerifierService {
   private readonly logger = new Logger(ThumbnailComplianceVerifierService.name);
 
-  constructor(private readonly adapter: GeminiThumbnailVisionAdapter) {}
+  constructor(
+    @Inject(THUMBNAIL_VISION_PROVIDER_PORT)
+    private readonly adapter: ThumbnailVisionProviderPort,
+  ) {}
 
   async run(
     entry: RawComplianceEntry,
