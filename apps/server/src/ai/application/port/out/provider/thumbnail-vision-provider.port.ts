@@ -1,4 +1,4 @@
-import type { ImageBytes } from '../../../domain/thumbnail-image-spec';
+import type { ImageBytes } from '../../../../domain/thumbnail-image-spec';
 import type { FetchedImage } from './image-fetch.port';
 import type { ThumbnailPromptPart } from './thumbnail-reference-images.port';
 

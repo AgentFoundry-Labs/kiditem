@@ -15,7 +15,7 @@ import type {
   ThumbnailAnalysisMasterRow,
   ThumbnailAnalysisRow,
   ThumbnailAnalysisSummaryRow,
-} from '../application/port/out/thumbnail-analysis.repository.port';
+} from '../application/port/out/repository/thumbnail-analysis.repository.port';
 
 const EMPTY_GRADE_DIST = { S: 0, A: 0, B: 0, C: 0, F: 0 } as const;
 const EMPTY_COMPLIANCE_DIST = { PASS: 0, WARN: 0, FAIL: 0 } as const;

@@ -12,7 +12,7 @@ import {
 import {
   THUMBNAIL_AGENT_OUTPUT_SINK_PORT,
   type ThumbnailAgentOutputSinkPort,
-} from '../port/out/thumbnail-agent-output-sink.port';
+} from '../port/out/sink/thumbnail-agent-output-sink.port';
 import { AgentFinalizedOutputProjectionService } from './agent-finalized-output-projection.service';
 
 /**

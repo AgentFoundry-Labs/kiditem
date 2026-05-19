@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { ContentArchiveRepositoryPort } from '../../port/out/content-archive.repository.port';
+import type { ContentArchiveRepositoryPort } from '../../port/out/repository/content-archive.repository.port';
 import { ContentArchiveService } from '../content-archive.service';
 
 const ORG = '11111111-1111-4111-8111-111111111111';

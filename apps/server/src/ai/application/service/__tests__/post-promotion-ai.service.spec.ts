@@ -7,7 +7,7 @@ import {
   DetailPageGenerateAgentInputSchema,
   ThumbnailGenerateAgentInputSchema,
 } from '../../../domain/agent-output';
-import type { OperationAlertPort } from '../../port/out/operation-alert.port';
+import type { OperationAlertPort } from '../../port/out/cross-domain/operation-alert.port';
 import type { AgentRunnerPort } from '../../../../agent-os/application/port/in/agent-runner.port';
 import type { ThumbnailEditorAiService } from '../thumbnail-editor-ai.service';
 import type { ThumbnailEditorInputImage } from '../../../domain/model/thumbnail-editor';

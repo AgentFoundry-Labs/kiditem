@@ -1,4 +1,4 @@
-import type { CoupangInventoryRow } from './coupang-inventory-scrape.port';
+import type { CoupangInventoryRow } from '../provider/coupang-inventory-scrape.port';
 
 export const COUPANG_IMAGE_RECONCILIATION_PORT = Symbol(
   'COUPANG_IMAGE_RECONCILIATION_PORT',

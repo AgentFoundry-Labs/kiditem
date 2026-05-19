@@ -109,45 +109,55 @@ import { SourcingWorkspaceArchiveService } from './application/service/sourcing-
 import { AiGenerationCancellationService } from './application/service/ai-generation-cancellation.service';
 
 // application/port — in
-import { POST_PROMOTION_AI_TRIGGER_PORT } from './application/port/in/post-promotion-ai-trigger.port';
-import { PRODUCT_GENERATION_AI_TRIGGER_PORT } from './application/port/in/product-generation-ai-trigger.port';
-import { AI_WORKSPACE_ARCHIVE_PORT } from './application/port/in/sourcing-workspace-archive.port';
-import { AI_GENERATION_CANCELLATION_PORT } from './application/port/in/ai-generation-cancellation.port';
+import {
+  AI_GENERATION_CANCELLATION_PORT,
+  POST_PROMOTION_AI_TRIGGER_PORT,
+  PRODUCT_GENERATION_AI_TRIGGER_PORT,
+} from './application/port/in/generation';
+import { AI_WORKSPACE_ARCHIVE_PORT } from './application/port/in/workspace';
 
 // application/port — out
-import { DETAIL_PAGE_AGENT_OUTPUT_SINK_PORT } from './application/port/out/detail-page-agent-output-sink.port';
-import { DETAIL_PAGE_MEDIA_PORT } from './application/port/out/detail-page-media.port';
-import { THUMBNAIL_AGENT_OUTPUT_SINK_PORT } from './application/port/out/thumbnail-agent-output-sink.port';
-import { COUPANG_INVENTORY_SCRAPE_PORT } from './application/port/out/coupang-inventory-scrape.port';
-import { COUPANG_PRODUCT_SALES_SCRAPE_PORT } from './application/port/out/coupang-product-sales-scrape.port';
-import { COUPANG_IMAGE_RECONCILIATION_PORT } from './application/port/out/coupang-image-reconciliation.port';
-import { CONTENT_ARCHIVE_REPOSITORY_PORT } from './application/port/out/content-archive.repository.port';
-import { CONTENT_ASSET_LIBRARY_REPOSITORY_PORT } from './application/port/out/content-asset-library.repository.port';
-import { CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT } from './application/port/out/content-workspace-lifecycle.repository.port';
-import { DETAIL_PAGE_GENERATION_REPOSITORY_PORT } from './application/port/out/detail-page-generation.repository.port';
-import { DETAIL_PAGE_QUERY_REPOSITORY_PORT } from './application/port/out/detail-page-query.repository.port';
-import { DETAIL_PAGE_RECONCILE_REPOSITORY_PORT } from './application/port/out/detail-page-reconcile.repository.port';
-import { IMAGE_EDIT_MEDIA_PORT } from './application/port/out/image-edit-media.port';
-import { IMAGE_FETCH_PORT } from './application/port/out/image-fetch.port';
-import { IMAGE_STORAGE_PORT } from './application/port/out/image-storage.port';
-import { MASTER_CATALOG_PORT } from './application/port/out/master-catalog.port';
-import { TEXT_COMPLETION_PORT } from './application/port/out/text-completion.port';
-import { THUMBNAIL_GENERATION_EVENT_PORT } from './application/port/out/thumbnail-generation-event.port';
-import { WING_AUTOMATION_PORT } from './application/port/out/wing-automation.port';
-import { AI_OPERATION_ALERT_PORT } from './application/port/out/operation-alert.port';
-import { POST_PROMOTION_GENERATION_REPOSITORY_PORT } from './application/port/out/post-promotion-generation.repository.port';
-import { CONTENT_WORKSPACE_ATTACHMENT_REPOSITORY_PORT } from './application/port/out/content-workspace-attachment.repository.port';
-import { PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT } from './application/port/out/product-generation-context.repository.port';
-import { PRODUCT_GENERATION_CHILD_LEDGER_REPOSITORY_PORT } from './application/port/out/product-generation-child-ledger.repository.port';
-import { PRODUCT_WORKSPACE_GROUP_REPOSITORY_PORT } from './application/port/out/product-workspace-group.repository.port';
-import { SOURCING_WORKSPACE_ARCHIVE_REPOSITORY_PORT } from './application/port/out/sourcing-workspace-archive.repository.port';
-import { THUMBNAIL_ANALYSIS_REPOSITORY_PORT } from './application/port/out/thumbnail-analysis.repository.port';
-import { THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT } from './application/port/out/thumbnail-generation-ledger.repository.port';
-import { THUMBNAIL_IMAGE_GENERATION_PORT } from './application/port/out/thumbnail-image-generation.port';
-import { THUMBNAIL_REFERENCE_IMAGES_PORT } from './application/port/out/thumbnail-reference-images.port';
-import { THUMBNAIL_TRACKING_REPOSITORY_PORT } from './application/port/out/thumbnail-tracking.repository.port';
-import { THUMBNAIL_VISION_PROVIDER_PORT } from './application/port/out/thumbnail-vision-provider.port';
-import { THUMBNAIL_WING_REPOSITORY_PORT } from './application/port/out/thumbnail-wing.repository.port';
+import {
+  AI_OPERATION_ALERT_PORT,
+  COUPANG_IMAGE_RECONCILIATION_PORT,
+  MASTER_CATALOG_PORT,
+} from './application/port/out/cross-domain';
+import { THUMBNAIL_GENERATION_EVENT_PORT } from './application/port/out/event';
+import {
+  COUPANG_INVENTORY_SCRAPE_PORT,
+  COUPANG_PRODUCT_SALES_SCRAPE_PORT,
+  DETAIL_PAGE_MEDIA_PORT,
+  IMAGE_EDIT_MEDIA_PORT,
+  IMAGE_FETCH_PORT,
+  TEXT_COMPLETION_PORT,
+  THUMBNAIL_IMAGE_GENERATION_PORT,
+  THUMBNAIL_REFERENCE_IMAGES_PORT,
+  THUMBNAIL_VISION_PROVIDER_PORT,
+} from './application/port/out/provider';
+import {
+  CONTENT_ARCHIVE_REPOSITORY_PORT,
+  CONTENT_ASSET_LIBRARY_REPOSITORY_PORT,
+  CONTENT_WORKSPACE_ATTACHMENT_REPOSITORY_PORT,
+  CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT,
+  DETAIL_PAGE_GENERATION_REPOSITORY_PORT,
+  DETAIL_PAGE_QUERY_REPOSITORY_PORT,
+  DETAIL_PAGE_RECONCILE_REPOSITORY_PORT,
+  POST_PROMOTION_GENERATION_REPOSITORY_PORT,
+  PRODUCT_GENERATION_CHILD_LEDGER_REPOSITORY_PORT,
+  PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT,
+  PRODUCT_WORKSPACE_GROUP_REPOSITORY_PORT,
+  SOURCING_WORKSPACE_ARCHIVE_REPOSITORY_PORT,
+  THUMBNAIL_ANALYSIS_REPOSITORY_PORT,
+  THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT,
+  THUMBNAIL_TRACKING_REPOSITORY_PORT,
+  THUMBNAIL_WING_REPOSITORY_PORT,
+} from './application/port/out/repository';
+import { WING_AUTOMATION_PORT } from './application/port/out/runtime';
+import {
+  DETAIL_PAGE_AGENT_OUTPUT_SINK_PORT,
+  THUMBNAIL_AGENT_OUTPUT_SINK_PORT,
+} from './application/port/out/sink';
+import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
 
 @Module({
   imports: [ChannelsModule, AgentOsModule, AutomationModule],

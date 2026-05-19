@@ -4,7 +4,7 @@ import {
   type ContentAssetLibraryRepositoryPort,
   type ContentAssetLibraryWriteScope,
   type PersistedContentAssetRef,
-} from '../port/out/content-asset-library.repository.port';
+} from '../port/out/repository/content-asset-library.repository.port';
 export { groupUrlAssetKey } from '../../domain/content-asset-key';
 
 export interface ContentAssetListQuery {

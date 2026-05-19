@@ -4,7 +4,7 @@ import { groupUrlAssetKey, hashContentAssetUrl } from '../../../domain/content-a
 import {
   IMAGE_STORAGE_PORT,
   type ImageStoragePort,
-} from '../../../application/port/out/image-storage.port';
+} from '../../../application/port/out/storage/image-storage.port';
 import type {
   ContentAssetLibraryRepositoryPort,
   ContentAssetLibraryWriteScope,
@@ -13,7 +13,7 @@ import type {
   RecordDetailPageGeneratedAssetsInput,
   RecordDetailPageInputAssetsInput,
   SyncGenerationImageUsagesInput,
-} from '../../../application/port/out/content-asset-library.repository.port';
+} from '../../../application/port/out/repository/content-asset-library.repository.port';
 
 @Injectable()
 export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibraryRepositoryPort {

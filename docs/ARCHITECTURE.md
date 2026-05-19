@@ -186,6 +186,55 @@ touched capability, but the response is the smallest structure that exposes
 the seam. Incoming controllers may split by route family or use case without
 forcing a full `application/domain/port` structure.
 
+### Backend Port Lane Rules
+
+Port folders are Interface seams, not decoration. `application/port/in/` and
+`application/port/out/` are the first-level direction split; subfolders under
+them exist only when they improve Locality or make the Adapter family visible.
+
+Incoming ports stay flat while the owner publishes one or two use-case
+Interfaces. Use a capability folder under `application/port/in/` when three or
+more incoming ports share one owner capability, or when the same incoming
+capability is exported for multiple consuming owners.
+
+Outgoing ports use these lane folders when the lane exists:
+
+- `repository/`: Prisma or raw-SQL persistence Interfaces.
+- `transaction/`: unit-of-work or row-lock transaction Interfaces.
+- `provider/`: external API, SDK, LLM, marketplace, scrape, fetch, or model
+  provider Interfaces.
+- `storage/`: object, file, image, or media storage Interfaces.
+- `runtime/`: Agent OS, worker, browser, CLI, or execution runtime Interfaces.
+- `event/`: event publication, audit, activity, panel, or ledger event
+  Interfaces.
+- `sink/`: finalized-output projection or event-consuming Interfaces.
+- `workflow/`: workflow orchestration, cancellation, or workflow engine
+  Interfaces.
+- `cross-domain/`: anti-corruption Interfaces to another owner Module.
+
+Group ports into a lane directory when any of these are true:
+
+- The owner has three or more ports in the same IO lane.
+- The port name or capability appears in three or more owner modules.
+- The Adapter is owned by a platform, runtime, provider, storage, workflow, or
+  cross-domain concern.
+- The Interface represents persistence, transaction, storage, provider,
+  runtime, event, sink, workflow, or cross-domain IO.
+- Keeping the port flat makes callers learn infrastructure details instead of
+  the domain language.
+
+Keep ports flat when all of these are true:
+
+- The Interface is unique to the owner domain.
+- The owner has only one or two ports in that direction.
+- The port name is already domain-language specific.
+- There is no likely second Adapter and no cross-domain consumer.
+
+Lane folders may provide a local `index.ts` import surface. Broad barrels such
+as `application/port/index.ts` or `application/index.ts` are not part of the
+backend architecture because they hide direction and lane information from the
+caller.
+
 Platform support folders do not own business workflows. New top-level backend
 folders must be added to this directory map in the same PR and justified by
 ownership, mutation authority, transaction boundary, and invariants.

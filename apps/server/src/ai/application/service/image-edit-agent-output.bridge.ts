@@ -11,7 +11,7 @@ import {
 import {
   IMAGE_EDIT_AGENT_OUTPUT_SINK_PORT,
   type ImageEditAgentOutputSinkPort,
-} from '../port/out/image-edit-agent-output-sink.port';
+} from '../port/out/sink/image-edit-agent-output-sink.port';
 
 @Injectable()
 export class ImageEditAgentOutputBridge {

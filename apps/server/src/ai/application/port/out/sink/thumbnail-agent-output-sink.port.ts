@@ -1,4 +1,4 @@
-import type { ThumbnailGenerateAgentOutput } from '../../../domain/agent-output';
+import type { ThumbnailGenerateAgentOutput } from '../../../../domain/agent-output';
 
 export const THUMBNAIL_AGENT_OUTPUT_SINK_PORT = Symbol(
   'THUMBNAIL_AGENT_OUTPUT_SINK_PORT',

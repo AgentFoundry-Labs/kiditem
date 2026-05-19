@@ -2,7 +2,7 @@ import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import {
   CONTENT_ARCHIVE_REPOSITORY_PORT,
   type ContentArchiveRepositoryPort,
-} from '../port/out/content-archive.repository.port';
+} from '../port/out/repository/content-archive.repository.port';
 import {
   buildContentArchiveWorkspaces,
   contentArchiveGenerationItem,

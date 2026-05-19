@@ -1,15 +1,15 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import type { ThumbnailAgentOutputSinkPort } from '../../../application/port/out/thumbnail-agent-output-sink.port';
+import type { ThumbnailAgentOutputSinkPort } from '../../../application/port/out/sink/thumbnail-agent-output-sink.port';
 import {
   AI_OPERATION_ALERT_PORT,
   type OperationAlertPort,
-} from '../../../application/port/out/operation-alert.port';
+} from '../../../application/port/out/cross-domain/operation-alert.port';
 import type { ThumbnailGenerateAgentOutput } from '../../../domain/agent-output';
 import type { ThumbnailEditorCandidate } from '../../../domain/model/thumbnail-editor';
 import {
   THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT,
   type ThumbnailGenerationLedgerRepositoryPort,
-} from '../../../application/port/out/thumbnail-generation-ledger.repository.port';
+} from '../../../application/port/out/repository/thumbnail-generation-ledger.repository.port';
 import { ProductGenerationAlertService } from '../../../application/service/product-generation-alert.service';
 import { ThumbnailGenerationLifecycleService } from '../../../application/service/thumbnail-generation-lifecycle.service';
 

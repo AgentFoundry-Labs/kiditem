@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { DetailPageQueryRepositoryPort } from '../../port/out/detail-page-query.repository.port';
+import type { DetailPageQueryRepositoryPort } from '../../port/out/repository/detail-page-query.repository.port';
 import { DetailPageQueryService } from '../detail-page-query.service';
 
 const ORG = '11111111-1111-4111-8111-111111111111';

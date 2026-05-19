@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DetailPageAgentReconcileService } from '../detail-page-agent-reconcile.service';
-import type { DetailPageAgentOutputSinkPort } from '../../port/out/detail-page-agent-output-sink.port';
+import type { DetailPageAgentOutputSinkPort } from '../../port/out/sink/detail-page-agent-output-sink.port';
 import type { AgentObservabilityService } from '../../../../agent-os/application/service/agent-observability.service';
 import type { AgentRunRecord } from '../../../../agent-os/domain/agent-os.types';
 

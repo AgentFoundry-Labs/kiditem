@@ -16,11 +16,11 @@ import type {
   ProductGenerationAiRequest,
   ProductGenerationAiResult,
   ProductGenerationAiTriggerPort,
-} from '../port/in/product-generation-ai-trigger.port';
+} from '../port/in/generation/product-generation-ai-trigger.port';
 import {
   PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT,
   type ProductGenerationContextRepositoryPort,
-} from '../port/out/product-generation-context.repository.port';
+} from '../port/out/repository/product-generation-context.repository.port';
 
 @Injectable()
 export class ProductGenerationAiService implements ProductGenerationAiTriggerPort {

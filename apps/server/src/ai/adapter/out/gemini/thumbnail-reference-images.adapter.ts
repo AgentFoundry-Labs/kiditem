@@ -4,7 +4,7 @@ import { extname, join } from 'node:path';
 import {
   type ThumbnailPromptPart,
   type ThumbnailReferenceImagesPort,
-} from '../../../application/port/out/thumbnail-reference-images.port';
+} from '../../../application/port/out/provider/thumbnail-reference-images.port';
 
 type InlinePart = Extract<ThumbnailPromptPart, { inlineData: unknown }>;
 

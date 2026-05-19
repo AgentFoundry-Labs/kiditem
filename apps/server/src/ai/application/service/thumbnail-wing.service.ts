@@ -10,15 +10,15 @@ import * as fs from 'node:fs';
 import {
   WING_AUTOMATION_PORT,
   type WingAutomationPort,
-} from '../port/out/wing-automation.port';
+} from '../port/out/runtime/wing-automation.port';
 import {
   IMAGE_FETCH_PORT,
   type ImageFetchPort,
-} from '../port/out/image-fetch.port';
+} from '../port/out/provider/image-fetch.port';
 import {
   THUMBNAIL_WING_REPOSITORY_PORT,
   type ThumbnailWingRepositoryPort,
-} from '../port/out/thumbnail-wing.repository.port';
+} from '../port/out/repository/thumbnail-wing.repository.port';
 import { MAX_FETCH_BYTES, parseDataImageUrl } from '../../domain/thumbnail-image-source';
 import {
   pickRegistrationImageUrl,

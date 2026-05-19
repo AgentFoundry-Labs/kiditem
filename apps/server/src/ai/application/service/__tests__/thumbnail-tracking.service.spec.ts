@@ -1,11 +1,11 @@
 import { NotFoundException } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ThumbnailTrackingService } from '../thumbnail-tracking.service';
-import type { CoupangProductSalesScrapePort } from '../../port/out/coupang-product-sales-scrape.port';
+import type { CoupangProductSalesScrapePort } from '../../port/out/provider/coupang-product-sales-scrape.port';
 import type {
   ThumbnailTrackingRepositoryPort,
   ThumbnailTrackingRow,
-} from '../../port/out/thumbnail-tracking.repository.port';
+} from '../../port/out/repository/thumbnail-tracking.repository.port';
 
 const ORGANIZATION_ID = '11111111-1111-4111-8111-111111111111';
 const TRACKING_ID = '22222222-2222-4222-8222-222222222222';

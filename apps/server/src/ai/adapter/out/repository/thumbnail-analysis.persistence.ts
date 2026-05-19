@@ -3,7 +3,7 @@ import type { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   ThumbnailAnalysisRow,
   UpsertThumbnailAnalysisInput,
-} from '../../../application/port/out/thumbnail-analysis.repository.port';
+} from '../../../application/port/out/repository/thumbnail-analysis.repository.port';
 
 /**
  * Tenant-scoped writer for `ThumbnailAnalysis`. The previous flat service

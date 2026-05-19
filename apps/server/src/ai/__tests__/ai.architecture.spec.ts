@@ -53,6 +53,24 @@ function withoutAllowedPrefixes(files: string[], prefixes: string[]): string[] {
 }
 
 describe('ai architecture ratchet', () => {
+  it('keeps AI ports grouped under explicit lane directories', () => {
+    const directInPorts = rg(`--files ${aiRel('application/port/in')} --glob '*.port.ts'`).filter(
+      (file) => path.dirname(file) === aiRel('application/port/in'),
+    );
+    const directOutPorts = rg(`--files ${aiRel('application/port/out')} --glob '*.port.ts'`).filter(
+      (file) => path.dirname(file) === aiRel('application/port/out'),
+    );
+
+    expect(
+      directInPorts,
+      `AI incoming ports should live under capability folders:\n${directInPorts.join('\n')}`,
+    ).toEqual([]);
+    expect(
+      directOutPorts,
+      `AI outgoing ports should live under IO lane folders:\n${directOutPorts.join('\n')}`,
+    ).toEqual([]);
+  });
+
   it('does not add new Prisma client leaks outside documented PR 2A/2B seams', () => {
     const ai = aiRel();
     const hits = rg(

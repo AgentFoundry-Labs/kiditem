@@ -6,7 +6,7 @@ import type {
   ThumbnailGenerationLedgerRepositoryPort,
   ThumbnailGenerationLedgerRow,
   ThumbnailGenerationParentAlertLink,
-} from '../../../application/port/out/thumbnail-generation-ledger.repository.port';
+} from '../../../application/port/out/repository/thumbnail-generation-ledger.repository.port';
 import { readProductGenerationAlertLink } from '../../../application/service/product-generation-alert-link';
 import {
   findActiveJobForProduct,

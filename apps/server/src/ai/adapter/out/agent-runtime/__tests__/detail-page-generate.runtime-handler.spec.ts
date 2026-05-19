@@ -7,7 +7,7 @@ import { DetailPageGenerateAgentOutputSchema } from '../../../../domain/agent-ou
 import { BoldVerticalRefinerService } from '../../../../application/service/bold-vertical-refiner.service';
 import { KidsPlayfulRefinerService } from '../../../../application/service/kids-playful-refiner.service';
 import { DetailPageResultRefinerService } from '../../../../application/service/detail-page-result-refiner.service';
-import type { TextCompletionPort } from '../../../../application/port/out/text-completion.port';
+import type { TextCompletionPort } from '../../../../application/port/out/provider/text-completion.port';
 import type { DetailPageGeneratedImagesService } from '../../../../application/service/detail-page-generated-images.service';
 
 function makeCtx(

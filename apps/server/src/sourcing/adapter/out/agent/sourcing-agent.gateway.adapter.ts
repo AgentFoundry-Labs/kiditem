@@ -7,11 +7,11 @@ import {
 import {
   POST_PROMOTION_AI_TRIGGER_PORT,
   type PostPromotionAiTriggerPort,
-} from '../../../../ai/application/port/in/post-promotion-ai-trigger.port';
+} from '../../../../ai/application/port/in/generation/post-promotion-ai-trigger.port';
 import {
   PRODUCT_GENERATION_AI_TRIGGER_PORT,
   type ProductGenerationAiTriggerPort,
-} from '../../../../ai/application/port/in/product-generation-ai-trigger.port';
+} from '../../../../ai/application/port/in/generation/product-generation-ai-trigger.port';
 import {
   SOURCING_OPERATION_ALERT_PORT,
   type OperationAlertPort,

@@ -26,19 +26,19 @@ import { buildLayoutBlock } from '../../domain/prompts/thumbnail-layout-presets'
 import {
   IMAGE_FETCH_PORT,
   type ImageFetchPort,
-} from '../port/out/image-fetch.port';
+} from '../port/out/provider/image-fetch.port';
 import {
   IMAGE_STORAGE_PORT,
   type ImageStoragePort,
-} from '../port/out/image-storage.port';
+} from '../port/out/storage/image-storage.port';
 import {
   THUMBNAIL_IMAGE_GENERATION_PORT,
   type ThumbnailImageGenerationPort,
-} from '../port/out/thumbnail-image-generation.port';
+} from '../port/out/provider/thumbnail-image-generation.port';
 import {
   THUMBNAIL_REFERENCE_IMAGES_PORT,
   type ThumbnailReferenceImagesPort,
-} from '../port/out/thumbnail-reference-images.port';
+} from '../port/out/provider/thumbnail-reference-images.port';
 import { MAX_FETCH_BYTES } from '../../domain/thumbnail-image-source';
 import type {
   ThumbnailEditorCandidate,

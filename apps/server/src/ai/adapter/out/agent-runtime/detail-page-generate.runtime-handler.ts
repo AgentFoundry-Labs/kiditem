@@ -30,7 +30,7 @@ import {
 import {
   TEXT_COMPLETION_PORT,
   type TextCompletionPort,
-} from '../../../application/port/out/text-completion.port';
+} from '../../../application/port/out/provider/text-completion.port';
 import { DetailPageResultRefinerService } from '../../../application/service/detail-page-result-refiner.service';
 import { DetailPageGeneratedImagesService } from '../../../application/service/detail-page-generated-images.service';
 import type { DetailPageRawInput } from '../../../application/service/detail-page-ai.types';

@@ -2,7 +2,7 @@ import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
 import {
   TEXT_COMPLETION_PORT,
   type TextCompletionPort,
-} from '../port/out/text-completion.port';
+} from '../port/out/provider/text-completion.port';
 
 @Injectable()
 export class TextAiService {

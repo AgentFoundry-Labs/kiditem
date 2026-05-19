@@ -1,6 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
-import type { ContentWorkspaceAttachmentRepositoryPort } from '../../port/out/content-workspace-attachment.repository.port';
+import type { ContentWorkspaceAttachmentRepositoryPort } from '../../port/out/repository/content-workspace-attachment.repository.port';
 import { ContentWorkspaceAttachmentService } from '../content-workspace-attachment.service';
 
 const ORG = '11111111-1111-4111-8111-111111111111';

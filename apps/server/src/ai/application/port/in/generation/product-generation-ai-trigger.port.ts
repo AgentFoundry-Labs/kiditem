@@ -6,7 +6,7 @@ import type {
 import type {
   KcCertificationStatus,
   UsageSectionMode,
-} from '../../../domain/prompts/detail-page/types';
+} from '../../../../domain/prompts/detail-page/types';
 
 export const PRODUCT_GENERATION_AI_TRIGGER_PORT = Symbol('PRODUCT_GENERATION_AI_TRIGGER_PORT');
 

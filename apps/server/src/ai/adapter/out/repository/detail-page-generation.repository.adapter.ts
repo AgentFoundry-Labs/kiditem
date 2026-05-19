@@ -7,16 +7,16 @@ import type {
   DetailPageGenerationRepositoryPort,
   DetailPageImageOnlyBaseCandidateSnapshot,
   DetailPageRerunBaseSnapshot,
-} from '../../../application/port/out/detail-page-generation.repository.port';
-import type { DetailPageGenerationSnapshot } from '../../../application/port/out/detail-page-query.repository.port';
+} from '../../../application/port/out/repository/detail-page-generation.repository.port';
+import type { DetailPageGenerationSnapshot } from '../../../application/port/out/repository/detail-page-query.repository.port';
 import {
   CONTENT_ASSET_LIBRARY_REPOSITORY_PORT,
   type ContentAssetLibraryRepositoryPort,
-} from '../../../application/port/out/content-asset-library.repository.port';
+} from '../../../application/port/out/repository/content-asset-library.repository.port';
 import {
   PRODUCT_WORKSPACE_GROUP_REPOSITORY_PORT,
   type ProductWorkspaceGroupRepositoryPort,
-} from '../../../application/port/out/product-workspace-group.repository.port';
+} from '../../../application/port/out/repository/product-workspace-group.repository.port';
 
 const detailPageGenerationInclude = {
   generationGroup: {

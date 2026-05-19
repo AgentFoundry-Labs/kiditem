@@ -6,7 +6,7 @@ import {
 import {
   AI_GENERATION_CANCELLATION_PORT,
   type AiGenerationCancellationPort,
-} from '../../../ai/application/port/in/ai-generation-cancellation.port';
+} from '../../../ai/application/port/in/generation/ai-generation-cancellation.port';
 import {
   OPERATION_ALERT_PORT,
   type OperationAlertPort,

@@ -18,7 +18,7 @@ import type {
   ReceiveExtensionDataInput,
   RegisterManualProductCommand,
 } from '../port/in/sourcing.commands';
-import type { ProductGenerationTask } from '../../../ai/application/port/in/product-generation-ai-trigger.port';
+import type { ProductGenerationTask } from '../../../ai/application/port/in/generation/product-generation-ai-trigger.port';
 import { buildProductBasics } from './product-basics.presenter';
 import { ProductPreparationSelectionService } from './product-preparation-selection.service';
 

@@ -4,7 +4,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   PostPromotionGenerationRepositoryPort,
   PostPromotionThumbnailGenerationInput,
-} from '../../../application/port/out/post-promotion-generation.repository.port';
+} from '../../../application/port/out/repository/post-promotion-generation.repository.port';
 
 @Injectable()
 export class PostPromotionGenerationRepositoryAdapter

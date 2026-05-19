@@ -3,7 +3,7 @@ import type {
   ContentArchiveGenerationRow,
   ContentArchiveLinkState,
   ContentArchiveProductRow,
-} from '../port/out/content-archive.repository.port';
+} from '../port/out/repository/content-archive.repository.port';
 import { toDetailPageStoredJson } from './detail-page-stored.helpers';
 
 export type WorkspaceType = 'product' | 'unlinked_group';

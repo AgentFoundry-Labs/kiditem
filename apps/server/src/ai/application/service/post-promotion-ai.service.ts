@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
   AI_OPERATION_ALERT_PORT,
   type OperationAlertPort,
-} from '../port/out/operation-alert.port';
+} from '../port/out/cross-domain/operation-alert.port';
 import {
   AGENT_RUNNER_PORT,
   type AgentRunnerPort,
@@ -28,16 +28,16 @@ import {
   buildThumbnailGenerateAgentInput,
   buildThumbnailGenerationInputMeta,
 } from './thumbnail-generation-requests';
-import type { PostPromotionAiTriggerPort } from '../port/in/post-promotion-ai-trigger.port';
+import type { PostPromotionAiTriggerPort } from '../port/in/generation/post-promotion-ai-trigger.port';
 import {
   POST_PROMOTION_GENERATION_REPOSITORY_PORT,
   type PostPromotionGenerationRepositoryPort,
   type PostPromotionMasterContext,
-} from '../port/out/post-promotion-generation.repository.port';
+} from '../port/out/repository/post-promotion-generation.repository.port';
 import {
   PRODUCT_WORKSPACE_GROUP_REPOSITORY_PORT,
   type ProductWorkspaceGroupRepositoryPort,
-} from '../port/out/product-workspace-group.repository.port';
+} from '../port/out/repository/product-workspace-group.repository.port';
 
 /**
  * AI-domain-owned defaults for post-promotion fire-and-forget generation.

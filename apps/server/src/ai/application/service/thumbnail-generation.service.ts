@@ -13,7 +13,7 @@ import type {
 import {
   AI_OPERATION_ALERT_PORT,
   type OperationAlertPort,
-} from '../port/out/operation-alert.port';
+} from '../port/out/cross-domain/operation-alert.port';
 import { resolveMasterThumbnailImage } from '../../domain/thumbnail-master-image';
 import { ThumbnailTrackingService } from './thumbnail-tracking.service';
 import {
@@ -30,7 +30,7 @@ import {
   THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT,
   type SaveEditorResultInput,
   type ThumbnailGenerationLedgerRepositoryPort,
-} from '../port/out/thumbnail-generation-ledger.repository.port';
+} from '../port/out/repository/thumbnail-generation-ledger.repository.port';
 import {
   ThumbnailGenerationJobService,
   type ThumbnailEditorGenerationEnqueueInput,

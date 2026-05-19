@@ -7,7 +7,7 @@ import {
 import {
   AI_OPERATION_ALERT_PORT,
   type OperationAlertPort,
-} from '../port/out/operation-alert.port';
+} from '../port/out/cross-domain/operation-alert.port';
 import { ThumbnailEditorAiService } from './thumbnail-editor-ai.service';
 import type {
   ThumbnailEditorCandidate,
@@ -30,7 +30,7 @@ import {
 import {
   THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT,
   type ThumbnailGenerationLedgerRepositoryPort,
-} from '../port/out/thumbnail-generation-ledger.repository.port';
+} from '../port/out/repository/thumbnail-generation-ledger.repository.port';
 import {
   AGENT_RUNNER_PORT,
   type AgentRunnerPort,

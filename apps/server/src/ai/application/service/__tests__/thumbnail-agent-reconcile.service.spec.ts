@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ThumbnailAgentReconcileService } from '../thumbnail-agent-reconcile.service';
-import type { ThumbnailAgentOutputSinkPort } from '../../port/out/thumbnail-agent-output-sink.port';
+import type { ThumbnailAgentOutputSinkPort } from '../../port/out/sink/thumbnail-agent-output-sink.port';
 import type { AgentObservabilityService } from '../../../../agent-os/application/service/agent-observability.service';
 import type { AgentRunRecord } from '../../../../agent-os/domain/agent-os.types';
-import type { OperationAlertPort } from '../../port/out/operation-alert.port';
-import type { ThumbnailGenerationLedgerRepositoryPort } from '../../port/out/thumbnail-generation-ledger.repository.port';
+import type { OperationAlertPort } from '../../port/out/cross-domain/operation-alert.port';
+import type { ThumbnailGenerationLedgerRepositoryPort } from '../../port/out/repository/thumbnail-generation-ledger.repository.port';
 
 const ORG = '11111111-1111-1111-1111-111111111111';
 

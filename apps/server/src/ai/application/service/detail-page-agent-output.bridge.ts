@@ -12,7 +12,7 @@ import {
 import {
   DETAIL_PAGE_AGENT_OUTPUT_SINK_PORT,
   type DetailPageAgentOutputSinkPort,
-} from '../port/out/detail-page-agent-output-sink.port';
+} from '../port/out/sink/detail-page-agent-output-sink.port';
 import { AgentFinalizedOutputProjectionService } from './agent-finalized-output-projection.service';
 
 /**

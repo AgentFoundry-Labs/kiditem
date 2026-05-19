@@ -14,7 +14,7 @@ import { ThumbnailVisionAiService } from './thumbnail-vision-ai.service';
 import {
   THUMBNAIL_ANALYSIS_REPOSITORY_PORT,
   type ThumbnailAnalysisRepositoryPort,
-} from '../port/out/thumbnail-analysis.repository.port';
+} from '../port/out/repository/thumbnail-analysis.repository.port';
 
 /**
  * Runtime classifier wrapper around ThumbnailVisionAiService.classifyImageJson.

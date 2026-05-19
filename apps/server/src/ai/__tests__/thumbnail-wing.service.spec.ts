@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { NotFoundException } from '@nestjs/common';
-import type { ThumbnailWingRepositoryPort } from '../application/port/out/thumbnail-wing.repository.port';
+import type { ThumbnailWingRepositoryPort } from '../application/port/out/repository/thumbnail-wing.repository.port';
 import { ThumbnailWingService } from '../application/service/thumbnail-wing.service';
 
 const ORGANIZATION_ID = 'organization-1';

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { DetailPageMediaPort } from '../../port/out/detail-page-media.port';
-import type { ImageFetchPort } from '../../port/out/image-fetch.port';
-import type { ImageStoragePort } from '../../port/out/image-storage.port';
+import type { DetailPageMediaPort } from '../../port/out/provider/detail-page-media.port';
+import type { ImageFetchPort } from '../../port/out/provider/image-fetch.port';
+import type { ImageStoragePort } from '../../port/out/storage/image-storage.port';
 import { DetailPageHeroImageService } from '../detail-page-hero-image.service';
 
 function makePortBackedService(input?: {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { SourcingWorkspaceArchiveRepositoryPort } from '../../port/out/sourcing-workspace-archive.repository.port';
+import type { SourcingWorkspaceArchiveRepositoryPort } from '../../port/out/repository/sourcing-workspace-archive.repository.port';
 import { SourcingWorkspaceArchiveService } from '../sourcing-workspace-archive.service';
 
 const ORG = '11111111-1111-4111-8111-111111111111';

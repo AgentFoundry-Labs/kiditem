@@ -9,7 +9,7 @@ import type {
   CoupangInventoryRow,
   CoupangInventoryScrapeCapability,
   CoupangInventoryScrapePort,
-} from '../../../application/port/out/coupang-inventory-scrape.port';
+} from '../../../application/port/out/provider/coupang-inventory-scrape.port';
 import {
   isPlaywriterConnectionError,
   parseCreatedPlaywriterSessionId,

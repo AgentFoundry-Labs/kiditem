@@ -4,7 +4,7 @@ import {
   type ContentWorkspaceGenerationSnapshot,
   type ContentWorkspaceLifecycleRepositoryPort,
   type ContentWorkspaceSnapshot,
-} from '../port/out/content-workspace-lifecycle.repository.port';
+} from '../port/out/repository/content-workspace-lifecycle.repository.port';
 import { toDetailPageStoredJson } from './detail-page-stored.helpers';
 import type { DetailPageTemplateId } from './detail-page-ai.types';
 

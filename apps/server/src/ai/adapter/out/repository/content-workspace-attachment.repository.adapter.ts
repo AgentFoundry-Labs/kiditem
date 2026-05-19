@@ -4,7 +4,7 @@ import { groupUrlAssetKey } from '../../../domain/content-asset-key';
 import type {
   ContentWorkspaceAttachmentPreflight,
   ContentWorkspaceAttachmentRepositoryPort,
-} from '../../../application/port/out/content-workspace-attachment.repository.port';
+} from '../../../application/port/out/repository/content-workspace-attachment.repository.port';
 
 @Injectable()
 export class ContentWorkspaceAttachmentRepositoryAdapter
