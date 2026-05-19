@@ -9,9 +9,10 @@ import type {
 export interface ProductGenerationPayloadInput {
   title: string;
   category: string;
+  keyword: string;
   target: string;
   description: string;
-  thumbnailUrl: string | null;
+  thumbnailUrls: string[];
   imageUrls: string[];
   rawOptions: string;
   templateId: GenerateTemplateId;
@@ -33,8 +34,10 @@ export interface ProductGenerationPayload {
   target?: string;
   description?: string;
   thumbnailUrl?: string;
+  thumbnailUrls?: string[];
   imageUrls: string[];
   optionNames: string[];
+  keywords?: string[];
   templateId: GenerateTemplateId;
   ageGroup: DetailPageAgeGroup;
   detailImageCount: DetailImageCount;
@@ -51,14 +54,18 @@ export interface ProductGenerationPayload {
 export function buildProductGenerationPayload(
   input: ProductGenerationPayloadInput,
 ): ProductGenerationPayload {
+  const thumbnailUrls = uniqueNonEmpty(input.thumbnailUrls);
+  const keywords = keywordsFromInput(input.keyword);
   return compactUndefined({
     title: input.title.trim(),
     category: trimmedOrUndefined(input.category),
     target: trimmedOrUndefined(input.target),
     description: trimmedOrUndefined(input.description),
-    thumbnailUrl: input.thumbnailUrl?.trim() || undefined,
+    thumbnailUrl: thumbnailUrls[0],
+    thumbnailUrls: thumbnailUrls.length > 0 ? thumbnailUrls : undefined,
     imageUrls: uniqueNonEmpty(input.imageUrls),
     optionNames: optionNamesFromRawOptions(input.rawOptions),
+    keywords: keywords.length > 0 ? keywords : undefined,
     templateId: input.templateId,
     ageGroup: input.ageGroup,
     detailImageCount: input.detailImageCount,
@@ -78,6 +85,15 @@ function optionNamesFromRawOptions(rawOptions: string): string[] {
     rawOptions
       .split(/[\n,]/)
       .map((option) => option.trim())
+      .filter(Boolean),
+  )].slice(0, 10);
+}
+
+function keywordsFromInput(rawKeyword: string): string[] {
+  return [...new Set(
+    rawKeyword
+      .split(/[\n,]/)
+      .map((value) => value.trim())
       .filter(Boolean),
   )].slice(0, 10);
 }

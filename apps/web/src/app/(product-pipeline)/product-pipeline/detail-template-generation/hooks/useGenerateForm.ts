@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import type {
   DetailImageCount,
   DetailPageAgeGroup,
   DetailPageTemplateId,
+  ThumbnailGenerationItem,
 } from '@kiditem/shared/ai';
 import { API_BASE } from '@/lib/api';
 import { apiClient } from '@/lib/api-client';
@@ -102,6 +104,7 @@ export function getGenerateFormValidation(input: {
 
 interface DetailPagePrefillResult {
   category: string;
+  keyword: string;
   target: string;
   features: string[];
   options: string[];
@@ -178,6 +181,7 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
 
   const [rawTitle, setRawTitle] = useState(initialTitle);
   const [rawCategory, setRawCategory] = useState('');
+  const [keyword, setKeyword] = useState('');
   const [target, setTarget] = useState('');
   const [ageGroup, setAgeGroup] = useState<DetailPageAgeGroup>('age-8-plus');
   const [detailImageCount, setDetailImageCount] = useState<DetailImageCount>('2');
@@ -206,6 +210,18 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
   const generationStatusQuery = useKidsPlayfulOne(
     generationDialog?.generationId ?? null,
   );
+  const thumbnailStatusQuery = useQuery({
+    queryKey: ['thumbnail-generation', generationDialog?.thumbnailGenerationId ?? 'noop'],
+    queryFn: () =>
+      apiClient.get<ThumbnailGenerationItem>(
+        `/api/thumbnail-analysis/generations/${generationDialog?.thumbnailGenerationId}`,
+      ),
+    enabled: Boolean(generationDialog?.open && generationDialog.thumbnailGenerationId),
+    refetchInterval: (query) => {
+      const item = query.state.data;
+      return item?.status === 'pending' || item?.status === 'running' ? 2500 : false;
+    },
+  });
 
   useEffect(() => {
     if (savedImages.length === 0) return;
@@ -230,6 +246,7 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
 
     setGenerationDialog((prev) => {
       if (!prev?.open || prev.generationId !== item.id) return prev;
+      if (prev.thumbnailGenerationId) return prev;
       const editorUrl = buildGenerationEditorUrl(item, primarySourceCandidateId);
       if (
         prev.phase === phase &&
@@ -247,6 +264,21 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
       };
     });
   }, [generationStatusQuery.data, primarySourceCandidateId]);
+
+  useEffect(() => {
+    setGenerationDialog((prev) => {
+      if (!prev?.open) return prev;
+      const nextPhase = resolveProductGenerationDialogPhase({
+        currentPhase: prev.phase,
+        detailGenerationId: prev.detailGenerationId ?? prev.generationId ?? null,
+        detail: generationStatusQuery.data,
+        thumbnailGenerationId: prev.thumbnailGenerationId ?? null,
+        thumbnail: thumbnailStatusQuery.data,
+      });
+      if (!nextPhase || prev.phase === nextPhase) return prev;
+      return { ...prev, phase: nextPhase };
+    });
+  }, [generationStatusQuery.data, thumbnailStatusQuery.data]);
 
   const requestPrefill = async (title: string, orderedImages: string[]) =>
     apiClient.post<DetailPagePrefillResult>('/api/ai/detail-page/prefill', {
@@ -360,7 +392,13 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
       setRawCategory(data.category);
       setTarget(data.target);
       setRawDescription(data.description);
-      toast.success('AI가 카테고리와 핵심 정보를 채웠어요');
+      const aiKeyword = data.keyword?.trim();
+      if (aiKeyword) {
+        setKeyword(aiKeyword);
+        toast.success(`AI 채움: 카테고리 "${data.category}" / 키워드 "${aiKeyword}"`);
+      } else {
+        toast.success('AI가 카테고리와 핵심 정보를 채웠어요');
+      }
     } catch (err) {
       setError(isApiError(err) ? err.detail : 'AI 내용 채우기에 실패했습니다.');
     } finally {
@@ -422,6 +460,9 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
           setRawCategory((prev) => prev || prefill.category);
           setTarget((prev) => prev || prefill.target);
           setRawDescription((prev) => prev || prefill.description);
+          if (prefill.keyword) {
+            setKeyword((prev) => prev || prefill.keyword);
+          }
         } catch (prefillErr) {
           console.warn('[generate] auto-prefill failed, using defaults', prefillErr);
           toast.warning('AI 자동 채움에 실패해 기본값으로 진행합니다.', {
@@ -548,6 +589,7 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
       operationKey: input.operationKey ?? null,
       detailGenerationId: input.detailGenerationId,
       thumbnailGenerationId: input.thumbnailGenerationId,
+      generationId: input.detailGenerationId ?? undefined,
       editorUrl: input.editorUrl,
       errorMessage: null,
       description: '상품 작업공간을 만들고 상세페이지와 썸네일 생성을 시작했습니다.',
@@ -559,6 +601,8 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
     setRawTitle,
     rawCategory,
     setRawCategory,
+    keyword,
+    setKeyword,
     target,
     setTarget,
     ageGroup,
@@ -607,12 +651,45 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
 }
 
 function generationStatusToDialogPhase(
-  status: KidsPlayfulGenerationItem['imageProcessingStatus'],
+  status: KidsPlayfulGenerationItem['imageProcessingStatus'] | undefined,
 ): GenerationDialogPhase | null {
   if (status === 'pending' || status === 'processing') return 'started';
   if (status === 'completed') return 'completed';
   if (status === 'failed') return 'failed';
   if (status === 'cancelled') return 'cancelled';
+  return null;
+}
+
+function thumbnailStatusToDialogPhase(
+  status: ThumbnailGenerationItem['status'] | undefined,
+): GenerationDialogPhase | null {
+  if (status === 'pending' || status === 'running') return 'started';
+  if (status === 'succeeded') return 'completed';
+  if (status === 'failed') return 'failed';
+  if (status === 'cancelled') return 'cancelled';
+  return null;
+}
+
+function resolveProductGenerationDialogPhase(input: {
+  currentPhase: GenerationDialogPhase;
+  detailGenerationId: string | null;
+  detail?: KidsPlayfulGenerationItem;
+  thumbnailGenerationId: string | null;
+  thumbnail?: ThumbnailGenerationItem;
+}): GenerationDialogPhase | null {
+  if (input.currentPhase === 'cancelled') return null;
+
+  const detailPhase = input.detailGenerationId
+    ? generationStatusToDialogPhase(input.detail?.imageProcessingStatus)
+    : 'completed';
+  const thumbnailPhase = input.thumbnailGenerationId
+    ? thumbnailStatusToDialogPhase(input.thumbnail?.status)
+    : 'completed';
+
+  if (detailPhase === 'failed' || thumbnailPhase === 'failed') return 'failed';
+  if (detailPhase === 'cancelled' || thumbnailPhase === 'cancelled') return 'cancelled';
+  if (detailPhase === 'completed' && thumbnailPhase === 'completed') return 'completed';
+  if (detailPhase === 'started' || thumbnailPhase === 'started') return 'started';
   return null;
 }
 

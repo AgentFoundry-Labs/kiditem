@@ -61,10 +61,7 @@ export class ProductManagementRepositoryAdapter implements ProductManagementRepo
       where: {
         organizationId,
         isDeleted: false,
-        OR: [
-          { options: { some: { organizationId, isDeleted: false } } },
-          { listings: { some: { organizationId, isDeleted: false } } },
-        ],
+        listings: { some: { organizationId, isDeleted: false } },
       },
       select: { id: true },
     });

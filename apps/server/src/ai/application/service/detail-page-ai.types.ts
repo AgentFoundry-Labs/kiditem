@@ -53,6 +53,7 @@ export type DetailPageParsedGeneration = DetailPageGeneration | BoldVerticalGene
 
 export interface DetailPagePrefillDto {
   category: string;
+  keyword: string;
   target: string;
   features: string[];
   options: string[];

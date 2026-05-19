@@ -28,7 +28,8 @@ const TextOrTextArraySchema = z.preprocess(
 );
 
 const DetailPagePrefillSchema = z.object({
-  category: z.string().min(1).max(80),
+  category: z.string().min(1).max(120),
+  keyword: z.string().min(2).max(40),
   target: TextOrTextArraySchema,
   features: z.array(z.string().min(2).max(160)).min(3).max(6),
   options: z.array(z.string().min(1).max(60)).min(0).max(10).default([]),
@@ -42,7 +43,16 @@ const DETAIL_PAGE_PREFILL_SYSTEM = `너는 한국 키즈/생활 상품 상세페
 JSON 객체 1개만 출력한다. 코드펜스나 설명 문장은 금지.
 
 # 필드
-- category: 쇼핑몰 카테고리 경로. 예: "생활용품/리빙", "완구/놀이", "문구/학용품"
+- category: 쿠팡 카테고리 트리 경로. 반드시 " > " 구분자로 2~4 단계 깊이까지 적는다.
+  - 예: "완구/취미 > 만들기/창의놀이 > 점토/슬라임"
+  - 예: "출산/유아동 > 완구/매트 > 신생아완구"
+  - 예: "문구/오피스 > 학용품 > 필기구 > 볼펜"
+  - 예: "주방용품 > 식기/홈세트 > 컵/머그"
+  - "완구/놀이", "생활용품/리빙" 같은 1단계 짧은 분류는 절대 출력하지 않는다.
+  - 상품이 키즈 슬라임/점토면 항상 "완구/취미 > 만들기/창의놀이 > 점토/슬라임".
+- keyword: 쿠팡 검색에 바로 쓸 핵심 키워드 1개. 2~12자, 띄어쓰기 포함 가능.
+  - 검색량과 제품 본질을 모두 잡는 표현. 예: "촉감놀이 슬라임", "아기 치발기", "초등 책가방"
+  - 상품명과 100% 동일하면 안 되고, 카테고리/타겟이 결합된 검색어 형태가 좋다.
 - target: 핵심 구매 타겟. 예: "부모 구매자", "초등학생", "선물 구매자"
 - features: 상세페이지 특징 3~5개. 각 문장은 상품명에서 합리적으로 추론 가능한 장점만 쓴다.
 - options: 색상/종류/구성 옵션 후보 0~10개. 상품명에서 명확하지 않으면 과하게 만들지 않는다.
@@ -93,6 +103,7 @@ export class DetailPagePrefillService {
     const options = parsed.options.map((item) => item.trim()).filter(Boolean).slice(0, 10);
     return {
       category: parsed.category.trim(),
+      keyword: parsed.keyword.trim(),
       target: parsed.target.trim(),
       features,
       options,

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getTemplate, placeholderDetailPageData } from '@kiditem/templates';
@@ -39,6 +39,7 @@ import {
   parseProductWorkspaceTab,
 } from '../../lib/product-workspace-tabs';
 import { useGenerationHistory } from '../../hooks/useGenerationHistory';
+import { extractKcCertificationNumber } from '../../lib/kc-autofill';
 import { buildProductRegistrationPreviewData } from './preview/product-registration-preview';
 import { GenerationProgressBannerStack } from './GenerationProgressBanner';
 import ProductErrorView from './ProductErrorView';
@@ -245,6 +246,36 @@ export function ProductWorkspaceScreen({
     updateBasicInfoMutation.mutate(input);
   };
 
+  const kcAutoFilledRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!selectionCandidateId) return;
+    const basicInfo = fetchedData?.product?.basicInfo;
+    if (!basicInfo) return;
+    const status = basicInfo.kcCertificationStatus;
+    if (status === 'exists' || status === 'none') return;
+
+    const kcNumber = extractKcCertificationNumber([...kidsPlayfulEntries, ...boldEntries]);
+    if (!kcNumber) return;
+    if (kcAutoFilledRef.current === kcNumber) return;
+    kcAutoFilledRef.current = kcNumber;
+
+    updateBasicInfoMutation.mutate(
+      { kcCertificationStatus: 'exists', kcCertificationNumber: kcNumber },
+      {
+        onSuccess: () => {
+          toast.success(`이미지에서 KC 인증번호 ${kcNumber} 를 자동 입력했어요.`);
+        },
+      },
+    );
+    // mutation 객체는 매 렌더 새 identity 라서 deps 에서 제외 — ref 가 중복 호출을 막는다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    selectionCandidateId,
+    fetchedData?.product?.basicInfo?.kcCertificationStatus,
+    kidsPlayfulEntries,
+    boldEntries,
+  ]);
+
   const handleSaveThumbnailConfiguration = async (input: {
     thumbnailUrls: string[];
     selectedThumbnail: RegistrationThumbnailOption | null;
@@ -353,28 +384,52 @@ export function ProductWorkspaceScreen({
       }),
     [activeTab, editData, selectedRegistrationThumbnailUrl, thumbnailPreviewImages, thumbnailPreviewUrl],
   );
+  const detailGenerationRows = useMemo(() => buildDetailGenerationRows({
+    agentHistory,
+    kidsPlayfulEntries,
+    boldEntries,
+    savedDetailPageGenerationId: effectiveSavedDetailPageGenerationId,
+  }), [
+    agentHistory,
+    boldEntries,
+    effectiveSavedDetailPageGenerationId,
+    kidsPlayfulEntries,
+  ]);
+  const latestCompletedDetailPageGenerationId = useMemo(
+    () => detailGenerationRows.find((row) => row.isCompletedVersion)?.id ?? null,
+    [detailGenerationRows],
+  );
   const selectedDetailMobilePreviewHtml = useMemo(() => {
-    if (!effectiveSavedDetailPageGenerationId) return null;
-    if (isRenderableDetailHtml(selectedDetailEditedHtml?.html)) {
-      return ensureStyledDetailHtml(selectedDetailEditedHtml.html, templateCss);
-    }
+    const previewGenerationIds = uniqueNonEmpty([
+      effectiveSavedDetailPageGenerationId,
+      latestCompletedDetailPageGenerationId,
+    ]);
 
-    const agentEntry = agentHistory.find((item) => item.id === effectiveSavedDetailPageGenerationId);
-    if (agentEntry?.detailPageData) {
-      try {
-        return buildGenerationHistoryHtml(agentEntry, templateCss);
-      } catch {
-        return null;
+    for (const generationId of previewGenerationIds) {
+      if (
+        generationId === effectiveSavedDetailPageGenerationId &&
+        isRenderableDetailHtml(selectedDetailEditedHtml?.html)
+      ) {
+        return ensureStyledDetailHtml(selectedDetailEditedHtml.html, templateCss);
       }
-    }
 
-    const generatedEntry = [...kidsPlayfulEntries, ...boldEntries]
-      .find((item) => item.id === effectiveSavedDetailPageGenerationId);
-    if (generatedEntry) {
-      try {
-        return buildDetailGenerationEntryHtml(generatedEntry, templateCss);
-      } catch {
-        return null;
+      const agentEntry = agentHistory.find((item) => item.id === generationId);
+      if (agentEntry?.detailPageData) {
+        try {
+          return buildGenerationHistoryHtml(agentEntry, templateCss);
+        } catch {
+          continue;
+        }
+      }
+
+      const generatedEntry = [...kidsPlayfulEntries, ...boldEntries]
+        .find((item) => item.id === generationId);
+      if (generatedEntry) {
+        try {
+          return buildDetailGenerationEntryHtml(generatedEntry, templateCss);
+        } catch {
+          continue;
+        }
       }
     }
     return null;
@@ -383,6 +438,7 @@ export function ProductWorkspaceScreen({
     boldEntries,
     effectiveSavedDetailPageGenerationId,
     kidsPlayfulEntries,
+    latestCompletedDetailPageGenerationId,
     selectedDetailEditedHtml?.html,
     templateCss,
   ]);
@@ -396,12 +452,7 @@ export function ProductWorkspaceScreen({
   );
   const selectedDetailPageSummary = useMemo(() => {
     if (!effectiveSavedDetailPageGenerationId) return null;
-    const row = buildDetailGenerationRows({
-      agentHistory,
-      kidsPlayfulEntries,
-      boldEntries,
-      savedDetailPageGenerationId: effectiveSavedDetailPageGenerationId,
-    }).find((item) => item.id === effectiveSavedDetailPageGenerationId);
+    const row = detailGenerationRows.find((item) => item.id === effectiveSavedDetailPageGenerationId);
     if (!row) return null;
     return {
       id: row.id,
@@ -410,12 +461,7 @@ export function ProductWorkspaceScreen({
       createdAt: row.createdAt,
       status: row.status,
     };
-  }, [
-    agentHistory,
-    boldEntries,
-    effectiveSavedDetailPageGenerationId,
-    kidsPlayfulEntries,
-  ]);
+  }, [detailGenerationRows, effectiveSavedDetailPageGenerationId]);
 
   if (isLoadingProduct) {
     return <ProductLoadingView productId={productId} onBack={goBack} />;
@@ -439,7 +485,10 @@ export function ProductWorkspaceScreen({
     activeTab === 'detail' ? detailWorkspacePreviewHtml : selectedDetailMobilePreviewHtml;
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div
+      data-testid="product-workspace-screen"
+      className="flex h-[calc(100dvh-3rem)] min-h-0 flex-col overflow-hidden"
+    >
       <ProductEditHeader
         productName={editData.name || '(상품명 없음)'}
         productId={productId}
@@ -477,12 +526,12 @@ export function ProductWorkspaceScreen({
         />
       )}
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         <div
-          className="flex w-[72%] flex-col overflow-hidden border-r border-slate-200"
+          className="flex min-h-0 w-[72%] flex-col overflow-hidden border-r border-slate-200"
         >
           <ProductEditTabs activeTab={activeTab} onTabChange={handleTabChange} />
-          <div className="flex-1 overflow-y-auto bg-slate-50">
+          <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50">
             <ProductTabContent
               activeTab={activeTab}
               editData={editData}
@@ -549,10 +598,11 @@ export function ProductWorkspaceScreen({
           </div>
         </div>
 
-        <div className="w-[28%] overflow-y-auto bg-slate-50/50 p-5">
+        <div className="min-h-0 w-[28%] overflow-hidden bg-slate-50/50 p-5">
           <MobilePreview
             {...mobilePreviewData}
             detailHtml={sidePreviewDetailHtml}
+            className="h-full"
           />
         </div>
       </div>

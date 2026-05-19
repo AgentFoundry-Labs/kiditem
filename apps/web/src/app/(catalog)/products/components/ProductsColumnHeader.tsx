@@ -40,22 +40,19 @@ function SortButton({
 export function ProductsColumnHeader({ sortKey, sortDir, onToggleSort }: Props) {
   return (
     <div
-      className="grid grid-cols-[minmax(360px,1.45fr)_92px_1.1fr_1fr_1fr_118px] items-center gap-4 px-4 py-2 text-[12px] font-semibold"
+      className="grid grid-cols-[minmax(420px,1.45fr)_repeat(8,minmax(76px,.42fr))_72px] items-center gap-4 px-6 py-3 text-[12px] font-semibold"
       style={{ color: 'var(--text-quaternary)' }}
     >
       <div>상품</div>
       <SortButton active={sortKey === 'stock'} dir={sortDir} label="재고" onClick={() => onToggleSort('stock')} />
-      <div className="grid grid-cols-3 gap-2 text-right">
-        <SortButton active={sortKey === 'visitors'} dir={sortDir} label="방문" onClick={() => onToggleSort('visitors')} />
-        <SortButton active={sortKey === 'views'} dir={sortDir} label="조회" onClick={() => onToggleSort('views')} />
-        <SortButton active={sortKey === 'cartAdds'} dir={sortDir} label="장바구니" onClick={() => onToggleSort('cartAdds')} />
-      </div>
-      <div className="grid grid-cols-2 gap-3 text-right">
-        <SortButton active={sortKey === 'orders'} dir={sortDir} label="주문" onClick={() => onToggleSort('orders')} />
-        <SortButton active={sortKey === 'salesQty'} dir={sortDir} label="판매" onClick={() => onToggleSort('salesQty')} />
-      </div>
+      <SortButton active={sortKey === 'visitors'} dir={sortDir} label="방문" onClick={() => onToggleSort('visitors')} />
+      <SortButton active={sortKey === 'views'} dir={sortDir} label="조회" onClick={() => onToggleSort('views')} />
+      <SortButton active={sortKey === 'cartAdds'} dir={sortDir} label="장바구니" onClick={() => onToggleSort('cartAdds')} />
+      <SortButton active={sortKey === 'orders'} dir={sortDir} label="주문" onClick={() => onToggleSort('orders')} />
+      <SortButton active={sortKey === 'salesQty'} dir={sortDir} label="판매" onClick={() => onToggleSort('salesQty')} />
       <SortButton active={sortKey === 'revenue'} dir={sortDir} label="매출" onClick={() => onToggleSort('revenue')} />
       <SortButton active={sortKey === 'adRate'} dir={sortDir} label="광고비율" onClick={() => onToggleSort('adRate')} />
+      <span />
     </div>
   );
 }

@@ -1,11 +1,10 @@
 'use client';
 
 // 쿠팡 모바일 PDP 미리보기 — 3가지 탭 (PDP / 검색결과 카드 / 장바구니 카드).
-// 사용자 요구: thumbnail-editor 에서 이미 쓰는 CoupangSearchCardPreview/CoupangDetailPreview 와
-// 동일한 패턴 (탭으로 미리보기 변경) + iPhone 17 모양 프레임.
+// 오른쪽 패널에서 상품 정보와 상세페이지가 한 장의 긴 미리보기로 이어지게 보여준다.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Heart, ShoppingCart, Star, Search, Layers, Smartphone } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Heart, ShoppingCart, Star, Search, Layers, Smartphone, X } from 'lucide-react';
 import { formatKRW, cn } from '@/lib/utils';
 import {
   isDetailPreviewMetricsMessage,
@@ -35,7 +34,7 @@ const TABS: { key: PreviewMode; label: string; Icon: typeof Smartphone }[] = [
   { key: 'list', label: '목록', Icon: Layers },
 ];
 const DETAIL_DOCUMENT_WIDTH = 720;
-const MOBILE_DETAIL_VIEWPORT_WIDTH = 304;
+const MOBILE_DETAIL_VIEWPORT_WIDTH = 400;
 const MOBILE_DETAIL_SCALE = MOBILE_DETAIL_VIEWPORT_WIDTH / DETAIL_DOCUMENT_WIDTH;
 
 export default function MobilePreview({
@@ -48,11 +47,12 @@ export default function MobilePreview({
   rating,
   reviewCount,
   detailHtml = null,
-  sticky = true,
+  sticky = false,
   className,
 }: MobilePreviewProps) {
   const [mode, setMode] = useState<PreviewMode>('pdp');
   const [imageIndex, setImageIndex] = useState(0);
+  const [zoomedImage, setZoomedImage] = useState<string | null>(null);
   const previewGallery = useMemo(
     () => uniqueImages([mainImage, ...(previewImages ?? [])]),
     [mainImage, previewImages],
@@ -70,14 +70,30 @@ export default function MobilePreview({
     setImageIndex(0);
   }, [previewGallery.join('|')]);
 
+  useEffect(() => {
+    if (!zoomedImage) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setZoomedImage(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [zoomedImage]);
+
   return (
-    <div className={cn(sticky ? 'sticky top-6' : '', className)}>
+    <div
+      data-testid="mobile-preview-root"
+      className={cn(
+        'flex h-full max-h-[calc(100vh-2.5rem)] min-h-0 flex-col',
+        sticky ? 'sticky top-6' : '',
+        className,
+      )}
+    >
       <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
         미리보기 — 쿠팡
       </p>
 
       {/* 탭 — 어떤 쿠팡 화면 미리볼지 */}
-      <div className="mx-auto mb-3 flex w-[320px] gap-1 rounded-lg bg-slate-100 p-1">
+      <div className="mx-auto mb-3 flex w-full max-w-[420px] gap-1 rounded-lg bg-slate-100 p-1">
         {TABS.map((t) => {
           const Icon = t.Icon;
           const active = mode === t.key;
@@ -100,48 +116,65 @@ export default function MobilePreview({
         })}
       </div>
 
-      {/* iPhone 17 스타일 프레임 — 두꺼운 검은 베젤 + Dynamic Island (가운데 pill).
-          rounded-[2.75rem] 외곽 + rounded-[2.25rem] inner = squircle + iOS curved bezel 톤. */}
-      <div className="mx-auto w-[320px] rounded-[2.75rem] border-[8px] border-slate-900 bg-slate-900 shadow-xl shadow-slate-300/60 overflow-hidden relative">
-        {/* Dynamic Island — 화면 영역 위에 floating pill 로 떠있음 */}
-        <div className="absolute left-1/2 top-2 z-20 h-[22px] w-[88px] -translate-x-1/2 rounded-full bg-black" />
-
-        <div
-          data-testid="mobile-preview-phone-scroll"
-          className="bg-white h-[640px] overflow-y-auto rounded-[2.25rem]"
-        >
-          {/* 상단 status bar 영역 — Dynamic Island 가 가리는 만큼 padding */}
-          <div className="h-9" />
-
-          {mode === 'pdp' && (
-            <PdpView
-              name={name}
-              mainImage={activeImage}
-              imageIndex={imageIndex}
-              imageCount={previewGallery.length}
-              hasImageNav={hasImageNav}
-              onPreviousImage={goPreviousImage}
-              onNextImage={goNextImage}
-              salePrice={salePrice}
-              originalPrice={originalPrice}
-              discountRate={discountRate}
-              rating={rating}
-              reviewCount={reviewCount}
-              detailHtml={detailHtml}
-            />
-          )}
-          {mode === 'search' && (
-            <SearchView name={name} mainImage={activeImage} salePrice={salePrice} discountRate={discountRate} rating={rating} reviewCount={reviewCount} />
-          )}
-          {mode === 'list' && (
-            <ListView name={name} mainImage={activeImage} salePrice={salePrice} originalPrice={originalPrice} discountRate={discountRate} rating={rating} reviewCount={reviewCount} />
-          )}
-        </div>
+      <div
+        data-testid="mobile-preview-page"
+        className="mx-auto flex min-h-0 w-full max-w-[420px] flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
+      >
+        {mode === 'pdp' && (
+          <PdpView
+            name={name}
+            mainImage={activeImage}
+            imageIndex={imageIndex}
+            imageCount={previewGallery.length}
+            hasImageNav={hasImageNav}
+            onPreviousImage={goPreviousImage}
+            onNextImage={goNextImage}
+            onZoomImage={setZoomedImage}
+            salePrice={salePrice}
+            originalPrice={originalPrice}
+            discountRate={discountRate}
+            rating={rating}
+            reviewCount={reviewCount}
+            detailHtml={detailHtml}
+          />
+        )}
+        {mode === 'search' && (
+          <SearchView name={name} mainImage={activeImage} salePrice={salePrice} discountRate={discountRate} rating={rating} reviewCount={reviewCount} onZoomImage={setZoomedImage} />
+        )}
+        {mode === 'list' && (
+          <ListView name={name} mainImage={activeImage} salePrice={salePrice} originalPrice={originalPrice} discountRate={discountRate} rating={rating} reviewCount={reviewCount} onZoomImage={setZoomedImage} />
+        )}
       </div>
 
-      <p className="text-center text-[10px] text-slate-400 mt-3">
-        쿠팡 모바일 미리보기 — 실제 표시와 다를 수 있습니다
-      </p>
+      {zoomedImage ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="상품 이미지 확대 보기"
+          data-testid="mobile-preview-image-zoom"
+          onClick={() => setZoomedImage(null)}
+          className="fixed inset-0 z-[60] flex cursor-zoom-out items-center justify-center bg-black/85 p-6"
+        >
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              setZoomedImage(null);
+            }}
+            className="absolute top-4 right-4 inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-white hover:bg-white/25"
+            aria-label="닫기"
+          >
+            <X size={18} />
+          </button>
+          <img
+            src={zoomedImage}
+            alt="상품 이미지 확대"
+            className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"
+            referrerPolicy="no-referrer"
+            draggable={false}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -162,6 +195,7 @@ function PdpView({
   hasImageNav = false,
   onPreviousImage,
   onNextImage,
+  onZoomImage,
   salePrice,
   originalPrice,
   discountRate,
@@ -174,9 +208,11 @@ function PdpView({
   hasImageNav?: boolean;
   onPreviousImage?: () => void;
   onNextImage?: () => void;
+  onZoomImage?: (url: string) => void;
 }) {
   const detailIframeRef = useRef<HTMLIFrameElement>(null);
-  const [detailDocumentHeight, setDetailDocumentHeight] = useState(960);
+  const [detailDocumentHeight, setDetailDocumentHeight] = useState(480);
+  const [zoomedDetail, setZoomedDetail] = useState(false);
   const sandboxedDetailHtml = useMemo(
     () => (detailHtml ? withDetailPreviewBridge(detailHtml) : null),
     [detailHtml],
@@ -187,7 +223,7 @@ function PdpView({
     const onMessage = (event: MessageEvent) => {
       if (event.source !== detailIframeRef.current?.contentWindow) return;
       if (!isDetailPreviewMetricsMessage(event.data)) return;
-      setDetailDocumentHeight(Math.min(16_000, Math.max(720, Math.ceil(event.data.scrollHeight))));
+      setDetailDocumentHeight(Math.min(16_000, Math.max(120, Math.ceil(event.data.scrollHeight))));
     };
     window.addEventListener('message', onMessage);
     return () => {
@@ -196,28 +232,68 @@ function PdpView({
   }, [sandboxedDetailHtml]);
 
   useEffect(() => {
-    setDetailDocumentHeight(960);
+    setDetailDocumentHeight(480);
   }, [sandboxedDetailHtml]);
 
+  useEffect(() => {
+    if (!zoomedDetail) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setZoomedDetail(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [zoomedDetail]);
+
   return (
-    <>
-      <div className="bg-white border-b border-slate-100 px-3 py-2.5 flex items-center justify-between">
-        <span className="text-base font-extrabold tracking-tight" style={{ color: '#CB1D2A' }}>
-          coupang
-        </span>
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded-full bg-slate-200" />
-          <div className="w-4 h-4 rounded-full bg-slate-200" />
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div
+        data-testid="mobile-preview-scroll-content"
+        className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+      >
+      <div className="sticky top-0 z-10 bg-white border-b border-slate-100 px-2 py-2 flex items-center gap-1.5">
+        <button type="button" className="p-1 text-slate-700" aria-label="뒤로">
+          <ChevronLeft size={16} />
+        </button>
+        <div className="flex-1 flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1">
+          <Search size={11} className="text-slate-400" />
+          <span className="text-[10px] text-slate-400 truncate">쿠팡에서 검색</span>
         </div>
+        <button type="button" className="p-1 text-slate-700" aria-label="찜">
+          <Heart size={14} />
+        </button>
+        <button type="button" className="relative p-1 text-slate-700" aria-label="장바구니">
+          <ShoppingCart size={14} />
+          <span
+            className="absolute -top-0 -right-0 inline-flex h-3 min-w-[12px] items-center justify-center rounded-full px-0.5 text-[8px] font-bold text-white"
+            style={{ background: '#CB1D2A' }}
+          >
+            0
+          </span>
+        </button>
       </div>
 
       <div className="relative aspect-square bg-slate-100">
-        <img src={mainImage} alt="상품" className="w-full h-full object-cover" />
+        <button
+          type="button"
+          onClick={() => onZoomImage?.(mainImage)}
+          aria-label="상품 이미지 확대 보기"
+          className="absolute inset-0 cursor-zoom-in"
+        >
+          <img
+            src={mainImage}
+            alt="상품"
+            className="h-full w-full object-cover"
+            draggable={false}
+          />
+        </button>
         {hasImageNav && (
           <>
             <button
               type="button"
-              onClick={onPreviousImage}
+              onClick={(event) => {
+                event.stopPropagation();
+                onPreviousImage?.();
+              }}
               className="absolute left-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-slate-800 shadow ring-1 ring-slate-200"
               aria-label="이전 썸네일 이미지"
             >
@@ -225,66 +301,112 @@ function PdpView({
             </button>
             <button
               type="button"
-              onClick={onNextImage}
+              onClick={(event) => {
+                event.stopPropagation();
+                onNextImage?.();
+              }}
               className="absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-slate-800 shadow ring-1 ring-slate-200"
               aria-label="다음 썸네일 이미지"
             >
               <ChevronRight size={18} />
             </button>
-            <span className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-black/60 px-2.5 py-1 text-[10px] font-bold text-white">
+            <span className="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-black/60 px-2.5 py-1 text-[10px] font-bold text-white">
               {imageIndex + 1} / {imageCount}
             </span>
           </>
         )}
       </div>
 
-      <div className="p-3 space-y-2.5">
-        <div className="flex items-center gap-1.5">
+      <div className="bg-white px-3 pt-3 pb-2.5 space-y-1.5">
+        <p className="text-[10px] text-slate-400">브랜드 &gt;</p>
+        <p className="text-[13px] font-medium text-slate-900 leading-snug">{name}</p>
+        <div className="flex items-center gap-1">
+          <Star size={11} className="fill-amber-400 text-amber-400" />
+          <span className="text-[11px] font-bold text-slate-800">{rating}</span>
+          <span className="text-[10px] text-slate-400 underline">
+            리뷰 {formatKRW(reviewCount)}개 &gt;
+          </span>
+        </div>
+      </div>
+
+      <div className="bg-white border-t border-slate-100 px-3 py-3 space-y-1">
+        <span
+          className="inline-block rounded px-1.5 py-0.5 text-[9px] font-bold"
+          style={{ background: '#FFE9EB', color: '#CB1D2A' }}
+        >
+          와우할인가
+        </span>
+        <p className="pt-1 text-[10px] text-slate-400 line-through">{formatKRW(originalPrice)}원</p>
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-xl font-extrabold" style={{ color: '#CB1D2A' }}>
+            {discountRate}%
+          </span>
+          <span className="text-xl font-extrabold text-slate-900">{formatKRW(salePrice)}원</span>
+        </div>
+        <div className="flex items-center gap-1.5 pt-1.5">
           <span
             className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-extrabold text-white"
             style={{ background: '#1E61D5' }}
           >
             <span>🚀</span>로켓배송
           </span>
-          <span className="text-[10px] text-slate-500">내일(수) 도착 보장</span>
+          <span className="text-[10px] text-slate-700">
+            <span className="font-bold">내일(수)</span> 도착 보장
+          </span>
         </div>
+      </div>
 
-        <p className="text-xs font-medium text-slate-800 leading-relaxed line-clamp-2">{name}</p>
+      <div className="bg-white border-t border-slate-100 px-3 py-2 flex items-center gap-1.5">
+        <span
+          className="rounded px-1.5 py-0.5 text-[9px] font-extrabold text-white"
+          style={{ background: '#9333EA' }}
+        >
+          WOW
+        </span>
+        <span className="text-[10px] text-slate-700">
+          최대 {formatKRW(Math.floor(salePrice * 0.05))}원 캐시 적립
+        </span>
+      </div>
 
-        <div className="flex items-center gap-1">
-          <Star size={11} className="fill-amber-400 text-amber-400" />
-          <span className="text-[11px] font-bold text-slate-800">{rating}</span>
-          <span className="text-[10px] text-slate-400">리뷰 {formatKRW(reviewCount)}개</span>
+      <button
+        type="button"
+        className="w-full bg-white border-t border-slate-100 px-3 py-2.5 flex items-center justify-between text-left"
+      >
+        <span className="text-[11px] font-semibold text-slate-800">쿠폰 할인 받기</span>
+        <span className="inline-flex items-center gap-0.5 text-[10px] text-slate-500">
+          쿠폰 받기
+          <ChevronRight size={11} />
+        </span>
+      </button>
+
+      <button
+        type="button"
+        className="w-full bg-white border-t border-slate-100 px-3 py-2.5 flex items-center justify-between text-left"
+      >
+        <span className="text-[11px] text-slate-800">옵션 선택</span>
+        <ChevronRight size={12} className="text-slate-400" />
+      </button>
+
+      <div className="bg-slate-50 border-t border-slate-100 px-3 py-2.5 space-y-1">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] text-slate-500">도착 보장</span>
+          <span className="text-[10px] font-bold text-slate-800">내일(수) 도착</span>
         </div>
-
-        <div className="space-y-0.5">
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-lg font-extrabold" style={{ color: '#CB1D2A' }}>
-              {discountRate}%
-            </span>
-            <span className="text-lg font-extrabold text-slate-900">{formatKRW(salePrice)}원</span>
-          </div>
-          <p className="text-[11px] text-slate-400 line-through">{formatKRW(originalPrice)}원</p>
-        </div>
-
-        <div className="border-t border-slate-100 pt-2 mt-2">
-          <div className="flex items-center gap-1.5">
-            <span className="rounded px-1.5 py-0.5 text-[9px] font-extrabold text-white" style={{ background: '#9333EA' }}>
-              WOW
-            </span>
-            <span className="text-[10px] text-slate-700">
-              최대 {formatKRW(Math.floor(salePrice * 0.05))}원 캐시 적립
-            </span>
-          </div>
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] text-slate-500">무료반품</span>
+          <span className="text-[10px] text-slate-800">30일 이내 가능</span>
         </div>
       </div>
 
       {sandboxedDetailHtml ? (
         <div className="border-t border-slate-100 bg-slate-50 px-2 py-3">
-          <p className="mb-2 text-[10px] font-bold text-slate-500">상세페이지</p>
+          <div className="mb-2 flex items-center justify-between px-1">
+            <p className="text-[10px] font-bold text-slate-500">상세페이지</p>
+            <span className="text-[9px] text-slate-400">탭하여 크게 보기</span>
+          </div>
           <div
             data-testid="mobile-preview-detail-scroll-region"
-            className="overflow-hidden rounded-md border border-slate-200 bg-white"
+            className="relative block w-full overflow-hidden rounded-md border border-slate-200 bg-white"
             style={{ height: Math.ceil(detailDocumentHeight * MOBILE_DETAIL_SCALE) }}
           >
             <iframe
@@ -301,23 +423,81 @@ function PdpView({
                 transformOrigin: 'top left',
               }}
             />
+            <button
+              type="button"
+              onClick={() => setZoomedDetail(true)}
+              aria-label="상세페이지 크게 보기"
+              className="absolute inset-0 cursor-zoom-in bg-transparent"
+            />
           </div>
         </div>
       ) : null}
+      </div>
 
-      <div className="sticky bottom-0 border-t border-slate-200 bg-white px-3 py-2 flex items-center gap-2">
-        <button className="p-2 border border-slate-200 rounded-lg">
+      <div
+        data-testid="mobile-preview-fixed-actions"
+        className="shrink-0 border-t border-slate-200 bg-white px-2 py-2 flex items-stretch gap-1.5"
+      >
+        <button
+          type="button"
+          className="flex w-10 flex-col items-center justify-center rounded-lg text-slate-500"
+          aria-label="찜"
+        >
           <Heart size={16} className="text-slate-400" />
+          <span className="mt-0.5 text-[9px] text-slate-500">찜</span>
         </button>
         <button
-          className="flex-1 py-2.5 text-white text-xs font-bold rounded-lg flex items-center justify-center gap-1.5"
+          type="button"
+          className="flex-1 text-xs font-bold rounded-lg flex items-center justify-center"
+          style={{ background: '#FFE9EB', color: '#CB1D2A' }}
+        >
+          장바구니
+        </button>
+        <button
+          type="button"
+          className="flex-1 text-white text-xs font-bold rounded-lg flex items-center justify-center"
           style={{ background: '#CB1D2A' }}
         >
-          <ShoppingCart size={13} />
           바로구매
         </button>
       </div>
-    </>
+
+      {zoomedDetail && sandboxedDetailHtml ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="상세페이지 크게 보기"
+          data-testid="mobile-preview-detail-zoom"
+          onClick={() => setZoomedDetail(false)}
+          className="fixed inset-0 z-[60] flex cursor-zoom-out items-center justify-center bg-black/85 p-6"
+        >
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              setZoomedDetail(false);
+            }}
+            className="absolute top-4 right-4 z-10 inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-white hover:bg-white/25"
+            aria-label="닫기"
+          >
+            <X size={18} />
+          </button>
+          <div
+            onClick={(event) => event.stopPropagation()}
+            className="h-[92vh] w-[720px] max-w-[92vw] cursor-default overflow-y-auto rounded-xl bg-white shadow-2xl"
+          >
+            <iframe
+              title="mobile-registration-detail-preview-zoom"
+              srcDoc={sandboxedDetailHtml}
+              sandbox={SCRIPTED_PREVIEW_SANDBOX}
+              scrolling="no"
+              className="block border-0"
+              style={{ width: DETAIL_DOCUMENT_WIDTH, height: detailDocumentHeight, maxWidth: '100%' }}
+            />
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -326,8 +506,8 @@ function PdpView({
 ============================================================================ */
 
 function SearchView({
-  name, mainImage, salePrice, discountRate, rating, reviewCount,
-}: Omit<MobilePreviewProps, 'originalPrice'>) {
+  name, mainImage, salePrice, discountRate, rating, reviewCount, onZoomImage,
+}: Omit<MobilePreviewProps, 'originalPrice'> & { onZoomImage?: (url: string) => void }) {
   return (
     <>
       {/* 검색바 */}
@@ -347,9 +527,14 @@ function SearchView({
       {/* 카드 (= 사용자 상품) */}
       <div className="px-3 pb-3">
         <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
-          <div className="aspect-square bg-slate-100">
-            <img src={mainImage} alt="상품" className="w-full h-full object-cover" />
-          </div>
+          <button
+            type="button"
+            onClick={() => onZoomImage?.(mainImage)}
+            aria-label="상품 이미지 확대 보기"
+            className="block aspect-square w-full cursor-zoom-in bg-slate-100"
+          >
+            <img src={mainImage} alt="상품" className="h-full w-full object-cover" draggable={false} />
+          </button>
           <div className="p-2.5 space-y-1.5">
             <div className="flex items-center gap-1">
               <span
@@ -396,8 +581,8 @@ function SearchView({
 ============================================================================ */
 
 function ListView({
-  name, mainImage, salePrice, originalPrice, discountRate, rating, reviewCount,
-}: MobilePreviewProps) {
+  name, mainImage, salePrice, originalPrice, discountRate, rating, reviewCount, onZoomImage,
+}: MobilePreviewProps & { onZoomImage?: (url: string) => void }) {
   return (
     <>
       <div className="bg-white border-b border-slate-100 px-3 py-2.5 flex items-center justify-between">
@@ -414,9 +599,14 @@ function ListView({
           >
             1위
           </span>
-          <div className="w-20 h-20 shrink-0 bg-slate-100 rounded overflow-hidden">
-            <img src={mainImage} alt="상품" className="w-full h-full object-cover" />
-          </div>
+          <button
+            type="button"
+            onClick={() => onZoomImage?.(mainImage)}
+            aria-label="상품 이미지 확대 보기"
+            className="h-20 w-20 shrink-0 cursor-zoom-in overflow-hidden rounded bg-slate-100"
+          >
+            <img src={mainImage} alt="상품" className="h-full w-full object-cover" draggable={false} />
+          </button>
           <div className="flex-1 min-w-0 space-y-1">
             <span
               className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-[8px] font-extrabold text-white"

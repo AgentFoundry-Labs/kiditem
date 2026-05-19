@@ -81,4 +81,16 @@ describe('useGenerationList', () => {
       );
     });
   });
+
+  it('requests source candidate scoped thumbnail history', async () => {
+    renderHook(() => useGenerationList({ sourceCandidateId: 'candidate-1', limit: 24 }), {
+      wrapper,
+    });
+
+    await waitFor(() => {
+      expect(apiClient.get).toHaveBeenCalledWith(
+        '/api/thumbnail-analysis/generations?sourceCandidateId=candidate-1&limit=24',
+      );
+    });
+  });
 });

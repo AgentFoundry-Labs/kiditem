@@ -1749,7 +1749,8 @@ describe('DetailPageAiService', () => {
     const textCompletion = {
       complete: vi.fn().mockResolvedValue({
         text: JSON.stringify({
-          category: '생활용품/리빙',
+          category: '생활용품/리빙 > 휴대용 비눗방울 > 목걸이형',
+          keyword: '아이 목걸이 비눗방울',
           target: '부모 구매자',
           features: [
             '목에 걸고 다니기 쉬운 휴대형 비눗방울',
@@ -1786,7 +1787,8 @@ describe('DetailPageAiService', () => {
         temperature: 0.45,
       }),
     );
-    expect(result.category).toBe('생활용품/리빙');
+    expect(result.category).toBe('생활용품/리빙 > 휴대용 비눗방울 > 목걸이형');
+    expect(result.keyword).toBe('아이 목걸이 비눗방울');
     expect(result.target).toBe('부모 구매자');
     expect(result.description).toContain('1. 목에 걸고 다니기 쉬운 휴대형 비눗방울');
     expect(result.options).toEqual(['노란색', '빨간색', '초록색']);
@@ -1797,7 +1799,8 @@ describe('DetailPageAiService', () => {
     const textCompletion = {
       complete: vi.fn().mockResolvedValue({
         text: JSON.stringify({
-          category: '완구/놀이',
+          category: '완구/취미 > 만들기/창의놀이 > 놀이세트',
+          keyword: '키즈 놀이세트',
           target: ['부모 구매자', '선물 구매자'],
           features: [
             '아이들이 쉽게 사용할 수 있는 놀이 상품',

@@ -145,9 +145,11 @@ export class SourcingService {
     if (!title) throw new BadRequestException('상품명을 입력해 주세요.');
     if (imageUrls.length === 0) throw new BadRequestException('상품 이미지를 1장 이상 추가해 주세요.');
 
+    const thumbnailUrls = this.uniqueNonEmptyStrings(data.thumbnailUrls ?? []).slice(0, 10);
     const thumbnailUrl = typeof data.thumbnailUrl === 'string' && data.thumbnailUrl.trim()
       ? data.thumbnailUrl.trim()
-      : imageUrls[0];
+      : thumbnailUrls[0] ?? imageUrls[0];
+    const allThumbnailUrls = this.uniqueNonEmptyStrings([thumbnailUrl, ...thumbnailUrls]).slice(0, 10);
     const primaryImageUrl = imageUrls.includes(thumbnailUrl) ? thumbnailUrl : imageUrls[0];
     const category = typeof data.category === 'string' && data.category.trim()
       ? data.category.trim()
@@ -156,6 +158,7 @@ export class SourcingService {
       ? data.description.trim()
       : '';
     const optionNames = this.uniqueNonEmptyStrings(data.optionNames ?? []);
+    const keywords = this.uniqueNonEmptyStrings(data.keywords ?? []).slice(0, 10);
     const sourceUrl = `kiditem://manual-product-registration/${randomUUID()}`;
     const candidate = await this.candidates.upsertSourced({
       organizationId,
@@ -176,8 +179,10 @@ export class SourcingService {
         boxSetStatus: data.boxSetStatus ?? null,
         boxSetQuantity: data.boxSetQuantity ?? null,
         thumbnailUrl,
+        thumbnailUrls: allThumbnailUrls,
         imageUrls,
         optionNames,
+        keywords,
       },
       name: title,
       description,
@@ -211,6 +216,10 @@ export class SourcingService {
     organizationId: string,
     triggeredByUserId: string | null,
   ) {
+    const thumbnailUrls = this.uniqueNonEmptyStrings(data.thumbnailUrls ?? []).slice(0, 10);
+    const representativeThumbnailUrl = typeof data.thumbnailUrl === 'string' && data.thumbnailUrl.trim()
+      ? data.thumbnailUrl.trim()
+      : thumbnailUrls[0] ?? null;
     const candidate = await this.registerManualProduct(
       data,
       organizationId,
@@ -225,7 +234,7 @@ export class SourcingService {
       description: data.description ?? null,
       target: data.target ?? null,
       imageUrls: this.uniqueNonEmptyStrings(data.imageUrls),
-      thumbnailUrl: data.thumbnailUrl ?? null,
+      thumbnailUrl: representativeThumbnailUrl,
       optionNames: this.uniqueNonEmptyStrings(data.optionNames ?? []),
       templateId: data.templateId ?? 'bold-vertical',
       ageGroup: data.ageGroup ?? 'age-8-plus',

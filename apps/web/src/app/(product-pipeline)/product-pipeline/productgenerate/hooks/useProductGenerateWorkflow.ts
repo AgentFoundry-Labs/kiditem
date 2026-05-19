@@ -34,7 +34,7 @@ export function useProductGenerateWorkflow() {
     successDescription: '생성 요청 후 수집 상품 화면에서 진행 상태를 확인할 수 있습니다.',
   });
 
-  const handleSubmit = async (selectedTemplateId: GenerateTemplateId, thumbnailUrl: string | null) => {
+  const handleSubmit = async (selectedTemplateId: GenerateTemplateId, thumbnailUrls: string[]) => {
     const title = form.rawTitle.trim();
     if (!title) {
       form.setError('상품명을 먼저 입력해 주세요.');
@@ -53,9 +53,10 @@ export function useProductGenerateWorkflow() {
         buildProductGenerationPayload({
           title,
           category: form.rawCategory,
+          keyword: form.keyword,
           target: form.target,
           description: form.rawDescription,
-          thumbnailUrl,
+          thumbnailUrls,
           imageUrls: form.images,
           rawOptions: form.rawOptions,
           templateId: selectedTemplateId,

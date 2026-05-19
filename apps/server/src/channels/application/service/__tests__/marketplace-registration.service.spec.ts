@@ -25,6 +25,7 @@ describe('MarketplaceRegistrationService', () => {
       masterId: 'master-1',
       channelAccountId: 'account-1',
       externalId: '720445',
+      productBarcode: '8806384882841',
       channelName: '쿠팡 판매명',
       channelPrice: 12900,
     });
