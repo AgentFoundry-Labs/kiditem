@@ -90,8 +90,7 @@ export async function cropImageWhitespaceFile(file: File): Promise<File> {
 }
 
 export async function prepareImageUploadFile(file: File): Promise<File> {
-  const backgroundNormalized = await normalizeProductImageBackground(file);
-  const cropped = await cropImageWhitespaceFile(backgroundNormalized);
+  const cropped = await cropImageWhitespaceFile(file);
   if (cropped.size <= DEFAULT_UPLOAD_MAX_BYTES) return cropped;
 
   const source = await loadCanvasImageSource(cropped);
@@ -128,92 +127,6 @@ export async function prepareImageUploadFile(file: File): Promise<File> {
     type: 'image/jpeg',
     lastModified: file.lastModified,
   });
-}
-
-async function normalizeProductImageBackground(file: File): Promise<File> {
-  const source = await loadCanvasImageSource(file);
-  const width = source.width;
-  const height = source.height;
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const context = canvas.getContext('2d', { willReadFrequently: true });
-  if (!context) {
-    closeImageSource(source);
-    return file;
-  }
-
-  context.fillStyle = '#fff';
-  context.fillRect(0, 0, width, height);
-  context.drawImage(source, 0, 0);
-  closeImageSource(source);
-
-  const imageData = context.getImageData(0, 0, width, height);
-  whitenEdgeConnectedBackground(imageData.data, width, height);
-  context.putImageData(imageData, 0, 0);
-
-  const blob = await canvasToBlob(canvas, 'image/jpeg', 0.94);
-  return new File([blob], makeWhiteBackgroundFilename(file.name), {
-    type: 'image/jpeg',
-    lastModified: file.lastModified,
-  });
-}
-
-function whitenEdgeConnectedBackground(data: Uint8ClampedArray, width: number, height: number): void {
-  const visited = new Uint8Array(width * height);
-  const stack: number[] = [];
-  const push = (x: number, y: number) => {
-    if (x < 0 || y < 0 || x >= width || y >= height) return;
-    const pixelIndex = y * width + x;
-    if (visited[pixelIndex]) return;
-    if (!isLikelyBackgroundPixel(data, pixelIndex * 4)) return;
-    visited[pixelIndex] = 1;
-    stack.push(pixelIndex);
-  };
-
-  for (let x = 0; x < width; x += 1) {
-    push(x, 0);
-    push(x, height - 1);
-  }
-  for (let y = 0; y < height; y += 1) {
-    push(0, y);
-    push(width - 1, y);
-  }
-
-  while (stack.length > 0) {
-    const pixelIndex = stack.pop()!;
-    const x = pixelIndex % width;
-    const y = Math.floor(pixelIndex / width);
-    const offset = pixelIndex * 4;
-    data[offset] = 255;
-    data[offset + 1] = 255;
-    data[offset + 2] = 255;
-    data[offset + 3] = 255;
-
-    push(x + 1, y);
-    push(x - 1, y);
-    push(x, y + 1);
-    push(x, y - 1);
-  }
-}
-
-function isLikelyBackgroundPixel(data: Uint8ClampedArray, offset: number): boolean {
-  const alpha = data[offset + 3];
-  if (alpha <= DEFAULT_ALPHA_THRESHOLD) return true;
-
-  const r = data[offset];
-  const g = data[offset + 1];
-  const b = data[offset + 2];
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  const chroma = max - min;
-  const saturation = max === 0 ? 0 : chroma / max;
-  const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-
-  if (max >= 238) return true;
-  if (luma >= 145 && saturation <= 0.28) return true;
-  if (luma <= 82 && saturation <= 0.2) return true;
-  return false;
 }
 
 export async function cropImageWhitespaceUrlToFile(
@@ -399,12 +312,4 @@ function makeCompressedFilename(filename: string): string {
   return /\.[a-z0-9]{2,5}$/i.test(safeName)
     ? safeName.replace(/\.[a-z0-9]{2,5}$/i, '-upload.jpg')
     : `${safeName}-upload.jpg`;
-}
-
-function makeWhiteBackgroundFilename(filename: string): string {
-  const safeName = filename.trim().replace(/[\\/:*?"<>|]+/g, '-');
-  if (!safeName) return 'detail-page-image-white-bg.jpg';
-  return /\.[a-z0-9]{2,5}$/i.test(safeName)
-    ? safeName.replace(/\.[a-z0-9]{2,5}$/i, '-white-bg.jpg')
-    : `${safeName}-white-bg.jpg`;
 }
