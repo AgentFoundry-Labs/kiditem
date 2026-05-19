@@ -73,9 +73,10 @@ Workflow nodes do not call LLM/provider SDKs directly.
   adapters.
 - `application/port/**` contracts expose local structural records, not Prisma
   model/input types.
-- Panel code is a read-only projection and must not mutate owner-domain rows.
-- Marketplace install validates allowed workflow nodes through the slim-core
-  allowlist before writing templates.
+- Panel code is a read-only SSE projection over owner-domain events; it must not
+  mutate owner rows, infer fallback links, or perform provider/filesystem work.
+- Workflow runner executors are slim-core and allowlisted; no generic DB, HTTP,
+  LLM, transform, or action executor without a domain contract.
 - Client/template JSON never supplies trusted `organizationId`,
   `_workflow_run_id`, or `_workflow_node_id`; the runner re-binds trusted scope.
 
@@ -85,6 +86,3 @@ Workflow nodes do not call LLM/provider SDKs directly.
   `PrismaService` to executor framework code.
 - `adapter/out/panel-event/**`, `adapter/out/workflow-runner/**`, and
   `mapper/panel-event/**` are documented Prisma/projection carve-outs.
-- More-specific adapter rules live in
-  `adapter/out/panel-event/AGENTS.md` and
-  `adapter/out/workflow-runner/AGENTS.md`.
