@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { AgentTypeRuntimeHandler } from '../port/out/agent-runtime-handler.port';
+import type { AgentTypeRuntimeHandler } from '../port/out/runtime/agent-runtime-handler.port';
 
 /**
  * Registry of per-agent-type runtime handlers, keyed by `agentType`.

@@ -7,8 +7,8 @@ import type {
   OptionsListPage,
   ProductOptionRepositoryPort,
   ProductOptionRow,
-} from '../../../application/port/out/product-option.repository.port';
-import type { ProductsRepositoryTransaction } from '../../../application/port/out/products-transaction.port';
+} from '../../../application/port/out/repository/product-option.repository.port';
+import type { ProductsRepositoryTransaction } from '../../../application/port/out/transaction/products-transaction.port';
 import {
   applyOptionPatch,
   assertNoBundleComponents,
@@ -71,6 +71,24 @@ export class ProductOptionRepositoryAdapter implements ProductOptionRepositoryPo
 
   findByBarcode(organizationId: string, barcode: string): Promise<ProductOptionRow> {
     return findOptionByBarcode(this.prisma, organizationId, barcode);
+  }
+
+  findActiveByBarcode(
+    repositoryTx: ProductsRepositoryTransaction,
+    organizationId: string,
+    barcode: string,
+  ): Promise<ProductOptionRow | null> {
+    return tx(repositoryTx).productOption.findFirst({
+      where: { organizationId, barcode, isDeleted: false },
+      select: {
+        id: true,
+        organizationId: true,
+        masterId: true,
+        sku: true,
+        optionName: true,
+        isBundle: true,
+      },
+    });
   }
 
   findCurrentOption(

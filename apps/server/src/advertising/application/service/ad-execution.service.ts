@@ -7,7 +7,7 @@ import {
   type ExecutionReportInput,
   type LeaseOptions,
   type WorkerHeartbeatMeta,
-} from '../port/out/ad-execution.repository.port';
+} from '../port/out/repository/ad-execution.repository.port';
 
 /**
  * Application orchestration for the worker execution loop. The service:

@@ -23,7 +23,7 @@ import {
  *
  * Verifies the helper produces correct per-listing rollups from Order +
  * OrderLineItem + ChannelListing + MasterProduct + ProductOption + Ad,
- * with organizationId scoping (ADR-0018) and revenue-weighted shipping (R-1).
+ * with organizationId scoping and revenue-weighted shipping (R-1).
  */
 describe('buildPerListingMetrics (PG integration)', () => {
   let prisma: PrismaClient;

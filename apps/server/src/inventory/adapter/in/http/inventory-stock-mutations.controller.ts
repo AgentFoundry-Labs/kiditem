@@ -5,7 +5,7 @@ import type { AuthUser } from '../../../../auth/auth.types';
 import {
   INVENTORY_PORT,
   type InventoryPort,
-} from '../../../application/port/in/inventory.port';
+} from '../../../application/port/in/stock/inventory.port';
 import {
   AdjustStockDto,
   IssueStockDto,

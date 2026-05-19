@@ -3,7 +3,7 @@ import type {
   TextCompletionPort,
   TextCompletionRequest,
   TextCompletionResult,
-} from '../../../application/port/out/text-completion.port';
+} from '../../../application/port/out/provider/text-completion.port';
 
 interface GeminiResponse {
   candidates?: Array<{

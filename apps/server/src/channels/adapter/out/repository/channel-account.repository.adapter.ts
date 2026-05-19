@@ -9,8 +9,8 @@ import type {
   ChannelAccountRepositoryPort,
   CoupangCredentials,
   CoupangCredentialsPort,
-} from '../../../application/port/out/channel-account.repository.port';
-import { CoupangAccountConfigurationError } from '../../../application/port/out/channel-account.repository.port';
+} from '../../../application/port/out/repository/channel-account.repository.port';
+import { CoupangAccountConfigurationError } from '../../../application/port/out/repository/channel-account.repository.port';
 import {
   CoupangCredentialCryptoError,
   decryptCredential,

@@ -7,8 +7,8 @@ import { AgentOsRuntimeError } from '../../../../agent-os/domain/agent-os.errors
 import type {
   AgentRuntimeExecutionContext,
   AgentRuntimeResult,
-} from '../../../../agent-os/application/port/out/agent-runtime.port';
-import type { AgentTypeRuntimeHandler } from '../../../../agent-os/application/port/out/agent-runtime-handler.port';
+} from '../../../../agent-os/application/port/out/runtime/agent-runtime.port';
+import type { AgentTypeRuntimeHandler } from '../../../../agent-os/application/port/out/runtime/agent-runtime-handler.port';
 import { AgentRuntimeHandlerRegistry } from '../../../../agent-os/application/service/agent-runtime-handler-registry.service';
 import {
   THUMBNAIL_GENERATE_AGENT_TYPE,
@@ -92,6 +92,7 @@ export class ThumbnailGenerateRuntimeHandler
       input,
       inputs,
       ctx.organizationId,
+      ctx.model,
     );
 
     if (candidates.length === 0) {
@@ -130,9 +131,11 @@ export class ThumbnailGenerateRuntimeHandler
     input: ThumbnailGenerateAgentInput,
     inputs: ThumbnailEditorInputImage[],
     organizationId: string,
+    model: string,
   ): Promise<ThumbnailEditorCandidate[]> {
     if (input.mode === 'creative') {
       return this.editorAi.generateCreative(inputs, organizationId, {
+        model,
         sceneType: input.sceneType,
         styleType: input.styleType,
         productDescription: input.productDescription,
@@ -143,6 +146,7 @@ export class ThumbnailGenerateRuntimeHandler
       });
     }
     return this.editorAi.generateEdit(inputs, organizationId, {
+      model,
       purpose: input.purpose ?? 'compliance',
       editCase: input.editCase ?? 'single',
       composition: input.composition,

@@ -4,15 +4,15 @@ import {
   type CreateWarehouseInput,
   type UpdateWarehouseInput,
   type WarehousesPort,
-} from '../port/in/warehouses.port';
+} from '../port/in/warehouse/warehouses.port';
 import {
   WAREHOUSES_REPOSITORY_PORT,
   type WarehouseListItem,
   type WarehouseRow,
   type WarehousesRepositoryPort,
-} from '../port/out/warehouses.repository.port';
+} from '../port/out/repository/warehouses.repository.port';
 
-export { WAREHOUSES_PORT } from '../port/in/warehouses.port';
+export { WAREHOUSES_PORT } from '../port/in/warehouse/warehouses.port';
 
 @Injectable()
 export class WarehousesService implements WarehousesPort {

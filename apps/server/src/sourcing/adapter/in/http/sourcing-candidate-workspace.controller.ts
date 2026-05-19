@@ -54,11 +54,11 @@ export class SourcingCandidateWorkspaceController {
   @Post('candidates/:id/quick-process')
   async quickProcess(
     @Param('id') id: string,
-    @Body() body: QuickProcessCandidateDto,
+    @Body() body: QuickProcessCandidateDto | undefined,
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.sourcingService.quickProcessCandidate(id, organizationId, user.id ?? null, body.task ?? 'all');
+    return this.sourcingService.quickProcessCandidate(id, organizationId, user.id ?? null, body?.task ?? 'all');
   }
 
   @Patch('candidates/:id/preparation/basic-info')

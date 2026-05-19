@@ -8,13 +8,13 @@ import type {
 } from '@kiditem/shared/advertising';
 import type { AdPeriod } from '../domain/ad-metrics';
 import { aggregateAdMetrics, buildAdMetrics } from '../domain/ad-metrics';
-import type { ScopedAdListingReadModel } from '../application/port/out/ad-listing.repository.port';
+import type { ScopedAdListingReadModel } from '../application/port/out/repository/ad-listing.repository.port';
 import type {
   CampaignRollup,
   ProductTargetRollup,
-} from '../application/port/out/ad-campaign.repository.port';
+} from '../application/port/out/repository/ad-campaign.repository.port';
 import type { AdTrendDailyAggregate } from '../domain/ad-trend';
-import type { AdAccountKpiDayRow } from '../application/port/out/ad-account-kpi.repository.port';
+import type { AdAccountKpiDayRow } from '../application/port/out/repository/ad-account-kpi.repository.port';
 import { scopedListingToSummary } from './ad-listing.mapper';
 
 /**

@@ -16,9 +16,9 @@ import type { DetailPageAgeGroup } from '../../domain/prompts/detail-page/types'
 import {
   DETAIL_PAGE_MEDIA_PORT,
   type DetailPageMediaPort,
-} from '../port/out/detail-page-media.port';
-import { IMAGE_FETCH_PORT, type ImageFetchPort } from '../port/out/image-fetch.port';
-import { IMAGE_STORAGE_PORT, type ImageStoragePort } from '../port/out/image-storage.port';
+} from '../port/out/provider/detail-page-media.port';
+import { IMAGE_FETCH_PORT, type ImageFetchPort } from '../port/out/provider/image-fetch.port';
+import { IMAGE_STORAGE_PORT, type ImageStoragePort } from '../port/out/storage/image-storage.port';
 
 const sharp: typeof import('sharp') = require('sharp');
 

@@ -14,7 +14,7 @@ import type {
   AdTrendDailyRow,
   CampaignRollup,
   ProductTargetRollup,
-} from '../../../application/port/out/ad-campaign.repository.port';
+} from '../../../application/port/out/repository/ad-campaign.repository.port';
 
 @Injectable()
 export class AdCampaignRepositoryAdapter

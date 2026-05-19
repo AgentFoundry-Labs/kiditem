@@ -26,15 +26,15 @@ import {
 import {
   AD_LISTING_REPOSITORY_PORT,
   type AdListingRepositoryPort,
-} from '../port/out/ad-listing.repository.port';
+} from '../port/out/repository/ad-listing.repository.port';
 import {
   SCRAPE_TARGET_REPOSITORY_PORT,
   type ScrapeTargetRepositoryPort,
-} from '../port/out/scrape-target.repository.port';
+} from '../port/out/repository/scrape-target.repository.port';
 import {
   CHANNEL_SCRAPE_REPOSITORY_PORT,
   type ChannelScrapeRepositoryPort,
-} from '../port/out/channel-scrape.repository.port';
+} from '../port/out/repository/channel-scrape.repository.port';
 import { AdCampaignIngestHandler } from './ad-campaign-ingest.handler';
 import { CoupangAdsDailyIngestHandler } from './coupang-ads-daily-ingest.handler';
 import { RawScrapeIngestHandler } from './raw-scrape-ingest.handler';

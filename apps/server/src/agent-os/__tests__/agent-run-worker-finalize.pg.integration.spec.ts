@@ -35,7 +35,7 @@ import type {
   AgentRuntimeExecutionContext,
   AgentRuntimePort,
   AgentRuntimeResult,
-} from '../application/port/out/agent-runtime.port';
+} from '../application/port/out/runtime/agent-runtime.port';
 import { AgentOsRuntimeError } from '../domain/agent-os.errors';
 
 class DeterministicRuntimeAdapter implements AgentRuntimePort {

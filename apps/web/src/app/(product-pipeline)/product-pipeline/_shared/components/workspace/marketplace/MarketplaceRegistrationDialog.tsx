@@ -29,6 +29,7 @@ export default function MarketplaceRegistrationDialog({
   onSubmit,
 }: MarketplaceRegistrationDialogProps) {
   const [channelAccountId, setChannelAccountId] = useState('');
+  const [externalId, setExternalId] = useState('');
   const [registrationKind, setRegistrationKind] = useState<ProductRegistrationKind>('single');
   const [productBarcode, setProductBarcode] = useState('');
   const [channelName, setChannelName] = useState('');
@@ -36,16 +37,25 @@ export default function MarketplaceRegistrationDialog({
 
   useEffect(() => {
     if (!open) return;
-    setChannelAccountId((current) => current || accounts[0]?.id || '');
+    setChannelAccountId((current) => (
+      current && accounts.some((account) => account.id === current)
+        ? current
+        : accounts[0]?.id || ''
+    ));
     setChannelName((current) => current || productName);
   }, [accounts, open, productName]);
 
   if (!open) return null;
 
-  const canSubmit = Boolean(channelAccountId && channelName.trim() && productBarcode.trim()) && !isSubmitting;
+  const canSubmit = Boolean(
+    channelAccountId &&
+      externalId.trim() &&
+      productBarcode.trim() &&
+      channelName.trim(),
+  ) && !isSubmitting;
   const submitRegistration = () => onSubmit({
     channelAccountId,
-    externalId: productBarcode.trim(),
+    externalId: externalId.trim(),
     productBarcode: productBarcode.trim() || null,
     channelName: channelName.trim() || null,
     channelPrice: channelPrice.trim() ? Number(channelPrice) : null,
@@ -66,6 +76,29 @@ export default function MarketplaceRegistrationDialog({
           </button>
         </div>
         <div className="mt-4 grid gap-3">
+          <label className="grid gap-1.5 text-sm font-bold text-slate-700">
+            마켓 계정
+            <select
+              value={channelAccountId}
+              onChange={(event) => setChannelAccountId(event.target.value)}
+              className="h-10 rounded-md border border-slate-200 px-3 text-sm"
+            >
+              {accounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.name} · {account.channel}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="grid gap-1.5 text-sm font-bold text-slate-700">
+            마켓 상품번호
+            <input
+              value={externalId}
+              onChange={(event) => setExternalId(event.target.value)}
+              placeholder="마켓에서 발급된 상품번호"
+              className="h-10 rounded-md border border-slate-200 px-3 text-sm"
+            />
+          </label>
           <label className="grid gap-1.5 text-sm font-bold text-slate-700">
             상품명
             <input

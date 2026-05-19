@@ -1,13 +1,20 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { ComplianceScores, ImageSpec, ThumbnailScores } from '@kiditem/shared/ai';
 import {
   COMPLIANCE_PROMPT,
   COMPLIANCE_REFERENCE_HEADER,
   QUALITY_PROMPT,
 } from '../../domain/prompts/thumbnail-prompts';
-import { ThumbnailReferenceImagesService } from '../../adapter/out/gemini/thumbnail-reference-images.adapter';
-import { GeminiThumbnailVisionAdapter } from '../../adapter/out/gemini/gemini-thumbnail-vision.adapter';
 import { ThumbnailComplianceVerifierService } from './thumbnail-compliance-verifier.service';
+import {
+  THUMBNAIL_REFERENCE_IMAGES_PORT,
+  type ThumbnailPromptPart,
+  type ThumbnailReferenceImagesPort,
+} from '../port/out/provider/thumbnail-reference-images.port';
+import {
+  THUMBNAIL_VISION_PROVIDER_PORT,
+  type ThumbnailVisionProviderPort,
+} from '../port/out/provider/thumbnail-vision-provider.port';
 import {
   type AiAnalysisResult,
   type ComplianceGrade,
@@ -30,8 +37,6 @@ export interface ThumbnailAiItem {
   category?: string | null;
 }
 
-type Part = { text: string } | { inlineData: { data: string; mimeType: string } };
-
 /**
  * Pure-AI vision facade for thumbnail quality, compliance, image-spec
  * probing, and JSON classification.
@@ -51,8 +56,10 @@ export class ThumbnailVisionAiService {
   private readonly logger = new Logger(ThumbnailVisionAiService.name);
 
   constructor(
-    private readonly adapter: GeminiThumbnailVisionAdapter,
-    private readonly references: ThumbnailReferenceImagesService,
+    @Inject(THUMBNAIL_VISION_PROVIDER_PORT)
+    private readonly adapter: ThumbnailVisionProviderPort,
+    @Inject(THUMBNAIL_REFERENCE_IMAGES_PORT)
+    private readonly references: ThumbnailReferenceImagesPort,
     private readonly verifier: ThumbnailComplianceVerifierService,
   ) {}
 
@@ -199,7 +206,7 @@ export class ThumbnailVisionAiService {
 
   /**
    * JSON-only image classifier used by recompose service. Wrapper around the
-   * Gemini adapter so other services don't pull GoogleGenAI directly.
+   * vision provider port so other services don't pull provider SDKs directly.
    */
   async classifyImageJson(
     imageUrl: string,
@@ -248,7 +255,7 @@ function formatProductList(
 
 function imagePartsOf(
   validItems: ReadonlyArray<{ imageData: ImageBytes }>,
-): Part[] {
+): ThumbnailPromptPart[] {
   return validItems.map((v) => ({
     inlineData: { data: v.imageData.data, mimeType: v.imageData.mimeType },
   }));

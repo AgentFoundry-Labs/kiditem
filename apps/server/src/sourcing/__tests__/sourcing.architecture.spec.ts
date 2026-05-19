@@ -9,7 +9,7 @@ import path from 'node:path';
 //     expose local structural records only.
 //   - `application/service/**` does not import concrete adapters/DTOs or other
 //     owner-domain services directly. Cross-owner reach goes through local
-//     ports + concrete adapters under `adapter/out/{owner}/`.
+//     `application/port/out/cross-domain/**` ports + concrete adapters.
 //   - Incoming HTTP adapters call application services, not outgoing ports or
 //     repository adapters directly.
 //   - No legacy top-level `dto/`, `services/`, or `adapter/out/prisma/`
@@ -93,7 +93,7 @@ describe('sourcing architecture contract', () => {
     );
     expect(
       hits,
-      `application services must reach other owner domains through adapter/out/{owner}/* ports:\n${hits.join('\n')}`,
+      `application services must reach other owner domains through application/port/out/cross-domain/* ports:\n${hits.join('\n')}`,
     ).toEqual([]);
   });
 

@@ -6,7 +6,7 @@ import type {
   CoupangSyncOrderPayload,
   CoupangSyncReturnPayload,
   ProductListingSyncResult,
-} from '../../../application/port/out/channel-sync.repository.port';
+} from '../../../application/port/out/repository/channel-sync.repository.port';
 import {
   normalizeCoupangOrderStatus,
   normalizeCoupangProductStatus,

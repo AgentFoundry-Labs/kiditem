@@ -1,60 +1,57 @@
 # agents — Python Sourcing Agent Server
 
-FastAPI HTTP 서버. 현재 Python 런타임은 sourcing/scraping 보조 작업만
-소유한다. 이미지 편집(`image_edit`)은 NestJS AI 도메인의 Agent OS runtime
-handler가 직접 실행한다.
+`agents/` owns the FastAPI Python runtime used for sourcing/scraping helper
+work. Image edit (`image_edit`) is not owned here; it runs in the NestJS AI
+domain through Agent OS runtime handlers.
 
-## Run
+## Folder Map
 
-```bash
-cd agents
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt   # or: pip install -e .
-uvicorn src.server:app --host 0.0.0.0 --port 8001 --reload
+```text
+agents/
+├── src/
+│   ├── server.py          # FastAPI server and AGENTS registry
+│   └── agents/            # BaseAgent subclasses
+├── requirements.txt
+└── .env.example
 ```
 
-Env: `.env` (see `.env.example`)
+## Owned Surfaces
 
-## Architecture
+- FastAPI server on port 8001
+- `POST /run` with `{ agent_type, input, run_id }`
+- Python sourcing/scraping helper agents
 
-```
-NestJS caller → python_http adapter
-  → POST http://localhost:8001/run { agent_type, input, run_id }
-    → FastAPI server → Agent.execute(pool, input)
-    → JSON response { output: {...} }
-```
+## Runtime Flow
 
-## Adding an Agent
-
-1. Create `BaseAgent` subclass in `src/agents/{name}.py` (or `{name}/`)
-2. Define `agent_type` class variable
-3. Implement `async execute(pool, task_input) -> dict`
-4. Register in `AGENTS` dict in `src/server.py`
-5. DB/Agent OS 에서 호출 경로가 필요한 경우에만 `python_http` 런타임으로 등록
-
-## DB Access
-
-asyncpg raw SQL only (no ORM):
-
-```python
-row = await pool.fetchrow(
-    "SELECT id, name FROM master_products WHERE id = $1 AND organization_id = $2",
-    master_id,
-    organization_id,
-)
-await pool.execute(
-    "UPDATE master_products SET pipeline_step = $1 WHERE id = $2 AND organization_id = $3",
-    "listed",
-    master_id,
-    organization_id,
-)
+```text
+NestJS python_http runtime adapter
+  -> POST http://localhost:8001/run
+  -> FastAPI server
+  -> Agent.execute(pool, input)
+  -> JSON response { output: {...} }
 ```
 
-Table/column names: snake_case (Prisma `@@map` mapped DB names).
+## Agent Rules
 
-## Rules
+- Create a `BaseAgent` subclass in `src/agents/{name}.py` or
+  `src/agents/{name}/`.
+- Define `agent_type`.
+- Implement `async execute(pool, task_input) -> dict`.
+- Register in the `AGENTS` dict in `src/server.py`.
+- Register through the `python_http` runtime only when DB/Agent OS needs a
+  Python execution path.
 
-- No SQLAlchemy — asyncpg raw SQL only
-- No direct imports between agents — communicate via DB state only
-- No `app.` imports — all imports use `src.`
-- Use Langfuse `@observe` for LLM/agent observability (SDK v4, `from langfuse import observe`)
+## DB Boundary
+
+- Use asyncpg raw SQL only; no SQLAlchemy.
+- Bind organization predicates in every organization-owned query.
+- Table and column names use mapped snake_case DB names.
+- Agents communicate through DB state or explicit runtime input/output, not
+  direct imports between agents.
+
+## Boundary Rules
+
+- No `app.` imports; use `src.` imports.
+- Use Langfuse `@observe` for LLM/agent observability.
+- Do not add image edit or generated media ownership here; Nest AI owns those
+  runtime handlers.

@@ -4,14 +4,14 @@ import { PrismaService } from '../../../../../prisma/prisma.service';
 import type {
   DashboardAdRepositoryPort,
   DailyAdCostRow,
-} from '../../../application/port/out/dashboard-ad.repository.port';
+} from '../../../application/port/out/repository/dashboard-ad.repository.port';
 
 /**
  * Ad-side raw SQL for the dashboard read model.
  *
  * Owns the 30-day daily ad cost window query against
  * `channel_listing_daily_snapshots`, KST-anchored on `business_date`.
- * `organizationId` is bound via Prisma.sql tagged-template (ADR-0018).
+ * `organizationId` is bound via Prisma.sql tagged-template.
  */
 @Injectable()
 export class DashboardAdRepositoryAdapter implements DashboardAdRepositoryPort {

@@ -1,7 +1,7 @@
 import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
 
 /**
- * ADR-0011 Phase 3 frontend helpers. Compose canonical (status, phase) into
+ * Frontend helpers. Compose canonical (status, phase) into
  * domain-level predicates used by 11 web consumers.
  *
  * Invariants (enforced backend-side by writer helpers + Zod):

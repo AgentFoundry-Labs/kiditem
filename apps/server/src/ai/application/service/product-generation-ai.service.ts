@@ -1,10 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '../../../prisma/prisma.service';
+import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { DetailPageGenerationService } from './detail-page-generation.service';
 import { ThumbnailEditorAiService } from './thumbnail-editor-ai.service';
 import { ThumbnailGenerationJobService } from './thumbnail-generation-job.service';
 import { ProductGenerationAlertService } from './product-generation-alert.service';
+import {
+  buildThumbnailGenerateAgentInput,
+  buildThumbnailGenerationInputMeta,
+} from './thumbnail-generation-requests';
 import {
   productGenerationOperationKey,
   type ParentProductGenerationAlertLink,
@@ -13,14 +16,19 @@ import type {
   ProductGenerationAiRequest,
   ProductGenerationAiResult,
   ProductGenerationAiTriggerPort,
-} from '../port/in/product-generation-ai-trigger.port';
+} from '../port/in/generation/product-generation-ai-trigger.port';
+import {
+  PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT,
+  type ProductGenerationContextRepositoryPort,
+} from '../port/out/repository/product-generation-context.repository.port';
 
 @Injectable()
 export class ProductGenerationAiService implements ProductGenerationAiTriggerPort {
   private readonly logger = new Logger(ProductGenerationAiService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT)
+    private readonly contextRepository: ProductGenerationContextRepositoryPort,
     private readonly detailPages: DetailPageGenerationService,
     private readonly thumbnails: ThumbnailGenerationJobService,
     private readonly editorAi: ThumbnailEditorAiService,
@@ -30,24 +38,9 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
   async startForCandidate(
     input: ProductGenerationAiRequest,
   ): Promise<ProductGenerationAiResult> {
-    const candidate = await this.prisma.sourcingCandidate.findFirst({
-      where: {
-        id: input.candidateId,
-        organizationId: input.organizationId,
-        isDeleted: false,
-      },
-      select: {
-        id: true,
-        name: true,
-        category: true,
-        description: true,
-        thumbnailUrl: true,
-        images: {
-          where: { isDeleted: false },
-          orderBy: { sortOrder: 'asc' },
-          select: { url: true, sortOrder: true },
-        },
-      },
+    const candidate = await this.contextRepository.findCandidate({
+      organizationId: input.organizationId,
+      candidateId: input.candidateId,
     });
     if (!candidate) throw new NotFoundException('Sourcing candidate not found');
 
@@ -164,6 +157,22 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
           source: 'sourcing_candidate',
         },
       );
+      const thumbnailInputMeta = buildThumbnailGenerationInputMeta({
+        mode: 'edit',
+        editCase: 'single',
+        method: 'generate',
+        trigger: 'product_generation',
+        productName,
+        inputs: [resolved],
+      });
+      const thumbnailAgentPayload = buildThumbnailGenerateAgentInput({
+        mode: 'edit',
+        editCase: 'single',
+        productName,
+        productDescription: input.description ?? candidate.description ?? '',
+        category: input.category ?? candidate.category ?? null,
+        inputs: [resolved],
+      });
       const thumbnail = await this.thumbnails.enqueueCandidateGeneration({
         organizationId: input.organizationId,
         sourceCandidateId: input.candidateId,
@@ -171,37 +180,10 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
         contentWorkspaceId,
         triggeredByUserId: input.triggeredByUserId,
         inputs: [resolved],
-        inputMeta: {
-          mode: 'edit',
-          editCase: 'single',
-          method: 'generate',
-          trigger: 'product_generation',
-          inputCount: 1,
-          inputRoles: [resolved.role],
-          inputLabels: [resolved.label],
-        },
+        inputMeta: thumbnailInputMeta,
         method: 'generate',
         originalUrl,
-        agentPayload: {
-          mode: 'edit',
-          editCase: 'single',
-          productName,
-          productDescription: input.description ?? candidate.description ?? '',
-          category: input.category ?? candidate.category ?? null,
-          inputs: [
-            {
-              data: resolved.data,
-              mimeType: resolved.mimeType,
-              label: resolved.label,
-              url: resolved.url,
-              storageKey: resolved.storageKey,
-              role: resolved.role,
-              sortOrder: resolved.sortOrder,
-              source: resolved.source,
-              fileSize: resolved.fileSize,
-            },
-          ],
-        },
+        agentPayload: thumbnailAgentPayload,
         operationAlert: thumbnailLink,
       });
       thumbnailGenerationId = thumbnail.generationId;

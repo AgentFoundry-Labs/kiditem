@@ -21,7 +21,7 @@ import {
   type ResolveApprovalRequestInput,
   type UpdateAgentInstanceInput,
   type UpsertInstanceToolPolicyInput,
-} from '../../../application/port/out/agent-os-repository.port';
+} from '../../../application/port/out/repository/agent-os-repository.port';
 import { type AgentRunStatus } from '../../../domain/agent-os.types';
 import { AgentOsApprovalRepository } from './agent-os.approval.repository';
 import { AgentOsCostAuditRepository } from './agent-os.cost-audit.repository';

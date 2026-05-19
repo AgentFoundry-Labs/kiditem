@@ -9,13 +9,13 @@ import {
 import type {
   CoupangInventoryRow,
   CoupangInventoryScrapePort,
-} from '../../port/out/coupang-inventory-scrape.port';
-import type { CoupangImageReconciliationPort } from '../../port/out/coupang-image-reconciliation.port';
+} from '../../port/out/provider/coupang-inventory-scrape.port';
+import type { CoupangImageReconciliationPort } from '../../port/out/cross-domain/coupang-image-reconciliation.port';
 import type {
   AttachPrimaryImageInput,
   CoupangListingHandle,
   MasterCatalogPort,
-} from '../../port/out/master-catalog.port';
+} from '../../port/out/cross-domain/master-catalog.port';
 
 const ORG_A = '00000000-0000-0000-0000-0000000c0001';
 const ORG_B = '00000000-0000-0000-0000-0000000c0002';

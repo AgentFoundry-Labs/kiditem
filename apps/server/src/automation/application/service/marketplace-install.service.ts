@@ -9,7 +9,7 @@ import {
   MarketplaceInstallParams,
   MarketplaceInstallStorePort,
   MARKETPLACE_INSTALL_STORE_PORT,
-} from '../port/out/marketplace-install-store.port';
+} from '../port/out/repository/marketplace-install-store.port';
 
 interface ConfigurableParamMapping {
   key?: unknown;

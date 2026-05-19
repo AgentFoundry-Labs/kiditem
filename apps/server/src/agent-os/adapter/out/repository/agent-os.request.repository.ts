@@ -6,7 +6,7 @@ import {
   type FindRequestsQuery,
   type MarkRequestStatusIfCurrentInput,
   type MarkRequestStatusInput,
-} from '../../../application/port/out/agent-os-repository.port';
+} from '../../../application/port/out/repository/agent-os-repository.port';
 import { AgentOsBoundaryError } from '../../../domain/agent-os.errors';
 import { type AgentRunRequestRecord } from '../../../domain/agent-os.types';
 import {

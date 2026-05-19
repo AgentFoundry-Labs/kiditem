@@ -6,7 +6,7 @@ import type {
   WarehouseRow,
   WarehouseUpdateData,
   WarehousesRepositoryPort,
-} from '../../../application/port/out/warehouses.repository.port';
+} from '../../../application/port/out/repository/warehouses.repository.port';
 
 @Injectable()
 export class WarehousesRepositoryAdapter implements WarehousesRepositoryPort {

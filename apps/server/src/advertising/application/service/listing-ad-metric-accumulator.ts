@@ -4,7 +4,7 @@
 // touching the same row N times. Each handler builds the buffer locally
 // and flushes it after the per-row loop.
 
-import type { ChannelListingDailyRepositoryPort } from '../port/out/channel-listing-daily.repository.port';
+import type { ChannelListingDailyRepositoryPort } from '../port/out/repository/channel-listing-daily.repository.port';
 
 export type SummedListingAdMetrics = {
   adSpend: number;

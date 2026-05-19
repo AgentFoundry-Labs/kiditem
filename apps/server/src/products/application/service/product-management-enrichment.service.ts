@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { ProductManagementListItem } from '@kiditem/shared/product';
-import type { MasterWithImageRows } from '../port/out/master-product.repository.port';
+import type { MasterWithImageRows } from '../port/out/repository/master-product.repository.port';
 import { withImageRows } from '../../mapper/master-product.mapper';
 import { ProductManagementFactsService } from './product-management-facts.service';
 import {

@@ -15,12 +15,12 @@ import {
   type OptionsListPage,
   type ProductOptionRepositoryPort,
   type ProductOptionRow,
-} from '../port/out/product-option.repository.port';
+} from '../port/out/repository/product-option.repository.port';
 import {
   PRODUCTS_TRANSACTION_PORT,
   type ProductsRepositoryTransaction,
   type ProductsTransactionPort,
-} from '../port/out/products-transaction.port';
+} from '../port/out/transaction/products-transaction.port';
 
 /**
  * Application orchestration for `ProductOption` lifecycle.
@@ -31,8 +31,8 @@ import {
  *     tenant-scoped `findFirst` reread → `productOption.create`. The race
  *     guard + TOCTOU + counter increment all live in
  *     `incrementMasterOptionCounter` so they cannot drift apart.
- *   - `availableStock` is materialized only by `BundleStockService.recompute`
- *     (ADR-0014). Update payloads strip `availableStock` via the system-
+ *   - `availableStock` is materialized only by `BundleStockService.recompute`.
+ *     Update payloads strip `availableStock` via the system-
  *     fields rule; create writes `availableStock: null` unconditionally.
  *   - `update` always routes through `productOption.updateMany` so a bare-id
  *     write never touches `product_options`. Bundle-flip relation guards run

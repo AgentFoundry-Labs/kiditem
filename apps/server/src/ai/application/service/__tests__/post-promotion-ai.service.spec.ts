@@ -7,8 +7,7 @@ import {
   DetailPageGenerateAgentInputSchema,
   ThumbnailGenerateAgentInputSchema,
 } from '../../../domain/agent-output';
-import type { PrismaService } from '../../../../prisma/prisma.service';
-import type { OperationAlertPort } from '../../port/out/operation-alert.port';
+import type { OperationAlertPort } from '../../port/out/cross-domain/operation-alert.port';
 import type { AgentRunnerPort } from '../../../../agent-os/application/port/in/agent-runner.port';
 import type { ThumbnailEditorAiService } from '../thumbnail-editor-ai.service';
 import type { ThumbnailEditorInputImage } from '../../../domain/model/thumbnail-editor';
@@ -31,7 +30,16 @@ interface MockState {
 }
 
 interface Mocks {
-  prisma: any;
+  repository: {
+    findMasterContext: ReturnType<typeof vi.fn>;
+    createDetailPageGeneration: ReturnType<typeof vi.fn>;
+    markDetailPageFailed: ReturnType<typeof vi.fn>;
+    createThumbnailGeneration: ReturnType<typeof vi.fn>;
+    markThumbnailFailed: ReturnType<typeof vi.fn>;
+  };
+  productWorkspaceGroups: {
+    ensureProductWorkspaceGroup: ReturnType<typeof vi.fn>;
+  };
   agentRunner: AgentRunnerPort & {
     runByType: ReturnType<typeof vi.fn>;
   };
@@ -47,45 +55,40 @@ interface Mocks {
     recordDetailPageInputAssets: ReturnType<typeof vi.fn>;
   };
   contentGenerationCreate: ReturnType<typeof vi.fn>;
-  contentGenerationUpdateMany: ReturnType<typeof vi.fn>;
+  markDetailPageFailed: ReturnType<typeof vi.fn>;
   thumbnailGenerationCreate: ReturnType<typeof vi.fn>;
-  thumbnailGenerationUpdateMany: ReturnType<typeof vi.fn>;
-  thumbnailInputImageCreate: ReturnType<typeof vi.fn>;
+  markThumbnailFailed: ReturnType<typeof vi.fn>;
 }
 
 function buildMocks(state: MockState): Mocks {
   const contentGenerationCreate = vi.fn().mockResolvedValue({
     id: CONTENT_GEN_ID,
   });
-  const contentGenerationUpdateMany = vi.fn().mockResolvedValue({ count: 1 });
+  const markDetailPageFailed = vi.fn().mockResolvedValue(undefined);
   const thumbnailGenerationCreate = vi.fn().mockResolvedValue({
     id: THUMBNAIL_GEN_ID,
   });
-  const thumbnailGenerationUpdateMany = vi.fn().mockResolvedValue({ count: 1 });
-  const thumbnailInputImageCreate = vi.fn().mockResolvedValue({});
+  const markThumbnailFailed = vi.fn().mockResolvedValue(undefined);
 
-  const prisma = {
-    masterProduct: { findFirst: vi.fn().mockResolvedValue(state.master) },
-    masterProductImage: { findMany: vi.fn().mockResolvedValue(state.images) },
-    contentGenerationGroup: {
-      findFirst: vi.fn().mockResolvedValue({
-        id: CONTENT_GROUP_ID,
-        targetMasterId: MASTER_ID,
-      }),
-      create: vi.fn().mockResolvedValue({
-        id: CONTENT_GROUP_ID,
-        targetMasterId: MASTER_ID,
-      }),
-    },
-    contentGeneration: {
-      create: contentGenerationCreate,
-      updateMany: contentGenerationUpdateMany,
-    },
-    thumbnailGeneration: {
-      create: thumbnailGenerationCreate,
-      updateMany: thumbnailGenerationUpdateMany,
-    },
-    thumbnailGenerationInputImage: { create: thumbnailInputImageCreate },
+  const repository = {
+    findMasterContext: vi.fn().mockResolvedValue(state.master
+      ? {
+          ...state.master,
+          imageUrls: state.images
+            .map((image) => image.url)
+            .filter((url): url is string => typeof url === 'string' && url.length > 0),
+        }
+      : null),
+    createDetailPageGeneration: contentGenerationCreate,
+    markDetailPageFailed,
+    createThumbnailGeneration: thumbnailGenerationCreate,
+    markThumbnailFailed,
+  };
+  const productWorkspaceGroups = {
+    ensureProductWorkspaceGroup: vi.fn().mockResolvedValue({
+      id: CONTENT_GROUP_ID,
+      targetMasterId: MASTER_ID,
+    }),
   };
 
   const agentRunner = {
@@ -120,22 +123,23 @@ function buildMocks(state: MockState): Mocks {
   };
 
   return {
-    prisma,
+    repository,
+    productWorkspaceGroups,
     agentRunner,
     operationAlerts,
     editorAi,
     contentAssets,
     contentGenerationCreate,
-    contentGenerationUpdateMany,
+    markDetailPageFailed,
     thumbnailGenerationCreate,
-    thumbnailGenerationUpdateMany,
-    thumbnailInputImageCreate,
+    markThumbnailFailed,
   };
 }
 
 function makeService(mocks: Mocks): PostPromotionAiService {
   return new PostPromotionAiService(
-    mocks.prisma as unknown as PrismaService,
+    mocks.repository as never,
+    mocks.productWorkspaceGroups as never,
     mocks.agentRunner,
     mocks.operationAlerts,
     mocks.editorAi,
@@ -167,30 +171,28 @@ describe('PostPromotionAiService', () => {
   it('happy path: creates ContentGeneration + ThumbnailGeneration, starts alerts, enqueues both agents with schema-valid payloads', async () => {
     await svc.fireForMaster(MASTER_ID, ORGANIZATION_ID);
 
-    // Master + images fetched with organizationId scope
-    expect(mocks.prisma.masterProduct.findFirst).toHaveBeenCalledWith({
-      where: { id: MASTER_ID, organizationId: ORGANIZATION_ID, isDeleted: false },
-      select: expect.any(Object),
+    expect(mocks.repository.findMasterContext).toHaveBeenCalledWith({
+      masterId: MASTER_ID,
+      organizationId: ORGANIZATION_ID,
     });
-    expect(mocks.prisma.masterProductImage.findMany).toHaveBeenCalledWith({
-      where: { masterId: MASTER_ID, organizationId: ORGANIZATION_ID, isDeleted: false },
-      orderBy: { sortOrder: 'asc' },
-      select: { url: true },
+    expect(mocks.productWorkspaceGroups.ensureProductWorkspaceGroup).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      productId: MASTER_ID,
+      title: 'Test Master',
+      triggeredByUserId: null,
+      source: 'post_promotion',
     });
 
     // ContentGeneration row created with PROCESSING and detail-page payload includes the full raw block
     expect(mocks.contentGenerationCreate).toHaveBeenCalledTimes(1);
     const contentCall = mocks.contentGenerationCreate.mock.calls[0][0];
-    expect(contentCall.data.organizationId).toBe(ORGANIZATION_ID);
-    expect(contentCall.data.generationGroupId).toBe(CONTENT_GROUP_ID);
-    expect(contentCall.data.contentType).toBe('detail_page');
-    expect(contentCall.data.status).toBe('PROCESSING');
-    expect(contentCall.data.triggeredByUserId).toBeNull();
-    expect(contentCall.data.generationInput.imageUrls).toEqual([
+    expect(contentCall.organizationId).toBe(ORGANIZATION_ID);
+    expect(contentCall.generationGroupId).toBe(CONTENT_GROUP_ID);
+    expect(contentCall.rawInput.imageUrls).toEqual([
       'https://cdn.example.com/master/primary.jpg',
       'https://cdn.example.com/master/extra1.jpg',
     ]);
-    expect(contentCall.data.generationResult).toMatchObject({
+    expect(contentCall.generationResult).toMatchObject({
       templateId: 'kids-playful',
       imageUrls: [
         'https://cdn.example.com/master/primary.jpg',
@@ -211,11 +213,14 @@ describe('PostPromotionAiService', () => {
     // ThumbnailGeneration row created with pending + thumbnail input persisted
     expect(mocks.thumbnailGenerationCreate).toHaveBeenCalledTimes(1);
     const thumbnailCall = mocks.thumbnailGenerationCreate.mock.calls[0][0];
-    expect(thumbnailCall.data.organizationId).toBe(ORGANIZATION_ID);
-    expect(thumbnailCall.data.masterId).toBe(MASTER_ID);
-    expect(thumbnailCall.data.status).toBe('pending');
-    expect(thumbnailCall.data.method).toBe('generate');
-    expect(mocks.thumbnailInputImageCreate).toHaveBeenCalledTimes(1);
+    expect(thumbnailCall.organizationId).toBe(ORGANIZATION_ID);
+    expect(thumbnailCall.masterId).toBe(MASTER_ID);
+    expect(thumbnailCall.originalUrl).toBe('https://cdn.example.com/master/primary.jpg');
+    expect(thumbnailCall.inputMeta).toMatchObject({
+      method: 'generate',
+      trigger: 'post_promotion',
+    });
+    expect(thumbnailCall.inputImage.role).toBe('product');
 
     // Operation alerts started for both
     expect(mocks.operationAlerts.start).toHaveBeenCalledTimes(2);
@@ -287,7 +292,7 @@ describe('PostPromotionAiService', () => {
   });
 
   it('master not found: logs error, no rows created, no agents called, no throw', async () => {
-    mocks.prisma.masterProduct.findFirst.mockResolvedValueOnce(null);
+    mocks.repository.findMasterContext.mockResolvedValueOnce(null);
     const logger = (svc as unknown as { logger: { error: ReturnType<typeof vi.fn> } }).logger;
     const errorSpy = vi.spyOn(logger, 'error');
 
@@ -313,9 +318,10 @@ describe('PostPromotionAiService', () => {
 
     await expect(svc.fireForMaster(MASTER_ID, ORGANIZATION_ID)).resolves.toBeUndefined();
 
-    expect(mocks.contentGenerationUpdateMany).toHaveBeenCalledWith({
-      where: { id: CONTENT_GEN_ID, organizationId: ORGANIZATION_ID },
-      data: expect.objectContaining({ status: 'FAILED' }),
+    expect(mocks.markDetailPageFailed).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      contentGenerationId: CONTENT_GEN_ID,
+      errorMessage: expect.stringContaining('queue full'),
     });
     expect(mocks.operationAlerts.fail).toHaveBeenCalledWith(
       ORGANIZATION_ID,
@@ -353,9 +359,10 @@ describe('PostPromotionAiService', () => {
 
     await expect(svc.fireForMaster(MASTER_ID, ORGANIZATION_ID)).resolves.toBeUndefined();
 
-    expect(mocks.contentGenerationUpdateMany).toHaveBeenCalledWith({
-      where: { id: CONTENT_GEN_ID, organizationId: ORGANIZATION_ID },
-      data: expect.objectContaining({ status: 'FAILED' }),
+    expect(mocks.markDetailPageFailed).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      contentGenerationId: CONTENT_GEN_ID,
+      errorMessage: expect.stringContaining('agent_down'),
     });
     expect(mocks.operationAlerts.fail).toHaveBeenCalledWith(
       ORGANIZATION_ID,
@@ -384,11 +391,12 @@ describe('PostPromotionAiService', () => {
 
     // detail-page still ran (no failed update for detail)
     expect(mocks.contentGenerationCreate).toHaveBeenCalledTimes(1);
-    expect(mocks.contentGenerationUpdateMany).not.toHaveBeenCalled();
+    expect(mocks.markDetailPageFailed).not.toHaveBeenCalled();
 
-    expect(mocks.thumbnailGenerationUpdateMany).toHaveBeenCalledWith({
-      where: { id: THUMBNAIL_GEN_ID, organizationId: ORGANIZATION_ID },
-      data: expect.objectContaining({ status: 'failed' }),
+    expect(mocks.markThumbnailFailed).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      generationId: THUMBNAIL_GEN_ID,
+      errorMessage: expect.stringContaining('rate_limit'),
     });
     expect(mocks.operationAlerts.fail).toHaveBeenCalledWith(
       ORGANIZATION_ID,
@@ -404,13 +412,12 @@ describe('PostPromotionAiService', () => {
 
     expect(mocks.contentGenerationCreate).toHaveBeenCalledTimes(1);
     expect(mocks.thumbnailGenerationCreate).toHaveBeenCalledTimes(1);
-    expect(mocks.thumbnailInputImageCreate).toHaveBeenCalledTimes(1);
     expect(mocks.operationAlerts.start).toHaveBeenCalledTimes(2);
     expect(mocks.agentRunner.runByType).toHaveBeenCalledTimes(2);
 
     // No failure paths triggered
-    expect(mocks.contentGenerationUpdateMany).not.toHaveBeenCalled();
-    expect(mocks.thumbnailGenerationUpdateMany).not.toHaveBeenCalled();
+    expect(mocks.markDetailPageFailed).not.toHaveBeenCalled();
+    expect(mocks.markThumbnailFailed).not.toHaveBeenCalled();
     expect(mocks.operationAlerts.fail).not.toHaveBeenCalled();
   });
 });

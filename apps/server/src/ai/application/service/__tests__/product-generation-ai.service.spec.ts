@@ -10,17 +10,15 @@ const THUMBNAIL_GENERATION_ID = '00000000-0000-4000-8000-000000000006';
 
 describe('ProductGenerationAiService', () => {
   it('starts parent alert and enqueues detail plus thumbnail for a sourcing candidate', async () => {
-    const prisma = {
-      sourcingCandidate: {
-        findFirst: vi.fn().mockResolvedValue({
-          id: CANDIDATE_ID,
-          name: '자석 다트게임',
-          category: '완구',
-          description: '안전한 다트 보드',
-          thumbnailUrl: 'https://example.com/main.jpg',
-          images: [{ url: 'https://example.com/main.jpg', sortOrder: 0 }],
-        }),
-      },
+    const contextRepository = {
+      findCandidate: vi.fn().mockResolvedValue({
+        id: CANDIDATE_ID,
+        name: '자석 다트게임',
+        category: '완구',
+        description: '안전한 다트 보드',
+        thumbnailUrl: 'https://example.com/main.jpg',
+        images: [{ url: 'https://example.com/main.jpg', sortOrder: 0 }],
+      }),
     };
     const detailPages = {
       generate: vi.fn().mockResolvedValue({
@@ -55,7 +53,7 @@ describe('ProductGenerationAiService', () => {
     };
 
     const service = new ProductGenerationAiService(
-      prisma as never,
+      contextRepository as never,
       detailPages as never,
       thumbnails as never,
       editorAi as never,
@@ -132,17 +130,15 @@ describe('ProductGenerationAiService', () => {
   });
 
   it('does not enqueue thumbnail generation after the parent operation is cancelled', async () => {
-    const prisma = {
-      sourcingCandidate: {
-        findFirst: vi.fn().mockResolvedValue({
-          id: CANDIDATE_ID,
-          name: '자석 다트게임',
-          category: '완구',
-          description: '안전한 다트 보드',
-          thumbnailUrl: 'https://example.com/main.jpg',
-          images: [{ url: 'https://example.com/main.jpg', sortOrder: 0 }],
-        }),
-      },
+    const contextRepository = {
+      findCandidate: vi.fn().mockResolvedValue({
+        id: CANDIDATE_ID,
+        name: '자석 다트게임',
+        category: '완구',
+        description: '안전한 다트 보드',
+        thumbnailUrl: 'https://example.com/main.jpg',
+        images: [{ url: 'https://example.com/main.jpg', sortOrder: 0 }],
+      }),
     };
     const detailPages = {
       generate: vi.fn().mockResolvedValue({
@@ -162,7 +158,7 @@ describe('ProductGenerationAiService', () => {
       markChildFinished: vi.fn(),
     };
     const service = new ProductGenerationAiService(
-      prisma as never,
+      contextRepository as never,
       detailPages as never,
       thumbnails as never,
       editorAi as never,
@@ -203,17 +199,15 @@ describe('ProductGenerationAiService', () => {
   });
 
   it('can start only detail generation for a sourcing candidate', async () => {
-    const prisma = {
-      sourcingCandidate: {
-        findFirst: vi.fn().mockResolvedValue({
-          id: CANDIDATE_ID,
-          name: '자석 다트게임',
-          category: '완구',
-          description: '안전한 다트 보드',
-          thumbnailUrl: 'https://example.com/main.jpg',
-          images: [{ url: 'https://example.com/main.jpg', sortOrder: 0 }],
-        }),
-      },
+    const contextRepository = {
+      findCandidate: vi.fn().mockResolvedValue({
+        id: CANDIDATE_ID,
+        name: '자석 다트게임',
+        category: '완구',
+        description: '안전한 다트 보드',
+        thumbnailUrl: 'https://example.com/main.jpg',
+        images: [{ url: 'https://example.com/main.jpg', sortOrder: 0 }],
+      }),
     };
     const detailPages = {
       generate: vi.fn().mockResolvedValue({
@@ -233,7 +227,7 @@ describe('ProductGenerationAiService', () => {
       markChildFinished: vi.fn(),
     };
     const service = new ProductGenerationAiService(
-      prisma as never,
+      contextRepository as never,
       detailPages as never,
       thumbnails as never,
       editorAi as never,

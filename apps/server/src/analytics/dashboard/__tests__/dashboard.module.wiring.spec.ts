@@ -23,14 +23,14 @@ import { DashboardInventoryService } from '../application/service/dashboard-inve
 import { DashboardTrendService } from '../application/service/dashboard-trend.service';
 
 // application/port/out tokens
-import { PROFIT_CALCULATION_REPOSITORY_PORT } from '../application/port/out/profit-calculation.repository.port';
-import { AD_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/ad-aggregation.repository.port';
-import { WING_AD_SUMMARY_REPOSITORY_PORT } from '../application/port/out/wing-ad-summary.repository.port';
-import { DASHBOARD_SALES_REPOSITORY_PORT } from '../application/port/out/dashboard-sales.repository.port';
-import { DASHBOARD_AD_REPOSITORY_PORT } from '../application/port/out/dashboard-ad.repository.port';
-import { DASHBOARD_TREND_REPOSITORY_PORT } from '../application/port/out/dashboard-trend.repository.port';
-import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/wing-traffic-aggregation.repository.port';
-import { DASHBOARD_INVENTORY_REPOSITORY_PORT } from '../application/port/out/dashboard-inventory.repository.port';
+import { PROFIT_CALCULATION_REPOSITORY_PORT } from '../application/port/out/repository/profit-calculation.repository.port';
+import { AD_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/repository/ad-aggregation.repository.port';
+import { WING_AD_SUMMARY_REPOSITORY_PORT } from '../application/port/out/repository/wing-ad-summary.repository.port';
+import { DASHBOARD_SALES_REPOSITORY_PORT } from '../application/port/out/repository/dashboard-sales.repository.port';
+import { DASHBOARD_AD_REPOSITORY_PORT } from '../application/port/out/repository/dashboard-ad.repository.port';
+import { DASHBOARD_TREND_REPOSITORY_PORT } from '../application/port/out/repository/dashboard-trend.repository.port';
+import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/repository/wing-traffic-aggregation.repository.port';
+import { DASHBOARD_INVENTORY_REPOSITORY_PORT } from '../application/port/out/repository/dashboard-inventory.repository.port';
 
 const IMPORTS_KEY = 'imports';
 const CONTROLLERS_KEY = 'controllers';

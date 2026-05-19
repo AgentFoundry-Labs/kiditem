@@ -3,7 +3,7 @@ import type { AdsConfig } from '../../domain/model/strategy-types';
 import {
   AD_CONFIG_REPOSITORY_PORT,
   type AdConfigRepositoryPort,
-} from '../port/out/ad-config.repository.port';
+} from '../port/out/repository/ad-config.repository.port';
 
 const DEFAULTS: Record<string, unknown> = {
   'ads.roas.thresholds': { excellent: 300, warning: 200, poor: 100 },

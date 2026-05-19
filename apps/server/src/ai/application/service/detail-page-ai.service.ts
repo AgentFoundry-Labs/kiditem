@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import type {
-  GenerateDetailPageBodyDto,
-  PrefillDetailPageBodyDto,
-} from '../../adapter/in/http/dto';
+  GenerateDetailPageInput,
+  PrefillDetailPageInput,
+} from './detail-page-requests';
 import type { MulterFile } from '../../../common/types';
 import type {
   DetailPageGenerationDto,
@@ -28,7 +28,7 @@ export class DetailPageAiService {
   }
 
   generate(
-    dto: GenerateDetailPageBodyDto,
+    dto: GenerateDetailPageInput,
     organizationId: string,
     triggeredByUserId: string | null,
   ): Promise<DetailPageGenerationDto> {
@@ -36,7 +36,7 @@ export class DetailPageAiService {
   }
 
   prefill(
-    dto: PrefillDetailPageBodyDto,
+    dto: PrefillDetailPageInput,
     organizationId: string,
   ): Promise<DetailPagePrefillDto> {
     return this.prefillService.prefill(dto, organizationId);

@@ -3,7 +3,7 @@ import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
 import { ChannelDashboardService } from '../channel-dashboard.service';
 import { ChannelDashboardRepositoryAdapter } from '../../../adapter/out/repository/channel-dashboard.repository.adapter';
-import { CHANNEL_DASHBOARD_REPOSITORY_PORT } from '../../port/out/channel-dashboard.repository.port';
+import { CHANNEL_DASHBOARD_REPOSITORY_PORT } from '../../port/out/repository/channel-dashboard.repository.port';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   makeTestPrisma,
@@ -436,11 +436,11 @@ describe('Channel dashboard (PG integration)', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // #4 getReturnSummary — ADR-0017 semantic: INNER JOIN order.orderedAt.
+  // #4 getReturnSummary — returnRate semantic: INNER JOIN order.orderedAt.
   //    returnRate = returnCount / orderCount (must be ≤ 1 per Zod contract).
   // ---------------------------------------------------------------------------
   describe('getReturnSummary', () => {
-    it('ADR-0017: returnCount counts returns whose ORDER was placed in window (INNER JOIN)', async () => {
+    it('returnCount counts returns whose ORDER was placed in window (INNER JOIN)', async () => {
       await seedFixture();
 
       // Narrow window: only O1 (orderedAt 2026-04-14T15:00Z) is in-range.
@@ -473,7 +473,7 @@ describe('Channel dashboard (PG integration)', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // #4b R-2 ADR-0017 semantic edge cases (inline helpers, isolated beforeEach).
+  // #4b R-2 returnRate semantic edge cases (inline helpers, isolated beforeEach).
   // ---------------------------------------------------------------------------
 
   /**
@@ -526,7 +526,7 @@ describe('Channel dashboard (PG integration)', () => {
     return r.id;
   }
 
-  describe('R-2 ADR-0017 semantic edge cases', () => {
+  describe('returnRate semantic edge cases', () => {
     beforeEach(async () => {
       await resetDb(prisma);
       await seedBaseFixture(prisma);

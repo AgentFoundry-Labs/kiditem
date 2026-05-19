@@ -1,43 +1,38 @@
-# auth — Authentication And Authorization Infrastructure
+# auth — Authentication + Organization Context
 
-Auth owns global HTTP authentication, organization context, role checks,
-Supabase JWT enrichment, and `/api/auth/me`.
+`src/auth/` owns global HTTP authentication, organization context, role checks,
+Supabase JWT enrichment, and `/api/auth/me`. It is infrastructure, not a
+business aggregate.
 
-Auth stays flat because it is guard/decorator/middleware infrastructure, not a
-business aggregate. Keep provider/JWT verification in middleware and guards. If
-auth starts owning external account workflows, durable sessions, or mutation
-invariants, introduce explicit ports/adapters instead of expanding services.
-
-## Layout
+## Folder Map
 
 ```text
 auth/
-  decorators/       @CurrentUser, @CurrentOrganization, @Roles, @SkipAuth
-  guards/           OrganizationScopeGuard, RolesGuard
-  middleware/       SupabaseAuthMiddleware
-  auth.controller.ts
-  auth.module.ts
-  auth.types.ts
-  __tests__/
+├── decorators/       # @CurrentUser, @CurrentOrganization, @Roles, @SkipAuth
+├── guards/           # OrganizationScopeGuard, RolesGuard
+├── middleware/       # SupabaseAuthMiddleware
+├── auth.controller.ts
+├── auth.module.ts
+├── auth.types.ts
+└── __tests__/
 ```
 
-## AuthUser
+## Owned Surfaces
 
-`AuthUser` is populated on `req.authUser`:
+- Global authentication middleware and guards
+- Current user/org decorators
+- Role metadata and guard behavior
+- `GET /api/auth/me`
 
-```ts
-interface AuthUser {
-  id: string;
-  organizationId: string | null;
-  membershipId: string | null;
-  role: string;
-  type: string;
-  email: string;
-}
-```
+## Main Data Models
 
-`organizationId`, `membershipId`, and `role` come from the active
-`OrganizationMembership`. `User` must not regain a direct organization FK.
+- `User` is the local user mirror.
+- `OrganizationMembership` is the source of truth for active organization and
+  role.
+- `AuthUser` is attached to `req.authUser` with `id`, `organizationId`,
+  `membershipId`, `role`, `type`, and `email`.
+
+`User.organizationId` must not return.
 
 ## Request Flow
 
@@ -51,76 +46,34 @@ cookie-parser
   -> service(organizationId, ...)
 ```
 
-Global guard order is intentional: authentication/organization failures happen
+Guard order is intentional: authentication and organization failures happen
 before throttling counters.
 
-## Decorators And Guards
+## Supabase Auth Flow
 
-- `@CurrentUser()` returns `AuthUser` or throws `auth_required`.
-- `@CurrentOrganization()` returns a non-null organization id or throws
-  `auth_required` / `no_organization_context`.
-- `@Roles(...roles)` stores string role metadata; no enum and no role array.
-- `@SkipAuth()` bypasses `OrganizationScopeGuard` only. Use it for health/public
-  routes or `/api/auth/me`; never for sensitive/admin routes.
-- `OrganizationScopeGuard` blocks missing auth or null organization context for
-  normal HTTP routes.
-- `RolesGuard` is pass-through when no role metadata exists; otherwise it checks
-  a single string role.
-
-## SupabaseAuthMiddleware
-
-This is the only authentication entrypoint. Token priority:
+Token priority:
 
 1. `Authorization: Bearer <token>`
 2. legacy `sb-access-token` cookie
-3. Supabase SSR `sb-<project-ref>-auth-token` cookie, including chunked cookies
+3. Supabase SSR `sb-<project-ref>-auth-token` cookie, including chunks
 
-Verification:
+The middleware verifies JWKS issuer/audience with `jose`, maps `payload.sub` to
+local `users.id`, and selects one active membership ordered by
+`lastSelectedAt desc, joinedAt asc`.
 
-- Fetch JWKS from `SUPABASE_URL/auth/v1/.well-known/jwks.json`.
-- Verify issuer and audience with `jose`.
-- `payload.sub` must map to local `users.id`.
-- Select one active membership ordered by `lastSelectedAt desc, joinedAt asc`.
-- Missing token/config/JWKS/user/membership is silent in middleware; guards and
-  decorators produce the HTTP error.
+## Boundary Rules
 
-Use asymmetric JWT verification. Do not configure verification with legacy
-`SUPABASE_JWT_SECRET`.
+- `@CurrentOrganization()` returns a non-null organization id or throws.
+- `@SkipAuth()` bypasses `OrganizationScopeGuard` only; never use it for
+  sensitive/admin routes.
+- Roles are single string metadata, not arrays or enums.
+- Do not mutate `req.authUser` after middleware.
+- Do not configure legacy `SUPABASE_JWT_SECRET` verification.
+- Do not add dev-auth shortcuts such as `x-dev-user-id`, `?devUserId=`, or
+  `NEXT_PUBLIC_DEV_USER_ID`.
 
-## `/api/auth/me`
+## Transitional Exceptions
 
-`GET /api/auth/me` uses `@SkipAuth()` but still calls `@CurrentUser()`, so
-unauthenticated requests return 401 and system/unassigned users can inspect
-their own identity. Response matches `@kiditem/shared/auth`.
-
-## Hard Bans
-
-- Per-route `@UseGuards(RolesGuard)`; guards are global.
-- Mutating `req.authUser` after middleware.
-- Role arrays.
-- `User.organizationId`.
-- Caching organization id inside decorators.
-- `@SkipAuth` on sensitive/admin routes.
-- Service-layer default organization lookup.
-- `x-dev-user-id`, `?devUserId=`, `NEXT_PUBLIC_DEV_USER_ID`, `DevAuthMiddleware`,
-  or `ALLOW_DEV_AUTH_IN_PROD`.
-
-## Change Map
-
-| Change | Also update |
-|---|---|
-| decorator signature | decorator tests + controller call sites |
-| guard logic/order | guard tests + `app.module.ts` providers |
-| `AuthUser` | middleware, decorators, guards, controller |
-| public auth response | `packages/shared/src/schemas/auth.ts` + controller |
-| Supabase verification | middleware tests + `docs/runbooks/auth-supabase.md` |
-| metadata keys | decorator and guard together |
-
-## Error Codes
-
-| Code | HTTP | Source |
-|---|---|---|
-| `auth_required` | 401 | guards/decorators |
-| `no_organization_context` | 401 | guard/current-org decorator |
-| `insufficient_role` | 403 | RolesGuard |
-| `user_not_found` | 404 | `/api/auth/me` local mirror miss |
+- Auth stays flat while it remains guard/decorator/middleware infrastructure.
+  External account workflows, durable sessions, or mutation invariants require
+  explicit ports/adapters.

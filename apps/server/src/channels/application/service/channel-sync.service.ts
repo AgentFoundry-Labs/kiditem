@@ -8,11 +8,11 @@ import {
 import {
   COUPANG_PROVIDER_PORT,
   type CoupangProviderPort,
-} from '../port/out/coupang-provider.port';
+} from '../port/out/provider/coupang-provider.port';
 import {
   CHANNEL_SYNC_REPOSITORY_PORT,
   type ChannelSyncRepositoryPort,
-} from '../port/out/channel-sync.repository.port';
+} from '../port/out/repository/channel-sync.repository.port';
 import {
   formatKstIso,
   normalizeCoupangOrderStatus,
@@ -21,7 +21,7 @@ import { ChannelAccountService } from './channel-account.service';
 import {
   CHANNELS_OPERATION_ALERT_PORT,
   type OperationAlertPort,
-} from '../port/out/operation-alert.port';
+} from '../port/out/cross-domain/operation-alert.port';
 import { syncCoupangOrders, syncSingleCoupangOrder } from './channel-sync-order.service';
 import { syncCoupangProducts } from './channel-sync-product.service';
 import { syncSingleCoupangReturn } from './channel-sync-return.service';

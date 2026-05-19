@@ -9,7 +9,7 @@ import type {
 } from '@kiditem/shared/channel-dashboard';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { kstDayStart } from '../../../../common/kst';
-import type { ChannelDashboardRepositoryPort } from '../../../application/port/out/channel-dashboard.repository.port';
+import type { ChannelDashboardRepositoryPort } from '../../../application/port/out/repository/channel-dashboard.repository.port';
 
 /**
  * Channel dashboard response shapes — typed via `@kiditem/shared` Zod schemas
@@ -32,7 +32,7 @@ import type { ChannelDashboardRepositoryPort } from '../../../application/port/o
  *   `VENDOR` only; unknown values must be dropped before persistence.
  * - `getReturnSummary` enforces a 2-hop INNER JOIN on `Order.orderedAt`
  *   (`OrderReturn.organizationId` must match `Order.organizationId`) per Plan D.2 /
- *   ADR-0017. Past-period orders' returns therefore stay outside the current
+ *   returnRate contract. Past-period orders' returns therefore stay outside the current
  *   period numerator.
  *
  * Raw SQL stays in this outgoing repository adapter so application services

@@ -1,10 +1,9 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
-import { PrismaService } from '../../../prisma/prisma.service';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { AgentObservabilityService } from '../../../agent-os/application/service/agent-observability.service';
 import {
   AI_OPERATION_ALERT_PORT,
   type OperationAlertPort,
-} from '../port/out/operation-alert.port';
+} from '../port/out/cross-domain/operation-alert.port';
 import {
   THUMBNAIL_GENERATE_AGENT_TYPE,
   ThumbnailGenerateAgentOutputSchema,
@@ -12,7 +11,15 @@ import {
 import {
   THUMBNAIL_AGENT_OUTPUT_SINK_PORT,
   type ThumbnailAgentOutputSinkPort,
-} from '../port/out/thumbnail-agent-output-sink.port';
+} from '../port/out/sink/thumbnail-agent-output-sink.port';
+import {
+  THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT,
+  type ThumbnailGenerationLedgerRepositoryPort,
+} from '../port/out/repository/thumbnail-generation-ledger.repository.port';
+import {
+  AgentFinalizedOutputProjectionService,
+  type AgentFinalizedOutputProjectionResult,
+} from './agent-finalized-output-projection.service';
 
 export interface ThumbnailReconcileSummary {
   scanned: number;
@@ -60,12 +67,16 @@ export class ThumbnailAgentReconcileService {
   private readonly logger = new Logger(ThumbnailAgentReconcileService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT)
+    private readonly generations: ThumbnailGenerationLedgerRepositoryPort,
     private readonly observability: AgentObservabilityService,
     @Inject(THUMBNAIL_AGENT_OUTPUT_SINK_PORT)
     private readonly sink: ThumbnailAgentOutputSinkPort,
     @Inject(AI_OPERATION_ALERT_PORT)
     private readonly operationAlerts: OperationAlertPort,
+    @Optional()
+    @Inject(AgentFinalizedOutputProjectionService)
+    private readonly finalizedOutputProjection: AgentFinalizedOutputProjectionService = new AgentFinalizedOutputProjectionService(),
   ) {}
 
   async reconcile(
@@ -93,16 +104,10 @@ export class ThumbnailAgentReconcileService {
       failedStale: 0,
     };
 
-    const requests = await this.prisma.agentRunRequest.findMany({
-      where: {
-        organizationId,
-        sourceResourceType: 'thumbnail_generation',
-        source: 'ai.thumbnail_generate',
-        status: { in: ['succeeded', 'failed'] },
-        finishedAt: { gte: since },
-      },
-      orderBy: { finishedAt: 'desc' },
-      take: limit,
+    const requests = await this.generations.findTerminalAgentRequests({
+      organizationId,
+      since,
+      limit,
     });
 
     for (const req of requests) {
@@ -112,9 +117,9 @@ export class ThumbnailAgentReconcileService {
         summary.skipped += 1;
         continue;
       }
-      const generation = await this.prisma.thumbnailGeneration.findFirst({
-        where: { id: sourceResourceId, organizationId },
-        select: { id: true, status: true, errorMessage: true },
+      const generation = await this.generations.findGenerationProjectionStatus({
+        organizationId,
+        generationId: sourceResourceId,
       });
       if (!generation) {
         summary.skipped += 1;
@@ -134,16 +139,24 @@ export class ThumbnailAgentReconcileService {
       }
 
       if (req.status === 'failed') {
-        await this.sink.applyFailure({
-          organizationId,
-          requestId: req.id,
-          runId: undefined,
-          sourceResourceId,
-          errorCode: req.lastErrorCode ?? 'agent_run_failed',
-          errorMessage:
-            req.lastErrorMessage ?? 'Agent run failed without a recorded message.',
-        });
-        summary.appliedFailure += 1;
+        countProjectionResult(
+          summary,
+          await this.finalizedOutputProjection.project({
+            agentLabel: 'thumbnail_generate reconcile',
+            schema: ThumbnailGenerateAgentOutputSchema,
+            sink: this.sink,
+            finalized: {
+              organizationId,
+              requestId: req.id,
+              runId: undefined,
+              sourceResourceId,
+              status: 'failed',
+              errorCode: req.lastErrorCode ?? 'agent_run_failed',
+              errorMessage:
+                req.lastErrorMessage ?? 'Agent run failed without a recorded message.',
+            },
+          }),
+        );
         continue;
       }
 
@@ -152,36 +165,22 @@ export class ThumbnailAgentReconcileService {
         requestId: req.id,
         status: ['succeeded'],
       });
-      const output = ourRun?.output ?? null;
-      const parsed = ThumbnailGenerateAgentOutputSchema.safeParse(output);
-      if (!parsed.success) {
-        const issue = parsed.error.issues[0];
-        const message = issue
-          ? `${issue.path.join('.') || '<root>'}: ${issue.message}`
-          : 'Agent output failed schema validation during reconcile.';
-        this.logger.warn(
-          `thumbnail_generate reconcile: invalid output for request=${req.id}; routing to applyFailure. ${message}`,
-        );
-        await this.sink.applyFailure({
-          organizationId,
-          requestId: req.id,
-          runId: ourRun?.id,
-          sourceResourceId,
-          errorCode: 'agent_output_invalid',
-          errorMessage: message,
-        });
-        summary.appliedFailure += 1;
-        continue;
-      }
-
-      await this.sink.applySuccess({
-        organizationId,
-        requestId: req.id,
-        runId: ourRun?.id,
-        sourceResourceId,
-        output: parsed.data,
-      });
-      summary.appliedSuccess += 1;
+      countProjectionResult(
+        summary,
+        await this.finalizedOutputProjection.project({
+          agentLabel: 'thumbnail_generate reconcile',
+          schema: ThumbnailGenerateAgentOutputSchema,
+          sink: this.sink,
+          finalized: {
+            organizationId,
+            requestId: req.id,
+            runId: ourRun?.id,
+            sourceResourceId,
+            status: 'succeeded',
+            output: ourRun?.output ?? null,
+          },
+        }),
+      );
     }
 
     summary.closedTerminalAlerts += await this.closeRecentlyTerminalAlerts(
@@ -214,16 +213,10 @@ export class ThumbnailAgentReconcileService {
     since: Date,
     limit: number,
   ): Promise<number> {
-    const terminalGenerations = await this.prisma.thumbnailGeneration.findMany({
-      where: {
-        organizationId,
-        isDeleted: false,
-        status: { notIn: ['pending', 'running'] },
-        updatedAt: { gte: since },
-      },
-      select: { id: true, status: true, errorMessage: true },
-      orderBy: { updatedAt: 'desc' },
-      take: limit,
+    const terminalGenerations = await this.generations.findRecentlyTerminalGenerations({
+      organizationId,
+      since,
+      limit,
     });
 
     let closed = 0;
@@ -240,28 +233,28 @@ export class ThumbnailAgentReconcileService {
     staleBefore: Date,
     limit: number,
   ): Promise<number> {
-    const staleGenerations = await this.prisma.thumbnailGeneration.findMany({
-      where: {
-        organizationId,
-        isDeleted: false,
-        status: { in: ['pending', 'running'] },
-        updatedAt: { lt: staleBefore },
-      },
-      select: { id: true },
-      orderBy: { updatedAt: 'asc' },
-      take: limit,
+    const staleGenerations = await this.generations.findStaleNonTerminalGenerations({
+      organizationId,
+      staleBefore,
+      limit,
     });
 
     let failed = 0;
     for (const generation of staleGenerations) {
-      await this.sink.applyFailure({
-        organizationId,
-        requestId: `stale:${generation.id}`,
-        runId: undefined,
-        sourceResourceId: generation.id,
-        errorCode: 'thumbnail_generation_stale',
-        errorMessage:
-          '썸네일 생성 작업이 오래 응답하지 않아 실패 처리되었습니다. 다시 생성해주세요.',
+      await this.finalizedOutputProjection.project({
+        agentLabel: 'thumbnail_generate stale reconcile',
+        schema: ThumbnailGenerateAgentOutputSchema,
+        sink: this.sink,
+        finalized: {
+          organizationId,
+          requestId: `stale:${generation.id}`,
+          runId: undefined,
+          sourceResourceId: generation.id,
+          status: 'failed',
+          errorCode: 'thumbnail_generation_stale',
+          errorMessage:
+            '썸네일 생성 작업이 오래 응답하지 않아 실패 처리되었습니다. 다시 생성해주세요.',
+        },
       });
       failed += 1;
     }
@@ -305,4 +298,13 @@ function operationAlertStatusForGeneration(
     return 'succeeded';
   }
   return null;
+}
+
+function countProjectionResult(
+  summary: ThumbnailReconcileSummary,
+  result: AgentFinalizedOutputProjectionResult,
+): void {
+  if (result.status === 'success_applied') summary.appliedSuccess += 1;
+  else if (result.status === 'failure_applied') summary.appliedFailure += 1;
+  else summary.skipped += 1;
 }

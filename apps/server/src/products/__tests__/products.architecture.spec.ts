@@ -68,7 +68,7 @@ describe('products architecture contract', () => {
     );
     expect(
       hits,
-      `application services must reach other owner domains through adapter/out/{owner}/* ports:\n${hits.join('\n')}`,
+      `application services must reach other owner domains through application/port/out/cross-domain/* ports:\n${hits.join('\n')}`,
     ).toEqual([]);
   });
 

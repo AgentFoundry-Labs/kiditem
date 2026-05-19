@@ -11,7 +11,7 @@ import type {
   DetailPageMediaPort,
   GenerateDetailPageImageInput,
   GeneratedDetailPageImage,
-} from '../../../application/port/out/detail-page-media.port';
+} from '../../../application/port/out/provider/detail-page-media.port';
 
 @Injectable()
 export class DetailPageGeminiMediaAdapter implements DetailPageMediaPort {

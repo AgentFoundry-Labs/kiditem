@@ -6,16 +6,14 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import type {
   ThumbnailGenerationItem,
   ThumbnailGenerationListResponse,
 } from '@kiditem/shared/ai';
-import { PrismaService } from '../../../prisma/prisma.service';
 import {
   AI_OPERATION_ALERT_PORT,
   type OperationAlertPort,
-} from '../port/out/operation-alert.port';
+} from '../port/out/cross-domain/operation-alert.port';
 import { resolveMasterThumbnailImage } from '../../domain/thumbnail-master-image';
 import { ThumbnailTrackingService } from './thumbnail-tracking.service';
 import {
@@ -29,36 +27,10 @@ import {
   type GenerationRow,
 } from '../../mapper/thumbnail-generation.mapper';
 import {
-  findActiveJobForProduct,
-  findAutoBatchCandidates,
-  findGenerationMaster,
-  findGenerationMasters,
-  findGenerationOrThrow,
-  findGenerationRows,
-  findGenerationWithCandidatesOrThrow,
-  findJobMastersByIds,
-  findProductForEditor,
-  findRecentAutoJob,
-  findThumbnailAnalysisGrade,
-  type EditorProductRow,
-} from '../../adapter/out/prisma/thumbnail-generation.query';
-import {
-  applyGenerationToMaster,
-  clearReadySelections,
-  createPendingEditJob,
-  deleteGeneration,
-  markGenerationCancelled,
-  removeCandidate as removeCandidatePersistence,
-  resetGenerationForReEdit,
-  saveEditorResult as saveEditorResultPersistence,
-  setSelectedCandidate,
+  THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT,
   type SaveEditorResultInput,
-} from '../../adapter/out/prisma/thumbnail-generation.persistence';
-import {
-  THUMBNAIL_GENERATION_EVENT_PORT,
-  type AppendThumbnailGenerationEventInput,
-  type ThumbnailGenerationEventPort,
-} from '../port/out/thumbnail-generation-event.port';
+  type ThumbnailGenerationLedgerRepositoryPort,
+} from '../port/out/repository/thumbnail-generation-ledger.repository.port';
 import {
   ThumbnailGenerationJobService,
   type ThumbnailEditorGenerationEnqueueInput,
@@ -67,20 +39,20 @@ import { operationCancellationAudit } from '../../../common/operation-cancellati
 import { ProductGenerationAlertService } from './product-generation-alert.service';
 import { readProductGenerationAlertLink } from './product-generation-alert-link';
 import type { ThumbnailGenerationListScope } from '../../domain/thumbnail-generation-subject';
+import { ThumbnailGenerationLifecycleService } from './thumbnail-generation-lifecycle.service';
 
 @Injectable()
 export class ThumbnailGenerationService {
   private readonly logger = new Logger(ThumbnailGenerationService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT)
+    private readonly ledger: ThumbnailGenerationLedgerRepositoryPort,
     private readonly trackingService: ThumbnailTrackingService,
     @Inject(AI_OPERATION_ALERT_PORT)
     private readonly operationAlerts: OperationAlertPort,
     private readonly generationJobs: ThumbnailGenerationJobService,
-    @Optional()
-    @Inject(THUMBNAIL_GENERATION_EVENT_PORT)
-    private readonly generationEvents: ThumbnailGenerationEventPort | null = null,
+    private readonly lifecycle: ThumbnailGenerationLifecycleService,
     @Optional()
     private readonly productGenerationAlerts: ProductGenerationAlertService | null = null,
   ) {}
@@ -96,14 +68,14 @@ export class ThumbnailGenerationService {
   async findProductForEditor(
     productId: string,
     organizationId: string,
-  ): Promise<EditorProductRow | null> {
-    return findProductForEditor(this.prisma, productId, organizationId);
+  ) {
+    return this.ledger.findProductForEditor(productId, organizationId);
   }
 
   async saveEditorResult(input: SaveEditorResultInput): Promise<string> {
     await this.assertProductOwned(input.productId, input.organizationId);
-    const generationId = await saveEditorResultPersistence(this.prisma, input);
-    await this.emitStatusChange({
+    const generationId = await this.ledger.saveEditorResult(input);
+    await this.lifecycle.recordStatusChange({
       organizationId: input.organizationId,
       generationId,
       fromStatus: null,
@@ -148,19 +120,19 @@ export class ThumbnailGenerationService {
       limit?: number | null;
     } = {},
   ): Promise<ThumbnailGenerationListResponse> {
-    const rows = await findGenerationRows(this.prisma, organizationId, opts);
-    const masters = await findGenerationMasters(this.prisma, rows, organizationId);
+    const rows = await this.ledger.findGenerationRows(organizationId, opts);
+    const masters = await this.ledger.findGenerationMasters(rows, organizationId);
     const items = rows.map((r) => toThumbnailGenerationItem(
-      r,
+      r as GenerationRow,
       r.masterId ? masters.get(r.masterId) : null,
     ));
     return { items, total: items.length } satisfies ThumbnailGenerationListResponse;
   }
 
   async findOne(id: string, organizationId: string): Promise<ThumbnailGenerationItem> {
-    const row = await findGenerationOrThrow(this.prisma, id, organizationId);
-    const master = await findGenerationMaster(this.prisma, row.masterId, organizationId);
-    return toThumbnailGenerationItem(row, master);
+    const row = await this.ledger.findGenerationOrThrow(id, organizationId);
+    const master = await this.ledger.findGenerationMaster(row.masterId, organizationId);
+    return toThumbnailGenerationItem(row as GenerationRow, master);
   }
 
   async selectCandidate(
@@ -168,12 +140,12 @@ export class ThumbnailGenerationService {
     organizationId: string,
     selectedUrl: string,
   ): Promise<ThumbnailGenerationItem> {
-    const existing = await findGenerationWithCandidatesOrThrow(this.prisma, id, organizationId);
+    const existing = await this.ledger.findGenerationWithCandidatesOrThrow(id, organizationId);
     const isDeselect = !selectedUrl;
     if (!isDeselect && !existing.candidates.some((c) => c.url === selectedUrl)) {
       throw new BadRequestException('selectedUrl 은 해당 generation 의 candidates 중 하나여야 합니다');
     }
-    await setSelectedCandidate(this.prisma, id, organizationId, isDeselect ? null : selectedUrl);
+    await this.ledger.setSelectedCandidate(id, organizationId, isDeselect ? null : selectedUrl);
     return this.findOne(id, organizationId);
   }
 
@@ -183,7 +155,7 @@ export class ThumbnailGenerationService {
    * 시작하도록 frontend 가 호출. applied 항목은 유지.
    */
   async clearReadySelections(organizationId: string): Promise<{ count: number }> {
-    return clearReadySelections(this.prisma, organizationId);
+    return this.ledger.clearReadySelections(organizationId);
   }
 
   async applyGeneration(
@@ -191,11 +163,11 @@ export class ThumbnailGenerationService {
     organizationId: string,
     actorUserId: string | null = null,
   ): Promise<ThumbnailGenerationItem> {
-    const existing = await findGenerationWithCandidatesOrThrow(this.prisma, id, organizationId);
+    const existing = await this.ledger.findGenerationWithCandidatesOrThrow(id, organizationId);
     if (!existing.masterId) {
       throw new BadRequestException('소싱 후보 썸네일은 상품 승격 시 등록 payload 로만 적용할 수 있습니다');
     }
-    const master = await findGenerationMaster(this.prisma, existing.masterId, organizationId);
+    const master = await this.ledger.findGenerationMaster(existing.masterId, organizationId);
     if (!master) throw new NotFoundException(`MasterProduct ${existing.masterId} not found`);
 
     const matchedCandidate = existing.candidates.find((c) => c.url === existing.selectedUrl);
@@ -212,13 +184,13 @@ export class ThumbnailGenerationService {
         ? { url: existing.selectedUrl, storageKey: null }
         : null;
 
-    await applyGenerationToMaster(this.prisma, {
+    await this.ledger.applyGenerationToMaster({
       id,
       organizationId,
       masterId: existing.masterId,
       selected,
     });
-    await this.emitPhaseChange({
+    await this.lifecycle.recordPhaseChange({
       organizationId,
       generationId: id,
       fromPhase: existing.phase,
@@ -229,7 +201,7 @@ export class ThumbnailGenerationService {
       payload: { selectedUrl: selected?.url ?? null },
     });
 
-    const analysis = await findThumbnailAnalysisGrade(this.prisma, existing.masterId, organizationId);
+    const analysis = await this.ledger.findThumbnailAnalysisGrade(existing.masterId, organizationId);
     void this.trackingService
       .create({
         organizationId,
@@ -254,17 +226,12 @@ export class ThumbnailGenerationService {
     organizationId: string,
     triggeredByUserId: string | null = null,
   ): Promise<ThumbnailGenerationItem> {
-    const change = await markGenerationCancelled(this.prisma, id, organizationId);
-    if (!change) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
-    await this.emitStatusChange({
-      organizationId,
+    const change = await this.lifecycle.markCancelled({
       generationId: id,
-      fromStatus: change.fromStatus,
-      toStatus: 'cancelled',
-      fromPhase: change.fromPhase,
-      toPhase: null,
+      organizationId,
       actorUserId: triggeredByUserId,
     });
+    if (!change) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
     // No-op when the generation never opened an alert (e.g. auto-batch).
     await this.operationAlerts.cancel(organizationId, this.editJobOperationKey(id));
     return this.findOne(id, organizationId);
@@ -282,13 +249,9 @@ export class ThumbnailGenerationService {
     operationKey: string | null;
     preserved: boolean;
   }> {
-    const row = await this.prisma.thumbnailGeneration.findFirst({
-      where: {
-        id: input.generationId,
-        organizationId: input.organizationId,
-        isDeleted: false,
-      },
-      select: { id: true, status: true, phase: true, inputMeta: true },
+    const row = await this.ledger.findGenerationProjectionStatus({
+      generationId: input.generationId,
+      organizationId: input.organizationId,
     });
     if (!row) {
       return {
@@ -307,26 +270,9 @@ export class ThumbnailGenerationService {
       };
     }
 
-    const change = await markGenerationCancelled(
-      this.prisma,
-      row.id,
-      input.organizationId,
-    );
-    if (!change) {
-      return {
-        status: 'already_terminal',
-        generationId: row.id,
-        operationKey: this.editJobOperationKey(row.id),
-        preserved: false,
-      };
-    }
-    await this.emitStatusChange({
+    const change = await this.lifecycle.markCancelled({
       organizationId: input.organizationId,
       generationId: row.id,
-      fromStatus: change.fromStatus,
-      toStatus: 'cancelled',
-      fromPhase: change.fromPhase,
-      toPhase: null,
       actorUserId: input.actorUserId,
       payload: {
         reason: input.reason,
@@ -339,6 +285,14 @@ export class ThumbnailGenerationService {
         }),
       },
     });
+    if (!change) {
+      return {
+        status: 'already_terminal',
+        generationId: row.id,
+        operationKey: this.editJobOperationKey(row.id),
+        preserved: false,
+      };
+    }
     await this.generationJobs.cancelAgentRequestForGeneration({
       organizationId: input.organizationId,
       generationId: row.id,
@@ -381,7 +335,7 @@ export class ThumbnailGenerationService {
 
   async deleteGeneration(id: string, organizationId: string): Promise<{ ok: true }> {
     await this.assertGenerationOwned(id, organizationId);
-    await deleteGeneration(this.prisma, id, organizationId);
+    await this.ledger.deleteGeneration(id, organizationId);
     return { ok: true };
   }
 
@@ -390,13 +344,13 @@ export class ThumbnailGenerationService {
     organizationId: string,
     candidateUrl: string,
   ): Promise<{ ok: true; generationDeleted: boolean; remaining: number }> {
-    const existing = await findGenerationWithCandidatesOrThrow(this.prisma, id, organizationId);
+    const existing = await this.ledger.findGenerationWithCandidatesOrThrow(id, organizationId);
     const target = existing.candidates.find((c) => c.url === candidateUrl);
     if (!target) {
       throw new NotFoundException('해당 candidate URL 을 찾을 수 없습니다');
     }
     const remaining = existing.candidates.length - 1;
-    await removeCandidatePersistence(this.prisma, {
+    await this.ledger.removeCandidate({
       id,
       organizationId,
       candidateId: target.id,
@@ -416,7 +370,7 @@ export class ThumbnailGenerationService {
     method = 'generate',
   ): Promise<ThumbnailGenerationItem[]> {
     if (productIds.length === 0) return [];
-    const byId = await findJobMastersByIds(this.prisma, productIds, organizationId);
+    const byId = await this.ledger.findJobMastersByIds(productIds, organizationId);
     const items: ThumbnailGenerationItem[] = [];
 
     for (const productId of productIds) {
@@ -425,9 +379,9 @@ export class ThumbnailGenerationService {
       const sourceUrl = resolveMasterThumbnailImage(product);
       if (!sourceUrl) throw new BadRequestException('상품 원본 이미지가 필요합니다');
 
-      const active = await findActiveJobForProduct(this.prisma, product.id, organizationId, method);
+      const active = await this.ledger.findActiveJobForProduct(product.id, organizationId, method);
       if (active) {
-        items.push(toThumbnailGenerationItem(active, product));
+        items.push(toThumbnailGenerationItem(active as GenerationRow, product));
         continue;
       }
 
@@ -435,7 +389,7 @@ export class ThumbnailGenerationService {
       const editSuggestions = extractEditSuggestions(analysis?.complianceScores ?? null);
       const editAnalysis = toEditAnalysis(analysis);
 
-      const generation = await createPendingEditJob(this.prisma, {
+      const generation = await this.ledger.openPendingEditorJob({
         organizationId,
         masterId: product.id,
         originalUrl: sourceUrl,
@@ -447,13 +401,13 @@ export class ThumbnailGenerationService {
           variantKey: variantKey ?? 'auto',
           automated: method === 'auto',
           inputCount: 1,
-          recompose: (analysis?.recompose ?? null) as Prisma.InputJsonValue,
+          recompose: analysis?.recompose ?? null,
           analysisContext: toAnalysisContextJson(analysis, editSuggestions),
         },
         editAnalysis,
         triggeredByUserId,
       });
-      await this.emitStatusChange({
+      await this.lifecycle.recordStatusChange({
         organizationId,
         generationId: generation.id,
         fromStatus: null,
@@ -490,7 +444,7 @@ export class ThumbnailGenerationService {
       });
 
       this.scheduleEditJob(generation.id, organizationId, purpose, variantKey);
-      items.push(toThumbnailGenerationItem(generation, product));
+      items.push(toThumbnailGenerationItem(generation as GenerationRow, product));
     }
     return items;
   }
@@ -502,15 +456,16 @@ export class ThumbnailGenerationService {
     variantKey: 'auto' | 'with-box' | 'no-box' | null,
     triggeredByUserId: string | null,
   ): Promise<{ ok: true }> {
-    const existing = await this.prisma.thumbnailGeneration.findFirst({
-      where: { id, organizationId, isDeleted: false },
-      select: { id: true, masterId: true, method: true },
+    const existing = await this.ledger.findGenerationProjectionStatus({
+      generationId: id,
+      organizationId,
     });
     if (!existing) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
+    const row = await this.ledger.findGenerationOrThrow(id, organizationId);
 
-    const change = await resetGenerationForReEdit(this.prisma, { id, organizationId, purpose, variantKey });
+    const change = await this.ledger.resetGenerationForReEdit({ id, organizationId, purpose, variantKey });
     if (!change) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
-    await this.emitStatusChange({
+    await this.lifecycle.recordStatusChange({
       organizationId,
       generationId: id,
       fromStatus: change.fromStatus,
@@ -533,9 +488,9 @@ export class ThumbnailGenerationService {
       sourceId: id,
       actorUserId: triggeredByUserId,
       targetType: 'master',
-      targetId: existing.masterId,
+      targetId: row.masterId,
       href: this.thumbnailGenerationHref(id),
-      metadata: { method: existing.method, purpose, variantKey: variantKey ?? 'auto', retry: true },
+      metadata: { method: row.method, purpose, variantKey: variantKey ?? 'auto', retry: true },
     });
 
     this.scheduleEditJob(id, organizationId, purpose, variantKey);
@@ -573,13 +528,13 @@ export class ThumbnailGenerationService {
   }> {
     const take = Math.min(Math.max(limit, 1), 30);
     const cooldown = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const products = await findAutoBatchCandidates(this.prisma, organizationId, take * 3);
+    const products = await this.ledger.findAutoBatchCandidates(organizationId, take * 3);
 
     const runs: Array<{ ok: boolean; productId: string; generationId?: string | null; error?: string }> = [];
     let skipped = 0;
     for (const product of products) {
       if (runs.length >= take) break;
-      const recent = await findRecentAutoJob(this.prisma, product.id, organizationId, cooldown);
+      const recent = await this.ledger.findRecentAutoJob(product.id, organizationId, cooldown);
       if (recent) {
         skipped++;
         continue;
@@ -614,65 +569,18 @@ export class ThumbnailGenerationService {
   // ─── helpers ────────────────────────────────────────────────────────
 
   private async assertProductOwned(productId: string, organizationId: string): Promise<void> {
-    const product = await findProductForEditor(this.prisma, productId, organizationId);
+    const product = await this.ledger.findProductForEditor(productId, organizationId);
     if (!product) throw new NotFoundException(`MasterProduct ${productId} not found`);
   }
 
   private async assertGenerationOwned(id: string, organizationId: string): Promise<void> {
-    const existing = await this.prisma.thumbnailGeneration.findFirst({
-      where: { id, organizationId, isDeleted: false },
-      select: { id: true },
+    const existing = await this.ledger.findGenerationProjectionStatus({
+      generationId: id,
+      organizationId,
     });
     if (!existing) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
   }
 
-  private async emitStatusChange(
-    input: Omit<AppendThumbnailGenerationEventInput, 'eventType'> & {
-      eventType?: AppendThumbnailGenerationEventInput['eventType'];
-      fromPhase?: string | null;
-      toPhase?: string | null;
-    },
-  ): Promise<void> {
-    await this.appendGenerationEvent({
-      ...input,
-      eventType: input.eventType ?? 'status_change',
-    });
-    if (input.fromPhase !== input.toPhase) {
-      await this.appendGenerationEvent({
-        organizationId: input.organizationId,
-        generationId: input.generationId,
-        eventType: 'phase_change',
-        fromStatus: input.fromStatus,
-        toStatus: input.toStatus,
-        fromPhase: input.fromPhase,
-        toPhase: input.toPhase,
-        attemptNumber: input.attemptNumber,
-        actorUserId: input.actorUserId,
-        payload: input.payload,
-      });
-    }
-  }
-
-  private async emitPhaseChange(input: Omit<AppendThumbnailGenerationEventInput, 'eventType'>): Promise<void> {
-    if (input.fromPhase === input.toPhase) return;
-    await this.appendGenerationEvent({
-      ...input,
-      eventType: 'phase_change',
-    });
-  }
-
-  private async appendGenerationEvent(input: AppendThumbnailGenerationEventInput): Promise<void> {
-    if (!this.generationEvents) return;
-    try {
-      await this.generationEvents.append(input);
-    } catch (err) {
-      this.logger.warn(
-        `ThumbnailGenerationEvent 기록 실패 (generationId=${input.generationId}, type=${input.eventType}): ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
-    }
-  }
 }
 
 // Re-export for backwards-compat with existing GenerationRow consumers (none

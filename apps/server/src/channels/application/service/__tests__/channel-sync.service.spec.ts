@@ -6,8 +6,8 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   COUPANG_PROVIDER_PORT,
   type CoupangProviderPort,
-} from '../../port/out/coupang-provider.port';
-import { CHANNEL_SYNC_REPOSITORY_PORT } from '../../port/out/channel-sync.repository.port';
+} from '../../port/out/provider/coupang-provider.port';
+import { CHANNEL_SYNC_REPOSITORY_PORT } from '../../port/out/repository/channel-sync.repository.port';
 import { ChannelSyncRepositoryAdapter } from '../../../adapter/out/repository/channel-sync.repository.adapter';
 import { ChannelAccountService } from '../channel-account.service';
 

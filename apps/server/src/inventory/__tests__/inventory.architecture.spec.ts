@@ -6,10 +6,10 @@ import path from 'node:path';
 //
 //   - PrismaService is imported only under `inventory/adapter/out/repository/**`.
 //   - `*persistence.ts` is not used as final naming under `apps/server/src/inventory`.
-  //   - `application/**` does not import Prisma client/types.
-  //   - `application/service/**` does not import `adapter/out/**` or
-  //     ProductsModule/BundleStockService directly. Concrete adapters reach
-  //     application code only via Nest token bindings to ports.
+//   - `application/**` does not import Prisma client/types.
+//   - `application/service/**` does not import `adapter/out/**` or
+//     ProductsModule/BundleStockService directly. Concrete adapters reach
+//     application code only via Nest token bindings to ports.
 //   - Controllers (`adapter/in/http/**`) depend on `application/port/in/**`,
 //     not on concrete application services.
 //   - Domain code (`inventory/domain/**`) does not depend on NestJS, Prisma,

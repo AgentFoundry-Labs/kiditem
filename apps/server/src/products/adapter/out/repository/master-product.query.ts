@@ -69,7 +69,7 @@ export async function findMasterImageRows(
 
 /**
  * Cursor-paginated master list. Owns the search OR-clause (name / legacyCode /
- * code / barcode — non-unique by ADR-0022), the filter clauses
+ * code / barcode — non-unique source barcode), the filter clauses
  * (category / brand / abcGrade / lifecycleState / isDeleted / isTemporary), the
  * `(createdAt DESC, id DESC)` tuple cursor, and the `take: limit + 1`
  * overshoot used to compute `nextCursor` without a second roundtrip.
@@ -88,7 +88,7 @@ export async function findMasterListPage(
         { name: { contains: q.search, mode: 'insensitive' } },
         { legacyCode: { contains: q.search } },
         { code: { contains: q.search } },
-        // ADR-0022 — search by source barcode/EAN. May return multiple masters
+        // Search by source barcode/EAN. May return multiple masters
         // because (organizationId, barcode) is non-unique by design.
         { barcode: { contains: q.search } },
       ],

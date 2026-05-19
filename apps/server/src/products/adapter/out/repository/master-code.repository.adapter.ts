@@ -1,8 +1,8 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import type { MasterCodePort } from '../../../application/port/out/master-code.port';
-import type { ProductsRepositoryTransaction } from '../../../application/port/out/products-transaction.port';
+import type { MasterCodePort } from '../../../application/port/out/repository/master-code.port';
+import type { ProductsRepositoryTransaction } from '../../../application/port/out/transaction/products-transaction.port';
 
 type MasterCodeClient = Pick<Prisma.TransactionClient, 'masterCodeCounter'>;
 

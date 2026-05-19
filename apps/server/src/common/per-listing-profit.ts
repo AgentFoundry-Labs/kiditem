@@ -8,12 +8,12 @@ import { resolvePricing } from './option-pricing-resolver';
  *   - finance/profit-loss (PLData rows, plus returnCount + extra metadata)
  *   - dashboard/dashboard-inventory (warnings.minusProducts / lowProfitProducts / highAdProducts)
  *
- * Pure function (no @Injectable). Follows ADR-0016 live aggregation:
+ * Pure function (no @Injectable). Uses live aggregation:
  *   - I3 canonical: revenue = SUM(OrderLineItem.totalPrice)
  *   - I7 multi-tenant: every Prisma call scoped by organizationId
  *   - I8 half-open: orderedAt: { gte: from, lt: to }
  *   - R-1 shipping: order-level Order.shippingPrice, revenue-weighted distribution
- *   - ADR-0018 compliance: all 2 queries pass organizationId; no $queryRaw used
+ *   - Tenant-scope compliance: both queries pass organizationId; no $queryRaw used
  *
  * Excludes returnCount (D.3b will add) — the OrderReturnLineItem fetch stays
  * in profit-loss.service.findAll because PLData.returnCount is finance-specific.
@@ -165,7 +165,7 @@ export async function buildPerListingMetrics(
       g.commission += lineRevenue * resolved.commissionRate;
       g.otherCost += resolved.otherCost * li.quantity;
 
-      // R-1 revenue-weighted shipping distribution (zero-revenue order → drop ship per ADR-0016)
+      // Revenue-weighted shipping distribution (zero-revenue order → drop ship)
       if (orderTotalRevenue > 0 && o.shippingPrice) {
         g.shippingCost += Math.round(o.shippingPrice * (lineRevenue / orderTotalRevenue));
       }

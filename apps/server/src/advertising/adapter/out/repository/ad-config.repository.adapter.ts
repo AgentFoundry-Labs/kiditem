@@ -7,7 +7,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   AdConfigRepositoryPort,
   AdConfigSettingRow,
-} from '../../../application/port/out/ad-config.repository.port';
+} from '../../../application/port/out/repository/ad-config.repository.port';
 
 @Injectable()
 export class AdConfigRepositoryAdapter implements AdConfigRepositoryPort {

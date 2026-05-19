@@ -32,7 +32,7 @@ export default function ProductInfoCards({ product, inventory }: ProductInfoCard
         <InfoRow label="카테고리" value={categoryNames[product.category || ""] || product.category || "-"} />
         <InfoRow label="브랜드" value={product.brand ?? "-"} />
         <InfoRow label="상품 코드" value={product.code} />
-        {/* ADR-0022 — source barcode/EAN from kiditem_list. Distinct from
+        {/* Source barcode/EAN from kiditem_list. Distinct from
             option-level SKU/barcode below. May be shared across multiple
             masters (search returns a list). */}
         <InfoRow

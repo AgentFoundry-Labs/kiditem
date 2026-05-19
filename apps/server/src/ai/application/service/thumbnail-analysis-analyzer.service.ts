@@ -1,11 +1,11 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import type {
   ComplianceScores,
   ImageSpec,
@@ -13,22 +13,20 @@ import type {
   ThumbnailScores,
   RecomposeVariantClassification,
 } from '@kiditem/shared/ai';
-import { PrismaService } from '../../../prisma/prisma.service';
-import type { AnalysisScope } from '../../adapter/in/http/dto/thumbnail-analyze.dto';
+import type { AnalysisScope } from './thumbnail-analysis-requests';
 import { resolveMasterThumbnailImage } from '../../domain/thumbnail-master-image';
-import { thumbnailMasterImageSelect } from '../../adapter/out/prisma/master-image-select.preset';
 import {
   ThumbnailVisionAiService,
   type ThumbnailAiItem,
 } from './thumbnail-vision-ai.service';
 import { ThumbnailRecomposeService } from './thumbnail-recompose.service';
-import type { AnalysisRow } from '../../adapter/out/prisma/thumbnail-analysis.query';
 import { toAnalysisResult } from '../../mapper/thumbnail-analysis.mapper';
 import {
-  upsertThumbnailAnalysis,
+  THUMBNAIL_ANALYSIS_REPOSITORY_PORT,
   type ThumbnailAnalysisComplianceFacet,
   type ThumbnailAnalysisQualityFacet,
-} from '../../adapter/out/prisma/thumbnail-analysis.persistence';
+  type ThumbnailAnalysisRepositoryPort,
+} from '../port/out/repository/thumbnail-analysis.repository.port';
 
 /**
  * Single-product analyzer — owns analyzeProduct / analyzeDirectImage /
@@ -41,7 +39,8 @@ export class ThumbnailAnalysisAnalyzerService {
   private readonly logger = new Logger(ThumbnailAnalysisAnalyzerService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(THUMBNAIL_ANALYSIS_REPOSITORY_PORT)
+    private readonly repository: ThumbnailAnalysisRepositoryPort,
     private readonly vision: ThumbnailVisionAiService,
     private readonly recomposeService: ThumbnailRecomposeService,
   ) {}
@@ -57,18 +56,7 @@ export class ThumbnailAnalysisAnalyzerService {
     scope: AnalysisScope,
     signal?: AbortSignal,
   ): Promise<ThumbnailAnalysisResult> {
-    const master = await this.prisma.masterProduct.findFirst({
-      where: { id: productId, organizationId, isDeleted: false },
-      select: {
-        id: true,
-        name: true,
-        imageUrl: true,
-        thumbnailUrl: true,
-        category: true,
-        images: thumbnailMasterImageSelect(organizationId),
-        createdAt: true,
-      },
-    });
+    const master = await this.repository.findMasterForAnalysis(productId, organizationId);
     if (!master) throw new NotFoundException(`Master ${productId} not found`);
     const imageUrl = resolveMasterThumbnailImage(master);
     if (!imageUrl) {
@@ -129,7 +117,7 @@ export class ThumbnailAnalysisAnalyzerService {
       };
     }
 
-    const upserted = await upsertThumbnailAnalysis(this.prisma, {
+    const upserted = await this.repository.upsertAnalysis({
       masterId: master.id,
       organizationId,
       imageUrl,
@@ -139,7 +127,7 @@ export class ThumbnailAnalysisAnalyzerService {
       recompose,
     });
 
-    return toAnalysisResult(upserted as AnalysisRow, master);
+    return toAnalysisResult(upserted, master);
   }
 
   /**
@@ -246,17 +234,7 @@ export class ThumbnailAnalysisAnalyzerService {
     productIds: string[] | undefined,
     organizationId: string,
   ): Promise<{ processed: number; failed: number }> {
-    const where: Prisma.MasterProductWhereInput = { organizationId, isDeleted: false };
-    if (productIds?.length) where.id = { in: productIds };
-    const masters = await this.prisma.masterProduct.findMany({
-      where,
-      select: {
-        id: true,
-        imageUrl: true,
-        thumbnailUrl: true,
-        images: thumbnailMasterImageSelect(organizationId),
-      },
-    });
+    const masters = await this.repository.findMastersForPreInspect(productIds, organizationId);
     let processed = 0;
     let failed = 0;
     for (const m of masters) {
@@ -267,7 +245,7 @@ export class ThumbnailAnalysisAnalyzerService {
       }
       try {
         const spec = await this.vision.checkImageSpec(imageUrl);
-        await upsertThumbnailAnalysis(this.prisma, {
+        await this.repository.upsertAnalysis({
           masterId: m.id,
           organizationId,
           imageUrl,

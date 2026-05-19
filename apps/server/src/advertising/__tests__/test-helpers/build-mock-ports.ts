@@ -9,20 +9,20 @@
 // `daily-fact-meta.ts` / `repository-transaction.ts`).
 
 import { vi } from 'vitest';
-import type { AdBenchmarkRepositoryPort } from '../../application/port/out/ad-benchmark.repository.port';
-import type { AdListingRepositoryPort } from '../../application/port/out/ad-listing.repository.port';
-import type { AdConfigRepositoryPort } from '../../application/port/out/ad-config.repository.port';
-import type { AdAccountKpiRepositoryPort } from '../../application/port/out/ad-account-kpi.repository.port';
-import type { AdCampaignRepositoryPort } from '../../application/port/out/ad-campaign.repository.port';
-import type { AdActionRepositoryPort } from '../../application/port/out/ad-action.repository.port';
-import type { AdExecutionRepositoryPort } from '../../application/port/out/ad-execution.repository.port';
-import type { AdStrategyContextRepositoryPort } from '../../application/port/out/ad-strategy-context.repository.port';
-import type { ChannelScrapeRepositoryPort } from '../../application/port/out/channel-scrape.repository.port';
-import type { ChannelListingDailyRepositoryPort } from '../../application/port/out/channel-listing-daily.repository.port';
-import type { ChannelOptionDailyRepositoryPort } from '../../application/port/out/channel-option-daily.repository.port';
-import type { ChannelTargetDailyRepositoryPort } from '../../application/port/out/channel-target-daily.repository.port';
-import type { ScrapeTargetRepositoryPort } from '../../application/port/out/scrape-target.repository.port';
-import type { OperationAlertPort } from '../../application/port/out/operation-alert.port';
+import type { AdBenchmarkRepositoryPort } from '../../application/port/out/repository/ad-benchmark.repository.port';
+import type { AdListingRepositoryPort } from '../../application/port/out/repository/ad-listing.repository.port';
+import type { AdConfigRepositoryPort } from '../../application/port/out/repository/ad-config.repository.port';
+import type { AdAccountKpiRepositoryPort } from '../../application/port/out/repository/ad-account-kpi.repository.port';
+import type { AdCampaignRepositoryPort } from '../../application/port/out/repository/ad-campaign.repository.port';
+import type { AdActionRepositoryPort } from '../../application/port/out/repository/ad-action.repository.port';
+import type { AdExecutionRepositoryPort } from '../../application/port/out/repository/ad-execution.repository.port';
+import type { AdStrategyContextRepositoryPort } from '../../application/port/out/repository/ad-strategy-context.repository.port';
+import type { ChannelScrapeRepositoryPort } from '../../application/port/out/repository/channel-scrape.repository.port';
+import type { ChannelListingDailyRepositoryPort } from '../../application/port/out/repository/channel-listing-daily.repository.port';
+import type { ChannelOptionDailyRepositoryPort } from '../../application/port/out/repository/channel-option-daily.repository.port';
+import type { ChannelTargetDailyRepositoryPort } from '../../application/port/out/repository/channel-target-daily.repository.port';
+import type { ScrapeTargetRepositoryPort } from '../../application/port/out/repository/scrape-target.repository.port';
+import type { OperationAlertPort } from '../../application/port/out/cross-domain/operation-alert.port';
 
 /** Vitest mock variant of every method on `AdBenchmarkRepositoryPort`. */
 export type MockAdBenchmarkRepo = {

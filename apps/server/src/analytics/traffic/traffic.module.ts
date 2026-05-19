@@ -3,7 +3,7 @@ import { AutomationModule } from '../../automation/automation.module';
 import { TrafficController } from './traffic.controller';
 import { TrafficService } from './traffic.service';
 import { TrafficOperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
-import { TRAFFIC_OPERATION_ALERT_PORT } from './application/port/out/operation-alert.port';
+import { TRAFFIC_OPERATION_ALERT_PORT } from './application/port/out/cross-domain/operation-alert.port';
 
 @Module({
   imports: [AutomationModule],

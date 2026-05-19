@@ -1,6 +1,6 @@
 import { type Logger } from '@nestjs/common';
-import type { CoupangProviderPort } from '../port/out/coupang-provider.port';
-import type { ChannelSyncRepositoryPort, SyncResult } from '../port/out/channel-sync.repository.port';
+import type { CoupangProviderPort } from '../port/out/provider/coupang-provider.port';
+import type { ChannelSyncRepositoryPort, SyncResult } from '../port/out/repository/channel-sync.repository.port';
 import { isCoupangCredentialResolutionError } from './channel-account.service';
 
 type SyncLogger = Pick<Logger, 'error' | 'log'>;

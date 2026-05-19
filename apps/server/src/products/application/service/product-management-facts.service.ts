@@ -3,7 +3,7 @@ import type { ProductManagementListItem } from '@kiditem/shared/product';
 import {
   PRODUCT_MANAGEMENT_REPOSITORY_PORT,
   type ProductManagementRepositoryPort,
-} from '../port/out/product-management.repository.port';
+} from '../port/out/repository/product-management.repository.port';
 import {
   EMPTY_METRICS,
   daysAgo,

@@ -280,7 +280,7 @@ model MasterProduct {
   organizationId String  @map("organization_id") @db.Uuid
   code           String  @unique
   legacyCode     String? @map("legacy_code")
-  /// Source barcode/EAN (ADR-0022). 비어있을 수 있고 (organizationId, barcode) 가
+  /// Source barcode/EAN. 비어있을 수 있고 (organizationId, barcode) 가
   /// **non-unique** — 한 EAN 이 여러 product family 에 걸칠 수 있는 외부 데이터를
   /// 그대로 보존한다. 실제 옵션/스캐너 단위 unique 는 ProductOption.barcode 가 담당.
   barcode        String?

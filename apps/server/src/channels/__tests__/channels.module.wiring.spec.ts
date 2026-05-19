@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
 import { AutomationModule } from '../../automation/automation.module';
+import { ProductsModule } from '../../products/products.module';
 import { ChannelsModule } from '../channels.module';
 import { ChannelAccountRepositoryAdapter } from '../adapter/out/repository/channel-account.repository.adapter';
 import { ChannelDashboardRepositoryAdapter } from '../adapter/out/repository/channel-dashboard.repository.adapter';
@@ -11,26 +12,28 @@ import { ChannelReconciliationResolutionRepositoryAdapter } from '../adapter/out
 import { ChannelReconciliationScanRepositoryAdapter } from '../adapter/out/repository/channel-reconciliation-scan.repository.adapter';
 import { ChannelSyncRepositoryAdapter } from '../adapter/out/repository/channel-sync.repository.adapter';
 import { MarketplaceRegistrationRepositoryAdapter } from '../adapter/out/repository/marketplace-registration.repository.adapter';
+import { ChannelsProductMasterBarcodeAdapter } from '../adapter/out/products/product-master-barcode.adapter';
 import { CoupangProviderAdapter } from '../adapter/out/coupang/coupang-provider.adapter';
 import { ChannelsOperationAlertAdapter } from '../adapter/out/automation/operation-alert.adapter';
 import {
   CHANNEL_ACCOUNT_REPOSITORY_PORT,
   COUPANG_CREDENTIALS_PORT,
-} from '../application/port/out/channel-account.repository.port';
-import { CHANNEL_DASHBOARD_REPOSITORY_PORT } from '../application/port/out/channel-dashboard.repository.port';
+} from '../application/port/out/repository/channel-account.repository.port';
+import { CHANNEL_DASHBOARD_REPOSITORY_PORT } from '../application/port/out/repository/channel-dashboard.repository.port';
 import {
   CHANNEL_LISTING_REPOSITORY_PORT,
   MARKETPLACE_REGISTRATION_REPOSITORY_PORT,
-} from '../application/port/out/channel-listing.repository.port';
+} from '../application/port/out/repository/channel-listing.repository.port';
 import {
   CHANNEL_RECONCILIATION_MATCHER_PORT,
   CHANNEL_RECONCILIATION_QUERY_REPOSITORY_PORT,
   CHANNEL_RECONCILIATION_RESOLUTION_REPOSITORY_PORT,
   CHANNEL_RECONCILIATION_SCAN_REPOSITORY_PORT,
-} from '../application/port/out/channel-reconciliation.repository.port';
-import { CHANNEL_SYNC_REPOSITORY_PORT } from '../application/port/out/channel-sync.repository.port';
-import { COUPANG_PROVIDER_PORT } from '../application/port/out/coupang-provider.port';
-import { CHANNELS_OPERATION_ALERT_PORT } from '../application/port/out/operation-alert.port';
+} from '../application/port/out/repository/channel-reconciliation.repository.port';
+import { CHANNEL_SYNC_REPOSITORY_PORT } from '../application/port/out/repository/channel-sync.repository.port';
+import { COUPANG_PROVIDER_PORT } from '../application/port/out/provider/coupang-provider.port';
+import { CHANNELS_OPERATION_ALERT_PORT } from '../application/port/out/cross-domain/operation-alert.port';
+import { CHANNELS_PRODUCT_MASTER_BARCODE_PORT } from '../application/port/out/cross-domain/product-master-barcode.port';
 
 const IMPORTS_KEY = 'imports';
 const PROVIDERS_KEY = 'providers';
@@ -51,9 +54,10 @@ function expectBinding(
 }
 
 describe('ChannelsModule canonical owner wiring', () => {
-  it('imports AutomationModule for operation alert consumer adapters', () => {
+  it('imports owner modules for consumer adapters', () => {
     const imports: unknown[] = Reflect.getMetadata(IMPORTS_KEY, ChannelsModule) ?? [];
     expect(imports).toContain(AutomationModule);
+    expect(imports).toContain(ProductsModule);
   });
 
   it('binds every outgoing port to its local adapter', () => {
@@ -70,6 +74,7 @@ describe('ChannelsModule canonical owner wiring', () => {
     expect(providers).toContain(ChannelReconciliationScanRepositoryAdapter);
     expect(providers).toContain(CoupangProviderAdapter);
     expect(providers).toContain(ChannelsOperationAlertAdapter);
+    expect(providers).toContain(ChannelsProductMasterBarcodeAdapter);
 
     expectBinding(providers, CHANNEL_ACCOUNT_REPOSITORY_PORT, ChannelAccountRepositoryAdapter);
     expectBinding(providers, COUPANG_CREDENTIALS_PORT, ChannelAccountRepositoryAdapter);
@@ -103,5 +108,10 @@ describe('ChannelsModule canonical owner wiring', () => {
     );
     expectBinding(providers, COUPANG_PROVIDER_PORT, CoupangProviderAdapter);
     expectBinding(providers, CHANNELS_OPERATION_ALERT_PORT, ChannelsOperationAlertAdapter);
+    expectBinding(
+      providers,
+      CHANNELS_PRODUCT_MASTER_BARCODE_PORT,
+      ChannelsProductMasterBarcodeAdapter,
+    );
   });
 });

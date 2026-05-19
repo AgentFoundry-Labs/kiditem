@@ -66,8 +66,8 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
     expect(o.totals.totalRevenue).toBe(20000);
   });
 
-  it('ADR-0017 returnRate — past-period order excluded from current returnRate', async () => {
-    const coup = await setupChannelFixture(TEST_ORGANIZATION_ID, 'coupang', 'ADR-0017');
+  it('returnRate — past-period order excluded from current returnRate', async () => {
+    const coup = await setupChannelFixture(TEST_ORGANIZATION_ID, 'coupang', 'return-rate');
     const marchOrderId = await seedOrderWithLineItems(prisma, {
       organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'MAR-1', orderedAt: '2026-03-15T00:00:00Z',
       lineItems: [{ quantity: 1, totalPrice: 5000, optionId: coup.optionId, listingOptionId: coup.listingOptionId }],

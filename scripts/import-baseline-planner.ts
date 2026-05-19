@@ -3,7 +3,7 @@
 // Pure planner for the baseline kiditem + Wing import. Deterministic and
 // side-effect-free so script behavior is unit-testable without a database.
 //
-// ADR-0022 — `MasterProduct.barcode` is the source EAN/barcode (non-unique),
+// `MasterProduct.barcode` is the source EAN/barcode (non-unique),
 // `ProductOption.barcode` is true option/scanner barcode (unique). Baseline
 // import never writes the source EAN into `ProductOption.barcode`.
 //
@@ -71,7 +71,7 @@ export function resolveBarcodeBucket(
 /**
  * Deterministic versioned import key for `MasterProduct.legacyCode`. The key
  * is internal idempotency state — UI must not present it as the user-facing
- * product code (see ADR-0022).
+ * product code.
  */
 export function masterImportKey(
   barcodeBucket: string,

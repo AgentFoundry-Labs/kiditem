@@ -18,7 +18,7 @@ import { Prisma } from '@prisma/client';
 import type {
   MetaJsonInput,
   NamespacedMetaJson,
-} from '../../../application/port/out/daily-fact-meta';
+} from '../../../application/port/out/repository/daily-fact-meta';
 
 export type DailyFactTable =
   | 'channel_listing_daily_snapshots'

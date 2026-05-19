@@ -8,7 +8,7 @@ import { kstInclusiveDaysStart } from '../../../../common/kst';
 import type {
   AdBenchmarkRepositoryPort,
   BenchmarkAggregates,
-} from '../../../application/port/out/ad-benchmark.repository.port';
+} from '../../../application/port/out/repository/ad-benchmark.repository.port';
 
 @Injectable()
 export class AdBenchmarkRepositoryAdapter

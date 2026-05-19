@@ -41,6 +41,7 @@ export default function ProductCard({
   const kpInProgress = useKidsPlayfulInProgress(generationTargetId, {
     sourceCandidateId: product.promotedMasterId ? null : product.id,
   });
+  const generateBusy = isQuickProcessingSelected || isProcessing || !!kpInProgress;
 
   // 진행 중 라벨 — pipeline_step 별 다른 메시지 (사용자 가시성 강화)
   // Trend/KIDITEM 생성 진행 중이면 그것 우선 (templateId 로 라벨 구분).
@@ -106,16 +107,16 @@ export default function ProductCard({
             e.stopPropagation();
             onOpenQuickProcess(product.id);
           }}
-          disabled={isQuickProcessingSelected}
+          disabled={generateBusy}
           className={cn(
             'w-full flex h-11 items-center justify-center gap-1.5 rounded-lg border text-[12px] font-extrabold transition-all shadow-sm',
-            isQuickProcessingSelected
+            generateBusy
               ? 'cursor-wait border-violet-200 bg-violet-50 text-violet-600'
               : 'border-[var(--text-primary)] bg-white text-[var(--text-primary)] hover:border-violet-600 hover:bg-violet-600 hover:text-white hover:shadow-md hover:shadow-violet-200',
           )}
           title="선택한 상품만 상세페이지와 썸네일 생성을 시작합니다"
         >
-          {isQuickProcessingSelected ? (
+          {generateBusy ? (
             <>
               <Loader2 size={11} className="animate-spin" /> 처리 중...
             </>

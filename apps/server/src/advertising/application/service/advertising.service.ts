@@ -17,11 +17,11 @@ import { buildAdMetrics } from '../../domain/ad-metrics';
 import {
   AD_BENCHMARK_REPOSITORY_PORT,
   type AdBenchmarkRepositoryPort,
-} from '../port/out/ad-benchmark.repository.port';
+} from '../port/out/repository/ad-benchmark.repository.port';
 import {
   AD_LISTING_REPOSITORY_PORT,
   type AdListingRepositoryPort,
-} from '../port/out/ad-listing.repository.port';
+} from '../port/out/repository/ad-listing.repository.port';
 
 const VALID_TIERS = ['1차', '2차', '3차', 'OFF'] as const;
 type ValidTier = (typeof VALID_TIERS)[number];

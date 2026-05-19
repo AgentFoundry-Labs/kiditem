@@ -3,7 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import {
   COUPANG_PROVIDER_PORT,
   type CoupangProviderPort,
-} from '../../channels/application/port/out/coupang-provider.port';
+} from '../../channels/application/port/out/provider/coupang-provider.port';
 import { OrderStatusSchema } from '@kiditem/shared/order';
 import type { OrderActionResponse, OrderListItem, OrderListResponse, OrderStatsResponse } from '@kiditem/shared/order';
 
@@ -142,7 +142,7 @@ export class OrdersService {
   }
 
   async findOne(id: string, organizationId: string) {
-    // ADR-0006: findUnique({ where: { id } }) 금지 — organizationId 필수
+    // findUnique({ where: { id } }) 금지 — organizationId 필수
     const order = await this.prisma.order.findFirst({
       where: { id, organizationId },
       include: {

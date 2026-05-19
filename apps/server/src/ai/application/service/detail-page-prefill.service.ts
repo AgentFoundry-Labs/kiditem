@@ -6,11 +6,11 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { z } from 'zod';
-import type { PrefillDetailPageBodyDto } from '../../adapter/in/http/dto';
+import type { PrefillDetailPageInput } from './detail-page-requests';
 import {
   TEXT_COMPLETION_PORT,
   type TextCompletionPort,
-} from '../port/out/text-completion.port';
+} from '../port/out/provider/text-completion.port';
 import type { DetailPagePrefillDto } from './detail-page-ai.types';
 
 const TextOrTextArraySchema = z.preprocess(
@@ -72,7 +72,7 @@ export class DetailPagePrefillService {
   ) {}
 
   async prefill(
-    dto: PrefillDetailPageBodyDto,
+    dto: PrefillDetailPageInput,
     organizationId: string,
   ): Promise<DetailPagePrefillDto> {
     if (!organizationId) {

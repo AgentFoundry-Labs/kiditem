@@ -34,14 +34,16 @@ import { AGENT_RUN_EVENTS } from '../../agent-os/application/event/agent-run-eve
 import { ThumbnailAgentOutputBridge } from '../application/service/thumbnail-agent-output.bridge';
 import { ThumbnailAgentReconcileService } from '../application/service/thumbnail-agent-reconcile.service';
 import { ThumbnailGenerationJobService } from '../application/service/thumbnail-generation-job.service';
+import { ThumbnailGenerationLifecycleService } from '../application/service/thumbnail-generation-lifecycle.service';
 import { ThumbnailGenerationService } from '../application/service/thumbnail-generation.service';
 import { ThumbnailGenerationSinkAdapter } from '../adapter/out/agent-output/thumbnail-generation-sink.adapter';
+import { ThumbnailGenerationLedgerRepositoryAdapter } from '../adapter/out/repository/thumbnail-generation-ledger.repository.adapter';
 import type { AgentRunnerPort } from '../../agent-os/application/port/in/agent-runner.port';
-import type { AgentTypeRuntimeHandler } from '../../agent-os/application/port/out/agent-runtime-handler.port';
+import type { AgentTypeRuntimeHandler } from '../../agent-os/application/port/out/runtime/agent-runtime-handler.port';
 import type {
   AgentRuntimeExecutionContext,
   AgentRuntimeResult,
-} from '../../agent-os/application/port/out/agent-runtime.port';
+} from '../../agent-os/application/port/out/runtime/agent-runtime.port';
 
 const ORG = TEST_ORGANIZATION_ID;
 const MASTER_ID = '99999999-aaaa-4999-8999-999999999999';
@@ -82,10 +84,22 @@ class FakeOperationAlertService {
   starts: unknown[] = [];
   succeeds: unknown[] = [];
   fails: unknown[] = [];
+  closedBySource: unknown[] = [];
   async start(input: unknown) { this.starts.push(input); return null; }
   async succeed(_o: string, _k: string, p?: unknown) { this.succeeds.push(p ?? null); return null; }
   async fail(_o: string, _k: string, p?: unknown) { this.fails.push(p ?? null); return null; }
   async cancel() { return null; }
+  async closeBySource(...args: unknown[]) {
+    this.closedBySource.push(args);
+    return {
+      id: 'fake-alert',
+      organizationId: ORG,
+      operationKey: null,
+      status: args[3] ?? 'succeeded',
+      progress: null,
+      metadata: null,
+    };
+  }
 }
 
 class FakeProductGenerationAlertService {
@@ -138,6 +152,8 @@ let worker: AgentRunWorker;
 let alerts: FakeOperationAlertService;
 let bridge: ThumbnailAgentOutputBridge;
 let sink: ThumbnailGenerationSinkAdapter;
+let generations: ThumbnailGenerationLedgerRepositoryAdapter;
+let generationLifecycle: ThumbnailGenerationLifecycleService;
 let generationService: ThumbnailGenerationService;
 let reconcile: ThumbnailAgentReconcileService;
 
@@ -169,10 +185,12 @@ beforeAll(async () => {
   worker = new AgentRunWorker(executor);
 
   alerts = new FakeOperationAlertService();
+  generations = new ThumbnailGenerationLedgerRepositoryAdapter(prisma as never);
+  generationLifecycle = new ThumbnailGenerationLifecycleService(generations, null);
   sink = new ThumbnailGenerationSinkAdapter(
-    prisma as never,
+    generations,
     alerts as never,
-    null,
+    generationLifecycle,
     new FakeProductGenerationAlertService() as never,
   );
 
@@ -182,27 +200,27 @@ beforeAll(async () => {
   });
 
   // The enqueue path exercises the facade plus its explicit job orchestrator:
-  // prisma, operationAlerts (fake), and agentRunner (coordinator). Editor AI
-  // remains stubbed because `enqueueEditorGeneration` does not reach into it.
+  // repository, operationAlerts (fake), and agentRunner (coordinator). Editor
+  // AI remains stubbed because `enqueueEditorGeneration` does not reach into it.
   const generationJobs = new ThumbnailGenerationJobService(
-    prisma as never,
+    generations,
     {} as never,
     alerts as never,
     coordinator as unknown as AgentRunnerPort,
     new FakeProductGenerationAlertService() as never,
-    null,
+    generationLifecycle,
   );
   generationService = new ThumbnailGenerationService(
-    prisma as never,
+    generations,
     {} as never, // trackingService — unused here
     alerts as never,
     generationJobs,
-    null,
+    generationLifecycle,
   );
 
   const observability = new AgentObservabilityService(repo);
   reconcile = new ThumbnailAgentReconcileService(
-    prisma as never,
+    generations,
     observability,
     sink,
     alerts as never,
@@ -224,6 +242,7 @@ beforeEach(async () => {
   alerts.starts = [];
   alerts.succeeds = [];
   alerts.fails = [];
+  alerts.closedBySource = [];
   bus.removeAllListeners();
   bus.on(AGENT_RUN_EVENTS.FINALIZED, (event) => {
     void bridge.onAgentRunFinalized(event);

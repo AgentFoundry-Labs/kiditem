@@ -43,9 +43,15 @@ import { BoldVerticalRefinerService } from '../application/service/bold-vertical
 import { KidsPlayfulRefinerService } from '../application/service/kids-playful-refiner.service';
 import { ContentWorkspaceService } from '../application/service/content-workspace.service';
 import { DetailPageContentGenerationSinkAdapter } from '../adapter/out/agent-output/detail-page-content-generation-sink.adapter';
+import { ContentAssetLibraryRepositoryAdapter } from '../adapter/out/repository/content-asset-library.repository.adapter';
+import { ContentWorkspaceLifecycleRepositoryAdapter } from '../adapter/out/repository/content-workspace-lifecycle.repository.adapter';
+import { DetailPageGenerationRepositoryAdapter } from '../adapter/out/repository/detail-page-generation.repository.adapter';
+import { DetailPageQueryRepositoryAdapter } from '../adapter/out/repository/detail-page-query.repository.adapter';
+import { DetailPageReconcileRepositoryAdapter } from '../adapter/out/repository/detail-page-reconcile.repository.adapter';
+import { ProductWorkspaceGroupRepositoryAdapter } from '../adapter/out/repository/product-workspace-group.repository.adapter';
 import type { AgentRunnerPort } from '../../agent-os/application/port/in/agent-runner.port';
-import type { AgentTypeRuntimeHandler } from '../../agent-os/application/port/out/agent-runtime-handler.port';
-import type { AgentRuntimeExecutionContext, AgentRuntimeResult } from '../../agent-os/application/port/out/agent-runtime.port';
+import type { AgentTypeRuntimeHandler } from '../../agent-os/application/port/out/runtime/agent-runtime-handler.port';
+import type { AgentRuntimeExecutionContext, AgentRuntimeResult } from '../../agent-os/application/port/out/runtime/agent-runtime.port';
 
 const ORG = TEST_ORGANIZATION_ID;
 const MASTER_ID = '99999999-9999-4999-8999-999999999999';
@@ -179,7 +185,8 @@ beforeAll(async () => {
   const generatedImages = {
     generateBestEffort: async () => ({}),
   } as unknown as DetailPageGeneratedImagesService;
-  const contentAssets = new ContentAssetService(prisma as never);
+  const contentAssetRepository = new ContentAssetLibraryRepositoryAdapter(prisma as never);
+  const contentAssets = new ContentAssetService(contentAssetRepository);
   sink = new DetailPageContentGenerationSinkAdapter(
     prisma as never,
     alerts as never,
@@ -200,15 +207,28 @@ beforeAll(async () => {
   // Stub TextCompletionPort for prefill only. Detail-page generation itself
   // enqueues Agent OS and no longer calls the LLM directly.
   const textCompletion = { complete: async () => ({ text: '{}' }) };
-  const query = new DetailPageQueryService(prisma as never, refiner);
+  const imageStorage = {
+    save: async () => '',
+    extractKey: () => null,
+    copy: async () => '',
+    delete: async () => undefined,
+  };
+  const query = new DetailPageQueryService(
+    new DetailPageQueryRepositoryAdapter(prisma as never, contentAssetRepository),
+    refiner,
+    imageStorage as never,
+  );
   const generation = new DetailPageGenerationService(
-    prisma as never,
-    { save: async () => '' },
+    new DetailPageGenerationRepositoryAdapter(
+      prisma as never,
+      new ProductWorkspaceGroupRepositoryAdapter(prisma as never),
+      contentAssetRepository,
+    ),
+    imageStorage as never,
     alerts as never,
     query,
     coordinator as unknown as AgentRunnerPort,
-    contentAssets,
-    new ContentWorkspaceService(prisma as never),
+    new ContentWorkspaceService(new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never)),
     new FakeProductGenerationAlertService() as never,
   );
   const prefill = new DetailPagePrefillService(textCompletion);
@@ -216,7 +236,7 @@ beforeAll(async () => {
 
   const observability = new AgentObservabilityService(repo);
   reconcile = new DetailPageAgentReconcileService(
-    prisma as never,
+    new DetailPageReconcileRepositoryAdapter(prisma as never),
     observability,
     sink,
   );

@@ -57,7 +57,7 @@ export async function incrementMasterOptionCounter(
  *   - `organizationId` from `@CurrentOrganization()` (never DTO).
  *   - `masterId` from the validated DTO that was used to increment the
  *     counter (never re-derived from the create payload).
- *   - `availableStock: null` — ADR-0014 (BundleStockService is sole writer).
+ *   - `availableStock: null` — BundleStockService is the sole writer.
  *   - `sku` from `buildOptionSku(...)` over the post-increment counter.
  *
  * `data` is the DTO already passed through `stripProductOptionSystemFields`.

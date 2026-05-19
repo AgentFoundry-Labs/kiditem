@@ -137,7 +137,7 @@ folders are intentionally absent from this map.
 | `apps/server/src/readiness` | Flat | readiness controller/service. |
 | `apps/server/src/rules` | Flat | HTTP orchestration delegates execution to Agent OS ports. |
 | `apps/server/src/sourcing` | Hexagonal | sourcing agent/products boundaries behind ports/adapters. |
-| `apps/server/src/supply` | Flat | supplier CRUD + purchase-order procurement (transitional flat capability services). |
+| `apps/server/src/supply` | Hexagonal | supplier/procurement persistence behind repository ports/adapters; architecture + module wiring specs freeze invariants. |
 | `apps/server/src/uploads` | Flat | upload controller/service/storage bridge. |
 
 ### Backend Structure Contracts
@@ -185,6 +185,70 @@ service pressure. Adding one of those is a reconstruction trigger for the
 touched capability, but the response is the smallest structure that exposes
 the seam. Incoming controllers may split by route family or use case without
 forcing a full `application/domain/port` structure.
+
+### Backend Port Lane Rules
+
+Port folders are Interface seams, not decoration. `application/port/in/` and
+`application/port/out/` are the first-level direction split. The second-level
+folder is intentionally asymmetric: incoming ports are owner capability
+Interfaces, while outgoing ports are driven Adapter family Interfaces.
+
+Incoming ports stay flat while the owner publishes one or two use-case
+Interfaces. Use a capability folder under `application/port/in/` when three or
+more incoming ports share one owner capability, when a capability is published
+as an Agent/tool surface, or when the same incoming capability is exported for
+multiple consuming owners.
+
+Incoming ports are never grouped by caller or entrypoint type. Folders such as
+`application/port/in/agent/`, `application/port/in/http/`, and
+`application/port/in/workflow/` are forbidden. HTTP, Agent, workflow, and CLI
+entrypoints live under `adapter/in/{http,agent,workflow,cli}/` and may call the
+same incoming capability Interface.
+
+Outgoing ports use these lane folders when the lane exists:
+
+- `repository/`: Prisma or raw-SQL persistence Interfaces.
+- `transaction/`: unit-of-work or row-lock transaction Interfaces.
+- `provider/`: external API, SDK, LLM, marketplace, scrape, fetch, or model
+  provider Interfaces.
+- `storage/`: object, file, image, or media storage Interfaces.
+- `runtime/`: Agent OS, worker, browser, CLI, or execution runtime Interfaces.
+- `event/`: event publication, audit, activity, panel, or ledger event
+  Interfaces.
+- `sink/`: finalized-output projection or event-consuming Interfaces.
+- `workflow/`: workflow orchestration, cancellation, or workflow engine
+  Interfaces.
+- `cross-domain/`: anti-corruption Interfaces to another owner Module.
+
+Group ports into a lane directory when any of these are true:
+
+- The owner has three or more ports in the same IO lane.
+- The port name or capability appears in three or more owner modules.
+- The Adapter is owned by a platform, runtime, provider, storage, workflow, or
+  cross-domain concern.
+- The Interface represents persistence, transaction, storage, provider,
+  runtime, event, sink, workflow, or cross-domain IO.
+- Keeping the port flat makes callers learn infrastructure details instead of
+  the domain language.
+
+Incoming ports may stay flat when all of these are true:
+
+- The Interface is unique to the owner domain.
+- The owner has only one or two incoming ports.
+- The port name is already domain-language specific.
+- There is no likely second Adapter and no cross-domain consumer.
+- The capability is not being published as an Agent/tool surface.
+
+Outgoing port files do not stay directly under `application/port/out/` in
+reconstructed owner modules. Domain-specific outgoing ports still use the
+narrowest lane that explains the Adapter family. A direct
+`application/port/out/*.ts` exception requires both a documented architecture
+note and an explicit checker change.
+
+Lane folders may provide a local `index.ts` import surface. Broad barrels such
+as `application/port/index.ts` or `application/index.ts` are not part of the
+backend architecture because they hide direction and lane information from the
+caller.
 
 Platform support folders do not own business workflows. New top-level backend
 folders must be added to this directory map in the same PR and justified by

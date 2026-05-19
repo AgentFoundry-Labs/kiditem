@@ -73,4 +73,27 @@ describe('ProductCard quick processing action', () => {
     expect(onOpenQuickProcess).toHaveBeenCalledWith('candidate-1');
     expect(screen.queryByText('상세페이지 템플릿 선택')).not.toBeInTheDocument();
   });
+
+  it('does not reopen quick processing while the product already has generation in progress', () => {
+    const onOpenQuickProcess = vi.fn();
+
+    render(
+      <ProductCard
+        product={productFixture()}
+        isProcessing
+        isDeleting={false}
+        onDelete={vi.fn()}
+        onNavigate={vi.fn()}
+        onOpenEditor={vi.fn()}
+        onOpenQuickProcess={onOpenQuickProcess}
+        quickProcessSelectedCount={0}
+      />,
+    );
+
+    const button = screen.getByRole('button', { name: /처리 중/ });
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+
+    expect(onOpenQuickProcess).not.toHaveBeenCalled();
+  });
 });

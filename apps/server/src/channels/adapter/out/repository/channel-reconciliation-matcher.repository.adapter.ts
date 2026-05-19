@@ -8,7 +8,7 @@ import {
   type ProductOptionCandidate,
   RECONCILIATION_CHANNEL,
   type Tx,
-} from '../../../application/port/out/channel-reconciliation.repository.port';
+} from '../../../application/port/out/repository/channel-reconciliation.repository.port';
 
 /**
  * Applies the Coupang row matching rules inside the caller-owned transaction.

@@ -13,7 +13,7 @@ import { ListProductCatalogQuery } from '../../dto/list-product-catalog.query';
 import {
   PRODUCT_CATALOG_REPOSITORY_PORT,
   type ProductCatalogRepositoryPort,
-} from '../port/out/product-catalog.repository.port';
+} from '../port/out/repository/product-catalog.repository.port';
 
 @Injectable()
 export class ProductCatalogService {

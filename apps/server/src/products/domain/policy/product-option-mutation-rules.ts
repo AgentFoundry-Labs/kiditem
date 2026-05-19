@@ -2,7 +2,7 @@
  * System-managed `ProductOption` fields a client cannot set or change via DTO.
  *
  * `masterId` is included → prevents IDOR re-parent via PATCH. `availableStock`
- * is included → enforces ADR-0014 (BundleStockService is the sole writer).
+ * is included → enforces the single-writer invariant (BundleStockService is the sole writer).
  * `sku` is system-generated inside the SKU lifecycle layer.
  */
 export const PRODUCT_OPTION_SYSTEM_FIELDS = [

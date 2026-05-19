@@ -6,8 +6,8 @@ import type {
   ActiveBundleComponentRow,
   BundleComponentRow,
   ProductBundleRepositoryPort,
-} from '../../../application/port/out/product-bundle.repository.port';
-import type { ProductsRepositoryTransaction } from '../../../application/port/out/products-transaction.port';
+} from '../../../application/port/out/repository/product-bundle.repository.port';
+import type { ProductsRepositoryTransaction } from '../../../application/port/out/transaction/products-transaction.port';
 import {
   findBundleOptionId,
   listActiveBundleComponentsWithStock,

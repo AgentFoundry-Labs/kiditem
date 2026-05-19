@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type {
   AiGenerationCancellationPort,
   AiGenerationCancellationTargetResult,
-} from '../port/in/ai-generation-cancellation.port';
+} from '../port/in/generation/ai-generation-cancellation.port';
 import { DetailPageGenerationService } from './detail-page-generation.service';
 import { ThumbnailGenerationService } from './thumbnail-generation.service';
 

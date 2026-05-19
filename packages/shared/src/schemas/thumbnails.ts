@@ -202,7 +202,7 @@ export const EditAnalysisResultSchema = z.object({
   grade: z.string(),
 });
 
-// ─── ADR-0011 Phase 3: Canonical status + phase ─────────────────────────
+// ─── Canonical status + phase ─────────────────────────
 export const THUMBNAIL_PHASES = ['ready', 'applied'] as const;
 export type ThumbnailPhase = (typeof THUMBNAIL_PHASES)[number];
 

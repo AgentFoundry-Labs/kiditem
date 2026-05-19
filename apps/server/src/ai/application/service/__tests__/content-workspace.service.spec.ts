@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { ContentWorkspaceLifecycleRepositoryPort } from '../../port/out/repository/content-workspace-lifecycle.repository.port';
 import { ContentWorkspaceService } from '../content-workspace.service';
 
 const ORG = '11111111-1111-4111-8111-111111111111';
@@ -6,6 +7,21 @@ const WORKSPACE_ID = '22222222-2222-4222-8222-222222222222';
 const REVISION_ID = '33333333-3333-4333-8333-333333333333';
 const ARTIFACT_ID = '44444444-4444-4444-8444-444444444444';
 const GENERATION_ID = '55555555-5555-4555-8555-555555555555';
+
+function repository(
+  overrides: Partial<ContentWorkspaceLifecycleRepositoryPort> = {},
+): ContentWorkspaceLifecycleRepositoryPort {
+  return {
+    ensureActiveWorkspace: vi.fn(),
+    findDuplicateByNormalizedTitle: vi.fn(),
+    getById: vi.fn(),
+    listActive: vi.fn(),
+    archive: vi.fn(),
+    findSelectableDetailPageGeneration: vi.fn(),
+    selectCurrentDetailPage: vi.fn(),
+    ...overrides,
+  } as ContentWorkspaceLifecycleRepositoryPort;
+}
 
 function workspace(overrides: Record<string, unknown> = {}) {
   return {
@@ -69,29 +85,20 @@ function generation(overrides: Record<string, unknown> = {}) {
 }
 
 describe('ContentWorkspaceService', () => {
-  it('reuses the raced workspace when a concurrent create wins the unique key', async () => {
-    const existing = workspace({
-      displayName: '키즈 터치등',
-      normalizedTitle: '키즈터치등',
-      contentGenerations: [],
-      _count: { contentGenerations: 0 },
+  it('normalizes a direct detail-page workspace before delegating creation to the lifecycle repository', async () => {
+    const repo = repository({
+      ensureActiveWorkspace: vi.fn().mockResolvedValue({
+        id: WORKSPACE_ID,
+        displayName: '키즈 터치등',
+        normalizedTitle: '키즈터치등',
+      }),
     });
-    const prisma = {
-      contentWorkspace: {
-        findFirst: vi.fn()
-          .mockResolvedValueOnce(null)
-          .mockResolvedValueOnce(existing),
-        create: vi.fn().mockRejectedValue(Object.assign(new Error('Unique failed'), {
-          code: 'P2002',
-        })),
-      },
-    };
-    const service = new ContentWorkspaceService(prisma as never);
+    const service = new ContentWorkspaceService(repo);
 
     await expect(service.ensureForGeneration({
       organizationId: ORG,
       triggeredByUserId: 'user-1',
-      rawTitle: '키즈 터치등',
+      rawTitle: ' 키즈   터치등 ',
       sourceCandidateId: null,
       targetMasterId: null,
     })).resolves.toEqual({
@@ -100,7 +107,15 @@ describe('ContentWorkspaceService', () => {
       normalizedTitle: '키즈터치등',
     });
 
-    expect(prisma.contentWorkspace.findFirst).toHaveBeenCalledTimes(2);
+    expect(repo.ensureActiveWorkspace).toHaveBeenCalledWith({
+      organizationId: ORG,
+      ownerType: 'direct_detail_page',
+      sourceCandidateId: null,
+      targetMasterId: null,
+      displayName: '키즈 터치등',
+      normalizedTitle: '키즈터치등',
+      createdByUserId: 'user-1',
+    });
   });
 
   it('creates a content workspace without a detail-page generation history', async () => {
@@ -114,19 +129,15 @@ describe('ContentWorkspaceService', () => {
       contentGenerations: [],
       _count: { contentGenerations: 0 },
     });
-    const prisma = {
-      contentWorkspace: {
-        findFirst: vi.fn()
-          .mockResolvedValueOnce(null)
-          .mockResolvedValueOnce(emptyWorkspace),
-        create: vi.fn().mockResolvedValue({
-          id: WORKSPACE_ID,
-          displayName: '키즈 컵',
-          normalizedTitle: '키즈컵',
-        }),
-      },
-    };
-    const service = new ContentWorkspaceService(prisma as never);
+    const repo = repository({
+      ensureActiveWorkspace: vi.fn().mockResolvedValue({
+        id: WORKSPACE_ID,
+        displayName: '키즈 컵',
+        normalizedTitle: '키즈컵',
+      }),
+      getById: vi.fn().mockResolvedValue(emptyWorkspace),
+    });
+    const service = new ContentWorkspaceService(repo);
 
     await expect(service.createWorkspace({
       organizationId: ORG,
@@ -146,26 +157,17 @@ describe('ContentWorkspaceService', () => {
       history: [],
     });
 
-    expect(prisma.contentWorkspace.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          ownerType: 'direct_detail_page',
-          displayName: '키즈 컵',
-          normalizedTitle: '키즈컵',
-          sourceCandidateId: null,
-          targetMasterId: null,
-        }),
-      }),
-    );
+    expect(repo.getById).toHaveBeenCalledWith({
+      organizationId: ORG,
+      workspaceId: WORKSPACE_ID,
+    });
   });
 
   it('finds duplicate normalized titles without expanding generation history', async () => {
-    const prisma = {
-      contentWorkspace: {
-        findFirst: vi.fn().mockResolvedValue(workspace()),
-      },
-    };
-    const service = new ContentWorkspaceService(prisma as never);
+    const repo = repository({
+      findDuplicateByNormalizedTitle: vi.fn().mockResolvedValue(workspace()),
+    });
+    const service = new ContentWorkspaceService(repo);
 
     await expect(service.checkDuplicate(ORG, '  키즈   텀블러  ')).resolves.toMatchObject({
       exists: true,
@@ -181,24 +183,17 @@ describe('ContentWorkspaceService', () => {
       },
     });
 
-    expect(prisma.contentWorkspace.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: {
-          organizationId: ORG,
-          normalizedTitle: '키즈텀블러',
-          status: 'active',
-          isDeleted: false,
-        },
-        orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
-      }),
-    );
+    expect(repo.findDuplicateByNormalizedTitle).toHaveBeenCalledWith({
+      organizationId: ORG,
+      normalizedTitle: '키즈텀블러',
+    });
   });
 
   it('lists registered workspaces as one card with multiple ContentGeneration history rows', async () => {
-    const prisma = {
-      contentWorkspace: {
-        count: vi.fn().mockResolvedValue(1),
-        findMany: vi.fn().mockResolvedValue([
+    const repo = repository({
+      listActive: vi.fn().mockResolvedValue({
+        total: 1,
+        rows: [
           workspace({
             contentGenerations: [
               generation({ id: 'generation-new', status: 'READY', updatedAt: new Date('2026-05-12T04:00:00.000Z') }),
@@ -206,10 +201,10 @@ describe('ContentWorkspaceService', () => {
             ],
             _count: { contentGenerations: 2 },
           }),
-        ]),
-      },
-    };
-    const service = new ContentWorkspaceService(prisma as never);
+        ],
+      }),
+    });
+    const service = new ContentWorkspaceService(repo);
 
     await expect(service.list(ORG)).resolves.toMatchObject({
       total: 1,
@@ -235,23 +230,20 @@ describe('ContentWorkspaceService', () => {
       ],
     });
 
-    expect(prisma.contentWorkspace.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: {
-          organizationId: ORG,
-          status: 'active',
-          isDeleted: false,
-          ownerType: { not: 'sourcing_candidate' },
-        },
-      }),
-    );
+    expect(repo.listActive).toHaveBeenCalledWith({
+      organizationId: ORG,
+      status: 'active',
+      normalizedTitle: null,
+      page: 1,
+      limit: 24,
+    });
   });
 
   it('does not infer a current detail page from generation history when the workspace has no saved artifact', async () => {
-    const prisma = {
-      contentWorkspace: {
-        count: vi.fn().mockResolvedValue(1),
-        findMany: vi.fn().mockResolvedValue([
+    const repo = repository({
+      listActive: vi.fn().mockResolvedValue({
+        total: 1,
+        rows: [
           workspace({
             currentDetailPageArtifactId: null,
             currentDetailPageRevisionId: null,
@@ -266,10 +258,10 @@ describe('ContentWorkspaceService', () => {
             ],
             _count: { contentGenerations: 1 },
           }),
-        ]),
-      },
-    };
-    const service = new ContentWorkspaceService(prisma as never);
+        ],
+      }),
+    });
+    const service = new ContentWorkspaceService(repo);
 
     await expect(service.list(ORG)).resolves.toMatchObject({
       items: [
@@ -296,22 +288,18 @@ describe('ContentWorkspaceService', () => {
         sourceContentGenerationId: GENERATION_ID,
       },
     });
-    const prisma = {
-      contentGeneration: {
-        findFirst: vi.fn().mockResolvedValue({
-          id: GENERATION_ID,
-          detailPageArtifactId: selectedArtifactId,
-          detailPageArtifact: {
-            currentRevisionId: selectedRevisionId,
-          },
-        }),
-      },
-      contentWorkspace: {
-        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
-        findFirst: vi.fn().mockResolvedValue(updatedWorkspace),
-      },
-    };
-    const service = new ContentWorkspaceService(prisma as never);
+    const repo = repository({
+      findSelectableDetailPageGeneration: vi.fn().mockResolvedValue({
+        id: GENERATION_ID,
+        detailPageArtifactId: selectedArtifactId,
+        detailPageArtifact: {
+          currentRevisionId: selectedRevisionId,
+        },
+      }),
+      selectCurrentDetailPage: vi.fn().mockResolvedValue(1),
+      getById: vi.fn().mockResolvedValue(updatedWorkspace),
+    });
+    const service = new ContentWorkspaceService(repo);
 
     await expect(service.selectCurrentDetailPage({
       organizationId: ORG,
@@ -324,23 +312,16 @@ describe('ContentWorkspaceService', () => {
       currentDetailPageGenerationId: GENERATION_ID,
     });
 
-    expect(prisma.contentGeneration.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: {
-          id: GENERATION_ID,
-          organizationId: ORG,
-          contentWorkspaceId: WORKSPACE_ID,
-          contentType: 'detail_page',
-          isDeleted: false,
-        },
-      }),
-    );
-    expect(prisma.contentWorkspace.updateMany).toHaveBeenCalledWith({
-      where: { id: WORKSPACE_ID, organizationId: ORG, isDeleted: false },
-      data: {
-        currentDetailPageArtifactId: selectedArtifactId,
-        currentDetailPageRevisionId: selectedRevisionId,
-      },
+    expect(repo.findSelectableDetailPageGeneration).toHaveBeenCalledWith({
+      organizationId: ORG,
+      workspaceId: WORKSPACE_ID,
+      contentGenerationId: GENERATION_ID,
+    });
+    expect(repo.selectCurrentDetailPage).toHaveBeenCalledWith({
+      organizationId: ORG,
+      workspaceId: WORKSPACE_ID,
+      detailPageArtifactId: selectedArtifactId,
+      detailPageRevisionId: selectedRevisionId,
     });
   });
 });

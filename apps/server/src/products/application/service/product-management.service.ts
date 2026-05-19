@@ -13,7 +13,7 @@ import {
   PRODUCT_MANAGEMENT_REPOSITORY_PORT,
   type ProductManagementMasterWhereInput,
   type ProductManagementRepositoryPort,
-} from '../port/out/product-management.repository.port';
+} from '../port/out/repository/product-management.repository.port';
 import type {
   ManagementFacts,
   ProductManagementGradeInfo,

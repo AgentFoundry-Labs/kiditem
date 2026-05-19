@@ -1,85 +1,53 @@
-# web/workflows — Wildcard Invalidation + UseQueryOptions Forwarding
+# web/workflows — Workflow List + Mutation Hooks
 
-단순 list/detail UI 지만 **invalidation 전략과 hook 합성성** 이 핵심.
+`app/(automation)/workflows/` owns the workflow list UI, workflow activation,
+and workflow deletion. The page is intentionally thin; query/mutation behavior
+lives in route-local hooks and API wrappers.
 
-## Structure
+## Folder Map
 
-```
+```text
 workflows/
-├── page.tsx                    # 단순 list + filter
+├── page.tsx                    # list + filter composition
 ├── components/
-│   └── MyWorkflowsSection.tsx  # 단일 섹션 (page 가 거의 thin)
+│   └── MyWorkflowsSection.tsx  # single workflow-list section
 ├── hooks/
 │   └── useWorkflows.ts         # list/toggle/delete hook exports
 └── lib/
-    ├── workflow-api.ts         # apiClient 래퍼 (tenant scope is backend-owned)
+    ├── workflow-api.ts         # apiClient wrappers
     └── workflow-types.ts       # WorkflowRunWithSteps
 ```
 
-## Hooks (useWorkflows.ts)
+## Owned Surfaces
 
-| Hook | queryKey | endpoint |
+- Workflow list rendering
+- Activate/deactivate mutation
+- Delete mutation
+- Local filter state
+
+## API Hooks
+
+| Hook | Query key | Endpoint |
 |---|---|---|
-| `useWorkflows()` | `workflows.list()` | GET /api/workflows |
-| `useToggleWorkflow()` | (mutation) | PUT /api/workflows/:id (`{ isActive }`) |
-| `useDeleteWorkflow()` | (mutation) | DELETE /api/workflows/:id |
+| `useWorkflows()` | `queryKeys.workflows.list()` | `GET /api/workflows` |
+| `useToggleWorkflow()` | mutation | `PUT /api/workflows/:id` |
+| `useDeleteWorkflow()` | mutation | `DELETE /api/workflows/:id` |
 
-## 핵심 패턴
+## State Rules
 
-### 1. Wildcard Invalidation
+- All mutations invalidate `queryKeys.workflows.all`.
+- `useWorkflows(options)` forwards `UseQueryOptions` so callers can override
+  `enabled`, `staleTime`, or future polling behavior.
+- `organizationId` is never sent by the client; backend
+  `@CurrentOrganization()` owns tenant scope.
+- Filter state is UI-only and does not affect the API call.
+- The route is a static list today; do not add polling without a reason and
+  query-key design.
 
-모든 mutation 은 `queryKeys.workflows.all` 키로 invalidate. 세분화된 invalidation 안 함.
+## Boundary Rules
 
-**의도**: workflow 변경은 list/detail/runs 모두 영향 → 전체 새로고침이 일관성 보장.
-
-### 2. UseQueryOptions Forwarding
-
-```typescript
-export function useWorkflows(options?: Partial<UseQueryOptions>) {
-  return useQuery({ queryKey, queryFn, ...options });
-}
-```
-
-caller가 `refetchInterval`, `enabled`, `staleTime` 등 override 가능. **합성성** 있음.
-
-### 3. Tenant Scope = Backend Only
-
-`lib/workflow-api.ts` 는 **`organizationId` 를 보내지 않는다.** Backend
-`@CurrentOrganization()` 이 인증 컨텍스트에서 직접 주입한다. Hook 호출자는
-organizationId 자체를 알 필요 없음.
-
-### 4. Thin Page Composition
-
-page.tsx:
-- 단일 useState (filter)
-- useWorkflows() data + loading + error
-- → MyWorkflowsSection 에 props pass
-- 모달/탭/복잡 state 없음
-
-## Rules
-
-- 모든 workflow 는 backend `@CurrentOrganization()` 가 인증 컨텍스트로 회사 스코프. Client 가 `organizationId` query/body 를 붙이지 않는다.
-- Polling 없음 (`refetchInterval` 사용 안 함, static list)
-- Hook 레이어에서 error 처리 안 함 — page.tsx 가 `isApiError` 분기
-- Filter state (useState) 는 **UI only**, API 호출에 반영 안 함
-- Activation/Delete 모두 동일 invalidation 전략
-
-## Prohibits
-
-- ❌ Page 안에서 inline `useQuery` (전용 hook 만)
-- ❌ Polling (static list 의도)
-- ❌ Workflow data 클라이언트 변환 (서버 응답 그대로 사용)
-
-## Cross-domain deps
-
-- `@kiditem/shared` — `WorkflowTemplate`, `WorkflowRun`
-- `apiClient` — `/api/workflows/*`, `/api/workflow-runs/*` (tenant scope is server-side)
-
-## 함께 수정할 파일 맵
-
-| 수정 시 | 같이 봐야 할 파일 |
-|---|---|
-| 새 workflow action | `useWorkflows.ts` (mutation hook 추가, wildcard invalidate) + `lib/workflow-api.ts` (apiClient 래퍼) + 백엔드 endpoint |
-| Workflow 응답 타입 변경 | `@kiditem/shared/workflow` (`packages/shared/src/schemas/workflow.ts`) + `lib/workflow-types.ts` (WorkflowRunWithSteps) + page rendering |
-| Polling 도입 | `useWorkflows.ts` (refetchInterval) — **현재 의도가 polling 안 함, 변경 시 정당화 필요** |
-| Filter 서버화 | `useWorkflows()` queryFn (params 전달) + queryKey 에 filter 포함 |
+- Use route-local hooks; do not place inline `useQuery` in `page.tsx`.
+- Do not transform workflow server data on the client without updating the
+  shared workflow contract.
+- Response type changes should update `@kiditem/shared/workflow`,
+  `workflow-types.ts`, and page rendering together.

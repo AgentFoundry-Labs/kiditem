@@ -17,8 +17,8 @@ import type {
   StatusListingRow,
   StockOptionRow,
   StoredGradeMasterRow,
-} from '../../../application/port/out/product-management.repository.port';
-import type { MasterWithImageRows } from '../../../application/port/out/master-product.repository.port';
+} from '../../../application/port/out/repository/product-management.repository.port';
+import type { MasterWithImageRows } from '../../../application/port/out/repository/master-product.repository.port';
 import { MASTER_WITH_IMAGES } from './master-product.query';
 import { buildProductManagementMasterWhere } from './product-management.filters';
 

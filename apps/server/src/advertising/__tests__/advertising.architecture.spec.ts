@@ -19,8 +19,9 @@ import path from 'node:path';
 //     adapters reach application code only via Nest token bindings to ports.
 //   - `application/service/**` does not import other owner-domain services
 //     directly (e.g., `automation/application/service/operation-alert.service`).
-//     Cross-domain reach goes through a port + adapter under
-//     `adapter/out/{owner}/**`.
+//     Cross-domain reach goes through a local
+//     `application/port/out/cross-domain/**` port plus the concrete
+//     `adapter/out/{domain}/**` bridge.
 //   - Domain code (`advertising/domain/**`) does not depend on NestJS,
 //     Prisma, PrismaService, HTTP DTO classes, or any incoming-adapter
 //     module.
@@ -101,16 +102,15 @@ describe('Advertising architecture contract', () => {
   it('application/service/** does not import other owner-domain services directly', () => {
     const adv = advertisingRel();
     const serviceGlob = path.join(adv, 'application/service') + '/**';
-    // Cross-owner-domain reach must go through an `adapter/out/{owner}/` port
-    // + adapter pair. The grep targets relative paths that climb out of
-    // advertising and into another owner domain's application or adapter
-    // layer.
+    // Cross-owner-domain reach must go through a local cross-domain port +
+    // adapter bridge. The grep targets relative paths that climb out of
+    // advertising and into another owner domain's application layer.
     const hits = rg(
       `--type ts --files-with-matches '\\.\\./\\.\\./\\.\\./(automation|ai|channels|finance|inventory|orders|products|sourcing|rules|agent-os|analytics)/application' --glob '${serviceGlob}' --glob '!**/__tests__/**'`,
     );
     expect(
       hits,
-      `application services must reach other owner domains through adapter/out/{owner}/* ports:\n${hits.join('\n')}`,
+      `application services must reach other owner domains through application/port/out/cross-domain/* ports:\n${hits.join('\n')}`,
     ).toEqual([]);
   });
 

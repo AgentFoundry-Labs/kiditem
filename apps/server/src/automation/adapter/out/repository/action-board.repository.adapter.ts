@@ -24,7 +24,7 @@ import type {
   InventoryReorderCandidate,
   InventoryStockRow,
   UpsertActionTaskSeed,
-} from '../../../application/port/out/action-board.repository.port';
+} from '../../../application/port/out/repository/action-board.repository.port';
 import type { JsonValue } from '../../../application/port/persistence-records';
 
 function toPrismaJson(value: JsonValue) {
@@ -68,7 +68,7 @@ export class ActionBoardRepositoryAdapter
   async findAGradeReviewCounts(
     organizationId: string,
   ): Promise<AGradeReviewRow[]> {
-    // 2-hop IDOR (ADR-0018 Rule 3): master.organizationId +
+    // 2-hop tenant scope: master.organizationId +
     // listings.organizationId on the nested filter.
     const masters = await this.prisma.masterProduct.findMany({
       where: { organizationId, isDeleted: false, abcGrade: 'A' },

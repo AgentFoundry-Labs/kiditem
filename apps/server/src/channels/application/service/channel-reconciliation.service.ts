@@ -15,7 +15,7 @@ import { ChannelReconciliationScanService } from './channel-reconciliation-scan.
 import {
   CHANNELS_OPERATION_ALERT_PORT,
   type OperationAlertPort,
-} from '../port/out/operation-alert.port';
+} from '../port/out/cross-domain/operation-alert.port';
 
 const IMAGE_LISTING_RECONCILIATION_ALERT = {
   operationKey: 'channel-reconciliation:sync-from-image-listings',

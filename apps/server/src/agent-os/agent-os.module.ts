@@ -7,9 +7,9 @@ import { AgentRunsQueryController } from './adapter/in/http/agent-runs-query.con
 import { AgentOsRepositoryAdapter } from './adapter/out/repository/agent-os.repository.adapter';
 import { FilesystemAgentLogStoreAdapter } from './adapter/out/log-store/filesystem-agent-log-store.adapter';
 import { RoutingRuntimeAdapter } from './adapter/out/runtime/routing-runtime.adapter';
-import { AGENT_LOG_STORE_PORT } from './application/port/out/agent-log-store.port';
-import { AGENT_OS_REPOSITORY_PORT } from './application/port/out/agent-os-repository.port';
-import { AGENT_RUNTIME_PORT } from './application/port/out/agent-runtime.port';
+import { AGENT_LOG_STORE_PORT } from './application/port/out/storage/agent-log-store.port';
+import { AGENT_OS_REPOSITORY_PORT } from './application/port/out/repository/agent-os-repository.port';
+import { AGENT_RUNTIME_PORT } from './application/port/out/runtime/agent-runtime.port';
 import { AGENT_RUNNER_PORT } from './application/port/in/agent-runner.port';
 import { AgentCatalogService } from './application/service/agent-catalog.service';
 import { AgentObservabilityService } from './application/service/agent-observability.service';

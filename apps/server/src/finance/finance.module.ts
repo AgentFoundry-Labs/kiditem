@@ -16,7 +16,7 @@ import { SalesPlansService } from './sales-plans/sales-plans.service';
 import { SettlementsController } from './settlements/settlements.controller';
 import { SettlementsService } from './settlements/settlements.service';
 import { FinanceOperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
-import { FINANCE_OPERATION_ALERT_PORT } from './application/port/out/operation-alert.port';
+import { FINANCE_OPERATION_ALERT_PORT } from './application/port/out/cross-domain/operation-alert.port';
 
 @Module({
   imports: [AutomationModule],

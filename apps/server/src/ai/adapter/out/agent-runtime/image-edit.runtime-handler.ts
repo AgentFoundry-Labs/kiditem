@@ -8,8 +8,8 @@ import { AgentOsRuntimeError } from '../../../../agent-os/domain/agent-os.errors
 import type {
   AgentRuntimeExecutionContext,
   AgentRuntimeResult,
-} from '../../../../agent-os/application/port/out/agent-runtime.port';
-import type { AgentTypeRuntimeHandler } from '../../../../agent-os/application/port/out/agent-runtime-handler.port';
+} from '../../../../agent-os/application/port/out/runtime/agent-runtime.port';
+import type { AgentTypeRuntimeHandler } from '../../../../agent-os/application/port/out/runtime/agent-runtime-handler.port';
 import { AgentRuntimeHandlerRegistry } from '../../../../agent-os/application/service/agent-runtime-handler-registry.service';
 import {
   PublicUrlError,
@@ -25,11 +25,11 @@ import {
 import {
   IMAGE_EDIT_MEDIA_PORT,
   type ImageEditMediaPort,
-} from '../../../application/port/out/image-edit-media.port';
+} from '../../../application/port/out/provider/image-edit-media.port';
 import {
   IMAGE_STORAGE_PORT,
   type ImageStoragePort,
-} from '../../../application/port/out/image-storage.port';
+} from '../../../application/port/out/storage/image-storage.port';
 
 @Injectable()
 export class ImageEditRuntimeHandler

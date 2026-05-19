@@ -4,7 +4,7 @@ import {
   type AgentRuntimeExecutionContext,
   type AgentRuntimePort,
   type AgentRuntimeResult,
-} from '../../../application/port/out/agent-runtime.port';
+} from '../../../application/port/out/runtime/agent-runtime.port';
 import { AgentRuntimeHandlerRegistry } from '../../../application/service/agent-runtime-handler-registry.service';
 
 /**

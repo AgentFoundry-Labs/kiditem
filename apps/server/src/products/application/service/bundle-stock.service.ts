@@ -5,17 +5,17 @@ import type { ProductBundleStockPort } from '../port/in/bundle-stock.port';
 import {
   PRODUCT_BUNDLE_REPOSITORY_PORT,
   type ProductBundleRepositoryPort,
-} from '../port/out/product-bundle.repository.port';
+} from '../port/out/repository/product-bundle.repository.port';
 import {
   PRODUCTS_TRANSACTION_PORT,
   type ProductsRepositoryTransaction,
   type ProductsTransactionPort,
-} from '../port/out/products-transaction.port';
+} from '../port/out/transaction/products-transaction.port';
 
 /**
  * Recompute the materialized `availableStock` for a bundle option.
  *
- * Invariant (ADR-0014): `availableStock` is **only** written here.
+ * Invariant: `availableStock` is **only** written here.
  * `OptionsService.update` strips it from its payload (SYSTEM_FIELDS) and
  * the persistence helpers in `bundle-stock.persistence.ts` are used by no
  * other service.
@@ -94,7 +94,7 @@ export class BundleStockService implements ProductBundleStockPort {
    * - Nested bundles are forbidden by `BundleComponentsService.create`,
    *   so the fan-out is non-recursive and terminates.
    *
-   * ADR-0014: `InventoryService` is the sole external caller. No other
+   * `InventoryService` is the sole external caller. No other
    * module is allowed to invoke this method.
    */
   async recomputeForComponent(

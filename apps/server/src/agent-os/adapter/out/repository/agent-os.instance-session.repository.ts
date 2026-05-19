@@ -5,7 +5,7 @@ import {
   type InstanceToolPolicyRecord,
   type UpdateAgentInstanceInput,
   type UpsertInstanceToolPolicyInput,
-} from '../../../application/port/out/agent-os-repository.port';
+} from '../../../application/port/out/repository/agent-os-repository.port';
 import { AgentOsBoundaryError } from '../../../domain/agent-os.errors';
 import { type AgentTaskSessionRecord } from '../../../domain/agent-os.types';
 import { toInstanceRecord, toTaskSessionRecord } from './agent-os.repository.mapper';

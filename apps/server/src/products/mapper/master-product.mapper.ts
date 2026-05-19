@@ -2,7 +2,7 @@ import type { MasterImageItem } from '@kiditem/shared/product';
 import type {
   MasterProductImageRow,
   MasterWithImageRows,
-} from '../application/port/out/master-product.repository.port';
+} from '../application/port/out/repository/master-product.repository.port';
 
 type MasterWithSharedImages = Omit<MasterWithImageRows, 'tags' | 'images'> & {
   tags: string[];

@@ -8,16 +8,18 @@ import { BundleRepositoryAdapter } from '../adapter/out/repository/bundle.reposi
 import { ProductCatalogRepositoryAdapter } from '../adapter/out/repository/product-catalog.repository.adapter';
 import { ProductManagementRepositoryAdapter } from '../adapter/out/repository/product-management.repository.adapter';
 import { ProductsTransactionAdapter } from '../adapter/out/repository/products-transaction.adapter';
-import { MASTER_CODE_PORT } from '../application/port/out/master-code.port';
-import { MASTER_PRODUCT_REPOSITORY_PORT } from '../application/port/out/master-product.repository.port';
-import { PRODUCT_OPTION_REPOSITORY_PORT } from '../application/port/out/product-option.repository.port';
-import { PRODUCT_BUNDLE_REPOSITORY_PORT } from '../application/port/out/product-bundle.repository.port';
-import { PRODUCT_CATALOG_REPOSITORY_PORT } from '../application/port/out/product-catalog.repository.port';
-import { PRODUCT_MANAGEMENT_REPOSITORY_PORT } from '../application/port/out/product-management.repository.port';
-import { PRODUCTS_TRANSACTION_PORT } from '../application/port/out/products-transaction.port';
+import { MASTER_CODE_PORT } from '../application/port/out/repository/master-code.port';
+import { MASTER_PRODUCT_REPOSITORY_PORT } from '../application/port/out/repository/master-product.repository.port';
+import { PRODUCT_OPTION_REPOSITORY_PORT } from '../application/port/out/repository/product-option.repository.port';
+import { PRODUCT_BUNDLE_REPOSITORY_PORT } from '../application/port/out/repository/product-bundle.repository.port';
+import { PRODUCT_CATALOG_REPOSITORY_PORT } from '../application/port/out/repository/product-catalog.repository.port';
+import { PRODUCT_MANAGEMENT_REPOSITORY_PORT } from '../application/port/out/repository/product-management.repository.port';
+import { PRODUCTS_TRANSACTION_PORT } from '../application/port/out/transaction/products-transaction.port';
 import { PRODUCT_BUNDLE_STOCK_PORT } from '../application/port/in/bundle-stock.port';
+import { PRODUCT_MASTER_BARCODE_PORT } from '../application/port/in/master-barcode.port';
 import { PRODUCT_MASTER_PROMOTION_PORT } from '../application/port/in/master-promotion.port';
 import { BundleStockService } from '../application/service/bundle-stock.service';
+import { MasterBarcodeService } from '../application/service/master-barcode.service';
 import { MasterPromotionService } from '../application/service/master-promotion.service';
 
 const PROVIDERS_KEY = 'providers';
@@ -59,5 +61,6 @@ describe('ProductsModule canonical owner wiring', () => {
 
     expectBinding(providers, PRODUCT_MASTER_PROMOTION_PORT, MasterPromotionService);
     expectBinding(providers, PRODUCT_BUNDLE_STOCK_PORT, BundleStockService);
+    expectBinding(providers, PRODUCT_MASTER_BARCODE_PORT, MasterBarcodeService);
   });
 });

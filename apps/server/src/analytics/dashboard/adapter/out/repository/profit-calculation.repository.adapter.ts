@@ -4,7 +4,7 @@
 //
 // Invariants applied:
 //   - I3: revenue = SUM(OrderLineItem.totalPrice) (lineItem-level canonical)
-//   - I7: organizationId filter (ADR-0006 multi-tenant isolation)
+//   - I7: organizationId filter (multi-tenant isolation)
 //   - I8: half-open range `orderedAt >= from && orderedAt < to` (never `lte`)
 //   - C-08: v2 nested-only resolver — `resolvePricing({ option })`
 //   - R-1 (Plan D.1 T4): shipping accumulates from `Order.shippingPrice`
@@ -21,7 +21,7 @@ import { resolvePricing } from '../../../../../common/option-pricing-resolver';
 import type {
   ProfitCalculationRepositoryPort,
   RangeProfitMetrics,
-} from '../../../application/port/out/profit-calculation.repository.port';
+} from '../../../application/port/out/repository/profit-calculation.repository.port';
 
 @Injectable()
 export class ProfitCalculationRepositoryAdapter

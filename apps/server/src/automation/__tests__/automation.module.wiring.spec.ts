@@ -43,12 +43,12 @@ import { WorkflowRunnerService } from '../application/service/workflow-runner.se
 // port tokens
 import { OPERATION_ALERT_PORT } from '../application/port/in/operation-alert.port';
 import { WORKFLOW_RUN_CANCELLATION_PORT } from '../application/port/in/workflow-run-cancellation.port';
-import { ACTION_BOARD_REPOSITORY_PORT } from '../application/port/out/action-board.repository.port';
-import { ALERTS_REPOSITORY_PORT } from '../application/port/out/alerts.repository.port';
-import { MARKETPLACE_CATALOG_REPOSITORY_PORT } from '../application/port/out/marketplace-catalog.repository.port';
-import { MARKETPLACE_INSTALL_STORE_PORT } from '../application/port/out/marketplace-install-store.port';
-import { OPERATION_ALERT_REPOSITORY_PORT } from '../application/port/out/operation-alert.repository.port';
-import { WORKFLOW_ORCHESTRATION_REPOSITORY_PORT } from '../application/port/out/workflow-orchestration.repository.port';
+import { ACTION_BOARD_REPOSITORY_PORT } from '../application/port/out/repository/action-board.repository.port';
+import { ALERTS_REPOSITORY_PORT } from '../application/port/out/repository/alerts.repository.port';
+import { MARKETPLACE_CATALOG_REPOSITORY_PORT } from '../application/port/out/repository/marketplace-catalog.repository.port';
+import { MARKETPLACE_INSTALL_STORE_PORT } from '../application/port/out/repository/marketplace-install-store.port';
+import { OPERATION_ALERT_REPOSITORY_PORT } from '../application/port/out/repository/operation-alert.repository.port';
+import { WORKFLOW_ORCHESTRATION_REPOSITORY_PORT } from '../application/port/out/repository/workflow-orchestration.repository.port';
 
 const IMPORTS_KEY = 'imports';
 const CONTROLLERS_KEY = 'controllers';

@@ -3,13 +3,13 @@ import {
   PRODUCT_MASTER_PROMOTION_PORT,
   type ProductMasterPromotionPort,
 } from '../../../../products/application/port/in/master-promotion.port';
-import type { ProductsRepositoryTransaction } from '../../../../products/application/port/out/products-transaction.port';
+import type { ProductsRepositoryTransaction } from '../../../../products/application/port/out/transaction/products-transaction.port';
 import type {
   PromoteCandidateInput,
   PromoteCandidateResult,
   SourcingProductsCatalogPort,
-} from '../../../application/port/out/products-catalog.port';
-import type { SourcingRepositoryTransaction } from '../../../application/port/out/repository-transaction';
+} from '../../../application/port/out/cross-domain/products-catalog.port';
+import type { SourcingRepositoryTransaction } from '../../../application/port/out/transaction/repository-transaction';
 
 /**
  * Concrete adapter for `SOURCING_PRODUCTS_CATALOG_PORT`.

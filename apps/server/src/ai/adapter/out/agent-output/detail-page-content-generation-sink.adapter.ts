@@ -1,11 +1,11 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import type { DetailPageAgentOutputSinkPort } from '../../../application/port/out/detail-page-agent-output-sink.port';
+import type { DetailPageAgentOutputSinkPort } from '../../../application/port/out/sink/detail-page-agent-output-sink.port';
 import {
   AI_OPERATION_ALERT_PORT,
   type OperationAlertPort,
-} from '../../../application/port/out/operation-alert.port';
+} from '../../../application/port/out/cross-domain/operation-alert.port';
 import type { DetailPageGenerateAgentOutput } from '../../../domain/agent-output';
 import { DetailPageGeneratedImagesService } from '../../../application/service/detail-page-generated-images.service';
 import {

@@ -4,11 +4,11 @@ import type {
   SellerProductListResponse,
   SellerProductDetailResponse,
   OrderSheetResponse,
-} from '../../../application/port/out/coupang-provider.port';
+} from '../../../application/port/out/provider/coupang-provider.port';
 import {
   COUPANG_CREDENTIALS_PORT,
   type CoupangCredentialsPort,
-} from '../../../application/port/out/channel-account.repository.port';
+} from '../../../application/port/out/repository/channel-account.repository.port';
 import { getSellerProducts, getSellerProduct } from './products';
 import {
   getOrderSheets,

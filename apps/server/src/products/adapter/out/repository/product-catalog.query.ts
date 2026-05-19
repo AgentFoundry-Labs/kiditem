@@ -89,7 +89,7 @@ export function buildCatalogWhere(
         { name: { contains: q.search, mode: 'insensitive' } },
         { code: { contains: q.search } },
         { legacyCode: { contains: q.search } },
-        // ADR-0022 — source barcode/EAN. May match multiple masters because
+        // Source barcode/EAN. May match multiple masters because
         // (organizationId, barcode) is non-unique by design.
         { barcode: { contains: q.search } },
         { options: { some: { sku: { contains: q.search, mode: 'insensitive' }, isDeleted: false } } },

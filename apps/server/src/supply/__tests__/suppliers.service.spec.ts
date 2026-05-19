@@ -1,68 +1,68 @@
 import { BadRequestException } from '@nestjs/common';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SuppliersService } from '../application/service/suppliers.service';
+import type { SupplierRepositoryPort } from '../application/port/out/repository/supplier.repository.port';
 
-function makePrisma() {
+function makeRepository(): SupplierRepositoryPort {
   return {
-    supplier: {
-      findFirst: vi.fn(),
-      updateMany: vi.fn(),
-      deleteMany: vi.fn(),
-    },
-  };
+    listWithCounts: vi.fn(),
+    create: vi.fn(),
+    updateScoped: vi.fn(),
+    deleteScoped: vi.fn(),
+  } as unknown as SupplierRepositoryPort;
 }
 
 describe('SuppliersService — tenant-scoped mutations', () => {
   let service: SuppliersService;
-  let prisma: ReturnType<typeof makePrisma>;
+  let suppliers: SupplierRepositoryPort;
 
   beforeEach(() => {
-    prisma = makePrisma();
-    service = new SuppliersService(prisma as any);
+    suppliers = makeRepository();
+    service = new SuppliersService(suppliers);
   });
 
-  it('updates supplier with organization-scoped mutation predicate', async () => {
-    prisma.supplier.findFirst
-      .mockResolvedValueOnce({ id: 'supplier-1', organizationId: 'organization-1' })
-      .mockResolvedValueOnce({ id: 'supplier-1', organizationId: 'organization-1', name: 'Updated' });
-    prisma.supplier.updateMany.mockResolvedValue({ count: 1 });
+  it('updates supplier through the outgoing repository port', async () => {
+    const updated = { id: 'supplier-1', organizationId: 'organization-1', name: 'Updated' };
+    vi.mocked(suppliers.updateScoped).mockResolvedValue(updated as never);
 
     const result = await service.update('supplier-1', 'organization-1', { name: 'Updated' });
 
-    expect(prisma.supplier.updateMany).toHaveBeenCalledWith({
-      where: { id: 'supplier-1', organizationId: 'organization-1' },
-      data: { name: 'Updated' },
-    });
-    expect(result).toEqual({ id: 'supplier-1', organizationId: 'organization-1', name: 'Updated' });
+    expect(suppliers.updateScoped).toHaveBeenCalledWith(
+      'supplier-1',
+      'organization-1',
+      { name: 'Updated' },
+    );
+    expect(result).toEqual(updated);
   });
 
-  it('rejects cross-organization update before mutation', async () => {
-    prisma.supplier.findFirst.mockResolvedValue(null);
+  it('maps missing supplier update results to BadRequestException', async () => {
+    vi.mocked(suppliers.updateScoped).mockResolvedValue(null);
 
     await expect(
       service.update('supplier-1', 'organization-1', { name: 'Updated' }),
     ).rejects.toThrow(BadRequestException);
 
-    expect(prisma.supplier.updateMany).not.toHaveBeenCalled();
+    expect(suppliers.updateScoped).toHaveBeenCalledWith(
+      'supplier-1',
+      'organization-1',
+      { name: 'Updated' },
+    );
   });
 
-  it('deletes supplier with organization-scoped mutation predicate', async () => {
-    prisma.supplier.findFirst.mockResolvedValue({ id: 'supplier-1', organizationId: 'organization-1' });
-    prisma.supplier.deleteMany.mockResolvedValue({ count: 1 });
+  it('deletes supplier through the outgoing repository port', async () => {
+    vi.mocked(suppliers.deleteScoped).mockResolvedValue(true);
 
     const result = await service.delete('supplier-1', 'organization-1');
 
-    expect(prisma.supplier.deleteMany).toHaveBeenCalledWith({
-      where: { id: 'supplier-1', organizationId: 'organization-1' },
-    });
+    expect(suppliers.deleteScoped).toHaveBeenCalledWith('supplier-1', 'organization-1');
     expect(result).toEqual({ ok: true });
   });
 
-  it('rejects cross-organization delete before mutation', async () => {
-    prisma.supplier.findFirst.mockResolvedValue(null);
+  it('maps missing supplier delete results to BadRequestException', async () => {
+    vi.mocked(suppliers.deleteScoped).mockResolvedValue(false);
 
     await expect(service.delete('supplier-1', 'organization-1')).rejects.toThrow(BadRequestException);
 
-    expect(prisma.supplier.deleteMany).not.toHaveBeenCalled();
+    expect(suppliers.deleteScoped).toHaveBeenCalledWith('supplier-1', 'organization-1');
   });
 });

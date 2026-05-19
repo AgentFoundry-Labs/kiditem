@@ -9,9 +9,8 @@
  * URLs are only considered displayable if they are absolute http(s) URLs or
  * relative `/generated-thumbnails/...` paths produced by StorageService.
  *
- * No Prisma/Nest dependency. The Prisma include preset that produces the
- * `images` row shape consumed here lives in
- * `adapter/out/prisma/master-image-select.preset.ts`.
+ * No Prisma/Nest dependency. The adapter layer owns the Prisma include preset
+ * that produces the `images` row shape consumed here.
  */
 
 export type ThumbnailMasterImageRow = {

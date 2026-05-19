@@ -9,7 +9,7 @@ import {
   type OptionLinkBackfillResult,
   RECONCILIATION_CHANNEL,
   type ReconciliationRowInput,
-} from '../../../application/port/out/channel-reconciliation.repository.port';
+} from '../../../application/port/out/repository/channel-reconciliation.repository.port';
 
 /**
  * Coupang ↔ KidItem catalog reconciliation queue (issue #199).

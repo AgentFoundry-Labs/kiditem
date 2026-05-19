@@ -1,40 +1,17 @@
 import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import { THUMBNAIL_TRACKING_STATUSES, type ThumbnailTrackingListResponse, type ThumbnailTrackingRecord, type ThumbnailTrackingStatus, type UpdateThumbnailTrackingMetrics } from '@kiditem/shared/ai';
-import { PrismaService } from '../../../prisma/prisma.service';
 import {
   COUPANG_PRODUCT_SALES_SCRAPE_PORT,
   type CoupangProductSalesScrapePort,
-} from '../port/out/coupang-product-sales-scrape.port';
+} from '../port/out/provider/coupang-product-sales-scrape.port';
+import {
+  THUMBNAIL_TRACKING_REPOSITORY_PORT,
+  type ThumbnailTrackingRepositoryPort,
+  type ThumbnailTrackingRow,
+  type ThumbnailTrackingSnapshotRow,
+} from '../port/out/repository/thumbnail-tracking.repository.port';
 
-type TrackingRow = {
-  id: string;
-  organizationId: string;
-  listingId: string;
-  generationId: string;
-  originalGrade: string;
-  originalScore: number;
-  appliedAt: Date;
-  status: string;
-  ctrBefore: number | null;
-  ctrAfter: number | null;
-  reviewsBefore: number | null;
-  reviewsAfter: number | null;
-  salesBefore: number | null;
-  salesAfter: number | null;
-  listing: { id: string; master: { id: string; name: string } | null } | null;
-};
-
-const LISTING_INCLUDE = {
-  listing: {
-    select: {
-      id: true,
-      master: { select: { id: true, name: true } },
-    },
-  },
-} as const;
-
-function toRecord(row: TrackingRow, nowMs: number = Date.now()): ThumbnailTrackingRecord {
+function toRecord(row: ThumbnailTrackingRow, nowMs: number = Date.now()): ThumbnailTrackingRecord {
   const status = (THUMBNAIL_TRACKING_STATUSES as readonly string[]).includes(row.status)
     ? (row.status as ThumbnailTrackingStatus)
     : 'tracking';
@@ -62,6 +39,22 @@ function toRecord(row: TrackingRow, nowMs: number = Date.now()): ThumbnailTracki
   } satisfies ThumbnailTrackingRecord;
 }
 
+function toSnapshotRecord(row: ThumbnailTrackingSnapshotRow): DailySnapshotRecord {
+  return {
+    id: row.id,
+    trackingId: row.trackingId,
+    capturedAt: row.capturedAt.toISOString(),
+    capturedDate: row.capturedDate.toISOString().slice(0, 10),
+    unitsSold30d: row.unitsSold30d,
+    unitsSold7d: row.unitsSold7d,
+    revenueKrw: row.revenueKrw,
+    reviewCount: row.reviewCount,
+    ratingAvg: row.ratingAvg,
+    scrapeStatus: row.scrapeStatus,
+    errorMessage: row.errorMessage,
+  };
+}
+
 export interface DailySnapshotRecord {
   id: string;
   trackingId: string;
@@ -81,7 +74,8 @@ export class ThumbnailTrackingService {
   private readonly logger = new Logger(ThumbnailTrackingService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(THUMBNAIL_TRACKING_REPOSITORY_PORT)
+    private readonly repository: ThumbnailTrackingRepositoryPort,
     @Inject(COUPANG_PRODUCT_SALES_SCRAPE_PORT)
     private readonly salesScraper: CoupangProductSalesScrapePort,
   ) {}
@@ -93,22 +87,14 @@ export class ThumbnailTrackingService {
     const page = query.page ?? 1;
     const limit = query.limit ?? 50;
     const skip = (page - 1) * limit;
-    const where: Record<string, unknown> = { organizationId };
-    if (query.status) where.status = query.status;
 
     const [rows, total] = await Promise.all([
-      this.prisma.thumbnailTracking.findMany({
-        where,
-        include: LISTING_INCLUDE,
-        orderBy: { appliedAt: 'desc' },
-        skip,
-        take: limit,
-      }),
-      this.prisma.thumbnailTracking.count({ where }),
+      this.repository.findTrackings({ status: query.status, skip, take: limit }, organizationId),
+      this.repository.countTrackings({ status: query.status }, organizationId),
     ]);
 
     const now = Date.now();
-    const items = (rows as unknown as TrackingRow[]).map((r) => toRecord(r, now));
+    const items = rows.map((r) => toRecord(r, now));
     return { items, total, page, limit } satisfies ThumbnailTrackingListResponse;
   }
 
@@ -119,11 +105,10 @@ export class ThumbnailTrackingService {
     originalGrade: string;
     originalScore: number;
   }): Promise<ThumbnailTrackingRecord | null> {
-    const listing = await this.prisma.channelListing.findFirst({
-      where: { masterId: input.masterId, organizationId: input.organizationId, isDeleted: false },
-      select: { id: true },
-      orderBy: { createdAt: 'asc' },
-    });
+    const listing = await this.repository.findFirstListingForMaster(
+      input.masterId,
+      input.organizationId,
+    );
     if (!listing) {
       this.logger.debug(
         `ThumbnailTracking skip — master ${input.masterId} 에 연결된 ChannelListing 없음`,
@@ -131,42 +116,14 @@ export class ThumbnailTrackingService {
       return null;
     }
 
-    const existing = await this.prisma.thumbnailTracking.findFirst({
-      where: {
-        organizationId: input.organizationId,
-        listingId: listing.id,
-        generationId: input.generationId,
-      },
-      include: LISTING_INCLUDE,
+    const result = await this.repository.createTracking({
+      organizationId: input.organizationId,
+      listingId: listing.id,
+      generationId: input.generationId,
+      originalGrade: input.originalGrade,
+      originalScore: input.originalScore,
     });
-    if (existing) return toRecord(existing as unknown as TrackingRow);
-
-    try {
-      const row = await this.prisma.thumbnailTracking.create({
-        data: {
-          organizationId: input.organizationId,
-          listingId: listing.id,
-          generationId: input.generationId,
-          originalGrade: input.originalGrade,
-          originalScore: input.originalScore,
-        },
-        include: LISTING_INCLUDE,
-      });
-      return toRecord(row as unknown as TrackingRow);
-    } catch (err) {
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-        const row = await this.prisma.thumbnailTracking.findFirst({
-          where: {
-            organizationId: input.organizationId,
-            listingId: listing.id,
-            generationId: input.generationId,
-          },
-          include: LISTING_INCLUDE,
-        });
-        if (row) return toRecord(row as unknown as TrackingRow);
-      }
-      throw err;
-    }
+    return result.row ? toRecord(result.row) : null;
   }
 
   async updateMetrics(
@@ -174,39 +131,9 @@ export class ThumbnailTrackingService {
     input: UpdateThumbnailTrackingMetrics,
     organizationId: string,
   ): Promise<ThumbnailTrackingRecord> {
-    const existing = await this.prisma.thumbnailTracking.findFirst({
-      where: { id, organizationId },
-    });
-    if (!existing) throw new NotFoundException(`ThumbnailTracking ${id} not found`);
-
-    const updateData: Record<string, unknown> = {};
-    if (input.ctrBefore !== undefined) updateData.ctrBefore = input.ctrBefore;
-    if (input.ctrAfter !== undefined) updateData.ctrAfter = input.ctrAfter;
-    if (input.reviewsBefore !== undefined) updateData.reviewsBefore = input.reviewsBefore;
-    if (input.reviewsAfter !== undefined) updateData.reviewsAfter = input.reviewsAfter;
-    if (input.salesBefore !== undefined) updateData.salesBefore = input.salesBefore;
-    if (input.salesAfter !== undefined) updateData.salesAfter = input.salesAfter;
-    if (input.status !== undefined) updateData.status = input.status;
-
-    if (
-      (input.ctrBefore !== undefined || existing.ctrBefore != null) &&
-      (input.ctrAfter !== undefined || existing.ctrAfter != null)
-    ) {
-      updateData.status = 'measured';
-    }
-
-    const result = await this.prisma.thumbnailTracking.updateMany({
-      where: { id, organizationId },
-      data: updateData,
-    });
-    if (result.count === 0) throw new NotFoundException(`ThumbnailTracking ${id} not found`);
-
-    const row = await this.prisma.thumbnailTracking.findFirst({
-      where: { id, organizationId },
-      include: LISTING_INCLUDE,
-    });
+    const row = await this.repository.updateMetrics({ id, organizationId, metrics: input });
     if (!row) throw new NotFoundException(`ThumbnailTracking ${id} not found`);
-    return toRecord(row as unknown as TrackingRow);
+    return toRecord(row);
   }
 
   /**
@@ -226,17 +153,7 @@ export class ThumbnailTrackingService {
     trackingId: string,
     organizationId: string,
   ): Promise<DailySnapshotRecord> {
-    const tracking = await this.prisma.thumbnailTracking.findFirst({
-      where: { id: trackingId, organizationId },
-      include: {
-        listing: {
-          select: {
-            channelName: true,
-            master: { select: { name: true } },
-          },
-        },
-      },
-    });
+    const tracking = await this.repository.findTrackingForSnapshot(trackingId, organizationId);
     if (!tracking) {
       throw new NotFoundException(`ThumbnailTracking ${trackingId} not found`);
     }
@@ -284,61 +201,22 @@ export class ThumbnailTrackingService {
       this.logger.warn(`sales scrape error tracking=${trackingId}: ${errorMessage}`);
     }
 
-    const upserted = await this.prisma.thumbnailTrackingDailySnapshot.upsert({
-      where: {
-        trackingId_capturedDate: { trackingId, capturedDate: today },
-      },
-      create: {
-        organizationId,
-        trackingId,
-        capturedDate: today,
-        unitsSold30d,
-        unitsSold7d,
-        revenueKrw,
-        reviewCount,
-        ratingAvg,
-        rawCellTexts: rawCellTexts as unknown as Prisma.InputJsonValue,
-        scrapeStatus,
-        errorMessage,
-      },
-      update: {
-        unitsSold30d,
-        unitsSold7d,
-        revenueKrw,
-        reviewCount,
-        ratingAvg,
-        rawCellTexts: rawCellTexts as unknown as Prisma.InputJsonValue,
-        scrapeStatus,
-        errorMessage,
-        capturedAt: new Date(),
-      },
+    const upserted = await this.repository.upsertDailySnapshot({
+      organizationId,
+      trackingId,
+      capturedDate: today,
+      unitsSold30d,
+      unitsSold7d,
+      revenueKrw,
+      reviewCount,
+      ratingAvg,
+      rawCellTexts,
+      scrapeStatus,
+      errorMessage,
+      setSalesBefore: scrapeStatus === 'ok' && unitsSold30d !== null && tracking.salesBefore == null,
     });
 
-    // baseline (`salesBefore`) — 첫 성공 snapshot 의 30일 판매량을 사용
-    if (
-      scrapeStatus === 'ok' &&
-      unitsSold30d !== null &&
-      tracking.salesBefore == null
-    ) {
-      await this.prisma.thumbnailTracking.updateMany({
-        where: { id: trackingId, organizationId },
-        data: { salesBefore: unitsSold30d },
-      });
-    }
-
-    return {
-      id: upserted.id,
-      trackingId: upserted.trackingId,
-      capturedAt: upserted.capturedAt.toISOString(),
-      capturedDate: upserted.capturedDate.toISOString().slice(0, 10),
-      unitsSold30d: upserted.unitsSold30d,
-      unitsSold7d: upserted.unitsSold7d,
-      revenueKrw: upserted.revenueKrw,
-      reviewCount: upserted.reviewCount,
-      ratingAvg: upserted.ratingAvg,
-      scrapeStatus: upserted.scrapeStatus,
-      errorMessage: upserted.errorMessage,
-    };
+    return toSnapshotRecord(upserted);
   }
 
   /** 한 tracking 의 모든 daily snapshot — 차트용 시계열 데이터. */
@@ -346,29 +224,11 @@ export class ThumbnailTrackingService {
     trackingId: string,
     organizationId: string,
   ): Promise<DailySnapshotRecord[]> {
-    const exists = await this.prisma.thumbnailTracking.findFirst({
-      where: { id: trackingId, organizationId },
-      select: { id: true },
-    });
+    const exists = await this.repository.findTrackingForSnapshot(trackingId, organizationId);
     if (!exists) throw new NotFoundException(`ThumbnailTracking ${trackingId} not found`);
 
-    const rows = await this.prisma.thumbnailTrackingDailySnapshot.findMany({
-      where: { trackingId, organizationId },
-      orderBy: { capturedDate: 'asc' },
-    });
-    return rows.map((row) => ({
-      id: row.id,
-      trackingId: row.trackingId,
-      capturedAt: row.capturedAt.toISOString(),
-      capturedDate: row.capturedDate.toISOString().slice(0, 10),
-      unitsSold30d: row.unitsSold30d,
-      unitsSold7d: row.unitsSold7d,
-      revenueKrw: row.revenueKrw,
-      reviewCount: row.reviewCount,
-      ratingAvg: row.ratingAvg,
-      scrapeStatus: row.scrapeStatus,
-      errorMessage: row.errorMessage,
-    }));
+    const rows = await this.repository.listSnapshots(trackingId, organizationId);
+    return rows.map(toSnapshotRecord);
   }
 
   /**
@@ -378,11 +238,7 @@ export class ThumbnailTrackingService {
   async collectAllActiveSnapshots(
     organizationId: string,
   ): Promise<{ collected: number; failed: number }> {
-    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const trackings = await this.prisma.thumbnailTracking.findMany({
-      where: { organizationId, appliedAt: { gte: cutoff } },
-      select: { id: true },
-    });
+    const trackings = await this.repository.findActiveTrackings(organizationId);
 
     let collected = 0;
     let failed = 0;

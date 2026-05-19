@@ -5,7 +5,7 @@ import { PANEL_EVENTS } from '../../adapter/out/panel-event/panel-events';
 import {
   OPERATION_ALERT_REPOSITORY_PORT,
   type OperationAlertRepositoryPort,
-} from '../port/out/operation-alert.repository.port';
+} from '../port/out/repository/operation-alert.repository.port';
 import type {
   CloseStaleOperationAlertsInput,
   OperationAlertPort,

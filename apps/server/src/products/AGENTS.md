@@ -1,134 +1,86 @@
-# products — Master, Option, Bundle Domain
+# products — Catalog, Options, Bundles
 
-Products owns catalog families, physical SKU options, bundle composition, and
-the `/api/categories` compatibility capability.
+`src/products/` owns catalog families, physical SKU options, bundle
+composition, product content reads, and the `/api/categories` compatibility
+capability. It is the owner for `MasterProduct`, `ProductOption`, and bundle
+stock materialization.
 
-Core catalog and bundle-stock behavior use adapter/application/domain lanes.
-`categories/`, `dto/`, and `util/` are compatibility surfaces; new product
-behavior should not copy those shapes when it has transaction, policy, or
-cross-domain impact.
-
-## 3-Layer Contract
-
-- `MasterProduct`: family/planned product and operating/ads/strategy unit.
-  Codes use `MasterCodeCounter('master_product')` and `M-00000001` format.
-- `ProductOption`: physical SKU/barcode/inventory unit. SKU format is
-  `{master.code}-{NN}`.
-- `BundleComponent`: set composition. Cross-master is allowed; cross-organization
-  and nested bundles are forbidden.
-
-## Layout
+## Folder Map
 
 ```text
 products/
-  products.module.ts
-  categories/                 /api/categories compatibility capability
-  adapter/in/http/            controllers and HTTP DTO binding
-  adapter/out/repository/     persistence adapters and query helpers
-  application/port/in/        owner-side incoming ports for other domains
-  application/port/out/       outbound repository/transaction ports
-  application/service/        transaction-owning orchestration via ports
-  domain/policy/              pure validation rules
-  domain/service/             pure computations
-  mapper/                     repository row -> shared contract
-  dto/
-  util/
+├── products.module.ts
+├── categories/              # /api/categories compatibility CRUD
+├── adapter/in/http/         # controllers and HTTP DTO binding
+├── adapter/out/repository/  # persistence adapters and query helpers
+├── application/
+│   ├── port/in/             # owner-side ports consumed by other domains
+│   ├── port/out/            # repository/code/transaction ports
+│   └── service/             # transaction-owning orchestration
+├── domain/
+│   ├── policy/              # pure validation rules
+│   └── service/             # pure computations
+├── mapper/                  # repository row -> shared contract
+├── dto/                     # legacy compatibility DTOs
+└── util/                    # legacy compatibility helpers
 ```
 
-`categories/` stays flat compatibility CRUD unless a product-catalog plan
-retires or reconstructs it.
+## Owned Surfaces
 
-## Core Rules
+- Product catalog and option APIs under `/api/products/*`
+- Product content card/preview/editor compatibility APIs
+- Bundle component and bundle stock behavior
+- `/api/categories` compatibility capability
 
-- `MASTER_CODE_PORT.generate(tx)` is the only master code issuer. The
-  repository adapter uses `MasterCodeCounter`, not raw SQL sequences.
-- `OptionsService.create` generates SKU inside the transaction by incrementing
-  the master option counter with `isDeleted: false` guard.
+## Main Data Models
+
+- `MasterProduct` is the family/planned product and operating/ads/strategy
+  unit. Codes use `MasterCodeCounter('master_product')` and `M-00000001`
+  format.
+- `ProductOption` is the physical SKU/barcode/inventory unit. SKU format is
+  `{master.code}-{NN}`.
+- `BundleComponent` stores option composition; cross-master is allowed, but
+  cross-organization and nested bundles are forbidden.
+- `ProductPreparation` captures selected registration inputs after sourcing
+  promotion.
+
+## Catalog Flow
+
+- `MASTER_CODE_PORT.generate(tx)` is the only master code issuer.
+- `OptionsService.create` generates option SKUs inside the transaction.
 - `BundleStockService.recompute` is the only writer of materialized
   `availableStock`.
-- `OptionsService.update` strips system fields via
-  `stripProductOptionSystemFields`.
-- `BundleComponent.organizationId` derives from `bundleOption.organizationId`.
-- Bundle component CRUD recomputes inline inside the transaction and uses the
-  canonical row-lock helper in `adapter/out/repository/bundle-stock.persistence.ts`.
-- Master and option use soft delete. BundleComponent uses hard delete.
-- `lifecycleState` is the master lifecycle on the API surface. Allowed values
-  are `active | paused | discontinued`, validated via
-  `@kiditem/shared/product`'s `PRODUCT_LIFECYCLE_STATES` /
-  `ProductLifecycleStateSchema`. The Prisma column defaults to `'active'`;
-  service-layer code does not need to set it explicitly on create. Catalog
-  count buckets are `activeCount / pausedCount / discontinuedCount /
-  totalCount`.
-- Sourcing-only columns on `master_products` are deprecated migration residue:
-  `pipelineStep`, `source_url`, `source_platform`, `raw_data`, `cost_cny`, and
-  `margin_rate` may exist for expand/backfill/contract compatibility, but
-  nothing in `products/` should select, filter on, or echo any of them.
-  Sourcing history lives on `SourcingCandidate` / `CandidateImage` (see
-  `src/sourcing/`).
-- Product content management is master-bound. `ProductContentController` owns
-  detail-page content card reads (`GET /api/products/content/cards`), preview,
-  edited HTML, and legacy non-AI history routes. It must scope all reads and
-  writes by `organizationId` and `MasterProduct.id`.
+- Bundle component CRUD recomputes stock inline inside the transaction.
+- Master and option rows use soft delete. `BundleComponent` uses hard delete.
 
-## Controller And Service Rules
+## Cross-Domain Ports
 
-- Controllers use global `OrganizationScopeGuard` and global `ValidationPipe`;
-  do not add per-route `@UseGuards` / `@UsePipes`.
-- Controllers receive organization id from `@CurrentOrganization()`.
-- DTOs must not accept client-provided `organizationId`.
+- Products publishes `PRODUCT_MASTER_PROMOTION_PORT` for sourcing candidate
+  promotion.
+- Products publishes `PRODUCT_BUNDLE_STOCK_PORT` for inventory stock-mutation
+  fan-out.
+- Cross-owner modules consume products through local `adapter/out/products/`
+  bridges, not by injecting products services directly.
+
+## Boundary Rules
+
+- Controllers receive `organizationId` from `@CurrentOrganization()`; DTOs do
+  not accept client-provided organization ids.
 - Application services depend on `application/port/out/*`, not concrete
   repository adapters or Prisma types.
-- Domain code imports no Prisma or NestJS.
-- Mutating application services accept optional
-  `ProductsRepositoryTransaction` as the last parameter when they need
-  transaction composition.
+- Domain code imports no Prisma, NestJS, HTTP DTOs, or provider SDKs.
+- Mutating application services accept an optional
+  `ProductsRepositoryTransaction` as the last parameter when transaction
+  composition is needed.
+- Sourcing-only columns on `master_products` are deprecated migration residue;
+  products code must not select, filter on, or echo them.
+- `lifecycleState` is the master lifecycle API field and uses
+  `@kiditem/shared/product` validation.
 
-## Exports
+## Transitional Exceptions
 
-- Products publishes owner-side incoming ports for cross-owner consumers:
-  `PRODUCT_MASTER_PROMOTION_PORT` for sourcing candidate promotion and
-  `PRODUCT_BUNDLE_STOCK_PORT` for inventory stock-mutation fan-out.
-- Cross-owner modules must not inject products application service classes
-  directly. They consume products ports from their own `adapter/out/products/`
-  bridge and keep application services on local ports.
-- Master-code repository adapters are not exported directly; the local module
-  binds them to `MASTER_CODE_PORT`.
-- `BundleStockService` is restricted to the products module and the
-  `PRODUCT_BUNDLE_STOCK_PORT` binding. Other modules should not call it
-  directly.
-- `MasterPromotionService` is the products-side composite behind
-  `PRODUCT_MASTER_PROMOTION_PORT` for sourcing candidate promotion. Only
-  sourcing's `SOURCING_PRODUCTS_CATALOG_PORT` outgoing adapter is expected to
-  consume that owner-side port.
-  It owns the atomic master/options/images write inside a caller-supplied
-  `ProductsRepositoryTransaction`, calls `MASTER_CODE_PORT.generate(tx)` for
-  the family code, sets `lifecycleState='active'`, and delegates per-option
-  work to `OptionsService.create` so SKU issuance + tenant guards stay inside
-  the transaction.
-
-## Architecture Guards
-
-- `products.architecture.spec.ts` must pass. It keeps `products/application/**`
-  Prisma-free, keeps HTTP adapters away from outbound ports/adapters, and
-  prevents the legacy `adapter/out/prisma/` lane from returning.
-- `products.module.wiring.spec.ts` must pass. `ProductsModule` binds outbound
-  ports to local repository adapters with explicit tokens and `useExisting`.
-- `categories/` is the only documented flat compatibility carve-out in this
-  domain.
-
-## Organization Scope
-
-Products relies on application-level `where.organizationId`, not DB RLS.
-Agent/chat contexts must be provided through products application services or
-query adapters, never direct DB access.
-
-## Verification
-
-```bash
-npm exec --workspace=apps/server -- vitest run src/products
-npm exec --workspace=apps/server -- vitest run src/products/__tests__/products.architecture.spec.ts src/products/__tests__/products.module.wiring.spec.ts
-npm run build --workspace=apps/server
-npm run check:idor
-npm run check:tenant-scope
-npm run dev:server
-```
+- `categories/`, root `dto/`, and root `util/` are compatibility surfaces.
+  New product behavior should not copy those shapes.
+- `ProductContentController` still owns legacy non-AI content history and
+  editor compatibility routes while generated-content source of truth moves
+  through AI detail-page artifacts/revisions.

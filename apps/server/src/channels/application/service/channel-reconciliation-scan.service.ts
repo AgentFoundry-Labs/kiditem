@@ -3,7 +3,7 @@ import {
   CHANNEL_RECONCILIATION_SCAN_REPOSITORY_PORT,
   type ChannelReconciliationScanRepositoryPort,
   type ReconciliationRowInput,
-} from '../port/out/channel-reconciliation.repository.port';
+} from '../port/out/repository/channel-reconciliation.repository.port';
 
 @Injectable()
 export class ChannelReconciliationScanService {

@@ -4,21 +4,21 @@ import { paginationParams } from '../../../common/pagination';
 import {
   SOURCING_AGENT_GATEWAY_PORT,
   type SourcingAgentGatewayPort,
-} from '../port/out/sourcing-agent.gateway.port';
+} from '../port/out/runtime/sourcing-agent.gateway.port';
 import {
   SOURCING_OPERATION_ALERT_PORT,
   type OperationAlertPort,
-} from '../port/out/operation-alert.port';
+} from '../port/out/cross-domain/operation-alert.port';
 import {
   SOURCING_CANDIDATE_REPOSITORY_PORT,
   type SourcingCandidateRepositoryPort,
-} from '../port/out/sourcing-candidate.repository.port';
+} from '../port/out/repository/sourcing-candidate.repository.port';
 import type {
   CreateProductGenerationCommand,
   ReceiveExtensionDataInput,
   RegisterManualProductCommand,
 } from '../port/in/sourcing.commands';
-import type { ProductGenerationTask } from '../../../ai/application/port/in/product-generation-ai-trigger.port';
+import type { ProductGenerationTask } from '../../../ai/application/port/in/generation/product-generation-ai-trigger.port';
 import { buildProductBasics } from './product-basics.presenter';
 import { ProductPreparationSelectionService } from './product-preparation-selection.service';
 

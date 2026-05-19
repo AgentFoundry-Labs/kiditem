@@ -16,7 +16,7 @@ import type {
   AlertsRepositoryPort,
   PromoteAlertCommand,
   PromoteAlertResult,
-} from '../../../application/port/out/alerts.repository.port';
+} from '../../../application/port/out/repository/alerts.repository.port';
 
 function jsonObject(value: Prisma.JsonValue): Record<string, unknown> {
   if (value && typeof value === 'object' && !Array.isArray(value)) {

@@ -19,7 +19,7 @@ import type {
   TemplateListFilters,
   UpdateWorkflowTemplateInput,
   WorkflowOrchestrationRepositoryPort,
-} from '../../../application/port/out/workflow-orchestration.repository.port';
+} from '../../../application/port/out/repository/workflow-orchestration.repository.port';
 import type { JsonValue } from '../../../application/port/persistence-records';
 
 function toOptionalPrismaJson(value: JsonValue | undefined) {

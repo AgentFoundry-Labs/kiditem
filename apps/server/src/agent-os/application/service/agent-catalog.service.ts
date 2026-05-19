@@ -5,7 +5,7 @@ import {
   type CreateAgentInstanceInput,
   type UpdateAgentInstanceInput,
   type UpsertInstanceToolPolicyInput,
-} from '../port/out/agent-os-repository.port';
+} from '../port/out/repository/agent-os-repository.port';
 import { AgentOsCatalogError } from '../../domain/agent-os.errors';
 import { AgentPolicyService } from './agent-policy.service';
 import {

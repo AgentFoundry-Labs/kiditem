@@ -3,4 +3,4 @@ export type {
   CoupangSyncReturnPayload,
   HealthResult,
   SyncResult,
-} from '../port/out/channel-sync.repository.port';
+} from '../port/out/repository/channel-sync.repository.port';

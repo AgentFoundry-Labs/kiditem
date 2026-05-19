@@ -3,7 +3,7 @@ import { CurrentOrganization } from '../../../../auth/decorators/current-organiz
 import {
   PICKING_PORT,
   type PickingPort,
-} from '../../../application/port/in/picking.port';
+} from '../../../application/port/in/fulfillment/picking.port';
 import { UpdatePickingItemDto } from './dto';
 
 @Controller('picking')

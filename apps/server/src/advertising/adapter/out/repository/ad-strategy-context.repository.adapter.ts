@@ -26,7 +26,7 @@ import type {
   ListingReviewStatRow,
   ListingTrafficDailyRow,
   StrategyContext,
-} from '../../../application/port/out/ad-strategy-context.repository.port';
+} from '../../../application/port/out/repository/ad-strategy-context.repository.port';
 
 @Injectable()
 export class AdStrategyContextRepositoryAdapter

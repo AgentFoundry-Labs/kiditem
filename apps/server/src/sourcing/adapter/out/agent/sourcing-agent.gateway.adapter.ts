@@ -7,15 +7,15 @@ import {
 import {
   POST_PROMOTION_AI_TRIGGER_PORT,
   type PostPromotionAiTriggerPort,
-} from '../../../../ai/application/port/in/post-promotion-ai-trigger.port';
+} from '../../../../ai/application/port/in/generation/post-promotion-ai-trigger.port';
 import {
   PRODUCT_GENERATION_AI_TRIGGER_PORT,
   type ProductGenerationAiTriggerPort,
-} from '../../../../ai/application/port/in/product-generation-ai-trigger.port';
+} from '../../../../ai/application/port/in/generation/product-generation-ai-trigger.port';
 import {
   SOURCING_OPERATION_ALERT_PORT,
   type OperationAlertPort,
-} from '../../../application/port/out/operation-alert.port';
+} from '../../../application/port/out/cross-domain/operation-alert.port';
 import type {
   SourcingAgentGatewayPort,
   SourcingNotifyPromotedRequest,
@@ -23,7 +23,7 @@ import type {
   SourcingScrapeResult,
   SourcingStartProductGenerationRequest,
   SourcingStartProductGenerationResult,
-} from '../../../application/port/out/sourcing-agent.gateway.port';
+} from '../../../application/port/out/runtime/sourcing-agent.gateway.port';
 
 @Injectable()
 export class SourcingAgentGatewayAdapter implements SourcingAgentGatewayPort {

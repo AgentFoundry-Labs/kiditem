@@ -3,7 +3,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   MarketplaceRegistrationRepositoryPort,
   RegisterConfirmedListingInput,
-} from '../../../application/port/out/channel-listing.repository.port';
+} from '../../../application/port/out/repository/channel-listing.repository.port';
 
 @Injectable()
 export class MarketplaceRegistrationRepositoryAdapter
@@ -17,7 +17,6 @@ export class MarketplaceRegistrationRepositoryAdapter
   ) {
     const externalId = input.externalId.trim();
     if (!externalId) throw new BadRequestException('마켓 상품번호를 입력하세요.');
-    const productBarcode = input.productBarcode?.trim() || null;
 
     return this.prisma.$transaction(async (tx) => {
       const [account, master] = await Promise.all([
@@ -54,31 +53,17 @@ export class MarketplaceRegistrationRepositoryAdapter
         deletedAt: null,
       };
       if (existing) {
-        const listing = await tx.channelListing.update({
+        return tx.channelListing.update({
           where: { id: existing.id },
           data,
         });
-        if (productBarcode) {
-          await tx.masterProduct.update({
-            where: { id: master.id },
-            data: { barcode: productBarcode },
-          });
-        }
-        return listing;
       }
-      const listing = await tx.channelListing.create({
+      return tx.channelListing.create({
         data: {
           organizationId,
           ...data,
         },
       });
-      if (productBarcode) {
-        await tx.masterProduct.update({
-          where: { id: master.id },
-          data: { barcode: productBarcode },
-        });
-      }
-      return listing;
     });
   }
 }

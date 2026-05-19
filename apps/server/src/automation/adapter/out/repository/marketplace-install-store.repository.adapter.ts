@@ -4,7 +4,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   CreateWorkflowInstallationInput,
   MarketplaceInstallStorePort,
-} from '../../../application/port/out/marketplace-install-store.port';
+} from '../../../application/port/out/repository/marketplace-install-store.port';
 
 function jsonArrayInput(value: unknown): Prisma.InputJsonValue {
   return (value ?? []) as Prisma.InputJsonValue;

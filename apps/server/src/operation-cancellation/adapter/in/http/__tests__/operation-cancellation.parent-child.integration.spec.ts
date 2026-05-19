@@ -10,7 +10,9 @@ import {
 import {
   AI_GENERATION_CANCELLATION_PORT,
   type AiGenerationCancellationPort,
-} from '../../../../../ai/application/port/in/ai-generation-cancellation.port';
+} from '../../../../../ai/application/port/in/generation/ai-generation-cancellation.port';
+import { AI_OPERATION_ALERT_PORT } from '../../../../../ai/application/port/out/cross-domain/operation-alert.port';
+import { PRODUCT_GENERATION_CHILD_LEDGER_REPOSITORY_PORT } from '../../../../../ai/application/port/out/repository/product-generation-child-ledger.repository.port';
 import { ProductGenerationAlertService } from '../../../../../ai/application/service/product-generation-alert.service';
 import {
   OPERATION_ALERT_PORT,
@@ -200,6 +202,12 @@ async function buildHarness() {
     contentGeneration: { findFirst: vi.fn() },
     thumbnailGeneration: { findFirst: vi.fn() },
   };
+  const childLedger = {
+    readChildStatuses: vi.fn(async () => ({
+      detailPageStatus: null,
+      thumbnailStatus: null,
+    })),
+  };
 
   const moduleRef: TestingModule = await Test.createTestingModule({
     controllers: [OperationCancellationController],
@@ -207,6 +215,8 @@ async function buildHarness() {
       OperationCancellationService,
       ProductGenerationAlertService,
       { provide: PrismaService, useValue: prisma },
+      { provide: AI_OPERATION_ALERT_PORT, useValue: operationAlerts.port },
+      { provide: PRODUCT_GENERATION_CHILD_LEDGER_REPOSITORY_PORT, useValue: childLedger },
       { provide: OPERATION_ALERT_PORT, useValue: operationAlerts.port },
       { provide: WORKFLOW_RUN_CANCELLATION_PORT, useValue: workflows },
       { provide: AGENT_RUNNER_PORT, useValue: agentRunner },

@@ -3,21 +3,21 @@ import {
   PICKING_PORT,
   type PickingPort,
   type UpdatePickingItemInput,
-} from '../port/in/picking.port';
+} from '../port/in/fulfillment/picking.port';
 import {
   PICKING_REPOSITORY_PORT,
   type PickingItemRow,
   type PickingItemUpdateData,
   type PickingListRow,
   type PickingRepositoryPort,
-} from '../port/out/picking.repository.port';
+} from '../port/out/repository/picking.repository.port';
 import {
   CONFIRMED_ORDERS_PORT,
   type ConfirmedOrdersPort,
-} from '../port/out/confirmed-orders.port';
+} from '../port/out/cross-domain/confirmed-orders.port';
 import { extractPickableItems } from '../../domain/policy/picking-rules';
 
-export { PICKING_PORT } from '../port/in/picking.port';
+export { PICKING_PORT } from '../port/in/fulfillment/picking.port';
 
 @Injectable()
 export class PickingService implements PickingPort {

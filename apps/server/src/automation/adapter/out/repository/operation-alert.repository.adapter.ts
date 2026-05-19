@@ -12,7 +12,7 @@ import type {
   OperationAlertRepositoryPort,
   OperationAlertTransitionPatch,
   OperationAlertUpsertData,
-} from '../../../application/port/out/operation-alert.repository.port';
+} from '../../../application/port/out/repository/operation-alert.repository.port';
 
 const TERMINAL_OPERATION_STATUSES = new Set([
   'succeeded',

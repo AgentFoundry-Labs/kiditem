@@ -4,7 +4,7 @@ import { Prisma } from '@prisma/client';
 import type { MulterFile } from '../../common/types';
 import { kstDayStart } from '../../common/kst';
 import type { PrismaService } from '../../prisma/prisma.service';
-import type { OperationAlertPort } from './application/port/out/operation-alert.port';
+import type { OperationAlertPort } from './application/port/out/cross-domain/operation-alert.port';
 import {
   parseTrafficUploadFile,
   type ParsedUploadRow,
