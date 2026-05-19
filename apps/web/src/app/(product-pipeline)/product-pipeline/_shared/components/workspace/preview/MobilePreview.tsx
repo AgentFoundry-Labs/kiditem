@@ -404,12 +404,9 @@ function PdpView({
             <p className="text-[10px] font-bold text-slate-500">상세페이지</p>
             <span className="text-[9px] text-slate-400">탭하여 크게 보기</span>
           </div>
-          <button
-            type="button"
-            onClick={() => setZoomedDetail(true)}
+          <div
             data-testid="mobile-preview-detail-scroll-region"
-            aria-label="상세페이지 크게 보기"
-            className="block w-full cursor-zoom-in overflow-hidden rounded-md border border-slate-200 bg-white"
+            className="relative block w-full overflow-hidden rounded-md border border-slate-200 bg-white"
             style={{ height: Math.ceil(detailDocumentHeight * MOBILE_DETAIL_SCALE) }}
           >
             <iframe
@@ -426,7 +423,13 @@ function PdpView({
                 transformOrigin: 'top left',
               }}
             />
-          </button>
+            <button
+              type="button"
+              onClick={() => setZoomedDetail(true)}
+              aria-label="상세페이지 크게 보기"
+              className="absolute inset-0 cursor-zoom-in bg-transparent"
+            />
+          </div>
         </div>
       ) : null}
       </div>

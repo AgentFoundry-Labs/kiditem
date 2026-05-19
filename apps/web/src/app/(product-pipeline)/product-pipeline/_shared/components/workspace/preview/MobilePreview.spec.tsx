@@ -78,6 +78,8 @@ describe('MobilePreview', () => {
     expect(screen.getByTitle('mobile-registration-detail-preview')).toHaveClass(
       'pointer-events-none',
     );
+    expect(screen.getByTitle('mobile-registration-detail-preview').closest('button')).toBeNull();
+    expect(screen.getByRole('button', { name: '상세페이지 크게 보기' })).toBeInTheDocument();
     expect(screen.getByTitle('mobile-registration-detail-preview')).toHaveAttribute(
       'sandbox',
       'allow-scripts',

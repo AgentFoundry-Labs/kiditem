@@ -51,6 +51,33 @@ describe('extractKcCertificationNumber', () => {
     expect(extractKcCertificationNumber(entries)).toBeNull();
   });
 
+  it('returns null for descriptive AI text that is not a KC number', () => {
+    const entries = [
+      buildEntry({
+        createdAt: '2026-05-19T10:00:00Z',
+        result: {
+          productInfo: [
+            { key: 'KC 인증번호', value: 'KC 인증 대상' },
+            { key: 'KC 인증', value: '상세페이지 참조' },
+          ],
+        } as KidsPlayfulGenerationItem['result'],
+      }),
+    ];
+    expect(extractKcCertificationNumber(entries)).toBeNull();
+  });
+
+  it('normalizes spacing in valid KC numbers', () => {
+    const entries = [
+      buildEntry({
+        createdAt: '2026-05-19T10:00:00Z',
+        result: {
+          productInfo: [{ key: 'KC 인증번호', value: ' cb 065r1579-2008 ' }],
+        } as KidsPlayfulGenerationItem['result'],
+      }),
+    ];
+    expect(extractKcCertificationNumber(entries)).toBe('CB065R1579-2008');
+  });
+
   it('skips entries still processing', () => {
     const entries = [
       buildEntry({

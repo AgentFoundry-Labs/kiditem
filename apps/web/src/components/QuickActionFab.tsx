@@ -56,7 +56,7 @@ export default function QuickActionFab() {
         data-testid="quick-action-fab"
         className="fixed right-5 top-1/2 z-50 -translate-y-1/2"
       >
-        {ACTIONS.map(({ label, href, Icon, angle }) => {
+        {open ? ACTIONS.map(({ label, href, Icon, angle }) => {
           const rad = (angle * Math.PI) / 180;
           const x = Math.cos(rad) * FAN_RADIUS;
           const y = -Math.sin(rad) * FAN_RADIUS;
@@ -67,23 +67,20 @@ export default function QuickActionFab() {
               aria-label={label}
               title={label}
               onClick={() => setOpen(false)}
-              tabIndex={open ? 0 : -1}
               style={{
-                transform: open
-                  ? `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`
-                  : 'translate(-50%, -50%) scale(0.4)',
+                transform: `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`,
               }}
               className={cn(
                 'absolute left-1/2 top-1/2 inline-flex h-12 w-12 items-center justify-center',
                 'rounded-full bg-gradient-to-br from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/30',
                 'transition-all duration-300 ease-out hover:shadow-xl hover:shadow-blue-500/40 hover:brightness-110',
-                open ? 'opacity-100' : 'pointer-events-none opacity-0',
+                'opacity-100',
               )}
             >
               <Icon size={20} />
             </Link>
           );
-        })}
+        }) : null}
 
         <button
           type="button"
