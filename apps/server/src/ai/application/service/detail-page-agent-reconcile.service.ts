@@ -7,11 +7,11 @@ import {
 import {
   DETAIL_PAGE_AGENT_OUTPUT_SINK_PORT,
   type DetailPageAgentOutputSinkPort,
-} from '../port/out/detail-page-agent-output-sink.port';
+} from '../port/out/sink/detail-page-agent-output-sink.port';
 import {
   DETAIL_PAGE_RECONCILE_REPOSITORY_PORT,
   type DetailPageReconcileRepositoryPort,
-} from '../port/out/detail-page-reconcile.repository.port';
+} from '../port/out/repository/detail-page-reconcile.repository.port';
 import {
   AgentFinalizedOutputProjectionService,
   type AgentFinalizedOutputProjectionResult,

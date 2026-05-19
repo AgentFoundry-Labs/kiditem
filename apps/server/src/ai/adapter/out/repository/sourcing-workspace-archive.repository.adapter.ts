@@ -3,8 +3,8 @@ import type {
   AiWorkspaceArchiveScope,
   ArchiveSourcingWorkspaceInput,
   ArchiveSourcingWorkspaceResult,
-} from '../../../application/port/in/sourcing-workspace-archive.port';
-import type { SourcingWorkspaceArchiveRepositoryPort } from '../../../application/port/out/sourcing-workspace-archive.repository.port';
+} from '../../../application/port/in/workspace/sourcing-workspace-archive.port';
+import type { SourcingWorkspaceArchiveRepositoryPort } from '../../../application/port/out/repository/sourcing-workspace-archive.repository.port';
 
 @Injectable()
 export class SourcingWorkspaceArchiveRepositoryAdapter

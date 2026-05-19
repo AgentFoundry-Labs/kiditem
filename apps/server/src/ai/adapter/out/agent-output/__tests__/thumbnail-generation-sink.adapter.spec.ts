@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ThumbnailGenerationSinkAdapter } from '../thumbnail-generation-sink.adapter';
-import type { OperationAlertPort } from '../../../../application/port/out/operation-alert.port';
-import type { ThumbnailGenerationEventPort } from '../../../../application/port/out/thumbnail-generation-event.port';
+import type { OperationAlertPort } from '../../../../application/port/out/cross-domain/operation-alert.port';
+import type { ThumbnailGenerationEventPort } from '../../../../application/port/out/event/thumbnail-generation-event.port';
 import type { ProductGenerationAlertService } from '../../../../application/service/product-generation-alert.service';
-import type { ThumbnailGenerationLedgerRepositoryPort } from '../../../../application/port/out/thumbnail-generation-ledger.repository.port';
+import type { ThumbnailGenerationLedgerRepositoryPort } from '../../../../application/port/out/repository/thumbnail-generation-ledger.repository.port';
 import { ThumbnailGenerationLifecycleService } from '../../../../application/service/thumbnail-generation-lifecycle.service';
 
 const ORG = '11111111-1111-1111-1111-111111111111';

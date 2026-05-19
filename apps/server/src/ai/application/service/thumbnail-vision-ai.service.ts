@@ -10,11 +10,11 @@ import {
   THUMBNAIL_REFERENCE_IMAGES_PORT,
   type ThumbnailPromptPart,
   type ThumbnailReferenceImagesPort,
-} from '../port/out/thumbnail-reference-images.port';
+} from '../port/out/provider/thumbnail-reference-images.port';
 import {
   THUMBNAIL_VISION_PROVIDER_PORT,
   type ThumbnailVisionProviderPort,
-} from '../port/out/thumbnail-vision-provider.port';
+} from '../port/out/provider/thumbnail-vision-provider.port';
 import {
   type AiAnalysisResult,
   type ComplianceGrade,

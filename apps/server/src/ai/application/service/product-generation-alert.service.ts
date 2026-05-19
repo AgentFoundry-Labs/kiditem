@@ -3,12 +3,12 @@ import {
   AI_OPERATION_ALERT_PORT,
   type OperationAlertRecord as AlertRecord,
   type OperationAlertPort,
-} from '../port/out/operation-alert.port';
+} from '../port/out/cross-domain/operation-alert.port';
 import {
   PRODUCT_GENERATION_CHILD_LEDGER_REPOSITORY_PORT,
   type ProductGenerationChildIds,
   type ProductGenerationChildLedgerRepositoryPort,
-} from '../port/out/product-generation-child-ledger.repository.port';
+} from '../port/out/repository/product-generation-child-ledger.repository.port';
 import type { ProductGenerationChildKind } from './product-generation-alert-link';
 import { productGenerationOperationKey } from './product-generation-alert-link';
 

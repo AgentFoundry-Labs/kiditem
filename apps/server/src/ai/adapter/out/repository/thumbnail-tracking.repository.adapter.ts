@@ -6,7 +6,7 @@ import type {
   ThumbnailTrackingRepositoryPort,
   UpsertThumbnailTrackingDailySnapshotInput,
   UpdateThumbnailTrackingInput,
-} from '../../../application/port/out/thumbnail-tracking.repository.port';
+} from '../../../application/port/out/repository/thumbnail-tracking.repository.port';
 
 const TRACKING_LISTING_INCLUDE = {
   listing: {

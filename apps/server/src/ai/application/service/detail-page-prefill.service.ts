@@ -10,7 +10,7 @@ import type { PrefillDetailPageInput } from './detail-page-requests';
 import {
   TEXT_COMPLETION_PORT,
   type TextCompletionPort,
-} from '../port/out/text-completion.port';
+} from '../port/out/provider/text-completion.port';
 import type { DetailPagePrefillDto } from './detail-page-ai.types';
 
 const TextOrTextArraySchema = z.preprocess(

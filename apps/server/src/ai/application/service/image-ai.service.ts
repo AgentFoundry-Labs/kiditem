@@ -12,7 +12,7 @@ import {
 import {
   AI_OPERATION_ALERT_PORT,
   type OperationAlertPort,
-} from '../port/out/operation-alert.port';
+} from '../port/out/cross-domain/operation-alert.port';
 import { kickEnqueuedAgentRequest } from './agent-inline-execution';
 
 /**

@@ -3,7 +3,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   ThumbnailWingRegistrationAttemptPatch,
   ThumbnailWingRepositoryPort,
-} from '../../../application/port/out/thumbnail-wing.repository.port';
+} from '../../../application/port/out/repository/thumbnail-wing.repository.port';
 
 @Injectable()
 export class ThumbnailWingRepositoryAdapter implements ThumbnailWingRepositoryPort {

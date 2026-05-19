@@ -15,7 +15,7 @@ import {
 import {
   AI_OPERATION_ALERT_PORT,
   type OperationAlertPort,
-} from '../port/out/operation-alert.port';
+} from '../port/out/cross-domain/operation-alert.port';
 import {
   AI_AGENT_SOURCE_TYPES,
   DETAIL_PAGE_GENERATE_AGENT_TYPE,
@@ -24,7 +24,7 @@ import type { GenerateDetailPageInput } from './detail-page-requests';
 import {
   IMAGE_STORAGE_PORT,
   type ImageStoragePort,
-} from '../port/out/image-storage.port';
+} from '../port/out/storage/image-storage.port';
 import type { MulterFile } from '../../../common/types';
 import {
   looksLikeSafetyLabelImage,
@@ -70,7 +70,7 @@ import {
 import {
   DETAIL_PAGE_GENERATION_REPOSITORY_PORT,
   type DetailPageGenerationRepositoryPort,
-} from '../port/out/detail-page-generation.repository.port';
+} from '../port/out/repository/detail-page-generation.repository.port';
 
 const DETAIL_PAGE_PROCESSING_STATUSES = [
   'PENDING',

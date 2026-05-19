@@ -3,7 +3,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   DetailPageReconcileRepositoryPort,
   DetailPageTerminalRequest,
-} from '../../../application/port/out/detail-page-reconcile.repository.port';
+} from '../../../application/port/out/repository/detail-page-reconcile.repository.port';
 
 @Injectable()
 export class DetailPageReconcileRepositoryAdapter implements DetailPageReconcileRepositoryPort {

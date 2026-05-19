@@ -3,7 +3,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   ProductGenerationChildLedgerRepositoryPort,
   ProductGenerationChildLedgerStatuses,
-} from '../../../application/port/out/product-generation-child-ledger.repository.port';
+} from '../../../application/port/out/repository/product-generation-child-ledger.repository.port';
 
 @Injectable()
 export class ProductGenerationChildLedgerRepositoryAdapter

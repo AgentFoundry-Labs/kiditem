@@ -10,12 +10,12 @@ import {
 import {
   IMAGE_STORAGE_PORT,
   type ImageStoragePort,
-} from '../port/out/image-storage.port';
+} from '../port/out/storage/image-storage.port';
 import {
   DETAIL_PAGE_QUERY_REPOSITORY_PORT,
   type DetailPageGenerationSnapshot,
   type DetailPageQueryRepositoryPort,
-} from '../port/out/detail-page-query.repository.port';
+} from '../port/out/repository/detail-page-query.repository.port';
 
 export interface DetailPageListQuery {
   productId?: string | null;

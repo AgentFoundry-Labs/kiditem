@@ -3,11 +3,11 @@ import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import {
   IMAGE_FETCH_PORT,
   type ImageFetchPort,
-} from '../port/out/image-fetch.port';
+} from '../port/out/provider/image-fetch.port';
 import {
   IMAGE_STORAGE_PORT,
   type ImageStoragePort,
-} from '../port/out/image-storage.port';
+} from '../port/out/storage/image-storage.port';
 import {
   MAX_FETCH_BYTES,
   parseDataImageUrl,

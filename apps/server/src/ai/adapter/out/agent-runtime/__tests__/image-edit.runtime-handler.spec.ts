@@ -2,8 +2,8 @@ import { describe, expect, it, vi, afterEach } from 'vitest';
 import { ImageEditRuntimeHandler } from '../image-edit.runtime-handler';
 import { AgentRuntimeHandlerRegistry } from '../../../../../agent-os/application/service/agent-runtime-handler-registry.service';
 import type { AgentRuntimeExecutionContext } from '../../../../../agent-os/application/port/out/agent-runtime.port';
-import type { ImageEditMediaPort } from '../../../../application/port/out/image-edit-media.port';
-import type { ImageStoragePort } from '../../../../application/port/out/image-storage.port';
+import type { ImageEditMediaPort } from '../../../../application/port/out/provider/image-edit-media.port';
+import type { ImageStoragePort } from '../../../../application/port/out/storage/image-storage.port';
 
 function makeCtx(
   overrides: Partial<AgentRuntimeExecutionContext> = {},

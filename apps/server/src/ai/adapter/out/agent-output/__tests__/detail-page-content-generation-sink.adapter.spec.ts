@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DetailPageContentGenerationSinkAdapter } from '../detail-page-content-generation-sink.adapter';
-import type { OperationAlertPort } from '../../../../application/port/out/operation-alert.port';
+import type { OperationAlertPort } from '../../../../application/port/out/cross-domain/operation-alert.port';
 import type { DetailPageGeneratedImagesService } from '../../../../application/service/detail-page-generated-images.service';
 import type { ContentAssetService } from '../../../../application/service/content-asset.service';
 import type { ProductGenerationAlertService } from '../../../../application/service/product-generation-alert.service';

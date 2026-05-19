@@ -4,7 +4,7 @@ import type {
   ProductWorkspaceGroupRepositoryPort,
   ProductWorkspaceGroupSnapshot,
   ProductWorkspaceGroupSource,
-} from '../../../application/port/out/product-workspace-group.repository.port';
+} from '../../../application/port/out/repository/product-workspace-group.repository.port';
 
 @Injectable()
 export class ProductWorkspaceGroupRepositoryAdapter

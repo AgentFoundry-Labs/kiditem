@@ -4,7 +4,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   AppendThumbnailGenerationEventInput,
   ThumbnailGenerationEventPort,
-} from '../../../application/port/out/thumbnail-generation-event.port';
+} from '../../../application/port/out/event/thumbnail-generation-event.port';
 
 @Injectable()
 export class ThumbnailGenerationEventAdapter implements ThumbnailGenerationEventPort {

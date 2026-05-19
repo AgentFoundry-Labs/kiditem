@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { ContentWorkspaceLifecycleRepositoryPort } from '../../port/out/content-workspace-lifecycle.repository.port';
+import type { ContentWorkspaceLifecycleRepositoryPort } from '../../port/out/repository/content-workspace-lifecycle.repository.port';
 import { ContentWorkspaceService } from '../content-workspace.service';
 
 const ORG = '11111111-1111-4111-8111-111111111111';

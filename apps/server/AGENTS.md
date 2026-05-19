@@ -116,6 +116,47 @@ Read the nearest guide before editing:
 - Do not add substantial behavior to 700+ line services/components. Changes to
   500+ line files require explicit reconstruction classification in review.
 
+## Port Directory Rules
+
+Hexagonal owner modules classify ports by direction first, then by IO lane.
+These folders are Interface seams; keep them small enough that callers can see
+which Adapter family or owner Module sits behind the contract.
+
+Incoming ports live under `application/port/in/`. Keep them flat when the owner
+publishes only one or two use-case Interfaces. Use a capability folder when
+three or more incoming ports share one owner capability, or when the incoming
+Interface is exported for multiple consuming owners.
+
+Outgoing ports live under `application/port/out/`. Use these lane folders when
+the lane exists:
+
+- `repository/` for Prisma or raw-SQL persistence Interfaces.
+- `transaction/` for unit-of-work or row-lock transaction Interfaces.
+- `provider/` for external API, SDK, LLM, marketplace, scrape, fetch, or model
+  provider Interfaces.
+- `storage/` for object, file, image, or media storage Interfaces.
+- `runtime/` for Agent OS, worker, browser, CLI, or execution runtime
+  Interfaces.
+- `event/` for event publication, audit, activity, panel, or ledger event
+  Interfaces.
+- `sink/` for finalized-output projection or event-consuming Interfaces.
+- `workflow/` for workflow orchestration, cancellation, or workflow engine
+  Interfaces.
+- `cross-domain/` for anti-corruption Interfaces to another owner Module.
+
+A domain-specific outgoing port may stay directly under `application/port/out/`
+only when it is local to that owner, has no backend-wide naming pressure, and
+does not belong to one of the lanes above.
+
+Cross-domain capabilities are not copied into `common` by default. The owning
+Module publishes an incoming Interface from `application/port/in/`, and
+consuming Modules depend on that Interface or define a narrow local outgoing
+Interface only when they need an anti-corruption Seam.
+
+Lane folders may export a local `index.ts`. Do not add broad barrels such as
+`application/port/index.ts` or `application/index.ts`; those hide the IO lane
+and weaken the Adapter Seam.
+
 ## Special Surfaces
 
 - Panel is owned by automation:

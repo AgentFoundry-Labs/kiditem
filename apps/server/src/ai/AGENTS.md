@@ -22,8 +22,17 @@ ai/
 │   ├── repository/           # reconstructed Prisma repository/query adapters
 │   └── wing/                 # Wing automation adapter
 ├── application/
-│   ├── port/in/              # inbound ports exposed to other domains
-│   ├── port/out/             # provider/repository/runtime/sink ports
+│   ├── port/in/
+│   │   ├── generation/       # generation trigger/cancellation owner ports
+│   │   └── workspace/        # workspace/archive owner ports
+│   ├── port/out/
+│   │   ├── cross-domain/     # ports to automation/products/channels owners
+│   │   ├── event/            # generation lifecycle event ports
+│   │   ├── provider/         # Gemini/Coupang/fetch provider ports
+│   │   ├── repository/       # AI-owned Prisma repository ports
+│   │   ├── runtime/          # browser/automation runtime ports
+│   │   ├── sink/             # Agent OS finalized-output sink ports
+│   │   └── storage/          # image/media storage ports
 │   └── service/              # use-case orchestration
 ├── domain/                   # pure schemas, prompts, policy helpers
 └── mapper/                   # row/DTO/domain mapping
@@ -97,10 +106,13 @@ hot-path listener was unavailable.
 - Sourcing calls AI through `AI_WORKSPACE_ARCHIVE_PORT`,
   `PRODUCT_GENERATION_AI_TRIGGER_PORT`, and
   `POST_PROMOTION_AI_TRIGGER_PORT`.
-- AI uses `AI_OPERATION_ALERT_PORT` for operation-alert lifecycle writes.
+- AI publishes incoming generation/workspace ports from
+  `application/port/in/{generation,workspace}/`.
+- AI uses `AI_OPERATION_ALERT_PORT` from
+  `application/port/out/cross-domain/` for operation-alert lifecycle writes.
 - AI generation services delegate Agent OS work through `AGENT_RUNNER_PORT`.
 - Provider/media/fetch/storage behavior belongs behind the relevant
-  `application/port/out/*` contract.
+  `application/port/out/{provider,storage}/` contract.
 
 ## Boundary Rules
 

@@ -3,7 +3,7 @@ import { ChannelReconciliationService } from '../../../../channels/application/s
 import type {
   CoupangImageReconciliationPort,
   RecordCoupangImageRowsInput,
-} from '../../../application/port/out/coupang-image-reconciliation.port';
+} from '../../../application/port/out/cross-domain/coupang-image-reconciliation.port';
 
 @Injectable()
 export class CoupangImageReconciliationAdapter implements CoupangImageReconciliationPort {

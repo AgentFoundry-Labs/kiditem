@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
   THUMBNAIL_VISION_PROVIDER_PORT,
   type ThumbnailVisionProviderPort,
-} from '../port/out/thumbnail-vision-provider.port';
+} from '../port/out/provider/thumbnail-vision-provider.port';
 import {
   type RawComplianceEntry,
   TEXT_RELATED_KEYS,

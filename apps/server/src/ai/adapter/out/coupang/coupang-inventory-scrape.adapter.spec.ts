@@ -1,7 +1,7 @@
 import { runInNewContext } from 'node:vm';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CoupangInventoryScrapeAdapter } from './coupang-inventory-scrape.adapter';
-import type { CoupangInventoryRow } from '../../../application/port/out/coupang-inventory-scrape.port';
+import type { CoupangInventoryRow } from '../../../application/port/out/provider/coupang-inventory-scrape.port';
 
 describe('CoupangInventoryScrapeAdapter scrape script', () => {
   const originalNodeEnv = process.env.NODE_ENV;

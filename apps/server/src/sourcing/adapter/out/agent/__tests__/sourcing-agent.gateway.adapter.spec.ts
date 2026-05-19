@@ -2,8 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { InternalServerErrorException } from '@nestjs/common';
 import { SourcingAgentGatewayAdapter } from '../sourcing-agent.gateway.adapter';
 import type { AgentRunnerPort } from '../../../../../agent-os/application/port/in/agent-runner.port';
-import type { PostPromotionAiTriggerPort } from '../../../../../ai/application/port/in/post-promotion-ai-trigger.port';
-import type { ProductGenerationAiTriggerPort } from '../../../../../ai/application/port/in/product-generation-ai-trigger.port';
+import type { PostPromotionAiTriggerPort } from '../../../../../ai/application/port/in/generation/post-promotion-ai-trigger.port';
+import type { ProductGenerationAiTriggerPort } from '../../../../../ai/application/port/in/generation/product-generation-ai-trigger.port';
 import type { OperationAlertPort } from '../../../../application/port/out/operation-alert.port';
 
 function makeAdapter(runByType: ReturnType<typeof vi.fn>) {

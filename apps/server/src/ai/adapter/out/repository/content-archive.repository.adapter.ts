@@ -7,7 +7,7 @@ import type {
   ContentArchiveGenerationRow,
   ContentArchiveRepositoryPort,
   ContentArchiveRepositoryQuery,
-} from '../../../application/port/out/content-archive.repository.port';
+} from '../../../application/port/out/repository/content-archive.repository.port';
 
 const generationInclude = {
   generationGroup: {

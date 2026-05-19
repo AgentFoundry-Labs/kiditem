@@ -6,11 +6,11 @@ import { DetailPageQueryService } from '../detail-page-query.service';
 import { DetailPageResultRefinerService } from '../detail-page-result-refiner.service';
 import { BoldVerticalRefinerService } from '../bold-vertical-refiner.service';
 import { KidsPlayfulRefinerService } from '../kids-playful-refiner.service';
-import type { OperationAlertPort } from '../../port/out/operation-alert.port';
+import type { OperationAlertPort } from '../../port/out/cross-domain/operation-alert.port';
 import type { AgentRunnerPort } from '../../../../agent-os/application/port/in/agent-runner.port';
 import type { ProductGenerationAlertService } from '../product-generation-alert.service';
-import type { DetailPageGenerationRepositoryPort } from '../../port/out/detail-page-generation.repository.port';
-import type { DetailPageQueryRepositoryPort } from '../../port/out/detail-page-query.repository.port';
+import type { DetailPageGenerationRepositoryPort } from '../../port/out/repository/detail-page-generation.repository.port';
+import type { DetailPageQueryRepositoryPort } from '../../port/out/repository/detail-page-query.repository.port';
 
 const ORGANIZATION_ID = '11111111-1111-4111-8111-111111111111';
 const USER_ID = '99999999-9999-9999-9999-999999999999';

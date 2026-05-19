@@ -25,11 +25,11 @@ import {
 import {
   IMAGE_EDIT_MEDIA_PORT,
   type ImageEditMediaPort,
-} from '../../../application/port/out/image-edit-media.port';
+} from '../../../application/port/out/provider/image-edit-media.port';
 import {
   IMAGE_STORAGE_PORT,
   type ImageStoragePort,
-} from '../../../application/port/out/image-storage.port';
+} from '../../../application/port/out/storage/image-storage.port';
 
 @Injectable()
 export class ImageEditRuntimeHandler

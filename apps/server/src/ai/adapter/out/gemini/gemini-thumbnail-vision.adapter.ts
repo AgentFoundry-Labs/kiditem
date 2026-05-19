@@ -10,11 +10,11 @@ import {
   IMAGE_FETCH_PORT,
   type FetchedImage,
   type ImageFetchPort,
-} from '../../../application/port/out/image-fetch.port';
+} from '../../../application/port/out/provider/image-fetch.port';
 import type {
   ThumbnailVisionContents,
   ThumbnailVisionProviderPort,
-} from '../../../application/port/out/thumbnail-vision-provider.port';
+} from '../../../application/port/out/provider/thumbnail-vision-provider.port';
 
 /**
  * Owns the Gemini client lifecycle and the request/response envelope shared by

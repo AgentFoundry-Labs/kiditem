@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ThumbnailGenerationLifecycleService } from '../thumbnail-generation-lifecycle.service';
-import type { ThumbnailGenerationLedgerRepositoryPort } from '../../port/out/thumbnail-generation-ledger.repository.port';
-import type { ThumbnailGenerationEventPort } from '../../port/out/thumbnail-generation-event.port';
+import type { ThumbnailGenerationLedgerRepositoryPort } from '../../port/out/repository/thumbnail-generation-ledger.repository.port';
+import type { ThumbnailGenerationEventPort } from '../../port/out/event/thumbnail-generation-event.port';
 
 const ORGANIZATION_ID = '11111111-1111-4111-8111-111111111111';
 const GENERATION_ID = '22222222-2222-4222-8222-222222222222';

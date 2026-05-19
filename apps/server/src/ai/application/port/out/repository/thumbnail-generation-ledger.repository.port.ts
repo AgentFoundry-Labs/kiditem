@@ -2,9 +2,9 @@ import type { EditAnalysisResult } from '@kiditem/shared/ai';
 import type {
   ThumbnailEditorCandidate,
   ThumbnailEditorInputImage,
-} from '../../../domain/model/thumbnail-editor';
-import type { ThumbnailGenerationListScope } from '../../../domain/thumbnail-generation-subject';
-import type { ThumbnailAnalysisContext } from '../../../domain/thumbnail-generation-inputs';
+} from '../../../../domain/model/thumbnail-editor';
+import type { ThumbnailGenerationListScope } from '../../../../domain/thumbnail-generation-subject';
+import type { ThumbnailAnalysisContext } from '../../../../domain/thumbnail-generation-inputs';
 
 export const THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT = Symbol(
   'THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT',

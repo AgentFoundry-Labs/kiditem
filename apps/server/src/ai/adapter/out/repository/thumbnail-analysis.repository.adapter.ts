@@ -4,7 +4,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   type ThumbnailAnalysisRepositoryPort,
   type UpsertThumbnailAnalysisInput,
-} from '../../../application/port/out/thumbnail-analysis.repository.port';
+} from '../../../application/port/out/repository/thumbnail-analysis.repository.port';
 import { upsertThumbnailAnalysis } from './thumbnail-analysis.persistence';
 import { thumbnailMasterImageSelect } from './thumbnail-master-image-select.preset';
 

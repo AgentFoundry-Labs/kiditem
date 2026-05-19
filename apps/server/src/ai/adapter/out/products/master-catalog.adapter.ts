@@ -7,7 +7,7 @@ import type {
   CoupangListingImageState,
   CoupangListingHandle,
   MasterCatalogPort,
-} from '../../../application/port/out/master-catalog.port';
+} from '../../../application/port/out/cross-domain/master-catalog.port';
 
 /**
  * `MASTER_CATALOG_PORT` 의 concrete adapter.

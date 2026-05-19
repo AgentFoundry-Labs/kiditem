@@ -3,8 +3,8 @@ import { GoogleGenAI, Modality } from '@google/genai';
 import {
   type ThumbnailImageGenerationCommand,
   type ThumbnailImageGenerationPort,
-} from '../../../application/port/out/thumbnail-image-generation.port';
-import type { ThumbnailPromptPart } from '../../../application/port/out/thumbnail-reference-images.port';
+} from '../../../application/port/out/provider/thumbnail-image-generation.port';
+import type { ThumbnailPromptPart } from '../../../application/port/out/provider/thumbnail-reference-images.port';
 import {
   requireGeminiApiKey,
   requireGeminiImageModel,

@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ThumbnailGenerationService } from '../thumbnail-generation.service';
 import { ThumbnailGenerationLifecycleService } from '../thumbnail-generation-lifecycle.service';
-import type { OperationAlertPort } from '../../port/out/operation-alert.port';
+import type { OperationAlertPort } from '../../port/out/cross-domain/operation-alert.port';
 import type { ProductGenerationAlertService } from '../product-generation-alert.service';
-import type { ThumbnailGenerationLedgerRepositoryPort } from '../../port/out/thumbnail-generation-ledger.repository.port';
+import type { ThumbnailGenerationLedgerRepositoryPort } from '../../port/out/repository/thumbnail-generation-ledger.repository.port';
 
 const ORGANIZATION_ID = '11111111-1111-4111-8111-111111111111';
 const USER_ID = '99999999-9999-9999-9999-999999999999';

@@ -4,13 +4,13 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   CONTENT_ASSET_LIBRARY_REPOSITORY_PORT,
   type ContentAssetLibraryRepositoryPort,
-} from '../../../application/port/out/content-asset-library.repository.port';
+} from '../../../application/port/out/repository/content-asset-library.repository.port';
 import type {
   DetailPageDuplicateSourceSnapshot,
   DetailPageGenerationSnapshot,
   DetailPageListRepositoryInput,
   DetailPageQueryRepositoryPort,
-} from '../../../application/port/out/detail-page-query.repository.port';
+} from '../../../application/port/out/repository/detail-page-query.repository.port';
 
 const detailPageGenerationInclude = {
   generationGroup: {

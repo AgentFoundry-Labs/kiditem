@@ -1,4 +1,4 @@
-import type { ImageEditAgentOutput } from '../../../domain/agent-output';
+import type { ImageEditAgentOutput } from '../../../../domain/agent-output';
 
 export const IMAGE_EDIT_AGENT_OUTPUT_SINK_PORT = Symbol('IMAGE_EDIT_AGENT_OUTPUT_SINK_PORT');
 

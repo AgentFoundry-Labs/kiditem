@@ -5,7 +5,7 @@
 import type {
   ProductGenerationAiRequest,
   ProductGenerationAiResult,
-} from '../../../../ai/application/port/in/product-generation-ai-trigger.port';
+} from '../../../../ai/application/port/in/generation/product-generation-ai-trigger.port';
 
 export const SOURCING_AGENT_GATEWAY_PORT = Symbol('SOURCING_AGENT_GATEWAY_PORT');
 

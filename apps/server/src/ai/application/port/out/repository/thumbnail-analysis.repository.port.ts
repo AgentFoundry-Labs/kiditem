@@ -5,7 +5,7 @@ import type {
   ThumbnailAnalysisResult,
   ThumbnailScores,
 } from '@kiditem/shared/ai';
-import type { ThumbnailMasterImageRow } from '../../../domain/thumbnail-master-image';
+import type { ThumbnailMasterImageRow } from '../../../../domain/thumbnail-master-image';
 
 export const THUMBNAIL_ANALYSIS_REPOSITORY_PORT = Symbol(
   'THUMBNAIL_ANALYSIS_REPOSITORY_PORT',

@@ -3,7 +3,7 @@ import {
   AI_WORKSPACE_ARCHIVE_PORT,
   type AiWorkspaceArchiveScope,
   type AiWorkspaceArchivePort,
-} from '../../../../ai/application/port/in/sourcing-workspace-archive.port';
+} from '../../../../ai/application/port/in/workspace/sourcing-workspace-archive.port';
 import type {
   ArchiveSourcingWorkspaceInput,
   ArchiveSourcingWorkspaceResult,

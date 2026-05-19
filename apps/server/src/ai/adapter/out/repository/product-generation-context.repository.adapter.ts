@@ -3,7 +3,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   ProductGenerationCandidateContext,
   ProductGenerationContextRepositoryPort,
-} from '../../../application/port/out/product-generation-context.repository.port';
+} from '../../../application/port/out/repository/product-generation-context.repository.port';
 
 @Injectable()
 export class ProductGenerationContextRepositoryAdapter

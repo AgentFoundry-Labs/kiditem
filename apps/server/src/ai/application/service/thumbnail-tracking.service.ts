@@ -3,13 +3,13 @@ import { THUMBNAIL_TRACKING_STATUSES, type ThumbnailTrackingListResponse, type T
 import {
   COUPANG_PRODUCT_SALES_SCRAPE_PORT,
   type CoupangProductSalesScrapePort,
-} from '../port/out/coupang-product-sales-scrape.port';
+} from '../port/out/provider/coupang-product-sales-scrape.port';
 import {
   THUMBNAIL_TRACKING_REPOSITORY_PORT,
   type ThumbnailTrackingRepositoryPort,
   type ThumbnailTrackingRow,
   type ThumbnailTrackingSnapshotRow,
-} from '../port/out/thumbnail-tracking.repository.port';
+} from '../port/out/repository/thumbnail-tracking.repository.port';
 
 function toRecord(row: ThumbnailTrackingRow, nowMs: number = Date.now()): ThumbnailTrackingRecord {
   const status = (THUMBNAIL_TRACKING_STATUSES as readonly string[]).includes(row.status)

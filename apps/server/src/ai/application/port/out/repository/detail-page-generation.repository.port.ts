@@ -3,7 +3,7 @@ import type {
   DetailPageRawInput,
   DetailPageSourceReference,
   DetailPageTemplateId,
-} from '../../service/detail-page-ai.types';
+} from '../../../service/detail-page-ai.types';
 
 export const DETAIL_PAGE_GENERATION_REPOSITORY_PORT = Symbol(
   'DETAIL_PAGE_GENERATION_REPOSITORY_PORT',

@@ -6,7 +6,7 @@ import type {
   ContentWorkspaceListInput,
   ContentWorkspaceSnapshot,
   EnsureContentWorkspaceInput,
-} from '../../../application/port/out/content-workspace-lifecycle.repository.port';
+} from '../../../application/port/out/repository/content-workspace-lifecycle.repository.port';
 
 @Injectable()
 export class ContentWorkspaceLifecycleRepositoryAdapter

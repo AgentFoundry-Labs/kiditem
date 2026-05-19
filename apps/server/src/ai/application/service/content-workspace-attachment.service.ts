@@ -2,7 +2,7 @@ import { BadRequestException, Inject, Injectable, NotFoundException } from '@nes
 import {
   CONTENT_WORKSPACE_ATTACHMENT_REPOSITORY_PORT,
   type ContentWorkspaceAttachmentRepositoryPort,
-} from '../port/out/content-workspace-attachment.repository.port';
+} from '../port/out/repository/content-workspace-attachment.repository.port';
 import { ContentArchiveService } from './content-archive.service';
 
 @Injectable()

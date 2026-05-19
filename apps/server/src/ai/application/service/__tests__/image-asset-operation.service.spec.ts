@@ -1,8 +1,8 @@
 import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { ImageAssetOperationService } from '../image-asset-operation.service';
-import type { ImageFetchPort } from '../../port/out/image-fetch.port';
-import type { ImageStoragePort } from '../../port/out/image-storage.port';
+import type { ImageFetchPort } from '../../port/out/provider/image-fetch.port';
+import type { ImageStoragePort } from '../../port/out/storage/image-storage.port';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const sharp: typeof import('sharp') = require('sharp');

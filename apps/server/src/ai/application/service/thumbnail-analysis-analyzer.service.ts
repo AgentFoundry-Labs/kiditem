@@ -26,7 +26,7 @@ import {
   type ThumbnailAnalysisComplianceFacet,
   type ThumbnailAnalysisQualityFacet,
   type ThumbnailAnalysisRepositoryPort,
-} from '../port/out/thumbnail-analysis.repository.port';
+} from '../port/out/repository/thumbnail-analysis.repository.port';
 
 /**
  * Single-product analyzer — owns analyzeProduct / analyzeDirectImage /
