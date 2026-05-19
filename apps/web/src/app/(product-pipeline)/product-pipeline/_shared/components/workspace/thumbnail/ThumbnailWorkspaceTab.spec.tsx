@@ -201,6 +201,69 @@ describe('ThumbnailWorkspaceTab', () => {
     expect(onSelectRegistrationThumbnail).not.toHaveBeenCalled();
   });
 
+  it('adds a generated history image to thumbnail preview images', () => {
+    const onThumbnailPreviewImagesChange = vi.fn();
+
+    render(
+      <ThumbnailWorkspaceTab
+        editData={editData}
+        productId="candidate-1"
+        promotedMasterId={null}
+        contentWorkspaceId={null}
+        thumbnailUrl={null}
+        thumbnailSourceCandidateId="candidate-1"
+        selectedRegistrationThumbnailUrl={null}
+        thumbnailPreviewImages={editData.thumbnails}
+        onPreviewThumbnail={vi.fn()}
+        onThumbnailPreviewImagesChange={onThumbnailPreviewImagesChange}
+        onSaveThumbnailConfiguration={vi.fn()}
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '생성 1 미리보기 이미지로 추가' }));
+
+    expect(onThumbnailPreviewImagesChange).toHaveBeenCalledWith([
+      'https://cdn.example.com/source.jpg',
+      'https://cdn.example.com/generated.jpg',
+    ]);
+  });
+
+  it('opens generated image actions and sends that image to the editor', () => {
+    const onPreviewThumbnail = vi.fn();
+
+    render(
+      <ThumbnailWorkspaceTab
+        editData={editData}
+        productId="candidate-1"
+        promotedMasterId={null}
+        contentWorkspaceId={null}
+        thumbnailUrl={null}
+        thumbnailSourceCandidateId="candidate-1"
+        selectedRegistrationThumbnailUrl={null}
+        thumbnailPreviewImages={editData.thumbnails}
+        onPreviewThumbnail={onPreviewThumbnail}
+        onThumbnailPreviewImagesChange={vi.fn()}
+        onSaveThumbnailConfiguration={vi.fn()}
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /생성 결과 미리보기 1/ }));
+
+    expect(screen.getByRole('dialog', { name: '생성 이미지 미리보기' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'PNG' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /스마트스토어/ })).toHaveTextContent('640 x 640');
+    expect(screen.getByRole('button', { name: /쿠팡/ })).toHaveTextContent('1000 x 1000');
+
+    fireEvent.click(screen.getByRole('button', { name: '이미지 편집기로 가기' }));
+
+    expect(pushMock.mock.calls[0][0]).toContain('/product-pipeline/thumbnail-generation/edit?');
+    expect(pushMock.mock.calls[0][0]).toContain('mode=edit');
+    expect(pushMock.mock.calls[0][0]).toContain('generated.jpg');
+    expect(onPreviewThumbnail).toHaveBeenCalledWith('https://cdn.example.com/generated.jpg');
+  });
+
   it('saves the thumbnail preview order without registering a representative', () => {
     const onSaveThumbnailConfiguration = vi.fn();
 

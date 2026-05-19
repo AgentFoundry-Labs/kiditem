@@ -47,10 +47,7 @@ export function buildProductManagementMasterWhere(
   return {
     organizationId,
     ...(q.includeDeleted ? {} : { isDeleted: false }),
-    OR: [
-      { options: { some: { organizationId, isDeleted: false } } },
-      { listings: { some: { organizationId, isDeleted: false } } },
-    ],
+    listings: { some: { organizationId, isDeleted: false } },
     ...(q.isDeleted !== undefined ? { isDeleted: q.isDeleted } : {}),
     ...(q.isTemporary !== undefined ? { isTemporary: q.isTemporary } : {}),
     ...(q.category ? { category: { contains: q.category, mode: 'insensitive' } } : {}),

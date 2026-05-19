@@ -31,6 +31,12 @@ export class RegisterManualProductDto {
   @IsString()
   thumbnailUrl?: string;
 
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsString({ each: true })
+  thumbnailUrls?: string[];
+
   @IsArray()
   @ArrayMaxSize(15)
   @IsString({ each: true })
@@ -41,4 +47,10 @@ export class RegisterManualProductDto {
   @ArrayMaxSize(10)
   @IsString({ each: true })
   optionNames?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsString({ each: true })
+  keywords?: string[];
 }

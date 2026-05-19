@@ -59,7 +59,7 @@ describe('MobilePreview', () => {
     expect(screen.getByText('1 / 3')).toBeInTheDocument();
   });
 
-  it('keeps selected detail html in the phone scroll flow instead of clipping it', () => {
+  it('keeps selected detail html in the long preview flow instead of clipping it', () => {
     render(
       <MobilePreview
         {...previewProps}
@@ -67,7 +67,13 @@ describe('MobilePreview', () => {
       />,
     );
 
-    expect(screen.getByTestId('mobile-preview-phone-scroll')).toHaveClass('overflow-y-auto');
+    expect(screen.getByTestId('mobile-preview-page')).not.toHaveClass('h-[640px]');
+    expect(screen.getByTestId('mobile-preview-root')).toHaveClass('h-full');
+    expect(screen.getByTestId('mobile-preview-root')).toHaveClass('max-h-[calc(100vh-2.5rem)]');
+    expect(screen.getByTestId('mobile-preview-page')).toHaveClass('overflow-hidden');
+    expect(screen.getByTestId('mobile-preview-scroll-content')).toHaveClass('overflow-y-auto');
+    expect(screen.getByTestId('mobile-preview-scroll-content')).toHaveClass('[scrollbar-width:none]');
+    expect(screen.getByTestId('mobile-preview-fixed-actions')).toHaveClass('shrink-0');
     expect(screen.getByTestId('mobile-preview-detail-scroll-region')).toBeInTheDocument();
     expect(screen.getByTitle('mobile-registration-detail-preview')).toHaveClass(
       'pointer-events-none',

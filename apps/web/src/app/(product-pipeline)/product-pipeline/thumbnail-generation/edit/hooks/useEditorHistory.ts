@@ -3,6 +3,7 @@
 import { useEffect, useMemo } from 'react';
 import { useGenerationList } from '../../../_shared/hooks/useThumbnailGenerations';
 import { resolveImageUrl } from '@/lib/resolve-url';
+import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
 import type { EditorMode, HistoryCandidate } from '../lib/edit-page-types';
 
 interface Args {
@@ -12,15 +13,21 @@ interface Args {
   mode: EditorMode;
   result: Array<{ url: string; filename: string }>;
   generationId: string | null;
+  observedGeneration?: ThumbnailGenerationItem | null;
   selectedCandidateUrl: string | null;
   setSelectedCandidateUrl: (url: string | null) => void;
 }
 
 export function useEditorHistory({
   productId, sourceCandidateId, contentWorkspaceId, mode, result, generationId,
-  selectedCandidateUrl, setSelectedCandidateUrl,
+  observedGeneration, selectedCandidateUrl, setSelectedCandidateUrl,
 }: Args) {
-  const { data: allGenerations = [] } = useGenerationList();
+  const hasOwnerScope = Boolean(productId || sourceCandidateId || contentWorkspaceId);
+  const { data: allGenerations = [] } = useGenerationList(
+    hasOwnerScope
+      ? { productId, sourceCandidateId, contentWorkspaceId, limit: 24 }
+      : { scope: 'direct-upload', limit: 24 },
+  );
 
   const historyCandidates = useMemo<HistoryCandidate[]>(() => {
     const list: HistoryCandidate[] = [];
@@ -33,10 +40,20 @@ export function useEditorHistory({
     };
     const currentMethod = mode === 'creative' ? 'creative' : 'generate';
     const nowIso = new Date().toISOString();
+    if (observedGeneration?.candidates?.length) {
+      for (const c of observedGeneration.candidates) {
+        push({
+          ...c,
+          method: observedGeneration.method,
+          createdAt: observedGeneration.createdAt,
+          generationId: observedGeneration.id,
+        });
+      }
+    }
     for (const c of result) {
       push({ ...c, method: currentMethod, createdAt: nowIso, generationId });
     }
-    if (productId || sourceCandidateId || contentWorkspaceId) {
+    if (hasOwnerScope) {
       const workspaceGens = allGenerations
         .filter((g) =>
           contentWorkspaceId
@@ -50,9 +67,25 @@ export function useEditorHistory({
           push({ ...c, method: gen.method, createdAt: gen.createdAt, generationId: gen.id });
         }
       }
+    } else {
+      for (const gen of allGenerations) {
+        for (const c of gen.candidates ?? []) {
+          push({ ...c, method: gen.method, createdAt: gen.createdAt, generationId: gen.id });
+        }
+      }
     }
     return list;
-  }, [allGenerations, productId, sourceCandidateId, contentWorkspaceId, result, mode, generationId]);
+  }, [
+    allGenerations,
+    hasOwnerScope,
+    productId,
+    sourceCandidateId,
+    contentWorkspaceId,
+    result,
+    mode,
+    generationId,
+    observedGeneration,
+  ]);
 
   const recommendedCandidateUrl = useMemo(() => {
     if (!productId && !sourceCandidateId && !contentWorkspaceId) return null;

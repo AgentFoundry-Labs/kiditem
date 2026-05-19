@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import type { RegistrationThumbnailOption } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/registration-selection';
-import { cropImageWhitespaceFile } from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/lib/image-whitespace-crop';
+import { prepareImageUploadFile } from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/lib/image-whitespace-crop';
 import { writeThumbnailEditorUpload } from '@/app/(product-pipeline)/product-pipeline/thumbnail-generation/edit/lib/upload-session';
 import { apiClient } from '@/lib/api-client';
 import { useSourcingThumbnailGenerations } from '../../../hooks/useGenerateSourcingThumbnail';
@@ -120,20 +120,20 @@ export default function ThumbnailWorkspaceTab({
     onPreviewThumbnail(selectedSourceUrl);
   }, [onPreviewThumbnail, selectedSourceUrl]);
 
-  const openEditor = (mode: 'edit' | 'creative') => {
-    if (!selectedSourceUrl) return;
+  const openEditor = (mode: 'edit' | 'creative', sourceUrl = selectedSourceUrl) => {
+    if (!sourceUrl) return;
     const shouldUseUploadKey =
-      selectedSourceUrl.startsWith('data:') ||
-      selectedSourceUrl.startsWith('blob:') ||
-      selectedSourceUrl.length > 1500;
+      sourceUrl.startsWith('data:') ||
+      sourceUrl.startsWith('blob:') ||
+      sourceUrl.length > 1500;
     const uploadKey = shouldUseUploadKey
-      ? writeThumbnailEditorUpload(selectedSourceUrl, { productName: editData.name, mode })
+      ? writeThumbnailEditorUpload(sourceUrl, { productName: editData.name, mode })
       : null;
     const workspaceHref = thumbnailGenerationEditHref({
       mode,
       editCase: mode === 'edit' ? 'single' : null,
       returnTo: thumbnailGenerationReturnHref,
-      imageUrl: uploadKey ? null : selectedSourceUrl,
+      imageUrl: uploadKey ? null : sourceUrl,
       productName: editData.name,
       productDescription: editData.name,
       extraParams: {
@@ -148,8 +148,8 @@ export default function ThumbnailWorkspaceTab({
   };
 
   const uploadThumbnailSourceImage = async (file: File): Promise<string> => {
-    const uploadFile = await cropImageWhitespaceFile(file).catch((err) => {
-      console.warn('[thumbnail-workspace] upload image whitespace crop failed, using original', err);
+    const uploadFile = await prepareImageUploadFile(file).catch((err) => {
+      console.warn('[thumbnail-workspace] upload image preparation failed, using original', err);
       return file;
     });
     const formData = new FormData();
@@ -250,7 +250,13 @@ export default function ThumbnailWorkspaceTab({
       />
       <ProductThumbnailResults
         options={resultOptions}
+        previewImageUrls={thumbnailPreviewImages}
         onPreviewThumbnail={onPreviewThumbnail}
+        onAddToPreviewImages={(url) => handleAddImages([url])}
+        onEditThumbnail={(url) => {
+          setSelectedSourceUrl(url);
+          openEditor('edit', url);
+        }}
       />
     </div>
   );

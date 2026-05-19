@@ -113,6 +113,120 @@ export function EditorInputPanel({
       toast.error('이미지 다운로드에 실패했어요. 다시 시도해주세요.');
     }
   };
+  const historyPanel = (
+    <div className="flex-shrink-0 border-t border-gray-200 bg-gray-50 px-4 pt-3 pb-4">
+      <div className="flex items-center justify-between px-1 pb-2">
+        <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
+          생성 이미지 이력 · 최신순 · {historyCandidates.length}
+        </span>
+        {selectedCandidateUrl ? (
+          <button
+            type="button"
+            onClick={handleDownloadSelected}
+            className="flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-semibold text-gray-700 transition-colors hover:bg-gray-100"
+            title="선택한 이미지 다운로드"
+          >
+            <Download size={12} /> 다운로드
+          </button>
+        ) : (
+          <span className="flex cursor-not-allowed items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-semibold text-gray-400 opacity-50">
+            <Download size={12} /> 다운로드
+          </span>
+        )}
+      </div>
+      {historyCandidates.length > 0 ? (
+        <div className="grid max-h-[260px] grid-cols-2 gap-1 overflow-y-auto p-0.5 pr-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+          {historyCandidates.map((c, idx) => {
+            const url = resolveImageUrl(c.url) ?? '';
+            const label = String.fromCharCode(65 + idx);
+            const active = selectedCandidateUrl === url;
+            const recommended = recommendedCandidateUrl && recommendedCandidateUrl === url;
+            const isCreative = c.method === 'creative';
+            const modeLabel = isCreative ? '연출' : '편집';
+            const modeTitle = isCreative ? 'AI 연출 생성' : '이미지 편집';
+            const createdLabel = c.createdAt ? timeAgo(c.createdAt) : null;
+            return (
+              <button
+                key={`${c.generationId ?? 'cur'}-${c.filename}-${idx}`}
+                type="button"
+                onClick={() => onSelectCandidate(url)}
+                className={cn(
+                  'relative aspect-square overflow-hidden bg-white transition-all',
+                  active
+                    ? 'ring-2 ring-inset ring-violet-500'
+                    : 'hover:ring-1 hover:ring-inset hover:ring-gray-400',
+                )}
+                title={`${modeTitle} · 후보 ${label}${createdLabel ? ` · ${createdLabel}` : ''}${recommended ? ' · 추천' : ''}`}
+              >
+                {url ? (
+                  <ImgWithSkeleton
+                    src={url}
+                    alt={`후보 ${label}`}
+                    fit="cover"
+                  />
+                ) : null}
+                <span
+                  className={cn(
+                    'absolute left-1 top-1 flex h-4 w-4 items-center justify-center rounded-md text-[9px] font-bold',
+                    active ? 'bg-violet-600 text-white' : 'bg-white/90 text-gray-700',
+                  )}
+                >
+                  {label}
+                </span>
+                <span
+                  className={cn(
+                    'absolute right-1 top-1 flex items-center gap-0.5 rounded-md px-1 py-0.5 text-[9px] font-bold shadow-sm',
+                    isCreative ? 'bg-fuchsia-500 text-white' : 'bg-violet-500 text-white',
+                  )}
+                >
+                  {isCreative ? <Sparkles size={8} /> : <Scissors size={8} />}
+                  {modeLabel}
+                </span>
+                {(createdLabel || recommended) && (
+                  <span className="absolute bottom-1 left-1 right-1 flex items-center justify-between gap-1">
+                    {createdLabel ? (
+                      <span className="rounded-md bg-black/55 px-1 py-0.5 text-[9px] font-semibold text-white">
+                        {createdLabel}
+                      </span>
+                    ) : (
+                      <span />
+                    )}
+                    {recommended && (
+                      <span className="rounded-md bg-amber-400 px-1 py-0.5 text-[8px] font-black uppercase tracking-wide text-white shadow-sm">
+                        ★ 추천
+                      </span>
+                    )}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="flex h-24 items-center justify-center rounded-xl border border-dashed border-gray-200 bg-white text-[12px] font-semibold text-gray-400">
+          아직 생성 결과가 없습니다
+        </div>
+      )}
+
+      {generationId && onDeleteSelectedCandidate && (
+        <button
+          type="button"
+          onClick={onDeleteSelectedCandidate}
+          disabled={!selectedCandidateUrl}
+          className={cn(
+            'mt-3 flex w-full items-center justify-center gap-2 rounded-xl py-3 text-[14px] font-bold transition-all',
+            selectedCandidateUrl
+              ? 'border border-rose-200 bg-white text-rose-600 hover:bg-rose-50 active:scale-[0.99]'
+              : 'cursor-not-allowed border border-gray-200 bg-white text-gray-400',
+          )}
+          title={selectedCandidateUrl ? '선택한 이미지 1장만 삭제합니다' : '먼저 삭제할 이미지를 선택하세요'}
+        >
+          <Trash2 size={15} />
+          선택 이미지 삭제
+        </button>
+      )}
+    </div>
+  );
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-white">
@@ -387,114 +501,7 @@ export function EditorInputPanel({
         )}
       </div>
 
-      {historyCandidates.length > 0 && (
-        <div className="flex-shrink-0 border-t border-gray-200 bg-gray-50 px-4 pt-3 pb-4">
-          <div className="flex items-center justify-between px-1 pb-2">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
-              이미지 히스토리 · 최신순 · {historyCandidates.length}
-            </span>
-            {selectedCandidateUrl ? (
-              <button
-                type="button"
-                onClick={handleDownloadSelected}
-                className="flex items-center gap-1 text-[11px] font-semibold text-gray-700 bg-white hover:bg-gray-100 border border-gray-200 rounded-lg px-2 py-1 transition-colors"
-                title="선택한 이미지 다운로드"
-              >
-                <Download size={12} /> 다운로드
-              </button>
-            ) : (
-              <span className="flex items-center gap-1 text-[11px] font-semibold text-gray-400 bg-white border border-gray-200 rounded-lg px-2 py-1 opacity-50 cursor-not-allowed">
-                <Download size={12} /> 다운로드
-              </span>
-            )}
-          </div>
-          <div className="grid grid-cols-2 gap-1 max-h-[432px] overflow-y-auto p-0.5 pr-1 [&::-webkit-scrollbar]:hidden [scrollbar-width:none] [-ms-overflow-style:none]">
-            {historyCandidates.map((c, idx) => {
-              const url = resolveImageUrl(c.url) ?? '';
-              const label = String.fromCharCode(65 + idx);
-              const active = selectedCandidateUrl === url;
-              const recommended = recommendedCandidateUrl && recommendedCandidateUrl === url;
-              const isCreative = c.method === 'creative';
-              const modeLabel = isCreative ? '연출' : '편집';
-              const modeTitle = isCreative ? 'AI 연출 생성' : '이미지 편집';
-              const createdLabel = c.createdAt ? timeAgo(c.createdAt) : null;
-              return (
-                <button
-                  key={`${c.generationId ?? 'cur'}-${c.filename}-${idx}`}
-                  type="button"
-                  onClick={() => onSelectCandidate(url)}
-                  className={cn(
-                    'relative aspect-square overflow-hidden bg-white transition-all',
-                    active
-                      ? 'ring-2 ring-inset ring-violet-500'
-                      : 'hover:ring-1 hover:ring-inset hover:ring-gray-400',
-                  )}
-                  title={`${modeTitle} · 후보 ${label}${createdLabel ? ` · ${createdLabel}` : ''}${recommended ? ' · 추천' : ''}`}
-                >
-                  {url ? (
-                    <ImgWithSkeleton
-                      src={url}
-                      alt={`후보 ${label}`}
-                      fit="cover"
-                    />
-                  ) : null}
-                  <span
-                    className={cn(
-                      'absolute top-1 left-1 w-4 h-4 rounded-md flex items-center justify-center text-[9px] font-bold',
-                      active ? 'bg-violet-600 text-white' : 'bg-white/90 text-gray-700',
-                    )}
-                  >
-                    {label}
-                  </span>
-                  <span
-                    className={cn(
-                      'absolute top-1 right-1 flex items-center gap-0.5 rounded-md px-1 py-0.5 text-[9px] font-bold shadow-sm',
-                      isCreative ? 'bg-fuchsia-500 text-white' : 'bg-violet-500 text-white',
-                    )}
-                  >
-                    {isCreative ? <Sparkles size={8} /> : <Scissors size={8} />}
-                    {modeLabel}
-                  </span>
-                  {(createdLabel || recommended) && (
-                    <span className="absolute bottom-1 left-1 right-1 flex items-center justify-between gap-1">
-                      {createdLabel ? (
-                        <span className="px-1 py-0.5 rounded-md bg-black/55 text-white text-[9px] font-semibold">
-                          {createdLabel}
-                        </span>
-                      ) : (
-                        <span />
-                      )}
-                      {recommended && (
-                        <span className="px-1 py-0.5 rounded-md bg-amber-400 text-white text-[8px] font-black uppercase tracking-wide shadow-sm">
-                          ★ 추천
-                        </span>
-                      )}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-
-          {generationId && onDeleteSelectedCandidate && (
-            <button
-              type="button"
-              onClick={onDeleteSelectedCandidate}
-              disabled={!selectedCandidateUrl}
-              className={cn(
-                'mt-3 w-full flex items-center justify-center gap-2 py-3 rounded-xl text-[14px] font-bold transition-all',
-                selectedCandidateUrl
-                  ? 'bg-white border border-rose-200 text-rose-600 hover:bg-rose-50 active:scale-[0.99]'
-                  : 'bg-white border border-gray-200 text-gray-400 cursor-not-allowed',
-              )}
-              title={selectedCandidateUrl ? '선택한 이미지 1장만 삭제합니다' : '먼저 삭제할 이미지를 선택하세요'}
-            >
-              <Trash2 size={15} />
-              선택 이미지 삭제
-            </button>
-          )}
-        </div>
-      )}
+      {historyPanel}
     </div>
   );
 }

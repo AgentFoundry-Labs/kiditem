@@ -24,8 +24,10 @@ export interface RegisterManualProductCommand {
   description?: string;
   target?: string;
   thumbnailUrl?: string;
+  thumbnailUrls?: string[];
   imageUrls: string[];
   optionNames?: string[];
+  keywords?: string[];
   ageGroup?: 'age-8-plus' | 'age-14-plus';
   kcCertificationStatus?: 'unknown' | 'none' | 'exists';
   kcCertificationNumber?: string;

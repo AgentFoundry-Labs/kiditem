@@ -18,8 +18,18 @@ export type ThumbnailGenerationListScope = 'product-bound' | 'direct-upload' | '
 export function useGenerationList(params: {
   scope?: ThumbnailGenerationListScope;
   limit?: number;
+  productId?: string | null;
+  sourceCandidateId?: string | null;
+  contentWorkspaceId?: string | null;
 } = {}) {
   const queryParams: Record<string, string> = {};
+  if (params.contentWorkspaceId) {
+    queryParams.contentWorkspaceId = params.contentWorkspaceId;
+  } else if (params.sourceCandidateId) {
+    queryParams.sourceCandidateId = params.sourceCandidateId;
+  } else if (params.productId) {
+    queryParams.productId = params.productId;
+  }
   if (params.scope && params.scope !== 'product-bound') queryParams.scope = params.scope;
   if (params.limit) queryParams.limit = String(params.limit);
   const query = new URLSearchParams(queryParams).toString();

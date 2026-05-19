@@ -120,26 +120,26 @@ function buildBridgeScript(): string {
   var extentCache = null;
   var extentCacheAt = 0;
 
+  function ensureNormalizationStyles() {
+    if (!document.head) return;
+    if (document.head.querySelector('style[${BRIDGE_MARKER}]')) return;
+    var style = document.createElement('style');
+    style.setAttribute(${JSON.stringify(BRIDGE_MARKER)}, '');
+    style.textContent =
+      'html,body{min-height:0!important;height:auto!important}' +
+      '[class*="min-h-screen"]{min-height:0!important}' +
+      '[class*="h-screen"]{height:auto!important}';
+    document.head.appendChild(style);
+  }
+  ensureNormalizationStyles();
+
   function measureDocumentExtent() {
     var doc = document.documentElement;
     var body = document.body;
     var scrollX = window.scrollX || window.pageXOffset || 0;
     var scrollY = window.scrollY || window.pageYOffset || 0;
-    var maxBottom = Math.max(
-      doc.scrollHeight || 0,
-      doc.offsetHeight || 0,
-      body ? body.scrollHeight || 0 : 0,
-      body ? body.offsetHeight || 0 : 0,
-      window.innerHeight || 0
-    );
-    var maxRight = Math.max(
-      doc.scrollWidth || 0,
-      doc.offsetWidth || 0,
-      body ? body.scrollWidth || 0 : 0,
-      body ? body.offsetWidth || 0 : 0,
-      window.innerWidth || 0,
-      720
-    );
+    var maxBottom = 1;
+    var maxRight = 720;
 
     if (body) {
       var nodes = body.querySelectorAll('*');
@@ -152,6 +152,14 @@ function buildBridgeScript(): string {
         maxBottom = Math.max(maxBottom, rect.bottom + scrollY);
         maxRight = Math.max(maxRight, rect.right + scrollX);
       }
+    }
+
+    if (maxBottom <= 1) {
+      maxBottom = Math.max(
+        doc ? doc.offsetHeight || 0 : 0,
+        body ? body.offsetHeight || 0 : 0,
+        1
+      );
     }
 
     return {

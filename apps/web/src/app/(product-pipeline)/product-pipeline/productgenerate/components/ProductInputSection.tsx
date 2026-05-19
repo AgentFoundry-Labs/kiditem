@@ -55,6 +55,8 @@ interface ProductInputSectionProps {
   setRawTitle: (value: string) => void;
   rawCategory: string;
   setRawCategory: (value: string) => void;
+  keyword: string;
+  setKeyword: (value: string) => void;
   target: string;
   setTarget: (value: string) => void;
   ageGroup: DetailPageAgeGroup;
@@ -92,7 +94,7 @@ interface ProductInputSectionProps {
   onPrefill: () => void;
   onDuplicateCheck: () => void;
   onLoadDuplicateLatest: () => void;
-  onSubmit: (thumbnailUrl: string | null) => void;
+  onSubmit: (thumbnailUrls: string[]) => void;
 }
 
 const TARGET_OPTIONS = [
@@ -138,6 +140,8 @@ export default function ProductInputSection({
   setRawTitle,
   rawCategory,
   setRawCategory,
+  keyword,
+  setKeyword,
   target,
   setTarget,
   ageGroup,
@@ -180,13 +184,14 @@ export default function ProductInputSection({
   const [previewTemplateId, setPreviewTemplateId] = useState<GenerateTemplateId | null>(null);
   const [optionDraft, setOptionDraft] = useState('');
   const {
-    thumbnailImage,
-    setThumbnailImage,
+    thumbnailImages,
+    maxThumbnailImages,
     thumbnailUploading,
     uploadingCount,
     uploadError,
     handleThumbnailUpload,
     handleImageUpload,
+    removeThumbnailImage,
     removeImage,
   } = useProductImageUploads({
     images,
@@ -323,6 +328,16 @@ export default function ProductInputSection({
               <SelectField value={target} onChange={setTarget} options={TARGET_OPTIONS} />
             </Field>
           </div>
+
+          <Field label="검색 키워드">
+            <input
+              type="text"
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              placeholder="비워두면 AI가 상품에 맞춰 1개를 추천해요"
+              className="h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] px-3 text-sm font-medium text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--primary)]"
+            />
+          </Field>
 
           <div className="grid gap-4 md:grid-cols-[1.2fr_0.8fr_0.8fr]">
             <Field label="사용 연령">
@@ -502,14 +517,15 @@ export default function ProductInputSection({
           </div>
 
           <ProductImageInputs
-            thumbnailImage={thumbnailImage}
+            thumbnailImages={thumbnailImages}
+            maxThumbnailImages={maxThumbnailImages}
             thumbnailUploading={thumbnailUploading}
             uploadingCount={uploadingCount}
             images={images}
             maxImages={MAX_IMAGES}
             onThumbnailUpload={handleThumbnailUpload}
             onImageUpload={handleImageUpload}
-            onThumbnailRemove={() => setThumbnailImage(null)}
+            onThumbnailRemove={removeThumbnailImage}
             onImageRemove={removeImage}
           />
 
@@ -600,7 +616,7 @@ export default function ProductInputSection({
         )}
         <button
           type="button"
-          onClick={() => onSubmit(thumbnailImage)}
+          onClick={() => onSubmit(thumbnailImages)}
           disabled={isLoading || !isFormValid || uploadingCount > 0 || thumbnailUploading}
           className={cn(
             'inline-flex h-12 w-full max-w-[300px] items-center justify-center gap-2 rounded-full text-base font-bold text-white shadow-sm transition active:scale-[0.99]',

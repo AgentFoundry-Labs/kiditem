@@ -85,6 +85,19 @@ export default function ProductBasicsTab({
               <InfoValue value={draft.category} />
             )}
           </InfoRow>
+          <InfoRow label="검색 키워드">
+            {isEditing ? (
+              <input
+                aria-label="검색 키워드"
+                value={draft.keywords}
+                placeholder="쉼표로 구분"
+                onChange={(event) => onDraftChange('keywords', event.target.value)}
+                className={fieldClassName}
+              />
+            ) : (
+              <InfoValue value={draft.keywords} />
+            )}
+          </InfoRow>
           <InfoRow label="판매 기준가">
             {isEditing ? (
               <div className="grid gap-2 sm:grid-cols-3">
@@ -327,19 +340,6 @@ export default function ProductBasicsTab({
               />
             ) : (
               <InfoValue value={draft.optionNames} />
-            )}
-          </InfoRow>
-          <InfoRow label="검색 키워드">
-            {isEditing ? (
-              <input
-                aria-label="검색 키워드"
-                value={draft.keywords}
-                placeholder="쉼표로 구분"
-                onChange={(event) => onDraftChange('keywords', event.target.value)}
-                className={fieldClassName}
-              />
-            ) : (
-              <InfoValue value={draft.keywords} />
             )}
           </InfoRow>
           <InfoRow label="태그">

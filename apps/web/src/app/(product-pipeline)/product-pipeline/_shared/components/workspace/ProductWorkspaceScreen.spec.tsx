@@ -338,6 +338,46 @@ describe('ProductWorkspaceScreen', () => {
     expect(mobilePreviewProps.at(-1)?.detailHtml).toContain('<!DOCTYPE html>');
   });
 
+  it('falls back to the latest completed detail page in the side mobile preview', async () => {
+    useGenerationHistoryMock.mockReturnValue({
+      data: [
+        {
+          id: 'detail-generation-latest',
+          generatedTitle: '최신 상세페이지 버전',
+          status: 'COMPLETED',
+          templateId: 'bold-vertical',
+          detailPageData: placeholderDetailPageData,
+          imageUrls: [],
+          processedImages: {},
+          detailPageArtifactId: 'artifact-latest',
+          detailPageRevisionId: 'revision-latest',
+          errorMessage: null,
+          productId: 'candidate-1',
+          createdAt: '2026-05-18T06:05:56.000Z',
+        },
+      ],
+    });
+    useProductDetailMock.mockReturnValue({
+      data: workspaceData,
+      error: null,
+      isLoading: false,
+    });
+
+    renderWithQueryClient(
+      <ProductWorkspaceScreen
+        productId="candidate-1"
+        backHref="/product-pipeline/collected-products"
+        selfHref="/product-pipeline/collected-products/candidate-1"
+      />,
+    );
+
+    expect(await screen.findByTestId('mobile-preview')).toHaveAttribute(
+      'data-has-detail-html',
+      'true',
+    );
+    expect(mobilePreviewProps.at(-1)?.detailHtml).toContain('<!DOCTYPE html>');
+  });
+
   it('waits for thumbnail preview order persistence before registering the representative', async () => {
     let resolveBasicInfo!: (value: unknown) => void;
     const basicInfoPromise = new Promise((resolve) => {

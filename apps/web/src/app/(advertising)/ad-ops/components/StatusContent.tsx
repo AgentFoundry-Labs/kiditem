@@ -100,21 +100,34 @@ export default function StatusContent({
 }: StatusContentProps) {
   const listingDaily = trends?.daily ?? [];
   const accountDaily = trends?.accountDaily ?? [];
-  const listingDailyHasSignal = listingDaily.some((d) =>
+  const listingDailyHasChartSignal = listingDaily.some((d) =>
     d.metrics.spend > 0 ||
     d.metrics.revenue > 0 ||
-    d.metrics.impressions > 0 ||
-    d.metrics.clicks > 0 ||
-    d.metrics.conversions > 0,
+    (d.metrics.roas ?? 0) > 0,
   );
-  const useAccountDailyChart = !listingDailyHasSignal && accountDaily.length > 0;
-  const chartDaily = useAccountDailyChart ? accountDaily : listingDaily;
-  const chartTitle = useAccountDailyChart
+  const accountDailyHasChartSignal = accountDaily.some((d) =>
+    d.metrics.spend > 0 ||
+    d.metrics.revenue > 0 ||
+    (d.metrics.roas ?? 0) > 0,
+  );
+  const chartSource = listingDailyHasChartSignal
+    ? "listing"
+    : accountDailyHasChartSignal
+      ? "account"
+      : "empty";
+  const chartDaily = chartSource === "listing"
+    ? listingDaily
+    : chartSource === "account"
+      ? accountDaily
+      : [];
+  const chartTitle = chartSource === "account"
     ? "계정 광고비 · 전환매출 · ROAS"
     : "광고비 · 전환매출 · ROAS";
-  const chartSourceLabel = useAccountDailyChart
+  const chartSourceLabel = chartSource === "account"
     ? "쿠팡 광고센터 계정 일별"
-    : "listing daily fact";
+    : chartSource === "listing"
+      ? "listing daily fact"
+      : "광고비/전환매출 수집 필요";
 
   return (
     <div className="space-y-5">
@@ -197,8 +210,14 @@ export default function StatusContent({
                 </ResponsiveContainer>
               );
             })() : (
-              <div className="h-full flex items-center justify-center">
-                <span className="text-sm" style={{ color: "var(--text-tertiary)" }}>차트 데이터 수집 중...</span>
+              <div className="h-full flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/60 text-center">
+                <span className="text-sm font-bold" style={{ color: "var(--text-secondary)" }}>
+                  광고비 · 전환매출 데이터가 아직 없습니다
+                </span>
+                <span className="mt-2 max-w-md text-xs leading-5" style={{ color: "var(--text-tertiary)" }}>
+                  현재 수집된 listing daily fact에는 광고비/전환매출/ROAS 값이 0입니다.
+                  쿠팡 광고 성과 수집을 실행하면 이 영역에 일별 추이가 표시됩니다.
+                </span>
               </div>
             )}
           </div>

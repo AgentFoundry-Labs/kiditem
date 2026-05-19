@@ -290,6 +290,7 @@ export function ThumbnailEditorWorkspace({
 
   const { historyCandidates, recommendedCandidateUrl } = useEditorHistory({
     productId, sourceCandidateId, contentWorkspaceId, mode, result, generationId,
+    observedGeneration,
     selectedCandidateUrl, setSelectedCandidateUrl,
   });
 

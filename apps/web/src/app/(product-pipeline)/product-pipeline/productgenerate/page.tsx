@@ -29,6 +29,8 @@ function ProductGeneratePageContent() {
     setRawTitle,
     rawCategory,
     setRawCategory,
+    keyword,
+    setKeyword,
     target,
     setTarget,
     ageGroup,
@@ -93,6 +95,8 @@ function ProductGeneratePageContent() {
           setRawTitle={setRawTitle}
           rawCategory={rawCategory}
           setRawCategory={setRawCategory}
+          keyword={keyword}
+          setKeyword={setKeyword}
           target={target}
           setTarget={setTarget}
           ageGroup={ageGroup}
@@ -130,7 +134,7 @@ function ProductGeneratePageContent() {
           onPrefill={handlePrefill}
           onDuplicateCheck={handleDuplicateCheck}
           onLoadDuplicateLatest={handleLoadDuplicateLatest}
-          onSubmit={(thumbnailUrl) => handleProductSubmit(templateId, thumbnailUrl)}
+          onSubmit={(thumbnailUrls) => handleProductSubmit(templateId, thumbnailUrls)}
         />
       </div>
 
