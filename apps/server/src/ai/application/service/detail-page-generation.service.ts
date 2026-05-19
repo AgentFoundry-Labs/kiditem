@@ -20,7 +20,7 @@ import {
   AI_AGENT_SOURCE_TYPES,
   DETAIL_PAGE_GENERATE_AGENT_TYPE,
 } from '../../domain/agent-output';
-import type { GenerateDetailPageBodyDto } from '../../adapter/in/http/dto';
+import type { GenerateDetailPageInput } from './detail-page-requests';
 import {
   IMAGE_STORAGE_PORT,
   type ImageStoragePort,
@@ -131,7 +131,7 @@ export class DetailPageGenerationService {
   }
 
   async generate(
-    dto: GenerateDetailPageBodyDto,
+    dto: GenerateDetailPageInput,
     organizationId: string,
     triggeredByUserId: string | null,
     options: { operationAlert?: GenerationAlertLink } = {},
@@ -585,7 +585,7 @@ export class DetailPageGenerationService {
   private async normalizeSourceReferences(input: {
     organizationId: string;
     productId: string | null;
-    sourceReferences: NonNullable<GenerateDetailPageBodyDto['sourceReferences']>;
+    sourceReferences: NonNullable<GenerateDetailPageInput['sourceReferences']>;
   }): Promise<DetailPageSourceReference[]> {
     const out: DetailPageSourceReference[] = [];
     for (const [index, ref] of input.sourceReferences.entries()) {

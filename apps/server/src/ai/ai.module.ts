@@ -40,10 +40,10 @@ import { DetailPageGeminiMediaAdapter } from './adapter/out/gemini/detail-page-g
 import { GeminiTextCompletionAdapter } from './adapter/out/gemini/gemini-text-completion.adapter';
 import { GeminiThumbnailVisionAdapter } from './adapter/out/gemini/gemini-thumbnail-vision.adapter';
 import { ImageEditGeminiMediaAdapter } from './adapter/out/gemini/image-edit-gemini-media.adapter';
+import { ThumbnailImageGenerationAdapter } from './adapter/out/gemini/thumbnail-image-generation.adapter';
 import { ThumbnailReferenceImagesService } from './adapter/out/gemini/thumbnail-reference-images.adapter';
 import { ThumbnailImageFetcherService } from './adapter/out/image-fetch/thumbnail-image-fetcher.adapter';
-import { ThumbnailGenerationEventAdapter } from './adapter/out/prisma/thumbnail-generation-event.adapter';
-import { ThumbnailWingPersistence } from './adapter/out/prisma/thumbnail-wing.persistence';
+import { ThumbnailGenerationEventAdapter } from './adapter/out/repository/thumbnail-generation-event.adapter';
 import { MasterCatalogAdapter } from './adapter/out/products/master-catalog.adapter';
 import { ContentArchiveRepositoryAdapter } from './adapter/out/repository/content-archive.repository.adapter';
 import { ContentAssetLibraryRepositoryAdapter } from './adapter/out/repository/content-asset-library.repository.adapter';
@@ -57,6 +57,10 @@ import { ProductWorkspaceGroupRepositoryAdapter } from './adapter/out/repository
 import { ProductGenerationContextRepositoryAdapter } from './adapter/out/repository/product-generation-context.repository.adapter';
 import { ProductGenerationChildLedgerRepositoryAdapter } from './adapter/out/repository/product-generation-child-ledger.repository.adapter';
 import { SourcingWorkspaceArchiveRepositoryAdapter } from './adapter/out/repository/sourcing-workspace-archive.repository.adapter';
+import { ThumbnailAnalysisRepositoryAdapter } from './adapter/out/repository/thumbnail-analysis.repository.adapter';
+import { ThumbnailGenerationLedgerRepositoryAdapter } from './adapter/out/repository/thumbnail-generation-ledger.repository.adapter';
+import { ThumbnailTrackingRepositoryAdapter } from './adapter/out/repository/thumbnail-tracking.repository.adapter';
+import { ThumbnailWingRepositoryAdapter } from './adapter/out/repository/thumbnail-wing.repository.adapter';
 import { WingAutomationRunner } from './adapter/out/wing/wing-automation-runner';
 
 // application/service
@@ -64,6 +68,7 @@ import { DetailPageAgentOutputBridge } from './application/service/detail-page-a
 import { DetailPageAgentReconcileService } from './application/service/detail-page-agent-reconcile.service';
 import { ThumbnailAgentOutputBridge } from './application/service/thumbnail-agent-output.bridge';
 import { ThumbnailAgentReconcileService } from './application/service/thumbnail-agent-reconcile.service';
+import { AgentFinalizedOutputProjectionService } from './application/service/agent-finalized-output-projection.service';
 import { ImageAiService } from './application/service/image-ai.service';
 import { TextAiService } from './application/service/text-ai.service';
 import { ThumbnailAnalysisService } from './application/service/thumbnail-analysis.service';
@@ -90,6 +95,7 @@ import { KidsPlayfulRefinerService } from './application/service/kids-playful-re
 import { ThumbnailComplianceVerifierService } from './application/service/thumbnail-compliance-verifier.service';
 import { ThumbnailEditorAiService } from './application/service/thumbnail-editor-ai.service';
 import { ThumbnailGenerationJobService } from './application/service/thumbnail-generation-job.service';
+import { ThumbnailGenerationLifecycleService } from './application/service/thumbnail-generation-lifecycle.service';
 import { ThumbnailGenerationService } from './application/service/thumbnail-generation.service';
 import { ThumbnailRecomposeService } from './application/service/thumbnail-recompose.service';
 import { ThumbnailTrackingService } from './application/service/thumbnail-tracking.service';
@@ -135,6 +141,13 @@ import { PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT } from './application/port/o
 import { PRODUCT_GENERATION_CHILD_LEDGER_REPOSITORY_PORT } from './application/port/out/product-generation-child-ledger.repository.port';
 import { PRODUCT_WORKSPACE_GROUP_REPOSITORY_PORT } from './application/port/out/product-workspace-group.repository.port';
 import { SOURCING_WORKSPACE_ARCHIVE_REPOSITORY_PORT } from './application/port/out/sourcing-workspace-archive.repository.port';
+import { THUMBNAIL_ANALYSIS_REPOSITORY_PORT } from './application/port/out/thumbnail-analysis.repository.port';
+import { THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT } from './application/port/out/thumbnail-generation-ledger.repository.port';
+import { THUMBNAIL_IMAGE_GENERATION_PORT } from './application/port/out/thumbnail-image-generation.port';
+import { THUMBNAIL_REFERENCE_IMAGES_PORT } from './application/port/out/thumbnail-reference-images.port';
+import { THUMBNAIL_TRACKING_REPOSITORY_PORT } from './application/port/out/thumbnail-tracking.repository.port';
+import { THUMBNAIL_VISION_PROVIDER_PORT } from './application/port/out/thumbnail-vision-provider.port';
+import { THUMBNAIL_WING_REPOSITORY_PORT } from './application/port/out/thumbnail-wing.repository.port';
 
 @Module({
   imports: [ChannelsModule, AgentOsModule, AutomationModule],
@@ -162,6 +175,7 @@ import { SOURCING_WORKSPACE_ARCHIVE_REPOSITORY_PORT } from './application/port/o
   ],
   providers: [
     // application services
+    AgentFinalizedOutputProjectionService,
     ImageAiService,
     AiGenerationCancellationService,
     ImageAssetOperationService,
@@ -196,6 +210,7 @@ import { SOURCING_WORKSPACE_ARCHIVE_REPOSITORY_PORT } from './application/port/o
     ThumbnailComplianceVerifierService,
     ThumbnailEditorAiService,
     ThumbnailGenerationJobService,
+    ThumbnailGenerationLifecycleService,
     ThumbnailGenerationService,
     ThumbnailRecomposeService,
     ThumbnailTrackingService,
@@ -222,6 +237,7 @@ import { SOURCING_WORKSPACE_ARCHIVE_REPOSITORY_PORT } from './application/port/o
     GeminiTextCompletionAdapter,
     GeminiThumbnailVisionAdapter,
     ImageEditGeminiMediaAdapter,
+    ThumbnailImageGenerationAdapter,
     MasterCatalogAdapter,
     ContentArchiveRepositoryAdapter,
     ContentAssetLibraryRepositoryAdapter,
@@ -235,10 +251,13 @@ import { SOURCING_WORKSPACE_ARCHIVE_REPOSITORY_PORT } from './application/port/o
     ProductGenerationContextRepositoryAdapter,
     ProductGenerationChildLedgerRepositoryAdapter,
     SourcingWorkspaceArchiveRepositoryAdapter,
+    ThumbnailAnalysisRepositoryAdapter,
+    ThumbnailGenerationLedgerRepositoryAdapter,
+    ThumbnailTrackingRepositoryAdapter,
+    ThumbnailWingRepositoryAdapter,
     ThumbnailGenerationEventAdapter,
     ThumbnailImageFetcherService,
     ThumbnailReferenceImagesService,
-    ThumbnailWingPersistence,
     WingAutomationRunner,
     AiOperationAlertAdapter,
 
@@ -266,6 +285,9 @@ import { SOURCING_WORKSPACE_ARCHIVE_REPOSITORY_PORT } from './application/port/o
     { provide: IMAGE_FETCH_PORT, useExisting: ThumbnailImageFetcherService },
     { provide: IMAGE_EDIT_MEDIA_PORT, useExisting: ImageEditGeminiMediaAdapter },
     { provide: IMAGE_STORAGE_PORT, useExisting: StorageService },
+    { provide: THUMBNAIL_IMAGE_GENERATION_PORT, useExisting: ThumbnailImageGenerationAdapter },
+    { provide: THUMBNAIL_REFERENCE_IMAGES_PORT, useExisting: ThumbnailReferenceImagesService },
+    { provide: THUMBNAIL_VISION_PROVIDER_PORT, useExisting: GeminiThumbnailVisionAdapter },
     { provide: DETAIL_PAGE_MEDIA_PORT, useExisting: DetailPageGeminiMediaAdapter },
     { provide: MASTER_CATALOG_PORT, useExisting: MasterCatalogAdapter },
     {
@@ -315,6 +337,22 @@ import { SOURCING_WORKSPACE_ARCHIVE_REPOSITORY_PORT } from './application/port/o
     {
       provide: SOURCING_WORKSPACE_ARCHIVE_REPOSITORY_PORT,
       useExisting: SourcingWorkspaceArchiveRepositoryAdapter,
+    },
+    {
+      provide: THUMBNAIL_ANALYSIS_REPOSITORY_PORT,
+      useExisting: ThumbnailAnalysisRepositoryAdapter,
+    },
+    {
+      provide: THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT,
+      useExisting: ThumbnailGenerationLedgerRepositoryAdapter,
+    },
+    {
+      provide: THUMBNAIL_TRACKING_REPOSITORY_PORT,
+      useExisting: ThumbnailTrackingRepositoryAdapter,
+    },
+    {
+      provide: THUMBNAIL_WING_REPOSITORY_PORT,
+      useExisting: ThumbnailWingRepositoryAdapter,
     },
     { provide: TEXT_COMPLETION_PORT, useExisting: GeminiTextCompletionAdapter },
     { provide: THUMBNAIL_GENERATION_EVENT_PORT, useExisting: ThumbnailGenerationEventAdapter },

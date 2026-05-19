@@ -1,21 +1,12 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import type {
+  ThumbnailWingRegistrationAttemptPatch,
+  ThumbnailWingRepositoryPort,
+} from '../../../application/port/out/thumbnail-wing.repository.port';
 
-/**
- * Tenant-scoped persistence helpers for the Wing registration flow.
- *
- * Every method takes `organizationId` explicitly and applies it to the WHERE/INSERT
- * path. `updateRegistrationAttemptOrThrow` uses `updateMany` + count guard so
- * the write itself is tenant-scoped (not a bare-id `update` that the
- * `check:tenant-scope` scanner would flag).
- *
- * The service that consumes this persistence stays focused on attempt-lifecycle
- * ordering (create → external automation → mark uploaded/failed); none of the
- * Prisma shape leaks back into orchestration.
- */
 @Injectable()
-export class ThumbnailWingPersistence {
+export class ThumbnailWingRepositoryAdapter implements ThumbnailWingRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
   findGenerationWithCandidates(generationId: string, organizationId: string) {
@@ -81,7 +72,7 @@ export class ThumbnailWingPersistence {
   async updateRegistrationAttemptOrThrow(
     id: string,
     organizationId: string,
-    data: Prisma.ThumbnailRegistrationAttemptUpdateManyMutationInput,
+    data: ThumbnailWingRegistrationAttemptPatch,
     generationId?: string,
   ): Promise<void> {
     const result = await this.prisma.thumbnailRegistrationAttempt.updateMany({

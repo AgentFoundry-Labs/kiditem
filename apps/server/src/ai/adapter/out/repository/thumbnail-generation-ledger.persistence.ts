@@ -5,7 +5,7 @@ import type {
   ThumbnailEditorCandidate,
   ThumbnailEditorInputImage,
 } from '../../../domain/model/thumbnail-editor';
-import { generationInclude } from './thumbnail-generation.query';
+import { generationInclude } from './thumbnail-generation-ledger.query';
 import type { GenerationRow } from '../../../mapper/thumbnail-generation.mapper';
 
 /**

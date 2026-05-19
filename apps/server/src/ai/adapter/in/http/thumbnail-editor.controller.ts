@@ -1,5 +1,4 @@
 import { BadRequestException, Body, Controller, Post } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import { Roles } from '../../../../auth/decorators/roles.decorator';
@@ -9,7 +8,6 @@ import { ReconcileThumbnailBodyDto } from './dto/thumbnail-reconcile.dto';
 import { ThumbnailEditorAiService } from '../../../application/service/thumbnail-editor-ai.service';
 import { ThumbnailAgentReconcileService } from '../../../application/service/thumbnail-agent-reconcile.service';
 import type {
-  ThumbnailEditorEditCase,
   ThumbnailEditorInputImage,
   ThumbnailInputRole,
 } from '../../../domain/model/thumbnail-editor';
@@ -18,6 +16,11 @@ import {
   ThumbnailGenerationSubjectError,
   classifyThumbnailGenerationSubject,
 } from '../../../domain/thumbnail-generation-subject';
+import {
+  buildThumbnailGenerateAgentInput,
+  buildThumbnailGenerationInputMeta,
+  inferThumbnailEditCase,
+} from '../../../application/service/thumbnail-generation-requests';
 
 interface EnqueueResponse {
   candidates: never[];
@@ -76,10 +79,38 @@ export class ThumbnailEditorController {
       throw new BadRequestException('상품 사진이 필요합니다');
     }
 
-    const editCase = this.inferEditCase(body);
-    const composition = this.compositionText(body);
+    const editCase = inferThumbnailEditCase(body);
     const productName = product?.name ?? body.productName ?? null;
     const category = product?.category ?? null;
+    const inputMeta = buildThumbnailGenerationInputMeta({
+      mode,
+      purpose: body.purpose,
+      editCase,
+      layout: body.layout ?? null,
+      sceneType: body.sceneType ?? null,
+      styleType: body.styleType ?? null,
+      pieceCount: body.pieceCount ?? null,
+      colorCount: body.colorCount ?? null,
+      productName: body.productName ?? null,
+      inputs,
+    });
+    const agentPayload = buildThumbnailGenerateAgentInput({
+      mode,
+      editCase,
+      purpose: body.purpose,
+      productName,
+      productDescription: body.productDescription,
+      category,
+      sceneType: body.sceneType,
+      styleType: body.styleType,
+      supplementaryLabel: body.supplementaryLabel,
+      pieceCount: body.pieceCount,
+      colorCount: body.colorCount,
+      layout: body.layout,
+      userPrompt: body.userPrompt,
+      hasStyleReference: Boolean(body.backgroundReference),
+      inputs,
+    });
 
     if (product) {
       // Async path — Agent OS owns the LLM call from here. Producer side
@@ -90,19 +121,11 @@ export class ThumbnailEditorController {
         productName: product.name,
         triggeredByUserId: authUser?.id ?? null,
         inputs,
-        inputMeta: this.inputMeta(body, mode, editCase, inputs),
+        inputMeta,
         method: mode === 'creative' ? 'creative' : 'generate',
         originalUrl: product.imageUrl ?? inputs[0]?.url ?? '',
         contentWorkspaceId: subject.contentWorkspaceId,
-        agentPayload: this.agentPayload({
-          body,
-          mode,
-          editCase,
-          composition,
-          inputs,
-          productName,
-          category,
-        }),
+        agentPayload,
       });
       return {
         candidates: [],
@@ -118,22 +141,11 @@ export class ThumbnailEditorController {
         productName,
         triggeredByUserId: authUser?.id ?? null,
         inputs,
-        inputMeta: this.inputMeta(body, mode, editCase, inputs),
+        inputMeta,
         method: mode === 'creative' ? 'creative' : 'generate',
         originalUrl: inputs[0]?.url ?? '',
         contentWorkspaceId: subject.contentWorkspaceId,
-        agentPayload: {
-          ...this.agentPayload({
-            body,
-            mode,
-            editCase,
-            composition,
-            inputs,
-            productName,
-            category,
-          }),
-          sourceCandidateId: subject.sourceCandidateId,
-        },
+        agentPayload,
       });
       return {
         candidates: [],
@@ -147,67 +159,17 @@ export class ThumbnailEditorController {
       productName,
       triggeredByUserId: authUser?.id ?? null,
       inputs,
-      inputMeta: this.inputMeta(body, mode, editCase, inputs),
+      inputMeta,
       method: mode === 'creative' ? 'creative' : 'generate',
       originalUrl: inputs[0]?.url ?? '',
       contentWorkspaceId: subject.contentWorkspaceId,
-      agentPayload: {
-        ...this.agentPayload({
-          body,
-          mode,
-          editCase,
-          composition,
-          inputs,
-          productName,
-          category,
-        }),
-      },
+      agentPayload,
     });
     return {
       candidates: [],
       generationId: enqueueResult.generationId,
       status: 'pending',
     } satisfies EnqueueResponse;
-  }
-
-  private agentPayload(input: {
-    body: ThumbnailEditorDto;
-    mode: 'edit' | 'creative';
-    editCase: ThumbnailEditorEditCase;
-    composition: string | undefined;
-    inputs: ThumbnailEditorInputImage[];
-    productName: string | null;
-    category: string | null;
-  }): Record<string, unknown> {
-    const { body, mode, editCase, composition, inputs } = input;
-    return {
-      mode,
-      editCase: mode === 'edit' ? editCase : undefined,
-      purpose: body.purpose,
-      productName: input.productName,
-      productDescription: body.productDescription,
-      category: input.category,
-      sceneType: body.sceneType,
-      styleType: body.styleType,
-      supplementaryLabel: body.supplementaryLabel,
-      pieceCount: body.pieceCount,
-      colorCount: body.colorCount,
-      layout: body.layout,
-      composition,
-      userPrompt: body.userPrompt,
-      hasStyleReference: mode === 'creative' ? Boolean(body.backgroundReference) : undefined,
-      inputs: inputs.map((img) => ({
-        data: img.data,
-        mimeType: img.mimeType,
-        label: img.label,
-        url: img.url,
-        storageKey: img.storageKey,
-        role: img.role,
-        sortOrder: img.sortOrder,
-        source: img.source,
-        fileSize: img.fileSize,
-      })),
-    };
   }
 
   private async resolveInputs(
@@ -262,20 +224,6 @@ export class ThumbnailEditorController {
     return inputs;
   }
 
-  private inferEditCase(body: ThumbnailEditorDto): ThumbnailEditorEditCase {
-    if (body.bundleImages?.length) return 'bundle';
-    if (body.colorImages?.length) return 'color-variants';
-    if (body.packagingImage) return 'compose';
-    return 'single';
-  }
-
-  private compositionText(body: ThumbnailEditorDto): string | undefined {
-    const parts: string[] = [];
-    if (body.pieceCount) parts.push(`${body.pieceCount}개입`);
-    if (body.colorCount) parts.push(`${body.colorCount}가지 색상`);
-    return parts.length > 0 ? parts.join(', ') : undefined;
-  }
-
   /**
    * Admin-triggered reconcile for the thumbnail editor Agent OS
    * pipeline. Replays terminal `AgentRunRequest` rows whose originating
@@ -299,25 +247,4 @@ export class ThumbnailEditorController {
     });
   }
 
-  private inputMeta(
-    body: ThumbnailEditorDto,
-    mode: 'edit' | 'creative',
-    editCase: ThumbnailEditorEditCase,
-    inputs: ThumbnailEditorInputImage[],
-  ): Prisma.InputJsonValue {
-    return {
-      mode,
-      purpose: body.purpose,
-      editCase,
-      layout: body.layout ?? null,
-      sceneType: body.sceneType ?? null,
-      styleType: body.styleType ?? null,
-      pieceCount: body.pieceCount ?? null,
-      colorCount: body.colorCount ?? null,
-      productName: body.productName?.trim() || null,
-      inputCount: inputs.length,
-      inputRoles: inputs.map((input) => input.role),
-      inputLabels: inputs.map((input) => input.label),
-    };
-  }
 }

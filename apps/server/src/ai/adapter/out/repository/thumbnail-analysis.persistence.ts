@@ -1,13 +1,9 @@
 import { Prisma } from '@prisma/client';
-import type {
-  ComplianceScores,
-  ImageSpec,
-  RecomposeVariantClassification,
-  ThumbnailAnalysisResult,
-  ThumbnailScores,
-} from '@kiditem/shared/ai';
 import type { PrismaService } from '../../../../prisma/prisma.service';
-import type { AnalysisRow } from './thumbnail-analysis.query';
+import type {
+  ThumbnailAnalysisRow,
+  UpsertThumbnailAnalysisInput,
+} from '../../../application/port/out/thumbnail-analysis.repository.port';
 
 /**
  * Tenant-scoped writer for `ThumbnailAnalysis`. The previous flat service
@@ -24,35 +20,19 @@ import type { AnalysisRow } from './thumbnail-analysis.query';
  * `overallScore: 0`, empty arrays).
  */
 
-export interface ThumbnailAnalysisQualityFacet {
-  overallScore: number;
-  grade: 'S' | 'A' | 'B' | 'C' | 'F';
-  scores: ThumbnailScores | null;
-  issues: ThumbnailAnalysisResult['issues'];
-  suggestions: string[];
-  method: string;
-}
-
-export interface ThumbnailAnalysisComplianceFacet {
-  complianceGrade: string;
-  complianceScores: ComplianceScores;
-}
-
-export interface UpsertThumbnailAnalysisInput {
-  masterId: string;
-  organizationId: string;
-  imageUrl: string;
-  qualityResult?: ThumbnailAnalysisQualityFacet;
-  complianceResult?: ThumbnailAnalysisComplianceFacet;
-  imageSpec?: ImageSpec | null;
-  recompose?: RecomposeVariantClassification;
-}
-
 export async function upsertThumbnailAnalysis(
   prisma: PrismaService,
   input: UpsertThumbnailAnalysisInput,
-): Promise<AnalysisRow> {
-  const { masterId, organizationId, imageUrl, qualityResult, complianceResult, imageSpec, recompose } = input;
+): Promise<ThumbnailAnalysisRow> {
+  const {
+    masterId,
+    organizationId,
+    imageUrl,
+    qualityResult,
+    complianceResult,
+    imageSpec,
+    recompose,
+  } = input;
   const now = new Date();
 
   const update: Prisma.ThumbnailAnalysisUpdateInput = { imageUrl };
@@ -109,5 +89,5 @@ export async function upsertThumbnailAnalysis(
     update,
   });
 
-  return upserted as AnalysisRow;
+  return upserted as ThumbnailAnalysisRow;
 }

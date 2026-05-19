@@ -1,5 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { ThumbnailGenerationLedgerRepositoryAdapter } from '../adapter/out/repository/thumbnail-generation-ledger.repository.adapter';
 import { ThumbnailGenerationJobService } from '../application/service/thumbnail-generation-job.service';
+import { ThumbnailGenerationLifecycleService } from '../application/service/thumbnail-generation-lifecycle.service';
 import { ThumbnailGenerationService } from '../application/service/thumbnail-generation.service';
 import type { ThumbnailEditorInputImage } from '../domain/model/thumbnail-editor';
 import type { ProductGenerationAlertService } from '../application/service/product-generation-alert.service';
@@ -101,18 +103,22 @@ function makeService(input: {
     resolveInputImage: vi.fn(),
     generateEdit: vi.fn(),
   };
+  const ledger = new ThumbnailGenerationLedgerRepositoryAdapter(input.prisma as never);
+  const lifecycle = new ThumbnailGenerationLifecycleService(ledger, null);
   const jobService = new ThumbnailGenerationJobService(
-    input.prisma as never,
+    ledger,
     editorAi as never,
     operationAlerts as never,
     (input.agentRunner ?? makeAgentRunnerStub()) as never,
     input.productGenerationAlerts ?? makeProductGenerationAlertsStub(),
+    lifecycle,
   );
   return new ThumbnailGenerationService(
-    input.prisma as never,
+    ledger,
     (input.trackingService ?? { create: vi.fn() }) as never,
     operationAlerts as never,
     jobService,
+    lifecycle,
   );
 }
 

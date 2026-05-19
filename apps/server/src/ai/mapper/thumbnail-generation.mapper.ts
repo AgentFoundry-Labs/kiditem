@@ -1,4 +1,3 @@
-import { Prisma } from '@prisma/client';
 import type {
   EditAnalysisResult,
   ThumbnailGenerationItem,
@@ -52,8 +51,8 @@ export type GenerationRow = {
   originalUrl: string | null;
   selectedUrl: string | null;
   prompt: string | null;
-  editAnalysis: Prisma.JsonValue;
-  inputMeta: Prisma.JsonValue;
+  editAnalysis: unknown;
+  inputMeta: unknown;
   errorMessage: string | null;
   attemptCount: number;
   triggeredByUserId: string | null;

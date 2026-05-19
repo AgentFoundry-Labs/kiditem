@@ -6,7 +6,7 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { z } from 'zod';
-import type { PrefillDetailPageBodyDto } from '../../adapter/in/http/dto';
+import type { PrefillDetailPageInput } from './detail-page-requests';
 import {
   TEXT_COMPLETION_PORT,
   type TextCompletionPort,
@@ -62,7 +62,7 @@ export class DetailPagePrefillService {
   ) {}
 
   async prefill(
-    dto: PrefillDetailPageBodyDto,
+    dto: PrefillDetailPageInput,
     organizationId: string,
   ): Promise<DetailPagePrefillDto> {
     if (!organizationId) {

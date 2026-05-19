@@ -24,6 +24,10 @@ import {
 } from './detail-page-stored.helpers';
 import { ThumbnailEditorAiService } from './thumbnail-editor-ai.service';
 import { ContentAssetService } from './content-asset.service';
+import {
+  buildThumbnailGenerateAgentInput,
+  buildThumbnailGenerationInputMeta,
+} from './thumbnail-generation-requests';
 import type { PostPromotionAiTriggerPort } from '../port/in/post-promotion-ai-trigger.port';
 import {
   POST_PROMOTION_GENERATION_REPOSITORY_PORT,
@@ -250,15 +254,21 @@ export class PostPromotionAiService implements PostPromotionAiTriggerPort {
         },
       );
 
-      const inputMeta = {
+      const inputMeta = buildThumbnailGenerationInputMeta({
         mode: THUMBNAIL_MODE,
-        editCase: 'single' as const,
+        editCase: 'single',
         method: THUMBNAIL_METHOD,
-        trigger: 'post_promotion' as const,
-        inputCount: 1,
-        inputRoles: [inputImage.role],
-        inputLabels: [inputImage.label],
-      };
+        trigger: 'post_promotion',
+        productName: master.name,
+        inputs: [inputImage],
+      });
+      const agentPayload = buildThumbnailGenerateAgentInput({
+        mode: THUMBNAIL_MODE,
+        editCase: 'single',
+        productName: master.name,
+        category: master.category,
+        inputs: [inputImage],
+      });
 
       const generation = await this.repository.createThumbnailGeneration({
         organizationId,
@@ -304,25 +314,7 @@ export class PostPromotionAiService implements PostPromotionAiTriggerPort {
           sourceResourceType: 'thumbnail_generation',
           sourceResourceId: generation.id,
           reason: `post_promotion thumbnail_generate for master ${master.id}`,
-          payload: {
-            mode: THUMBNAIL_MODE,
-            editCase: 'single',
-            productName: master.name,
-            category: master.category,
-            inputs: [
-              {
-                data: inputImage.data,
-                mimeType: inputImage.mimeType,
-                label: inputImage.label,
-                url: inputImage.url,
-                storageKey: inputImage.storageKey,
-                role: inputImage.role,
-                sortOrder: inputImage.sortOrder,
-                source: inputImage.source,
-                fileSize: inputImage.fileSize,
-              },
-            ],
-          },
+          payload: agentPayload,
         },
       );
 

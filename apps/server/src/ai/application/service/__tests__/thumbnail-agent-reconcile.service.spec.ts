@@ -4,6 +4,7 @@ import type { ThumbnailAgentOutputSinkPort } from '../../port/out/thumbnail-agen
 import type { AgentObservabilityService } from '../../../../agent-os/application/service/agent-observability.service';
 import type { AgentRunRecord } from '../../../../agent-os/domain/agent-os.types';
 import type { OperationAlertPort } from '../../port/out/operation-alert.port';
+import type { ThumbnailGenerationLedgerRepositoryPort } from '../../port/out/thumbnail-generation-ledger.repository.port';
 
 const ORG = '11111111-1111-1111-1111-111111111111';
 
@@ -60,28 +61,26 @@ function makeRun(overrides: Partial<AgentRunRecord> = {}): AgentRunRecord {
   };
 }
 
-function makePrismaStub(input: {
+function makeLedgerStub(input: {
   requests: Array<ReturnType<typeof makeRow>>;
   genStatus: 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled' | null;
   terminalGenerations?: Array<{ id: string; status: string; errorMessage: string | null }>;
   staleGenerations?: Array<{ id: string }>;
-}) {
+}): ThumbnailGenerationLedgerRepositoryPort {
   return {
-    agentRunRequest: {
-      findMany: vi.fn().mockResolvedValue(input.requests),
-    },
-    thumbnailGeneration: {
-      findFirst: vi.fn().mockImplementation(async () =>
+    findTerminalAgentRequests: vi.fn().mockResolvedValue(input.requests),
+    findGenerationProjectionStatus: vi.fn().mockImplementation(async () =>
         input.genStatus === null
           ? null
           : { id: 'gen-1', status: input.genStatus, errorMessage: null },
-      ),
-      findMany: vi
-        .fn()
-        .mockResolvedValueOnce(input.terminalGenerations ?? [])
-        .mockResolvedValueOnce(input.staleGenerations ?? []),
-    },
-  };
+    ),
+    findRecentlyTerminalGenerations: vi
+      .fn()
+      .mockResolvedValue(input.terminalGenerations ?? []),
+    findStaleNonTerminalGenerations: vi
+      .fn()
+      .mockResolvedValue(input.staleGenerations ?? []),
+  } as unknown as ThumbnailGenerationLedgerRepositoryPort;
 }
 
 function makeObservability(runs: AgentRunRecord[]): AgentObservabilityService {
@@ -121,10 +120,10 @@ describe('ThumbnailAgentReconcileService', () => {
   });
 
   it('throws when organizationId is missing', async () => {
-    const prisma = makePrismaStub({ requests: [], genStatus: null });
+    const generations = makeLedgerStub({ requests: [], genStatus: null });
     const observability = makeObservability([]);
     const svc = new ThumbnailAgentReconcileService(
-      prisma as never,
+      generations,
       observability,
       sink,
       makeOperationAlerts(),
@@ -133,10 +132,10 @@ describe('ThumbnailAgentReconcileService', () => {
   });
 
   it('replays succeeded request when ThumbnailGeneration is still pending', async () => {
-    const prisma = makePrismaStub({ requests: [makeRow()], genStatus: 'pending' });
+    const generations = makeLedgerStub({ requests: [makeRow()], genStatus: 'pending' });
     const observability = makeObservability([makeRun()]);
     const svc = new ThumbnailAgentReconcileService(
-      prisma as never,
+      generations,
       observability,
       sink,
       makeOperationAlerts(),
@@ -156,11 +155,11 @@ describe('ThumbnailAgentReconcileService', () => {
   });
 
   it('skips terminal generation rows (succeeded/failed) — bridge already applied', async () => {
-    const prisma = makePrismaStub({ requests: [makeRow()], genStatus: 'succeeded' });
+    const generations = makeLedgerStub({ requests: [makeRow()], genStatus: 'succeeded' });
     const observability = makeObservability([makeRun()]);
     const operationAlerts = makeOperationAlerts({ id: 'alert-1' });
     const svc = new ThumbnailAgentReconcileService(
-      prisma as never,
+      generations,
       observability,
       sink,
       operationAlerts,
@@ -187,7 +186,7 @@ describe('ThumbnailAgentReconcileService', () => {
   });
 
   it('routes failed request through applyFailure with persisted error fields', async () => {
-    const prisma = makePrismaStub({
+    const generations = makeLedgerStub({
       requests: [
         makeRow({
           status: 'failed',
@@ -199,7 +198,7 @@ describe('ThumbnailAgentReconcileService', () => {
     });
     const observability = makeObservability([]);
     const svc = new ThumbnailAgentReconcileService(
-      prisma as never,
+      generations,
       observability,
       sink,
       makeOperationAlerts(),
@@ -215,12 +214,12 @@ describe('ThumbnailAgentReconcileService', () => {
   });
 
   it('routes invalid succeeded output to applyFailure with agent_output_invalid', async () => {
-    const prisma = makePrismaStub({ requests: [makeRow()], genStatus: 'pending' });
+    const generations = makeLedgerStub({ requests: [makeRow()], genStatus: 'pending' });
     const observability = makeObservability([
       makeRun({ output: { totally: 'wrong' } as Record<string, unknown> }),
     ]);
     const svc = new ThumbnailAgentReconcileService(
-      prisma as never,
+      generations,
       observability,
       sink,
       makeOperationAlerts(),
@@ -233,14 +232,14 @@ describe('ThumbnailAgentReconcileService', () => {
   });
 
   it('fails stale non-terminal thumbnail generations', async () => {
-    const prisma = makePrismaStub({
+    const generations = makeLedgerStub({
       requests: [],
       genStatus: null,
       staleGenerations: [{ id: 'gen-stale' }],
     });
     const observability = makeObservability([]);
     const svc = new ThumbnailAgentReconcileService(
-      prisma as never,
+      generations,
       observability,
       sink,
       makeOperationAlerts(),

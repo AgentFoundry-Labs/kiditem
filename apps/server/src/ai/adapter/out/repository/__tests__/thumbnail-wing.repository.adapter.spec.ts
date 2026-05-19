@@ -1,0 +1,52 @@
+import { describe, expect, it, vi } from 'vitest';
+import { ThumbnailWingRepositoryAdapter } from '../thumbnail-wing.repository.adapter';
+
+describe('ThumbnailWingRepositoryAdapter', () => {
+  it('updates registration attempts with organization and generation scope', async () => {
+    const prisma = {
+      thumbnailRegistrationAttempt: {
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+    const repository = new ThumbnailWingRepositoryAdapter(prisma as never);
+
+    await repository.updateRegistrationAttemptOrThrow(
+      'attempt-1',
+      'org-1',
+      {
+        status: 'uploaded',
+        errorMessage: null,
+        screenshotUrl: 'chrome-extension://capture/attempt-1.png',
+        finishedAt: new Date('2026-05-19T00:00:00.000Z'),
+      },
+      'generation-1',
+    );
+
+    expect(prisma.thumbnailRegistrationAttempt.updateMany).toHaveBeenCalledWith({
+      where: { id: 'attempt-1', organizationId: 'org-1', generationId: 'generation-1' },
+      data: expect.objectContaining({
+        status: 'uploaded',
+        errorMessage: null,
+        screenshotUrl: 'chrome-extension://capture/attempt-1.png',
+      }),
+    });
+  });
+
+  it('throws when a scoped registration attempt update does not match a row', async () => {
+    const prisma = {
+      thumbnailRegistrationAttempt: {
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
+    };
+    const repository = new ThumbnailWingRepositoryAdapter(prisma as never);
+
+    await expect(
+      repository.updateRegistrationAttemptOrThrow('attempt-1', 'other-org', { status: 'failed' }),
+    ).rejects.toThrow('ThumbnailRegistrationAttempt attempt-1 not found');
+
+    expect(prisma.thumbnailRegistrationAttempt.updateMany).toHaveBeenCalledWith({
+      where: { id: 'attempt-1', organizationId: 'other-org' },
+      data: { status: 'failed' },
+    });
+  });
+});

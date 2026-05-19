@@ -1,5 +1,3 @@
-import { Prisma } from '@prisma/client';
-
 export const THUMBNAIL_GENERATION_EVENT_PORT = Symbol('THUMBNAIL_GENERATION_EVENT_PORT');
 
 export type ThumbnailGenerationEventType =
@@ -19,7 +17,7 @@ export interface AppendThumbnailGenerationEventInput {
   toPhase?: string | null;
   attemptNumber?: number | null;
   errorMessage?: string | null;
-  payload?: Prisma.InputJsonValue | null;
+  payload?: unknown | null;
   actorUserId?: string | null;
   occurredAt?: Date;
 }
