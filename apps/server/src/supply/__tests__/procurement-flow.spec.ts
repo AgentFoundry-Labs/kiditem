@@ -1,28 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ProcurementService } from '../application/service/procurement.service';
 import { BadRequestException } from '@nestjs/common';
+import type { ProcurementRepositoryPort } from '../application/port/out/procurement.repository.port';
 
-function makePrisma() {
+function makeRepository(): ProcurementRepositoryPort {
   return {
-    purchaseOrder: {
-      findFirst: vi.fn(),
-      findUnique: vi.fn(),
-      findMany: vi.fn().mockResolvedValue([]),
-      create: vi.fn(),
-      updateMany: vi.fn(),
-      update: vi.fn(),
-      deleteMany: vi.fn(),
-      delete: vi.fn(),
-      count: vi.fn().mockResolvedValue(0),
-      groupBy: vi.fn().mockResolvedValue([]),
-    },
-    supplier: {
-      findFirst: vi.fn(),
-    },
-    productOption: {
-      findMany: vi.fn().mockResolvedValue([]),
-    },
-  };
+    list: vi.fn(),
+    createDraft: vi.fn(),
+    findScopedStatus: vi.fn(),
+    updateStatusScoped: vi.fn(),
+    findScopedForDelete: vi.fn(),
+    deleteScoped: vi.fn(),
+  } as unknown as ProcurementRepositoryPort;
 }
 
 const MOCK_ORDER_DRAFT = {
@@ -39,39 +28,35 @@ const MOCK_ORDER_DRAFT = {
 
 describe('ProcurementService — PO status lifecycle', () => {
   let service: ProcurementService;
-  let prisma: ReturnType<typeof makePrisma>;
+  let procurement: ProcurementRepositoryPort;
 
   beforeEach(() => {
-    prisma = makePrisma();
-    service = new ProcurementService(prisma as any);
+    procurement = makeRepository();
+    service = new ProcurementService(procurement);
   });
 
-  it('create PO → prisma.purchaseOrder.create called with draft status', async () => {
+  it('create PO delegates draft creation to the outgoing repository port', async () => {
     const created = { ...MOCK_ORDER_DRAFT, items: [], supplier: null };
-    prisma.purchaseOrder.create.mockResolvedValue(created);
+    vi.mocked(procurement.createDraft).mockResolvedValue({ ok: true, order: created });
 
     const result = await service.create('organization-1', {
       supplierName: 'Test Supplier',
       items: [{ productName: 'Widget', quantity: 10, unitPriceCny: 50 }],
     });
 
-    expect(prisma.purchaseOrder.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          organizationId: 'organization-1',
-          supplierName: 'Test Supplier',
-          status: 'draft',
-          totalAmountCny: 500,
-        }),
-      }),
+    expect(procurement.createDraft).toHaveBeenCalledWith(
+      'organization-1',
+      {
+        supplierName: 'Test Supplier',
+        items: [{ productName: 'Widget', quantity: 10, unitPriceCny: 50 }],
+      },
     );
     expect(result).toEqual(created);
   });
 
-  it('create PO with supplierId verifies supplier belongs to organization', async () => {
+  it('create PO with supplierId stays in the application command and repository boundary', async () => {
     const created = { ...MOCK_ORDER_DRAFT, supplierId: 'supplier-1', items: [], supplier: null };
-    prisma.supplier.findFirst.mockResolvedValue({ id: 'supplier-1' });
-    prisma.purchaseOrder.create.mockResolvedValue(created);
+    vi.mocked(procurement.createDraft).mockResolvedValue({ ok: true, order: created });
 
     await service.create('organization-1', {
       supplierName: 'Test Supplier',
@@ -79,15 +64,17 @@ describe('ProcurementService — PO status lifecycle', () => {
       items: [{ productName: 'Widget', quantity: 10, unitPriceCny: 50 }],
     });
 
-    expect(prisma.supplier.findFirst).toHaveBeenCalledWith({
-      where: { id: 'supplier-1', organizationId: 'organization-1' },
-      select: { id: true },
-    });
-    expect(prisma.purchaseOrder.create).toHaveBeenCalled();
+    expect(procurement.createDraft).toHaveBeenCalledWith(
+      'organization-1',
+      expect.objectContaining({ supplierId: 'supplier-1' }),
+    );
   });
 
-  it('create PO rejects cross-organization supplierId before mutation', async () => {
-    prisma.supplier.findFirst.mockResolvedValue(null);
+  it('maps repository supplier ownership failure to BadRequestException', async () => {
+    vi.mocked(procurement.createDraft).mockResolvedValue({
+      ok: false,
+      reason: 'supplier_not_found',
+    });
 
     await expect(
       service.create('organization-1', {
@@ -97,103 +84,136 @@ describe('ProcurementService — PO status lifecycle', () => {
       }),
     ).rejects.toThrow(BadRequestException);
 
-    expect(prisma.purchaseOrder.create).not.toHaveBeenCalled();
+    expect(procurement.createDraft).toHaveBeenCalledOnce();
+  });
+
+  it('maps repository option ownership failure to the existing IDOR error message', async () => {
+    vi.mocked(procurement.createDraft).mockResolvedValue({
+      ok: false,
+      reason: 'option_not_found',
+      missingOptionIds: ['option-2'],
+    });
+
+    await expect(
+      service.create('organization-1', {
+        supplierName: 'Other Supplier',
+        items: [{ productName: 'Widget', optionId: 'option-2', quantity: 10, unitPriceCny: 50 }],
+      }),
+    ).rejects.toThrow('발주 항목의 옵션을 찾을 수 없거나 권한이 없습니다: option-2');
+
+    expect(procurement.createDraft).toHaveBeenCalledOnce();
   });
 
   it('updateStatus draft→pending → valid transition', async () => {
-    prisma.purchaseOrder.findFirst
-      .mockResolvedValueOnce({ ...MOCK_ORDER_DRAFT, status: 'draft' })
-      .mockResolvedValueOnce({ ...MOCK_ORDER_DRAFT, status: 'pending', items: [], supplier: null });
-    prisma.purchaseOrder.updateMany.mockResolvedValue({ count: 1 });
+    vi.mocked(procurement.findScopedStatus).mockResolvedValue({ id: 'po-1', status: 'draft' });
+    vi.mocked(procurement.updateStatusScoped).mockResolvedValue({
+      ...MOCK_ORDER_DRAFT,
+      status: 'pending',
+      items: [],
+      supplier: null,
+    });
 
     const result = await service.updateStatus('organization-1', 'po-1', 'pending');
-    expect(prisma.purchaseOrder.findFirst).toHaveBeenCalledWith({ where: { id: 'po-1', organizationId: 'organization-1' } });
-    expect(prisma.purchaseOrder.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: 'po-1', organizationId: 'organization-1' },
-        data: expect.objectContaining({ status: 'pending' }),
-      }),
+    expect(procurement.findScopedStatus).toHaveBeenCalledWith('organization-1', 'po-1');
+    expect(procurement.updateStatusScoped).toHaveBeenCalledWith(
+      'organization-1',
+      'po-1',
+      'draft',
+      { status: 'pending' },
     );
     expect((result as any).status).toBe('pending');
   });
 
   it('updateStatus pending→ordered → valid transition', async () => {
-    prisma.purchaseOrder.findFirst
-      .mockResolvedValueOnce({ ...MOCK_ORDER_DRAFT, status: 'pending' })
-      .mockResolvedValueOnce({ ...MOCK_ORDER_DRAFT, status: 'ordered', items: [], supplier: null });
-    prisma.purchaseOrder.updateMany.mockResolvedValue({ count: 1 });
+    vi.mocked(procurement.findScopedStatus).mockResolvedValue({ id: 'po-1', status: 'pending' });
+    vi.mocked(procurement.updateStatusScoped).mockResolvedValue({
+      ...MOCK_ORDER_DRAFT,
+      status: 'ordered',
+      items: [],
+      supplier: null,
+    });
 
     await service.updateStatus('organization-1', 'po-1', 'ordered');
-    expect(prisma.purchaseOrder.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ status: 'ordered' }) }),
+    expect(procurement.updateStatusScoped).toHaveBeenCalledWith(
+      'organization-1',
+      'po-1',
+      'pending',
+      { status: 'ordered' },
     );
   });
 
   it('updateStatus ordered→shipped → valid transition', async () => {
-    prisma.purchaseOrder.findFirst
-      .mockResolvedValueOnce({ ...MOCK_ORDER_DRAFT, status: 'ordered' })
-      .mockResolvedValueOnce({ ...MOCK_ORDER_DRAFT, status: 'shipped', items: [], supplier: null });
-    prisma.purchaseOrder.updateMany.mockResolvedValue({ count: 1 });
+    vi.mocked(procurement.findScopedStatus).mockResolvedValue({ id: 'po-1', status: 'ordered' });
+    vi.mocked(procurement.updateStatusScoped).mockResolvedValue({
+      ...MOCK_ORDER_DRAFT,
+      status: 'shipped',
+      items: [],
+      supplier: null,
+    });
 
     await service.updateStatus('organization-1', 'po-1', 'shipped');
-    expect(prisma.purchaseOrder.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ status: 'shipped' }) }),
+    expect(procurement.updateStatusScoped).toHaveBeenCalledWith(
+      'organization-1',
+      'po-1',
+      'ordered',
+      { status: 'shipped' },
     );
   });
 
   it('updateStatus shipped→received → valid transition, sets receivedAt', async () => {
-    prisma.purchaseOrder.findFirst
-      .mockResolvedValueOnce({ ...MOCK_ORDER_DRAFT, status: 'shipped' })
-      .mockResolvedValueOnce({ ...MOCK_ORDER_DRAFT, status: 'received', items: [], supplier: null });
-    prisma.purchaseOrder.updateMany.mockResolvedValue({ count: 1 });
+    vi.mocked(procurement.findScopedStatus).mockResolvedValue({ id: 'po-1', status: 'shipped' });
+    vi.mocked(procurement.updateStatusScoped).mockResolvedValue({
+      ...MOCK_ORDER_DRAFT,
+      status: 'received',
+      items: [],
+      supplier: null,
+    });
 
     await service.updateStatus('organization-1', 'po-1', 'received');
-    expect(prisma.purchaseOrder.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ status: 'received', receivedAt: expect.any(Date) }),
-      }),
+    expect(procurement.updateStatusScoped).toHaveBeenCalledWith(
+      'organization-1',
+      'po-1',
+      'shipped',
+      { status: 'received', receivedAt: expect.any(Date) },
     );
   });
 
   it('invalid transition draft→received → throws BadRequestException', async () => {
-    prisma.purchaseOrder.findFirst.mockResolvedValue({ ...MOCK_ORDER_DRAFT, status: 'draft' });
+    vi.mocked(procurement.findScopedStatus).mockResolvedValue({ id: 'po-1', status: 'draft' });
 
     await expect(service.updateStatus('organization-1', 'po-1', 'received')).rejects.toThrow(BadRequestException);
-    expect(prisma.purchaseOrder.updateMany).not.toHaveBeenCalled();
+    expect(procurement.updateStatusScoped).not.toHaveBeenCalled();
   });
 
   it('updateStatus wrong organization → not found, no mutation', async () => {
-    prisma.purchaseOrder.findFirst.mockResolvedValue(null);
-    prisma.purchaseOrder.findUnique.mockResolvedValue({ ...MOCK_ORDER_DRAFT, organizationId: 'organization-2', status: 'draft' });
+    vi.mocked(procurement.findScopedStatus).mockResolvedValue(null);
 
     await expect(service.updateStatus('organization-1', 'po-1', 'pending')).rejects.toThrow(BadRequestException);
 
-    expect(prisma.purchaseOrder.updateMany).not.toHaveBeenCalled();
-    expect(prisma.purchaseOrder.update).not.toHaveBeenCalled();
+    expect(procurement.updateStatusScoped).not.toHaveBeenCalled();
   });
 
   it('delete draft PO → ok', async () => {
-    prisma.purchaseOrder.findFirst.mockResolvedValue({ ...MOCK_ORDER_DRAFT, status: 'draft' });
-    prisma.purchaseOrder.deleteMany.mockResolvedValue({ count: 1 });
+    vi.mocked(procurement.findScopedForDelete).mockResolvedValue({ id: 'po-1', status: 'draft' });
+    vi.mocked(procurement.deleteScoped).mockResolvedValue(true);
 
-    await service.delete('organization-1', 'po-1');
-    expect(prisma.purchaseOrder.deleteMany).toHaveBeenCalledWith({ where: { id: 'po-1', organizationId: 'organization-1' } });
+    const result = await service.delete('organization-1', 'po-1');
+    expect(procurement.deleteScoped).toHaveBeenCalledWith('organization-1', 'po-1');
+    expect(result).toEqual({ id: 'po-1', status: 'draft' });
   });
 
   it('delete non-draft PO → throws BadRequestException', async () => {
-    prisma.purchaseOrder.findFirst.mockResolvedValue({ ...MOCK_ORDER_DRAFT, status: 'shipped' });
+    vi.mocked(procurement.findScopedForDelete).mockResolvedValue({ id: 'po-1', status: 'shipped' });
 
     await expect(service.delete('organization-1', 'po-1')).rejects.toThrow(BadRequestException);
-    expect(prisma.purchaseOrder.deleteMany).not.toHaveBeenCalled();
+    expect(procurement.deleteScoped).not.toHaveBeenCalled();
   });
 
   it('delete wrong organization → not found, no mutation', async () => {
-    prisma.purchaseOrder.findFirst.mockResolvedValue(null);
-    prisma.purchaseOrder.findUnique.mockResolvedValue({ ...MOCK_ORDER_DRAFT, organizationId: 'organization-2', status: 'draft' });
+    vi.mocked(procurement.findScopedForDelete).mockResolvedValue(null);
 
     await expect(service.delete('organization-1', 'po-1')).rejects.toThrow(BadRequestException);
 
-    expect(prisma.purchaseOrder.deleteMany).not.toHaveBeenCalled();
-    expect(prisma.purchaseOrder.delete).not.toHaveBeenCalled();
+    expect(procurement.deleteScoped).not.toHaveBeenCalled();
   });
 });

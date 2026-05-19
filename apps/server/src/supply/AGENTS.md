@@ -11,6 +11,8 @@ work and vendor-manager/procurement work mutate different surfaces.
 supply/
 ├── supply.module.ts
 ├── adapter/in/http/         # suppliers and procurement controllers + DTOs
+├── adapter/out/repository/  # Prisma-backed supplier/procurement repositories
+├── application/port/out/    # outgoing repository contracts
 ├── application/service/     # supplier and procurement services
 ├── domain/policy/           # purchase-order status state machine
 └── __tests__/
@@ -39,6 +41,8 @@ Route shape is frozen.
 - Delete is allowed only from `draft` or `pending`.
 - `/api/purchase-orders` keeps the legacy single POST action body
   (`create | updateStatus | delete`).
+- Repository adapters own Prisma details and ProductOption ownership checks;
+  application services depend on `application/port/out/*` contracts only.
 
 ## Cross-Domain Ports
 
@@ -51,16 +55,14 @@ Route shape is frozen.
 
 ## Boundary Rules
 
-- Supplier and purchase-order single-resource access uses
-  `findFirst({ id, organizationId })`.
+- Supplier and purchase-order single-resource access is repository-scoped by
+  `{ id, organizationId }`.
 - Raw SQL uses Prisma tagged templates only.
 - Do not write `SupplierPayment`.
 - Do not reintroduce supplier/procurement controllers, services, DTOs, or
   supply model mutations under `src/sourcing/`.
 
-## Transitional Exceptions
+## Current Non-Goals
 
-- Suppliers remain transitional flat CRUD until a concrete reconstruction
-  driver appears.
 - `MasterSupplierProduct` currently has no write path; analytics reads it via a
   read-only join.

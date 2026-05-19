@@ -137,7 +137,7 @@ folders are intentionally absent from this map.
 | `apps/server/src/readiness` | Flat | readiness controller/service. |
 | `apps/server/src/rules` | Flat | HTTP orchestration delegates execution to Agent OS ports. |
 | `apps/server/src/sourcing` | Hexagonal | sourcing agent/products boundaries behind ports/adapters. |
-| `apps/server/src/supply` | Flat | supplier CRUD + purchase-order procurement (transitional flat capability services). |
+| `apps/server/src/supply` | Hexagonal | supplier/procurement persistence behind repository ports/adapters; architecture + module wiring specs freeze invariants. |
 | `apps/server/src/uploads` | Flat | upload controller/service/storage bridge. |
 
 ### Backend Structure Contracts
