@@ -8,8 +8,8 @@ import type {
   ArchiveSourcingWorkspaceInput,
   ArchiveSourcingWorkspaceResult,
   SourcingAiWorkspaceArchivePort,
-} from '../../../application/port/out/ai-workspace-archive.port';
-import type { SourcingRepositoryTransaction } from '../../../application/port/out/repository-transaction';
+} from '../../../application/port/out/cross-domain/ai-workspace-archive.port';
+import type { SourcingRepositoryTransaction } from '../../../application/port/out/transaction/repository-transaction';
 
 @Injectable()
 export class SourcingAiWorkspaceArchiveAdapter implements SourcingAiWorkspaceArchivePort {

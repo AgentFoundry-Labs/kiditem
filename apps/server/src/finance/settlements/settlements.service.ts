@@ -9,7 +9,7 @@ import { kstMonthStart } from '../../common/kst';
 import {
   FINANCE_OPERATION_ALERT_PORT,
   type OperationAlertPort,
-} from '../application/port/out/operation-alert.port';
+} from '../application/port/out/cross-domain/operation-alert.port';
 import { CreateSettlementDto, UpdateSettlementDto } from './dto';
 
 const FINANCE_ALERT_HREF = '/sales-analysis';

@@ -223,12 +223,18 @@ Group ports into a lane directory when any of these are true:
 - Keeping the port flat makes callers learn infrastructure details instead of
   the domain language.
 
-Keep ports flat when all of these are true:
+Incoming ports may stay flat when all of these are true:
 
 - The Interface is unique to the owner domain.
-- The owner has only one or two ports in that direction.
+- The owner has only one or two incoming ports.
 - The port name is already domain-language specific.
 - There is no likely second Adapter and no cross-domain consumer.
+
+Outgoing port files do not stay directly under `application/port/out/` in
+reconstructed owner modules. Domain-specific outgoing ports still use the
+narrowest lane that explains the Adapter family. A direct
+`application/port/out/*.ts` exception requires both a documented architecture
+note and an explicit checker change.
 
 Lane folders may provide a local `index.ts` import surface. Broad barrels such
 as `application/port/index.ts` or `application/index.ts` are not part of the

@@ -29,26 +29,26 @@ import { ChannelReconciliationResolutionService } from './application/service/ch
 import { ChannelReconciliationScanService } from './application/service/channel-reconciliation-scan.service';
 import { ChannelReconciliationService } from './application/service/channel-reconciliation.service';
 import { ChannelAccountService } from './application/service/channel-account.service';
-import { COUPANG_PROVIDER_PORT } from './application/port/out/coupang-provider.port';
+import { COUPANG_PROVIDER_PORT } from './application/port/out/provider/coupang-provider.port';
 import { ChannelsOperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
-import { CHANNELS_OPERATION_ALERT_PORT } from './application/port/out/operation-alert.port';
-import { CHANNELS_PRODUCT_MASTER_BARCODE_PORT } from './application/port/out/product-master-barcode.port';
+import { CHANNELS_OPERATION_ALERT_PORT } from './application/port/out/cross-domain/operation-alert.port';
+import { CHANNELS_PRODUCT_MASTER_BARCODE_PORT } from './application/port/out/cross-domain/product-master-barcode.port';
 import {
   CHANNEL_ACCOUNT_REPOSITORY_PORT,
   COUPANG_CREDENTIALS_PORT,
-} from './application/port/out/channel-account.repository.port';
-import { CHANNEL_DASHBOARD_REPOSITORY_PORT } from './application/port/out/channel-dashboard.repository.port';
+} from './application/port/out/repository/channel-account.repository.port';
+import { CHANNEL_DASHBOARD_REPOSITORY_PORT } from './application/port/out/repository/channel-dashboard.repository.port';
 import {
   CHANNEL_LISTING_REPOSITORY_PORT,
   MARKETPLACE_REGISTRATION_REPOSITORY_PORT,
-} from './application/port/out/channel-listing.repository.port';
-import { CHANNEL_SYNC_REPOSITORY_PORT } from './application/port/out/channel-sync.repository.port';
+} from './application/port/out/repository/channel-listing.repository.port';
+import { CHANNEL_SYNC_REPOSITORY_PORT } from './application/port/out/repository/channel-sync.repository.port';
 import {
   CHANNEL_RECONCILIATION_MATCHER_PORT,
   CHANNEL_RECONCILIATION_QUERY_REPOSITORY_PORT,
   CHANNEL_RECONCILIATION_RESOLUTION_REPOSITORY_PORT,
   CHANNEL_RECONCILIATION_SCAN_REPOSITORY_PORT,
-} from './application/port/out/channel-reconciliation.repository.port';
+} from './application/port/out/repository/channel-reconciliation.repository.port';
 
 @Module({
   imports: [AutomationModule, ProductsModule],

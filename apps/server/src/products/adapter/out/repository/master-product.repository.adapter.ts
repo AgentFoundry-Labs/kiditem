@@ -9,8 +9,8 @@ import type {
   MasterProductRepositoryPort,
   MasterWithImageRows,
   ProductContentCardRow,
-} from '../../../application/port/out/master-product.repository.port';
-import type { ProductsRepositoryTransaction } from '../../../application/port/out/products-transaction.port';
+} from '../../../application/port/out/repository/master-product.repository.port';
+import type { ProductsRepositoryTransaction } from '../../../application/port/out/transaction/products-transaction.port';
 import {
   findMasterByCode,
   findMasterById,

@@ -7,7 +7,7 @@ import {
 import {
   OPERATION_ALERT_PORT,
   type OperationAlertPort,
-} from '../port/out/operation-alert.port';
+} from '../port/out/cross-domain/operation-alert.port';
 
 /**
  * Triggers the `ad_strategy` agent through the Agent OS port.

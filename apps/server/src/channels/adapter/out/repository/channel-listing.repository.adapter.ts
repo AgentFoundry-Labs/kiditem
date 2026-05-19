@@ -7,7 +7,7 @@ import type {
   ChannelListingQuery,
   ChannelListingRepositoryPort,
   ChannelListingSummary,
-} from '../../../application/port/out/channel-listing.repository.port';
+} from '../../../application/port/out/repository/channel-listing.repository.port';
 
 function parseQueryDate(value?: string | null): Date | null {
   if (!value) return null;

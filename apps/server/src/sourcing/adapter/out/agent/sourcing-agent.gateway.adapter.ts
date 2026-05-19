@@ -15,7 +15,7 @@ import {
 import {
   SOURCING_OPERATION_ALERT_PORT,
   type OperationAlertPort,
-} from '../../../application/port/out/operation-alert.port';
+} from '../../../application/port/out/cross-domain/operation-alert.port';
 import type {
   SourcingAgentGatewayPort,
   SourcingNotifyPromotedRequest,
@@ -23,7 +23,7 @@ import type {
   SourcingScrapeResult,
   SourcingStartProductGenerationRequest,
   SourcingStartProductGenerationResult,
-} from '../../../application/port/out/sourcing-agent.gateway.port';
+} from '../../../application/port/out/runtime/sourcing-agent.gateway.port';
 
 @Injectable()
 export class SourcingAgentGatewayAdapter implements SourcingAgentGatewayPort {

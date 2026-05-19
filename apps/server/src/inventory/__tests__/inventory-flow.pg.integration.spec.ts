@@ -10,9 +10,9 @@ import { ProductsModule } from '../../products/products.module';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StorageService } from '../../common/storage/storage.service';
-import { INVENTORY_QUERY_REPOSITORY_PORT } from '../application/port/out/inventory-query.repository.port';
-import { INVENTORY_REPOSITORY_PORT } from '../application/port/out/inventory.repository.port';
-import { BUNDLE_STOCK_PORT } from '../application/port/out/bundle-stock.port';
+import { INVENTORY_QUERY_REPOSITORY_PORT } from '../application/port/out/repository/inventory-query.repository.port';
+import { INVENTORY_REPOSITORY_PORT } from '../application/port/out/repository/inventory.repository.port';
+import { BUNDLE_STOCK_PORT } from '../application/port/out/cross-domain/bundle-stock.port';
 import {
   makeTestPrisma,
   resetDb,

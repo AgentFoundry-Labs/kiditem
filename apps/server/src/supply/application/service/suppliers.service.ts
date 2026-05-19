@@ -4,7 +4,7 @@ import {
   type SupplierCreateCommand,
   type SupplierRepositoryPort,
   type SupplierUpdateCommand,
-} from '../port/out/supplier.repository.port';
+} from '../port/out/repository/supplier.repository.port';
 
 @Injectable()
 export class SuppliersService {

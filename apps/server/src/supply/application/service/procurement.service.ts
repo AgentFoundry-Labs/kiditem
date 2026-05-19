@@ -4,7 +4,7 @@ import {
   type ProcurementRepositoryPort,
   type PurchaseOrderCreateCommand,
   type PurchaseOrderListQuery,
-} from '../port/out/procurement.repository.port';
+} from '../port/out/repository/procurement.repository.port';
 import {
   isDeletablePurchaseOrderStatus,
   isValidPurchaseOrderTransition,

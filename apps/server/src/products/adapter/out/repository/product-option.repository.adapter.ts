@@ -7,8 +7,8 @@ import type {
   OptionsListPage,
   ProductOptionRepositoryPort,
   ProductOptionRow,
-} from '../../../application/port/out/product-option.repository.port';
-import type { ProductsRepositoryTransaction } from '../../../application/port/out/products-transaction.port';
+} from '../../../application/port/out/repository/product-option.repository.port';
+import type { ProductsRepositoryTransaction } from '../../../application/port/out/transaction/products-transaction.port';
 import {
   applyOptionPatch,
   assertNoBundleComponents,

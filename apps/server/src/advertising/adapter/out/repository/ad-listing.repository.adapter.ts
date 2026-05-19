@@ -8,7 +8,7 @@ import type {
   AdListingRepositoryPort,
   AdSyncListingMap,
   ScopedAdListingReadModel,
-} from '../../../application/port/out/ad-listing.repository.port';
+} from '../../../application/port/out/repository/ad-listing.repository.port';
 
 @Injectable()
 export class AdListingRepositoryAdapter implements AdListingRepositoryPort {

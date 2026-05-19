@@ -18,22 +18,22 @@ import { ChannelsOperationAlertAdapter } from '../adapter/out/automation/operati
 import {
   CHANNEL_ACCOUNT_REPOSITORY_PORT,
   COUPANG_CREDENTIALS_PORT,
-} from '../application/port/out/channel-account.repository.port';
-import { CHANNEL_DASHBOARD_REPOSITORY_PORT } from '../application/port/out/channel-dashboard.repository.port';
+} from '../application/port/out/repository/channel-account.repository.port';
+import { CHANNEL_DASHBOARD_REPOSITORY_PORT } from '../application/port/out/repository/channel-dashboard.repository.port';
 import {
   CHANNEL_LISTING_REPOSITORY_PORT,
   MARKETPLACE_REGISTRATION_REPOSITORY_PORT,
-} from '../application/port/out/channel-listing.repository.port';
+} from '../application/port/out/repository/channel-listing.repository.port';
 import {
   CHANNEL_RECONCILIATION_MATCHER_PORT,
   CHANNEL_RECONCILIATION_QUERY_REPOSITORY_PORT,
   CHANNEL_RECONCILIATION_RESOLUTION_REPOSITORY_PORT,
   CHANNEL_RECONCILIATION_SCAN_REPOSITORY_PORT,
-} from '../application/port/out/channel-reconciliation.repository.port';
-import { CHANNEL_SYNC_REPOSITORY_PORT } from '../application/port/out/channel-sync.repository.port';
-import { COUPANG_PROVIDER_PORT } from '../application/port/out/coupang-provider.port';
-import { CHANNELS_OPERATION_ALERT_PORT } from '../application/port/out/operation-alert.port';
-import { CHANNELS_PRODUCT_MASTER_BARCODE_PORT } from '../application/port/out/product-master-barcode.port';
+} from '../application/port/out/repository/channel-reconciliation.repository.port';
+import { CHANNEL_SYNC_REPOSITORY_PORT } from '../application/port/out/repository/channel-sync.repository.port';
+import { COUPANG_PROVIDER_PORT } from '../application/port/out/provider/coupang-provider.port';
+import { CHANNELS_OPERATION_ALERT_PORT } from '../application/port/out/cross-domain/operation-alert.port';
+import { CHANNELS_PRODUCT_MASTER_BARCODE_PORT } from '../application/port/out/cross-domain/product-master-barcode.port';
 
 const IMPORTS_KEY = 'imports';
 const PROVIDERS_KEY = 'providers';

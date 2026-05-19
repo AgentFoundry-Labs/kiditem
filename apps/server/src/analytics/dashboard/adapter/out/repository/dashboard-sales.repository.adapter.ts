@@ -4,7 +4,7 @@ import type { TopProduct, DailyRevenueItem } from '@kiditem/shared/dashboard';
 import type {
   DashboardSalesRepositoryPort,
   TodayKpiRow,
-} from '../../../application/port/out/dashboard-sales.repository.port';
+} from '../../../application/port/out/repository/dashboard-sales.repository.port';
 
 interface TopProductRawRow {
   id: string;

@@ -24,7 +24,7 @@ import type {
   InventoryReorderCandidate,
   InventoryStockRow,
   UpsertActionTaskSeed,
-} from '../../../application/port/out/action-board.repository.port';
+} from '../../../application/port/out/repository/action-board.repository.port';
 import type { JsonValue } from '../../../application/port/persistence-records';
 
 function toPrismaJson(value: JsonValue) {

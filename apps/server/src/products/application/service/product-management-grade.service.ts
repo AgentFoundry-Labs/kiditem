@@ -4,7 +4,7 @@ import { ProductManagementFactsService } from './product-management-facts.servic
 import {
   PRODUCT_MANAGEMENT_REPOSITORY_PORT,
   type ProductManagementRepositoryPort,
-} from '../port/out/product-management.repository.port';
+} from '../port/out/repository/product-management.repository.port';
 import {
   EMPTY_METRICS,
   type ManagementFacts,

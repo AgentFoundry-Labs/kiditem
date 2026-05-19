@@ -7,7 +7,7 @@ import type {
   OperationAlertPort,
   OperationLifecyclePatch,
   StartOperationAlertInput,
-} from '../../../application/port/out/operation-alert.port';
+} from '../../../application/port/out/cross-domain/operation-alert.port';
 
 @Injectable()
 export class ChannelsOperationAlertAdapter implements OperationAlertPort {

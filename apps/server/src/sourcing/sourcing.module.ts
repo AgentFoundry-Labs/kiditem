@@ -17,11 +17,11 @@ import { SourcingAiWorkspaceArchiveAdapter } from './adapter/out/ai/workspace-ar
 import { SourcingOperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
 import { SourcingProductsCatalogAdapter } from './adapter/out/products/products-catalog.adapter';
 import { SourcingCandidateRepositoryAdapter } from './adapter/out/repository/sourcing-candidate.repository.adapter';
-import { SOURCING_AGENT_GATEWAY_PORT } from './application/port/out/sourcing-agent.gateway.port';
-import { SOURCING_AI_WORKSPACE_ARCHIVE_PORT } from './application/port/out/ai-workspace-archive.port';
-import { SOURCING_OPERATION_ALERT_PORT } from './application/port/out/operation-alert.port';
-import { SOURCING_PRODUCTS_CATALOG_PORT } from './application/port/out/products-catalog.port';
-import { SOURCING_CANDIDATE_REPOSITORY_PORT } from './application/port/out/sourcing-candidate.repository.port';
+import { SOURCING_AGENT_GATEWAY_PORT } from './application/port/out/runtime/sourcing-agent.gateway.port';
+import { SOURCING_AI_WORKSPACE_ARCHIVE_PORT } from './application/port/out/cross-domain/ai-workspace-archive.port';
+import { SOURCING_OPERATION_ALERT_PORT } from './application/port/out/cross-domain/operation-alert.port';
+import { SOURCING_PRODUCTS_CATALOG_PORT } from './application/port/out/cross-domain/products-catalog.port';
+import { SOURCING_CANDIDATE_REPOSITORY_PORT } from './application/port/out/repository/sourcing-candidate.repository.port';
 
 /**
  * Sourcing is the canonical owner root for sourced-product discovery and the

@@ -44,9 +44,9 @@ import { SourcingCandidateRepositoryAdapter } from '../adapter/out/repository/so
 import {
   SOURCING_AGENT_GATEWAY_PORT,
   type SourcingAgentGatewayPort,
-} from '../application/port/out/sourcing-agent.gateway.port';
-import { SOURCING_PRODUCTS_CATALOG_PORT } from '../application/port/out/products-catalog.port';
-import { SOURCING_CANDIDATE_REPOSITORY_PORT } from '../application/port/out/sourcing-candidate.repository.port';
+} from '../application/port/out/runtime/sourcing-agent.gateway.port';
+import { SOURCING_PRODUCTS_CATALOG_PORT } from '../application/port/out/cross-domain/products-catalog.port';
+import { SOURCING_CANDIDATE_REPOSITORY_PORT } from '../application/port/out/repository/sourcing-candidate.repository.port';
 import {
   makeTestPrisma,
   resetDb,

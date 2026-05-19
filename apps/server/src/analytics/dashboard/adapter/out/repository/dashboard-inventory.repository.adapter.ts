@@ -19,7 +19,7 @@ import type {
   InventoryStockRow,
   GradeChangeRow,
   AGradeReviewRow,
-} from '../../../application/port/out/dashboard-inventory.repository.port';
+} from '../../../application/port/out/repository/dashboard-inventory.repository.port';
 
 @Injectable()
 export class DashboardInventoryRepositoryAdapter

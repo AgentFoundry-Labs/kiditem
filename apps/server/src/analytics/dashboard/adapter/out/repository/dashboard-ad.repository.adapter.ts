@@ -4,7 +4,7 @@ import { PrismaService } from '../../../../../prisma/prisma.service';
 import type {
   DashboardAdRepositoryPort,
   DailyAdCostRow,
-} from '../../../application/port/out/dashboard-ad.repository.port';
+} from '../../../application/port/out/repository/dashboard-ad.repository.port';
 
 /**
  * Ad-side raw SQL for the dashboard read model.

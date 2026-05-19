@@ -3,7 +3,7 @@ import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
 import { ChannelDashboardService } from '../channel-dashboard.service';
 import { ChannelDashboardRepositoryAdapter } from '../../../adapter/out/repository/channel-dashboard.repository.adapter';
-import { CHANNEL_DASHBOARD_REPOSITORY_PORT } from '../../port/out/channel-dashboard.repository.port';
+import { CHANNEL_DASHBOARD_REPOSITORY_PORT } from '../../port/out/repository/channel-dashboard.repository.port';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   makeTestPrisma,

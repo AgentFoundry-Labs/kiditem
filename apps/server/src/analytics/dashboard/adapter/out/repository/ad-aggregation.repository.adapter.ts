@@ -9,7 +9,7 @@ import { PrismaService } from '../../../../../prisma/prisma.service';
 import type {
   AdAggregationRepositoryPort,
   RangeAdMetrics,
-} from '../../../application/port/out/ad-aggregation.repository.port';
+} from '../../../application/port/out/repository/ad-aggregation.repository.port';
 
 @Injectable()
 export class AdAggregationRepositoryAdapter

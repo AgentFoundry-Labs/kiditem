@@ -15,12 +15,12 @@ import {
   type OptionsListPage,
   type ProductOptionRepositoryPort,
   type ProductOptionRow,
-} from '../port/out/product-option.repository.port';
+} from '../port/out/repository/product-option.repository.port';
 import {
   PRODUCTS_TRANSACTION_PORT,
   type ProductsRepositoryTransaction,
   type ProductsTransactionPort,
-} from '../port/out/products-transaction.port';
+} from '../port/out/transaction/products-transaction.port';
 
 /**
  * Application orchestration for `ProductOption` lifecycle.

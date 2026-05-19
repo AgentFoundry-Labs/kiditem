@@ -18,8 +18,8 @@ import type {
   UpsertPreparationInput,
   UpsertCandidateInput,
   UpsertPromotedProductPreparationInput,
-} from '../../../application/port/out/sourcing-candidate.repository.port';
-import type { SourcingRepositoryTransaction } from '../../../application/port/out/repository-transaction';
+} from '../../../application/port/out/repository/sourcing-candidate.repository.port';
+import type { SourcingRepositoryTransaction } from '../../../application/port/out/transaction/repository-transaction';
 
 @Injectable()
 export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepositoryPort {

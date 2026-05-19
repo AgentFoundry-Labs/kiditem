@@ -8,8 +8,8 @@ import { AgentOsRuntimeError } from '../../../../agent-os/domain/agent-os.errors
 import type {
   AgentRuntimeExecutionContext,
   AgentRuntimeResult,
-} from '../../../../agent-os/application/port/out/agent-runtime.port';
-import type { AgentTypeRuntimeHandler } from '../../../../agent-os/application/port/out/agent-runtime-handler.port';
+} from '../../../../agent-os/application/port/out/runtime/agent-runtime.port';
+import type { AgentTypeRuntimeHandler } from '../../../../agent-os/application/port/out/runtime/agent-runtime-handler.port';
 import { AgentRuntimeHandlerRegistry } from '../../../../agent-os/application/service/agent-runtime-handler-registry.service';
 import {
   DETAIL_PAGE_GENERATE_AGENT_TYPE,

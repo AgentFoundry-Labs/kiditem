@@ -10,7 +10,7 @@ import type {
   AdTargetDailyMetrics,
   ChannelTargetDailyRepositoryPort,
   UpsertAdTargetDailyInput,
-} from '../../../application/port/out/channel-target-daily.repository.port';
+} from '../../../application/port/out/repository/channel-target-daily.repository.port';
 import {
   buildNamespacedMetaForCreate,
   mergeNamespacedMetaJson,

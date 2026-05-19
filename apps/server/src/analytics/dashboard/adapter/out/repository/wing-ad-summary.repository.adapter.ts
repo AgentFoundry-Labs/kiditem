@@ -22,7 +22,7 @@ import { pct2 } from '../../../domain/util/percent';
 import type {
   WingAdSummaryRepositoryPort,
   WingAdSummaryResult,
-} from '../../../application/port/out/wing-ad-summary.repository.port';
+} from '../../../application/port/out/repository/wing-ad-summary.repository.port';
 
 @Injectable()
 export class WingAdSummaryRepositoryAdapter

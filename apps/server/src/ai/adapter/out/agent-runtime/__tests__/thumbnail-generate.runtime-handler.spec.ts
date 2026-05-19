@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ThumbnailGenerateRuntimeHandler } from '../thumbnail-generate.runtime-handler';
 import { AgentRuntimeHandlerRegistry } from '../../../../../agent-os/application/service/agent-runtime-handler-registry.service';
 import { AgentOsRuntimeError } from '../../../../../agent-os/domain/agent-os.errors';
-import type { AgentRuntimeExecutionContext } from '../../../../../agent-os/application/port/out/agent-runtime.port';
+import type { AgentRuntimeExecutionContext } from '../../../../../agent-os/application/port/out/runtime/agent-runtime.port';
 import type { ThumbnailEditorAiService } from '../../../../application/service/thumbnail-editor-ai.service';
 
 const VALID_INPUT_IMAGE = {

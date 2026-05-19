@@ -5,12 +5,12 @@ import type { ProductBundleStockPort } from '../port/in/bundle-stock.port';
 import {
   PRODUCT_BUNDLE_REPOSITORY_PORT,
   type ProductBundleRepositoryPort,
-} from '../port/out/product-bundle.repository.port';
+} from '../port/out/repository/product-bundle.repository.port';
 import {
   PRODUCTS_TRANSACTION_PORT,
   type ProductsRepositoryTransaction,
   type ProductsTransactionPort,
-} from '../port/out/products-transaction.port';
+} from '../port/out/transaction/products-transaction.port';
 
 /**
  * Recompute the materialized `availableStock` for a bundle option.

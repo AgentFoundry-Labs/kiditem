@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import {
   CHANNEL_ACCOUNT_REPOSITORY_PORT,
   type ChannelAccountRepositoryPort,
-} from '../port/out/channel-account.repository.port';
+} from '../port/out/repository/channel-account.repository.port';
 
 @Injectable()
 export class ChannelAccountQueryService {

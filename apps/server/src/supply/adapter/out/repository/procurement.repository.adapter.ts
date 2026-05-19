@@ -6,7 +6,7 @@ import type {
   PurchaseOrderCreateCommand,
   PurchaseOrderListQuery,
   PurchaseOrderStatusUpdate,
-} from '../../../application/port/out/procurement.repository.port';
+} from '../../../application/port/out/repository/procurement.repository.port';
 
 type PurchaseOrderSummarySource = {
   totalAmountCny: Prisma.Decimal | number | string;

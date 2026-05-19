@@ -6,7 +6,7 @@ import {
   type FinalizeRunInput,
   type FindRunEventsQuery,
   type FindRunsQuery,
-} from '../../../application/port/out/agent-os-repository.port';
+} from '../../../application/port/out/repository/agent-os-repository.port';
 import { AgentOsBoundaryError } from '../../../domain/agent-os.errors';
 import {
   type AgentRunEventRecord,

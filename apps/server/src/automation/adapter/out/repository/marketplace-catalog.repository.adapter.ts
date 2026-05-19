@@ -11,7 +11,7 @@ import type {
   MarketplaceCatalogQuery,
   MarketplaceCatalogRepositoryPort,
   WorkflowCatalogReadout,
-} from '../../../application/port/out/marketplace-catalog.repository.port';
+} from '../../../application/port/out/repository/marketplace-catalog.repository.port';
 
 @Injectable()
 export class MarketplaceCatalogRepositoryAdapter

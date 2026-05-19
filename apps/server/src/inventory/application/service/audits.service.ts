@@ -10,7 +10,7 @@ import {
   type AuditsRepositoryPort,
   type StockAuditUpdateData,
   type StockAuditRow,
-} from '../port/out/audits.repository.port';
+} from '../port/out/repository/audits.repository.port';
 
 export { AUDITS_PORT } from '../port/in/audits.port';
 

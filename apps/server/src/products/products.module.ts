@@ -28,13 +28,13 @@ import { CategoriesModule } from './categories/categories.module';
 import { PRODUCT_BUNDLE_STOCK_PORT } from './application/port/in/bundle-stock.port';
 import { PRODUCT_MASTER_BARCODE_PORT } from './application/port/in/master-barcode.port';
 import { PRODUCT_MASTER_PROMOTION_PORT } from './application/port/in/master-promotion.port';
-import { MASTER_CODE_PORT } from './application/port/out/master-code.port';
-import { MASTER_PRODUCT_REPOSITORY_PORT } from './application/port/out/master-product.repository.port';
-import { PRODUCT_OPTION_REPOSITORY_PORT } from './application/port/out/product-option.repository.port';
-import { PRODUCT_BUNDLE_REPOSITORY_PORT } from './application/port/out/product-bundle.repository.port';
-import { PRODUCT_CATALOG_REPOSITORY_PORT } from './application/port/out/product-catalog.repository.port';
-import { PRODUCT_MANAGEMENT_REPOSITORY_PORT } from './application/port/out/product-management.repository.port';
-import { PRODUCTS_TRANSACTION_PORT } from './application/port/out/products-transaction.port';
+import { MASTER_CODE_PORT } from './application/port/out/repository/master-code.port';
+import { MASTER_PRODUCT_REPOSITORY_PORT } from './application/port/out/repository/master-product.repository.port';
+import { PRODUCT_OPTION_REPOSITORY_PORT } from './application/port/out/repository/product-option.repository.port';
+import { PRODUCT_BUNDLE_REPOSITORY_PORT } from './application/port/out/repository/product-bundle.repository.port';
+import { PRODUCT_CATALOG_REPOSITORY_PORT } from './application/port/out/repository/product-catalog.repository.port';
+import { PRODUCT_MANAGEMENT_REPOSITORY_PORT } from './application/port/out/repository/product-management.repository.port';
+import { PRODUCTS_TRANSACTION_PORT } from './application/port/out/transaction/products-transaction.port';
 
 @Module({
   imports: [CategoriesModule],

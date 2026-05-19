@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import {
   AGENT_OS_REPOSITORY_PORT,
   type AgentOsRepositoryPort,
-} from '../port/out/agent-os-repository.port';
+} from '../port/out/repository/agent-os-repository.port';
 import {
   type AuthorizeToolUseInput,
   type AuthorizeToolUseResult,

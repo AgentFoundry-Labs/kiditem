@@ -5,7 +5,7 @@ import { AgentOsRuntimeError } from '../../../../domain/agent-os.errors';
 import type {
   AgentRuntimeExecutionContext,
   AgentRuntimeResult,
-} from '../../../../application/port/out/agent-runtime.port';
+} from '../../../../application/port/out/runtime/agent-runtime.port';
 
 function makeContext(
   overrides: Partial<AgentRuntimeExecutionContext> = {},

@@ -14,7 +14,7 @@ import {
   LINKED_RESOLUTION_SOURCES,
   MAX_PAGE,
   RECONCILIATION_CHANNEL,
-} from '../../../application/port/out/channel-reconciliation.repository.port';
+} from '../../../application/port/out/repository/channel-reconciliation.repository.port';
 
 @Injectable()
 export class ChannelReconciliationQueryRepositoryAdapter

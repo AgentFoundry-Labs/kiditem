@@ -1,9 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { InventoryService } from '../inventory.service';
-import type { InventoryQueryRepositoryPort } from '../../port/out/inventory-query.repository.port';
-import type { InventoryRepositoryPort } from '../../port/out/inventory.repository.port';
-import type { BundleStockPort } from '../../port/out/bundle-stock.port';
+import type { InventoryQueryRepositoryPort } from '../../port/out/repository/inventory-query.repository.port';
+import type { InventoryRepositoryPort } from '../../port/out/repository/inventory.repository.port';
+import type { BundleStockPort } from '../../port/out/cross-domain/bundle-stock.port';
 
 // Stub for InventoryRepositoryPort — mocks the run-in-transaction callback by
 // invoking it immediately with a fake `tx` and the seeded locked inventory row.

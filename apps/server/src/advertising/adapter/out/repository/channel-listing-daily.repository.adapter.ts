@@ -13,7 +13,7 @@ import type {
   ListingDailyState,
   ListingDailyTrafficMetrics,
   ListingDailyUpsertInput,
-} from '../../../application/port/out/channel-listing-daily.repository.port';
+} from '../../../application/port/out/repository/channel-listing-daily.repository.port';
 import {
   buildNamespacedMetaForCreate,
   mergeNamespacedMetaJson,

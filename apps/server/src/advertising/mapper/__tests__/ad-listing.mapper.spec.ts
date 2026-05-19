@@ -5,7 +5,7 @@ import {
   toListingSummary,
 } from '../ad-listing.mapper';
 import type { HydratedListing } from '../../domain/model/strategy-types';
-import type { ScopedAdListingReadModel } from '../../application/port/out/ad-listing.repository.port';
+import type { ScopedAdListingReadModel } from '../../application/port/out/repository/ad-listing.repository.port';
 
 describe('mappers/ad-listing — HydratedListing → AdListingSummary', () => {
   it('strips ad/inventory fields, returns AdListingSummary shape with option:null', () => {

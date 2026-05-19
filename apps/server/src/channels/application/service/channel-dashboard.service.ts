@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import {
   CHANNEL_DASHBOARD_REPOSITORY_PORT,
   type ChannelDashboardRepositoryPort,
-} from '../port/out/channel-dashboard.repository.port';
+} from '../port/out/repository/channel-dashboard.repository.port';
 
 @Injectable()
 export class ChannelDashboardService {

@@ -54,20 +54,20 @@ import { TrafficIngestHandler } from './application/service/traffic-ingest.handl
 import { ChannelScrapePersistenceService } from './services/channel-scrape-persistence.service';
 
 // application/port/out tokens
-import { SCRAPE_TARGET_REPOSITORY_PORT } from './application/port/out/scrape-target.repository.port';
-import { AD_CONFIG_REPOSITORY_PORT } from './application/port/out/ad-config.repository.port';
-import { AD_BENCHMARK_REPOSITORY_PORT } from './application/port/out/ad-benchmark.repository.port';
-import { AD_ACCOUNT_KPI_REPOSITORY_PORT } from './application/port/out/ad-account-kpi.repository.port';
-import { AD_LISTING_REPOSITORY_PORT } from './application/port/out/ad-listing.repository.port';
-import { AD_CAMPAIGN_REPOSITORY_PORT } from './application/port/out/ad-campaign.repository.port';
-import { AD_ACTION_REPOSITORY_PORT } from './application/port/out/ad-action.repository.port';
-import { AD_EXECUTION_REPOSITORY_PORT } from './application/port/out/ad-execution.repository.port';
-import { AD_STRATEGY_CONTEXT_REPOSITORY_PORT } from './application/port/out/ad-strategy-context.repository.port';
-import { CHANNEL_SCRAPE_REPOSITORY_PORT } from './application/port/out/channel-scrape.repository.port';
-import { CHANNEL_LISTING_DAILY_REPOSITORY_PORT } from './application/port/out/channel-listing-daily.repository.port';
-import { CHANNEL_OPTION_DAILY_REPOSITORY_PORT } from './application/port/out/channel-option-daily.repository.port';
-import { CHANNEL_TARGET_DAILY_REPOSITORY_PORT } from './application/port/out/channel-target-daily.repository.port';
-import { OPERATION_ALERT_PORT } from './application/port/out/operation-alert.port';
+import { SCRAPE_TARGET_REPOSITORY_PORT } from './application/port/out/repository/scrape-target.repository.port';
+import { AD_CONFIG_REPOSITORY_PORT } from './application/port/out/repository/ad-config.repository.port';
+import { AD_BENCHMARK_REPOSITORY_PORT } from './application/port/out/repository/ad-benchmark.repository.port';
+import { AD_ACCOUNT_KPI_REPOSITORY_PORT } from './application/port/out/repository/ad-account-kpi.repository.port';
+import { AD_LISTING_REPOSITORY_PORT } from './application/port/out/repository/ad-listing.repository.port';
+import { AD_CAMPAIGN_REPOSITORY_PORT } from './application/port/out/repository/ad-campaign.repository.port';
+import { AD_ACTION_REPOSITORY_PORT } from './application/port/out/repository/ad-action.repository.port';
+import { AD_EXECUTION_REPOSITORY_PORT } from './application/port/out/repository/ad-execution.repository.port';
+import { AD_STRATEGY_CONTEXT_REPOSITORY_PORT } from './application/port/out/repository/ad-strategy-context.repository.port';
+import { CHANNEL_SCRAPE_REPOSITORY_PORT } from './application/port/out/repository/channel-scrape.repository.port';
+import { CHANNEL_LISTING_DAILY_REPOSITORY_PORT } from './application/port/out/repository/channel-listing-daily.repository.port';
+import { CHANNEL_OPTION_DAILY_REPOSITORY_PORT } from './application/port/out/repository/channel-option-daily.repository.port';
+import { CHANNEL_TARGET_DAILY_REPOSITORY_PORT } from './application/port/out/repository/channel-target-daily.repository.port';
+import { OPERATION_ALERT_PORT } from './application/port/out/cross-domain/operation-alert.port';
 
 // `application/port/out/*` ports bound to their adapters via `useExisting`
 // so application services depend on tokens, not concrete classes. Mirrors

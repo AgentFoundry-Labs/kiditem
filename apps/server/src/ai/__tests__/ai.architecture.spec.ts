@@ -53,21 +53,14 @@ function withoutAllowedPrefixes(files: string[], prefixes: string[]): string[] {
 }
 
 describe('ai architecture ratchet', () => {
-  it('keeps AI ports grouped under explicit lane directories', () => {
+  it('keeps AI incoming ports grouped under capability directories', () => {
     const directInPorts = rg(`--files ${aiRel('application/port/in')} --glob '*.port.ts'`).filter(
       (file) => path.dirname(file) === aiRel('application/port/in'),
-    );
-    const directOutPorts = rg(`--files ${aiRel('application/port/out')} --glob '*.port.ts'`).filter(
-      (file) => path.dirname(file) === aiRel('application/port/out'),
     );
 
     expect(
       directInPorts,
       `AI incoming ports should live under capability folders:\n${directInPorts.join('\n')}`,
-    ).toEqual([]);
-    expect(
-      directOutPorts,
-      `AI outgoing ports should live under IO lane folders:\n${directOutPorts.join('\n')}`,
     ).toEqual([]);
   });
 

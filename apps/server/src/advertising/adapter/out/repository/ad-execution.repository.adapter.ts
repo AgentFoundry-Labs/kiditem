@@ -14,7 +14,7 @@ import type {
   LeasedExecutionTask,
   ScopedExecutionTaskRow,
   WorkerHeartbeatMeta,
-} from '../../../application/port/out/ad-execution.repository.port';
+} from '../../../application/port/out/repository/ad-execution.repository.port';
 
 const MAX_LEASE_SCAN = 50;
 

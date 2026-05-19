@@ -5,7 +5,7 @@ import type {
   DashboardTrendRepositoryPort,
   TrendRevenueRow,
   TrendAdCostRow,
-} from '../../../application/port/out/dashboard-trend.repository.port';
+} from '../../../application/port/out/repository/dashboard-trend.repository.port';
 
 /**
  * Trend-side raw SQL for the dashboard read model.

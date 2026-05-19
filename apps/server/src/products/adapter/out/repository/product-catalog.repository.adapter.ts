@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type { ListProductCatalogQuery } from '../../../dto/list-product-catalog.query';
-import type { ProductCatalogRepositoryPort } from '../../../application/port/out/product-catalog.repository.port';
+import type { ProductCatalogRepositoryPort } from '../../../application/port/out/repository/product-catalog.repository.port';
 import {
   findCatalogCountsRows,
   findCatalogDetail,

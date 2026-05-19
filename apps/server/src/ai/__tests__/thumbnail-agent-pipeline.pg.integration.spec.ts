@@ -39,11 +39,11 @@ import { ThumbnailGenerationService } from '../application/service/thumbnail-gen
 import { ThumbnailGenerationSinkAdapter } from '../adapter/out/agent-output/thumbnail-generation-sink.adapter';
 import { ThumbnailGenerationLedgerRepositoryAdapter } from '../adapter/out/repository/thumbnail-generation-ledger.repository.adapter';
 import type { AgentRunnerPort } from '../../agent-os/application/port/in/agent-runner.port';
-import type { AgentTypeRuntimeHandler } from '../../agent-os/application/port/out/agent-runtime-handler.port';
+import type { AgentTypeRuntimeHandler } from '../../agent-os/application/port/out/runtime/agent-runtime-handler.port';
 import type {
   AgentRuntimeExecutionContext,
   AgentRuntimeResult,
-} from '../../agent-os/application/port/out/agent-runtime.port';
+} from '../../agent-os/application/port/out/runtime/agent-runtime.port';
 
 const ORG = TEST_ORGANIZATION_ID;
 const MASTER_ID = '99999999-aaaa-4999-8999-999999999999';

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AdBenchmarkService } from '../ad-benchmark.service';
-import type { AdBenchmarkRepositoryPort } from '../../port/out/ad-benchmark.repository.port';
-import type { AdListingRepositoryPort } from '../../port/out/ad-listing.repository.port';
+import type { AdBenchmarkRepositoryPort } from '../../port/out/repository/ad-benchmark.repository.port';
+import type { AdListingRepositoryPort } from '../../port/out/repository/ad-listing.repository.port';
 import {
   buildMockAdBenchmarkRepo,
   buildMockAdListingRepo,

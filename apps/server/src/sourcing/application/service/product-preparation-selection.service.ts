@@ -3,7 +3,7 @@ import {
   SOURCING_CANDIDATE_REPOSITORY_PORT,
   type CandidateForPreparationRow,
   type SourcingCandidateRepositoryPort,
-} from '../port/out/sourcing-candidate.repository.port';
+} from '../port/out/repository/sourcing-candidate.repository.port';
 
 export interface UpdateProductBasicsInput {
   name?: string;

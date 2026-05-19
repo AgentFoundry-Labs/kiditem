@@ -9,7 +9,7 @@ import type {
   ListTransactionsFilters,
   StockTransactionRow,
   UnshippedItemRow,
-} from '../../../application/port/out/inventory-query.repository.port';
+} from '../../../application/port/out/repository/inventory-query.repository.port';
 
 @Injectable()
 export class InventoryQueryRepositoryAdapter implements InventoryQueryRepositoryPort {

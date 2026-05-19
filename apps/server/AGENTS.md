@@ -144,9 +144,10 @@ the lane exists:
   Interfaces.
 - `cross-domain/` for anti-corruption Interfaces to another owner Module.
 
-A domain-specific outgoing port may stay directly under `application/port/out/`
-only when it is local to that owner, has no backend-wide naming pressure, and
-does not belong to one of the lanes above.
+Outgoing port files do not stay directly under `application/port/out/`.
+Domain-specific outgoing ports still use the narrowest lane that explains the
+Adapter family. A direct `application/port/out/*.ts` exception requires both a
+documented architecture note and an explicit checker change.
 
 Cross-domain capabilities are not copied into `common` by default. The owning
 Module publishes an incoming Interface from `application/port/in/`, and

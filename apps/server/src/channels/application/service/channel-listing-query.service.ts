@@ -3,14 +3,14 @@ import {
   CHANNEL_LISTING_REPOSITORY_PORT,
   type ChannelListingQuery,
   type ChannelListingRepositoryPort,
-} from '../port/out/channel-listing.repository.port';
+} from '../port/out/repository/channel-listing.repository.port';
 export type {
   ChannelListingMarketCount,
   ChannelListingQuery,
   ChannelListingSort,
   ChannelListingSummary,
   RegisteredProductGroupSummary,
-} from '../port/out/channel-listing.repository.port';
+} from '../port/out/repository/channel-listing.repository.port';
 
 @Injectable()
 export class ChannelListingQueryService {

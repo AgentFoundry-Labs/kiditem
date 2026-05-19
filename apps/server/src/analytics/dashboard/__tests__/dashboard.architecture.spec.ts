@@ -18,7 +18,7 @@ import path from 'node:path';
 //   - `application/service/**` does not import other owner-domain services
 //     directly. Dashboard is analytics-owned and currently has no
 //     cross-owner reach; if one appears later it must go through a port
-//     under `adapter/out/{owner}/`.
+//     under `application/port/out/cross-domain/**`.
 //   - Domain code (`analytics/dashboard/domain/**`) is free of NestJS,
 //     Prisma, PrismaService, HTTP DTO classes, and incoming-adapter
 //     modules, and does not depend on application contracts.
@@ -118,16 +118,15 @@ describe('analytics/dashboard architecture contract', () => {
   it('application/service/** does not import other owner-domain services directly', () => {
     const dash = dashboardRel();
     const serviceGlob = path.join(dash, 'application/service') + '/**';
-    // Cross-owner-domain reach must go through an `adapter/out/{owner}/` port
-    // + adapter pair. The grep targets relative paths that climb out of
-    // analytics and into another owner domain's application or adapter
-    // layer.
+    // Cross-owner-domain reach must go through a local cross-domain port +
+    // adapter bridge. The grep targets relative paths that climb out of
+    // analytics and into another owner domain's application layer.
     const hits = rg(
       `--type ts --files-with-matches '\\.\\./\\.\\./\\.\\./(automation|ai|channels|finance|inventory|orders|products|sourcing|rules|agent-os|advertising)/application' --glob '${serviceGlob}' --glob '!**/__tests__/**'`,
     );
     expect(
       hits,
-      `application services must reach other owner domains through adapter/out/{owner}/* ports:\n${hits.join('\n')}`,
+      `application services must reach other owner domains through application/port/out/cross-domain/* ports:\n${hits.join('\n')}`,
     ).toEqual([]);
   });
 

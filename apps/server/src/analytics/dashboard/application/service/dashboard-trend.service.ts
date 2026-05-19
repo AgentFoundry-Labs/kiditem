@@ -3,15 +3,15 @@ import type { DashboardTrendItem } from '@kiditem/shared/dashboard';
 import {
   PROFIT_CALCULATION_REPOSITORY_PORT,
   type ProfitCalculationRepositoryPort,
-} from '../port/out/profit-calculation.repository.port';
+} from '../port/out/repository/profit-calculation.repository.port';
 import {
   DASHBOARD_TREND_REPOSITORY_PORT,
   type DashboardTrendRepositoryPort,
-} from '../port/out/dashboard-trend.repository.port';
+} from '../port/out/repository/dashboard-trend.repository.port';
 import {
   WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT,
   type WingTrafficAggregationRepositoryPort,
-} from '../port/out/wing-traffic-aggregation.repository.port';
+} from '../port/out/repository/wing-traffic-aggregation.repository.port';
 import { kstInclusiveDaysStart } from '../../../../common/kst';
 
 @Injectable()

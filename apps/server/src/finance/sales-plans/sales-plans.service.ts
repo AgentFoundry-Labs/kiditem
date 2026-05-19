@@ -5,7 +5,7 @@ import { kstMonthStart } from '../../common/kst';
 import {
   FINANCE_OPERATION_ALERT_PORT,
   type OperationAlertPort,
-} from '../application/port/out/operation-alert.port';
+} from '../application/port/out/cross-domain/operation-alert.port';
 import { CreateSalesPlanDto, UpdateSalesPlanDto } from './dto';
 
 const EXCLUDED_ORDER_STATUSES = ['cancelled', 'returned', 'refunded'] as const;

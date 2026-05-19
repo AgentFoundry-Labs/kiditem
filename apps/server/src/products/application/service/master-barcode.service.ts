@@ -3,16 +3,16 @@ import type { ProductMasterBarcodePort } from '../port/in/master-barcode.port';
 import {
   MASTER_PRODUCT_REPOSITORY_PORT,
   type MasterProductRepositoryPort,
-} from '../port/out/master-product.repository.port';
+} from '../port/out/repository/master-product.repository.port';
 import {
   PRODUCT_OPTION_REPOSITORY_PORT,
   type ProductOptionRepositoryPort,
-} from '../port/out/product-option.repository.port';
+} from '../port/out/repository/product-option.repository.port';
 import {
   PRODUCTS_TRANSACTION_PORT,
   type ProductsRepositoryTransaction,
   type ProductsTransactionPort,
-} from '../port/out/products-transaction.port';
+} from '../port/out/transaction/products-transaction.port';
 
 @Injectable()
 export class MasterBarcodeService implements ProductMasterBarcodePort {

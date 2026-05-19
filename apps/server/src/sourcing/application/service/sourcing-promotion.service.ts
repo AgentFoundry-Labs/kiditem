@@ -10,17 +10,17 @@ import {
 import {
   SOURCING_AGENT_GATEWAY_PORT,
   type SourcingAgentGatewayPort,
-} from '../port/out/sourcing-agent.gateway.port';
+} from '../port/out/runtime/sourcing-agent.gateway.port';
 import {
   SOURCING_PRODUCTS_CATALOG_PORT,
   type PromoteCandidateInput,
   type SourcingProductsCatalogPort,
-} from '../port/out/products-catalog.port';
-import type { SourcingRepositoryTransaction } from '../port/out/repository-transaction';
+} from '../port/out/cross-domain/products-catalog.port';
+import type { SourcingRepositoryTransaction } from '../port/out/transaction/repository-transaction';
 import {
   SOURCING_CANDIDATE_REPOSITORY_PORT,
   type SourcingCandidateRepositoryPort,
-} from '../port/out/sourcing-candidate.repository.port';
+} from '../port/out/repository/sourcing-candidate.repository.port';
 import type {
   PromoteCandidateCommand,
   RejectCandidateCommand,

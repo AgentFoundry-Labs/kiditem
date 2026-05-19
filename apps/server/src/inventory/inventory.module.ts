@@ -35,14 +35,14 @@ import { TRANSFERS_PORT } from './application/port/in/transfers.port';
 import { AUDITS_PORT } from './application/port/in/audits.port';
 import { PICKING_PORT } from './application/port/in/picking.port';
 
-import { INVENTORY_QUERY_REPOSITORY_PORT } from './application/port/out/inventory-query.repository.port';
-import { INVENTORY_REPOSITORY_PORT } from './application/port/out/inventory.repository.port';
-import { WAREHOUSES_REPOSITORY_PORT } from './application/port/out/warehouses.repository.port';
-import { TRANSFERS_REPOSITORY_PORT } from './application/port/out/transfers.repository.port';
-import { AUDITS_REPOSITORY_PORT } from './application/port/out/audits.repository.port';
-import { PICKING_REPOSITORY_PORT } from './application/port/out/picking.repository.port';
-import { CONFIRMED_ORDERS_PORT } from './application/port/out/confirmed-orders.port';
-import { BUNDLE_STOCK_PORT } from './application/port/out/bundle-stock.port';
+import { INVENTORY_QUERY_REPOSITORY_PORT } from './application/port/out/repository/inventory-query.repository.port';
+import { INVENTORY_REPOSITORY_PORT } from './application/port/out/repository/inventory.repository.port';
+import { WAREHOUSES_REPOSITORY_PORT } from './application/port/out/repository/warehouses.repository.port';
+import { TRANSFERS_REPOSITORY_PORT } from './application/port/out/repository/transfers.repository.port';
+import { AUDITS_REPOSITORY_PORT } from './application/port/out/repository/audits.repository.port';
+import { PICKING_REPOSITORY_PORT } from './application/port/out/repository/picking.repository.port';
+import { CONFIRMED_ORDERS_PORT } from './application/port/out/cross-domain/confirmed-orders.port';
+import { BUNDLE_STOCK_PORT } from './application/port/out/cross-domain/bundle-stock.port';
 
 // Application port → adapter bindings live in this module. Application services
 // only depend on `application/port/out/*` contracts; the Nest module is the

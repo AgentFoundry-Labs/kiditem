@@ -15,7 +15,7 @@ import type {
   AdAccountKpiDayRow,
   AdAccountKpiRepositoryPort,
   UpsertAccountKpiInput,
-} from '../../../application/port/out/ad-account-kpi.repository.port';
+} from '../../../application/port/out/repository/ad-account-kpi.repository.port';
 
 @Injectable()
 export class AdAccountKpiRepositoryAdapter

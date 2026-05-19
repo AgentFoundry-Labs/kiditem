@@ -15,22 +15,22 @@ import {
   PROFIT_CALCULATION_REPOSITORY_PORT,
   type ProfitCalculationRepositoryPort,
   type RangeProfitMetrics,
-} from '../port/out/profit-calculation.repository.port';
+} from '../port/out/repository/profit-calculation.repository.port';
 import {
   WING_AD_SUMMARY_REPOSITORY_PORT,
   type WingAdSummaryRepositoryPort,
   type WingAdSummaryResult,
-} from '../port/out/wing-ad-summary.repository.port';
+} from '../port/out/repository/wing-ad-summary.repository.port';
 import {
   DASHBOARD_SALES_REPOSITORY_PORT,
   type DashboardSalesRepositoryPort,
-} from '../port/out/dashboard-sales.repository.port';
+} from '../port/out/repository/dashboard-sales.repository.port';
 import {
   WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT,
   type WingTrafficAggregationRepositoryPort,
   type CoupangAdsMetrics,
   type WingTrafficMetrics,
-} from '../port/out/wing-traffic-aggregation.repository.port';
+} from '../port/out/repository/wing-traffic-aggregation.repository.port';
 import { buildEffectivePeriod } from '../../domain/util/effective-period';
 import { pct1 } from '../../domain/util/percent';
 

@@ -36,3 +36,25 @@ test('reports undocumented directories and forbidden app route handlers', () => 
   ]);
   assert.deepEqual(result.forbidden, ['apps/web/src/app/api']);
 });
+
+test('reports backend outgoing ports left directly under port/out', () => {
+  const result = analyzeDirectoryArchitecture({
+    architectureDoc: '',
+    serverSrcDirs: [],
+    webAppDirs: [],
+    webSrcDirs: ['app'],
+    webAppApiExists: false,
+    backendPortFiles: [
+      'apps/server/src/ai/application/port/out/provider/text-completion.port.ts',
+      'apps/server/src/supply/application/port/out/supplier.repository.port.ts',
+      'apps/server/src/sourcing/application/port/out/repository-transaction.ts',
+      'apps/server/src/advertising/application/port/out/daily-fact-meta.ts',
+    ],
+  });
+
+  assert.deepEqual(result.directOutPortFiles, [
+    'apps/server/src/advertising/application/port/out/daily-fact-meta.ts',
+    'apps/server/src/sourcing/application/port/out/repository-transaction.ts',
+    'apps/server/src/supply/application/port/out/supplier.repository.port.ts',
+  ]);
+});

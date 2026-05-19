@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AdCollectService } from '../ad-collect.service';
-import type { ChannelScrapeRepositoryPort } from '../../port/out/channel-scrape.repository.port';
+import type { ChannelScrapeRepositoryPort } from '../../port/out/repository/channel-scrape.repository.port';
 import {
   buildMockChannelScrapeRepo,
   type MockChannelScrapeRepo,

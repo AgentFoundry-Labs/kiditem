@@ -3,7 +3,7 @@ import type { HydratedListing } from '../domain/model/strategy-types';
 import type {
   ScopedAdListingReadModel,
   ScopedAdListingSummary,
-} from '../application/port/out/ad-listing.repository.port';
+} from '../application/port/out/repository/ad-listing.repository.port';
 
 /**
  * HydratedListing → AdListingSummary (Zod schema 정합).

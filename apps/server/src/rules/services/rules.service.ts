@@ -12,7 +12,7 @@ import { alertPanelMapper } from '../../automation/mapper/panel-event/alert.mapp
 import {
   RULES_OPERATION_ALERT_PORT,
   type OperationAlertPort,
-} from '../application/port/out/operation-alert.port';
+} from '../application/port/out/cross-domain/operation-alert.port';
 import type { RuleItem } from '@kiditem/shared/rules';
 import type { EvaluationResult, ProductEvalResult } from './types';
 

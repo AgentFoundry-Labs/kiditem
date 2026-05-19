@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NotFoundException } from '@nestjs/common';
 import { InventoryService } from '../inventory.service';
-import type { InventoryQueryRepositoryPort } from '../../port/out/inventory-query.repository.port';
-import type { InventoryRepositoryPort } from '../../port/out/inventory.repository.port';
-import type { BundleStockPort } from '../../port/out/bundle-stock.port';
+import type { InventoryQueryRepositoryPort } from '../../port/out/repository/inventory-query.repository.port';
+import type { InventoryRepositoryPort } from '../../port/out/repository/inventory.repository.port';
+import type { BundleStockPort } from '../../port/out/cross-domain/bundle-stock.port';
 
 describe('InventoryService — metadata update', () => {
   let service: InventoryService;

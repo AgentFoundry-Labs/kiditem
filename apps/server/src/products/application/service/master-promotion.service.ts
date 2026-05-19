@@ -10,16 +10,16 @@ import type {
 import {
   MASTER_CODE_PORT,
   type MasterCodePort,
-} from '../port/out/master-code.port';
+} from '../port/out/repository/master-code.port';
 import {
   MASTER_PRODUCT_REPOSITORY_PORT,
   type MasterProductRepositoryPort,
-} from '../port/out/master-product.repository.port';
+} from '../port/out/repository/master-product.repository.port';
 import {
   PRODUCTS_TRANSACTION_PORT,
   type ProductsRepositoryTransaction,
   type ProductsTransactionPort,
-} from '../port/out/products-transaction.port';
+} from '../port/out/transaction/products-transaction.port';
 import { OptionsService } from './options.service';
 
 /**

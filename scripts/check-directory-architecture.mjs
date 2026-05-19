@@ -14,12 +14,35 @@ function listDirectories(dir) {
     .sort();
 }
 
+function listFiles(dir) {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const entryPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) return listFiles(entryPath);
+    return [entryPath];
+  });
+}
+
+function directOutPortFiles(backendPortFiles) {
+  return backendPortFiles
+    .filter((file) => file.endsWith('.ts'))
+    .filter((file) => {
+      const marker = '/application/port/out/';
+      const markerIndex = file.indexOf(marker);
+      if (markerIndex === -1) return false;
+
+      const rest = file.slice(markerIndex + marker.length);
+      return !rest.includes('/') && rest !== 'index.ts';
+    })
+    .sort();
+}
+
 export function analyzeDirectoryArchitecture({
   architectureDoc,
   serverSrcDirs,
   webAppDirs,
   webSrcDirs,
   webAppApiExists,
+  backendPortFiles = [],
 }) {
   const requiredPaths = [
     ...serverSrcDirs.map((name) => `apps/server/src/${name}`),
@@ -38,14 +61,23 @@ export function analyzeDirectoryArchitecture({
     forbidden.push('apps/web/src/app/api');
   }
 
-  return { requiredPaths, missing, forbidden };
+  return {
+    requiredPaths,
+    missing,
+    forbidden,
+    directOutPortFiles: directOutPortFiles(backendPortFiles),
+  };
 }
 
 export function collectDirectoryArchitecture(root) {
   const webAppApiPath = path.join(root, 'apps/web/src/app/api');
+  const serverSrcPath = path.join(root, 'apps/server/src');
   return {
     architectureDoc: readFileSync(path.join(root, 'docs/ARCHITECTURE.md'), 'utf8'),
-    serverSrcDirs: listDirectories(path.join(root, 'apps/server/src')),
+    serverSrcDirs: listDirectories(serverSrcPath),
+    backendPortFiles: listFiles(serverSrcPath)
+      .map((file) => path.relative(root, file))
+      .filter((file) => file.includes('/application/port/')),
     webAppDirs: listDirectories(path.join(root, 'apps/web/src/app')),
     webSrcDirs: listDirectories(path.join(root, 'apps/web/src')),
     webAppApiExists: existsSync(webAppApiPath),
@@ -54,7 +86,10 @@ export function collectDirectoryArchitecture(root) {
 
 function main() {
   const result = analyzeDirectoryArchitecture(collectDirectoryArchitecture(repoRoot()));
-  const hasFailure = result.missing.length > 0 || result.forbidden.length > 0;
+  const hasFailure =
+    result.missing.length > 0 ||
+    result.forbidden.length > 0 ||
+    result.directOutPortFiles.length > 0;
 
   if (!hasFailure) {
     console.log('check:directory-architecture PASS');
@@ -67,6 +102,11 @@ function main() {
   }
   if (result.forbidden.length > 0) {
     console.error(`Forbidden frontend route-handler directories: ${result.forbidden.join(', ')}`);
+  }
+  if (result.directOutPortFiles.length > 0) {
+    console.error(
+      `Outgoing port files must live under explicit lane directories: ${result.directOutPortFiles.join(', ')}`,
+    );
   }
   console.error('Update docs/ARCHITECTURE.md with the directory map or move the directory.');
   process.exit(1);

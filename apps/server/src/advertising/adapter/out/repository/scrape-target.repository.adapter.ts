@@ -8,7 +8,7 @@ import type {
   CreateScrapeTargetInput,
   ScrapeTargetRepositoryPort,
   ScrapeTargetRow,
-} from '../../../application/port/out/scrape-target.repository.port';
+} from '../../../application/port/out/repository/scrape-target.repository.port';
 
 @Injectable()
 export class ScrapeTargetRepositoryAdapter

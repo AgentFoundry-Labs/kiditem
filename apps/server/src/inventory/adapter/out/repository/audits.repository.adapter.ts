@@ -6,7 +6,7 @@ import type {
   CreateStockAuditData,
   StockAuditRow,
   StockAuditUpdateData,
-} from '../../../application/port/out/audits.repository.port';
+} from '../../../application/port/out/repository/audits.repository.port';
 
 @Injectable()
 export class AuditsRepositoryAdapter implements AuditsRepositoryPort {

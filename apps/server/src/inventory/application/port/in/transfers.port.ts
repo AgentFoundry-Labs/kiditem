@@ -1,4 +1,4 @@
-import type { StockTransferRow } from '../out/transfers.repository.port';
+import type { StockTransferRow } from '../out/repository/transfers.repository.port';
 
 export const TRANSFERS_PORT = Symbol('TransfersPort');
 

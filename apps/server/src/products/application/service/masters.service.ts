@@ -14,17 +14,17 @@ import { normalizeMasterImages } from '../../domain/service/product-image-normal
 import {
   MASTER_CODE_PORT,
   type MasterCodePort,
-} from '../port/out/master-code.port';
+} from '../port/out/repository/master-code.port';
 import {
   MASTER_PRODUCT_REPOSITORY_PORT,
   type MasterProductRepositoryPort,
   type ProductBoundContentCardRow,
-} from '../port/out/master-product.repository.port';
+} from '../port/out/repository/master-product.repository.port';
 import {
   PRODUCTS_TRANSACTION_PORT,
   type ProductsRepositoryTransaction,
   type ProductsTransactionPort,
-} from '../port/out/products-transaction.port';
+} from '../port/out/transaction/products-transaction.port';
 import { toMasterImageItem, withImageRows } from '../../mapper/master-product.mapper';
 import {
   normalizeImagesForWrite,

@@ -7,7 +7,7 @@ import {
   type ChannelReconciliationResolutionRepositoryPort,
   CHANNEL_RECONCILIATION_QUERY_REPOSITORY_PORT,
   RECONCILIATION_CHANNEL,
-} from '../../../application/port/out/channel-reconciliation.repository.port';
+} from '../../../application/port/out/repository/channel-reconciliation.repository.port';
 import { Inject } from '@nestjs/common';
 
 @Injectable()

@@ -1,7 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SuppliersService } from '../application/service/suppliers.service';
-import type { SupplierRepositoryPort } from '../application/port/out/supplier.repository.port';
+import type { SupplierRepositoryPort } from '../application/port/out/repository/supplier.repository.port';
 
 function makeRepository(): SupplierRepositoryPort {
   return {

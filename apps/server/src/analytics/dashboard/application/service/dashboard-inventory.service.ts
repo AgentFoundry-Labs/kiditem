@@ -15,7 +15,7 @@ import {
   DASHBOARD_INVENTORY_REPOSITORY_PORT,
   type DashboardInventoryRepositoryPort,
   type GradeChangeRow,
-} from '../port/out/dashboard-inventory.repository.port';
+} from '../port/out/repository/dashboard-inventory.repository.port';
 
 @Injectable()
 export class DashboardInventoryService {

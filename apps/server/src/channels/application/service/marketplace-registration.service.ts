@@ -3,11 +3,11 @@ import {
   MARKETPLACE_REGISTRATION_REPOSITORY_PORT,
   type MarketplaceRegistrationRepositoryPort,
   type RegisterConfirmedListingInput,
-} from '../port/out/channel-listing.repository.port';
+} from '../port/out/repository/channel-listing.repository.port';
 import {
   CHANNELS_PRODUCT_MASTER_BARCODE_PORT,
   type ChannelsProductMasterBarcodePort,
-} from '../port/out/product-master-barcode.port';
+} from '../port/out/cross-domain/product-master-barcode.port';
 
 export interface RegisterConfirmedMarketplaceListingInput
   extends RegisterConfirmedListingInput {

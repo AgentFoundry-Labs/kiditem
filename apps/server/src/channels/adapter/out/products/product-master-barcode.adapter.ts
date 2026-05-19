@@ -3,7 +3,7 @@ import {
   PRODUCT_MASTER_BARCODE_PORT,
   type ProductMasterBarcodePort,
 } from '../../../../products/application/port/in/master-barcode.port';
-import type { ChannelsProductMasterBarcodePort } from '../../../application/port/out/product-master-barcode.port';
+import type { ChannelsProductMasterBarcodePort } from '../../../application/port/out/cross-domain/product-master-barcode.port';
 
 @Injectable()
 export class ChannelsProductMasterBarcodeAdapter implements ChannelsProductMasterBarcodePort {

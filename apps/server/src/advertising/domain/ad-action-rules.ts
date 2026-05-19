@@ -1,6 +1,6 @@
 import { recomputeRoas } from './util/ratio-recompute';
 import type { AdActionTargetType } from './model/strategy-types';
-import type { LatestTargetRow } from '../application/port/out/ad-action.repository.port';
+import type { LatestTargetRow } from '../application/port/out/repository/ad-action.repository.port';
 
 /**
  * Pure 5-rule selector for `AdAction` candidates.

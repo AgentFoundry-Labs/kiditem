@@ -1,4 +1,4 @@
-import type { ProductsRepositoryTransaction } from '../out/products-transaction.port';
+import type { ProductsRepositoryTransaction } from '../out/transaction/products-transaction.port';
 
 export const PRODUCT_MASTER_PROMOTION_PORT = Symbol('ProductMasterPromotionPort');
 

@@ -50,8 +50,8 @@ import { DetailPageQueryRepositoryAdapter } from '../adapter/out/repository/deta
 import { DetailPageReconcileRepositoryAdapter } from '../adapter/out/repository/detail-page-reconcile.repository.adapter';
 import { ProductWorkspaceGroupRepositoryAdapter } from '../adapter/out/repository/product-workspace-group.repository.adapter';
 import type { AgentRunnerPort } from '../../agent-os/application/port/in/agent-runner.port';
-import type { AgentTypeRuntimeHandler } from '../../agent-os/application/port/out/agent-runtime-handler.port';
-import type { AgentRuntimeExecutionContext, AgentRuntimeResult } from '../../agent-os/application/port/out/agent-runtime.port';
+import type { AgentTypeRuntimeHandler } from '../../agent-os/application/port/out/runtime/agent-runtime-handler.port';
+import type { AgentRuntimeExecutionContext, AgentRuntimeResult } from '../../agent-os/application/port/out/runtime/agent-runtime.port';
 
 const ORG = TEST_ORGANIZATION_ID;
 const MASTER_ID = '99999999-9999-4999-8999-999999999999';

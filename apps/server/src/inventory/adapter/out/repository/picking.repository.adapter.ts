@@ -7,7 +7,7 @@ import type {
   PickingItemUpdateData,
   PickingListRow,
   PickingRepositoryPort,
-} from '../../../application/port/out/picking.repository.port';
+} from '../../../application/port/out/repository/picking.repository.port';
 
 const LIST_WITH_ITEMS_INCLUDE = { items: true } as const;
 

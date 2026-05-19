@@ -21,7 +21,7 @@ import { resolvePricing } from '../../../../../common/option-pricing-resolver';
 import type {
   ProfitCalculationRepositoryPort,
   RangeProfitMetrics,
-} from '../../../application/port/out/profit-calculation.repository.port';
+} from '../../../application/port/out/repository/profit-calculation.repository.port';
 
 @Injectable()
 export class ProfitCalculationRepositoryAdapter

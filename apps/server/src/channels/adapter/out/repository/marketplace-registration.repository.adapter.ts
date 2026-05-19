@@ -3,7 +3,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   MarketplaceRegistrationRepositoryPort,
   RegisterConfirmedListingInput,
-} from '../../../application/port/out/channel-listing.repository.port';
+} from '../../../application/port/out/repository/channel-listing.repository.port';
 
 @Injectable()
 export class MarketplaceRegistrationRepositoryAdapter

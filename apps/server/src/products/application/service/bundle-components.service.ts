@@ -22,12 +22,12 @@ import {
   PRODUCT_BUNDLE_REPOSITORY_PORT,
   type BundleComponentRow,
   type ProductBundleRepositoryPort,
-} from '../port/out/product-bundle.repository.port';
+} from '../port/out/repository/product-bundle.repository.port';
 import {
   PRODUCTS_TRANSACTION_PORT,
   type ProductsRepositoryTransaction,
   type ProductsTransactionPort,
-} from '../port/out/products-transaction.port';
+} from '../port/out/transaction/products-transaction.port';
 
 function mapBundleComponentRuleError(error: unknown): never {
   if (!(error instanceof BundleComponentRuleError)) throw error;

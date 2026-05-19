@@ -3,7 +3,7 @@ import {
   CHANNEL_RECONCILIATION_MATCHER_PORT,
   type ChannelReconciliationMatcherPort,
   type Tx,
-} from '../port/out/channel-reconciliation.repository.port';
+} from '../port/out/repository/channel-reconciliation.repository.port';
 
 @Injectable()
 export class ChannelReconciliationMatcherService {

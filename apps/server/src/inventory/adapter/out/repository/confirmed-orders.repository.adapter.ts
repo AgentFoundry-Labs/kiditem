@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type { PickingSourceOrder } from '../../../domain/policy/picking-rules';
-import type { ConfirmedOrdersPort } from '../../../application/port/out/confirmed-orders.port';
+import type { ConfirmedOrdersPort } from '../../../application/port/out/cross-domain/confirmed-orders.port';
 
 // Read-only adapter that crosses into the orders aggregate to feed the picking
 // use case. Inventory consumes this through ConfirmedOrdersPort so application

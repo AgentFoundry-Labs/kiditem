@@ -13,7 +13,7 @@ import type {
   ScrapeRunFinalize,
   ScrapeRunInput,
   ScrapeSnapshotInput,
-} from '../../../application/port/out/channel-scrape.repository.port';
+} from '../../../application/port/out/repository/channel-scrape.repository.port';
 
 const logger = new Logger('ChannelScrapeRepositoryAdapter');
 

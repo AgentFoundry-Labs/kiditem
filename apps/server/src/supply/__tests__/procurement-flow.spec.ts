@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ProcurementService } from '../application/service/procurement.service';
 import { BadRequestException } from '@nestjs/common';
-import type { ProcurementRepositoryPort } from '../application/port/out/procurement.repository.port';
+import type { ProcurementRepositoryPort } from '../application/port/out/repository/procurement.repository.port';
 
 function makeRepository(): ProcurementRepositoryPort {
   return {

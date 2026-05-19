@@ -4,7 +4,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   ProductsRepositoryTransaction,
   ProductsTransactionPort,
-} from '../../../application/port/out/products-transaction.port';
+} from '../../../application/port/out/transaction/products-transaction.port';
 
 @Injectable()
 export class ProductsTransactionAdapter implements ProductsTransactionPort {

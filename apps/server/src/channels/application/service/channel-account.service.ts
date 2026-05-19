@@ -8,7 +8,7 @@ import {
   CoupangAccountConfigurationError,
   type ChannelAccountRepositoryPort,
   type CoupangCredentials,
-} from '../port/out/channel-account.repository.port';
+} from '../port/out/repository/channel-account.repository.port';
 import { CoupangCredentialCryptoError } from '../../domain/channel-credential-crypto';
 
 export { CoupangAccountConfigurationError };

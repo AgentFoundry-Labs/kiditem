@@ -3,9 +3,9 @@ import {
   PRODUCT_BUNDLE_STOCK_PORT,
   type ProductBundleStockPort,
 } from '../../../../products/application/port/in/bundle-stock.port';
-import type { ProductsRepositoryTransaction } from '../../../../products/application/port/out/products-transaction.port';
-import type { BundleStockPort } from '../../../application/port/out/bundle-stock.port';
-import type { RepositoryTransaction } from '../../../application/port/out/repository-transaction';
+import type { ProductsRepositoryTransaction } from '../../../../products/application/port/out/transaction/products-transaction.port';
+import type { BundleStockPort } from '../../../application/port/out/cross-domain/bundle-stock.port';
+import type { RepositoryTransaction } from '../../../application/port/out/transaction/repository-transaction';
 
 // Cross-owner-domain bridge to products. Inventory's stock-mutation flow calls
 // products' owner-side bundle-stock port only through this adapter, which keeps

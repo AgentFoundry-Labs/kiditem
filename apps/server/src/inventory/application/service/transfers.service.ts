@@ -9,7 +9,7 @@ import {
   TRANSFERS_REPOSITORY_PORT,
   type StockTransferRow,
   type TransfersRepositoryPort,
-} from '../port/out/transfers.repository.port';
+} from '../port/out/repository/transfers.repository.port';
 import {
   assertValidStockTransferTransition,
   InvalidStockTransferTransition,

@@ -2,11 +2,11 @@ import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import {
   SOURCING_AI_WORKSPACE_ARCHIVE_PORT,
   type SourcingAiWorkspaceArchivePort,
-} from '../port/out/ai-workspace-archive.port';
+} from '../port/out/cross-domain/ai-workspace-archive.port';
 import {
   SOURCING_CANDIDATE_REPOSITORY_PORT,
   type SourcingCandidateRepositoryPort,
-} from '../port/out/sourcing-candidate.repository.port';
+} from '../port/out/repository/sourcing-candidate.repository.port';
 
 export interface SourcingWorkspaceArchiveResult {
   ok: true;

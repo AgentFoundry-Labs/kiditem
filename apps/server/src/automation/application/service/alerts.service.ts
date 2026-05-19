@@ -6,7 +6,7 @@ import { PANEL_EVENTS } from '../../adapter/out/panel-event/panel-events';
 import {
   ALERTS_REPOSITORY_PORT,
   type AlertsRepositoryPort,
-} from '../port/out/alerts.repository.port';
+} from '../port/out/repository/alerts.repository.port';
 import type { ActionTaskRecord, AlertRecord } from '../port/persistence-records';
 
 /**

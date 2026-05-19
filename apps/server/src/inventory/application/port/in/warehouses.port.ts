@@ -1,7 +1,7 @@
 import type {
   WarehouseListItem,
   WarehouseRow,
-} from '../out/warehouses.repository.port';
+} from '../out/repository/warehouses.repository.port';
 
 export const WAREHOUSES_PORT = Symbol('WarehousesPort');
 

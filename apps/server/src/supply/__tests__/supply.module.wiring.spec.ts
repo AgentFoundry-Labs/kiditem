@@ -7,8 +7,8 @@ import { SuppliersService } from '../application/service/suppliers.service';
 import { ProcurementService } from '../application/service/procurement.service';
 import { SupplierRepositoryAdapter } from '../adapter/out/repository/supplier.repository.adapter';
 import { ProcurementRepositoryAdapter } from '../adapter/out/repository/procurement.repository.adapter';
-import { SUPPLIER_REPOSITORY_PORT } from '../application/port/out/supplier.repository.port';
-import { PROCUREMENT_REPOSITORY_PORT } from '../application/port/out/procurement.repository.port';
+import { SUPPLIER_REPOSITORY_PORT } from '../application/port/out/repository/supplier.repository.port';
+import { PROCUREMENT_REPOSITORY_PORT } from '../application/port/out/repository/procurement.repository.port';
 
 // NestJS @Module / @Controller metadata keys (stable across Nest 10/11).
 const CONTROLLERS_KEY = 'controllers';

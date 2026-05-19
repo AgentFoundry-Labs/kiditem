@@ -9,7 +9,7 @@ import type {
 } from '@kiditem/shared/channel-dashboard';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { kstDayStart } from '../../../../common/kst';
-import type { ChannelDashboardRepositoryPort } from '../../../application/port/out/channel-dashboard.repository.port';
+import type { ChannelDashboardRepositoryPort } from '../../../application/port/out/repository/channel-dashboard.repository.port';
 
 /**
  * Channel dashboard response shapes — typed via `@kiditem/shared` Zod schemas

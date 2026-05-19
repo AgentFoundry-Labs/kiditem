@@ -5,7 +5,7 @@ import { AdExecutionService } from '../ad-execution.service';
 import type {
   AdExecutionRepositoryPort,
   ScopedExecutionTaskRow,
-} from '../../port/out/ad-execution.repository.port';
+} from '../../port/out/repository/ad-execution.repository.port';
 import {
   buildMockAdExecutionRepo,
   type MockAdExecutionRepo,

@@ -3,11 +3,11 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   AGENT_OS_REPOSITORY_PORT,
   type AgentOsRepositoryPort,
-} from '../port/out/agent-os-repository.port';
+} from '../port/out/repository/agent-os-repository.port';
 import {
   AGENT_RUNTIME_PORT,
   type AgentRuntimePort,
-} from '../port/out/agent-runtime.port';
+} from '../port/out/runtime/agent-runtime.port';
 import {
   AgentOsRuntimeError,
   normalizeAgentErrorCode,

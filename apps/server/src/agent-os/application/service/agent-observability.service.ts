@@ -7,7 +7,7 @@ import {
   type FindRequestsQuery,
   type FindRunEventsQuery,
   type FindRunsQuery,
-} from '../port/out/agent-os-repository.port';
+} from '../port/out/repository/agent-os-repository.port';
 import type { AgentRunStatus } from '../../domain/agent-os.types';
 
 @Injectable()

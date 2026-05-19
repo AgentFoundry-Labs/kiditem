@@ -5,12 +5,12 @@ import type {
   InventoryMetadataUpdateData,
   InventoryRepositoryPort,
   StockLedgerEntry,
-} from '../../../application/port/out/inventory.repository.port';
+} from '../../../application/port/out/repository/inventory.repository.port';
 import type {
   InventoryRow,
   StockTransactionRow,
-} from '../../../application/port/out/inventory-query.repository.port';
-import type { RepositoryTransaction } from '../../../application/port/out/repository-transaction';
+} from '../../../application/port/out/repository/inventory-query.repository.port';
+import type { RepositoryTransaction } from '../../../application/port/out/transaction/repository-transaction';
 
 // Sole site for Inventory write paths. Application code does not import
 // PrismaService; it composes the use case via the methods here and owns the

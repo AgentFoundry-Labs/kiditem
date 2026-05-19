@@ -3,7 +3,7 @@ import type {
   ProductManagementPipelineCounts,
   ProductManagementTrafficSnapshot,
 } from '@kiditem/shared/product';
-import type { MetricSums } from '../port/out/product-management.repository.port';
+import type { MetricSums } from '../port/out/repository/product-management.repository.port';
 
 type DecimalLike = { toNumber(): number };
 
