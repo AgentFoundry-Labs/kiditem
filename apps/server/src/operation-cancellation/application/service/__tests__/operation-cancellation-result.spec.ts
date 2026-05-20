@@ -31,6 +31,7 @@ describe('operation cancellation result policy', () => {
         agentRunIds: [],
         contentGenerationIds: [],
         thumbnailGenerationIds: [],
+        directAiJobIds: [],
       },
       preserved: {
         contentGenerationIds: [],

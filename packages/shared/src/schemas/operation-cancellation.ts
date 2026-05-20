@@ -58,6 +58,7 @@ export const CancelOperationAffectedSchema = z.object({
   agentRunIds: z.array(z.string()),
   contentGenerationIds: z.array(z.string()),
   thumbnailGenerationIds: z.array(z.string()),
+  directAiJobIds: z.array(z.string()),
 }).strict();
 
 export const CancelOperationPreservedSchema = z.object({
@@ -88,6 +89,7 @@ export function emptyCancelOperationAffected(): CancelOperationAffected {
     agentRunIds: [],
     contentGenerationIds: [],
     thumbnailGenerationIds: [],
+    directAiJobIds: [],
   };
 }
 

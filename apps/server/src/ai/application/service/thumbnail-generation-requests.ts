@@ -1,7 +1,7 @@
 import {
-  ThumbnailGenerateAgentInputSchema,
-  type ThumbnailGenerateAgentInput,
-} from '../../domain/agent-output';
+  ThumbnailGenerateDirectInputSchema,
+  type ThumbnailGenerateDirectInput,
+} from '../../domain/direct-generation';
 import type {
   ThumbnailEditorEditCase,
   ThumbnailEditorInputImage,
@@ -17,7 +17,7 @@ export interface ThumbnailEditCaseSource {
   bundleImages?: readonly unknown[] | null;
 }
 
-export interface BuildThumbnailGenerateAgentInput {
+export interface BuildThumbnailGenerateDirectInput {
   mode: ThumbnailGenerationMode;
   editCase?: ThumbnailEditorEditCase;
   purpose?: ThumbnailGenerationPurpose;
@@ -70,10 +70,10 @@ export function buildThumbnailCompositionText(input: {
   return parts.length > 0 ? parts.join(', ') : undefined;
 }
 
-export function buildThumbnailGenerateAgentInput(
-  input: BuildThumbnailGenerateAgentInput,
-): ThumbnailGenerateAgentInput {
-  return ThumbnailGenerateAgentInputSchema.parse(stripUndefined({
+export function buildThumbnailGenerateDirectInput(
+  input: BuildThumbnailGenerateDirectInput,
+): ThumbnailGenerateDirectInput {
+  return ThumbnailGenerateDirectInputSchema.parse(stripUndefined({
     mode: input.mode,
     editCase: input.mode === 'edit' ? input.editCase : undefined,
     purpose: input.mode === 'edit' ? input.purpose : undefined,

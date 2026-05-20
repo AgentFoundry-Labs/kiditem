@@ -1,7 +1,7 @@
 'use client';
 
 import type { PointerEvent, ReactNode } from 'react';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Check,
   Crop,
@@ -14,8 +14,13 @@ import {
   Type,
   X,
 } from 'lucide-react';
-import { apiClient } from '@/lib/api-client';
-import { extractEditedImageUrl } from './lib/image-edit-result';
+import {
+  cancelImageEditTask,
+  isImageEditPollingCancelled,
+  pollImageEditTaskResult,
+  submitImageCrop,
+  submitImageEdit,
+} from './lib/image-edit-task';
 
 interface AIImageEditPanelProps {
   imageUrl: string;
@@ -153,58 +158,6 @@ function isFullCrop(rect: CropRect): boolean {
   return rect.x === 0 && rect.y === 0 && rect.width === 100 && rect.height === 100;
 }
 
-async function submitImageEdit(params: {
-  image_url: string;
-  preset: string;
-  user_prompt: string;
-  productId?: string;
-  contentGenerationId?: string;
-}): Promise<{ taskId: string }> {
-  return apiClient.post<{ taskId: string }>('/api/image-ai/edit', params);
-}
-
-async function submitImageCrop(params: {
-  imageUrl: string;
-  crop: CropRect;
-}): Promise<{ imageUrl: string }> {
-  return apiClient.post<{ imageUrl: string }>('/api/image-ai/crop', params);
-}
-
-// Agent OS: `/api/image-ai/edit` returns `{ taskId }` where taskId is the
-// `AgentRunRequest.id` (no AgentRun yet — the run materializes when the
-// executor claims the request). We poll `/api/agent-os/requests/:id` and
-// pivot to the run via `latestRunId` once status leaves the pre-claim phase.
-async function pollTaskResult(taskId: string): Promise<{ image_url: string }> {
-  const maxAttempts = 180; // Agent OS has no image-edit business timeout; this is only a UI polling guard.
-  for (let i = 0; i < maxAttempts; i++) {
-    await new Promise(r => setTimeout(r, 2000));
-    let request: {
-      status: string;
-      latestRunId: string | null;
-      lastErrorCode: string | null;
-      lastErrorMessage: string | null;
-    };
-    try {
-      request = await apiClient.get<typeof request>(`/api/agent-os/requests/${taskId}`);
-    } catch {
-      continue;
-    }
-    if (request.status === 'pending' || request.status === 'claimed' || request.status === 'requires_approval') {
-      continue;
-    }
-    if (request.status === 'failed' || request.status === 'cancelled' || request.status === 'skipped') {
-      throw new Error(request.lastErrorMessage || request.lastErrorCode || '이미지 편집에 실패했습니다');
-    }
-    if (request.status === 'succeeded' && request.latestRunId) {
-      const run = await apiClient.get<{ output?: unknown }>(`/api/agent-os/runs/${request.latestRunId}`);
-      const imageUrl = extractEditedImageUrl(run.output ?? null);
-      if (!imageUrl) throw new Error('AI 결과 이미지 URL을 찾지 못했습니다');
-      return { image_url: imageUrl };
-    }
-  }
-  throw new Error('이미지 편집 결과 확인 시간이 초과되었습니다. 잠시 후 알림에서 결과를 확인해주세요.');
-}
-
 export function AIImageEditPanel({
   imageUrl,
   productId,
@@ -223,8 +176,20 @@ export function AIImageEditPanel({
   const [cropOpen, setCropOpen] = useState(false);
   const [cropRect, setCropRect] = useState<CropRect>(DEFAULT_CROP_RECT);
   const [cropping, setCropping] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const cropSurfaceRef = useRef<HTMLDivElement | null>(null);
   const cropDragRef = useRef<CropDragState | null>(null);
+  const activeTaskIdRef = useRef<string | null>(null);
+  const cancelRequestedRef = useRef(false);
+  const pollAbortRef = useRef<AbortController | null>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+      pollAbortRef.current?.abort();
+    };
+  }, []);
 
   const resolveImageUrlForEdit = useCallback(async () => {
     if (!cropOpen || isFullCrop(cropRect)) return imageUrl;
@@ -286,78 +251,136 @@ export function AIImageEditPanel({
     }
   }, [cropRect, imageUrl, isBusy, onEditComplete]);
 
-  const handlePresetClick = useCallback(
-    async (preset: PresetItem) => {
-      if (preset.needsInput && !presetInput[preset.id]) return;
+  const runImageEdit = useCallback(
+    async (input: { preset: string; userPrompt: string }) => {
       if (isBusy.current) return;
 
+      const abortController = new AbortController();
       isBusy.current = true;
       setLoading(true);
       onGeneratingChange?.(true);
-      setLoadingPreset(preset.id);
+      setLoadingPreset(input.preset);
       setError(null);
+      setCancelling(false);
+      cancelRequestedRef.current = false;
+      activeTaskIdRef.current = null;
+      pollAbortRef.current = abortController;
       try {
         const editImageUrl = await resolveImageUrlForEdit();
         const { taskId } = await submitImageEdit({
           image_url: editImageUrl,
-          preset: preset.id,
-          user_prompt: presetInput[preset.id] || '',
+          preset: input.preset,
+          user_prompt: input.userPrompt,
           productId,
           contentGenerationId,
         });
-        const result = await pollTaskResult(taskId);
+        activeTaskIdRef.current = taskId;
+        if (cancelRequestedRef.current) {
+          await cancelImageEditTask(taskId, '사용자 요청');
+          return;
+        }
+        const result = await pollImageEditTaskResult(taskId, {
+          signal: abortController.signal,
+        });
+        if (cancelRequestedRef.current || abortController.signal.aborted) return;
         onEditComplete(result.image_url);
       } catch (err) {
-        setError(err instanceof Error ? err.message : '편집에 실패했습니다');
+        if (!isImageEditPollingCancelled(err) && !cancelRequestedRef.current) {
+          setError(err instanceof Error ? err.message : '편집에 실패했습니다');
+        }
       } finally {
-        isBusy.current = false;
-        setLoading(false);
-        onGeneratingChange?.(false);
-        setLoadingPreset(null);
+        if (pollAbortRef.current === abortController) pollAbortRef.current = null;
+        activeTaskIdRef.current = null;
+        if (mountedRef.current) {
+          isBusy.current = false;
+          setLoading(false);
+          onGeneratingChange?.(false);
+          setLoadingPreset(null);
+          setCancelling(false);
+        }
       }
     },
-    [productId, contentGenerationId, presetInput, onEditComplete, isBusy, onGeneratingChange, resolveImageUrlForEdit],
+    [
+      contentGenerationId,
+      isBusy,
+      onEditComplete,
+      onGeneratingChange,
+      productId,
+      resolveImageUrlForEdit,
+    ],
+  );
+
+  const handlePresetClick = useCallback(
+    async (preset: PresetItem) => {
+      if (preset.needsInput && !presetInput[preset.id]) return;
+      await runImageEdit({
+        preset: preset.id,
+        userPrompt: presetInput[preset.id] || '',
+      });
+    },
+    [presetInput, runImageEdit],
   );
 
   const handleCustomSubmit = useCallback(async () => {
     if (!customPrompt.trim()) return;
-    if (isBusy.current) return;
+    await runImageEdit({
+      preset: 'custom',
+      userPrompt: customPrompt.trim(),
+    });
+  }, [customPrompt, runImageEdit]);
 
-    isBusy.current = true;
-    setLoading(true);
-    onGeneratingChange?.(true);
-    setLoadingPreset('custom');
-    setError(null);
-    try {
-      const editImageUrl = await resolveImageUrlForEdit();
-      const { taskId } = await submitImageEdit({
-        image_url: editImageUrl,
-        preset: 'custom',
-        user_prompt: customPrompt.trim(),
-        productId,
-        contentGenerationId,
-      });
-      const result = await pollTaskResult(taskId);
-      onEditComplete(result.image_url);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '편집에 실패했습니다');
-    } finally {
-      isBusy.current = false;
-      setLoading(false);
-      onGeneratingChange?.(false);
-      setLoadingPreset(null);
+  const handleCancelImageEdit = useCallback(async () => {
+    cancelRequestedRef.current = true;
+    pollAbortRef.current?.abort();
+    const taskId = activeTaskIdRef.current;
+    setCancelling(true);
+    if (!taskId) {
+      if (mountedRef.current) {
+        isBusy.current = false;
+        setLoading(false);
+        onGeneratingChange?.(false);
+        setLoadingPreset(null);
+        setCancelling(false);
+      }
+      return;
     }
-  }, [productId, contentGenerationId, customPrompt, onEditComplete, isBusy, onGeneratingChange, resolveImageUrlForEdit]);
+    try {
+      await cancelImageEditTask(taskId, '사용자 요청');
+      setError(null);
+    } catch (err) {
+      cancelRequestedRef.current = false;
+      setError(err instanceof Error ? err.message : '이미지 편집 중단 요청에 실패했습니다');
+    } finally {
+      if (mountedRef.current) {
+        isBusy.current = false;
+        setLoading(false);
+        onGeneratingChange?.(false);
+        setLoadingPreset(null);
+        setCancelling(false);
+      }
+    }
+  }, [isBusy, onGeneratingChange]);
 
-  const busy = loading || cropping;
+  const busy = loading || cropping || cancelling;
 
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="p-3 space-y-3">
         {loading && (
-          <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 rounded-lg border border-emerald-100">
-            <Loader2 size={14} className="animate-spin text-emerald-600" />
-            <span className="text-xs font-medium text-emerald-700">AI 이미지 처리 중...</span>
+          <div className="flex items-center justify-between gap-2 px-3 py-2 bg-emerald-50 rounded-lg border border-emerald-100">
+            <span className="flex items-center gap-2">
+              <Loader2 size={14} className="animate-spin text-emerald-600" />
+              <span className="text-xs font-medium text-emerald-700">AI 이미지 처리 중...</span>
+            </span>
+            <button
+              type="button"
+              onClick={handleCancelImageEdit}
+              disabled={cancelling}
+              className="inline-flex items-center gap-1.5 rounded-md border border-emerald-200 bg-white px-2 py-1 text-[11px] font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {cancelling ? <Loader2 size={12} className="animate-spin" /> : <X size={12} />}
+              중단
+            </button>
           </div>
         )}
 

@@ -26,16 +26,16 @@ function makeAdapter() {
 }
 
 describe('ThumbnailImageGenerationAdapter', () => {
-  it('uses the explicit Agent OS model for Gemini image generation', async () => {
+  it('uses the explicit direct AI model for Gemini image generation', async () => {
     const { adapter, generateContent } = makeAdapter();
 
     await adapter.generateImageParts({
-      model: 'gemini-image-from-agent-os',
+      model: 'gemini-image-direct',
       parts: [{ text: 'generate a compliant thumbnail' }],
     });
 
     expect(generateContent).toHaveBeenCalledWith(expect.objectContaining({
-      model: 'gemini-image-from-agent-os',
+      model: 'gemini-image-direct',
     }));
   });
 });

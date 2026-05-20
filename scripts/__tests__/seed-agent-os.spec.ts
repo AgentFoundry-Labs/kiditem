@@ -12,7 +12,6 @@ describe('Agent OS seed catalog', () => {
     const types = listAgentDefinitions().map((definition) => definition.type);
 
     expect(types).toContain('ad_strategy');
-    expect(types).toContain('image_edit');
     expect(types).toContain('sourcing');
   });
 
@@ -35,16 +34,15 @@ describe('Agent OS seed catalog', () => {
     expect(source).not.toContain('runtimeConfig: definition.defaultRuntimeConfig');
   });
 
-  it('marks fixed AI/job producers as transitional tool wrappers', () => {
+  it('keeps direct AI jobs out of the Agent OS seed catalog', () => {
     const definitions = new Map(
       listAgentDefinitions().map((definition) => [definition.type, definition]),
     );
 
     expect(definitions.get('manager')?.runtimeKind).toBe('coordinator');
     expect(definitions.get('chat')?.runtimeKind).toBe('agent');
-    expect(definitions.get('thumbnail_generate')?.runtimeKind).toBe('tool_wrapper');
-    expect(definitions.get('detail_page_generate')?.runtimeKind).toBe('tool_wrapper');
-    expect(definitions.get('image_edit')?.runtimeKind).toBe('tool_wrapper');
-    expect(definitions.get('image_edit')?.defaultAdapterType).toBe('gemini_image');
+    expect(definitions.has('image_edit')).toBe(false);
+    expect(definitions.has('thumbnail_generate')).toBe(false);
+    expect(definitions.has('detail_page_generate')).toBe(false);
   });
 });

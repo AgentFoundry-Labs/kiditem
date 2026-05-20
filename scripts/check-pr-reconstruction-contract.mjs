@@ -96,7 +96,7 @@ function isLargeServiceOrComponent(file, lines) {
 function isHighRiskBoundary(file) {
   if (!/\.(ts|tsx|js|mjs|md)$/.test(file)) return false;
   const highRisk =
-    /(prompt|model|provider|gemini|genai|media|image|storage|fetch|agent-runtime|agent-output|bridge|sink|reconcile)/i;
+    /(prompt|model|provider|gemini|genai|media|image|storage|fetch|agent-runtime|agent-output|direct-output|direct-generation|bridge|sink|reconcile)/i;
   const relevantOwner =
     /^(apps\/server\/src\/(ai|agent-os|automation)|apps\/web\/src\/app\/.*(media-ai|sourcing)|packages\/shared\/src)/;
   return highRisk.test(file) && relevantOwner.test(file);
@@ -105,7 +105,7 @@ function isHighRiskBoundary(file) {
 function isCrossLayerControlChange(files) {
   const layers = new Set(files.map(layerOf).filter(Boolean));
   const hasControlFile = files.some((file) =>
-    /(dto|schema|schemas|contract|control|generate|detail-page|thumbnail|agent-output)/i.test(file),
+    /(dto|schema|schemas|contract|control|generate|detail-page|thumbnail|agent-output|direct-generation)/i.test(file),
   );
   return hasControlFile && layers.size >= 2;
 }

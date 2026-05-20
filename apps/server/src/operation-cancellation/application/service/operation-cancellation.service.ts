@@ -159,6 +159,17 @@ export class OperationCancellationService {
     if (alert.sourceType === 'thumbnail_generation') {
       await this.cancelThumbnailChild(command, alert.sourceId, affected, preserved, reason);
     }
+    if (alert.sourceType === 'image_ai_job' && alert.sourceId) {
+      const result = await this.ai.cancelImageEditJob({
+        organizationId: command.organizationId,
+        jobId: alert.sourceId,
+        actorUserId: command.actorUserId,
+        reason,
+      });
+      if (result.status === 'cancelled') {
+        pushUnique(affected.directAiJobIds, result.jobId);
+      }
+    }
     if (alert.sourceType === 'agent_run_request' && alert.sourceId) {
       const result = await this.agentRunner.cancelRequest?.({
         organizationId: command.organizationId,
@@ -200,6 +211,7 @@ export class OperationCancellationService {
       affected.agentRunIds.length +
       affected.contentGenerationIds.length +
       affected.thumbnailGenerationIds.length +
+      affected.directAiJobIds.length +
       preserved.contentGenerationIds.length +
       preserved.thumbnailGenerationIds.length >
       0;

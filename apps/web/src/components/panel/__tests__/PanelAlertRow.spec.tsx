@@ -16,6 +16,7 @@ const mockCancelOperation = vi.hoisted(() => vi.fn(async () => ({
     agentRunIds: [],
     contentGenerationIds: [],
     thumbnailGenerationIds: [],
+    directAiJobIds: [],
   },
   preserved: {
     contentGenerationIds: [],
@@ -353,6 +354,7 @@ describe('PanelAlertRow', () => {
           agentRunIds: [],
           contentGenerationIds: [],
           thumbnailGenerationIds: [],
+          directAiJobIds: [],
         },
         preserved: {
           contentGenerationIds: [],

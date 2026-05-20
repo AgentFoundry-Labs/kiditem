@@ -68,16 +68,19 @@ Local development:
 - App runtime env is app-local: NestJS reads `apps/server/.env` first, Python
   agents read `agents/.env` first, and root `.env` is only a fallback for
   shared local tooling values.
+- `apps/server/.env` and `apps/server/.env.example` intentionally mirror
+  `deploy/staging/env/api.env.example` by section order, comments, blank lines,
+  and key set. Values may differ locally, but optional local-only overrides
+  stay out unless the staging API runtime contract also gains that variable.
 - Root `.env` should stay narrow: Prisma CLI, Supabase bootstrap/admin sync,
   shared dev-data paths, and the Agent OS seed model used by
   `npm run seed:agent-os`.
-- Product-bound detail page and thumbnail generation are Agent OS jobs even
-  when the local background worker is disabled. For local preview, keep a text
-  model in `AGENT_DEFAULT_MODEL` or `AGENT_DETAIL_PAGE_GENERATE_MODEL`, and set
-  `AGENT_THUMBNAIL_GENERATE_MODEL` explicitly to the image generation model in
-  `apps/server/.env`.
-- Local app env may include developer conveniences, local DB URLs, and optional
-  provider keys for testing a feature.
+- Product-bound detail page, thumbnail, and image-edit generation are direct AI
+  jobs, not Agent OS runs. For local preview, keep `AI_TEXT_MODEL`,
+  `AI_IMAGE_MODEL`, and `AI_IMAGE_ANALYSIS_MODEL` set in `apps/server/.env`.
+- Local app env may include different values for local DB URLs and provider
+  keys, but its API runtime format should stay aligned with the staging API env
+  contract.
 - Local env must not be copied to staging or production as-is.
 
 Staging:
@@ -105,7 +108,9 @@ Production:
 
 ## Current Minimum Runtime Env
 
-API container, current staging shape:
+API container, current staging shape. In shared staging, these values are
+managed from GitHub Environment `staging`; the deploy workflow renders
+`.env.staging.api` before syncing assets to EC2.
 
 ```text
 NODE_ENV
@@ -132,13 +137,12 @@ AI_IMAGE_ANALYSIS_MODEL
 AI_IMAGE_ANALYSIS_VERIFY_MODEL
 AGENT_RUNTIME_WORKER_ENABLED
 AGENT_DEFAULT_MODEL
-AGENT_DETAIL_PAGE_GENERATE_MODEL
-AGENT_THUMBNAIL_GENERATE_MODEL
 ```
 
 Web container, current staging shape:
 
 ```text
+NEXT_PUBLIC_API_URL
 NEXT_PUBLIC_SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
 ```
@@ -204,14 +208,14 @@ schema/data migrations. The other baseline variables are used only by
 ## Server AI And Models
 
 These variables are feature-specific. They are part of staging when current API
-text/detail/thumbnail AI features are enabled.
+text/detail/thumbnail/image-edit AI features are enabled.
 
 | Variable | Required when | Consumed by | Notes |
 |---|---|---|---|
 | `GEMINI_API_KEY` | Gemini text, image, or vision paths are used | Gemini text/media/thumbnail adapters | Missing key returns explicit service errors. |
-| `AI_TEXT_MODEL` | Text transform, detail page prefill, standalone detail generation | Text AI/detail page services | No silent fallback. Product-bound Agent OS detail generation uses `AGENT_DETAIL_PAGE_GENERATE_MODEL` or `AGENT_DEFAULT_MODEL` for its text call. |
-| `AI_IMAGE_MODEL` | Thumbnail editor image generation and detail-page generated images | Thumbnail Gemini config and detail-page media adapter | Reached only when image inputs exist; not used as the Agent OS run model. Do not use deprecated preview IDs called out by the config. |
-| `AI_IMAGE_ANALYSIS_MODEL` | Thumbnail/image analysis | Thumbnail Gemini config | No silent fallback. |
+| `AI_TEXT_MODEL` | Text transform, detail page prefill, direct detail generation | Text AI/detail page services | No silent fallback. Human-triggered and fixed workflow detail generation use this value. |
+| `AI_IMAGE_MODEL` | Thumbnail/editor image generation, image edit, and detail-page generated images | Thumbnail/image-edit Gemini config and detail-page media adapter | Direct AI provider config. Human-triggered and fixed workflow thumbnail/detail/image-edit media generation use this value. Do not use deprecated preview IDs called out by the config. |
+| `AI_IMAGE_ANALYSIS_MODEL` | Thumbnail/image analysis and detail-page image inference | Thumbnail Gemini config and detail-page media adapter | No silent fallback. |
 | `AI_IMAGE_ANALYSIS_VERIFY_MODEL` | Thumbnail compliance verify path | Thumbnail Gemini config | No silent fallback. |
 | `OPENAI_API_KEY` | Not currently used by deployed API/web code | Python agents or future providers | Staging may have it set, but current API code does not read it directly. |
 
@@ -233,10 +237,6 @@ enabled and covered by an operator runbook.
 | `AGENT_AD_STRATEGY_MODEL` | Ad strategy agent enabled | Agent definition registry | Per-agent override. |
 | `AGENT_SOURCING_MODEL` | Sourcing agent enabled | Agent definition registry | Per-agent override. |
 | `AGENT_THUMBNAIL_ANALYST_MODEL` | Thumbnail analyst agent enabled | Agent definition registry | Per-agent override. |
-| `AGENT_IMAGE_EDIT_MODEL` | Image edit Agent OS tool-wrapper enabled | Agent definition registry and Nest image edit runtime | Use the image edit/generation model, currently `gemini-3.1-flash-image-preview`. The Nest API container executes this through the Gemini image adapter. |
-| `AGENT_THUMBNAIL_AUTO_EDIT_MODEL` | Python-backed auto edit agent enabled | Agent definition registry | Use the image edit/generation model, currently `gemini-3.1-flash-image-preview`. Requires a Python agent runtime, not just the API container. |
-| `AGENT_DETAIL_PAGE_GENERATE_MODEL` | Async detail page generation enabled | Agent definition registry | Text/detail content model. Required unless `AGENT_DEFAULT_MODEL` is set. |
-| `AGENT_THUMBNAIL_GENERATE_MODEL` | Async thumbnail generation enabled | Agent definition registry | Use the image edit/generation model, currently `gemini-3.1-flash-image-preview`; set explicitly so this agent does not inherit a text-only `AGENT_DEFAULT_MODEL`. |
 | `AGENT_CHAT_MODEL` | Chatbot agent enabled | Agent definition registry | Required unless `AGENT_DEFAULT_MODEL` is set. |
 | `ANTHROPIC_API_KEY` | Claude CLI uses Anthropic API key auth | Claude CLI env allowlist | Passed only to the Claude child process. |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Claude CLI uses OAuth token auth | Claude CLI env allowlist | Passed only to the Claude child process. |
@@ -361,8 +361,6 @@ ssh -i "$STAGING_SSH_KEY" "$STAGING_USER@$STAGING_HOST" '
       AI_IMAGE_ANALYSIS_MODEL AI_IMAGE_ANALYSIS_VERIFY_MODEL \
       CHANNEL_CREDENTIALS_ENCRYPTION_KEY \
       AGENT_RUNTIME_WORKER_ENABLED AGENT_DEFAULT_MODEL \
-      AGENT_DETAIL_PAGE_GENERATE_MODEL AGENT_THUMBNAIL_GENERATE_MODEL \
-      AGENT_IMAGE_EDIT_MODEL \
       ANTHROPIC_API_KEY \
       CLAUDE_CODE_OAUTH_TOKEN; do
         eval v=\${$k-}

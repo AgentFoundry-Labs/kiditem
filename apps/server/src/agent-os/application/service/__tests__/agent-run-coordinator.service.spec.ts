@@ -19,15 +19,15 @@ function request(
     organizationId: ORG,
     agentInstanceId: 'instance-1',
     taskSessionId: 'session-1',
-    source: 'ai.detail_page_generate',
+    source: 'rules.evaluation',
     triggerDetail: null,
     reason: null,
     idempotencyKey: null,
     priority: 0,
     sourceWorkflowRunId: null,
     sourceWorkflowNodeId: null,
-    sourceResourceType: 'content_generation',
-    sourceResourceId: 'cg-1',
+    sourceResourceType: 'rule_set',
+    sourceResourceId: 'rules-1',
     requestedByUserId: null,
     requestedByActorType: null,
     requestedByActorId: null,
@@ -45,8 +45,8 @@ function request(
     createdAt: new Date('2026-05-17T00:00:00.000Z'),
     updatedAt: new Date('2026-05-17T00:00:00.000Z'),
     taskKey: 'default',
-    agentType: 'detail_page_generate',
-    adapterType: 'gemini_image',
+    agentType: 'rules_evaluation',
+    adapterType: 'claude_local',
     latestRunId: null,
   };
 }
@@ -61,8 +61,8 @@ function run(status: AgentRunRecord['status']): AgentRunRecord {
     retryOfRunId: null,
     status,
     attempt: 1,
-    invocationSource: 'ai.detail_page_generate',
-    adapterType: 'gemini_image',
+    invocationSource: 'rules.evaluation',
+    adapterType: 'claude_local',
     model: 'gemini-3',
     provider: null,
     taskKey: 'default',
@@ -241,5 +241,25 @@ describe('AgentRunCoordinator cancellation', () => {
     );
     expect(repository.markRequestStatusIfCurrent).toHaveBeenCalledTimes(2);
     expect(result.cancelledRequests).toBe(2);
+  });
+});
+
+describe('AgentRunCoordinator runByType', () => {
+  it('rejects agent types that are no longer registered in the code-owned definition registry', async () => {
+    const { coordinator, repository } = makeCoordinator({
+      findActiveInstanceByType: vi.fn(),
+    });
+
+    const result = await coordinator.runByType('thumbnail_auto_edit', {
+      organizationId: ORG,
+      sourceType: 'manual',
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      agentType: 'thumbnail_auto_edit',
+      reason: 'agent_definition_not_found',
+    });
+    expect(repository.findActiveInstanceByType).not.toHaveBeenCalled();
   });
 });

@@ -8,17 +8,17 @@ const GENERATION_ID = '22222222-2222-4222-8222-222222222222';
 
 function makeLedger(): ThumbnailGenerationLedgerRepositoryPort {
   return {
-    claimForAgentProjection: vi.fn().mockResolvedValue({
+    claimForDirectProjection: vi.fn().mockResolvedValue({
       fromStatus: 'pending',
       fromPhase: null,
       attemptNumber: 1,
     }),
-    projectAgentSuccess: vi.fn().mockResolvedValue({
+    projectDirectSuccess: vi.fn().mockResolvedValue({
       fromStatus: 'running',
       fromPhase: null,
       attemptNumber: 1,
     }),
-    projectAgentFailure: vi.fn().mockResolvedValue({
+    projectDirectFailure: vi.fn().mockResolvedValue({
       fromStatus: 'running',
       fromPhase: 'processing',
       attemptNumber: 2,
@@ -51,7 +51,7 @@ describe('ThumbnailGenerationLifecycleService', () => {
       fromPhase: null,
       attemptNumber: 1,
     });
-    expect(ledger.claimForAgentProjection).toHaveBeenCalledWith({
+    expect(ledger.claimForDirectProjection).toHaveBeenCalledWith({
       organizationId: ORGANIZATION_ID,
       generationId: GENERATION_ID,
     });
@@ -75,12 +75,12 @@ describe('ThumbnailGenerationLifecycleService', () => {
     );
   });
 
-  it('projects agent success with status, phase, and finished attempt events', async () => {
+  it('projects direct success with status, phase, and finished attempt events', async () => {
     const ledger = makeLedger();
     const events = makeEvents();
     const lifecycle = new ThumbnailGenerationLifecycleService(ledger, events);
 
-    const result = await lifecycle.projectAgentSuccess({
+    const result = await lifecycle.projectDirectSuccess({
       organizationId: ORGANIZATION_ID,
       generationId: GENERATION_ID,
       candidates: [
@@ -92,8 +92,8 @@ describe('ThumbnailGenerationLifecycleService', () => {
           fileSize: 1234,
         },
       ],
-      inputMeta: { agentRequestId: 'request-1' },
-      payload: { agentRequestId: 'request-1', candidateCount: 1 },
+      inputMeta: { aiJobId: 'request-1' },
+      payload: { aiJobId: 'request-1', candidateCount: 1 },
     });
 
     expect(result).toEqual({
@@ -101,15 +101,15 @@ describe('ThumbnailGenerationLifecycleService', () => {
       fromPhase: null,
       attemptNumber: 1,
     });
-    expect(ledger.claimForAgentProjection).toHaveBeenCalledWith({
+    expect(ledger.claimForDirectProjection).toHaveBeenCalledWith({
       organizationId: ORGANIZATION_ID,
       generationId: GENERATION_ID,
     });
-    expect(ledger.projectAgentSuccess).toHaveBeenCalledWith(
+    expect(ledger.projectDirectSuccess).toHaveBeenCalledWith(
       expect.objectContaining({
         organizationId: ORGANIZATION_ID,
         generationId: GENERATION_ID,
-        inputMeta: { agentRequestId: 'request-1' },
+        inputMeta: { aiJobId: 'request-1' },
       }),
     );
     expect(events.append).toHaveBeenNthCalledWith(
@@ -119,7 +119,7 @@ describe('ThumbnailGenerationLifecycleService', () => {
         fromStatus: 'running',
         toStatus: 'succeeded',
         toPhase: 'ready',
-        payload: { agentRequestId: 'request-1', candidateCount: 1 },
+        payload: { aiJobId: 'request-1', candidateCount: 1 },
       }),
     );
     expect(events.append).toHaveBeenNthCalledWith(
@@ -130,7 +130,7 @@ describe('ThumbnailGenerationLifecycleService', () => {
         toStatus: 'succeeded',
         fromPhase: null,
         toPhase: 'ready',
-        payload: { agentRequestId: 'request-1', candidateCount: 1 },
+        payload: { aiJobId: 'request-1', candidateCount: 1 },
       }),
     );
     expect(events.append).toHaveBeenNthCalledWith(
@@ -142,22 +142,22 @@ describe('ThumbnailGenerationLifecycleService', () => {
         fromPhase: null,
         toPhase: 'ready',
         attemptNumber: 1,
-        payload: { agentRequestId: 'request-1', candidateCount: 1 },
+        payload: { aiJobId: 'request-1', candidateCount: 1 },
       }),
     );
     expect(events.append).toHaveBeenCalledTimes(3);
   });
 
-  it('projects agent failure with status, phase, and error events', async () => {
+  it('projects direct failure with status, phase, and error events', async () => {
     const ledger = makeLedger();
     const events = makeEvents();
     const lifecycle = new ThumbnailGenerationLifecycleService(ledger, events);
 
-    const result = await lifecycle.projectAgentFailure({
+    const result = await lifecycle.projectDirectFailure({
       organizationId: ORGANIZATION_ID,
       generationId: GENERATION_ID,
-      errorMessage: 'Agent output invalid',
-      payload: { agentRequestId: 'request-2' },
+      errorMessage: 'Direct output invalid',
+      payload: { aiJobId: 'request-2' },
     });
 
     expect(result).toEqual({
@@ -165,14 +165,14 @@ describe('ThumbnailGenerationLifecycleService', () => {
       fromPhase: 'processing',
       attemptNumber: 2,
     });
-    expect(ledger.claimForAgentProjection).toHaveBeenCalledWith({
+    expect(ledger.claimForDirectProjection).toHaveBeenCalledWith({
       organizationId: ORGANIZATION_ID,
       generationId: GENERATION_ID,
     });
-    expect(ledger.projectAgentFailure).toHaveBeenCalledWith({
+    expect(ledger.projectDirectFailure).toHaveBeenCalledWith({
       organizationId: ORGANIZATION_ID,
       generationId: GENERATION_ID,
-      errorMessage: 'Agent output invalid',
+      errorMessage: 'Direct output invalid',
     });
     expect(events.append).toHaveBeenNthCalledWith(
       1,
@@ -183,8 +183,8 @@ describe('ThumbnailGenerationLifecycleService', () => {
         fromPhase: 'processing',
         toPhase: null,
         attemptNumber: 2,
-        errorMessage: 'Agent output invalid',
-        payload: { agentRequestId: 'request-2' },
+        errorMessage: 'Direct output invalid',
+        payload: { aiJobId: 'request-2' },
       }),
     );
     expect(events.append).toHaveBeenNthCalledWith(
@@ -196,7 +196,7 @@ describe('ThumbnailGenerationLifecycleService', () => {
         fromPhase: 'processing',
         toPhase: null,
         attemptNumber: 2,
-        payload: { agentRequestId: 'request-2' },
+        payload: { aiJobId: 'request-2' },
       }),
     );
     expect(events.append).toHaveBeenNthCalledWith(
@@ -208,29 +208,29 @@ describe('ThumbnailGenerationLifecycleService', () => {
         fromPhase: 'processing',
         toPhase: null,
         attemptNumber: 2,
-        errorMessage: 'Agent output invalid',
-        payload: { agentRequestId: 'request-2' },
+        errorMessage: 'Direct output invalid',
+        payload: { aiJobId: 'request-2' },
       }),
     );
     expect(events.append).toHaveBeenCalledTimes(3);
   });
 
-  it('does not project agent success when the row is already terminal', async () => {
+  it('does not project direct success when the row is already terminal', async () => {
     const ledger = makeLedger();
-    vi.mocked(ledger.claimForAgentProjection).mockResolvedValueOnce(null);
+    vi.mocked(ledger.claimForDirectProjection).mockResolvedValueOnce(null);
     const events = makeEvents();
     const lifecycle = new ThumbnailGenerationLifecycleService(ledger, events);
 
-    const result = await lifecycle.projectAgentSuccess({
+    const result = await lifecycle.projectDirectSuccess({
       organizationId: ORGANIZATION_ID,
       generationId: GENERATION_ID,
       candidates: [],
-      inputMeta: { agentRequestId: 'request-1' },
-      payload: { agentRequestId: 'request-1' },
+      inputMeta: { aiJobId: 'request-1' },
+      payload: { aiJobId: 'request-1' },
     });
 
     expect(result).toBeNull();
-    expect(ledger.projectAgentSuccess).not.toHaveBeenCalled();
+    expect(ledger.projectDirectSuccess).not.toHaveBeenCalled();
     expect(events.append).not.toHaveBeenCalled();
   });
 

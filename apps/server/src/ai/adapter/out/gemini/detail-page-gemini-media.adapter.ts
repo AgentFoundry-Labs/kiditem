@@ -20,7 +20,7 @@ export class DetailPageGeminiMediaAdapter implements DetailPageMediaPort {
 
   async generateImage(input: GenerateDetailPageImageInput): Promise<GeneratedDetailPageImage> {
     const response = await this.getClient().models.generateContent({
-      model: requireGeminiImageModel(),
+      model: input.model?.trim() || requireGeminiImageModel(),
       contents: [
         {
           role: 'user',
@@ -49,7 +49,7 @@ export class DetailPageGeminiMediaAdapter implements DetailPageMediaPort {
 
   async completeVisionJson(input: CompleteDetailPageVisionJsonInput): Promise<string | null> {
     const response = await this.getClient().models.generateContent({
-      model: requireGeminiVisionModel(),
+      model: input.model?.trim() || requireGeminiVisionModel(),
       contents: [
         {
           role: 'user',

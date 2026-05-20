@@ -1,5 +1,5 @@
 ARG NODE_IMAGE=node:22-slim
-ARG API_RUNTIME_BASE_IMAGE=ghcr.io/agentfoundry-labs/kiditem-api-base:node22-chromium
+ARG API_RUNTIME_BASE_IMAGE=ghcr.io/agentfoundry-labs/kiditem-api-base:node22-chromium-b6503cb2512e
 
 FROM ${NODE_IMAGE} AS deps
 

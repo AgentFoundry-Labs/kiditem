@@ -43,6 +43,7 @@ npm run test:scripts
 | `scripts/run-data-migrations.ts` | durable data migration runner; migration units live under root `VERSION` release folders such as `scripts/data-migrations/v0.1.0/` and record `data_migration_runs` ledger rows | `npm run data:migrate`, `docs/runbooks/staging-deploy.md` |
 | `scripts/seed-agent-os.ts` | local/dev Agent OS runtime seed wrapper | `npm run seed:agent-os` |
 | `scripts/staging-db-baseline.ts` | staging DB baseline export/verify/restore CLI | `npm run staging:db` |
+| `scripts/storage-cache-control.ts` | Supabase/S3 Storage cache-control inspection and staging backfill helper for public immutable image assets | `npm run storage:cache-control`, `docs/runbooks/storage-cache-control.md` |
 | `scripts/sync-supabase-user.ts` | Supabase auth mirror helper | `docs/runbooks/auth-supabase.md` |
 
 ## Support Files

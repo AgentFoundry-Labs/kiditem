@@ -13,15 +13,16 @@ function makeContext(
   return {
     organizationId: 'org-1',
     agentInstanceId: 'instance-1',
-    agentType: 'detail_page_generate',
+    agentType: 'rules_evaluation',
     requestId: 'req-1',
     runId: 'run-1',
     taskSessionId: 'session-1',
     taskKey: 'default',
     adapterType: 'claude_local',
-    model: 'gemini-test',
-    promptPath: 'agent-config/prompts/agents/detail-page-generate.md',
-    input: { templateId: 'bold-vertical' },
+    model: 'claude-test',
+    modelPlan: { primary: 'claude-test' },
+    promptPath: 'agent-config/prompts/agents/rules-evaluation.md',
+    input: { ruleSetId: 'rules-1' },
     trustLevel: 0,
     runtimeConfig: {},
     ...overrides,
@@ -46,11 +47,11 @@ describe('RoutingRuntimeAdapter', () => {
   it('delegates to the registered handler when one matches the agentType', async () => {
     const registry = new AgentRuntimeHandlerRegistry();
     const expected: AgentRuntimeResult = {
-      output: { ok: true, sample: 'detail-page' },
-      provider: 'gemini-text',
+      output: { ok: true, sample: 'rules' },
+      provider: 'claude-local',
     };
     const handler = { execute: vi.fn().mockResolvedValue(expected) };
-    registry.register('detail_page_generate', handler);
+    registry.register('rules_evaluation', handler);
     const adapter = new RoutingRuntimeAdapter(registry);
 
     const result = await adapter.execute(makeContext());
@@ -78,7 +79,7 @@ describe('RoutingRuntimeAdapter', () => {
     const result = await adapter.execute(makeContext());
     expect(result.provider).toBe('local-stub');
     expect(result.output).toEqual(
-      expect.objectContaining({ ok: true, agentType: 'detail_page_generate' }),
+      expect.objectContaining({ ok: true, agentType: 'rules_evaluation' }),
     );
   });
 
@@ -88,7 +89,7 @@ describe('RoutingRuntimeAdapter', () => {
     const handler = {
       execute: vi.fn().mockResolvedValue({ output: { real: true } } as AgentRuntimeResult),
     };
-    registry.register('detail_page_generate', handler);
+    registry.register('rules_evaluation', handler);
     const adapter = new RoutingRuntimeAdapter(registry);
 
     const result = await adapter.execute(makeContext());

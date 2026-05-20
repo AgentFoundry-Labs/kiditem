@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { extractEditedImageUrl } from './image-edit-result';
 
 describe('extractEditedImageUrl', () => {
-  it('reads the Agent OS image_edit output contract', () => {
+  it('reads the image_edit output contract', () => {
     expect(extractEditedImageUrl({ image_url: 'data:image/png;base64,AAAA' })).toBe(
       'data:image/png;base64,AAAA',
     );

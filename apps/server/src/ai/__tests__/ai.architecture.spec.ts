@@ -31,8 +31,7 @@ const PR2A_ADAPTER_IMPORT_DEBT: string[] = [];
 const PR2B_ADAPTER_IMPORT_DEBT: string[] = [];
 
 const ALLOWED_PRISMA_PREFIXES = [
-  aiRel('adapter/out/agent-output') + path.sep,
-  aiRel('adapter/out/agent-runtime') + path.sep,
+  aiRel('adapter/out/direct-output') + path.sep,
   aiRel('adapter/out/repository') + path.sep,
 ];
 

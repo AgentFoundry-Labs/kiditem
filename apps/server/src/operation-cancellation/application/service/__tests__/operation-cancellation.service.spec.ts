@@ -86,6 +86,12 @@ function makeService() {
       operationKey: 'thumbnail-edit:tg-1',
       preserved: false,
     }),
+    cancelImageEditJob: vi.fn().mockResolvedValue({
+      status: 'cancelled',
+      jobId: 'image-job-1',
+      operationKey: 'image-edit:image-job-1',
+      preserved: false,
+    }),
   };
   return {
     operationAlerts,
@@ -149,6 +155,7 @@ describe('OperationCancellationService', () => {
               agentRunIds: [],
               contentGenerationIds: ['cg-1'],
               thumbnailGenerationIds: ['tg-1'],
+              directAiJobIds: [],
             },
             preserved: {
               contentGenerationIds: [],
@@ -180,6 +187,52 @@ describe('OperationCancellationService', () => {
 
     expect(result.preserved.contentGenerationIds).toEqual(['cg-1']);
     expect(result.status).toBe('cancelled');
+  });
+
+  it('cancels direct image edit jobs discovered from operation alert source', async () => {
+    const { service, operationAlerts, ai } = makeService();
+    operationAlerts.findByOperationKey.mockResolvedValueOnce(
+      makeAlert({
+        type: 'image_edit',
+        title: '이미지 편집',
+        operationKey: 'image-edit:image-job-1',
+        sourceType: 'image_ai_job',
+        sourceId: 'image-job-1',
+        metadata: { executionMode: 'direct_ai', aiJobId: 'image-job-1' },
+      }),
+    );
+
+    const result = await service.cancel({
+      organizationId: ORG,
+      actorUserId: USER,
+      target: {
+        targetType: 'operation_key',
+        operationKey: 'image-edit:image-job-1',
+        reason: '사용자 요청',
+      },
+    });
+
+    expect(ai.cancelImageEditJob).toHaveBeenCalledWith({
+      organizationId: ORG,
+      jobId: 'image-job-1',
+      actorUserId: USER,
+      reason: '사용자 요청',
+    });
+    expect(operationAlerts.cancel).toHaveBeenCalledWith(
+      ORG,
+      'image-edit:image-job-1',
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          cancel: expect.objectContaining({
+            affected: expect.objectContaining({
+              directAiJobIds: ['image-job-1'],
+            }),
+          }),
+        }),
+      }),
+    );
+    expect(result.status).toBe('cancelled');
+    expect(result.affected.directAiJobIds).toEqual(['image-job-1']);
   });
 
   it('returns already_terminal for an already-terminal operation alert', async () => {

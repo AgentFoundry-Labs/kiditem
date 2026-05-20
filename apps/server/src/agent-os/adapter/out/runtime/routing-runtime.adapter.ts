@@ -6,6 +6,7 @@ import {
   type AgentRuntimeResult,
 } from '../../../application/port/out/runtime/agent-runtime.port';
 import { AgentRuntimeHandlerRegistry } from '../../../application/service/agent-runtime-handler-registry.service';
+import { resolveAgentRuntimeAllowNoop } from '../../../application/service/agent-runtime.config';
 
 /**
  * Default runtime adapter — routes execute() calls to the per-agent-type
@@ -33,7 +34,7 @@ import { AgentRuntimeHandlerRegistry } from '../../../application/service/agent-
 @Injectable()
 export class RoutingRuntimeAdapter implements AgentRuntimePort {
   private readonly logger = new Logger(RoutingRuntimeAdapter.name);
-  private readonly allowNoop = process.env.AGENT_RUNTIME_ALLOW_NOOP === '1';
+  private readonly allowNoop = resolveAgentRuntimeAllowNoop();
 
   constructor(private readonly registry: AgentRuntimeHandlerRegistry) {}
 

@@ -27,6 +27,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'run-data-migrations.ts',
   'seed-agent-os.ts',
   'staging-db-baseline.ts',
+  'storage-cache-control.ts',
   'sync-supabase-user.ts',
   'vitest.config.ts',
 ]);

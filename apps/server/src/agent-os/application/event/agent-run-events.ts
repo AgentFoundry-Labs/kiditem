@@ -15,7 +15,7 @@
  *     the rules domain key their operation alerts off this, so the bridge can
  *     resolve the matching alert even when no run row was created.
  *   - `runId` (optional) — the executor attempt. Absent on pre-run failures.
- *   - `agentType` — the resolved Agent OS type (eg. `detail_page_generate`).
+ *   - `agentType` — the resolved Agent OS type (eg. `rules_evaluation`).
  *     Listeners filter on this rather than on the `AgentRunRequest.source`
  *     string, because two consumers can share a source but pick different
  *     agent types.

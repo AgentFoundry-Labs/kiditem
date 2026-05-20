@@ -23,6 +23,7 @@ export class DetailPageResultRefinerService {
   prepareKidsPlayfulImageContext(input: {
     templateId: DetailPageTemplateId;
     rawInput: Pick<DetailPageRawInput, 'rawDescription' | 'rawOptions' | 'imageUrls'>;
+    visionModel?: string;
   }): Promise<KidsPlayfulImageContext> {
     return this.kidsPlayful.prepareKidsPlayfulImageContext(input);
   }
@@ -38,8 +39,9 @@ export class DetailPageResultRefinerService {
   refineBoldVerticalGeneration(
     parsed: BoldVerticalGeneration,
     rawInput: DetailPageRawInput,
+    options: { visionModel?: string } = {},
   ): Promise<BoldVerticalGeneration> {
-    return this.boldVertical.refineBoldVerticalGeneration(parsed, rawInput);
+    return this.boldVertical.refineBoldVerticalGeneration(parsed, rawInput, options);
   }
 
   suppressProductInfoWhenSafetyLabelExists<T>(

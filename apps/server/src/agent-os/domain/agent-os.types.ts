@@ -71,6 +71,21 @@ export interface AgentDefinitionToolPolicyRecord {
   constraints: Record<string, unknown>;
 }
 
+export const AGENT_MODEL_PLAN_ROLES = [
+  'primary',
+  'image',
+  'vision',
+  'verify',
+] as const;
+export type AgentModelPlanRole = (typeof AGENT_MODEL_PLAN_ROLES)[number];
+
+export interface AgentModelPlan {
+  primary: string;
+  image?: string;
+  vision?: string;
+  verify?: string;
+}
+
 export interface AgentDefinitionRecord {
   id: string;
   type: string;
@@ -79,6 +94,9 @@ export interface AgentDefinitionRecord {
   promptPath: string;
   defaultAdapterType: string;
   defaultModelEnv: string;
+  defaultAuxiliaryModelEnvs: Partial<
+    Record<Exclude<AgentModelPlanRole, 'primary'>, string>
+  >;
   defaultRuntimeConfig: Record<string, unknown>;
   defaultCapabilities: Record<string, unknown>;
   catalogStatus: string;
@@ -233,14 +251,17 @@ export function resolveEffectiveModel(input: {
   requestOverride?: string | null;
 }): string | null {
   // No silent fallback. Return null when nothing was explicitly configured.
-  if (input.requestOverride && input.requestOverride.length > 0) {
-    return input.requestOverride;
+  const requestOverride = input.requestOverride?.trim() ?? '';
+  if (requestOverride.length > 0) {
+    return requestOverride;
   }
-  if (input.instanceOverride && input.instanceOverride.length > 0) {
-    return input.instanceOverride;
+  const instanceOverride = input.instanceOverride?.trim() ?? '';
+  if (instanceOverride.length > 0) {
+    return instanceOverride;
   }
-  if (input.definitionDefault && input.definitionDefault.length > 0) {
-    return input.definitionDefault;
+  const definitionDefault = input.definitionDefault?.trim() ?? '';
+  if (definitionDefault.length > 0) {
+    return definitionDefault;
   }
   return null;
 }

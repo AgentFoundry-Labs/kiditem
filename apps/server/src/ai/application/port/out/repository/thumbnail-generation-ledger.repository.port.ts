@@ -138,14 +138,6 @@ export interface ThumbnailGenerationParentAlertLink {
   childKind: 'detail_page' | 'thumbnail';
 }
 
-export interface ThumbnailGenerationTerminalAgentRequest {
-  id: string;
-  status: string;
-  sourceResourceId: string | null;
-  lastErrorCode: string | null;
-  lastErrorMessage: string | null;
-}
-
 export interface SaveEditorResultInput {
   productId: string;
   organizationId: string;
@@ -315,26 +307,21 @@ export interface ThumbnailGenerationLedgerRepositoryPort {
     message: string,
   ): Promise<ThumbnailGenerationAttemptChange | null>;
 
-  claimForAgentProjection(input: {
+  claimForDirectProjection(input: {
     generationId: string;
     organizationId: string;
   }): Promise<ThumbnailGenerationAttemptChange | null>;
-  projectAgentSuccess(input: {
+  projectDirectSuccess(input: {
     generationId: string;
     organizationId: string;
     candidates: ThumbnailEditorCandidate[];
     inputMeta: unknown;
   }): Promise<ThumbnailGenerationAttemptChange | null>;
-  projectAgentFailure(input: {
+  projectDirectFailure(input: {
     generationId: string;
     organizationId: string;
     errorMessage: string;
   }): Promise<ThumbnailGenerationAttemptChange | null>;
-  findTerminalAgentRequests(input: {
-    organizationId: string;
-    since: Date;
-    limit: number;
-  }): Promise<ThumbnailGenerationTerminalAgentRequest[]>;
   findGenerationProjectionStatus(input: {
     organizationId: string;
     generationId: string;

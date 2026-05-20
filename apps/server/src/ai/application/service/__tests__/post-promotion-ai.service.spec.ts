@@ -1,14 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PostPromotionAiService } from '../post-promotion-ai.service';
 import {
-  AI_AGENT_SOURCE_TYPES,
-  DETAIL_PAGE_GENERATE_AGENT_TYPE,
-  THUMBNAIL_GENERATE_AGENT_TYPE,
-  DetailPageGenerateAgentInputSchema,
-  ThumbnailGenerateAgentInputSchema,
-} from '../../../domain/agent-output';
+  AI_JOB_SOURCE_TYPES,
+  DetailPageGenerateDirectInputSchema,
+  ThumbnailGenerateDirectInputSchema,
+} from '../../../domain/direct-generation';
 import type { OperationAlertPort } from '../../port/out/cross-domain/operation-alert.port';
-import type { AgentRunnerPort } from '../../../../agent-os/application/port/in/agent-runner.port';
 import type { ThumbnailEditorAiService } from '../thumbnail-editor-ai.service';
 import type { ThumbnailEditorInputImage } from '../../../domain/model/thumbnail-editor';
 
@@ -40,9 +37,8 @@ interface Mocks {
   productWorkspaceGroups: {
     ensureProductWorkspaceGroup: ReturnType<typeof vi.fn>;
   };
-  agentRunner: AgentRunnerPort & {
-    runByType: ReturnType<typeof vi.fn>;
-  };
+  detailPageJobs: { schedule: ReturnType<typeof vi.fn> };
+  thumbnailJobs: { schedule: ReturnType<typeof vi.fn> };
   operationAlerts: OperationAlertPort & {
     start: ReturnType<typeof vi.fn>;
     fail: ReturnType<typeof vi.fn>;
@@ -91,9 +87,12 @@ function buildMocks(state: MockState): Mocks {
     }),
   };
 
-  const agentRunner = {
-    runByType: vi.fn().mockResolvedValue({ ok: true, runId: 'run-1' }),
-  } as Mocks['agentRunner'];
+  const detailPageJobs = {
+    schedule: vi.fn(),
+  };
+  const thumbnailJobs = {
+    schedule: vi.fn(),
+  };
 
   const operationAlerts = {
     start: vi.fn().mockResolvedValue({}),
@@ -125,7 +124,8 @@ function buildMocks(state: MockState): Mocks {
   return {
     repository,
     productWorkspaceGroups,
-    agentRunner,
+    detailPageJobs,
+    thumbnailJobs,
     operationAlerts,
     editorAi,
     contentAssets,
@@ -140,10 +140,11 @@ function makeService(mocks: Mocks): PostPromotionAiService {
   return new PostPromotionAiService(
     mocks.repository as never,
     mocks.productWorkspaceGroups as never,
-    mocks.agentRunner,
     mocks.operationAlerts,
     mocks.editorAi,
     mocks.contentAssets as never,
+    mocks.detailPageJobs as never,
+    mocks.thumbnailJobs as never,
   );
 }
 
@@ -168,7 +169,7 @@ describe('PostPromotionAiService', () => {
     svc = makeService(mocks);
   });
 
-  it('happy path: creates ContentGeneration + ThumbnailGeneration, starts alerts, enqueues both agents with schema-valid payloads', async () => {
+  it('happy path: creates ContentGeneration + ThumbnailGeneration, starts alerts, and schedules both direct AI jobs with schema-valid payloads', async () => {
     await svc.fireForMaster(MASTER_ID, ORGANIZATION_ID);
 
     expect(mocks.repository.findMasterContext).toHaveBeenCalledWith({
@@ -229,7 +230,7 @@ describe('PostPromotionAiService', () => {
     );
     expect(detailAlert).toBeDefined();
     expect(detailAlert![0].sourceType).toBe(
-      AI_AGENT_SOURCE_TYPES.POST_PROMOTION_DETAIL_PAGE,
+      AI_JOB_SOURCE_TYPES.POST_PROMOTION_DETAIL_PAGE,
     );
     expect(detailAlert![0].sourceId).toBe(CONTENT_GEN_ID);
     expect(detailAlert![0].targetId).toBe(MASTER_ID);
@@ -240,29 +241,16 @@ describe('PostPromotionAiService', () => {
     );
     expect(thumbnailAlert).toBeDefined();
     expect(thumbnailAlert![0].sourceType).toBe(
-      AI_AGENT_SOURCE_TYPES.POST_PROMOTION_THUMBNAIL,
+      AI_JOB_SOURCE_TYPES.POST_PROMOTION_THUMBNAIL,
     );
     expect(thumbnailAlert![0].sourceId).toBe(THUMBNAIL_GEN_ID);
 
-    // Agent runner called twice with correct types + sourceResourceIds (gen row, NOT master)
-    expect(mocks.agentRunner.runByType).toHaveBeenCalledTimes(2);
-
-    const detailCall = mocks.agentRunner.runByType.mock.calls.find(
-      (call) => call[0] === DETAIL_PAGE_GENERATE_AGENT_TYPE,
-    );
-    expect(detailCall).toBeDefined();
-    const [, detailInput] = detailCall!;
-    expect(detailInput.organizationId).toBe(ORGANIZATION_ID);
-    expect(detailInput.sourceType).toBe(
-      AI_AGENT_SOURCE_TYPES.POST_PROMOTION_DETAIL_PAGE,
-    );
-    expect(detailInput.sourceResourceType).toBe('content_generation');
-    expect(detailInput.sourceResourceId).toBe(CONTENT_GEN_ID);
-    expect(detailInput.sourceResourceId).not.toBe(MASTER_ID);
-    expect(detailInput.payload).toBeDefined();
-    // Validate against the actual agent input Zod schema — guards against
-    // regressions like the original bare {masterId,templateId,mode} payload.
-    const parsedDetail = DetailPageGenerateAgentInputSchema.parse(detailInput.payload);
+    expect(mocks.detailPageJobs.schedule).toHaveBeenCalledTimes(1);
+    const detailJob = mocks.detailPageJobs.schedule.mock.calls[0][0];
+    expect(detailJob.organizationId).toBe(ORGANIZATION_ID);
+    expect(detailJob.generationId).toBe(CONTENT_GEN_ID);
+    expect(detailJob.generationId).not.toBe(MASTER_ID);
+    const parsedDetail = DetailPageGenerateDirectInputSchema.parse(detailJob.payload);
     expect(parsedDetail.templateId).toBe('kids-playful');
     expect(parsedDetail.raw.rawTitle).toBe('Test Master');
     expect(parsedDetail.raw.rawCategory).toBe('Kids/Toys');
@@ -273,25 +261,18 @@ describe('PostPromotionAiService', () => {
     ]);
     expect(parsedDetail.heroImageMode).toBe('llm-pick');
 
-    const thumbnailCallAgent = mocks.agentRunner.runByType.mock.calls.find(
-      (call) => call[0] === THUMBNAIL_GENERATE_AGENT_TYPE,
-    );
-    expect(thumbnailCallAgent).toBeDefined();
-    const [, thumbnailInput] = thumbnailCallAgent!;
-    expect(thumbnailInput.organizationId).toBe(ORGANIZATION_ID);
-    expect(thumbnailInput.sourceType).toBe(
-      AI_AGENT_SOURCE_TYPES.POST_PROMOTION_THUMBNAIL,
-    );
-    expect(thumbnailInput.sourceResourceType).toBe('thumbnail_generation');
-    expect(thumbnailInput.sourceResourceId).toBe(THUMBNAIL_GEN_ID);
-    const parsedThumb = ThumbnailGenerateAgentInputSchema.parse(thumbnailInput.payload);
+    expect(mocks.thumbnailJobs.schedule).toHaveBeenCalledTimes(1);
+    const thumbnailJob = mocks.thumbnailJobs.schedule.mock.calls[0][0];
+    expect(thumbnailJob.organizationId).toBe(ORGANIZATION_ID);
+    expect(thumbnailJob.generationId).toBe(THUMBNAIL_GEN_ID);
+    const parsedThumb = ThumbnailGenerateDirectInputSchema.parse(thumbnailJob.payload);
     expect(parsedThumb.mode).toBe('edit');
     expect(parsedThumb.inputs).toHaveLength(1);
     expect(parsedThumb.inputs[0].role).toBe('product');
     expect(parsedThumb.inputs[0].data).toBeTruthy();
   });
 
-  it('master not found: logs error, no rows created, no agents called, no throw', async () => {
+  it('master not found: logs error, no rows created, no direct jobs scheduled, no throw', async () => {
     mocks.repository.findMasterContext.mockResolvedValueOnce(null);
     const logger = (svc as unknown as { logger: { error: ReturnType<typeof vi.fn> } }).logger;
     const errorSpy = vi.spyOn(logger, 'error');
@@ -300,18 +281,16 @@ describe('PostPromotionAiService', () => {
 
     expect(mocks.contentGenerationCreate).not.toHaveBeenCalled();
     expect(mocks.thumbnailGenerationCreate).not.toHaveBeenCalled();
-    expect(mocks.agentRunner.runByType).not.toHaveBeenCalled();
+    expect(mocks.detailPageJobs.schedule).not.toHaveBeenCalled();
+    expect(mocks.thumbnailJobs.schedule).not.toHaveBeenCalled();
     expect(mocks.operationAlerts.start).not.toHaveBeenCalled();
     expect(errorSpy).toHaveBeenCalled();
     expect(errorSpy.mock.calls[0][0]).toContain('master not found');
   });
 
-  it('detail-page enqueue ok:false: marks ContentGeneration FAILED + alert.fail + logs; thumbnail still attempts', async () => {
-    mocks.agentRunner.runByType.mockImplementation(async (type: string) => {
-      if (type === DETAIL_PAGE_GENERATE_AGENT_TYPE) {
-        return { ok: false, reason: 'queue full' };
-      }
-      return { ok: true, runId: 'run-thumb' };
+  it('detail-page direct job schedule throws: marks ContentGeneration FAILED + alert.fail + logs; thumbnail still attempts', async () => {
+    mocks.detailPageJobs.schedule.mockImplementationOnce(() => {
+      throw new Error('detail_schedule_down');
     });
     const logger = (svc as unknown as { logger: { error: ReturnType<typeof vi.fn> } }).logger;
     const errorSpy = vi.spyOn(logger, 'error');
@@ -321,16 +300,15 @@ describe('PostPromotionAiService', () => {
     expect(mocks.markDetailPageFailed).toHaveBeenCalledWith({
       organizationId: ORGANIZATION_ID,
       contentGenerationId: CONTENT_GEN_ID,
-      errorMessage: expect.stringContaining('queue full'),
+      errorMessage: expect.stringContaining('detail_schedule_down'),
     });
     expect(mocks.operationAlerts.fail).toHaveBeenCalledWith(
       ORGANIZATION_ID,
       `detail-page:${CONTENT_GEN_ID}`,
       expect.objectContaining({
-        message: expect.stringContaining('queue full'),
+        message: expect.stringContaining('detail_schedule_down'),
         metadata: expect.objectContaining({
-          errorCode: 'agent_enqueue_failed',
-          agentReason: 'queue full',
+          errorCode: 'direct_ai_schedule_failed',
         }),
       }),
     );
@@ -341,18 +319,12 @@ describe('PostPromotionAiService', () => {
 
     // Thumbnail still ran
     expect(mocks.thumbnailGenerationCreate).toHaveBeenCalledTimes(1);
-    expect(mocks.agentRunner.runByType).toHaveBeenCalledWith(
-      THUMBNAIL_GENERATE_AGENT_TYPE,
-      expect.any(Object),
-    );
+    expect(mocks.thumbnailJobs.schedule).toHaveBeenCalledTimes(1);
   });
 
-  it('detail-page throws (agent runner rejects): marks ContentGeneration FAILED + alert.fail + logs; thumbnail still attempts', async () => {
-    mocks.agentRunner.runByType.mockImplementation(async (type: string) => {
-      if (type === DETAIL_PAGE_GENERATE_AGENT_TYPE) {
-        throw new Error('agent_down');
-      }
-      return { ok: true, runId: 'run-thumb' };
+  it('detail-page asset recording throws: marks ContentGeneration FAILED + alert.fail + logs; thumbnail still attempts', async () => {
+    mocks.contentAssets.recordDetailPageInputAssets.mockImplementationOnce(() => {
+      throw new Error('asset_down');
     });
     const logger = (svc as unknown as { logger: { error: ReturnType<typeof vi.fn> } }).logger;
     const errorSpy = vi.spyOn(logger, 'error');
@@ -362,29 +334,23 @@ describe('PostPromotionAiService', () => {
     expect(mocks.markDetailPageFailed).toHaveBeenCalledWith({
       organizationId: ORGANIZATION_ID,
       contentGenerationId: CONTENT_GEN_ID,
-      errorMessage: expect.stringContaining('agent_down'),
+      errorMessage: expect.stringContaining('asset_down'),
     });
     expect(mocks.operationAlerts.fail).toHaveBeenCalledWith(
       ORGANIZATION_ID,
       `detail-page:${CONTENT_GEN_ID}`,
-      expect.objectContaining({ message: expect.stringContaining('agent_down') }),
+      expect.objectContaining({ message: expect.stringContaining('asset_down') }),
     );
     expect(errorSpy).toHaveBeenCalled();
 
     // Thumbnail still ran
     expect(mocks.thumbnailGenerationCreate).toHaveBeenCalledTimes(1);
-    expect(mocks.agentRunner.runByType).toHaveBeenCalledWith(
-      THUMBNAIL_GENERATE_AGENT_TYPE,
-      expect.any(Object),
-    );
+    expect(mocks.thumbnailJobs.schedule).toHaveBeenCalledTimes(1);
   });
 
-  it('thumbnail enqueue ok:false: detail-page already succeeded; thumbnail row marked failed and alert.fail called', async () => {
-    mocks.agentRunner.runByType.mockImplementation(async (type: string) => {
-      if (type === THUMBNAIL_GENERATE_AGENT_TYPE) {
-        return { ok: false, reason: 'rate_limit' };
-      }
-      return { ok: true, runId: 'run-detail' };
+  it('thumbnail direct job schedule throws: detail-page already scheduled; thumbnail row marked failed and alert.fail called', async () => {
+    mocks.thumbnailJobs.schedule.mockImplementationOnce(() => {
+      throw new Error('thumbnail_schedule_down');
     });
 
     await expect(svc.fireForMaster(MASTER_ID, ORGANIZATION_ID)).resolves.toBeUndefined();
@@ -396,24 +362,25 @@ describe('PostPromotionAiService', () => {
     expect(mocks.markThumbnailFailed).toHaveBeenCalledWith({
       organizationId: ORGANIZATION_ID,
       generationId: THUMBNAIL_GEN_ID,
-      errorMessage: expect.stringContaining('rate_limit'),
+      errorMessage: expect.stringContaining('thumbnail_schedule_down'),
     });
     expect(mocks.operationAlerts.fail).toHaveBeenCalledWith(
       ORGANIZATION_ID,
       `thumbnail-edit:${THUMBNAIL_GEN_ID}`,
       expect.objectContaining({
-        message: expect.stringContaining('rate_limit'),
+        message: expect.stringContaining('thumbnail_schedule_down'),
       }),
     );
   });
 
-  it('both succeed: both gen rows persisted, both alerts started, both agentRunner calls made, no failed updates', async () => {
+  it('both succeed: both gen rows persisted, both alerts started, both direct jobs scheduled, no failed updates', async () => {
     await svc.fireForMaster(MASTER_ID, ORGANIZATION_ID);
 
     expect(mocks.contentGenerationCreate).toHaveBeenCalledTimes(1);
     expect(mocks.thumbnailGenerationCreate).toHaveBeenCalledTimes(1);
     expect(mocks.operationAlerts.start).toHaveBeenCalledTimes(2);
-    expect(mocks.agentRunner.runByType).toHaveBeenCalledTimes(2);
+    expect(mocks.detailPageJobs.schedule).toHaveBeenCalledTimes(1);
+    expect(mocks.thumbnailJobs.schedule).toHaveBeenCalledTimes(1);
 
     // No failure paths triggered
     expect(mocks.markDetailPageFailed).not.toHaveBeenCalled();
